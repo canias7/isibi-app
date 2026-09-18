@@ -5716,6 +5716,58 @@ an inbound endpoint), so *a needle that matches a name two features share cannot
 then its observer looked for a bare `save_memory` where this file names every function as a PATH;
 then for `rpc/save_memory`, which MEASURED is not among the 17 calls it makes at all.
 
+### ⚠ THREE DEFECTS IN THAT WRITE PATH, found re-reading it after the demonstration was green
+
+All three are the shape this directory keeps recording: the code reads correctly, every guard
+passed, the 61-check demonstration passed — and the defect only exists when something goes
+wrong at the wrong moment. **Each was reproduced before it was fixed, and each new case was
+proved RED against the defect it forbids** (four breakages, driven one at a time: 1 fail, 2
+fails, 1 fail, 2 fails).
+
+**1. AN UNCLASSIFIED THROW ON A WRITE WAS A DEFINITE REFUSAL.** The wall was
+`if (e?.uncertain)`, so an adapter that threw something it never classified — a library's own
+`TypeError`, a rejection with no shape at all — was read as *it definitely did not happen*: the
+record was settled as a FAILURE, and a redelivery is then answered from that record instead of
+asking the provider. **A message nobody knows about, produced by a programming error.** The
+adapter is the part that might not be ours, so its bugs must not decide what happened at the
+provider: `e?.uncertain !== false` now, and *cannot-tell must never read as a value*, where the
+value here is a definite no. **The cost is a reconciliation on a bug** — a round trip — against
+a lost message, which is the direction worth paying for.
+
+**2. A `settleRecord` WHOSE ANSWER WAS THROWN AWAY.** The work happened, so `ok: true` was
+right; what was wrong is that a record which did not land was SILENT. This module deliberately
+has no logger — asserted, so a credential cannot reach one — so the answer is the only place an
+operator can learn of it. `unrecorded` / `unrecordedWhy` ride on it, as **fields of their own
+rather than an edit of `why`**, because `why` is about the WORK and this is about our note of
+it; `say` is untouched for the same reason.
+
+**3. AND THE SETTLE COULD THROW, WHICH IS THE ONE THAT CHANGES THE VERDICT.** An error escaping
+there escapes `perform`, which the loop turns into a tool FAILURE — so a message that really
+went out was reported to the model as having failed, **and the model's next move is to send it
+again.** That is precisely the blind retry this whole path exists to prevent, arriving through
+our own accounting rather than through the provider. `settleRecord` never throws now, and all
+four call sites read its answer through one helper (`noted`) — **a `function` declaration and
+not a `const`, because two of its callers sit textually above it.**
+
+**⚠ WHICH ARM REALLY ARRIVES IS DECLARED IN THE CODE, because the two are not equally live.**
+`agent.operation_settle` answers `ok: true, settled: false` for a row somebody else already
+settled — so an already-settled record is **LANDED, not unrecorded** — and its `ok: false`
+readings (`no-operation`, `mismatch`) are ones `operation_begin` has already refused on this
+path. What is left is the transport: the database briefly unreachable. **That reading is asked
+of the DATABASE rather than asserted from my own belief about the function** — the
+demonstration settles a row a second time with a different outcome, on a real PostgreSQL, and
+reads back `ok, settled: false` with the first outcome standing, plus a key nobody began
+answering `ok: false, no-operation`.
+
+**AND THE SWEEP SPEC'S FIRST OF THESE ANCHORS ASSERTED THE DEFECT.** It was pinned to
+`if (e?.uncertain)`, so the sweep REQUIRED the broken line to exist. Re-anchored, not appeased,
+and the property split in two because they fail differently: the whole reconciliation gone, and
+the narrower mis-reading that was the shipped bug. **⚠ The settle mutant's own first draft was
+a multi-line anchor over the whole try/catch, and the next comment written INSIDE that catch
+outran it within the hour** — this repository's most-repeated guard trap, in a mutation spec
+rather than in a source scan, caught by the generator's own pre-check (`ANCHOR NOT FOUND`).
+It is one line, below the comment, and re-throwing is the same property.
+
 ### Measured
 
 - **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 checks, 0 failed** — 61 for the
@@ -5723,16 +5775,21 @@ then for `rpc/save_memory`, which MEASURED is not among the 17 calls it makes at
   the arithmetic closes exactly. Every refusal read for ITS OWN gate with a control beside it;
   the credential's protection asked as PRIVILEGES and as the view's column list, never as a
   refusal, because `authenticated` holds no schema USAGE in a fresh cluster.
-- **`npm run verify:connections`: 61 checks, 0 failed** (new) — nine sections through the site's
-  own routes, `worker.queue`, the real approval gate and a real database.
-- **Engine suite 516 → 552**, 0 failed (`connections.test.mjs` 32, `run` 44, `worker` 60).
+- **`npm run verify:connections`: 61 → 65 checks, 0 failed** (new) — nine sections through the
+  site's own routes, `worker.queue`, the real approval gate and a real database. The four are
+  what an already-settled record answers, asked of `agent.operation_settle` itself.
+- **Engine suite 516 → 555**, 0 failed (`connections.test.mjs` 36, `run` 44, `worker` 60) — and
+  the three since 552 are the defects above, each with its own controls.
 - **Site suite 6,809 → 6,811 total** (6,809 pass, 2 skipped, 0 fail); `agent-send` 64 → 66.
   **⚠ AND THE EARLIER ENTRIES' "6,807" WAS THE PASS COUNT QUOTED AS THE TOTAL** — measured at
   the previous commit, the total was already 6,809. The TOTAL is what carries across machines.
 - **`verify:tools` 112 → 115** (the three handed-over names) and **`verify:ops` 53 ·
   `verify:controls` 71 · `verify:auto` 70 · `verify:wf` 157 · `verify:triggers` 64 ·
   `verify:chat` 126 — every one unchanged**, which is the control that this round broke nothing.
-- **Sweep spec 579 → 608 entries (11 controls, 597 product mutants); SQL spec 238 → 245.**
+- **Sweep spec 579 → 614 entries (11 controls, 603 product mutants); SQL spec 238 → 245.** The
+  six beyond 608 are the three defects' own, including BOTH directions of the new wall and the
+  two wiring hops where a call site hands the helper a fabricated landed answer; three older
+  anchors were re-anchored, not appeased.
 - **⚠ A SPOT-CHECK OF THE 31 NEW MUTANTS UNDER THE RUNNER'S OWN CHILD ENVIRONMENT: 30 killed,
   1 SURVIVED, the control survived — and the survivor was real.** Nothing drove a
   reconciliation that ANSWERS *"I cannot say"*: with the fake provider that needs a missing
@@ -5740,9 +5797,24 @@ then for `rpc/save_memory`, which MEASURED is not among the 17 calls it makes at
   adapter reaches it easily, and with the wall gone `seen.done` is `undefined` and the answer
   becomes *"a check found it had not happened"* — telling somebody their message did not go out
   when it may well have. Closed with a case and its control.
-- **THE FULL TALLIES ARE NOT STAMPED YET.** Both sweeps are running at this commit in detached
-  worktrees, so the main tree holds no mutant while they do — *a count nobody re-measured is a
-  claim ahead of its evidence.*
+- **⚠ A SPOT-CHECK OF THE NINE TOUCHED MUTANTS, under the runner's own child environment and
+  against the one test file that can see them: 9 killed, 0 survived, 0 never applied, the
+  comment-only control survived.** A narrow list can only produce a false SURVIVOR, never a
+  false kill, so the full pass still decides.
+- **Engine sweep: 597 mutants, 597 killed, 0 survived, 0 never applied, 11 comment-only
+  controls survived — CLEAN ON THE FIRST PASS**, taken after the run rather than predicted
+  before it, in a detached worktree at `1ae72ef` so the main tree held no mutant while it ran.
+  608 spec entries, being those 597 plus the 11 controls, which is why the two numbers never
+  have to be reconciled by arithmetic. **The worktree is proved restored TWO WAYS afterwards** —
+  `git status` clean with an empty diff against that commit, and the spec generator's own anchor
+  census green over every file, which it cannot be while a mutant is applied.
+  **⚠ AND THAT COMMIT PREDATES THE THREE DEFECTS ABOVE, which is said rather than rounded
+  away**: their evidence is the nine-mutant spot-check and their own red-proofs, not this
+  tally. *Saying which commit a tally covers is the difference between a measurement and a
+  stamp.*
+- **The SQL sweep is still running at that commit**, over 245 entries; every mutant creates a
+  database and applies every migration, which is what it costs to prove a guarantee against the
+  engine that enforces it. Its tally is deliberately not stamped until it ends.
 
 ### ⚠ Two instruments were less capable than what they stand in for
 
