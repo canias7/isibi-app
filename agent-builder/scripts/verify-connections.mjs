@@ -298,6 +298,82 @@ try {
     missing?.ok === false && missing.error === "no-operation", JSON.stringify(missing));
 
   // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n6b. WHAT A RETRY IS TOLD IS WHAT REALLY HAPPENED — all three readings");
+  // ═════════════════════════════════════════════════════════════════════════
+  //
+  // ⚠ **THE DEFECT THIS SECTION EXISTS FOR, AND IT IS THE TOOL RESULT A MODEL SEES.** The
+  // `repeat` branch answered `ok: true, "that had already been done"` whatever the record
+  // held — so a message the provider REFUSED came back, on retry, as done. Reproduced here
+  // first, on this database, through `send_message`. Section 6 above already proves the
+  // SUCCESS reading; these are the other two, and every one asserts the provider's mailbox.
+  //
+  // Each arm gets its OWN connection-free identity (a fresh step), because two arms sharing
+  // an operation key would be the second one reading the first's record — which is the very
+  // thing under test and would make one of them pass for the wrong reason.
+
+  // ⚠ ITS OWN CONNECTION, because section 5 REVOKES `CX` and a revoked one refuses before
+  // the record is ever consulted — which is the right refusal for the wrong reason here, and
+  // is what the first run of this section really answered (`{ok:false,error:"revoked"}` on
+  // all three arms). *A fixture that fails for a reason other than the one under test reads
+  // exactly like the feature being broken.*
+  const CXR = "cccccccc-4444-4444-8444-cccccccccccc";
+  const madeCXR = await mine().connect({ id: CXR, provider: FAKE_PROVIDER, label: "Retry mailbox",
+    account: "retries@example.test", scopes: ["read", "send"], secret: SECRET, refresh: "FAKE-REFRESH-0002" });
+  check("6b has its own live connection to act through", madeCXR?.ok === true && statusOf(CXR) === "active",
+    `${JSON.stringify(madeCXR)} ${statusOf(CXR)}`);
+
+  // ── the refusal: recorded as a failure, answered as a failure ──
+  const refusing = makeFakeProvider({ secret: SECRET,
+    script: ({ action }) => (action === "send_message" ? "refused" : "ok") });
+  const argsR = { connection: CXR, to: "refused@example.test", body: "this one is refused" };
+  const opR = await opFor(argsR, 20);
+  const firstR = await sendTool.run(argsR, { connections: withProvider(refusing, A, AG), operation: opR });
+  check("a provider that REFUSES gives a failure the first time",
+    firstR?.ok === false && firstR?.error === "action-failed", JSON.stringify(firstR).slice(0, 200));
+  check("...and the failure is what the database recorded",
+    q(`select outcome->>'error' from agent.operations where tenant_id='${A}' `
+      + `and op_key='${splitOperation(opR).key}';`) === "refused",
+    q(`select coalesce(outcome::text,'(null)') from agent.operations where tenant_id='${A}' and op_key='${splitOperation(opR).key}';`));
+  const willingAgain = makeFakeProvider({ secret: SECRET });
+  const retryR = await sendTool.run(argsR, { connections: withProvider(willingAgain, A, AG), operation: opR });
+  check("⚠ AND THE RETRY IS A FAILURE TOO — not `already done`",
+    retryR?.ok === false && retryR?.error === "action-failed" && retryR?.repeat === true,
+    JSON.stringify(retryR).slice(0, 240));
+  check("⚠ ...carrying the reason the record kept", retryR?.recorded === "refused", String(retryR?.recorded));
+  check("⚠ ...and its sentence does not claim the work happened",
+    !/had already been done/.test(retryR?.say ?? "") && /did not go out/.test(retryR?.say ?? ""), retryR?.say);
+  check("⚠ ...and the retry sent NOTHING to the provider",
+    willingAgain.seen().length === 0 && willingAgain.mailbox("refused@example.test").length === 0,
+    JSON.stringify(willingAgain.seen()));
+
+  // ── the unresolved one: in flight, and it stays that way ──
+  //
+  // ⚠ **THIS ARM IS `unfinished`, NOT `repeat`, AND THAT IS THE PRODUCT BEING RIGHT.** An
+  // operation nobody could settle has NO outcome, so `operation_begin` answers `unfinished`
+  // and the module reconciles rather than reading a verdict. The requirement — *an
+  // unresolved operation remains unresolved until evidence settles it* — is therefore a
+  // claim about the RECORD as much as about the answer, so both are read.
+  const mute = makeFakeProvider({ secret: SECRET,
+    script: ({ action }) => (action === "send_message" || action === "reconcile:send_message" ? "timeout" : "ok") });
+  const argsU = { connection: CXR, to: "unknown@example.test", body: "nobody can say" };
+  const opU = await opFor(argsU, 21);
+  const firstU = await sendTool.run(argsU, { connections: withProvider(mute, A, AG), operation: opU });
+  check("a send nobody can settle is `unresolved`, not a failure",
+    firstU?.ok === false && firstU?.error === "unresolved" && firstU?.uncertain === true,
+    JSON.stringify(firstU).slice(0, 220));
+  check("...and its record is IN FLIGHT, with no outcome to read",
+    q(`select coalesce(outcome::text,'(null)') from agent.operations where tenant_id='${A}' `
+      + `and op_key='${splitOperation(opU).key}';`) === "(null)");
+  const retryU = await sendTool.run(argsU, { connections: withProvider(mute, A, AG), operation: opU });
+  check("⚠ AND A RETRY IS STILL UNRESOLVED — evidence has not settled it",
+    retryU?.ok === false && retryU?.error === "unresolved" && retryU?.uncertain === true,
+    JSON.stringify(retryU).slice(0, 220));
+  check("⚠ ...and the retry sent nothing either — it asked instead",
+    mute.seen().filter((c) => c.action === "send_message").length === 1
+    && mute.seen().filter((c) => c.action === "reconcile:send_message").length === 2,
+    JSON.stringify(mute.seen().map((c) => c.action)));
+
+  // ═════════════════════════════════════════════════════════════════════════
   console.log("\n7. A KNOWN NON-EVENT IS A FAILURE WITH ITS REASON, not a retry");
   // ═════════════════════════════════════════════════════════════════════════
   const nothing = makeFakeProvider({ secret: SECRET, script: ({ action }) => (action === "send_message" ? "timeout" : "ok") });
@@ -331,8 +407,21 @@ try {
   const sibList = await withProvider(makeFakeProvider(), A, SIB).list();
   check("...and a sibling's list is empty rather than the account's", sibList.length === 0,
     JSON.stringify(sibList));
-  check("THE CONTROL: the owning agent still sees both of its own",
-    (await mine().list()).length === 2, String((await mine().list()).length));
+  /**
+   * THE CONTROL: the owning agent still sees its own.
+   *
+   * ⚠ **RE-ANCHORED, NOT APPEASED.** This read `=== 2`, which was the property *"a sibling
+   * sees nothing and the owner sees everything"* written as a count — and section 6b adding
+   * one connection of its own turned it red about scoping that had not changed. The property
+   * is that the owner's list is exactly the connections THIS agent holds, so it is asked by
+   * NAME against the rows, with a floor so the observer is alive.
+   */
+  const ownIds = (await mine().list()).map((c) => c.id).sort();
+  const rowIds = q(`select coalesce(string_agg(id::text, ',' order by id::text), '') `
+    + `from agent.connections where tenant_id='${A}' and agent_id='${AG}';`).split(",").filter(Boolean).sort();
+  check("THE CONTROL: the owning agent sees exactly its own, and there are some",
+    ownIds.length >= 2 && JSON.stringify(ownIds) === JSON.stringify(rowIds),
+    `${JSON.stringify(ownIds)} vs ${JSON.stringify(rowIds)}`);
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n8b. A REAL MODEL REACHING EACH OF THE THREE, through real messages");

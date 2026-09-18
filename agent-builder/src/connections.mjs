@@ -263,11 +263,10 @@ export function makeConnections(opts = {}) {
             if (!begun?.ok) return { ...begun, ok: false, action: act };
 
             if (begun.began === false && begun.state === "repeat") {
-              // ⚠ ALREADY DONE, AND THE ANSWER IS WHAT IT DID THE FIRST TIME — a historical
-              // fact rather than a reading of the provider now. Nothing is sent.
-              return { ok: true, repeat: true, action: act, provider: held.provider,
-                result: begun.outcome,
-                say: "that had already been done, so it was not done again" };
+              // ⚠ ALREADY ATTEMPTED, AND THE ANSWER IS WHAT IT DID THE FIRST TIME — a
+              // historical fact rather than a reading of the provider now. Nothing is sent,
+              // whichever way it went.
+              return replayed(begun.outcome, act, held.provider);
             }
             if (begun.began === false && begun.state === "unfinished") {
               // ⚠ **SENT ONCE, OUTCOME UNKNOWN. THIS IS THE CASE THE MILESTONE NAMES.** A
@@ -355,6 +354,62 @@ export function makeConnections(opts = {}) {
            * wrong thing. `say` is untouched for the same reason: it is the customer's
            * sentence, and the work is whatever it was.
            */
+          /**
+           * ⚠ **WHAT A RECORDED OPERATION REALLY DID, ANSWERED AS ITSELF — and the defect
+           * this replaces said `ok: true` about a message that never went out.**
+           *
+           * REPRODUCED before it was touched, through the real tool against a real
+           * PostgreSQL: the provider explicitly refuses a send, the tool answers
+           * `{ok: false, error: "action-failed", say: "that did not go out"}`, the record
+           * settles as `{ok: false, error: "refused"}` — all correct — and a retry of the
+           * SAME operation came back `{ok: true, repeat: true, say: "that had already been
+           * done, so it was not done again"}`. The stored outcome rode along in `result`,
+           * so nothing was hidden; what was wrong is that the VERDICT was composed here
+           * instead of read, and a model reads the verdict. Its next move after a refusal is
+           * to tell somebody or try another way; after "already done" it is to carry on as
+           * though the message had gone. **A tool that cannot do its work must not read like
+           * one that did it**, met on the retry rather than on the first attempt.
+           *
+           * ⚠ **THREE READINGS, AND THE THIRD IS THE ONE THAT MATTERS MOST.** A stored
+           * outcome whose shape this cannot read is not a success and not a failure: it is
+           * a settled operation nobody here can speak for, so it answers `unresolved` —
+           * the same word and the same sentence an uncertain send gets, because the next
+           * move is the same one (check at the provider, do not send again). *Cannot-tell
+           * must never read as a value*, and the value it must never become is `ok: true`.
+           *
+           * Nothing is ever sent on this path, whichever reading it takes. `repeat: true`
+           * rides on all three, because "this call was made before" is true of all three
+           * and is the one thing a model must not have to infer from the wording.
+           */
+          function replayed(outcome, act, provider) {
+            const shell = { repeat: true, action: act, provider };
+            const ok = outcome && typeof outcome === "object" && !Array.isArray(outcome)
+              ? outcome.ok : undefined;
+            if (ok === true) {
+              // ⚠ `result` IS THE RECORDED OUTCOME'S OWN `result` WHERE IT HAS ONE, so a
+              // caller reading `result` sees what the provider answered rather than our
+              // envelope around it — and the whole outcome where it has none, because an
+              // older record's shape is not something to guess about.
+              return { ok: true, ...shell,
+                result: Object.hasOwn(outcome, "result") ? outcome.result : outcome,
+                say: "that had already been done, so it was not done again" };
+            }
+            if (ok === false) {
+              return { ok: false, ...shell, error: "action-failed",
+                // ⚠ THE RECORDED CODE RIDES BESIDE THE ANSWER'S OWN, never instead of it.
+                // `action-failed` is what the FIRST attempt answered, so one story reaches
+                // the model either way; `recorded` is why, in the words the record kept.
+                recorded: typeof outcome.error === "string" ? outcome.error : null,
+                why: typeof outcome.why === "string" ? outcome.why
+                  : "it was tried before and did not happen",
+                say: "that was tried before and did not go out — nothing was sent again" };
+            }
+            return { ok: false, ...shell, error: "unresolved", uncertain: true,
+              why: "there is a record of this being attempted, but not of how it ended",
+              say: "it may or may not have gone out — check at " + provider +
+                   " before asking for it again, because asking again could do it twice" };
+          }
+
           function noted(answer, wrote) {
             // ⚠ A DECLARATION RATHER THAN A `const`, because two of its callers sit textually
             // ABOVE it: a `const` would be in its temporal dead zone for anything that could

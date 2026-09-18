@@ -322,9 +322,106 @@ test("⚠ AN ALREADY-DONE WRITE ANSWERS WHAT IT DID AND SENDS NOTHING", async ()
   assert.equal(out.ok, true);
   assert.equal(out.repeat, true);
   assert.equal(provider.calls(), 0, "a repeat sent a second message");
-  // ⚠ THE ANSWER IS WHAT IT DID THE FIRST TIME — a historical fact, not a reading of now.
-  assert.equal(out.result.result.message, "fake-msg-1");
+  /**
+   * ⚠ THE ANSWER IS WHAT IT DID THE FIRST TIME — a historical fact, not a reading of now.
+   *
+   * **RE-ANCHORED, NOT APPEASED.** This read `out.result.result.message`, which asserted our
+   * ENVELOPE: the whole recorded outcome, `ok` and all, was handed back under `result`. The
+   * property is *the model is told what the provider answered*, and on the FIRST attempt
+   * that is `result: <the provider's answer>` — so a retry whose `result` is one layer
+   * deeper is a second shape for one thing. It is the provider's own answer now, which is
+   * the same shape the first attempt gives, and that equality is asserted below.
+   */
+  assert.equal(out.result.message, "fake-msg-1");
   assert.match(out.say, /had already been done/);
+});
+
+/**
+ * ⚠ **A RECORDED FAILURE STAYS A FAILURE, AND THIS WAS A SHIPPED DEFECT.**
+ *
+ * REPRODUCED through the real tool against a real PostgreSQL before it was touched: the
+ * provider refuses, the tool answers `ok: false`, the record settles as
+ * `{ok: false, error: "refused"}` — and a retry of the SAME operation answered
+ * `{ok: true, repeat: true, say: "that had already been done, so it was not done again"}`.
+ * The stored outcome rode along under `result`, so nothing was hidden; the VERDICT was
+ * composed here rather than read, and the verdict is what a model acts on.
+ *
+ * **THE THREE READINGS ARE THREE CASES, because they invite three different next moves** —
+ * carry on, tell somebody, or check before doing anything. `provider.calls()` is asserted in
+ * every one of them, because "no extra send" is the half that was already right and the half
+ * a fix here could most easily break.
+ */
+test("⚠ A RECORDED FAILURE IS ANSWERED AS A FAILURE, and nothing is sent again", async () => {
+  const provider = makeFakeProvider();
+  const { via } = build({
+    [CONNECTION_RPC.lease]: () => leased(),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: false, state: "repeat",
+      outcome: { ok: false, error: "refused", why: "the provider refused the request" } }),
+  }, { [FAKE_PROVIDER]: provider });
+  const out = await via.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+  assert.equal(out.ok, false, "a recorded refusal came back as a success");
+  assert.equal(out.repeat, true, "the model is not told this call was made before");
+  // ONE STORY EITHER WAY: `action-failed` is what the first attempt answered.
+  assert.equal(out.error, "action-failed");
+  assert.equal(out.recorded, "refused", "the recorded reason is not carried");
+  assert.equal(out.why, "the provider refused the request");
+  assert.equal(provider.calls(), 0, "a repeat sent a second message");
+  // ⚠ AND THE SENTENCE MUST NOT CLAIM THE WORK HAPPENED. The defect's own words.
+  assert.doesNotMatch(out.say, /had already been done/);
+  assert.match(out.say, /did not go out/);
+});
+
+test("⚠ A RECORDED OUTCOME THIS CANNOT READ IS UNRESOLVED — never a success", async () => {
+  // A settled operation nobody here can speak for: an older record's shape, a `null`, a
+  // string. *Cannot-tell must never read as a value*, and the value it must never become is
+  // `ok: true` — which is what the defect above would have answered for every one of these.
+  for (const outcome of [null, "done", 7, [], {}, { ok: "yes" }, { result: { message: "m" } }]) {
+    const provider = makeFakeProvider();
+    const { via } = build({
+      [CONNECTION_RPC.lease]: () => leased(),
+      [CONNECTION_RPC.begin]: () => ({ ok: true, began: false, state: "repeat", outcome }),
+    }, { [FAKE_PROVIDER]: provider });
+    const out = await via.perform({ connection: CX, action: "send_message",
+      args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+    const said = JSON.stringify(outcome);
+    assert.equal(out.ok, false, `${said} read as a success`);
+    assert.equal(out.error, "unresolved", said);
+    assert.equal(out.uncertain, true, said);
+    assert.equal(out.repeat, true, said);
+    assert.equal(provider.calls(), 0, `${said} sent a message`);
+    // THE SENTENCE IS THE UNCERTAIN ONE, because the next move is the same: check first.
+    assert.match(out.say, /may or may not have gone out/, said);
+  }
+});
+
+test("⚠ THE THREE RECORDED READINGS ARE THE THREE THE FIRST ATTEMPT CAN GIVE", async () => {
+  /**
+   * THE FAITHFULNESS CLAIM, ASSERTED AS AN EQUALITY RATHER THAN AS THREE SENTENCES: a
+   * retry's verdict fields are the first attempt's own. Without this each case above could
+   * drift into its own vocabulary and every one of them would still pass.
+   */
+  const shapes = [
+    { outcome: { ok: true, result: { message: "m" } }, want: { ok: true } },
+    { outcome: { ok: false, error: "refused", why: "no" }, want: { ok: false, error: "action-failed" } },
+    { outcome: { ok: false, error: "not-done", reconciled: true }, want: { ok: false, error: "action-failed" } },
+  ];
+  for (const s of shapes) {
+    const { via } = build({
+      [CONNECTION_RPC.lease]: () => leased(),
+      [CONNECTION_RPC.begin]: () => ({ ok: true, began: false, state: "repeat", outcome: s.outcome }),
+    }, { [FAKE_PROVIDER]: makeFakeProvider() });
+    const out = await via.perform({ connection: CX, action: "send_message",
+      args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+    for (const [k, v] of Object.entries(s.want)) {
+      assert.equal(out[k], v, `${JSON.stringify(s.outcome)} answered ${k}=${JSON.stringify(out[k])}`);
+    }
+    // EVERY READING NAMES THE ACTION AND THE PROVIDER, which is what makes the answer
+    // usable at all — and `repeat` is on all three, so a model never infers it from wording.
+    assert.equal(out.action, "send_message");
+    assert.equal(out.provider, FAKE_PROVIDER);
+    assert.equal(out.repeat, true);
+  }
 });
 
 test("a record that does not agree with this call refuses and sends nothing", async () => {
