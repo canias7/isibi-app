@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, photoLines, customerLines, browserReply, inventoryOf, inventoryDiff, inventoryLines, inventoryRefusals, qrOpens, qrPublished, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, photoLines, customerLines, browserReply, inventoryOf, inventoryDiff, inventoryLines, inventoryRefusals, IMAGE_READING, qrOpens, qrPublished, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
 import { qrSvg } from "../builder/site-qr.mjs";
 import { healthImage } from "../builder/build-lane.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
@@ -817,6 +817,16 @@ test("the whole customer reply is reported, not one sentence of it, and the set 
   // A FILE PATH IN, A ROUTE OUT — `sitePathOf` is the page's own reader and the
   // report inherits it by executing the page rather than re-implementing it.
   assert.ok(!got.text.includes("src/routes/"), "a raw file path reached the customer's screen: " + got.text);
+  // AND THE PAGE'S TAIL IS PART OF THE SCREEN. `renderTail` prints `renderNote`
+  // — what the render check found, which the route puts on every reply that has
+  // one — and it is the half a person reads as "and here is what is wrong with
+  // it". A composer that ran `addonReplyText` alone would look right on every
+  // clean reply and lose exactly the ones worth reading; nothing had a
+  // `renderNote` in it until a sweep mutant dropped the tail and survived.
+  const tailed = browserReply({ ok: true, added: ["src/routes/gallery.tsx"], renderNote: "  /gallery threw on load.  " });
+  assert.match(tailed.text, /\/gallery threw on load\./, "the render note never reaches the screen: " + tailed.text);
+  assert.match(customerLines({ ok: true, added: ["src/routes/gallery.tsx"], renderNote: "/gallery threw on load." }).join("\n"),
+    /▸ \/gallery threw on load\./, "the render note is not a line of the customer's screen");
   // ── THE CENSUS, BOTH WAYS ──────────────────────────────────────────────────
   //
   // The set is DISCOVERED from the reply (`msg`, then every `*Note` carrying a
@@ -1005,6 +1015,45 @@ test("a QR's destination is read off the drawing, against every address the site
   const old = inventoryLines(blind, blind, { drew: [{ src: "/u/ag/c3.jpg", alt: "", w: 1600, h: 1200 }] }).join("\n");
   assert.match(old, /file 1600×1200 "\/u\/ag\/c3\.jpg"/, old);
   assert.ok(!/placed/.test(old), "a placement was invented for a reading that has none: " + old);
+  // ── AND THE READING ITSELF IS DRIVEN, against a fake DOM ──────────────────
+  //
+  // It runs inside a real browser, so no unit case can call it — which is *a
+  // wall nobody can drive is a wall nobody is guarding* on a READING, where
+  // being wrong costs a report that says the picture is fine when it is not.
+  // `IMAGE_READING` is the SOURCE `page.evaluate` is handed, so `new Function`
+  // with `document` and `window` as parameters runs exactly what the browser
+  // runs — the shape `browserComposer` already uses one function over.
+  const img = (o) => ({
+    currentSrc: o.src, naturalWidth: o.nw, naturalHeight: o.nh, complete: true,
+    getAttribute: (k) => (k === "src" ? o.src : k === "alt" ? (o.alt || "") : null),
+    getBoundingClientRect: () => ({ width: o.bw, height: o.bh, top: o.top }),
+    previousElementSibling: o.prev || null, parentElement: null,
+    matches: () => false, querySelector: () => null,
+  });
+  const h2 = { matches: (s) => s.includes("h2"), querySelector: () => null, textContent: "  Our   work  ", previousElementSibling: null, parentElement: null };
+  const big = img({ src: "/u/ag/c3.jpg", alt: "new", nw: 1600, nh: 1200, bw: 719.6, bh: 540.2, top: 1180, prev: h2 });
+  const flatOne = img({ src: "/u/ag/d4.jpg", alt: "hidden", nw: 800, nh: 600, bw: 0, bh: 0, top: 90 });
+  const read = new Function("document", "window", "return (" + IMAGE_READING + ")")({ images: [big, flatOne] }, { scrollY: 0 });
+  // THE BOX IS THE RENDERED RECT AND NOT THE FILE'S OWN SIZE, which is the
+  // whole distinction: this picture's bytes are 1600×1200 and it is laid out at
+  // 720×540, and a reading that took `naturalWidth` for both could never see a
+  // container collapse.
+  assert.deepEqual(read[0].box, { w: 720, h: 540 }, "the box is not the rendered rect: " + JSON.stringify(read[0]));
+  assert.deepEqual([read[0].w, read[0].h], [1600, 1200], "the file's own size was lost");
+  assert.equal(read[0].y, 1180, "the offset down the document is wrong");
+  assert.equal(read[0].under, "Our work", "the nearest heading is not read, or its whitespace is not folded");
+  // AND THE ONE THAT MATTERS: bytes arrived, box is nothing.
+  assert.deepEqual([flatOne.naturalWidth > 0, read[1].box], [true, { w: 0, h: 0 }]);
+  assert.equal(read[1].under, "", "a picture under no heading is given one");
+  // ⚠ AND IT MUST NOT REFERENCE ANYTHING OUTSIDE ITSELF: Playwright ships the
+  // TEXT to the page, so a free identifier throws in the browser and comes back
+  // as "the image read failed" — the recorded free-identifier trap with a
+  // browser between the two halves. `new Function` with exactly two parameters
+  // is the check: anything else it reaches is a global that may not be there.
+  for (const name of ["SITE", "SLUG", "sitePathOf", "photoUrls", "require", "process"]) {
+    assert.ok(!new RegExp("\\b" + name + "\\b").test(IMAGE_READING),
+      "the reading reaches `" + name + "`, which does not exist in the page");
+  }
   // THE WIRING, by the branch: the harness takes BOTH reads from the same route,
   // the before one immediately before the post, and asks the browser about the
   // page the change made. A value computed and never printed is the recorded
@@ -1173,9 +1222,19 @@ test("an incomplete inventory stops the run before spending, and never reads as 
   assert.ok(gate > 0, "the before-inventory is never asked whether it is good enough to spend against");
   const post = CODE.indexOf("/addon`, { token: TOKEN, body: { instruction: c.ask");
   assert.ok(gate < post, "the inventory gate sits after the money has gone");
-  assert.match(CODE.slice(gate, post), /REFUSING TO SPEND[\s\S]*process\.exit\(1\)/,
+  // ⚠ THE BRANCH BY ITS OWN CONDITION, NEVER BY POSITION. `if (false) { … }`
+  // leaves `process.exit(1)` exactly where a search finds it — the recorded "a
+  // positional guard cannot see a dead branch", which is how the deploy
+  // pre-flight's own gate survived its first sweep two rounds ago and how this
+  // one survived its first. The condition is the assertion; `main` is not
+  // exported and `process.exit` is not observable without spawning the script
+  // against a live site and a token, so this is as close as a unit case gets.
+  const branch = CODE.indexOf("if (invNo.length) {", gate);
+  assert.ok(branch > gate && branch < post, "the refusal list is computed and never looked at");
+  assert.ok(CODE.indexOf("process.exit(1)", branch) > branch && CODE.indexOf("process.exit(1)", branch) < post,
     "an unusable before-inventory prints and carries on spending");
-  assert.match(CODE.slice(gate, post), /nothing was posted and nothing was charged/,
+  assert.match(CODE.slice(branch, post), /REFUSING TO SPEND/, "the refusal does not announce itself");
+  assert.match(CODE.slice(branch, post), /nothing was posted and nothing was charged/,
     "the refusal does not say that nothing was spent");
 });
 

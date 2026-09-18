@@ -286,8 +286,8 @@
     "files": [
       "scripts/addon-sweep.mjs"
     ],
-    "from": "        box: { w: Math.round(r.width), h: Math.round(r.height) },",
-    "to": "        box: { w: i.naturalWidth, h: i.naturalHeight },"
+    "from": "    box: { w: Math.round(r.width), h: Math.round(r.height) },",
+    "to": "    box: { w: i.naturalWidth, h: i.naturalHeight },"
   },
   {
     "label": "the two picture failures are counted as one again",
@@ -312,5 +312,13 @@
     ],
     "from": "    const box = (i) => (i.box && typeof i.box.w === \"number\" ? i.box : null);",
     "to": "    const box = (i) => (i.box && typeof i.box.w === \"number\" ? i.box : { w: i.w, h: i.h });"
+  },
+  {
+    "label": "the reading reaches a module identifier, which throws inside the browser",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    src: i.currentSrc || i.getAttribute(\"src\") || \"\", alt: i.getAttribute(\"alt\") || \"\",",
+    "to": "    src: i.currentSrc || i.getAttribute(\"src\") || SITE, alt: i.getAttribute(\"alt\") || \"\","
   }
 ]

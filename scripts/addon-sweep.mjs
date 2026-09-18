@@ -1414,36 +1414,56 @@ async function shot(url, file) {
  * a page with no pictures on it are different facts, and an empty list would
  * read as the second while being the first.
  */
+/**
+ * WHAT A BROWSER REALLY SEES ON A PAGE — as SOURCE, so it can be driven.
+ *
+ * LOADED AND PLACED ARE TWO QUESTIONS (owner, 2026-09-18: *"Verify the new image
+ * loads and inspect its actual placement."*). `naturalWidth` is the FILE's own
+ * size and answers only the first: a picture whose bytes arrived perfectly and
+ * whose container collapsed renders at 0×0 and is invisible to it, which is a
+ * broken page reading as a working one. `box` is the rendered rect, `y` its
+ * distance down the document, and `under` the nearest heading above it — which
+ * band of the page it really landed in, asked of the DOM rather than inferred
+ * from the source a model wrote.
+ *
+ * A STRING BECAUSE `page.evaluate` CANNOT CLOSE OVER THIS MODULE, and exported
+ * because the alternative is a reading no test can reach: it runs inside a real
+ * browser, so a unit case cannot call it — and *a wall nobody can drive is a
+ * wall nobody is guarding* is this repository's own rule, met on a READING,
+ * where being wrong costs a report that says the picture is fine when it is not.
+ * A guard `new Function`s it with `document` and `window` as parameters and
+ * drives it against a fake DOM — the same shape `browserComposer` uses to
+ * execute the page's own reply composer rather than re-writing it.
+ *
+ * ⚠ IT MUST NOT REFERENCE ANYTHING OUTSIDE ITSELF. Playwright ships the text to
+ * the page; a free identifier here throws in the browser and the reading comes
+ * back as "the image read failed", which is this repository's recorded
+ * free-identifier trap with a browser between the two halves.
+ */
+export const IMAGE_READING = `Array.from(document.images).map((i) => {
+  const r = i.getBoundingClientRect();
+  let head = "";
+  for (let n = i; n && !head;) {
+    const prev = n.previousElementSibling;
+    if (prev) { const h = prev.matches("h1,h2,h3,h4") ? prev : prev.querySelector("h1,h2,h3,h4"); if (h) head = h.textContent || ""; n = prev; }
+    else n = n.parentElement;
+  }
+  return {
+    src: i.currentSrc || i.getAttribute("src") || "", alt: i.getAttribute("alt") || "",
+    w: i.naturalWidth, h: i.naturalHeight, done: !!i.complete,
+    box: { w: Math.round(r.width), h: Math.round(r.height) },
+    y: Math.round(r.top + window.scrollY),
+    under: (head || "").replace(/\\s+/g, " ").trim().slice(0, 60),
+  };
+})`;
+
 async function imagesOn(url) {
   if (!browser) return null;
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
     await page.waitForTimeout(1200);
-    // LOADED AND PLACED ARE TWO QUESTIONS (owner, 2026-09-18: *"Verify the new
-    // image loads and inspect its actual placement."*). `naturalWidth` is the
-    // FILE's own size and answers only the first: a picture whose bytes arrived
-    // perfectly and whose container collapsed renders at 0×0 and is invisible
-    // to it, which is a broken page reading as a working one. `box` is the
-    // rendered rect, `y` its distance down the document, and `under` the
-    // nearest heading above it — which band of the page it really landed in,
-    // asked of the DOM rather than inferred from the source the model wrote.
-    const seen = await page.evaluate(() => Array.from(document.images).map((i) => {
-      const r = i.getBoundingClientRect();
-      let head = "";
-      for (let n = i; n && !head;) {
-        const prev = n.previousElementSibling;
-        if (prev) { const h = prev.matches("h1,h2,h3,h4") ? prev : prev.querySelector("h1,h2,h3,h4"); if (h) head = h.textContent || ""; n = prev; }
-        else n = n.parentElement;
-      }
-      return {
-        src: i.currentSrc || i.getAttribute("src") || "", alt: i.getAttribute("alt") || "",
-        w: i.naturalWidth, h: i.naturalHeight, done: !!i.complete,
-        box: { w: Math.round(r.width), h: Math.round(r.height) },
-        y: Math.round(r.top + window.scrollY),
-        under: (head || "").replace(/\s+/g, " ").trim().slice(0, 60),
-      };
-    }));
+    const seen = await page.evaluate(IMAGE_READING);
     await page.close();
     return seen;
   } catch (e) { console.log(`   (image read failed: ${String(e && e.message).slice(0, 80)})`); return null; }
