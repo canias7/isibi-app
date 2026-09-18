@@ -45,6 +45,34 @@ if (files.length < 1) { console.error(`no migrations in ${DIR}`); process.exit(1
  * pointing at a file that does not contain them. Derived, it cannot go stale.
  */
 /**
+ * ⚠ **THE FILE WHOSE DEFINITION OF A NAMED CONSTRAINT IS IN FORCE — and `lastDefining` cannot
+ * answer this, which is why the trap arrived a FIFTH time.** `create or replace` is how a
+ * function or a view is silently superseded, and the check below is narrowed to those two for
+ * that reason; a CONSTRAINT is superseded by `drop constraint … add constraint` in a later
+ * migration, which is a different mechanism the narrow check does not model at all.
+ *
+ * **MEASURED: 18 constraints and indexes in this directory are dropped and re-added by a later
+ * migration**, and two mutants were aimed at superseded copies of two of them. One SURVIVED,
+ * which is the honest signal. **The other was KILLED — and for a reason that has nothing to do
+ * with its property**: `check (…) and not (` is invalid inside a `create table` column list, so
+ * the mutated MIGRATION does not parse, the "the migration applies" check goes red, and the
+ * tally records a kill. *A kill for the wrong reason is worse than a survivor, because a
+ * survivor gets investigated and a kill does not.*
+ */
+const lastConstraining = (name) => {
+  const dropped = files.filter((f) =>
+    new RegExp(String.raw`drop\s+constraint\s+(?:if\s+exists\s+)?${name}\b`, "i").test(fs.readFileSync(path.join(DIR, f), "utf8")));
+  const defined = files.filter((f) =>
+    new RegExp(String.raw`constraint\s+${name}\s+check`, "i").test(fs.readFileSync(path.join(DIR, f), "utf8")));
+  if (!defined.length) { console.error(`no migration defines constraint ${name}`); process.exit(1); }
+  // The last file that DEFINES it, which is the last that re-adds it after any drop.
+  return path.join(DIR, defined[defined.length - 1]);
+};
+/** A mutant on the definition of `name` that is really in force, wherever that lives. */
+const mConstraint = (name) => (label, from, to, control = false) =>
+  ({ label, files: [lastConstraining(name)], from, to, control });
+
+/**
  * WHICH FUNCTION BODY A POSITION SITS INSIDE, or null.
  *
  * Between a `create or replace function agent.X(` header at the start of a line and the
@@ -295,8 +323,16 @@ const spec = [
   m("SQL/duplicates: the model-answer rule keys on the run and not the step",
     "on agent.run_entries (run_id, step) where kind = 'model';",
     "on agent.run_entries (run_id, step, seq) where kind = 'model';"),
-  m("SQL/duplicates: a malformed entry can be stored",
-    "  constraint entry_position_matches_kind check (", "  constraint entry_position_matches_kind check (true) and not ("),
+  // ⚠ RE-AIMED, AND THIS ONE WAS "KILLED" FOR THE WRONG REASON — which is the worse half of the
+  // finding. It was aimed at the `create table` copy, which the workflow migration drops and
+  // re-adds, so the semantic change was inert; what went red was the MIGRATION FAILING TO PARSE,
+  // because `check (…) and not (` is not valid in a column list. A kill for a reason unrelated to
+  // the property reads as coverage and is not, and unlike a survivor nobody investigates it.
+  // Aimed at the definition in force, as an `alter table` statement where the disjunction is
+  // valid SQL, so what it tests is the CONSTRAINT rather than the parser.
+  mConstraint("entry_position_matches_kind")("SQL/duplicates: a malformed entry can be stored",
+    "add constraint entry_position_matches_kind check (\n  case body ->> 'kind'",
+    "add constraint entry_position_matches_kind check (\n  true or case body ->> 'kind'"),
 
   // ── JOURNAL IMMUTABILITY ──────────────────────────────────────────────────
   m("SQL/immutability: an entry can be edited after it was written",
@@ -640,9 +676,12 @@ const spec = [
     "create index if not exists automation_runs_one_per_occurrence"),
   mAuto("⚠ SQL/automations: the execution's FK stops being DEFERRED, so no accept can probe first",
     "                            deferrable initially deferred,", "                            ,"),
-  mAuto("SQL/automations: a schedule need not be whole",
-    "  constraint automations_schedule_is_whole check (\n    (schedule = 'manual' and at_local is null and next_run_at is null)",
-    "  constraint automations_schedule_is_whole check (\n    true or (schedule = 'manual' and at_local is null and next_run_at is null)"),
+  // ⚠ RE-AIMED, NOT APPEASED: this was pointed at the AUTOMATIONS migration's copy, which the
+  // triggers migration drops and re-adds — so it landed on dead SQL and SURVIVED, and the
+  // survival read as a test gap. `mConstraint` asks which definition is in force.
+  mConstraint("automations_schedule_is_whole")("SQL/automations: a schedule need not be whole",
+    "add constraint automations_schedule_is_whole check (\n  case schedule",
+    "add constraint automations_schedule_is_whole check (\n  true or case schedule"),
   mAuto("SQL/automations: a stored time need not be whole minutes",
     "    at_local is null or (date_part('second', at_local) = 0", "    true or (date_part('second', at_local) = 0"),
   mAuto("SQL/automations: the workflow cap on the column is lifted",
@@ -1244,6 +1283,19 @@ for (const s of spec) {
   // `return jsonb_build_object('ok', false, 'error', 'no-agent');` is a sentence four
   // functions share. *The anchor's text cannot say which object it belongs to; its
   // POSITION can.*
+  // ⚠ **AND A CONSTRAINT IS SUPERSEDED BY `drop constraint … add constraint`, WHICH THE CHECK
+  // BELOW CANNOT SEE — the trap's fifth arrival, and the first through this door.** That check is
+  // deliberately narrowed to functions and views because `create or replace` is what silently
+  // supersedes those; a constraint takes a different route and needs its own question. Asked of
+  // the FILES, per name, exactly as `lastDefining` is: if any migration drops this constraint and
+  // a later one re-adds it, a mutant on an earlier copy is inert by construction.
+  for (const cm of s.from.matchAll(/constraint\s+([a-z0-9_]+)\s+check/gi)) {
+    const owner = lastConstraining(cm[1]);
+    if (owner !== f && !s.control) {
+      console.error(`SUPERSEDED CONSTRAINT: ${s.label}\n    its anchor defines ${cm[1]}, which ${path.basename(owner)} defines last`);
+      bad++;
+    }
+  }
   const encl = enclosing(text.get(f), text.get(f).indexOf(s.from));
   if (encl && !s.control) {
     const owner = lastDefining(`function ${encl.name}(`);
