@@ -62,7 +62,7 @@ export const STEP_KINDS = Object.freeze(["condition", "action", "lookup", "branc
  * A `read` that quietly started accepting a sixth key would otherwise be invisible to
  * both.
  */
-export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id"]);
+export const FIELD_KINDS = Object.freeze(["text", "days", "choice", "number", "time", "name", "id", "event"]);
 
 /**
  * WHAT A NAMED VALUE IS, and it is a different question from what a FIELD is.
@@ -113,7 +113,21 @@ export const TYPE_ACCEPTS = Object.freeze({
  * `test/integration/pg-schema.mjs` reads the constraint out of the migration. A schedule an
  * agent could ask for and the database refuses is a control that answers and then fails.
  */
-export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily"]);
+export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily", "weekly", "once"]);
+
+/**
+ * How long an event name may be and what it may hold.
+ *
+ * ⚠ **AN IDENTIFIER AND NOT PROSE**, because the dispatcher compares it for EQUALITY: two
+ * names that read the same and differ by a space or a capital would behave differently, and
+ * from a customer's side that is an automation that does not fire. The same shape the
+ * database's own `events_name_shaped` check holds, which `test/agent-send.test.mjs`
+ * censuses against this constant.
+ */
+export const EVENT_NAME = /^[a-z][a-z0-9_.-]{0,63}$/;
+
+/** How many events deep one chain may go before it is refused BY NAME. */
+export const MAX_EVENT_DEPTH = 4;
 
 export const MAX_WORKFLOW_STEPS = 20;
 
@@ -547,6 +561,31 @@ function readOut(raw, said = "the name for this step's answer") {
   return { out };
 }
 
+/**
+ * An EVENT NAME, which is its own field kind and not a `name` with a pattern on top.
+ *
+ * ⚠ **THE TWO DOORS READ A FIELD BY ITS KIND, so a shape enforced anywhere else cannot
+ * reach both.** The site builder's `readStepField` is generic over `FIELD_KINDS` and knows
+ * nothing about one step's `read`; a regex applied only in the engine's own reader would
+ * mean the screen and the engine disagreeing about what may be saved — and MEASURED, they
+ * would disagree in the direction that matters: the site's `name` kind refuses a dot, so
+ * `order.paid` could not be saved through the screen at all while the engine accepted it.
+ * A kind is already censused both ways, so this puts the shape in exactly one place per
+ * product.
+ *
+ * **IT IS THE DATABASE'S OWN GRAMMAR** (`events_name_shaped`), pinned here as an external
+ * constraint: a name that saves has to be a name an event can carry.
+ */
+function readEventName(raw, { what, blank }) {
+  if (raw === undefined || raw === null || raw === "") return { error: blank };
+  if (typeof raw !== "string") return { error: `${what} didn't arrive as a name` };
+  const name = raw.trim().toLowerCase();
+  if (!EVENT_NAME.test(name)) {
+    return { error: `${what} has to be a short name: lower-case letters, digits, dots, dashes and underscores, starting with a letter` };
+  }
+  return { value: name };
+}
+
 /** A whole number inside a range, refused rather than coerced or clamped. */
 function readNumber(raw, { name, min, max }) {
   const v = raw;
@@ -892,6 +931,76 @@ const wait = defineStep({
 });
 
 /**
+ * WAIT FOR AN EVENT — a wait whose resume is something that happened.
+ *
+ * ⚠ **THE ARRIVAL RACE IS THE WHOLE OF WHY THIS STEP IS SMALL.** It asks for a NAME and
+ * nothing else, and the matching is the database's: the dispatcher looks for suspended
+ * executions waiting on that name, and the pause's own transaction looks for an event that
+ * arrived before it was recorded. Both take this execution's row lock, so an event landing at
+ * the moment the wait starts is seen by exactly one of them — never lost, never twice.
+ *
+ * **`decided: true`, FOR THE SAME REASON AN APPROVAL IS**: what it heard is stored under this
+ * step's own id (`automation_runs.heard`), so inside a loop the second round would find the
+ * first round's event already there and carry on without waiting. Refused where the workflow
+ * is written, by the one flag.
+ *
+ * **IT COMPUTES NO DEADLINE, AND HAS NONE.** An event wait that timed out would need a second
+ * configured outcome and a second reader; what a customer wants instead is a `wait` beside it,
+ * which this product already has. Said out loud because "it waits for ever" is a real answer
+ * and looks like a missing feature.
+ */
+const EVENT_WAIT = defineStep({
+  type: "event",
+  kind: "pause",
+  // ⚠ ITS RESUME IS KEYED BY THIS STEP'S ID AND THE FIRST ARRIVAL STANDS — `heard` is a map
+  // keyed by step, accumulated and never cleared, exactly as `decisions` is. So it carries
+  // the approval's own loop wall for the approval's own reason: inside a `repeat`, round two
+  // would read round one's event and carry on with NO SECOND EVENT. Making it per-round means
+  // keying `heard` by the outcome key, which is a migration and is not this.
+  decided: true,
+  label: "Wait for something to happen",
+  does: "Pause until an event of a given name reaches this agent, then carry on with what it carried.",
+  fields: [
+    { name: "name", kind: "event", required: true, says: "the name of the event to wait for",
+      empty: "say which event to wait for" },
+    OUT_FIELD,
+  ],
+  read: (raw, say) => {
+    const name = readEventName(raw?.name, { what: say("name"), blank: say.blank("name") });
+    if (name.error) return { error: name.error };
+    return { config: { name: name.value } };
+  },
+  run: (config, ctx) => {
+    const said = `waiting for ${config.name}`;
+    if (!ctx.resume) return { waiting: { kind: "event", ...config }, why: said };
+    const heard = ctx.resume.heard;
+    // ⚠ **NOTHING HEARD YET IS A RE-PAUSE, NOT A FAILURE.** A delivery can arrive for another
+    // reason entirely — the sweeper, a resume somebody pressed — and reading that as "the
+    // event did not happen" would end a run that is waiting perfectly well.
+    if (!heard || typeof heard !== "object") return { waiting: { kind: "event", ...config }, why: `${said} — nothing yet` };
+    /**
+     * ⚠ **THE PAYLOAD IS RENDERED AS TEXT, AND THAT IS A DELIBERATE RENDERING RATHER THAN A
+     * COERCION.** `agent.events.payload` is a jsonb OBJECT by its own constraint, and this
+     * product's reference syntax is deliberately small — a name and nothing else, no property
+     * paths — so the whole thing is what there is to bind. `JSON.stringify` here is explicit
+     * and is not `String(["a"])`: the value is written down the way the database holds it.
+     *
+     * **AN EMPTY PAYLOAD BINDS `""`, NOT `"{}"`.** "The event carried nothing" is what an
+     * empty object means, and `""` is the answer every other binder already gives for
+     * nothing — so `{{it}}` reads as empty rather than as two braces in somebody's note.
+     *
+     * **THE LIMITATION IS STATED**: one field of a payload is not reachable until references
+     * carry property paths, which is not built and is a language rather than an increment.
+     */
+    const carried = heard.payload;
+    const bind = carried && typeof carried === "object" && Object.keys(carried).length
+      ? JSON.stringify(carried)
+      : "";
+    return { done: true, why: `${config.name} happened`, bind };
+  },
+});
+
+/**
  * APPROVAL — a wait whose resume is a person.
  *
  * **THE TIMEOUT OUTCOME IS CONFIGURED AND IS NEVER A DEFAULT.** Every one of the three
@@ -1144,7 +1253,7 @@ const subworkflow = defineStep({
 
 export const AUTOMATION_STEPS = Object.freeze([
   weekday, branchIf, branchOtherwise, branchEnd, repeat, repeatEnd,
-  wait, approval, knowledge, memory, note, subworkflow,
+  wait, EVENT_WAIT, approval, knowledge, memory, note, subworkflow,
 ]);
 
 /** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
@@ -2263,6 +2372,15 @@ export async function runWorkflow(opts = {}) {
         stopped = { kind: answer.stop.reason === "rejected" ? "rejected" : "failed", at: id, why };
         break;
       }
+      /**
+       * ⚠ **A PAUSE MAY BIND WHAT ITS RESUME CARRIED, and until the event wait there was
+       * nothing to bind — which is exactly why this had to be written rather than assumed.**
+       * `EVENT_WAIT` answered `bind:` while this branch read only `why`, so the payload went
+       * nowhere and the step's own `does` ("carry on with what it carried") was a promise
+       * nothing kept: a dead control in the step being written. Guarded on `config.out`, so a
+       * pause that binds nothing is byte for byte what it was.
+       */
+      if (isText(config.out) && typeof answer?.bind === "string") values[config.out] = answer.bind;
       put(i, { outcome: "ran", why: isText(answer?.why) ? answer.why : "carried on" });
       i += 1;
       if (!(await checkpoint(i, null))) break;

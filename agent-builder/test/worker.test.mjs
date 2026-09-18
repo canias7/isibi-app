@@ -1264,3 +1264,166 @@ test("⚠ THE DURABLE LOOP STATE GOES ROUND-TRIP THROUGH THE ROW, not through th
     assert.equal(exec.finished_at, null);
   });
 });
+
+/**
+ * ⚠ **THE WIRE IS THE ONE PLACE THESE ARE OBSERVABLE, and a sweep is what said so.** Six
+ * mutants survived a whole pass over the subworkflow and loop wiring, every one in
+ * `runner.mjs` or `automation-store.mjs` — proved end to end by `verify:wf`, which
+ * `npm run sweep` does not run. *A property proven only by an instrument the sweep cannot
+ * run is a property no mutant can be caught by*, for the sixth recorded time here. The
+ * store can be correct and the READ can stop asking for the columns, in which case
+ * PostgREST sends neither and every loop starts again from its first round.
+ */
+const restCalls = (rest, needle) => rest.fetch.calls.filter((c) => String(c.url).includes(needle));
+
+test("⚠ THE LOOP STATE IS ASKED FOR BY NAME AND SENT BACK BY NAME, in both directions", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest, {
+      childSteps: [
+        { id: "s1", type: "repeat", mode: "times", times: 2 },
+        { id: "s2", type: "note", text: "a round" },
+        { id: "s3", type: "wait", mode: "for", minutes: 5 },
+        { id: "s4", type: "endrepeat" },
+      ],
+    });
+    const runId = await deliverAuto(rest, env, ctx);
+
+    // THE READ. A `select=` that stopped naming these is a store whose every other line is
+    // right and which is handed `undefined` by PostgREST — the wiring layer, at the wire.
+    const reads = restCalls(rest, "automation_runs?");
+    assert.ok(reads.length >= 1, "the execution was never read");
+    const asked = reads.map((c) => decodeURIComponent(String(c.url))).join(" ");
+    for (const col of ["loops", "tries", "outcomes", "steps", "position", "decisions"]) {
+      assert.match(asked, new RegExp(`[?&,]${col}\\b`), `the read does not ask for ${col}`);
+    }
+    // ⚠ AND `uses` IS DELIBERATELY NOT ASKED FOR, which is asserted rather than assumed — my
+    // own first draft demanded it and the store was right. It is WRITE-ONLY here: the runner
+    // records what it copied in and never reads it back, because the expansion is decided
+    // from the CHILD rows and the stamp is for whoever reads the history. Pinned so the
+    // omission is a stated fact rather than something a later reader repairs.
+    assert.doesNotMatch(asked, /[?&,]uses\b/, "the read asks for `uses`, which nothing here reads");
+
+    // THE WRITE. `agent.advance_automation_run` refuses a null for either, so a call that
+    // sends neither is a checkpoint that cannot land — which is what the loop defect hid
+    // behind before `advanced: false` was logged.
+    const adv = restCalls(rest, "rpc/advance_automation_run");
+    assert.ok(adv.length >= 1, "no progress was ever recorded");
+    for (const c of adv) {
+      assert.ok(c.body && typeof c.body.p_loops === "object" && c.body.p_loops !== null,
+        `a checkpoint sent p_loops as ${JSON.stringify(c.body?.p_loops)}`);
+      assert.ok(c.body && typeof c.body.p_tries === "object" && c.body.p_tries !== null,
+        `a checkpoint sent p_tries as ${JSON.stringify(c.body?.p_tries)}`);
+    }
+    // AND IT REALLY LANDED, which is the control: every assertion above is about a request,
+    // and a request nothing accepted proves nothing about the row.
+    assert.deepEqual(Object.values(rest.execs.get(runId).loops).map((l) => l.at), [0]);
+  });
+});
+
+test("⚠ A CHECKPOINT THAT DID NOT LAND IS SAID, never silent", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest, { over: { steps: [
+      { id: "s1", type: "note", text: "one" },
+      { id: "s2", type: "note", text: "two" },
+    ] } });
+    // The FAKE answers every advance `ok: true, advanced: false` — which is the ordinary
+    // answer to a redelivery replaying recorded work AND exactly what a disagreement looks
+    // like. Silence there is what made a loop's unrecordable second round invisible.
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("rpc/advance_automation_run")) {
+        return new Response(JSON.stringify({ ok: true, advanced: false }),
+          { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return real(url, init);
+    };
+    // ⚠ THE LOG IS WHERE `worker.mjs` SENDS IT — `console.error("agent-runner", …)` — so that
+    // is the only place this is observable from the dispatcher, and capturing it is the whole
+    // instrument. A mutant that drops the line leaves a checkpoint that did not land SILENT,
+    // which is exactly what the loop defect hid behind for every round after the first.
+    const said = [];
+    const realErr = console.error;
+    console.error = (...a) => { said.push(a.join(" ")); };
+    try {
+      await worker.scheduled({}, env, ctx);
+      const sent = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+      await worker.queue(batchOf(sent), env, ctx);
+    } finally { globalThis.fetch = real; console.error = realErr; }
+    assert.ok(said.some((l) => l.includes("automation-stale")),
+      `a checkpoint that did not land was silent: ${JSON.stringify(said)}`);
+    // AND IT NAMES THE POSITION THE ROW DID NOT REACH, because "something is stale" is not
+    // something an operator can act on.
+    assert.ok(said.some((l) => /the row did not move to \d+/.test(l)), JSON.stringify(said));
+  });
+});
+
+test("⚠ AN ANSWER THAT IS NOT A LIST IS REFUSED, never read as an empty one", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes("rpc/automation_children")) {
+        return new Response(JSON.stringify({ oops: true }),
+          { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return real(url, init);
+    };
+    let runId;
+    try { runId = await deliverAuto(rest, env, ctx); } finally { globalThis.fetch = real; }
+
+    /**
+     * ⚠ **READING IT AS "THIS AGENT HAS NO OTHER AUTOMATIONS" WOULD BE THE WRONG SENTENCE
+     * ABOUT THE WRONG LAYER** — an outage reported as a workflow naming an automation that is
+     * really there, which sends somebody to fix a workflow that is correct.
+     *
+     * AND THE RUN IS LEFT **UNFINISHED AND CLAIMABLE**, which my own first draft got wrong by
+     * demanding a finished execution: a read that failed is an outage and an outage comes
+     * back, so the sweeper offers it again. A workflow that cannot be ASSEMBLED is the other
+     * case and really does finish — that is the case above this one.
+     */
+    const exec = rest.execs.get(runId);
+    assert.equal(exec.finished_at, null, "an unreadable read ended the execution");
+    assert.equal(rest.work.get(runId)?.done_at ?? null, null, "it was taken off the queue");
+    const stop = JSON.stringify(exec.outcomes ?? []) + JSON.stringify(rest.runs.get(runId)?.stop ?? {});
+    assert.doesNotMatch(stop, /isn't one of this agent's|not there/,
+      "an unreadable answer was reported as a missing automation");
+    // AND THE PLAN WAS NOT WRITTEN, because nothing could be assembled.
+    assert.equal(exec.steps.filter((s) => s.type === "workflow").length, 1,
+      "the call was replaced although the children could not be read");
+  });
+});
+
+test("⚠ `setPlan` REFUSES A NON-LIST rather than writing an empty plan", async () => {
+  // The coercion this replaces sent `[]`, which REPLACES the execution's steps with nothing:
+  // zero steps run and `done` reported. And the database raises on a non-array by its own
+  // first line, so the coercion's only effect was to stop that wall ever being reached.
+  const { makeAutomationStore } = await import("../src/automation-store.mjs");
+  const sent = [];
+  const store = makeAutomationStore({
+    url: "https://p.supabase.co/", key: "svc",
+    fetch: async (url, init) => {
+      sent.push({ url: String(url), body: init.body ? JSON.parse(init.body) : undefined });
+      return new Response(JSON.stringify({ ok: true, set: true, steps: 0 }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  const args = { runId: "r1", worker: "w1", token: "t1", steps: [{ id: "s1" }], uses: [] };
+  // THE CONTROL FIRST, or every refusal below is satisfied by a store that refuses everything.
+  const ok = await store.setPlan(args);
+  assert.equal(ok.ok, true);
+  assert.equal(sent.length, 1);
+  for (const bad of [null, undefined, "x", 7, { 0: "a", length: 1 }]) {
+    await assert.rejects(() => store.setPlan({ ...args, steps: bad }), /must be a list/,
+      `steps ${JSON.stringify(bad)} was not refused`);
+    await assert.rejects(() => store.setPlan({ ...args, uses: bad }), /must be a list/,
+      `uses ${JSON.stringify(bad)} was not refused`);
+  }
+  // AND NOTHING WAS SENT for any of them: a refusal that still writes is not a refusal.
+  assert.equal(sent.length, 1, `a refused plan reached the wire: ${JSON.stringify(sent.slice(1))}`);
+});

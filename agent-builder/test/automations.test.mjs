@@ -2439,6 +2439,48 @@ test("⚠ `decided` IS DECLARED, REFUSED RATHER THAN COERCED, and only a pause m
   assert.throws(() => defineStep({ ...whole, decided: 1 }), /decided must be true or false/);
   // A FLAG ABOUT HOW A RESUME IS MATCHED IS A DEAD DECLARATION ON A STEP WITH NO RESUME.
   assert.throws(() => defineStep({ ...whole, kind: "action", decided: true }), /only a pause can have its resume decided/);
-  // AND EXACTLY ONE STEP DECLARES IT, so the wall above is about something real.
-  assert.deepEqual(AUTOMATION_STEPS.filter((s) => s.decided).map((s) => s.type), ["approval"]);
+  // ⚠ RE-ANCHORED, NOT APPEASED: this asserted the set was exactly `["approval"]`, which is a
+  // claim about how many steps happen to be decided TODAY and went red on the first honest
+  // addition (`event`). The property is that EVERY decided step is a pause and EVERY one of
+  // them is really walled out of a loop — derived from the catalog, so a third next month
+  // carries the wall by existing. The floor is what keeps the loop from being vacuous.
+  const decided = AUTOMATION_STEPS.filter((s) => s.decided);
+  assert.ok(decided.length >= 2, `at least two steps declare it, found ${decided.length}`);
+  for (const st of decided) {
+    // ⚠ `stepKind`, NOT `kind` — the frozen step's `kind` is the discriminator saying it IS a
+    // step, and its own kind is `stepKind`. The first draft of this census read `kind` and
+    // reported a correct step as broken: *assert the property, not the spelling*, in the
+    // census written for that trap.
+    assert.equal(st.stepKind, "pause", `${st.type} declares decided and is not a pause`);
+    const inLoop = readWorkflow([
+      { type: "repeat", mode: "times", times: 2 },
+      wholeStepFor(st),
+      { type: "endrepeat" },
+    ]);
+    assert.match(inLoop.error ?? "", /cannot go inside a "Repeat"/, `${st.type} is not walled out of a loop`);
+    assert.equal(inLoop.at, 2, `${st.type}'s refusal names its own position`);
+    // THE CONTROL PER STEP, or "it is refused" is satisfied by a step refused for some other
+    // reason — this file's own vacuous-fixture trap, which the same shape already cost it.
+    assert.ok(!readWorkflow([wholeStepFor(st)]).error, `${st.type} on its own is refused: ${readWorkflow([wholeStepFor(st)]).error}`);
+  }
 });
+
+/**
+ * A MINIMAL VALID ROW FOR ONE CATALOG STEP, built from the step's OWN declared fields rather
+ * than typed — so a step added next month is covered by existing, and a field whose shape
+ * moves cannot leave a fixture behind that no longer validates.
+ */
+function wholeStepFor(st) {
+  const row = { type: st.type };
+  for (const f of st.fields) {
+    if (!f.required) continue;
+    if (f.kind === "choice") row[f.name] = f.options[0];
+    else if (f.kind === "number") row[f.name] = f.min ?? 1;
+    else if (f.kind === "time") row[f.name] = "09:00";
+    else if (f.kind === "days") row[f.name] = ["mon"];
+    else if (f.kind === "event") row[f.name] = "a.b";
+    else if (f.kind === "id") row[f.name] = "11111111-1111-1111-1111-111111111111";
+    else row[f.name] = "x";
+  }
+  return row;
+}

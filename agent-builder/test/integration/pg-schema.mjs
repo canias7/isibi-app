@@ -1971,9 +1971,25 @@ try {
   const uIx = jget(`select coalesce(string_agg(i.relname, ',' order by i.relname), '(none)')
                       from pg_index x join pg_class i on i.oid = x.indexrelid
                      where x.indrelid = 'agent.automation_runs'::regclass and x.indisunique;`);
-  check("⚠ automation_runs has exactly TWO unique things, and both mean already-filed",
-    uniques === "automation_runs_pkey" && uIx === "automation_runs_one_per_occurrence,automation_runs_pkey",
+  // ⚠ RE-ANCHORED, NOT APPEASED: it is THREE now, because an event is a third identity and
+  // an occurrence is a DATE — two events of one day are two events, so the occurrence index
+  // cannot serve for them. The PROPERTY is unchanged and is what matters: every unique thing
+  // on this table means "already filed", and `accept_automation_run` PROBES each one before
+  // the insert, so meeting any of them is an answer rather than an exception.
+  check("⚠ automation_runs has exactly THREE unique things, and all three mean already-filed",
+    uniques === "automation_runs_pkey" &&
+    uIx === "automation_runs_one_per_event,automation_runs_one_per_occurrence,automation_runs_pkey",
     `${uniques} / ${uIx}`);
+  // AND EACH ONE IS REALLY PROBED, read out of the function Postgres is running rather than
+  // out of a file: an identity the insert can meet and the probe cannot see is an exception
+  // where an answer belongs.
+  const probes = jget(`select pg_get_functiondef(p.oid) from pg_proc p
+                        join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname = 'agent' and p.proname = 'accept_automation_run';`);
+  check("...and the accept probes all three before it writes anything",
+    /and occurrence = p_occurrence/.test(probes) && /and event_id = p_event_id/.test(probes) &&
+    /and id = p_run_id/.test(probes),
+    probes.slice(0, 120));
 
   // ⚠ **AND A MANUAL RUN RE-ACCEPTED UNDER THE SAME RUN ID IS A REPEAT — which is the
   // whole of what makes `run_automation` safe to repeat.** The tool DERIVES its run id

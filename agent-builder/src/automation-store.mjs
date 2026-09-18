@@ -229,10 +229,25 @@ export function makeAutomationStore(opts = {}) {
      * written and the position moved, which is the ordinary case rather than a fault.
      */
     async setPlan({ runId, worker, token, steps, uses }) {
+      /**
+       * ⚠ **REFUSED, NOT COERCED — and the coercion this replaces was the worst one in this
+       * file.** It read `Array.isArray(steps) ? steps : []`, so a non-list became an EMPTY
+       * PLAN: the execution's steps replaced with nothing, running zero steps and reporting
+       * `done`. And `agent.set_automation_plan` RAISES on a non-array by its own first line
+       * (`the flattened steps must be a list`), so the coercion's only effect was to turn a
+       * refusal the database was already making into something it would happily accept. *A
+       * coercion in front of a wall is not a belt; it is what stops the wall being reached.*
+       *
+       * The database's raise stays as the SECOND wall and the redundancy is declared: this
+       * one names the caller's own mistake here, rather than arriving several layers away as
+       * a Postgres exception about a plan nobody can see.
+       */
+      if (!Array.isArray(steps)) throw new TypeError("setPlan: the flattened steps must be a list");
+      if (!Array.isArray(uses)) throw new TypeError("setPlan: what was copied in must be a list");
       const answer = await call("POST", "rpc/set_automation_plan", {
         p_run_id: runId, p_worker: worker, p_token: token,
-        p_steps: Array.isArray(steps) ? steps : [],
-        p_uses: Array.isArray(uses) ? uses : [],
+        p_steps: steps,
+        p_uses: uses,
       });
       if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
         throw new Error("set_automation_plan: no answer came back");

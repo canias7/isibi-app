@@ -177,6 +177,17 @@ const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], fr
  * object. `mAuto` keeps the table's own indexes, constraints and columns, which nothing
  * else redefines.
  */
+/**
+ * ⚠ **AND A FOURTH TIME, THROUGH THE SAME COMMENT — found 2026-09-18 by the same census.**
+ * The triggers migration widens `tick_automations` (a weekly and a one-off schedule are due
+ * on different days from a daily one), so the three mutants aimed at this file's copy were
+ * inert by construction the moment it landed. The rule is already written above and it is
+ * PER OBJECT: anything a later file redefines goes through `mFn`, and `mAuto` keeps only
+ * the table's own indexes, constraints and columns. *The comment saying "these are the
+ * things only this migration has" is the thing that keeps becoming false* — so the census
+ * is what enforces it, not the comment.
+ */
+const mTick = mFn("tick_automations");
 const mAcceptAuto = mFn("accept_automation_run");
 const mFinishAuto = mFn("finish_automation_run");
 const mHistory = (label, from, to, control = false) =>
@@ -651,15 +662,22 @@ const spec = [
     "      if v_exec.id is null then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;",
     "      if false then\n        select * into v_exec from agent.automation_runs\n         where automation_id = p_automation_id and id = p_run_id;\n      end if;"),
 
-  mAuto("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
+  mTick("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
     "           <= make_interval(secs => greatest(0, coalesce(p_catchup_s, 3600))) then",
     "           <= make_interval(secs => 3650 * 86400) then"),
-  mAuto("⚠ SQL/tick: the schedule is never advanced, so the same day is filed for ever",
+  mTick("⚠ SQL/tick: the schedule is never advanced, so the same day is filed for ever",
     "      update agent.automations set next_run_at = v_next where id = r.id;",
     "      perform 1;"),
-  mAuto("SQL/tick: a week of missed occurrences is counted as one",
-    "        v_total := greatest(1, (v_next at time zone r.zone)::date - v_occ);",
-    "        v_total := 1;"),
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED: the arithmetic moved into a `case` when the triggers
+   * migration widened this function.** It was unconditional and right for `daily`, where
+   * every local day IS an occurrence; a weekly schedule would have had days counted as
+   * occurrences and a one-off has only ever one. So the mutant keeps its property — a week
+   * of missed occurrences must not read as one — and names the arm that still carries it.
+   */
+  mTick("SQL/tick: a week of missed occurrences is counted as one",
+    "            then greatest(1, (v_next at time zone r.zone)::date - v_occ)",
+    "            then 1"),
   mAuto("SQL/record: an occurrence recorded unrun is left unfinished, so no history shows it",
     "     p_missed, now())", "     p_missed, null)"),
 

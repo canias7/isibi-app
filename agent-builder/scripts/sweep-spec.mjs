@@ -1802,8 +1802,20 @@ const spec = [
   m("store: the children read drops the AGENT, so a tenant's every automation is a child", AS,
     "        p_tenant: tenant, p_agent_id: agentId,\n      });\n      // REFUSED RATHER THAN COERCED.",
     "        p_tenant: tenant,\n      });\n      // REFUSED RATHER THAN COERCED."),
+  /**
+   * ⚠ **RE-ANCHORED ONTO A PRODUCT FIX, not appeased.** This mutant survived a whole pass and
+   * the reason was that the product already DID what it describes: `Array.isArray(steps) ?
+   * steps : []` sent an empty plan for a non-list, which REPLACES the execution's steps with
+   * nothing — zero steps run, `done` reported. And `agent.set_automation_plan` raises on a
+   * non-array by its own first line, so the coercion's only effect was to stop that wall ever
+   * being reached. The store refuses now, and the mutant is the coercion coming back.
+   */
   m("store: the plan write takes a non-list as an empty one rather than letting it be refused", AS,
-    "        p_steps: Array.isArray(steps) ? steps : [],", "        p_steps: steps ?? [],"),
+    '      if (!Array.isArray(steps)) throw new TypeError("setPlan: the flattened steps must be a list");',
+    "      if (!Array.isArray(steps)) steps = [];"),
+  m("store: the plan write coerces what was copied in, so a stamp nobody can read is written", AS,
+    '      if (!Array.isArray(uses)) throw new TypeError("setPlan: what was copied in must be a list");',
+    "      if (!Array.isArray(uses)) uses = [];"),
   // ⚠ A RESUME IS SPENT ONCE — the two halves of the loop/wait defect, one per line.
   m("automations: a `decided` step may go in a loop, so one answer stands for every round", AU,
     "    if (def.decided === true && depthOf(\"repeat\") > 0) {", "    if (false) {"),
