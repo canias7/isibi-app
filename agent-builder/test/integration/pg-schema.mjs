@@ -2385,6 +2385,63 @@ try {
   check("...and no decision was invented for it",
     jget(`select (decisions ? 's9') from agent.automation_runs where id='${R_W1}';`) === "f");
 
+  // ⚠ **TWO PRESSES AT THE SAME INSTANT, WHICH IS THE ONLY THING THE UPDATE'S PREDICATE IS FOR —
+  // and a sweep survivor is what said so.** Every check above reaches the second press through
+  // the PROBE (`v_had := v_exec.decisions -> p_step`), so the UPDATE is never even attempted and
+  // `and not (decisions ? p_step)` decides nothing. Cut that predicate and all of them stay
+  // green: MEASURED as a survivor over the whole suite.
+  //
+  // **WHAT IT COSTS UNDER CONCURRENCY IS THE FUNCTION'S OWN PROMISE.** Both callers probe before
+  // either commits, so both see no decision and both enter the block; without the predicate the
+  // loser's UPDATE matches the row anyway and OVERWRITES the winner. Two people pressing
+  // opposite ways are then each told their own verdict stands while only the last is stored —
+  // and the comment on this function says "The first decision stands; a second press is absorbed
+  // and says so." *An approval that can be silently replaced is the one thing this must not be.*
+  {
+    const R_RACE = "cc000000-0000-0000-0000-0000000000e1";
+    jget(`select agent.accept_automation_run('t1','${AU2}','${R_RACE}','manual',null)::text;`);
+    const cR = jget(`select agent.claim_run('${R_RACE}','w-race',90)::text;`);
+    const TOKR = (JSON.parse(cR).claim_token ?? "").trim();
+    jget(`select agent.advance_automation_run('${R_RACE}','w-race','${TOKR}',
+      '{"kind":"step","step":1,"at":1,"mark":"waiting","done":1}'::jsonb, 0,
+      '{}'::jsonb, '[{"id":"s1","outcome":"waiting"}]'::jsonb,
+      '{"kind":"approval","step":"s1","ask":"ok?","hours":24,"on_timeout":"reject"}'::jsonb)::text;`);
+    check("the race's own execution really is waiting for an approval",
+      jget(`select waiting->>'step' from agent.automation_runs where id='${R_RACE}';`) === "s1");
+    // The winner decides inside an open transaction and sleeps holding its row lock.
+    const winner = spawn("su", ["postgres", "-c",
+      `psql -X -q -d ${DB} -c ${shq(`begin; select agent.decide_automation_approval('t1','${R_RACE}','s1','approved','the winner','u1'); select pg_sleep(6); commit;`)}`],
+      { stdio: "ignore", detached: true });
+    // POLLED FOR THE LOCK, never a guessed pause — the winner's row is uncommitted and
+    // invisible, so the lock is the only thing that says it has really written.
+    let waited = 0;
+    const holdingRow = () => psql(`select count(*) from pg_locks l
+        join pg_class c on c.oid = l.relation
+        join pg_stat_activity a on a.pid = l.pid
+       where c.relname = 'automation_runs' and l.mode = 'RowExclusiveLock' and l.granted
+         and a.pid <> pg_backend_pid();`).out;
+    while (waited < 8000 && holdingRow() === "0") {
+      try { execFileSync("sleep", ["0.2"], { stdio: "ignore" }); } catch { /* best effort */ }
+      waited += 200;
+    }
+    check("the observer is alive: a twin really is holding an undecided approval",
+      holdingRow() !== "0");
+    // The loser presses the OPPOSITE way. It blocks on the row until the winner commits, and
+    // Postgres then re-checks the predicate against the committed version.
+    const racedYes = jget(`select agent.decide_automation_approval('t1','${R_RACE}','s1','rejected','the loser','u2')::text;`);
+    check("⚠ a racing OPPOSITE press is absorbed, not applied",
+      /"repeat"\s*:\s*true/.test(racedYes), racedYes);
+    check("...and it is told the WINNER's verdict rather than its own",
+      /"verdict"\s*:\s*"approved"/.test(racedYes), racedYes);
+    check("...and the stored decision is the winner's, note and all",
+      jget(`select (decisions->'s1'->>'verdict') || '|' || (decisions->'s1'->>'note') || '|' || (decisions->'s1'->>'by')
+              from agent.automation_runs where id='${R_RACE}';`) === "approved|the winner|u1");
+    check("...and exactly one decision exists for that step",
+      jget(`select jsonb_array_length(jsonb_path_query_array(decisions, '$.keyvalue() ? (@.key == "s1")'))
+              from agent.automation_runs where id='${R_RACE}';`) === "1");
+    try { process.kill(-winner.pid, "SIGKILL"); } catch { try { winner.kill("SIGKILL"); } catch { /* gone */ } }
+  }
+
   console.log("\n── resuming: what is due, oldest first, and only what was re-queued ──");
   const R_W2 = "cc000000-0000-0000-0000-0000000000d2";
   jget(`select agent.accept_automation_run('t1','${AU2}','${R_W2}','manual',null)::text;`);
