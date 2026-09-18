@@ -9174,6 +9174,139 @@ CLOSED.**
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
 
+### THE INSTRUMENT FOR THE PAGE + PHOTO + QR LIVE TEST (2026-09-18)
+
+Owner, six corrections to the preparation. Four are code and all four are the
+same class — **the harness could not see what the run is bought to prove.**
+
+**1. IT WAS PHOTOGRAPH-BLIND, MEASURED RATHER THAN SUSPECTED: `pictures`,
+`pictureNote`, `photos` and `lostPhotos` occurred ZERO times in
+`scripts/addon-sweep.mjs`.** A run bought to prove a photograph was bought,
+preserved and placed would have come back with no reading of any of it — this
+repository's own recorded wiring defect (`shownSteps` was recorded by the route
+for a milestone and printed by nobody), in the instrument built to settle it.
+`photoLines` prints all four **on every outcome**, which the free-text branch
+already makes possible by running its check on refusals too.
+
+- **ABSENT IS NOT ZERO, AND THE TWO READINGS ARE THE POINT.** `photos` rides
+  every SUCCESS whatever was asked for; `pictures` rides only a change that
+  really bought one. So `photos` present with `pictures` absent is *it shipped
+  and bought none*, and BOTH absent is *the request never reached the
+  purchase*. A bare `0` collapses them.
+- **THE PICTURE SENTENCE IS PRINTED VERBATIM** — it is the one thing that can
+  tell four identical blank frames apart (bought, unaffordable, provider
+  refused, none asked for), so a word of our own in its place would be the
+  harness deciding which of the four it was.
+- **AND `coverNote` ALONE WAS "THE CUSTOMER WAS TOLD".** A refusal's whole
+  reply is `msg`, so the one outcome whose entire customer-facing text lives in
+  a single field was the outcome that lost it. `customerLines` prints `msg`
+  plus every `*Note` carrying a string, **DISCOVERED FROM THE REPLY** rather
+  than from a list typed here — and a census over `addonReplyText`'s own
+  verbatim prints proves that rule reaches all of them (measured: exactly
+  three, `pictureNote`, `coverNote`, `keptPartsNote`). Not a re-composition:
+  writing the browser's concatenation out here would be a second copy of it.
+
+**2. QUEUED WORK IS REQUIRED BEFORE ANY PAID POST, AND IT IS NOT A BOX THE
+CALLER CAN FORGET.** `async` off means the addon runs inside the Worker's
+isolate, bounded by the customer's own connection at ~270 s — run 45 died at
+270,025 ms with the credits gone. **UNCONDITIONAL, deliberately**: the
+`expect*` pair asks *is this the build I meant* and has nothing to answer when
+nothing was demanded; this asks *can the work survive at all*, which is true of
+every run. As a caller's flag it would be an input, and an input cannot be the
+wall. `!== true`, so the string `"true"` is cannot-tell and not a yes; `false`
+and cannot-tell get **different sentences**, because one is a switch somebody
+can turn on and the other is a route that did not answer. The wrapper hands
+`runtime.async` over RAW — a `|| false` there, or a `=== true`, turns *nobody
+answered* into *the switch is off*.
+
+**3. A QR'S DESTINATION IS READ OFF THE DRAWING, AGAINST EVERY ADDRESS THE SITE
+HAS.** `qrModules`/`qrEncodes` are the guard's own matrix comparison lifted
+into `builder/site-qr.mjs` — the module that EMITS the path owns the reader of
+it, so the live check and the guard cannot disagree about our own artwork.
+**Not a decoder, and that is the stronger claim**: a decoder says what a
+scanner happens to read; this says the drawing IS the canonical encoding of the
+text expected. `qrOpens` asks every candidate, so the answer is *which page
+this code opens* rather than *does it open the one somebody guessed*, and the
+NAME comes from whichever file the inventory diff shows appeared.
+**THE QUIET ZONE IS DERIVED, NOT PASSED IN** — a served file is all a live
+check has. **Two defects found by RUNNING it**: `matchAll` SKIPS what it cannot
+match, so one malformed stroke in four hundred was silently dropped and the
+drawing read as a code missing a few modules, which a comparison then blames on
+the payload; and the stroke counter's `\b` matched only the FIRST `M`, because
+`z` and `M` are both word characters, so it counted 1 stroke in a path of 295.
+
+**4. THE INVENTORY IS THE STORED SOURCE, BOTH SIDES, TAKEN IMMEDIATELY BEFORE
+THE POST.** Not the sitemap — a list the publish COMPOSES, cached as its own
+object at the edge (run 23 called a real new page a lie on it), and silent
+about codes and pictures — and not probed filenames, which answer about the
+name somebody guessed and no other. `GET /api/site/source?slug=` is the store:
+every page, every component, and `assets`, which carries each code's file name
+AND the drawing the build bakes. Routes through `sitePathOf`, photographs
+through the product's own `photoUrls` over pages AND components, codes by
+`qrFile`'s own naming (**the legacy single code is `qr.svg`, with no name in
+it — a `qr-` prefix test would miss it on exactly the oldest sites**). A read
+that FAILED is `null` and says so: an inventory nobody took and a change that
+moved nothing print the same zeroes otherwise. **And a browser answers whether
+the new picture renders** — `naturalWidth`, because a 200 on the file says the
+bytes are served and a `src` says the page asked for it, and neither says a
+visitor sees anything.
+
+**Guards**: `addon-sweep` **40 → 46**, `site-marks` re-anchored onto the shared
+reader with the observer proved alive both ways. **Suite 6,833 → 6,839**, and
+the arithmetic closes exactly. **Sweep: 29 mutants, 29 killed, 0 survived, 0
+never applied, 2 comment-only controls survived.** Pass 1 read 23/6 and **not
+one survivor was the product's** — five were walls nobody drove and one was
+measured INERT and is declared in the code (an empty reference matrix cannot
+happen through `qrcode-generator`: the finder patterns are always drawn, and
+even the EMPTY payload gives 21×21 with **234 dark modules**).
+
+#### …AND THE MEASUREMENT KILLED MY OWN RECOMMENDATION
+
+**`ashgrove-1` SHOWS NO PHOTOGRAPH, and the claim that it was the only suitable
+site is WITHDRAWN.** Its one `/u/` reference is `og:image` — the share card —
+and its page carries **zero `<img>` tags at all**. The earlier correction to
+this file was right that fal was not empty and that a photograph was bought;
+inferring from that to *"a site with existing photographs on its pages"* was
+not, and one probe says so. **A file being served is not a picture being
+shown.**
+
+**MEASURED over the 32 sites this file names** (which is NOT the ~70 the
+account has, so this is a sample and not an enumeration — the authoritative
+list needs `/api/site/list` and a token). Telling an on-page photograph from a
+share card is the whole of it: `og:image`/`twitter:image` are meta content and
+were counted separately.
+
+| site | `<img>` | on-page photographs | routes |
+|---|---|---|---|
+| `fold-lane-bakery` | 2 | **2** | `/ /order /the-starter /visit` |
+| `oak-and-ash` | 1 | **1** (`data-slot="photo"`) | `/ /make /work /workshop` |
+| `shoeroom-1` | 2 | **1** | `/` (162 KB page) |
+| `forno-and-co` | 1 | **1** | sitemap EMPTY |
+| `fretwork-1` | 3 | **0** | two QR codes: `/qr.svg`, `/qr-prices.svg` |
+| `ashgrove-1` · `repairbench-1` · 26 others | 0–3 | **0** | — |
+
+All are React sites; **none carries `x-site-version`**, so every one is still
+on the legacy prefix and its next publish moves it to the build layout.
+
+**THE TENSION IS REAL AND IS THE OWNER'S CALL: no site is strong on both
+halves.** The four with photographs are the owner's older sites and have no QR
+codes, so *"a new code does not disturb the existing ones"* is untestable
+there; `fretwork-1` is the strongest QR subject and has nothing to preserve —
+and `keptImages` SHORT-CIRCUITS on a site with no photographs (`if (!had.size)
+return {ok: true}`), so running the preservation test there is **vacuous by
+construction**, which is exactly the shape this repository keeps catching.
+
+**AND `fretwork-1`'s TWO CODES ARE THEMSELVES THE "DON'T GUESS FILENAMES"
+LESSON, live**: a probe of five plausible names found `qr.svg` and missed
+`qr-prices.svg`, which the page references and which serves perfectly well.
+The before-inventory finds both, from the store, without guessing.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO BACKEND REPAIR.** The balance
+and fal's readiness are both unreadable from here — re-checked, not asserted:
+every `SUPABASE_*`, `OWNER_*` and `FAL_*` name is ABSENT from this
+environment — so both are the owner's read, and the estimate below is an
+estimate and not a cap.
+
 
 ## Data, auth, payments, mail
 

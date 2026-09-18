@@ -155,6 +155,69 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-18 — The test kit can now see the things the test is about
+
+Your six corrections. Four were code, and all four were the same thing: **the
+harness could not see what the run is bought to prove.**
+
+**It was blind to photographs.** I grepped before assuming, and the four fields
+the route answers about pictures — how many it bought, the sentence it told
+you, how many empty frames it left, and which existing ones it would have lost
+— appeared **zero times** in the test script. So the run would have come back
+with a page and no reading of the photograph at all. It prints all four now, on
+every outcome including a refusal, which is the one that used to lose them
+entirely: a refusal's whole message to you lives in one field the script never
+read. It prints your complete reply now, sentence by sentence, labelled.
+
+**It will refuse to spend if the site's work would run in the wrong place.**
+There is a switch that decides whether an addon runs in the queue (no time
+limit) or inside the web server (~4½ minutes, then it dies with the credits
+gone — that is exactly how run 45 died). The script now checks that switch
+before the money goes, every time, and it cannot be forgotten because it is not
+a box on the form.
+
+**It reads the QR code rather than trusting it.** It redraws the code for each
+address your site really has and compares them square by square, so the answer
+is *which page this code opens* — not *does it open the one I guessed*. The
+name comes from whichever file appeared, never from assuming "gallery". Two
+real bugs turned up in the reader when I ran it, neither visible by reading it.
+
+**And it takes a proper before-and-after.** Not the sitemap (a list the publish
+composes, cached separately, and silent about codes and pictures) and not by
+guessing filenames — it reads your site's own stored source, both sides, taken
+in the second before the money goes. Plus a real browser, to say whether the
+new picture actually renders rather than just being served.
+
+### ⚠ And the measurement killed my own recommendation
+
+I told you Ashgrove was the site to use because it has a real photograph. **It
+does not show one.** Its one picture file is the social-sharing preview, and
+its page has no image tags at all. The earlier correction was right that a
+photograph had been bought; concluding from that that the site displays one was
+not, and one probe says so. A file being served is not a picture being shown.
+
+Of the 32 sites this file names — **not all ~70; I cannot list them without a
+login** — four really show a photograph on the page:
+
+| site | photographs shown | pages |
+|---|---|---|
+| **fold-lane-bakery** | 2 | 4 |
+| **oak-and-ash** | 1 | 4 |
+| shoeroom-1 | 1 | 1 |
+| forno-and-co | 1 | (empty sitemap) |
+
+**And there is a real trade here, which is yours to make.** The four with
+photographs are your older sites and have no QR codes. `fretwork-1` — the usual
+test site — has two QR codes and no photographs, and the preservation check is
+*worthless* there: the code short-circuits when there is nothing to preserve,
+so it would pass without testing anything.
+
+Nothing is merged, deployed or pressed. I also cannot read your credit balance
+or whether fal has money in it — no keys in this environment, checked rather
+than assumed — so both are a thirty-second look on your side before pressing.
+
+---
+
 ## 2026-09-17 — Before the photograph test: a note in the file was wrong
 
 Preparing the live page + photograph + QR test, I checked a line this file's
