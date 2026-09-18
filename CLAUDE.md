@@ -9448,6 +9448,38 @@ measured numbers, not subtracted ones**: the three affected files read **137** a
 `site-busy` stays 19: everything it gained is an assertion inside a case that
 already existed.
 
+**CI HAS READ BOTH, ON `20792563`.** `unit tests` run **2701**, green (2026-09-18
+02:36:58→02:39:09Z) — `# tests 6842 / # pass 6838 / # fail 0 / # skipped 4`,
+against local `6842 / 6842 / 0 / 0`; the four are the three recorded environment
+skips plus `site-searchpath`'s baseline-commit case, and **the TOTAL is what
+matches**. And `site build` run **1188** (02:36:58→02:56:53Z), **all twenty steps
+green** (the API answers 23; three are GitHub's own — two `Post` steps and
+`Complete job`): `site-build.mjs` **382 passed / 0 failed**, the step
+02:38:49→02:53:09Z (14m20s), with kit-typecheck 4, contrast-cases 16, theme-seam
+11, theme-render 29, site-routing 14, site-runtime 47 beside it and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` with no count — the three
+result SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**, and
+none carried over from an earlier run. **It fired because `worker.js` moved** —
+the three-state reader and the `reads` field; the push carried the code and these
+documents together, `28dc6e4e` having already gone out on its own as `unit tests`
+2700. **The unit step's TAP is `# tests 396 / # pass 396 / # fail 0 / # skipped
+0`, unchanged from runs 1171, 1173, 1177, 1183 and 1187** — correct, because this
+round adds no `page-gen` or `publish-pages` case. The two `##[error]` lines are
+the harness's own typecheck fixtures (TS2322 on `index.tsx`, TS2339 on
+`menu.tsx`), both inside the `site-build.mjs` window and each followed
+immediately by its own `ok` line.
+
+**AND THE FLAT-LOG WINDOWING WAS CHECKED AGAINST A SECOND, INDEPENDENT BOUNDING
+FOR THE FIRST TIME — they agree exactly.** The run's log archive carries **one
+file per step** (`build/11_Run node test_integration_site-build.mjs.txt`), so a
+count read there is attributed by construction rather than by a window somebody
+drew. Both readings find the same **twelve** steps carrying a result, the same
+counts, in the same steps. That is worth a line because the landmark-to-landmark
+window is the instrument this file records and revised once already (run 1152
+concluded the `##[group]` bounding "did not attach"; run 1163 falsified it), and
+until now nothing had asked a second instrument the same question.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction, and
 every passing control was retained.
 

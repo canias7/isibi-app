@@ -13165,3 +13165,16 @@ one of them made me lift the browser check out into something a test can actuall
 run, because it lived inside the browser where nothing could reach it.
 
 **Nothing merged, nothing deployed, nothing paid.**
+
+**CI has read it, both checks green.** The unit suite came back 6,842 — the same
+number I measured here — and the container harness came back all twenty steps
+green with its big one at 382 passed, 0 failed, unchanged.
+
+**And I checked the reader I use to read those logs against a second one.** I
+normally pull the counts out of one long log by drawing a window around each
+step; GitHub also ships the same run as one file per step, so I read it both ways
+and compared. They agree exactly — same twelve steps carrying a number, same
+numbers. Worth doing once, because that windowing has been wrong before and it is
+the thing every one of these reports rests on.
+
+**Still nothing merged, nothing deployed, nothing paid.**
