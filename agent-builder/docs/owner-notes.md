@@ -1703,9 +1703,33 @@ contributes no failures. There are 23 now, including the permission broken in **
 directions — granted too widely, and removed altogether — because those two go wrong in opposite
 ways and one test would only have caught one of them.
 
-**Measured:** 976 checks against a real PostgreSQL, 0 failed (967 before; the nine new ones are
-this permission, six of them driven as the engine's own role). Deliberate-breakage tests for the
-database: 245 → 268.
+**And the deliberate-breakage run of those 23 found two more gaps — in my checks, not in the
+work.** Both are worth a sentence because one of them is a mistake in *reasoning* rather than an
+omission.
+
+The first: a note I had written said one of the refusals could never be reached, because the
+database will not store a status it does not recognise. That is true of a *nonsense* status and
+wrong about one of the four real ones — **`expired`**. A connection whose row says expired, with
+no expiry time set, walks straight to that refusal; and with it removed, the credential is handed
+out for a connection the row itself calls expired. So the check was not hard to write, it was
+*believed impossible*, and the note is what made it look that way. Fixed, and the note now says
+what it really proves.
+
+The second: a refusal for a provider that has no way to be refreshed at all. It sits next to a
+very similar one — that one is about the *caller* sending no new credential, this is about the
+*connection* having nothing to refresh with — and nothing was testing it. Without it, asking to
+refresh such a connection answered "done" and changed its credential to something that can never
+be renewed.
+
+**And my first attempt at both failed for a reason that is entirely my own**: I reused a test
+record that belongs to a *different* agent, so the database correctly answered "no such
+connection" and three good checks looked broken. Each has its own record now, created through the
+real operation rather than by editing a column behind its back.
+
+**Measured:** 980 checks against a real PostgreSQL, 0 failed (967 before this round, 976 after
+the permission fix, 980 after these two). Deliberate-breakage tests for the database: 245 → 268,
+and the 22 aimed at the connections work are **all caught** — 20 on the first pass, and the two
+above on the second, once the gaps they exposed were closed.
 
 **And I went looking for more of the same, which is the part I would want to know about.** A
 permission that contradicts what the design says is a *kind* of mistake, not a one-off, so I

@@ -5770,13 +5770,15 @@ It is one line, below the comment, and re-throwing is the same property.
 
 ### Measured
 
-- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 checks, 0 failed** — 61 for the
-  connections migration and 7 for the re-anchored operations block (two checks became nine),
-  then **9 for the credential's PRIVILEGES** (the fourth defect below: three read off
-  `has_column_privilege`, six driven AS `service_role` with three of them controls), and the
-  arithmetic closes exactly at each step. Every refusal read for ITS OWN gate with a control beside it;
-  the credential's protection asked as PRIVILEGES and as the view's column list, never as a
-  refusal, because `authenticated` holds no schema USAGE in a fresh cluster.
+- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 → 976 → 980 checks, 0 failed**, and the
+  arithmetic closes exactly at each step: 61 for the connections migration, 7 for the re-anchored
+  operations block (two checks became nine), **9 for the credential's PRIVILEGES** (the fourth
+  defect below — three read off `has_column_privilege`, six driven AS `service_role` with three
+  of those the controls), and **4 for the two sweep survivors** (a reachable stored `expired`, a
+  row with no refresh credential, and an observer-alive control for each). Every refusal read for
+  ITS OWN gate with a control beside it; the credential's protection asked as PRIVILEGES and as
+  the view's column list, never as a refusal, because `authenticated` holds no schema USAGE in a
+  fresh cluster.
 - **`npm run verify:connections`: 61 → 65 checks, 0 failed** (new) — nine sections through the
   site's own routes, `worker.queue`, the real approval gate and a real database. The four are
   what an already-settled record answers, asked of `agent.operation_settle` itself.
@@ -5821,12 +5823,17 @@ It is one line, below the comment, and re-throwing is the same property.
   killed by a container restart before it ended, and its worktree is proved restored two ways
   (clean `git status`, and the generator's anchor census green — 608 unique, which it cannot be
   while a mutant is applied). **No tally is stamped for those 245 and none is implied.**
-- **THE CONNECTIONS MIGRATION'S OWN 23 ARE RUNNING AS THIS IS WRITTEN, and the tally is
-  deliberately absent until they end** — the rule is that a measured number is stamped AFTER the
-  run, and a sweep two thirds through has killed nothing it cannot still be surprised by. They go
-  against the same two checks the full sweep uses, in the same detached worktree, at the commit
-  that carries them. **A narrow list can only produce a false SURVIVOR, never a false kill**, so
-  whatever it answers is evidence for these 23 and for nothing else.
+- **THE CONNECTIONS MIGRATION'S OWN 22: pass 1 read 20 killed, 2 survived, 0 never applied,
+  the comment-only control survived; pass 2 over the two read 2 killed, 0 survived.** So all 22
+  product mutants are dead, and **neither survivor was the product's** — both were guard gaps,
+  and the first of them is the entry below. Run against the same two checks the full sweep uses,
+  in the same detached worktree, at the commit that carries them, with the worktree proved
+  restored after EACH pass (empty diff, and the anchor census green — 268 SQL and 614 JS, which
+  it cannot be while a mutant is applied). **A narrow list can only produce a false SURVIVOR,
+  never a false kill**, so this is evidence for these 22 and for nothing else.
+  **⚠ AND THE SPEC HOLDS 23 WHILE THE RUNNER COUNTS 22**, which is worth saying once rather than
+  reconciling by arithmetic every time: the runner's tally counts PRODUCT mutants and the 23rd is
+  the comment-only control, reported on its own line.
 - **Measured while it ran: ~75 seconds per mutant** (a baseline plus 7 mutants in 8m50s), which
   is where the ~7 hours for the whole 268 comes from — and it is the reason the full set is a
   background job rather than a step in a change.
@@ -5899,6 +5906,41 @@ query) and removed altogether (the `security_invoker` view becomes unreadable an
 shows nothing). **The two failures need opposite fixes, so a single mutant would leave one of
 them unguarded**, and the removal direction is the one the migration's own comment records
 having shipped once already.
+
+### ⚠ The two SQL survivors, and the first is a wrong claim in a guard rather than a missing one
+
+Neither was the product's, and they are opposite shapes: one branch could not be driven because
+a comment said it was unreachable, and the other simply had no case.
+
+**1. `not-usable` IS NOT A BELT — IT IS REACHABLE, AND THE COMMENT IS WHAT HID THAT.** The guard
+asserted this refusal by proving an unknown status cannot be WRITTEN, on the stated grounds that
+"the enum is a CHECK, so the `not-usable` branch is a belt". **That covers a status nothing
+recognises and misses `'expired'`, which is one of the four the CHECK ADMITS** — a legal value,
+not `'active'`, and with no clock set it walks past the disconnected, revoked and `expires_at`
+arms to land on exactly this one. With the branch cut, the one door **leases it**: a credential
+handed out for a connection whose own row says it is expired.
+*A wall nobody can drive is a wall nobody is guarding* — and here what stopped anybody driving it
+was not the difficulty of the state but **a claim about which states are reachable, written in
+prose beside the assertion.** The CHECK case is kept, renamed to say what it really proves (an
+unknown status cannot be stored), and the reachable state is driven beside it.
+
+**2. `not-refreshable` HAD NO CASE, AND IS ONE WORD FROM ONE THAT DOES.** The case above it
+refuses a refresh where **the CALLER sends no new credential**; this one is **the ROW holding no
+refresh credential** — a real provider shape, since `refresh_secret` is nullable precisely for
+providers that have none. Nothing drove it, so cutting the branch answered `ok` and rotated the
+secret of a connection that can never be refreshed again: a control that reports success and
+changes the wrong thing. **Each asserts the WALL rather than the sentence** — the expired refusal
+with no credential anywhere in the answer, the not-refreshable refusal proved by **nothing having
+been written** — and each has an observer-alive control beside it.
+
+**⚠ AND MY FIRST DRAFT OF ALL THREE REPLACEMENTS FAILED FOR THE FIXTURE'S REASON, in the section
+whose own census exists to stop exactly that.** They reused `CX_5`, and **`CX_5` is the SIBLING
+agent's row** — `rawRow` writes it under `CX_A2` — so a lease or a refresh named under `CX_A1`
+finds no row and answers `no-connection`. Three checks reported correct behaviour as broken.
+Each has its own row now, **made through the real `connect_provider` door** rather than by
+blanking a column behind the function's back: the not-refreshable row genuinely has no refresh
+credential, and the expired row is put into a status the CHECK really admits, which is the point.
+*An id is not a scratch value; it carries an owner and a state.*
 
 ### ⚠ And the fourth defect's CLASS was then looked for everywhere — two findings, both negative
 
