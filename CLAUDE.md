@@ -9622,9 +9622,38 @@ all) with the correspondence mutant beside it. Both killed on pass 2.
 **measured in a detached worktree** (`addon-sweep` 48) rather than subtracted
 from a paragraph.
 
+**CI HAS READ IT: `unit tests` run 2719 on `d1457ad9`, green (2026-09-18
+19:29:57→19:32:17Z, the suite step 109 s) — `# tests 6843 / # pass 6839 /
+# fail 0 / # skipped 4`**, against local `6843 / 6843 / 0 / 0`; the four are the
+three recorded environment skips plus `site-searchpath`'s baseline-commit case,
+and **the TOTAL is what matches**. **No `site build` fired and none was due** —
+the five changed files are two documents, `scripts/addon-sweep.mjs`, a mutant
+spec and `test/addon-sweep.test.mjs`, and not one is under `builder/**`,
+`worker.js`, the root `*.mjs` glob, `test/integration/**` or any other entry in
+that workflow's `paths`.
+
 **AND HARNESS PREPARATION IS CLOSED HERE.** Nothing further is added to the
-instrument; the deployment identifiers and the live-test inputs are in
-`docs/owner-notes.md`. **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
+instrument.
+
+**THE IDENTIFIERS, COMPUTED BEFORE ANYTHING MOVES, AND CROSS-CHECKED AGAINST
+REALITY.** `origin/main` (`d826d7fb`, docs-only over deploy 2133) hashes to
+**`7273d2569866364f`** (183 inputs) — **which is exactly the image deploy 2133's
+own log records rolling to**, so the arithmetic is checked against the live
+container and not only against itself. The candidate tip hashes to
+**`3b93a9cae43bac41`** (183 inputs); the ids differ because `worker.js` and the
+`builder/*` modules this branch moves are in the worker's module graph, which is
+an image input. **The branch is a clean fast-forward of main** (`git merge-base
+--is-ancestor origin/main HEAD` → yes, with no main commit outside it), so
+`expect_deploy` is the branch tip itself rather than a merge commit nobody can
+name yet. **The container WILL roll, so the 15–20 minute hold applies.**
+
+**THE ORDER IS MERGE → DEPLOY → PRESS, and that is the previous round's own
+instruction taken to its conclusion**: the harness refuses to spend when it
+cannot confirm the before-inventory was complete, main's Worker sends no `reads`
+key, so a press against the live Worker today REFUSES. The live-test inputs are
+in `docs/owner-notes.md`.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
 
 
 ## Data, auth, payments, mail

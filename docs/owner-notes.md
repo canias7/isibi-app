@@ -13288,3 +13288,8 @@ nothing about placement. So it is worth confirming both before the press rather
 than absorbing it afterwards.
 
 **Nothing merged, nothing deployed, nothing paid.**
+
+**CI has read it, green.** The unit suite came back **6,843** — the same number I
+measured here. No container harness run fired and none was due: this push touches
+only the harness script, its guard, a mutant spec and these two documents, none of
+which is code the container carries.
