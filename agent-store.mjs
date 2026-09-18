@@ -1425,6 +1425,15 @@ const AUTOMATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  * step's `label` and `does` were written for a person on both sides. They are censused
  * too, so a step described one way in the engine and another way on screen is a red run.
  */
+/**
+ * ⚠ **WHAT A REFUSAL CALLS A FIELD, IN ONE PLACE.** The derivation was written out twice — in
+ * the typed-reference message and in the generic field reader — which is two copies of one
+ * rule, and the copy that drifts is whichever one somebody edits. `says` is what the field
+ * declares and BOTH DOORS of the platform read it; absent means the field's NAME, which is
+ * right for every field whose key is already the customer's own word (`days`, `hours`).
+ */
+const saidOf = (f) => (typeof f?.says === "string" && f.says ? f.says : f?.name);
+
 const F = (o) => Object.freeze(o);
 
 /**
@@ -1479,7 +1488,7 @@ export const AUTOMATION_STEPS = Object.freeze([
     kind: "condition",
     label: "Only on certain days",
     does: "Carry on only on the days you pick. On any other day the rest of the workflow is skipped.",
-    fields: Object.freeze([F({ name: "days", kind: "days", required: true })]),
+    fields: Object.freeze([F({ name: "days", kind: "days", required: true, empty: "pick at least one day, or take this step out" })]),
   }),
   F({
     type: "if",
@@ -1488,9 +1497,10 @@ export const AUTOMATION_STEPS = Object.freeze([
     does: "Compare a value — an input, or an earlier step's answer — and run the steps under it only when the comparison holds. Put an \"Otherwise\" and an \"End\" below it.",
     fields: Object.freeze([
       F({ name: "left", kind: "text", required: true, max: MAX_STEP_TEST, refs: true,
-          empty: "say which value to compare — {{a name}} usually" }),
-      F({ name: "op", kind: "choice", required: true, options: AUTOMATION_TESTS }),
-      F({ name: "right", kind: "text", required: true, max: MAX_STEP_TEST, refs: true, when: F({ op: Object.freeze(["is", "is not", "contains"]) }) }),
+          says: "the value being compared", empty: "say which value to compare — {{a name}} usually" }),
+      F({ name: "op", kind: "choice", required: true, options: AUTOMATION_TESTS, says: "the comparison" }),
+      F({ name: "right", kind: "text", required: true, max: MAX_STEP_TEST, refs: true, when: F({ op: Object.freeze(["is", "is not", "contains"]) }),
+          says: "what it is compared against", empty: "say what to compare it against" }),
     ]),
   }),
   F({
@@ -1515,7 +1525,7 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Repeat …",
     does: "Runs the steps under it once for each thing in a list, or a fixed number of times. Put an \"End of the repeat\" below it.",
     fields: Object.freeze([
-      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_LOOP_MODES }),
+      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_LOOP_MODES, says: "what this repeats over" }),
       // ⚠ THE ONE FIELD IN THIS PRODUCT THAT ACCEPTS ONLY A LIST, and it is why the types
       // above exist: without a field that refuses text, a type is a label nothing reads.
       F({ name: "each", kind: "text", required: true, max: MAX_STEP_TEST, refs: true,
@@ -1542,9 +1552,10 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Wait",
     does: "Pause here for a while, or until a time of day, and carry on afterwards. Nothing is held open while it waits.",
     fields: Object.freeze([
-      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_WAIT_MODES }),
-      F({ name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: F({ mode: Object.freeze(["for"]) }) }),
-      F({ name: "at", kind: "time", required: true, when: F({ mode: Object.freeze(["until"]) }) }),
+      F({ name: "mode", kind: "choice", required: true, options: AUTOMATION_WAIT_MODES, says: "the kind of wait" }),
+      F({ name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: F({ mode: Object.freeze(["for"]) }),
+          says: "the number of minutes to wait" }),
+      F({ name: "at", kind: "time", required: true, when: F({ mode: Object.freeze(["until"]) }), says: "the time to wait until" }),
     ]),
   }),
   F({
@@ -1553,9 +1564,12 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Wait for approval",
     does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
     fields: Object.freeze([
-      F({ name: "ask", kind: "text", required: true, max: MAX_STEP_ASK, refs: true, empty: "say what is being approved" }),
-      F({ name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS }),
-      F({ name: "on_timeout", kind: "choice", required: true, options: AUTOMATION_TIMEOUTS }),
+      F({ name: "ask", kind: "text", required: true, max: MAX_STEP_ASK, refs: true, says: "what is being approved",
+          empty: "say what is being approved" }),
+      F({ name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS,
+          says: "how many hours to wait for an answer" }),
+      F({ name: "on_timeout", kind: "choice", required: true, options: AUTOMATION_TIMEOUTS,
+          says: "what happens if nobody answers" }),
     ]),
   }),
   F({
@@ -1570,8 +1584,9 @@ export const AUTOMATION_STEPS = Object.freeze([
     retryable: true,
     does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
     fields: Object.freeze([
-      F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true, empty: "say what to search for" }),
-      F({ ...OUT, required: true }),
+      F({ name: "query", kind: "text", required: true, max: MAX_STEP_QUERY, refs: true, says: "that search",
+          empty: "say what to search for" }),
+      F({ ...OUT, required: true, empty: "give the answer a name, so a later step can use it" }),
     ]),
   }),
   F({
@@ -1580,8 +1595,9 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Use something remembered",
     does: "Read one of this agent's saved facts or preferences and save it under a name a later step can use.",
     fields: Object.freeze([
-      F({ name: "key", kind: "name", required: true }),
-      F({ ...OUT, required: true }),
+      F({ name: "key", kind: "name", required: true, says: "the saved fact to use",
+          empty: "say which saved fact to use" }),
+      F({ ...OUT, required: true, empty: "give the answer a name, so a later step can use it" }),
     ]),
   }),
   F({
@@ -1590,7 +1606,7 @@ export const AUTOMATION_STEPS = Object.freeze([
     label: "Save a note",
     does: "Write a line into this automation's results, so the run has something to show. Put {{a name}} anywhere to use an input or an earlier step's answer.",
     fields: Object.freeze([
-      F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true,
+      F({ name: "text", kind: "text", required: true, max: MAX_STEP_NOTE, refs: true, says: "that note",
           empty: "say what the note should say" }),
       OUT,
     ]),
@@ -1715,7 +1731,7 @@ export function cleanWorkflow(v, catalog = AUTOMATION_STEPS, max = MAX_AUTOMATIO
             // refusal that differs is a customer told two different things by two doors.
             const gotType = canSee.get(name) ?? "text";
             if (!(AUTOMATION_TYPE_ACCEPTS[wants] ?? []).includes(gotType)) {
-              const said = typeof f.says === "string" && f.says ? f.says : f.name;
+              const said = saidOf(f);
               const word = (t) => (t === "list" ? "a list" : t === "number" ? "a number" : "text");
               return { error: `step ${at}: "${name}" is ${word(gotType)}, and ${said} needs ${word(wants)}` };
             }
@@ -2020,7 +2036,7 @@ export function cleanRunInput(v, inputs) {
 function readStepField(raw, f) {
   // WHAT A REFUSAL CALLS THIS FIELD. The name is the fallback, so a field with no `says`
   // reads exactly as it always did.
-  const said = typeof f.says === "string" && f.says ? f.says : f.name;
+  const said = saidOf(f);
   // ⚠ WHAT TO SAY WHEN A REQUIRED FIELD IS BLANK, off the field's own declaration and the
   // ENGINE's own words — because that is the sentence a customer reads, and the two doors
   // used to say different things about the same box: `"left can't be empty"` here against
@@ -2040,7 +2056,7 @@ function readStepField(raw, f) {
   }
   if (f.kind === "days") {
     if (!Array.isArray(raw)) return { error: "pick which days it should run on" };
-    if (!raw.length) return { error: "pick at least one day, or take this step out" };
+    if (!raw.length) return { error: blank };
     const picked = [];
     for (const d of raw) {
       if (typeof d !== "string") return { error: "one of the days didn't arrive as a day" };

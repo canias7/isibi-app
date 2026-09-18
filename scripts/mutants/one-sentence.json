@@ -1,0 +1,131 @@
+[
+ {
+  "label": "CONTROL: a comment only, on the site's own word for a blank field",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const blank = typeof f.empty === \"string\" && f.empty ? f.empty : `${said} can't be empty`;",
+  "to": "  const blank = typeof f.empty === \"string\" && f.empty ? f.empty : `${said} can't be empty`; // control",
+  "control": true
+ },
+ {
+  "label": "⚠ store: a refusal names the field's KEY rather than the word it declares",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "const saidOf = (f) => (typeof f?.says === \"string\" && f.says ? f.says : f?.name);",
+  "to": "const saidOf = (f) => f?.name;"
+ },
+ {
+  "label": "store: the blank sentence is composed rather than taken from the field",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const blank = typeof f.empty === \"string\" && f.empty ? f.empty : `${said} can't be empty`;",
+  "to": "  const blank = `${said} can't be empty`;"
+ },
+ {
+  "label": "⚠ store: a non-string in a text field is read as blank rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (typeof raw !== \"string\") return { error: `${said} didn't arrive as text` };",
+  "to": "    if (typeof raw !== \"string\") return f.required ? { error: blank } : { value: undefined };"
+ },
+ {
+  "label": "store: the too-long sentence loses the bound it is about",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (f.max && text.length > f.max) return { error: `${said} is longer than it can be (${f.max} characters)` };",
+  "to": "    if (f.max && text.length > f.max) return { error: `${said} is too long` };"
+ },
+ {
+  "label": "⚠ store: an empty day list is stored rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!raw.length) return { error: blank };",
+  "to": "    void 0;"
+ },
+ {
+  "label": "store: the day list's refusal is composed rather than the field's own",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!raw.length) return { error: blank };",
+  "to": "    if (!raw.length) return { error: `${said} can't be empty` };"
+ },
+ {
+  "label": "⚠ store: a number outside its range is clamped rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (f.min !== undefined && raw < f.min) return { error: `${said} has to be between ${f.min} and ${f.max}` };",
+  "to": "    if (f.min !== undefined && raw < f.min) return { value: f.min };"
+ },
+ {
+  "label": "store: an id is repaired rather than refused",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    if (!AUTOMATION_ID.test(id)) return { error: `${said} didn't arrive as an automation` };",
+  "to": "    if (!AUTOMATION_ID.test(id)) return { value: id };"
+ },
+ {
+  "label": "⚠ store: a step that cannot fail is offered a retry, so the two doors differ",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const paths = retryable ? AUTOMATION_ERROR_PATHS : AUTOMATION_ERROR_PATHS.filter((p) => p !== \"retry\");",
+  "to": "  const paths = AUTOMATION_ERROR_PATHS;"
+ },
+ {
+  "label": "⚠ store: the catalog's `call` kind goes, so a subworkflow cannot be saved at all",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const AUTOMATION_STEP_KINDS = Object.freeze([\"condition\", \"action\", \"lookup\", \"branch\", \"pause\", \"call\"]);",
+  "to": "export const AUTOMATION_STEP_KINDS = Object.freeze([\"condition\", \"action\", \"lookup\", \"branch\", \"pause\"]);"
+ },
+ {
+  "label": "store: the `id` field kind goes, so nothing can name an automation",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const AUTOMATION_FIELD_KINDS = Object.freeze([\"text\", \"days\", \"choice\", \"number\", \"time\", \"name\", \"id\"]);",
+  "to": "export const AUTOMATION_FIELD_KINDS = Object.freeze([\"text\", \"days\", \"choice\", \"number\", \"time\", \"name\"]);"
+ },
+ {
+  "label": "store: the subworkflow bounds drift from the engine's",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const MAX_SUBWORKFLOW_DEPTH = 2;",
+  "to": "export const MAX_SUBWORKFLOW_DEPTH = 5;"
+ },
+ {
+  "label": "⚠ browser: an optional choice sends its first option, so every step stores a default nobody chose",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      if (kind === 'choice' && f.value === '') continue;",
+  "to": "      void 0;"
+ },
+ {
+  "label": "⚠ browser: a new step is seeded with an answer for a control nobody touched",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      else if (fd.kind === 'choice') { if (fd.required === true) st[fd.name] = (fd.options || [])[0]; }",
+  "to": "      else if (fd.kind === 'choice') st[fd.name] = (fd.options || [])[0];"
+ },
+ {
+  "label": "browser: an optional choice offers no way to leave it alone",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          const blank = must ? '' :",
+  "to": "          const blank = true ? '' :"
+ }
+]

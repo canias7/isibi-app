@@ -1556,7 +1556,10 @@ test("⚠ A REFERENCE OF THE WRONG TYPE IS REFUSED AT SAVE TIME, by name and by 
   // is `text`, and `String(["a"])` is `"a"` — a one-element list would silently become its
   // element and nobody would ever see the difference.
   const inProse = readWorkflow([{ type: "note", text: "the names are {{names}}" }], { inputs: LIST_INPUT });
-  assert.match(String(inProse.error), /"names" is a list, and text needs text/);
+  // RE-ANCHORED, NOT APPEASED: the refusal names the field by its OWN WORD now rather than by
+  // its key, because the word moved onto the field so that both doors could read one sentence.
+  // "text needs text" was the key twice over and read as a tautology.
+  assert.match(String(inProse.error), /"names" is a list, and that note needs text/);
   // A NUMBER IN A SENTENCE IS FINE, because that direction really is safe.
   const num = readWorkflow([{ type: "note", text: "there are {{howmany}}" }],
     { inputs: [{ name: "howmany", type: "number" }] });

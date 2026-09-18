@@ -642,11 +642,14 @@ test("every step field is REFUSED rather than coerced, one kind at a time", () =
     [{ type: "wait", mode: "until", at: "24:00" }, /24-hour clock/],
     [{ type: "wait", mode: "for", minutes: MAX_WAIT_MINUTES + 1 }, /between/],
     [{ type: "memory", key: "a-b", out: "t" }, /can't be a name/],
-    [{ type: "memory", key: "tone" }, /the name for this step's answer/],
+    // RE-ANCHORED, NOT APPEASED: a lookup's answer MUST be named, and the sentence now says
+    // WHY rather than naming the key — it is the field's own `empty`, read by both doors,
+    // which is what closed 15 divergences between them. Still about the same refusal.
+    [{ type: "memory", key: "tone" }, /give the answer a name, so a later step can use it/],
     // ⚠ AND THE REFUSAL NAMES IT AS THE FORM DOES. `out` is the one field whose KEY is not
     // a word on anybody's screen, so it carries its own `says`; every other field's name is
     // already the label, which is why this is a field's own word and not a table of labels.
-    [{ type: "knowledge", query: "x" }, /the name for this step's answer/],
+    [{ type: "knowledge", query: "x" }, /give the answer a name, so a later step can use it/],
     [{ type: "weekday", days: [["mon"]] }, /didn't arrive as a day/],
     [{ type: "weekday", days: [] }, /at least one day/],
     [{ type: "note", text: "x", out: "my draft" }, /can't be a name/],

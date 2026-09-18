@@ -1083,6 +1083,61 @@ test("⚠ the step catalog is the same on both sides, BOTH WAYS", () => {
   assert.ok(ENGINE_STEPS.some((s) => s.failable !== true), "everything can fail, so the other half is vacuous");
 });
 
+test("⚠ EVERY REFUSAL ABOUT A FIELD IS ONE SENTENCE, whichever door turns somebody away", () => {
+  // ⚠ **MEASURED: 15 DIVERGENCES ACROSS 11 FIELDS, all pre-existing and none guarded.** The
+  // site's generic reader named the field's KEY where the engine's bespoke `read` carried its
+  // own phrase — `on_timeout has to be one of: …` against `what happens if nobody answers has
+  // to be one of: …` — so a customer read one or the other depending on which door refused
+  // them. And for a non-string in a required TEXT field the engine read it as BLANK where the
+  // site refused it as the wrong kind, which is a coercion in the reader every text field
+  // goes through.
+  //
+  // The word lives on the FIELD (`says`) and the blank sentence too (`empty`), and BOTH doors
+  // read them. This is the census that keeps it that way: it drives every step's every field
+  // with values that are wrong in five different ways and requires the same answer.
+  const base = {
+    weekday: { days: ["mon"] }, if: { left: "a", op: "is", right: "b" }, otherwise: {}, end: {},
+    repeat: { mode: "times", times: 2 }, endrepeat: {},
+    workflow: { runs: "aaaaaaaa-0000-4000-8000-000000000001" },
+    wait: { mode: "for", minutes: 5 }, approval: { ask: "ok?", hours: 1, on_timeout: "reject" },
+    knowledge: { query: "q", out: "a" }, memory: { key: "k", out: "a" }, note: { text: "t" },
+  };
+  // FIVE WAYS TO BE WRONG, per field kind: the wrong type, blank, a list where a scalar goes,
+  // out of range or malformed, and ABSENT — `undefined` meaning the key is left off entirely.
+  const probes = [
+    { text: 7, choice: "nonsense", number: "two", days: "mon", name: 7, time: "noon", id: 7 },
+    { text: "", choice: "", number: null, days: [], name: "", time: "", id: "" },
+    { text: ["x"], choice: ["is"], number: 1.5, days: ["funday"], name: ["a"], time: "25:99", id: ["a"] },
+    { text: "x".repeat(9999), choice: null, number: -1, days: [["mon"]], name: "Not A Name", time: "9:00", id: "nope" },
+    { text: undefined, choice: undefined, number: 999999999, days: undefined, name: undefined, time: undefined, id: undefined },
+  ];
+  let drove = 0;
+  let refusals = 0;
+  for (const probe of probes) {
+    for (const def of ENGINE_STEPS) {
+      for (const f of def.fields) {
+        const one = { type: def.type, ...base[def.type] };
+        if (probe[f.kind] === undefined) delete one[f.name];
+        else one[f.name] = probe[f.kind];
+        const steps = def.type === "if" ? [one, { type: "end" }]
+          : def.type === "repeat" ? [one, { type: "endrepeat" }] : [one];
+        const site = siteCleanWorkflow(steps, SITE_STEPS, SITE_MAX_STEPS, []);
+        const engine = engineReadWorkflow(steps);
+        drove += 1;
+        if (site.error) refusals += 1;
+        assert.equal(site.error ?? null, engine.error ?? null,
+          `${def.type}.${f.name} (${f.kind}): the site says ${site.error ?? "ok"} and the engine says ${engine.error ?? "ok"}`);
+      }
+    }
+  }
+  // ⚠ THE OBSERVER, IN BOTH DIRECTIONS. An empty catalog would satisfy every line above, and
+  // so would a pair of readers that accepted everything. The floors are derived from the
+  // catalog rather than typed, so they cannot go quiet as steps are added.
+  const fieldCount = ENGINE_STEPS.reduce((n, d) => n + d.fields.length, 0);
+  assert.equal(drove, fieldCount * probes.length, "the census did not drive every field with every probe");
+  assert.ok(refusals >= fieldCount, `only ${refusals} of ${drove} probes were refused, so the readers accept too much`);
+});
+
 test("⚠ THE KINDS OF STEP AND FIELD ARE TWO TABLES IN TWO LANGUAGES, censused both ways", async () => {
   // ⚠ **A KIND ONE SIDE HAS AND THE OTHER DOES NOT IS A STEP ONE DOOR CAN SAVE AND THE OTHER
   // CANNOT RUN.** Both lists were inline literals in guards until a subworkflow needed a

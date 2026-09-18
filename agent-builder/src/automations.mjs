@@ -450,8 +450,31 @@ export function defineStep(spec = {}) {
   if (spec.produces !== undefined && !VALUE_TYPES.includes(spec.produces)) {
     throw new TypeError(`defineStep(${type}): produces ${String(spec.produces)}, which is not one of ${VALUE_TYPES.join(", ")}`);
   }
+  /**
+   * ⚠ **WHAT EVERY REFUSAL ABOUT A FIELD CALLS IT, DERIVED FROM THE FIELD ITSELF.**
+   *
+   * A step's `read` used to carry its own phrases as literals — `"the comparison"`,
+   * `"the number of minutes to wait"` — while the site builder's generic reader named the
+   * field's KEY. MEASURED over every step and every field: **15 divergent sentences across
+   * 11 fields**, so a customer read one or the other depending on which door turned them
+   * away. The word lives on the field as `says` and BOTH doors read it; absent means the
+   * name, which is what every field whose key is already the customer's word wants.
+   */
+  const words = Object.freeze(Object.fromEntries(all.map((f) => [f.name, isText(f.says) ? f.says : f.name])));
+  /**
+   * ⚠ **AND THE BLANK-FIELD SENTENCE COMES FROM THE SAME PLACE, which closed a second copy
+   * that had just been created.** Declaring `empty` on the field left every `read` still
+   * carrying the same sentence as a literal — two copies of one string, in one file, and the
+   * copy that drifts is whichever one somebody edits. `say.blank(name)` is the field's own,
+   * and absent falls back to what the site's generic reader composes.
+   */
+  const blanks = Object.freeze(Object.fromEntries(all.map((f) =>
+    [f.name, isText(f.empty) ? f.empty : `${words[f.name]} can't be empty`])));
+  const say = (name) => words[name] ?? name;
+  say.blank = (name) => blanks[name] ?? `${say(name)} can't be empty`;
+  Object.freeze(say);
   return Object.freeze({
-    kind: "step", type, stepKind: kind, label, does,
+    kind: "step", type, stepKind: kind, label, does, words,
     configless: configless === true,
     produces: spec.produces ?? "text",
     failable, retryable: retryable === true,
@@ -461,7 +484,11 @@ export function defineStep(spec = {}) {
       ...(f.when ? { when: Object.freeze(Object.fromEntries(
         Object.entries(f.when).map(([k, vs]) => [k, Object.freeze([...vs])]))) } : {}),
     }))),
-    read, run,
+    // THE WORDS ARE HANDED IN, so a `read` cannot carry a phrase of its own and no step
+    // author has to remember to. A reader written before this ignores the second argument
+    // and behaves exactly as it did.
+    read: (raw) => read(raw, say),
+    run,
   });
 }
 
@@ -489,9 +516,9 @@ const OUT_FIELD = Object.freeze({
 });
 
 /** Read an `out` name, which is optional everywhere and refused rather than repaired. */
-function readOut(raw) {
+function readOut(raw, said = "the name for this step's answer") {
   if (raw?.out === undefined || raw?.out === null || raw?.out === "") return { out: null };
-  if (typeof raw.out !== "string") return { error: "the name to save the answer under didn't arrive as a name" };
+  if (typeof raw.out !== "string") return { error: `${said} didn't arrive as a name` };
   const out = raw.out.trim().toLowerCase();
   if (!REF_NAME.test(out)) {
     return { error: `"${raw.out}" can't be a name — use lower-case letters, digits and underscores, starting with a letter` };
@@ -540,10 +567,18 @@ function readTime(raw, { name }) {
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/**
+ * ⚠ **A NON-STRING IS THE WRONG KIND, NOT BLANK — and reading it as blank was a coercion.**
+ * `readTextField` answered `{empty: true}` for a list or a number, so a required field given
+ * `["hi"]` got the "say what to write" sentence while the other door said it did not arrive
+ * as text. "Refuse, never coerce" in the reader every text field goes through.
+ */
 function readTextField(raw, { what, max }) {
-  const text = typeof raw === "string" ? raw.trim() : "";
+  if (raw === undefined || raw === null || raw === "") return { empty: true };
+  if (typeof raw !== "string") return { error: `${what} didn't arrive as text` };
+  const text = raw.trim();
   if (!text) return { empty: true };
-  if (text.length > max) return { error: `${what} is longer than ${what} can be (${max} characters)` };
+  if (text.length > max) return { error: `${what} is longer than it can be (${max} characters)` };
   return { text };
 }
 
@@ -563,11 +598,11 @@ const weekday = defineStep({
   kind: "condition",
   label: "Only on certain days",
   does: "Carry on only on the days you pick. On any other day the rest of the workflow is skipped.",
-  fields: [{ name: "days", kind: "days", required: true }],
-  read: (raw) => {
+  fields: [{ name: "days", kind: "days", required: true, empty: "pick at least one day, or take this step out" }],
+  read: (raw, say) => {
     const days = raw?.days;
     if (!Array.isArray(days)) return { error: "pick which days it should run on" };
-    if (!days.length) return { error: "pick at least one day, or leave this step out" };
+    if (!days.length) return { error: say.blank("days") };
     const picked = [];
     for (const d of days) {
       // REFUSED, NEVER COERCED. `String(["mon"])` is `"mon"`, so a coercing reader
@@ -607,12 +642,13 @@ const note = defineStep({
   kind: "action",
   label: "Save a note",
   does: "Write a line into this automation's results, so the run has something to show. Put {{a name}} anywhere to use an input or an earlier step's answer.",
-  fields: [{ name: "text", kind: "text", required: true, max: MAX_NOTE, refs: true, empty: "say what the note should say" }, OUT_FIELD],
-  read: (raw) => {
-    const t = readTextField(raw?.text, { what: "that note", max: MAX_NOTE });
+  fields: [{ name: "text", kind: "text", required: true, max: MAX_NOTE, refs: true, says: "that note",
+    empty: "say what the note should say" }, OUT_FIELD],
+  read: (raw, say) => {
+    const t = readTextField(raw?.text, { what: say("text"), max: MAX_NOTE });
     if (t.error) return { error: t.error };
-    if (t.empty) return { error: "say what the note should say" };
-    const o = readOut(raw);
+    if (t.empty) return { error: say.blank("text") };
+    const o = readOut(raw, say("out"));
     if (o.error) return { error: o.error };
     return { config: { text: t.text, out: o.out } };
   },
@@ -641,20 +677,25 @@ const branchIf = defineStep({
   label: "If …",
   does: "Compare a value — an input, or an earlier step's answer — and run the steps under it only when the comparison holds. Put an \"Otherwise\" and an \"End\" below it.",
   fields: [
-    { name: "left", kind: "text", required: true, max: MAX_TEST, refs: true, empty: "say which value to compare — {{a name}} usually" },
-    { name: "op", kind: "choice", required: true, options: TESTS },
-    { name: "right", kind: "text", required: true, max: MAX_TEST, refs: true, when: { op: ["is", "is not", "contains"] } },
+    { name: "left", kind: "text", required: true, max: MAX_TEST, refs: true, says: "the value being compared",
+      empty: "say which value to compare — {{a name}} usually" },
+    { name: "op", kind: "choice", required: true, options: TESTS, says: "the comparison" },
+    { name: "right", kind: "text", required: true, max: MAX_TEST, refs: true, when: { op: ["is", "is not", "contains"] },
+      says: "what it is compared against", empty: "say what to compare it against" },
   ],
-  read: (raw) => {
-    const left = readTextField(raw?.left, { what: "the value being compared", max: MAX_TEST });
+  read: (raw, say) => {
+    const left = readTextField(raw?.left, { what: say("left"), max: MAX_TEST });
     if (left.error) return { error: left.error };
-    if (left.empty) return { error: "say which value to compare — {{a name}} usually" };
-    const op = readChoice(raw?.op, { name: "the comparison", options: TESTS });
+    if (left.empty) return { error: say.blank("left") };
+    const op = readChoice(raw?.op, { name: say("op"), options: TESTS });
     if (op.error) return { error: op.error };
     const needsRight = op.value === "is" || op.value === "is not" || op.value === "contains";
-    const right = readTextField(raw?.right, { what: "what it is compared against", max: MAX_TEST });
+    const right = readTextField(raw?.right, { what: say("right"), max: MAX_TEST });
     if (right.error) return { error: right.error };
-    if (needsRight && right.empty) return { error: `"${op.value}" needs something to compare against` };
+    // ⚠ THE OP IS NO LONGER IN THIS SENTENCE, and that is the trade the one-word rule makes:
+    // the operator is on the same row of the form, and one sentence from one place is worth
+    // more than an interpolation the other door cannot produce.
+    if (needsRight && right.empty) return { error: say.blank("right") };
     // AN UNUSED SIDE IS DROPPED RATHER THAN STORED, so saving "is empty" twice stores
     // the same bytes and the form cannot show a value the comparison ignores.
     return { config: { left: left.text, op: op.value, right: needsRight ? right.text : null } };
@@ -725,7 +766,7 @@ const repeat = defineStep({
   label: "Repeat …",
   does: "Runs the steps under it once for each thing in a list, or a fixed number of times. Put an \"End of the repeat\" below it.",
   fields: [
-    { name: "mode", kind: "choice", required: true, options: LOOP_MODES },
+    { name: "mode", kind: "choice", required: true, options: LOOP_MODES, says: "what this repeats over" },
     // ⚠ THE ONE FIELD IN THIS PRODUCT THAT ACCEPTS ONLY A LIST, and it is why types
     // exist at all: without it a `type` on a value would be a label nothing reads.
     { name: "each", kind: "text", required: true, max: MAX_TEST, refs: true, accepts: "list",
@@ -738,19 +779,19 @@ const repeat = defineStep({
     // than iterates anything.
     { name: "as", kind: "name", required: true, says: "what to call each one", when: { mode: ["each"] } },
   ],
-  read: (raw) => {
-    const mode = readChoice(raw?.mode, { name: "what this repeats over", options: LOOP_MODES });
+  read: (raw, say) => {
+    const mode = readChoice(raw?.mode, { name: say("mode"), options: LOOP_MODES });
     if (mode.error) return { error: mode.error };
     if (mode.value === "each") {
-      const each = readTextField(raw?.each, { what: "the list to go through", max: MAX_TEST });
+      const each = readTextField(raw?.each, { what: say("each"), max: MAX_TEST });
       if (each.error) return { error: each.error };
-      if (each.empty) return { error: "say which list to go through — {{a name}}" };
-      const as = readOut({ out: raw?.as });
+      if (each.empty) return { error: say.blank("each") };
+      const as = readOut({ out: raw?.as }, say("as"));
       if (as.error) return { error: as.error };
       if (!as.out) return { error: "say what to call each one, so the steps under it can use it" };
       return { config: { mode: "each", each: each.text, as: as.out, times: null } };
     }
-    const times = readNumber(raw?.times, { name: "how many times", min: 1, max: MAX_LOOP_ITERATIONS });
+    const times = readNumber(raw?.times, { name: say("times"), min: 1, max: MAX_LOOP_ITERATIONS });
     if (times.error) return { error: times.error };
     return { config: { mode: "times", each: null, as: null, times: times.value } };
   },
@@ -795,19 +836,20 @@ const wait = defineStep({
   label: "Wait",
   does: "Pause here for a while, or until a time of day, and carry on afterwards. Nothing is held open while it waits.",
   fields: [
-    { name: "mode", kind: "choice", required: true, options: WAIT_MODES },
-    { name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: { mode: ["for"] } },
-    { name: "at", kind: "time", required: true, when: { mode: ["until"] } },
+    { name: "mode", kind: "choice", required: true, options: WAIT_MODES, says: "the kind of wait" },
+    { name: "minutes", kind: "number", required: true, min: 1, max: MAX_WAIT_MINUTES, when: { mode: ["for"] },
+      says: "the number of minutes to wait" },
+    { name: "at", kind: "time", required: true, when: { mode: ["until"] }, says: "the time to wait until" },
   ],
-  read: (raw) => {
-    const mode = readChoice(raw?.mode, { name: "the kind of wait", options: WAIT_MODES });
+  read: (raw, say) => {
+    const mode = readChoice(raw?.mode, { name: say("mode"), options: WAIT_MODES });
     if (mode.error) return { error: mode.error };
     if (mode.value === "for") {
-      const m = readNumber(raw?.minutes, { name: "the number of minutes to wait", min: 1, max: MAX_WAIT_MINUTES });
+      const m = readNumber(raw?.minutes, { name: say("minutes"), min: 1, max: MAX_WAIT_MINUTES });
       if (m.error) return { error: m.error };
       return { config: { mode: "for", minutes: m.value, at: null } };
     }
-    const t = readTime(raw?.at, { name: "the time to wait until" });
+    const t = readTime(raw?.at, { name: say("at") });
     if (t.error) return { error: t.error };
     return { config: { mode: "until", minutes: null, at: t.value } };
   },
@@ -849,17 +891,20 @@ const approval = defineStep({
   label: "Wait for approval",
   does: "Pause and ask to be approved or rejected before carrying on. Say what happens if nobody answers in time.",
   fields: [
-    { name: "ask", kind: "text", required: true, max: MAX_ASK, refs: true, empty: "say what is being approved" },
-    { name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS },
-    { name: "on_timeout", kind: "choice", required: true, options: TIMEOUT_OUTCOMES },
+    { name: "ask", kind: "text", required: true, max: MAX_ASK, refs: true, says: "what is being approved",
+      empty: "say what is being approved" },
+    { name: "hours", kind: "number", required: true, min: 1, max: MAX_APPROVAL_HOURS,
+      says: "how many hours to wait for an answer" },
+    { name: "on_timeout", kind: "choice", required: true, options: TIMEOUT_OUTCOMES,
+      says: "what happens if nobody answers" },
   ],
-  read: (raw) => {
-    const ask = readTextField(raw?.ask, { what: "what is being approved", max: MAX_ASK });
+  read: (raw, say) => {
+    const ask = readTextField(raw?.ask, { what: say("ask"), max: MAX_ASK });
     if (ask.error) return { error: ask.error };
-    if (ask.empty) return { error: "say what is being approved" };
-    const hours = readNumber(raw?.hours, { name: "how many hours to wait for an answer", min: 1, max: MAX_APPROVAL_HOURS });
+    if (ask.empty) return { error: say.blank("ask") };
+    const hours = readNumber(raw?.hours, { name: say("hours"), min: 1, max: MAX_APPROVAL_HOURS });
     if (hours.error) return { error: hours.error };
-    const on = readChoice(raw?.on_timeout, { name: "what happens if nobody answers", options: TIMEOUT_OUTCOMES });
+    const on = readChoice(raw?.on_timeout, { name: say("on_timeout"), options: TIMEOUT_OUTCOMES });
     if (on.error) return { error: on.error };
     return { config: { ask: ask.text, hours: hours.value, on_timeout: on.value } };
   },
@@ -929,16 +974,17 @@ const knowledge = defineStep({
   retryable: true,
   does: "Search this agent's reference material and save the passages that match, with the source they came from. Put {{a name}} in the search to use an input.",
   fields: [
-    { name: "query", kind: "text", required: true, max: MAX_QUERY, refs: true, empty: "say what to search for" },
-    { ...OUT_FIELD, required: true },
+    { name: "query", kind: "text", required: true, max: MAX_QUERY, refs: true, says: "that search",
+      empty: "say what to search for" },
+    { ...OUT_FIELD, required: true, empty: "give the answer a name, so a later step can use it" },
   ],
-  read: (raw) => {
-    const q = readTextField(raw?.query, { what: "that search", max: MAX_QUERY });
+  read: (raw, say) => {
+    const q = readTextField(raw?.query, { what: say("query"), max: MAX_QUERY });
     if (q.error) return { error: q.error };
-    if (q.empty) return { error: "say what to search for" };
-    const o = readOut(raw);
+    if (q.empty) return { error: say.blank("query") };
+    const o = readOut(raw, say("out"));
     if (o.error) return { error: o.error };
-    if (!o.out) return { error: "give the answer a name, so a later step can use it" };
+    if (!o.out) return { error: say.blank("out") };
     return { config: { query: q.text, out: o.out } };
   },
   run: async (config, ctx) => {
@@ -992,18 +1038,23 @@ const memory = defineStep({
   label: "Use something remembered",
   does: "Read one of this agent's saved facts or preferences and save it under a name a later step can use.",
   fields: [
-    { name: "key", kind: "name", required: true },
-    { ...OUT_FIELD, required: true },
+    { name: "key", kind: "name", required: true, says: "the saved fact to use",
+      empty: "say which saved fact to use" },
+    { ...OUT_FIELD, required: true, empty: "give the answer a name, so a later step can use it" },
   ],
-  read: (raw) => {
-    const key = typeof raw?.key === "string" ? raw.key.trim().toLowerCase() : "";
-    if (!key) return { error: "say which saved fact to use" };
+  read: (raw, say) => {
+    // THE SAME THREE REFUSALS THE SITE'S GENERIC `name` READER MAKES, in the same words:
+    // absent, the wrong kind, and a name that is not a name.
+    if (raw?.key === undefined || raw?.key === null || raw?.key === "") return { error: say.blank("key") };
+    if (typeof raw.key !== "string") return { error: `${say("key")} didn't arrive as a name` };
+    const key = raw.key.trim().toLowerCase();
+    if (!key) return { error: say.blank("key") };
     if (!REF_NAME.test(key)) {
-      return { error: `"${raw.key}" can't be the name of a saved fact — use lower-case letters, digits and underscores, starting with a letter` };
+      return { error: `"${raw.key}" can't be a name — use lower-case letters, digits and underscores, starting with a letter` };
     }
-    const o = readOut(raw);
+    const o = readOut(raw, say("out"));
     if (o.error) return { error: o.error };
-    if (!o.out) return { error: "give the answer a name, so a later step can use it" };
+    if (!o.out) return { error: say.blank("out") };
     return { config: { key, out: o.out } };
   },
   run: (config, ctx) => {
