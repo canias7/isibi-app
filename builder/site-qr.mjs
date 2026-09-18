@@ -170,9 +170,14 @@ export function qrModules(svg) {
  * "the code does not match" is the answer that sends somebody looking
  * everywhere at once.
  *
- * AND AN EMPTY COMPARISON IS A REFUSAL. `[].every(...)` is `true`, so a
- * reference matrix with nothing dark in it would pass every module test there
- * is; the observer is proved alive before its answer is believed.
+ * AND AN EMPTY COMPARISON IS A REFUSAL — a DECLARED BELT, measured inert
+ * rather than assumed so. `[].every(...)` is `true`, so a reference matrix with
+ * nothing dark in it would pass every module test there is; through
+ * `qrcode-generator` that cannot happen, because the three finder patterns are
+ * always drawn — MEASURED: the EMPTY payload still gives a 21×21 matrix with
+ * 234 dark modules. It stays because the check is about the OBSERVER rather
+ * than about this library, and a sweep cannot say that a line is deliberate.
+ * Its mutant flips the polarity instead of cutting it, which IS observable.
  */
 export function qrEncodes(svg, text) {
   const read = readQrText(text);

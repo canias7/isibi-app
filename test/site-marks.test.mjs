@@ -146,6 +146,34 @@ test("THE MATRIX IS THE LIBRARY'S, MODULE FOR MODULE — the one thing no other 
   // …and the comparison says the DRAWING is at fault rather than the address.
   assert.match(qrEncodes(oneBad, text).why, /could not be read/,
     "a malformed drawing is reported as the wrong destination");
+  // THE MARGIN IS DERIVED, NOT ASSUMED, and only a NON-DEFAULT one can say so:
+  // every code this platform draws uses four, so a hardcoded 4 is right for all
+  // of them and wrong about the property. A live check has only the served
+  // file, where being told the margin would assume the thing worth checking.
+  assert.equal(qrModules(qrSvg(text, { quiet: 6 }).svg).quiet, 6, "the margin is assumed rather than read off the drawing");
+  assert.equal(qrModules(qrSvg(text, { quiet: 6 }).svg).n, n, "a different margin changed the module count — the derivation is wrong");
+  // A DIFFERENT SIZE IS ITS OWN SENTENCE, never four hundred module
+  // disagreements: the two need different fixes and the count is unreadable.
+  const longer = "https://fold-lane-bakery.gofarther.app/" + "a".repeat(120);
+  const sized = qrEncodes(out.svg, longer);
+  assert.equal(sized.ok, false);
+  assert.match(sized.why, /modules across and .* encodes to/, sized.why);
+  assert.deepEqual([sized.missing, sized.extra], [[], []], "a size mismatch is being reported as a module-by-module disagreement");
+  // A PAYLOAD WE WOULD NEVER DRAW IS REFUSED BEFORE ANYTHING IS ENCODED, so a
+  // caller cannot ask "does this code open javascript:…" and get a comparison.
+  assert.match(qrEncodes(out.svg, "javascript:alert(1)").why, /not one we would ever draw/);
+  // AND THE COMPARISON RUNS BOTH WAYS. A drawing that is a strict SUPERSET —
+  // every right module plus one — has nothing missing, so a one-directional
+  // check passes it; the extra module is a scanner reading a different code.
+  const g = qrModules(out.svg);
+  let spare = null;
+  for (let r = 0; r < g.n && !spare; r++) for (let c = 0; c < g.n; c++) if (!g.modules.has(r + "," + c)) { spare = [r, c]; break; }
+  assert.ok(spare, "every module is dark — a superset cannot be built from this code");
+  const sup = out.svg.replace(/<path d="/, `<path d="M${spare[1] + quiet} ${spare[0] + quiet}h1v1h-1z`);
+  assert.equal(qrModules(sup).n, g.n, "the superset fixture changed the size — it would be caught for the wrong reason");
+  const over = qrEncodes(sup, text);
+  assert.equal(over.ok, false, "a drawing with one module too many is being read as this payload's code");
+  assert.deepEqual([over.missing, over.extra], [[], [spare[0] + "," + spare[1]]], over.why);
 });
 
 test("the quiet zone is there, and it is not decoration", () => {

@@ -1,0 +1,252 @@
+[
+  {
+    "label": "CONTROL: the async wall's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  // ── QUEUED WORK IS REQUIRED, AND IT IS NOT AN EXPECTATION THE CALLER SETS ──",
+    "to": "  // ── QUEUED WORK IS REQUIRED (control) ─────────────────────────────────────"
+  },
+  {
+    "label": "CONTROL: the matrix reader's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": " * THE INVERSE OF THE EMITTER ABOVE: the module set a drawing really carries.",
+    "to": " * THE INVERSE OF THE EMITTER ABOVE (control): the modules a drawing carries."
+  },
+  {
+    "label": "the async wall is gone: a site with queued work off spends anyway",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (queued !== true) {\n    no.push(queued === false",
+    "to": "  if (false && queued !== true) {\n    no.push(queued === false"
+  },
+  {
+    "label": "the async wall reads truthiness, so the string \"false\" is a yes",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (queued !== true) {",
+    "to": "  if (!queued) {"
+  },
+  {
+    "label": "off and cannot-tell get one sentence, so a route that never answered sends somebody to flip a flag that is set",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    no.push(queued === false\n      ? `queued work is OFF",
+    "to": "    no.push(true\n      ? `queued work is OFF"
+  },
+  {
+    "label": "the wrapper stops handing the route's answer over, so every run refuses blind",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "queued: runtime.async, ...want }",
+    "to": "...want }"
+  },
+  {
+    "label": "the wrapper defaults the route's answer, turning nobody-answered into the-switch-is-off",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "queued: runtime.async, ...want }",
+    "to": "queued: runtime.async === true, ...want }"
+  },
+  {
+    "label": "an absent photograph count prints as zero, so a refusal reads as a success that bought none",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const said = (v) => (Number.isFinite(v) ? String(v) : \"(not said)\");",
+    "to": "  const said = (v) => String(Number(v) || 0);"
+  },
+  {
+    "label": "the lost-photograph list is counted and never named",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "existing ones LOST ${lost.length}${lost.length ? ` — ${JSON.stringify(lost.slice(0, 6))}` : \"\"}",
+    "to": "existing ones LOST ${lost.length}"
+  },
+  {
+    "label": "the picture sentence is summarised into a word of our own",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  out.push(`   the picture sentence: ${typeof r.pictureNote === \"string\" && r.pictureNote ? JSON.stringify(r.pictureNote) : \"(none",
+    "to": "  out.push(`   the picture sentence: ${typeof r.pictureNote === \"string\" && r.pictureNote ? \"(there was one)\" : \"(none"
+  },
+  {
+    "label": "the customer's reply drops `msg`, so a refusal's whole sentence is lost again",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const parts = [[\"msg\", str(r.msg)], ...Object.keys(r)",
+    "to": "  const parts = [...Object.keys(r)"
+  },
+  {
+    "label": "the sentence set is a typed list rather than discovered, so a note added next month is silently dropped",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": ".filter((k) => /Note$/.test(k)).sort()",
+    "to": ".filter((k) => k === \"coverNote\").sort()"
+  },
+  {
+    "label": "an empty sentence is admitted, so a quoted nothing reads as the customer having been told something",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const str = (v) => (typeof v === \"string\" && v.trim() ? v : \"\");",
+    "to": "  const str = (v) => (typeof v === \"string\" ? v : \"\");"
+  },
+  {
+    "label": "the inventory reads only the pages, so a component's photograph reads as newly lost",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "photos: [...new Set([...pages, ...parts].flatMap",
+    "to": "photos: [...new Set([...pages].flatMap"
+  },
+  {
+    "label": "a code is found by a `qr-` prefix, so the legacy single `qr.svg` is invisible",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!/^qr(?:-[a-z][a-z0-9]*)?\\.svg$/.test(file)) continue;",
+    "to": "    if (!/^qr-[a-z][a-z0-9]*\\.svg$/.test(file)) continue;"
+  },
+  {
+    "label": "the inventory ignores the slug, so another site's uploads count as this one's",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "[...photoUrls(p && p.source, slug)]",
+    "to": "[...String((p && p.source) || \"\").matchAll(/[\"'](\\/u\\/[^\"']+)[\"']/g)].map((m) => m[1])"
+  },
+  {
+    "label": "a thing this change LOST is left for a reader to spot by comparing two lists",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (lost.length) out.push(`   ⚠ THIS CHANGE LOST",
+    "to": "  if (false) out.push(`   ⚠ THIS CHANGE LOST"
+  },
+  {
+    "label": "an inventory nobody could take prints an empty diff instead of saying so",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!before || !after) {",
+    "to": "  if (!before && !after) {"
+  },
+  {
+    "label": "a picture that decoded to nothing is counted and never named",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "${i.w > 0 ? \"\" : \"(BLANK) \"}",
+    "to": "${\"\"}"
+  },
+  {
+    "label": "a browser that never looked reads as a page with no pictures on it",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (drew === null) out.push(`   pictures on the new page: NOBODY LOOKED",
+    "to": "  if (false) out.push(`   pictures on the new page: NOBODY LOOKED"
+  },
+  {
+    "label": "the first candidate is answered whatever the drawing says",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const r = qrEncodes(svg, url);\n    if (r.ok) return { ok: true, url, why: null };",
+    "to": "    const r = qrEncodes(svg, url);\n    if (r || !r) return { ok: true, url, why: null };"
+  },
+  {
+    "label": "an unreadable drawing is reported as a wrong destination",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!read && /could not be read|not one we would ever draw/.test(r.why || \"\")) read = r.why;",
+    "to": "    if (false) read = r.why;"
+  },
+  {
+    "label": "an empty candidate list passes for free",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!list.length) return { ok: false, url: null, why: \"no candidate address was offered",
+    "to": "  if (false) return { ok: false, url: null, why: \"no candidate address was offered"
+  },
+  {
+    "label": "a partly-malformed drawing is read as if it were whole, and the comparison blames the payload",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (moves !== strokes.length) return no(",
+    "to": "  if (false) return no("
+  },
+  {
+    "label": "the quiet zone is assumed rather than derived from the drawing",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  let quiet = Infinity;\n  for (const m of strokes) quiet = Math.min(quiet, Number(m[1]), Number(m[2]));",
+    "to": "  let quiet = 4;"
+  },
+  {
+    "label": "the stroke pattern stops requiring its two run lengths to agree",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  const strokes = [...s.matchAll(/M(\\d+) (\\d+)h(\\d+)v1h-\\3z/g)];",
+    "to": "  const strokes = [...s.matchAll(/M(\\d+) (\\d+)h(\\d+)v1h-\\d+z/g)];"
+  },
+  {
+    "label": "a viewBox that is not square is admitted, so a file that is not one of ours is compared",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (!box || box[1] !== box[2]) return no(",
+    "to": "  if (!box) return no("
+  },
+  {
+    "label": "the size check goes, so a code of the wrong size is compared module by module",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (n !== got.n) return { ok: false, why: `the drawing is ${got.n} modules across",
+    "to": "  if (false) return { ok: false, why: `the drawing is ${got.n} modules across"
+  },
+  {
+    "label": "the empty-matrix belt is inverted, so every real code is refused (the observable half of a check that cannot be cut — the absent direction is unreachable through qrcode-generator, measured: an empty payload still draws 234 modules)",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (!expected.size) return { ok: false, why: \"the reference matrix is empty",
+    "to": "  if (expected.size) return { ok: false, why: \"the reference matrix is empty"
+  },
+  {
+    "label": "a payload we would never draw is compared instead of refused",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (!read.text) return { ok: false, why: `the expected payload is not one we would ever draw",
+    "to": "  if (false) return { ok: false, why: `the expected payload is not one we would ever draw"
+  },
+  {
+    "label": "the drawn modules are compared one way only, so an extra dark module passes",
+    "files": [
+      "builder/site-qr.mjs"
+    ],
+    "from": "  if (missing.length || extra.length) {",
+    "to": "  if (missing.length) {"
+  }
+]

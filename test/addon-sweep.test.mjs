@@ -1171,9 +1171,14 @@ test("queued work is required before any paid post, and it is not a box the call
   const open = CODE.indexOf("async function whichCode(token) {");
   const fn = CODE.slice(open, CODE.indexOf("\n}\n", open));
   assert.ok(open > 0, "whichCode moved");
-  assert.match(fn, /codeRefusals\(\{[^}]*queued: runtime\.async[^}]*\}\)/,
-    "the runtime route's async answer never reaches the decision that spends");
-  assert.ok(!/queued: runtime\.async \|\|/.test(fn), "a default between the route and the decision reads cannot-tell as off");
+  // THE ANSWER IS HANDED OVER RAW — no `||`, no `=== true`, no coercion of any
+  // kind. A sweep survivor is why this is the exact expression rather than a
+  // forbidden-spelling list: `runtime.async || false` and `runtime.async ===
+  // true` are DIFFERENT spellings of one defect, and each turns "nobody
+  // answered" into "the switch is off", which is a different sentence pointing
+  // at a different fix. Anything but the bare read is a transformation.
+  assert.match(fn, /codeRefusals\(\{[^}]*\bqueued: runtime\.async,[^}]*\}\)/,
+    "the runtime route's async answer does not reach the decision unchanged");
 });
 
 test("the caller's demand is read off the environment, and both names are the ones the workflow sends", () => {
