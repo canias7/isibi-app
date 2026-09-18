@@ -1625,3 +1625,62 @@ test("⚠ A THROW IN THE EVENT JOB DOES NOT TAKE THE SWEEPER DOWN WITH IT", asyn
       "the scheduler's own work was lost when the event job threw");
   });
 });
+
+test("⚠ THE DELIVERY ROUTE IS DISPATCHED BEFORE THE TOKEN GATE, and its own 503 comes first", async () => {
+  // ⚠ **THE ORDER IS THE WHOLE REASON THIS ROUTE IS NOT INSIDE THE API.** `api.fetch` verifies
+  // a bearer token before it looks at a path, so a delivery reaching it would be a 401 whatever
+  // it was signed with — and adding an unauthenticated exception above that gate is how the
+  // next route added there is open by accident. A delivery proves who sent it with a SIGNATURE.
+  await onFakeProject(async () => {
+    const env = good();
+    const res = await worker.fetch(new Request("https://x/deliver/wh1", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    }), env, { waitUntil() {} });
+    // 401 FROM THE DELIVERY HANDLER, NOT FROM THE API: the sentence is the one refusal every
+    // unsigned or unknown delivery gets, and it is not a bearer-token complaint.
+    assert.equal(res.status, 401);
+    const body = await res.json();
+    assert.equal(body.error, "this delivery was not accepted");
+  });
+
+  // AND THE CONFIGURATION GAP IS ITS OWN NAMED 503 rather than a throw Cloudflare answers in
+  // HTML — asked of `buildDelivery` itself, which demands only what a delivery needs.
+  const bare = await worker.fetch(new Request("https://x/deliver/wh1", { method: "POST", body: "{}" }),
+    { SUPABASE_URL: "https://p.supabase.co" }, { waitUntil() {} });
+  assert.equal(bare.status, 503);
+  const gap = await bare.json();
+  assert.match(JSON.stringify(gap), /SUPABASE_SERVICE_KEY/, "the 503 does not name what is missing");
+  // ⚠ AND IT NAMES NO QUEUE BINDING, because a delivery PRODUCES nothing: it records an event
+  // and the cron dispatches it. Demanding the API's own settings here would refuse a
+  // deployment that can serve deliveries perfectly well.
+  assert.ok(!JSON.stringify(gap).includes(QUEUE_BINDING),
+    "the delivery door demands the API's own configuration");
+
+  // ── A GET IS NOT A DELIVERY, so the shape predicate really discriminates ──
+  //
+  // ⚠ **THE STATUS CANNOT TELL THEM APART AND THE FIRST DRAFT OF THIS ASSERTED ON IT.** An
+  // unauthenticated GET is a 401 from the API's own token gate and a bad delivery is a 401
+  // from the delivery handler — the same number for opposite reasons, which is exactly the
+  // recorded "a refusal from the wrong gate looks like the wall working". The SENTENCE is what
+  // separates them, and only the delivery handler writes this one.
+  await onFakeProject(async () => {
+    const res = await worker.fetch(new Request("https://x/deliver/wh1"), good(), { waitUntil() {} });
+    const body = await res.json().catch(() => ({}));
+    assert.notEqual(body.error, "this delivery was not accepted",
+      "a GET reached the delivery handler");
+  });
+});
+
+test("⚠ the event dispatch is BOUNDED, or a burst of deliveries starves the schedules", async () => {
+  // One tick does the sweeper, the schedule, the resumes, the expiries and the events; an
+  // unbounded event read is one slow minute away from the other four never running.
+  await onFakeProject(async (rest) => {
+    await worker.scheduled({}, good(), { waitUntil() {} });
+    // READ OFF THE REQUEST THE STORE REALLY SENT, which is the only place the bound exists:
+    // the fake's own answer cannot say what it was asked for.
+    const sent = rest.fetch.calls.filter((c) => String(c.url).endsWith("/rpc/dispatch_events"));
+    assert.equal(sent.length, 1, `the tick dispatched events ${sent.length} times`);
+    const asked = sent[0].body?.p_limit;
+    assert.ok(Number.isInteger(asked) && asked > 0 && asked <= 500, `the dispatch asked for ${asked}`);
+  });
+});

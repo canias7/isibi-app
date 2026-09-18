@@ -311,11 +311,13 @@ test("the stop carries the day it asked about, so a skip can be explained later"
  * `advanced` COMES BACK AS WELL AS `ok`, because the real function answers both and the
  * runner's reading of a retry depends on it.
  */
-function routed({ executor = "automation", exec, finish, advance, search, automations, attempts = 1, now } = {}) {
+function routed({ executor = "automation", exec, finish, advance, search, automations, attempts = 1, now,
+                  hear, children, setPlan } = {}) {
   const events = [];
   const errors = [];
   const released = [];
   const steps = [];
+  const heard = [];
   const timers = { set: 0, clear: 0 };
   const work = {
     claim: async ({ runId, worker }) => ({
@@ -337,6 +339,13 @@ function routed({ executor = "automation", exec, finish, advance, search, automa
       finish: finish ?? (async () => ({ ok: true, stored: true, seq: 1, finished: true })),
       advance: advance ?? (async (a) => { steps.push(a); return { ok: true, stored: true, seq: 1, advanced: true }; }),
       search: search ?? (async () => ({ excerpts: [] })),
+      // ⚠ THE EVENT SIDE, ON THE FAKE, BECAUSE THE RUNNER REALLY CALLS IT. A harness without
+      // `hearPendingEvent` makes the arrival race's own half throw — which the runner logs
+      // and never raises, so every case would pass over a hop that does not work. *A fake
+      // less capable than the real store hides a defect exactly as well as one that is more.*
+      hearPendingEvent: hear ?? (async (a) => { heard.push(a); return { ok: true, heard: false, why: "nothing-yet" }; }),
+      children: children ?? (async () => []),
+      setPlan: setPlan ?? (async () => ({ ok: true, set: true })),
     }),
     // ⚠ THE TIMER RECORDS, because "the heartbeat stopped" is otherwise unobservable —
     // a sweep mutant that left a released claim being renewed survived a fixture that
@@ -345,7 +354,7 @@ function routed({ executor = "automation", exec, finish, advance, search, automa
     onEvent: (e) => events.push(e),
     onError: (e) => errors.push(e),
   });
-  return { runner, events, errors, released, steps, timers };
+  return { runner, events, errors, released, steps, timers, heard };
 }
 
 const EXEC = {
@@ -2484,3 +2493,396 @@ function wholeStepFor(st) {
   }
   return row;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// TRIGGERS — the wire, the hops, and what an event wait really does
+//
+// ⚠ **WHY THIS BLOCK EXISTS, AND IT IS THE FIFTH RECORDED TIME.** Every property below is
+// proved end to end by `npm run verify:triggers`, which `npm run sweep` does not run — so a
+// mutant that breaks one is a mutant nothing can catch. THIRTY-TWO survived a pass over this
+// round's work, and not one was the product's. *A property proven only by an instrument the
+// sweep cannot run is a property no mutant can be caught by.*
+// ════════════════════════════════════════════════════════════════════════════
+
+/** A store whose every request is recorded, over a fake PostgREST that answers plausibly. */
+function recordingStore(answer = () => ({ ok: true })) {
+  const seen = [];
+  const store = makeAutomationStore({
+    url: "https://p.example", key: "k", schema: "agent",
+    fetch: async (url, init) => {
+      const body = init?.body ? JSON.parse(init.body) : null;
+      seen.push({ url, method: init.method, headers: init.headers, body });
+      const out = answer(url, body);
+      return { ok: true, status: 200, text: async () => JSON.stringify(out) };
+    },
+  });
+  return { store, seen };
+}
+
+test("⚠ THE REQUEST THE STORE REALLY SENDS — every event operation, by its own arguments", async () => {
+  // A CENSUS, NOT A SAMPLE, and it asserts its own count: an operation added to the event
+  // side later has to be named here or the arithmetic fails. Ten sweep mutants live inside
+  // these four bodies and the answers alone cannot see any of them — what separates "the
+  // emit carried its payload" from "the emit dropped it" is the REQUEST.
+  const { store, seen } = recordingStore((url) => (url.includes("dispatch_events") ? [] : { ok: true }));
+
+  await store.emit({
+    tenant: "t1", agentId: "ag1", id: "e1", name: "order.paid",
+    payload: { amount: 42 }, source: "webhook", key: "dlv-1", fromRun: "run-1",
+  });
+  await store.dispatchEvents({ limit: 7 });
+  await store.hearPendingEvent({ runId: "r1", tenant: "t1" });
+  await store.webhookForDelivery("wh1");
+  assert.equal(seen.length, 4, "the census must drive every event operation exactly once");
+
+  const [emit, dispatch, hear, hook] = seen;
+
+  // ── the emit ─────────────────────────────────────────────────────────────
+  assert.match(emit.url, /rpc\/emit_event$/);
+  assert.deepEqual(emit.body, {
+    p_tenant: "t1", p_agent_id: "ag1", p_id: "e1", p_name: "order.paid",
+    p_payload: { amount: 42 }, p_source: "webhook", p_key: "dlv-1", p_from_run: "run-1",
+  });
+  // ⚠ AND THE CEILING IS NOT ON THE WIRE, which is the whole of the depth bound being the
+  // database's: `p_max_depth` is the function's own default, so nothing outside can reset it.
+  assert.ok(!Object.hasOwn(emit.body, "p_max_depth"), "the depth ceiling must not be a caller's argument");
+  // THE DEPTH ITSELF IS TAKEN FROM THE RUN, so `p_from_run` is the field that bounds a chain.
+  assert.equal(emit.body.p_from_run, "run-1");
+
+  // ── the dispatch ─────────────────────────────────────────────────────────
+  assert.match(dispatch.url, /rpc\/dispatch_events$/);
+  assert.deepEqual(dispatch.body, { p_limit: 7 }, "the bound is sent, or a burst starves the schedules");
+
+  // ── the hearing ──────────────────────────────────────────────────────────
+  assert.match(hear.url, /rpc\/hear_pending_event$/);
+  assert.deepEqual(hear.body, { p_run_id: "r1", p_tenant: "t1" },
+    "the tenant rides, or the row is asked about without saying whose it is");
+
+  // ── the endpoint reader ──────────────────────────────────────────────────
+  assert.match(hook.url, /rpc\/webhook_for_delivery$/);
+  assert.deepEqual(hook.body, { p_id: "wh1" },
+    "a delivery has no tenant to take one from — the account is what this ANSWERS");
+
+  // EVERY ONE IS A POST, so every one names the schema it WRITES to. `webhook_for_delivery`
+  // reads and is still a POST, which is the rule `rest-profile.mjs` states.
+  for (const r of seen) {
+    assert.equal(r.method, "POST");
+    assert.equal(r.headers["content-profile"], "agent");
+    assert.equal(r.headers["accept-profile"], undefined);
+  }
+});
+
+test("⚠ the emit's defaults are the SAFE ones, not the caller's shape", async () => {
+  const { store, seen } = recordingStore();
+  await store.emit({ tenant: "t1", agentId: null, id: "e1", name: "x.y" });
+  // A PAYLOAD THAT IS NOT AN OBJECT IS `{}`, NOT THE VALUE — `String(["a"])` is `"a"`, and a
+  // list reaching a jsonb column would be an event carrying something nobody sent.
+  assert.deepEqual(seen[0].body.p_payload, {});
+  // A SOURCE NOBODY GAVE IS `person`, because a person is who emits one by hand; and `null`
+  // for the key and the run means "no dedup key" and "not from a run", which are real answers.
+  assert.equal(seen[0].body.p_source, "person");
+  assert.equal(seen[0].body.p_key, null);
+  assert.equal(seen[0].body.p_from_run, null);
+  // AND A JUNK SOURCE FALLS TO `person` RATHER THAN RIDING: the column's own check would
+  // refuse it, so sending it is a refusal arriving as a 400 instead of as a default.
+  const b = recordingStore();
+  await b.store.emit({ tenant: "t1", agentId: "a", id: "e", name: "x.y", source: ["webhook"], key: 7, fromRun: {} });
+  assert.equal(b.seen[0].body.p_source, "person");
+  assert.equal(b.seen[0].body.p_key, null);
+  assert.equal(b.seen[0].body.p_from_run, null);
+});
+
+test("⚠ an unreadable dispatch answer is REFUSED, never read as `no events happened`", async () => {
+  // Reading it as nothing turns an outage into a platform that quietly stopped delivering
+  // events, which is the one failure nobody would notice — the same rule `children` follows.
+  for (const junk of [null, { ok: true }, "[]", 7]) {
+    const { store } = recordingStore(() => junk);
+    await assert.rejects(() => store.dispatchEvents(), /not a list/, `${JSON.stringify(junk)} was read as a list`);
+  }
+  // THE CONTROL: a real answer comes through WHOLE, so "always rejects" cannot pass.
+  const rows = [{ event_id: "e1", name: "x.y", filed: 1, woke: 0, ring: ["r1"] }];
+  const { store } = recordingStore(() => rows);
+  assert.deepEqual(await store.dispatchEvents(), rows);
+});
+
+test("⚠ the endpoint reader answers the ROW, with no `ok` to ask for", async () => {
+  // `agent.webhook_for_delivery` answers the row or SQL null and carries no `ok` and no
+  // `enabled` — the first draft of this reader asked for both, which would have returned
+  // `null` for every endpoint that exists, so EVERY delivery on the platform would have been
+  // refused `no-endpoint` with the whole chain correct. The wiring layer.
+  const row = { id: "wh1", tenant_id: "t1", agent_id: "ag1", event_name: "order.paid", secret: "s".repeat(40) };
+  const { store } = recordingStore(() => row);
+  const got = await store.webhookForDelivery("wh1");
+  assert.equal(got.id, "wh1");
+  // `tenantId`, WHICH IS WHAT `verifyDelivery` READS — the field name is the contract
+  // between this reader and that module, so asserting the store's own spelling is the point.
+  assert.equal(got.tenantId, "t1");
+  assert.equal(got.agentId, "ag1");
+  // AND THE ROW IS AN ENABLED ONE BY CONSTRUCTION: the function's own `where enabled` means
+  // a row coming back is enabled, which the store states rather than re-asking.
+  assert.equal(got.enabled, true);
+  // ⚠ A ROW WITH NO SECRET, OR NO TENANT, IS NOT AN ENDPOINT. Answering one would hand
+  // `verifyDelivery` nothing to compare against — and a comparison against `undefined` is a
+  // signature check that cannot refuse.
+  for (const broken of [{ ...row, secret: undefined }, { ...row, secret: "" }, { ...row, tenant_id: null }]) {
+    const { store: bad } = recordingStore(() => broken);
+    assert.equal(await bad.webhookForDelivery("wh1"), null, `${JSON.stringify(broken)} was read as an endpoint`);
+  }
+  // ⚠ THE EVENT NAME COMES OFF `event_name`, which is the column's own spelling — reading
+  // `name` would answer `undefined` and every delivery would raise an event called nothing.
+  assert.equal(got.event, "order.paid");
+  assert.equal(got.secret, "s".repeat(40));
+  // AND NOTHING IS AN ENDPOINT: a null answer, and an id that is not a string.
+  const { store: empty } = recordingStore(() => null);
+  assert.equal(await empty.webhookForDelivery("wh1"), null);
+  assert.equal(await empty.webhookForDelivery(""), null);
+});
+
+test("⚠ the execution read ASKS for what it has heard, and for its loop state", async () => {
+  // THE SELECT LIST IS THE WIRE. A column the read stops naming is one PostgREST does not
+  // send, and `heard` missing reads as `{}` — which an event wait reads as "nothing yet", so
+  // a suspended execution that really heard its event RE-PAUSES for ever. MEASURED end to
+  // end, through the whole dispatcher, with the engine and the database both correct.
+  const { store, seen } = recordingStore(() => []);
+  await store.read("r1", "t1");
+  const select = decodeURIComponent(seen[0].url);
+  for (const col of ["heard", "loops", "tries", "waiting", "wait_until", "decisions", "outcomes"]) {
+    assert.ok(new RegExp(`[,=]${col}\\b`).test(select), `the read does not ask for ${col}`);
+  }
+  // AND WHAT COMES BACK IS READ UNDER ITS OWN NAME, with `{}` for a row that has none —
+  // which is what every execution accepted before an event wait existed really is.
+  const row = {
+    id: "r1", automation_id: "c1", tenant_id: "t1", trigger: "manual", steps: [],
+    zone: "UTC", heard: { s1: { name: "order.paid", payload: { a: 1 } } },
+    loops: { 0: { at: 2 } }, tries: { "3": 1 },
+  };
+  const { store: full } = recordingStore(() => [row]);
+  const got = await full.read("r1", "t1");
+  assert.deepEqual(got.heard, row.heard);
+  assert.deepEqual(got.loops, row.loops);
+  assert.deepEqual(got.tries, row.tries);
+  // THE CONTROL, so "always `{}`" cannot satisfy the line above: a row with none reads `{}`
+  // and not `null`, because the executor reads a missing KEY as a re-pause.
+  const { store: bare } = recordingStore(() => [{ ...row, heard: undefined, loops: null, tries: "x" }]);
+  const none = await bare.read("r1", "t1");
+  assert.deepEqual(none.heard, {});
+  assert.deepEqual(none.loops, {});
+  assert.deepEqual(none.tries, {});
+});
+
+test("⚠ the progress call carries the loop and retry state, and REFUSES a non-list plan", async () => {
+  const { store, seen } = recordingStore();
+  await store.advance({
+    runId: "r1", worker: "w", token: "tok", entry: { kind: "step" }, position: 3,
+    values: { a: "1" }, outcomes: [{ id: "s1" }], waiting: null,
+    loops: { 0: { at: 1, list: ["x"] } }, tries: { "2": 1 },
+  });
+  assert.deepEqual(seen[0].body.p_loops, { 0: { at: 1, list: ["x"] } },
+    "the loop state must reach the row, or a restart reads a loop at its beginning");
+  assert.deepEqual(seen[0].body.p_tries, { "2": 1 },
+    "the retry count must reach the row, or every delivery gets a fresh budget");
+  // ⚠ AND NEITHER MAY BE `null` ON THE WIRE: `agent.advance_automation_run` refuses a null
+  // there, so sending one is a refusal arriving as an error instead of as a default.
+  const b = recordingStore();
+  await b.store.advance({ runId: "r1", worker: "w", token: "t", entry: {}, position: 1, outcomes: [] });
+  assert.deepEqual(b.seen[0].body.p_loops, {});
+  assert.deepEqual(b.seen[0].body.p_tries, {});
+  // THE PLAN WRITE REFUSES A NON-LIST rather than coercing it to an empty one, which would
+  // defeat the database's own raise and write a workflow of no steps over somebody's.
+  const c = recordingStore();
+  for (const junk of [null, undefined, "[]", {}, 7]) {
+    await assert.rejects(
+      () => c.store.setPlan({ runId: "r1", worker: "w", token: "t", steps: junk, uses: [] }),
+      TypeError, `setPlan took ${JSON.stringify(junk)} as a workflow`);
+  }
+  // THE CONTROL: a real list goes through, so "always rejects" cannot pass.
+  await c.store.setPlan({ runId: "r1", worker: "w", token: "t", steps: [{ id: "s1", type: "note" }], uses: [] });
+  assert.deepEqual(c.seen.at(-1).body.p_steps, [{ id: "s1", type: "note" }]);
+});
+
+// ── the runner's own hops, on the event side ────────────────────────────────
+
+test("⚠ THE ARRIVAL RACE IS ASKED ONLY FOR AN EVENT PAUSE, and its answer is reported", async () => {
+  // A timed wait has its deadline and an approval has a person, so asking either would be a
+  // round trip that can only answer "no". The census drives all three pauses and counts.
+  const pause = (step) => ({ ...EXEC, steps: [step, { id: "s2", type: "note", text: "after" }] });
+  const ev = routed({ exec: pause({ id: "s1", type: "event", name: "order.paid" }) });
+  const evOut = await ev.runner.deliver("r1");
+  assert.equal(evOut.why, "waiting");
+  assert.equal(ev.heard.length, 1, "an event pause must ask whether one already arrived");
+  // THE TENANT COMES FROM THE CLAIM, never from the execution row: the claim answered it in
+  // the statement that took the work, which is the one reading a stale delivery cannot forge.
+  assert.deepEqual(ev.heard[0], { runId: "r1", tenant: "t1" });
+
+  for (const step of [{ id: "s1", type: "wait", mode: "for", minutes: 5 },
+                      // `hours` IS REQUIRED and its absence is why the first draft of this
+                      // case read `ran` — an approval with no window is not an approval, and
+                      // the step's own `read` refuses it rather than defaulting one.
+                      { id: "s1", type: "approval", ask: "ok?", hours: 24, on_timeout: "reject" }]) {
+    const other = routed({ exec: pause(step) });
+    const out = await other.runner.deliver("r1");
+    assert.equal(out.why, "waiting", `a ${step.type} pause did not suspend`);
+    assert.equal(other.heard.length, 0, `a ${step.type} pause asked about an event`);
+  }
+
+  // AND WHEN ONE REALLY WAS HEARD IT IS SAID, or nobody watching can tell the race from a
+  // pause that is simply waiting.
+  const got = routed({
+    exec: pause({ id: "s1", type: "event", name: "order.paid" }),
+    hear: async () => ({ ok: true, heard: true, name: "order.paid", queued: "requeued" }),
+  });
+  await got.runner.deliver("r1");
+  assert.ok(got.events.some((e) => e.at === "heard" && e.event === "order.paid"),
+    "a hearing that happened was not reported");
+});
+
+test("⚠ a FAILED hearing is logged and never raised, because the pause is already committed", async () => {
+  // The transaction that recorded the pause released the worker, so the worst case here is
+  // the recorded wait taking one tick longer. RAISING would report a committed pause as a
+  // failed run — the run comes off the queue, the customer is told it broke, and the row is
+  // sitting there waiting perfectly well.
+  const { runner, errors, events } = routed({
+    exec: { ...EXEC, steps: [{ id: "s1", type: "event", name: "order.paid" }] },
+    hear: async () => { throw new Error("postgrest is down"); },
+  });
+  const out = await runner.deliver("r1");
+  assert.equal(out.ran, true);
+  assert.equal(out.why, "waiting", "a failed hearing ended the run");
+  assert.ok(errors.some((e) => e.at === "automation-hear" && /postgrest is down/.test(e.error)),
+    "the failure was swallowed instead of logged");
+  assert.ok(events.some((e) => e.at === "waiting"), "the pause was not reported");
+});
+
+test("⚠ the durable loop and retry state reach the checkpoint, and a stale move is SAID", async () => {
+  // Two properties in one delivery, because they are two readings of one call. A loop's state
+  // dropped here leaves a restart re-entering a round it has already done, with the executor
+  // and the database both correct; and `advanced: false` is the line the loop defect hid
+  // behind — for every round after the first the answer was `ok: true, advanced: false` and
+  // nothing anywhere looked at it.
+  const { runner, steps, errors } = routed({
+    exec: { ...EXEC, steps: [
+      { id: "s1", type: "repeat", mode: "times", times: 2 },
+      { id: "s2", type: "note", text: "round" },
+      { id: "s3", type: "endrepeat" },
+    ] },
+    advance: async (a) => ({ ok: true, stored: true, seq: 1, advanced: false, ...(steps.push(a) && {}) }),
+  });
+  await runner.deliver("r1");
+  assert.ok(steps.length >= 2, `only ${steps.length} checkpoints`);
+  // EVERY CHECKPOINT CARRIES BOTH, present rather than truthy: `{}` is a real answer and the
+  // database refuses a null, so an absent key and an empty object are different requests.
+  for (const c of steps) {
+    assert.ok(Object.hasOwn(c, "loops"), "a checkpoint carried no loop state");
+    assert.ok(Object.hasOwn(c, "tries"), "a checkpoint carried no retry state");
+  }
+  // AND THE LOOP REALLY HAS STATE TO CARRY, or the assertion above is about two empty objects.
+  assert.ok(steps.some((c) => c.loops && Object.keys(c.loops).length > 0),
+    "no checkpoint inside the loop carried a round");
+  assert.ok(errors.some((e) => e.at === "automation-stale"),
+    "a row that did not move was not reported");
+});
+
+// ── the event step itself ───────────────────────────────────────────────────
+
+test("⚠ AN EVENT HEARD FOR ANOTHER STEP DOES NOT RESUME THIS ONE", async () => {
+  // `heard` is a map keyed by STEP, and a resume matched on anything looser would hand one
+  // pause another pause's event — with nobody having sent a second one. Two event waits is
+  // the only shape that separates the two readings, exactly as two approvals is for a
+  // decision: with one, `heard[id]` and "anything in heard" are the same object.
+  const two = {
+    ...EXEC,
+    steps: [
+      { id: "s1", type: "event", name: "first.thing" },
+      { id: "s2", type: "event", name: "second.thing" },
+      { id: "s3", type: "note", text: "both" },
+    ],
+  };
+  // ONLY s2 HAS BEEN HEARD, and the execution is paused at s1. A reader that ignored the key
+  // would carry on past s1 on an event s2 was waiting for.
+  const { runner } = routed({
+    exec: { ...two, position: 0, waiting: { kind: "event", name: "first.thing", step: "s1" },
+      heard: { s2: { name: "second.thing", payload: {} } } },
+  });
+  const out = await runner.deliver("r1");
+  assert.equal(out.why, "waiting", "it resumed on another step's event");
+  assert.equal(out.waiting.step, "s1");
+  // ⚠ THE CONTROL, and the first draft of it ASSERTED NOTHING — a tangle of `?.` and `??`
+  // around a destructured `runner` that never called `deliver` at all. A negative assertion
+  // is only worth what its observer is worth, and without this line "it resumed on another
+  // step's event" is satisfied by a runner that never resumes on anything.
+  const ok = routed({
+    exec: { ...two, position: 0, waiting: { kind: "event", name: "first.thing", step: "s1" },
+      heard: { s1: { name: "first.thing", payload: { who: "dpd" } } } },
+  });
+  const moved = await ok.runner.deliver("r1");
+  // IT CARRIES ON PAST s1 AND SUSPENDS AT s2, which is the right answer: the second event
+  // wait has its own step and nothing has heard one for it.
+  assert.equal(moved.why, "waiting");
+  assert.equal(moved.waiting.step, "s2", `it stopped at ${moved.waiting?.step} instead of reaching s2`);
+});
+
+test("⚠ NOTHING HEARD YET IS A RE-PAUSE, NEVER A FAILURE", async () => {
+  // A delivery can arrive for another reason entirely — the sweeper, a resume somebody
+  // pressed — and reading that as "the event did not happen" would END a run that is waiting
+  // perfectly well, with a `failed` the customer reads as broken.
+  const step = { id: "s1", type: "event", name: "order.paid", out: "it" };
+  const { runner } = routed({
+    exec: { ...EXEC, steps: [step, { id: "s2", type: "note", text: "got {{it}}" }],
+      position: 0, waiting: { kind: "event", name: "order.paid", step: "s1" }, heard: {} },
+  });
+  const out = await runner.deliver("r1");
+  assert.equal(out.why, "waiting", `a re-delivery with nothing heard read as ${out.why}`);
+  assert.equal(out.stop, null, "a re-pause must write no stop");
+  // AND THE CONTROL, which is what makes "always waits" fail: the event's PAYLOAD is bound to
+  // the name the step declared, and the run carries on.
+  const { runner: heard } = routed({
+    exec: { ...EXEC, steps: [step, { id: "s2", type: "note", text: "got {{it}}" }],
+      position: 0, waiting: { kind: "event", name: "order.paid", step: "s1" },
+      heard: { s1: { name: "order.paid", payload: { who: "dpd" } } } },
+  });
+  const done = await heard.deliver("r1");
+  assert.equal(done.stop.reason, "done");
+  assert.equal(done.stop.result, 'got {"who":"dpd"}');
+});
+
+test("⚠ AN EVENT NAME IS ITS OWN FIELD KIND, wider than a `name` and still checked", async () => {
+  // ⚠ **THE TWO DOORS HAVE TO AGREE, and this field kind is the whole reason it works.** An
+  // event name carries dots and dashes (`order.paid`), which `AGENT_NAME_RE` refuses — so a
+  // shape enforced anywhere but in a kind of its own would mean the site refusing what the
+  // engine accepts, with both halves reading as correct. `EVENT_NAME` is the one regex and
+  // the site's `AGENT_EVENT_RE` is censused against it in `test/agent-send.test.mjs`.
+  assert.ok(FIELD_KINDS.includes("event"), "there is no `event` field kind to enforce it");
+  const ev = (name) => readWorkflow([{ type: "event", name }], AUTOMATION_STEPS, 20, []);
+  // THE DOTTED NAME IS THE POINT: it is what a `name` kind would refuse.
+  assert.equal(ev("order.paid").error, undefined, JSON.stringify(ev("order.paid").error));
+  assert.equal(ev("a-b_c.d").error, undefined);
+  // ⚠ **A NAME FOLDS CASE RATHER THAN REFUSING, AND THAT IS ASSERTED POSITIVELY — the first
+  // draft of this case expected `Order.Paid` to be refused and was passing a GOOD name.** The
+  // recorded M3 correction, met again: a check written for a bad name that a fold rescues is a
+  // check about nothing. All THREE doors fold the same way — this reader, the site's
+  // `cleanSchedule` for `on_event`, and the site's endpoint route — so a customer typing
+  // `Order.Paid` in any of them stores `order.paid` and the trigger really matches.
+  // ⚠ READ OFF THE PRODUCER'S OWN SHAPE: `readWorkflow` answers FLAT steps
+  // (`{id, type, name, out}`), not the `{config}` the executor keeps internally — and the
+  // first draft of these lines asked for `.config.name` and got `undefined`. *Derive a
+  // fixture from its real producer*, which here means reading what the function returns.
+  assert.equal(ev("Order.Paid").steps[0].name, "order.paid");
+  assert.equal(ev("  order.paid  ").steps[0].name, "order.paid");
+  // AND THE SHAPE IS REALLY CHECKED — each of these is a name NO FOLD CAN RESCUE, refused BY
+  // NAME rather than stored and never fired.
+  for (const bad of ["1st.thing", ".leading", "has space", "a".repeat(65), "", "  ", "a/b", "a:b"]) {
+    assert.ok(ev(bad).error, `the event name ${JSON.stringify(bad)} was accepted`);
+  }
+  // REFUSED, NEVER COERCED: `String(["order.paid"])` is `"order.paid"`, so a list must not
+  // become a name — this repository's most repeated value trap.
+  for (const junk of [["order.paid"], 7, {}, null, true]) {
+    assert.ok(ev(junk).error, `${JSON.stringify(junk)} was read as an event name`);
+  }
+  // THE STORED CONFIG KEEPS BOTH FIELDS, which is what makes `{{it}}` mean anything — a
+  // field the `read` drops is a dead control, and this one was dropped in its first draft.
+  const kept = readWorkflow([{ type: "event", name: "order.paid", out: "it" }], AUTOMATION_STEPS, 20, []);
+  assert.equal(kept.error, undefined);
+  assert.equal(kept.steps[0].name, "order.paid");
+  assert.equal(kept.steps[0].out, "it");
+  assert.ok(kept.produces.includes("it"), "the step does not declare what it produces");
+});
