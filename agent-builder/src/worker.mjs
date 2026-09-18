@@ -36,6 +36,7 @@ import { makeCapabilities } from "./capabilities.mjs";
 import { makeApprovals } from "./approvals.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";
+import { makeDeliveryApi } from "./webhooks.mjs";
 import { makeRunner } from "./runner.mjs";
 import { makeStandIn } from "./model-standin.mjs";
 import { AGENTS } from "./agents.mjs";
@@ -144,6 +145,21 @@ export const AUTOMATION_RESUME_LIMIT = 50;
  * scheduler would make a backlog of one starve the other.
  */
 export const APPROVAL_SWEEP_LIMIT = 50;
+
+/**
+ * How many undispatched events one tick may deliver.
+ *
+ * ⚠ **ITS OWN NUMBER, AND IT BOUNDS THE WIDEST POPULATION OF THE FIVE.** One event can file
+ * several triggers and wake several waiters, so a tick's real work is events TIMES what each
+ * one touches — and events arrive from outside (a webhook), which none of the other four do.
+ * Sharing a number with the scheduler would let a burst of deliveries starve every schedule
+ * on the platform, which is the failure a shared bound always eventually produces here.
+ *
+ * **AND THE BACKLOG IS SAFE BY CONSTRUCTION**: an event stays undispatched until it is
+ * dispatched, so what one tick does not reach the next one does. Nothing is dropped; the
+ * bound decides latency and never loss.
+ */
+export const EVENT_DISPATCH_LIMIT = 50;
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
@@ -282,6 +298,30 @@ export function buildAutomations(env, { fetchImpl } = {}) {
 }
 
 /**
+ * The inbound delivery handler.
+ *
+ * ⚠ **ITS OWN BUILDER, AND `consume` IS THE RIGHT DEMAND.** A delivery writes an EVENT and
+ * rings nothing: what the event triggers is the cron's job, and the cron already asks for the
+ * whole deployment. So this needs no queue binding — which is also why it cannot accidentally
+ * become a second producer.
+ *
+ * **IT TAKES THE TWO OPERATIONS AND NOT THE STORE**, so the surface it can reach is two
+ * functions rather than everything an automation store can do. `webhookForDelivery` is the
+ * one reader of a secret anywhere in this product, and handing it over by name is what keeps
+ * that countable.
+ */
+export function buildDelivery(env, { fetchImpl } = {}) {
+  const missing = missingFor(env, "consume");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  const automations = parts(env, { fetchImpl }).automations;
+  return makeDeliveryApi({
+    readEndpoint: (id) => automations.webhookForDelivery(id),
+    emit: (args) => automations.emit(args),
+    onError: (e) => console.error("agent-deliver", JSON.stringify(e)),
+  });
+}
+
+/**
  * The approvals store, for the ONE thing that is not tenant-scoped.
  *
  * ⚠ ITS OWN BUILDER rather than a field on `buildAutomations`' return, because the two are
@@ -363,11 +403,40 @@ function health(env) {
   }), { status: 200, headers: HEALTH_HEADERS });
 }
 
+/**
+ * WHETHER A PATH IS A DELIVERY, asked WITHOUT building anything.
+ *
+ * ⚠ **A ROUTE'S SHAPE IS NOT CONFIGURATION, and asking the built handler would invert the
+ * order**: an unconfigured deployment would fall through to `buildApi`, which answers a 503
+ * naming the settings — for a path that needs none of the same ones. It is the same object's
+ * own predicate, built with two throwaway operations, so the shape is declared in exactly one
+ * place and this cannot drift from what the handler really serves.
+ */
+const delivery = makeDeliveryApi({ readEndpoint: async () => null, emit: async () => ({ ok: false }) });
+
 export default {
   async fetch(request, env, ctx) {
     // Before the configuration check on purpose — see `health`.
     const path = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
     if ((path === "/health" || path === "/") && request.method === "GET") return health(env);
+
+    /**
+     * ⚠ **THE ONE OTHER ROUTE WITH NO BEARER TOKEN, AND IT IS DISPATCHED HERE RATHER THAN
+     * INSIDE THE API FOR EXACTLY THAT REASON.** `api.fetch` verifies a token before it looks
+     * at a path; an unauthenticated route added above that gate would make the gate an
+     * exception a later reader has to notice, and the next route added there would be open by
+     * accident. A delivery proves who sent it with a SIGNATURE instead, and the account it
+     * belongs to is the endpoint row's — never the payload's.
+     *
+     * **IT IS BEFORE THE CONFIGURATION CHECK'S `buildApi` AND AFTER ITS OWN**, so a gap is
+     * still the named 503 rather than a throw Cloudflare answers in HTML.
+     */
+    if (delivery.handles(path, request.method)) {
+      let door;
+      try { door = buildDelivery(env); }
+      catch (e) { return configGap(e); }
+      return door.fetch(request);
+    }
 
     let api;
     try { api = buildApi(env); }
@@ -568,6 +637,46 @@ export default {
       console.log("agent-expired", JSON.stringify({ closed: stale.length, rung }));
     } catch (e) {
       console.error("agent-expired", String(e?.message ?? e));
+    }
+
+    /**
+     * ── job five: deliver every event nobody has dispatched yet ──────────────
+     *
+     * ⚠ **ITS OWN `try`, FOR THE REASON THE FOUR ABOVE HAVE ONE**: five jobs, five blocks,
+     * and none may silence another.
+     *
+     * **ONE FUNCTION DOES BOTH HALVES OF WHAT AN EVENT MEANS, and they are one transaction
+     * per event deliberately.** An event both TRIGGERS automations that listen for it and
+     * WAKES executions already waiting on it, and doing those in two statements would let a
+     * run be woken for an event whose triggers were never filed. `for update skip locked`
+     * means two ticks cannot dispatch the same event, so a slow one does not block the rest.
+     *
+     * **AND THE RING IS SEPARATE FROM THE DISPATCH, exactly as the scheduler's is.** The
+     * work is committed by the time a run id comes back, so a ring that fails costs latency
+     * and never work — the row is claimable and the sweeper offers it.
+     */
+    try {
+      const dispatched = await automations.dispatchEvents({ limit: EVENT_DISPATCH_LIMIT });
+      const tally = {};
+      let rung = 0;
+      for (const row of dispatched) {
+        const action = typeof row?.action === "string" ? row.action : "?";
+        tally[action] = (tally[action] ?? 0) + 1;
+        // EVERY RUN ONE EVENT TOUCHED, which is a LIST rather than one id: an event can file
+        // a trigger AND wake a waiter, and ringing only the first would leave the other
+        // waiting for the sweeper. A row that changed nothing carries none.
+        // ⚠ THE KEY IS `ring`, WHICH IS WHAT THE FUNCTION REALLY ANSWERS — the first draft
+        // read `runs` and would have rung nothing at all, with every other line correct.
+        const runs = Array.isArray(row?.ring) ? row.ring : [];
+        for (const runId of runs) {
+          if (!isText(runId)) continue;
+          try { await env[QUEUE_BINDING].send({ runId }); rung += 1; }
+          catch (e) { console.error("agent-events", JSON.stringify({ runId, ring: String(e?.message ?? e) })); }
+        }
+      }
+      console.log("agent-events", JSON.stringify({ events: dispatched.length, rung, ...tally }));
+    } catch (e) {
+      console.error("agent-events", String(e?.message ?? e));
     }
   },
 };

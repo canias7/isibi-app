@@ -4960,17 +4960,167 @@ both caught by the cross-product census within the hour.
   way. The store never recovers now, and the assertion is the number of attempts the step was
   ALLOWED.
 
-### NOT WIRED, NOT APPLIED, NOT DEPLOYED — and the hop is named rather than left to be found
+### ⚠ IT IS WIRED NOW — and driving it found two real defects (2026-09-18)
 
-**`expandWorkflow` HAS NO CALLER IN THE RUNNER.** The lookup needs a store read for one of
-this agent's automations and the flattened list needs somewhere to be persisted, and both
-need the migration: `agent.automations` has no `version` column, `agent.automation_runs` has
-no `loops`, `tries` or `uses`, and `create_automation`/`update_automation` do not yet refuse a
-call naming an automation that is not the agent's — which is the transaction's job and not a
-route's, because a check outside it can be raced (the existing comment there says exactly
-that about agent ownership).
+The entry above recorded the gap on the day it was created: `expandWorkflow` had no caller.
+It has one, and **getting there through the real routes, the real dispatcher and a real
+PostgreSQL found two defects that every module test and every earlier demonstration passed
+straight through.**
 
-**The migration is HELD while the SQL sweep in flight finishes**, because it edits
-`20260917120000_agent_workflow_knowledge_memory.sql`, and a tally about a tree nobody will
-commit is not a tally. A module with one hop cut is this repository's most-recorded defect,
-so the gap is written down here on the day it was created.
+**THE WIRING.** `agent.automation_children` — every automation of ONE agent, scoped to the
+tenant AND the agent, because both agents of one owner share a tenant and only the agent id
+tells them apart. `agent.set_automation_plan` — the flattened list and what was copied in,
+fenced by the caller's own claim, **writable only while `position = 0`**: past it, replacing
+the list would renumber outcomes that already exist. `loops`, `tries` and `uses` are columns
+now, read back by the store and forwarded on every checkpoint. And `agent.automation_calls`
+refuses, **at save time and in the transaction**, a call naming another agent's automation or
+itself — a check outside the write can be raced, which is what this schema already says about
+agent ownership two functions down.
+
+**NO FLAG SAYS WHETHER AN EXECUTION HAS BEEN EXPANDED, and none is needed**: a flattened list
+holds no `workflow` step, so the absence of one IS the flag, in the only place that can see
+it. A redelivery whose first attempt expanded and then died finds the plan written and skips
+the whole block — driven, with the child REWRITTEN at a new version between the two
+deliveries, because a second expansion would be a run executing a list its record never held.
+
+**A WORKFLOW THAT CANNOT BE ASSEMBLED IS A FAILED EXECUTION WITH ITS REASON**, never
+`unreadable`: taken off the queue with nothing a customer can act on is the answer that sends
+somebody nowhere. And **the version bumps on a change of STEPS and nothing else** — the rule
+`agent.save_memory` already follows one table over, because a version says which WORKFLOW a
+parent copied in, so renaming an automation must not move it.
+
+#### ⚠ DEFECT 1 — A LOOP'S SECOND ROUND COULD NOT BE RECORDED AT ALL
+
+`agent.advance_automation_run` carried `position <= p_position` as half its guard, on the
+reading that progress only ever moves forward. **A `repeat` moves it BACKWARDS by design**:
+round two re-enters the body below the high-water mark round one reached, so every checkpoint
+inside it failed that condition and was a silent no-op — and the answer was `ok: true,
+advanced: false`, which the store's own documentation called *"the progress was already
+recorded — a retry, and safe"*.
+
+**MEASURED END TO END, through the real function**: a two-round loop holding a wait recorded
+round one, advanced past the wait, jumped back, paused again — and the pause was never
+written. The execution sat at the position after the wait with nothing waiting and nothing
+finished. **A STRANDED RUN**, which is the exact thing milestone 9 exists to stop, produced by
+the guard that was meant to protect it.
+
+**WHAT IS MONOTONIC IS THE OUTCOME COUNT, and it stays so with loops and retries both**: a
+new round appends its own keys and a retry overwrites the key it already has. So that is the
+guard, a stale call carrying fewer outcomes is still refused, and **the position is no longer
+a progress measure at all** — it is where in the list the next step is. The wall against a
+displaced worker is the FENCE, which `append_entry` has already applied by the time the row
+is touched.
+
+**AND THE RUNNER SAYS WHEN A CHECKPOINT DID NOT LAND.** `advanced: false` with `ok: true` is
+the ordinary answer to a redelivery replaying recorded work AND exactly what a disagreement
+looks like, so it goes in the log rather than being inferred later from a position that does
+not add up. **That silence is what this defect hid behind** for every round after the first.
+
+#### ⚠ DEFECT 2 — A WAIT INSIDE A LOOP WAS HONOURED ONCE
+
+The stored pause records a step ID and nothing else, so on round two the same id matched,
+the already-passed deadline read as this round's, and the wait answered *"already over"*. The
+execution finished having honoured one of the two waits it was asked for. **A resume is SPENT
+BY ITS FIRST ARRIVAL now**; every later one is a fresh pause, which is what each round is.
+
+**AND ITS CONSEQUENCE IS A WALL RATHER THAN A FIX.** An `approval` inside a loop cannot be
+made right this way: `agent.automation_runs.decisions` is keyed by the step's id and the first
+decision stands, so every round after the first would take the first round's verdict **with
+nobody asked** — worse than a stranding, because it is an approval nobody gave. Refused where
+the workflow is WRITTEN, in both validators, word for word, and **derived from a `decided`
+flag on the DECLARATION** rather than a list of names: a second such step next month carries
+the wall by existing. `defineStep` refuses a junk `decided` and refuses it on a step that
+cannot pause at all, because a flag about how a resume is matched is a dead declaration there.
+Making an approval per-round means keying the decisions by the outcome key, which is a
+migration and is not this.
+
+#### ⚠ A VALUE MAY NOT CROSS THE CALL BOUNDARY YET, and that is MEASURED
+
+Each half is validated on its own when it is saved, so a child naming something the parent
+produces **cannot be saved**, and neither can a parent naming something the child produces.
+The flattened list validates as one workflow — which is what makes the increment small — but
+nothing saved in two pieces can reach it. Both refusals are driven through the route, so the
+limitation is a measured fact rather than a note about one. Passing values across the call is
+the next increment.
+
+#### ⚠ AND A SITE SWEEP SURVIVOR WAS A FIXTURE LESS CAPABLE THAN A BROWSER
+
+A `<select>` with nothing selected answers its **FIRST option**, never the empty string —
+HTML's own selectedness algorithm — and `hydrateAuto` answered `""`. So a mutant removing the
+blank option from every OPTIONAL choice SURVIVED: a real browser would have read back the
+first option and stored a default nobody chose, and the fixture read back nothing and called
+it correct. Killed now, by name, by the case that caught the red commit a day earlier.
+
+### Measured
+
+- **Engine suite 460 → 470**, 0 failed. Four in `automations.test.mjs` (a wait honoured on
+  every round of a loop with its outside-a-loop control, the `decided` wall with three
+  controls, and `defineStep`'s own refusals) and six in `worker.test.mjs`, which drive
+  `worker.queue` over the in-memory fake — **because `npm run sweep` does not run
+  `verify:wf`**, and a property proved only there is a property no mutant can be caught by.
+- **Real PostgreSQL (`npm run test:pg`): 756 → 792, 0 failed.** Seven for the loop's own
+  round (a LOWER position with MORE outcomes moving the row, the stale call with fewer
+  outcomes still refused as its control, and both new parameters refused rather than
+  coerced) — and **twenty-nine for the fifteen SQL sweep survivors below**.
+- **`verify:wf` 125 → 157, 0 failed**: two new sections through the customer's own routes.
+  **`verify:auto` 70 · `verify:tools` 112 · `verify:ops` 53 · `verify:controls` 71 ·
+  `verify:chat` 126 — every one unchanged**, which is the control that this round broke
+  nothing. **Site suite 6,806** (6,804 pass, 2 skipped), also unchanged.
+- **Sweep spec 492 → 523; SQL spec 231 → 232.** Two engine anchors and one SQL anchor
+  re-anchored, not appeased — and **the SQL one ASSERTED THE DEFECT**: `position <=
+  p_position` was half a guard the sweep required to EXIST. The mutant that puts it back is
+  the one only a loop can kill, and it is in the spec now.
+
+### ⚠ THE SQL SWEEP FOUND FIFTEEN SURVIVORS, AND NOT ONE WAS THE SCHEMA'S
+
+Every one of those properties is proved end to end by a `verify:*` script, and
+`npm run sweep:sql` runs `pg-schema.mjs` and `authored-run.test.mjs` **and nothing else**.
+*A property proven only by an instrument the sweep cannot run is a property no mutant can be
+caught by* — **the fifth recorded instance in this directory**, and the first where a whole
+round's worth arrived at once.
+
+**AND ONE ATTRIBUTION IN THESE NOTES WAS WRONG, found by measuring rather than by reading.**
+The stopword refusal and the memory scope are recorded above as `test:pg`'s and are
+`verify:wf`'s: applying the stopword mutant to the current tree in a detached worktree left
+`test:pg` **763 passed, 0 failed** with the wall deleted.
+
+They belong in `pg-schema.mjs` — they are database guarantees, and that is the instrument a
+SQL mutant can be seen by. What the twenty-nine checks cover:
+
+- **either identity is absorbed on an accept**, and a redelivery is answered rather than
+  raised; **a run id belonging to ANOTHER automation is refused instead**;
+- **the first decision stands**, and with no decider named it is the account that answered;
+- **the resume tick** is bounded, never offers a finished execution, and `skip locked` is
+  driven under REAL CONCURRENCY — a second session holds the row and `lock_timeout` turns
+  waiting into an observable refusal. **The row-lock helper takes a TABLE now** rather than
+  being copied, because that is the same property one relation over;
+- **nothing-to-look-for is not everything**, both ways round, with its control;
+- **a memory's scope is (account, agent)**, driven by two accounts sharing an AGENT ID —
+  the only shape that separates the two scopes, and reachable, because an id is a uuid and
+  not something one account owns;
+- **a `step` entry must name where it got to** and must not carry a tool index;
+- **an operation record must say what happened**, and is the account's alone.
+
+**⚠ ONE EXPECTATION WAS MINE AND WRONG.** I predicted `automation_runs_pkey` for another
+automation's run id; the answer is the function's OWN raise, because the insert meets the key,
+`on conflict do nothing` absorbs it, and the re-read IS scoped to this automation and finds
+nothing. Re-anchored onto that gate, which is the better one to name: it is what separates
+*"another automation's run id"* from *"this automation's repeat"*.
+
+### NOT APPLIED, NOT DEPLOYED, NOT MERGED
+
+The migration is prepared locally, and the loop/retry/subworkflow work went **into
+`20260917120000` in place** rather than into a fifth file — it is unapplied, which this
+folder's round-number naming is the tell for, and that is the recorded rule.
+
+**⚠ AND EDITING IT IN PLACE HAD TO BE DONE THE RIGHT WAY ROUND.** The first cut appended a
+SECOND `create or replace function agent.advance_automation_run` at the end of the same file,
+which is the recorded *"a position is not an identity"* trap arriving through position WITHIN
+a file rather than through migration order: four SQL anchors became AMBIGUOUS, and the
+generator refused rather than pointing a mutant at the superseded copy. **The pre-check is
+what caught it**, which is the pre-check working.
+
+When it goes, the order is the recorded one — **migration → engine → site** — and here the
+site's half is real: `automation-create` and `automation-update` answer two new refusals in
+their own words, so a site shipped first would show *"that agent isn't here any more"* about a
+workflow, which is false and sends somebody to look at the wrong thing.

@@ -564,6 +564,7 @@ create or replace function agent.hear_pending_event(
 declare
   v_exec agent.automation_runs;
   v_ev   agent.events;
+  v_put  jsonb;
 begin
   select * into v_exec from agent.automation_runs
    where id = p_run_id and tenant_id = p_tenant
@@ -595,7 +596,22 @@ begin
            jsonb_build_object('event_id', v_ev.id, 'name', v_ev.name,
                               'payload', v_ev.payload, 'at', v_ev.at))
    where id = p_run_id;
-  return jsonb_build_object('ok', true, 'heard', true, 'event_id', v_ev.id, 'name', v_ev.name);
+
+  -- ⚠ **AND THE WORK GOES BACK, IN THIS SAME TRANSACTION — the first draft wrote `heard`
+  -- and stopped.** A pause releases its worker and marks the work row done, so NOTHING would
+  -- have delivered what this heard: the run would sit with the event recorded against it and
+  -- no reason for anyone to look, which is the stranding milestone 9 exists to stop. The
+  -- dispatcher's own waking half calls `requeue_run` for exactly this reason; the race's half
+  -- had been left without it. *Anything that answers a wait INSTEAD of the thing it was
+  -- waiting for has to put the work back too* — recorded twice already in this schema, for an
+  -- expired approval and for a withdrawn permission, and this is the third.
+  --
+  -- ONE TRANSACTION OR NEITHER: a crash between the `heard` write and the re-queue would
+  -- leave the event applied and undeliverable, which is the same stranding by a narrower door.
+  v_put := agent.requeue_run(p_run_id, p_tenant);
+
+  return jsonb_build_object('ok', true, 'heard', true, 'event_id', v_ev.id,
+                            'name', v_ev.name, 'queued', coalesce(v_put ->> 'action', 'unknown'));
 end; $$;
 
 comment on function agent.hear_pending_event(uuid, text) is

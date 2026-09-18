@@ -1595,9 +1595,13 @@ const spec = [
   m("runner: a refused checkpoint is read as a FAILURE rather than a lost claim", RN,
     "      if (halted !== null) {\n        stopBeating();",
     "      if (false) {\n        stopBeating();"),
+  // ⚠ RE-ANCHORED, NOT APPEASED: the arrival race was inserted between the `if` and the
+  // event line, so the two-line anchor no longer matched. The property is the same — a
+  // waiting execution must be left suspended rather than finished — and it is pinned on the
+  // `if` plus its own `stopBeating()`, which is the shortest window that is still unique.
   m("runner: a WAITING execution is finished instead of left suspended", RN,
-    '      if (waiting) {\n        stopBeating();\n        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });',
-    '      if (false) {\n        stopBeating();\n        onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });'),
+    "      if (waiting) {\n        stopBeating();\n        /**",
+    "      if (false) {\n        stopBeating();\n        /**"),
   m("runner: a pause keeps BEATING, so a released claim is still being renewed", RN,
     '      if (waiting) {\n        stopBeating();', "      if (waiting) {\n        void 0;"),
   // ⚠ REPLACED AFTER BEING MEASURED INERT. The first version read `exec.live?.steps ??
@@ -1792,7 +1796,12 @@ const spec = [
     "        loops: plainObject(row.loops),\n        tries: plainObject(row.tries),",
     "        loops: {},\n        tries: {},"),
   m("store: the read stops asking for them, so PostgREST sends neither", AS,
-    "        + `,loops,tries&limit=1`,", "        + `&limit=1`,"),
+    "        + `,loops,tries,heard&limit=1`,", "        + `&limit=1`,"),
+  // ⚠ THE SAME PROPERTY FOR `heard` ALONE, because dropping only it leaves the loop state
+  // arriving and every event wait re-pausing for ever — a run waiting on news it has already
+  // been told about, which is the stranding this whole half exists to prevent.
+  m("store: the read stops asking what it has HEARD, so every event wait re-pauses for ever", AS,
+    "        + `,loops,tries,heard&limit=1`,", "        + `,loops,tries&limit=1`,"),
   m("store: the progress call sends no loop state, and the function refuses a null", AS,
     "        p_loops: plainObject(loops),\n        p_tries: plainObject(tries),",
     "        p_loops: loops,\n        p_tries: tries,"),

@@ -563,6 +563,10 @@ export function makeRunner(opts = {}) {
         waitUntil: exec.waitUntil,
         loops: exec.loops,
         tries: exec.tries,
+        // WHAT IT HAS ALREADY HEARD, off the row. Whichever half of the arrival race wrote it
+        // — the dispatcher finding this execution suspended, or the pause's own transaction
+        // finding an event that got there first — the executor reads it the same way.
+        heard: exec.heard,
         memory: exec.memory,
         retrieve,
         record,
@@ -583,6 +587,40 @@ export function makeRunner(opts = {}) {
       // it back on the queue, and a later delivery continues from the position just written.
       if (waiting) {
         stopBeating();
+        /**
+         * ⚠ **THE ARRIVAL RACE'S OTHER HALF, AND IT IS ASKED ONLY ONCE THE PAUSE IS
+         * RECORDED.**
+         *
+         * `agent.dispatch_events` wakes what is ALREADY suspended, so an event that arrived
+         * while this execution was still running was invisible to it — and this execution
+         * would wait for a second event that may never come. So the moment the row says it is
+         * waiting, the question is asked the other way round: is there already an event this
+         * step wants? Both sides take the row lock, which is what makes the pair exhaustive
+         * rather than merely two attempts.
+         *
+         * **IT IS THE DATABASE THAT PUTS THE WORK BACK, not this process.** The consumer never
+         * produces — that is this Worker's own rule and why its configuration asks for no
+         * queue binding — so `hear_pending_event` calls `requeue_run` in the same transaction
+         * as the `heard` write and the cron's sweep is the belt. The cost is one tick, said
+         * out loud rather than hidden behind a doorbell nobody here may ring.
+         *
+         * **ONLY FOR AN EVENT PAUSE.** A timed wait has its deadline and an approval has a
+         * person; asking about either would be a round trip that can only answer "no".
+         *
+         * **AND A FAILURE HERE CHANGES NOTHING ABOUT THE PAUSE.** The pause is committed, so
+         * the worst case is the recorded wait taking a tick longer — which is why this is
+         * logged and never raised.
+         */
+        if (waiting.kind === "event") {
+          try {
+            const got = await automations.hearPendingEvent({ runId, tenant: claim.tenant });
+            if (got?.heard === true) {
+              onEvent({ at: "heard", runId, why: "heard", done: false, event: got.name ?? null });
+            }
+          } catch (e) {
+            onError({ at: "automation-hear", runId, error: String(e?.message ?? e) });
+          }
+        }
         onEvent({ at: "waiting", runId, why: "waiting", done: false, kind: waiting.kind, step: waiting.step });
         return { ran: true, why: "waiting", runId, stop: null, waiting, error: null };
       }

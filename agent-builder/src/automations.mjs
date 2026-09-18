@@ -968,7 +968,14 @@ const EVENT_WAIT = defineStep({
   read: (raw, say) => {
     const name = readEventName(raw?.name, { what: say("name"), blank: say.blank("name") });
     if (name.error) return { error: name.error };
-    return { config: { name: name.value } };
+    // ⚠ **`OUT_FIELD` IN `fields` IS WHAT THE FORM DRAWS; THIS IS WHAT MAKES IT MEAN
+    // ANYTHING.** The first draft had the field and not this line, so the box was drawn, the
+    // answer was read off the form, and `readWorkflow` never learned the step produced a
+    // name — `{{it}}` came back as "nothing here produces a value called it" about a step
+    // whose whole job is to produce one. A field a `read` drops is a dead control.
+    const o = readOut(raw, say("out"));
+    if (o.error) return { error: o.error };
+    return { config: { name: name.value, out: o.out } };
   },
   run: (config, ctx) => {
     const said = `waiting for ${config.name}`;
@@ -1802,6 +1809,16 @@ export async function runWorkflow(opts = {}) {
   const record = typeof opts.record === "function" ? opts.record : null;
   const values = { ...plain(opts.values) };
   const pausedOn = plain(opts.waiting);
+  /**
+   * WHAT THIS EXECUTION HAS ALREADY HEARD, keyed by the step that was waiting.
+   *
+   * ⚠ **IT IS A MAP AND NOT ONE PAYLOAD, for `decisions`' own reason**: two event waits in one
+   * workflow are two questions, and one slot would let the first one's event answer the
+   * second. It comes off the ROW, so what heard it was the database — either the dispatcher
+   * finding this execution suspended, or the pause's own transaction finding an event that
+   * arrived before the row said it was waiting.
+   */
+  const heard = plain(opts.heard);
   const waitUntil = typeof opts.waitUntil === "number" && Number.isFinite(opts.waitUntil) ? opts.waitUntil : null;
 
   /**
@@ -2313,7 +2330,15 @@ export async function runWorkflow(opts = {}) {
      * arrival is a FRESH pause, which is what each round of a loop is.
      */
     const resume = !resumeSpent && pausedOn.step === id
-      ? { waitUntil, decision: Object.hasOwn(decisions, id) ? decisions[id] : null }
+      ? {
+        waitUntil,
+        decision: Object.hasOwn(decisions, id) ? decisions[id] : null,
+        // ⚠ `Object.hasOwn`, NEVER `heard[id]` ALONE — `{{constructor}}` is a function and
+        // truthiness would hand a step something nobody wrote. `null` is a real answer here
+        // and means "this pause has not heard its event", which an event wait reads as a
+        // RE-PAUSE rather than as a failure.
+        heard: Object.hasOwn(heard, id) ? heard[id] : null,
+      }
       : null;
     if (resume) resumeSpent = true;
 
@@ -2358,6 +2383,10 @@ export async function runWorkflow(opts = {}) {
     if (def.stepKind === "pause") {
       if (answer?.waiting) {
         waiting = { ...answer.waiting, step: id };
+        // AN EVENT PAUSE CARRIES WHEN IT BEGAN. Only an event wait needs it — a timed wait has
+        // its deadline and an approval has its window — so it is written where it is needed
+        // rather than on every pause, which would be a field three readers ignore.
+        if (waiting.kind === "event") waiting.since = new Date(now).toISOString();
         waitingAt = i;
         put(i, { outcome: "waiting", why: isText(answer.why) ? answer.why : "waiting" });
         // THE PAUSE IS RECORDED BY THE SAME SEAM EVERY OTHER STEP USES, so there is ONE
@@ -2417,6 +2446,14 @@ export async function runWorkflow(opts = {}) {
    * HALT nothing is written anyway (the claim is gone), and answering it there costs
    * nothing and keeps one shape for all three exits, which is what stops a reader having
    * to know which exit it is looking at before it knows what it has.
+   */
+  /**
+   * ⚠ **`since` IS WRITTEN ONTO AN EVENT PAUSE BY THE EXECUTOR, and it is what bounds a wait
+   * to news it was really waiting for.** `agent.hear_pending_event` and the dispatcher both
+   * compare an event's `at` against it, so without it an event from last week would satisfy a
+   * wait somebody set up this morning. It is the EXECUTOR's clock rather than the recorder's,
+   * for the same reason every checkpoint's `at` is: a retry inside one delivery must replay a
+   * byte-identical entry, which is the only thing `append_entry` can read as `already`.
    */
   const loopState = () => Object.fromEntries([...loops].map(([k, v]) => [k, { at: v.at, of: v.of, list: v.list, as: v.as }]));
   const triesState = () => Object.fromEntries(tried);

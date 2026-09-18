@@ -91,7 +91,7 @@ export function makeAutomationStore(opts = {}) {
         `automation_runs?id=eq.${encodeURIComponent(runId)}&tenant_id=eq.${encodeURIComponent(tenant)}`
         + `&select=id,automation_id,agent_id,tenant_id,trigger,occurrence,steps,zone,finished_at`
         + `,position,vars,input,memory,waiting,wait_until,decisions,outcomes,created_at`
-        + `,loops,tries&limit=1`,
+        + `,loops,tries,heard&limit=1`,
         undefined, false);
       const row = Array.isArray(rows) ? rows[0] : null;
       if (!row) return null;
@@ -123,6 +123,15 @@ export function makeAutomationStore(opts = {}) {
         input: plainObject(row.input),
         memory: plainObject(row.memory),
         decisions: plainObject(row.decisions),
+        /**
+         * WHAT THIS EXECUTION HAS ALREADY HEARD, keyed by the step that was waiting.
+         *
+         * **`{}` IS THE RIGHT FALLBACK AND `null` WOULD NOT BE**: an execution that has heard
+         * nothing has heard nothing, and the executor reads a missing key as a RE-PAUSE. A
+         * row from before this column exists reads the same way, which is what every
+         * execution accepted before an event wait existed really is.
+         */
+        heard: plainObject(row.heard),
         outcomes: Array.isArray(row.outcomes) ? row.outcomes : [],
         // `waiting` AND `wait_until` ARE READ AS A PAIR because the database stores them as
         // one: a pause with no deadline is a row the constraint refuses, so a half-read here
@@ -219,6 +228,100 @@ export function makeAutomationStore(opts = {}) {
       // there — the wrong sentence, about the wrong layer.
       if (!Array.isArray(answer)) throw new Error("automation_children: the answer is not a list");
       return answer;
+    },
+
+    /**
+     * EMIT ONE EVENT.
+     *
+     * **THE DEPTH IS THE DATABASE'S, TAKEN FROM THE EMITTING RUN.** `p_from_run` is what
+     * makes a chain bounded: the function reads that run's own depth and refuses past
+     * `MAX_EVENT_DEPTH` by name, so a loop of agents ringing each other stops at a stated
+     * number rather than at whatever the platform runs out of first. A caller cannot widen
+     * it — the ceiling is the function's own argument default and the runner never sends one.
+     */
+    async emit({ tenant, agentId, id, name, payload, source, key, fromRun }) {
+      if (!isText(tenant)) throw new TypeError("emit: tenant must be a non-empty string");
+      if (!isText(id)) throw new TypeError("emit: id must be a non-empty string");
+      if (!isText(name)) throw new TypeError("emit: name must be a non-empty string");
+      const answer = await call("POST", "rpc/emit_event", {
+        p_tenant: tenant, p_agent_id: agentId ?? null, p_id: id, p_name: name,
+        p_payload: plainObject(payload), p_source: isText(source) ? source : "person",
+        p_key: isText(key) ? key : null, p_from_run: isText(fromRun) ? fromRun : null,
+      });
+      if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+        throw new Error("emit_event: no answer came back");
+      }
+      return answer;
+    },
+
+    /**
+     * FILE WHAT EVERY UNDISPATCHED EVENT TRIGGERS, AND WAKE WHAT WAITED FOR IT.
+     *
+     * **A PLATFORM SWEEP, SO IT TAKES NO TENANT — and that is not a hole in the closure
+     * rule.** The rule is that no OPERATION an agent's tools can reach takes a tenant as an
+     * argument; this is reachable only from `worker.scheduled`, exactly as `reclaimable` and
+     * the scheduler's own tick are, and it is scoped per EVENT by the row it is reading.
+     */
+    async dispatchEvents({ limit = 25 } = {}) {
+      const rows = await call("POST", "rpc/dispatch_events", { p_limit: limit });
+      // REFUSED RATHER THAN COERCED, for `children`'s own reason: reading an unreadable
+      // answer as "nothing happened" turns an outage into a platform that quietly stopped
+      // delivering events, which is the one failure nobody would notice.
+      if (!Array.isArray(rows)) throw new Error("dispatch_events: the answer is not a list");
+      return rows;
+    },
+
+    /**
+     * THE OTHER HALF OF THE ARRIVAL RACE.
+     *
+     * ⚠ **AN EVENT CAN ARRIVE IN THE INSTANT BETWEEN A WORKFLOW DECIDING TO WAIT AND THE ROW
+     * SAYING SO, and neither side alone can close that.** `agent.dispatch_events` wakes what
+     * is ALREADY waiting; this asks, for a run that is waiting NOW, whether an event it wants
+     * arrived while it was not yet visible. Both take the row lock, so one of them sees the
+     * other's write — and `heard ? step` is what stops the same event being applied twice.
+     */
+    async hearPendingEvent({ runId, tenant }) {
+      if (!isText(runId)) throw new TypeError("hearPendingEvent: runId must be a non-empty string");
+      if (!isText(tenant)) throw new TypeError("hearPendingEvent: tenant must be a non-empty string, from the claim");
+      const answer = await call("POST", "rpc/hear_pending_event", {
+        p_run_id: runId, p_tenant: tenant,
+      });
+      if (!answer || typeof answer !== "object" || Array.isArray(answer)) {
+        throw new Error("hear_pending_event: no answer came back");
+      }
+      return answer;
+    },
+
+    /**
+     * THE ONE READER OF AN ENDPOINT'S SECRET, and it exists only to be handed to
+     * `verifyDelivery`.
+     *
+     * **IT TAKES NO TENANT BECAUSE A DELIVERY HAS NOBODY TO TAKE ONE FROM.** That is the
+     * whole point of the row: the account is what this ANSWERS, so asking for it would be
+     * asking the sender who they are. `agent.webhook_for_delivery` is `service_role`-only and
+     * is the only function in the schema that returns the secret at all.
+     */
+    async webhookForDelivery(id) {
+      if (!isText(id)) return null;
+      const answer = await call("POST", "rpc/webhook_for_delivery", { p_id: id });
+      /**
+       * ⚠ **ITS ANSWER IS THE ROW OR `null`, WITH NO `ok` AND NO `enabled` — and the first
+       * draft of this reader asked for both.** It read `answer.ok !== true` and would have
+       * returned `null` for every endpoint that exists, so EVERY delivery on the platform
+       * would have been refused `no-endpoint` with the whole chain correct: the wiring layer,
+       * caught by reading the function against the caller rather than by a test.
+       *
+       * `enabled` is `true` by CONSTRUCTION here: the function's own `where enabled` means a
+       * row coming back is an enabled row. `verifyDelivery` checks it anyway and the
+       * redundancy is declared — that check is what keeps that module drivable and true on
+       * its own terms, rather than resting on a clause in another language.
+       */
+      if (!answer || typeof answer !== "object" || Array.isArray(answer)) return null;
+      if (!isText(answer.secret) || !isText(answer.tenant_id)) return null;
+      return {
+        id: answer.id, tenantId: answer.tenant_id, agentId: answer.agent_id,
+        event: answer.event_name, secret: answer.secret, enabled: true,
+      };
     },
 
     /**
