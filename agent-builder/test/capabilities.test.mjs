@@ -13,7 +13,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
-import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
+import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES } from "../src/capability-tools.mjs";
+import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
 import { PUBLIC, defineTool } from "../src/define.mjs";
 import { profileHeader } from "../src/rest-profile.mjs";
@@ -824,5 +825,72 @@ test("⚠ THE CATALOG A MODEL READS IS THE WHOLE REGISTRY, AND THE CEILING IS TH
     assert.equal(a.label, d.label, a.type);
     assert.equal(a.does, d.does, a.type);
     assert.deepEqual(a.fields.map((f) => f.name), d.configless ? [] : d.fields.map((f) => f.name), a.type);
+  }
+});
+
+test("⚠ AN AGENT MAY ONLY AUTHOR A SCHEDULE ITS OWN TOOL CAN DESCRIBE", async () => {
+  // ⚠ **THE WALL, BECAUSE A DESCRIPTION IS NOT ONE.** `SCHEDULE_FIELDS` tells a model which
+  // schedules exist; nothing stops a model writing one that does not, and a tool argument is a
+  // model's own output. A `weekly` reaching the database is `automations_schedule_is_whole`
+  // refusing it for want of a day list the tool has no field for — a Postgres exception several
+  // layers below the thing that can act on it — and a `once` is the same for `on_date`.
+  //
+  // THE SET IS NARROWER THAN THE PLATFORM'S ON PURPOSE, and asserted so: a set that grew to
+  // every schedule would make the refusal unreachable and the tool a control that answers.
+  assert.deepEqual([...AUTHORABLE_SCHEDULES], ["manual", "daily"]);
+  for (const wider of AUTOMATION_SCHEDULES) {
+    if (AUTHORABLE_SCHEDULES.includes(wider)) continue;
+    assert.ok(["weekly", "once"].includes(wider), `an unexpected schedule ${wider} exists`);
+  }
+  assert.ok(AUTHORABLE_SCHEDULES.length < AUTOMATION_SCHEDULES.length,
+    "the authorable set is every schedule the platform has, so the refusal is unreachable");
+
+  for (const name of ["make_automation", "change_automation"]) {
+    const tool = CAPABILITY_TOOLS.find((t) => t.name === name);
+    assert.ok(tool, `${name} is not a tool`);
+    const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG } : { ok: true, id: AUTO }));
+    const ops = can.forTenant(T).forAgent(AG);
+    const args = { id: AUTO, name: "n", steps: [{ type: "note", text: "hi" }] };
+
+    // REFUSED BY NAME, WITH THE LIST, and NOTHING IS WRITTEN — which is what makes it a
+    // refusal rather than a failed attempt somebody has to undo.
+    for (const asked of ["weekly", "once", "hourly", "DAILY", ["daily"], 7, "", "  "]) {
+      // ⚠ COUNTED AS WRITES, NOT AS REQUESTS — and the first draft of this counted requests.
+      // `change_automation` makes a `read_automation` pre-check FIRST, which is a read and is
+      // legitimate: what a refusal must leave untouched is the ROW, so the census is over the
+      // `_once` calls, which are the only things that write.
+      const before = sent.filter((r) => r.rpc.endsWith("_once")).length;
+      const out = await tool.run({ ...args, schedule: asked }, { capabilities: ops, operation: OP() });
+      assert.equal(out.ok, false, `${name} accepted the schedule ${JSON.stringify(asked)}`);
+      assert.equal(out.error, "bad-schedule", JSON.stringify(out));
+      // ⚠ BOTH REFUSALS NAME THE SET IT CAN SET, because that is the one thing a model can act
+      // on — and they are two SENTENCES, because "a schedule that exists and this tool cannot
+      // set" and "that did not arrive as a word" need different things done about them.
+      assert.match(out.say, /manual or daily/, `the refusal does not say what it can set: ${out.say}`);
+      // ⚠ THREE REFUSALS, THREE SENTENCES. A schedule that EXISTS and this tool cannot set,
+      // one that did not arrive as a word, and a blank need different things done about them —
+      // and the blank's needs its own, because the list's reads "; has to be set on the
+      // screen" with nothing in front of the semicolon.
+      if (typeof asked !== "string") assert.match(out.say, /as a word/, out.say);
+      else if (!asked.trim()) assert.match(out.say, /^say when it runs/, out.say);
+      else assert.match(out.say, /has to be set on the screen/, out.say);
+      assert.equal(sent.filter((r) => r.rpc.endsWith("_once")).length, before,
+        `${name} wrote something for a refused schedule`);
+    }
+
+    // ⚠ THE TWO CONTROLS, without which "it refuses" is satisfied by a tool that refuses
+    // everything: the two schedules it CAN set go through, and the one it stores is the one
+    // that was asked for rather than whatever the default is.
+    for (const asked of ["manual", "daily"]) {
+      const out = await tool.run({ ...args, schedule: asked, atLocal: "09:00" }, { capabilities: ops, operation: OP() });
+      assert.equal(out.ok, true, `${name} refused ${asked}: ${JSON.stringify(out)}`);
+      const req = sent.filter((r) => r.rpc.endsWith("_once")).at(-1);
+      assert.equal(req.body.p_schedule, asked, `${name} stored ${req.body.p_schedule} for ${asked}`);
+    }
+    // AND AN ABSENT ONE IS `manual`, the same default the site's own reader has: making an
+    // automation is not asking for it to be scheduled.
+    const bare = await tool.run(args, { capabilities: ops, operation: OP() });
+    assert.equal(bare.ok, true, JSON.stringify(bare));
+    assert.equal(sent.filter((r) => r.rpc.endsWith("_once")).at(-1).body.p_schedule, "manual");
   }
 });

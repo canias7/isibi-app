@@ -1159,3 +1159,31 @@ test("every knowledge and memory route is scoped by the tenant, and none reads a
     assert.match(r.body.error, /isn't here any more/);
   }
 });
+
+test("⚠ A SCHEDULE THAT IS NOT A WORD IS REFUSED, never read as `by hand`", () => {
+  // ⚠ **THE SILENT DROP, MEASURED BEFORE IT WAS FIXED.** `typeof x === "string" ? … : "manual"`
+  // read a non-string as ABSENT, so a request asking for `["daily"]` saved an automation that
+  // runs BY HAND and answered `ok` — the daily run it asked for would never have fired, and
+  // nothing anywhere said so. **A filter on somebody's input is a silent drop; a check is a
+  // sentence.** The engine's own `authorableSchedule` had the same shape and both were fixed
+  // together, because the two doors have to agree about what may be stored.
+  for (const junk of [["daily"], 7, {}, true, ["manual"]]) {
+    const r = cleanSchedule({ schedule: junk, zone: "UTC", at: "09:00", days: ["mon"] });
+    assert.ok(r.error, `the schedule ${JSON.stringify(junk)} was accepted`);
+    assert.match(r.error, /as a word/, `the refusal does not say what went wrong: ${r.error}`);
+    assert.notEqual(r.schedule, "manual", "a refused schedule came back as one");
+  }
+  // ⚠ AND THE REFUSALS STAY THREE: absent is `manual` (making an automation is not asking for
+  // it to be scheduled), a blank or an unknown word is the LIST refusal, and a non-string is
+  // the one above. Collapsing any two would send somebody to fix the wrong thing.
+  assert.equal(cleanSchedule({ zone: "UTC" }).schedule, "manual");
+  assert.equal(cleanSchedule({ schedule: undefined, zone: "UTC" }).schedule, "manual");
+  for (const word of ["", "  ", "hourly", "DAILY", "week"]) {
+    const r = cleanSchedule({ schedule: word, zone: "UTC", at: "09:00", days: ["mon"] });
+    assert.ok(r.error, `the schedule ${JSON.stringify(word)} was accepted`);
+    assert.doesNotMatch(r.error, /as a word/, `${JSON.stringify(word)} got the wrong-kind sentence`);
+  }
+  // THE CONTROLS, without which "it refuses" is satisfied by a reader that refuses everything.
+  assert.equal(cleanSchedule({ schedule: "daily", at: "09:00", zone: "UTC" }).schedule, "daily");
+  assert.equal(cleanSchedule({ schedule: "weekly", at: "09:00", zone: "UTC", days: ["mon"] }).schedule, "weekly");
+});

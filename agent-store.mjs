@@ -2386,6 +2386,21 @@ export function validTimeZone(v) {
  * mean the day in UTC for every manual automation, silently.
  */
 export function cleanSchedule(b) {
+  /**
+   * ⚠ **ABSENT AND WRONG-KIND ARE TWO ANSWERS, AND THIS READ COLLAPSED THEM.** A non-string
+   * fell through to `manual`, so a request asking for `["daily"]` saved an automation that
+   * runs by HAND and answered `ok` — the daily run it asked for would never have fired, and
+   * nothing anywhere said so. **A filter on somebody's input is a silent drop; a check is a
+   * sentence.**
+   *
+   * The engine's `authorableSchedule` had the same shape and both are fixed together, because
+   * the two doors have to agree about what may be stored — the rule `cleanWorkflow` and the
+   * refusal sentences already follow, censused in `test/agent-send.test.mjs`.
+   */
+  if (b?.schedule !== undefined && b?.schedule !== null && b?.schedule !== ""
+      && typeof b.schedule !== "string") {
+    return { error: "say when it runs as a word: by hand, every day, on chosen days, or once on a date" };
+  }
   const schedule = typeof b?.schedule === "string" ? b.schedule.trim() : "manual";
   if (!AUTOMATION_SCHEDULES.includes(schedule)) {
     return { error: "an automation runs by hand, every day, on chosen days of the week, or once on a date" };

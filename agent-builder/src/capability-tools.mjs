@@ -516,9 +516,28 @@ export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);
  *
  * `manual` for an absent one is the same default the site's own reader has: making an
  * automation is not asking for it to be scheduled.
+ *
+ * ⚠ **ABSENT AND WRONG-KIND ARE TWO ANSWERS, AND THE FIRST DRAFT COLLAPSED THEM.** `text()`
+ * answers `""` for anything that is not a string, so `schedule: ["daily"]` fell through to
+ * `manual` — the automation was created UNSCHEDULED, the model was told `ok: true`, and the
+ * daily run it asked for would never have fired. **A filter on somebody's input is a silent
+ * drop; a check is a sentence**, and here the somebody is a model that cannot see the row.
+ * Found by a guard written for a different mutant.
  */
 function authorableSchedule(raw) {
-  const asked = text(raw) || "manual";
+  if (raw !== undefined && raw !== null && typeof raw !== "string") {
+    return { error: "bad-schedule", say: `when it runs has to be one of ${AUTHORABLE_SCHEDULES.join(" or ")}, written as a word` };
+  }
+  // ⚠ **ONLY AN ABSENT ONE IS `manual`, and `""` IS NOT ABSENT.** The site's own reader answers
+  // an empty string with its list refusal, so reading it as "by hand" here would be the two
+  // doors disagreeing about a blank — and a blank silently becoming a real schedule is the
+  // same silent drop as a wrong kind becoming one. It gets its OWN sentence rather than the
+  // list's, because the list's reads as `"; has to be set on the screen"` with nothing in
+  // front of the semicolon, which names nothing a model can act on.
+  const asked = raw === undefined || raw === null ? "manual" : text(raw);
+  if (!asked) {
+    return { error: "bad-schedule", say: `say when it runs: ${AUTHORABLE_SCHEDULES.join(" or ")}` };
+  }
   if (!AUTHORABLE_SCHEDULES.includes(asked)) {
     return {
       error: "bad-schedule",

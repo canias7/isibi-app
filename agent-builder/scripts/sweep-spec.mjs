@@ -1168,6 +1168,15 @@ const spec = [
   m("tools: the authorable set becomes every schedule the platform has", CT,
     'export const AUTHORABLE_SCHEDULES = Object.freeze(["manual", "daily"]);',
     "export const AUTHORABLE_SCHEDULES = AUTOMATION_SCHEDULES;"),
+  // ⚠ A NON-STRING SCHEDULE SILENTLY BECAME `manual`, so an agent asking for a daily run got
+  // an automation that runs by hand and was told `ok`. Found by a guard written for the mutant
+  // above it, and the same shape was live in the SITE's own reader.
+  m("⚠ tools: a schedule that is not a word becomes `manual` rather than a refusal", CT,
+    '  if (raw !== undefined && raw !== null && typeof raw !== "string") {',
+    "  if (false) {"),
+  m("⚠ tools: a BLANK schedule becomes `manual` rather than a refusal", CT,
+    "  if (!asked) {\n    return { error: \"bad-schedule\", say: `say when it runs:",
+    "  if (false) {\n    return { error: \"bad-schedule\", say: `say when it runs:"),
   m("tools: creating an automation needs nobody", CT,
     "  approval: true,\n  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);",
     "  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);"),

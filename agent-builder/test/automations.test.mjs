@@ -2886,3 +2886,87 @@ test("⚠ AN EVENT NAME IS ITS OWN FIELD KIND, wider than a `name` and still che
   assert.equal(kept.steps[0].out, "it");
   assert.ok(kept.produces.includes("it"), "the step does not declare what it produces");
 });
+
+// ── the refusals' own words, which are the half a customer reads ─────────────
+
+test("⚠ EVERY REFUSAL SAYS WHAT WENT WRONG IN WORDS A PERSON CAN ACT ON", async () => {
+  // These are proved only by `verify:wf`'s own output otherwise, so a mutant that made any
+  // one of them say something else — or say nothing — survived. A refusal's SENTENCE is what
+  // somebody fixes their form from: this is the product, not decoration.
+  const w = (st) => readWorkflow([st], AUTOMATION_STEPS, 20, []).error;
+
+  // A NON-STRING IN A REQUIRED TEXT FIELD IS REFUSED AS THE WRONG KIND, never read as blank.
+  // `String(["hi"])` is `"hi"`, so reading it as a value is this repository's most repeated
+  // trap — and reading it as EMPTY is the same mistake wearing the blank refusal's clothes,
+  // which sends somebody to fill in a box they already filled in.
+  assert.equal(w({ type: "note", text: ["hi"] }), "step 1: that note didn't arrive as text");
+  assert.equal(w({ type: "note", text: "" }), "step 1: say what the note should say");
+
+  // THE CAP IS STATED ONCE AND THE FIELD IS NAMED ONCE. A sentence naming the field twice
+  // ("that note is longer than that note can be") reads as a bug in us rather than as a limit.
+  const long = w({ type: "note", text: "x".repeat(MAX_NOTE + 1) });
+  assert.equal(long, `step 1: that note is longer than it can be (${MAX_NOTE} characters)`);
+  assert.equal(long.match(/that note/g).length, 1, "the field is named twice over");
+
+  // AN ANSWER'S NAME IS REFUSED IN WORDS ABOUT WHAT THE FIELD IS TO A PERSON, not in the
+  // key's own spelling: "the out field" names nothing on anybody's screen.
+  assert.equal(w({ type: "knowledge", query: "q", out: ["x"] }),
+    "step 1: the name for this step's answer didn't arrive as a name");
+  // AND A NAME THAT IS NOT A NAME QUOTES WHAT WAS TYPED, so it is findable in the form.
+  assert.match(w({ type: "knowledge", query: "q", out: "Not An Id" }), /^step 1: "Not An Id" can't be a name/);
+
+  // ⚠ ABSENT AND WRONG-KIND ARE TWO REFUSALS ON A CALL, and the first draft of that reader
+  // coerced — it read a non-string as `""` and asked somebody to fill in a box they had.
+  assert.equal(w({ type: "workflow", runs: ["x"] }),
+    "step 1: which automation to run didn't arrive as an automation");
+  assert.equal(w({ type: "workflow" }), "step 1: say which automation to run");
+  assert.notEqual(w({ type: "workflow", runs: ["x"] }), w({ type: "workflow" }),
+    "the two refusals a call makes must not be one sentence");
+});
+
+test("⚠ A CALL THAT REACHED THE EXECUTOR IS A ROW NOBODY EXPANDED, and it fails BY NAME", async () => {
+  // Every `workflow` step is spliced out before the execution starts, so one arriving here is
+  // a plan that was never expanded. Falling through to the action tail would read a CALL as a
+  // step that did something — and the execution would report `done` having run nothing.
+  const flow = readWorkflow([
+    { type: "workflow", runs: "11111111-1111-4111-8111-111111111111" },
+  ], AUTOMATION_STEPS, 20, []);
+  assert.equal(flow.error, undefined, JSON.stringify(flow.error));
+  const out = await runWorkflow({ steps: flow.steps, zone: "UTC", now: Date.parse("2026-09-18T09:00:00Z") });
+  assert.equal(out.stop.reason, "failed", `an unexpanded call read as ${out.stop.reason}`);
+  assert.match(String(out.outcomes[0].error), /copied in before the run started/);
+  // THE CONTROL: the same executor runs an ordinary action to `done`, so "always fails" cannot
+  // satisfy the line above.
+  const ok = readWorkflow([{ type: "note", text: "hi" }], AUTOMATION_STEPS, 20, []);
+  const fine = await runWorkflow({ steps: ok.steps, zone: "UTC", now: Date.parse("2026-09-18T09:00:00Z") });
+  assert.equal(fine.stop.reason, "done");
+});
+
+test("⚠ A RESUME IS MATCHED BY THE PAUSED STEP'S OWN ID, never by `something is suspended`", async () => {
+  // ⚠ **THE SHAPE THAT SEPARATES THE TWO READINGS NEEDS TWO PAUSES AND A DECISION FOR EACH.**
+  // With one pause, "the paused step" and "any step" are the same step; with two, a reader
+  // that asked only whether something was suspended hands the FIRST one the SECOND's answer.
+  // The row below is driven directly and is asserting the READER'S rule rather than a state
+  // the product reaches — which is the honest way to guard a reader whose input comes back
+  // from storage.
+  const flow = readWorkflow([
+    { type: "approval", ask: "first?", hours: 24, on_timeout: "reject" },
+    { type: "approval", ask: "second?", hours: 24, on_timeout: "reject" },
+    { type: "note", text: "both" },
+  ], AUTOMATION_STEPS, 20, []);
+  assert.equal(flow.error, undefined);
+  const at = Date.parse("2026-09-18T09:00:00Z");
+  const walk = (waiting) => runWorkflow({
+    steps: flow.steps, zone: "UTC", now: at, startedAt: at, position: 0,
+    waiting, waitUntil: at + 60_000,
+    // BOTH ARE ANSWERED, which is what makes the two readings differ: a reader matching on
+    // anything suspended lets s1 consume its own decision and walk past.
+    decisions: { s1: { verdict: "approved" }, s2: { verdict: "approved" } },
+  });
+  const paused2 = await walk({ kind: "approval", step: "s2" });
+  assert.equal(paused2.waiting?.step, "s1",
+    `the pause at s2 let ${paused2.waiting?.step ?? "nothing"} consume a resume that was not its own`);
+  // THE CONTROL: with the pause really at s1 it IS s1's resume, so the run walks past both.
+  const paused1 = await walk({ kind: "approval", step: "s1" });
+  assert.equal(paused1.waiting?.step, "s2", "the paused step did not get its own resume");
+});
