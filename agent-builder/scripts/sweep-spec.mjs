@@ -1322,6 +1322,12 @@ const spec = [
   m("tools: a list is read as a set of named facts about reach", CT,
     "    const reach = answer.affects && typeof answer.affects === \"object\" && !Array.isArray(answer.affects)",
     "    const reach = answer.affects && typeof answer.affects === \"object\" && true"),
+  // ⚠ WHAT A MODEL IS OFFERED IS THE AGENT'S OWN LIST. Item 7's last line — *knowledge and
+  // retrieved content remain data, never authority to change permissions* — is this narrowing
+  // and nothing else, so the mutant is the narrowing removed.
+  m("⚠ run: the model is offered every tool the agent declares, past the tenant's narrowing", R,
+    "  const { allowed, withheld } = toolsFor(agent, tenant?.grants);",
+    "  const { withheld } = toolsFor(agent, tenant?.grants);\n  const allowed = agent.tools;"),
   // ⚠ BOUNDED ON THE WAY IN, because `retrieve` is the seam that is MEANT to be replaced — so
   // a bound enforced only there is a bound the next retriever owns.
   m("⚠ automations: a retriever's overrun reaches the workflow, so fifty passages are quoted", AU,
