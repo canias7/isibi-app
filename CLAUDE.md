@@ -9283,6 +9283,174 @@ inside the `site-build.mjs` window and each followed immediately by its own
 `ok` line — the recorded "the typecheck REPORTS; only `vite build` refuses",
 visible in CI in a green job.
 
+#### …AND THREE BOUNDED CORRECTIONS TO IT (2026-09-18)
+
+Owner, on the async stop: *"Three bounded corrections remain before the paid
+test."* Each is a claim the instrument was making and could not support.
+
+**1. PUBLICATION IS READ OFF THE PUBLISHED FILE, NOT THE STORED SETTINGS**
+(*"The source endpoint regenerates QR drawings from settings; comparing those
+does not establish publication."*). `assets` on `/api/site/source` is
+`siteAssetFiles(config)` — the drawing COMPOSED FROM THE SETTINGS at the moment
+of the read, which is what the container bakes FROM and is not a reading of what
+it baked. A publish that never ran, a build that refused, a file the sweep took:
+every one leaves the settings perfect and the site without the code.
+`qrPublished` GETs the file from the public origin with no token and answers
+**four ways, because they need four different fixes** — not served at all (the
+publish is missing), served but unreadable (a broken drawing shipped), served and
+opening the wrong page, served and opening the one asked for. **TWO LABELLED
+LINES PER ADDED CODE, NEVER MERGED** (*"Keep the stored inventory and
+public-site observations distinct."*), and the disagreement is the finding.
+
+**MEASURED LIVE on fretwork-1**: `qr-prices.svg` **200 / 3,256 B** and it
+verifies against `/prices` by re-encoding; `qr-nope.svg` **404**; `qr.svg`
+(the legacy single code) is served at 2,290 B and **opens none of the site's
+three addresses** — a real fact about that site, and the reader behaving
+correctly rather than a defect.
+
+**⚠ AND MY OWN FIRST "IS THIS A DRAWING" TEST FAILED, caught by running it.**
+`/<svg[\s>]/` passes fretwork-1's **home page at 58,642 bytes**, because a React
+page is full of inline icon SVGs — so a site answering its index document for an
+unknown path read as `served: true`, and a MISSING FILE was reported as a BROKEN
+DRAWING, which points at the wrong fix. The test is whether the answer **IS** an
+SVG document: prolog and doctype off, then `^<svg`.
+
+**2. THE CUSTOMER'S SCREEN IS THE BROWSER'S OWN COMPOSER, EXECUTED** (*"Reuse or
+execute the existing formatter; don't create another composition."*).
+`browserReply` loads `public/chat.js` and runs `addonReplyText` + `renderTail`
+out of it — the `cut()` + `new Function` pattern `test/site-addon.test.mjs`
+already uses, with `EditPoll` through `createRequire`. **WHY THE GAP EXISTED IS
+THE REUSABLE PART**: the per-field census proves its discovery rule (`msg` plus
+every `*Note`) complete for what the browser prints **VERBATIM**, and says
+nothing whatever about what it **COMPOSES** — which is most of what a customer
+reads. A reply carrying none of those fields printed `NOTHING`; it now prints
+the success sentence, the placeholder explanation and the missing-link warning.
+The per-field breakdown stays beneath it, relabelled: one is the screen, the
+other is which field carried which sentence, and they fail differently.
+
+**3. INVENTORY COMPLETENESS IS OBSERVABLE, AND AN INCOMPLETE BEFORE-READ STOPS
+THE RUN** (*"An incomplete before-read must stop this test before spending; an
+incomplete after-read must make preservation unverified. Checking HTTP status
+alone is insufficient."*). Four loaders in `/api/site/source` collapsed a failed
+read into an empty list, and **`loadConfig` had answered `{ok, why}` since it was
+written and the route dropped it on the floor** — the value computed and never
+forwarded, in the half that carries a customer's QR codes. So a bucket that threw
+answered byte-identically to a site with nothing on it, and a comparison taken
+across it said *"nothing was added and nothing was lost"*.
+
+- **`readSiteSource` IS THE THREE-STATE READER** — `readSiteParts`' shape one
+  store over — and `/api/site/source` carries **`reads`**, one boolean per store
+  the inventory is built from (`pages`, `parts`, `assets`; **not** `kit` or
+  `shared`, which nothing compares). **THE 200 AND `ok: true` STAY**: the
+  explorer is a read-only tab and must get everything readable; what was missing
+  was the ability to say so.
+- **`loadSiteSource` BECOMES A THIN WRAPPER**, so its nine callers are unchanged
+  and there is one reader underneath. **Its `null` still covers the EMPTY array
+  deliberately** — every one of those callers asks "is there source to work
+  from", where a stored `[]` and no object at all are the same answer.
+- **AN ABSENT OBJECT IS A READ THAT SUCCEEDED.** A site that has never published
+  has no `pages.json`, and reading that as a failed store would make every new
+  site look broken.
+- **`complete` IS THREE STATES AND `null` IS THE ONE THAT MATTERS.** An older
+  Worker sends no `reads` and CANNOT SAY; reading its silence as "complete" is
+  how this instrument goes back to reporting an unread store as an empty site.
+  It **REFUSES**.
+- **`inventoryRefusals` IS PURE AND EXPORTED, AND THE EXIT IS BEFORE THE POST** —
+  the only reason it can be a refusal rather than a note printed over a run
+  already under way. **Three refusals, three sentences**, because they point at
+  three different fixes: a route that did not answer, a Worker that cannot say,
+  and a store that failed.
+- **AN INCOMPLETE AFTER-READ PRINTS `PRESERVATION UNVERIFIED`** and says the ±
+  counts are not evidence. **A loss seen across an incomplete pair is still
+  said**: incompleteness makes an ABSENCE untrustworthy, never a PRESENCE.
+
+**⚠ AND THE PAID TEST NOW NEEDS THIS DEPLOYED BEFORE IT CAN RUN.** Main's
+`worker.js` has no `reads` (checked, not assumed), so the harness against the
+live Worker today answers `complete: null` and **refuses**. That is the owner's
+own instruction taken to its conclusion rather than a regression, and it makes
+the order **merge → deploy → press** rather than press.
+
+**PLUS THE PLACEMENT HALF** (*"Verify the new image loads and inspect its actual
+placement."*). `imagesOn` read `naturalWidth` — the FILE's own size — so a
+picture whose bytes arrived perfectly into a collapsed container renders at 0×0
+and was invisible to it. It reads the rendered rect, the offset down the
+document and the nearest heading above, and **the two failures are counted
+apart**: a file that never arrived and a file laid out to nothing need different
+fixes, and only the first is what a 404 on the image produces.
+
+**AND ONE DEFECT THIS ROUND FOUND IN ITS OWN READER: `want` was a parameter
+`inventoryLines` has always accepted and NOBODY passed**, so the ✓/✗ against the
+expected address had never once printed in a live run — the recorded
+value-never-forwarded defect, in the reader for the claim the run is bought to
+make. It is the route THIS change added, discovered from the reply.
+
+**TWO EARLIER OBSERVATIONS WERE MY FIXTURES' DEFECTS, NOT THE PRODUCT'S, and
+both were measured rather than claimed.** `unlinkedPages` returns `routeOf(path)`
+— routes, not file paths — so *"Nothing links to `src/routes/gallery.tsx`"* came
+from a driver handing it the wrong shape; and `mergeAddonSchema` does
+`added.push(copy.name)`, so `tables` carries NAMES and a guard's `[{name}]`
+fixture is what produced *"now storing [object Object]"*. **The browser's
+composer is what exposed the second**, the moment the report started printing the
+customer's real screen — *derive a fixture from its real producer*, in the guard
+for a reader of that producer's output.
+
+**Guards**: `addon-sweep` **46 → 48** (the published-file reader with its four
+answers, its HTML-page control and its prolog control; the gate, its three
+distinct refusals and the unverified-preservation half with its complete-pair
+control), `site-source` **72 → 73** (the `reads` field driven per store, with an
+absent object asserted as a read that SUCCEEDED). **Every new case proved RED
+against the pre-change product**: three red in `site-source`, and `addon-sweep`
+red at IMPORT — which is honest and is the weaker form, so the per-assertion
+proof is the sweep.
+
+**Five older guards re-anchored, not appeased — and one is a HOLE rather than a
+count.** `site-busy`'s bare-reader census counted only `loadSiteSource`, so
+`readSiteSource` was a **second non-repairing reader a publishing read could walk
+onto unseen**: move `let eSrc = …` across and nothing noticed. It counts both
+now, **6 → 7**, and the seventh is the wrapper's own delegation — measured, not
+predicted, because a first draft of that comment called it the sixth.
+
+**Sweep: 38 mutants, 38 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/live-test-instrument.json`, over
+`scripts/addon-sweep.mjs` and `worker.js`, against five test files — a narrow
+list can only produce a false SURVIVOR, never a false kill). **Pass 1 read
+37/34/3 and NOT ONE SURVIVOR WAS THE PRODUCT'S**; all three are worth keeping:
+
+- **THE TAIL WAS DROPPED AND NOTHING NOTICED.** `renderTail` prints
+  `renderNote` — what the render check found, which the route puts on every reply
+  that has one — and **no fixture anywhere carried one**, so a composer running
+  `addonReplyText` alone looked right on every clean reply and would have lost
+  exactly the ones worth reading.
+- **A POSITIONAL GUARD CANNOT SEE A DEAD BRANCH, and this file already records
+  the trap.** `if (false) { … }` leaves `process.exit(1)` exactly where a search
+  finds it — which is how the deploy pre-flight's own gate survived its first
+  sweep two rounds ago, and how this one survived its first. The gate is asserted
+  by its own CONDITION now.
+- **THE BROWSER READING IS LIFTED AND DRIVEN rather than declared unguardable.**
+  It ran inside `page.evaluate`, so no unit case could reach it — *a wall nobody
+  can drive is a wall nobody is guarding*, on a READING whose wrong answer is a
+  report saying the picture is fine when it is not. `IMAGE_READING` is the SOURCE
+  `page.evaluate` is handed (the shape `browserComposer` already uses), so a
+  guard `new Function`s it with `document` and `window` as parameters and drives
+  the real text: **box 720×540 from the rect against a file of 1600×1200**, the
+  offset, the folded heading, and a picture whose bytes arrived into no size.
+  **Plus the free-identifier wall** — Playwright ships the TEXT to the page, so a
+  module name in there throws in the browser and comes back as "the image read
+  failed", the recorded free-identifier trap with a browser between the halves.
+
+**THE ANCHOR CENSUS PAID FOR ITSELF AGAIN: 11 of 39 anchors were not exactly
+once** on the first write, every one caught before the run rather than read as
+NOT APPLIED afterwards.
+
+**Suite 6,842** (6,842 pass, 0 fail, 0 skipped) — **and the arithmetic closes on
+measured numbers, not subtracted ones**: the three affected files read **137** at
+`28dc6e4e` in a detached worktree and **140** now, against 6,839 → 6,842.
+`site-busy` stays 19: everything it gained is an assertion inside a case that
+already existed.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction, and
+every passing control was retained.
+
 #### …AND THE MEASUREMENT KILLED MY OWN RECOMMENDATION
 
 **`ashgrove-1` SHOWS NO PHOTOGRAPH, and the claim that it was the only suitable

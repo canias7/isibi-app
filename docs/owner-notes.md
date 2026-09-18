@@ -13098,3 +13098,70 @@ survived as they should.**
 
 **Nothing merged, nothing deployed, nothing paid, and I haven't been near the
 edit path.**
+
+---
+
+## 2026-09-18 — three corrections to the live-test instrument
+
+Your three, each of them a thing the harness was claiming and could not back up.
+
+**1. It was checking the QR code against the wrong thing.** The endpoint it read
+re-draws the code from your settings every time it answers, so it was comparing a
+drawing to itself: *"the settings say /gallery"*. That is true even if the publish
+never ran and no visitor can scan anything. It now fetches the real file from the
+live site, the way a phone would, and gives four different answers because they
+need four different fixes — not on the site at all, there but broken, there and
+opening the wrong page, there and right. Two lines per code, never merged, so a
+disagreement between what the settings say and what the site serves is the
+finding rather than something to spot by eye.
+
+I checked it against fretwork-1 before believing it: `qr-prices.svg` really is
+published and really does open `/prices`. **And my own first version of the check
+was wrong** — it asked "does this contain an SVG?", and fretwork-1's home page
+contains about sixty of them (React draws its icons that way), so a missing file
+would have been reported as a broken drawing. It asks "is this file an SVG?" now.
+
+**2. It was printing "NOTHING" for replies the customer clearly sees something
+for.** The report listed the server's sentences one by one, which is a complete
+list of what gets quoted verbatim and says nothing about what the browser
+*composes* — which is most of what you read. It now runs the browser's own
+formatter out of `chat.js` rather than writing a second one, so the report shows
+the same words your screen does, and the sentence-by-sentence list sits
+underneath as the developer's half.
+
+**3. It could not tell a failed read from an empty site, so "nothing was lost"
+was not a claim it could make.** Four readers in the endpoint turned a storage
+failure into an empty list with a perfectly happy 200 — so a before/after
+comparison taken across one said *"this change added nothing and lost nothing"*,
+and the check that every photograph survived passed by having seen none on either
+side. The endpoint now says which of its stores it really read; the harness
+**stops the run before spending** if the before-reading is incomplete, and marks
+preservation **unverified** if the after-reading is.
+
+**One consequence worth knowing: the paid test now needs this deployed first.**
+The live Worker does not yet say which stores it read, so the harness would
+refuse against it today. That is your instruction working rather than a problem —
+but it makes the order merge, then deploy, then press.
+
+**And your other half: it now checks where the picture actually landed**, not
+just that the file loaded. Those are two different questions — a photograph whose
+bytes arrive perfectly into a collapsed box renders at nothing and the old check
+called it fine. It reads the rendered size, how far down the page it sits and
+which heading it sits under.
+
+**Two things I had flagged as possible bugs turned out to be my test fixtures'
+fault, and I measured rather than guessed.** The product sends page addresses and
+table names correctly; my drivers were handing it the wrong shapes. Recorded that
+way round rather than quietly swapping them.
+
+**And the instrument found one real defect in itself**: a setting for "which
+address was this code supposed to open" has existed for as long as the check has
+and nothing ever passed it in, so the tick-or-cross against the expected page had
+never once printed in a real run.
+
+**Eight deliberate breakages became thirty-eight; all thirty-eight caught, both
+decoys survived.** The first pass found three gaps and none was in the product —
+one of them made me lift the browser check out into something a test can actually
+run, because it lived inside the browser where nothing could reach it.
+
+**Nothing merged, nothing deployed, nothing paid.**
