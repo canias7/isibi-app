@@ -774,6 +774,25 @@ test("⚠ THE ROUTE HANDS THE WHOLE DECLARATIONS TO THE VALIDATOR, and the diffe
   assert.match(wrong.body.error, /"lines" is text, and the list to go through needs a list/);
   assert.ok(!g.calls.some((c) => c.name === "createAutomation"), "a refused workflow was written anyway");
 
+  // ⚠ **AND A TYPE THE READER DOES NOT RECOGNISE IS `text`, NOT WHATEVER IT SAYS.** A sweep
+  // survivor is why, and where the difference SHOWS is measured rather than guessed:
+  // `cleanWorkflow` is EXPORTED, so a caller that has not been through `cleanInputs` can hand
+  // it `type: "lsit"` — and `AUTOMATION_TYPE_ACCEPTS["lsit"]` is `undefined`, a lookup nothing
+  // can satisfy, which reads exactly like no wall at all.
+  //
+  // ⚠ **A LOOP CANNOT SEE IT** — measured: an unknown type and `text` both come back
+  // *"is text, and the list to go through needs a list"*, because the refusal normalises an
+  // unrecognised type to text as well. **A NOTE is the shape that separates them**: reading an
+  // unknown type as text ACCEPTS the sentence (which is right, and is what a declaration with
+  // no type means), and reading it as itself REFUSES a legitimate workflow.
+  const PROSE = [{ type: "note", text: "the names are {{lines}}" }];
+  const decl = (type) => cleanWorkflow(PROSE, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, [{ name: "lines", type }]);
+  assert.equal(decl("lsit").error, undefined, "an unrecognised type was not read as text");
+  assert.equal(decl(undefined).error, undefined, "a declaration with no type was not read as text");
+  // AND THE CONTROL, which is what makes those two about the TYPE rather than about a note
+  // accepting everything: a real `list` in prose is refused, because `String(["a"])` is `"a"`.
+  assert.match(String(decl("list").error), /"lines" is a list, and that note needs text/);
+
   // AND THE EDIT IS THE SAME DOOR, so a workflow that can be created can be changed.
   const h = fakeStore();
   const edit = await call("/api/agent/automation-update", {

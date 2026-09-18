@@ -1,0 +1,45 @@
+[
+ {
+  "label": "⚠ the route hands the validator only the input NAMES, so a declared list reads as text",
+  "files": ["agent-store.mjs"],
+  "from": "      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS,\n        declared.inputs);",
+  "to": "      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS,\n        declared.inputs.map((i) => i.name));"
+ },
+ {
+  "label": "⚠ the route validates the steps against NO declarations at all",
+  "files": ["agent-store.mjs"],
+  "from": "      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS,\n        declared.inputs);",
+  "to": "      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, []);"
+ },
+ {
+  "label": "a declaration's own type is dropped by the reader, so every name is text",
+  "files": ["agent-store.mjs"],
+  "from": "      outer.set(d.name, AUTOMATION_VALUE_TYPES.includes(d.type) ? d.type : \"text\");",
+  "to": "      outer.set(d.name, \"text\");"
+ },
+ {
+  "label": "an unknown declared type is read as a LIST rather than as text, so a loop accepts a typo",
+  "files": ["agent-store.mjs"],
+  "from": "      outer.set(d.name, AUTOMATION_VALUE_TYPES.includes(d.type) ? d.type : \"text\");",
+  "to": "      outer.set(d.name, typeof d.type === \"string\" ? d.type : \"text\");"
+ },
+ {
+  "label": "a LIST answer to a run is not checked for being a list",
+  "files": ["agent-store.mjs"],
+  "from": "      if (!Array.isArray(v[k])) return { error: `\"${k}\" didn't arrive as a list` };",
+  "to": "      if (false) return { error: `\"${k}\" didn't arrive as a list` };"
+ },
+ {
+  "label": "a NUMBER answer is coerced rather than refused, so \"\" becomes zero",
+  "files": ["agent-store.mjs"],
+  "from": "      if (typeof v[k] !== \"number\" || !Number.isFinite(v[k])) return { error: `\"${k}\" didn't arrive as a number` };",
+  "to": "      if (false) return { error: `\"${k}\" didn't arrive as a number` };"
+ },
+ {
+  "label": "CONTROL: a comment only, above the route's declaration hand-off",
+  "files": ["agent-store.mjs"],
+  "from": "      // ⚠ **THE WHOLE DECLARATIONS, NEVER THEIR NAMES — and the difference is a TYPE.** This",
+  "to": "      // The whole declarations rather than their names, because the difference is a type (control).",
+  "control": true
+ }
+]

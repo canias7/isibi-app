@@ -783,6 +783,54 @@ const spec = [
     "     where automation_id = p_automation_id and id = p_run_id;\n  end if;\n",
     "     where id = p_run_id;\n  end if;\n"),
 
+  // ── ⚠ AN ANSWER IS READ AS ITS DECLARED KIND, and a declared list could not be supplied ──
+  //
+  // This read demanded a STRING of every answer, so a real list came back `bad-input` while the
+  // site's own route had already read it as a list and sent it — and the only value a declared
+  // list could hold was text, which `repeat … each` then refuses at run time as "not a list".
+  // Each mutant below fails in a different direction, and two of them are silent.
+  mAcceptAuto("⚠ SQL/accept: every answer must be a string, so a declared LIST cannot be supplied",
+    "      if coalesce(v_want, 'text') = 'list' then",
+    "      if false then"),
+  mAcceptAuto("⚠ SQL/accept: a list may hold anything, so a nested one reaches a step as itself",
+    "        if exists (select 1 from jsonb_array_elements(v_given -> v_key) e where jsonb_typeof(e) <> 'string') then",
+    "        if false then"),
+  mAcceptAuto("⚠ SQL/accept: a declared NUMBER takes its own text, so a comparison reads wrong",
+    "      elsif coalesce(v_want, 'text') = 'number' then",
+    "      elsif false then"),
+  mAcceptAuto("⚠ SQL/accept: a declared TEXT takes a list, which `String(['a'])` collapses",
+    "      elsif jsonb_typeof(v_given -> v_key) <> 'string' then",
+    "      elsif false then"),
+  // ⚠ THE KIND IS READ FROM THE DECLARATION RATHER THAN GUESSED, and the fail-closed direction
+  // is text: a declaration with no type is every automation stored before types existed.
+  mAcceptAuto("⚠ SQL/accept: the declared kind is ignored and everything is read as a list",
+    "      select d ->> 'type' into v_want\n        from jsonb_array_elements(v_decl) d where d ->> 'name' = v_key limit 1;",
+    "      select 'list' into v_want\n        from jsonb_array_elements(v_decl) d where d ->> 'name' = v_key limit 1;"),
+  // ⚠ AND A REFUSAL THAT DOES NOT SAY WHAT IT WANTED is one nobody can act on — the tool
+  // composes its sentence from this field.
+  mAcceptAuto("SQL/accept: a kind refusal does not say which kind it wanted",
+    "          return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key, 'wanted', 'list');",
+    "          return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key);"),
+  // ── AN UNANSWERED NAME, AND ITS OWN KIND'S EMPTY VALUE ────────────────────
+  mAcceptAuto("⚠ SQL/accept: an unanswered LIST is a blank string, so a loop over it fails",
+    "      elsif v_want = 'list' then\n        v_json := '[]'::jsonb;",
+    "      elsif false then\n        v_json := '[]'::jsonb;"),
+  mAcceptAuto("⚠ SQL/accept: a DEFAULT fills a list, which is a coercion the form cannot produce",
+    "        v_json := to_jsonb(coalesce(v_d ->> 'default', ''));",
+    "        v_json := coalesce(to_jsonb(v_d -> 'default'), to_jsonb(coalesce(v_d ->> 'default', '')));"),
+  mAcceptAuto("⚠ SQL/accept: an EMPTY list counts as an answer, so a required one is never asked for",
+    "        when jsonb_typeof(v_json) = 'array'  then jsonb_array_length(v_json) = 0",
+    "        when jsonb_typeof(v_json) = 'array'  then false"),
+  mAcceptAuto("SQL/accept: a number that arrived is read as unanswered, so `0` is refused",
+    "        when jsonb_typeof(v_json) = 'number' then false",
+    "        when jsonb_typeof(v_json) = 'number' then (v_json #>> '{}') = '0'"),
+  mAcceptAuto("⚠ SQL/accept: the value is stored as text whatever it is, so nothing is a list",
+    "      v_vars := v_vars || jsonb_build_object(v_key, v_json);",
+    "      v_vars := v_vars || jsonb_build_object(v_key, coalesce(v_json #>> '{}', ''));"),
+  mAcceptAuto("SQL/accept/CONTROL (comment only): the note declaring the kind-by-kind read",
+    "      -- ⚠ **EACH ANSWER IS READ AS ITS DECLARED KIND, AND REFUSED RATHER THAN COERCED.**",
+    "      -- Each answer is read as its declared kind and refused rather than coerced (control).", true),
+
   mTick("⚠ SQL/tick: the catch-up window becomes unbounded, so downtime IS a burst",
     "           <= make_interval(secs => greatest(0, coalesce(p_catchup_s, 3600))) then",
     "           <= make_interval(secs => 3650 * 86400) then"),

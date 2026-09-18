@@ -1334,6 +1334,26 @@ const spec = [
   m("tools: a created automation's id is minted fresh, so a redelivery makes a second", CT,
     "      id: await uuidFrom(`automation:${ctx?.operation ?? \"\"}`),",
     "      id: await uuidFrom(`automation:${Math.random()}`),"),
+  // ── ⚠ WHY A RUN WAS NOT STARTED, IN WORDS A MODEL CAN ACT ON ──────────────
+  //
+  // Every refusal but `disabled` answered one sentence, so a call that left out a required
+  // answer or sent the wrong kind was told only that it failed — a failure that cannot name
+  // itself, about the model's OWN arguments.
+  m("⚠ tools: a start refusal answers one sentence for every cause", CT,
+    "        say: sayStart(answer?.error, answer?.name, answer?.wanted) };",
+    '        say: answer?.error === "disabled" ? "that automation is turned off" : "that automation could not be started" };'),
+  m("tools: a start refusal does not name WHICH answer was wrong", CT,
+    "        say: sayStart(answer?.error, answer?.name, answer?.wanted) };",
+    "        say: sayStart(answer?.error, null, answer?.wanted) };"),
+  m("tools: a start refusal does not say what kind of thing was wanted", CT,
+    "        say: sayStart(answer?.error, answer?.name, answer?.wanted) };",
+    "        say: sayStart(answer?.error, answer?.name, null) };"),
+  // ⚠ AND A KIND NOTHING RECOGNISES MUST FALL BACK RATHER THAN INVENT ONE: a made-up
+  // explanation is worse than none, and this is the direction that cannot be seen from outside.
+  m("tools: an unrecognised kind is described anyway", CT,
+    '                 "list-of-text": "a list whose every item is text" }[wanted] ?? null;',
+    '                 "list-of-text": "a list whose every item is text" }[wanted] ?? String(wanted);'),
+
   m("tools: the catalog a model reads is not the whole registry", CT,
     "    actions: AUTOMATION_STEPS.map((d) => ({", "    actions: AUTOMATION_STEPS.slice(1).map((d) => ({"),
   m("tools: the step ceiling a model is told is not the platform's", CT,
@@ -2289,6 +2309,33 @@ const spec = [
   m("fake-provider: nothing says it is simulated", FP,
     "      return { simulated: true, provider: FAKE_PROVIDER, account: lease.account,\n               count: rows.length, messages: rows };",
     "      return { provider: FAKE_PROVIDER, account: lease.account, count: rows.length, messages: rows };"),
+  // ── ⚠ A RECORDED OUTCOME IS REPLAYED FAITHFULLY, and this is the round's own defect ──
+  //
+  // The repeat branch answered `ok: true, "that had already been done"` whatever the record
+  // held, so a REFUSED send came back a success on every redelivery and an unresolved one came
+  // back settled. Three readings, and each fails differently: the first loses somebody's
+  // message while claiming it went, the second turns cannot-tell into a value, and the third
+  // hands the model the envelope where the provider's own answer belongs.
+  //
+  // ⚠ EVERY ANCHOR HERE IS ONE LINE, because a spec is JavaScript and an embedded newline in
+  // one of these strings is a syntax error in the spec rather than in the product.
+  m("⚠ connections: a recorded FAILURE is replayed as a success", CN,
+    "            if (ok === false) {", "            if (false) {"),
+  m("⚠ connections: a record with no outcome is replayed as a success", CN,
+    "              ? outcome.ok : undefined;", "              ? outcome.ok !== false : true;"),
+  m("connections: a replayed failure drops the reason the record kept", CN,
+    '                recorded: typeof outcome.error === "string" ? outcome.error : null,',
+    "                recorded: null,"),
+  m("connections: a replayed success hands back the envelope rather than the provider's answer", CN,
+    '                result: Object.hasOwn(outcome, "result") ? outcome.result : outcome,',
+    "                result: outcome,"),
+  m("connections: a replayed failure's sentence claims the work happened", CN,
+    '                say: "that was tried before and did not go out — nothing was sent again" };',
+    '                say: "that had already been done, so it was not done again" };'),
+  m("connections: an unsettled record is replayed as a plain failure rather than as unknown", CN,
+    '            return { ok: false, ...shell, error: "unresolved", uncertain: true,',
+    '            return { ok: false, ...shell, error: "action-failed",'),
+
   m("connections/CONTROL (comment only)", CN,
     " * ── ⚠ THE CREDENTIAL NEVER COMES BACK OUT OF THIS MODULE ",
     " * ── The credential never comes back out of this module   ", true),
