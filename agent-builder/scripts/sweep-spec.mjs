@@ -2099,19 +2099,12 @@ const spec = [
   // really went out is reported as having failed and the model's next move is to send it
   // again. That is the blind retry this path exists to prevent, arriving through our own
   // accounting rather than through the provider.
+  // ⚠ ONE LINE, BELOW THE COMMENT, ON PURPOSE: a multi-line anchor over the whole
+  // try/catch is outrun by the next comment written inside it, which is this
+  // repository's own most-repeated guard trap. Re-throwing is the same property.
   m("⚠ connections: the settle can throw, so a completed send is reported as a failure", CN,
-    "            try {\n"
-    + "              return await rpc(CONNECTION_RPC.settle, {\n"
-    + "                p_tenant: tenant, p_op_key: opId.key, p_action: recorded,\n"
-    + "                p_args_hash: opId.hash, p_outcome: outcome,\n"
-    + "              });\n"
-    + "            } catch (e) {\n"
-    + "              return { ok: false, error: e?.message ?? \"the record could not be settled\" };\n"
-    + "            }",
-    "            return await rpc(CONNECTION_RPC.settle, {\n"
-    + "                p_tenant: tenant, p_op_key: opId.key, p_action: recorded,\n"
-    + "                p_args_hash: opId.hash, p_outcome: outcome,\n"
-    + "              });"),
+    '              return { ok: false, error: e?.message ?? "the record could not be settled" };',
+    "              throw e;"),
   m("connections: a record that did not land is silent, so nobody ever learns of it", CN,
     "            if (wrote?.ok === true) return answer;", "            if (true) return answer;"),
   m("connections: every answer claims its record did not land, so the field says nothing", CN,
