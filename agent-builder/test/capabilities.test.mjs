@@ -528,10 +528,48 @@ test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thin
   assert.match(gone.say, /nothing remembered under that name/);
 
   // THE CONTROL, without which `forgot: false` is satisfied by a tool that always says so.
-  const had = recorder(() => ({ ok: true, forgot: true }));
+  const had = recorder(() => ({ ok: true, forgot: true,
+    affects: { futureRuns: true, acceptedRuns: false, runHistory: false } }));
   const out = await tool.run({ name: "tone" }, { capabilities: had.can.forTenant(T).forAgent(AG), operation: OP() });
   assert.equal(out.forgot, true, "a fact really removed was reported as absent");
-  assert.equal(out.say, "forgotten");
+  // RE-ANCHORED, NOT APPEASED: this demanded `say === "forgotten"` exactly, which is a
+  // spelling. The property is that a real removal and a name that was not there say
+  // DIFFERENT things — and since the reach shipped, the removal says what it reaches too.
+  assert.match(out.say, /^forgotten — /);
+  assert.notEqual(out.say, gone.say);
+
+  // ⚠ **`deleted` IS NOT `erased`, AND THE MODEL IS TOLD SO IN THE TEXT.** A memory lives in
+  // three places and a delete reaches exactly one: no LATER run sees it, an execution already
+  // under way keeps the snapshot it was accepted with, and the journal keeps whatever it
+  // quoted. A bare "forgotten" would tell somebody it had gone everywhere, which is false
+  // about two of the three — so the sentence names all three, in the text as well as in the
+  // field, because the field is gone the moment an answer is read as prose.
+  assert.deepEqual(out.affects, { futureRuns: true, acceptedRuns: false, runHistory: false });
+  assert.match(out.say, /later runs will not see it/);
+  assert.match(out.say, /already under way keeps what it started with/);
+  assert.match(out.say, /history keeps whatever it quoted/);
+
+  // ⚠ AND THE REACH IS THE FUNCTION'S OWN ANSWER, NEVER COMPOSED HERE. An answer that does
+  // not carry it is `null` — a claim about reach that this code invented would be a claim
+  // nothing verified — and `Array.isArray` matters because `[]` is an object and is not a set
+  // of named facts. Driven over every shape a missing or junk `affects` really arrives as.
+  for (const junk of [undefined, null, "yes", 7, [], [1], true]) {
+    const r = recorder(() => ({ ok: true, forgot: true, affects: junk }));
+    const said = await tool.run({ name: "tone" }, { capabilities: r.can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(said.affects, null, `${JSON.stringify(junk)} was read as a reach`);
+    // AND THE SENTENCE IS STILL SAID, because it is about how forgetting works rather than
+    // about this row: the fields are evidence and the words are the explanation.
+    assert.match(said.say, /later runs will not see it/);
+  }
+
+  // A REPEAT SAYS THE STATE MAY HAVE MOVED SINCE. The answer is a historical fact — what the
+  // call did the first time — so a bare "forgotten" would be a claim about the present.
+  const twice = recorder(() => ({ ok: true, forgot: true, repeat: true,
+    affects: { futureRuns: true, acceptedRuns: false, runHistory: false } }));
+  const rep = await tool.run({ name: "tone" }, { capabilities: twice.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(rep.repeat, true);
+  assert.match(rep.say, /may have been written again since/);
+  assert.deepEqual(rep.affects, out.affects, "a repeat lost the reach the first call reported");
 });
 
 test("a refusal from the database is passed on as a sentence, never as a success", async () => {

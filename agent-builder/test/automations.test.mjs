@@ -17,7 +17,7 @@ import {
   localDate, weekdayOf, executionDay, branchMap,
   VALUE_TYPES, TYPE_ACCEPTS, BLOCK_SHAPES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH, MAX_STEP_RUNS,
   ERROR_PATHS, FAILABLE_KINDS, MAX_STEP_RETRIES, readErrorPath,
-  expandWorkflow, MAX_SUBWORKFLOW_DEPTH, MAX_FLAT_STEPS, FIELD_KINDS,
+  expandWorkflow, MAX_SUBWORKFLOW_DEPTH, MAX_FLAT_STEPS, FIELD_KINDS, MAX_EXCERPTS,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -1254,7 +1254,46 @@ test("⚠ a memory is read from the SNAPSHOT, by name, and nothing remembered is
   assert.equal(got.stop.result, "in a formal way");
   // WHICH VERSION IT USED IS RECORDED, so a run can say what it read rather than leaving
   // it to be inferred from timestamps.
-  assert.deepEqual(got.outcomes[0].sources, [{ key: "tone", version: 3 }]);
+  // RE-ANCHORED, NOT APPEASED: this asserted `[{key, version}]` and the answer now carries
+  // WHOSE fact it was as well. The property was never the key set — it is that a run can
+  // say what it read — so it is asserted whole, per source, rather than by widening a
+  // deep-equal until it passes.
+  assert.deepEqual(got.outcomes[0].sources, [{ key: "tone", version: 3, source: "unknown" }]);
+
+  // ⚠ A CONFIRMED FACT AND AN AGENT'S OWN NOTE ARE DIFFERENT THINGS, AND THE NOTE SAYS
+  // WHICH. That distinction is the whole reason `agent_memory.source` exists: somebody
+  // auditing an answer has to be able to tell where it came from, and an excerpt with no
+  // provenance is an assertion nobody can check.
+  const sourced = async (source) => {
+    const r = await runWorkflow({
+      steps, occurrence: WED,
+      memory: { tone: { value: "formal", version: 3, ...(source === undefined ? {} : { source }) } },
+    });
+    return { sources: r.outcomes[0].sources, why: r.outcomes[0].why };
+  };
+  const person = await sourced("person");
+  assert.deepEqual(person.sources, [{ key: "tone", version: 3, source: "person" }]);
+  assert.match(person.why, /confirmed by you/);
+  const byRun = await sourced("run");
+  assert.deepEqual(byRun.sources, [{ key: "tone", version: 3, source: "run" }]);
+  assert.match(byRun.why, /written by this agent/);
+  // THE THREE SENTENCES ARE THREE, because two of them collapsing is the distinction gone.
+  assert.notEqual(person.why, byRun.why);
+
+  // ⚠ AND IT FAILS CLOSED TO `unknown`, WHICH IS A STATED ANSWER AND NOT A DEFAULT. A
+  // snapshot taken before that column was carried has no source, and reading the absence as
+  // `person` would UPGRADE an agent's own note into a fact somebody confirmed — the one
+  // direction that matters here. Refused, never coerced: a junk value is not a source.
+  for (const junk of [undefined, null, "", "Person", "owner", 7, ["person"], {}, true]) {
+    const r = await sourced(junk);
+    assert.equal(r.sources[0].source, "unknown", `${JSON.stringify(junk)} was read as a source`);
+    assert.match(r.why, /recorded before this was tracked/);
+  }
+  // A VERSION IS AN INTEGER OR IT IS NOTHING — never a string a reader would print.
+  const noVer = await runWorkflow({
+    steps, occurrence: WED, memory: { tone: { value: "formal", version: "3", source: "person" } },
+  });
+  assert.deepEqual(noVer.outcomes[0].sources, [{ key: "tone", version: null, source: "person" }]);
 
   // NOTHING REMEMBERED YET IS AN ANSWER, NOT A FAILURE: `if {{tone}} is empty` is the
   // natural thing to write about it, and a failure would stop the workflow instead.
@@ -2535,6 +2574,23 @@ test("⚠ THE REQUEST THE STORE REALLY SENDS — every event operation, by its o
   await store.webhookForDelivery("wh1");
   assert.equal(seen.length, 4, "the census must drive every event operation exactly once");
 
+  // ⚠ **THE HEARING TAKES THE TENANT FROM THE CLAIM, AND IT IS COMPELLED RATHER THAN
+  // OPTIONAL.** It is the one event operation that asks about a RUN, and a run id is a uuid
+  // somebody could hold without owning — so the filter is what makes it this account's, and a
+  // call that could not say whose must refuse rather than ask unscoped. Refused, never
+  // coerced: `String(["t1"])` is `"t1"`, this repository's most repeated value trap.
+  for (const junk of [undefined, null, "", "  ", 7, ["t1"], {}, true]) {
+    await assert.rejects(() => store.hearPendingEvent({ runId: "r1", tenant: junk }), TypeError,
+      `the hearing was asked about a run with tenant ${JSON.stringify(junk)}`);
+  }
+  // AND THE RUN ID IS COMPELLED THE SAME WAY, so neither half can be the one that is missing.
+  for (const junk of [undefined, null, "", 7, ["r1"]]) {
+    await assert.rejects(() => store.hearPendingEvent({ runId: junk, tenant: "t1" }), TypeError,
+      `the hearing was asked about runId ${JSON.stringify(junk)}`);
+  }
+  // THE CONTROL: nothing above sent a request, so the refusals are walls and not an outage.
+  assert.equal(seen.length, 4, "a refused hearing still went out on the wire");
+
   const [emit, dispatch, hear, hook] = seen;
 
   // ── the emit ─────────────────────────────────────────────────────────────
@@ -2878,6 +2934,25 @@ test("⚠ AN EVENT NAME IS ITS OWN FIELD KIND, wider than a `name` and still che
   for (const junk of [["order.paid"], 7, {}, null, true]) {
     assert.ok(ev(junk).error, `${JSON.stringify(junk)} was read as an event name`);
   }
+
+  /**
+   * ⚠ **THE FIELD'S `kind` IS `event`, AND IT IS THE DECLARATION THAT CARRIES THE SHAPE TO THE
+   * OTHER DOOR.** Every assertion above goes through THIS engine's bespoke `readEventName`, so
+   * all of them pass with the kind written as an ordinary `name` — and a sweep mutant doing
+   * exactly that SURVIVED a whole pass. What the kind decides is the SITE builder's generic
+   * `readStepField`, which knows nothing about one step's `read`: its `name` kind refuses a
+   * dot, so `order.paid` could not be saved through the screen at all while this side accepted
+   * it. The two doors are censused against each other in the site's own suite, which
+   * `npm run sweep` does not run — so the declaration is asserted HERE, where a mutant can be
+   * seen, and the dotted name above is what makes it matter.
+   */
+  const evStep = AUTOMATION_STEPS.find((st) => st.type === "event");
+  const nameField = evStep.fields.find((f) => f.name === "name");
+  assert.equal(nameField.kind, "event", "an event name is declared as an ordinary name");
+  assert.notEqual(nameField.kind, "name", "the two doors disagree about what may be saved");
+  // AND IT IS A REAL KIND rather than a word nobody reads: a kind outside the set is one the
+  // other door's generic reader cannot resolve at all.
+  assert.ok(FIELD_KINDS.includes("event"), "the event kind is not one of the declared kinds");
   // THE STORED CONFIG KEEPS BOTH FIELDS, which is what makes `{{it}}` mean anything — a
   // field the `read` drops is a dead control, and this one was dropped in its first draft.
   const kept = readWorkflow([{ type: "event", name: "order.paid", out: "it" }], AUTOMATION_STEPS, 20, []);
@@ -2914,6 +2989,17 @@ test("⚠ EVERY REFUSAL SAYS WHAT WENT WRONG IN WORDS A PERSON CAN ACT ON", asyn
     "step 1: the name for this step's answer didn't arrive as a name");
   // AND A NAME THAT IS NOT A NAME QUOTES WHAT WAS TYPED, so it is findable in the form.
   assert.match(w({ type: "knowledge", query: "q", out: "Not An Id" }), /^step 1: "Not An Id" can't be a name/);
+
+  // ⚠ ONE READER, TWO FIELDS, AND EACH REFUSAL MUST NAME ITS OWN. `readOut` is shared by
+  // `out` and by a loop's `as`, so a phrase belonging to either is wrong about the other —
+  // and it is the LOOP's that a reader cannot guess, because "the name for this step's
+  // answer" names nothing on that control. This is what makes the words being handed in
+  // observable at all: the reader now has no default to fall back to, so a call site that
+  // drops them, or passes the other field's, is a sentence somebody can read.
+  const loopAs = w({ type: "repeat", mode: "each", each: "a, b", as: ["x"] });
+  assert.equal(loopAs, "step 1: what to call each one didn't arrive as a name");
+  assert.doesNotMatch(loopAs, /the name for this step's answer/,
+    "the loop's own control is named in the other field's words");
 
   // ⚠ ABSENT AND WRONG-KIND ARE TWO REFUSALS ON A CALL, and the first draft of that reader
   // coerced — it read a non-string as `""` and asked somebody to fill in a box they had.
@@ -2969,4 +3055,108 @@ test("⚠ A RESUME IS MATCHED BY THE PAUSED STEP'S OWN ID, never by `something i
   // THE CONTROL: with the pause really at s1 it IS s1's resume, so the run walks past both.
   const paused1 = await walk({ kind: "approval", step: "s1" });
   assert.equal(paused1.waiting?.step, "s2", "the paused step did not get its own resume");
+});
+
+test("⚠ AN UNEXPANDED CALL FAILS IN WORDS THAT NAME THE STEP, and cannot carry on past itself", async () => {
+  // A `workflow` step that reaches the executor means `expandWorkflow` did not run — a row
+  // that does not match what somebody saved. The refusal is written in TWO places and this
+  // is the half that was never asserted, which is what a sweep survivor said:
+  //
+  //   the executor's branch  →  "Run another automation was supposed to be copied in…"
+  //   the step's own `run`   →  "this automation was supposed to be copied in…"
+  //
+  // ⚠ THEY WERE DECLARED AN UNKILLABLE PAIR AND THEY ARE NOT ONE. Both refuse, with the same
+  // reason and the same hard stop, in DIFFERENT WORDS — so which sentence a customer reads is
+  // observable and nothing was looking at it. The executor's is the one to keep at the front,
+  // because a workflow can hold several calls and "this automation" names none of them.
+  const call = readWorkflow([{ type: "workflow", runs: AID(1) }, { type: "note", text: "below" }],
+    AUTOMATION_STEPS, 20, []);
+  assert.equal(call.error, undefined, JSON.stringify(call.error));
+  const r = await runWorkflow({ steps: call.steps, occurrence: WED });
+
+  const label = AUTOMATION_STEPS.find((s) => s.type === "workflow").label;
+  assert.equal(r.stop.reason, "failed");
+  assert.equal(r.stop.at, "s1");
+  assert.equal(r.stop.error, `${label} was supposed to be copied in before the run started, and was not`);
+  assert.equal(r.outcomes[0].error, r.stop.error, "the stop and the outcome say two different things");
+  // AND IT IS THE CATALOG'S OWN LABEL rather than a phrase written here: the sentence is
+  // asserted against `label`, so renaming the step in the catalog moves both together.
+  assert.match(r.stop.error, /^Run another automation /);
+  assert.doesNotMatch(r.stop.error, /^this automation /, "the step's own contract answered the executor's caller");
+
+  // IT IS A HARD STOP: the step below it did not RUN, and nothing was bound. Asserted as
+  // its own outcome rather than as an absence — every step gets one, including the ones that
+  // never ran, because a workflow reporting one of two outcomes leaves its reader guessing.
+  assert.equal(r.outcomes.length, 2);
+  assert.equal(r.outcomes[1].outcome, "skipped");
+  assert.match(r.outcomes[1].why, /an earlier step didn't work/);
+  assert.equal(r.outcomes[1].result, undefined, "the step below an unexpanded call produced something");
+  assert.deepEqual(r.values, {});
+
+  // ⚠ AND THE ESCAPE THAT WOULD MATTER MOST IS SHUT WHERE THE WORKFLOW IS SAVED, not here: a
+  // call is not `failable`, so it cannot ask to be carried on past. Without this, a stored
+  // `on_error: "continue"` on an unexpanded call would run every step below it as though the
+  // call had happened — reported `done`, with the child's work simply absent.
+  assert.equal(AUTOMATION_STEPS.find((s) => s.type === "workflow").failable, false);
+  const carried = readWorkflow([{ type: "workflow", runs: AID(1), on_error: "continue" }],
+    AUTOMATION_STEPS, 20, []);
+  assert.equal(carried.error, `step 1: ${label} has no failures to handle`);
+
+  // THE STEP'S OWN CONTRACT IS STILL ITS OWN, for a caller that dispatches it directly and
+  // never reaches the executor's branch at all.
+  const own = AUTOMATION_STEPS.find((s) => s.type === "workflow").run({}, {});
+  assert.equal(own.failed, "this automation was supposed to be copied in before the run started, and was not");
+  assert.equal(own.result, undefined, "the step's own refusal answers as though it had run");
+});
+
+test("⚠ HOW MUCH A SEARCH BRINGS BACK IS THE PLATFORM'S, and no workflow can move it", async () => {
+  /**
+   * **BOUNDED RETRIEVAL, DRIVEN RATHER THAN READ.** `MAX_EXCERPTS` is a constant here and the
+   * step passes it; there is no field for it, so a saved workflow cannot ask for more and
+   * neither can a model writing one. The `limit` handed to `retrieve` is the only place that
+   * is observable, and a scan over the step's field words is NOT the way to ask — it cannot
+   * tell the retrieval size from the retry count, which is what my first attempt at this
+   * found out by going red on `retries`.
+   */
+  const asked = [];
+  const retrieve = async (a) => { asked.push(a); return { excerpts: [] }; };
+  const steps = readWorkflow([{ type: "knowledge", query: "prices", out: "facts" }],
+    AUTOMATION_STEPS, 20, []).steps;
+  await runWorkflow({ steps, occurrence: WED, retrieve });
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].limit, MAX_EXCERPTS, JSON.stringify(asked[0]));
+
+  // ⚠ AND A STORED ROW CARRYING ITS OWN CEILING CHANGES NOTHING — which is the case that
+  // separates "the constant is passed" from "the config is passed and happens to be absent".
+  // A row like this is what a model writing a workflow, or a hand-edited record, produces.
+  for (const sneaky of [{ limit: 500 }, { max: 500 }, { excerpts: 500 }, { p_limit: 500 }]) {
+    asked.length = 0;
+    const rd = readWorkflow([{ type: "knowledge", query: "prices", out: "facts", ...sneaky }],
+      AUTOMATION_STEPS, 20, []);
+    assert.equal(rd.error, undefined, `${JSON.stringify(sneaky)}: ${rd.error}`);
+    // THE FIELD IS NOT EVEN STORED, because `readWorkflow` rebuilds each step from what it
+    // READ — so there is nothing for a later reader to pick up either.
+    assert.equal(Object.hasOwn(rd.steps[0], Object.keys(sneaky)[0]), false,
+      `a knowledge step stored ${Object.keys(sneaky)[0]}`);
+    await runWorkflow({ steps: rd.steps, occurrence: WED, retrieve });
+    assert.equal(asked[0].limit, MAX_EXCERPTS, `${JSON.stringify(sneaky)} moved the ceiling`);
+  }
+
+  // AND THE ANSWER IS BOUNDED AS WELL AS THE ASK: a retriever that answers MORE than it was
+  // asked for is what a wrong `limit` in the database would look like, and the step must not
+  // hand a model a hundred passages because something else lost count.
+  asked.length = 0;
+  const many = Array.from({ length: 50 }, (_, i) => ({ title: `s${i}`, version: 1, text: `p${i}` }));
+  const flood = await runWorkflow({ steps, occurrence: WED,
+    retrieve: async () => ({ excerpts: many }) });
+  assert.equal(flood.stop.reason, "done");
+  const used = flood.outcomes[0].sources ?? [];
+  assert.ok(used.length <= MAX_EXCERPTS,
+    `a retriever's overrun reached the workflow: ${used.length} sources`);
+  // AND EVERY EXCERPT THAT DID COME THROUGH CARRIES ITS SOURCE AND VERSION, because an excerpt
+  // with no provenance is an assertion nobody can check.
+  for (const u of used) {
+    assert.equal(typeof u.title, "string", JSON.stringify(u));
+    assert.ok(Number.isInteger(u.version), JSON.stringify(u));
+  }
 });

@@ -1684,3 +1684,304 @@ test("⚠ the event dispatch is BOUNDED, or a burst of deliveries starves the sc
     assert.ok(Number.isInteger(asked) && asked > 0 && asked <= 500, `the dispatch asked for ${asked}`);
   });
 });
+
+/**
+ * ⚠ **FIVE MORE MUTANTS SURVIVED A WHOLE PASS, EVERY ONE IN `runner.mjs`'s EXPANSION
+ * BLOCK — the seventh recorded time here that a property proved only by `verify:wf` is a
+ * property no mutant can be caught by.** The block is four walls in a row and the module
+ * suite drove none of them: the position gate, the missing agent, the fenced refusal, and
+ * the plan another worker wrote. Each is closed below, over the in-memory project, because
+ * `npm run sweep` runs `test/*.test.mjs` and nothing else.
+ */
+
+/** Wrap the fake's own fetch for one path, and put it back however the body ends. */
+const aroundFetch = async (needle, handler, body) => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) =>
+    (String(url).includes(needle) ? handler(url, init, real) : real(url, init));
+  try { return await body(); } finally { globalThis.fetch = real; }
+};
+
+test("⚠ PAST THE FIRST STEP THE LIST IS LEFT ALONE — expanding then would renumber recorded work", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    // AN EXECUTION ALREADY PART WAY THROUGH, with a call still in its stored list — which is
+    // the state a first attempt that died BEFORE writing its plan leaves behind. Expanding
+    // here moves every position, so the outcome already recorded would point at a step it is
+    // not about, and `set_automation_plan` refuses the write anyway: the flattened list would
+    // run against a row still holding the unflattened one.
+    await worker.scheduled({}, env, ctx);
+    const runId = env[QUEUE_BINDING].sent.filter((m) => m.runId).at(-1).runId;
+    const exec = rest.execs.get(runId);
+    exec.position = 1;
+    exec.outcomes = [{ id: "s1", type: "note", outcome: "ran", result: "opening" }];
+    const stored = JSON.stringify(exec.steps);
+    Object.assign(rest.work.get(runId), { done_at: null, claimed_by: null, claim_token: null, lease_expires_at: null });
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+
+    // THE STORED LIST IS UNTOUCHED — the call is still a call.
+    assert.equal(JSON.stringify(rest.execs.get(runId).steps), stored, "a resumed run was renumbered under itself");
+    assert.equal(rest.execs.get(runId).steps.filter((s) => s.type === "workflow").length, 1);
+    // AND IT FAILS BY NAME rather than running a list nobody saved, which is the honest
+    // reading of a row in that state.
+    const stop = rest.runs.get(runId)?.stop ?? {};
+    assert.equal(stop.reason, "failed", JSON.stringify(stop));
+    assert.match(String(stop.error), /was supposed to be copied in before the run started/);
+    // AND THE OUTCOME ALREADY RECORDED IS STILL ABOUT THE STEP IT WAS ABOUT.
+    assert.equal(rest.execs.get(runId).outcomes[0].id, "s1");
+    assert.equal(rest.execs.get(runId).outcomes[0].result, "opening");
+  });
+});
+
+test("⚠ AN EXECUTION WITH NO AGENT RECORDED LOOKS NOTHING UP, and says so", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    await worker.scheduled({}, env, ctx);
+    const runId = env[QUEUE_BINDING].sent.filter((m) => m.runId).at(-1).runId;
+    // ⚠ "THIS AGENT HAS NO OTHER AUTOMATIONS" AND "WE CANNOT TELL WHOSE TO LOOK AT" ARE
+    // OPPOSITE FACTS, and the second must not read as a workflow naming something that is
+    // not there — which would send somebody to fix a workflow that is correct.
+    rest.execs.get(runId).agent_id = null;
+    Object.assign(rest.work.get(runId), { done_at: null, claimed_by: null, claim_token: null, lease_expires_at: null });
+
+    let asked = 0;
+    await aroundFetch("rpc/automation_children", (url, init, real) => { asked += 1; return real(url, init); },
+      () => worker.queue(batchOf([{ runId }]), env, ctx));
+
+    // NOTHING WAS ASKED AT ALL — the refusal is above the lookup, not a reading of its answer.
+    assert.equal(asked, 0, "an execution with no agent searched whatever it found");
+    // ⚠ AND THE REASON IS ON THE **WORK ROW**, NOT IN `runs.stop` — checked rather than
+    // guessed, because my own first draft read `runs.stop` and got `{}`. An `unreadable`
+    // release hands its sentence to `release_run`, which is where a run nothing will deliver
+    // again carries why; the journal is left as it is because nothing about the workflow ran.
+    const row = rest.work.get(runId);
+    assert.match(String(row?.last_error), /no agent recorded/, JSON.stringify(row));
+    assert.notEqual(row?.done_at ?? null, null, "a run nothing can assemble was left on the queue");
+    // AND THE PLAN WAS NOT WRITTEN.
+    assert.equal(rest.execs.get(runId).steps.filter((s) => s.type === "workflow").length, 1);
+  });
+});
+
+test("⚠ A FENCED REFUSAL ON THE PLAN IS NOT A SUCCESS — nothing else is attempted", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    // THE LEASE IS GONE BY THE TIME THE PLAN IS WRITTEN. `set_automation_plan` refuses with
+    // the same vocabulary every fenced write uses, and it means THIS WORKER MAY NOT WRITE —
+    // so it must not go on to run the list it just assembled and record outcomes under a
+    // claim somebody else now holds.
+    await aroundFetch("rpc/set_automation_plan",
+      () => new Response(JSON.stringify({ ok: false, error: "lease-expired" }),
+        { status: 200, headers: { "content-type": "application/json" } }),
+      () => deliverAuto(rest, env, ctx));
+    const runId = env[QUEUE_BINDING].sent.filter((m) => m.runId).at(-1).runId;
+
+    const exec = rest.execs.get(runId);
+    // NOTHING RAN AND NOTHING WAS RECORDED. Read as a success, the run would have executed
+    // the flattened list and written its outcomes past a refusal.
+    assert.deepEqual(exec.outcomes ?? [], [], "a refused plan still ran the workflow");
+    assert.equal(exec.position ?? 0, 0);
+    assert.equal(exec.finished_at, null, "a refused plan ended the execution");
+    assert.equal(rest.runs.get(runId)?.stop ?? null, null, "a worker that may not write wrote a stop");
+    // AND THE LIST IS STILL THE STORED ONE, because the write is what would have replaced it.
+    assert.equal(exec.steps.filter((s) => s.type === "workflow").length, 1);
+
+    /**
+     * ⚠ **AND THE WORK ROW IS WHAT SEPARATES THIS FROM THE CONFLICT BELOW IT — MEASURED, after
+     * my own first draft could not tell them apart and the mutant survived.** With the `ok`
+     * gate removed, a refusal carrying no `set` falls through to `set.set !== true` and is
+     * answered `conflict`, which produces the SAME execution state: nothing ran, nothing
+     * recorded, no stop. So the two gates read identically from the execution — and the
+     * fixture that only looked there was too shallow to separate two readings, this
+     * repository's most repeated guard trap.
+     *
+     * They differ on the CLAIM. `lease-expired` is one of `CLAIM_GONE`, so the worker knows it
+     * no longer holds the run and **releases nothing** — somebody else may hold it now, and
+     * releasing would be this worker deciding about a row it has lost. A `conflict` DOES
+     * release, because the claim may still be ours and only our snapshot is stale.
+     */
+    const row = rest.work.get(runId);
+    assert.notEqual(row.claimed_by, null,
+      `a worker that had lost its lease released the run anyway: ${JSON.stringify(row)}`);
+    // ⚠ AND THE REASON MUST NOT BE THE OTHER GATE'S. "A failure that cannot name itself" is
+    // this product's most repeated own goal, and telling a lost lease as another worker's plan
+    // sends somebody looking for a second worker that does not exist.
+    assert.doesNotMatch(String(row.last_error ?? ""), /another worker/,
+      `a lost lease was reported as another worker's plan: ${JSON.stringify(row)}`);
+  });
+});
+
+test("⚠ ANOTHER WORKER'S PLAN IS NOT OURS TO RUN — the list executed is the list recorded", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    // ⚠ THE RACE, DRIVEN: the position moves between the runner's read and its write, which
+    // is exactly what `set_automation_plan`'s `position = 0` condition is for. `set: false`
+    // is NOT a fenced refusal — the claim may still be ours, and what is stale is our
+    // snapshot — so it is released UNFINISHED and the next delivery reads what is there.
+    await worker.scheduled({}, env, ctx);
+    const runId = env[QUEUE_BINDING].sent.filter((m) => m.runId).at(-1).runId;
+    Object.assign(rest.work.get(runId), { done_at: null, claimed_by: null, claim_token: null, lease_expires_at: null });
+    const theirs = [{ id: "s1", type: "note", text: "somebody else's plan" }];
+    await aroundFetch("rpc/set_automation_plan", (url, init, real) => {
+      const ex = rest.execs.get(runId);
+      ex.position = 1;                 // somebody else got there first
+      ex.steps = theirs;
+      return real(url, init);          // the real function then answers set: false
+    }, () => worker.queue(batchOf([{ runId }]), env, ctx));
+
+    const exec = rest.execs.get(runId);
+    assert.equal(JSON.stringify(exec.steps), JSON.stringify(theirs), "our plan overwrote theirs");
+    assert.deepEqual(exec.outcomes ?? [], [], "we ran a list the record does not hold");
+    assert.equal(exec.finished_at, null, "a conflict ended the execution");
+    // RELEASED, so the next delivery can read what is really there — which terminates.
+    assert.equal(rest.work.get(runId)?.done_at ?? null, null, "a conflict took the run off the queue");
+  });
+});
+
+test("⚠ THE DURABLE LOOP STATE IS HANDED TO THE EXECUTOR ON A RESUME, or every round is the first", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // THE ROUND-TRIP HAS TWO HALVES AND ONLY ONE WAS DRIVEN. The case above asserts the row
+    // holds the round after the FIRST delivery; this asserts the SECOND delivery is given it.
+    // Read as `{}` the loop starts again, the body runs its first round twice, and the
+    // execution never ends — bounded retries, unbounded in practice.
+    seedParent(rest, {
+      childSteps: [
+        { id: "s1", type: "repeat", mode: "times", times: 2 },
+        { id: "s2", type: "note", text: "a round" },
+        { id: "s3", type: "wait", mode: "for", minutes: 5 },
+        { id: "s4", type: "endrepeat" },
+      ],
+    });
+    const runId = await deliverAuto(rest, env, ctx);
+    const first = rest.execs.get(runId);
+    assert.notEqual(first.waiting, null, "it did not suspend inside the loop");
+    assert.deepEqual(Object.values(first.loops).map((l) => l.at), [0], JSON.stringify(first.loops));
+
+    // THE WAIT IS OVER AND THE RUN IS OFFERED AGAIN — the deploy-shaped restart. `sent` is
+    // cleared first, or "it was offered" is satisfied by the message that started it: a
+    // vacuous observation, which is what my own first draft asserted.
+    first.wait_until = new Date(Date.now() - 60_000).toISOString();
+    env[QUEUE_BINDING].sent.length = 0;
+    await worker.scheduled({}, env, ctx);
+    // ⚠ **`>= 1`, NOT `=== 1`, AND THE DIFFERENCE IS A PROPERTY RATHER THAN A TOLERANCE.** How
+    // many of the five cron jobs ring one run is not what this case is about, and a duplicate
+    // ring is harmless BY CONSTRUCTION — `claim_run` refuses the second, which is this
+    // product's own rule and not this assertion's care. Asserting an exact count would pin the
+    // cron's internal arithmetic and go red on an honest change to it. `sent` is cleared
+    // above, so this is still a real observation and not the vacuous one it replaced.
+    assert.ok(env[QUEUE_BINDING].sent.filter((m) => m.runId === runId).length >= 1,
+      `the resume tick did not offer the waiting execution: ${JSON.stringify(env[QUEUE_BINDING].sent)}`);
+    assert.equal(rest.work.get(runId).done_at, null,
+      `the resumed run was left off the queue: ${JSON.stringify(rest.work.get(runId))}`);
+    const chatter = [];
+    const keepLog = console.log; const keepErr = console.error;
+    console.log = (...a) => chatter.push(["log", ...a.map((x) => JSON.stringify(x))].join(" "));
+    console.error = (...a) => chatter.push(["err", ...a.map((x) => JSON.stringify(x))].join(" "));
+    let second;
+    try { second = await worker.queue(batchOf([{ runId }]), env, ctx); }
+    finally { console.log = keepLog; console.error = keepErr; }
+
+    // IT CONTINUED INTO THE SECOND ROUND rather than starting the first again — asserted as
+    // the round itself rather than as a list, so an empty `loops` cannot satisfy it.
+    const now2 = rest.execs.get(runId);
+    const why = () => JSON.stringify({ loops: now2.loops, waiting: now2.waiting,
+      wait_until: now2.wait_until, outcomes: now2.outcomes, work: rest.work.get(runId),
+      delivery: second ?? null, chatter });
+    assert.equal(now2.loops?.s2?.at, 1, `the loop restarted rather than continuing: ${why()}`);
+    assert.equal(now2.loops?.s2?.of, 2, JSON.stringify(now2.loops));
+
+    /**
+     * ⚠ **AND THE BODY RAN ONCE PER ROUND, read off the outcome KEYS rather than off a count.**
+     * A step inside a loop is keyed `<position>#<open>.<iteration>`, so the note's two rounds
+     * are `s3#2.0` and `s3#2.1` — two DIFFERENT slots. Handed `{}` the loop starts again, the
+     * second delivery writes `s3#2.0` over the first, and a bare count of outcomes is
+     * identical: six either way. The keys are the only thing that separates them.
+     */
+    const ids = now2.outcomes.map((o) => o.id);
+    assert.deepEqual(new Set(ids).size, ids.length, `a slot was written twice: ${JSON.stringify(ids)}`);
+    const rounds = ids.filter((id) => id.startsWith("s3#"));
+    assert.deepEqual(rounds, ["s3#2.0", "s3#2.1"], JSON.stringify(ids));
+    assert.equal(now2.outcomes.filter((o) => o.id.startsWith("s3#") && o.outcome === "ran").length, 2);
+    // AND IT IS WAITING AGAIN, at the second round's own wait — which is what a wait inside a
+    // loop means and is the property the resume being spent by its first arrival buys.
+    assert.equal(now2.waiting?.step, "s4", JSON.stringify(now2.waiting));
+    assert.equal(now2.finished_at, null);
+  });
+});
+
+test("⚠ THE EVENT TICK'S LOG TELLS FILING FROM WAKING — one total could not", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    /**
+     * ⚠ **THIS IS THE INSTRUMENT, AND AN INSTRUMENT WHOSE NUMBERS CANNOT MOVE IS NOT ONE.**
+     * The tally counted a field `dispatch_events` does not answer, so every tick printed the
+     * same shape whatever it had done — this product's own `requeue_expired_approvals` finding
+     * one cron job over, and a sweep survivor because nothing had ever read the line.
+     *
+     * The two numbers are kept APART on purpose: ten automations triggered and ten waiters
+     * released are different facts about a platform, and an operator reading one total could
+     * not tell an event that fanned out from one that unblocked a queue. So the tick under
+     * test does BOTH at once, which is the only shape that separates them.
+     */
+    // THE WAITER: on the ordinary due schedule, so it runs and suspends on the event.
+    seedAutomation(rest, { over: { steps: [
+      { id: "s1", type: "event", name: "order.paid", out: "it" },
+      { id: "s2", type: "note", text: "got {{it}}" },
+    ] } });
+    await worker.scheduled({}, env, ctx);
+    const waiting = env[QUEUE_BINDING].sent.filter((m) => m.runId).at(-1).runId;
+    await worker.queue(batchOf([{ runId: waiting }]), env, ctx);
+    assert.equal(rest.execs.get(waiting).waiting?.kind, "event",
+      JSON.stringify(rest.execs.get(waiting).waiting));
+
+    // THE LISTENER: a second automation, triggered by the same event rather than by a clock.
+    const listener = "aaaaaaaa-0000-4000-8000-00000000009a";
+    rest.autos.set(listener, {
+      id: listener, tenant_id: TENANT, agent_id: AGENT, name: "Listens", enabled: true,
+      schedule: "manual", at_local: null, zone: "UTC", version: 1, inputs: [],
+      next_run_at: null, on_event: "order.paid",
+      steps: [{ id: "s1", type: "note", text: "a payment landed" }],
+    });
+    rest.events.set("e2", {
+      id: "e2", tenant_id: TENANT, agent_id: AGENT, name: "order.paid",
+      payload: { amount: 42 }, source: "webhook", event_key: "dlv-2",
+      depth: 0, at: new Date().toISOString(), handled_at: null,
+    });
+    env[QUEUE_BINDING].sent.length = 0;
+
+    const said = [];
+    const realLog = console.log;
+    console.log = (...a) => { said.push(a.map(String).join(" ")); };
+    try { await worker.scheduled({}, env, ctx); } finally { console.log = realLog; }
+
+    const line = said.find((l) => l.startsWith("agent-events"));
+    assert.ok(line, `the tick said nothing about its events: ${JSON.stringify(said)}`);
+    const tally = JSON.parse(line.slice("agent-events".length).trim());
+    // ⚠ EVERY NUMBER IS ASSERTED BY NAME AND BY VALUE. A shape check would pass for a tally
+    // whose fields are all zero, which is what the defect produced.
+    assert.deepEqual(Object.keys(tally).sort(), ["events", "filed", "rung", "woke"], line);
+    assert.equal(tally.events, 1, line);
+    assert.equal(tally.filed, 1, line);          // the listener got an execution
+    assert.equal(tally.woke, 1, line);           // the waiter was released
+    // AND THE TWO REALLY ARE TWO THINGS, read off the rows rather than off the line: one new
+    // execution for the listener, and the waiter carrying what it heard.
+    assert.equal([...rest.execs.values()].filter((x) => x.trigger === "event").length, 1, line);
+    assert.equal(rest.execs.get(waiting).heard?.s1?.name, "order.paid");
+    // AND THE RING IS BOTH OF THEM, because an event can file a trigger AND wake a waiter and
+    // ringing only the first leaves the other for the sweeper.
+    const rang = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+    assert.equal(tally.rung, rang.length, line);
+    assert.ok(rang.some((m) => m.runId === waiting), "the woken run was not rung");
+    assert.ok(tally.rung >= 2, line);
+  });
+});

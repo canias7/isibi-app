@@ -252,12 +252,30 @@ const forget = tool({
     // ⚠ AND A REPEAT SAYS SO, because the state now may not be the state this call left:
     // a fact forgotten by this call and written again since is present, and answering a bare
     // "forgotten" would be a claim about the present made from a record of the past.
+    /**
+     * ⚠ **WHAT FORGETTING REACHES IS CARRIED TO THE MODEL, because `deleted` is not `erased`.**
+     *
+     * The row is gone, so no LATER run will see it. An execution already under way keeps the
+     * snapshot it was accepted with, and the journal keeps whatever was quoted — both on
+     * purpose. A model told a bare "forgotten" would tell somebody it had been removed
+     * everywhere, which is false about two of the three places it exists.
+     *
+     * **THE FIELDS COME FROM THE FUNCTION'S OWN ANSWER** rather than being written here, and
+     * an answer that does not carry them is `null` rather than an invented set: a claim about
+     * reach that this code composed would be a claim nothing verified.
+     */
+    const reach = answer.affects && typeof answer.affects === "object" && !Array.isArray(answer.affects)
+      ? answer.affects
+      : null;
+    const REACH = "later runs will not see it; a run already under way keeps what it started with,"
+      + " and the history keeps whatever it quoted";
     if (answer.repeat === true) {
-      return { ok: true, forgot: answer.forgot === true, repeat: true,
-        say: "that was already forgotten by this same request; it may have been written again since" };
+      return { ok: true, forgot: answer.forgot === true, repeat: true, affects: reach,
+        say: `that was already forgotten by this same request; it may have been written again since — ${REACH}` };
     }
-    return { ok: true, forgot: answer.forgot === true,
-      say: answer.forgot === true ? "forgotten" : "there was nothing remembered under that name" };
+    return { ok: true, forgot: answer.forgot === true, affects: reach,
+      say: answer.forgot === true ? `forgotten — ${REACH}`
+        : "there was nothing remembered under that name" };
   },
 });
 

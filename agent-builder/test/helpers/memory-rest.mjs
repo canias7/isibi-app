@@ -71,19 +71,34 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   };
 
   /**
-   * The logical slot an entry occupies, mirroring the four partial unique indexes.
+   * The logical slot an entry occupies, mirroring the THREE branches `agent.append_entry`
+   * really has.
    *
-   * ⚠ **A `step` ENTRY'S SLOT INCLUDES ITS `mark` AND ITS `at`, because there is
-   * deliberately NO unique index for it.** A pause writes one entry for a step and the
-   * resume writes another for the same step, so "one entry per position" is not the rule
-   * here — what is the rule is that a RETRY inside one delivery replays a byte-identical
-   * body, which this slot reproduces exactly: same delivery, same clock, same mark, same
-   * slot, and `already` comes back.
+   * ⚠ **A `step` ENTRY HAS NO SLOT, AND INVENTING ONE MADE THIS FAKE REFUSE WHAT POSTGRES
+   * ACCEPTS — measured, after a new guard went INTERMITTENTLY red and its diagnostic named
+   * `conflict` on a correct run.**
+   *
+   * This answered `step:<step>:<mark>:<at>`, on the reasoning that a byte-identical retry
+   * inside one delivery should come back `already`. `agent.append_entry` has branches for
+   * `started`/`stopped`, `model` and `tool` and **none for `step`**, so there such an entry
+   * matches no slot at all: it falls through to the positional check and inserts. The
+   * invented slot collided whenever two entries shared a position, a mark AND a
+   * millisecond — which a LOOP produces every time its body records progress at the same
+   * position on a later round, and which happens only when the clock does not tick between
+   * them. So it failed about 7% of the time, on a machine fast enough, and the run it broke
+   * halted mid-loop still holding its claim.
+   *
+   * *A fake STRICTER than the thing it stands in for reports the product as broken*, and
+   * the direction here is the expensive one: an intermittent failure reads as a KILL in a
+   * sweep, which says a property is guarded when nothing asked.
+   *
+   * `null` means "no slot", and the lookup below skips it rather than relying on a
+   * comparison to miss — `null !== null` is false.
    */
   const logicalKey = (b) => b.kind === "started" || b.kind === "stopped" ? b.kind
     : b.kind === "model" ? `model:${b.step}`
-    : b.kind === "step" ? `step:${b.step}:${b.mark}:${b.at}`
-    : `tool:${b.step}:${b.index}`;
+    : b.kind === "tool" ? `tool:${b.step}:${b.index}`
+    : null;
   const res = (status, body) => ({
     ok: status < 300, status,
     text: async () => (body === undefined ? "" : JSON.stringify(body)),
@@ -280,7 +295,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       if (!log) return res(400, { code: "23503", message: "run_entries_run_id_fkey" });
 
       const key = logicalKey(entry);
-      for (const [at, b] of log.entries()) {
+      for (const [at, b] of (key === null ? [] : log.entries())) {
         if (logicalKey(b) !== key) continue;
         // **THE BODIES ARE COMPARED, not merely the slot.** Identical is a retry and
         // is a success; different is two writers and is not. Compared as canonical

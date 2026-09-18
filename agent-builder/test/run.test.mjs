@@ -436,12 +436,33 @@ test("⚠ A TOOL IS TOLD ITS CALL'S OWN IDENTITY — the run, the position AND t
   });
   assert.equal(r.ok, true);
   assert.equal(w.seen.length, 2);
+  // ⚠ **PAIRED BY THE ARGUMENTS, NEVER BY POSITION IN `seen` — this case read
+  // `w.seen[0]` and was INTERMITTENTLY RED, about 1 run in 30 and only with the whole
+  // suite running.** The tools of one batch go through `runFanout`, and this module
+  // `await`s `operationKey` — which is `crypto.subtle.digest` — INSIDE the per-call
+  // worker, before the tool is invoked. Two concurrent digests may resolve in either
+  // order, so the tools are invoked in either order and `seen` is pushed in THAT order.
+  // The product is right: `fanout`'s own note says every entry carries its INDEX
+  // precisely because answers finish out of order — and this case then read by position.
+  // A flake is worse here than anywhere else, because in a sweep an intermittent
+  // failure reads as a KILL, which says a property is guarded when nothing asked.
+  const opOf = (id) => w.seen.find((s) => s.args?.id === id)?.operation;
   // EVERY PART IS ASSERTED, and the hash is the REAL one rather than a pattern: a
-  // shape check would pass for an identity built out of the wrong pieces.
-  assert.equal(w.seen[0].operation, `run-77:1:0:${await argsHash({ id: "a" })}`);
-  assert.equal(w.seen[1].operation, `run-77:1:1:${await argsHash({ id: "b" })}`);
+  // shape check would pass for an identity built out of the wrong pieces. The INDEX is
+  // asserted too — it is what ties a call back to its slot — so pairing by arguments
+  // gives up no part of the claim.
+  assert.equal(opOf("a"), `run-77:1:0:${await argsHash({ id: "a" })}`);
+  assert.equal(opOf("b"), `run-77:1:1:${await argsHash({ id: "b" })}`);
   // AND THE TWO ARE DIFFERENT, which is the property a single call cannot show.
-  assert.notEqual(w.seen[0].operation, w.seen[1].operation);
+  assert.notEqual(opOf("a"), opOf("b"));
+  // AND THE READING IS ORDER-INDEPENDENT, ASSERTED RATHER THAN HOPED — the same finder
+  // over a REVERSED `seen` answers the same two identities. Without this the fix would
+  // rest on the order that happens to come back on the machine it was written on, which
+  // is what the flake was.
+  const rev = [...w.seen].reverse();
+  const revOf = (id) => rev.find((x) => x.args?.id === id)?.operation;
+  assert.equal(revOf("a"), opOf("a"));
+  assert.equal(revOf("b"), opOf("b"));
 });
 
 test("...AND THE ARGUMENTS ARE PART OF IT, so a re-filled slot cannot inherit an identity", async () => {

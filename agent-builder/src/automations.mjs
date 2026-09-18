@@ -550,8 +550,21 @@ const OUT_FIELD = Object.freeze({
   says: "the name for this step's answer",
 });
 
-/** Read an `out` name, which is optional everywhere and refused rather than repaired. */
-function readOut(raw, said = "the name for this step's answer") {
+/**
+ * Read an `out` name, which is optional everywhere and refused rather than repaired.
+ *
+ * ⚠ **`said` IS REQUIRED AND HAS NO DEFAULT, because this reader serves TWO fields.**
+ * Five call sites pass `say("out")` and one passes `say("as")` — the loop's *what to call
+ * each one* — so any default is one field's words used about the other, and a sentence
+ * that names the wrong control sends somebody to a box that is not the one they filled
+ * in. A default was a second copy of `OUT_FIELD.says` as well, and the copy that drifts
+ * is whichever one somebody edits: the cross-product census compares the DECLARATION, so
+ * a default keeping the old phrase alive for a forgetful caller would be a drift that
+ * census is structurally unable to see. Without one, a caller that forgets composes
+ * `undefined didn't arrive as a name`, which is FOUND — where a plausible wrong phrase
+ * is not. *A filter is a silent drop; a check is a sentence*, applied to the sentence.
+ */
+function readOut(raw, said) {
   if (raw?.out === undefined || raw?.out === null || raw?.out === "") return { out: null };
   if (typeof raw.out !== "string") return { error: `${said} didn't arrive as a name` };
   const out = raw.out.trim().toLowerCase();
@@ -1136,7 +1149,25 @@ const knowledge = defineStep({
     // and answering "found nothing" for it would be a silent empty in the one place a
     // customer would read it as "there is nothing in my documents about this".
     if (isText(found?.error)) return { failed: found.error };
-    const excerpts = Array.isArray(found?.excerpts) ? found.excerpts : [];
+    /**
+     * ⚠ **BOUNDED ON THE WAY IN AS WELL AS ON THE WAY OUT, because `retrieve` is a SEAM.**
+     *
+     * The ask carries `MAX_EXCERPTS` and `agent.search_knowledge` clamps its own answer, so on
+     * today's path an overrun cannot happen. But retrieval is deliberately an injected
+     * one-function contract — *"replacing keyword search is replacing this closure"* — and a
+     * bound enforced only by the thing that is meant to be replaceable is not a bound. A
+     * vector retriever, a cache, or a `p_limit` that lost count would otherwise put fifty
+     * passages into a value a note quotes and fifty entries into the run's sources.
+     *
+     * MEASURED before this line existed: a retriever answering 50 put all 50 through.
+     *
+     * **IT TAKES THE FIRST `MAX_EXCERPTS`, and the surplus is not reported to the customer**:
+     * an answer longer than was asked for is our own layer miscounting, not a fact about their
+     * documents, so it is not something for them to act on. What they read is the number that
+     * really reached the workflow.
+     */
+    const answered = Array.isArray(found?.excerpts) ? found.excerpts : [];
+    const excerpts = answered.length > MAX_EXCERPTS ? answered.slice(0, MAX_EXCERPTS) : answered;
     if (!excerpts.length) {
       return { value: "", note: `searched for "${config.query}" and found nothing`, sources: [] };
     }
@@ -1204,10 +1235,34 @@ const memory = defineStep({
     const entry = bag[config.key];
     const value = typeof entry?.value === "string" ? entry.value : "";
     const version = Number.isInteger(entry?.version) ? entry.version : null;
+    /**
+     * ⚠ **WHO CONFIRMED IT, AND `unknown` IS A REAL ANSWER RATHER THAN A DEFAULT.**
+     *
+     * `agent.agent_memory.source` separates a fact a PERSON confirmed from one a RUN wrote,
+     * and a snapshot taken before that column was carried has neither. Reading the absence as
+     * `person` would UPGRADE an agent's own note into a confirmed fact — which is the one
+     * direction that matters, because the whole point of the column is that somebody auditing
+     * an answer can tell where it came from. **Cannot-tell must never read as a value.**
+     *
+     * IT RIDES BESIDE THE VALUE AND NEVER INSIDE IT: the value is what a note quotes, and
+     * putting our bookkeeping into somebody's own words is not a thing to do to them.
+     *
+     * ⚠ **THE SITE'S OWN `memoryRow` DEFAULTS TO `person` AND THAT IS NOT A DISAGREEMENT WITH
+     * THIS LINE — they are two different absences.** A row out of `list_memory` comes from a
+     * `not null default 'person'` COLUMN, so there the default is a belt nothing can reach and
+     * `person` is simply the column's own answer. Here the absence is a SNAPSHOT taken before
+     * this column was carried, which is a real state for every execution already accepted —
+     * and those really could be either. Saying so beats letting a reader find the two defaults
+     * and take one for a bug.
+     */
+    const source = entry?.source === "person" || entry?.source === "run" ? entry.source : "unknown";
+    const said = source === "person" ? "confirmed by you"
+      : source === "run" ? "written by this agent"
+      : "recorded before this was tracked";
     return {
       value,
-      note: `used what is remembered under "${config.key}"`,
-      sources: [{ key: config.key, version }],
+      note: `used what is remembered under "${config.key}" (${said})`,
+      sources: [{ key: config.key, version, source }],
     };
   },
 });
@@ -2121,10 +2176,23 @@ export async function runWorkflow(opts = {}) {
     // so one arriving here means the expansion did not run — and it must not fall through to
     // the action tail below, which would read a call as a step that did something.
     //
-    // **DECLARED PAIR**: the step's own `run` refuses too, so a caller dispatching it
-    // directly gets a sentence rather than an answer. Neither can be killed on its own and
-    // the sweep mutates them together; this one is kept because it names the real cause and
-    // that one because it is the step's own contract.
+    // ⚠ **IT WAS DECLARED AN UNKILLABLE PAIR WITH THE STEP'S OWN `run` AND IT IS NOT ONE —
+    // MEASURED, after a sweep survivor said so.** This comment used to read *"neither can be
+    // killed on its own and the sweep mutates them together"*, and driving an unexpanded call
+    // both ways falsifies it: with this branch gone the step's own `run` does refuse, with the
+    // same reason and the same hard stop, but in ITS OWN WORDS — *"this automation was supposed
+    // to be copied in…"* against *"Run another automation was supposed to be copied in…"*. So
+    // the two are observable apart, and what was really missing was anything asserting WHICH
+    // sentence a customer reads. There is a case for it now.
+    //
+    // **BOTH ARE KEPT, for two different readers.** This one names the step as the catalog
+    // labels it, which is what tells somebody which row of their own workflow is the problem —
+    // a workflow can hold several calls and "this automation" names none of them. The step's
+    // own `run` is its contract, for a caller that dispatches it directly and never reaches
+    // here. **AND THE ESCAPE THE MUTANT LOOKS LIKE IT OPENS IS SHUT ONE LAYER UP, also
+    // measured**: a `workflow` step is not `failable`, so `on_error: "continue"` is refused
+    // where the workflow is SAVED (*"Run another automation has no failures to handle"*) and an
+    // unexpanded call cannot carry on past itself however this branch is written.
     if (def.stepKind === "call") {
       const error = `${def.label} was supposed to be copied in before the run started, and was not`;
       put(i, { outcome: "failed", error });

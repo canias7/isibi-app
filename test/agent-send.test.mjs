@@ -28,13 +28,17 @@ import {
   runView, threadRow, cleanSendKey, RUN_STATES, STANDIN_MODEL, MAX_THREAD,
   AGENT_TOOLS, AGENT_TOOL_NAMES, MAX_AGENT_TOOLS, AGENT_STATUSES, cleanStatus, cleanTools,
   TOOL_VERDICTS, MAX_TOOL_APPROVALS, toolApprovalRow,
+  MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
+  MAX_KNOWLEDGE, KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
+  MAX_WEBHOOKS,
 } from "../agent-store.mjs";
 // ⚠ THE ENGINE'S OWN REGISTRY, IMPORTED HERE AND NOWHERE ELSE. `agent-store.mjs`
 // may not import it — the two are separate products in separate Workers — so the
 // copy each of them holds is kept honest by a census in a test, which is the one
 // place that may read both.
 import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
-import { CAPABILITY_RPC } from "../agent-builder/src/capabilities.mjs";
+import { CAPABILITY_RPC, CAP_MEMORIES as ENGINE_CAP_MEMORIES } from "../agent-builder/src/capabilities.mjs";
+import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
@@ -1734,4 +1738,128 @@ test("⚠ WHEN AN AUTOMATION RUNS IS ONE LIST IN THREE LANGUAGES, and this is th
   const inSql = hit[1].split(",").map((x) => x.trim().replace(/^'|'$/g, "")).sort();
   assert.deepEqual(inSql, [...SITE_SCHEDULES].sort(),
     "the database refuses a schedule both products offer, or accepts one neither does");
+});
+
+/**
+ * ⚠ **WHAT BOUNDS REFERENCE MATERIAL AND MEMORY IS WRITTEN IN THREE LANGUAGES, and this is
+ * the only file that can read two of them.**
+ *
+ * The engine holds a cap so an agent's own `remember` cannot fill an account; the site holds
+ * one so the screen's Save cannot; the DATABASE holds the shape a row may have at all. A cap
+ * on one door and not the other is a limit somebody meets from one side and not the other,
+ * and a cap LOOSER than the column's turns a refusal we could phrase into a Postgres error
+ * nobody can act on — which is the rule the three text caps above already follow.
+ *
+ * Read out of the migration by what it DEFINES rather than by its filename: an applied file
+ * is renamed to its remote version, so a name is not an identity.
+ */
+test("⚠ THE MEMORY CAP IS ONE NUMBER IN THREE LANGUAGES, censused all three ways", () => {
+  // THE TWO DOORS AGREE. The engine's is what a tool sends; the site's is what the route
+  // sends. Neither is the model's to choose — both are constants in code.
+  assert.equal(ENGINE_CAP_MEMORIES, MAX_MEMORIES,
+    "an agent and a person may hold different numbers of memories");
+  // AND THE DATABASE'S OWN DEFAULT IS THE THIRD COPY. `save_memory` takes the ceiling as an
+  // ARGUMENT — deliberately, so the platform decides it rather than the row — which means its
+  // default is what a caller that forgets gets. A default DIFFERENT from the two live numbers
+  // is a silent third limit waiting for a seventh call site.
+  const mem = latestMigration("create or replace function agent.save_memory(");
+  const dflt = /p_max\s+integer\s+default\s+(\d+)/.exec(mem);
+  assert.ok(dflt, "save_memory does not bound how many memories an agent may hold");
+  assert.equal(Number(dflt[1]), MAX_MEMORIES,
+    "the database's own default is a third, different cap");
+  // AND IT IS REALLY ENFORCED IN THE BODY rather than merely accepted as an argument.
+  assert.match(mem, /v_held >= coalesce\(p_max/, "the cap is taken as an argument and never asked");
+  assert.match(mem, /select count\(\*\) into v_held from agent\.agent_memory/,
+    "nothing counts what is held, so the cap is asked about a number nobody read");
+  assert.match(mem, /'error', 'too-many'/, "a full account is not refused by name");
+
+  // ── A MEMORY'S OWN SHAPE: the column's, and the site's reader must not be looser ──
+  // ⚠ READ OUT OF THE **TABLE'S** MIGRATION, NOT THE FUNCTION'S — my own first draft asked
+  // `save_memory`'s file for a column constraint declared in a different one, and the honest
+  // failure ("the value column does not bound its length") was about where it looked.
+  const cols = latestMigration("create table if not exists agent.agent_memory");
+  const value = /value\s+text\s+not null check \(length\(value\) <= (\d+)\)/.exec(cols);
+  assert.ok(value, "the value column does not bound its length");
+  assert.equal(MEMORY_VALUE_MAX, Number(value[1]));
+  const sources = /source in \(([^)]+)\)/.exec(cols);
+  assert.ok(sources, "the source column admits anything");
+  assert.deepEqual([...sources[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]).sort(),
+    [...MEMORY_SOURCES].sort(), "the two products disagree about who can have written a fact");
+  // ⚠ THE KEY'S GRAMMAR IS THE COLUMN'S, and it is what makes a memory's name a name a
+  // `{{reference}}` can carry — so a key the site would store and the engine could never
+  // substitute is one nobody can use.
+  assert.match(cols, /key\s+text\s+not null check \(key ~ '\^\[a-z\]\[a-z0-9_\]\{0,39\}\$'\)/,
+    "the key column does not bound a memory's name");
+});
+
+test("⚠ REFERENCE MATERIAL IS BOUNDED TOO — and by a DIFFERENT layer, which is stated", () => {
+  /**
+   * ⚠ **THE MEMORY CAP IS THE DATABASE'S AND THE KNOWLEDGE CAP IS THE ROUTE'S, and saying so
+   * is the point of this case.** `save_memory` counts and refuses inside one transaction;
+   * reference material is written with a plain insert and the ceiling is asked in JavaScript
+   * above it. There is no `save_knowledge` function at all — asserted, so a reader does not go
+   * looking for one — and the consequence is named rather than papered over: a route-side
+   * count is RACEABLE, so two saves landing together can both read 19 and both insert.
+   *
+   * **It is left as it is deliberately.** The overrun is one extra source, the columns' own
+   * CHECK constraints still bound every row, and closing it means moving the write into a
+   * function — which is a change to how a customer's material is stored and is not this
+   * round's. What must not happen is a note claiming the database enforces it.
+   */
+  for (const f of readdirSync(new URL("../agent-builder/supabase/migrations/", import.meta.url))) {
+    if (!f.endsWith(".sql")) continue;
+    const text = readFileSync(new URL(f, new URL("../agent-builder/supabase/migrations/", import.meta.url)), "utf8");
+    assert.ok(!text.includes("function agent.save_knowledge("),
+      `${f} defines save_knowledge — this case's whole premise has moved`);
+  }
+  // THE ROUTE IS WHERE IT IS ASKED, and the sentence names the number so a customer can act.
+  const site = readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
+  assert.match(site, /if \(held >= MAX_KNOWLEDGE\) \{/, "nothing asks the knowledge ceiling");
+  assert.match(site, /as much reference material as one agent can hold \(\$\{MAX_KNOWLEDGE\}\)/,
+    "the refusal does not say what the limit is");
+
+  // ── WHAT THE DATABASE DOES BOUND: every row's own shape ──────────────────────────
+  const cols = latestMigration("create table if not exists agent.agent_knowledge");
+  const title = /title\s+text\s+not null check \(length\(btrim\(title\)\) between 1 and (\d+)\)/.exec(cols);
+  const body = /body\s+text\s+not null check \(length\(body\) between 1 and (\d+)\)/.exec(cols);
+  assert.ok(title && body, "the knowledge columns do not bound their text");
+  assert.equal(KNOWLEDGE_TITLE_MAX, Number(title[1]));
+  assert.equal(KNOWLEDGE_BODY_MAX, Number(body[1]));
+  const fmt = /format in \(([^)]+)\)/.exec(cols);
+  assert.ok(fmt, "the format column admits anything");
+  assert.deepEqual([...fmt[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]).sort(),
+    [...KNOWLEDGE_FORMATS].sort());
+
+  /**
+   * ⚠ **HOW MUCH COMES BACK FROM A SEARCH IS THE PLATFORM'S AND NOT THE WORKFLOW'S.**
+   * `MAX_EXCERPTS` is a constant in the engine and the step passes it; there is NO field on
+   * the knowledge step for it, so a saved workflow cannot ask for more and neither can a model
+   * writing one. That is "bounded retrieval" in code rather than in a sentence — and
+   * `search_knowledge` clamps its own answer as well, so a caller that asked for a thousand
+   * would still not get them. Two walls, and the second is the one a bug here cannot move.
+   */
+  assert.equal(typeof ENGINE_MAX_EXCERPTS, "number");
+  assert.ok(ENGINE_MAX_EXCERPTS > 0 && ENGINE_MAX_EXCERPTS <= 20, String(ENGINE_MAX_EXCERPTS));
+  /**
+   * ⚠ AND THE SCAN FOR "a field that chooses how much" IS **NOT** THE WAY TO ASSERT IT — my
+   * own first draft forbade any field whose words mention a number and went red on `retries`,
+   * which is the error-path control and is nothing to do with retrieval. *A negative scan over
+   * prose cannot tell one number from another.* The property is DRIVEN in the engine's own
+   * suite instead, where the `limit` really handed to `retrieve` can be read; what belongs
+   * here is the CROSS-LAYER relation, which neither suite alone can see.
+   */
+  const search = latestMigration("create or replace function agent.search_knowledge(");
+  const clamp = /v_limit integer := least\(greatest\(coalesce\(p_limit, \d+\), 1\), (\d+)\)/.exec(search);
+  assert.ok(clamp, "the search does not bound its own answer, so the caller's number is the only limit");
+  assert.ok(ENGINE_MAX_EXCERPTS <= Number(clamp[1]),
+    `the engine asks for more than the search will ever give (${ENGINE_MAX_EXCERPTS} > ${clamp[1]})`);
+  // AND A QUERY OF NOTHING IS NOTHING FOUND rather than everything, which is the other half of
+  // bounded: an empty search must not become a table scan handed to a model.
+  assert.match(search, /return;\s+-- NOTHING SEARCHED FOR IS NOTHING FOUND/, search.slice(0, 0));
+
+  // AND A WEBHOOK'S OWN CEILING IS THE DATABASE'S, like memory's and unlike knowledge's.
+  const hook = latestMigration("create or replace function agent.create_webhook(");
+  const hooks = /p_max\s+integer\s+default\s+(\d+)/.exec(hook);
+  assert.ok(hooks, "create_webhook does not bound how many endpoints an agent may hold");
+  assert.equal(Number(hooks[1]), MAX_WEBHOOKS);
 });

@@ -893,9 +893,15 @@ const spec = [
   m("words: the too-long sentence names the field twice over", AU,
     "  if (text.length > max) return { error: `${what} is longer than it can be (${max} characters)` };",
     "  if (text.length > max) return { error: `${what} is longer than ${what} can be (${max} characters)` };"),
-  m("words: the answer's name is refused in words of the reader's own", AU,
-    'function readOut(raw, said = "the name for this step\'s answer") {',
-    "function readOut(raw, said = \"the out field\") {"),
+  // ⚠ REPLACED, NOT RETIRED. This mutated `readOut`'s DEFAULT parameter and SURVIVED, and the
+  // reason was inert by construction: all SIX call sites pass their field's own words, so the
+  // default was unreachable — and it was a second copy of `OUT_FIELD.says`, which is what
+  // made even dropping an argument inert. The default is gone (see the reader's own comment)
+  // and the property is observable from the side that matters: `readOut` serves `out` AND a
+  // loop's `as`, so one field's words are wrong about the other.
+  m("⚠ words: a loop's own control is refused in the OTHER field's words", AU,
+    '      const as = readOut({ out: raw?.as }, say("as"));',
+    '      const as = readOut({ out: raw?.as }, say("out"));'),
   // THE ID IS THE POSITION. A caller's own id is a second identity for one thing.
   // RE-ANCHORED, NOT APPEASED: the same property, past the expansion's stamp.
   m("automations: readWorkflow keeps a caller-supplied step id", AU,
@@ -1300,9 +1306,41 @@ const spec = [
   // ⚠ AMBIGUOUS AFTER THE REPEAT ARM WAS ADDED: `forget` answers `forgot: answer.forgot ===
   // true` in TWO places now, the ordinary one and the absorbed one. Anchored on the sentence
   // that follows only the ordinary arm.
+  // RE-ANCHORED, NOT APPEASED: the answer gained the reach, so the spelling moved and the
+  // property did not.
   m("tools: forgetting something that was not there reads as having removed it", CT,
-    '    return { ok: true, forgot: answer.forgot === true,\n      say: answer.forgot === true ? "forgotten"',
-    '    return { ok: true, forgot: true,\n      say: answer.forgot === true ? "forgotten"'),
+    "    return { ok: true, forgot: answer.forgot === true, affects: reach,",
+    "    return { ok: true, forgot: true, affects: reach,"),
+  // ⚠ WHAT A DELETE REACHES — three places, and it reaches exactly one. A model told a bare
+  // "forgotten" tells somebody it has gone everywhere, which is false about two of them.
+  m("⚠ tools: a forget claims the fact is gone everywhere, which is false of two of three places", CT,
+    '    const REACH = "later runs will not see it; a run already under way keeps what it started with,"\n      + " and the history keeps whatever it quoted";',
+    '    const REACH = "it is gone";'),
+  m("⚠ tools: the reach is COMPOSED here rather than read, so it is a claim nothing verified", CT,
+    "    const reach = answer.affects && typeof answer.affects === \"object\" && !Array.isArray(answer.affects)\n      ? answer.affects\n      : null;",
+    "    const reach = { futureRuns: true, acceptedRuns: false, runHistory: false };"),
+  m("tools: a list is read as a set of named facts about reach", CT,
+    "    const reach = answer.affects && typeof answer.affects === \"object\" && !Array.isArray(answer.affects)",
+    "    const reach = answer.affects && typeof answer.affects === \"object\" && true"),
+  // ⚠ BOUNDED ON THE WAY IN, because `retrieve` is the seam that is MEANT to be replaced — so
+  // a bound enforced only there is a bound the next retriever owns.
+  m("⚠ automations: a retriever's overrun reaches the workflow, so fifty passages are quoted", AU,
+    "    const excerpts = answered.length > MAX_EXCERPTS ? answered.slice(0, MAX_EXCERPTS) : answered;",
+    "    const excerpts = answered;"),
+  m("automations: the ask carries no ceiling, so the bound is the retriever's alone", AU,
+    "    const found = await ctx.retrieve({ query: config.query, limit: MAX_EXCERPTS });",
+    "    const found = await ctx.retrieve({ query: config.query });"),
+  // ⚠ WHOSE FACT IT WAS — `unknown` is a stated answer and reading the absence as `person`
+  // UPGRADES an agent's own note into one somebody confirmed.
+  m("⚠ automations: a memory with no recorded source is read as CONFIRMED BY A PERSON", AU,
+    '    const source = entry?.source === "person" || entry?.source === "run" ? entry.source : "unknown";',
+    '    const source = entry?.source ?? "person";'),
+  m("automations: the memory step reports no source at all, so an answer cannot be placed", AU,
+    "      sources: [{ key: config.key, version, source }],",
+    "      sources: [{ key: config.key, version }],"),
+  m("automations: the three sources say one thing, so a confirmed fact and a note are one", AU,
+    '    const said = source === "person" ? "confirmed by you"\n      : source === "run" ? "written by this agent"\n      : "recorded before this was tracked";',
+    '    const said = "remembered";'),
   // ⚠ AND THE ABSORBED ARM IS ITS OWN MUTANT. A repeat answered as though it had just
   // happened is a claim about the present made from a record of the past — the fact may have
   // been written again since, which section 3 of `verify:ops` is exactly about.

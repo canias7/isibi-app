@@ -3655,7 +3655,29 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // ⚠ **THE AGENT AND THE KEY ARE BOTH IN THE FILTER, with the tenant.** A delete by
       // id alone would work and would make the id the identity; the name is the identity
       // here, because that is what a workflow asks for and what a person sees.
-      return (await store.removeMemory(who, agentId, key)) ? ok({ agent: agentId, key }) : NO_MEMORY();
+      if (!(await store.removeMemory(who, agentId, key))) return NO_MEMORY();
+      /**
+       * ⚠ **WHAT FORGETTING REACHES IS ANSWERED, because `deleted` is not `erased`.**
+       *
+       * The row is gone, so no LATER run will see it. Two things are deliberately untouched:
+       * an execution already ACCEPTED holds the snapshot it was accepted with (the same rule
+       * the instructions and the step list follow — reaching back into it would mean a
+       * correction changing what a run in flight is doing), and the JOURNAL keeps whatever was
+       * quoted, because an entry is append-only by trigger and a history that forgetting could
+       * edit is a history nobody can audit.
+       *
+       * **SAID HERE RATHER THAN LEFT TO THE SCREEN.** A screen writing "removed everywhere"
+       * would be false about two of the three places it exists, and the screen has no way to
+       * know that. `agent.delete_memory` answers the same three fields for the agent's own
+       * `forget`, so both doors say one thing — **and they are two DOORS: this route deletes
+       * the row directly and the tool calls that function**, which is why the fields are
+       * written out here instead of forwarded.
+       */
+      return ok({
+        agent: agentId, key,
+        affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
+        note: "later runs won't see it; a run already under way keeps what it started with, and the history keeps whatever it quoted",
+      });
     }
 
     if (path === "/api/agent/automation-history") {

@@ -1091,8 +1091,31 @@ test("a memory is set by name, and the ceiling is asked only for a name it does 
   // AND A DELETE TAKES THE NAME AS THE IDENTITY, because that is what a step asks for.
   const d = fakeStore();
   const gone = await call("/api/agent/memory-delete", { store: d.store, body: { agent: A1, name: "Tone" } });
-  assert.deepEqual({ ...gone.body }, { ok: true, agent: A1, key: "tone" });
+  assert.equal(gone.body.ok, true);
+  assert.equal(gone.body.agent, A1);
+  assert.equal(gone.body.key, "tone");
   assert.deepEqual(d.calls.find((c) => c.name === "removeMemory").args, [T1, A1, "tone"]);
+
+  /**
+   * ⚠ **WHAT FORGETTING REACHES IS ANSWERED, because `deleted` is not `erased`.**
+   * RE-ANCHORED, NOT APPEASED: this asserted the answer's whole key set as
+   * `{ok, agent, key}`, which was the property "it says which name it forgot" written as a
+   * spelling — so it went red on an honest addition rather than on a change of behaviour.
+   *
+   * A memory lives in three places and a delete reaches exactly ONE: no LATER run sees it,
+   * an execution already accepted keeps the snapshot it was accepted with, and the journal
+   * keeps whatever it quoted. Answering a bare `ok` would let a screen say "deleted"
+   * and mean something stronger than what happened, which is the one claim this route must
+   * not make. Both halves travel: the FIELDS for a reader that acts on them, and a
+   * SENTENCE for one that shows prose — because the fields are gone the moment somebody
+   * renders the note and nothing else.
+   */
+  assert.deepEqual(gone.body.affects, { futureRuns: true, acceptedRuns: false, runHistory: false });
+  assert.match(gone.body.note, /later runs/);
+  assert.match(gone.body.note, /already under way keeps what it started with/);
+  assert.match(gone.body.note, /history keeps whatever it quoted/);
+  // AND NOTHING IN IT CLAIMS MORE THAN THAT — no "erased", no "everywhere", no "all".
+  assert.doesNotMatch(gone.body.note, /eras|everywhere|all runs|completely/i);
   // A DELETE WITH NO AGENT IS REFUSED: the scope is (account, agent, name), and dropping
   // the agent would delete one name across every agent the account has.
   const e = fakeStore();

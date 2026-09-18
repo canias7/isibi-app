@@ -210,13 +210,36 @@ begin
    where m.tenant_id = p_tenant and m.agent_id = p_agent_id
      and m.key = lower(btrim(coalesce(p_key, '')));
   get diagnostics v_gone = row_count;
-  -- ⚠ FORGETTING SOMETHING THAT IS NOT THERE IS NOT A FAILURE, and saying which happened
-  -- is what lets a caller tell a name it got wrong from one it had already forgotten.
-  return jsonb_build_object('ok', true, 'forgot', v_gone > 0);
+  /**
+   * ⚠ **WHAT FORGETTING DOES AND WHAT IT DOES NOT, ANSWERED RATHER THAN LEFT TO BE ASSUMED.**
+   *
+   * The row is gone, so no LATER snapshot will carry it. Two things are deliberately
+   * untouched, and both are guarantees rather than oversights:
+   *
+   *   * an execution ALREADY ACCEPTED holds its own snapshot, taken in the transaction that
+   *     accepted it — so a run under way keeps resolving the name it was started with. That
+   *     is the same rule the instructions and the step list follow, and reaching back into it
+   *     would mean a correction changing what a run in flight is doing.
+   *   * the JOURNAL keeps whatever was quoted. An entry is append-only by trigger, and a
+   *     history that could be edited by forgetting a fact would be a history nobody can audit.
+   *
+   * **SO `deleted` IS NOT `erased`, AND THE ANSWER SAYS SO IN ITS OWN FIELDS** rather than
+   * leaving a caller to write "removed everywhere" on a screen. A sentence is the caller's;
+   * these three booleans are what it has to be true about.
+   *
+   * FORGETTING SOMETHING THAT IS NOT THERE IS NOT A FAILURE, and saying which happened is
+   * what lets a caller tell a name it got wrong from one it had already forgotten.
+   */
+  return jsonb_build_object(
+    'ok', true, 'forgot', v_gone > 0, 'key', lower(btrim(coalesce(p_key, ''))),
+    'affects', jsonb_build_object(
+      'futureRuns',      true,     -- no later snapshot carries it
+      'acceptedRuns',    false,    -- each holds the snapshot it was accepted with
+      'runHistory',      false));  -- the journal is append-only and keeps what was quoted
 end; $$;
 
 comment on function agent.delete_memory(text, uuid, text) is
-  'Forget one named fact. Answers whether there was one, rather than failing when there was not.';
+  'Forget one named fact. Answers whether there was one rather than failing when there was not, and says what forgetting reaches: later runs only. An execution already accepted keeps the snapshot it started with, and the journal keeps whatever it quoted.';
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- 3. AUTOMATIONS — listing them, reading one, and turning one on or off

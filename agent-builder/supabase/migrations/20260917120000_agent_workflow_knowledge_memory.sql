@@ -329,20 +329,35 @@ create trigger agent_memory_touched
 --
 -- **`{}` FOR AN AGENT WITH NONE**, which is a real answer and not an absence: a step that
 -- asks for a key finds nothing remembered and says so.
+/**
+ * ⚠ **`source` IS IN THE SNAPSHOT, AND WITHOUT IT THE DISTINCTION DIES AT THIS LINE.**
+ *
+ * `agent.agent_memory.source` separates a fact a PERSON confirmed from one an agent's own run
+ * wrote — which is the whole reason that column exists and is never inferred. The snapshot is
+ * what a run actually reads, so a snapshot carrying only the value and the version makes the
+ * two indistinguishable everywhere it matters: in the step's own outcome, in the history
+ * somebody audits afterwards, and in whatever a note quotes. **A column that is recorded and
+ * never carried is this repository's most-recorded defect**, and it was one hop from here.
+ *
+ * **THE VALUE IS STILL JUST THE VALUE.** Where it came from rides BESIDE it and never inside
+ * it: a note that quoted "formal (remembered by the agent)" would be putting our bookkeeping
+ * into somebody's own words.
+ */
 create or replace function agent.agent_memory_snapshot(
   p_tenant   text,
   p_agent_id uuid
 ) returns jsonb
   language sql stable security definer set search_path = '' as $$
   select coalesce(
-           jsonb_object_agg(m.key, jsonb_build_object('value', m.value, 'version', m.version)),
+           jsonb_object_agg(m.key, jsonb_build_object(
+             'value', m.value, 'version', m.version, 'source', m.source)),
            '{}'::jsonb)
     from agent.agent_memory m
    where m.tenant_id = p_tenant and m.agent_id = p_agent_id;
 $$;
 
 comment on function agent.agent_memory_snapshot(text, uuid) is
-  'Every memory one agent holds, keyed by name, each with the version it was at. Taken inside the accepting transaction so a later correction cannot change an execution already under way.';
+  'Every memory one agent holds, keyed by name, each with the version it was at and who it came from. Taken inside the accepting transaction so a later correction cannot change an execution already under way.';
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 4. AN AUTOMATION MAY DECLARE ITS INPUTS
