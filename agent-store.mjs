@@ -3199,8 +3199,22 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // every reference to an input fail on the one save that introduced it.
       const declared = cleanInputs(b.inputs);
       if (declared.error) return no(400, declared.error);
+      // ⚠ **THE WHOLE DECLARATIONS, NEVER THEIR NAMES — and the difference is a TYPE.** This
+      // line read `declared.inputs.map((i) => i.name)`, so every declaration arrived as a
+      // bare string and `cleanWorkflow` read it as `text` (which is what a bare string
+      // means, correctly). MEASURED: a `list` input plus a loop over it was refused here
+      // *"step 1: \"lines\" is text, and the list to go through needs a list"* while the
+      // engine's own reader accepted the same steps with the same declarations — so a
+      // declared list was a kind of thing a person could save and never use, and a number
+      // could never be used where a number is wanted.
+      //
+      // `cleanWorkflow` has read a declaration's `type` since types existed; nothing sent
+      // it one. *A value computed and never forwarded*, in the one hop between the reader
+      // that validates a declaration and the reader that validates a reference to it — and
+      // invisible to the cross-product census, which drives both validators with real
+      // declarations and cannot see the argument this route builds.
       const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS,
-        declared.inputs.map((i) => i.name));
+        declared.inputs);
       if (flow.error) return no(400, flow.error);
       // **`enabled` IS REFUSED RATHER THAN COERCED.** `Boolean("false")` is `true`, so a
       // string out of a form would turn "off" into "on" — the one direction that starts

@@ -94,20 +94,24 @@ try {
    * path and it is asserted below — and the SWEEPER is what makes the work durable when
    * the ring fails. Driving both is what proves the run is not stranded either way.
    */
-  const decide = async (agent, runId, verdict = "approved", tenant = A) => {
+  const decide = async (agent, runId, verdict = "approved", tenant = A, sweep = true) => {
     const waiting = await api("/api/agent/tool-approvals", { tenant, query: { agent } });
     const row = (waiting.body.approvals || []).find((r) => r.run === runId) || null;
     if (!row) return null;
     const said = await api("/api/agent/tool-approve", { tenant, body: { id: row.id, verdict }, ring });
     await drain();
-    await tick();
-    await drain();
+    // ⚠ **THE SWEEP IS OPTIONAL BECAUSE IT RUNS EVERYTHING ELSE TOO.** A tick offers every
+    // unheld work row, so a conversation that just STARTED an automation has that execution
+    // run to completion before the next line — which is right for the ordinary case and makes
+    // "cancel something that has not run" unreachable. Measured: the cancel came back
+    // `alreadyStopped` about work this helper had finished a moment earlier.
+    if (sweep) { await tick(); await drain(); }
     return { row, said: said.body, status: said.status };
   };
   /** Send, then answer whatever it stopped to ask. */
-  const askOk = async (agent, words, verdict = "approved", tenant = A) => {
+  const askOk = async (agent, words, verdict = "approved", tenant = A, sweep = true) => {
     const sent = await ask(agent, words, tenant);
-    const answered = await decide(agent, sent.body.runId, verdict, tenant);
+    const answered = await decide(agent, sent.body.runId, verdict, tenant, sweep);
     return { ...sent, approval: answered };
   };
 
@@ -339,6 +343,35 @@ try {
   const one = await ask(AG, `use read_execution id=${hOut.executions[0].id}`);
   check("...and one execution in full, with every step's outcome",
     Array.isArray(toolResult(one.body.runId)?.execution?.outcomes));
+  // ⚠ **STOPPING ONE, FROM A REAL MESSAGE.** `cancel_execution` takes an id, which the
+  // stand-in can fill by name, so the census below rightly requires it to be driven this way
+  // rather than called directly — and it is approval-gated, so a person says yes first.
+  // ⚠ NO SWEEP AFTER THE APPROVAL, so the execution is QUEUED AND UNRUN — which is the case
+  // cancellation is about: the work row exists, nothing has claimed it, and a cancel has to
+  // RELEASE it or the next delivery runs a stopped run.
+  const toStop = await askOk(AG, `use run_automation id=${AUTO}`, "approved", A, false);
+  const EXS = toolResult(toStop.body.runId)?.execution ?? "";
+  check("a second execution is queued, so there is something to stop",
+    /^[0-9a-f-]{36}$/.test(EXS) && q(`select coalesce(status,'-') from agent.runs where id = '${EXS}';`) !== "stopped",
+    `${EXS} / ${q(`select coalesce(status,'(no row)') from agent.runs where id = '${EXS}';`)}`);
+  const halted = await askOk(AG, `use cancel_execution id=${EXS} reason=wrong-one`);
+  const hRes = toolResult(halted.body.runId);
+  check("⚠ the agent stops an execution, and is told what had already happened",
+    hRes?.ok === true && hRes.stopped === true
+    && Number.isInteger(hRes.completedSteps) && Number.isInteger(hRes.completedCalls),
+    JSON.stringify(hRes).slice(0, 200));
+  check("⚠ ...and nothing claims it was undone", /was not undone/.test(hRes?.say ?? ""), hRes?.say);
+  const hStop = q(`select coalesce(stop::text, '(no stop)') from agent.runs where id = '${EXS}';`);
+  const hWork = q(`select coalesce((done_at is not null)::text, '-') || '|' || coalesce(claimed_by, '(released)')
+      from agent.run_work where run_id = '${EXS}';`);
+  // ⚠ **WHO, NOT WHY — because `reason` is OPTIONAL and `standInArgs` fills only the required
+  // properties.** That is the stand-in being honest about what it can compose from a sentence,
+  // so demanding the note here would be demanding a behaviour it does not have; what matters
+  // is that the stop names the AGENT that asked, which no argument can choose.
+  check("⚠ ...and the RUN says who stopped it, with the work row released",
+    /"reason": ?"cancelled"/.test(hStop) && hStop.includes(`agent:${AG}`) && hWork === "true|(released)",
+    `${hStop.slice(0, 150)} | work ${hWork}`);
+
   const sibHistory = await ask(AG, `use list_executions automation=${sibAuto.body.id}`);
   check("⚠ ...and a sibling's history is empty rather than refused, which tells a caller nothing",
     toolResult(sibHistory.body.runId)?.count === 0);
@@ -517,7 +550,13 @@ try {
   // CHANGING IT. The whole workflow is replaced, and the sibling wall is asked first.
   const wfChArgs = { id: wfNewAuto, name: "Tone note", steps: [{ type: "note", text: "Simpler." }] };
   const wfChanged = await wfChangeTool.run(wfChArgs, await wfCtx(wfChArgs, 27));
-  check("the agent changes its own automation", wfChanged?.ok === true && wfChanged.steps === 1, JSON.stringify(wfChanged));
+  // ⚠ RE-ANCHORED, NOT APPEASED: `change_automation` is a PATCH now, so its answer says WHICH
+  // fields moved (`changed`) rather than how many steps the result has — a field that is gone
+  // reads as `undefined === 1`, which is a working feature reported as broken. The property is
+  // that the workflow really was among what changed, and the ROW is asserted on the next line.
+  check("the agent changes its own automation", wfChanged?.ok === true
+    && Array.isArray(wfChanged.changed) && wfChanged.changed.includes("steps") && wfChanged.changed.includes("name"),
+    JSON.stringify(wfChanged));
   check("⚠ ...and the row holds the new workflow rather than both",
     q(`select jsonb_array_length(steps)::text from agent.automations where id = '${wfNewAuto}';`) === "1");
   const wfSibChange = { id: sibAuto.body.id, name: "Not mine", steps: [{ type: "note", text: "x" }] };

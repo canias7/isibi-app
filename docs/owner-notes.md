@@ -12455,3 +12455,70 @@ which is the control that says none of this broke anything.
 **The two breakage sweeps are running as I write this** and their numbers go in when they finish,
 not before. **Still nothing merged, nothing deployed, nothing applied to the live database, and
 still no real model — that stays last and stays your call.**
+
+---
+
+## 2026-09-18 — the integration round: six scripted demonstrations, and one real defect
+
+You asked for the existing capabilities to be **fully usable through the agent's tools**, with
+the model still simulated and the frontend as it is. The four review findings are fixed and
+recorded above; this is the last part, and it found something the earlier parts could not.
+
+**`npm run verify:integration` — 89 checks, 0 failed.** Six complete scenarios plus a sweep of
+what none of them left behind, and **the file says SCRIPTED in its first line**, because that is
+what it is: the words are written by me, and everything the words reach is real — a throwaway
+PostgreSQL with the real migrations, your site's own routes for everything a person does, the
+queue and both cron handlers, the real tools, and the stand-in model in the loop wherever it can
+compose the call.
+
+### ⚠ THE DEFECT: an automation could ask for a LIST and nothing could ever answer it
+
+An automation's inputs have a kind — text, a number, or a list — and a list is what a loop goes
+through. **Measured, before anything was changed: saving a loop over a declared list was refused
+on your own screen's route**, with a message saying the list is text; and even past that, the
+database refused a real list and accepted only text, which the loop then refused at run time as
+*"not a list"*. So the feature existed at three layers and could not be used from either end.
+
+Two small fixes, and each was reproduced first and then measured again after:
+
+- **the route now hands the validator the whole declarations rather than just their names** —
+  it had been dropping the kind one line above the reader that wanted it;
+- **the database reads each answer as its declared kind and refuses rather than coercing**,
+  saying which kind it wanted. An unanswered list is the EMPTY list, so a loop over one goes
+  round nought times and says so, rather than failing.
+
+**End to end afterwards**: a list input saved through your route, answered with three lines on
+Run now, stored as a real list, and the loop really went round three times.
+
+**And a refusal a model could have fixed had no words.** Starting an automation answered "that
+automation could not be started" for everything — a missing answer, a wrong kind, a name the
+automation does not ask for. It names the answer and the kind now, because those are the model's
+own arguments and it cannot fix a field nobody named.
+
+### What the six scenarios show
+
+A disabled, scheduled workflow with inputs — **including the refusal when the agent has no time
+zone set, because a tool must never choose one**; a person approving an activation before the
+tool runs at all; a loop that pauses for approval, survives a restart in a brand-new process,
+finishes, and runs **no step twice**; an edit reaching the next run and never one already
+started; stopping queued work and proving a delivery and a cron tick afterwards do nothing; and
+five outbound writes to the labelled fake provider, each retried — **and the provider is asked
+to send exactly once in every one of them.**
+
+The three uncertain ones are three different events, which is the part worth knowing: it never
+arrived; it really landed and the answer went missing; and **nobody can tell** — which is the
+only case where the honest answer is "check before asking again", and the one case nothing here
+had ever driven.
+
+### Measured
+
+- `verify:integration` **89**, `verify:tools` 112 → **119**, the real-database check 1,058 →
+  **1,076**, the engine suite 565 → **566**, and your site's suite 6,813 → **6,814**. Every
+  arithmetic closes exactly.
+- **The other seven demonstrations are green at their recorded counts**, which is the control
+  that says this broke nothing: `wf` 157 · `auto` 70 · `ops` 53 · `controls` 71 · `triggers` 64
+  · `chat` 126 · `connections` 76.
+
+**Still nothing merged, nothing deployed, nothing applied to the live database, and still no
+real model — that stays last and stays your call.** The breakage sweeps and CI on the final
+pushed head are the remaining piece of this round.

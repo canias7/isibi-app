@@ -2340,6 +2340,26 @@ page scope; nothing is merged or deployed.
   than usual: its list route reads `agent.automations`' three new columns BY NAME, so
   against a view that has not got them PostgREST answers 400 and every account's
   automation list fails to load. Not degraded — refused.
+- **⚠ A DECLARED `list` INPUT WAS A KIND OF THING NOBODY COULD SUPPLY (2026-09-18).** An
+  automation's inputs carry a TYPE (`text · number · list`) and `cleanWorkflow` has read it
+  since types existed — and `/api/agent/automation-create` handed that reader
+  `declared.inputs.map((i) => i.name)`, so every declaration arrived as a bare string, which
+  it correctly takes to mean `text`. **MEASURED: a `list` input with a loop over it was
+  refused *"step 1: \"lines\" is text, and the list to go through needs a list"*** — a
+  workflow the agent engine's own reader accepts with the same declarations. *A value computed
+  and never forwarded*, in the hop between the reader that validates a DECLARATION and the one
+  that validates a REFERENCE to it.
+  **AND THE CROSS-PRODUCT CENSUS COULD NOT SEE IT.** `test/agent-send.test.mjs` drives both
+  validators with REAL declarations and requires the same verdict, and they agree — the type
+  was dropped one hop above, in the argument the ROUTE builds. *A guard proves the branch it
+  drives, and no other*, so the new `agent-automations` case drives the route, with the
+  CONTROL that the same steps with the name declared `text` are still refused. **Site suite
+  6,813 → 6,814**, and the arithmetic closes.
+  **The database half is the agent product's and is recorded in `agent-builder/CLAUDE.md`**:
+  `accept_automation_run` demanded a STRING of every answer, so the only value a declared list
+  could hold was text — which `repeat … each` then refuses at run time. `cleanRunInput` here
+  already read each answer as its declared kind and sent a real list, so the two doors
+  disagreed and the strict one was the database.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

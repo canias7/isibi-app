@@ -732,6 +732,57 @@ test("what an automation ASKS FOR is a declaration, and the name follows the one
     new RegExp(`${MAX_AUTOMATION_INPUTS}`));
 });
 
+test("⚠ THE ROUTE HANDS THE WHOLE DECLARATIONS TO THE VALIDATOR, and the difference is a TYPE", async () => {
+  /**
+   * ⚠ **THE DEFECT, REPRODUCED before this existed.** The route read
+   * `declared.inputs.map((i) => i.name)`, so every declaration reached `cleanWorkflow` as a
+   * bare string — which that reader correctly takes to mean `text`. MEASURED: a `list` input
+   * with a loop over it was refused `step 1: "lines" is text, and the list to go through
+   * needs a list`, on a workflow the engine's own `readWorkflow` accepts with the same
+   * declarations. So a declared list was a kind of thing a person could save and never use.
+   *
+   * **AND THE CROSS-PRODUCT CENSUS COULD NOT SEE IT**, which is why this case lives here and
+   * not there: `test/agent-send.test.mjs` drives both validators with REAL declarations and
+   * requires the same verdict, and they agree — the type was dropped one hop above, in the
+   * argument this route builds. *A guard proves the branch it drives, and no other.*
+   */
+  const LOOP = [
+    { type: "repeat", mode: "each", each: "{{lines}}", as: "line" },
+    { type: "note", text: "item {{line}}" },
+    { type: "endrepeat" },
+  ];
+  const f = fakeStore();
+  const saved = await call("/api/agent/automation-create", {
+    store: f.store,
+    body: { agent: A1, name: "Loopy", steps: LOOP, inputs: [{ name: "lines", type: "list" }] },
+  });
+  assert.equal(saved.status, 200, `a loop over a declared list was refused: ${JSON.stringify(saved.body)}`);
+  // AND THE TYPE REALLY REACHED THE STORE, so what the column holds can be read back as a list.
+  const made = f.calls.find((c) => c.name === "createAutomation");
+  assert.deepEqual(made.args[1].inputs, [{ name: "lines", label: "lines", required: false, default: "", type: "list" }]);
+
+  // ⚠ **THE CONTROL, which is what makes the line above about the TYPE rather than about the
+  // route accepting everything**: the same steps with the same name declared as TEXT are
+  // refused, because text is not a list — and that refusal is the one the defect produced
+  // for a correct workflow.
+  const g = fakeStore();
+  const wrong = await call("/api/agent/automation-create", {
+    store: g.store,
+    body: { agent: A1, name: "Loopy", steps: LOOP, inputs: [{ name: "lines", type: "text" }] },
+  });
+  assert.equal(wrong.status, 400);
+  assert.match(wrong.body.error, /"lines" is text, and the list to go through needs a list/);
+  assert.ok(!g.calls.some((c) => c.name === "createAutomation"), "a refused workflow was written anyway");
+
+  // AND THE EDIT IS THE SAME DOOR, so a workflow that can be created can be changed.
+  const h = fakeStore();
+  const edit = await call("/api/agent/automation-update", {
+    store: h.store,
+    body: { id: C1, name: "Loopy", steps: LOOP, inputs: [{ name: "lines", type: "list" }] },
+  });
+  assert.equal(edit.status, 200, `the edit refused it: ${JSON.stringify(edit.body)}`);
+});
+
 test("⚠ the answers to a run are checked against the declaration, and a stray one is NAMED", () => {
   const decl = cleanInputs([{ name: "topic", label: "What it is about", required: true }]).inputs;
   assert.deepEqual(cleanRunInput({ topic: "boiler" }, decl).input, { topic: "boiler" });

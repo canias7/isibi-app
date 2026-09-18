@@ -720,7 +720,12 @@ declare
   v_mem     jsonb := '{}'::jsonb;
   v_d       jsonb;
   v_key     text;
-  v_val     text;
+  -- ⚠ WHAT KIND OF THING EACH NAME IS, and the value AS THAT KIND. This was a `text`
+  -- variable, which is why a declared list could hold nothing but a string: read as
+  -- themselves, a list is a list and `{{lines}}` can be gone through.
+  v_want    text;
+  v_json    jsonb;
+  v_blank   boolean;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'accept_automation_run: tenant must be a non-empty string';
@@ -820,14 +825,38 @@ begin
     -- input is a silent drop; a check is a sentence — and the sentence is the only thing
     -- that tells them the field they filled in went nowhere.
     for v_key in select k from jsonb_object_keys(v_given) k loop
-      if not exists (select 1 from jsonb_array_elements(v_decl) d where d ->> 'name' = v_key) then
+      select d ->> 'type' into v_want
+        from jsonb_array_elements(v_decl) d where d ->> 'name' = v_key limit 1;
+      if not found then
         return jsonb_build_object('ok', false, 'error', 'unknown-input', 'name', v_key);
       end if;
-      -- REFUSED RATHER THAN COERCED. `p_input ->> 'n'` turns the number 5 into "5" and a
-      -- list into its JSON text, so a coercing reader would accept a shape the form cannot
-      -- produce and store something nobody typed.
-      if jsonb_typeof(v_given -> v_key) <> 'string' then
-        return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key);
+      -- ⚠ **EACH ANSWER IS READ AS ITS DECLARED KIND, AND REFUSED RATHER THAN COERCED.**
+      -- `p_input ->> 'n'` turns the number 5 into "5" and a list into its JSON text, so a
+      -- coercing reader would accept a shape the form cannot produce and store something
+      -- nobody typed. An input with no `type` is `text`, which is what every automation
+      -- stored before types existed holds — so nothing moves.
+      --
+      -- **AND THE DEFECT WITHOUT THE TWO OTHER KINDS WAS MEASURED, not imagined**: this
+      -- read demanded a string of every answer, so a `list` value was refused `bad-input`
+      -- while the site's own route had already read it as a real list and sent it, and the
+      -- only value a declared list could ever hold was a string — which `repeat … each`
+      -- then refuses at run time as *"not a list"*. A declared list was a kind of thing
+      -- nothing could ever supply.
+      if coalesce(v_want, 'text') = 'list' then
+        if jsonb_typeof(v_given -> v_key) <> 'array' then
+          return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key, 'wanted', 'list');
+        end if;
+        -- EVERYTHING IN A LIST IS TEXT, which is what the form sends and what a loop's
+        -- `{{item}}` is read as — a nested list inside one would be a value no step can use.
+        if exists (select 1 from jsonb_array_elements(v_given -> v_key) e where jsonb_typeof(e) <> 'string') then
+          return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key, 'wanted', 'list-of-text');
+        end if;
+      elsif coalesce(v_want, 'text') = 'number' then
+        if jsonb_typeof(v_given -> v_key) <> 'number' then
+          return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key, 'wanted', 'number');
+        end if;
+      elsif jsonb_typeof(v_given -> v_key) <> 'string' then
+        return jsonb_build_object('ok', false, 'error', 'bad-input', 'name', v_key, 'wanted', 'text');
       end if;
     end loop;
 
@@ -840,14 +869,42 @@ begin
         return jsonb_build_object('ok', false, 'error', 'bad-inputs');
       end if;
       v_key := v_d ->> 'name';
-      v_val := coalesce(
-        case when v_given ? v_key then v_given ->> v_key else null end,
-        v_d ->> 'default',
-        '');
-      if coalesce((v_d ->> 'required')::boolean, false) and btrim(v_val) = '' then
+      v_want := coalesce(v_d ->> 'type', 'text');
+      -- ⚠ **AN UNANSWERED NAME IS FILLED WITH THE EMPTY VALUE OF ITS OWN KIND**, so
+      -- `{{name}}` is never a reference to something absent and "is empty" stays a question
+      -- a workflow can ask. For a list that is `[]` — which is what an unanswered list
+      -- means, and a loop over it goes round nought times and says so. For text it is the
+      -- declaration's own default, or the empty string.
+      --
+      -- **A DEFAULT IS TEXT, SO IT ONLY EVER FILLS A TEXT INPUT**, which is the site form's
+      -- own rule: the box holds characters, and reading `"5"` as the number 5 or `""` as
+      -- the empty list would be exactly the coercion the loop above refuses.
+      --
+      -- ⚠ **AND THERE IS NO EMPTY NUMBER, so an unanswered one is the empty string** — a
+      -- blank where a sentence quotes it, rather than a zero nobody typed (`Number("")` is
+      -- `0`, which this repository has recorded as a real defect). The trade is stated
+      -- rather than hidden: such a value is text, so anything that really wants a number
+      -- refuses it — and nothing in the catalog wants one today, because the only field
+      -- that names a kind is a repeat's list.
+      if v_given ? v_key then
+        v_json := v_given -> v_key;
+      elsif v_want = 'list' then
+        v_json := '[]'::jsonb;
+      else
+        v_json := to_jsonb(coalesce(v_d ->> 'default', ''));
+      end if;
+      -- WHETHER SOMETHING WAS ANSWERED, ASKED OF THE KIND IT IS. An empty list and a blank
+      -- box are the same fact about a form nobody filled in; a number that arrived is
+      -- answered whatever it is, because `0` is a real answer.
+      v_blank := case
+        when jsonb_typeof(v_json) = 'array'  then jsonb_array_length(v_json) = 0
+        when jsonb_typeof(v_json) = 'number' then false
+        else btrim(coalesce(v_json #>> '{}', '')) = ''
+      end;
+      if coalesce((v_d ->> 'required')::boolean, false) and v_blank then
         return jsonb_build_object('ok', false, 'error', 'missing-input', 'name', v_key);
       end if;
-      v_vars := v_vars || jsonb_build_object(v_key, v_val);
+      v_vars := v_vars || jsonb_build_object(v_key, v_json);
     end loop;
 
     -- ⚠ THE MEMORIES, WITH THEIR VERSIONS, READ IN THIS TRANSACTION. That is what makes a

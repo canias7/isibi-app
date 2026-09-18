@@ -644,6 +644,60 @@ test("⚠ `run_automation` DERIVES ITS RUN ID FROM THE CALL, so a redelivery is 
   assert.equal(d.sent.filter((x) => x.rpc.startsWith("accept_automation_run")).length, 0,
     "a refused call still started one");
 });
+test("⚠ WHY A RUN WAS NOT STARTED NAMES THE ANSWER THAT WAS WRONG, not merely that it failed", async () => {
+  /**
+   * ⚠ **THE DEFECT, REPRODUCED before this existed.** Every refusal but `disabled` came back
+   * as one sentence — *"that automation could not be started"* — so a call that left out a
+   * required answer, sent a list where text was wanted, or named something the automation
+   * does not ask for was told only that it failed. **A failure that cannot name itself**, and
+   * in the one place a second attempt would have worked: these are the model's OWN arguments.
+   *
+   * `accept_automation_run` answers `name` for every refusal about one answer and `wanted`
+   * for the kind it expected, so the sentence is composed from the FUNCTION'S OWN fields.
+   */
+  const tool = CAPABILITY_TOOLS.find((t) => t.name === "run_automation");
+  const mk = (answer) => recorder((fn) => (fn === "read_automation" ? { id: "a1", agent: AG } : answer));
+  const said = async (answer) => {
+    const r = mk(answer);
+    return tool.run({ id: AG, input: {} },
+      { capabilities: r.can.forTenant(T).forAgent(AG), operation: OP(3, 0) });
+  };
+
+  for (const [answer, names, kind] of [
+    [{ ok: false, error: "missing-input", name: "customer" }, /"customer"/, /has to be answered/],
+    [{ ok: false, error: "unknown-input", name: "nonsense" }, /"nonsense"/, /does not ask for/],
+    [{ ok: false, error: "bad-input", name: "lines", wanted: "list" }, /"lines"/, /a list of text/],
+    [{ ok: false, error: "bad-input", name: "count", wanted: "number" }, /"count"/, /a number/],
+    [{ ok: false, error: "bad-input", name: "topic", wanted: "text" }, /"topic"/, /as text/],
+    [{ ok: false, error: "bad-input", name: "lines", wanted: "list-of-text" }, /"lines"/, /every item is text/],
+  ]) {
+    const out = await said(answer);
+    assert.equal(out.ok, false, JSON.stringify(out));
+    assert.equal(out.error, answer.error, "the code the model reads is not the database's");
+    assert.match(out.say, names, `the sentence did not name the answer: ${out.say}`);
+    assert.match(out.say, kind, `the sentence did not say what was wanted: ${out.say}`);
+  }
+
+  // ⚠ **A KIND THIS DEPLOYMENT HAS NEVER HEARD OF FALLS BACK RATHER THAN INVENTING ONE**, and
+  // so does a refusal with no `name` — a made-up explanation is worse than none, and both
+  // must still say the run did not start.
+  const odd = await said({ ok: false, error: "bad-input", name: "x", wanted: "colour" });
+  assert.match(odd.say, /"x" did not arrive as the kind of thing/, odd.say);
+  const nameless = await said({ ok: false, error: "missing-input" });
+  assert.match(nameless.say, /one of the answers/, nameless.say);
+
+  // THE TWO NOT-NOW REFUSALS KEEP THEIR OWN WORDS, because neither is anything to fix.
+  assert.match((await said({ ok: false, error: "disabled" })).say, /turned off/);
+  assert.match((await said({ ok: false, error: "paused" })).say, /paused/);
+  // AND A CODE NOTHING RECOGNISES IS THE GENERAL SENTENCE, never a guess.
+  assert.match((await said({ ok: false, error: "who-knows" })).say, /could not be started/);
+
+  // ⚠ THE CONTROL: a start that WORKS says so, or every line above is satisfied by a tool
+  // that refuses everything.
+  const fine = await said({ ok: true, id: "made" });
+  assert.equal(fine.ok, true, JSON.stringify(fine));
+  assert.match(fine.say, /begins within the minute/);
+});
 test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
   // MEASURED: a mutant hardcoding `forgot: true` SURVIVED, and the answer it produced was
   // self-contradictory — `forgot: true` beside "there was nothing remembered under that

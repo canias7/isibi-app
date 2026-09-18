@@ -6087,3 +6087,156 @@ site last because it is the only half a person touches.
 **No provider is connected and none can be**: the registry holds one fake, it says so in its own
 name, and nothing it does leaves the process. **No credential of anybody's exists anywhere in
 this work.**
+
+---
+
+## The integration round: six scripted demonstrations, and a declared list nothing could supply (2026-09-18)
+
+Owner: *"Demonstrate complete scenarios with the stand-in model driving real tools through
+local routes, the queue and the database… Keep these demonstrations clearly labeled as
+scripted. They prove execution and integration, not natural-language intelligence."*
+
+`npm run verify:integration` — **89 checks, 0 failed**, seven sections, and the label is the
+first thing in the file. **What is scripted is the WORDS**, and where a tool takes a nested
+object, its ARGUMENTS; what is real is everything the words reach — a throwaway PostgreSQL
+with this repository's own migrations, the SITE's routes for everything a person does,
+`worker.queue` and `worker.scheduled` as the dispatcher, the real tools over a real
+capability seam, and the stand-in IN the loop wherever it can compose the call.
+
+**⚠ `name=value` IS HOW THE STAND-IN FILLS A DECLARED PROPERTY, and writing prose instead is
+what the first run measured.** `standInArgs` reads the request for each REQUIRED property by
+name; an identifier names a real row and is the one thing it cannot invent. Asked in prose,
+it filled `id` with the whole sentence — which is the schema-driven fallback being honest,
+and the automation then refused it. Every ask in every demonstration here uses `id=<uuid>`.
+
+### ⚠ THE DEFECT IT FOUND: a declared `list` input could never be supplied, at EITHER end
+
+Reproduced before anything was changed, and it is two halves of one thing:
+
+| door | a `list` input |
+|---|---|
+| the ENGINE's `readWorkflow` with the declarations | **ACCEPTED** |
+| the SITE's `automation-create` route | **REFUSED** — *"step 1: \"lines\" is text, and the list to go through needs a list"* |
+| the SITE's own `cleanWorkflow`, handed the declarations | ACCEPTED |
+| `accept_automation_run` with a real list | **`bad-input`** |
+| the same with a STRING | `ok`, and `vars` held `"a,b"` — which `repeat … each` then refuses at run time as *"not a list"* |
+
+- **THE ROUTE DROPPED THE TYPE ONE HOP ABOVE THE READER THAT WANTED IT.**
+  `cleanWorkflow(b.steps, …, declared.inputs.map((i) => i.name))` — every declaration arrived
+  as a bare string, which that reader correctly takes to mean `text`. It has read a
+  declaration's `type` since types existed; nothing sent it one. *A value computed and never
+  forwarded*, in the hop between the reader that validates a DECLARATION and the reader that
+  validates a REFERENCE to it.
+- **AND THE CROSS-PRODUCT CENSUS COULD NOT SEE IT.** `test/agent-send.test.mjs` drives both
+  validators with REAL declarations and requires the same verdict — and they agree. *A guard
+  proves the branch it drives, and no other*, so the new case drives the ROUTE.
+- **THE DATABASE DEMANDED A STRING OF EVERY ANSWER**, so the only value a declared list could
+  hold was text. It reads each answer as its DECLARED kind now and **refuses rather than
+  coercing**, naming what it wanted (`list`, `list-of-text`, `number`, `text`) — which is the
+  shape the site's own `cleanRunInput` already refused, so the two doors agree.
+- **AN UNANSWERED NAME IS FILLED WITH THE EMPTY VALUE OF ITS OWN KIND**, so `{{name}}` is
+  never a reference to something absent: `[]` for a list, which a loop goes round nought
+  times over and says so. **A DEFAULT IS TEXT, so it only ever fills a text input** — reading
+  `"5"` as the number 5 or `""` as the empty list is the coercion the check above refuses.
+  **⚠ AND THERE IS NO EMPTY NUMBER, so an unanswered one is the empty string** — a blank
+  where a sentence quotes it rather than a zero nobody typed (`Number("")` is `0`, recorded
+  here as a real defect). The trade is stated in the migration: such a value is text, so
+  anything that really wants a number refuses it, and nothing in the catalog wants one today.
+- **MEASURED AFTER THE FIX, through the site's own route end to end**: a declared list saved,
+  answered with `["a","b","c"]` on Run now, stored as a real list in `vars`, and the loop went
+  round three times — `item a for Ada | item b for Ada | item c for Ada`, stop `done`. Every
+  wrong shape is a sentence at the site's door with nothing written.
+
+### ⚠ AND A REFUSAL A MODEL COULD HAVE FIXED HAD NO WORDS
+
+`run_automation` answered *"that automation could not be started"* for everything but
+`disabled` — so a call that left out a required answer, sent a list where text was wanted, or
+named something the automation does not ask for was told only that it failed. **A failure
+that cannot name itself**, in the one place a second attempt would have worked: these are the
+model's OWN arguments. `sayStart(error, name, wanted)` composes the sentence from the
+FUNCTION'S own fields, and a kind it has never heard of falls back rather than inventing one.
+
+### What each section drives, and the two things the first run got wrong about the product
+
+1. a DISABLED, SCHEDULED automation with two typed inputs, written by `make_automation` —
+   with the **`no-zone` refusal driven first**, because a tool may not choose a time zone, and
+   the instant then computed as 08:30 in LONDON by the database;
+2. a real message → the run HOLDS → the screen's own list shows the arguments → a person
+   approves through the site's route → **only then** does the tool run;
+3. a loop and an approval: **queued and unrun until the cron**, then three rounds, a pause, a
+   RESTART in a brand-new dispatcher, a decision, and no step run twice;
+4. an edit reaching the next run and never an accepted one;
+5. `cancel_execution` stopping queued work, saying what had already run, and a delivery and a
+   tick afterwards running nothing;
+6. five outbound writes, each RETRIED;
+7. what none of it left behind — no credential anywhere, and no model call for an automation.
+
+- **⚠ A TOOL-STARTED EXECUTION WAITS FOR THE CRON, and the demonstration says so** rather
+  than hiding it behind a drain: a tool runs INSIDE the consumer and the consumer never
+  produces. The first draft drained and read an execution that had not started.
+- **⚠ AND THE RECONCILIATION HAPPENS ON THE FIRST ATTEMPT, not on the retry.** `perform`
+  catches an uncertain throw and asks the provider immediately, because the message may be at
+  the provider NOW and nobody is going to ask later. So `reconciled` is a field of the FIRST
+  answer and only a record still IN FLIGHT makes a retry reconcile — three of my own
+  assertions were written the other way round.
+
+**FIVE WRITE SHAPES, AND THE THREE UNCERTAIN ONES ARE THREE DIFFERENT EVENTS.** `timeout`
+never arrived; `lost` really landed and the answer went missing; and a provider that **cannot
+say** is the only shape where `unresolved` is the honest end of it — reached by replacing the
+fake's `reconcile` with one that answers `known: false`, which is what a real provider whose
+payload carries no marker does. **This repository's own note recorded that nothing had ever
+driven it.** Every shape asserts the same guarantee: the provider is asked to send ONCE and a
+retry never asks it again.
+
+### ⚠ Three instrument faults of my own, each a recorded shape
+
+1. **A DEAD OBSERVER IN THE RECORD READ.** `op_key like '%:85:0:%'` matches nothing — the key
+   ENDS at the position and the hash is a COLUMN — so `q` answered the empty string and the
+   check passed or failed for a reason that had nothing to do with the row. `rows()` proves it
+   alive and is asserted.
+2. **A BOOLEAN COMPARED AGAINST `"true"`.** psql prints `t` for a bare boolean, so
+   `coalesce(finished_at, '-') <> '-'` read as `"t" === "true"` and reported a finished run as
+   unfinished. It reads the timestamp itself now, which is stronger.
+3. **AN OUTCOME'S KEY IS `id`, NOT `step`** — and which step is waiting comes from the
+   waiting ROW, never from a guess.
+
+### ⚠ And two older checks in `verify:tools` were re-anchored, not appeased
+
+- `change_automation` became a PATCH, so its answer says WHICH fields moved (`changed`) rather
+  than how many steps the result has — a field that is gone reads as `undefined === 1`, which
+  is a working feature reported as broken. The ROW is asserted on the next line, as before.
+- **THE STAND-IN CENSUS DEMANDED `cancel_execution` AND WAS RIGHT.** It is driven from a real
+  message now — approval-gated, so a person says yes first — **and `decide`'s sweep had to
+  become optional**, because a tick offers every unheld work row and ran the execution to
+  completion before the cancel: measured, the cancel came back `alreadyStopped` about work the
+  helper itself had finished. And the assertion is about WHO, not why: `reason` is optional
+  and `standInArgs` fills only the required properties, so demanding the note would be
+  demanding a behaviour the stand-in does not have.
+
+### Measured
+
+- **`npm run verify:integration`: 89 checks, 0 failed** (new).
+- **Real PostgreSQL (`npm run test:pg`): 1,058 → 1,076 checks, 0 failed**, and the arithmetic
+  closes: 18, of which **13 go RED against the defect** (driven by putting the string-only read
+  back) — the accepted list, `vars` holding it as a list, a number staying a number, five
+  refusals each naming what it wanted, nothing written by any of them, the empty list for an
+  unanswered name, and the required-list pair. The other five are setup and controls, which is
+  right.
+- **Engine suite 565 → 566** (`capabilities.test.mjs` 37 → 38, proved red against the generic
+  sentence). **Site suite 6,813 → 6,814** (`agent-automations` 38 → 39, proved red against the
+  dropped type). Both arithmetics close exactly.
+- **`verify:tools` 112 → 119.** **`verify:wf` 157 · `verify:auto` 70 · `verify:ops` 53 ·
+  `verify:controls` 71 · `verify:triggers` 64 · `verify:chat` 126 · `verify:connections` 76 —
+  every one green**, which is the control that this round broke nothing.
+- **⚠ AND A NAME COLLISION IN `pg-schema.mjs`, FOR THE THIRD RECORDED TIME.** `bare` was
+  already declared three thousand lines up, and `cc000000…e1` was already `R_RACE` four
+  hundred lines up — so the required-list refusal met a committed row, answered `repeat: true`,
+  and reported a correct product as broken. The block has its own `ab000000-…` prefix, every
+  local it declares is prefixed, and **a census asserts those ids are free before it starts**,
+  so the next collision is a sentence rather than a cascade.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** `20260918050000` was edited in place (unapplied —
+the round-number naming is the tell). When it goes the order is the recorded one —
+**migration → engine → site** — and here the site's half is real: its route now hands the
+whole declarations to the validator, so a site shipped first would save a workflow whose list
+input the live database still refuses to answer.

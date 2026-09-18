@@ -2779,6 +2779,81 @@ try {
   check("...and is snapshotted on the execution, in `input` AND seeded into `vars`",
     jget(`select (input->>'topic') || '|' || (vars->>'topic') from agent.automation_runs where id='${R_IN}';`) === "boiler|boiler");
 
+  // ⚠ **ITS OWN IDS, AND A CENSUS THAT THEY ARE FREE BEFORE ANYTHING IS WRITTEN.** This file
+  // is one long body whose fixtures share a database, and it already records two collisions:
+  // the first draft of this block reused `cc000000…e1`, which is `R_RACE` four hundred lines
+  // up, so the required-list refusal met a committed row, answered `repeat: true`, and
+  // reported a correct product as broken. A census makes the next one a sentence.
+  check("⚠ this block's own execution ids are unused before it starts",
+    jget(`select count(*) from agent.automation_runs where id::text like 'ab000000-%';`) === "0");
+  // ⚠ **AN ANSWER IS READ AS ITS DECLARED KIND, AND A DECLARED LIST WAS UNSUPPLIABLE.**
+  // MEASURED before the fix: this read demanded a STRING of every answer, so a real list
+  // came back `bad-input` — while the site's own route had already read it as a list and
+  // sent it — and the only value a declared list could hold was text, which `repeat … each`
+  // then refuses at run time as *"not a list"*. So a loop over a declared list was a
+  // control nobody could ever use, at either end.
+  const R_TY = "ab000000-0000-0000-0000-000000000001";
+  allowed("an automation that asks for a list, a number and some text",
+    `update agent.automations set inputs = '[
+       {"name":"lines","label":"Lines","required":false,"default":"","type":"list"},
+       {"name":"count","label":"How many","required":false,"default":"","type":"number"},
+       {"name":"topic","label":"What it is about","required":true,"default":"","type":"text"}]'::jsonb
+     where id='${AU2}';`, asOwner);
+  const tyTyped = jget(`select agent.accept_automation_run('t1','${AU2}','${R_TY}','manual',null,
+      '{"lines":["a","b"],"count":2,"topic":"boiler"}'::jsonb)::text;`);
+  check("⚠ a LIST answer is accepted for a declared list", /"ok"\s*:\s*true/.test(tyTyped), tyTyped);
+  check("...and `vars` holds it as a REAL list, which is the only thing a loop can go through",
+    jget(`select (vars->'lines')::text from agent.automation_runs where id='${R_TY}';`) === '["a", "b"]');
+  check("...and a number stays a number, never its own text",
+    jget(`select jsonb_typeof(vars->'count') || '/' || (vars->>'count') from agent.automation_runs where id='${R_TY}';`)
+      === "number/2");
+  check("...and the text is text, exactly as every automation stored before types held it",
+    jget(`select jsonb_typeof(vars->'topic') from agent.automation_runs where id='${R_TY}';`) === "string");
+
+  // ⚠ REFUSED BY KIND AND BY NAME, NEVER COERCED — and each refusal SAYS which kind it
+  // wanted, because "that did not arrive" is not something a form can act on. Every one of
+  // these is the shape the site's own reader already refuses, so the two doors agree.
+  for (const [what, body, wanted] of [
+    ["a string where a list was declared", '{"lines":"a,b","topic":"t"}', "list"],
+    ["a number where a list was declared", '{"lines":7,"topic":"t"}', "list"],
+    ["a list holding a list", '{"lines":[["a"]],"topic":"t"}', "list-of-text"],
+    ["a string where a number was declared", '{"count":"2","topic":"t"}', "number"],
+    ["a list where text was declared", '{"topic":["t"]}', "text"],
+  ]) {
+    const r = jget(`select agent.accept_automation_run('t1','${AU2}',
+        'ab000000-0000-0000-0000-000000000003','manual',null,'${body}'::jsonb)::text;`);
+    check(`...${what} is refused, naming what it wanted`,
+      /"error"\s*:\s*"bad-input"/.test(r) && r.includes(`"wanted": "${wanted}"`), r);
+  }
+  check("...and not one of them wrote an execution",
+    jget(`select count(*) from agent.automation_runs where id='ab000000-0000-0000-0000-000000000003';`) === "0");
+
+  // ⚠ **AN UNANSWERED NAME IS FILLED WITH THE EMPTY VALUE OF ITS OWN KIND**, so `{{name}}`
+  // is never a reference to something absent — and for a list that is `[]`, which a loop
+  // goes round nought times over and says so. Reading it as `""` is what made a loop over
+  // an unanswered list fail rather than do nothing.
+  const R_EMPTY = "ab000000-0000-0000-0000-000000000002";
+  const tyBare = jget(`select agent.accept_automation_run('t1','${AU2}','${R_EMPTY}','manual',null,
+      '{"topic":"boiler"}'::jsonb)::text;`);
+  check("an automation run with only its required answer is accepted", /"ok"\s*:\s*true/.test(tyBare), tyBare);
+  check("...and the unanswered list is the EMPTY LIST, not a blank string",
+    jget(`select (vars->'lines')::text from agent.automation_runs where id='${R_EMPTY}';`) === "[]");
+  // AND THE NUMBER IS THE ONE KIND WITH NO EMPTY VALUE, so it is blank rather than zero —
+  // `Number("")` is 0, and a zero nobody tyTyped is the coercion this file records elsewhere.
+  check("...and an unanswered number is blank rather than a zero nobody tyTyped",
+    jget(`select (vars->>'count') = '' from agent.automation_runs where id='${R_EMPTY}';`) === "t");
+  // A REQUIRED LIST LEFT EMPTY IS UNANSWERED, which is what an empty box is on a form.
+  allowed("an automation whose list has to be answered",
+    `update agent.automations set inputs = '[{"name":"lines","label":"Lines","required":true,"default":"","type":"list"}]'::jsonb
+     where id='${AU2}';`, asOwner);
+  const tyEmptyReq = jget(`select agent.accept_automation_run('t1','${AU2}',
+      'ab000000-0000-0000-0000-000000000004','manual',null,'{"lines":[]}'::jsonb)::text;`);
+  check("a required list answered with nothing in it is unanswered",
+    /"error"\s*:\s*"missing-input"/.test(tyEmptyReq) && tyEmptyReq.includes("lines"), tyEmptyReq);
+  const tyOneReq = jget(`select agent.accept_automation_run('t1','${AU2}',
+      'ab000000-0000-0000-0000-000000000005','manual',null,'{"lines":["a"]}'::jsonb)::text;`);
+  check("THE CONTROL: one thing in it is an answer", /"ok"\s*:\s*true/.test(tyOneReq), tyOneReq);
+
 
   // ══════════════════════════════════════════════════════════════════════════
   console.log("\n── the capability operations: what a person's screen and their agent BOTH run ──");

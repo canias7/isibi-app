@@ -428,7 +428,14 @@ const runAutomation = tool({
     const answer = await can.startAutomation({ id: text(args.id), runId, input: args.input ?? {}, operation: ctx.operation });
     if (answer?.ok !== true) {
       return { ok: false, error: answer?.error ?? "refused",
-        say: answer?.error === "disabled" ? "that automation is turned off" : "that automation could not be started" };
+        // ⚠ **THE THREE REFUSALS A MODEL CAN ACT ON ARE NAMED, AND THEY NAME THE ANSWER.**
+        // Everything but `disabled` came back as one sentence — *"that automation could not
+        // be started"* — so a call that left out a required answer, sent a list where text
+        // was wanted, or named something the automation does not ask for was told only that
+        // it failed. **A failure that cannot name itself** is this repository's own recorded
+        // trap, and here it is in the one place a second attempt would have worked: these
+        // are the model's own arguments, and it cannot fix a field nobody named.
+        say: sayStart(answer?.error, answer?.name, answer?.wanted) };
     }
     // ⚠ A REPEAT HERE IS THIS SAME CALL, and the sentence says so rather than implying
     // somebody else started it. The id is derived from the call, so the only way this
@@ -1264,6 +1271,35 @@ const sayAutomation = (error, answer = null) => {
     "operation-mismatch": "a different request already used this slot, so nothing was changed",
   }[error] ?? "that automation could not be saved";
 };
+
+/**
+ * ⚠ WHY A RUN WAS NOT STARTED, in words that say what to change.
+ *
+ * `accept_automation_run` answers `name` for every refusal about one answer and `wanted` for
+ * the kind it expected, so the sentence is composed from the FUNCTION'S OWN fields rather
+ * than from a second guess about which field a model got wrong. A kind it has never heard of
+ * falls through to the general sentence, which is the fail-closed direction: a made-up
+ * explanation is worse than none.
+ *
+ * **A FUNCTION DECLARATION AND NOT A `const`**, because `run_automation` is defined above it
+ * and reads it — the temporal dead zone, which `node --check` cannot see.
+ */
+export function sayStart(error, name, wanted) {
+  const of = (typeof name === "string" && name) ? `"${name}"` : "one of the answers";
+  const kind = { text: "text", number: "a number", list: "a list of text",
+                 "list-of-text": "a list whose every item is text" }[wanted] ?? null;
+  return {
+    disabled: "that automation is turned off",
+    paused: "this agent is paused, so it is not starting anything new",
+    "no-automation": "there is no automation of this agent's with that id",
+    "unknown-input": `that automation does not ask for ${of}, so nothing was started`,
+    "missing-input": `${of} has to be answered, so nothing was started`,
+    "bad-input": kind === null
+      ? `${of} did not arrive as the kind of thing that automation asks for`
+      : `${of} has to arrive as ${kind}`,
+    "bad-inputs": "that automation's own declarations could not be read, so nothing was started",
+  }[error] ?? "that automation could not be started";
+}
 
 /**
  * ⚠ THE CAPABILITY TOOLS, and this array is what `OFFERED` is built from.
