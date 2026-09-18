@@ -5530,3 +5530,243 @@ use every tool"* in as many words.
 for. The order when they go is the recorded one — **migration → engine → site** — and here the
 site's half is real: its `memory-delete` route answers the reach, so a site shipped first would
 compose a sentence from a field the function does not yet return.
+
+---
+
+## Milestone 8: a connection to something outside, and an action through one (2026-09-18)
+
+Owner: *"Build connection and action foundations: provider-independent connection ownership,
+scopes, credential protection, refresh, disconnect, revocation. Use a clearly labeled fake
+provider for now. Demonstrate a read action and an approved write action, including expired
+credentials, revoked access, timeout, and uncertain outcome. Design explicitly for providers
+without idempotency support: uncertain writes need reconciliation, not blind retries. Keep
+credentials out of model context, tool results, and logs."*
+
+`supabase/migrations/20260918060000_agent_connections.sql` (**PREPARED, NOT APPLIED**),
+`src/fake-provider.mjs`, `src/connections.mjs`, three tools, and
+`scripts/verify-connections.mjs`.
+
+### PROVIDER-INDEPENDENT MEANS THE SCHEMA KNOWS NO PROVIDER
+
+`provider` is a text name and nothing in the migration branches on it: the scopes are strings,
+the credential is an opaque string, the expiry is a timestamp. What a provider IS lives in the
+engine's adapter registry, which is CODE — the same division `agent.agents` already makes
+between a customer's instructions (data) and its tools (code). **So adding a real provider is
+adding an adapter, not a migration**, and the name used to look one up comes from the LEASE
+rather than from an argument, so a model cannot choose which code runs.
+
+### ⚠ THE CREDENTIAL HAS EXACTLY ONE DOOR, AND IT IS NOT A READ
+
+`agent.lease_connection` is the only thing in the schema that selects `secret`, and
+`connections.mjs` is its only caller; the lease is a LOCAL that dies with the call. There is no
+operation that answers a credential and no field on any answer that could carry one.
+
+- **`authenticated` READS A VIEW, NOT THE TABLE**, and `agent.connection_list` selects neither
+  secret — so there is nothing for a reader to widen.
+- **⚠ AND `refreshable` IS A GENERATED COLUMN, WHICH IS WHAT MAKES THAT TRUE RATHER THAN
+  NEARLY TRUE.** The view is `security_invoker`, so it reads every column AS THE CALLER:
+  computing `refresh_secret is not null` inside it would mean granting `authenticated` SELECT
+  on `refresh_secret` for the view to work at all, which is the protection gone. Generated on
+  the table, the fact is a column of its own and the grant is a positive list naming neither
+  secret — the device `run_entries` already uses for `kind`, `step` and `idx`.
+- **A DISCONNECT AND A REVOCATION DESTROY THE CREDENTIAL, they do not flag it.** A row that
+  still holds the secret is one a bug can still lease; the ROW stays as the record of what was
+  in use, and what goes is the only part that can do anything.
+- **FOUR STATES BECAUSE EACH NEEDS A DIFFERENT SENTENCE** — `active`, `expired` (a refresh
+  fixes it), `revoked` (a conversation with the provider does), `disconnected` (only the person
+  can put it back). `expired` is DERIVED by every reader, so a clock passing needs no writer,
+  and a refresh CANNOT revive the other two.
+- **A CONNECTION IS `(account, agent)`'s, LIKE A MEMORY AND UNLIKE A RUN.** Every function puts
+  both in its lookup, because a sibling agent of the same owner is the wall no tenant filter
+  can see.
+
+### ⚠ A RETRY THAT DESTROYED ITS OWN CONNECTION — reproduced before it was fixed
+
+`connect_provider` disconnects the live row for a provider account before inserting, and did
+not exclude **the row the call is about**. MEASURED on a real PostgreSQL: press, press again,
+and the second answers `{ok: true, repeat: true}` with the connection `disconnected / replaced
+by a new connection` and the lease refusing it. **The caller is told "already connected" about
+a credential it has just destroyed.** One clause (`id <> p_id`).
+
+**AND THE CHECK THAT LET IT THROUGH ASSERTED ONLY `repeat: true`.** It now asserts the
+connection is still ACTIVE and still LEASABLE, which is what a caller told `repeat` believes.
+
+### ⚠ AND ONE OF MY OWN CHECKS WAS GREEN OVER A BROKEN VIEW
+
+It asked whether the owner reads `count <> '0'` — and a read that is REFUSED answers the empty
+string, which satisfies that. The fault underneath was real: with no grant on the base table,
+`authenticated` reading a `security_invoker` view is refused `permission denied for table
+connections`, so the screen shows nothing and the wall protects nothing. **Second time in this
+product that a `security_invoker` view has needed the caller's own SELECT** (after M9's
+approvals lateral). The count is asserted as a NUMBER against what the account really holds,
+and `select *` on the table is asserted refused, so the grant is proved to be a LIST.
+
+### THE FAKE PROVIDER IS LABELLED THREE WAYS AND NONE IS A COMMENT
+
+Its name is `fakemail`, every answer carries `simulated: true`, and `describe()` says nothing
+leaves this process. **It has NO IDEMPOTENCY KEY on purpose** — a second call is a second
+message — because a fake that absorbed duplicates would make the platform's retry protection
+untestable by making it unnecessary. No network, no clock, no randomness: what each call does
+comes from an injected script, so a timeout is reproducible.
+
+- **⚠ ITS FIRST DRAFT WAS A FAKE IN A DIFFERENT SHAPE FROM REALITY.** It compared
+  `lease.secret` against `lease.expect` — a field it had invented. A real lease carries
+  `secret` and nothing to check it against, so every call through the real store was refused
+  `unauthorised` and four guards failed for a reason that has nothing to do with the product.
+  The provider knows its own credential now.
+- **⚠ AND IT COULD NOT MODEL THE ONE CASE THE MILESTONE IS ABOUT.** It threw BEFORE storing, so
+  `timeout` always meant *nothing happened* — and every "it landed and we did not hear" check
+  was quietly testing the other case. `lost` is a fifth outcome, asked AFTER the work: the
+  message is in the mailbox and the answer never arrives. **From the caller's side the two are
+  indistinguishable, which is the point; what separates them is what reconciliation finds.**
+- **IT REALLY CHECKS THE CREDENTIAL**, or "the credential reached the provider" is unprovable —
+  and it never puts one in an answer, an error, its mailbox or its own record of what it was
+  asked.
+
+### ⚠ AN UNCERTAIN WRITE IS RECONCILED, NEVER RE-SENT
+
+`agent.operations` already had the state this needs and **its own comment called it
+unreachable**: `operation_check` answers `unfinished` for `outcome is null`, which was
+impossible while every caller wrote claim and outcome in one transaction. **An OUTBOUND CALL
+CANNOT BE IN THE CALLER'S TRANSACTION** — you claim, you send, and you may never learn — so the
+column is nullable now and `operation_begin` / `operation_settle` are the door into and out of
+that state. They live beside that table in `20260918020000`, not in the connections migration,
+because the operations table's four doors belong in one place.
+
+- **THE TRACE IS THE OPERATION'S OWN IDENTITY**, which is what makes reconciliation possible at
+  all: to ask a provider *did I already send this* you need something it stored that you can
+  recognise, and it has to be the SAME on a retry. Minting one per attempt would make a
+  redelivery unable to find its own earlier send.
+- **THREE OUTCOMES AND NOT ONE OF THEM SENDS ANYTHING**: it already happened (settle from the
+  answer); it definitely did not (settle as failed and SAY so, so the model can ask again in a
+  new step); nobody can tell (stays in flight, answers `unresolved`).
+- **`unresolved` IS NOT A KIND OF FAILURE.** `action-failed` says the work did not happen; this
+  says nobody knows. They invite opposite next moves — one invites doing it again, the other
+  invites CHECKING first — and recording an unknown as a failure is a claim nothing here is
+  entitled to make.
+- **A DEFINITE REFUSAL IS SETTLED AS A FAILURE, and that strands nothing.** A redelivery of the
+  same call is answered instead of sending, and a fresh attempt after the model has seen the
+  failure is a new step, hence a new position and a new identity — because this engine never
+  retries a call by itself.
+- **A READ TAKES NO RECORD AT ALL**, and a read that failed is `action-failed` and never
+  `unresolved`: there is no duplicate to prevent, and a record per lookup protects nothing.
+- **THE RECORD'S ACTION NAME IS `<provider>_<action>`, BOUNDED RATHER THAN TRUNCATED.** A
+  truncated name is two different actions sharing one record, which is the one mistake the
+  record exists to prevent, arriving through a tidy-looking `slice`.
+
+### The three tools, and what is deliberately not one
+
+`list_connections`, `read_messages`, `send_message` — the catalog goes 16 → 19.
+
+- **`send_message` IS `approval: true`, GATED ON THE TOOL AND NEVER ON ITS ARGUMENTS**, and
+  `read_messages` beside it is NOT. **That pair is what keeps the rule about EFFECT rather than
+  about which seam a tool uses**, and it is the first gated tool whose effect leaves the
+  platform entirely — a message at a provider cannot be recalled by anything here.
+- **IT IS `repeatable` BECAUSE `perform` RECONCILES, which is a property of the platform and
+  not of the provider.** The fake has no idempotency at all, so `false` would be the honest
+  reading of the PROVIDER; what makes `true` true is the operation record.
+- **STORING A CREDENTIAL IS NOT A TOOL AND MUST NOT BECOME ONE.** An agent that could store one
+  could store one it wrote. `connect` is a person's door.
+- **THE CONNECTION SEAM IS ITS OWN (`ctx.connections`), NOT `ctx.capabilities`**, and the two
+  refusals are DIFFERENT WORDS: "this deployment has no store" and "this deployment cannot
+  reach anything outside" are two facts with two remedies, and one error covering both sends a
+  reader to the wrong one.
+- **THE ADAPTER REGISTRY IS MODULE-SCOPED**, and for a fake provider that is the honest model
+  rather than an optimisation: one rebuilt per invocation forgets every message between two
+  deliveries of one run, which is exactly the state reconciliation is about. What it does not
+  survive is an ISOLATE, and that is said where the registry lives.
+
+### ⚠ FOUR EXISTING CENSUSES WENT RED AND WERE RE-ANCHORED, NOT APPEASED
+
+Every one correctly demanded the new tools be declared: the gated set (now five, with the read
+beside the write asserted UNGATED); the no-backend refusal (two seams, the two absences
+asserted DIFFERENT, and each tool driven against the OTHER seam); the `writes` census (over
+both seams, the connection side compared against the ADAPTER's own writes because `perform` is
+the one operation whose flag cannot come from its name); and the sweep-spec anchor census.
+
+**AND FOUR SQL ANCHORS, three of them AMBIGUOUS** because `operation_begin` and
+`operation_settle` joined a file that already made the same comparisons — the generator
+refusing rather than pointing a mutant at whichever came first, and the recorded "an anchor can
+be a substring of its own neighbour" one file over. The fourth **asserted the `not null` this
+round reverses** and is REPLACED by the property that carries it now: `operation_settle`'s
+write-once WHERE.
+
+### ⚠ AND MY OWN COMMIT LEFT THE SITE SUITE RED FOR TWO COMMITS
+
+MEASURED: at the previous commit the site suite is 6,809 tests 0 failed; with the engine's three
+new tools it is 6,809 with **2 FAILURES** — the cross-product catalog census refusing a tool the
+engine offers and the site's `AGENT_TOOLS` does not, so a customer ticking it got *"this
+platform has no tool called …"*. **A change to a catalog the site also holds puts the site's
+suite in scope whatever the filename says**, and I ran only the engine's. The census caught it;
+the fix is the three in the site's catalog, in PERSON-facing words.
+
+### THE HONEST GAP, AND WHAT PINS IT
+
+**The three tools are tickable and there is no screen for MAKING a connection yet.** That is not
+the dead-control defect this repository records — they really run, really reach the store, and
+truthfully answer *"this agent is not connected to anything yet"* — but the WORDS are what stop
+it becoming one. Two site guards: each of the three must say the account is one the PERSON
+connected, `send_message`'s must say a person approves every send, no catalog entry may offer to
+connect an account, and `agent-store.mjs` must never reach the four functions that store or hand
+out a provider's credential.
+
+**⚠ THREE DRAFTS OF THAT SECOND GUARD WERE WRONG, each the file being right**: it forbade
+`p_secret`, which `agent.create_webhook` legitimately takes (the site MINTS a signing secret for
+an inbound endpoint), so *a needle that matches a name two features share cannot prove a class*;
+then its observer looked for a bare `save_memory` where this file names every function as a PATH;
+then for `rpc/save_memory`, which MEASURED is not among the 17 calls it makes at all.
+
+### Measured
+
+- **Real PostgreSQL 16 (`npm run test:pg`): 899 → 967 checks, 0 failed** — 61 for the
+  connections migration and 7 for the re-anchored operations block (two checks became nine), and
+  the arithmetic closes exactly. Every refusal read for ITS OWN gate with a control beside it;
+  the credential's protection asked as PRIVILEGES and as the view's column list, never as a
+  refusal, because `authenticated` holds no schema USAGE in a fresh cluster.
+- **`npm run verify:connections`: 61 checks, 0 failed** (new) — nine sections through the site's
+  own routes, `worker.queue`, the real approval gate and a real database.
+- **Engine suite 516 → 552**, 0 failed (`connections.test.mjs` 32, `run` 44, `worker` 60).
+- **Site suite 6,809 → 6,811 total** (6,809 pass, 2 skipped, 0 fail); `agent-send` 64 → 66.
+  **⚠ AND THE EARLIER ENTRIES' "6,807" WAS THE PASS COUNT QUOTED AS THE TOTAL** — measured at
+  the previous commit, the total was already 6,809. The TOTAL is what carries across machines.
+- **`verify:tools` 112 → 115** (the three handed-over names) and **`verify:ops` 53 ·
+  `verify:controls` 71 · `verify:auto` 70 · `verify:wf` 157 · `verify:triggers` 64 ·
+  `verify:chat` 126 — every one unchanged**, which is the control that this round broke nothing.
+- **Sweep spec 579 → 608 entries (11 controls, 597 product mutants); SQL spec 238 → 245.**
+- **⚠ A SPOT-CHECK OF THE 31 NEW MUTANTS UNDER THE RUNNER'S OWN CHILD ENVIRONMENT: 30 killed,
+  1 SURVIVED, the control survived — and the survivor was real.** Nothing drove a
+  reconciliation that ANSWERS *"I cannot say"*: with the fake provider that needs a missing
+  trace and `perform` always sends one, so the branch was unreachable from every case. A real
+  adapter reaches it easily, and with the wall gone `seen.done` is `undefined` and the answer
+  becomes *"a check found it had not happened"* — telling somebody their message did not go out
+  when it may well have. Closed with a case and its control.
+- **THE FULL TALLIES ARE NOT STAMPED YET.** Both sweeps are running at this commit in detached
+  worktrees, so the main tree holds no mutant while they do — *a count nobody re-measured is a
+  claim ahead of its evidence.*
+
+### ⚠ Two instruments were less capable than what they stand in for
+
+Both found by running them, and both are the recorded class:
+
+1. **`scripts/local-rest.mjs` knew none of the connection RPCs and had no `connection_list`
+   route**; its column fallback of `["id"]` then made the list answer a row of ids where
+   PostgREST with no `select=` answers every column — a screen with no labels, reported as the
+   product being broken. The allow-list names neither credential, because the VIEW does not
+   have them.
+2. **`test/helpers/memory-rest.mjs` gained the connection side** — the view, the five functions,
+   and `operation_begin`/`settle` **WITH the in-flight state**, because a fake that wrote an
+   outcome on begin would make *sent, outcome unknown* unreachable and hide the feature under
+   test. Its `connect_provider` mirrors the `id <> p_id` fix, with the reason.
+
+### NOT APPLIED, NOT DEPLOYED, NOT MERGED
+
+`20260918060000` is prepared locally and `20260918020000` was edited in place (both unapplied —
+the round-number naming is the tell). When they go, the order is the recorded one —
+**migration → engine → site** — and here each link has its own reason: the migration because
+the engine's store calls five functions that do not exist yet; the engine before the site
+because a tool tick the live engine cannot honour is a control that answers, wrongly; and the
+site last because it is the only half a person touches.
+
+**No provider is connected and none can be**: the registry holds one fake, it says so in its own
+name, and nothing it does leaves the process. **No credential of anybody's exists anywhere in
+this work.**

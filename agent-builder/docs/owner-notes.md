@@ -1551,3 +1551,74 @@ broke anything already working.
 touched — the credential work runs against a fake provider that says so in its own name.** The
 connection and action work is half built: the storage is done and proved, the engine side is
 next.
+
+## 2026-09-18 — an agent can act on something outside now, and it asks you first
+
+The last of the nine. An agent can be connected to an outside account and act through it: read
+what is there, and send something once you have approved it. **Nothing real is connected and
+nothing can be** — the only provider this can talk to is a fake one called `fakemail` that says
+so in its own name and in every answer it gives, and nothing it does leaves the process.
+
+**You make a connection; the agent only ever uses one.** Storing a credential is not something
+any tool can do, deliberately: an agent that could store one could store one it made up. So
+connecting stays your act, and what the agent gets is permission to use what you connected.
+
+**The credential has exactly one door.** One database function hands it out, one module calls
+that function, and it lives and dies inside a single call. It is not in any list, any answer, any
+error message, any log, or the run's own permanent journal — I check that with a made-up
+credential and then search every one of those places for it. The screen reads a view that has no
+credential column at all, so there is nothing there for a future change to accidentally expose;
+whether a connection *can* be refreshed is a separate column, precisely so that answering that
+question never requires reading the secret.
+
+**Four states, because each one needs different words from you.** Usable; expired, which a
+refresh fixes; revoked, which means the provider withdrew it and only they can put it back; and
+disconnected, which means you took it away. A refresh cannot revive the last two — otherwise the
+engine could put back something you removed. And a disconnect or a revocation *destroys* the
+credential rather than flagging it: a row that still holds one is a row a bug can still use.
+
+**And the hard part, which is the part I want to explain properly.** The fake provider has no way
+to tell a repeat from a new request — which is true of plenty of real ones. So if we send
+something and then don't hear back, we genuinely do not know whether it went out. **Sending again
+would be the obvious thing and it is the wrong thing**: it might be a second message to somebody.
+What happens instead is that we *ask the provider what it already has*, using a marker we put in
+the message that is the same on every retry. Three answers, and none of them sends anything: it
+already happened, so we record that; it definitely did not, so we say so plainly and you or the
+agent can ask again; or nobody can tell, in which case the answer is *"it may or may not have
+gone out — check before asking again, because asking again could do it twice."* That last one is
+not a failure and I am careful never to word it as one.
+
+### Three things worth telling you about, all my own mistakes
+
+**A retry could destroy the connection it was retrying.** Storing a connection replaces any live
+one for the same account — right — but it did not exclude *the row the retry is about*. So
+pressing once and then again answered "already connected" and left the connection dead. One
+clause. Found by driving it on a real database, not by reading it.
+
+**And my fake provider could not produce the one situation this whole design is for.** It gave up
+*before* storing the message, so "we didn't hear back" always meant "nothing happened" — and
+every check I thought was about a lost answer was quietly about a request that never arrived. It
+has a fifth behaviour now: the message really lands and the answer never comes. From our side the
+two look identical, which is the point; the only thing that can tell them apart is asking the
+provider.
+
+**And one commit of mine left your website builder's tests red.** The engine gained three tools
+and the builder's own list of tools-you-can-tick did not, so ticking one would have said "this
+platform has no tool called that". A check that compares the two lists caught it — I had only run
+the engine's tests, which is the rule I already know: *a change to a list both sides hold puts
+both sides' tests in scope.*
+
+### What is honest to say about where this leaves you
+
+**There is no screen for making a connection yet.** The three tools are tickable, and with
+nothing connected they truthfully say "this agent is not connected to anything yet" — so nothing
+lies, but nothing is usable either until that screen exists. I have pinned the wording so it
+cannot drift into implying the agent can connect something itself.
+
+**Measured:** 967 checks against a real PostgreSQL, 0 failed. 61 checks in the new
+demonstration, which goes through your own routes, the real queue, the real approval step and a
+real database. The other six demonstrations are all still green at exactly their previous
+counts, which is how I know none of this disturbed what was already working.
+
+**Nothing is applied, deployed or merged, no model is connected, no real account is touched, and
+no credential of anybody's exists anywhere in this work.**
