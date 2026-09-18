@@ -1111,3 +1111,156 @@ test("the approvals store is built with the CONSUMER's configuration, and refuse
   // platform sweep has no tenant to scope to, and this is reachable only from the cron.
   assert.equal(typeof buildApprovals(good({ SUPABASE_JWT_SECRET: "s3cret" })).forTenant, "function");
 });
+
+// ── subworkflows, through the real dispatcher ────────────────────────────────
+
+/**
+ * ⚠ **THE EXPANSION LIVES IN `runner.mjs` AND `npm run sweep` DOES NOT RUN
+ * `verify:wf`** — so a property proved only there is a property no mutant can be caught
+ * by, which this directory has recorded four times. These drive `worker.queue` over the
+ * in-memory fake, which is where the hop is observable.
+ */
+const CHILD = "a2", OTHER_AG = "g2";
+const seedParent = (rest, { runs = CHILD, childSteps = null, childAgent = AGENT, childInputs = [] } = {}) => {
+  seedAutomation(rest, { over: { steps: [{ id: "s1", type: "note", text: "opening" }] } });
+  rest.agents.set(OTHER_AG, { id: OTHER_AG, tenant_id: TENANT, status: "active" });
+  rest.autos.set(CHILD, {
+    id: CHILD, tenant_id: TENANT, agent_id: childAgent, name: "Tidy", enabled: false,
+    schedule: "manual", at_local: null, zone: "UTC", version: 3, inputs: childInputs,
+    steps: childSteps ?? [
+      { id: "s1", type: "note", text: "a sweep" },
+      { id: "s2", type: "note", text: "and a wipe" },
+    ],
+  });
+  rest.autos.get(AUTO).steps = [
+    { id: "s1", type: "note", text: "opening" },
+    { id: "s2", type: "workflow", runs },
+    { id: "s3", type: "note", text: "closing" },
+  ];
+};
+
+const deliverAuto = async (rest, env, ctx) => {
+  await worker.scheduled({}, env, ctx);
+  const sent = env[QUEUE_BINDING].sent.filter((m) => m.runId);
+  const batch = batchOf(sent);
+  await worker.queue(batch, env, ctx);
+  return sent[sent.length - 1].runId;
+};
+
+test("⚠ A SUBWORKFLOW IS COPIED IN BEFORE THE FIRST STEP, stamped, and run as ONE execution", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    const runId = await deliverAuto(rest, env, ctx);
+
+    const exec = rest.execs.get(runId);
+    // ⚠ WHAT THE ROW HOLDS, not what the runner remembered: four flattened steps where the
+    // parent has three, and not one of them a call — which is the only flag there is.
+    assert.equal(exec.steps.length, 4, JSON.stringify(exec.steps.map((s) => s.type)));
+    assert.ok(!exec.steps.some((s) => s.type === "workflow"), JSON.stringify(exec.steps));
+    assert.deepEqual(exec.steps.map((s) => s.id), ["s1", "s2", "s3", "s4"],
+      "the ids are not re-minted by flattened position, so two children would collide");
+    // THE SNAPSHOT: whose each spliced step is, and which version was copied.
+    assert.deepEqual(exec.steps.slice(1, 3).map((s) => `${s.from}@${s.ver}`), ["a2@3", "a2@3"]);
+    assert.equal(exec.steps[0].from, undefined, "the parent's own step was stamped too");
+    assert.deepEqual(exec.uses, [{ id: CHILD, version: 3 }], JSON.stringify(exec.uses));
+    // AND IT REALLY RAN, the child's steps included, in one execution with one journal.
+    assert.equal(rest.runs.get(runId).stop.reason, "done");
+    assert.deepEqual(exec.outcomes.map((o) => o.result),
+      ["opening", "a sweep", "and a wipe", "closing"], JSON.stringify(exec.outcomes));
+    assert.equal([...rest.entries.get(runId).values()].filter((e) => e.kind === "stopped").length, 1);
+    assert.equal([...rest.execs.values()].length, 1, "the child was executed on its own as well");
+  });
+});
+
+test("⚠ a call naming ANOTHER agent's automation fails the execution with its reason", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // THE SAME ACCOUNT, a different agent — the wall no tenant filter can see.
+    seedParent(rest, { childAgent: OTHER_AG });
+    const runId = await deliverAuto(rest, env, ctx);
+
+    const stop = rest.runs.get(runId).stop;
+    // ⚠ **A FAILED EXECUTION WITH A REASON, never `unreadable`.** Taken off the queue with
+    // nothing a customer can act on is the answer that sends somebody nowhere.
+    assert.equal(stop.reason, "failed", JSON.stringify(stop));
+    assert.match(stop.error, /not one of this agent's/);
+    assert.notEqual(rest.execs.get(runId).finished_at, null, "a failed expansion left the row open");
+    assert.notEqual(rest.work.get(runId).done_at, null, "it was left on the queue");
+    // AND NOTHING WAS RUN: the plan never became a list, so no step has an outcome.
+    assert.deepEqual(rest.execs.get(runId).outcomes, []);
+  });
+});
+
+test("...and so does one that does not exist, in the same words", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest, { runs: "nobody" });
+    const runId = await deliverAuto(rest, env, ctx);
+    assert.match(rest.runs.get(runId).stop.error, /not one of this agent's/,
+      "not-there and not-yours must be ONE answer, or an id can be probed for");
+  });
+});
+
+test("⚠ a child that asks for its own inputs is refused, because nothing supplies them", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest, { childInputs: [{ name: "who", label: "Who", required: true }] });
+    const runId = await deliverAuto(rest, env, ctx);
+    assert.match(rest.runs.get(runId).stop.error, /asks for its own inputs/, JSON.stringify(rest.runs.get(runId).stop));
+  });
+});
+
+test("⚠ A REDELIVERY DOES NOT EXPAND AGAIN — the absence of a call IS the flag", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedParent(rest);
+    const runId = await deliverAuto(rest, env, ctx);
+    const first = JSON.stringify(rest.execs.get(runId).steps);
+
+    // The child is REWRITTEN between the two deliveries, and at a new version. A second
+    // expansion would copy THAT in, which is a run executing a list its record never held.
+    rest.autos.get(CHILD).steps = [{ id: "s1", type: "note", text: "something else entirely" }];
+    rest.autos.get(CHILD).version = 9;
+    rest.work.get(runId).done_at = null;
+    rest.work.get(runId).claimed_by = null;
+    rest.work.get(runId).claim_token = null;
+    rest.work.get(runId).lease_expires_at = null;
+    await worker.queue(batchOf([{ runId }]), env, ctx);
+
+    assert.equal(JSON.stringify(rest.execs.get(runId).steps), first,
+      "the flattened plan was replaced on a redelivery");
+    assert.deepEqual(rest.execs.get(runId).uses, [{ id: CHILD, version: 3 }],
+      "what was copied in changed after the fact");
+  });
+});
+
+test("⚠ THE DURABLE LOOP STATE GOES ROUND-TRIP THROUGH THE ROW, not through the process", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    // A LOOP IN THE CHILD, with a WAIT inside it: the execution suspends mid-round, so the
+    // round it is on has to be in the row for the next delivery to read.
+    seedParent(rest, {
+      childSteps: [
+        { id: "s1", type: "repeat", mode: "times", times: 2 },
+        { id: "s2", type: "note", text: "a round" },
+        { id: "s3", type: "wait", mode: "for", minutes: 5 },
+        { id: "s4", type: "endrepeat" },
+      ],
+    });
+    const runId = await deliverAuto(rest, env, ctx);
+
+    const exec = rest.execs.get(runId);
+    assert.notEqual(exec.waiting, null, "it did not suspend inside the loop");
+    // ⚠ THE ROUND, IN THE ROW. A counter living in the process would give the next delivery
+    // a fresh one and the body would run its first round again.
+    assert.deepEqual(Object.values(exec.loops).map((l) => l.at), [0], JSON.stringify(exec.loops));
+    assert.equal(exec.finished_at, null);
+  });
+});

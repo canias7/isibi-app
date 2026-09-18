@@ -98,14 +98,18 @@ function psqlSession(statements, { db = DB, role = null, claims = null } = {}) {
  * table-level one is what is polled for: it is granted only once the statement has run,
  * so seeing it means the row is held.
  */
-function holdRowLock(runId, { db = DB, seconds = 8, waitMs = 6000 } = {}) {
-  const sql = `begin; select 1 from agent.run_work where run_id='${runId}' for update; select pg_sleep(${seconds}); commit;`;
+function holdRowLock(runId, { db = DB, seconds = 8, waitMs = 6000, table = "run_work", where = null } = {}) {
+  // ⚠ THE TABLE IS A PARAMETER RATHER THAN A SECOND COPY OF THIS FUNCTION. `skip locked` in
+  // `resume_due_automations` is the same property one relation over, and a second copy is
+  // how the two drift.
+  const pred = where ?? `run_id='${runId}'`;
+  const sql = `begin; select 1 from agent.${table} where ${pred} for update; select pg_sleep(${seconds}); commit;`;
   const child = spawn("su", ["postgres", "-c",
     `psql -X -q -d ${db} -c ${shq(sql)}`], { stdio: "ignore", detached: true });
   const held = () => psql(`select count(*) from pg_locks l
       join pg_class c on c.oid = l.relation
       join pg_stat_activity a on a.pid = l.pid
-     where c.relname = 'run_work' and l.mode = 'RowShareLock' and l.granted
+     where c.relname = '${table}' and l.mode = 'RowShareLock' and l.granted
        and a.pid <> pg_backend_pid();`, { db }).out;
   let waited = 0;
   while (waited < waitMs && held() === "0") {
@@ -3445,6 +3449,197 @@ try {
     check("⚠ ...and the account next door reads no row at all, so those numbers are theirs alone",
       psql(`select count(*) from agent.agent_thread where agent_id='${SG}';`, otherClaim).out === "0");
   }
+
+// ══════════════════════════════════════════════════════════════════════════
+// THE FIFTEEN A SWEEP FOUND, AND EVERY ONE WAS A GAP HERE
+//
+// ⚠ **THE SQL SWEEP RAN AND FIFTEEN MUTANTS SURVIVED — not one of them the schema's.**
+// Each property is proved end to end by a `verify:*` script, and `npm run sweep:sql` runs
+// THIS file and `authored-run.test.mjs` and nothing else. *A property proven only by an
+// instrument the sweep cannot run is a property no mutant can be caught by*, which this
+// directory has now recorded five times. They belong here: they are database guarantees,
+// and this is the instrument a SQL mutant can be seen by.
+//
+// ⚠ AND ONE ATTRIBUTION IN THE NOTES WAS WRONG, found by measuring rather than reading:
+// the stopword refusal and the memory scope were recorded as `test:pg`'s and were
+// `verify:wf`'s. Measured by applying the mutant to the current tree — 763 passed, 0
+// failed, with the wall deleted.
+// ══════════════════════════════════════════════════════════════════════════
+{
+  console.log("\n── the fifteen a sweep found ──");
+  // ⚠ ITS OWN IDS, AND A CENSUS THAT THEY ARE UNUSED. Reusing one cost this file seven
+  // checks earlier today and thirteen in an earlier round.
+  const SW_T = "sw-tenant-1", SW_T2 = "sw-tenant-2";
+  const SW_AG = "ffff0000-0000-0000-0000-00000000a001";
+  const SW_A1 = "ffff0000-0000-0000-0000-00000000b001";
+  const SW_A2 = "ffff0000-0000-0000-0000-00000000b002";
+  const SW_R1 = "ffff0000-0000-0000-0000-00000000c001";
+  const SW_R2 = "ffff0000-0000-0000-0000-00000000c002";
+  const SW_R3 = "ffff0000-0000-0000-0000-00000000c003";
+  const SW_R4 = "ffff0000-0000-0000-0000-00000000c004";
+  const mine = [SW_AG, SW_A1, SW_A2, SW_R1, SW_R2, SW_R3, SW_R4];
+  check("this section's own ids are not somebody else's",
+    jget(`select count(*) from agent.agents where id in ('${mine.join("','")}')`) === "0" &&
+    jget(`select count(*) from agent.automations where id in ('${mine.join("','")}')`) === "0" &&
+    jget(`select count(*) from agent.runs where id in ('${mine.join("','")}')`) === "0");
+
+  const ONE = `'[{"id":"s1","type":"note","text":"hello"}]'::jsonb`;
+  jget(`insert into agent.agents (id, tenant_id, name, instructions)
+        values ('${SW_AG}','${SW_T}','Shop','Answer.');`);
+  jget(`select agent.create_automation('${SW_T}','${SW_AG}','${SW_A1}','One',true,'manual',null,'UTC',${ONE})::text;`);
+  jget(`select agent.create_automation('${SW_T}','${SW_AG}','${SW_A2}','Two',true,'manual',null,'UTC',${ONE})::text;`);
+
+  // ── 1 & 2: EITHER IDENTITY IS ABSORBED, and a redelivery is answered rather than raised ──
+  // A MANUAL execution has no occurrence, so the primary key is the only thing a repeated
+  // `run_automation` can meet — and it used to meet it as an EXCEPTION, which reads to a
+  // caller as a failure about work that really is queued and will run.
+  const first = jget(`select agent.accept_automation_run('${SW_T}','${SW_A1}','${SW_R1}','manual',null)::text;`);
+  check("a manual execution is accepted", /"ok"\s*:\s*true/.test(first) && !/"repeat"\s*:\s*true/.test(first), first);
+  const twice = jget(`select agent.accept_automation_run('${SW_T}','${SW_A1}','${SW_R1}','manual',null)::text;`);
+  check("⚠ the SAME run id again reads as a repeat rather than raising",
+    /"repeat"\s*:\s*true/.test(twice) && twice.includes(SW_R1), twice);
+  check("...and there is still exactly one execution and one work row",
+    jget(`select count(*) from agent.automation_runs where automation_id='${SW_A1}';`) === "1" &&
+    jget(`select count(*) from agent.run_work where run_id='${SW_R1}';`) === "1");
+  // AND THE OCCURRENCE IS ABSORBED TOO, which is the other half of a bare `on conflict`.
+  jget(`select agent.accept_automation_run('${SW_T}','${SW_A2}','${SW_R2}','schedule','2026-09-21')::text;`);
+  const occTwice = jget(`select agent.accept_automation_run('${SW_T}','${SW_A2}','${SW_R3}','schedule','2026-09-21')::text;`);
+  check("⚠ the same OCCURRENCE under a NEW run id is the first one's repeat",
+    /"repeat"\s*:\s*true/.test(occTwice) && occTwice.includes(SW_R2), occTwice);
+  check("...and no second execution was filed for it",
+    jget(`select count(*) from agent.automation_runs where automation_id='${SW_A2}';`) === "1");
+
+  // ── 3: A RUN ID BELONGING TO ANOTHER AUTOMATION IS NOT THIS ONE'S REPEAT ──
+  // The probe is scoped to the automation, so pointing one execution's record at another's
+  // is a caller error and meets the primary key — never a silent "already filed".
+  // ⚠ MEASURED RATHER THAN GUESSED: I expected `automation_runs_pkey` and the answer is the
+  // function's OWN raise — the insert meets the primary key, `on conflict do nothing` absorbs
+  // it, and the re-read, which IS scoped to this automation, finds nothing. That is a better
+  // gate to name than the constraint, because it is the one that separates "another
+  // automation's run id" from "this automation's repeat": drop the scope and the very same
+  // call answers `repeat: true` about work that is not this automation's.
+  refused("⚠ a run id belonging to ANOTHER automation is not read as this one's repeat",
+    `select agent.accept_automation_run('${SW_T}','${SW_A2}','${SW_R1}','manual',null);`,
+    "conflicted with a row that is not there", asWriter);
+  check("...and nothing was filed for the automation it was pointed at",
+    jget(`select count(*) from agent.automation_runs where id='${SW_R1}' and automation_id='${SW_A2}';`) === "0");
+
+  // ── 5 & 6: THE FIRST DECISION STANDS, AND IT NAMES WHO ANSWERED ──
+  const SW_R5 = "ffff0000-0000-0000-0000-00000000c005";
+  jget(`select agent.accept_automation_run('${SW_T}','${SW_A1}','${SW_R5}','manual',null)::text;`);
+  const hold5 = jget(`select agent.claim_run('${SW_R5}','w-s',90)::text;`);
+  const TOK5 = (JSON.parse(hold5).claim_token ?? "").trim();
+  jget(`select agent.advance_automation_run('${SW_R5}','w-s','${TOK5}',
+    '{"kind":"step","step":0,"at":1,"mark":"waiting","done":1}'::jsonb, 0, '{}'::jsonb,
+    '[{"id":"s1","outcome":"waiting"}]'::jsonb,
+    '{"kind":"approval","step":"s1","ask":"ok?","hours":24,"on_timeout":"reject"}'::jsonb)::text;`);
+  const yes5 = jget(`select agent.decide_automation_approval('${SW_T}','${SW_R5}','s1','approved',null,null)::text;`);
+  check("a decision is accepted", /"ok"\s*:\s*true/.test(yes5), yes5);
+  // ⚠ **WITH NO DECIDER NAMED IT IS THE ACCOUNT THAT ANSWERED**, never a literal: a decision
+  // nobody can be tied to is one nobody can be asked about afterwards.
+  check("⚠ the stored decision names the account that answered",
+    jget(`select decisions->'s1'->>'by' from agent.automation_runs where id='${SW_R5}';`) === SW_T);
+  const no5 = jget(`select agent.decide_automation_approval('${SW_T}','${SW_R5}','s1','rejected','no',null)::text;`);
+  check("⚠ a SECOND decision is absorbed and does not change the answer",
+    /"repeat"\s*:\s*true/.test(no5) || /"verdict"\s*:\s*"approved"/.test(no5), no5);
+  check("...and the FIRST verdict is what the row still holds",
+    jget(`select decisions->'s1'->>'verdict' from agent.automation_runs where id='${SW_R5}';`) === "approved");
+
+  // ── 7, 8 & 9: THE RESUME TICK — one taker, nothing finished, and a bound ──
+  const due = (id, over = "") => {
+    jget(`select agent.accept_automation_run('${SW_T}','${SW_A1}','${id}','manual',null)::text;`);
+    const h = jget(`select agent.claim_run('${id}','w-d',90)::text;`);
+    const t = (JSON.parse(h).claim_token ?? "").trim();
+    jget(`select agent.advance_automation_run('${id}','w-d','${t}',
+      '{"kind":"step","step":0,"at":2,"mark":"waiting","done":1}'::jsonb, 0, '{}'::jsonb,
+      '[{"id":"s1","outcome":"waiting"}]'::jsonb,
+      '{"kind":"wait","step":"s1","mode":"for","minutes":30}'::jsonb)::text;`);
+    jget(`update agent.automation_runs set wait_until = now() - interval '5 minutes' ${over} where id='${id}';`);
+  };
+  const SW_D1 = "ffff0000-0000-0000-0000-00000000d001";
+  const SW_D2 = "ffff0000-0000-0000-0000-00000000d002";
+  const SW_D3 = "ffff0000-0000-0000-0000-00000000d003";
+  due(SW_D1); due(SW_D2); due(SW_D3);
+  const bounded = jget(`select count(*) from agent.resume_due_automations(2);`);
+  check("⚠ the resume batch is BOUNDED, so one tick cannot wake everything after an outage",
+    bounded === "2", `it woke ${bounded} of three`);
+  // ⚠ A FINISHED EXECUTION IS NEVER PUT BACK. Its deadline is still in the past, so the
+  // only thing between it and the queue is that clause.
+  const SW_D4 = "ffff0000-0000-0000-0000-00000000d004";
+  due(SW_D4, ", finished_at = now()");
+  const after = jget(`select coalesce(string_agg(run_id::text, ','), '-') from agent.resume_due_automations(25);`);
+  check("⚠ a FINISHED execution whose deadline has passed is NOT put back on the queue",
+    !after.includes(SW_D4), after);
+  // ⚠ **`for update skip locked` — TWO TICKS NEVER TAKE THE SAME ROW**, and a sequential
+  // harness cannot see that: a lock only means anything under concurrency. A second session
+  // holds the row and `lock_timeout` turns WAITING into an observable refusal.
+  const SW_D5 = "ffff0000-0000-0000-0000-00000000d005";
+  due(SW_D5);
+  const lock = holdRowLock(null, { table: "automation_runs", where: `id='${SW_D5}'`, seconds: 6 });
+  check("the second session really holds the row, which is what makes the next line about locking", lock.ok);
+  const skipped = psql(`set lock_timeout = '2s'; select count(*) from agent.resume_due_automations(25);`, asWriter);
+  lock.release();
+  check("⚠ a row another tick is holding is SKIPPED rather than waited for",
+    skipped.ok && !/lock timeout/i.test(skipped.err ?? ""), `${skipped.out} ${skipped.err ?? ""}`);
+
+  // ── 10 & 11: NOTHING TO LOOK FOR IS NOT EVERYTHING ──
+  jget(`insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
+        values (gen_random_uuid(),'${SW_T}','${SW_AG}','Prices','A boiler service is ninety-five pounds.'),
+               (gen_random_uuid(),'${SW_T}','${SW_AG}','Hours','Open eight until five.');`);
+  check("THE CONTROL: a real query really finds something",
+    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','boiler',5);`) === "1");
+  check("⚠ a query of nothing but stopwords finds NOTHING, not everything",
+    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','the and of',5);`) === "0");
+  check("⚠ ...and an empty query finds nothing either, for its own reason",
+    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','   ',5);`) === "0");
+
+  // ── 12: A MEMORY'S SCOPE IS (ACCOUNT, AGENT) ──
+  // ⚠ TWO ACCOUNTS SHARING AN AGENT ID is the only shape that separates the two scopes, and
+  // it is reachable: an id is a uuid, not something one account owns.
+  jget(`insert into agent.agents (id, tenant_id, name, instructions)
+        values ('${SW_AG}','${SW_T2}','Theirs','Answer.') on conflict do nothing;`);
+  allowed("one account remembers a name",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+     values (gen_random_uuid(),'${SW_T}','${SW_AG}','tone','formal');`, asWriter);
+  allowed("⚠ ...and the account next door remembers the SAME name for the SAME agent id",
+    `insert into agent.agent_memory (id, tenant_id, agent_id, key, value)
+     values (gen_random_uuid(),'${SW_T2}','${SW_AG}','tone','chatty');`, asWriter);
+  check("...and each reads only its own",
+    jget(`select value from agent.agent_memory where tenant_id='${SW_T}' and key='tone';`) === "formal" &&
+    jget(`select value from agent.agent_memory where tenant_id='${SW_T2}' and key='tone';`) === "chatty");
+
+  // ── 13: A `step` ENTRY MUST NAME WHERE IT GOT TO ──
+  const SW_R6 = "ffff0000-0000-0000-0000-00000000c006";
+  jget(`select agent.accept_automation_run('${SW_T}','${SW_A1}','${SW_R6}','manual',null)::text;`);
+  const hold6 = jget(`select agent.claim_run('${SW_R6}','w-e',90)::text;`);
+  const TOK6 = (JSON.parse(hold6).claim_token ?? "").trim();
+  refused("⚠ a `step` entry that names no step is refused — progress with no position is no progress",
+    `select agent.append_entry('${SW_R6}', 1, '{"kind":"step","at":3,"mark":"progress","done":0}'::jsonb,
+      'w-e','${TOK6}');`,
+    "entry_position_matches_kind", asWriter);
+  refused("...and one carrying an INDEX is refused too, because that is a tool slot's shape",
+    `select agent.append_entry('${SW_R6}', 1, '{"kind":"step","step":0,"index":0,"at":3,"mark":"progress","done":0}'::jsonb,
+      'w-e','${TOK6}');`,
+    "entry_position_matches_kind", asWriter);
+  allowed("THE CONTROL: the same entry naming its step is stored",
+    `select agent.append_entry('${SW_R6}', 1, '{"kind":"step","step":0,"at":3,"mark":"progress","done":0}'::jsonb,
+      'w-e','${TOK6}');`, asWriter);
+
+  // ── 14 & 15: AN OPERATION RECORD SAYS WHAT HAPPENED, AND IS THE ACCOUNT'S ──
+  refused("⚠ an operation record with no outcome is refused — a repeat answered with nothing is not an answer",
+    `insert into agent.operations (tenant_id, op_key, action, args_hash, run_id, outcome)
+     values ('${SW_T}','k1','remember','h1','${SW_R1}',null);`,
+    "outcome", asWriter);
+  allowed("THE CONTROL: the same record with an outcome is stored",
+    `insert into agent.operations (tenant_id, op_key, action, args_hash, run_id, outcome)
+     values ('${SW_T}','k1','remember','h1','${SW_R1}','{"saved":"created"}'::jsonb);`, asWriter);
+  check("the owning account reads its own operation record",
+    psql(`select count(*) from agent.operations where op_key='k1';`,
+      { role: "authenticated", claims: `{"tenant_id":"${SW_T}"}` }).out === "1");
+  check("⚠ ...and the account next door reads none of it",
+    psql(`select count(*) from agent.operations;`,
+      { role: "authenticated", claims: `{"tenant_id":"${SW_T2}"}` }).out === "0");
+}
 
 } finally {
   try {
