@@ -45,6 +45,12 @@ import { SERIOUS } from "../builder/site-render.mjs";
 // slices the customer's message at `MAX_MESSAGE`, so a harness that took more
 // would send words the step silently drops and then judge the answer on them.
 import { MAX_MESSAGE } from "../builder/site-add.mjs";
+// THE PRODUCT'S OWN READERS, never a second copy. `photoUrls` is what the route
+// itself counts as "a photograph this site owns", so a before/after inventory
+// taken with it cannot disagree with the wall that refuses a change for losing
+// one; `qrEncodes`/`qrFile` are the emitter's own inverse and its own naming.
+import { photoUrls } from "../builder/site-images.mjs";
+import { qrEncodes, qrFile } from "../builder/site-qr.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -501,6 +507,214 @@ export function askLines(record, kinds) {
   return out;
 }
 
+/**
+ * WHAT THE CHANGE DID ABOUT PHOTOGRAPHS — read on EVERY outcome, refusals
+ * included.
+ *
+ * THE HARNESS WAS PHOTOGRAPH-BLIND UNTIL THIS, and it was measured rather than
+ * suspected: `pictures`, `pictureNote`, `photos` and `lostPhotos` occurred ZERO
+ * times in this file. So a run bought to prove a photograph was bought,
+ * preserved and placed would have come back with no reading of any of it —
+ * this repository's own recorded wiring defect (`shownSteps` was recorded by
+ * the route for a milestone and printed by nobody), in the instrument built to
+ * settle the question.
+ *
+ * ABSENT IS NOT ZERO, AND THE DIFFERENCE IS THE READING. `photos` — the empty
+ * frames left over — rides every SUCCESS whatever was asked for; `pictures`
+ * rides only a change that really bought one. So `photos` present with
+ * `pictures` absent is *it shipped and bought none*, and BOTH absent is *the
+ * request never reached the purchase*: a refusal, or no answer at all. A bare
+ * `0` for either collapses those two into one, which is cannot-tell arriving
+ * as a value in the one field the run is bought to read.
+ *
+ * AND IT PROVES NOTHING ON ITS OWN. These are the route's own numbers about
+ * its own work. That existing photographs were PRESERVED is `lostPhotos` empty
+ * *and* the before/after inventory agreeing; that a new one was PLACED is the
+ * published page's own `src` and a render. This reports; the checklist checks.
+ */
+export function photoLines(reply) {
+  const r = (reply && typeof reply === "object") ? reply : {};
+  const lost = Array.isArray(r.lostPhotos) ? r.lostPhotos : [];
+  const said = (v) => (Number.isFinite(v) ? String(v) : "(not said)");
+  const out = [];
+  out.push(`photographs: bought ${said(r.pictures)}; empty frames left ${said(r.photos)}; existing ones LOST ${lost.length}${lost.length ? ` — ${JSON.stringify(lost.slice(0, 6))}` : ""}`);
+  // THE SENTENCE IS THE ONE THING THAT CAN TELL FOUR IDENTICAL BLANK FRAMES
+  // APART — bought, unaffordable, refused by the provider, none asked for —
+  // so it is printed VERBATIM and never summarised into a word of our own.
+  // Its absence is itself an answer and says which one.
+  out.push(`   the picture sentence: ${typeof r.pictureNote === "string" && r.pictureNote ? JSON.stringify(r.pictureNote) : "(none — this change neither bought a photograph nor left a frame to explain)"}`);
+  return out;
+}
+
+/**
+ * THE COMPLETE CUSTOMER REPLY, as the SERVER composed it.
+ *
+ * `coverNote` alone was printed, which is one sentence of several: a refusal's
+ * whole reply is `msg`, and a success can carry a picture sentence, a
+ * kept-components sentence and a render sentence beside the coverage one. A run
+ * that read one of them and reported it as "the customer was told" was quoting
+ * a fragment as the whole.
+ *
+ * DISCOVERED FROM THE REPLY ITSELF (`msg`, then every `*Note` that really
+ * carries a string), never from a list typed here. A second list of the
+ * server's sentence fields is the recorded two-copies trap, and the copy that
+ * drifts is always the reader's — a sentence added next month would simply
+ * stop being printed, silently, which is exactly how this started.
+ *
+ * NOT A RE-COMPOSITION. The browser glues these together with clauses of its
+ * own (`photoNote`, the skipped-photo line, the reverted-pages line); writing
+ * that concatenation out here would be a second copy of `addonReplyText`, which
+ * is the thing its own guard forbids. Each sentence labelled and whole is
+ * strictly more than the glued string and loses nothing.
+ */
+export function customerLines(reply) {
+  const r = (reply && typeof reply === "object") ? reply : {};
+  const str = (v) => (typeof v === "string" && v.trim() ? v : "");
+  const out = [];
+  // `msg` FIRST, because on a refusal it IS the whole reply — and a refusal is
+  // exactly the outcome whose sentence used to be dropped on the floor here.
+  const parts = [["msg", str(r.msg)], ...Object.keys(r).filter((k) => /Note$/.test(k)).sort().map((k) => [k, str(r[k])])];
+  const carried = parts.filter(([, v]) => v);
+  if (!carried.length) { out.push(`the customer was told: NOTHING — this reply carries no sentence at all`); return out; }
+  out.push(`the customer was told, sentence by sentence (${carried.length}):`);
+  for (const [k, v] of carried) out.push(`     · ${k}: ${JSON.stringify(v)}`);
+  return out;
+}
+
+/**
+ * WHAT THE SITE HAS, BEFORE AND AFTER — routes, QR codes and photographs,
+ * read out of the STORED source rather than guessed at.
+ *
+ * ── WHY NOT THE SITEMAP AND A FEW FILENAMES ─────────────────────────────────
+ *
+ * Because neither is an inventory. A sitemap is a list the publish COMPOSES,
+ * it is cached as its own object at the edge (run 23: a real new page was
+ * missing from it for a minute and the harness called the page a lie), and it
+ * says nothing at all about codes or pictures. Probing `/qr-gallery.svg`
+ * answers about the name somebody guessed and about no other. `GET
+ * /api/site/source?slug=` is the store itself: every page, every component, and
+ * `assets` — which already carries each code's file name AND the drawing the
+ * build bakes, because the explorer needs exactly that.
+ *
+ * ONE FREE AUTHENTICATED READ, and the same one both sides of the change, so a
+ * difference is a difference in the site rather than in how it was asked.
+ */
+export function inventoryOf(source, slug) {
+  const src = (source && typeof source === "object") ? source : {};
+  const list = (v) => (Array.isArray(v) ? v : []);
+  const pages = list(src.pages), parts = list(src.parts);
+  // A CODE IS A FILE THE BUILD WRITES, discovered by the emitter's OWN naming
+  // rule rather than by a `qr-` prefix typed here: `qrFile("wifi")` is the one
+  // definition of what a code is called, and the legacy single code is
+  // `qr.svg` with no name in it at all — which a prefix test written today
+  // would quietly miss on exactly the oldest sites.
+  const qrs = {};
+  for (const a of list(src.assets)) {
+    if (!a || typeof a.path !== "string") continue;
+    const file = a.path.replace(/^public\//, "");
+    if (!/^qr(?:-[a-z][a-z0-9]*)?\.svg$/.test(file)) continue;
+    qrs[file] = typeof a.source === "string" ? a.source : "";
+  }
+  return {
+    ok: !!src.ok,
+    // `sitePathOf` IS THE HARNESS'S ONE READER of a stored file's address, the
+    // same one the reply's own `added`/`changed` go through — so a route from
+    // the inventory and a route from the reply are comparable strings.
+    routes: [...new Set(pages.map((p) => sitePathOf(p && p.path)).filter(Boolean))].sort(),
+    qrs,
+    qrFiles: Object.keys(qrs).sort(),
+    // THE PRODUCT'S OWN READER, over pages AND components — a photograph inside
+    // a section is a photograph, and reading only the pages is the defect this
+    // repository fixed one milestone ago. `photoUrls` takes ONE file's source
+    // and answers a Set, exactly as `keptImages` folds it, so the inventory and
+    // the wall that refuses a change for losing a picture count the same thing.
+    photos: [...new Set([...pages, ...parts].flatMap((p) => [...photoUrls(p && p.source, slug)]))].sort(),
+    pages: pages.length, parts: parts.length,
+  };
+}
+
+/** What moved between two of those, each direction named rather than counted. */
+export function inventoryDiff(before, after) {
+  const gone = (a, b) => a.filter((x) => !b.includes(x));
+  return {
+    routesAdded: gone(after.routes, before.routes), routesLost: gone(before.routes, after.routes),
+    qrsAdded: gone(after.qrFiles, before.qrFiles), qrsLost: gone(before.qrFiles, after.qrFiles),
+    photosAdded: gone(after.photos, before.photos), photosLost: gone(before.photos, after.photos),
+  };
+}
+
+/**
+ * WHICH ADDRESS A CODE REALLY OPENS — asked of every candidate, never assumed.
+ *
+ * *"Decode the generated QR and assert that it opens the actual new gallery
+ * URL. Discover its name from the result instead of assuming 'gallery'."*
+ * (owner, 2026-09-18). The NAME comes from the inventory diff — the file that
+ * appeared — and the DESTINATION is established by re-encoding each address the
+ * site really has and comparing module for module, which is `qrEncodes`: the
+ * guard's own comparison, lifted into the module that draws the path so the
+ * live check and the guard cannot disagree about our own artwork.
+ *
+ * REPORTED AS WHAT IT OPENS, NOT AS PASS/FAIL, because a code for the WRONG
+ * page and a code for no page at all are different findings and the caller is
+ * the one that knows which address it wanted. A code we could not read at all
+ * is its own answer again — that is a broken drawing, not a wrong address.
+ */
+/**
+ * THE BEFORE/AFTER, as lines — said even when nothing moved.
+ *
+ * `before`/`after` are `inventoryOf` answers or `null` for a read that failed,
+ * and the `null` is the reading: a run that could not take the inventory must
+ * say so rather than report an empty diff, which is indistinguishable from a
+ * change that added nothing. `opens` maps each code's file to `qrOpens`'
+ * answer; `drew` is the browser's picture list (`null` = nobody looked).
+ */
+export function inventoryLines(before, after, { opens = {}, drew = null, want = "" } = {}) {
+  const out = [];
+  if (!before || !after) {
+    out.push(`inventory: NOT TAKEN — ${!before && !after ? "neither read" : !before ? "the before read" : "the after read"} came back, so nothing can be compared`);
+    return out;
+  }
+  const d = inventoryDiff(before, after);
+  const say = (a) => (a.length ? JSON.stringify(a) : "none");
+  out.push(`inventory (stored source, both sides): routes ${before.routes.length}→${after.routes.length}, codes ${before.qrFiles.length}→${after.qrFiles.length}, photographs ${before.photos.length}→${after.photos.length}`);
+  out.push(`   routes  +${say(d.routesAdded)}  −${say(d.routesLost)}`);
+  out.push(`   codes   +${say(d.qrsAdded)}  −${say(d.qrsLost)}`);
+  out.push(`   photos  +${say(d.photosAdded)}  −${say(d.photosLost)}`);
+  // ANY LOSS IS SAID LOUDLY AND SEPARATELY. An addition may only add: a route,
+  // a code or a photograph that was there before and is not there now is the
+  // finding this whole inventory exists to catch, and it must not be something
+  // a reader has to spot by comparing two lists of paths.
+  const lost = [...d.routesLost.map((x) => "route " + x), ...d.qrsLost.map((x) => "code " + x), ...d.photosLost.map((x) => "photograph " + x)];
+  if (lost.length) out.push(`   ⚠ THIS CHANGE LOST ${lost.length}: ${JSON.stringify(lost.slice(0, 8))}`);
+  for (const file of d.qrsAdded) {
+    const o = opens[file];
+    if (!o) { out.push(`   code ${file}: NOT READ — the drawing never reached the check`); continue; }
+    const hit = o.ok && want && o.url === want;
+    out.push(`   code ${file} opens ${o.ok ? o.url : "NOTHING WE CAN NAME — " + o.why}${want ? (hit ? "  ✓ the address that was asked for" : "  ✗ the address asked for was " + want) : ""}`);
+  }
+  if (drew === null) out.push(`   pictures on the new page: NOBODY LOOKED — no browser on this runner`);
+  else {
+    const broken = drew.filter((i) => !(i.w > 0 && i.h > 0));
+    out.push(`   pictures on the new page: ${drew.length} drawn, ${broken.length} of them rendering NOTHING`);
+    for (const i of drew.slice(0, 8)) out.push(`     · ${i.w}×${i.h} ${i.w > 0 ? "" : "(BLANK) "}${JSON.stringify(String(i.src).slice(-70))} alt=${JSON.stringify(String(i.alt).slice(0, 60))}`);
+  }
+  return out;
+}
+
+export function qrOpens(svg, candidates) {
+  const list = (Array.isArray(candidates) ? candidates : []).filter((u) => typeof u === "string" && u);
+  if (!list.length) return { ok: false, url: null, why: "no candidate address was offered — nothing was compared" };
+  let read = null;
+  for (const url of list) {
+    const r = qrEncodes(svg, url);
+    if (r.ok) return { ok: true, url, why: null };
+    // KEEP THE FIRST READING ERROR, which is about the DRAWING and is the same
+    // whichever address is tried; a mismatch is about the address and is not.
+    if (!read && /could not be read|not one we would ever draw/.test(r.why || "")) read = r.why;
+  }
+  return { ok: false, url: null, why: read || `the code opens none of the ${list.length} address(es) this site has` };
+}
+
 // ── THE CASES ──────────────────────────────────────────────────────────────
 //
 // One per kind. `ask` is what a customer would type. `kinds` is what the
@@ -842,7 +1056,13 @@ export function askCase(ask) {
       const outstanding = open.length
         ? "STILL OWED: " + open.slice(0, 6).map((q) => `${JSON.stringify(q && q.need)} (${q && q.status}${q && q.why ? ": " + q.why : ""}${q && q.step ? " → " + q.step : ""})`).join("; ")
         : "nothing left outstanding";
-      const said2 = r && typeof r.coverNote === "string" && r.coverNote ? `the customer was told: ${JSON.stringify(r.coverNote)}` : "no coverage sentence to the customer";
+      // THE PHOTOGRAPH NUMBERS AND THE WHOLE REPLY, BOTH ON EVERY OUTCOME.
+      // This branch is the one that runs the check on a refusal as well as a
+      // success, so reading either of these out of `r` unconditionally — never
+      // behind `r.ok` — is what makes a 422's own sentence and its `lostPhotos`
+      // list readable at all.
+      const pics = photoLines(r).join("\n      ");
+      const told = customerLines(r).join("\n      ");
       const props = bad.length ? `; asked for ${bad.length} guarantee(s) the tool does not offer: ${JSON.stringify(bad.slice(0, 6))}` : "";
       const refused = r && r.error ? String(r.error) : "";
       const claimed = r && r.ok === true;
@@ -860,7 +1080,8 @@ export function askCase(ask) {
           `\n      home text ${b.text.length}→${a.text.length} chars` +
           `\n      ${coverage}` +
           `\n      ${outstanding}${props}` +
-          `\n      ${said2}` +
+          `\n      ${pics}` +
+          `\n      ${told}` +
           (refused ? `\n      refused: ${refused}` : "") +
           (hollow ? `\n      FAILED: it reported success and added nothing, changed nothing and explained nothing.` : ""),
       };
@@ -910,6 +1131,35 @@ async function shot(url, file) {
 }
 
 /**
+ * EVERY PICTURE THE PAGE REALLY DREW, with the size the browser decoded it at.
+ *
+ * *"…and check the new image visibly renders."* (owner, 2026-09-18). A 200 on
+ * the file says the bytes are served; a `src` in the markup says the page asked
+ * for it. Neither says a visitor sees anything — a broken image, a zero-byte
+ * file and one the CSP refused all render as nothing with no console error a
+ * screenshot can carry. `naturalWidth` is the browser's own answer to "did this
+ * decode", and it is the only instrument here that can give it.
+ *
+ * `null` WHEN THERE IS NO BROWSER, never `[]`: a runner without playwright and
+ * a page with no pictures on it are different facts, and an empty list would
+ * read as the second while being the first.
+ */
+async function imagesOn(url) {
+  if (!browser) return null;
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => {});
+    await page.waitForTimeout(1200);
+    const seen = await page.evaluate(() => Array.from(document.images).map((i) => ({
+      src: i.currentSrc || i.getAttribute("src") || "", alt: i.getAttribute("alt") || "",
+      w: i.naturalWidth, h: i.naturalHeight, done: !!i.complete,
+    })));
+    await page.close();
+    return seen;
+  } catch (e) { console.log(`   (image read failed: ${String(e && e.message).slice(0, 80)})`); return null; }
+}
+
+/**
  * WHICH CODE THE CALLER DEMANDED, read off the environment.
  *
  * Owner, 2026-09-15: *"Verify that both the Worker and the container executing
@@ -947,11 +1197,37 @@ export function expectedCode(env = {}) {
  * nobody is guarding". The wrapper fetches and prints; this decides.
  *
  * `deploy` and `image` are what the platform ANSWERED (each `""` when it could
- * not tell), `runtimeDeploy` is the second reader's answer, and the two
- * `expect*` are what the caller demanded.
+ * not tell), `runtimeDeploy` is the second reader's answer, `queued` is the
+ * runtime route's own `async` — whether this site's next edit goes to the queue
+ * — and the two `expect*` are what the caller demanded.
  */
-export function codeRefusals({ deploy = "", image = "", runtimeDeploy = "", expectDeploy = "", expectImage = "" } = {}) {
+export function codeRefusals({ deploy = "", image = "", runtimeDeploy = "", queued, expectDeploy = "", expectImage = "" } = {}) {
   const no = [];
+  // ── QUEUED WORK IS REQUIRED, AND IT IS NOT AN EXPECTATION THE CALLER SETS ──
+  //
+  // `async` off means the addon runs INSIDE THE WORKER'S ISOLATE, bounded by
+  // the customer's own connection at ~270 s. Run 45 died at 270,025 ms with the
+  // credits gone, which is the whole reason the queued path exists; every paid
+  // case this harness has ever posted does work longer than that wall.
+  //
+  // UNCONDITIONAL, DELIBERATELY, and that is the one property here that is not
+  // about which code. The `expect*` pair asks "is this the build I meant", and
+  // with no demand there is nothing to answer; this asks "can the work survive
+  // at all", which is true of every run whatever it demanded. As a caller's
+  // flag it would be an input, and this repository's recorded rule is that an
+  // input cannot be the wall — a forgotten box fails OPEN, which is the
+  // direction that spends.
+  //
+  // AND `false` AND CANNOT-TELL GET DIFFERENT SENTENCES. One is a switch
+  // somebody can turn on; the other is a route that did not answer, and reading
+  // the second as the first sends a person to flip a flag that is already set.
+  // `!== true` rather than a falsy test, so the string "false" — which is what
+  // a JSON body mangled one hop away looks like — is cannot-tell and not a yes.
+  if (queued !== true) {
+    no.push(queued === false
+      ? `queued work is OFF for this site (runtime async=false) — this addon would run inside the Worker's isolate and die at the ~270 s wall with the credits spent`
+      : `could not read whether queued work is on for this site (runtime async=${JSON.stringify(queued === undefined ? null : queued)}) — cannot-tell is not a yes`);
+  }
   // THE TWO READERS MUST AGREE. `build-health` and `runtime` each read
   // `deployIdOf(env)` from their own isolate; a disagreement means a deploy is
   // rolling underneath, and the honest answer to "which code" is "both".
@@ -1007,15 +1283,24 @@ async function whichCode(token) {
   console.log(`runtime for ${SLUG}: deploy=${runtime.deploy || "(none)"} runner=${runtime.runner} async=${runtime.async}  [${rt.status}]`);
 
   const want = expectedCode(process.env);
-  const no = codeRefusals({ deploy, image, runtimeDeploy: runtime.deploy, ...want });
+  // `runtime.async` IS THE QUEUED-WORK ANSWER, handed over WITHOUT a default:
+  // a route that 401'd or failed leaves `runtime` as `{}` and this as
+  // `undefined`, which the decision reads as cannot-tell and refuses. A `||
+  // false` here would turn "nobody answered" into "the switch is off", which is
+  // a different sentence pointing at a different fix.
+  const no = codeRefusals({ deploy, image, runtimeDeploy: runtime.deploy, queued: runtime.async, ...want });
   if (no.length) {
     console.error("\nREFUSING TO SPEND — the code answering is not the code under test:");
     for (const line of no) console.error(`  - ${line}`);
     console.error("Nothing was charged. Wait for the roll, or correct the expectation.");
     process.exit(1);
   }
-  if (want.expectDeploy || want.expectImage) console.log("the code under test is the code answering — proceeding\n");
-  else console.log("");
+  // GETTING PAST THE GATE NOW SAYS TWO THINGS, and only one of them depends on
+  // the caller having demanded anything: queued work is ON (asked every run),
+  // and — when a demand was given — the code answering is the code meant.
+  console.log(want.expectDeploy || want.expectImage
+    ? "queued work is on, and the code under test is the code answering — proceeding\n"
+    : "queued work is on — proceeding (no build was demanded, so which code answered is only recorded above)\n");
 }
 
 // ── RUN ────────────────────────────────────────────────────────────────────
@@ -1074,6 +1359,18 @@ async function main() {
     // READ BEFORE THE POST, or "this run added it" is not a claim anybody can
     // make: the site may have carried a job of that name since a run in March.
     const jobsBefore = jobRows((await call("GET", `/api/site/${encodeURIComponent(SLUG)}/jobs`, { token: TOKEN })).json);
+    // ── THE BEFORE-INVENTORY, TAKEN IMMEDIATELY BEFORE THE POST ────────────
+    //
+    // *"Record a fresh before-inventory of routes, QR codes and existing image
+    // references."* (owner, 2026-09-18). FRESH is the word that matters: a
+    // reading taken earlier in a session is a reading of a site something else
+    // may have republished since — measured on repairbench-1, which moved
+    // between two baselines four minutes apart — so it is taken here, on the
+    // line before the money goes, and never reused across cases.
+    const srcBefore = await call("GET", `/api/site/source?slug=${encodeURIComponent(SLUG)}`, { token: TOKEN });
+    const invBefore = srcBefore.status === 200 ? inventoryOf(srcBefore.json, SLUG) : null;
+    if (!invBefore) console.log(`   (the before-inventory could not be read: /api/site/source answered ${srcBefore.status})`);
+    else console.log(`   before: ${invBefore.routes.length} route(s) ${JSON.stringify(invBefore.routes)}, ${invBefore.qrFiles.length} code(s) ${JSON.stringify(invBefore.qrFiles)}, ${invBefore.photos.length} photograph(s)`);
     let p = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/addon`, { token: TOKEN, body: { instruction: c.ask, picker: PICKER, idem: hex32(), tz: "Europe/London" } });
     console.log(`   answered ${p.status} in ${(p.ms / 1000).toFixed(1)}s`);
     // ── QUEUED: THE RECEIPT, THEN THE STORED REPLY (2026-09-03) ───────────
@@ -1152,6 +1449,34 @@ async function main() {
       extra.newStatuses = {};
       for (const p of extra.newRoutes) extra.newStatuses[p] = (await site(p)).status;
     }
+    // ── THE AFTER-INVENTORY, THE CODES IT ADDED, AND WHAT A BROWSER DREW ───
+    //
+    // TAKEN ON EVERY OUTCOME, not only a success: a refusal that was supposed
+    // to change nothing is exactly the run whose inventory is worth comparing,
+    // and taking it only when the route said `ok` would leave the one claim a
+    // refusal makes — *"your site is untouched"* — unchecked.
+    extra.invBefore = invBefore;
+    {
+      const srcAfter = await call("GET", `/api/site/source?slug=${encodeURIComponent(SLUG)}`, { token: TOKEN });
+      extra.invAfter = srcAfter.status === 200 ? inventoryOf(srcAfter.json, SLUG) : null;
+    }
+    extra.qrOpens = {};
+    if (invBefore && extra.invAfter) {
+      // THE CANDIDATES ARE EVERY ADDRESS THE SITE REALLY HAS, so the answer is
+      // *which page this code opens* rather than *does it open the one I
+      // guessed*. The name is whichever FILE appeared, discovered from the
+      // diff; `assets` carries each code's own drawing, so nothing is fetched
+      // and no filename is guessed.
+      const origin = SITE;
+      const urls = [origin + "/", ...extra.invAfter.routes.map((r) => origin + (r === "/" ? "" : r))];
+      for (const file of inventoryDiff(invBefore, extra.invAfter).qrsAdded) {
+        extra.qrOpens[file] = qrOpens(extra.invAfter.qrs[file], [...new Set(urls)]);
+      }
+    }
+    // THE PICTURES, ON THE PAGE THE CHANGE MADE — or the home page when it made
+    // none, which is where a component's picture lands.
+    extra.drew = await imagesOn(SITE + ((extra.newRoutes && extra.newRoutes[0]) || "/"));
+    for (const line of inventoryLines(invBefore, extra.invAfter, { opens: extra.qrOpens, drew: extra.drew })) console.log(`   ${line}`);
     const claimedOk = body.ok === true;
     const escalated = body.escalate === true;
     // THE DEVELOPER RECORD IS READ BEFORE THE VERDICT ON A FREE-TEXT ASK, and

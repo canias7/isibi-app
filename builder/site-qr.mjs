@@ -93,6 +93,113 @@ export function qrSvg(text, { quiet = 4 } = {}) {
 }
 
 /**
+ * THE INVERSE OF THE EMITTER ABOVE: the module set a drawing really carries.
+ *
+ * ── WHY THIS LIVES HERE AND NOT IN THE THING THAT CHECKS IT ─────────────────
+ *
+ * It was written inline inside `test/site-marks.test.mjs`, which was the only
+ * reader. A live run has to ask the same question of a code served off a real
+ * site — *"does this open the URL we think it does"* — and a second copy of a
+ * matrix reader is the recorded two-copies trap in the one place it cannot be
+ * noticed: two readers disagreeing about our own drawing would show up as a
+ * live check passing while the guard is red, or the reverse, with nothing
+ * saying which is right. The module that WRITES the path owns the reader of it.
+ *
+ * ── THE QUIET ZONE IS DERIVED, NOT PASSED IN ────────────────────────────────
+ *
+ * A served file is all a live check has, so being TOLD the margin would be
+ * assuming the very thing worth checking. Row 0 of every QR is the top finder
+ * pattern — dark from column 0 — so the smallest x any stroke starts at IS the
+ * margin, and the module count falls out of the viewBox: `n = size - 2·quiet`.
+ *
+ * ── AND THE STROKE PATTERN IS STRICTER THAN THE EMITTER'S ───────────────────
+ *
+ * `h(\d+)v1h-\3z` requires the two run lengths to AGREE, where `h-\d+` would
+ * admit a stroke that opens seven modules wide and closes six. A drawing that
+ * fails that is unreadable rather than half-read: this answers `ok: false` and
+ * a caller refuses, which is the fail-closed direction for a picture whose
+ * whole failure mode is looking right and not scanning.
+ */
+export function qrModules(svg) {
+  const s = String(svg == null ? "" : svg);
+  const no = (why) => ({ ok: false, why, modules: null, size: 0, quiet: 0, n: 0 });
+  const box = s.match(/viewBox="0 0 (\d+) (\d+)"/);
+  if (!box || box[1] !== box[2]) return no("no square viewBox — this is not one of our codes");
+  const strokes = [...s.matchAll(/M(\d+) (\d+)h(\d+)v1h-\3z/g)];
+  if (!strokes.length) return no("no strokes — nothing is drawn, or the path is not the shape we emit");
+  // …AND EVERY `M` IN THE PATH MUST BE ONE OF THEM. `matchAll` SKIPS what it
+  // cannot match, so one malformed stroke among four hundred good ones was
+  // silently dropped and the drawing read as a code missing a few modules —
+  // which a comparison then blames on the payload, sending somebody to check an
+  // address that is fine. Found by the guard for this, which replaced ONE
+  // stroke's run length and watched the reader answer `ok`. Counting the `M`s
+  // makes a partly-malformed drawing unreadable, which is what the caller needs
+  // to hear: half-read is the one answer a picture like this must never give.
+  // NO `\b` BEFORE THE `M`: the strokes are concatenated with no separator
+  // (`…h-7zM12 4h…`) and `z` and `M` are both word characters, so a word
+  // boundary matches only the FIRST one — which counted 1 stroke in a path of
+  // 295 and reported every good drawing as broken. Caught by running it.
+  const moves = (s.match(/M\d+ \d+h/g) || []).length;
+  if (moves !== strokes.length) return no(`${moves - strokes.length} of ${moves} stroke(s) are not the shape we emit — this drawing is only partly readable`);
+  const size = Number(box[1]);
+  let quiet = Infinity;
+  for (const m of strokes) quiet = Math.min(quiet, Number(m[1]), Number(m[2]));
+  const n = size - quiet * 2;
+  if (!(n > 0)) return no(`the margin (${quiet}) does not fit inside the drawing (${size})`);
+  const modules = new Set();
+  for (const m of strokes) {
+    const x = Number(m[1]), y = Number(m[2]), run = Number(m[3]);
+    for (let i = 0; i < run; i++) modules.add((y - quiet) + "," + (x - quiet + i));
+  }
+  return { ok: true, why: null, modules, size, quiet, n };
+}
+
+/**
+ * DOES THIS DRAWING OPEN THAT ADDRESS? — module for module, against the
+ * library's own matrix.
+ *
+ * NOT A DECODER, AND THAT IS THE STRONGER CLAIM. A decoder answers what a
+ * scanner happens to read from an image; this answers whether the drawing IS
+ * the canonical encoding of the text we expect, which is the only ground truth
+ * available without a camera. A code that is subtly wrong looks exactly like a
+ * QR, and a build, a render check and a screenshot all pass it.
+ *
+ * EVERY DISAGREEMENT IS NAMED RATHER THAN COUNTED. A different size, a module
+ * dark here and not there, an unreadable drawing and a payload that would never
+ * be drawn at all each need a different fix, so each gets its own sentence —
+ * "the code does not match" is the answer that sends somebody looking
+ * everywhere at once.
+ *
+ * AND AN EMPTY COMPARISON IS A REFUSAL. `[].every(...)` is `true`, so a
+ * reference matrix with nothing dark in it would pass every module test there
+ * is; the observer is proved alive before its answer is believed.
+ */
+export function qrEncodes(svg, text) {
+  const read = readQrText(text);
+  if (!read.text) return { ok: false, why: `the expected payload is not one we would ever draw: ${read.why}`, missing: [], extra: [] };
+  const got = qrModules(svg);
+  if (!got.ok) return { ok: false, why: `the drawing could not be read: ${got.why}`, missing: [], extra: [] };
+  let ref;
+  try { ref = qrcode(0, "M"); ref.addData(read.text); ref.make(); }
+  catch (e) { return { ok: false, why: "the expected payload is too much data for one code", missing: [], extra: [] }; }
+  const n = ref.getModuleCount();
+  if (n !== got.n) return { ok: false, why: `the drawing is ${got.n} modules across and ${JSON.stringify(read.text)} encodes to ${n}`, missing: [], extra: [] };
+  const expected = new Set();
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (ref.isDark(r, c)) expected.add(r + "," + c);
+  if (!expected.size) return { ok: false, why: "the reference matrix is empty — nothing would be compared", missing: [], extra: [] };
+  const missing = [...expected].filter((k) => !got.modules.has(k));
+  const extra = [...got.modules].filter((k) => !expected.has(k));
+  if (missing.length || extra.length) {
+    return {
+      ok: false,
+      why: `the drawing is not this payload's code — ${missing.length} module(s) dark in the code and not drawn, ${extra.length} drawn and not dark`,
+      missing: missing.slice(0, 6), extra: extra.slice(0, 6),
+    };
+  }
+  return { ok: true, why: null, missing: [], extra: [], n, quiet: got.quiet, dark: expected.size };
+}
+
+/**
  * The design field.
  *
  * TWO PROPERTIES AND BOTH REQUIRED. A QR with no caption is a black square a
