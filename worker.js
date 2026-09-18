@@ -8171,14 +8171,49 @@ async function saveSiteSource(env, slug, pages) {
   } catch (e) { console.error("source save failed:", slug, e && e.message); return false; }
 }
 
-async function loadSiteSource(env, slug) {
-  if (!env.SITES_BUCKET) return null;
+/**
+ * THE SITE'S OWN PAGES, AND WHETHER WE COULD SEE THEM (2026-09-18).
+ *
+ * `{ ok, pages, why }` — `readSiteParts`' shape one store over, for the same
+ * reason and with the same three states:
+ *
+ *   ok: true,  pages: []      the read SUCCEEDED and nothing is stored
+ *   ok: true,  pages: [...]   the read succeeded and these are the pages
+ *   ok: false, why: "read"    the read or the parse threw — we cannot see
+ *   ok: false, why: "no-store" there is no bucket to read
+ *
+ * WHY IT IS SPLIT OUT NOW (owner, 2026-09-18: *"The source endpoint currently
+ * converts failed storage reads into empty lists with HTTP 200 and ok:true…
+ * Checking HTTP status alone is insufficient."*). `/api/site/source` is what a
+ * live check reads a site's inventory from, and with the two collapsed a bucket
+ * that blew up answered **the same bytes as a site with nothing on it**: 200,
+ * `ok: true`, empty lists. A before/after comparison taken across that reads as
+ * *"this change added nothing and lost nothing"*, and a preservation check —
+ * *every photograph that was there is still there* — passes by having seen
+ * neither. Cannot-tell arriving as a value, in the one reader a paid run is
+ * bought to trust.
+ *
+ * `loadSiteSource` STAYS, as the thin wrapper its nine other callers already
+ * read through, so nothing they do changes: one reader underneath, so the two
+ * can never drift. **The wrapper's `null` still covers the EMPTY array too**,
+ * which is not a collapse being preserved by accident — every one of those
+ * callers is about "is there source to work from", and a stored `[]` and no
+ * object at all are the same answer to that question. The distinction the route
+ * needs is the one this function adds: whether the READ happened.
+ */
+async function readSiteSource(env, slug) {
+  if (!env.SITES_BUCKET) return { ok: false, pages: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
-    if (!o) return null;
+    if (!o) return { ok: true, pages: [] };
     const v = JSON.parse(await o.text());
-    return Array.isArray(v) && v.length ? v : null;
-  } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
+    return { ok: true, pages: Array.isArray(v) ? v : [] };
+  } catch (e) { console.error("source read failed:", slug, e && e.message); return { ok: false, pages: [], why: "read" }; }
+}
+
+async function loadSiteSource(env, slug) {
+  const r = await readSiteSource(env, slug);
+  return r.ok && r.pages.length ? r.pages : null;
 }
 
 /**
@@ -18237,8 +18272,8 @@ async function handleRequest(request, env, ctx) {
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.
-      const [sPages, sParts, sKit, sCfg] = await Promise.all([
-        loadSiteSource(env, sslug), loadSiteParts(env, sslug),
+      const [sRead, sPartsRead, sKit, sCfg] = await Promise.all([
+        readSiteSource(env, sslug), readSiteParts(env, sslug),
         // THE KIT FILES THIS SITE'S PROJECT NEEDS — empty for a site that has
         // not published since this shipped, which is every site the day it
         // does: the explorer then shows exactly what it showed before, with no
@@ -18268,13 +18303,48 @@ async function handleRequest(request, env, ctx) {
         // query in front of every explorer open.
         loadConfig(configDeps(env, sslug, null), sslug),
       ]);
-      const pages = Array.isArray(sPages) ? sPages : [];
-      const parts = Array.isArray(sParts) ? sParts : [];
+      const pages = Array.isArray(sRead.pages) ? sRead.pages : [];
+      const parts = Array.isArray(sPartsRead.parts) ? sPartsRead.parts : [];
       return Response.json({
         ok: true,
         slug: sslug,
         pages,
         parts,
+        // ── WHICH READS ACTUALLY HAPPENED (2026-09-18) ────────────────────────
+        //
+        // Owner: *"The source endpoint currently converts failed storage reads
+        // into empty lists with HTTP 200 and ok:true… Checking HTTP status
+        // alone is insufficient."* Exactly so, and the three loaders above each
+        // answer an empty list for a bucket that threw — which is the right
+        // behaviour for the EXPLORER (losing a customer's whole tree because a
+        // second read blipped is the worse answer, and the comments above say
+        // why) and is indistinguishable, from outside, from a site that has
+        // none of that thing.
+        //
+        // SO THE ANSWER SAYS WHICH IT IS, and `ok` stays `true`: the route
+        // still hands back everything it could read. What changes is that an
+        // empty `parts` now carries whether anybody looked.
+        //
+        // ONE BOOLEAN PER STORE THE INVENTORY IS BUILT FROM — pages, components
+        // and the config the asset list is derived from. `kit` and `shared` are
+        // deliberately absent: the first is a project's dependency closure and
+        // the second is compiled in, and neither is part of what a site HAS in
+        // the sense a before/after comparison is about. A flag for something
+        // nothing compares would be a promise with no reader.
+        //
+        // AND THE ABSENCE OF THIS KEY IS ITSELF AN ANSWER — a Worker older than
+        // today cannot say, which is not the same as saying yes. Every reader
+        // of it has to treat a missing `reads` as cannot-tell rather than
+        // defaulting it to complete, which is this file's most repeated law
+        // arriving one layer up from where it was just fixed.
+        reads: {
+          pages: sRead.ok === true,
+          parts: sPartsRead.ok === true,
+          // `loadConfig` HAS ANSWERED `{ok, why}` SINCE IT WAS WRITTEN and this
+          // route dropped it on the floor — the value computed and never
+          // forwarded, in the half that carries a customer's QR codes.
+          assets: !!(sCfg && sCfg.ok === true),
+        },
         // THE FILES THE BUILD MADE, AND NOT ONE NEW BYTE STORED FOR THEM
         // (owner, 2026-09-11: *"we do have a favicon but it doesnt show in the
         // code tab"*). Every one of these already lives in `config/<slug>.json`

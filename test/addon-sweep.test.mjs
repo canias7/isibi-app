@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, photoLines, customerLines, inventoryOf, inventoryDiff, inventoryLines, qrOpens, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, photoLines, customerLines, browserReply, inventoryOf, inventoryDiff, inventoryLines, inventoryRefusals, qrOpens, qrPublished, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
 import { qrSvg } from "../builder/site-qr.mjs";
 import { healthImage } from "../builder/build-lane.mjs";
 import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
@@ -527,8 +527,16 @@ test("the free-text verdict reports every outcome, and fails only the hollow one
   const after = (build, len = 100) => ({ build, text: "x".repeat(len), routes: ["/"] });
   // A PUBLISH THAT MADE SOMETHING: reported, and the note carries the database,
   // the pages and the coverage.
+  // RE-ANCHORED, NOT APPEASED (2026-09-18): `tables` was `[{ name: … }]` here
+  // and the route sends NAMES — `mergeAddonSchema` does `added.push(copy.name)`,
+  // driven. It passed because the harness's `names()` tolerates both shapes, and
+  // it was the BROWSER's composer (`a.tables.join(', ')`) that exposed it, the
+  // moment this report started printing the customer's real screen: the sentence
+  // read "now storing [object Object]". A fixture in a shape the route never
+  // sends, found by a reader that had never looked — *derive a fixture from its
+  // real producer*, met in the guard for a reader of the producer's output.
   const made = c.check(before, after("b2", 400), {
-    ok: true, added: ["src/routes/account.tsx"], changed: [], tables: [{ name: "saved_lessons" }],
+    ok: true, added: ["src/routes/account.tsx"], changed: [], tables: ["saved_lessons"],
     coverage: { total: 3, covered: 2, elsewhere: 1, unsupported: 0, unreadable: 0 },
     requirements: [{ need: "a member sees only their own saved lessons", status: "elsewhere", step: "page" }],
     coverNote: "Still to do: a member sees only their own saved lessons.",
@@ -538,12 +546,20 @@ test("the free-text verdict reports every outcome, and fails only the hollow one
   assert.match(made.note, /routed to: \["table","page"\]/);
   assert.match(made.note, /coverage 2\/3 covered, 1 handed on, 0 unsupported, 0 unreadable/);
   assert.match(made.note, /STILL OWED: "a member sees only their own saved lessons" \(elsewhere → page\)/);
-  // RE-ANCHORED, NOT APPEASED (2026-09-18): this was `/the customer was told:/`,
-  // which was the property "the coverage sentence reaches the report" only while
-  // `coverNote` was the ONLY sentence printed. The reply carries several, and a
-  // refusal's whole reply is `msg`, so the report says which field each sentence
-  // came from — the property is that the sentence arrives WHOLE and NAMED.
-  assert.match(made.note, /the customer was told, sentence by sentence \(1\):/);
+  // RE-ANCHORED TWICE, NOT APPEASED. It was `/the customer was told:/`, which
+  // was the property "the coverage sentence reaches the report" only while
+  // `coverNote` was the ONLY sentence printed; then "sentence by sentence",
+  // which was the per-field breakdown. The property now is STRICTLY STRONGER
+  // and is two claims: the customer's real screen — the browser's own
+  // `addonReplyText`, EXECUTED — and the server's sentence carried whole and
+  // NAMED beneath it. Neither substitutes for the other: the first is what a
+  // person sees, the second is which field it came from.
+  assert.match(made.note, /the customer's screen \(the browser's own addonReplyText, executed\)/);
+  assert.match(made.note, /▸ .*Still to do: a member sees only their own saved lessons\./,
+    "the browser's composition never reaches the report — " + made.note);
+  assert.match(made.note, /▸ .*now storing saved_lessons/,
+    "the customer's own sentence does not name the table this change made");
+  assert.match(made.note, /server sentences carried whole \(1\):/);
   assert.match(made.note, /· coverNote: "Still to do: a member sees only their own saved lessons\."/);
   assert.match(made.note, /build moved/);
   // AN HONEST REFUSAL IS REPORTED, NOT FAILED — refusing with a reason is the
@@ -756,18 +772,51 @@ test("the whole customer reply is reported, not one sentence of it, and the set 
     pictureNote: "Made 1 photograph for the site.",
     keptPartsNote: "I've left tide-chart as it was.",
   }).join("\n");
-  assert.match(many, /sentence by sentence \(3\):/, many);
+  assert.match(many, /server sentences carried whole \(3\):/, many);
   for (const k of ["coverNote", "pictureNote", "keptPartsNote"]) assert.match(many, new RegExp("· " + k + ": \""));
   const refused = customerLines({ ok: false, error: "qr-dependency", msg: "I haven't put the code up — it opens /gallery, which didn't make it." }).join("\n");
   assert.match(refused, /· msg: "I haven't put the code up/, refused);
-  // NOTHING AT ALL IS A SENTENCE, not a blank: "the reply said nothing" and
-  // "nobody read the reply" are different readings.
-  assert.match(customerLines({ ok: true }).join("\n"), /the customer was told: NOTHING/);
-  assert.match(customerLines().join("\n"), /the customer was told: NOTHING/);
+  // ── THE SCREEN ITSELF, EXECUTED (2026-09-18) ───────────────────────────────
+  //
+  // *"customerLines currently reports 'NOTHING' for a response whose browser
+  // formatter produces the success sentence, placeholder explanation and missing
+  // link warning. Reuse or execute the existing formatter; don't create another
+  // composition."* (owner). The per-field breakdown above is complete for what
+  // the browser prints VERBATIM — the census below proves that rule — and says
+  // nothing about what it COMPOSES, which is most of what a customer reads.
+  const composed = customerLines({
+    ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"],
+    photos: 1, unlinked: ["/gallery"],
+  }).join("\n");
+  assert.match(composed, /the customer's screen \(the browser's own addonReplyText, executed\)/, composed);
+  assert.match(composed, /▸ ✅ Done — added \/gallery, updated \/\./, "the success sentence is missing — " + composed);
+  assert.match(composed, /upload yours in the Data panel/, "the placeholder explanation is missing — " + composed);
+  assert.match(composed, /Nothing links to \/gallery yet/, "the missing-link warning is missing — " + composed);
+  // …and the reply it was composed from carries NOT ONE of the `*Note` fields,
+  // so this is exactly the shape that used to read "NOTHING". Asserted rather
+  // than assumed, or the case above could be passing on a sentence it quoted.
+  assert.match(composed, /server sentences carried whole: NONE/,
+    "this case no longer isolates the composed half — " + composed);
+  // NOTHING AT ALL IS STILL A SENTENCE, not a blank: a reply the browser
+  // composes to nothing but "✅ Done." carries no server sentence, and saying
+  // which half is empty is the reading.
+  assert.match(customerLines({ ok: true }).join("\n"), /server sentences carried whole: NONE/);
+  assert.match(customerLines().join("\n"), /server sentences carried whole: NONE/);
   // AN EMPTY STRING IS NOT A SENTENCE EITHER — the route writes `undefined` for
   // an absent note, and a `""` that slipped through would print as a quoted
   // nothing and read as the customer having been told something.
-  assert.match(customerLines({ coverNote: "", pictureNote: "   " }).join("\n"), /the customer was told: NOTHING/);
+  assert.match(customerLines({ coverNote: "", pictureNote: "   " }).join("\n"), /server sentences carried whole: NONE/);
+  // AND THE COMPOSER IS THE PAGE'S OWN, not a copy: `browserReply` loads
+  // `public/chat.js` and executes `addonReplyText` out of it, so a change to the
+  // browser's wording changes this report with no second edit — which is the
+  // owner's *"don't create another composition"* as a property rather than a
+  // promise. A composer that could not be loaded says so and never guesses.
+  const got = browserReply({ ok: true, added: ["src/routes/gallery.tsx"] });
+  assert.equal(got.ok, true, "the browser's composer did not load: " + got.why);
+  assert.match(got.text, /added \/gallery/);
+  // A FILE PATH IN, A ROUTE OUT — `sitePathOf` is the page's own reader and the
+  // report inherits it by executing the page rather than re-implementing it.
+  assert.ok(!got.text.includes("src/routes/"), "a raw file path reached the customer's screen: " + got.text);
   // ── THE CENSUS, BOTH WAYS ──────────────────────────────────────────────────
   //
   // The set is DISCOVERED from the reply (`msg`, then every `*Note` carrying a
@@ -815,7 +864,11 @@ test("the report reads the photographs and the reply on a refusal, which is the 
   }, { askKinds: ["page", "photo"] });
   assert.match(ok.note, /photographs: bought 1; empty frames left 0; existing ones LOST 0/);
   assert.match(ok.note, /the picture sentence: "Made 1 photograph for the site\."/);
-  assert.match(ok.note, /sentence by sentence \(2\):/, ok.note);
+  // RE-ANCHORED, NOT APPEASED: "sentence by sentence" was the per-field
+  // breakdown's own wording. Both halves are asserted now — the screen a person
+  // sees, and the two server sentences named beneath it.
+  assert.match(ok.note, /▸ ✅ Done — added \/gallery, updated \/\..*Made 1 photograph for the site\./, ok.note);
+  assert.match(ok.note, /server sentences carried whole \(2\):/, ok.note);
   // THE WIRING, by the branch rather than by position: a `check` that computed
   // these and left them off the note is the recorded value-never-forwarded
   // defect, which is exactly how the harness came to be photograph-blind.
@@ -910,19 +963,48 @@ test("a QR's destination is read off the drawing, against every address the site
   assert.match(qrOpens(qrSvg(origin + "/").svg, []).why, /no candidate address/, "an empty candidate list passed for free");
   // AND THE REPORT NAMES THE ADDRESS THAT WAS WANTED, both ways round, so a
   // code that opens a real page which is not the NEW one is still a finding.
+  // THE FIXTURES ARE `inventoryOf`'S OWN OUTPUT, not hand-built shapes: a
+  // hand-built one carries no `complete`, which this reader has an answer for,
+  // and the recorded rule is to derive a fixture from its real producer.
+  const inv = (assets, pages) => inventoryOf({
+    ok: true, reads: { pages: true, parts: true, assets: true },
+    pages: pages.map((p) => ({ path: "src/routes/" + p, source: "" })), parts: [], assets,
+  }, "ag");
   const lines = (want) => inventoryLines(
-    { routes: ["/"], qrFiles: [], photos: [], qrs: {} },
-    { routes: ["/", "/gallery"], qrFiles: ["qr-g.svg"], photos: [], qrs: {} },
+    inv([], ["index.tsx"]),
+    inv([{ path: "public/qr-g.svg", source: "<svg/>" }], ["index.tsx", "gallery.tsx"]),
     { opens: { "qr-g.svg": hit }, want },
   ).join("\n");
-  assert.match(lines(origin + "/gallery"), /opens https:\/\/ag\.gofarther\.app\/gallery {2}✓/);
+  assert.match(lines(origin + "/gallery"), /STORED settings: opens https:\/\/ag\.gofarther\.app\/gallery {2}✓/);
   assert.match(lines(origin + "/about"), /✗ the address asked for was https:\/\/ag\.gofarther\.app\/about/);
+  // A COMPLETE PAIR SAYS NOTHING ABOUT PRESERVATION BEING UNVERIFIED — the
+  // control for the ⚠ line, without which that warning could be unconditional.
+  assert.ok(!lines(origin + "/gallery").includes("PRESERVATION UNVERIFIED"), lines(origin + "/gallery"));
   // A BROWSER THAT NEVER LOOKED IS NOT A PAGE WITH NO PICTURES.
-  const blind = { routes: [], qrFiles: [], photos: [], qrs: {} };
+  const blind = inv([], []);
   assert.match(inventoryLines(blind, blind, { drew: null }).join("\n"), /NOBODY LOOKED/);
-  const drew = inventoryLines(blind, blind, { drew: [{ src: "/u/ag/c3.jpg", alt: "new", w: 1600, h: 1200 }, { src: "/qr-g.svg", alt: "", w: 0, h: 0 }] }).join("\n");
-  assert.match(drew, /2 drawn, 1 of them rendering NOTHING/);
-  assert.match(drew, /\(BLANK\) "\/qr-g\.svg"/, "a picture that decoded to nothing is not named: " + drew);
+  // ── LOADED AND PLACED ARE TWO QUESTIONS (2026-09-18) ──────────────────────
+  //
+  // RE-ANCHORED, NOT APPEASED: "1 of them rendering NOTHING" folded two
+  // failures into one count. A file that never arrived and a file that arrived
+  // into a box of no size need different fixes, and only the first is what a
+  // 404 on the image produces — so they are counted apart, and the second was
+  // invisible to `naturalWidth` altogether.
+  const drew = inventoryLines(blind, blind, { drew: [
+    { src: "/u/ag/c3.jpg", alt: "new", w: 1600, h: 1200, box: { w: 720, h: 540 }, y: 1180, under: "Our work" },
+    { src: "/qr-g.svg", alt: "", w: 0, h: 0, box: { w: 0, h: 0 }, y: 40, under: "" },
+    { src: "/u/ag/d4.jpg", alt: "hidden", w: 800, h: 600, box: { w: 0, h: 0 }, y: 90, under: "" },
+  ] }).join("\n");
+  assert.match(drew, /3 drawn, 1 whose file loaded NOTHING, 1 loaded but laid out to NO SIZE/, drew);
+  assert.match(drew, /\(BLANK\).*"\/qr-g\.svg"/, "a picture that decoded to nothing is not named: " + drew);
+  assert.match(drew, /placed 720×540 at y=1180 under "Our work"/, "the picture's real placement never reaches the report: " + drew);
+  assert.match(drew, /placed 0×0 \(NO SIZE\) at y=90 .*"\/u\/ag\/d4\.jpg"/,
+    "a picture that loaded and renders at no size is not named: " + drew);
+  // AND AN OLDER READER'S SHAPE — no `box` at all — prints the file size and no
+  // placement, rather than a fabricated one.
+  const old = inventoryLines(blind, blind, { drew: [{ src: "/u/ag/c3.jpg", alt: "", w: 1600, h: 1200 }] }).join("\n");
+  assert.match(old, /file 1600×1200 "\/u\/ag\/c3\.jpg"/, old);
+  assert.ok(!/placed/.test(old), "a placement was invented for a reading that has none: " + old);
   // THE WIRING, by the branch: the harness takes BOTH reads from the same route,
   // the before one immediately before the post, and asks the browser about the
   // page the change made. A value computed and never printed is the recorded
@@ -935,6 +1017,166 @@ test("a QR's destination is read off the drawing, against every address the site
   assert.match(CODE, /extra\.drew = await imagesOn\(/, "nothing asks a browser whether the picture renders");
   assert.match(CODE, /for \(const line of inventoryLines\(invBefore, extra\.invAfter, \{[^}]*\}\)\) console\.log/,
     "the inventory is computed and never printed");
+  // AND THE ADDRESS THAT WAS WANTED IS FORWARDED. `want` was a parameter this
+  // function has always accepted and NOBODY passed, so the ✓/✗ above has never
+  // once printed in a live run — the recorded value-never-forwarded defect, in
+  // the reader for the claim the run is bought to make. It is the route THIS
+  // change added, discovered from the reply rather than typed.
+  assert.match(CODE, /const wantUrl = \(extra\.newRoutes && extra\.newRoutes\.length\)/,
+    "the expected address is not derived from the route this change added");
+  assert.match(CODE, /inventoryLines\(invBefore, extra\.invAfter, \{[^}]*want: wantUrl[^}]*\}\)/,
+    "the expected address is computed and never handed to the reader");
+});
+
+test("publication is read off the PUBLISHED file, not the stored settings", () => {
+  // *"Discover QR filenames from the inventory, then GET the actual published
+  // SVG from the public site and verify that response against the expected
+  // gallery URL. The source endpoint regenerates QR drawings from settings;
+  // comparing those does not establish publication."* (owner, 2026-09-18).
+  const origin = "https://ag.gofarther.app";
+  const urls = [origin + "/", origin + "/gallery"];
+  const svg = qrSvg(origin + "/gallery").svg;
+  const res = (over = {}) => ({ status: 200, text: svg, headers: { "content-type": "image/svg+xml" }, ...over });
+
+  // THE CLAIM: served, and it opens the address that was asked for.
+  const good = qrPublished(res(), urls);
+  assert.deepEqual(
+    { served: good.served, ok: good.ok, url: good.url, status: good.status },
+    { served: true, ok: true, url: origin + "/gallery", status: 200 },
+    JSON.stringify(good));
+  assert.equal(good.bytes, Buffer.byteLength(svg, "utf8"), "the served size is not the file's own");
+
+  // FOUR ANSWERS, AND THEY NEED FOUR DIFFERENT FIXES. Not served at all is the
+  // one this correction exists for: the settings are perfect and no visitor can
+  // scan anything, which the stored reading cannot see by construction.
+  const missing = qrPublished({ status: 404, text: "not found", headers: {} }, urls);
+  assert.equal(missing.served, false);
+  assert.match(missing.why, /answered 404 — the code is in this site's settings and is NOT published/);
+  // A 200 THAT IS NOT A DRAWING — and the test is whether the answer IS an SVG
+  // document rather than whether it CONTAINS one. MEASURED on fretwork-1's real
+  // home page: a `/<svg[\s>]/` test passes it at 58,642 bytes, because a React
+  // page is full of inline icons. That reading reports a MISSING FILE as a
+  // BROKEN DRAWING, which points at the wrong fix.
+  const page = qrPublished({ status: 200, text: `<!DOCTYPE html><html><body><svg viewBox="0 0 24 24"><path d="M0 0h24"/></svg></body></html>`, headers: { "content-type": "text/html" } }, urls);
+  assert.equal(page.served, false, "an HTML page carrying an inline icon is being read as a published drawing");
+  assert.match(page.why, /are not an SVG document \(text\/html\)/, page.why);
+  // …with its CONTROL: a real drawing with an XML prolog and a doctype in front
+  // of it is still a drawing, so the test is not "starts with `<svg`" literally.
+  const prologued = qrPublished(res({ text: `<?xml version="1.0"?>\n<!DOCTYPE svg>\n` + svg }), urls);
+  assert.equal(prologued.served, true, "a prolog is being read as something other than an SVG");
+  assert.equal(prologued.ok, true);
+  // SERVED AND OPENING THE WRONG PAGE is a third finding, distinct from both.
+  const wrong = qrPublished(res({ text: qrSvg(origin + "/").svg }), urls);
+  assert.equal(wrong.served, true);
+  assert.equal(wrong.url, origin + "/", "a published code's real destination is not being reported");
+  // AND A FETCH THAT NEVER ANSWERED ESTABLISHES NOTHING IN EITHER DIRECTION.
+  const none = qrPublished(null, urls);
+  assert.equal(none.served, false);
+  assert.match(none.why, /did not answer at all — nothing was established/);
+
+  // THE HEADERS ARRIVE IN EITHER OF THE HARNESS'S TWO SHAPES — a `Headers` from
+  // `site()`, a plain object from `call()` — so the reader asks for a `get`
+  // rather than assuming one. A fixture in only one shape would hide the other.
+  const h = new Headers({ "content-type": "text/html" });
+  assert.match(qrPublished({ status: 200, text: "<html></html>", headers: h }, urls).why, /\(text\/html\)/);
+
+  // ── THE TWO OBSERVATIONS ARE PRINTED AS TWO LINES, NEVER MERGED ───────────
+  //
+  // *"Keep the stored inventory and public-site observations distinct."*
+  const inv = (assets) => inventoryOf({
+    ok: true, reads: { pages: true, parts: true, assets: true },
+    pages: [{ path: "src/routes/index.tsx", source: "" }], parts: [], assets,
+  }, "ag");
+  const both = inventoryLines(inv([]), inv([{ path: "public/qr-g.svg", source: svg }]), {
+    opens: { "qr-g.svg": qrOpens(svg, urls) },
+    published: { "qr-g.svg": missing },
+    want: origin + "/gallery",
+  }).join("\n");
+  assert.match(both, /code qr-g\.svg — STORED settings: opens https:\/\/ag\.gofarther\.app\/gallery {2}✓/, both);
+  assert.match(both, /code qr-g\.svg — PUBLISHED file: ⚠ NOT ON THE SITE/, both);
+  // THE DISAGREEMENT IS THE FINDING, and it must be legible as one: the stored
+  // reading says ✓ and the published one says the file is not there.
+  assert.ok(both.includes("STORED settings: opens") && both.includes("PUBLISHED file: ⚠"),
+    "a code whose settings are right and which was never published reads as a pass: " + both);
+  // NOBODY FETCHED IT IS NOT "IT IS NOT THERE".
+  const unasked = inventoryLines(inv([]), inv([{ path: "public/qr-g.svg", source: svg }]), {
+    opens: { "qr-g.svg": qrOpens(svg, urls) },
+  }).join("\n");
+  assert.match(unasked, /PUBLISHED file: NOT FETCHED — nobody asked the public site for it/, unasked);
+
+  // THE WIRING: the harness really fetches it, from the PUBLIC origin, under the
+  // name the inventory diff discovered — and a check that only read the module
+  // would pass with this hop deleted.
+  assert.match(CODE, /extra\.qrPublished\[file\] = qrPublished\(await site\("\/" \+ file\), urls\)/,
+    "the published file is never fetched — only the stored settings are read");
+  assert.match(CODE, /published: extra\.qrPublished/, "the published reading is computed and never printed");
+});
+
+test("an incomplete inventory stops the run before spending, and never reads as preserved", () => {
+  // *"Make inventory completeness observable. The source endpoint currently
+  // converts failed storage reads into empty lists with HTTP 200 and ok:true. An
+  // incomplete before-read must stop this test before spending; an incomplete
+  // after-read must make preservation unverified. Checking HTTP status alone is
+  // insufficient."* (owner, 2026-09-18).
+  const src = (reads) => ({
+    ok: true, reads,
+    pages: [{ path: "src/routes/index.tsx", source: `<SafeImage src="/u/ag/a1.jpg" alt="x" />` }],
+    parts: [], assets: [],
+  });
+  const all = { pages: true, parts: true, assets: true };
+
+  // THREE STATES, AND `null` IS THE ONE THAT MATTERS MOST — an older Worker
+  // cannot say, and reading its silence as "complete" is how this instrument
+  // goes back to reporting an unread store as an empty site.
+  assert.equal(inventoryOf(src(all), "ag").complete, true);
+  assert.equal(inventoryOf(src({ ...all, parts: false }), "ag").complete, false);
+  assert.deepEqual(inventoryOf(src({ ...all, parts: false }), "ag").missing, ["parts"]);
+  assert.equal(inventoryOf(src(undefined), "ag").complete, null, "a Worker that says nothing is being read as having said yes");
+  assert.deepEqual(inventoryOf(src(undefined), "ag").missing, []);
+  // A NON-BOOLEAN IS NOT A YES: `reads: {pages: "true"}` is cannot-tell.
+  assert.equal(inventoryOf(src({ ...all, assets: "true" }), "ag").complete, false);
+
+  // THE GATE. `[]` means go, and every other answer names its own fix.
+  assert.deepEqual(inventoryRefusals(inventoryOf(src(all), "ag"), { status: 200 }), []);
+  const stops = (inv, status = 200) => inventoryRefusals(inv, { status }).join(" | ");
+  assert.match(stops(inventoryOf(src({ ...all, pages: false }), "ag")), /INCOMPLETE — \["pages"\]/);
+  assert.match(stops(inventoryOf(src(undefined), "ag")), /does not say which of its stores it really read/);
+  assert.match(stops(null, 0), /could not be read at all — \/api\/site\/source answered nothing/);
+  assert.match(stops(null, 401), /answered 401/);
+  // THE THREE REASONS ARE THREE SENTENCES, because they point at three fixes: a
+  // route that did not answer, a Worker that cannot say, and a store that
+  // failed. Collapsing them is how a person retries the wrong thing.
+  const three = [stops(null, 500), stops(inventoryOf(src(undefined), "ag")), stops(inventoryOf(src({ ...all, parts: false }), "ag"))];
+  assert.equal(new Set(three).size, 3, "two of the three refusals say the same thing: " + JSON.stringify(three));
+
+  // AN INCOMPLETE AFTER-READ MAKES PRESERVATION UNVERIFIED, and the ± counts are
+  // said NOT to be evidence — an empty list from a store that failed reads
+  // exactly like a site with none.
+  const before = inventoryOf(src(all), "ag");
+  const after = inventoryOf({ ...src({ ...all, parts: false }), pages: [] }, "ag");
+  const lines = inventoryLines(before, after, { drew: null }).join("\n");
+  assert.match(lines, /⚠ PRESERVATION UNVERIFIED — the after read is INCOMPLETE \(\["parts"\] could not be read\)/, lines);
+  assert.match(lines, /NOT evidence that nothing was lost/);
+  // A LOSS SEEN ACROSS AN INCOMPLETE PAIR IS STILL SAID: incompleteness makes an
+  // ABSENCE untrustworthy, never a PRESENCE, so both warnings appear together.
+  assert.match(lines, /⚠ THIS CHANGE LOST 2/, lines);
+  // AN OLDER WORKER ON EITHER SIDE IS THE SAME WARNING WITH ITS OWN REASON.
+  assert.match(inventoryLines(inventoryOf(src(undefined), "ag"), before, { drew: null }).join("\n"),
+    /the before read cannot say which stores it reached/);
+  // THE CONTROL: a complete pair says none of it, or the warning is unconditional.
+  assert.ok(!inventoryLines(before, before, { drew: null }).join("\n").includes("PRESERVATION UNVERIFIED"));
+
+  // THE WIRING — and only a scan can see it, because the exit lives in `main`.
+  // BEFORE THE POST is the whole property: a refusal after the money has gone is
+  // a note, not a refusal.
+  const gate = CODE.indexOf("const invNo = inventoryRefusals(invBefore, { status: srcBefore.status })");
+  assert.ok(gate > 0, "the before-inventory is never asked whether it is good enough to spend against");
+  const post = CODE.indexOf("/addon`, { token: TOKEN, body: { instruction: c.ask");
+  assert.ok(gate < post, "the inventory gate sits after the money has gone");
+  assert.match(CODE.slice(gate, post), /REFUSING TO SPEND[\s\S]*process\.exit\(1\)/,
+    "an unusable before-inventory prints and carries on spending");
+  assert.match(CODE.slice(gate, post), /nothing was posted and nothing was charged/,
+    "the refusal does not say that nothing was spent");
 });
 
 test("the coverage record reaches the developer, line by line", () => {

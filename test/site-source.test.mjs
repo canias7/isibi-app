@@ -462,6 +462,54 @@ test("DRIVEN: nothing stored is ok:true with a sentence, never the stranger's 40
   const dead = await callSource({ bucketFails: true });
   assert.equal(dead.status, 200);
   assert.deepEqual(dead.body.pages, []);
+  // …AND THE ANSWER SAYS WHICH IT WAS (2026-09-18). Keeping the 200 is right for
+  // the explorer and wrong for anything COMPARING two of these, so `reads` is
+  // what separates them — the case below drives it, and this line is here so
+  // that a change removing it fails in the case that asserts the 200 too.
+  assert.equal(dead.body.reads.pages, false, "a store that threw is indistinguishable from a site with none");
+});
+
+test("DRIVEN: the answer says which of its stores it really read", async () => {
+  // *"The source endpoint currently converts failed storage reads into empty
+  // lists with HTTP 200 and ok:true. An incomplete before-read must stop this
+  // test before spending… Checking HTTP status alone is insufficient."* (owner,
+  // 2026-09-18). MEASURED before this shipped: a bucket that threw answered
+  // `{ok: true, pages: [], parts: [], assets: []}` — byte-identical to a site
+  // with nothing on it — so a before/after comparison taken across a failed read
+  // said "nothing was added and nothing was lost", and a preservation check
+  // passed by having seen no photographs on either side.
+  //
+  // THE 200 AND `ok: true` STAY. The explorer is a read-only tab and must get
+  // everything that IS readable; what was missing was the ability to say so.
+  const good = await callSource({
+    pages: [{ path: "index.tsx", source: "P" }], parts: [], config: { qr: [] },
+  });
+  assert.deepEqual(good.body.reads, { pages: true, parts: true, assets: true }, JSON.stringify(good.body.reads));
+
+  // ONE BOOLEAN PER STORE, AND EACH IS REALLY ABOUT ITS OWN STORE: a config read
+  // that blips takes `assets` down and leaves the source alone.
+  const noCfg = await callSource({ pages: [{ path: "index.tsx", source: "P" }], configFails: true });
+  assert.equal(noCfg.status, 200, "a failed config read took the whole tab down");
+  assert.deepEqual(noCfg.body.pages, [{ path: "index.tsx", source: "P" }], "the source did not survive a config failure");
+  assert.deepEqual(noCfg.body.reads, { pages: true, parts: true, assets: false }, JSON.stringify(noCfg.body.reads));
+
+  // A BUCKET THAT THREW: all three false, and the lists still empty and still
+  // 200 — which is the whole point, because the two used to be one answer.
+  const dead = await callSource({ bucketFails: true });
+  assert.deepEqual(dead.body.reads, { pages: false, parts: false, assets: false }, JSON.stringify(dead.body.reads));
+  assert.equal(dead.body.ok, true, "the explorer stopped getting an answer");
+
+  // AN ABSENT OBJECT IS A READ THAT SUCCEEDED. A site that has never published
+  // has no `pages.json`, and reading that as a failed store would make every
+  // new site look broken — it is the honest empty, and it says so.
+  const fresh = await callSource({ pages: undefined, parts: undefined, config: undefined });
+  assert.deepEqual(fresh.body.reads, { pages: true, parts: true, assets: true },
+    "a site that has never published reads as a store that failed");
+
+  // THE THREE NAMES ARE THE THREE STORES THE INVENTORY IS BUILT FROM, and no
+  // others: `kit` and `shared` are in the answer and nothing compares them, so a
+  // boolean for either would be a flag about something no reader asks.
+  assert.deepEqual(Object.keys(good.body.reads).sort(), ["assets", "pages", "parts"]);
 });
 
 test("the route READS and never repairs — it takes no lease and moves nothing", () => {
@@ -496,8 +544,13 @@ test("the route READS and never repairs — it takes no lease and moves nothing"
   // AND THE LENGTH BOUND STAYS, as the tell that the derivation broke: a window
   // that grew past this is one that swallowed a neighbour's CODE.
   assert.ok(block.length > 200 && block.length < 8000, "re-derive this window (" + block.length + " chars)");
-  assert.match(block, /loadSiteSource\(env, sslug\)/, "it no longer reads the page source");
-  assert.match(block, /loadSiteParts\(env, sslug\)/, "it no longer reads the site's own components");
+  // RE-ANCHORED, NOT APPEASED (2026-09-18): this was `loadSiteSource(env, sslug)`
+  // and the route reads `readSiteSource` now — the three-state reader, whose
+  // `{ok, pages, why}` is what lets the answer say which stores it really
+  // reached. The property is that the page source is READ here and the answer
+  // carries whether the read happened; the wrapper's name was the spelling.
+  assert.match(block, /readSiteSource\(env, sslug\)/, "it no longer reads the page source");
+  assert.match(block, /readSiteParts\(env, sslug\)/, "it no longer reads the site's own components");
   // THE THIRD ARGUMENT IS PINNED AS `null`, and that is the whole assertion:
   // `configDeps`' third argument is the legacy `_meta` fallback, so anything
   // else there puts a Postgres round trip in front of every explorer open — a

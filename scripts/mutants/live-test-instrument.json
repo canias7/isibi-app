@@ -1,0 +1,316 @@
+[
+  {
+    "label": "CONTROL: the published-reader's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": " * AND WHETHER THAT DRAWING IS ON THE SITE AT ALL — the PUBLISHED file, fetched",
+    "to": " * AND WHETHER THAT DRAWING IS ON THE SITE AT ALL (control) — the PUBLISHED file"
+  },
+  {
+    "label": "CONTROL: the three-state reader's own comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": " * THE SITE'S OWN PAGES, AND WHETHER WE COULD SEE THEM (2026-09-18).",
+    "to": " * THE SITE'S OWN PAGES, AND WHETHER WE COULD SEE THEM (2026-09-18, control)."
+  },
+  {
+    "label": "THE REPORTED DEFECT 1: publication is read off the stored settings, so the published file is never fetched",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "        extra.qrPublished[file] = qrPublished(await site(\"/\" + file), urls);",
+    "to": "        extra.qrPublished[file] = extra.qrOpens[file];"
+  },
+  {
+    "label": "the published reading is computed and never printed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "{ opens: extra.qrOpens, published: extra.qrPublished, drew: extra.drew, want: wantUrl }",
+    "to": "{ opens: extra.qrOpens, drew: extra.drew, want: wantUrl }"
+  },
+  {
+    "label": "a 404 reads as published — the file is not there and the report says it opens the page",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (status !== 200) {\n    out.why = status",
+    "to": "  if (false) {\n    out.why = status"
+  },
+  {
+    "label": "the SVG-document test becomes a contains test, so an HTML page reads as a served drawing",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!/^<svg[\\s>]/i.test(head)) {",
+    "to": "  if (!/<svg[\\s>]/i.test(body)) {"
+  },
+  {
+    "label": "the DOCTYPE is not stripped, so a real drawing behind one reads as not-a-drawing",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": ".replace(/^<!DOCTYPE[^>]*>\\s*/i, \"\");",
+    "to": ";"
+  },
+  {
+    "label": "a fetch that never answered reads as a file that is not there",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      ? `the public site answered ${status} — the code is in this site's settings and is NOT published`\n      : \"the public site did not answer at all — nothing was established either way\";",
+    "to": "      ? `the public site answered ${status} — the code is in this site's settings and is NOT published`\n      : `the public site answered 0 — the code is in this site's settings and is NOT published`;"
+  },
+  {
+    "label": "the headers are assumed to be a plain object, so a `Headers` answer loses its type",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const type = String((h && (typeof h.get === \"function\" ? h.get(\"content-type\") : h[\"content-type\"])) || \"\");",
+    "to": "  const type = String((h && h[\"content-type\"]) || \"\");"
+  },
+  {
+    "label": "the two observations are merged into one line, so a published-but-missing code reads as a pass",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!p.served) out.push(`   code ${file} — PUBLISHED file: ⚠ NOT ON THE SITE — ${p.why}`);",
+    "to": "    if (!p.served) out.push(`   code ${file} — PUBLISHED file: (see the stored reading above)`);"
+  },
+  {
+    "label": "nobody fetched it reads as it is not there",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (!p) { out.push(`   code ${file} — PUBLISHED file: NOT FETCHED — nobody asked the public site for it`); continue; }",
+    "to": "    if (!p) { out.push(`   code ${file} — PUBLISHED file: ⚠ NOT ON THE SITE — nobody asked the public site for it`); continue; }"
+  },
+  {
+    "label": "the expected address is never forwarded, so the ✓/✗ never prints in a live run (the defect this round found)",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "drew: extra.drew, want: wantUrl }",
+    "to": "drew: extra.drew }"
+  },
+  {
+    "label": "the expected address is a guess rather than the route this change added",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const wantUrl = (extra.newRoutes && extra.newRoutes.length) ? SITE + (extra.newRoutes[0] === \"/\" ? \"\" : extra.newRoutes[0]) : \"\";",
+    "to": "    const wantUrl = SITE + \"/gallery\";"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2: the report composes its own sentence instead of executing the browser's",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const b = browserReply(r);",
+    "to": "  const b = { ok: true, text: r && r.ok === false ? String(r.msg || \"\") : \"Done.\", why: \"\" };"
+  },
+  {
+    "label": "the browser's composition is computed and never printed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (b.ok) {\n    const lines = b.text.split",
+    "to": "  if (false) {\n    const lines = b.text.split"
+  },
+  {
+    "label": "a composer that could not load reads as a reply that said nothing",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const chat = fs.readFileSync(new URL(\"../public/chat.js\", import.meta.url), \"utf8\");",
+    "to": "    const chat = fs.readFileSync(new URL(\"../public/chat-gone.js\", import.meta.url), \"utf8\");"
+  },
+  {
+    "label": "the tail is dropped, so the placeholder sentence and the missing-link warning never reach the report",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      \"\\nreturn (a) => addonReplyText(a) + renderTail(a);\")(EditPoll);",
+    "to": "      \"\\nreturn (a) => addonReplyText(a);\")(EditPoll);"
+  },
+  {
+    "label": "the per-field breakdown goes, so which field a sentence came from is lost",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (!carried.length) out.push(`server sentences carried whole: NONE",
+    "to": "  if (true) out.push(`server sentences carried whole: NONE"
+  },
+  {
+    "label": "THE REPORTED DEFECT 3: an incomplete before-read does not stop the run",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    if (invNo.length) {",
+    "to": "    if (false) {"
+  },
+  {
+    "label": "the gate reads HTTP status alone, which is the defect in as many words",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (inv.complete === null) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "an incomplete read is a warning rather than a refusal",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  } else if (inv.complete === false) {",
+    "to": "  } else if (false) {"
+  },
+  {
+    "label": "the gate moves below the post, so the refusal arrives after the money has gone",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      console.error(`nothing was posted and nothing was charged.`);\n      process.exit(1);",
+    "to": "      console.error(`nothing was posted and nothing was charged.`);"
+  },
+  {
+    "label": "an older Worker's silence reads as a complete read",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    complete: r ? missing.length === 0 : null,",
+    "to": "    complete: r ? missing.length === 0 : true,"
+  },
+  {
+    "label": "a non-boolean counts as a store that was read",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const missing = r ? [\"pages\", \"parts\", \"assets\"].filter((k) => r[k] !== true) : [];",
+    "to": "  const missing = r ? [\"pages\", \"parts\", \"assets\"].filter((k) => !r[k]) : [];"
+  },
+  {
+    "label": "preservation is never called unverified, so an unread store reads as nothing lost",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (bad.length) {\n    out.push(`   ⚠ PRESERVATION UNVERIFIED",
+    "to": "  if (false) {\n    out.push(`   ⚠ PRESERVATION UNVERIFIED"
+  },
+  {
+    "label": "only the after read is asked, so an incomplete before pair reads as evidence",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const bad = [half(before, \"before\"), half(after, \"after\")].filter(Boolean);",
+    "to": "  const bad = [half(after, \"after\")].filter(Boolean);"
+  },
+  {
+    "label": "cannot-tell reads as complete in the lines too",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  const half = (inv, side) => (inv.complete === true ? null",
+    "to": "  const half = (inv, side) => (inv.complete !== false ? null"
+  },
+  {
+    "label": "a loss seen across an incomplete pair is swallowed by the warning",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  if (lost.length) out.push(`   ⚠ THIS CHANGE LOST ${lost.length}",
+    "to": "  if (lost.length && !bad.length) out.push(`   ⚠ THIS CHANGE LOST ${lost.length}"
+  },
+  {
+    "label": "THE WORKER: a failed store read answers as an empty site again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "return { ok: false, pages: [], why: \"read\" }; }",
+    "to": "return { ok: true, pages: [], why: \"read\" }; }"
+  },
+  {
+    "label": "the answer no longer says which stores it reached",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        reads: {\n          pages: sRead.ok === true,",
+    "to": "        notReads: {\n          pages: sRead.ok === true,"
+  },
+  {
+    "label": "the config read's own answer is thrown away, so a failed assets read reads as read",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          assets: !!(sCfg && sCfg.ok === true),",
+    "to": "          assets: true,"
+  },
+  {
+    "label": "a store that answered is reported as a store that failed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          parts: sPartsRead.ok === true,",
+    "to": "          parts: sPartsRead.ok !== true,"
+  },
+  {
+    "label": "a missing object is read as a failed store, so every unpublished site looks broken",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    if (!o) return { ok: true, pages: [] };",
+    "to": "    if (!o) return { ok: false, pages: [], why: \"absent\" };"
+  },
+  {
+    "label": "the route reads through the wrapper again, so the three states collapse before it can say them",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        readSiteSource(env, sslug), readSiteParts(env, sslug),",
+    "to": "        loadSiteSource(env, sslug).then((p) => ({ ok: true, pages: p || [] })), readSiteParts(env, sslug),"
+  },
+  {
+    "label": "the wrapper stops delegating, so there are two readers of one store",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const r = await readSiteSource(env, slug);\n  return r.ok && r.pages.length ? r.pages : null;",
+    "to": "  try {\n    const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));\n    if (!o) return null;\n    const v = JSON.parse(await o.text());\n    return Array.isArray(v) && v.length ? v : null;\n  } catch { return null; }"
+  },
+  {
+    "label": "THE PLACEMENT: the rendered box is never read, so a picture laid out to nothing reads as fine",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "        box: { w: Math.round(r.width), h: Math.round(r.height) },",
+    "to": "        box: { w: i.naturalWidth, h: i.naturalHeight },"
+  },
+  {
+    "label": "the two picture failures are counted as one again",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const flat = drew.filter((i) => i.w > 0 && box(i) && !(box(i).w > 0 && box(i).h > 0));",
+    "to": "    const flat = [];"
+  },
+  {
+    "label": "the placement is computed and never printed",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "      const where = b ? `, placed ${b.w}×${b.h}${b.w > 0 && b.h > 0 ? \"\" : \" (NO SIZE)\"} at y=${i.y}${i.under ? ` under ${JSON.stringify(i.under)}` : \"\"}` : \"\";",
+    "to": "      const where = \"\";"
+  },
+  {
+    "label": "a reading with no box gets a placement invented for it",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "    const box = (i) => (i.box && typeof i.box.w === \"number\" ? i.box : null);",
+    "to": "    const box = (i) => (i.box && typeof i.box.w === \"number\" ? i.box : { w: i.w, h: i.h });"
+  }
+]
