@@ -357,6 +357,135 @@ test("a definite refusal is settled as a failure, so a redelivery is answered ra
   assert.notEqual(out.error, "unresolved");
 });
 
+
+test("⚠ AN UNCLASSIFIED THROW ON A WRITE IS UNCERTAIN, NEVER A DEFINITE REFUSAL", async () => {
+  // ⚠ **THE ADAPTER IS THE PART THAT MIGHT NOT BE OURS, so its own bugs must not decide what
+  // happened at the provider.** A `TypeError` out of a library, or a rejection with no shape
+  // at all, says NOTHING about whether the provider acted — so the wall is
+  // `e?.uncertain !== false` and not `e?.uncertain`. The second reads every unclassified
+  // throw as *it definitely did not happen*, settles the record as a failure, and no later
+  // delivery ever asks: a message nobody knows about, produced by a programming error.
+  // *Cannot-tell must never read as a value*, where the value is a definite no.
+  let asked = 0;
+  const bad = {
+    provider: "brittle", actions: ["send_message"], writes: ["send_message"], scopes: {},
+    run: async () => { throw new TypeError("cannot read properties of undefined"); },
+    reconcile: async () => { asked++; return { known: true, done: { message: "it-landed" } }; },
+  };
+  const settled = [];
+  const answers = {
+    [CONNECTION_RPC.lease]: () => leased({ provider: "brittle" }),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: true }),
+    [CONNECTION_RPC.settle]: (b) => { settled.push(b.p_outcome); return { ok: true, settled: true }; },
+  };
+  const { via } = build(answers, { brittle: bad });
+  const out = await via.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+  assert.equal(asked, 1, "an unclassified throw was read as a definite refusal and never checked");
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(out.reconciled, true);
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].ok, true, "a check that found it HAD landed was recorded as a failure");
+
+  // ⚠ **THE CONTROL, and without it "it reconciles" is satisfied by a module that reconciles
+  // EVERYTHING.** The same adapter throwing an error that classifies itself `uncertain: false`
+  // must take the definite path: nothing asked, and the record settled as a failure.
+  asked = 0; settled.length = 0;
+  const certain = { ...bad, run: async () => {
+    throw new FakeProviderError("the provider refused the request", { uncertain: false, status: 400 });
+  } };
+  const { via: v2 } = build(answers, { brittle: certain });
+  const no = await v2.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: await OP() });
+  assert.equal(no.error, "action-failed");
+  assert.equal(asked, 0, "a definite refusal asked the provider anyway");
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].ok, false);
+});
+
+test("⚠ A RECORD THAT DID NOT LAND IS SAID, AND NEVER CHANGES THE VERDICT ABOUT THE WORK", async () => {
+  // ⚠ **AN ERROR ESCAPING THE SETTLE ESCAPES `perform`, WHICH THE LOOP TURNS INTO A TOOL
+  // FAILURE** — so a message that really went out would be reported to the model as having
+  // failed, and the model's next move is to send it again. That is the blind retry this whole
+  // path exists to prevent, arriving through our own accounting rather than through the
+  // provider. **BOTH ARRIVALS ARE DRIVEN**, because they are two shapes of one fact and a
+  // case that drove only one would leave the other's arm unguarded: the database REFUSING the
+  // settle, and the settle not being makeable at all.
+  const provider = makeFakeProvider();
+  const op = await OP();
+  const mk = (settleAnswer) => build({
+    [CONNECTION_RPC.lease]: () => leased(),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: true }),
+    [CONNECTION_RPC.settle]: settleAnswer,
+  }, { [FAKE_PROVIDER]: provider });
+  const ask = (via) => via.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: op });
+
+  // (a) THE DATABASE ANSWERED AND REFUSED IT.
+  const refused = await ask(mk(() => ({ ok: false, error: "not-in-flight" })).via);
+  assert.equal(refused.ok, true, "the work happened, so the answer is ok — " + JSON.stringify(refused));
+  assert.equal(refused.unrecorded, true);
+  assert.equal(refused.unrecordedWhy, "not-in-flight");
+  // ⚠ AND `why` IS UNTOUCHED: it is about the WORK, and this is about our note of it.
+  assert.equal(refused.why, undefined);
+
+  // (b) THE SETTLE COULD NOT BE MADE AT ALL. Before this was caught, `perform` threw.
+  const thrown = await ask(mk(() => ({ __http: 503, message: "upstream is down" })).via);
+  assert.equal(thrown.ok, true, "a settle that threw reported the send as failed — " + JSON.stringify(thrown));
+  assert.equal(thrown.unrecorded, true);
+  assert.match(thrown.unrecordedWhy, /503/);
+
+  // ⚠ THE CONTROL: a settle that LANDS carries neither field, or `unrecorded` is decoration
+  // and a mutant writing it unconditionally would pass every assertion above.
+  const landed = await ask(mk(() => ({ ok: true, settled: true })).via);
+  assert.equal(landed.ok, true);
+  assert.equal(landed.unrecorded, undefined, "a landed record claimed it had not landed");
+  assert.equal(landed.unrecordedWhy, undefined);
+
+  // ⚠ **AND SO DOES THE ANSWER A ROW SOMEBODY ELSE ALREADY SETTLED GIVES.**
+  // `agent.operation_settle` answers `ok: true, settled: false` for that — the outcome IS
+  // recorded, just not by this call — so it must not read as unrecorded. This is the shape
+  // the real database gives, which is what makes it the second control rather than a third
+  // reading of the first.
+  const already = await ask(mk(() => ({ ok: true, settled: false, outcome: { ok: true } })).via);
+  assert.equal(already.ok, true);
+  assert.equal(already.unrecorded, undefined, "an outcome that stands read as unrecorded");
+  assert.equal(provider.calls(), 4, "each of the four really sent");
+});
+
+test("⚠ AND THE SAME IS TRUE OF A RECONCILED ANSWER — the check found it, the note did not land", async () => {
+  // The reconciliation's own settle is a THIRD and FOURTH call site of the same helper, and a
+  // case that only drove the ordinary path would leave both unguarded. Here the send times
+  // out, the check finds it HAD gone out, and the record cannot be written: the answer must
+  // still say the message went — with the bookkeeping fault beside it, not instead of it.
+  let sends = 0;
+  const provider = makeFakeProvider({ script: ({ action }) => {
+    if (action === "send_message") { sends++; return sends === 1 ? "ok" : "timeout"; }
+    return "ok";
+  } });
+  const op = await OP();
+  const answers = (settleAnswer) => ({
+    [CONNECTION_RPC.lease]: () => leased(),
+    [CONNECTION_RPC.begin]: () => ({ ok: true, began: true }),
+    [CONNECTION_RPC.settle]: settleAnswer,
+  });
+  // First, a clean send so the mailbox holds something carrying this trace.
+  const { via } = build(answers(() => ({ ok: true, settled: true })), { [FAKE_PROVIDER]: provider });
+  await via.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: op });
+  // Then the same operation with a fresh slot: it sends, times out, and reconciles.
+  const { via: v2 } = build(answers(() => ({ __http: 503, message: "upstream is down" })),
+    { [FAKE_PROVIDER]: provider });
+  const out = await v2.perform({ connection: CX, action: "send_message",
+    args: { to: "a@b.test", body: "hi" }, operation: op });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(out.reconciled, true);
+  assert.equal(out.unrecorded, true);
+  assert.match(out.unrecordedWhy, /503/);
+  // ⚠ AND THE CUSTOMER'S SENTENCE IS UNCHANGED, because the work is whatever it was.
+  assert.match(out.say, /did not answer, but I checked/);
+});
+
 // ── the uncertain write, which is the milestone's own case ──────────────────
 
 test("⚠ AN UNCERTAIN WRITE IS RECONCILED, NEVER RE-SENT — and it finds its own earlier send", async () => {

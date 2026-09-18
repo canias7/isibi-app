@@ -36,7 +36,7 @@ import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { makeConnections } from "../src/connections.mjs";
 import { makeFakeProvider, FAKE_PROVIDER } from "../src/fake-provider.mjs";
 import { CAPABILITY_TOOLS, CONNECTION_TOOLS } from "../src/capability-tools.mjs";
-import { argsHash } from "../src/approvals.mjs";
+import { argsHash, splitOperation } from "../src/approvals.mjs";
 
 const DB = `agent_cx_${process.pid}`;
 const A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
@@ -273,6 +273,29 @@ try {
   const third = await sendTool.run(args1, { connections: withProvider(willing, A, AG), operation: op1 });
   check("⚠ ...which it is", third?.ok === true && third?.repeat === true, JSON.stringify(third).slice(0, 180));
   check("...and still one message", willing.mailbox("other@example.test").length === 1);
+
+  // ⚠ **AND WHAT AN ALREADY-SETTLED RECORD ANSWERS IS THE DATABASE'S OWN WORD FOR IT.**
+  // `settleRecord` reads `ok: true, settled: false` as LANDED — the outcome IS recorded, just
+  // not by this call — and it reads `ok: false` as a note that did not land, which it SAYS
+  // (`unrecorded`) rather than letting it change the verdict about a message that went out.
+  // A module guard asserting that would only be asserting my own belief about this function,
+  // so it is asked HERE, of `agent.operation_settle` itself, on the row this section settled.
+  const { key: opKey, hash: opHash } = splitOperation(op1) ?? {};
+  const recordName = `${FAKE_PROVIDER}_send_message`;
+  const rewrite = JSON.parse(q(`select agent.operation_settle('${A}', '${opKey}', `
+    + `'${recordName}', '${opHash}', '{"ok":false,"error":"rewritten"}'::jsonb)::text;`));
+  check("⚠ AN ALREADY-SETTLED RECORD ANSWERS `ok` AND SAYS IT WROTE NOTHING",
+    rewrite?.ok === true && rewrite.settled === false, JSON.stringify(rewrite).slice(0, 200));
+  check("⚠ ...and the outcome that STANDS is the first one — write-once in the database",
+    rewrite?.outcome?.ok === true, JSON.stringify(rewrite?.outcome).slice(0, 160));
+  check("...and the stored row still says the send succeeded",
+    q(`select outcome->>'ok' from agent.operations `
+      + `where tenant_id='${A}' and op_key='${opKey}';`) === "true");
+  // AND A KEY NOBODY BEGAN IS THE `ok: false` READING, which is the arm the engine reports.
+  const missing = JSON.parse(q(`select agent.operation_settle('${A}', 'no-such-op-key', `
+    + `'${recordName}', '${opHash}', '{"ok":true}'::jsonb)::text;`));
+  check("⚠ ...while a key nobody began is `ok: false` with its own reason",
+    missing?.ok === false && missing.error === "no-operation", JSON.stringify(missing));
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n7. A KNOWN NON-EVENT IS A FAILURE WITH ITS REASON, not a retry");

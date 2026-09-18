@@ -281,7 +281,16 @@ export function makeConnections(opts = {}) {
             try {
               out = await adapter.run(act, { ...sendArgs, trace }, scoped);
             } catch (e) {
-              if (e?.uncertain) {
+              // ⚠ **ONLY AN EXPLICIT `uncertain: false` IS A DEFINITE REFUSAL. Anything else on
+              // a WRITE is uncertain, and that direction is the whole point.** An adapter that
+              // threw something it did not classify — a programming error, a library's own
+              // TypeError, a rejection with no shape — tells us nothing about whether the
+              // provider acted, and reading that as "it definitely did not happen" is the one
+              // wrong answer that loses somebody's work: the record would be settled as failed
+              // and a later delivery would never ask. *Cannot-tell must never read as a value*,
+              // where the value here is a definite no. The cost is a reconciliation on a bug,
+              // which is a round trip; the alternative is a message nobody knows about.
+              if (e?.uncertain !== false) {
                 // IT MAY HAVE LANDED. Reconcile rather than retry, and if it cannot be
                 // settled the record stays in flight and the answer says so.
                 return settle(adapter, act, scoped, held, opId, recorded, trace, { reconciling: false });
@@ -291,20 +300,70 @@ export function makeConnections(opts = {}) {
               // the same call is answered instead of sending — and a fresh attempt after the
               // model has seen the failure is a new step, hence a new position and a new
               // identity, because this engine never retries a call by itself.
-              await settleRecord(opId, recorded, { ok: false, error: "refused", why: e?.why ?? "refused" });
-              return { ok: false, error: "action-failed", action: act,
-                why: e?.why ?? "the provider refused it", say: "that did not go out" };
+              const kept = await settleRecord(opId, recorded,
+                { ok: false, error: "refused", why: e?.why ?? "refused" });
+              return noted({ ok: false, error: "action-failed", action: act,
+                why: e?.why ?? "the provider refused it", say: "that did not go out" }, kept);
             }
-            await settleRecord(opId, recorded, { ok: true, result: out });
-            return { ok: true, action: act, provider: held.provider, result: out };
+            // ⚠ **THE WORK HAPPENED, SO THE ANSWER IS `ok`; BUT A RECORD THAT DID NOT LAND IS
+            // SAID RATHER THAN DROPPED.** This module has no logger — asserted, so a
+            // credential cannot reach one — so the only place an operator can learn of it is
+            // the answer. It self-heals (the slot is still in flight, and a redelivery
+            // reconciles rather than sending), which is why it is not a failure; what it must
+            // not be is silent, because a bookkeeping fault that never surfaces is one nobody
+            // ever fixes.
+            const wrote = await settleRecord(opId, recorded, { ok: true, result: out });
+            return noted({ ok: true, action: act, provider: held.provider, result: out }, wrote);
           }
 
-          /** Fill in an in-flight record. Write-once in the database; its answer is read. */
+          /**
+           * Fill in an in-flight record. Write-once in the database, and **it never throws.**
+           *
+           * ⚠ **A BOOKKEEPING FAULT MUST NOT BE ABLE TO CHANGE THE VERDICT ABOUT THE WORK.**
+           * An error escaping here escapes `perform`, which the loop turns into a tool
+           * FAILURE — so a message that really went out would be reported to the model as
+           * having failed, and the model's next move is to send it again. That is precisely
+           * the blind retry this whole path exists to prevent, arriving through our own
+           * accounting rather than through the provider. Every caller reads the answer and
+           * SAYS so instead (`unrecorded`), and the slot staying in flight is what makes a
+           * later delivery reconcile rather than re-send.
+           */
           async function settleRecord(opId, recorded, outcome) {
-            return rpc(CONNECTION_RPC.settle, {
-              p_tenant: tenant, p_op_key: opId.key, p_action: recorded,
-              p_args_hash: opId.hash, p_outcome: outcome,
-            });
+            try {
+              return await rpc(CONNECTION_RPC.settle, {
+                p_tenant: tenant, p_op_key: opId.key, p_action: recorded,
+                p_args_hash: opId.hash, p_outcome: outcome,
+              });
+            } catch (e) {
+              // ⚠ **THIS IS THE ARM THAT REALLY ARRIVES, and saying which is worth a line.**
+              // `agent.operation_settle` answers `ok: true, settled: false` for a row somebody
+              // else already settled — so an ALREADY-SETTLED record is landed, not unrecorded,
+              // and the `ok: false` readings it can give (`no-operation`, `mismatch`) are ones
+              // `operation_begin` has already refused on this path. What is left is the
+              // transport: the database briefly unreachable, which used to throw out of
+              // `perform` and report a message that had gone out as having failed.
+              return { ok: false, error: e?.message ?? "the record could not be settled" };
+            }
+          }
+
+          /**
+           * ⚠ **`unrecorded` RIDES ON AN ANSWER THE RECORD DID NOT LAND UNDER, AND NEVER
+           * OTHERWISE.** This module has no logger — asserted, so a credential cannot reach
+           * one — so the answer is the only place an operator can learn of it. It is a field
+           * of its own rather than an edit of `why`, because `why` is about the WORK and this
+           * is about our note of it; collapsing the two would have an answer explain the
+           * wrong thing. `say` is untouched for the same reason: it is the customer's
+           * sentence, and the work is whatever it was.
+           */
+          function noted(answer, wrote) {
+            // ⚠ A DECLARATION RATHER THAN A `const`, because two of its callers sit textually
+            // ABOVE it: a `const` would be in its temporal dead zone for anything that could
+            // run before this line, and *declare what a closure reads above its first
+            // POSSIBLE call, not above its obvious one.* `settleRecord` is the same shape for
+            // the same reason.
+            if (wrote?.ok === true) return answer;
+            return { ...answer, unrecorded: true,
+              unrecordedWhy: wrote?.error ?? "the record did not settle" };
           }
 
           /**
@@ -343,18 +402,20 @@ export function makeConnections(opts = {}) {
               return { ...unresolved("the provider could not say"), reconcilable: true };
             }
             if (seen.done) {
-              await settleRecord(opId, recorded, { ok: true, result: { ...seen, reconciled: true } });
-              return { ok: true, action: act, provider: held.provider, reconciled: true,
+              const landed = await settleRecord(opId, recorded,
+                { ok: true, result: { ...seen, reconciled: true } });
+              return noted({ ok: true, action: act, provider: held.provider, reconciled: true,
                 result: { ...seen, reconciled: true },
                 say: reconciling
                   ? "that had already been done — I checked rather than doing it again"
                   : "the provider did not answer, but I checked and it had gone out",
-              };
+              }, landed);
             }
-            await settleRecord(opId, recorded, { ok: false, error: "not-done", reconciled: true });
-            return { ok: false, error: "action-failed", action: act, reconciled: true,
+            const missed = await settleRecord(opId, recorded,
+              { ok: false, error: "not-done", reconciled: true });
+            return noted({ ok: false, error: "action-failed", action: act, reconciled: true,
               why: "the provider did not answer, and a check found it had not happened",
-              say: "that did not go out — ask again if you still want it" };
+              say: "that did not go out — ask again if you still want it" }, missed);
           }
 
           return Object.freeze({

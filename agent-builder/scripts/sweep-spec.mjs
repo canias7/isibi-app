@@ -2078,14 +2078,50 @@ const spec = [
   m("⚠ connections: an in-flight slot is RE-SENT rather than reconciled", CN,
     "            if (begun.began === false && begun.state === \"unfinished\") {",
     "            if (false) {"),
+  // ⚠ **RE-ANCHORED, NOT APPEASED, AND THE FIRST OF THESE USED TO ASSERT THE DEFECT.** It was
+  // pinned to `if (e?.uncertain)`, which reads every UNCLASSIFIED throw — a library's own
+  // TypeError, a rejection with no shape — as *it definitely did not happen*: the record is
+  // settled as a failure and no later delivery ever asks. The wall is `!== false` now, so the
+  // property splits in two: the whole reconciliation gone, and the narrower mis-reading that
+  // was the shipped bug. Both are worth a mutant because they fail differently.
   m("⚠ connections: an uncertain failure is read as a plain failure, so nobody checks", CN,
-    "              if (e?.uncertain) {", "              if (false) {"),
+    "              if (e?.uncertain !== false) {", "              if (false) {"),
+  m("⚠ connections: an UNCLASSIFIED throw is a definite refusal, so a lost message is never checked", CN,
+    "              if (e?.uncertain !== false) {", "              if (e?.uncertain) {"),
   m("connections: a definite refusal is left in flight rather than settled", CN,
-    '              await settleRecord(opId, recorded, { ok: false, error: "refused", why: e?.why ?? "refused" });',
-    "              // not settled"),
+    '              const kept = await settleRecord(opId, recorded,\n                { ok: false, error: "refused", why: e?.why ?? "refused" });',
+    "              const kept = { ok: true };"),
   m("connections: a successful send is never recorded, so a redelivery sends again", CN,
-    "            await settleRecord(opId, recorded, { ok: true, result: out });",
-    "            // not recorded"),
+    "            const wrote = await settleRecord(opId, recorded, { ok: true, result: out });",
+    "            const wrote = { ok: true };"),
+  // ⚠ **A BOOKKEEPING FAULT MUST NOT CHANGE THE VERDICT ABOUT THE WORK.** An error escaping
+  // the settle escapes `perform`, which the loop turns into a tool FAILURE — so a message that
+  // really went out is reported as having failed and the model's next move is to send it
+  // again. That is the blind retry this path exists to prevent, arriving through our own
+  // accounting rather than through the provider.
+  m("⚠ connections: the settle can throw, so a completed send is reported as a failure", CN,
+    "            try {\n"
+    + "              return await rpc(CONNECTION_RPC.settle, {\n"
+    + "                p_tenant: tenant, p_op_key: opId.key, p_action: recorded,\n"
+    + "                p_args_hash: opId.hash, p_outcome: outcome,\n"
+    + "              });\n"
+    + "            } catch (e) {\n"
+    + "              return { ok: false, error: e?.message ?? \"the record could not be settled\" };\n"
+    + "            }",
+    "            return await rpc(CONNECTION_RPC.settle, {\n"
+    + "                p_tenant: tenant, p_op_key: opId.key, p_action: recorded,\n"
+    + "                p_args_hash: opId.hash, p_outcome: outcome,\n"
+    + "              });"),
+  m("connections: a record that did not land is silent, so nobody ever learns of it", CN,
+    "            if (wrote?.ok === true) return answer;", "            if (true) return answer;"),
+  m("connections: every answer claims its record did not land, so the field says nothing", CN,
+    "            if (wrote?.ok === true) return answer;", "            if (false) return answer;"),
+  // AND THE TWO WIRING HOPS: the helper is right and the CALL SITE hands it a fabricated
+  // answer, which is this repository's most-recorded defect one indirection in.
+  m("⚠ connections: the send's own answer is composed against a fabricated landed record", CN,
+    "result: out }, wrote);", "result: out }, { ok: true });"),
+  m("⚠ connections: a reconciled answer is composed against a fabricated landed record", CN,
+    "              }, landed);", "              }, { ok: true });"),
   m("⚠ connections: an unresolved outcome is SETTLED as done, so an unknown reads as sent", CN,
     "            if (!seen || seen.known !== true) {", "            if (false) {"),
   m("connections: a reconciliation that cannot be made reads as not-done", CN,
