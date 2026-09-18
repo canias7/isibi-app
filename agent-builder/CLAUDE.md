@@ -6372,3 +6372,14 @@ carried that note since it was written. The child gets a clean environment now.
   needs to BE root in order to stop being root, and a GitHub runner is the user `runner`, so it
   skips there. The number to carry across the two machines is the TOTAL, exactly as it is for
   the site suite's own environment skips.
+- **⚠ AND CI HAS READ IT — `agent deploy` run 80 on `349a565` is the FIRST ONE THAT HAS EVER
+  PASSED.** Thirteen runs before it read `cancelled`. The `agent checks` step ran
+  23:38:50→23:38:59Z — **8.7 seconds against a 45-minute timeout** — and reported
+  `# tests 570 / # pass 569 / # fail 0 / # skipped 1`, against local `570 / 570 / 0 / 0`.
+  **The predicted skip is exactly the one predicted**, which is what makes it evidence.
+  Steps 6–13 all read `skipped`: the deploy gate is not armed, so the run is checks and
+  nothing else — **nothing was deployed.**
+- **`unit tests` run 2731 on the same head, green: `# tests 6814 / # pass 6810 / # fail 0 /
+  # skipped 4`** in 109.9 s, against local `6814 / 6812 / 0 / 2`. The TOTAL is what matches and
+  the skips are what differ, exactly as this repository's own rule about which number to carry
+  says they do.

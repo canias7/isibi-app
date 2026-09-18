@@ -12522,3 +12522,73 @@ had ever driven.
 **Still nothing merged, nothing deployed, nothing applied to the live database, and still no
 real model — that stays last and stays your call.** The breakage sweeps and CI on the final
 pushed head are the remaining piece of this round.
+
+## The breakage sweeps found two things, and one of them was your CI (2026-09-18)
+
+This is the last piece of the integration round — the sweeps, and completed CI on the final
+pushed head. Both turned up real defects rather than paperwork, and the second one is the
+bigger of the two.
+
+### The engine's own CI check had never passed
+
+`agent deploy` ran **thirteen times** on the 18th and every single run said **cancelled**. That
+word is why nobody looked: on a branch being pushed to all day, "cancelled" is what a run looks
+like when a later push replaces it. **None of them was that.** The runs that actually reached
+their job had each run for exactly **45 minutes**, which is that job's own timeout — and GitHub
+reports a job that runs out of time as *cancelled*, not as failed.
+
+What it was doing for those 45 minutes: waiting for a password prompt.
+
+The engine's test fixture talks to a database through `su postgres`, and **for `root` that
+needs no password** — which is what every session and every sweep here runs as, so locally the
+whole suite finishes in under six seconds. A GitHub runner is not root and has no database at
+all, so `su` printed `Password: ` and waited, for ever. One request in the suite reaches that
+path on purpose. Five minutes later the request gave up; the stuck process then kept the test
+runner alive until the job's clock killed it.
+
+Three small fixes, one per link in that chain, and the result measured under a runner's exact
+conditions (an unprivileged user, no database): **before, the suite never finishes at all;
+after, 568 tests, nothing failed, 5.6 seconds.**
+
+**And CI has now confirmed it: `agent deploy` run 80 is the first one that has ever passed.**
+The step that used to burn 45 minutes took **8.7 seconds**. Nothing was deployed — that gate
+needs a commit to ask for it in as many words, and none of mine did.
+
+Two new checks so this cannot come back quietly. One of them deliberately **drops to an
+unprivileged user and asks whether the tests still finish** — the one condition that is
+invisible on a machine where everything is root, which is exactly why this hid for a day.
+
+### The engine sweep's eight survivors, split by measurement
+
+The breakage sweep reported **648 breakages, 640 caught, 8 missed**. Measuring each one against
+the real tools split them cleanly rather than confirming a single story.
+
+**Five were real holes**, and all five were about what an automation *asks for*: a made-up kind
+of answer stored as if it were a kind; "false" as text turning into a real yes; two answers with
+the same name; nine answers where the database allows eight; and "stop running this on a
+schedule" quietly keeping the old time, which the database then refuses. Each is closed, and each
+new check was proved to fail against the defect it forbids before it was believed.
+
+**Three were faulty breakages rather than holes** — those walls had guards all along. One only
+added a comment. One added a value to a refusal nobody reads. And one asked about a check that
+is genuinely redundant with the check beside it, measured over twelve real date spellings: it
+stays, and the source now says why, so nobody tidies it away.
+
+**⚠ And one thing I told you earlier was wrong.** I reported those ten breakages as
+"spot-checked, ten out of ten caught". They were not. Running a breakage by hand quietly trips
+a self-check the sweep turns off, and that self-check fails for *every* breakage — so what I
+read as ten catches was one check failing ten times. The test's own comment warns about this in
+as many words. The sweep is what found the truth.
+
+### Measured
+
+- **Engine sweep: 648 breakages, 648 caught, 0 missed, 0 that failed to apply, 11 deliberate
+  no-op controls that must survive and did.** One run's own answer.
+- **`agent deploy` run 80 and `unit tests` run 2731, both green on the same commit.** Your
+  site's suite reads **6,814** there with nothing failed; the engine's reads **570**.
+- **All ten end-to-end demonstrations still green** after the fixture fix, which is the control
+  that says none of this broke anything: local 69 · chat · auto · wf · tools · ops · controls ·
+  connections · triggers · integration.
+
+**Still nothing merged, nothing deployed, nothing applied to the live database, no external
+message and no real model — that last one stays yours to call.**
