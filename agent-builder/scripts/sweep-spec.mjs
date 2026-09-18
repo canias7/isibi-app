@@ -1176,8 +1176,19 @@ const spec = [
   // that does not read must not be saved — and it is pinned on the check plus its own refusal,
   // which is the shortest window that is still unique.
   m("tools: a workflow that does not read is saved anyway", CT,
-    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const answer = await can.createAutomation({",
-    "    const read = checkSteps(args.steps);\n    const when = authorableSchedule(args.schedule);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const answer = await can.createAutomation({"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    const when = authorableSchedule(args.schedule);"),
+  // ⚠ AND THE DECLARATIONS MUST REACH THE READER, or a step using `{{an_input}}` is refused on
+  // the one save that introduces it — the defect this round fixed. Two mutants, because the
+  // hop can be cut at either end: the reader not told, or the declarations not validated.
+  m("tools: the steps are checked against no declarations", CT,
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
+    "    const read = checkSteps(args.steps, []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);"),
+  // ⚠ ANCHORED THROUGH `authorableSchedule`, because `check_workflow` opens with the same three
+  // lines — the two tools really do read their declarations identically, which is the point.
+  m("tools: a create's declarations are stored without being read", CT,
+    "    const asked = readInputs(args.inputs);\n    if (!asked.ok) return asked;\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);",
+    "    const asked = { ok: true, inputs: Array.isArray(args.inputs) ? args.inputs : null };\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = authorableSchedule(args.schedule);"),
   // ⚠ AND THE WALL ITSELF: a description is not a wall, so a model may write a schedule this
   // tool has no fields for and the DATABASE's wholeness check would refuse it as an exception.
   m("tools: a schedule this tool cannot describe is passed on anyway", CT,
@@ -1195,14 +1206,77 @@ const spec = [
     "  if (!asked) {\n    return { error: \"bad-schedule\", say: `say when it runs:",
     "  if (false) {\n    return { error: \"bad-schedule\", say: `say when it runs:"),
   m("tools: creating an automation needs nobody", CT,
-    "  approval: true,\n  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);",
-    "  run: async (args, can, ctx) => {\n    const read = checkSteps(args.steps);"),
+    "  approval: true,\n  run: async (args, can, ctx) => {\n    const asked = readInputs(args.inputs);",
+    "  run: async (args, can, ctx) => {\n    const asked = readInputs(args.inputs);"),
   m("tools: changing an automation needs nobody", CT,
-    "  approval: true,\n  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST",
-    "  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST"),
+    "  run: async (args, can, ctx) => {\n    // ⚠ THE SIBLING WALL FIRST",
+    "  run: async (args, can, ctx) => {\n    // no approval\n    // ⚠ THE SIBLING WALL FIRST"),
   m("tools: a SIBLING agent's automation can be rewritten", CT,
-    '    if (!(await can.readAutomation({ id: text(args.id) }))) {\n      return { ok: false, error: "no-automation", say: "there is no automation of this agent\'s with that id" };\n    }',
-    "    // no sibling wall"),
+    '    const held = await can.readAutomation({ id: text(args.id) });\n    if (!held) {\n      return { ok: false, error: "no-automation", say: "there is no automation of this agent\'s with that id" };\n    }',
+    "    const held = (await can.readAutomation({ id: text(args.id) })) ?? {};"),
+  // ── THE ZONE, AND THE PATCH ───────────────────────────────────────────────
+  //
+  // Both are this round's fixes and both fail in the direction that looks like working: a
+  // guessed zone makes a schedule fire at the wrong hour while every reader agrees it is
+  // right, and an edit that carries a field it was not asked about resets a live automation
+  // while answering `ok`.
+  m("tools: a missing zone is guessed instead of asked for", CT,
+    '      say: "a scheduled automation needs to know which time zone its time is in, and this " +',
+    '      zone: "UTC", say: "a scheduled automation needs to know which time zone its time is in, and this " +'),
+  m("tools: a daily schedule is saved with no zone at all", CT,
+    '  if (!NEEDS_A_ZONE.includes(schedule)) return { zone: null };',
+    '  return { zone: null };'),
+  m("tools: every schedule is made to demand a zone, including a manual one", CT,
+    'const NEEDS_A_ZONE = Object.freeze(["daily"]);',
+    'const NEEDS_A_ZONE = Object.freeze(["daily", "manual"]);'),
+  m("tools: the resolved zone is never sent, so the database raises", CT,
+    "      atLocal: at,\n      zone: zone.zone,",
+    "      atLocal: at,"),
+  m("tools: an edit sends a whole replace, resetting what it did not name", CT,
+    '    if (Object.hasOwn(args, "name")) patch.name = text(args.name);\n    if (Object.hasOwn(args, "enabled")) patch.enabled = args.enabled;',
+    '    patch.name = text(args.name);\n    patch.enabled = args.enabled !== false;'),
+  // ⚠ TRUTHINESS RATHER THAN PRESENCE IS THE QUIET VERSION OF THE SAME DEFECT: it drops
+  // `enabled: false` and an empty step list, which are the two edits somebody most needs.
+  m("tools: an edit asks whether a field is truthy rather than present", CT,
+    '    if (Object.hasOwn(args, "enabled")) patch.enabled = args.enabled;',
+    '    if (args.enabled) patch.enabled = args.enabled;'),
+  m("tools: an edit checks new steps against no declarations", CT,
+    "    const inputs = asked.inputs ?? (Array.isArray(held.inputs) ? held.inputs : []);",
+    "    const inputs = asked.inputs ?? [];"),
+  m("tools: an edit's steps are not validated at all", CT,
+    "      const read = checkSteps(steps, inputs);\n      if (!read.ok) return read;",
+    "      const read = checkSteps(steps, inputs);"),
+  m("tools: a schedule change leaves its time behind, so the row cannot be whole", CT,
+    '      patch.atLocal = when.schedule === "manual" ? null : at;',
+    '      patch.atLocal = at;'),
+  m("tools: a move to manual keeps a time the wholeness check refuses", CT,
+    '      const at = Object.hasOwn(args, "atLocal") ? (text(args.atLocal) || null) : (held.atLocal ?? null);',
+    '      const at = text(args.atLocal) || null;'),
+  m("tools: an edit naming nothing answers ok about nothing", CT,
+    '    if (Object.keys(patch).length === 0) {',
+    '    if (false) {'),
+  m("tools: the version fence is dropped on the way to the store", CT,
+    "      version: Number.isInteger(args.ifVersion) ? args.ifVersion : undefined,",
+    "      version: undefined,"),
+  m("tools: a stale refusal is reported as something else", CT,
+    '      return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error, answer),',
+    '      return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error),'),
+  // ── THE INPUT READER ──────────────────────────────────────────────────────
+  m("tools: an unknown input type is coerced to text instead of refused", CT,
+    "    if (d.type !== undefined && !VALUE_TYPES.includes(d.type)) {",
+    "    if (false) {"),
+  m("tools: a required flag out of a string makes every input required", CT,
+    '    if (d.required !== undefined && typeof d.required !== "boolean") {',
+    "    if (false) {"),
+  m("tools: two inputs of one name are both kept, so a reference resolves to neither", CT,
+    '    if (seen.has(name)) return no(`there is already something called "${name}"`);',
+    "    if (false) return no(`duplicate`);"),
+  m("tools: the input ceiling the column enforces is not asked here", CT,
+    "  if (raw.length > MAX_TOOL_INPUTS) {",
+    "  if (false) {"),
+  m("tools: an absent declaration list reads as an empty one, clearing what is stored", CT,
+    "  if (raw === undefined || raw === null) return { ok: true, inputs: null };",
+    "  if (raw === undefined || raw === null) return { ok: true, inputs: [] };"),
   m("tools: a created automation's id is minted fresh, so a redelivery makes a second", CT,
     "      id: await uuidFrom(`automation:${ctx?.operation ?? \"\"}`),",
     "      id: await uuidFrom(`automation:${Math.random()}`),"),
@@ -1211,8 +1285,13 @@ const spec = [
   m("tools: the step ceiling a model is told is not the platform's", CT,
     "    max: MAX_WORKFLOW_STEPS,", "    max: 999,"),
   m("tools: checking a workflow secretly writes one", CT,
-    "  input: { type: \"object\", properties: { steps: STEPS_FIELD }, required: [\"steps\"] },\n  repeatable: true,",
-    "  input: { type: \"object\", properties: { steps: STEPS_FIELD }, required: [\"steps\"] },\n  writes: true,\n  repeatable: true,"),
+    "  input: { type: \"object\", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: [\"steps\"] },\n  repeatable: true,",
+    "  input: { type: \"object\", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: [\"steps\"] },\n  writes: true,\n  repeatable: true,"),
+  // ⚠ AND A CHECK THAT IGNORES THE DECLARATIONS IS CHECKING A DIFFERENT WORKFLOW FROM THE ONE
+  // THE SAVE WILL — the shape that made `{{customer}}` unusable through every authoring tool.
+  m("tools: the check ignores the declarations it was given", CT,
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    return { ok: true, steps: read.steps.length",
+    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    return { ok: true, steps: read.steps.length"),
 
   // ── rest-profile.mjs: THE ONE RULE ────────────────────────────────────────
   // Five stores ask this, so it is the one place a wrong answer reaches all of them —

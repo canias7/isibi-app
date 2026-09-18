@@ -57,8 +57,14 @@ export const CAPABILITIES = Object.freeze([
   "searchKnowledge", "listKnowledge", "readKnowledge",
   "listMemory", "saveMemory", "deleteMemory",
   "listAutomations", "readAutomation", "createAutomation", "updateAutomation",
+  "patchAutomation",
   "setAutomationEnabled", "startAutomation",
   "listExecutions", "readExecution",
+  // ⚠ **A READ OF THE AGENT'S OWN SETTINGS, AND IT IS DELIBERATELY NOT A TOOL.** It exists
+  // because a daily schedule needs a time zone and a zone is not a model's to choose; the
+  // authoring tools ask this and then either use what a person set or ASK for it. Narrow by
+  // construction — see `agent.read_agent_settings`, which answers the zone and nothing else.
+  "readAgentSettings",
 ]);
 
 /**
@@ -80,10 +86,12 @@ export const CAPABILITY_RPC = Object.freeze({
   readAutomation: "read_automation",
   createAutomation: "create_automation",
   updateAutomation: "update_automation",
+  patchAutomation: "patch_automation",
   setAutomationEnabled: "set_automation_enabled",
   startAutomation: "accept_automation_run",
   listExecutions: "list_executions",
   readExecution: "read_execution",
+  readAgentSettings: "read_agent_settings",
 });
 
 /**
@@ -101,7 +109,8 @@ export const CAPABILITY_RPC = Object.freeze({
  */
 export const CAPABILITY_WRITES = Object.freeze([
   "saveMemory", "deleteMemory",
-  "createAutomation", "updateAutomation", "setAutomationEnabled", "startAutomation",
+  "createAutomation", "updateAutomation", "patchAutomation",
+  "setAutomationEnabled", "startAutomation",
 ]);
 
 /**
@@ -264,6 +273,41 @@ export function makeCapabilities(opts = {}) {
                 p_steps: steps ?? [], p_inputs: inputs ?? [],
               });
             },
+            /**
+             * ⚠ **CHANGE ONLY WHAT THE CALL NAMES, and the difference from `updateAutomation`
+             * is the whole point rather than a variation on it.**
+             *
+             * That one is a WHOLE REPLACE and is right to be: a person's form shows every
+             * field and sends every field, so what it saves is what it shows. A TOOL is the
+             * opposite — a model names the one thing it was asked to change — and running an
+             * edit like that through the replace is what reactivated a disabled automation
+             * and deleted its schedule, its zone and its input declarations on a call that
+             * asked for a new name. **Measured before it was fixed**, through the real tool
+             * against a real PostgreSQL.
+             *
+             * **THE PATCH ARRIVES WHOLE AND IS NOT ASSEMBLED HERE.** Presence of a key is
+             * what "this call is about that field" means, so building the object from named
+             * parameters with `?? null` would put every absent one back in — the defect
+             * again, one layer up. The caller hands the object it means.
+             *
+             * `version` is a FENCE ON THE WORK and not a general one: `update_automation`
+             * moves it on a change of steps and on nothing else, so a concurrent rename does
+             * not move it. What protects every other field is that the patch writes only what
+             * it names, under a row lock the database takes before it resolves anything.
+             */
+            async patchAutomation({ id, patch, version, operation } = {}) {
+              if (!isId(id)) return { ok: false, error: "no-automation" };
+              if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+                return { ok: false, error: "bad-patch" };
+              }
+              return mutate("patchAutomation", operation, {
+                p_tenant: tenant, p_id: id, p_patch: patch,
+                // ⚠ REFUSED RATHER THAN COERCED, and `null` is what "no fence" means.
+                // `Number("x")` is `NaN` and `Number(null)` is `0`, and a `0` here is a
+                // version no automation has, so every guarded edit would answer `stale`.
+                p_expect_version: Number.isInteger(version) ? version : null,
+              });
+            },
             async setAutomationEnabled({ id, enabled, operation } = {}) {
               // ⚠ REFUSED, NEVER COERCED. `Boolean("false")` is `true`, and a model
               // writing `"false"` into a tool argument is exactly the input that would
@@ -288,6 +332,20 @@ export function makeCapabilities(opts = {}) {
               return list(await rpc(CAPABILITY_RPC.listExecutions, {
                 p_tenant: tenant, p_automation_id: automation, p_limit: limit ?? 10,
               }));
+            },
+            /**
+             * The agent's own authoring settings — its time zone, or `null` where nobody has
+             * set a usable one. **A READ, not a write: no path here can set it**, which is
+             * what keeps "a model must not choose the zone" a property of the surface rather
+             * than a rule somewhere. `null` for a failed read as well as for an absent
+             * setting, because the caller's move is the same either way: ask.
+             */
+            async readAgentSettings() {
+              const row = await rpc(CAPABILITY_RPC.readAgentSettings, {
+                p_tenant: tenant, p_agent_id: agentId,
+              });
+              if (row === null || typeof row !== "object" || row.ok !== true) return { zone: null };
+              return { zone: typeof row.zone === "string" && row.zone.trim() ? row.zone.trim() : null };
             },
             async readExecution({ id } = {}) {
               if (!isId(id)) return null;

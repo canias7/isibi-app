@@ -474,6 +474,16 @@ export function agentRow(r) {
     // yet applied all arrive here as `undefined`.
     status: cleanStatus(r && r.status) === "active" ? "active" : "paused",
     tools: Array.isArray(r && r.tools) ? r.tools.filter((t) => typeof t === "string") : [],
+    /**
+     * ⚠ **THE TIME ZONE ITS SCHEDULES ARE WRITTEN IN, AND `null` IS THE FAIL-CLOSED ANSWER.**
+     *
+     * Not `"UTC"`: a guessed zone is right for almost nobody and wrong invisibly, and the
+     * authoring path reads `null` as *ask the person* — which is the behaviour this whole
+     * setting exists to make possible. A row from an older Worker, a view missing the column
+     * or a migration not yet applied all arrive here as `undefined`, and every one of them
+     * means nobody has said.
+     */
+    zone: typeof (r && r.zone) === "string" && r.zone.trim() ? r.zone.trim() : null,
   };
 }
 
@@ -728,7 +738,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     async list(tenant) {
       const r = await req("GET",
         `agent_overview?tenant_id=eq.${t(tenant)}` +
-        `&select=id,name,instructions,created_at,updated_at,last_message,status,tools` +
+        `&select=id,name,instructions,created_at,updated_at,last_message,status,tools,zone` +
         `&order=updated_at.desc&limit=${MAX_AGENTS}`);
       if (!r.ok) throw storeFail("list agents", r);
       return rows(r).map(agentRow);
@@ -768,12 +778,13 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * the one a migration cannot move. So `undefined` means the key stays off the
      * wire and the database decides — exactly as `tools` already works.
      */
-    async create(tenant, { id, name, instructions, status, tools }) {
+    async create(tenant, { id, name, instructions, status, tools, zone }) {
       // `fresh`, not `row`: the answer's own row is already called that eight lines
       // down, and a second `const row` in this scope is a module that does not load.
       const fresh = { id, tenant_id: tenant, name, instructions };
       if (status !== undefined) fresh.status = status;
       if (tools !== undefined) fresh.tools = tools;
+      if (zone !== undefined) fresh.zone = zone;
       const r = await req("POST", "agents", {
         prefer: "return=representation",
         body: [fresh],
@@ -795,7 +806,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * control. Absent and empty are two different things and only the caller knows
      * which it meant: `tools: []` is a real selection, `undefined` is silence.
      */
-    async update(tenant, id, { name, instructions, status, tools }) {
+    async update(tenant, id, { name, instructions, status, tools, zone }) {
       const body = { name, instructions };
       // ⚠ THE GUARDS ARE NOT WHAT KEEPS AN UNNAMED FIELD OFF THE WIRE, and saying so
       // is the point: `JSON.stringify` OMITS a key whose value is `undefined`, so
@@ -807,6 +818,10 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       // the observable property and it is what the mutants aim at now.
       if (status !== undefined) body.status = status;
       if (tools !== undefined) body.tools = tools;
+      // ⚠ `null` IS A VALUE AND `undefined` IS SILENCE, which is why this is `!== undefined`
+      // and not truthiness: clearing a zone has to be possible, and an older tab that says
+      // nothing about it must not clear one.
+      if (zone !== undefined) body.zone = zone;
       const r = await req("PATCH", `agents?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
         prefer: "return=representation",
         body,
@@ -2885,6 +2900,37 @@ function readTools(b) {
 }
 
 /**
+ * The agent's time zone off a request body, or a named refusal.
+ *
+ * ⚠ **THE THIRD READER IN THIS SHAPE, and it exists because a SCHEDULE HAS TO BE LOCAL TO
+ * SOMEWHERE.** An agent's authoring tools can set a daily schedule, and the one thing they
+ * must not choose is the zone — "every day at nine" somewhere nobody lives is worse than no
+ * schedule at all. So the zone is a setting a PERSON owns, this is the door they set it
+ * through, and the tool reads it and refuses where there is none. **Reproduced before this
+ * existed**: with nowhere to get a zone from, every daily automation authored through a tool
+ * threw a PL/pgSQL exception out of the store.
+ *
+ * ⚠ **ASKED OF `Intl`, NEVER OF A LIST**, which is the rule the automation routes already
+ * follow: a hand-kept list of zone names is a second copy of the tz database and the copy
+ * that drifts is ours. `validTimeZone` is that one reader.
+ *
+ * **AND `null` IS A REAL VALUE HERE, distinct from silence.** Absent leaves the stored zone
+ * alone (the same patch semantics `readStatus` and `readTools` have, for the same reason —
+ * an older tab saves a name and says nothing about a setting); an explicit `null` clears it,
+ * which somebody has to be able to do without deleting the agent.
+ */
+function readZone(b) {
+  if (!Object.hasOwn(b, "zone") || b.zone === undefined) return { zone: undefined };
+  if (b.zone === null || b.zone === "") return { zone: null };
+  if (typeof b.zone !== "string") return { refusal: no(400, "the time zone has to arrive as a name") };
+  const named = b.zone.trim();
+  if (!validTimeZone(named)) {
+    return { refusal: no(400, `"${named}" is not a time zone this platform knows — use a name like Europe/London`) };
+  }
+  return { zone: named };
+}
+
+/**
  * Handle one call.
  *
  * Answers `{status, body}`, or `null` for a path that is not ours — so the
@@ -2947,12 +2993,17 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (rest.refusal) return rest.refusal;
       const picked = readTools(b);
       if (picked.refusal) return picked.refusal;
+      // ⚠ AND THE ZONE, for the same reason the status is here: the settings form draws the
+      // field for a NEW agent, so a route that dropped it would make that box a control
+      // somebody sets and nothing reads.
+      const zoned = readZone(b);
+      if (zoned.refusal) return zoned.refusal;
       if ((await store.count(who)) >= MAX_AGENTS) {
         return no(409, `that's as many agents as one account can hold (${MAX_AGENTS}) — delete one first`);
       }
       return ok({
         agent: await store.create(who, {
-          id: mint(), name, instructions, status: rest.status, tools: picked.names,
+          id: mint(), name, instructions, status: rest.status, tools: picked.names, zone: zoned.zone,
         }),
       });
     }
@@ -2977,7 +3028,10 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       const status = rest.status;
       const picked = readTools(b);
       if (picked.refusal) return picked.refusal;
-      const agent = await store.update(who, id, { name, instructions, status, tools: picked.names });
+      const zoned = readZone(b);
+      if (zoned.refusal) return zoned.refusal;
+      const agent = await store.update(who, id,
+        { name, instructions, status, tools: picked.names, zone: zoned.zone });
       return agent ? ok({ agent }) : NO_AGENT();
     }
 

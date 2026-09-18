@@ -235,11 +235,19 @@ function hydrate(w) {
     return box;
   });
   w.s.document.querySelectorAll = (sel) => (sel === "[data-tool]" ? boxes : []);
+  // ⚠ THE ZONE BOX, HYDRATED FROM THE MARKUP LIKE THE NAME. Without this every case
+  // below reads an empty element the form may never have drawn — which is the fixture
+  // being less capable than the render, in the field whose whole point is that a
+  // scheduled automation cannot be authored until somebody fills it in.
+  const zoneEl = w.s.document.getElementById("agZone");
+  const drawnZone = val("agZone");
+  if (drawnZone !== null) zoneEl.value = drawnZone;
   // BOTH, and they answer different questions: `paused` is what the form was DRAWN
   // with, `pauseBox` is the control somebody presses. A case that only had the
   // boolean could assert the drawing and never tick the box — which is how a
   // control that answers and is discarded stays invisible.
-  return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl };
+  return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl,
+           drewZone: drawnZone !== null, zone: zoneEl.value, zoneBox: zoneEl };
 }
 
 /**
@@ -502,12 +510,13 @@ test("...and a save that lands where it started still reports its failure", asyn
   await saving;
   assert.equal(w.ev("agentEditing"), "A", "the composer closed on a failure");
   assert.match(w.ev("agentActErr"), /save/i, "a failure that stayed put said nothing");
-  // ⚠ RE-ANCHORED, and it is a STRONGER claim than the one it replaces. The draft
-  // carries all four settings now, so a failed save has to keep the ticks and the
-  // pause as well as the words — a form redrawn with an unticked box ticked would
-  // say a permission was stored when it was refused.
+  // ⚠ RE-ANCHORED TWICE, and each time the claim got stronger rather than looser. The
+  // draft carries every setting the form draws — the ticks, the pause and now the time
+  // zone — so a failed save has to keep all of them: a form redrawn with an unticked box
+  // ticked would say a permission was stored when it was refused, and one redrawn with a
+  // zone the person had just cleared would say the same about a schedule.
   assert.deepEqual(w.val("agentDraft"),
-    { name: "A renamed", instructions: "new instructions for A", status: "active", tools: [] },
+    { name: "A renamed", instructions: "new instructions for A", status: "active", tools: [], zone: null },
     "the settings that failed were not kept");
 });
 
@@ -1517,11 +1526,17 @@ async function withCatalog({ tools = CATALOG, rows = SETTINGS_ROWS, answer } = {
   return w;
 }
 
+/**
+ * ⚠ **`zone` IS ON THESE ROWS BECAUSE `agentRow` PUTS IT ON EVERY ROW**, and a fixture
+ * missing a field the producer always sends is the less-capable fake this file has already
+ * paid for twice. `A` has one and `P` has none, so both readings are drawn somewhere: a
+ * stored zone in the box, and the empty box that makes the tools refuse a schedule.
+ */
 const SETTINGS_ROWS = [
   { id: "A", name: "Agent A", instructions: "a", created: 1, updated: 1, preview: "",
-    status: "active", tools: [] },
+    status: "active", tools: [], zone: "Europe/London" },
   { id: "P", name: "Resting", instructions: "p", created: 1, updated: 1, preview: "",
-    status: "paused", tools: ["echo"] },
+    status: "paused", tools: ["echo"], zone: null },
 ];
 
 test("THE CATALOG IS THE SERVER'S AND THE FORM DRAWS EXACTLY IT", async () => {
@@ -1582,8 +1597,41 @@ test("A SAVE SENDS THE TICKS, THE PAUSE AND THE WORDS — read out of the form",
   await w.ev("agentSave()");
   const sent = w.calls.find((c) => c.path === "/api/agent/update");
   assert.ok(sent, "nothing was saved");
+  // ⚠ THE WHOLE BODY, so a field the form draws and does not send is red — which is the
+  // shape `status` failed in once and `zone` would have failed in next.
   assert.deepEqual(sent.body, { id: "A", name: "Renamed", instructions: "Do the thing.",
-                                status: "paused", tools: ["echo"] });
+                                status: "paused", tools: ["echo"], zone: "Europe/London" });
+});
+
+test("⚠ THE TIME ZONE IS DRAWN FROM THE ROW, EDITED, AND SENT", async () => {
+  // **A SETTING NO SCREEN CAN SET IS A SETTING NOBODY SETS**, and the agent's authoring
+  // tools refuse a scheduled automation while this is empty and say to come here — so the
+  // box existing, carrying what is stored, and sending what is typed are three claims and
+  // all three are asked.
+  const w = await withCatalog();
+  w.ev('agentEditing = "A"; renderAgents();');
+  const drawn = hydrate(w);
+  assert.equal(drawn.drewZone, true, "the settings form has no time-zone box at all");
+  assert.equal(drawn.zone, "Europe/London", "the box was not drawn from the stored row");
+  w.s.document.getElementById("agZone").value = "America/New_York";
+  await w.ev("agentSave()");
+  assert.equal(w.calls.find((c) => c.path === "/api/agent/update").body.zone, "America/New_York");
+
+  // ⚠ AND AN AGENT WITH NO ZONE DRAWS AN EMPTY BOX RATHER THAN A GUESS. `UTC` here would
+  // be a zone nobody chose reaching a schedule that fires at the wrong hour, with every
+  // reader agreeing it is right.
+  const w2 = await withCatalog();
+  w2.ev('agentEditing = "P"; renderAgents();');
+  assert.equal(hydrate(w2).zone, "", "an agent with no zone was drawn with one");
+
+  // ⚠ AND EMPTYING IT SENDS `null`, WHICH CLEARS IT — not `""`, which the route reads as a
+  // clear too but which would make "leave it alone" and "forget it" one value on the wire.
+  const w3 = await withCatalog();
+  w3.ev('agentEditing = "A"; renderAgents();');
+  hydrate(w3);
+  w3.s.document.getElementById("agZone").value = "   ";
+  await w3.ev("agentSave()");
+  assert.equal(w3.calls.find((c) => c.path === "/api/agent/update").body.zone, null);
 });
 
 test("...and an unticked box sends an EMPTY selection, never silence", async () => {
@@ -1628,7 +1676,11 @@ test("⚠ A NEW AGENT SENDS THE PAUSE IT WAS DRAWN WITH, and its ticks go with i
   f.pauseBox.checked = true;
   await w.ev("agentSave()");
   const sent = w.calls.find((c) => c.path === "/api/agent/create");
-  assert.deepEqual(sent.body, { name: "Fresh", instructions: "i", status: "paused", tools: ["echo"] });
+  // ⚠ THE ZONE IS ON A CREATE TOO, for the reason this case was written: the form draws
+  // the box for a NEW agent, so a route or a body that dropped it would make that box a
+  // control somebody fills in and nothing reads. `null` is what an empty box means.
+  assert.deepEqual(sent.body,
+    { name: "Fresh", instructions: "i", status: "paused", tools: ["echo"], zone: null });
   // AND IT BECOMES AN EDIT OF WHAT IT MADE, so the next press adjusts the same
   // agent rather than making a second one.
   assert.equal(w.ev("agentEditing"), "NEW");
@@ -1689,12 +1741,19 @@ test("⚠ A FAILED SAVE KEEPS THE TICKS AND THE PAUSE, not just the words", asyn
   w.s.document.getElementById("agPaused").checked = true;
   await w.ev("agentSave()");
   assert.match(w.ev("agentActErr"), /save/i);
-  assert.deepEqual(w.val("agentDraft"), { name: "A", instructions: "a", status: "paused", tools: ["echo"] });
+  // ⚠ THE ZONE IS A SETTING TOO, so a failed save has to keep the one that was typed —
+  // and the case types a DIFFERENT one from the stored `Europe/London`, or "it was kept"
+  // is satisfied by a redraw that simply read the row again.
+  w.s.document.getElementById("agZone").value = "Asia/Tokyo";
+  await w.ev("agentSave()");
+  assert.deepEqual(w.val("agentDraft"),
+    { name: "A", instructions: "a", status: "paused", tools: ["echo"], zone: "Asia/Tokyo" });
   // AND THE REDRAW SHOWS THEM. The draft is only worth anything if the form reads
   // it back — which is the half a state assertion alone cannot see.
   const again = hydrate(w);
   assert.deepEqual(again.boxes.map((b) => b.checked), [true], "the tick that failed was redrawn empty");
   assert.equal(again.paused, true, "the pause that failed was redrawn as active");
+  assert.equal(again.zone, "Asia/Tokyo", "the zone that failed was redrawn from the row instead");
 });
 
 test("A PAUSED AGENT SAYS SO WHERE SOMEBODY WOULD TYPE, and the list says so too", async () => {

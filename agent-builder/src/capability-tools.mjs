@@ -75,7 +75,7 @@ import { uuidFrom } from "./approvals.mjs";
 // described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
 // through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
 // how a tool comes to offer a step no executor can run.
-import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, MAX_WORKFLOW_STEPS, readWorkflow } from "./automations.mjs";
+import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, MAX_WORKFLOW_STEPS, VALUE_TYPES, readWorkflow } from "./automations.mjs";
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
@@ -497,8 +497,81 @@ const readExecution = tool({
  * happened beside it, which is the shape of every "it was checked" defect this repository
  * records.
  */
-const checkSteps = (raw) => {
-  const read = readWorkflow(Array.isArray(raw) ? raw : []);
+/**
+ * ⚠ **WHAT AN AUTOMATION ASKS FOR WHEN IT STARTS, AND IT HAD TO REACH `readWorkflow`.**
+ *
+ * **THE DEFECT, REPRODUCED before this existed**: `readWorkflow(raw, { inputs })` has taken a
+ * list of declarations since inputs were built, and `checkSteps` passed none — so a step
+ * saying `hello {{customer}}` was refused *"nothing here produces a value called customer"*
+ * by `check_workflow` and by both authoring tools, while the same steps with the same
+ * declarations were accepted by the reader itself. Measured side by side. And no tool schema
+ * had an `inputs` property at all, so there was no way to send them: the declarations, the
+ * validation and the column were each correct and the hop between them was missing. *A value
+ * a caller cannot supply is a feature nobody can reach*, which is this repository's wiring
+ * defect in the layer whose whole job is to carry it.
+ *
+ * ⚠ **AND IT IS A REFUSAL, NEVER A COERCION.** `readWorkflow` normalises an unknown type to
+ * `text` internally, which is right for a stored row it must not reject; here the input came
+ * from a MODEL, and a `list` misspelt `lsit` silently stored as text is a loop that will be
+ * refused days later for a reason nobody can see. Every rule below is the shape the database
+ * column and the person's own form already enforce — the same names, the same caps.
+ */
+const INPUT_NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
+/** The column's own ceiling: `automations_inputs_shaped` caps the array at eight. */
+export const MAX_TOOL_INPUTS = 8;
+export const INPUT_LABEL_MAX = 120;
+export const INPUT_DEFAULT_MAX = 2000;
+
+export function readInputs(raw) {
+  if (raw === undefined || raw === null) return { ok: true, inputs: null };
+  if (!Array.isArray(raw)) return { ok: false, error: "bad-inputs", say: "the things it asks for have to arrive as a list" };
+  if (raw.length > MAX_TOOL_INPUTS) {
+    return { ok: false, error: "bad-inputs",
+      say: `that is more things to ask for than one automation can have (${MAX_TOOL_INPUTS})` };
+  }
+  const inputs = [];
+  const seen = new Set();
+  for (let i = 0; i < raw.length; i++) {
+    const at = i + 1;
+    const d = raw[i];
+    const no = (say) => ({ ok: false, error: "bad-inputs", say: `input ${at}: ${say}` });
+    if (d === null || typeof d !== "object" || Array.isArray(d)) return no("that did not arrive as a declaration");
+    const name = typeof d.name === "string" ? d.name.trim().toLowerCase() : "";
+    if (!name) return no("give it a name, so a step can use it");
+    if (!INPUT_NAME_RE.test(name)) {
+      return no(`"${String(d.name)}" cannot be a name — lower-case letters, digits and underscores, starting with a letter`);
+    }
+    // TWO INPUTS OF ONE NAME IS A REFERENCE NOBODY CAN RESOLVE — which of them?
+    if (seen.has(name)) return no(`there is already something called "${name}"`);
+    seen.add(name);
+    const label = typeof d.label === "string" ? d.label.trim() : "";
+    if (label.length > INPUT_LABEL_MAX) return no(`that label is longer than a label can be (${INPUT_LABEL_MAX})`);
+    const dflt = typeof d.default === "string" ? d.default : "";
+    if (dflt.length > INPUT_DEFAULT_MAX) return no(`that default is longer than it can be (${INPUT_DEFAULT_MAX})`);
+    // REFUSED, NEVER COERCED: `Boolean("false")` is `true`, and a required flag out of a
+    // string would make every input required.
+    if (d.required !== undefined && typeof d.required !== "boolean") {
+      return no("whether it has to be answered did not arrive as a yes or no");
+    }
+    if (d.type !== undefined && !VALUE_TYPES.includes(d.type)) {
+      return no(`"${String(d.type)}" is not a kind of thing — it has to be one of: ${VALUE_TYPES.join(", ")}`);
+    }
+    // A DEFAULT IS TEXT EVEN FOR A LIST, because it is what a box holds; a list's default is
+    // the empty list, which is what an unanswered one already means.
+    inputs.push({ name, label: label || name, required: d.required === true,
+                  default: dflt, type: d.type === undefined ? "text" : d.type });
+  }
+  return { ok: true, inputs };
+}
+
+/**
+ * ⚠ THE STEPS ARE CHECKED AGAINST THE DECLARATIONS, and the order matters: a `{{reference}}`
+ * is refused unless something produces it, and a declared input is half of what can. Reading
+ * them the other way round would make every reference to an input fail on the one save that
+ * introduces it — which is the site's own note, one product over, for the same reason.
+ */
+const checkSteps = (raw, inputs = []) => {
+  const read = readWorkflow(Array.isArray(raw) ? raw : [], { inputs: Array.isArray(inputs) ? inputs : [] });
   if (read.error) return { ok: false, error: "bad-workflow", say: read.error };
   return { ok: true, steps: read.steps, produces: read.produces };
 };
@@ -571,6 +644,29 @@ const SCHEDULE_FIELDS = Object.freeze({
   atLocal: { type: "string", description: 'For a daily one, the local time as "HH:MM".' },
 });
 
+/**
+ * ⚠ THE ONE DESCRIPTION OF WHAT AN AUTOMATION ASKS FOR, so no two tools can disagree about
+ * it — the same reason `STEPS_FIELD` and `SCHEDULE_FIELDS` are shared.
+ */
+const INPUTS_FIELD = Object.freeze({
+  type: "array",
+  description:
+    "What it should ask for when it is started, so a step can use {{the_name}}. Each is " +
+    `{name, label, type (${VALUE_TYPES.join("|")}), required, default}; name is lower-case ` +
+    `letters, digits and underscores. Up to ${MAX_TOOL_INPUTS}.`,
+  items: {
+    type: "object",
+    properties: {
+      name: { type: "string", description: "What a step refers to it by." },
+      label: { type: "string", description: "What to call it on a form. Absent means the name." },
+      type: { type: "string", description: `One of: ${VALUE_TYPES.join(", ")}. Absent means text.` },
+      required: { type: "boolean", description: "Whether it has to be answered." },
+      default: { type: "string", description: "What to use when it is not answered." },
+    },
+    required: ["name"],
+  },
+});
+
 const listActions = pureTool({
   name: "list_actions",
   description:
@@ -605,17 +701,67 @@ const checkWorkflow = pureTool({
     "Check a workflow without saving it: whether every action is real, every field readable, " +
     "every branch balanced and every {{reference}} produced by a step that has already run. " +
     "Answers what is wrong, or what the workflow would produce.",
-  input: { type: "object", properties: { steps: STEPS_FIELD }, required: ["steps"] },
+  input: { type: "object", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: ["steps"] },
   repeatable: true,
   // ⚠ IT WRITES NOTHING, so it is not `writes` and needs no operation identity — which is
   // what makes it usable as many times as a model needs to get a workflow right.
+  //
+  // ⚠ **AND IT HAS TO TAKE THE DECLARATIONS OR IT IS CHECKING A DIFFERENT WORKFLOW.** Without
+  // them a step using `{{customer}}` is refused here and accepted by the save, or the other
+  // way round — and a check that disagrees with the thing it is checking is worse than none,
+  // because a model believes it.
   run: async (args) => {
-    const read = checkSteps(args.steps);
+    const asked = readInputs(args.inputs);
+    if (!asked.ok) return asked;
+    const read = checkSteps(args.steps, asked.inputs ?? []);
     if (!read.ok) return read;
     return { ok: true, steps: read.steps.length, produces: read.produces,
+      inputs: (asked.inputs ?? []).map((i) => i.name),
       say: `that reads as ${read.steps.length} step${read.steps.length === 1 ? "" : "s"}` };
   },
 });
+
+/**
+ * ⚠ **WHICH TIME ZONE A SCHEDULE IS WRITTEN IN — RESOLVED, NEVER GUESSED.**
+ *
+ * **THE DEFECT, REPRODUCED before this existed.** `make_automation` offers
+ * `schedule: "daily"` and sends no zone, because a zone is the one thing a MODEL must not
+ * choose: "every day at nine" somewhere nobody lives is worse than no schedule at all. So
+ * the database's own arithmetic raised — *a daily schedule needs a local time and a zone* —
+ * PostgREST turned that into HTTP 400 and the TOOL THREW. Measured through the real tool
+ * against a real PostgreSQL: zero rows written, the model handed a PL/pgSQL context line,
+ * and EVERY daily automation authored through a tool failing the same way. A dead control
+ * that does not merely answer wrongly but throws.
+ *
+ * **THE ZONE IS A SETTING A PERSON OWNS**, read here and never written: `agent.agents.zone`,
+ * set on the settings form and answered by `readAgentSettings`. There is no argument for one
+ * and no operation on this surface can set one, which is what makes "a model does not choose
+ * the zone" a property of the surface rather than a rule somebody has to keep.
+ *
+ * ⚠ **AND WHERE NOBODY HAS SET ONE IT ASKS. It does not pick UTC, and it does not read one
+ * off another automation.** UTC is a guess wearing a standard's clothes — it is right for
+ * almost nobody and wrong invisibly. Another automation's zone is derived state that moves
+ * when unrelated rows move, so "why did mine get that zone" would have no stable answer.
+ * `no-zone` is a refusal with a sentence naming what to do, and NOTHING is written.
+ *
+ * **A MANUAL SCHEDULE ASKS FOR NOTHING**, because it has no time to be local to — so a tool
+ * making an unscheduled automation never touches the settings and never refuses for a zone.
+ */
+const NEEDS_A_ZONE = Object.freeze(["daily"]);
+
+async function zoneFor(can, schedule) {
+  if (!NEEDS_A_ZONE.includes(schedule)) return { zone: null };
+  const settings = typeof can.readAgentSettings === "function" ? await can.readAgentSettings() : null;
+  const zone = settings && typeof settings.zone === "string" && settings.zone.trim()
+    ? settings.zone.trim() : null;
+  if (!zone) {
+    return { error: "no-zone",
+      say: "a scheduled automation needs to know which time zone its time is in, and this " +
+           "agent has none set — ask whoever owns it to set the time zone in the agent's " +
+           "settings, then ask me again. Nothing has been saved." };
+  }
+  return { zone };
+}
 
 const makeAutomation = tool({
   name: "make_automation",
@@ -627,6 +773,7 @@ const makeAutomation = tool({
     properties: {
       name: { type: "string", description: "What to call it." },
       steps: STEPS_FIELD,
+      inputs: INPUTS_FIELD,
       ...SCHEDULE_FIELDS,
       enabled: { type: "boolean", description: "Whether it should start running. Absent means yes." },
     },
@@ -648,10 +795,15 @@ const makeAutomation = tool({
    */
   approval: true,
   run: async (args, can, ctx) => {
-    const read = checkSteps(args.steps);
+    const asked = readInputs(args.inputs);
+    if (!asked.ok) return asked;
+    const read = checkSteps(args.steps, asked.inputs ?? []);
     if (!read.ok) return read;
     const when = authorableSchedule(args.schedule);
     if (when.error) return { ok: false, error: when.error, say: when.say };
+    const at = text(args.atLocal) || null;
+    const zone = await zoneFor(can, when.schedule);
+    if (zone.error) return { ok: false, error: zone.error, say: zone.say };
     const answer = await can.createAutomation({
       // ⚠ THE ID IS DERIVED FROM THE CALL, never minted and never an argument — the same
       // rule `run_automation` follows, for the same reason: a fresh id per call makes a
@@ -659,16 +811,16 @@ const makeAutomation = tool({
       id: await uuidFrom(`automation:${ctx?.operation ?? ""}`),
       name: text(args.name), steps: read.steps,
       schedule: when.schedule,
-      atLocal: text(args.atLocal) || null,
-      // ⚠ THE ZONE IS NOT THE MODEL'S AND IS NOT AN ARGUMENT AT ALL. It belongs to whoever
-      // owns the automation; a model choosing it would make "every day at nine" mean nine
-      // somewhere nobody lives. Absent, the database keeps what the row already had — which
-      // for a create is its own default.
+      atLocal: at,
+      zone: zone.zone,
+      inputs: asked.inputs ?? [],
       enabled: args.enabled !== false,
       operation: ctx?.operation,
     });
     if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error) };
     return { ok: true, automation: answer.automation ?? answer.id ?? null, steps: read.steps.length,
+      ...(asked.inputs ? { inputs: asked.inputs.map((i) => i.name) } : {}),
+      ...(zone.zone ? { zone: zone.zone } : {}),
       ...(answer.repeat === true ? { repeat: true, say: "that was already created by this same request" } : {}) };
   },
 });
@@ -676,57 +828,178 @@ const makeAutomation = tool({
 const changeAutomation = tool({
   name: "change_automation",
   description:
-    "Change one of this agent's automations: its name, when it runs, or its steps. " +
-    "The whole workflow is replaced, so send every step it should have.",
+    "Change one of this agent's automations. Send ONLY the fields you are changing — " +
+    "anything you leave out stays exactly as it is. To turn one off send enabled: false; " +
+    "to stop it running on a schedule send schedule: \"manual\". If you send steps, send " +
+    "every step it should have, because the workflow is replaced whole.",
   input: {
     type: "object",
     properties: {
       id: { type: "string", description: "The automation's id, from list_automations." },
-      name: { type: "string", description: "What to call it." },
+      name: { type: "string", description: "A new name. Leave it out to keep the one it has." },
       steps: STEPS_FIELD,
+      inputs: INPUTS_FIELD,
       ...SCHEDULE_FIELDS,
-      enabled: { type: "boolean", description: "Whether it should run. Absent means yes." },
+      enabled: { type: "boolean", description: "Whether it should run. Leave it out to keep it as it is." },
+      ifVersion: { type: "number",
+        description: "Optional. The version from list_automations. If the workflow has " +
+          "changed since you read it, the edit is refused instead of overwriting it." },
     },
-    required: ["id", "name", "steps"],
+    // ⚠ **ONLY THE ID IS REQUIRED NOW, AND THAT IS THE FIX RATHER THAN A RELAXATION.** It
+    // demanded `name` AND `steps` on every call, so renaming one meant re-sending its whole
+    // workflow — and a model that sent a name with a plausible step list was how a live
+    // automation's real steps got replaced by a guess.
+    required: ["id"],
   },
   writes: true,
   repeatable: true,
   approval: true,
+  /**
+   * ⚠ **AN EDIT CHANGES ONLY WHAT IT NAMES, AND THIS USED TO BE A WHOLE REPLACE.**
+   *
+   * **REPRODUCED before it was touched**, through the real tool against a real PostgreSQL:
+   * one `change_automation` asking for a new name moved a stored automation from
+   *
+   *     enabled=false | daily | 23:00 | Europe/London | 1 input  | v1
+   *  to enabled=true  | manual| -     | -             | 0 inputs | v2
+   *
+   * A disabled automation was REACTIVATED, its schedule and zone erased and its input
+   * declarations deleted — by a call that asked for a new name. The cause is one line per
+   * field: `enabled: args.enabled !== false` reads absent as ON, `schedule ?? "manual"` reads
+   * absent as UNSCHEDULED, and no `inputs` was sent at all so the store's `?? []` cleared
+   * them.
+   *
+   * **AND IT MADE THE APPROVAL GATE MISLEADING, which is the worse half.** A person approved
+   * `{id, name: "Payroll (renamed)"}` — the arguments are what the approval is bound to —
+   * and what happened was a reset. What was approved was not what was done.
+   *
+   * ⚠ **THE PATCH CARRIES ONLY KEYS THE CALL REALLY HAS**, asked with `Object.hasOwn`. A
+   * truthiness test would drop `enabled: false` and an empty `steps: []`, which are the two
+   * edits somebody most needs to be able to make.
+   */
   run: async (args, can, ctx) => {
     // ⚠ THE SIBLING WALL FIRST, so an automation of another agent of the same account is
     // `no-automation` rather than something this one may rewrite. The account filter is the
     // database's; this is the one no tenant filter can see.
-    if (!(await can.readAutomation({ id: text(args.id) }))) {
+    const held = await can.readAutomation({ id: text(args.id) });
+    if (!held) {
       return { ok: false, error: "no-automation", say: "there is no automation of this agent's with that id" };
     }
-    const read = checkSteps(args.steps);
-    if (!read.ok) return read;
-    const when = authorableSchedule(args.schedule);
-    if (when.error) return { ok: false, error: when.error, say: when.say };
-    const answer = await can.updateAutomation({
-      id: text(args.id), name: text(args.name), steps: read.steps,
-      schedule: when.schedule,
-      atLocal: text(args.atLocal) || null,
-      enabled: args.enabled !== false,
+    const patch = {};
+    if (Object.hasOwn(args, "name")) patch.name = text(args.name);
+    if (Object.hasOwn(args, "enabled")) patch.enabled = args.enabled;
+
+    /**
+     * ⚠ **THE STEPS AND THE DECLARATIONS ARE VALIDATED TOGETHER, AGAINST WHATEVER THE
+     * AUTOMATION WILL REALLY HAVE.** A reference is refused unless something produces it and
+     * a declared input is half of what can — so checking a new step list against an EMPTY
+     * declaration set would refuse `{{customer}}` on an automation that has always had a
+     * `customer` input, and checking new declarations against no steps would let a rename of
+     * an input orphan every reference to it. Either side the call omits comes from the stored
+     * row, which is what the automation will still have when this is done.
+     */
+    const asked = readInputs(args.inputs);
+    if (!asked.ok) return asked;
+    const inputs = asked.inputs ?? (Array.isArray(held.inputs) ? held.inputs : []);
+    if (Object.hasOwn(args, "steps") || asked.inputs) {
+      const steps = Object.hasOwn(args, "steps") ? args.steps
+        : (Array.isArray(held.steps) ? held.steps : []);
+      const read = checkSteps(steps, inputs);
+      if (!read.ok) return read;
+      if (Object.hasOwn(args, "steps")) patch.steps = read.steps;
+      if (asked.inputs) patch.inputs = asked.inputs;
+    }
+
+    if (Object.hasOwn(args, "schedule")) {
+      const when = authorableSchedule(args.schedule);
+      if (when.error) return { ok: false, error: when.error, say: when.say };
+      patch.schedule = when.schedule;
+      /**
+       * ⚠ **A SCHEDULE AND ITS TIME MOVE TOGETHER, and leaving one behind is a refusal with
+       * no sentence.** The table's wholeness check refuses `daily` with no time and `manual`
+       * WITH one, so a call saying `schedule: "manual"` has to clear the time and one saying
+       * `daily` has to carry it — either from this call or from the row. `atLocal` is
+       * therefore part of the schedule change rather than a field of its own.
+       */
+      const at = Object.hasOwn(args, "atLocal") ? (text(args.atLocal) || null) : (held.atLocal ?? null);
+      patch.atLocal = when.schedule === "manual" ? null : at;
+      const zone = await zoneFor(can, when.schedule);
+      if (zone.error) return { ok: false, error: zone.error, say: zone.say };
+      // THE ZONE IS LEFT ALONE WHERE THE SCHEDULE DOES NOT NEED ONE. It is the automation's
+      // own — a `weekday` condition reads it on an unscheduled automation too — so clearing
+      // it on a move to `manual` would take away something nothing asked about.
+      if (zone.zone) patch.zone = zone.zone;
+    } else if (Object.hasOwn(args, "atLocal")) {
+      // ⚠ A TIME WITH NO SCHEDULE NAMED IS A CHANGE TO THE STORED SCHEDULE'S TIME, and it
+      // still needs a zone if the stored schedule is one that takes one — otherwise the row
+      // it produces cannot be whole.
+      patch.atLocal = text(args.atLocal) || null;
+      const zone = await zoneFor(can, text(held.schedule));
+      if (zone.error) return { ok: false, error: zone.error, say: zone.say };
+      if (zone.zone) patch.zone = zone.zone;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      // ⚠ A CALL THAT NAMES NOTHING IS A REFUSAL AND NOT A NO-OP THAT ANSWERS `ok`. It cost a
+      // person an approval, so answering "done" about nothing is the dead control again.
+      return { ok: false, error: "nothing-asked",
+        say: "that named no change — send the field you want different, or `enabled: false` to turn it off" };
+    }
+
+    const answer = await can.patchAutomation({
+      id: text(args.id), patch,
+      version: Number.isInteger(args.ifVersion) ? args.ifVersion : undefined,
       operation: ctx?.operation,
     });
-    if (answer?.ok !== true) return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error) };
-    return { ok: true, automation: answer.automation ?? text(args.id), steps: read.steps.length,
+    if (answer?.ok !== true) {
+      return { ok: false, error: answer?.error ?? "refused", say: sayAutomation(answer?.error, answer),
+        ...(answer?.error === "stale" ? { version: answer.version ?? null } : {}) };
+    }
+    return { ok: true, automation: answer.automation ?? text(args.id),
+      // WHAT REALLY CHANGED, by name, so the answer is about the edit rather than the row.
+      changed: Object.keys(patch).sort(),
+      ...(answer.version !== undefined ? { version: answer.version } : {}),
       ...(answer.repeat === true ? { repeat: true, say: "that was already changed by this same request" } : {}) };
   },
 });
 
-/** What a refused save means, in words a model can act on. */
-const sayAutomation = (error) => ({
-  "no-agent": "this agent is not one this account has",
-  "no-automation": "there is no automation of this agent's with that id",
-  "too-many": "this agent already has as many automations as it can hold — change one instead",
-  "bad-name": "that automation needs a name",
-  "bad-schedule": "that is not a schedule this platform runs",
-  "bad-time": 'a daily automation needs a local time as "HH:MM"',
-  "bad-zone": "that time zone is not one this platform knows",
-  "operation-mismatch": "a different request already used this slot, so nothing was changed",
-}[error] ?? "that automation could not be saved");
+/**
+ * What a refused save means, in words a model can act on.
+ *
+ * ⚠ **IT TAKES THE WHOLE ANSWER for the one refusal whose sentence needs a number.** `stale`
+ * is the only useful thing to say beside it — *the version I have is N* — and a sentence that
+ * said "it has changed" without saying to what leaves a model with the same read it came in
+ * with. Every other refusal is a fixed sentence and does not look at the second argument.
+ */
+const sayAutomation = (error, answer = null) => {
+  if (error === "stale") {
+    const now = answer && Number.isInteger(answer.version) ? answer.version : null;
+    return "somebody else changed that workflow since you read it" +
+      (now === null ? "" : ` — it is at version ${now} now`) +
+      ", so nothing was changed. Read it again before editing.";
+  }
+  return {
+    "no-agent": "this agent is not one this account has",
+    "no-automation": "there is no automation of this agent's with that id",
+    "too-many": "this agent already has as many automations as it can hold — change one instead",
+    "bad-name": "that automation needs a name",
+    "bad-schedule": "that is not a schedule this platform runs",
+    "bad-time": 'a daily automation needs a local time as "HH:MM"',
+    "bad-zone": "that time zone is not one this platform knows",
+    // ⚠ THE PATCH'S OWN REFUSALS, each naming the field rather than the call. A model that
+    // sent one bad value must be able to send the call again with that value fixed; a single
+    // "could not be saved" makes it guess which field to change.
+    "bad-patch": "that edit did not arrive as a set of changes",
+    "bad-field": "that edit named something an automation does not have",
+    "bad-enabled": "whether it runs is a yes or a no, not a word",
+    "bad-inputs": "the things it asks for did not arrive as a list of declarations",
+    "bad-steps": "the steps did not arrive as a list",
+    "bad-days": "the days did not arrive as a list of day names",
+    "bad-date": "that is not a date this platform can read",
+    "bad-event": "that event name did not arrive as text",
+    "operation-mismatch": "a different request already used this slot, so nothing was changed",
+  }[error] ?? "that automation could not be saved";
+};
 
 /**
  * ⚠ THE CAPABILITY TOOLS, and this array is what `OFFERED` is built from.

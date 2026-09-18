@@ -41,6 +41,12 @@ import { OFFERED, OFFERED_NAMES } from "../agent-builder/src/agents.mjs";
 // cannot be exempted by a misspelling and a fourth such tool carries them by existing.
 import { CONNECTION_TOOLS as CONNECTION_TOOL_NAMES } from "../agent-builder/src/capability-tools.mjs";
 import { CAPABILITY_RPC, CAP_MEMORIES as ENGINE_CAP_MEMORIES } from "../agent-builder/src/capabilities.mjs";
+// ⚠ THE ENGINE'S OWN INPUT READER AND ITS BOUNDS. An agent's authoring tools declare what an
+// automation asks for, so the two readers decide the same thing at two doors.
+import {
+  readInputs as engineReadInputs, MAX_TOOL_INPUTS as ENGINE_MAX_INPUTS,
+  INPUT_LABEL_MAX as ENGINE_INPUT_LABEL_MAX, INPUT_DEFAULT_MAX as ENGINE_INPUT_DEFAULT_MAX,
+} from "../agent-builder/src/capability-tools.mjs";
 import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
@@ -68,6 +74,8 @@ import {
   MAX_STEP_RETRIES as SITE_MAX_STEP_RETRIES,
   AUTOMATION_STEP_KINDS as SITE_STEP_KINDS, AUTOMATION_FIELD_KINDS as SITE_FIELD_KINDS,
   MAX_SUBWORKFLOW_DEPTH as SITE_MAX_SUB_DEPTH, MAX_FLAT_STEPS as SITE_MAX_FLAT,
+  cleanInputs as siteCleanInputs, MAX_AUTOMATION_INPUTS as SITE_MAX_INPUTS,
+  INPUT_LABEL_MAX as SITE_INPUT_LABEL_MAX, INPUT_DEFAULT_MAX as SITE_INPUT_DEFAULT_MAX,
 } from "../agent-store.mjs";
 
 /**
@@ -1277,6 +1285,61 @@ test("⚠ WHAT HAPPENS WHEN A STEP FAILS IS ONE TABLE IN TWO LANGUAGES, censused
   }
   assert.equal(onErrorOf(ENGINE_STEPS, "if"), undefined, "a branch is offered an error path it cannot have");
   assert.equal(onErrorOf(SITE_STEPS, "if"), undefined, "a branch is offered an error path it cannot have");
+});
+
+test("⚠ WHAT AN AUTOMATION ASKS FOR IS ONE DECLARATION IN TWO LANGUAGES", () => {
+  /**
+   * ⚠ **TWO DOORS SAVE THE SAME COLUMN NOW, so a drift is a declaration one door stores and
+   * the other refuses.** The site's `cleanInputs` is what a person's form goes through; the
+   * engine's `readInputs` arrived with this round, because an agent's authoring tools had NO
+   * way to declare an input at all — measured, `{{customer}}` was refused by every one of
+   * them while `readWorkflow` accepted the same steps with the same declarations.
+   *
+   * **THE BOUNDS ARE THE SAME THREE NUMBERS**, and the first is the DATABASE's:
+   * `automations_inputs_shaped` caps the array at eight, so a reader that admitted nine would
+   * be refused by the column with no sentence anybody can act on.
+   */
+  assert.equal(ENGINE_MAX_INPUTS, SITE_MAX_INPUTS, "the input ceiling drifted");
+  assert.equal(ENGINE_INPUT_LABEL_MAX, SITE_INPUT_LABEL_MAX, "the label bound drifted");
+  assert.equal(ENGINE_INPUT_DEFAULT_MAX, SITE_INPUT_DEFAULT_MAX, "the default bound drifted");
+  assert.equal(ENGINE_MAX_INPUTS, 8, "the column's own ceiling is eight");
+
+  // ⚠ **AND THE SAME ANSWER FOR THE SAME DECLARATION, asserted as the STORED SHAPE** — which
+  // is what the column holds and what `readWorkflow` reads a reference against. A drift here
+  // is an automation whose inputs mean one thing to the form and another to the engine.
+  const shapes = [
+    [{ name: "customer" }],
+    [{ name: "Customer", label: "  Who  ", type: "text", required: true, default: "x" }],
+    [{ name: "many", type: "list" }, { name: "count", type: "number" }],
+  ];
+  for (const raw of shapes) {
+    const site = siteCleanInputs(raw);
+    const eng = engineReadInputs(raw);
+    assert.ok(!site.error, `the site refused ${JSON.stringify(raw)}: ${site.error}`);
+    assert.ok(eng.ok, `the engine refused ${JSON.stringify(raw)}: ${eng.say}`);
+    assert.deepEqual(eng.inputs, site.inputs, `stored differently: ${JSON.stringify(raw)}`);
+  }
+  // ⚠ AND BOTH REFUSE THE SAME THINGS, in both directions — a reader that only one door
+  // refuses is a declaration that saves on one screen and cannot be edited on the other.
+  const bad = [
+    [{ name: "" }], [{ name: "Not A Name" }], [{ name: "a" }, { name: "a" }],
+    [{ name: "x", type: "lsit" }], [{ name: "x", required: "yes" }],
+    [{ name: "x", label: "L".repeat(SITE_INPUT_LABEL_MAX + 1) }],
+    [{ name: "x", default: "d".repeat(SITE_INPUT_DEFAULT_MAX + 1) }],
+    Array.from({ length: SITE_MAX_INPUTS + 1 }, (_, i) => ({ name: `n${i}` })),
+    "not a list", [null], [["x"]],
+  ];
+  for (const raw of bad) {
+    assert.ok(siteCleanInputs(raw).error, `the site accepted ${JSON.stringify(raw)}`);
+    assert.equal(engineReadInputs(raw).ok, false, `the engine accepted ${JSON.stringify(raw)}`);
+  }
+  // ⚠ **AND ABSENT IS NOT EMPTY, WHICH IS THE ONE PLACE THEY DELIBERATELY DIFFER.** The site's
+  // form always sends the whole list, so `undefined` there is `[]`; the engine's tools PATCH,
+  // so `undefined` has to mean *leave the stored declarations alone* — answering `[]` would
+  // clear them on every edit that did not mention them, which is the defect this round fixed.
+  assert.deepEqual(siteCleanInputs(undefined).inputs, []);
+  assert.equal(engineReadInputs(undefined).inputs, null,
+    "an absent declaration list reads as an empty one, so an edit clears what is stored");
 });
 
 test("⚠ THE TYPE SYSTEM IS ONE TABLE IN TWO LANGUAGES, censused both ways", () => {

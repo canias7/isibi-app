@@ -3620,6 +3620,10 @@ function renderAgentsNow() {
     // stored row, so its defaults are the honest ones — active, and nothing allowed.
     const paused = draft ? draft.status === 'paused' : !!(cur && cur.status === 'paused');
     const picked = draft ? draft.tools : ((cur && Array.isArray(cur.tools)) ? cur.tools : []);
+    // ⚠ EMPTY IS THE HONEST DEFAULT AND IS NOT `UTC`. The agent's authoring tools refuse a
+    // scheduled automation while this is blank and say so; a box pre-filled with a zone
+    // nobody chose would make every such schedule fire at an hour nobody asked for.
+    const zoneVal = draft ? (draft.zone || '') : ((cur && typeof cur.zone === 'string') ? cur.zone : '');
     const catalog = Array.isArray(agentTools) ? agentTools : [];
     view.innerHTML =
       '<div class="ag-page">' +
@@ -3668,6 +3672,19 @@ function renderAgentsNow() {
               '<span class="ag-tool-d">It keeps every conversation it has and finishes anything already running. It just won’t start anything new until you turn this off.</span>' +
             '</span>' +
           '</label>' +
+          // ── which time zone its schedules are in ────────────────────────
+          //
+          // ⚠ **A SETTING NO SCREEN COULD SET WOULD MAKE THE TOOL'S REFUSAL A DEAD END.**
+          // An agent can be asked to set up a daily automation, and the one thing it must
+          // not choose is the zone — "every day at nine" somewhere nobody lives is worse
+          // than no schedule at all. So this is the door, and with it blank the tool
+          // refuses and says to come here. A plain input like the two above it, because
+          // the tz database has hundreds of names and a select of all of them is a worse
+          // control than a box; what makes it safe is that the SERVER asks `Intl` and
+          // refuses a name it does not know, by name.
+          '<label class="ag-lbl" for="agZone">Time zone</label>' +
+          '<div class="ag-hint">For anything it schedules — an IANA name like Europe/London or America/New_York. Leave it empty and it will ask you before setting up a schedule rather than guess.</div>' +
+          '<input class="ag-in" id="agZone" maxlength="200" placeholder="Europe/London" value="' + esc(zoneVal) + '">' +
           '<div class="ag-actions">' +
             '<button class="ag-save" data-act="agent-save"' + (agentBusy ? ' disabled' : '') + '>' + (agentBusy ? 'Saving…' : 'Save') + '</button>' +
             '<button class="ag-cancel" data-act="agent-cancel">' + (cur ? 'Back' : 'Cancel') + '</button>' +
@@ -3962,12 +3979,18 @@ function agentFormValues() {
   const nameEl = document.getElementById('agName');
   const instrEl = document.getElementById('agInstr');
   const pausedEl = document.getElementById('agPaused');
+  const zoneEl = document.getElementById('agZone');
   const boxes = typeof document.querySelectorAll === 'function'
     ? [...document.querySelectorAll('[data-tool]')] : [];
   return {
     name: (nameEl ? nameEl.value : '').trim().slice(0, AGENT_NAME_MAX),
     instructions: (instrEl ? instrEl.value : '').trim().slice(0, AGENT_MAX),
     status: (pausedEl && pausedEl.checked) ? 'paused' : 'active',
+    // ⚠ **THE EMPTY BOX IS SENT AS `null`, WHICH IS A CLEAR RATHER THAN A SILENCE.** The
+    // route reads absent as *leave it alone* and `null` as *forget it* — and this form
+    // always draws the box, so what it sends is always what it shows. Sending `''` instead
+    // would make emptying it a save that changes nothing, which is the dead control again.
+    zone: (zoneEl ? zoneEl.value : '').trim().slice(0, 200) || null,
     // ONLY WHAT IS TICKED, and each name off the box's own attribute rather than a
     // label or a position — a name read out of the drawing is a name that changes
     // when somebody rewords it.
@@ -3978,14 +4001,14 @@ function agentFormValues() {
 }
 
 async function agentSave() {
-  const { name, instructions, status, tools } = agentFormValues();
+  const { name, instructions, status, tools, zone } = agentFormValues();
   const say = (m) => { agentActErr = m; renderAgents(); };
   // KEPT BEFORE ANYTHING CAN FAIL, including the refusals below: `renderAgents`
   // rewrites the panel, so without this the words would be gone by the time the
   // sentence appeared. **ALL FOUR FIELDS, not just the two text ones** — a failed
   // save that redrew an unticked box as ticked would say a permission was stored
   // when it was refused.
-  agentDraft = { name, instructions, status, tools };
+  agentDraft = { name, instructions, status, tools, zone };
   agentDraftFor = agentEditing;
   agentSaved = false;
   if (!name) { say('Give it a name first.'); return; }
@@ -4009,9 +4032,12 @@ async function agentSave() {
       // `status` out of the create body made that tick a control somebody sets and
       // nothing reads — the agent came back active, and the checkbox that said
       // otherwise was the only thing claiming it was paused.
+      // ⚠ THE SAME FIVE FIELDS EITHER WAY. The form draws the zone box for a NEW agent as
+      // well, so leaving it out of the create body would make that box a control somebody
+      // fills in and nothing reads — which is exactly what happened to `status` once.
       body: JSON.stringify(editing
-        ? { id: editing, name, instructions, status, tools }
-        : { name, instructions, status, tools }),
+        ? { id: editing, name, instructions, status, tools, zone }
+        : { name, instructions, status, tools, zone }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';

@@ -85,6 +85,12 @@ const RPCS = {
   // broken for a fault of the fixture's.
   create_automation: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_max::integer", "p_inputs::jsonb", "p_days::text[]", "p_on_date::date", "p_on_event"], shape: "value" },
   update_automation: { args: ["p_tenant", "p_id::uuid", "p_name", "p_enabled::boolean", "p_schedule", "p_at_local::time", "p_zone", "p_steps::jsonb", "p_inputs::jsonb", "p_days::text[]", "p_on_date::date", "p_on_event"], shape: "value" },
+  // ⚠ THE PATCH IS A SEPARATE DOOR FROM THE REPLACE, and the shim says so by serving both.
+  // `update_automation` is what the screen's form does (it shows every field and sends every
+  // field); this is what a TOOL does (a model names the one thing it was asked to change).
+  patch_automation: { args: ["p_tenant", "p_id::uuid", "p_patch::jsonb", "p_expect_version::integer"], shape: "value" },
+  // The zone a schedule is written in, read and never written by the authoring path.
+  read_agent_settings: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
   accept_automation_run: { args: ["p_tenant", "p_automation_id::uuid", "p_run_id::uuid", "p_trigger", "p_occurrence::date", "p_input::jsonb", "p_event_id::uuid", "p_event_depth::integer"], shape: "value" },
   finish_automation_run: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_outcomes::jsonb", "p_stop::jsonb", "p_position::integer", "p_vars::jsonb"], shape: "value" },
   tick_automations: { args: ["p_catchup_s::integer", "p_limit::integer"], shape: "set" },
@@ -186,7 +192,7 @@ const RPCS = {
  * not more forgiving than the real thing.
  */
 const ONCE_OF = ["save_memory", "delete_memory", "set_automation_enabled",
-  "accept_automation_run", "create_automation", "update_automation"];
+  "accept_automation_run", "create_automation", "update_automation", "patch_automation"];
 for (const name of ONCE_OF) {
   const inner = RPCS[name];
   if (!inner) throw new Error(`local-rest: ${name} is not served, so ${name}_once cannot be derived`);
@@ -205,7 +211,9 @@ for (const name of ONCE_OF) {
  * reading one must never be able to name a column of the other.
  */
 const AGENT_COLUMNS = new Set(["id", "tenant_id", "name", "instructions", "created_at", "updated_at",
-  "last_message", "status", "tools"]);
+  // ⚠ `zone` IS THE SETTING THE AUTHORING PATH READS AND A PERSON SETS. A shim that did not
+  // serve it would refuse the settings form's own select and report the wiring as broken.
+  "last_message", "status", "tools", "zone"]);
 /**
  * ⚠ **`agent.connection_list`'s COLUMNS, AND NEITHER CREDENTIAL IS ON THE LIST — because the
  * VIEW does not have them.** A shim that passed a column list through would let a caller ask
@@ -225,7 +233,15 @@ const THREAD_COLUMNS = new Set(["id", "agent_id", "seq", "body", "created_at", "
 
 /** The automations' own columns, and their executions'. A third set, for a third half. */
 const AUTOMATION_COLUMNS = new Set(["id", "agent_id", "tenant_id", "name", "enabled", "schedule",
-  "at_local", "zone", "steps", "inputs", "version", "next_run_at", "created_at", "updated_at"]);
+  "at_local", "zone", "steps", "inputs", "version", "next_run_at", "created_at", "updated_at",
+  // ⚠ **THE THREE TRIGGER COLUMNS WERE MISSING, and this set is the one place that can see
+  // it.** `20260918050000_agent_triggers.sql` added `days`, `on_date` and `on_event` to the
+  // table and nothing added them here — a latent gap rather than a live one, because every
+  // reader of them today goes through `list_automations`, which is an RPC. The rule stands
+  // whether or not anything is reading yet: *a shim LESS capable than the thing it stands in
+  // for hides a defect exactly as well as one that is more*, and the day a check reads a
+  // weekly schedule's days off the table it must not be refused by this list.
+  "days", "on_date", "on_event"]);
 const EXECUTION_COLUMNS = new Set(["id", "automation_id", "agent_id", "tenant_id", "trigger", "occurrence",
   "steps", "zone", "outcomes", "missed", "created_at", "finished_at",
   "run_status", "run_stop", "run_started_at", "run_stopped_at",
@@ -506,16 +522,23 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         // for a mixed batch: PostgREST refuses those outright (PGRST102, "all object
         // keys must match"), so a shim that accepted one would be more capable than
         // the real thing — the same trap from the other side.
+        // ⚠ `zone` IS THE THIRD COLUMN THIS LIST HAD TO GAIN, and it is the same trap the
+        // paragraph above records: a fixed list here drops a value the route really sent, and
+        // the route then reads its own save back as though nobody had asked. Measured — with
+        // this line unchanged the settings form answered 200 and stored nothing.
+        // **`null` IS A VALUE HERE AND `undefined` IS SILENCE**, so `lit(null)` (which is
+        // `null`) is a real clear and only an absent key falls to `default`.
         const vals = rows.map((r) =>
           `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)}, ` +
           `${r.status === undefined ? "default" : lit(r.status)}, ` +
-          `${r.tools === undefined ? "default" : arr(r.tools)})`).join(", ");
+          `${r.tools === undefined ? "default" : arr(r.tools)}, ` +
+          `${r.zone === undefined ? "default" : lit(r.zone)})`).join(", ");
         // A CTE, NOT A SUBQUERY: Postgres does not allow a data-modifying statement
         // inside `from (...)`, which is a syntax error rather than a refusal — so the
         // shim answered 400 and the route reported a save that had never been tried.
         const r = await sql(`with ins as (
-            insert into agent.agents (id, tenant_id, name, instructions, status, tools) values ${vals}
-            returning id, name, instructions, created_at, updated_at, status, tools)
+            insert into agent.agents (id, tenant_id, name, instructions, status, tools, zone) values ${vals}
+            returning id, name, instructions, created_at, updated_at, status, tools, zone)
           select coalesce(json_agg(t), '[]')::text from ins t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(201, JSON.parse(r.out || "[]"));
@@ -535,6 +558,11 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         const sets = ["name", "instructions", "status"].filter((k) => typeof body?.[k] === "string")
           .map((k) => `"${k}" = ${lit(body[k])}`);
         if (Array.isArray(body?.tools)) sets.push(`"tools" = ${arr(body.tools)}`);
+        // ⚠ **THE ZONE IS ASKED BY PRESENCE, NOT BY TYPE, and the two differ for exactly one
+        // value.** `typeof x === "string"` — the filter the three above use — drops an
+        // explicit `null`, which is how somebody CLEARS a zone; PostgREST writes whatever key
+        // the body carries. So absent leaves the stored value alone and `null` really clears.
+        if (body && Object.hasOwn(body, "zone")) sets.push(`"zone" = ${lit(body.zone)}`);
         if (!sets.length) return send(400, { message: "nothing writable was asked for" });
         const where = whereOf(url.searchParams, AGENT_COLUMNS);
         // NEVER AN UNFILTERED UPDATE — the same rule the queue's PATCH follows, and for
@@ -542,7 +570,7 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         if (!where) return send(400, { message: "a PATCH must name which rows" });
         const r = await sql(`with upd as (
             update agent.agents set ${sets.join(", ")} ${where}
-            returning id, name, instructions, created_at, updated_at, status, tools)
+            returning id, name, instructions, created_at, updated_at, status, tools, zone)
           select coalesce(json_agg(t), '[]')::text from upd t;`);
         if (!r.ok) { const e = errorBody(r.err); return send(e.status, e.body); }
         return send(200, JSON.parse(r.out || "[]"));

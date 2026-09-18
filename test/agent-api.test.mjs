@@ -714,8 +714,10 @@ test("an agent arrives in the shape the list already draws", () => {
     created_at: "2026-09-15T10:00:00Z", updated_at: "2026-09-15T11:00:00Z",
     last_message: "what needs reordering?",
   });
+  // ⚠ THE WHOLE KEY SET, so a field added here cannot be one the screen never draws — and a
+  // field REMOVED cannot be one the screen goes on reading as `undefined`.
   assert.deepEqual(Object.keys(row).sort(),
-    ["created", "id", "instructions", "name", "preview", "status", "tools", "updated"]);
+    ["created", "id", "instructions", "name", "preview", "status", "tools", "updated", "zone"]);
   assert.equal(row.created, Date.parse("2026-09-15T10:00:00Z"));
   assert.equal(row.updated, Date.parse("2026-09-15T11:00:00Z"));
   assert.equal(row.preview, "what needs reordering?");
@@ -738,6 +740,17 @@ test("an agent arrives in the shape the list already draws", () => {
   assert.equal(agentRow({ id: A1, status: "paused" }).status, "paused");
   assert.equal(agentRow({ id: A1 }).status, "paused", "an unreadable status read as active");
   assert.equal(agentRow({ id: A1, status: "nonsense" }).status, "paused");
+  /**
+   * ⚠ **AND THE ZONE FAILS CLOSED TO `null`, WHICH IS NOT `"UTC"`.** The authoring path reads
+   * `null` as *ask the person which zone their schedule is in* — that refusal is the whole
+   * reason this setting exists, and a default here would turn it into a guess that fires at
+   * the wrong hour while every reader agrees it is right.
+   */
+  assert.equal(agentRow({ id: A1, zone: "Europe/London" }).zone, "Europe/London");
+  assert.equal(agentRow({ id: A1, zone: "  Europe/London  " }).zone, "Europe/London", "not trimmed");
+  for (const unreadable of [undefined, null, "", "   ", 7, ["Europe/London"], {}]) {
+    assert.equal(agentRow({ id: A1, zone: unreadable }).zone, null, JSON.stringify(unreadable));
+  }
   assert.equal(agentRow({ id: A1, status: ["active"] }).status, "paused", "an array became a status");
   assert.deepEqual(agentRow({ id: A1 }).tools, []);
   assert.deepEqual(agentRow({ id: A1, tools: "echo" }).tools, [], "a string became a selection");

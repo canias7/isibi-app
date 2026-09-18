@@ -3120,11 +3120,27 @@ try {
                and has_function_privilege('service_role', p.oid, 'EXECUTE')
                and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
                and not has_function_privilege('anon', p.oid, 'EXECUTE');`) === "2");
-    check("⚠ and all eight new functions pin an empty search_path and run as their owner",
-      jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-             where n.nspname='agent'
-               and (p.proname like '%\\_once' or p.proname in ('operation_check','operation_record'))
-               and p.prosecdef and 'search_path=""' = any(p.proconfig);`) === "8");
+    /**
+     * ⚠ **EVERY WRAPPER AND BOTH HELPERS PIN AN EMPTY `search_path` AND RUN AS THEIR OWNER.**
+     *
+     * **RE-ANCHORED, NOT APPEASED.** This read `=== "8"` — a hand-typed count, which is this
+     * repository's own "two copies of one thing": it fires on every honest addition (it did,
+     * the day `patch_automation_once` arrived) and it says nothing about the property. What
+     * matters is that NONE of them is missing the pin, so the question is asked as a
+     * comparison between how many exist and how many are right, with the names of any that
+     * are not — and a floor, so an empty set cannot satisfy it.
+     */
+    const pinnable = `n.nspname='agent'
+               and (p.proname like '%\\_once' or p.proname in ('operation_check','operation_record'))`;
+    const pinned = `p.prosecdef and 'search_path=""' = any(p.proconfig)`;
+    const allWrappers = jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where ${pinnable};`);
+    const unpinned = jget(`select coalesce(string_agg(p.proname, ', ' order by p.proname), '')
+             from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where ${pinnable} and not (${pinned});`);
+    check("⚠ every wrapper and both helpers pin an empty search_path and run as their owner",
+      Number(allWrappers) >= 8 && unpinned === "",
+      `${allWrappers} such functions; unpinned: ${unpinned || "(none)"}`);
 
     // ⚠ A WRAPPER DOES THE WORK ONCE AND THE ROW PROVES IT. This is the whole guarantee, in
     // the database, with no engine in front of it.
@@ -4652,6 +4668,198 @@ try {
       { role: "authenticated", claims: `{"tenant_id":"${CX_T}"}`, expectFail: true }).ok);
 }
 
+// ── AN EDIT THAT CHANGES ONLY WHAT IT NAMES, AND A ZONE NOBODY GUESSED ────────
+//
+// ⚠ **BOTH OF THESE ARE THIS ROUND'S FIXES AND BOTH NEEDED A REAL DATABASE, for the same
+// reason the connections section above does: what they turn on is a ROW LOCK, a set of CHECK
+// constraints and a function calling another function inside one transaction. A fake store
+// cannot refuse a half-whole schedule, cannot serialise two callers, and cannot tell a
+// preserved field from one a patch wrote back unchanged.
+{
+  console.log("\n── EDITING AN AUTOMATION, AND THE ZONE A SCHEDULE IS LOCAL TO ──");
+  const PT = "patch-t";
+  const PA = "dd000000-0000-0000-0000-0000000000a1";
+  const PB = "dd000000-0000-0000-0000-0000000000a2";   // a sibling agent, same account
+  const P1 = "dd000000-0000-0000-0000-0000000000b1";
+  const P2 = "dd000000-0000-0000-0000-0000000000b2";
+  psql(`insert into agent.agents (id, tenant_id, name, instructions)
+        values ('${PA}'::uuid, '${PT}', 'Payroll agent', 'i'),
+               ('${PB}'::uuid, '${PT}', 'Sibling', 'i')
+        on conflict do nothing;`, asOwner);
+
+  // ── THE ZONE IS A SETTING, READ AND NEVER GUESSED ──
+  check("an agent with no zone set answers null rather than a default",
+    jget(`select (agent.read_agent_settings('${PT}', '${PA}'::uuid) ->> 'zone' is null)::text;`) === "true");
+  psql(`update agent.agents set zone = 'Europe/London' where id = '${PA}'::uuid;`, asOwner);
+  check("...and once a person sets one, that is what it answers",
+    jget(`select agent.read_agent_settings('${PT}', '${PA}'::uuid) ->> 'zone';`) === "Europe/London");
+  // ⚠ **A ZONE THE SERVER CANNOT USE READS AS ABSENT, and only a real PostgreSQL can say
+  // which names those are.** The column's length check cannot ask whether a name MEANS
+  // anything; a stale one would otherwise reach a schedule and raise several layers from the
+  // setting that is wrong.
+  psql(`update agent.agents set zone = 'Mars/Olympus' where id = '${PA}'::uuid;`, asOwner);
+  check("⚠ a zone this server does not know reads as none, not as itself",
+    jget(`select (agent.read_agent_settings('${PT}', '${PA}'::uuid) ->> 'zone' is null)::text;`) === "true");
+  check("...and `zone_is_usable` is what says so, both ways",
+    jget(`select agent.zone_is_usable('Europe/London')::text || ' '
+                 || agent.zone_is_usable('Mars/Olympus')::text || ' '
+                 || agent.zone_is_usable('')::text || ' '
+                 || coalesce(agent.zone_is_usable(null)::text, 'null');`) === "true false false false");
+  psql(`update agent.agents set zone = 'Europe/London' where id = '${PA}'::uuid;`, asOwner);
+  check("⚠ another account cannot read this agent's settings — the same answer a missing one gets",
+    jget(`select agent.read_agent_settings('other-tenant', '${PA}'::uuid) ->> 'error';`) === "no-agent");
+
+  // ── A STORED AUTOMATION, DISABLED, SCHEDULED, ZONED, WITH AN INPUT ──
+  const made = jget(`select agent.create_automation('${PT}', '${PA}'::uuid, '${P1}'::uuid,
+      'Payroll', false, 'daily', '23:00', 'Europe/London',
+      '[{"id":"s1","type":"note","text":"hello {{customer}}","out":null}]'::jsonb, 20,
+      '[{"name":"customer","label":"customer","required":false,"default":"","type":"text"}]'::jsonb)
+      ->> 'ok';`);
+  check("a disabled daily automation with an input exists", made === "true", made);
+  const shape = () => jget(`select enabled::text || ' | ' || schedule || ' | ' || coalesce(at_local::text, '-')
+      || ' | ' || coalesce(zone, '-') || ' | ' || jsonb_array_length(inputs)::text
+      || ' | ' || jsonb_array_length(steps)::text || ' | v' || version::text
+      || ' | ' || case when next_run_at is null then 'no-instant' else 'armed' end
+      from agent.automations where id = '${P1}'::uuid;`);
+  const BEFORE = shape();
+  check("...and it reads as it was written",
+    BEFORE === "false | daily | 23:00:00 | Europe/London | 1 | 1 | v1 | armed", BEFORE);
+
+  // ⚠ **THE DEFECT, AT THE DATABASE: a rename must change the name and NOTHING else.**
+  check("⚠ a rename changes the name and leaves every other field exactly as it was",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"name":"Payroll (renamed)"}'::jsonb) ->> 'ok';`) === "true"
+    && shape() === BEFORE
+    && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Payroll (renamed)",
+    shape());
+
+  // ── EVERY TYPE REFUSED RATHER THAN COERCED, and nothing written on any of them ──
+  const junk = [
+    ['{"enabled":"false"}', "bad-enabled"], ['{"enabled":1}', "bad-enabled"],
+    ['{"name":7}', "bad-name"], ['{"name":"   "}', "bad-name"],
+    ['{"schedule":"hourly"}', "bad-schedule"], ['{"schedule":["daily"]}', "bad-schedule"],
+    ['{"atLocal":"9am"}', "bad-time"], ['{"atLocal":"09:00:30"}', "bad-time"],
+    ['{"atLocal":"24:00"}', "bad-time"],
+    ['{"zone":"Mars/Olympus"}', "bad-zone"], ['{"zone":7}', "bad-zone"],
+    ['{"steps":"none"}', "bad-steps"], ['{"inputs":{}}', "bad-inputs"],
+    ['{"days":"mon"}', "bad-days"], ['{"days":[1]}', "bad-days"],
+    ['{"onDate":"2026-13-45"}', "bad-date"], ['{"onDate":"soon"}', "bad-date"],
+    ['{"onEvent":7}', "bad-event"],
+    ['{"nonsense":1}', "bad-field"], ['{"name":"X","nonsense":1}', "bad-field"],
+    ['[]', "bad-patch"], ['"x"', "bad-patch"], ['7', "bad-patch"],
+  ];
+  let refused = 0;
+  for (const [patch, want] of junk) {
+    const got = jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '${patch}'::jsonb) ->> 'error';`);
+    if (got === want) refused += 1; else check(`${patch} → ${want}`, false, `answered ${got}`);
+  }
+  check(`⚠ every unreadable value is refused BY NAME (${refused}/${junk.length})`, refused === junk.length);
+  // ⚠ AND NOT ONE OF THEM CHANGED ANYTHING — asked AFTER all of them, because a refusal that
+  // writes half a patch is the failure mode a per-case check would miss.
+  check("⚠ ...and not one of them touched the row",
+    shape() === BEFORE && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Payroll (renamed)",
+    shape());
+  // ⚠ AN UNKNOWN KEY IS NAMED, because "that could not be saved" gives nobody anything to do.
+  check("...and an unknown field is named in the answer",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"nonsense":1}'::jsonb) ->> 'field';`) === "nonsense");
+
+  // ── AN EXPLICIT CHANGE REALLY CHANGES, which is what makes the preserving a claim ──
+  check("⚠ THE CONTROL: an explicit enable really enables, and only that",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"enabled":true}'::jsonb) ->> 'ok';`) === "true"
+    && shape() === BEFORE.replace("false |", "true |"), shape());
+  check("⚠ ...and clearing the schedule clears its time and its instant, keeping the zone",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"schedule":"manual","atLocal":null}'::jsonb) ->> 'ok';`) === "true"
+    && shape() === "true | manual | - | Europe/London | 1 | 1 | v1 | no-instant", shape());
+  // ⚠ **AND A HALF-WHOLE SCHEDULE IS THE COLUMN'S OWN REFUSAL, which is why this needs a real
+  // database: `daily` with no time is a row Postgres will not hold, and the patch does not
+  // duplicate that check — it lets the constraint raise, which `patch_automation` passes on.
+  const halfWhole = psql(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"schedule":"daily"}'::jsonb);`, asOwner);
+  check("⚠ a daily schedule with no time is refused by the column, not stored half-whole",
+    halfWhole.err !== null && /automations_schedule_is_whole|a daily schedule needs/.test(String(halfWhole.err)),
+    String(halfWhole.err).slice(0, 120));
+  check("...and the row is still what it was", shape() === "true | manual | - | Europe/London | 1 | 1 | v1 | no-instant", shape());
+
+  // ── THE VERSION FENCE, AND WHAT IT REALLY COVERS ──
+  check("a stale version is refused, and says which one it has",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"name":"Z"}'::jsonb, 99) ->> 'error';`) === "stale"
+    && jget(`select (agent.patch_automation('${PT}', '${P1}'::uuid, '{"name":"Z"}'::jsonb, 99) -> 'version')::text;`) === "1");
+  check("...and the right version goes through",
+    jget(`select agent.patch_automation('${PT}', '${P1}'::uuid, '{"name":"Z"}'::jsonb, 1) ->> 'ok';`) === "true"
+    && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Z");
+  // ⚠ **`version` MOVES ON A CHANGE OF STEPS AND ON NOTHING ELSE — measured, not assumed**,
+  // because the fence's scope is exactly that and a note claiming more would be false.
+  check("⚠ a change of STEPS moves the version",
+    jget(`select (agent.patch_automation('${PT}', '${P1}'::uuid,
+            '{"steps":[{"id":"s1","type":"note","text":"hello {{customer}}","out":null},
+                       {"id":"s2","type":"note","text":"and again","out":null}]}'::jsonb) -> 'version')::text;`) === "2");
+  check("⚠ ...and a rename does not, so a parent's workflow snapshot stays honest",
+    jget(`select (agent.patch_automation('${PT}', '${P1}'::uuid, '{"name":"Z2"}'::jsonb) -> 'version')::text;`) === "2");
+
+  // ── WHOSE IT IS ──
+  check("another account's automation is `no-automation`, not something to rewrite",
+    jget(`select agent.patch_automation('other-tenant', '${P1}'::uuid, '{"name":"theirs"}'::jsonb) ->> 'error';`) === "no-automation");
+  check("...and the row is untouched", jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Z2");
+
+  // ── THE WRAPPER: A RETRY OF A COMPLETED EDIT CANNOT OVERWRITE A NEWER CHANGE ──
+  //
+  // ⚠ **THE LAST CLAUSE OF THE REQUIREMENT, and it is a stronger guarantee than a version
+  // check: it holds even when the newer change moved a field this patch never named.**
+  const PKEY = "99999999-9999-4999-8999-999999999999:41:0";
+  const PHASH = "cafe4141";
+  const once = (patch, hash = PHASH) => jget(`select agent.patch_automation_once('${PT}', '${PKEY}', '${hash}',
+      null, '${P1}'::uuid, '${patch}'::jsonb, null)::text;`);
+  const first = once('{"name":"From the tool"}');
+  check("the wrapper does the edit once", JSON.parse(first).ok === true
+    && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "From the tool", first);
+  psql(`update agent.automations set name = 'Corrected by a person' where id = '${P1}'::uuid;`, asOwner);
+  const again = once('{"name":"From the tool"}');
+  check("⚠ a redelivery answers the first attempt and writes NOTHING",
+    JSON.parse(again).repeat === true
+    && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Corrected by a person", again);
+  check("⚠ ...and a DIFFERENT edit in that slot is refused, having written nothing",
+    JSON.parse(once('{"name":"Something else"}', "other-hash")).error === "operation-mismatch"
+    && jget(`select name from agent.automations where id = '${P1}'::uuid;`) === "Corrected by a person");
+
+  // ── TWO CALLERS AT ONCE: THE LOCK IS WHAT MAKES DISJOINT EDITS BOTH SURVIVE ──
+  //
+  // ⚠ **THIS IS THE CHECK THAT CANNOT BE FAKED.** `patch_automation` takes `for update` BEFORE
+  // it resolves anything, so a second caller waits and then reads what the first committed —
+  // which is why two edits naming DIFFERENT fields both stand. Resolving against an unlocked
+  // read would have the second write its own stale value over the first, and a unit test with
+  // one process in it cannot tell the two apart.
+  jget(`select agent.create_automation('${PT}', '${PA}'::uuid, '${P2}'::uuid,
+      'Concurrent', true, 'manual', null, 'Europe/London', '[]'::jsonb, 20, '[]'::jsonb) ->> 'ok';`);
+  // ⚠ **REALLY CONCURRENT: TWO SESSIONS, ONE HOLDING THE ROW.** A sequential pair proves
+  // nothing about the lock — the second call would read the first's committed value either
+  // way. `A` renames it and SITS INSIDE ITS TRANSACTION; `B` starts a moment later and asks
+  // to disable it, blocks on `A`'s lock, and only then resolves. With the lock where it is, B
+  // reads A's name and preserves it; resolving before locking would have B write the name it
+  // read BEFORE A committed, and A's rename would be gone.
+  const race = (() => {
+    const one = (patch, hold) => `psql -X -q -t -A -d ${DB} -c ${shq(
+      `begin; select agent.patch_automation('${PT}', '${P2}'::uuid, '${patch}'::jsonb);`
+      + (hold ? ` select pg_sleep(1.2);` : "") + ` commit;`)}`;
+    try {
+      execFileSync("su", ["postgres", "-c",
+        `${one('{"name":"Renamed by A"}', true)} & sleep 0.4; ${one('{"enabled":false}', false)}; wait`],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      return { ok: true, err: "" };
+    } catch (e) { return { ok: false, err: `${e.stdout ?? ""}${e.stderr ?? ""}`.trim() }; }
+  })();
+  const after = jget(`select name || ' / ' || enabled::text from agent.automations where id = '${P2}'::uuid;`);
+  check("⚠ TWO CONCURRENT EDITS NAMING DIFFERENT FIELDS BOTH SURVIVE",
+    race.ok && after === "Renamed by A / false", `${race.err || ""} row: ${after}`);
+  // AND THE LOCK IS THERE, read off the function's own body — the property the concurrency
+  // above rests on, asked directly so a rewrite that dropped it is red even if the sequential
+  // case still passes.
+  check("⚠ ...and the lock is taken BEFORE anything is resolved",
+    (() => {
+      const body = jget(`select pg_get_functiondef('agent.patch_automation(text,uuid,jsonb,integer)'::regprocedure);`);
+      const lock = body.indexOf("for update");
+      const firstResolve = body.indexOf("p_patch ? 'name'");
+      return lock > 0 && firstResolve > lock;
+    })(), "the patch resolves a field before it holds the row");
+}
+
 // ── EVERY `_once` WRAPPER TAKES ITS INNER FUNCTION'S PARAMETERS ───────────────
 //
 // ⚠ **THE RULE, AND IT COST THREE DEMONSTRATIONS AT ONCE.** A wrapper's parameter list is
@@ -4668,8 +4876,21 @@ try {
 // inner functions fails here by existing.
 {
   console.log("\n── EVERY `_once` WRAPPER FOLLOWS ITS INNER FUNCTION ──");
-  const WRAPPED = ["save_memory", "delete_memory", "set_automation_enabled",
-    "accept_automation_run", "create_automation", "update_automation"];
+  /**
+   * ⚠ **DERIVED FROM THE DATABASE, NOT LISTED — and the list it replaces was already one
+   * wrapper short.** Every `*_once` the schema really has must obey the rule, so a wrapper
+   * added next month is covered by existing rather than by somebody remembering this array.
+   * `patch_automation_once` is the one that proved it: written and not named here.
+   *
+   * The catalog is the ONE reader, and the shim's own `ONCE_OF` is a separate list in a
+   * separate product — which is why the derivation is asked of `pg_proc` rather than of it.
+   */
+  const WRAPPED = jget(`select coalesce(string_agg(left(p.proname, length(p.proname) - 5), ',' order by p.proname), '')
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'agent' and p.proname like '%\\_once';`).split(",").filter(Boolean);
+  check("⚠ the wrapper census is derived from the schema and found some",
+    WRAPPED.length >= 7 && WRAPPED.includes("patch_automation"),
+    `it reads ${JSON.stringify(WRAPPED)}`);
   // THE OWN FOUR, in the order the wrappers really declare them.
   const OWN = ["p_tenant text", "p_op_key text", "p_args_hash text", "p_op_run uuid"];
   const params = (name) => {

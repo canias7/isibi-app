@@ -250,7 +250,23 @@ test("⚠ A FAILED SAVE KEEPS WHAT WAS TYPED", () => {
   const kept = /agentDraft = \{([^}]*)\}/.exec(body);
   assert.ok(kept, "nothing keeps the draft");
   const fields = kept[1].split(",").map((f) => f.trim().split(":")[0].trim()).filter(Boolean);
-  assert.deepEqual([...fields].sort(), ["instructions", "name", "status", "tools"],
+  /**
+   * ⚠ **RE-ANCHORED A SECOND TIME, AND NOW IT IS DERIVED.** The first re-anchor moved off the
+   * literal `agentDraft = { name, instructions }` and onto a hand-typed list of four — which
+   * is the same trap one step along: it went red the day the form honestly gained a
+   * time-zone field, about a draft that had correctly grown to carry it.
+   *
+   * The property is *the draft carries every field the form can lose*, and the one thing that
+   * knows what the form can lose is `agentFormValues`, which READS them all off the DOM. So
+   * the expectation comes from that function's own returned keys, and a field added to the
+   * form is covered by existing rather than by somebody remembering this line.
+   */
+  const reader = js.slice(js.indexOf("function agentFormValues()"));
+  const returned = /return \{([\s\S]*?)\n  \};/.exec(reader);
+  assert.ok(returned, "agentFormValues does not return an object literal any more — re-read it");
+  const canLose = [...returned[1].matchAll(/^\s{4}([A-Za-z_$][\w$]*)\s*:/gm)].map((m) => m[1]);
+  assert.ok(canLose.length >= 4, `the reader's own field list reads as ${JSON.stringify(canLose)}`);
+  assert.deepEqual([...fields].sort(), [...canLose].sort(),
     "the draft does not carry every setting the form can lose");
   assert.ok(body.indexOf(kept[0]) < body.indexOf("if (!name)"),
     "the draft is kept after the first thing that can fail, so a refusal loses it");
