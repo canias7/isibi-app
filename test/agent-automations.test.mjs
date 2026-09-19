@@ -48,7 +48,11 @@ function fakeStore(over = {}) {
     listAutomations: of("listAutomations", []),
     createAutomation: of("createAutomation", { ok: true, id: C1, next_run_at: null }),
     updateAutomation: of("updateAutomation", { ok: true, id: C1, next_run_at: null }),
-    setAutomationEnabled: of("setAutomationEnabled", { id: C1, enabled: false }),
+    // ⚠ `agent.set_automation_enabled`'S OWN ANSWER, not a row — see the store's note: the
+    // toggle is the function the agent's `pause_automation` calls, and it RECOMPUTES the
+    // next run when a scheduled automation is turned back on.
+    setAutomationEnabled: of("setAutomationEnabled",
+      { ok: true, id: C1, enabled: false, next_run_at: "2026-09-20T08:00:00+00:00" }),
     removeAutomation: of("removeAutomation", true),
     runAutomation: of("runAutomation", { ok: true, repeat: false, run_id: R1, occurrence: null, trigger: "manual", state: "queued" }),
     executions: of("executions", []),
@@ -68,8 +72,12 @@ function fakeStore(over = {}) {
     updateKnowledge: of("updateKnowledge", { id: K1, title: "Price list", version: 2 }),
     removeKnowledge: of("removeKnowledge", true),
     listMemory: of("listMemory", []),
-    saveMemory: of("saveMemory", { id: M1, key: "tone", value: "formal", version: 1 }),
-    removeMemory: of("removeMemory", true),
+    // ⚠ `agent.save_memory`'S OWN ANSWER, not a row — see the note in `test/agent-api.test.mjs`.
+    saveMemory: of("saveMemory", { ok: true, saved: "created",
+      memory: { id: M1, name: "tone", value: "formal", version: 1, source: "person" } }),
+    removeMemory: of("removeMemory", { ok: true, forgot: true,
+      affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
+      note: "later runs won't see it; a run already under way keeps what it started with, and the history keeps whatever it quoted" }),
   };
   return { calls, store: { ...base, ...over } };
 }
@@ -191,6 +199,31 @@ test("the toggle is its own narrow write and carries no configuration with it", 
   assert.equal(r.status, 200);
   const set = f.calls.find((c) => c.name === "setAutomationEnabled");
   assert.deepEqual(set.args, [T1, C1, false]);
+  /**
+   * ⚠ **AND THE ANSWER IS `agent.set_automation_enabled`'S OWN, which is the whole of the fix
+   * this case was widened for.** The toggle used to be a bare `PATCH {enabled}` here while the
+   * agent's `pause_automation` called that function — and the function does one thing more:
+   * turning a SCHEDULED automation back on it recomputes `next_run_at`, because a stale one is
+   * in the past and `tick_automations` selects on `next_run_at <= now()`. Measured on a real
+   * PostgreSQL before it was changed: five days behind through this door, the next real
+   * occurrence through the other, for the same act on the same automation.
+   *
+   * So the recomputed instant has to REACH a reader rather than being dropped — a caller told
+   * only `ok` cannot see the one fact that changed besides the flag.
+   */
+  assert.equal(r.body.enabled, false);
+  assert.equal(r.body.nextRunAt, "2026-09-20T08:00:00+00:00",
+    "the instant the function recomputed did not reach the reply");
+  // A REFUSAL IS THE FUNCTION'S TOO: an automation that is not this account's and one that does
+  // not exist are ONE answer, which is what stops a stranger confirming somebody else's id.
+  const missing = fakeStore({ setAutomationEnabled: async () => ({ ok: false, error: "no-automation" }) });
+  const gone404 = await call("/api/agent/automation-enable", { store: missing.store, body: { id: C1, enabled: false } });
+  assert.equal(gone404.status, 404);
+  assert.match(gone404.body.error, /isn't here any more/);
+  // ⚠ AND A CODE NOBODY CAN NAME IS A 500, never a 400 blaming the caller for something this
+  // side cannot act on — the same rule `sayMemory` follows one route family over.
+  const odd = fakeStore({ setAutomationEnabled: async () => ({ ok: false, error: "something-new" }) });
+  assert.equal((await call("/api/agent/automation-enable", { store: odd.store, body: { id: C1, enabled: false } })).status, 500);
   // REFUSED RATHER THAN COERCED. `Boolean("false")` is `true`, so a string out of a form
   // would turn "off" into "on" — the one direction that starts work nobody asked for.
   for (const bad of ["false", 0, null, undefined, "on"]) {
@@ -263,6 +296,16 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   const made = seen.find((r) => r.url.includes("rpc/create_automation"));
   assert.equal(made.body.p_max, MAX_AUTOMATIONS, "the ceiling goes to the function that does the insert");
   assert.equal(made.body.p_tenant, T1);
+  // ⚠ **AND THE TOGGLE ASKS FOR THE FUNCTION BY NAME, never a `PATCH` of the column.** It was
+  // a bare `PATCH {enabled}` until this round, which set the flag and left `next_run_at` where
+  // a five-day pause had left it — in the past — while the agent's own `pause_automation` called
+  // the function that recomputes it. One operation, two behaviours, on the same automation.
+  const flipped = seen.find((r) => r.url.includes("rpc/set_automation_enabled"));
+  assert.ok(flipped, "turning an automation on or off does not go through the function that recomputes its next run");
+  assert.equal(flipped.method, "POST");
+  assert.deepEqual(Object.keys(flipped.body).sort(), ["p_enabled", "p_id", "p_tenant"]);
+  assert.ok(!seen.some((r) => r.method === "PATCH" && /automations\?id=/.test(r.url)),
+    "an automation's own column is still being patched from this side");
   // ⚠ THE PROFILE HEADER IS DERIVED FROM THE VERB. PostgREST IGNORES the read header on
   // a write, which is how a DELETE in this very module once resolved against `public`
   // and could never have worked.
@@ -1291,17 +1334,35 @@ test("a memory is set by name, and the ceiling is asked only for a name it does 
     assert.ok(!g.calls.some((c) => c.name === "saveMemory"), "a refused memory reached the database");
   }
 
-  // ⚠ CORRECTING WHAT IS ALREADY THERE IS NEVER REFUSED BY THE CAP. At the ceiling, a new
-  // name is a 409 and an existing one still saves — which is the whole difference between
-  // a limit on how much is remembered and a limit on changing your mind.
-  const held = Array.from({ length: MAX_MEMORIES }, (_, i) => ({ key: `k${i}`, value: "v" }));
-  const full = fakeStore({ listMemory: async () => held });
+  /**
+   * ⚠ **THE CEILING IS THE DATABASE FUNCTION'S NOW, AND THIS CASE IS RE-ANCHORED ONTO THE
+   * PROPERTY RATHER THAN APPEASED.** It used to stub `listMemory` with a full list and read the
+   * route's own count — which was a count and an insert in two statements, so two saves landing
+   * together both read one short of the cap and both inserted. `agent.save_memory` counts inside
+   * the transaction that writes and answers `too-many` with how many are held.
+   *
+   * The property is unchanged: at the ceiling a NEW name is refused and correcting an existing
+   * one is not — the difference between a limit on how much is remembered and a limit on
+   * changing your mind. What moved is where it is enforced.
+   */
+  const full = fakeStore({ saveMemory: async () => ({ ok: false, error: "too-many", held: MAX_MEMORIES }) });
   const over = await call("/api/agent/memory-save", { store: full.store, body: { agent: A1, name: "brandnew", value: "x" } });
   assert.equal(over.status, 409);
   assert.match(over.body.error, new RegExp(`${MAX_MEMORIES}`));
-  const same = fakeStore({ listMemory: async () => held });
+  const same = fakeStore({ saveMemory: async () => ({ ok: true, saved: "corrected",
+    memory: { id: M1, name: "k0", value: "corrected", version: 2, source: "person" } }) });
   const again = await call("/api/agent/memory-save", { store: same.store, body: { agent: A1, name: "k0", value: "corrected" } });
   assert.equal(again.status, 200, "a correction was refused by the cap it is already inside");
+  assert.equal(again.body.saved, "corrected", "what the save DID is not reported");
+  assert.equal(again.body.memory.version, 2, "the version the function answered did not reach the reply");
+
+  // ⚠ **AND THE ROUTE NO LONGER COUNTS IN JAVASCRIPT AT ALL** — strictly stronger than the
+  // assertion above, and the half that says the cap really is one implementation: a copy left
+  // here would be the drift this change removes, one release later.
+  const plain = fakeStore();
+  await call("/api/agent/memory-save", { store: plain.store, body: { agent: A1, name: "tone", value: "formal" } });
+  assert.ok(!plain.calls.some((c) => c.name === "listMemory"),
+    "the route read the whole list to check a ceiling the function already enforces");
 
   // AND A DELETE TAKES THE NAME AS THE IDENTITY, because that is what a step asks for.
   const d = fakeStore();
@@ -1331,6 +1392,50 @@ test("a memory is set by name, and the ceiling is asked only for a name it does 
   assert.match(gone.body.note, /history keeps whatever it quoted/);
   // AND NOTHING IN IT CLAIMS MORE THAN THAT — no "erased", no "everywhere", no "all".
   assert.doesNotMatch(gone.body.note, /eras|everywhere|all runs|completely/i);
+  /**
+   * ⚠ **AND THEY ARE `agent.delete_memory`'S OWN ANSWER, FORWARDED — which the three
+   * assertions above cannot tell from the route composing them again**, because the fake
+   * answers the very words this route used to write out by hand. So the discriminator is a
+   * store that answers something ELSE: what comes back has to be what the function said.
+   *
+   * That is the whole of "one implementation" for this operation. Written out here, a note
+   * about what a delete reaches was two copies of one claim in two languages — and the copy
+   * that drifts is the one a person reads.
+   */
+  const other = fakeStore({ removeMemory: async () => ({
+    ok: true, forgot: true,
+    affects: { futureRuns: true, acceptedRuns: false, runHistory: false, somethingNew: true },
+    note: "a different sentence, from the function itself" }) });
+  const fwd = await call("/api/agent/memory-delete", { store: other.store, body: { agent: A1, name: "tone" } });
+  assert.equal(fwd.body.note, "a different sentence, from the function itself",
+    "the route composed the note instead of forwarding what the delete really said");
+  assert.equal(fwd.body.affects.somethingNew, true,
+    "a fourth place a delete reaches would go unreported by this door");
+  /**
+   * ⚠ **AND A REACH THE FUNCTION DID NOT ANSWER IS AN ABSENCE, never an invented set.** An
+   * older deployment answers no `affects` at all; guessing one would put a claim about three
+   * relations into a reply nothing supports. Driven over every shape a wire can really carry,
+   * because `typeof [] === "object"` and a list is not a set of named facts.
+   */
+  for (const junk of [undefined, null, "everything", 7, ["futureRuns"], true]) {
+    const odd = fakeStore({ removeMemory: async () => ({ ok: true, forgot: true, affects: junk, note: "" }) });
+    const r = await call("/api/agent/memory-delete", { store: odd.store, body: { agent: A1, name: "tone" } });
+    assert.equal(r.status, 200, `affects ${JSON.stringify(junk)} refused the delete`);
+    assert.equal(r.body.affects, null, `affects ${JSON.stringify(junk)} reached a reader as a reach`);
+    assert.equal(r.body.note, null, "a blank note is a blank rather than a made-up sentence");
+  }
+  /**
+   * ⚠ **A NAME THAT WAS NOT THERE IS THE MISSING-MEMORY 404, and a refusal the checks above
+   * did not anticipate is a 500 rather than a 400 blaming the caller.** `forgot: false` is the
+   * function saying it removed nothing — not a failure, and not a removal — and an `ok: false`
+   * code with no sentence of its own must not fall through to "that agent isn't here", which
+   * is the answer it used to get by being a `null` row.
+   */
+  const absent = fakeStore({ removeMemory: async () => ({ ok: true, forgot: false }) });
+  assert.equal((await call("/api/agent/memory-delete", { store: absent.store, body: { agent: A1, name: "tone" } })).status, 404);
+  const odd = fakeStore({ removeMemory: async () => ({ ok: false, error: "something-new" }) });
+  const bad = await call("/api/agent/memory-delete", { store: odd.store, body: { agent: A1, name: "tone" } });
+  assert.equal(bad.status, 500, "a refusal nobody can name was blamed on the caller");
   // A DELETE WITH NO AGENT IS REFUSED: the scope is (account, agent, name), and dropping
   // the agent would delete one name across every agent the account has.
   const e = fakeStore();
@@ -1395,6 +1500,100 @@ test("every knowledge and memory route is scoped by the tenant, and none reads a
     const r = await call(p, { store: notMine.store, ...opts });
     assert.equal(r.status, 404, p);
     assert.match(r.body.error, /isn't here any more/);
+  }
+});
+
+test("⚠ ONE MEMORY, ONE IMPLEMENTATION: the REQUEST the store really sends, censused", async () => {
+  /**
+   * ⚠ **THE ROUTE'S OWN ARGUMENTS CANNOT SEE ANY OF THIS, which is the whole reason this case
+   * exists.** A memory used to be written here with a direct upsert and deleted with a direct
+   * DELETE, so a person's screen and the agent's own `remember`/`forget` were TWO
+   * implementations of one operation — and two implementations can only be compared by driving
+   * the real store and reading the wire. Every case above drives a FAKE store, which sees the
+   * arguments and never the request; the settings round paid for exactly that, when four sweep
+   * mutants lived inside `store.update`'s body where nothing could reach them.
+   *
+   * It is a CENSUS over the whole family and asserts its own count, so an operation added next
+   * month fails by existing rather than by being forgotten.
+   */
+  const seen = [];
+  const store = makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async (url, opts) => {
+      seen.push({ url: String(url), method: opts.method, headers: opts.headers,
+                  body: opts.body ? JSON.parse(opts.body) : undefined });
+      const rpc = String(url).includes("rpc/");
+      return { ok: true, status: 200,
+               text: async () => JSON.stringify(rpc ? { ok: true, forgot: true } : []) };
+    },
+  });
+  await store.listKnowledge(T1, A1);
+  await store.readKnowledge(T1, K1);
+  await store.countKnowledge(T1, A1);
+  await store.addKnowledge(T1, { agentId: A1, id: K1, title: "T", body: "x", format: "text" });
+  await store.updateKnowledge(T1, { id: K1, title: "T", body: "x", format: "text" });
+  await store.removeKnowledge(T1, K1);
+  await store.listMemory(T1, A1);
+  await store.saveMemory(T1, { agentId: A1, id: M1, key: "tone", value: "formal" });
+  await store.removeMemory(T1, A1, "tone");
+  const OPS = ["listKnowledge", "readKnowledge", "countKnowledge", "addKnowledge",
+    "updateKnowledge", "removeKnowledge", "listMemory", "saveMemory", "removeMemory"];
+  for (const op of OPS) assert.equal(typeof store[op], "function", `the store has no ${op}`);
+  assert.equal(seen.length, OPS.length,
+    `${OPS.length} operations made ${seen.length} requests — one of them is unread`);
+
+  // ⚠ **THE SAVE IS THE FUNCTION, NOT AN UPSERT.** The same `agent.save_memory` the agent's
+  // `remember` tool calls, so the cap, the scope, the version rule and who may be recorded as
+  // having said so are ONE set of rules rather than two that agree today.
+  const save = seen.find((r) => r.url.includes("rpc/save_memory"));
+  assert.ok(save, "saving a memory does not go through the function the agent's own tool calls");
+  assert.equal(save.method, "POST");
+  assert.deepEqual(Object.keys(save.body).sort(),
+    ["p_agent_id", "p_id", "p_key", "p_max", "p_source", "p_tenant", "p_value"],
+    "the save's arguments are not the function's own");
+  // AND THE CEILING TRAVELS WITH IT rather than being left to the parameter's own default —
+  // the platform decides how much one agent may remember, and the three-language census in
+  // `agent-send` is what keeps this constant equal to the engine's and to the function's.
+  assert.equal(save.body.p_max, MAX_MEMORIES, "the ceiling is not handed to the transaction");
+  assert.equal(save.body.p_source, "person", "a person's own save is not recorded as theirs");
+  /**
+   * ⚠ **AND `source` IS A PARAMETER RATHER THAN A LITERAL**, because the same function records
+   * a fact an AGENT wrote — so a store that hardcoded `person` could not be the one door, and
+   * the column's two values would mean one thing through this half and both through the other.
+   */
+  const asRun = [];
+  const runStore = makeAgentStore({ url: "https://db.example", key: "k",
+    fetch: async (url, opts) => {
+      asRun.push({ url: String(url), body: JSON.parse(opts.body) });
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) };
+    } });
+  await runStore.saveMemory(T1, { agentId: A1, id: M1, key: "tone", value: "f", source: "run" });
+  assert.equal(asRun[0].body.p_source, "run", "who wrote a fact is hardcoded in this store");
+  assert.deepEqual([...MEMORY_SOURCES].sort(), ["person", "run"],
+    "the two sources this store must be able to send are not the two it knows about");
+
+  // ⚠ **AND THE DELETE IS THE FUNCTION TOO, which is what makes the REACH one sentence.**
+  // Deleted straight out of the table, the route had to write out what forgetting touches by
+  // hand — two copies of one claim in two languages, and the copy that drifts is the one a
+  // person reads.
+  const gone = seen.find((r) => r.url.includes("rpc/delete_memory"));
+  assert.ok(gone, "forgetting does not go through the function that says what it reaches");
+  assert.equal(gone.method, "POST");
+  assert.deepEqual(Object.keys(gone.body).sort(), ["p_agent_id", "p_key", "p_tenant"]);
+  assert.ok(!seen.some((r) => r.method === "DELETE" && r.url.includes("agent_memory")),
+    "a memory is still being deleted straight out of the table");
+
+  // THE PROFILE HEADER IS THE VERB'S — PostgREST IGNORES the read header on a write, which is
+  // how a DELETE in this very module once resolved against `public` and could never have
+  // worked — and every request carries the tenant: in the FILTER for a statement, as an
+  // ARGUMENT for a transaction. `service_role` bypasses row level security, so that is the
+  // wall rather than the belt.
+  for (const r of seen) {
+    const write = ["POST", "PATCH", "DELETE"].includes(r.method);
+    assert.equal(r.headers[write ? "content-profile" : "accept-profile"], "agent", `${r.method} ${r.url}`);
+    assert.equal(r.headers[write ? "accept-profile" : "content-profile"], undefined, `${r.method} ${r.url}`);
+    assert.ok(r.url.includes(`tenant_id=eq.${T1}`) || r.body?.p_tenant === T1 || r.body?.tenant_id === T1,
+      `${r.method} ${r.url} is unscoped`);
   }
 });
 

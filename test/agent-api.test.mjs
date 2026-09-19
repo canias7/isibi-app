@@ -108,7 +108,9 @@ function fakeStore(over = {}) {
     },
     setAutomationEnabled: async (...a) => {
       calls.push({ name: "setAutomationEnabled", args: a });
-      return { id: A1, enabled: false };
+      // ⚠ `agent.set_automation_enabled`'S OWN ANSWER, not a row — the toggle goes through the
+      // same function the agent's `pause_automation` calls, and it RECOMPUTES `next_run_at`.
+      return { ok: true, id: A1, enabled: false, next_run_at: null };
     },
     removeAutomation: async (...a) => { calls.push({ name: "removeAutomation", args: a }); return true; },
     runAutomation: async (...a) => {
@@ -168,11 +170,26 @@ function fakeStore(over = {}) {
     },
     removeKnowledge: async (...a) => { calls.push({ name: "removeKnowledge", args: a }); return true; },
     listMemory: async (...a) => { calls.push({ name: "listMemory", args: a }); return []; },
+    /**
+     * ⚠ **THE SHAPE IS `agent.save_memory`'S OWN, not a row's — and that is the point of the
+     * change these two fakes are about.** The site's route used to write memory with a direct
+     * upsert and read a ROW back (`key`, `created_at`); it calls the same function the agent's
+     * `remember` tool calls now, which answers `{ok, saved, memory:{id, name, value, version,
+     * source}}`. A fake still answering a row would let the route read `undefined` for every
+     * field and pass — *a fake in a different shape from its producer produces a specific wrong
+     * answer*, which this file has paid for before.
+     */
     saveMemory: async (...a) => {
       calls.push({ name: "saveMemory", args: a });
-      return { id: A1, key: "tone", value: "formal", version: 1 };
+      return { ok: true, saved: "created",
+               memory: { id: A1, name: "tone", value: "formal", version: 1, source: "person" } };
     },
-    removeMemory: async (...a) => { calls.push({ name: "removeMemory", args: a }); return true; },
+    removeMemory: async (...a) => {
+      calls.push({ name: "removeMemory", args: a });
+      return { ok: true, forgot: true,
+               affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
+               note: "later runs won't see it; a run already under way keeps what it started with, and the history keeps whatever it quoted" };
+    },
     // ── a tool call waiting for a person ───────────────────────────────────
     // AND THE SAME RULE A FOURTH TIME: a route whose store operation this fake lacks
     // throws, and the census reads the 502 — which is the census being right about a

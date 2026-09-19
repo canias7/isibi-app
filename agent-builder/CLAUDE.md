@@ -7386,3 +7386,79 @@ mapping from an action to the scope it needs lives on the ADAPTER (`adapter.scop
 - **NOTHING ELSE MOVED.** `SEND_TOOL` beside it is unchanged, no behaviour changed, and the
   **engine suite reads 590, unchanged, which is the control.** The site's half — the defect, the
   three corrections and the nine driven breakages — is in the root `CLAUDE.md`.
+
+---
+
+## M13-2: the round trip, and the one-deciding-implementation census (2026-09-19)
+
+Owner: *"Changes made through chat must appear in the existing settings screens after refresh,
+and changes made through settings must be visible to subsequent tool calls. Keep one backend
+implementation for each operation."* **The site builder's half — the two defects and the two new
+readers — is in the root `CLAUDE.md`**; what belongs here is the demonstration, which is what
+found the second defect.
+
+**`verify:tools` SECTION 7d, THREE PARTS, AND THE THIRD IS THE ONE THAT MEASURES THE CLAIM.**
+Section 7 already proves the two doors leave the SAME ROW for one operation, read with SQL — and
+**a row afterwards cannot tell one implementation from two**, because two writers that happen to
+agree today leave the same row. So part C compares the REQUEST: what function each door asks for,
+recorded by the shim.
+
+- **A. what chat changed is on the screen** — a fact the agent remembered, read back through the
+  site's own `/api/agent/memory` with `source: "run"`; a correction as the new words at the next
+  VERSION rather than a second row; a forget gone with its neighbour untouched; an automation the
+  agent made, paused and ran, each read back through the route the screen calls.
+- **B. what the screen changed the agent sees** — the same operations from the other side, read
+  through a real message the agent really answered.
+- **C. one deciding implementation, on the wire** — the screen calls `save_memory`, the agent
+  calls `save_memory_once`; `create_automation` against `create_automation_once`; the screen's
+  save makes **no `GET …/agent_memory` at all** (the negative half: the cap is the function's);
+  and the delete makes no raw `DELETE`. **The `_once` wrapper calling the plain function BY NAME
+  is censused against `pg_proc` in `test/integration/pg-schema.mjs`**, so "one implementation" is
+  that census plus these lines rather than a claim about source.
+
+### ⚠ IT FOUND A BEHAVIOURAL DIVERGENCE NO ROW COMPARISON COULD HAVE
+
+`agent.set_automation_enabled` recomputes `next_run_at` when a SCHEDULED automation is turned
+back on; the site did a bare `PATCH {enabled}`. Reproduced here, both doors, one database: five
+days behind through the screen against the next real occurrence through `pause_automation` —
+and `tick_automations` selects on `next_run_at <= now()`, so past `AUTOMATION_CATCHUP_S` the cron
+logs a **missed** occurrence instead of scheduling anything. Driven in 7d now with three controls:
+both rows proved BEHIND first (without which either half is satisfied by rows that were never
+stale), the tool's own answer asserted before the two are compared, and a DISABLE proved to leave
+the schedule exactly where it was.
+
+**⚠ THE CLOCK IS PUSHED RATHER THAN WAITED OUT, in one UPDATE, and it is declared** — a five-day
+pause is not something a demonstration can sit through. What it does not simulate is the
+decision: the recompute is `agent.automation_next_run`'s own arithmetic either way.
+
+### ⚠ Four instrument faults, and every one reported working code as broken
+
+1. **THE SHIM'S RPC NEEDLE WAS A PREFIX OF THE WRONG PATH.** `^POST \/rpc\//` matched nothing,
+   because the shim mounts under `/rest/v1/` — so all three of part C's checks came back EMPTY
+   and read as *the two doors call different functions*. **The observer check at the end is what
+   said so**, by printing what had really been recorded; the "no longer counts in JavaScript"
+   check had been vacuously green for the same reason and was rebuilt on the save's OWN window.
+2. **A MISSING `await` ON AN ASYNC `ctx`.** The tool was handed a PROMISE, read `undefined` for
+   its capability surface, answered `no-backend` and made no request — which arrived as the same
+   *different functions* sentence about code that is right. The tool's own answer is asserted now.
+3. **AND THE PAUSE REPRODUCTION'S FIRST HAND-RUN MEASURED NOTHING AND REPORTED IT.** It printed
+   *"not reproduced"* while the tool had answered `bad-enabled`: I named the argument `paused` and
+   it is `enabled`. *An ad-hoc check that failed to apply its own mutation*, one layer over — it
+   refuses when the call it compares against did not succeed.
+4. **⚠ AND MY READER OF THE NINE DEMONSTRATIONS REPORTED THREE GREEN RUNS AS FAILING, AGAIN.**
+   `grep -c FAIL` matches check LABELS containing the word — *"AND THE RETRY IS A FAILURE TOO"*,
+   *"A KNOWN NON-EVENT IS A FAILURE WITH ITS REASON"*, *"A REJECTION IS NOT A FAILURE"* — so
+   `connections` read 2 FAIL, `integration` 2 and `wf` 1 while all three were green at their
+   recorded counts. Proved by counting those labels in the three files: 2, 2 and 1 exactly. *A
+   verdict read by one spelling of it goes quiet about a green run, and one read by a word that
+   appears in prose goes loud about one.* Read on the LEADING token.
+
+### Measured
+
+- **`npm run verify:tools`: 119 → 148 checks, 0 failed**, `all checks passed`. **⚠ AND THIS LINE
+  READ 150 UNTIL THE RUN ANSWERED** — written between adding the pause block and counting it,
+  which is this directory's own first rule broken in the entry that records it. Counted off the
+  run's own `ok`/`FAIL` lines.
+- **Engine suite 590, unchanged, which is the control**: this round touches no file under `src/`.
+  **`npm run test:pg` is untouched and deliberately not re-run as evidence** — `test/integration/`
+  and `supabase/` are both unmodified, so its number is HEAD's.

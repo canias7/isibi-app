@@ -1,0 +1,171 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the memory save",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    async saveMemory(tenant, { agentId, id, key, value, source = \"person\" }) {",
+  "to": "    /* control: a comment only */\n    async saveMemory(tenant, { agentId, id, key, value, source = \"person\" }) {"
+ },
+ {
+  "label": "memory: a person's save goes back to a direct upsert, so the cap is two implementations again",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"POST\", \"rpc/save_memory\", {",
+  "to": "      const r = await req(\"POST\", \"agent_memory\", {"
+ },
+ {
+  "label": "memory: the ceiling is left to the function's own default instead of being handed over",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "          p_max: MAX_MEMORIES,\n",
+  "to": ""
+ },
+ {
+  "label": "memory: who said so is hardcoded, so the same function cannot record a run's own note",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "          p_id: id, p_source: source,",
+  "to": "          p_id: id, p_source: \"person\","
+ },
+ {
+  "label": "memory: forgetting goes back to a direct DELETE, so the reach is written out by hand",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"POST\", \"rpc/delete_memory\", {",
+  "to": "      const r = await req(\"DELETE\", \"agent_memory?key=eq.\" + encodeURIComponent(key), {"
+ },
+ {
+  "label": "memory: the route counts what is held and inserts, which is two statements a save can fit between",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const saved = await store.saveMemory(who, { agentId, id: mint(), key, value });",
+  "to": "      const held = await store.listMemory(who, agentId);\n      if (!held.some((m) => m.key === key) && held.length >= MAX_MEMORIES) {\n        return no(409, `that's as much as one agent can remember (${MAX_MEMORIES}) — delete something first`);\n      }\n      const saved = await store.saveMemory(who, { agentId, id: mint(), key, value });"
+ },
+ {
+  "label": "memory: a save that was refused is answered as a save",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (saved.ok !== true) return no(...sayMemory(saved.error, saved));",
+  "to": "      if (false) return no(...sayMemory(saved.error, saved));"
+ },
+ {
+  "label": "memory: what the save DID is not reported, so a correction reads as a creation",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      return ok({ memory: memoryFromAnswer(saved.memory), saved: saved.saved });",
+  "to": "      return ok({ memory: memoryFromAnswer(saved.memory) });"
+ },
+ {
+  "label": "memory: the reach is composed here again rather than forwarded",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        agent: agentId, key, affects,\n        note: typeof gone.note === \"string\" && gone.note ? gone.note : null,",
+  "to": "        agent: agentId, key,\n        affects: { futureRuns: true, acceptedRuns: false, runHistory: false },\n        note: \"later runs won't see it; a run already under way keeps what it started with, and the history keeps whatever it quoted\","
+ },
+ {
+  "label": "memory: a reach that is not a set of named facts is passed to a reader",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const affects = gone.affects && typeof gone.affects === \"object\" && !Array.isArray(gone.affects)\n        ? gone.affects : null;",
+  "to": "      const affects = gone.affects ?? null;"
+ },
+ {
+  "label": "memory: a name that was not there reads as forgotten",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (gone.forgot !== true) return NO_MEMORY();",
+  "to": "      if (false) return NO_MEMORY();"
+ },
+ {
+  "label": "memory: a refusal nobody can name is blamed on the caller",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  return [500, \"that couldn't be saved just now\"];",
+  "to": "  return [400, \"that couldn't be saved just now\"];"
+ },
+ {
+  "label": "memory: a full account is a bad request rather than a conflict",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    return [409, `that's as much as one agent can remember",
+  "to": "    return [400, `that's as much as one agent can remember"
+ },
+ {
+  "label": "memory: a full account is told this side's ceiling instead of the number really held",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    const held = Number.isInteger(answer?.held) ? answer.held : MAX_MEMORIES;",
+  "to": "    const held = MAX_MEMORIES;"
+ },
+ {
+  "label": "memory: a refused save reads as the missing agent, which is what it used to get",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (code === \"no-agent\") return [404, \"that agent isn't here\"];",
+  "to": "  if (code !== \"\") return [404, \"that agent isn't here\"];"
+ },
+ {
+  "label": "memory: the function's own name is read as a row's key, so the screen shows nothing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    id: m?.id, key: m?.name, value: m?.value,",
+  "to": "    id: m?.id, key: m?.key, value: m?.value,"
+ },
+ {
+  "label": "memory: a moment nobody recorded is invented on the way to a list",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    created_at: null, updated_at: null,",
+  "to": "    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),"
+ },
+ {
+  "label": "automations: the toggle goes back to patching the column, so a re-enable keeps a stale next run",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"POST\", \"rpc/set_automation_enabled\", {",
+  "to": "      const r = await req(\"PATCH\", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {"
+ },
+ {
+  "label": "automations: a toggle the function refused is answered as a toggle",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (a.ok !== true) {\n        return a.error === \"no-automation\" ? NO_AUTOMATION()\n          : no(500, \"that couldn't be changed just now\");\n      }",
+  "to": "      if (false) {\n        return a.error === \"no-automation\" ? NO_AUTOMATION()\n          : no(500, \"that couldn't be changed just now\");\n      }"
+ },
+ {
+  "label": "automations: a refusal nobody can name is blamed on the caller here too",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "          : no(500, \"that couldn't be changed just now\");",
+  "to": "          : no(400, \"that couldn't be changed just now\");"
+ },
+ {
+  "label": "automations: the recomputed next run is dropped before a reader can see it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      return ok({ id: a.id, enabled: a.enabled, nextRunAt: a.next_run_at ?? null });",
+  "to": "      return ok({ id: a.id, enabled: a.enabled });"
+ }
+]

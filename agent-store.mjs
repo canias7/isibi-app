@@ -1193,30 +1193,54 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     },
 
     /**
-     * Set one name to one value.
+     * Set one name to one value — **through `agent.save_memory`, the SAME function the
+     * agent's own `remember` tool calls.**
      *
-     * **AN UPSERT, BECAUSE THAT IS WHAT SAVING A MEMORY IS.** `resolution=merge-duplicates`
-     * over `(tenant, agent, key)` — the unique index that IS the scope — so a caller never
-     * has to know whether the name exists, which would be doing that index's job in
-     * JavaScript and racing itself while it did.
+     * ⚠ **IT WAS A DIRECT UPSERT, AND THAT MADE ONE OPERATION TWO IMPLEMENTATIONS.** The
+     * upsert was correct about the row and could not be correct about everything else: the
+     * CEILING was asked in JavaScript above it, which is a count and an insert in two
+     * statements and therefore raceable (two saves landing together both read one short of
+     * the cap and both insert), and `source` was a literal here rather than the closed set the
+     * function refuses outside of. The function does all of it inside one transaction.
+     *
+     * **WHAT IS UNCHANGED IS THE DATABASE'S OWN HALF, and saying so matters because it is
+     * what made the drift invisible**: the unique index over `(tenant, agent, key)` IS the
+     * scope, and the `version` trigger fires on the TABLE — so both doors always agreed about
+     * the scope and the version, whichever writer they went through. What they did not agree
+     * about is the cap and who may be recorded as having said so.
+     *
+     * It answers the function's own jsonb, so a caller reads `saved` (`created` · `corrected`
+     * · `unchanged`) and a refusal by its code rather than by a missing row.
      */
-    async saveMemory(tenant, { agentId, id, key, value }) {
-      const r = await req("POST", "agent_memory", {
-        prefer: "return=representation,resolution=merge-duplicates",
-        body: { id, tenant_id: tenant, agent_id: agentId, key, value, source: "person" },
+    async saveMemory(tenant, { agentId, id, key, value, source = "person" }) {
+      const r = await req("POST", "rpc/save_memory", {
+        body: {
+          p_tenant: tenant, p_agent_id: agentId, p_key: key, p_value: value,
+          p_id: id, p_source: source,
+          // THE CEILING IS PASSED, not left to the parameter's own default — the engine passes
+          // its own the same way, and the cross-product census is what keeps the two equal.
+          p_max: MAX_MEMORIES,
+        },
       });
       if (!r.ok) throw storeFail("save memory", r);
-      return rows(r).length === 1 ? memoryRow(rows(r)[0]) : null;
+      return answerOf(r, "save memory");
     },
 
-    /** By NAME, because the name is the identity a workflow and a person both use. */
+    /**
+     * Forget one name — **through `agent.delete_memory`, the SAME function `forget` calls.**
+     *
+     * ⚠ **IT WAS A DIRECT DELETE, AND THE COST WAS THE REACH.** What forgetting reaches —
+     * later runs yes, an execution already accepted no, the journal no — is that function's
+     * own answer, and with the delete done here the route had to WRITE THOSE THREE FIELDS OUT
+     * BY HAND. Two copies of a sentence about what a delete does, in two languages, with the
+     * one that drifts being the one a person reads. Forwarded now.
+     */
     async removeMemory(tenant, agentId, key) {
-      const r = await req("DELETE",
-        `agent_memory?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}&key=eq.${encodeURIComponent(key)}`, {
-        prefer: "return=representation",
+      const r = await req("POST", "rpc/delete_memory", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_key: key },
       });
       if (!r.ok) throw storeFail("delete memory", r);
-      return rows(r).length === 1;
+      return answerOf(r, "delete memory");
     },
 
     /**
@@ -1268,13 +1292,33 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * row would mean a stale tab quietly restoring an old schedule as the price of
      * pressing a switch.
      */
+    /**
+     * Turn one automation on or off — **through `agent.set_automation_enabled`, the SAME
+     * function the agent's own `pause_automation` calls.**
+     *
+     * ⚠ **IT WAS A BARE `PATCH {enabled}`, AND THE DIVERGENCE WAS BEHAVIOURAL RATHER THAN
+     * COSMETIC — reproduced on a real PostgreSQL before this was changed.** That function does
+     * one thing more than set the column: turning a SCHEDULED automation back on it recomputes
+     * `next_run_at` from the schedule and NOW, because a stale one is in the past and
+     * `tick_automations` selects on `next_run_at <= now()`. The PATCH did not, so an automation
+     * paused for five days and re-enabled FROM THE SCREEN kept a `next_run_at` five days behind
+     * — measured, `2026-09-14 09:44` against the tool's `2026-09-20 08:00` for the same act on
+     * the same automation, so the cron's catch-up window (`AUTOMATION_CATCHUP_S`, an hour) read
+     * it as a MISSED occurrence and logged one instead of scheduling the next.
+     *
+     * **A DISABLE STILL LEAVES THE SCHEDULE EXACTLY WHERE IT WAS**, which is the function's own
+     * rule (`when p_enabled and a.schedule <> 'manual'`) and not this store's care.
+     *
+     * It answers the function's own jsonb — `{ok, id, enabled, next_run_at}` — so a caller
+     * reads a refusal by its code rather than by a missing row, and gets the recomputed instant
+     * rather than having to ask for it.
+     */
     async setAutomationEnabled(tenant, id, enabled) {
-      const r = await req("PATCH", `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}`, {
-        prefer: "return=representation",
-        body: { enabled },
+      const r = await req("POST", "rpc/set_automation_enabled", {
+        body: { p_tenant: tenant, p_id: id, p_enabled: enabled },
       });
       if (!r.ok) throw storeFail("enable automation", r);
-      return rows(r).length === 1 ? automationRow(rows(r)[0]) : null;
+      return answerOf(r, "enable automation");
     },
 
     // ── inbound endpoints ─────────────────────────────────────────────────
@@ -2932,6 +2976,51 @@ export function knowledgeRow(r) {
 }
 
 /** One saved fact, with where it came from and when it last changed. */
+/**
+ * ⚠ **THE FUNCTION'S OWN MEMORY OBJECT, READ THE WAY A ROW IS.**
+ *
+ * `agent.save_memory` answers `{id, name, value, version, source}` and `agent_memory` answers
+ * a ROW with `key`, `created_at` and `updated_at` — so the two shapes are not the same object
+ * and this is where the difference lives, rather than in the route. The screen reads `key`, so
+ * that is the name it gets; the two timestamps are NOT invented, because the function does not
+ * answer them and a made-up `at` is worse on a list than an absent one.
+ */
+export function memoryFromAnswer(m) {
+  return memoryRow({
+    id: m?.id, key: m?.name, value: m?.value, source: m?.source, version: m?.version,
+    created_at: null, updated_at: null,
+  });
+}
+
+/**
+ * ⚠ **ONE SENTENCE PER REFUSAL `agent.save_memory` AND `agent.delete_memory` CAN ANSWER, and
+ * a code with no sentence is NOT read as somebody else's problem.**
+ *
+ * Those functions answer CODES, which is right for a caller and useless on a screen. The
+ * checks above each route compose the ordinary sentences, so what reaches here is a refusal
+ * they did not anticipate — which must still be said properly rather than falling through to
+ * "that agent isn't here", the answer it used to get by being a `null` row.
+ *
+ * **`no-agent` IS THE ONE THAT KEEPS ITS OLD WORDS**, because it really is the missing-agent
+ * answer and a stranger must not be able to tell a refusal from an agent that is not theirs.
+ */
+export function sayMemory(code, answer) {
+  if (code === "no-agent") return [404, "that agent isn't here"];
+  if (code === "too-many") {
+    const held = Number.isInteger(answer?.held) ? answer.held : MAX_MEMORIES;
+    return [409, `that's as much as one agent can remember (${held}) — delete something first`];
+  }
+  if (code === "bad-name") {
+    return [400, "that can't be a name — use lower-case letters, digits and underscores, starting with a letter"];
+  }
+  if (code === "empty") return [400, "say what to remember — to forget it, delete it instead"];
+  if (code === "too-long") return [400, `that's longer than one memory can be (${MEMORY_VALUE_MAX} characters)`];
+  if (code === "bad-source") return [400, "a memory has to say who it came from"];
+  // ⚠ A CODE THIS DOES NOT KNOW IS A 500 AND SAYS SO, never a 400 blaming the caller for
+  // something we cannot name. A refusal nobody can act on is a refusal to look into.
+  return [500, "that couldn't be saved just now"];
+}
+
 export function memoryRow(r) {
   return {
     id: typeof r?.id === "string" ? r.id : "",
@@ -3710,7 +3799,22 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // **TURNING IT OFF PREVENTS NEW EXECUTIONS AND NOTHING ELSE.** It is not a delete
       // and not a cancellation: work already accepted keeps its own recorded
       // configuration and finishes.
-      return a ? ok({ automation: a }) : NO_AUTOMATION();
+      /**
+       * ⚠ **THE ANSWER IS THE FUNCTION'S, so a refusal it makes reaches a reader as itself.**
+       * `no-automation` is the missing-automation 404 — an automation that is not this
+       * account's and one that does not exist are the same answer, which is what stops a
+       * stranger confirming that somebody else's id is real. Anything else is a refusal the
+       * checks above did not anticipate, and it is a 500 rather than a 400 blaming the caller
+       * for something nobody here can name.
+       */
+      if (a.ok !== true) {
+        return a.error === "no-automation" ? NO_AUTOMATION()
+          : no(500, "that couldn't be changed just now");
+      }
+      // ⚠ **`nextRunAt` TRAVELS BECAUSE THE FUNCTION RECOMPUTED IT.** Turning a scheduled
+      // automation back on moves its next run to the next real occurrence, and a caller told
+      // only `ok` would have to ask for the one fact that changed besides the flag.
+      return ok({ id: a.id, enabled: a.enabled, nextRunAt: a.next_run_at ?? null });
     }
 
     // ── CONNECTED ACCOUNTS ────────────────────────────────────────────────────
@@ -4101,14 +4205,24 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (value.length > MEMORY_VALUE_MAX) {
         return no(400, `that's longer than one memory can be (${MEMORY_VALUE_MAX} characters)`);
       }
-      // THE CEILING IS ASKED ONLY FOR A NAME THIS AGENT DOES NOT ALREADY HOLD, or
-      // correcting the last one would be refused by the cap it is already inside.
-      const held = await store.listMemory(who, agentId);
-      if (!held.some((m) => m.key === key) && held.length >= MAX_MEMORIES) {
-        return no(409, `that's as much as one agent can remember (${MAX_MEMORIES}) — delete something first`);
-      }
-      const m = await store.saveMemory(who, { agentId, id: mint(), key, value });
-      return m ? ok({ memory: m }) : NO_AGENT();
+      /**
+       * ⚠ **THE CEILING IS THE FUNCTION'S NOW, and the count that used to be here is GONE
+       * rather than kept as a belt.** It read the whole list and then inserted — two
+       * statements, so two saves landing together both read one short of the cap and both
+       * insert. `agent.save_memory` counts inside the transaction that writes, which is the
+       * only place the question can be asked safely, and it is the same wall the agent's own
+       * `remember` meets. Keeping a copy here would be the drift this change removes, one
+       * release later.
+       *
+       * **WHAT STAYS ABOVE IS THE WORDS.** The checks on the name and the value are a person's
+       * SENTENCES — `save_memory` answers `bad-name` and `too-long`, which is right for a
+       * caller and useless on a screen — so they are a composer rather than a wall, and the
+       * mapping below catches anything they did not anticipate instead of letting it read as a
+       * missing agent.
+       */
+      const saved = await store.saveMemory(who, { agentId, id: mint(), key, value });
+      if (saved.ok !== true) return no(...sayMemory(saved.error, saved));
+      return ok({ memory: memoryFromAnswer(saved.memory), saved: saved.saved });
     }
 
     if (path === "/api/agent/tool-approvals") {
@@ -4286,28 +4400,32 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // ⚠ **THE AGENT AND THE KEY ARE BOTH IN THE FILTER, with the tenant.** A delete by
       // id alone would work and would make the id the identity; the name is the identity
       // here, because that is what a workflow asks for and what a person sees.
-      if (!(await store.removeMemory(who, agentId, key))) return NO_MEMORY();
+      const gone = await store.removeMemory(who, agentId, key);
+      if (gone.ok !== true) return no(...sayMemory(gone.error, gone));
+      if (gone.forgot !== true) return NO_MEMORY();
       /**
-       * ⚠ **WHAT FORGETTING REACHES IS ANSWERED, because `deleted` is not `erased`.**
+       * ⚠ **WHAT FORGETTING REACHES IS FORWARDED, NEVER COMPOSED HERE — and it used to be
+       * composed here.** `deleted` is not `erased`: the row is gone so no LATER run will see
+       * it, and two things are deliberately untouched — an execution already ACCEPTED keeps
+       * the snapshot it was accepted with (the rule the instructions and the step list follow;
+       * reaching into it would mean a correction changing what a run in flight is doing), and
+       * the JOURNAL keeps whatever was quoted, because an entry is append-only by trigger and
+       * a history that forgetting could edit is a history nobody can audit.
        *
-       * The row is gone, so no LATER run will see it. Two things are deliberately untouched:
-       * an execution already ACCEPTED holds the snapshot it was accepted with (the same rule
-       * the instructions and the step list follow — reaching back into it would mean a
-       * correction changing what a run in flight is doing), and the JOURNAL keeps whatever was
-       * quoted, because an entry is append-only by trigger and a history that forgetting could
-       * edit is a history nobody can audit.
+       * **THE FIELDS AND THE SENTENCE ARE `agent.delete_memory`'S OWN**, which is the same
+       * function the agent's `forget` tool calls — so a note about what a delete does cannot
+       * drift from what a delete does. Written out here, it was two copies of one sentence in
+       * two languages, and the one that drifts is the one a person reads.
        *
-       * **SAID HERE RATHER THAN LEFT TO THE SCREEN.** A screen writing "removed everywhere"
-       * would be false about two of the three places it exists, and the screen has no way to
-       * know that. `agent.delete_memory` answers the same three fields for the agent's own
-       * `forget`, so both doors say one thing — **and they are two DOORS: this route deletes
-       * the row directly and the tool calls that function**, which is why the fields are
-       * written out here instead of forwarded.
+       * ⚠ **AND A REACH THE FUNCTION DID NOT ANSWER IS AN ABSENCE RATHER THAN AN INVENTED
+       * SET.** An older deployment answers no `affects` at all; `Array.isArray`-style
+       * guessing would put a claim about three relations into a reply nothing supports.
        */
+      const affects = gone.affects && typeof gone.affects === "object" && !Array.isArray(gone.affects)
+        ? gone.affects : null;
       return ok({
-        agent: agentId, key,
-        affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
-        note: "later runs won't see it; a run already under way keeps what it started with, and the history keeps whatever it quoted",
+        agent: agentId, key, affects,
+        note: typeof gone.note === "string" && gone.note ? gone.note : null,
       });
     }
 

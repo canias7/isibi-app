@@ -13003,3 +13003,73 @@ and all ten end-to-end runs green.**
 **One honest note about my own instruments**: my first reading of those ten runs said three of
 them had failures. They had not — my counter was matching the word FAIL inside the *names* of
 checks like "AND THE RETRY IS A FAILURE TOO". Read properly, all ten are clean.
+
+---
+
+## 2026-09-19 — chat and the settings screens on the same one thing underneath
+
+You asked for the next part of the agent milestone: anything a customer can do in chat has to
+show up on the settings screens when they look, anything they do on the screens has to be what
+the agent sees next time, and there must be **one** thing underneath doing each job.
+
+**The first thing I did was look, and it changed the work.** All 21 tools already existed and
+already covered everything on your list — remembering, correcting and forgetting a fact; making,
+reading, editing, pausing and running an automation; inspecting one that ran and explaining how
+it went. So nothing needed building. What needed checking was that last sentence, and **two jobs
+were being done twice, in two different ways.**
+
+### Remembering a fact was two different things
+
+The screen wrote a memory one way and the agent's own "remember" wrote it another. Most of it
+agreed by luck — the database itself enforces the name and bumps the version, whichever half
+asks — but three things did not:
+
+1. **How many an agent may remember.** The screen counted them and then saved, which is two
+   steps; two saves arriving at the same moment both count one short of the limit and both go in.
+   The database now counts inside the same breath as the save, which is the only place it can be
+   asked safely. **The old count is gone rather than kept as a spare** — a spare copy is exactly
+   how the two drift apart again in a month.
+2. **Who said so.** Every save from the screen was stamped "a person said this", as a fixed word
+   in our code. It is now passed along, which is what lets the one function serve both halves —
+   and a fact your agent wrote itself is marked as its own rather than as yours.
+3. **What forgetting actually reaches.** Deleting a memory does not erase it everywhere: later
+   runs will not see it, but a run already under way keeps what it started with, and the history
+   keeps whatever it quoted. The database says that in its own words; the screen's half was
+   **writing that sentence out separately**. Two copies of one claim about your data, and the one
+   that drifts is the one a person reads. It passes on what the database says now.
+
+### And pausing an automation was two different things — this one really misbehaved
+
+I found it by asking what the code really sends rather than by reading it, and then reproduced it
+against a real database before changing anything.
+
+Turning a scheduled automation back on has to work out when it should next run. The agent's own
+"pause" did that. The screen's button just flipped the switch. So:
+
+- pause a daily automation for five days, turn it back on **from the screen** → its next run was
+  still five days in the past, and the scheduler read that as a *missed* day and logged one
+  instead of scheduling anything;
+- do exactly the same **in chat** → the next run was tomorrow morning, correctly.
+
+Both go through the same thing now, and the end-to-end run proves they agree to the second. The
+button also tells you the new time, which it could not before. Turning one **off** still leaves
+its schedule alone — that is deliberate and is checked.
+
+### What is deliberately still separate
+
+Reference material is only ever written from the screens — no tool writes it — so there is
+nothing there for two halves to disagree about, and its limit is still checked in our code rather
+than in the database. That is a known, written-down trade rather than something I have missed.
+
+**What it cost to be sure**: sixteen deliberate breakages, put back in one at a time, every one
+caught by the check written for it. Three of the test fixtures had to be corrected first —
+they were answering the old shape, so the route would have read nothing and passed.
+
+Nothing is applied, deployed or merged. **Site tests 6,840 → 6,843, and the end-to-end run of
+the tools went 119 → 148 checks, all green.**
+
+**Two honest notes about my own instruments.** My first version of one new check read to the end
+of the file instead of to the end of the function it was about, so it complained about a setting
+belonging to something else entirely. And my first attempt at reproducing the pause problem said
+"not reproduced" while the thing it was comparing against had actually refused my request,
+because I had named an argument wrongly — it now refuses to report anything when that happens.

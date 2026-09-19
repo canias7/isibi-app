@@ -9255,3 +9255,149 @@ one" is satisfied by a list of one.
    lets `[^"]*` run past the closing quote onto the code after it, so every line holding a label
    AND a `cx` local matched and it reported six false alarms. Asked properly — on the string
    literals and comment lines THEMSELVES — it answers none.
+
+---
+
+## M13-2: chat and the settings screens on ONE backend implementation (2026-09-19)
+
+Owner: *"Through the existing tool interface, support… remembering, correcting and forgetting a
+fact; creating, inspecting, editing, pausing and running an automation… Changes made through
+chat must appear in the existing settings screens after refresh, and changes made through
+settings must be visible to subsequent tool calls. **Keep one backend implementation for each
+operation.**"*
+
+**THE INSPECTION CAME FIRST AND IT MOVED THE WORK.** All 21 tools already exist and cover every
+operation the item names — reference material (`search_reference` · `list_reference` ·
+`read_reference`), memory (`list_memory` · `remember` · `forget`), automations (`list_automations`
+· `read_automation` · `make_automation` · `change_automation` · `pause_automation` ·
+`run_automation`), executions (`list_executions` · `read_execution` · `cancel_execution`). So
+nothing needed building; what needed checking was the last sentence, and **three operations
+failed it** — measured in the table below rather than counted from an impression.
+
+### ⚠ THE TWO DOORS ARE NOT ONE FUNCTION FOR EVERYTHING, AND CANNOT BE — stated before the fixes
+
+A person's door is PostgREST as the signed-in account, behind RLS. An agent's door is this
+server acting FOR an agent: `security definer`, the tenant as an argument, scoped to one agent,
+and a `_once` wrapper carrying an operation identity because **a tool call can be delivered
+twice and a button press cannot be.** Those are different trust boundaries and different retry
+shapes, so "one implementation" can never mean one code path.
+
+**WHAT IT DOES MEAN IS ONE DECIDING FUNCTION**: where the rules about a customer's data live —
+the cap, the scope, the version, who may be recorded as having said so, what a delete reaches —
+both doors must ask the SAME database function, and the wrapper must call the plain one BY NAME
+(censused against `pg_proc` in `test/integration/pg-schema.mjs`).
+
+**MEASURED WRITE BY WRITE, by reading what the store really calls rather than what the routes look
+like** — and ⚠ **this paragraph first said "six of the eight already were; two were not", which I
+wrote before doing the audit and which is wrong in both halves:**
+
+| the eight capability writes | both doors, one function? |
+|---|---|
+| `createAutomation` · `updateAutomation` · `startAutomation` · `cancelExecution` | **yes, already** — `create_automation`, `update_automation`, `accept_automation_run`, `cancel_run` |
+| `saveMemory` · `deleteMemory` · `setAutomationEnabled` | **no — the three this round fixed** |
+| `patchAutomation` | **no site door at all**: the screen's edit is a full replace, and the PATCH shape is the agent's own tool. Not two implementations of one thing |
+
+So four were already right, **three were not**, and one has nothing to compare. *A count written
+from an impression of the code is not a measurement of it.*
+
+### ⚠ DEFECT 1 — MEMORY WAS TWO IMPLEMENTATIONS (both of its writes), and the cap was raceable
+
+`saveMemory` was a direct upsert and `removeMemory` a direct DELETE, so the screen and
+`remember`/`forget` were two writers. **The scope and the version always agreed** — the unique
+index over `(tenant, agent, key)` and the `version` TRIGGER are the TABLE's, so they fire for
+either writer, and saying so is what explains how this stayed invisible. What did not agree:
+
+- **THE CEILING.** The route read the whole list and then inserted — two statements, so two
+  saves landing together both read one short of the cap and both insert. `agent.save_memory`
+  counts inside the transaction that writes. **The count in JavaScript is GONE rather than kept
+  as a belt**, because a copy left beside it is the drift this change removes, one release later.
+- **`source`.** A literal `"person"` here against the closed set the function refuses outside
+  of — so the column's two values meant one thing through this half and both through the other.
+  It is a PARAMETER now, which is what lets one function serve both doors.
+- **WHAT FORGETTING REACHES.** `agent.delete_memory` answers it (`futureRuns` yes,
+  `acceptedRuns` no, `runHistory` no, with its own sentence) and the route **wrote those three
+  fields out by hand** — two copies of one claim about a customer's data, in two languages, and
+  the copy that drifts is the one a person reads. Forwarded now, with a non-object `affects`
+  read as an ABSENCE rather than passed to a reader (`typeof [] === "object"`, and a list is not
+  a set of named facts).
+
+**TWO NEW READERS, AND EACH EXISTS BECAUSE A SHAPE REALLY DIFFERS.** `memoryFromAnswer` is the
+one place the function's `{id, name, value, version, source}` becomes the row shape the screen
+reads (`key`, not `name`) — and it **does not invent the two timestamps**, because a made-up
+`at` on a list says a fact changed at a moment it did not. `sayMemory` is one sentence per
+refusal code, **and a code it does not know is a 500** rather than a 400 blaming the caller for
+something nobody here can name; `no-agent` keeps its old words, because it really is the
+missing-agent answer and a stranger must not be able to tell a refusal from an agent that is
+not theirs.
+
+### ⚠ DEFECT 2 — PAUSING WAS TWO IMPLEMENTATIONS, AND THAT ONE WAS BEHAVIOURAL
+
+Found by censusing what the store really calls rather than by reading the routes, and
+**REPRODUCED on a real PostgreSQL before anything was changed.** `agent.set_automation_enabled`
+does one thing more than set the column: turning a **scheduled** automation back on it
+recomputes `next_run_at` from the schedule and NOW. The site did a bare `PATCH {enabled}`.
+
+| the same act, five days after pausing a daily automation | `next_run_at` afterwards |
+|---|---|
+| re-enabled from the SCREEN | **`2026-09-14 09:44` — five days in the past** |
+| re-enabled through the AGENT's `pause_automation` | `2026-09-20 08:00` — the next real occurrence |
+
+`tick_automations` selects on `next_run_at <= now()`, and past the catch-up window
+(`AUTOMATION_CATCHUP_S`, an hour) the cron records a **missed** occurrence instead of scheduling
+the next. So a customer who paused an automation for a week and turned it back on from the
+screen got a "missed" record and no schedule; turning it back on in chat worked. On the same
+function now, with the refusals mapped the way `sayMemory`'s are, and **`nextRunAt` travels on
+the reply** because a caller told only `ok` cannot see the one fact that changed besides the
+flag. **A DISABLE IS DELIBERATELY NOT RECOMPUTED** — the function's own rule, and the control.
+
+**ONE READER WAS RE-ANCHORED, NOT APPEASED**: `verify:automations` read
+`off.body.automation.enabled`, which was the property *"it can be turned off"* written as the
+shape of a row the route used to answer; it reads `off.body.enabled` with `nextRunAt` asserted
+PRESENT (not to a value, because a disable leaves the schedule alone).
+
+### What is deliberately NOT one function, and why
+
+- **REFERENCE MATERIAL IS WRITTEN FROM THE SCREEN ONLY.** No tool writes it — `search_reference`,
+  `list_reference` and `read_reference` are reads — so there is no `save_knowledge` function and
+  its ceiling is this side's route check. That makes it RACEABLE, which is already recorded as a
+  stated, deliberate asymmetry; what must not happen is a note claiming the database enforces it.
+- **`agent_messages` IS STILL A DIRECT INSERT** for a person's own message, and the
+  run-starting one goes through `agent.send_to_agent`. Two different operations, not two
+  implementations of one.
+
+### Measured
+
+- **Site suite 6,840 → 6,843** (6,841 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-automations` 41 → 42 (the store-request census) and `agent-send` 69 → 71
+  (the refusal-code census and `memoryFromAnswer`).
+- **`verify:tools` 119 → 143 → 148** (0 FAIL): section 7d, three parts — what chat changed is on
+  the screen, what the screen changed the agent sees, and the one-deciding-implementation census
+  measured ON THE WIRE — plus the pause reproduction driven through both doors.
+- **SIXTEEN BREAKAGES DRIVEN ONE AT A TIME, every one caught by the case written for it** — the
+  save and the delete back to direct statements, `p_max` dropped, `source` hardcoded, the count
+  restored in JavaScript, the reach composed again, the non-object guard removed, a name that
+  was not there read as forgotten, the unknown code read as a 400, `too-many` as a 400 and as
+  this side's own number, `name` read as `key`, timestamps invented, the toggle back to a
+  `PATCH`, its refusal ignored, its unknown code a 400, and `nextRunAt` dropped.
+
+### ⚠ Three recorded traps met in one change
+
+1. **A SOURCE-READ WINDOW WITH NO CLOSING LANDMARK SWALLOWED THE FILE.** The refusal-code census
+   sliced from `save_memory`'s header to the END of its migration, so it read every code of every
+   function declared after it and reported `bad-enabled` — another function's — as a memory
+   refusal with no sentence. It opens at the header, takes the `$$` that OPENS the body and ends
+   at the one that closes it, **and asserts the window is a small fraction of the file it came
+   from.**
+2. **AN AD-HOC CHECK THAT MEASURED NOTHING AND SAID SO ANYWAY.** The first run of the pause
+   reproduction printed *"not reproduced"* while the tool call it was comparing against had
+   answered `bad-enabled` — my argument was named `paused` and the tool takes `enabled`. It
+   REFUSES now when the call it compares against did not succeed, and the driven version in
+   `verify:tools` asserts the tool's own answer first.
+3. **THREE FIXTURES WERE THE WRONG SHAPE, and each would have hidden the thing it stood over.**
+   Both memory fakes answered a ROW where the store now answers the function's jsonb, and the
+   toggle's answered an `automationRow` — so the route would have read `undefined` for every
+   field and passed. Derived from the real producer's own output.
+4. **⚠ AND THE `verify:tools` COUNT ABOVE READ 150 UNTIL THE RUN ANSWERED 148.** I wrote it down
+   between adding the pause block and counting it — *stamp measured numbers only AFTER the run*,
+   this repository's own rule, in the entry that records three other traps. Corrected before the
+   commit, and recorded rather than edited away, because the correction is the useful part.

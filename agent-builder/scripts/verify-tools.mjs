@@ -724,6 +724,294 @@ try {
     rest.refusedProfiles() === refusedBefore + 1, `${rest.refusedProfiles()}`);
 
   // ═════════════════════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n7d. WHAT CHAT CHANGES, THE SETTINGS SCREENS SHOW — AND THE OTHER WAY ROUND");
+  // ═════════════════════════════════════════════════════════════════════════
+  /**
+   * ⚠ **EVERY OPERATION A CUSTOMER CAN REACH FROM EITHER SIDE, DRIVEN BOTH DIRECTIONS.**
+   *
+   * Section 7 above proves the two doors leave the SAME ROW for one operation, read with SQL.
+   * That is a claim about the storage; it is not the claim a customer cares about, which is
+   * that what they did in chat is on the screen when they look, and what they did on the screen
+   * is what their agent sees next time it asks. So every read here is the SITE'S OWN ROUTE —
+   * the one the screen calls — and every tool read is a real message through a real run.
+   */
+  const rdAg = (await api("/api/agent/create", {
+    body: { name: "Round trip", instructions: "Answer about the shop.", zone: "Europe/London" },
+  })).body.agent.id;
+  await api("/api/agent/update", { body: { id: rdAg, name: "Round trip", instructions: "Answer about the shop.",
+    tools: [...CAPABILITY_TOOLS.map((t) => t.name)] } });
+
+  /** The screen's own reads, by the keys its routes really answer. */
+  const rdScreenMemory = async () => (await api("/api/agent/memory", { query: { agent: rdAg } })).body.memories;
+  const rdScreenAutos = async () => (await api("/api/agent/automations", { query: { agent: rdAg } })).body.automations;
+  const rdScreenRuns = async (id) => (await api("/api/agent/automation-history", { query: { id } })).body.executions;
+  /** And the agent's own, through a message it really answered. */
+  const rdToolSays = async (words) => toolResult((await askOk(rdAg, words)).body.runId);
+
+  // ── A. WHAT CHAT DID IS ON THE SCREEN ──────────────────────────────────────
+  await askOk(rdAg, `use remember with name=opening_hours and value="nine to five, Monday to Friday"`);
+  const rdM1 = (await rdScreenMemory()).find((m) => m.key === "opening_hours");
+  check("⚠ a fact the AGENT remembered is on the memory screen, saying a run said so",
+    !!rdM1 && rdM1.value === "nine to five, Monday to Friday" && rdM1.source === "run" && rdM1.version === 1,
+    JSON.stringify(rdM1));
+
+  await askOk(rdAg, `use remember with name=opening_hours and value="ten to six, Monday to Saturday"`);
+  const rdM2 = (await rdScreenMemory()).find((m) => m.key === "opening_hours");
+  check("⚠ ...and a CORRECTION through chat is the new words at the next version, not a second row",
+    !!rdM2 && rdM2.value === "ten to six, Monday to Saturday" && rdM2.version === 2
+    && (await rdScreenMemory()).filter((m) => m.key === "opening_hours").length === 1,
+    JSON.stringify(rdM2));
+
+  await askOk(rdAg, `use remember with name=keep_me and value="still here"`);
+  await askOk(rdAg, "use forget with name=opening_hours");
+  const rdAfterForget = await rdScreenMemory();
+  check("⚠ ...and forgetting through chat is gone from the screen, with its neighbour untouched",
+    !rdAfterForget.some((m) => m.key === "opening_hours") && rdAfterForget.some((m) => m.key === "keep_me"),
+    JSON.stringify(rdAfterForget.map((m) => m.key)));
+
+  /**
+   * ⚠ **`make_automation` AND `change_automation` ARE RUN THROUGH THEIR OWN `run`, NOT THROUGH A
+   * MESSAGE, AND THE REASON IS THE STAND-IN RATHER THAN THE TOOL.** Both take a LIST OF
+   * OBJECTS, and the stand-in fills a declared property from the words of a request
+   * (`name=value`, or a quoted string) — so it cannot compose a step list at all, which
+   * section 8's census declares by name. What is real here is everything else: the tool, the
+   * capability surface, `create_automation` and the database. Section 5c already drives a
+   * model through `make_automation` once a person has approved it, which is the half this
+   * cannot show.
+   */
+  const rdOps = makeCapabilities({ fetch, url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_KEY })
+    .forTenant(A).forAgent(rdAg);
+  const rdCtx = async (args, step, index = 0) =>
+    ({ capabilities: rdOps, operation: `77777777-7777-4777-8777-777777777777:${step}:${index}:${await argsHash(args)}` });
+  const rdMakeTool = CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+  const rdChangeTool = CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+
+  const rdMakeArgs = { name: "From chat", steps: [{ type: "note", text: "made in chat" }] };
+  const rdMade = await rdMakeTool.run(rdMakeArgs, await rdCtx(rdMakeArgs, 30));
+  check("the agent's own make_automation saved it", rdMade?.ok === true, JSON.stringify(rdMade).slice(0, 160));
+  const rdMadeInChat = (await rdScreenAutos()).find((a) => a.name === "From chat");
+  check("⚠ an automation MADE through a tool is on the automations screen, with its step",
+    !!rdMadeInChat && rdMadeInChat.steps.length === 1 && rdMadeInChat.steps[0].type === "note",
+    JSON.stringify(rdMadeInChat && { name: rdMadeInChat.name, steps: rdMadeInChat.steps }));
+
+  await askOk(rdAg, `use pause_automation with id=${rdMadeInChat.id} and enabled=false`);
+  check("⚠ ...and pausing it in chat is OFF on the screen",
+    (await rdScreenAutos()).find((a) => a.id === rdMadeInChat.id).enabled === false);
+
+  const rdChangeArgs = { id: rdMadeInChat.id, name: "Renamed in chat" };
+  const rdChanged = await rdChangeTool.run(rdChangeArgs, await rdCtx(rdChangeArgs, 31));
+  check("the agent's own change_automation saved it", rdChanged?.ok === true, JSON.stringify(rdChanged).slice(0, 160));
+  check("⚠ ...and a rename through a tool is the new name on the screen",
+    (await rdScreenAutos()).find((a) => a.id === rdMadeInChat.id).name === "Renamed in chat");
+
+  // IT HAS TO BE ON FOR A RUN, which is the product being right: a paused automation refuses.
+  await askOk(rdAg, `use pause_automation with id=${rdMadeInChat.id} and enabled=true`);
+  await askOk(rdAg, `use run_automation with id=${rdMadeInChat.id}`);
+  await tick(); await drain();
+  check("⚠ ...and an execution STARTED in chat is in the screen's own history",
+    (await rdScreenRuns(rdMadeInChat.id)).length === 1,
+    JSON.stringify((await rdScreenRuns(rdMadeInChat.id)).map((e) => e.state)));
+
+  // ── B. WHAT THE SCREEN DID IS WHAT THE AGENT SEES NEXT ─────────────────────
+  await api("/api/agent/memory-save", { body: { agent: rdAg, name: "tone", value: "warm and brief" } });
+  const rdSawTone = await rdToolSays("use list_memory");
+  check("⚠ a fact saved on the SCREEN is what the agent reads, saying a person said so",
+    (rdSawTone.memories || []).some((m) => m.name === "tone" && m.value === "warm and brief" && m.source === "person"),
+    JSON.stringify(rdSawTone.memories));
+
+  await api("/api/agent/memory-save", { body: { agent: rdAg, name: "tone", value: "formal" } });
+  const rdSawFixed = await rdToolSays("use list_memory");
+  check("⚠ ...and a correction on the screen is the new words to the agent, at version 2",
+    (rdSawFixed.memories || []).some((m) => m.name === "tone" && m.value === "formal" && m.version === 2),
+    JSON.stringify(rdSawFixed.memories));
+
+  await api("/api/agent/memory-delete", { body: { agent: rdAg, name: "tone" } });
+  const rdSawGone = await rdToolSays("use list_memory");
+  check("⚠ ...and a memory deleted on the screen is one the agent no longer has",
+    !(rdSawGone.memories || []).some((m) => m.name === "tone")
+    && (rdSawGone.memories || []).some((m) => m.name === "keep_me"),
+    JSON.stringify((rdSawGone.memories || []).map((m) => m.name)));
+
+  await api("/api/agent/knowledge-save", { body: { agent: rdAg, title: "Delivery", format: "text",
+    body: "Deliveries go out on Tuesdays and Fridays before noon." } });
+  const rdSawRef = await rdToolSays("use list_reference");
+  const rdFoundRef = await rdToolSays("use search_reference with query=deliveries");
+  check("⚠ material saved on the SCREEN is listed to the agent AND really searchable",
+    (rdSawRef.sources || []).some((k) => k.title === "Delivery")
+    && (rdFoundRef.passages || []).some((e) => /Tuesdays/.test(JSON.stringify(e))),
+    JSON.stringify({ listed: (rdSawRef.sources || []).map((k) => k.title),
+                     found: rdFoundRef.found, first: (rdFoundRef.passages || [])[0] }).slice(0, 200));
+
+  const rdFromScreen = await api("/api/agent/automation-create", {
+    body: { agent: rdAg, name: "From the screen", enabled: true, schedule: "manual", inputs: [],
+            steps: [{ type: "note", text: "made on the screen" }] },
+  });
+  const rdScId = rdFromScreen.body.id;
+  const rdSawAutos = await rdToolSays("use list_automations");
+  check("⚠ an automation made on the SCREEN is one the agent can see",
+    (rdSawAutos.automations || []).some((a) => a.name === "From the screen"),
+    JSON.stringify((rdSawAutos.automations || []).map((a) => a.name)));
+
+  await api("/api/agent/automation-update", {
+    body: { id: rdScId, name: "Renamed on the screen", enabled: true, schedule: "manual", inputs: [],
+            steps: [{ type: "note", text: "made on the screen" }] },
+  });
+  const rdSawRenamed = await rdToolSays(`use read_automation with id=${rdScId}`);
+  check("⚠ ...and a rename on the screen is the name the agent reads",
+    rdSawRenamed?.automation?.name === "Renamed on the screen", JSON.stringify(rdSawRenamed?.automation?.name));
+
+  await api("/api/agent/automation-enable", { body: { id: rdScId, enabled: false } });
+  const rdSawOff = await rdToolSays(`use read_automation with id=${rdScId}`);
+  check("⚠ ...and turning it off on the screen is OFF to the agent",
+    rdSawOff?.automation?.enabled === false, JSON.stringify(rdSawOff?.automation?.enabled));
+
+  /**
+   * ⚠ **TURNING A SCHEDULED AUTOMATION BACK ON HAS TO MEAN THE SAME THING THROUGH BOTH DOORS,
+   * and it did not — REPRODUCED on this database before it was fixed.** The screen's route did a
+   * bare `PATCH {enabled}`; the agent's `pause_automation` calls `agent.set_automation_enabled`,
+   * which also recomputes `next_run_at` from the schedule and NOW. `tick_automations` selects on
+   * `next_run_at <= now()`, so a stale one is in the past — and past the catch-up window
+   * (`AUTOMATION_CATCHUP_S`, an hour) the cron records a MISSED occurrence instead of scheduling
+   * the next. Measured: five days behind through the screen, `2026-09-20 08:00` through the tool,
+   * for the same act on the same automation.
+   *
+   * ⚠ **THE CLOCK IS PUSHED RATHER THAN WAITED OUT, in one UPDATE, and that is declared** — a
+   * five-day pause is not something a demonstration can sit through. What it does NOT simulate is
+   * the decision: the recompute is `agent.automation_next_run`'s own arithmetic either way.
+   *
+   * **A DISABLE IS DELIBERATELY NOT RECOMPUTED** — the function's own rule — so the control below
+   * is that turning it OFF leaves the schedule exactly where it was.
+   */
+  const rdMkDaily = async (name) => (await api("/api/agent/automation-create", {
+    body: { agent: rdAg, name, enabled: true, schedule: "daily", at: "09:00", zone: "Europe/London",
+            inputs: [], steps: [{ type: "note", text: "x" }] },
+  })).body.id;
+  const rdNextOf = (id) => q(`select coalesce(next_run_at::text,'(none)') from agent.automations where id='${id}';`);
+  const rdStale = (id) => q(`update agent.automations set next_run_at = now() - interval '5 days' where id='${id}'; select 1;`);
+  const rdPastOf = (id) => { const v = rdNextOf(id); return v !== "(none)" && Date.parse(v) < Date.now(); };
+  const rdDoorA = await rdMkDaily("Back on from the screen");
+  const rdDoorB = await rdMkDaily("Back on from chat");
+  for (const id of [rdDoorA, rdDoorB]) {
+    await api("/api/agent/automation-enable", { body: { id, enabled: false } });
+    rdStale(id);
+  }
+  // THE OBSERVER, PROVED ALIVE: without this both halves below are satisfied by a pair of rows
+  // whose next run was never stale in the first place.
+  check("both paused automations really are behind before either is turned back on",
+    rdPastOf(rdDoorA) && rdPastOf(rdDoorB), `${rdNextOf(rdDoorA)} / ${rdNextOf(rdDoorB)}`);
+  // AND A DISABLE LEFT THE SCHEDULE ALONE, which is what makes the recompute about the ENABLE.
+  const rdOffKept = rdNextOf(rdDoorA);
+  await api("/api/agent/automation-enable", { body: { id: rdDoorA, enabled: true } });
+  const rdPauseTool = CAPABILITY_TOOLS.find((t) => t.name === "pause_automation");
+  const rdOnArgs = { id: rdDoorB, enabled: true };
+  const rdOnSaid = await rdPauseTool.run(rdOnArgs, await rdCtx(rdOnArgs, 41));
+  // ⚠ A COMPARISON AGAINST A CALL THAT WAS REFUSED MEASURES NOTHING — the first hand-run of this
+  // read "not reproduced" while the tool had answered `bad-enabled` about an argument named
+  // wrongly. So the tool's own answer is asserted before the two are compared.
+  check("the agent's own pause_automation really turned it back on",
+    rdOnSaid?.ok === true, JSON.stringify(rdOnSaid).slice(0, 140));
+  check("⚠ turning a scheduled automation back on RECOMPUTES its next run — through EITHER door",
+    !rdPastOf(rdDoorA) && !rdPastOf(rdDoorB),
+    `screen ${rdNextOf(rdDoorA)} / chat ${rdNextOf(rdDoorB)}`);
+  check("⚠ ...and the two doors agree to the second, because they are one function",
+    rdNextOf(rdDoorA) === rdNextOf(rdDoorB), `${rdNextOf(rdDoorA)} / ${rdNextOf(rdDoorB)}`);
+  check("⚠ ...while a DISABLE deliberately leaves the schedule exactly where it was",
+    rdOffKept !== rdNextOf(rdDoorA) && Date.parse(rdOffKept) < Date.now(), rdOffKept);
+
+  await api("/api/agent/automation-enable", { body: { id: rdScId, enabled: true } });
+  await api("/api/agent/automation-run", { body: { id: rdScId, input: {} }, ring });
+  await drain(); await tick(); await drain();
+  const rdSawRuns = await rdToolSays(`use list_executions with automation=${rdScId}`);
+  check("⚠ ...and a run STARTED on the screen is one the agent can inspect",
+    (rdSawRuns.executions || []).length === 1,
+    JSON.stringify((rdSawRuns.executions || []).map((e) => e.state)));
+  const rdOneRun = (rdSawRuns.executions || [])[0];
+  const rdSawRun = await rdToolSays(`use read_execution with id=${rdOneRun.id}`);
+  check("⚠ ...and read_execution is what lets it EXPLAIN the outcome: every step, and how it ended",
+    Array.isArray(rdSawRun?.execution?.outcomes) && rdSawRun.execution.outcomes.length >= 1
+    && typeof rdSawRun.execution.state === "string",
+    JSON.stringify(rdSawRun?.execution && { state: rdSawRun.execution.state, outcomes: rdSawRun.execution.outcomes.length }));
+
+  // ── C. ONE DECIDING IMPLEMENTATION, MEASURED ON THE WIRE ───────────────────
+  /**
+   * ⚠ **THE ROW AFTERWARDS CANNOT TELL ONE IMPLEMENTATION FROM TWO, so the REQUEST is what is
+   * compared.** Both doors write a memory and the row is the same row either way — that is
+   * section 7's claim and it is satisfied by two writers that happen to agree today. What
+   * separates them is the function each asks for, which the shim records.
+   *
+   * ⚠ **AND THE TOOL'S IS THE `_once` WRAPPER OF THE SAME FUNCTION, deliberately.** A wrapper
+   * exists because a tool call can be delivered twice and a person's button press cannot be —
+   * so the tool's write carries an operation identity and the screen's does not. The wrapper
+   * calls the plain function BY NAME, which `test/integration/pg-schema.mjs` censuses against
+   * `pg_proc`, so "one deciding implementation" is that census plus these two lines.
+   */
+  /**
+   * ⚠ **MATCHED ON THE PATH'S TAIL, NEVER ON A PREFIX — and the first draft of this was wrong
+   * about exactly that.** The shim mounts under `/rest/v1/`, so `^POST \/rpc\//` matched
+   * nothing and all three checks below came back empty. **The observer check at the end is what
+   * SAID so**, by printing what had really been recorded; without it the three would have read
+   * as "the two doors call different functions" about code that is right.
+   */
+  const rdRpcsOf = (seen) => [...new Set(seen.filter((r) => /^POST \S*\/rpc\//.test(r))
+    .map((r) => r.replace(/^POST \S*\/rpc\//, "")))];
+  const rdThroughScreen = async (fn) => { rest.forget(); await fn(); return { rpcs: rdRpcsOf(rest.seen()), all: rest.seen() }; };
+
+  const rdScreenSaved = await rdThroughScreen(() =>
+    api("/api/agent/memory-save", { body: { agent: rdAg, name: "door_test", value: "one" } }));
+  const rdChatSaved = await rdThroughScreen(() =>
+    askOk(rdAg, "use remember with name=door_test and value=two"));
+  check("⚠ SAVING A MEMORY IS ONE FUNCTION: the screen calls it, and the agent calls its retry wrapper",
+    rdScreenSaved.rpcs.includes("save_memory") && rdChatSaved.rpcs.includes("save_memory_once")
+    && !rdScreenSaved.rpcs.includes("save_memory_once"),
+    `screen ${JSON.stringify(rdScreenSaved.rpcs)} / chat ${JSON.stringify(rdChatSaved.rpcs.filter((r) => /memor/.test(r)))}`);
+
+  /**
+   * ⚠ **AND THE SCREEN'S SAVE NO LONGER COUNTS IN JAVASCRIPT — asked of that save's OWN window.**
+   * The ceiling used to be a read of the whole list followed by an insert, which is two
+   * statements and therefore raceable. It is `agent.save_memory`'s now, counted inside the
+   * transaction that writes, and this is the negative half: no list read at all.
+   */
+  check("⚠ ...and that save no longer COUNTS in JavaScript — the cap is the function's",
+    !rdScreenSaved.all.some((r) => /^GET \S*\/agent_memory/.test(r)),
+    JSON.stringify(rdScreenSaved.all));
+
+  const rdScreenForgot = await rdThroughScreen(() =>
+    api("/api/agent/memory-delete", { body: { agent: rdAg, name: "door_test" } }));
+  check("⚠ ...and so is forgetting one — the route stopped deleting the row itself",
+    rdScreenForgot.rpcs.includes("delete_memory")
+    && !rdScreenForgot.all.some((r) => /^DELETE /.test(r)),
+    JSON.stringify(rdScreenForgot.all));
+
+  const rdScreenMade = await rdThroughScreen(() => api("/api/agent/automation-create", {
+    body: { agent: rdAg, name: "Door test", enabled: false, schedule: "manual", inputs: [],
+            steps: [{ type: "note", text: "x" }] },
+  }));
+  /**
+   * ⚠ **THE `ctx` IS AWAITED, and the first draft of this line was not.** `rdCtx` is async, so
+   * the tool was handed a PROMISE, read `undefined` for its capability surface, answered
+   * `no-backend` and made no request at all — which arrived here as *the two doors call different
+   * functions*, about code that is right. **The recorder is what caught it**, by having nothing
+   * to show; and the tool's own answer is asserted now, so a refused call is its own failure.
+   */
+  const rdMakeTwo = { name: "Door test two", steps: [{ type: "note", text: "y" }] };
+  const rdCtxTwo = await rdCtx(rdMakeTwo, 32);
+  let rdMadeTwo = null;
+  const rdChatMade = await rdThroughScreen(async () => { rdMadeTwo = await rdMakeTool.run(rdMakeTwo, rdCtxTwo); });
+  check("the agent's own make_automation saved the second one too",
+    rdMadeTwo?.ok === true, JSON.stringify(rdMadeTwo).slice(0, 160));
+  check("⚠ ...and making an automation is one function too, the same pair",
+    rdScreenMade.rpcs.includes("create_automation") && rdChatMade.rpcs.includes("create_automation_once"),
+    `screen ${JSON.stringify(rdScreenMade.rpcs)} / chat ${JSON.stringify(rdChatMade.rpcs)}`);
+
+  // THE OBSERVER, because three of the checks above are about what a recorded request CONTAINS
+  // and two are about what one does NOT: the recorder has to be recording. A read of the memory
+  // list really does show up — and this is the check that caught the needle being wrong.
+  rest.forget();
+  await rdScreenMemory();
+  check("⚠ ...and the request recorder is ALIVE, or none of the five above means anything",
+    rest.seen().some((r) => /^GET \S*\/agent_memory/.test(r)), JSON.stringify(rest.seen()));
+
   console.log("\n8. WHAT THE WHOLE RUN LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   check("every run finished", q(`select count(*) from agent.runs where stop is null;`) === "0");

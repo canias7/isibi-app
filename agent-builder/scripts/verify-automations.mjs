@@ -229,7 +229,14 @@ try {
   console.log("\n5. DISABLING — and pausing the agent it belongs to");
   // ═════════════════════════════════════════════════════════════════════════
   const off = await api("/api/agent/automation-enable", { body: { id: manual, enabled: false } });
-  check("it can be turned off", off.status === 200 && off.body.automation.enabled === false);
+  // ⚠ RE-ANCHORED, NOT APPEASED: this read `off.body.automation.enabled`, which was the
+  // property "it can be turned off" written as the shape of a row the route used to answer.
+  // The toggle goes through `agent.set_automation_enabled` now — the function the agent's own
+  // `pause_automation` calls — so the reply is that function's own `{ok, id, enabled,
+  // nextRunAt}` and the property is one indirection nearer. `nextRunAt` is asserted PRESENT
+  // rather than to a value, because a disable deliberately leaves the schedule where it was.
+  check("it can be turned off", off.status === 200 && off.body.enabled === false
+    && "nextRunAt" in off.body, JSON.stringify(off.body));
   const runsBefore = q(`select count(*) from agent.automation_runs;`);
   const refused = await api("/api/agent/automation-run", { body: { id: manual }, ring });
   check("Run now is refused with 409 and its own flag", refused.status === 409 && refused.body.disabled === true, JSON.stringify(refused.body));

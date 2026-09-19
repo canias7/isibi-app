@@ -29,6 +29,7 @@ import {
   AGENT_TOOLS, AGENT_TOOL_NAMES, MAX_AGENT_TOOLS, AGENT_STATUSES, cleanStatus, cleanTools,
   TOOL_VERDICTS, MAX_TOOL_APPROVALS, toolApprovalRow,
   MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
+  sayMemory, memoryFromAnswer,
   MAX_KNOWLEDGE, KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
   MAX_WEBHOOKS,
   AGENT_PROVIDERS, MAX_CONNECTIONS, CONNECTION_TROUBLE,
@@ -1964,6 +1965,89 @@ test("⚠ THE MEMORY CAP IS ONE NUMBER IN THREE LANGUAGES, censused all three wa
   // substitute is one nobody can use.
   assert.match(cols, /key\s+text\s+not null check \(key ~ '\^\[a-z\]\[a-z0-9_\]\{0,39\}\$'\)/,
     "the key column does not bound a memory's name");
+});
+
+test("⚠ EVERY CODE `save_memory` AND `delete_memory` CAN ANSWER HAS A SENTENCE, censused", () => {
+  /**
+   * ⚠ **THE SITE WRITES MEMORY THROUGH THOSE TWO FUNCTIONS NOW, so their REFUSAL CODES are on
+   * this side's wire.** A code is right for a caller and useless on a screen, and the checks
+   * above each route compose the ordinary sentences — so what reaches `sayMemory` is a refusal
+   * they did not anticipate, which must still be said properly rather than falling through to
+   * "that agent isn't here", the answer it used to get by being a `null` row.
+   *
+   * It is a CENSUS read out of the functions themselves, so a seventh code added to either one
+   * next month fails by existing rather than by arriving at a customer as a 500.
+   */
+  /**
+   * ⚠ **THE BODY IS BOUNDED BY ITS OWN DOLLAR DELIMITERS, and the first draft of this reader
+   * sliced to the END OF THE FILE** — so it read every code of every function declared after
+   * `save_memory` in the same migration and reported `bad-enabled`, which belongs to a
+   * different one, as a memory refusal with no sentence. A window with no closing landmark
+   * swallows the file; this one opens at the header, takes the `$$` that OPENS the body, and
+   * ends at the `$$` that closes it.
+   */
+  const codes = new Set();
+  for (const fn of ["agent.save_memory(", "agent.delete_memory("]) {
+    const sql = latestMigration(`create or replace function ${fn}`);
+    const at = sql.indexOf(`create or replace function ${fn}`);
+    const open = sql.indexOf("$$", at);
+    const close = sql.indexOf("$$", open + 2);
+    assert.ok(at >= 0 && open > at && close > open, `${fn} has no readable body`);
+    const body = sql.slice(at, close);
+    // AND THE WINDOW IS PROVED TO BE THE FUNCTION'S OWN rather than the file's: it must hold
+    // that function's header and be a small fraction of the migration it came from.
+    assert.ok(body.includes(fn) && body.length < sql.length / 3,
+      `the window around ${fn} is ${body.length} of ${sql.length} characters`);
+    for (const m of body.matchAll(/'error',\s*'([a-z-]+)'/g)) codes.add(m[1]);
+  }
+  // THE OBSERVER, PROVED ALIVE: a reader that found nothing would satisfy every line below it.
+  assert.ok(codes.size >= 6, `only ${codes.size} refusal codes were read out of the functions`);
+  assert.ok(codes.has("too-many") && codes.has("no-agent"), `the census read ${[...codes]}`);
+  const UNKNOWN = sayMemory("something-nobody-has-written-yet", {});
+  for (const code of codes) {
+    const [status, said] = sayMemory(code, { held: MAX_MEMORIES });
+    assert.ok(status >= 400 && status < 500, `${code} is not a refusal at all (${status})`);
+    assert.ok(said && said !== UNKNOWN[1], `${code} has no sentence of its own`);
+  }
+  // ⚠ **AND `no-agent` KEEPS ITS OLD WORDS**, because it really is the missing-agent answer:
+  // a stranger must not be able to tell a refusal from an agent that is not theirs.
+  assert.deepEqual(sayMemory("no-agent", {}), [404, "that agent isn't here"]);
+  // THE FULL ACCOUNT SAYS HOW MANY IT HOLDS, from the function's own answer and not from this
+  // side's constant — which is what makes the sentence true on a deployment whose cap has moved.
+  const [full, words] = sayMemory("too-many", { held: 7 });
+  assert.equal(full, 409);
+  assert.match(words, /\(7\)/);
+  assert.match(sayMemory("too-many", {})[1], new RegExp(`\\(${MAX_MEMORIES}\\)`),
+    "with no count answered it does not fall back to this side's own ceiling");
+  /**
+   * ⚠ **A CODE THIS DOES NOT KNOW IS A 500 AND NEVER A 400.** Cannot-tell must not read as the
+   * caller's fault: a 400 tells somebody to change what they sent about a refusal nobody here
+   * can name, and every 4xx on this route is a sentence a person can act on.
+   */
+  assert.equal(UNKNOWN[0], 500);
+  for (const junk of [undefined, null, "", 7, ["too-many"], {}]) {
+    assert.equal(sayMemory(junk, {})[0], 500, `${JSON.stringify(junk)} was blamed on the caller`);
+  }
+});
+
+test("⚠ THE FUNCTION'S MEMORY OBJECT IS NOT A ROW, and the difference is read once", () => {
+  /**
+   * `agent.save_memory` answers `{id, name, value, version, source}`; `agent_memory` answers a
+   * ROW with `key` and two timestamps. **`memoryFromAnswer` is the one place that difference
+   * lives**, rather than in the route — which is what lets the screen keep reading `key`.
+   */
+  const m = memoryFromAnswer({ id: "m1", name: "tone", value: "formal", version: 2, source: "run" });
+  assert.equal(m.key, "tone", "the function's `name` did not become the screen's `key`");
+  assert.equal(m.value, "formal");
+  assert.equal(m.version, 2);
+  assert.equal(m.source, "run");
+  // ⚠ **THE TWO TIMESTAMPS ARE NOT INVENTED.** The function does not answer them, and a made-up
+  // `at` on a list is worse than an absent one: it says a fact changed at a moment it did not.
+  assert.equal(m.at, null, "a moment nobody recorded was invented");
+  assert.equal(m.updatedAt, null, "a moment nobody recorded was invented");
+  // AND IT FAILS CLOSED THE WAY A ROW DOES, because the answer comes off a wire.
+  assert.equal(memoryFromAnswer(undefined).value, "");
+  assert.equal(memoryFromAnswer({ source: "somewhere" }).source, "person");
 });
 
 test("⚠ REFERENCE MATERIAL IS BOUNDED TOO — and by a DIFFERENT layer, which is stated", () => {
