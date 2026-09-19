@@ -484,7 +484,13 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
         return Object.keys((schema && schema.properties) || {});
       })();
       const kind = props.find((x) => x !== "requirements") || "";
-      prompts.push({ tool: asked, kind, text: JSON.stringify(b.messages || b.system || b) });
+      // ⚠ AND THE PROPERTY SET ITSELF IS KEPT (2026-09-19). Whether a designer
+      // MAY answer coverage is a fact about the tool the route hands it, and a
+      // fixture that supplies the answer directly bypasses the tool entirely —
+      // so without this, a case driving a `requirements` echo passes whether or
+      // not the model could ever have written one. Measured: the QR echo case
+      // was green against a product whose qr tool had no such property.
+      prompts.push({ tool: asked, kind, props, text: JSON.stringify(b.messages || b.system || b) });
       // THE PAGE CALL, for a case that is not pageless. A connection or a
       // PUBLIC function exists to be read by a page, so `pageless` is false and
       // the route writes one — which is right, and is why those two kinds

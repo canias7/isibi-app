@@ -763,6 +763,24 @@ test("the comment scan blanks rather than deletes, and keeps its own shape", () 
   const out = codeOnly(src);
   assert.equal(out.length, src.length, "the blanking moved every offset after a comment");
   assert.equal(out.split("\n").length, src.split("\n").length, "a blanked comment lost its newlines");
+  // ⚠ AND THE MASKED COPY KEEPS BOTH TOO (2026-09-19), which is what makes the
+  // two views usable at ONE offset: `listFrames` matches braces against the
+  // masked copy and reads the body out of the plain one. An escape is two
+  // characters in and two out; a newline inside a masked template survives as
+  // itself. Measured against shapes that carry all three.
+  const strs = [
+    'const t = "a \\" b";',
+    "const u = 'plain';",
+    "const v = `two",
+    "lines`;",
+    'const a = [{ alt: "Real", src: null }];',
+  ].join("\n");
+  for (const [what, masked] of [["plain", codeOnly(strs)], ["masked", codeOnly(strs, true)]]) {
+    assert.equal(masked.length, strs.length, what + " moved every offset after a string");
+    assert.equal(masked.split("\n").length, strs.split("\n").length, what + " lost a newline inside a string");
+  }
+  assert.equal(codeOnly(strs, true).includes("Real"), false, "a string's contents survived the masking");
+  assert.equal(codeOnly(strs).includes("Real"), true, "the plain copy lost the value a frame is read from");
   assert.equal(out.includes("alt"), false, "a line comment survived the blanking");
   assert.equal(out.includes("lines"), false, "a block comment survived the blanking");
   assert.match(out, /const a = 1;/, "code before a comment was blanked with it");
@@ -781,13 +799,14 @@ test("the comment scan blanks rather than deletes, and keeps its own shape", () 
     "an escaped quote ended its string and the frame beside it vanished");
 });
 
-test("a frame a browser counts is a floor, not an exact number", () => {
-  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists."* An
+test("a frame a browser counts is marked runtime, and contributes no number", () => {
+  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists"*,
+  // then *"don't treat runtime expressions as a positive lower bound."* An
   // entry inside a `.map` is ONE object in the source and as many boxes on the
   // page as the mapped array has elements — a number no reader of the source
-  // can know. The entry is still counted, because a mapped gallery really does
-  // put picture spaces on the page; what changes is that the total is handed
-  // over as a minimum.
+  // can know, and `SHOTS` may be empty, which is why it is not a floor either.
+  // It is MARKED so the customer's sentence can say a list draws the pictures;
+  // it is not added to the count.
   const one = (source) => listFrames([{ path: "p.tsx", source }])[0];
   for (const [what, source] of [
     [".map over an unknown array", 'const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));'],
@@ -805,18 +824,28 @@ test("a frame a browser counts is a floor, not an exact number", () => {
   const lit = listFrames([{ path: "p.tsx", source: 'const a = [{ alt: "one", src: null }, { alt: "two", src: null }];' }]);
   assert.equal(lit.length, 2);
   assert.equal(lit.every((f) => !f.runtime), true, "a literal list was called runtime-dependent: " + JSON.stringify(lit));
-  // …AND THE PAIR THE ROUTE READS. `atLeast` rides beside the number rather
-  // than changing it, because the customer's sentence chooses a word and the
-  // count is still the most useful thing in it.
+  // …AND THE PAIR THE ROUTE READS — ⚠ CORRECTED 2026-09-19 (owner: *"An empty
+  // mapped array renders zero frames but currently reports 'at least 1'…
+  // don't treat runtime expressions as a positive lower bound."*). The entry
+  // was counted as ONE and the total handed over as a minimum, which is a claim
+  // about data no reader of the source can see: `SHOTS` may hold six pictures
+  // or none. `n` is what is really written down and `more` says separately that
+  // a list may draw some, so a mapped gallery alone contributes NO number.
   const page = (source) => [{ path: "gallery.tsx", source }];
   assert.deepEqual(newListFrames([], page('const a = [{ alt: "one", src: null }, { alt: "two", src: null }];')),
-    { n: 2, atLeast: false });
+    { n: 2, more: false });
   assert.deepEqual(newListFrames([], page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));')),
-    { n: 1, atLeast: true });
+    { n: 0, more: true },
+    "a mapped entry was counted as at least one frame on the page");
+  // BOTH AT ONCE: the written ones are counted and the mapped one is said.
+  assert.deepEqual(newListFrames([], page([
+    'const a = [{ alt: "one", src: null }, { alt: "two", src: null }];',
+    'const b = SHOTS.map((s) => ({ alt: "Bread", src: null }));',
+  ].join("\n"))), { n: 2, more: true });
   // AND A PAGE THAT GAINED NOTHING SETS NO FLAG, however its own frames are
   // written: the question is about THIS change's number, not about the site.
   const mapped = page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));');
-  assert.deepEqual(newListFrames(mapped, mapped), { n: 0, atLeast: false },
+  assert.deepEqual(newListFrames(mapped, mapped), { n: 0, more: false },
     "an untouched mapped gallery made another page's count a floor");
 });
 
@@ -837,6 +866,41 @@ test("what is not an object literal with a written alt is not a frame", () => {
   // …AND THE SHAPE IT MUST STILL FIND, so the five above are refusals rather
   // than the reader being switched off.
   assert.equal(listFrames([{ path: "p.tsx", source: "items={[{ alt: 'A loaf', caption: 'Loaf' }]}" }]).length, 1);
+});
+
+test("an object written inside a string is an example, not a picture", () => {
+  // ⚠ Owner, 2026-09-19: *"A quoted example containing an object also counts as
+  // a picture. Exclude strings and unused examples."* A page that DESCRIBES the
+  // shape — a placeholder, a helper's doc line, a copy-me sample in a prop —
+  // has an object literal inside a string literal, and the reader counted it as
+  // a space on the page. Nothing renders from it.
+  for (const [what, source] of [
+    ["a double-quoted example", 'const hint = "each item is { alt: \\"A loaf\\", caption: \\"Loaf\\" }";'],
+    ["a single-quoted example", "const hint = 'each item is { alt: \"A loaf\" }';"],
+    ["a template example", "const hint = `each item is { alt: \"A loaf\" }`;"],
+  ]) {
+    assert.deepEqual(listFrames([{ path: "p.tsx", source }]), [], what + " was counted as a picture space");
+  }
+  // ⚠ AND THE CONTROL THAT COST 29 REAL FRAMES ACROSS 6 OF 100 CORPUS SITES.
+  // The first cut of the string masking read a JSX prose apostrophe as a string
+  // OPENER — `somebody else's` — and swallowed the rest of the file, so a real
+  // gallery below it vanished. A quote straight after a word character is
+  // prose, not a string. Only the corpus measurement caught it: a false
+  // all-clear is worse than a false alarm, and this one was silent.
+  const prose = [
+    "function Page(){ return (<main>",
+    "  <p>Bread somebody else's oven can't make, in the baker's own words</p>",
+    '  <Gallery items={[{ alt: "A crusty country loaf" }, { alt: "Seeded sourdough" }]} />',
+    "</main>) }",
+  ].join("\n");
+  assert.equal(listFrames([{ path: "p.tsx", source: prose }]).length, 2,
+    "an apostrophe in prose swallowed the gallery under it");
+  // …AND A URL INSIDE A STRING IS NOT A COMMENT. Without the string scan the
+  // `//` in `https://` opens one and everything after it is blanked, which is
+  // the same loss through a different door.
+  const url = 'const u = "https://example.com/a"; const a = [{ alt: "A loaf" }];';
+  assert.equal(listFrames([{ path: "p.tsx", source: url }]).length, 1,
+    "a `//` inside a URL blanked the source after it");
 });
 
 test("the reader refuses a page it cannot read, and bounds what it returns", () => {

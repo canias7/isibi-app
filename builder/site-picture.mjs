@@ -355,12 +355,28 @@ export function listFrames(pages) {
     // `items={[…]}`, and a jsdoc example — each counted as a picture space a
     // visitor can see, on a page that draws nothing of the kind. A comment is
     // the one part of a file guaranteed not to render.
-    const code = codeOnly(src);
+    // ⚠ …AND A STRING IS NOT CODE EITHER (2026-09-19, the second correction).
+    // Owner: *"A quoted example containing an object also counts as a picture.
+    // Exclude strings and unused examples."* REPRODUCED in all three quoting
+    // shapes — `"write { alt: 'A loaf', src: null }"`, its single-quoted mirror
+    // and a template literal — each counted as a picture space on a page that
+    // draws nothing of the kind.
+    //
+    // TWO VIEWS OF ONE FILE, AND THE SPLIT IS WHAT MAKES THAT POSSIBLE. A frame
+    // is FOUND by its braces and READ by its values, and the values are strings
+    // — so one copy cannot serve both: blanking string contents loses every
+    // `alt` and keeping them lets a quoted example in. `mask` has comments and
+    // string CONTENTS blanked and is what the braces are matched against;
+    // `view` has only comments blanked and is what the body is read from. Both
+    // are length-preserving, so one offset means the same thing in each.
+    const view = codeOnly(src);
+    const mask = codeOnly(src, true);
     const re = new RegExp(OBJ_START.source, "g");
     let m;
-    while ((m = re.exec(code))) {
-      const body = shallowObject(code, m.index);
-      if (body === null) continue;
+    while ((m = re.exec(mask))) {
+      const close = objectEnd(mask, m.index);
+      if (close < 0) continue;
+      const body = view.slice(m.index + 1, close);
       const alt = literalKey(body, "alt");
       if (!alt) continue;
       // THE PICTURE'S OWN VALUE, or "" for a key that is not there. Both read
@@ -369,9 +385,11 @@ export function listFrames(pages) {
       // key are not separated here the way an attribute's are.
       const v = keyValue(body, "src");
       // AND WHETHER THE BROWSER DECIDES HOW MANY OF IT THERE ARE. One object
-      // literal inside a `.map` is one entry in the SOURCE and N frames on the
-      // PAGE, so a count over it is exact about the wrong thing.
-      out.push({ page: p.path, alt, value: v, empty: !v || v === "null", runtime: inRuntimeList(code, m.index) });
+      // literal inside a `.map` is one entry in the SOURCE and any number of
+      // frames on the PAGE — INCLUDING NONE — so it is neither an exact count
+      // nor a floor. The walk runs on `mask` so a `(` inside a string cannot be
+      // read as a call.
+      out.push({ page: p.path, alt, value: v, empty: !v || v === "null", runtime: inRuntimeList(mask, m.index) });
       if (out.length >= MAX_LIST_FRAMES) return out;
     }
   }
@@ -392,13 +410,19 @@ const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
  * the start of a comment and blank the rest of the line with it. Tracking both
  * states in one walk makes each immune to the other.
  *
- * LENGTH-PRESERVING, SO AN OFFSET MEANS THE SAME THING IN BOTH. Every reader
- * downstream works on the blanked copy, so nothing in THIS module can see the
- * difference today — which is exactly why it is exported and asserted rather
- * than left as a habit: a scan that blanks by DELETING gives back positions
- * that cannot be read against the file anybody is looking at, and the first
- * reader to want one would be reading a lie. A blanked comment keeps its
- * newlines for the same reason.
+ * LENGTH-PRESERVING, SO AN OFFSET MEANS THE SAME THING IN BOTH — and since
+ * 2026-09-19 that is load-bearing rather than tidy: `listFrames` matches braces
+ * against the `maskStrings` copy and reads the body out of the plain one, at
+ * the SAME offsets. A scan that blanked by deleting would hand back positions
+ * into a string nobody else holds.
+ *
+ * `maskStrings` BLANKS WHAT IS INSIDE THE QUOTES AND KEEPS THE QUOTES, so a
+ * quoted example (`"write { alt: 'A loaf', src: null }"`) has no braces left to
+ * match while a quoted KEY (`{"src": …}`) still reads as one — the empty pair
+ * `""` is what `OBJ_START` needs and all it needs. A TEMPLATE is blanked with
+ * the rest, including anything inside `${…}`: the existing rule already refuses
+ * an entry whose `alt` is a template, so a picture entry cannot live there, and
+ * blanking it is consistent rather than a new judgement.
  *
  * NO REGEX-LITERAL STATE, and this is the one thing it does not model: a `/…/`
  * holding a quote could open a string here. Measured over the whole 100-site
@@ -406,18 +430,23 @@ const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
  * the direction of the risk is a MISSED frame rather than an invented one,
  * which is the safe side for a number offered to a customer.
  */
-export function codeOnly(src) {
+export function codeOnly(src, maskStrings = false) {
   let out = "", quote = "", i = 0;
   while (i < src.length) {
     const c = src[i], d = src[i + 1];
     if (quote) {
-      out += c;
-      if (c === "\\") { out += src[i + 1] === undefined ? "" : src[i + 1]; i += 2; continue; }
-      if (c === quote) quote = "";
+      // AN ESCAPE AND ITS VICTIM MOVE TOGETHER, or a `\"` ends the string and
+      // the rest of the line reads as code. Two characters in, two out.
+      if (c === "\\" && src[i + 1] !== undefined) { out += maskStrings ? "  " : c + src[i + 1]; i += 2; continue; }
+      if (c === quote) { out += c; quote = ""; i++; continue; }
+      // A NEWLINE SURVIVES EVEN INSIDE A MASKED TEMPLATE, so a line count is
+      // the file's own whichever copy is being read.
+      out += maskStrings ? (c === "\n" ? "\n" : " ") : c;
       i++;
       continue;
     }
-    if (c === '"' || c === "'" || c === "`") { quote = c; out += c; i++; continue; }
+    if ((c === '"' || c === "'") && !AFTER_WORD.test(out)) { quote = c; out += c; i++; continue; }
+    if (c === "`") { quote = c; out += c; i++; continue; }
     if (c === "/" && d === "/") {
       while (i < src.length && src[i] !== "\n") { out += " "; i++; }
       continue;
@@ -433,6 +462,29 @@ export function codeOnly(src) {
   }
   return out;
 }
+
+/**
+ * ⚠ A QUOTE STRAIGHT AFTER A WORD CHARACTER IS PROSE, NOT A STRING — and this
+ * is the one thing that made masking safe at all (measured 2026-09-19).
+ *
+ * A `.tsx` page is JSX, and JSX TEXT is full of apostrophes: *"somebody else's"*,
+ * *"Heeley's studio"*, *"We've played"*. Read as string openers they swallow
+ * everything to the next one — and the first attempt at this cost **29 real
+ * picture frames across 6 of the 100 corpus sites**, an entire `<Gallery
+ * items={[…]}/>` vanishing because a contraction two hundred characters above
+ * it opened a string nobody wrote. A false all-clear, which this repository
+ * rates worse than a false alarm.
+ *
+ * In JavaScript a string NEVER opens directly after a letter or a digit —
+ * there is no implicit concatenation — so the test costs nothing real. A
+ * BACKTICK is exempt because `css\`…\`` is a tagged template, where a word
+ * character before it is exactly the ordinary case.
+ *
+ * THE LIMIT IT LEAVES, stated rather than hidden: a quote opening after `>` in
+ * JSX prose (*"'Tis the season"*) still reads as a string. It is rare, and the
+ * direction is a MISSED frame rather than an invented one.
+ */
+const AFTER_WORD = /[A-Za-z0-9]$/;
 
 /** The calls whose argument is evaluated once per element of something else. */
 const RUNTIME_CALL = /(?:\.\s*(?:map|flatMap)|Array\s*\.\s*from)\s*$/;
@@ -450,9 +502,15 @@ const MAX_RUNTIME_LOOKBACK = 600;
  * `alt` is a TEMPLATE, for exactly this reason; this is the same fact where the
  * `alt` happens to be a literal.
  *
- * IT MAKES THE TOTAL A FLOOR RATHER THAN DROPPING THE ENTRY, because a page
- * that draws its gallery from a mapped array really does have picture spaces on
- * it and reporting none is the worse error. The customer hears "at least".
+ * ⚠ AND IT IS NOT A LOWER BOUND EITHER — CORRECTED 2026-09-19, owner: *"An
+ * empty mapped array renders zero frames but currently reports 'at least 1'…
+ * don't treat runtime expressions as a positive lower bound."* The first cut
+ * counted a runtime entry as one and called the total a floor, which is the
+ * same mistake the exact count was: `SHOTS.map(…)` with `SHOTS` empty draws
+ * NOTHING, so one object in the source bounds the page from neither side. A
+ * runtime entry contributes NOTHING to the number and sets `more` instead, and
+ * where nothing else was counted the customer gets a sentence with NO NUMBER in
+ * it — which is the only honest thing to say about a count the data decides.
  *
  * THE WALK GOES OUTWARD THROUGH EVERY UNCLOSED BRACKET, not to the first one.
  * `SHOTS.map((s) => ({…}))` has TWO parentheses around the object — the arrow's
@@ -492,17 +550,17 @@ const MAX_OBJ_CHARS = 4000;
  * of which is "not a picture entry", and answering null rather than guessing is
  * what keeps a data row of some other shape out of the count.
  */
-function shallowObject(src, from) {
+function objectEnd(src, from) {
   let depth = 0, quote = "";
   const end = Math.min(src.length, from + MAX_OBJ_CHARS);
   for (let i = from; i < end; i++) {
     const c = src[i];
     if (quote) { if (c === quote && src[i - 1] !== "\\") quote = ""; continue; }
     if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
-    if (c === "{") { depth++; if (depth > 1) return null; continue; }
-    if (c === "}") { depth--; if (!depth) return src.slice(from + 1, i); }
+    if (c === "{") { depth++; if (depth > 1) return -1; continue; }
+    if (c === "}") { depth--; if (!depth) return i; }
   }
-  return null;
+  return -1;
 }
 
 /**
@@ -560,25 +618,35 @@ const keyName = (name) => "(?:" + name + "|\"" + name + "\"|'" + name + "')";
  * fix the number by shipping a bigger claim than the one it replaced.
  */
 export function newListFrames(before, after) {
-  const empty = (pages) => listFrames(pages).filter((f) => f.empty);
-  const gain = grewBy(before, after, empty);
+  // ── THE TWO KINDS ARE COUNTED APART, BECAUSE ONLY ONE IS A NUMBER ───────
+  //
+  // Owner, 2026-09-19: *"An empty mapped array renders zero frames but
+  // currently reports 'at least 1'… don't treat runtime expressions as a
+  // positive lower bound. Use wording without a number when the visible count
+  // cannot be established."*
+  //
+  // `n` IS THE FRAMES WHOSE NUMBER IS WRITTEN DOWN — literal entries in a
+  // literal array, which is run 51's gallery and every one the corpus has. A
+  // runtime entry bounds the page from NEITHER side: its array may hold six or
+  // none, so it can no more floor the total than fix it, and the first cut
+  // counting it as one was the exact count's mistake wearing a hedge.
+  //
+  // `more` IS "AND THERE ARE ALSO SOME THE DATA DECIDES", which earns a
+  // different sentence rather than a modifier on this one. With `n > 0` it
+  // makes the number a floor — the literal ones really are there; with
+  // `n === 0` there is nothing to be a floor OF, and the customer hears no
+  // number at all.
+  //
+  // ASKED OF WHAT THIS CHANGE ADDED, never of the whole site: a mapped gallery
+  // sitting untouched on another page says nothing about this change's number.
+  // Both halves go through `grewBy`, so the same per-page increase rule decides
+  // each and neither can report the other's page.
+  const empties = (pages) => listFrames(pages).filter((f) => f.empty);
+  const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.runtime));
   let n = 0;
   for (const g of gain.values()) n += g;
-  // ── AND THE NUMBER IS A FLOOR WHEN A BROWSER DECIDES IT (2026-09-19) ──────
-  //
-  // Owner: *"avoid exact counts for runtime-dependent lists."* An entry inside
-  // a `.map` is one object in the source and N frames on the page, so a total
-  // that includes one is exact about the source and wrong about the page. The
-  // entry is still COUNTED — a mapped gallery really does put picture spaces on
-  // the page and reporting none would be the larger error — and the total is
-  // handed over as a minimum instead.
-  //
-  // ASKED OF THE PAGES THAT GAINED, never of the whole site: a mapped gallery
-  // sitting untouched on some other page says nothing about whether THIS
-  // change's number is exact. The flag can only ever weaken an exact claim into
-  // a floor, so the direction of a wrong answer here is a softer sentence.
-  const atLeast = n > 0 && empty(after).some((f) => f.runtime && gain.has(f.page));
-  return { n, atLeast };
+  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;
+  return { n, more };
 }
 
 export const PICTURE_TOOL = {

@@ -155,6 +155,74 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-19 — The two that finished them: the frame number, and the QR echo
+
+Both reproduced before anything was touched. **No paid run, nothing merged,
+nothing deployed. Fal verification stays parked.**
+
+### 1. A mapped gallery no longer claims "at least 1"
+
+The round before this one stopped calling a mapped gallery an exact count and
+called it a **floor** instead. You were right that that is the same mistake in a
+hat: `SHOTS.map(...)` draws six pictures or **none**, so one entry in the source
+is not a lower bound either.
+
+There are two numbers now instead of one modifier on a number:
+
+| what the page has | what the customer hears |
+|---|---|
+| six entries written out (run 51's gallery) | "The page's own layout has **6 picture spaces** in it that an upload won't reach" |
+| two written out AND a mapped list | "**at least 2** picture spaces" — the two really are there |
+| **only** a mapped list | "The page draws its pictures from a list, so **how many spaces it has is up to that data**" — no number at all |
+
+Run 51's six-entry gallery is unchanged, because its number is written down.
+
+### 2. An object inside a quoted example is not a picture
+
+A page that *describes* the shape — `"each item is { alt: 'A loaf' }"` — had
+that counted as a real picture space. Reproduced in all three quoting shapes and
+fixed by reading the file twice: once with strings blanked (to find the braces)
+and once without (to read the words), at the same offsets.
+
+**⚠ And the first attempt at that destroyed 29 real pictures across 6 of the 100
+test sites, silently.** A page is JSX and JSX text is full of apostrophes —
+*"somebody else's oven"* — and read as a string opener one of those swallows
+everything after it, including a whole gallery two hundred characters below. The
+only thing that caught it was re-measuring the whole corpus; every test still
+passed. A quote straight after a letter is prose now, not a string, and the
+corpus reads exactly what it read before: **320 pictures across 60 files**.
+
+### 3. The QR step can now say which request its code answers
+
+Run 51's page step asked for *"A QR code opens the gallery page"* and the QR step
+had **no way to answer** — it was handed the request in its instructions and its
+form had no field for the reply. That is why the honest verdict was *"I can't see
+from here whether…"* even when the code was exactly right.
+
+One word of configuration fixes it: the QR step's form gains the coverage field
+every other designing step already has. Nothing else was built — the machinery
+that matches a reply to a request has been there for weeks and works for any
+kind. The customer now hears *"I've set that up, but I can't confirm from
+here…"* instead of *"I can't see from here whether…"*, which is a different and
+weaker kind of uncertainty: the thing exists and was tied to the ask; what
+nobody has done is scan the drawing.
+
+**Three controls kept, each one a way of being wrong**: a reply naming a code
+nobody made settles nothing; a reply naming nothing settles nothing; and a
+request whose code genuinely could not be made still reads "Still to do" — a
+reply cannot paper over a real failure.
+
+**QR only, as you asked.** The 3D-scene and photograph steps still cannot do
+this; a follow-up task is queued for whether they should.
+
+**⚠ One process note worth having**: my first version of the test for (3) passed
+against the *unfixed* code — because the test hands the reply in directly and so
+never touches the form that was missing the field. It proves nothing about
+whether a real model could have replied. The test now reads the form the platform
+really sent, and goes red for the right reason.
+
+---
+
 ## 2026-09-19 — Three corrections: the QR count, the frame reader, and what I got wrong about photo reuse
 
 All three reproduced before anything was touched. **No paid run, nothing merged,

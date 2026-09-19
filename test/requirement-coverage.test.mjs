@@ -200,9 +200,16 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // one-ness — it is that the list is exactly the kinds with a tool of their
   // own, so a kind that DISPATCHES (photo) can never be on it, and a kind that
   // designs can never be off it by an oversight. Both directions, derived.
+  // ⚠ RE-ANCHORED AGAIN 2026-09-19: `qr` IS THE SEVENTH, and it is on the list
+  // for the OTHER half of what the list is for. The wording above reads as
+  // "every kind that designs" and that was only ever the sufficient half — a
+  // kind is on it so it can RAISE a gap, and equally so it can ECHO a hand-off
+  // it was given. The qr step is already handed the page step's requirement in
+  // its brief and had nowhere to answer, so a code that really opens the page
+  // asked for could never be tied to the asking. `three` and `photo` stay off.
   const designing = ADD_KINDS.filter((k) => !addLayer(k));
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component"],
-    "the six designing kinds that answer coverage changed — say which and why");
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr"],
+    "the designing kinds that answer coverage changed — say which and why");
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(designing.includes(k), "`" + k + "` answers coverage and has no tool of its own to answer it in");
   }
@@ -224,10 +231,8 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // nothing to name.
   const itemText = JSON.stringify(REQUIREMENT_ITEM);
   assert.ok(!/the tables you designed here/.test(itemText), "the item still addresses the table step alone");
-  // …AND A KIND THAT DOES NOT DESIGN DOES NOT CARRY IT. `qr` and `three` have
-  // tools of their own and answer no coverage, so their tools are byte-identical
-  // to what they were.
-  assert.equal(addTool("qr").input_schema.properties.requirements, undefined);
+  // …AND A KIND THAT ANSWERS NONE DOES NOT CARRY IT. `three` has a tool of its
+  // own and answers no coverage, so its tool is byte-identical to what it was.
   assert.equal(addTool("three").input_schema.properties.requirements, undefined);
 });
 

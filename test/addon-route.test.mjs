@@ -5019,10 +5019,10 @@ test("a page's list frames are counted and said apart from the spaces an upload 
   // 1. THE TWO NUMBERS, and 1 + 6 = 7 is the whole of the fix.
   assert.equal(r.body.photos, 1, "the addressable slot was miscounted: " + JSON.stringify(r.body.photos));
   assert.equal(r.body.listPhotos, 6, "the list frames were not counted: " + JSON.stringify(r.body.listPhotos));
-  // …AND THE COUNT IS EXACT HERE, which is the control for the floor flag
+  // …AND THE COUNT IS EXACT HERE, which is the control for the runtime flag
   // below: run 51's page writes its six entries out as a LITERAL array, so
   // their number is written down and "at least" would be a hedge over a fact.
-  assert.equal(r.body.listPhotosMin, undefined, "an exact count was offered as a floor: " + JSON.stringify(r.body.listPhotosMin));
+  assert.equal(r.body.listPhotosMore, undefined, "an exact count was offered as a floor: " + JSON.stringify(r.body.listPhotosMore));
   // 2. THE CUSTOMER HEARS BOTH, and each with the sentence that is TRUE of it.
   //    Composed by the browser's own `addonReplyText`, executed, never retyped.
   const said = browserText(r.body);
@@ -5091,33 +5091,51 @@ test("a list entry that really carries a picture is not an empty frame", async (
   assert.equal(q.body.listPhotos, 5, "a quoted `src` key read as an empty frame: " + JSON.stringify(q.body.listPhotos));
 });
 
-test("a gallery a browser counts is reported as a floor and said that way", async () => {
-  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists."*
-  // The page maps over an array it is handed, so its source carries ONE entry
-  // and the page draws as many boxes as that array has — a number nothing here
-  // can know. The count is still made (a mapped gallery really does put spaces
-  // on the page) and the sentence says "at least".
-  const mapped = {
+test("a mapped gallery contributes no number, and the sentence carries none", async () => {
+  // ⚠ Owner, 2026-09-19: *"An empty mapped array renders zero frames but
+  // currently reports 'at least 1'… don't treat runtime expressions as a
+  // positive lower bound. Use wording without a number when the visible count
+  // cannot be established."* The page maps over an array it is handed, so its
+  // source carries ONE entry and the page draws as many boxes as that array
+  // has — including NONE, if `SHOTS` is empty. So the entry is MARKED and never
+  // counted: the number is what is really written down.
+  const mapPage = (items) => ({
     path: "gallery.tsx",
     source: "import { createFileRoute } from '@tanstack/react-router'\n"
       + "import { Gallery } from '@/components/ui/gallery'\n"
       + "export const Route = createFileRoute('/gallery')({ component: Page })\n"
       + "function Page(){ return (<main><h1>Our Gallery</h1>\n"
-      + '<Gallery items={SHOTS.map((s) => ({ alt: "A loaf, still warm", caption: s.name }))} />\n'
+      + items
       + "<p>Photographs of the bakery.</p></main>) }\n",
-  };
+  });
+  const answers = { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } };
   const r = await addon("fw-frames-map", "add a gallery page", {
     kinds: ["page"], publishes: true, sitePages: ["/"],
-    written: [mapped],
-    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
+    written: [mapPage('<Gallery items={SHOTS.map((s) => ({ alt: "A loaf, still warm", caption: s.name }))} />\n')],
+    answers,
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.equal(r.body.listPhotos, 1, "the mapped entry was not counted at all: " + JSON.stringify(r.body.listPhotos));
-  assert.equal(r.body.listPhotosMin, true, "a runtime list was reported as an exact number: " + JSON.stringify(r.body));
+  assert.equal(r.body.listPhotos, 0, "a mapped entry was counted as a space somebody can see: " + JSON.stringify(r.body.listPhotos));
+  assert.equal(r.body.listPhotosMore, true, "a runtime list was not said at all: " + JSON.stringify(r.body));
   // THE CUSTOMER'S OWN WORDS, composed by the browser's `addonReplyText` and
-  // executed rather than retyped.
+  // executed rather than retyped. No number anywhere in the clause.
   const said = browserText(r.body);
-  assert.match(said, /at least 1 picture space/, "the count was offered as exact: " + said);
+  assert.match(said, /draws its pictures from a list/, "the runtime list was not explained: " + said);
+  assert.doesNotMatch(said, /at least/, "a number was claimed over a list nobody here can read: " + said);
+  assert.doesNotMatch(said, /picture space/, "an unknowable count was offered as spaces: " + said);
+  // BOTH AT ONCE, which is the shape that keeps the floor honest: two entries
+  // are written down, so "at least 2" is a fact about the source and the mapped
+  // one adds an unknown number on top of it rather than a guessed 1.
+  const both = await addon("fw-frames-mixed", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [mapPage('<Gallery items={[{ alt: "A crusty country loaf" }, { alt: "Seeded sourdough on a board" }]} />\n'
+      + '<Gallery items={SHOTS.map((s) => ({ alt: "A loaf, still warm", caption: s.name }))} />\n')],
+    answers,
+  });
+  assert.equal(both.body.ok, true, JSON.stringify(both.body));
+  assert.equal(both.body.listPhotos, 2, "the written entries were not counted: " + JSON.stringify(both.body.listPhotos));
+  assert.equal(both.body.listPhotosMore, true, "the mapped list beside them was not said");
+  assert.match(browserText(both.body), /at least 2 picture spaces/, "the written floor was lost: " + browserText(both.body));
 });
 
 test("a QR code this change made and published is not read as unseeable", async () => {
@@ -5403,4 +5421,140 @@ test("two un-named requirements resting on one step, and one thing made, stay un
     assert.equal(q.implementation, "unknown", "one code answered for two asks: " + JSON.stringify(q));
     assert.equal(q.state, "unknown");
   }
+});
+
+test("the QR step says which request its code answers, and the hand-off is associated", async () => {
+  // ⚠ Owner, 2026-09-19: *"Finish the original QR handoff correction. Let the
+  // QR step associate the requirement ID it received with the actual kind and
+  // item it produced, using the existing reconciliation mechanism. Start with
+  // QR only."*
+  //
+  // RUN 51'S OWN SHAPE. The page step handed *"A QR code opens the gallery
+  // page."* to the `qr` step and named nothing, so nothing could tie the code
+  // that came back to the ask — the round before this removed the count that
+  // stood in for an association, correctly, and left the legitimate case
+  // `unknown`. The step was already TOLD (its brief carries the id); what it
+  // had no way to do was answer. It echoes the id now.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const page = { path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] };
+  const ECHO = { need: "A QR code opens the gallery page.", status: "covered", by: "the gallery code points at /gallery", answers: "page#0", kind: "qr", item: "gallery" };
+  const r = await addon("fw-qr-echo", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" }, requirements: [ECHO] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok((r.body.moved || []).includes("qr"), "no code was made — this case tests nothing: " + JSON.stringify(r.body.moved));
+  // ⚠ THE HOP THE FIX REALLY IS, AND IT IS THE ONLY ONE A ROUTE CASE CAN SEE.
+  // MEASURED: everything below this line was already green against a product
+  // whose qr tool had NO `requirements` property — `cleanRequirements`,
+  // `referenceOf` and `reconcileHandoffs` are kind-agnostic and always were, so
+  // a fixture handing the echo in proves the reconciliation and says nothing
+  // about whether a model could have written one. From outside, "the step did
+  // not echo" and "we never offered it anywhere to echo" are one absence: this
+  // repository's own wiring trap, in the round that closes it. So the TOOL the
+  // route really handed the qr designer is asserted here, with the brief that
+  // gave it the id to echo.
+  const qrCall = r.prompts.find((p) => p.kind === "qr");
+  assert.ok(qrCall, "the qr designer was never called: " + JSON.stringify(r.prompts.map((p) => p.kind)));
+  assert.ok(qrCall.props.includes("requirements"),
+    "the qr step has nowhere to say which request its code answers: " + JSON.stringify(qrCall.props));
+  assert.match(qrCall.text, /page#0/, "the qr step was never told the id it is asked to echo");
+  const cov = storedAnswer(r, "fw-qr-echo").coverage.requirements;
+  const q = cov.find((x) => x.status === "elsewhere");
+  // THE ASSOCIATION IS EXPLICIT AND IT NAMES WHAT DID THE WORK — the echoed id,
+  // the kind and the item, so the record says WHICH code answered which ask
+  // rather than that a code exists.
+  assert.equal(q.state, "configured", "the hand-off was not associated: " + JSON.stringify(q));
+  assert.equal(q.reconciledItem, "gallery", "the record does not name the code that answered: " + JSON.stringify(q));
+  assert.equal(q.reconciledKind, "qr", "the record does not say what kind of thing answered: " + JSON.stringify(q));
+  assert.ok(/^qr#/.test(q.reconciledBy || ""), "the answering entry is not the qr step's: " + JSON.stringify(q));
+  // …AND THE CAP HOLDS. A destination read back off what was stored is
+  // configuration; nothing has scanned the drawing, so `delivered` is a claim
+  // this platform cannot make about a QR code.
+  assert.notEqual(q.state, "delivered", "an echo bought a delivered verdict: " + JSON.stringify(q));
+  // ⚠ `checked` IS ASSERTED WHERE IT LIVES, NOT HERE — MEASURED: the stored
+  // record carries no `made` list at all, so a loop over it was a negative
+  // assertion with no observer, green whatever the code did. The census in
+  // `addon-steps` drives `appliedFacts` over EVERY applied kind, `qr` now
+  // included, and asserts each `checked` is `[]`. What this route can observe
+  // is the consequence — a state that never reaches `delivered`, above, and
+  // that no requirement in the whole reply does either.
+  assert.equal(storedAnswer(r, "fw-qr-echo").coverage.made, undefined,
+    "the record carries `made` now — assert its `checked` here rather than only at the module");
+  for (const e of cov) assert.notEqual(e.state, "delivered", "a claim was delivered with nothing checked: " + JSON.stringify(e));
+  // THE CUSTOMER HEARS IT ONCE, and as the CAN'T-CONFIRM sentence rather than
+  // the CAN'T-SEE one. Those are two different clauses and the move between
+  // them is the whole of what the association buys: "it is there and nothing
+  // checked what it does" against "nothing here can tell either way".
+  const note = r.body.coverNote || "";
+  assert.match(note, /I've set that up, but I can't confirm from here that A QR code opens the gallery page/,
+    "the associated hand-off did not reach the set-up sentence: " + note);
+  assert.doesNotMatch(note, /can't see from here whether A QR code/, "the associated hand-off still reads as unseeable: " + note);
+  assert.equal((note.match(/A QR code opens the gallery page/g) || []).length, 1,
+    "one need was said twice, or not at all: " + note);
+
+  // ── CONTROL 1: THE WRONG ITEM. The echo names a code the step did not make,
+  // so its OWN implementation is not found and it may settle nothing. This is
+  // the Wi-Fi shape with the echo added: an id alone must not associate.
+  const wrong = await addon("fw-qr-echo-wrong", "add a gallery page and a QR code for the wifi", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      qr: {
+        qr: { name: "wifi", points: "WIFI:S=Fretwork;T=WPA;P=loaf;;", label: "Join our wifi" },
+        requirements: [{ ...ECHO, by: "the gallery code", item: "gallery" }],
+      },
+    },
+  });
+  assert.equal(wrong.body.ok, true, JSON.stringify(wrong.body));
+  assert.ok((wrong.body.moved || []).includes("qr"), "no code was made — this control tests nothing");
+  const w = storedAnswer(wrong, "fw-qr-echo-wrong").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(w.state, "unknown", "an echo naming a code nobody made settled the hand-off: " + JSON.stringify(w));
+  assert.equal(w.reconciledBy, undefined, "a reconciliation happened over an item that does not exist: " + JSON.stringify(w));
+
+  // ── CONTROL 2: NO ITEM AT ALL. The echo answers the id and names nothing, so
+  // there is no reference to check and the uncertainty is preserved — which is
+  // the property the round before this one bought and must survive.
+  const bare = await addon("fw-qr-echo-bare", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      qr: {
+        qr: { name: "gallery", points: "/gallery", label: "Our gallery" },
+        requirements: [{ need: ECHO.need, status: "covered", by: "a code was made", answers: "page#0" }],
+      },
+    },
+  });
+  assert.equal(bare.body.ok, true, JSON.stringify(bare.body));
+  assert.ok((bare.body.moved || []).includes("qr"), "no code was made — this control tests nothing");
+  const b = storedAnswer(bare, "fw-qr-echo-bare").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(b.state, "unknown", "an echo naming nothing settled the hand-off from a count again: " + JSON.stringify(b));
+  assert.equal(b.reconciledBy, undefined, "a nameless echo reconciled: " + JSON.stringify(b));
+
+  // ── CONTROL 3: A DEPENDENCY THAT FAILED. The hand-off names a code the
+  // change could not make, so it carries a FINDING — and an echoed id may
+  // resolve an uncertainty and never overrule evidence about the application.
+  const NAMED_FAIL = { need: "A QR code opens the order page.", status: "elsewhere", step: "qr", item: "order", kind: "qr" };
+  const dep = await addon("fw-qr-echo-dep", "add a gallery page and QR codes", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [NAMED_FAIL] },
+      qr: {
+        qr: { name: "gallery", points: "/gallery", label: "Our gallery" },
+        requirements: [{ need: NAMED_FAIL.need, status: "covered", by: "the gallery code", answers: "page#0", kind: "qr", item: "gallery" }],
+      },
+    },
+  });
+  assert.equal(dep.body.ok, true, JSON.stringify(dep.body));
+  const d = storedAnswer(dep, "fw-qr-echo-dep").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(d.state, "missing", "an echo naming a DIFFERENT code covered up a code nobody made: " + JSON.stringify(d));
+  assert.equal(d.reconciledBy, undefined, "a finding was overwritten by an echo: " + JSON.stringify(d));
+  assert.match(dep.body.coverNote || "", /Still to do: A QR code opens the order page/, dep.body.coverNote);
 });

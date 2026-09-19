@@ -9628,7 +9628,7 @@ function addonReplyText(a) {
   // browser starts claiming pictures that were never made.
   if (a.pictureNote) out += ' ' + a.pictureNote;
   out += photoNote(a.photos);
-  out += listPhotoNote(a.listPhotos, a.listPhotosMin);
+  out += listPhotoNote(a.listPhotos, a.listPhotosMore);
   // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for on its own is
   // the picture rung's job and did not ride this addition, so the customer is
   // told to ask for it there rather than left looking for it.
@@ -9985,36 +9985,31 @@ function photoNote(n) {
   return ' There ' + (c === 1 ? 'is a space' : 'are ' + c + ' spaces') +
     ' for a photo — upload yours in the Data panel and ' + (c === 1 ? 'it' : 'they') + '\u2019ll fill in.';
 }
-// ── AND THE PICTURE BOXES NOTHING CAN FILL (2026-09-19) ─────────────────────
+// ⚠ AND SOME OF THEM CANNOT BE COUNTED AT ALL (2026-09-19). Owner: *"An empty
+// mapped array renders zero frames but currently reports 'at least 1'… don't
+// treat runtime expressions as a positive lower bound. Use wording without a
+// number when the visible count cannot be established."*
 //
-// Owner, after run 51: *"Fix the mismatch between the gallery's seven empty
-// frames and the reply's 'one photo space.'"* The published page drew SEVEN
-// empty picture boxes and this file was handed ONE, because six of them are
-// entries in a list the page's own code carries (`<Gallery items={[…]}/>`) and
-// every reader on the platform counted elements. `listPhotos` is those six.
+// THREE SENTENCES, BECAUSE THERE ARE THREE THINGS TO SAY. `n` is the boxes
+// whose number is written down in the page's own source; `more` says the page
+// also draws some from a list, which may hold six of them or none. So:
 //
-// ITS OWN SENTENCE, NEVER ADDED TO `photoNote`'s NUMBER. That one offers to
-// FILL a space — the picture step addresses a `src` and a list entry has none —
-// so folding the two together would correct the count by making the promise
-// false for most of it, which is a worse answer than the wrong number was. The
-// one thing that DOES change them is a change to the page, so that is what this
-// offers, and it stands alone rather than saying "more": a page can carry these
-// and no addressable space at all.
-// \u26a0 AND THE NUMBER IS SOMETIMES A FLOOR (2026-09-19). Owner: *"avoid exact
-// counts for runtime-dependent lists."* A frame written inside a `.map` is ONE
-// object in the page's source and as many boxes on the screen as the mapped
-// array has elements \u2014 a number no reader of the source can know. The SERVER
-// says which it is (`listPhotosMin`), because the server is the only thing that
-// read the source; this only ever chooses the word.
+//   n, no more  → the number, flat. The ordinary gallery, and run 51's.
+//   n and more  → "at least n" — the literal ones really are there.
+//   more, n = 0 → NO NUMBER AT ALL. Nothing here knows whether there is even
+//                 one, so the sentence is about the page's shape instead.
 //
-// "at least" RATHER THAN DROPPING THE NUMBER, because the count is still the
-// most useful thing here: somebody looking at six boxes and told "at least 6"
-// knows their page was read, where "some" reads as a shrug. An older Worker
-// sends no flag, so every reply that predates the field keeps its own sentence.
-function listPhotoNote(n, min) {
+// THE SERVER DECIDES WHICH, because the server is the only thing that read the
+// source; this only ever chooses the words. An older Worker sends no flag, so
+// every reply that predates the field keeps exactly the sentence it had.
+function listPhotoNote(n, more) {
   const c = Number(n) || 0;
-  if (!c) return '';
-  return ' The page\u2019s own layout has ' + (min ? 'at least ' : '') + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +
+  if (!c) {
+    if (!more) return '';
+    return ' The page draws its pictures from a list, so how many spaces it has is up to that data — ' +
+      'ask me for photographs there and I\u2019ll change the page itself.';
+  }
+  return ' The page\u2019s own layout has ' + (more ? 'at least ' : '') + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +
     ' in it that an upload won\u2019t reach — ask me for photographs there and I\u2019ll change the page itself.';
 }
 // What to say when a build could not run.

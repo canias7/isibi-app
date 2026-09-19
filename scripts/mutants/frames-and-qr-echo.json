@@ -1,0 +1,188 @@
+[
+  {
+    "label": "a runtime entry is counted into the number again — the reported defect",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.runtime));",
+    "to": "const gain = grewBy(before, after, (pages) => empties(pages));"
+  },
+  {
+    "label": "a runtime entry alone becomes a floor of 1 — the owner's own reproduction",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;\n  return { n, more };",
+    "to": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;\n  return { n: more ? n + 1 : n, more };"
+  },
+  {
+    "label": "a mapped list is never said at all",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;",
+    "to": "  const more = false;"
+  },
+  {
+    "label": "every change says a mapped list is on the page",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;",
+    "to": "  const more = true;"
+  },
+  {
+    "label": "the runtime half is asked of the whole site rather than what this change added",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;",
+    "to": "  const more = empties(after).some((f) => f.runtime);"
+  },
+  {
+    "label": "nothing is ever marked runtime, so a mapped gallery reads as an exact count",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "runtime: inRuntimeList(mask, m.index) });",
+    "to": "runtime: false });"
+  },
+  {
+    "label": "the string masking is dropped, so a quoted example counts as a picture",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    const mask = codeOnly(src, true);",
+    "to": "    const mask = codeOnly(src);"
+  },
+  {
+    "label": "the braces are matched against the unmasked copy — the same defect one line over",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    while ((m = re.exec(mask))) {\n      const close = objectEnd(mask, m.index);",
+    "to": "    while ((m = re.exec(view))) {\n      const close = objectEnd(view, m.index);"
+  },
+  {
+    "label": "the body is read out of the masked copy, so no frame has an alt to be found by",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      const body = view.slice(m.index + 1, close);",
+    "to": "      const body = mask.slice(m.index + 1, close);"
+  },
+  {
+    "label": "a prose apostrophe opens a string again — the 29 real frames across 6 corpus sites",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if ((c === '\"' || c === \"'\") && !AFTER_WORD.test(out)) { quote = c; out += c; i++; continue; }",
+    "to": "    if (c === '\"' || c === \"'\") { quote = c; out += c; i++; continue; }"
+  },
+  {
+    "label": "the word test loses its anchor, so a quote anywhere after a letter reads as prose",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const AFTER_WORD = /[A-Za-z0-9]$/;",
+    "to": "const AFTER_WORD = /[A-Za-z0-9]/;"
+  },
+  {
+    "label": "a masked escape loses a character, so the two views drift apart after it",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "{ out += maskStrings ? \"  \" : c + src[i + 1]; i += 2; continue; }",
+    "to": "{ out += maskStrings ? \" \" : c + src[i + 1]; i += 2; continue; }"
+  },
+  {
+    "label": "a masked newline is blanked with the rest, so a line count moves",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      out += maskStrings ? (c === \"\\n\" ? \"\\n\" : \" \") : c;",
+    "to": "      out += maskStrings ? \" \" : c;"
+  },
+  {
+    "label": "an unterminated object answers an offset instead of a refusal",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \"}\") { depth--; if (!depth) return i; }\n  }\n  return -1;",
+    "to": "    if (c === \"}\") { depth--; if (!depth) return i; }\n  }\n  return end;"
+  },
+  {
+    "label": "the reply stops saying a mapped list is there",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              listPhotosMore: aListMore || undefined,",
+    "to": "              listPhotosMore: undefined,"
+  },
+  {
+    "label": "the route takes a second reading of the site for the runtime half",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const { n: aListSlots, more: aListMore } = newListFrames(aPicsWas, aPicsNow);",
+    "to": "            const { n: aListSlots } = newListFrames(aPicsWas, aPicsNow);\n            const aListMore = newListFrames([], aPicsNow).more;"
+  },
+  {
+    "label": "the no-number sentence is dropped, so a mapped-only gallery is silent",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!c) {\n    if (!more) return '';",
+    "to": "  if (!c) {\n    if (!more) return '';\n    return '';"
+  },
+  {
+    "label": "an exact count is offered as a floor",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return ' The page\\u2019s own layout has ' + (more ? 'at least ' : '') + c",
+    "to": "  return ' The page\\u2019s own layout has ' + 'at least ' + c"
+  },
+  {
+    "label": "a floor is offered as an exact count",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return ' The page\\u2019s own layout has ' + (more ? 'at least ' : '') + c",
+    "to": "  return ' The page\\u2019s own layout has ' + '' + c"
+  },
+  {
+    "label": "the browser reads the count and never the runtime flag",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  out += listPhotoNote(a.listPhotos, a.listPhotosMore);",
+    "to": "  out += listPhotoNote(a.listPhotos);"
+  },
+  {
+    "label": "the QR step has nowhere to say which request its code answers — item 2 itself",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    // so its implementation is never found and an echo could never reconcile.\n    requirements: true,",
+    "to": "    // so its implementation is never found and an echo could never reconcile."
+  },
+  {
+    "label": "CONTROL: a comment-only change to the frame reader",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const empties = (pages) => listFrames(pages).filter((f) => f.empty);",
+    "to": "  // a comment-only control: this line is unchanged\n  const empties = (pages) => listFrames(pages).filter((f) => f.empty);",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment-only change to the QR kind",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    requirements: true,\n  },\n  three: {",
+    "to": "    // a comment-only control: this line is unchanged\n    requirements: true,\n  },\n  three: {",
+    "control": true
+  }
+]

@@ -827,6 +827,33 @@ const ADDS = {
         "ONE NEW CODE, AND NOTHING ELSE ON THE PAGE MOVES. Placing it is the only change to the page it lands " +
         "on, and the codes the site already has stay exactly where and what they are.",
     },
+    // ── AND IT MAY SAY WHICH REQUEST ITS CODE ANSWERS (2026-09-19) ───────────
+    //
+    // Owner: *"Let the QR step associate the requirement ID it received with
+    // the actual kind and item it produced, using the existing reconciliation
+    // mechanism. Start with QR only."*
+    //
+    // THE STEP WAS ALREADY TOLD AND HAD NO WAY TO ANSWER. `requirementBrief` is
+    // composed for EVERY kind in the route's loop and handed over as `brief`,
+    // so the `qr` designer has been reading *"[page#0] A QR code opens the
+    // gallery page."* since that brief went general — and with no
+    // `requirements` property on its tool it could not echo the id back. So run
+    // 51's hand-off had no association available to it at all, and the count
+    // that stood in for one is what the round before this removed.
+    //
+    // NOTHING NEW IS BUILT FOR IT. `cleanRequirements` stamps `from: "qr"`,
+    // `referenceOf` reads `{kind, item}` and `reconcileHandoffs` joins on the
+    // echoed id under its four existing conditions — including that the
+    // answering entry's OWN implementation must be found, which is what keeps a
+    // wrong item from settling anything. The cap stands too: an echo earns the
+    // hand-off `configured` and never `delivered`, because a code's destination
+    // is configuration read back and nothing has scanned the drawing.
+    //
+    // QR ONLY, DELIBERATELY. `three` and `photo` are the other two kinds off
+    // `REQUIREMENT_ADDS` and neither is widened here: the owner asked to start
+    // with one, and `photo` would gain nothing anyway — it is in `OPAQUE_KINDS`,
+    // so its implementation is never found and an echo could never reconcile.
+    requirements: true,
   },
   three: {
     hint: "A 3D or WebGL scene on the site — a product you can turn, a model of the building, a piece the business makes, drawn live. Only when the site has none.",

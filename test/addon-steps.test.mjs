@@ -35,7 +35,7 @@ import {
   normalizeSchema, SPEC_TIERS, TIER_LIST, TOOL_FIELDS, MAX_FN_BODY,
 } from "../site-schema.mjs";
 import { MAX_API_BODY, normalizeApi } from "../site-apis.mjs";
-import { cleanAdd, addRefusal, proposedSpec, appliedFacts, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, ADD_KINDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
+import { cleanAdd, addRefusal, proposedSpec, appliedFacts, APPLIED_KINDS, SPEC_OF_KIND, siteNote, REQUIREMENT_ADDS, ADD_KINDS, addTool, auditFrontend, frontendItem, missingPages, missingPagesNote } from "../builder/site-add.mjs";
 import { claimEvidence, requirementOutcomes, requirementNote } from "../builder/site-requirements.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { siteHasTables, siteHasBackend, schemaDigest, pageRulesFor } from "../builder/page-gen.mjs";
@@ -341,8 +341,15 @@ test("the note marks what is being added by this same change", () => {
   assert.doesNotMatch(plain, /being added by this same change/);
 });
 
-test("all six designing kinds answer coverage, and the dispatched one cannot", () => {
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component"]);
+test("every kind that can answer coverage carries the list, and the rest cannot", () => {
+  // ⚠ RE-ANCHORED 2026-09-19, NOT APPEASED — `qr` IS THE SEVENTH. It was off
+  // the list while the only thing a QR step could have said was a coverage GAP,
+  // and it is on it now for the other half: the step is already HANDED the page
+  // step's hand-off in its brief, and without the list it has nowhere to echo
+  // the id back. So a code that really opens the gallery could never be tied to
+  // the request for one. `three` and `photo` stay off, deliberately — this
+  // round is QR only.
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr"]);
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(addTool(k).input_schema.properties.requirements, k + " designs something and cannot say what it could not cover");
   }
@@ -352,15 +359,23 @@ test("all six designing kinds answer coverage, and the dispatched one cannot", (
   // dispatched always. It is designed here when this change writes the page it
   // lands on, so the tool exists — and the property under test never was "it
   // has no tool", it is that a kind answering no coverage does not carry the
-  // list. `qr`, `three` and `photo` all have tools and deliberately answer
-  // none, and the census above is what keeps the six that do.
+  // list. `three` and `photo` have tools and deliberately answer none, and the
+  // census above is what keeps the ones that do.
   for (const k of ADD_KINDS.filter((x) => !REQUIREMENT_ADDS.includes(x))) {
     let tool = null;
     try { tool = addTool(k); } catch { tool = null; }
     if (tool) assert.equal(tool.input_schema.properties.requirements, undefined, k + " answers coverage and is not on the list");
   }
-  assert.equal(addTool("qr").input_schema.properties.requirements, undefined);
+  assert.equal(addTool("three").input_schema.properties.requirements, undefined);
   assert.equal(addTool("photo").input_schema.properties.requirements, undefined);
+  // …AND THE LIST IS DERIVED FROM THE KINDS' OWN FLAG, never typed twice. A
+  // second copy is what drifts, and the census above reads the answer rather
+  // than the source it came from.
+  assert.deepEqual(REQUIREMENT_ADDS, ADD_KINDS.filter((k) => {
+    let tool = null;
+    try { tool = addTool(k); } catch { tool = null; }
+    return !!(tool && tool.input_schema.properties.requirements);
+  }), "the list and the tools disagree about which kinds answer coverage");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -678,14 +693,27 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
   // is the property fix 1 rests on, and the one thing a mutant filling it in
   // would silently undo: with `checked` full, every configuration word becomes
   // a delivery again and the split is decorative.
+  // ⚠ RE-ANCHORED 2026-09-19: `qr` AND `three` JOINED THE APPLIED KINDS and
+  // this census did not follow them, so "every applied kind" was five of
+  // seven — and `qr` is the one that matters, because it is the kind a
+  // hand-off can now be associated with. A code's destination is read back off
+  // what was stored; nothing scans the drawing, so `checked` is empty there too
+  // and an echo earns `configured` and never `delivered`.
   const everyKind = [
     ...appliedFacts({ spec, tables: ["bookings"] }),
     ...appliedFacts({ spec, tables: ["waitlist"] }),
     ...appliedFacts({ spec: { functions: [{ name: "f", internal: true, returns: "void" }] }, functions: ["f"] }),
     ...appliedFacts({ spec: { apis: [{ name: "w", url: "https://api.test/x", method: "GET" }] }, apis: ["w"] }),
     ...appliedFacts({ jobs }),
+    ...appliedFacts({ pages: ["/gallery"] }),
+    ...appliedFacts({ qrs: [{ name: "gallery", points: "https://fw.gofarther.app/gallery", label: "Our gallery" }] }),
+    ...appliedFacts({ three: true }),
   ];
-  assert.ok(everyKind.length >= 5, "the observer is not alive: " + everyKind.length);
+  assert.ok(everyKind.length >= 8, "the observer is not alive: " + everyKind.length);
+  // …AND EVERY APPLIED KIND IS REPRESENTED, derived rather than counted, so a
+  // kind added to that list next month cannot slip past this census.
+  assert.deepEqual([...new Set(everyKind.map((e) => e.kind))].sort(), [...APPLIED_KINDS].sort(),
+    "an applied kind has no entry in this census: " + JSON.stringify(everyKind.map((e) => e.kind)));
   for (const e of everyKind) {
     assert.ok(Array.isArray(e.checked), e.name + " carries no `checked` list at all");
     assert.deepEqual(e.checked, [], e.name + " claims a behaviour was exercised — nothing here runs one");

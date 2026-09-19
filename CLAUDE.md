@@ -10181,10 +10181,10 @@ before the job that runs it, all before the page that shows them.
 - **A function cannot choose its `language`** — the engine reads `f.language`
   and emits `LANGUAGE plpgsql`; the addon's cleaner drops the key and reports it
   as `unexpressed`.
-- **`qr`, `three` and `photo` cannot report a coverage gap at all**: they are
-  the three kinds off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
-  property and they can neither raise a need nor echo a hand-off. Every other
-  kind can.
+- **`three` and `photo` cannot report a coverage gap at all**: they are the two
+  kinds still off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
+  property and they can neither raise a need nor echo a hand-off. **`qr` JOINED
+  THEM on 2026-09-19** and every other kind could already.
 - **Nothing deletes.** `remove` is the edit path's verb; the addon adds.
 
 **COST, from the runs that were really bought**: pageless **3** (run 50),
@@ -10193,6 +10193,138 @@ before the job that runs it, all before the page that shows them.
 picture that never arrived cost nothing). A photograph is `IMAGE_USD /
 CREDIT_USD` ≈ **18.75 credits**, which is most of any bill that includes one.
 
+
+### …AND THE TWO THAT FINISHED THEM (2026-09-19)
+
+Owner: *"1. Correct the frame counter's remaining assumptions. An empty mapped
+array renders zero frames but currently reports 'at least 1.' A quoted example
+containing an object also counts as a picture. Exclude strings and unused
+examples; don't treat runtime expressions as a positive lower bound. Use wording
+without a number when the visible count cannot be established. Preserve the known
+six-entry gallery case. 2. Finish the original QR handoff correction. Let the QR
+step associate the requirement ID it received with the actual kind and item it
+produced, using the existing reconciliation mechanism. Start with QR only…
+Keep `checked` empty."*
+
+**1a. A RUNTIME ENTRY BOUNDS THE PAGE FROM NEITHER SIDE.** The round before this
+one stopped calling a mapped gallery an exact count and called it a FLOOR
+instead — the entry counted as one, the sentence saying *"at least"*. That is the
+same mistake wearing a hedge: `SHOTS.map(…)` draws six frames or none, and the
+one object in the source says nothing about which. **`n` and `more` are two
+answers now**, both through `grewBy` so the same per-page increase rule decides
+each: `n` is the frames whose number is WRITTEN DOWN, `more` is *"and a list
+draws some too"*. With `n > 0` the number really is a floor — the literal entries
+are there — and the customer hears *"at least 2 picture spaces"*; with `n === 0`
+there is nothing to be a floor of and **the clause carries no number at all**:
+*"The page draws its pictures from a list, so how many spaces it has is up to
+that data."* Run 51's six-entry gallery is unmoved, because it is a LITERAL array
+and its number is written down.
+
+**1b. AN OBJECT INSIDE A STRING IS AN EXAMPLE.** Reproduced in all three quoting
+shapes — a double-quoted hint, its single-quoted mirror, a template — each
+counted as a picture space on a page that draws nothing of the kind.
+**TWO VIEWS OF ONE FILE, because one copy cannot serve both readers**: a frame is
+FOUND by its braces and READ by its values, and the values are strings, so
+blanking string contents loses every `alt` and keeping them lets a quoted example
+in. `codeOnly(src, true)` blanks contents and KEEPS the quotes — the empty pair
+`""` is exactly what a quoted KEY needs and all it needs — and both copies are
+length-preserving, so one offset means the same thing in each. That property was
+exported and asserted long before anything used it; it is load-bearing now.
+
+**⚠ AND THE FIRST CUT DESTROYED 29 REAL PICTURE FRAMES ACROSS 6 OF THE 100
+CORPUS SITES — a false ALL-CLEAR, and only the corpus caught it.** A `.tsx` page
+is JSX and JSX text is full of apostrophes (*"somebody else's oven"*); read as
+string openers they swallow everything to the next one, and a whole
+`<Gallery items={[…]}/>` two hundred characters below vanished. `AFTER_WORD`
+(`/[A-Za-z0-9]$/`) is the fix: in JavaScript a string never opens directly after
+a letter or digit, so the test costs nothing real — **a BACKTICK is exempt**,
+because `css\`…\`` is a tagged template and a word character before it is the
+ordinary case. Re-measured: **320 frames in 60 of 324 files, 0 filled, 0 runtime,
+and zero difference from the committed reader.** The limit it leaves is stated
+rather than hidden: a quote opening after `>` in JSX prose still reads as a
+string, and the direction is a MISSED frame rather than an invented one.
+
+**2. THE QR STEP CAN SAY WHICH REQUEST ITS CODE ANSWERS — ONE WORD, AND THE WORD
+IS THE WHOLE FIX.** `ADDS.qr` gains `requirements: true`; `REQUIREMENT_ADDS` is
+DERIVED from that flag, so the tool gains the property and nothing else was
+built. `cleanRequirements` stamps `from: "qr"`, `referenceOf` reads `{kind,
+item}`, and `reconcileHandoffs` joins on the echoed id under its four existing
+conditions. **The step was already TOLD**: `requirementBrief` is composed for
+every kind in the route's loop, so the qr designer has been reading *"[page#0] A
+QR code opens the gallery page."* since that brief went general — and had
+nowhere to answer.
+
+**⚠ AND A ROUTE CASE ALMOST PROVED NOTHING, which is this repository's own wiring
+trap met inside the round that closes it.** MEASURED: the whole demonstration was
+green against a product whose qr tool had NO `requirements` property, because
+`cleanRequirements`, `referenceOf` and `reconcileHandoffs` are kind-agnostic and
+always were — a fixture that hands the echo in bypasses the tool entirely. From
+outside, *"the step did not echo"* and *"we never offered it anywhere to echo"*
+are one absence. The route fixture keeps the tool's own property set now
+(`prompts[].props`, read off the request the route really sent), and the case
+asserts the qr designer was handed a tool it can answer in AND a brief carrying
+the id. It goes red for that reason and for no other.
+
+**THE CAP HOLDS AND `checked` STAYS EMPTY.** An echo earns the hand-off
+`configured` and never `delivered`: a code's destination is configuration read
+back off what was stored, nothing has scanned the drawing, and nothing on this
+path exercises a behaviour. The customer moves from *"I can't see from here
+whether…"* to *"I've set that up, but I can't confirm…"* — two different clauses,
+and the move between them is the whole of what the association buys.
+
+**⚠ AND THE `checked` ASSERTION WAS VACUOUS WHERE I FIRST PUT IT.** The stored
+record carries no `made` list at all, so a loop over it was a negative assertion
+with no observer — green whatever the code did. It is asserted where it lives:
+`addon-steps`' census drives `appliedFacts` over every applied kind, **and that
+census was five of seven**, because `qr` and `three` joined `APPLIED_KINDS` a
+round ago and it did not follow them. It derives the kind set from
+`APPLIED_KINDS` now, so a kind added next month cannot slip past.
+
+**Guards**: `site-picture` **65 → 66** (the string exclusion in all three quoting
+shapes, the JSX-apostrophe control that cost 29 frames, a URL's `//` not opening
+a comment, and the masked copy's own length and line preservation),
+`addon-route` **134 → 135** (the QR echo end to end with the tool assertion, and
+three controls: an echo naming a code nobody made, an echo naming nothing, and a
+dependency failure an echo may not overwrite). **Every new case proved RED
+against the pre-change product, one file at a time**, and the reach is exactly
+what it should be: the picture change turns **2 of 66** red and everything else
+passes on both trees; the qr flag turns **3** red — the new case and the two
+censuses — with every pre-existing QR control green on both.
+
+**Five older guards re-anchored, not appeased**, each naming the property that
+moved: `site-apply`'s three anchors on the renamed pair (`{n, atLeast}` →
+`{n, more}`, `listPhotosMin` → `listPhotosMore`, and the browser's call), with
+`atLeast` now forbidden by name so the floor reading cannot come back;
+`site-picture`'s floor case rewritten onto the new property; `addon-route`'s
+six-entry control; and the two `REQUIREMENT_ADDS` censuses, which gained `qr`
+AND a derivation from the tools themselves in both directions.
+
+**Sweep: 21 mutants, 21 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived — ON THE FIRST PASS**
+(`scripts/mutants/frames-and-qr-echo.json`, over `builder/site-picture.mjs`,
+`worker.js`, `public/chat.js` and `builder/site-add.mjs`, against nine test
+files — a narrow list can only produce a false SURVIVOR, never a false kill).
+Both of the owner's own reproductions are mutants: a runtime entry counted into
+the number, and a runtime entry alone becoming a floor of 1. So are the string
+masking dropped, the braces matched against the unmasked copy, the prose
+apostrophe, the word test losing its `$`, a masked escape losing a character
+(which drifts the two views apart after it), the no-number sentence dropped, an
+exact count offered as a floor and a floor as exact, and the qr flag itself.
+**AND THE RUNNER'S FIRST INVOCATION DIED IN ITS OWN LOAD** — the spec was
+written as `{note, files, mutants}` and it reads a top-level ARRAY — which is
+what the round before this one's scope line is for: the header prints before
+the baseline, so a sweep that never starts still says what it was trying to do.
+
+**Suite 6,875** — 6,873 + 1 + 1, **and the arithmetic closes exactly against a
+baseline measured in a detached worktree** (the five touched files read 352 at
+the committed tip and 354 now) rather than subtracted from a paragraph.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN.** Fal verification stays parked, and
+the photo-reuse guidance work is queued behind these two (the owner: *"Photo
+reuse needs no new permission decision merely to improve guidance. Keep its
+assessment corrected and queue that work after these fixes."*).
+
+---
 
 ## Data, auth, payments, mail
 
