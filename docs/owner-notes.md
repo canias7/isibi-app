@@ -13987,3 +13987,58 @@ and the full site-build harness, all twenty steps, 382 checks through a real
 container in 17m38s. I read the harness numbers out of the run's own per-step
 files rather than a search through one long log, so each count is attached to
 the step that produced it.
+
+## 2026-09-19 — An outside connection a page can actually render
+
+You can already connect a site to somebody else's service — a weather feed, an
+exchange rate, a courier's delivery slots. The platform holds the key, makes the
+call and hands the answer back to the page. That much worked.
+
+**What did not work is that nothing ever told the page what the answer looks
+like.** So the model writing the page had to guess the field names, and a guess
+that is wrong renders an empty space. It looks exactly like a page that works.
+
+I nearly wrote this up wrong. My first note said the evidence was a compiler
+error. You corrected that, and you were right: I measured it, and a page that
+guesses its own field names compiles **cleanly** — the compiler has nothing to
+compare the guess against, because the same guess wrote both halves. And a type
+annotation is deleted before the browser ever sees the page; two pages that
+differ only in their annotation come out as the *same 408 bytes*. So the
+annotation was never the problem and was never going to be the fix.
+
+**Three things a connection can now say about itself:**
+
+1. **What it answers** — a sketch of the reply, with every value replaced by
+   what KIND of value it is. The page writer copies the field names out of it
+   instead of inventing them. A real value in the sketch is refused, because a
+   page written against a sample hardcodes today's answer.
+2. **What each blank is** — a type, whether it is required, and a sentence. If a
+   page forgets a required one, the request is now refused **before** we call the
+   service, so you are not billed for a call that could never have worked.
+3. **Where the key comes from** — which service, and which page to sign up on.
+   You were already told where to PUT the key ("add RATES_KEY under Cloud →
+   Secrets") and never what it was a key for. And a connection that needs no key
+   at all now says so, worked out from the connection itself rather than from
+   anything the model claims about it.
+
+Every connection you already have keeps working exactly as it does — none of
+them says any of this, and a connection that says none of it is stored and
+described the way it always was.
+
+**The proof is a rendered page, not a passing typecheck.** A page written
+against the declared shape draws `18.5°C`, `Light rain`, `Sat: 21`. The same
+page written from a guess draws `°C,` and nothing else. Both compile. Both would
+have shipped. The waiting and the something-went-wrong states render too — no
+rule anywhere had ever asked a page to draw those for an outside service, which
+is why a slow or unconfigured connection used to leave a blank.
+
+**What this does not prove:** that the service you name really sends the shape
+that was declared. That needs one real call to that service, which is your
+decision and not something a test here should make on its own. Worth correcting
+something else I said: a public service with no key at all *could* be checked
+that way — my earlier note said real verification always needs your key, and
+that is only true of connections that have one.
+
+Nothing merged, nothing deployed, nothing spent. Fal is still parked and I
+checked rather than assumed: there is no fal key in this session at all, so
+nothing here can read that balance or spend against it.

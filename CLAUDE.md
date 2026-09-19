@@ -11149,6 +11149,152 @@ due**: that workflow's `paths` covers neither document.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
+### AN OUTSIDE CONNECTION A PAGE CAN ACTUALLY RENDER (2026-09-19)
+
+Owner: *"An optional declared API response shape passed to the page writer.
+Parameter types, required flags and descriptions. Credential guidance
+explaining where to obtain the key and where to enter it. Support connections
+needing no key… Carry these through the tool, cleaning, storage, readback and
+page prompt. Preserve existing connections using string-array params and no new
+metadata."*
+
+**THE ASSESSMENT WAS CORRECTED FIRST, AND THE CORRECTION IS MEASURED RATHER
+THAN RESTATED** (owner: *"TS2339 proves a typing problem, not blank rendering.
+Typed and untyped examples can emit identical JavaScript and render the same
+response. The demonstrated gap is missing response-shape information."*). Both
+halves hold, and the full measurement is in the `api` bullet above:
+
+- **A TYPE ANNOTATION CHANGES NOTHING A VISITOR SEES** — two pages differing
+  only in `useApi<Rates>(…)` against `useApi(…)`, built with the template's own
+  esbuild: **408 bytes each, sha256 `73a4782b79a186d0`, byte-identical**, with
+  both outputs asserted NON-EMPTY first (esbuild answers zero bytes on a bad
+  flag, and two empty files are vacuously identical).
+- **AND AN INVENTED TYPE CANNOT CATCH A WRONG FIELD NAME**, because the same
+  guess produced both: `type Rates = {rate: number}` reading `q.data?.rate`
+  **typechecks CLEAN, `tsc --strict` exit 0**, and renders `""` against the
+  answer the service really sends. So the failure is the FIELD NAME and the
+  type is what stopped anybody noticing.
+
+**`site-api-shape.mjs` IS THE ONE DEFINITION** of what a connection declares —
+dependency-free, at the root, on the Dockerfile's worker line. `site-apis.mjs`
+keeps the REQUEST (fill, call, cache); this keeps the three things a page
+writer needs and could never discover, because its readers are two prompt
+composers and one customer sentence, none of which wants the fetch path or the
+SSRF guard it imports.
+
+**THE SKETCH IS A TREE OF TYPE NAMES AND NEVER A SAMPLE.**
+`{"current":{"temp_c":"number"}}` says which field to read and what kind of
+value it is; `{"current":{"temp_c":18.5}}` is a sample, and a page written
+against a sample hardcodes today's answer — refused (`shape-leaf`). A list is a
+ONE-ENTRY array; two entries say two things and a guess between them is a page
+reading the wrong one, so it is refused rather than narrowed. `unknown` is a
+real leaf and not a failure. Bounds: depth **5**, **60** nodes, both driven.
+**`typeFromShape` is what makes it actionable** — the writer is handed the exact
+`T` rather than inventing one, and a key that is not a plain identifier is
+QUOTED or the type does not parse.
+
+**`params` STAYS THE LIST OF NAMES AND `paramInfo` SITS BESIDE IT.**
+`declFingerprint`, `cacheKey` and `takeParams` all iterate `api.params` as
+names, so changing that shape would re-key every cached answer on the platform.
+One walk produces both and a guard asserts the names of one equal the other;
+**`paramInfo` is absent unless something was really said**, which is what keeps
+the negative control exact. A bare string is still a valid parameter — every
+connection stored before today is a list of them.
+
+**⚠ AND RE-READING A STORED DECLARATION HAD TO PUT THE TWO BACK TOGETHER —
+found by the end-to-end route case and by nothing else.** Once a connection is
+in `_meta.schema` its `params` is the list of NAMES, so a second pass over that
+alone answered `info: null`. MEASURED: the store kept `returns` and
+`credential` and lost `paramInfo`, and the page prompt named no parameter at
+all — the value computed and never forwarded, in the field whose whole job is
+to say what a blank is. `cleanParams(params, stored)` pairs **BY NAME**, never
+by position, because a dropped malformed name shifts every index behind it.
+
+**THE ENGINE IS TOLERANT AND THE ADDON'S CLEANER REFUSES.** `normalizeApi` is
+what every STORED spec passes through on its way to being served, so a sketch
+it cannot read is DROPPED and the connection still works — guidance is not the
+feature. `cleanAdd` asks the same three functions at the moment a person can be
+told and refuses by name. One definition of clean, two decisions.
+
+**NONE OF THE THREE IS IN THE CACHE FINGERPRINT**, asserted rather than left to
+a comment: correcting a parameter's description or where the owner buys the key
+would otherwise drop every cached answer on that connection and put the owner's
+third-party quota back on the next page view — a documentation fix billed as a
+configuration change. The parameter NAMES stay in it, and a mutant taking them
+out is a red run, so that observer is alive in both directions.
+
+**A REQUIRED BLANK IS REFUSED BEFORE THE UPSTREAM CALL, and the point is what
+does NOT happen.** Without it `fill` substitutes the blank as an empty string
+and plenty of services answer 200 to that with a default — the page then
+renders something plausible and wrong, which is the missing-secret refusal's
+own reasoning one blank over. The names are given back, because the caller is
+this site's own page and they are already in its bundle.
+
+**WHERE THE KEY COMES FROM IS DERIVED FROM THE DECLARATION, NEVER CLAIMED.**
+`credentialNote` reads `secretsNeeded` — the declaration's own `{{SECRET}}`
+placeholders — so **a connection that really needs no key can never be told to
+go and get one**, which is "support connections needing no key" enforced rather
+than promised; the case that separates the two drives the claim PRESENT and the
+secrets EMPTY. Composed server-side and printed VERBATIM by the browser, the
+`pictureNote`/`coverNote` rule; a second composer in `chat.js` is how a
+customer starts being told about keys nobody asked for. The destination
+sentence (*"add RATES_KEY under Cloud → Secrets"*) is unchanged and the
+provenance joins it.
+
+**AND THE PAGE IS TOLD IT HAS THREE STATES TO DRAW.** Measured: the word
+"loading" did not occur in `builder/page-gen.mjs` at all. A database read is
+local and fast enough that a page ignoring the wait looks fine; a third-party
+read crosses the internet, answers 503 until the owner's key is in the vault
+and 502/504 when the service is down. **That sentence is new for EVERY
+connection and deliberately so** — the states exist whatever a connection
+declared, so the earlier plan's "byte for byte" acceptance is narrowed to what
+it is really about: the per-connection LINE is unchanged for a connection that
+declared none of the three, and the block gains one shared sentence.
+
+**⚠ THE RENDER IS THE ACCEPTANCE A TYPE ANNOTATION CANNOT GIVE.** A page
+written against the declared shape draws `18.5°C`, `Light rain` and `Sat: 21`;
+**the same page written from an invented type draws `<p data-slot="now">°C,
+</p>`** — an empty panel, from valid TypeScript that compiles and ships. Both
+loading and error states render too. The provider is stubbed at the
+`@/lib/rows` seam, which is where a stub belongs.
+
+**Guards**: `test/api-shape.test.mjs` (**10**, new) — the sketch vocabulary and
+both bounds, the derived type, the parameter round-trip and its by-name
+pairing, the required-blank refusal DRIVEN THROUGH THE REAL WORKER with an
+upstream counter (so "nothing was called" is an assertion rather than a hope),
+the missing-key refusal, the fingerprint in both directions, and the render.
+`test/addon-route.test.mjs` **139 → 142**: the whole local path through `POST
+/api/site/<slug>/addon` — the TOOL the route really sent (read one level IN,
+so a case cannot pass against a tool that never offered the field), the store,
+the readback through `apiFor`, the page prompt, and the customer's own sentence
+composed by the browser's real formatter; the keyless connection; the negative
+control; and the refusal.
+
+**Three older guards re-anchored, not appeased**: the
+secrets-never-reach-the-response window was sized in BYTES and went red on a
+comment ABOVE the line it asserts — the recorded trap, in the guard for the
+money path's own wall, now landmark to landmark with both ends asserted;
+`TOOL_FIELDS.api` gained the two new properties, without which the audit
+reports a stored field as one the pipeline never heard of; and the add step's
+shared-module allow-list gained the new module with its reason.
+
+**⚠ AND THE FIXTURE NEEDED FOUR CORRECTIONS, EVERY ONE THE FIXTURE BEING LESS
+CAPABLE THAN REALITY** — the recorded shape, four times in one file.
+`SUPABASE_URL` is a MODULE CONSTANT and not an env binding, so a stub matching
+its own hostname matched nothing and the route answered its own 404;
+`readSecret` DECRYPTS, so a literal `"stub"` cipher made every control read as
+a site with no key in the vault; the driver maps rows onto the column names in
+`fields`, so a column named `v` answered `undefined` for `rows[0].cipher`; and
+the backend lookup is memoized per slug with the schema cached per CONNECTION,
+so three cases sharing one database name all read the FIRST one's spec —
+measured, a connection declaring no required parameter came back *"this
+connection needs city"* from the case above it.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH. Fal stays parked and was CHECKED
+rather than assumed**: no `FAL*` name exists in this environment at all, so
+nothing here can read that balance or spend it — the parked status is
+structural, and the balance is the owner's read.
+
 ---
 
 ## Data, auth, payments, mail
