@@ -12587,7 +12587,8 @@ opened on them.
 
 **AND THE FIGURE CORRECTION'S OWN TREE IS GREEN TOO — `site build` 1218 and
 `unit tests` 2795 on `3526e3d6` (2026-09-19 20:09:45Z).** Run **1218** (id
-`35466534036`, job `105959779641`, 20:09:45→20:34:03Z), **all twenty steps
+`35466534036`, job `105959779641`, created 20:09:45Z, **updated 20:34:04Z**, read
+back from the API as `completed`/`success`), **all twenty steps
 green** — the API answers 23 and three are GitHub's own: `site-build.mjs`
 **382 passed / 0 failed**, the step 20:11:50→20:29:28Z (**17m38s**), with
 kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
@@ -12596,7 +12597,14 @@ kit-effects / kit-paint each `all passed` with no count — the three result
 SHAPES a census has to ask for. **Every count read out of the run's PER-STEP
 log files**, which attribute by construction rather than by a window somebody
 drew; 12 of the 20 steps carry a result and 8 are setup. It fired because
-`worker.js` and `builder/**` moved. **The unit step reads `# tests 397 /
+`worker.js` and `builder/**` moved.
+**AND IT COVERS THE BRANCH TIP BY THE IMAGE ID RATHER THAN BY A `paths` LIST**,
+which is the stronger form: `3526e3d6` and the tip `c08e57f5` both hash to
+**`1bb277000510b055`** (184 inputs), so nothing an image is built from moved
+between them — the two commits after it are `CLAUDE.md` and `docs/owner-notes.md`
+and nothing else (65 insertions, measured). **The tip has no `site build` of its
+own and none was due.** `81cd5472` is the reviewed-correction sha and is 1217's.
+**The unit step reads `# tests 397 /
 # pass 397 / # fail 0 / # skipped 0`, unchanged from 1216 and 1217** — correct,
 because that step's glob is `page-gen` + `publish-pages` and the figure
 correction touches neither's cases.
@@ -14181,3 +14189,96 @@ rule and the measurement.
   **precondition to confirm before a photograph test, never a risk to absorb.**
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
+
+### RELEASE PREPARATION: A ROLLBACK THAT MATCHES THE MERGE, AND FOUR STALE CLAIMS (2026-09-19)
+
+Owner: *"Make rollback match the actual merge strategy… Carry and print
+on/onState in the existing harness job reader… Correct the stale claims."*
+Product work is closed; this is the release's own preparation.
+
+**1. A FAST-FORWARD HAS NO MERGE COMMIT, SO THERE IS NOTHING TO REVERT.** The
+plan said *"`git revert` the merge commit"*, and a fast-forward produces none —
+`main` simply moves to the tip. `git revert <tip>` undoes the LAST COMMIT of 51,
+which here is two documents. **The rollback is the RANGE**:
+
+    git revert --no-commit <base>..<candidate>     # the complete introduced change
+    git commit                                      # one reviewed commit
+
+**PREPARED AND VERIFIED RATHER THAN DESCRIBED**, in a throwaway worktree off the
+candidate: it applies with **zero conflicts**, stages **69 files, +390 /
+−19,830** — the exact inverse of the branch — and **the resulting tree is
+byte-identical to `origin/main`**, same tree object
+`e661f47b1827eff933021d0236fa552a36f78751`. So the image step says `reused`
+because the inputs really are main's, not because anybody predicted it.
+- **IT PRESERVES LATER WORK, which is the whole reason it is a revert and not a
+  reset.** `git reset --hard <base>` + force push destroys anything that landed
+  after; a range revert leaves those commits in place and undoes only this
+  branch's lines. **The cost is stated**: a later commit touching the same lines
+  makes the revert conflict, and the resolution is a judgement about which of
+  the two to keep — so the revert is **reviewed**, never `-n | commit` blind.
+  Re-run the verification at rollback time: tree-identical-to-base holds only
+  while nothing else has landed.
+- **THE PREREQUISITE IS RETAINED AND IS FIRST**: disable or delete any one-time
+  job created while the branch was live, BEFORE restoring the old scheduler. The
+  reverted `dueJobs` cannot read `spec.on` and falls to `everyMinutes`, which on
+  such a row is the forced monthly ceiling — so a job that should fire once
+  fires **every 31 days, indefinitely**, and the reverted panel and reply both
+  describe it that way. Not a lost feature: a job doing something nobody asked
+  for.
+
+**2. THE HARNESS JOB READER WAS BLIND TO THE FIELD THE NEXT RUN IS BOUGHT TO
+PROVE.** `jobPanelRow` has answered `on`/`onState` since gap 2; `jobRows`
+dropped both and `jobLines` printed `every 44640m` — the forced ceiling — for a
+job stored to run ONCE, which is the exact misreading the panel and the reply
+were corrected for. **The recorded wiring defect, in the reader for it.**
+- **THE CEILING IS STILL SAID**, and that is where this line parts company with
+  the two customer-facing composers: they want the one true sentence, a paid
+  run's reader wants to see that the ceiling really is what was STORED **and**
+  that `on` is what GOVERNS. Hiding it makes the two facts one.
+- **`typeof`, NOT `String(...)`** — `String(["2026-10-03"])` is `"2026-10-03"`,
+  the same coercion `onceWhen` was written to refuse. And **`on` set with
+  `onState` absent is a Worker that CANNOT SAY**, which is not a recurring job;
+  the PAIR separates them, and `(NO STATE)` says so out loud the way `(NO ZONE)`
+  already does.
+- **Guard**: `addon-sweep` **49 → 50**, one case, **proved RED against the
+  pre-change reader with every other case green on both trees** — and it carries
+  its own CONTROL, a recurring job keeping its interval byte for byte, because
+  "it printed the one-time shape" is satisfied by a reader that prints it for
+  everything. **Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 2
+  comment-only controls survived — on the first pass**
+  (`scripts/mutants/harness-once.json`, against `test/addon-sweep.test.mjs`;
+  every anchor censused exactly once before the run, the tree verified clean
+  after). Both reported behaviours are mutants in it.
+- **Suite 6,968** — 6,967 + 1, and the arithmetic closes exactly.
+
+**3. FOUR CLAIMS IN THE PREVIOUS PLAN WERE STALE, EACH CORRECTED BY
+MEASUREMENT:**
+
+| the claim | measured |
+|---|---|
+| *"main's Worker sends no `reads` key, so the test cannot run before the merge"* | **FALSE — `reads:` is on main** (`worker.js:18340`, `readSiteSource` present), shipped by deploy 2134. The completeness gate would pass against main today. **The merge is still a precondition, for the right reason: `spec.on` does not exist on main**, so the ask would register a RECURRING job |
+| *"Run now passes `force: true`, which drops the dueness clause"* | **`force` IS GONE, and the parameter with it** (gap 1). The claim is a compare-and-swap on `last_run`, and **a one-time job's is `&last_run=is.null`** — "never run, ever". So a press consumes the occurrence **permanently**, which is a sharper reason for `run_job` blank than the one it replaces |
+| *"the customer's screen, composed by the deployed `chat.js`"* | **`browserReply` does `fs.readFileSync("../public/chat.js")` — the CHECKED-OUT file.** The workflow checks out `ref: main`, so after a merge it is the merged source; that it is the SERVED source is a separate claim and needs the served-file comparison below |
+| `site build` 1218 | created 20:09:45Z, **updated 20:34:04Z**, read back from the API as `completed`/`success`. **And it covers the tip by the IMAGE ID**: `3526e3d6` and `c08e57f5` both hash to `1bb277000510b055` |
+
+**THE SERVED-FILE COMPARISON IS THE ONE THAT SETTLES "DEPLOYED WORDING", and its
+expected values are measured now rather than after the fact.** Candidate
+`public/chat.js` is **719,958 bytes, sha256 `78e18303077d2381`**; what main
+serves today is **707,785 / `4b3e8c869af12519`** (deploy 2134's own recorded
+bytes). **The cheap discriminator is `onceWhen`: 0 occurrences in what the
+platform serves today, 7 in the candidate** — the identifier the whole one-time
+wording turns on — with `jobOnceNote` 0 → 2 beside it and `agAutoForm` 2 → 2 as
+the control that the probe is reading a real file.
+
+**4. NO EXECUTION EVIDENCE EXISTS FOR A CRON RUN, so attribution is by
+elimination and is phrased as such.** `runScheduledSiteJobs` writes `last_run`
+and `last_result` on the row and nothing else a session can read — no trace row,
+no job log. A press and a tick leave the same two fields. So a stamp that
+appears with no press recorded is **consistent with scheduled execution** and is
+not proof of it, which is this file's own *a timestamp does not identify an
+invocation* met from the other side. **And the before/after readings need no
+manual invocation**: the harness's own `jobsBefore` is taken inside the paid run
+before it posts, and the after-reading is the owner's Jobs panel — a read, free,
+and now carrying `on`/`onState` because `jobPanelRow` does.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO PRODUCT EXPANSION.**

@@ -14495,3 +14495,50 @@ both checks were already green. I do not yet know why that watcher fails, and I
 am not guessing — what I take from it is simpler: a quiet watcher is not an
 answer, so I read the checks directly. That is twice in two turns, two different
 causes, the same misleading silence.
+
+## Release prep, in plain words (2026-09-19)
+
+**The rollback plan was wrong and is fixed.** I had written "revert the merge
+commit" — but a fast-forward merge doesn't make one, so that command would have
+undone the last commit of 51 (two documents) and left everything else live. The
+rollback is a revert of the whole range instead. **I ran it, in a scratch copy:
+it applies with no conflicts and lands on a tree byte-identical to main.** So
+it's checked rather than described. It also leaves any later work alone, which a
+hard reset would not.
+
+The one thing that must happen BEFORE a rollback: **disable any one-time job
+created while the branch is live.** Old code can't read the "run once on this
+date" field and falls back to the interval, which on those rows is the monthly
+ceiling — so the job would start firing every 31 days forever.
+
+**The harness was blind to the thing the next test is for.** It printed
+"every 44640m" for a job stored to run once. Fixed, with one test case and a
+small sweep (8 mutants, 8 killed).
+
+**Four things I'd written were out of date. Each one I checked rather than
+argued about:**
+
+- I said the test couldn't run before the merge because main was missing a
+  field. **Main has it** — it shipped in the last deploy. The merge is still
+  needed, but because the one-time-job capability itself isn't on main.
+- I said Run now works by skipping the "is it due" check. **That mechanism was
+  removed** — it now works by a different rule, and the upshot is the same:
+  pressing Run now uses up a one-time job's single run, permanently.
+- I said the harness prints the *deployed* customer message. **It prints the
+  checked-out one.** To claim the deployed wording, compare the served file:
+  after the deploy `/chat.js` should read 719,958 bytes; it's 707,785 today.
+  Cheap tell: the word `onceWhen` appears 0 times in what's served now and 7
+  times in the candidate.
+- Fixed the site build 1218 timestamp against the API, and added the stronger
+  coverage fact: that run's tree and the branch tip produce an identical
+  container image, so it covers the tip.
+
+**On proving the job fired by itself:** nothing records *what* triggered a job
+run — a press and a scheduled tick leave the same two fields. So if we don't
+press, and the stamp appears, the honest phrasing is "consistent with scheduled
+execution", not proof. The before-reading comes free inside the paid run; the
+after-reading is just opening the Jobs panel.
+
+Bookings count re-read today: **3**, both functions, both addresses.
+
+Nothing merged, deployed or spent.

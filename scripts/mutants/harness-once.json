@@ -1,0 +1,64 @@
+[
+  {
+    "note": "THE REPORTED DEFECT: the reader drops the date, so a one-time job prints as its forced ceiling.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "      on: typeof j.on === \"string\" ? j.on : null,",
+    "to": "      on: null,"
+  },
+  {
+    "note": "…and the state with it. `scheduled` is what the whole tier is read for.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "      onState: typeof j.onState === \"string\" ? j.onState : null,",
+    "to": "      onState: null,"
+  },
+  {
+    "note": "String(['2026-10-03']) is '2026-10-03' — a one-element array printing a perfectly confident date.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "      on: typeof j.on === \"string\" ? j.on : null,",
+    "to": "      on: j.on == null ? null : String(j.on),"
+  },
+  {
+    "note": "The same coercion on the state.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "      onState: typeof j.onState === \"string\" ? j.onState : null,",
+    "to": "      onState: j.onState == null ? null : String(j.onState),"
+  },
+  {
+    "note": "The printer falls back to the interval — the defect one layer down, with the reader correct.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "    const when = j.on\n      ? `ONCE on",
+    "to": "    const when = false\n      ? `ONCE on"
+  },
+  {
+    "note": "The one-time shape printed for EVERY job, so a recurring one gains a date it has not got.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "    const when = j.on\n      ? `ONCE on",
+    "to": "    const when = true\n      ? `ONCE on"
+  },
+  {
+    "note": "The stored ceiling hidden, so the two facts become one and nobody can read that `on` governs.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "  (stored everyMinutes ${j.everyMinutes}, the forced ceiling; \\`on\\` governs)`",
+    "to": "`"
+  },
+  {
+    "note": "A Worker that CANNOT SAY read as a scheduled job — cannot-tell arriving as a value.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "${j.onState || \"(NO STATE)\"}",
+    "to": "${j.onState || \"scheduled\"}"
+  },
+  {
+    "control": true,
+    "note": "COMMENT-ONLY CONTROL — must survive.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "// THE ONE DATE A ONE-TIME JOB RUNS, AND WHAT BECAME OF IT (2026-09-19).",
+    "to": "// The one date a one-time job runs, and what became of it (2026-09-19)."
+  },
+  {
+    "control": true,
+    "note": "COMMENT-ONLY CONTROL — must survive.",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "    // A ONE-TIME JOB IS ANSWERED FIRST AND COMPLETELY, the rule both",
+    "to": "    // A one-time job is answered first and completely, the rule both"
+  }
+]
