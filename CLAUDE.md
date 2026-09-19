@@ -12380,6 +12380,32 @@ INERT:
   got a picture — and replaced in the spec by an observable mutant of the same
   line (every shot reported at one made-up url).
 
+**AND `site build` RUN 1216 IS GREEN ON THE SAME SHA (2026-09-19
+15:22:41→15:46:35Z), ALL TWENTY STEPS** — the API answers 23 and three are
+GitHub's own (two `Post` steps and `Complete job`): `site-build.mjs` **382
+passed / 0 failed**, the step 15:24:49→15:42:02 (17m13s), with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it and kit-render / kit-a11y / kit-effects / kit-paint each `all
+passed` with no count — the three result SHAPES a census has to ask for. **Every
+count read out of the run's PER-STEP log files**, which attribute by
+construction rather than by a window somebody drew. It fired because `worker.js`
+and `builder/**` moved, so it is a container-path regression check rather than a
+check on this round's guards.
+
+**⚠ AND THE UNIT STEP READS 397, NOT THE 396 THIS FILE HAS STAMPED SIX TIMES —
+AND IT MOVED BEFORE THIS ROUND, WHICH ONLY DERIVING IT COULD SAY.** That step's
+glob is `test/page-gen.test.mjs test/publish-pages.test.mjs`, and this round
+touches neither, so carrying 396 over would have been a wrong number wearing a
+right one's name. **`c2f6bb66` is the commit** — one of the night's rounds, an
+ancestor of this round's baseline `31fe5b61`, adding exactly **one** `test(` to
+`page-gen.test.mjs`. Nothing stamped it because no `site build` between it and
+now had its unit step read: 1213 ran on a docs commit, **1214 failed at `npm
+ci`** (the lockfile defect), and 1215's counts were never taken. **Two
+independent readings agree on 397** — run 1216's own per-step file, and run
+1215's flat log windowed landmark-to-landmark, which also reads `site-build.mjs`
+382/0 with the same six counts beside it and **0 result lines before the first
+marker**.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO CUSTOMER-SITE
 REPAIR** — the owner's standing constraint for this round, unchanged.
 

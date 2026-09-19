@@ -14389,6 +14389,21 @@ where a real database treats it as unknown and refuses every comparison. So a
 test that looked like it was checking the fix was checking nothing. Fixed, and
 the check now really does fail when the code is wrong.
 
+**Both CI runs are green on this exact version.** The test suite read the same
+6,962, and the big container check — the one that builds a real site in a real
+browser — passed all twenty of its steps, 382 checks with nothing failing. That
+one fires because this change touches code the site container carries, so it is
+a "did anything else break" check rather than a check on tonight's work.
+
+**And reading it turned up a number I had been carrying without looking.** One
+small step inside that check has read 396 in my notes six times running; it
+reads **397**, and has since a change earlier last night that added one test to
+a file that step covers. Tonight's work touches neither of that step's two
+files, so copying 396 forward would have been a wrong number wearing a right
+one's name — nobody would ever have noticed, which is exactly why I read the
+counts out of each step's own log every time instead of carrying them over. Two
+separate runs agree on 397.
+
 **Nothing merged, nothing deployed, nothing spent.** No paid run, no live
 messages, no customer sites touched. Fal is still parked.
 
