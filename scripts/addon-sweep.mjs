@@ -365,6 +365,25 @@ export function jobRows(answer) {
       everyMinutes: Number(j.everyMinutes) || 0,
       at: typeof j.at === "string" ? j.at : null,
       tz: typeof j.tz === "string" ? j.tz : null,
+      // THE ONE DATE A ONE-TIME JOB RUNS, AND WHAT BECAME OF IT (2026-09-19).
+      // The route has answered both since `jobPanelRow` gained them; this
+      // reader dropped them, so the harness printed `every 44640m` — the forced
+      // ceiling — for a job stored to run once, which is the exact misreading
+      // the panel and the reply were corrected for. An instrument that cannot
+      // see the field a run is bought to prove is this repository's recorded
+      // wiring defect, in the reader for it.
+      //
+      // `typeof`, NOT `String(...)`: `String(["2026-10-03"])` is
+      // `"2026-10-03"`, so a one-element array would print a perfectly
+      // confident date. Same rule `at` and `tz` already follow, and the same
+      // coercion `onceWhen` was written to refuse.
+      on: typeof j.on === "string" ? j.on : null,
+      // NULL IS TWO FACTS AND THE PAIR IS WHAT SEPARATES THEM: with `on` null
+      // this is a recurring job, which has no such state; with `on` set and
+      // this null, the Worker that answered predates the field and CANNOT SAY.
+      // Reading the second as the first would report an unreadable schedule as
+      // an ordinary interval.
+      onState: typeof j.onState === "string" ? j.onState : null,
       enabled: j.enabled !== false,
       lastRun: j.lastRun || null,
       lastResult: typeof j.lastResult === "string" ? j.lastResult : null,
@@ -437,7 +456,19 @@ export function jobLines(before, after, ran, verify) {
     // THE ZONE IS PRINTED BESIDE THE CLOCK TIME AND NEVER INSTEAD OF IT. "09:00"
     // is not a time until something says whose nine o'clock, and the zone is the
     // BROWSER's — the one field on this row that no model chose.
-    const when = j.at ? `at ${j.at} ${j.tz || "(NO ZONE)"} every ${j.everyMinutes}m` : `every ${j.everyMinutes}m`;
+    // A ONE-TIME JOB IS ANSWERED FIRST AND COMPLETELY, the rule both
+    // customer-facing composers already follow. `everyMinutes` on such a row is
+    // the FORCED MONTHLY CEILING, never read for selection — so a reader that
+    // starts from the interval prints a schedule that will never happen.
+    //
+    // …AND THE CEILING IS STILL SAID, which is where this line parts company
+    // with the panel and the reply. Those are for a customer, who wants the one
+    // true sentence; this is for whoever is reading a paid run, who wants to see
+    // that the ceiling really is what was stored AND that `on` is what governs.
+    // Hiding it would make the two facts one.
+    const when = j.on
+      ? `ONCE on ${j.on} at ${j.at || "(NO TIME)"} ${j.tz || "(NO ZONE)"} — ${j.onState || "(NO STATE)"}  (stored everyMinutes ${j.everyMinutes}, the forced ceiling; \`on\` governs)`
+      : (j.at ? `at ${j.at} ${j.tz || "(NO ZONE)"} every ${j.everyMinutes}m` : `every ${j.everyMinutes}m`);
     // THE FUNCTION IS NAMED EVEN WHEN IT MATCHES THE JOB'S OWN NAME — that is
     // the case the omission hid on run 50 — and an absent one is said out loud,
     // because a job with no reference is a job that can never run.

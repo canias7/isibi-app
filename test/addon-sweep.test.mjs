@@ -1883,6 +1883,60 @@ test("the job lines say the zone, and say so even when there is nothing to say",
   assert.match(jobLines(before, after, { run: false, why: "not asked for" }).join("\n"), /did not run any job now: not asked for/);
 });
 
+test("a one-time job is read and printed as one, never as its forced ceiling", async () => {
+  const { jobRows, jobLines } = await import("../scripts/addon-sweep.mjs");
+  // ⚠ THE REGRESSION THIS FORBIDS: the route has answered `on`/`onState` since
+  // `jobPanelRow` gained them, and this reader dropped both — so the harness
+  // printed `every 44640m` for a job stored to run ONCE, which is the exact
+  // misreading the panel and the reply were corrected for. A run bought to
+  // prove `spec.on` would have come back with no reading of it.
+  const answer = { jobs: [{
+    name: "count_once", fn: "nightly_booking_count", everyMinutes: 44640,
+    at: "23:00", tz: "Europe/London", on: "2026-10-03", onState: "scheduled",
+    enabled: true, lastRun: null, lastResult: null,
+  }] };
+  const rows = jobRows(answer);
+  assert.equal(rows.count_once.on, "2026-10-03", "the date must survive the reader");
+  assert.equal(rows.count_once.onState, "scheduled", "and so must what became of it");
+
+  const line = jobLines({}, rows, null).join("\n");
+  assert.match(line, /ONCE on 2026-10-03 at 23:00 Europe\/London — scheduled/,
+    "the date, its time, its zone and its state are what a one-time job IS");
+  // THE CEILING IS SAID RATHER THAN HIDDEN — this line is the developer's, and
+  // seeing 44640 stored beside `on` is how you read that `on` is what governs.
+  assert.match(line, /stored everyMinutes 44640, the forced ceiling; `on` governs/);
+  // …AND IT IS NEVER PRINTED AS A SCHEDULE. `every 44640m` is the sentence the
+  // whole correction exists to stop.
+  assert.doesNotMatch(line, /every 44640m/, "the ceiling must never read as the schedule");
+
+  // ⚠ THE CONTROL, without which "it printed the one-time shape" is satisfied
+  // by a reader that prints it for everything: a RECURRING job on the same
+  // reader keeps its interval, byte for byte as before.
+  const recurring = jobLines({}, jobRows({ jobs: [{
+    name: "nightly", fn: "nightly_booking_count", everyMinutes: 1440,
+    at: "23:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null,
+  }] }), null).join("\n");
+  assert.match(recurring, /at 23:00 Europe\/London every 1440m/);
+  assert.doesNotMatch(recurring, /ONCE on/, "a recurring job must not gain a date it has not got");
+
+  // A WORKER THAT PREDATES THE FIELD CANNOT SAY, and that is not the same as a
+  // recurring job. `on` set with `onState` absent is the pair that separates
+  // them; reading the second as the first reports an unreadable schedule as an
+  // ordinary interval.
+  const noState = jobLines({}, jobRows({ jobs: [{
+    name: "count_once", everyMinutes: 44640, at: "23:00", tz: "Europe/London",
+    on: "2026-10-03", enabled: true,
+  }] }), null).join("\n");
+  assert.match(noState, /ONCE on 2026-10-03 .* — \(NO STATE\)/);
+
+  // ⚠ `typeof`, NOT `String(...)` — `String(["2026-10-03"])` is "2026-10-03",
+  // so a one-element array would print a perfectly confident date. This
+  // repository's most-repeated coercion bug, in the field a paid run reads.
+  const coerced = jobRows({ jobs: [{ name: "j", everyMinutes: 44640, on: ["2026-10-03"], onState: ["scheduled"] }] });
+  assert.equal(coerced.j.on, null, "a non-string date must not be coerced into one");
+  assert.equal(coerced.j.onState, null);
+});
+
 test("a re-read that failed after the press says the outcome could not be verified", async () => {
   const { jobLines } = await import("../scripts/addon-sweep.mjs");
   // THE REGRESSION THIS CASE EXISTS FOR. The first draft folded the post-press
