@@ -13821,3 +13821,24 @@ proved that by adding one and watching exactly this check go red, naming it.
 The suite is still **6,879**, because all of this is repair to a test that
 already existed rather than a new one. Nothing merged, nothing deployed, nothing
 spent.
+
+**And while I was at it I re-checked one more number and it was wrong too.** A
+table in the notes lists which of your live sites have photographs on them —
+it's what I'd use to pick a site for a photo test. Three of its four counts were
+readings of the **home page only**, printed next to a list of all that site's
+pages, which reads as a whole-site count and isn't one.
+
+Walked every page of each site: `fold-lane-bakery` has **3** photographs (the
+table said 2), `oak-and-ash` **3** (said 1), `shoeroom-1` **2** (said 1). The
+table is corrected and now says where each one sits.
+
+It mattered in one place and the file was already arguing with itself about it:
+the cap I set this morning is justified against "a real-site maximum of 3", and
+the table said 2. The cap's number was the right one. Run 51's own live check —
+same file, same day — also recorded three, so the table was the odd one out
+against two measurements.
+
+I also dropped the table's `<img>` column rather than fixing it. It counted
+every image tag on the page, including ones that aren't photographs, so
+`fretwork-1` read "3" with no photographs at all — it invited exactly the
+reading it can't support.

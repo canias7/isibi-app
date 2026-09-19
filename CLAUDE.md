@@ -9499,14 +9499,40 @@ list needs `/api/site/list` and a token). Telling an on-page photograph from a
 share card is the whole of it: `og:image`/`twitter:image` are meta content and
 were counted separately.
 
-| site | `<img>` | on-page photographs | routes |
+| site | on-page photographs, SITE-WIDE | where they sit | routes |
 |---|---|---|---|
-| `fold-lane-bakery` | 2 | **2** | `/ /order /the-starter /visit` |
-| `oak-and-ash` | 1 | **1** (`data-slot="photo"`) | `/ /make /work /workshop` |
-| `shoeroom-1` | 2 | **1** | `/` (162 KB page) |
-| `forno-and-co` | 1 | **1** | sitemap EMPTY |
-| `fretwork-1` | 3 | **0** | two QR codes: `/qr.svg`, `/qr-prices.svg` |
-| `ashgrove-1` · `repairbench-1` · 26 others | 0–3 | **0** | — |
+| `fold-lane-bakery` | **3** | 2 on `/`, 1 on `/visit` | `/ /gallery /order /the-starter /visit` |
+| `oak-and-ash` | **3** | 1 on `/`, 2 on `/work` | `/ /make /work /workshop` |
+| `shoeroom-1` | **2** | both on `/` | `/` (162 KB page) |
+| `forno-and-co` | **1** | on `/` | sitemap EMPTY |
+| `fretwork-1` | **0** | — | two QR codes: `/qr.svg`, `/qr-prices.svg` |
+| `ashgrove-1` · `repairbench-1` · 26 others | **0** | — | — |
+
+**⚠ THREE OF THOSE NUMBERS WERE CORRECTED 2026-09-19, and the shape of the
+mistake is the reusable part: they were HOME-PAGE readings printed beside a
+SITE-WIDE route list**, which reads as a site-wide claim and is not one.
+`fold-lane-bakery` was 2 and is **3**, `oak-and-ash` 1 and is **3**,
+`shoeroom-1` 1 and is **2** — re-measured by walking every route in each
+sitemap and counting DISTINCT `<img src="/u/<slug>/…">`, which is what
+`photoUrls` counts. **And the file already disagreed with itself**: the
+photo-reuse entry justifies `MAX_KEEP_URLS` against *"a measured real-site
+maximum of 3 (`fold-lane-bakery`)"*, which is the correct number, against a 2 in
+this table — the recorded *a number stamped in two places drifts when only one
+is corrected*, with the cap's copy the one that happened to be right. The cap
+stands: 12 against a real maximum of 3.
+**AND RUN 51'S OWN LIVE VERIFICATION IS A THIRD READING THAT AGREES**: it
+recorded *"the same three `/u/` urls on the same two pages"* on that site, with
+their byte sizes. So the table was the outlier against two independent
+measurements, one of them in this same file.
+**The `<img>` column is gone** rather than corrected, because it counted every
+`<img>` on the page including ones that are not photographs (`fretwork-1` read 3
+with **0** photographs), so it invited exactly the reading it cannot support.
+**`og:image` is still excluded and still worth excluding**: on three of these
+four it reuses a url that is also on the page, so it changes no count — but
+`ashgrove-1`'s one `/u/` url is og:image ALONE, with zero `<img>` anywhere,
+which is the case that made the distinction necessary.
+**`fold-lane-bakery` also gained `/gallery` since the table was written** — run
+51's own page, which is why its route list moved too.
 
 All are React sites; **none carries `x-site-version`**, so every one is still
 on the legacy prefix and its next publish moves it to the build layout.
@@ -10553,11 +10579,12 @@ repository's recorded temporal-dead-zone trap and *"the test callback runs after
 the module evaluates"* is a reason that holds today and is not worth resting on.
 
 **Suite 6,879, unchanged**: every one of these is an assertion inside a case
-that already existed. **CI HAS READ IT: `unit tests` run 2747 on `76a653c2`,
-green — `# tests 6879 / # pass 6875 / # fail 0 / # skipped 4`**, against local
-`6879 / 6879 / 0 / 0`. **No `site build` fired and none was due** — predicted
-from the filter before the push and confirmed after: `site-build.yml`'s `paths`
-name `test/page-gen.test.mjs` and the `test/integration/*` files, and
+that already existed. **CI HAS READ IT TWICE, once per commit: `unit tests` run
+2747 on `76a653c2` and run 2748 on `d6118b65`, both green, both
+`# tests 6879 / # pass 6875 / # fail 0 / # skipped 4`**, against local
+`6879 / 6879 / 0 / 0`. **No `site build` fired for either and none was due** —
+predicted from the filter before the push and confirmed after: `site-build.yml`'s
+`paths` name `test/page-gen.test.mjs` and the `test/integration/*` files, and
 `test/site-picture.test.mjs` is neither.
 
 ### A PHOTOGRAPH THE SITE ALREADY HAS MAY BE SHOWN AGAIN (2026-09-19)
@@ -10655,6 +10682,18 @@ is what matches**. The four are NAMED out of the log rather than recalled: the
 privilege-drop case (*"needs root and an unprivileged user"*), the two RTL cases
 (*"template deps not installed"*) and `site-searchpath`'s baseline-commit case
 (*"a shallow checkout holds one commit"*).
+**AND `site build` RUN 1197 IS GREEN ON THE SAME SHA (2026-09-19
+04:46:52→05:07:25Z, ALL TWENTY STEPS — the API answers 23 and three are
+GitHub's own): `site-build.mjs` 382 passed / 0 failed in 14m54s**, with
+kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it, and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed`. It fired because `worker.js` and
+`builder/site-images.mjs` moved. **The unit step's TAP is `# tests 396 /
+# pass 396 / # fail 0`, unchanged from 1196** — correct, because this round adds
+no `page-gen` or `publish-pages` case. **Its harness step is 14m54s against
+1196's 17m01s on trees that differ by two product files** — the runner deciding,
+exactly as the image-step band records, with no inference from the diff to the
+duration available in either direction.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
