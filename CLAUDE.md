@@ -10717,6 +10717,127 @@ duration available in either direction.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
+### …AND THAT WALL CALLED TWO KINDS OF OWNERSHIP INVENTION (2026-09-19)
+
+Owner: *"'Not referenced in existing source' does not mean 'not owned by this
+site.' … Establish asset existence from the site's upload storage when
+validation is needed. An unreadable check must remain unknown. Restrict any
+image correction to actual image references; never blanket-replace matching
+strings in links or other content."*
+
+**BOTH REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS
+TOUCHED**, on the two asks the owner named:
+
+| the ask | what shipped |
+|---|---|
+| a valid uploaded image, never placed on a page | `<SafeImage src="" alt="the bench, uploaded last week" />` |
+| a valid uploaded PDF, linked as a download | `<a href="" download>` |
+
+The first is this platform **deleting the customer's own photograph because
+nothing had drawn it before**; the second is a download button that downloads
+nothing, produced by a photograph guard reaching into a link.
+
+**1. OWNERSHIP WAS INFERRED FROM THE PAGES, and a picture nobody has placed is
+on no page.** `strayPhotos` built its owned set from `photoUrls(before)` — the
+urls already on the site's pages — so an upload the owner made this morning was
+invented by construction. **Existence comes from the UPLOAD STORE now**:
+`siteUploadExists` HEADs `uploads/<slug>/<file>`, the key the serve route reads,
+so the question asked is *"does this url fetch bytes"* rather than *"has
+anything drawn it"*.
+
+- **`before` IS A FAST PATH AND NOT THE DEFINITION.** A url already on a live
+  page is one the site has been serving, so sweeping it would be this change
+  removing a picture `keptImages` refuses to let it remove three lines up. It
+  saves a round trip per existing photograph and decides nothing.
+- **THREE ANSWERS, AND ONLY `false` SWEEPS.** A throw, a bucket with no `head`,
+  a reader that answers nothing — all `unknown`, and an unknown is **left
+  standing**. The direction is the cheap one either way: an unknown left is at
+  worst a broken image, an unknown swept is somebody's photograph gone.
+  Strictly `=== true` / `=== false`, because a reader answering `undefined` for
+  "I did not look" would otherwise be indistinguishable from one that looked
+  and found nothing — **and a TRUTHY non-`true` answer is unknown too**, which
+  a sweep survivor is how that got driven.
+- **A URL THE SERVE ROUTE ITSELF REFUSES IS A REAL ABSENCE, not a
+  cannot-tell.** `uploadKeyFor` is the serve route's own shape rule character
+  for character (the slug folding case and the FILE not — the rest of the path
+  is an R2 key, where a re-cased hash is a different object), and a shape that
+  route 404s on can be backed by no object in any bucket.
+
+**2. THE CORRECTION WAS A BLANKET STRING REPLACE**, so it reached anything
+quoting that value. **`imageRefs` is the one definition of an image reference
+now, read by the FINDER and the CORRECTOR alike**: a `src` as a JSX attribute or
+as an object key, which is the kit's own naming in both places (`Gallery` and
+`MediaGrid` declare `items: { src?, alt?, caption? }`; every `<SafeImage>` takes
+`src`). An `href` is neither, so it is never a candidate and can never be
+rewritten. **The grammar is IMPORTED, never restated** — `KEY_BEFORE` and
+`keyName` are `site-picture.mjs`' own, exported for this, and `KEY_BEFORE` is
+what stops `dataSrc` and `image_src` matching the `src` inside them. The key,
+the separator and the quote are all kept; only the value goes. **A mismatched
+quote pair (`src="…'`) is refused rather than rewritten**: it is broken JSX
+either way, and rewriting it produces different broken JSX.
+
+**WHAT IS DELIBERATELY NOT WIDENED, and it is a real consequence rather than an
+oversight.** `keptImages` and `shownPhotos` still read `photoUrls`, which matches
+any quoted `/u/<slug>/` url — so a PDF counts as a photograph for the LOSS wall
+(over-protective, which errs safe) and can appear in the reuse list a writer is
+shown. Narrowing either changes a guarantee nobody asked to change. **Recorded,
+not fixed.**
+
+**Guards**: `site-images` **81 → 83** and `addon-route` **136 → 137**, with the
+two valid-upload cases, the genuinely missing control, a serve-refused shape,
+and an unreadable store sweeping nothing — each asserting the **compiler
+payload** AND the **stored source**. **The two readers' gap is asserted rather
+than counted**: a count was written first and was wrong, which is a second copy
+of the fixture.
+
+**⚠ THE FIXTURE ANSWERED BY NOT HAVING THE METHOD.** Its fake bucket had no
+`head`, which the product reads as CANNOT TELL — so every case would have passed
+by the wall standing down rather than by it working. `uploadsFail` THROWS rather
+than answering `null`, because a key honestly absent and a store that could not
+be read are the two answers this round exists to keep apart.
+
+**RED-CHECKED ONE HALF AT A TIME, and the two halves of the restriction are only
+separately visible at the module** — measured, not predicted: the storage half
+reverted turns exactly **1** case red (the route's); either half of the
+image-ref restriction alone turns exactly **1** red (the module's); **both
+halves together turn 2 red**, which is the pre-fix state. A widened FINDER alone
+cannot empty an href because the corrector still refuses to, and a widened
+CORRECTOR alone is never handed one.
+
+**One older guard re-anchored, not appeased**: the stray case read
+`strayPhotos`' answer as the verdict, which **asserted the defect as correct**.
+It reads the candidate finder now, and the property it was always about is
+unmoved.
+
+**⚠ AND THE TRACE SEAM FOUND TWO MORE THINGS, both from one sweep survivor.**
+The unknown MARK had no reader — it is the only signal that the wall stood down
+rather than finding nothing to do — and capturing it cost two corrections.
+**The fixture's own `try/catch` hid a wiring mistake**: `traces` was not one of
+`stub`'s parameters, so every push threw a `ReferenceError` the catch swallowed
+and the list was silently empty, which reads exactly like a route that never
+marked anything. Only the PARSE is guarded now. **And the flush rides
+`ctx.waitUntil`**, so the ctx's pending list has to be awaited or the capture is
+empty for a second reason.
+**THE SECOND IS A REAL AMBIGUITY IN THE MARK ITSELF: `edit-trace.mjs` keeps a
+CLOSED status vocabulary** — `ok`, `fail`, `start`, and `?` for everything else —
+so `"unknown"` arrived as `?`, which is exactly what the neighbouring `"stray"`
+mark already becomes. Two different facts wearing one status, told apart only by
+which keys the detail happened to carry, and both carried `urls`. **The fact is
+in the detail's KEY now** (`{unknown: n}` against `{urls, files}`), with a
+control that the swept run really swept.
+
+**Sweep: 20 mutants, 20 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/stray-upload-wall.json`, over `worker.js`
+and `builder/site-images.mjs`, against eight test files — a narrow list can only
+produce a false SURVIVOR, never a false kill). **Pass 1 read 19/15/4 and not one
+survivor was the product's**: all four were walls nobody could drive — a truthy
+non-`true` answer, a bucket with no `head` at all, a mismatched quote pair, and
+the unknown mark.
+
+**Suite 6,882** — 6,879 + 2 + 1, and the arithmetic closes exactly.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
+
 ---
 
 ## Data, auth, payments, mail

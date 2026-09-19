@@ -13863,3 +13863,34 @@ source for both of them, which is the whole point of keeping the list here
 where a person looks rather than buried in a test. That means a documents-only
 edit genuinely can turn the suite red. So: read every run, write down only what
 it tells you that you didn't already know.
+
+## 2026-09-19 — The photo guard was deleting photos, and emptying download links
+
+Two defects in yesterday's stray-image wall, both of which I reproduced on the
+real route before touching anything.
+
+**It was deleting pictures you own.** The wall decided "is this the site's
+photograph" by looking at whether any page already showed it. So a picture you
+uploaded and hadn't put on a page yet counted as invented, and the addon
+emptied it — the platform deleting your own photograph because nothing had
+drawn it before. It asks the upload store now: does this address actually fetch
+a file? That's the question that matters, and it's the one the site's own serve
+route answers.
+
+**And it was emptying download links.** The correction was a blunt
+search-and-replace over the page text, so a price list linked as a PDF came back
+with an empty `href` — a download button that downloads nothing, produced by a
+photograph guard. It only ever touches an image's `src` now. A link is not a
+picture and can't be mistaken for one.
+
+**When it can't tell, it leaves things alone.** If the upload store is
+unreachable — a connection reset, a binding that can't answer — nothing is
+swept. The worst case of leaving something is a broken image on a page; the
+worst case of sweeping it is your photograph gone. Those aren't close.
+
+A picture that genuinely isn't there is still emptied, which leaves a real space
+the picture step can fill later, and you're told about it in the sentence that
+already exists.
+
+Nothing merged or deployed, nothing spent. The photo test is still parked on
+fal.
