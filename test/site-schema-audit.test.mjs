@@ -497,6 +497,26 @@ test("withJobDeps admits a stored internal function and nothing else", () => {
   const plain = { functions: [designed], tables: [] };
   assert.equal(withJobDeps(plain), plain, "a context needing no repair was rebuilt anyway");
 
+  // ⚠ AND THE REPAIR'S OWN TWO TESTS ARE READ DIRECTLY, because downstream they
+  // are ABSORBED BY THE ENGINE. Two sweep survivors said so and the measurement
+  // settled it: a public function given a stand-in body still loses its job
+  // (`normalizeSchema` asks `!f.internal` itself), and a nameless one is dropped
+  // before any job is looked at —
+  //
+  //   PUBLIC + stand-in body   -> fns ["nightly_count"]  jobs []
+  //   NAMELESS + stand-in body -> fns []                 jobs []
+  //
+  // — so asserting only the job list proves nothing about these two lines. The
+  // repository's answer to a wall nobody can drive is to give it a reader, not
+  // to declare it decorative: `withJobDeps`' OWN OUTPUT is that reader.
+  const bodyOf = (f) => (withJobDeps({ functions: [f] }).functions[0] || {}).body;
+  assert.equal(bodyOf(stored(false)), undefined,
+    "a PUBLIC stored function was given a stand-in body — the repair is not scoped to internal ones");
+  assert.equal(bodyOf({ name: "", args: "", returns: "json", internal: true }), undefined,
+    "a nameless declaration was given a stand-in body");
+  assert.ok(String(bodyOf(stored(true)) || "").trim(),
+    "a stored internal function was NOT given one — the control for the two above");
+
   // `storedJobFns` IS THE SAME RULE, and the apply reads it: one answer to
   // "which functions may a job name", so the two cannot drift again.
   assert.deepEqual([...storedJobFns({ functions: [stored(true)] })], ["nightly_count"]);
@@ -504,4 +524,12 @@ test("withJobDeps admits a stored internal function and nothing else", () => {
     "storedJobFns offered a public function to the apply");
   assert.deepEqual([...storedJobFns({ functions: [{ name: "x", internal: "yes" }] })], [],
     "a non-boolean `internal` was read as internal — cannot-tell must not read as the permissive answer");
+  // ⚠ AND THE CASE FOLD, which a sweep found undriven: `normalizeJob` lowercases
+  // the function a job names, so a stored `Nightly_Count` matched nothing and
+  // the apply silently declined to re-attach its job. Every other fixture here
+  // happens to be lowercase already, which is why this needed its own shape.
+  assert.deepEqual([...storedJobFns({ functions: [{ ...stored(true), name: "Nightly_Count" }] })], ["nightly_count"],
+    "a stored function whose name carries capitals is invisible to the apply");
+  assert.deepEqual(jobs({ functions: [{ ...stored(true), name: "Nightly_Count" }] }, JOB), ["count_once"],
+    "a job on a capitalised stored function is dropped by the audit");
 });

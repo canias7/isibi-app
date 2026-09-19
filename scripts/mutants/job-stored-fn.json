@@ -1,0 +1,94 @@
+[
+  {
+    "label": "THE REPORTED DEFECT ITSELF. The audit validates a job without the site's own functions, so a reuse job is dropped whole, `unbuilt`, and the customer is told it could not be created.",
+    "files": ["worker.js"],
+    "from": "const context = k === \"job\" ? withJobDeps(withMine) : withMine;",
+    "to": "const context = withMine;"
+  },
+  {
+    "label": "The repair given to every tier rather than the job tier. A table's confirm.fn is nulled by the APPLY too, so this makes the audit disagree with the apply in the other direction.",
+    "files": ["worker.js"],
+    "from": "const context = k === \"job\" ? withJobDeps(withMine) : withMine;",
+    "to": "const context = withJobDeps(withMine);"
+  },
+  {
+    "label": "The audit's context built from the baseline rather than the proposal, so a function designed one call earlier stops counting.",
+    "files": ["worker.js"],
+    "from": "const withMine = proposedSpec(aProposed, k, clean.value);",
+    "to": "const withMine = proposedSpec(aBaseline, k, clean.value);"
+  },
+  {
+    "label": "The apply builds its own idea of which stored functions a job may name — the inline filter this change removed, which is how the two readers drifted apart.",
+    "files": ["worker.js"],
+    "from": "const aJobFns = storedJobFns(aSpec);",
+    "to": "const aJobFns = new Set((((aSpec && aSpec.functions) || []).map((f) => String((f && f.name) || \"\").toLowerCase())));"
+  },
+  {
+    "label": "The apply re-attaches every job whatever function it names, so a job on a missing or public function reaches the registry.",
+    "files": ["worker.js"],
+    "from": "if (aJobFns.has(j.fn)) merged.jobs = [...(merged.jobs || []), j];",
+    "to": "merged.jobs = [...(merged.jobs || []), j];"
+  },
+  {
+    "label": "The apply re-attaches nothing, so every reuse job is silently dropped at registration while the audit now says it is fine — the defect inverted.",
+    "files": ["worker.js"],
+    "from": "if (aJobFns.has(j.fn)) merged.jobs = [...(merged.jobs || []), j];",
+    "to": "if (false) merged.jobs = [...(merged.jobs || []), j];"
+  },
+  {
+    "label": "`withJobDeps` repairs nothing: the context is handed straight back and a bodiless stored function is still dropped.",
+    "files": ["site-schema.mjs"],
+    "from": "  return repaired ? { ...base, functions: out } : base;",
+    "to": "  return base;"
+  },
+  {
+    "label": "A PUBLIC stored function is given a stand-in body, so the engine's deliberate refusal — a job on a function a visitor could call — is overridden.",
+    "files": ["site-schema.mjs"],
+    "from": "    if (!f || typeof f !== \"object\" || f.internal !== true) return f;",
+    "to": "    if (!f || typeof f !== \"object\") return f;"
+  },
+  {
+    "label": "A function that ALREADY has a real body is overwritten by the stand-in, so a function designed in this same change is validated against a body nobody wrote.",
+    "files": ["site-schema.mjs"],
+    "from": "    if (typeof f.body === \"string\" && f.body.trim()) return f;",
+    "to": "    if (false) return f;"
+  },
+  {
+    "label": "A nameless declaration is given a stand-in body, so junk in a stored spec becomes a function a job can be attached to.",
+    "files": ["site-schema.mjs"],
+    "from": "    if (!String(f.name || \"\").trim()) return f;",
+    "to": "    if (false) return f;"
+  },
+  {
+    "label": "`storedJobFns` offers PUBLIC functions to the apply, so the two readers disagree about the one thing they exist to agree on.",
+    "files": ["site-schema.mjs"],
+    "from": "    if (!f || typeof f !== \"object\" || f.internal !== true) continue;",
+    "to": "    if (!f || typeof f !== \"object\") continue;"
+  },
+  {
+    "label": "`storedJobFns` reads a non-boolean `internal` as internal — cannot-tell read as the permissive answer, in the one place that decides whether a visitor-callable function can be put on a timer.",
+    "files": ["site-schema.mjs"],
+    "from": "    if (!f || typeof f !== \"object\" || f.internal !== true) continue;",
+    "to": "    if (!f || typeof f !== \"object\" || !f.internal) continue;"
+  },
+  {
+    "label": "`storedJobFns` does not fold case, so a stored `Nightly_Count` never matches the lowercased `j.fn` the engine produces.",
+    "files": ["site-schema.mjs"],
+    "from": "    const name = String(f.name || \"\").trim().toLowerCase();",
+    "to": "    const name = String(f.name || \"\").trim();"
+  },
+  {
+    "label": "CONTROL — a comment only. It must survive.",
+    "control": true,
+    "files": ["site-schema.mjs"],
+    "from": " * THE INTERNAL FUNCTIONS A JOB MAY BE ATTACHED TO, by lowercased name.",
+    "to": " * the internal functions a job may be attached to, by lowercased name."
+  },
+  {
+    "label": "CONTROL — a comment only, in the Worker. It must survive.",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "                  // …AND, FOR A JOB, WITH THE SITE'S OWN FUNCTIONS PRESENT TOO",
+    "to": "                  // and, for a job, with the site's own functions present too"
+  }
+]
