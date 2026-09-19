@@ -36,7 +36,7 @@
  * last section asserts rather than assumes.
  */
 import worker, { ADAPTERS } from "../src/worker.mjs";
-import { handleAgentApi, makeAgentStore, AGENT_PROVIDERS } from "../../agent-store.mjs";
+import { handleAgentApi, makeAgentStore, AGENT_PROVIDERS, EXAMPLE_AUTOMATION } from "../../agent-store.mjs";
 import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { FAKE_PROVIDER, makeFakeProvider } from "../src/fake-provider.mjs";
 import { signDelivery, SIG_HEADER, TS_HEADER, ID_HEADER } from "../src/webhooks.mjs";
@@ -81,7 +81,24 @@ const provider = makeFakeProvider({ script: ({ action }) => {
   const fate = arm(action);
   return typeof fate === "string" ? fate : "ok";
 } });
-ADAPTERS[FAKE_PROVIDER] = provider;
+/**
+ * ⚠ **AND `cannotSay` IS THE ONLY WAY TO REACH A GENUINELY UNRESOLVED SEND.** A `lost`
+ * answer means the message really landed and the reply went missing, so `perform` asks the
+ * provider and finds it — which is the right outcome and is NOT uncertain. What is left is a
+ * provider that cannot say either way, and the fake answers that only when `args.trace` is
+ * absent, which `perform` never does. So its `reconcile` is replaced with one answering
+ * `known: false` — exactly what a real provider whose payload carries no marker does.
+ *
+ * The WRAPPER goes in the registry and the base keeps the mailbox, so what a check reads is
+ * still the messages the worker really sent.
+ */
+let cannotSay = false;
+ADAPTERS[FAKE_PROVIDER] = Object.freeze({
+  ...provider,
+  reconcile: (action, args, lease) => cannotSay
+    ? { simulated: true, known: false, why: "this simulated provider cannot say either way" }
+    : provider.reconcile(action, args, lease),
+});
 /** ⚠ THE MAILBOX THE WORKER ITSELF SENDS TO. A check against any other proves nothing. */
 const mailbox = () => provider.mailbox(ACCOUNT);
 const sentCount = () => mailbox().length;
@@ -108,6 +125,16 @@ try {
       from agent.run_entries where run_id = '${runId}' and body ->> 'kind' = 'stopped';`);
   const waitingRequests = async (agent) =>
     (await api("/api/agent/tool-approvals", { query: { agent } })).body.approvals || [];
+  /**
+   * ⚠ **WHAT A CUSTOMER REALLY SEES, THROUGH THE SITE'S OWN HISTORY ROUTE.** `execRow` reads
+   * the table; this reads `/api/agent/automation-history`, which is `executionRow`'s answer —
+   * the only place the WORD for a state is chosen. The two are different claims: the row can
+   * be perfect while the reader above it says `failed` about a person's own decision, which is
+   * exactly what it said before this milestone.
+   */
+  const shown = async (automation, runId) =>
+    ((await api("/api/agent/automation-history", { query: { id: automation } })).body.executions || [])
+      .find((e) => e.id === runId) || {};
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n1. A CUSTOMER CONNECTS AN ACCOUNT AND WRITES THE AUTOMATION");
@@ -135,16 +162,23 @@ try {
     body: { agent: AG, title: "Price list", format: "text",
             body: "A boiler service is £95 including parts. A full rewire is quoted on site." },
   });
-  const STEPS = [
-    { type: "knowledge", query: "{{topic}}", out: "facts" },
-    { type: "note", text: "Hello {{who}} — about your {{topic}}: {{facts}} (this reply is scripted, not written by a model)", out: "reply" },
-    { type: "send", connection: CX, to: "{{who}}", body: "{{reply}}" },
-  ];
+  /**
+   * ⚠ **THE WORKFLOW IS THE SITE'S OWN `EXAMPLE_AUTOMATION` — the one its editor offers a
+   * customer as a starting point — rather than a literal written here.** Two copies that
+   * agree today would make this file a claim ABOUT the example instead of a run OF it, and
+   * the copy that drifts is the one somebody is handed. The only thing added is the
+   * CONNECTION, which the example deliberately leaves out because a connection id belongs to
+   * one account and cannot be invented; that is the one field a person fills in too.
+   */
+  const STEPS = EXAMPLE_AUTOMATION.steps.map((st) => st.type === "send" ? { ...st, connection: CX } : { ...st });
+  check("⚠ the example the screen offers is the one under test, and it needs exactly one thing added",
+    STEPS.length === 3 && STEPS.filter((st) => st.connection === CX).length === 1
+    && EXAMPLE_AUTOMATION.steps.every((st) => st.connection === undefined),
+    JSON.stringify(EXAMPLE_AUTOMATION.steps).slice(0, 200));
   const auto = await api("/api/agent/automation-create", {
     body: {
-      agent: AG, name: "Reply to an enquiry", enabled: true, schedule: "manual",
-      inputs: [{ name: "who", label: "Who it is for", required: true },
-               { name: "topic", label: "What they asked about", required: true }],
+      agent: AG, name: EXAMPLE_AUTOMATION.name, enabled: true, schedule: EXAMPLE_AUTOMATION.schedule,
+      inputs: EXAMPLE_AUTOMATION.inputs.map((d) => ({ ...d })),
       steps: STEPS,
     },
   });
@@ -266,6 +300,55 @@ try {
   arm = null;
   await ring(lostExec.id); await drain();
   check("⚠ AND A RETRY AFTERWARDS SENDS NOTHING AGAIN", sentCount() === atLoss + 1, `${sentCount()} messages`);
+  /**
+   * ⚠ **AND THAT RUN IS `done` ON THE SCREEN, WHICH IS THE CONTROL FOR THE ONE BELOW IT.** A
+   * lost answer that a check FOUND is not uncertain — the message is at the provider and we
+   * know it — so a screen calling it unresolved would invite somebody to go and look at
+   * something that is settled.
+   */
+  const lostShown = await shown(AU, run2.body.runId);
+  check("⚠ a lost answer a check FOUND reads as done, not as uncertain",
+    lostShown.state === "done" && lostShown.unresolved.length === 0,
+    `${lostShown.state} / ${JSON.stringify(lostShown.unresolved)}`);
+
+  // ⚠ **A PROVIDER THAT CANNOT SAY EITHER WAY IS THE ONLY SHAPE THAT LEAVES A SEND GENUINELY
+  // UNRESOLVED**, and it is a real one: a provider whose payload carries no marker to match on
+  // behaves exactly so. The message IS in the mailbox — that is what makes the uncertainty
+  // real rather than a failure wearing its name.
+  const atSilent = sentCount();
+  arm = (action) => (action === "send_message" ? "lost" : "ok");
+  cannotSay = true;
+  const slRun = await api("/api/agent/automation-run", {
+    body: { id: AU, input: { who: "cal@example.test", topic: "wheel truing" } }, ring,
+  });
+  await drain();
+  const slReq = (await waitingRequests(AG))[0];
+  await api("/api/agent/tool-approve", { body: { id: slReq.id, verdict: "approved" }, ring });
+  await drain();
+  arm = null; cannotSay = false;
+  check("⚠ the message really is at the provider", sentCount() === atSilent + 1, `${sentCount()} messages`);
+  /**
+   * ⚠ **THE BRIEF'S OWN REQUIREMENT: *an uncertain send must not appear successful or be
+   * blindly repeated*.** Both halves are asserted through the reader a customer gets — the
+   * state is neither `done` nor `failed`, and it NAMES which step nobody can account for, so a
+   * screen can say what to go and check rather than offering a retry.
+   */
+  const silent = await shown(AU, slRun.body.runId);
+  check("⚠ AND THE CUSTOMER IS TOLD IT IS UNCERTAIN — not successful, and not a failure",
+    silent.state === "unresolved", `state=${silent.state}`);
+  check("⚠ ...and WHICH send nobody can account for, by step",
+    Array.isArray(silent.unresolved) && silent.unresolved.length === 1,
+    JSON.stringify(silent.unresolved));
+  check("⚠ ...and it does not read as a clean send", silent.result === null, String(silent.result));
+  const silentOut = (silent.outcomes || []).find((o) => o.type === "send") || {};
+  check("⚠ ...and the step's own outcome says so too, with what it prepared",
+    silentOut.unresolved === true && typeof silentOut.prepared === "string",
+    JSON.stringify(silentOut).slice(0, 220));
+  // AND A REDELIVERY OF AN UNCERTAIN SEND SENDS NOTHING: the operation record is what makes
+  // that true, and it is the *blindly repeated* half of the requirement.
+  await ring(slRun.body.runId); await drain();
+  check("⚠ ...and a redelivery does not send it again",
+    sentCount() === atSilent + 1, `${sentCount()} messages`);
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n7. REJECTED, EXPIRED, REVOKED AND DISCONNECTED ARE FOUR DIFFERENT ENDINGS");
@@ -346,9 +429,8 @@ try {
    * section thought it had re-pointed.
    */
   const SAVE = (steps) => ({
-    id: AU, name: "Reply to an enquiry", enabled: true, schedule: "manual",
-    inputs: [{ name: "who", label: "Who it is for", required: true },
-             { name: "topic", label: "What they asked about", required: true }],
+    id: AU, name: EXAMPLE_AUTOMATION.name, enabled: true, schedule: EXAMPLE_AUTOMATION.schedule,
+    inputs: EXAMPLE_AUTOMATION.inputs.map((d) => ({ ...d })),
     steps,
   });
   const repointed = await api("/api/agent/automation-update", {
@@ -388,6 +470,26 @@ try {
   check("⚠ ...and nothing is sent afterwards", sentCount() === atCancel, `${sentCount()} messages`);
   check("...and the request nobody can answer is no longer offered",
     (await waitingRequests(AG)).length === 0);
+  /**
+   * ⚠ **AND THE SCREEN SAYS `cancelled` RATHER THAN `failed`, WHICH IS WHAT IT USED TO SAY.**
+   * MEASURED through this reader before it was fixed: `state=failed, error=null` — so a
+   * customer was told their own decision was a fault and then given nothing about it. The
+   * three things that make the correction worth having are all read here: the word, who
+   * stopped it, and how far it got, which the brief's *don't claim completed effects were
+   * undone* leaves as the only honest thing to say about it.
+   */
+  const stoppedShown = await shown(AU, run7.body.runId);
+  check("⚠ THE CUSTOMER IS TOLD IT WAS STOPPED, not that it failed",
+    stoppedShown.state === "cancelled", `state=${stoppedShown.state}`);
+  check("⚠ ...by whom, in their own words",
+    stoppedShown.cancelledBy === A && /changed my mind/.test(String(stoppedShown.cancelledWhy)),
+    `${stoppedShown.cancelledBy} — ${stoppedShown.cancelledWhy}`);
+  check("⚠ ...and how far it had got, rather than a claim that anything was undone",
+    Number.isInteger(stoppedShown.completedSteps) && Number.isInteger(stoppedShown.completedCalls),
+    `${stoppedShown.completedSteps} step(s), ${stoppedShown.completedCalls} call(s)`);
+  check("⚠ ...and nothing on it reads as a failure or as an answer",
+    stoppedShown.error === null && stoppedShown.result === null,
+    `${stoppedShown.error} / ${stoppedShown.result}`);
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n9. AN EDIT REACHES THE NEXT RUN AND NEVER ONE ALREADY ACCEPTED");

@@ -550,6 +550,35 @@ export const RUN_STATES = Object.freeze([
 ]);
 
 /**
+ * WHAT A CANCELLATION RECORDED, read once for every reader of it.
+ *
+ * ⚠ **IT EXISTS BECAUSE THE SECOND READER GOT ALL FOUR NAMES WRONG, and a demonstration is
+ * what found it.** `agent.cancel_run` writes `cancelledBy`, `note`, `completedSteps` and
+ * `completedCalls`; `executionRow` was written against `by`, `why`, `steps` and `calls` — a
+ * reader written against an IMAGINED producer while the correct one sat forty lines away in
+ * this same file. MEASURED through the site's own history route: `state: "cancelled"` with
+ * every one of the four `null`, so the word was right and nothing under it was. That is
+ * *two readers of one fact*, and the fix is to have one.
+ *
+ * **EACH CALLER STILL CHOOSES ITS OWN ABSENT VALUE**, which is why this answers `null`
+ * rather than a default: a conversation always shows a run and reads a missing count as `0`,
+ * while an execution list has to tell "none completed" from "nobody recorded how far it got".
+ * What is shared is the PRODUCER'S SHAPE, which is the only part a reader can be wrong about.
+ *
+ * `by` goes through `cleanId` because the stop is a jsonb body and the wire must not carry
+ * whatever else one happens to hold.
+ */
+export function cancelledFacts(stop) {
+  const st = stop && typeof stop === "object" && !Array.isArray(stop) ? stop : null;
+  return {
+    by: cleanId(st && st.cancelledBy) || null,
+    note: typeof st?.note === "string" ? st.note : null,
+    steps: Number.isInteger(st?.completedSteps) ? st.completedSteps : null,
+    calls: Number.isInteger(st?.completedCalls) ? st.completedCalls : null,
+  };
+}
+
+/**
  * What a message's run looks like on the wire, or `null` if it started none.
  *
  * **`null` IS A REAL ANSWER AND IS NOT A FAILURE.** Every imported conversation is
@@ -623,10 +652,13 @@ export function runView(r) {
       // WHO STOPPED IT, through `cleanId` because it is an account id and the wire must not
       // carry whatever else a stop body happens to hold. An unreadable one is `""` — absent
       // rather than guessed, which is the only honest answer when the journal cannot say.
-      by: cleanId(stop && stop.cancelledBy) || "",
-      note: typeof stop?.note === "string" ? stop.note : "",
-      completedSteps: Number.isInteger(stop?.completedSteps) ? stop.completedSteps : 0,
-      completedCalls: Number.isInteger(stop?.completedCalls) ? stop.completedCalls : 0,
+      // THE NAMES ARE `cancelledFacts`' — one reader of the producer's shape — and the ABSENT
+      // values are this reader's own: a conversation always shows a run, so `""` and `0` are
+      // what a screen can draw without a branch per field.
+      by: cancelledFacts(stop).by || "",
+      note: cancelledFacts(stop).note || "",
+      completedSteps: cancelledFacts(stop).steps ?? 0,
+      completedCalls: cancelledFacts(stop).calls ?? 0,
     };
   }
   return { id, state: "failed", step, simulated, text: "", why, at };
@@ -1539,6 +1571,43 @@ export const MAX_EXECUTIONS = 50;
 
 /** How a trigger starts. `manual` is Run now only; `daily` also fires once a day. */
 export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily", "weekly", "once"]);
+
+/**
+ * ONE WORKED EXAMPLE A CUSTOMER CAN START FROM, in the editor they already have.
+ *
+ * ⚠ **IT IS THE WORKFLOW THE DEMONSTRATION PROVES END TO END, and that is the whole reason
+ * it is worth having rather than a plausible-looking seed.** `verify:send` reads THIS object
+ * — it imports this module — so the thing a customer is handed is the thing driven through
+ * the routes, the queue, the approval and the fake provider's mailbox. Two copies that agree
+ * today would be one example and one claim about it.
+ *
+ * **IT SEEDS THE FORM AND IS EDITABLE THE INSTANT IT IS DRAWN.** There is no new editor, no
+ * template stored anywhere and no route: the draft the Automations form already renders is
+ * what it fills in, so every field, every step and every input can be changed or removed
+ * before it is ever saved. An example a person cannot edit is a demo, not a starting point.
+ *
+ * ⚠ **THE SEND STEP DELIBERATELY NAMES NO CONNECTION.** A connection id belongs to one
+ * account and cannot be invented, so an example carrying one would either be a dead id or
+ * somebody else's account. Absent, the form's own refusal names the field — *say which
+ * connected account to send from* — which is actionable, and the browser fills it in from
+ * the person's own first connected account when they have one. What must never happen is a
+ * seed that SAVES and then cannot send.
+ */
+export const EXAMPLE_AUTOMATION = Object.freeze({
+  name: "Reply to an enquiry",
+  schedule: "manual",
+  inputs: Object.freeze([
+    Object.freeze({ name: "who", label: "Who it is for", required: true }),
+    Object.freeze({ name: "topic", label: "What they asked about", required: true }),
+  ]),
+  steps: Object.freeze([
+    Object.freeze({ type: "knowledge", query: "{{topic}}", out: "facts" }),
+    Object.freeze({ type: "note", out: "reply",
+      text: "Hello {{who}} — about your {{topic}}: {{facts}} (this reply is scripted, not written by a model)" }),
+    Object.freeze({ type: "send", to: "{{who}}", body: "{{reply}}" }),
+  ]),
+});
+
 
 /** `YYYY-MM-DD`, which is what a one-off schedule names and what the column holds. */
 const ON_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
@@ -2868,12 +2937,31 @@ export function memoryRow(r) {
 /**
  * What became of one execution.
  *
- * **SIX WORDS, AND EACH IS A DIFFERENT THING TO SAY TO SOMEBODY.** `skipped` is the one
+ * **TEN WORDS, AND EACH IS A DIFFERENT THING TO SAY TO SOMEBODY.** `skipped` is the one
  * that earns its place twice over: a condition that did not match is not a failure, and
  * showing it as one would tell a customer their automation is broken when it did exactly
  * what they asked.
+ *
+ * ⚠ **THE LAST THREE ARE NEW AND EACH REPLACES A `failed` OR A `queued` THAT WAS A LIE —
+ * measured through this reader before any of them was written**, with the two that matter
+ * most being the same corrections M9 made for the CONVERSATION reader and never made here:
+ *
+ *   - `cancelled` — a person asked for it to stop. It read **`failed` with no error at
+ *     all**, which tells them their own decision was a fault and then says nothing about
+ *     what happened. It is also the one non-answered stop a screen must not offer to retry.
+ *   - `unresolved` — a send went out and the answer never came back. It read `failed`,
+ *     which says *the work did not happen* about work that may well have; the two invite
+ *     opposite next moves, and calling it a failure is what invites repeating it. The
+ *     brief's own words: *an uncertain send must not appear successful or be blindly
+ *     repeated.*
+ *   - `running` — told from `queued` by how far it got, exactly as the conversation reader
+ *     tells them apart by the step. Both were `queued`, so "about to start" and "half way
+ *     through" were one word.
  */
-export const AUTOMATION_STATES = Object.freeze(["queued", "done", "skipped", "failed", "missed", "paused", "waiting", "rejected"]);
+export const AUTOMATION_STATES = Object.freeze([
+  "queued", "running", "done", "skipped", "failed", "missed", "paused", "waiting",
+  "rejected", "cancelled", "unresolved",
+]);
 
 /** How many sources one agent may hold, how long each may be, and what a source is. */
 export const MAX_KNOWLEDGE = 20;
@@ -2915,9 +3003,34 @@ export function executionRow(r) {
   // A suspended execution has a `started` entry and no `stopped` one, so the run says
   // `running` — which is true and useless: the difference between "about to be picked up"
   // and "waiting until Tuesday" is the whole of what somebody looking at it needs.
+  /**
+   * ⚠ **AN UNRESOLVED SEND IS READ OFF THE STEP'S OWN OUTCOME, never off the stop.** The
+   * step answers `{failed, unresolved: true, prepared}` when a write went out and no answer
+   * came back, and the stop above it only ever says the workflow failed — so the stop
+   * cannot tell "it did not happen" from "nobody knows", and the outcome can.
+   */
+  const outcomes = Array.isArray(r?.outcomes) ? r.outcomes : [];
+  const uncertain = outcomes.some((o) => o && typeof o === "object" && o.unresolved === true);
+  /**
+   * **THE ORDER IS THE MEANING, in both halves.**
+   *
+   * Not stopped: somebody who CAN answer is the thing to do whatever else is true, so
+   * `waiting` outranks the rest; then how far it got tells `running` from `queued` — the
+   * same distinction `runView` makes by the step, and `position` is this table's own copy
+   * of it.
+   *
+   * Stopped: a CANCELLATION is a person's own decision and is the primary fact about the
+   * run, so it outranks an unresolved send — a run cancelled after a send that never
+   * answered is cancelled, and the send's own outcome is still on the row for anybody
+   * reading it. Only then does an unresolved send beat the stop's plain `failed`.
+   */
+  const step = Number.isInteger(r?.position) ? r.position : 0;
   const state = r?.run_status !== "stopped"
-    ? (waiting ? "waiting" : "queued")
-    : AUTOMATION_STATES.includes(reason) && reason !== "queued" && reason !== "waiting" ? reason : "failed";
+    ? (waiting ? "waiting" : (step > 0 ? "running" : "queued"))
+    : reason === "cancelled" ? "cancelled"
+    : uncertain ? "unresolved"
+    : AUTOMATION_STATES.includes(reason) && reason !== "queued" && reason !== "waiting"
+      && reason !== "running" && reason !== "unresolved" ? reason : "failed";
   return {
     id: typeof r?.id === "string" ? r.id : "",
     automationId: typeof r?.automation_id === "string" ? r.automation_id : "",
@@ -2932,6 +3045,30 @@ export function executionRow(r) {
     result: state === "done" && typeof stop?.result === "string" ? stop.result : null,
     why: (state === "skipped" || state === "rejected") && typeof stop?.why === "string" ? stop.why : null,
     error: state === "failed" && typeof stop?.error === "string" ? stop.error : null,
+    /**
+     * ⚠ **A CANCELLATION SAYS WHO, THEIR OWN WORDS, AND HOW FAR IT GOT — and NEVER that
+     * anything was undone.** The counts are the only honest thing to say about it (the
+     * brief: *don't claim completed effects were undone*), and they come from
+     * `agent.cancel_run`'s own entry rather than being composed here — read through
+     * `cancelledFacts`, which is the ONE reader of that entry's shape, because writing a
+     * second one is how all four of these came back `null` for a real cancellation.
+     *
+     * ABSENT IS `null` AND NEVER `0`: "none completed" and "nobody recorded how far it got"
+     * are different things to show, which is where this reader parts company with the
+     * conversation's — the names are shared, the absent values are each reader's own.
+     */
+    cancelledBy: state === "cancelled" ? cancelledFacts(stop).by : null,
+    cancelledWhy: state === "cancelled" ? cancelledFacts(stop).note : null,
+    completedSteps: state === "cancelled" ? cancelledFacts(stop).steps : null,
+    completedCalls: state === "cancelled" ? cancelledFacts(stop).calls : null,
+    /**
+     * ⚠ **WHAT IS UNCERTAIN, BY STEP, so a screen can say WHICH send nobody can account
+     * for** — and only on `unresolved`, because on any other state there is nothing
+     * uncertain and a list beside it would invite drawing one.
+     */
+    unresolved: state === "unresolved"
+      ? outcomes.filter((o) => o?.unresolved === true).map((o) => (typeof o?.id === "string" ? o.id : "")).filter(Boolean)
+      : [],
     on: typeof stop?.on === "string" ? stop.on : null,
     // ⚠ **HOW MANY STEPS FAILED AND WERE CARRIED PAST, and it is why a finished run is not
     // automatically a run where everything worked.** A step declaring `continue` keeps its
@@ -3445,6 +3582,12 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         days: AUTOMATION_DAYS,
         max: MAX_AUTOMATIONS,
         maxInputs: MAX_AUTOMATION_INPUTS,
+        // ⚠ **THE WORKED EXAMPLE RIDES ON THE SAME ANSWER, for the catalog's own reason**:
+        // the form is only reachable from this screen, so an example arriving separately
+        // would be a second thing to fail and a second state to draw. A browser that gets
+        // no `example` key — an older Worker — simply offers no example, which is what it
+        // did before this shipped.
+        example: EXAMPLE_AUTOMATION,
       });
     }
 

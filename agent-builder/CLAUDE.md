@@ -6820,3 +6820,80 @@ and only measurement separated them.**
 It asserts the property that really holds now: the state is IMPOSSIBLE (refused, read for its own
 gate BY NAME), no row can be both, **and the tick really does answer the executions that ARE due**
 — the observer, without which the whole thing is satisfied by a tick that returns nothing.
+
+### …AND THE FOUR STATES A CUSTOMER SEES, plus the example they start from (2026-09-19)
+
+The brief's items 4 and 5. **The engine needed nothing for either** — its own `RUN_STATES`
+already answered seven for a conversation, and what was missing was the AUTOMATION reader on
+the site's side and a worked example to start from. **The site builder's half is in the root
+`CLAUDE.md`**; what belongs here is what the demonstration now drives and the one instrument
+correction.
+
+**⚠ THE DEMONSTRATION READS THE SITE'S OWN `EXAMPLE_AUTOMATION` NOW, rather than a literal of
+its own.** `verify:send` imports `agent-store.mjs`, so the workflow driven through the routes,
+the queue, the approval and the mailbox **IS** the object the editor offers a customer. Two
+copies agreeing today would make this file a claim ABOUT the example instead of a run OF it,
+and the copy that drifts is the one somebody is handed. The only thing added is the
+CONNECTION, which the example deliberately leaves out and which is the one field a person
+fills in too — asserted, so an example that started carrying one would be a red run.
+
+**AND `cannotSay` IS WHAT MAKES AN UNRESOLVED SEND REACHABLE AT ALL.** A `lost` answer means
+the message really landed and the reply went missing, so `perform` asks the provider and
+FINDS it — the right outcome, and not uncertain. What is left is a provider that cannot say
+either way, which the fake answers only when `args.trace` is absent, which `perform` never
+does. The registry entry is a WRAPPER whose `reconcile` answers `known: false` on demand, with
+the base keeping the mailbox so a check still reads the messages the worker really sent. **This
+directory's own notes recorded that branch as never driven; it is driven now**, and the
+`lost` run beside it is the control — it reads `done`, because a check found it.
+
+### Measured
+
+- **`npm run verify:send`: 78 → 90 checks, 0 failed.** The twelve are the two states read back
+  through the SITE's own history route (a cancellation saying who, their words and how far it
+  got; an uncertain send naming which step nobody can account for, not reading as a clean send,
+  and not re-sending on a redelivery), the `done` control above them, and the example assertion.
+- **Engine suite 589 → 590**, 0 failed. **⚠ THIS LINE READ "589, UNCHANGED, WHICH IS THE
+  CONTROL" AND WAS TRUE UNTIL THE SWEEP SPOKE** — it was stamped before the pass ended, which
+  is this directory's own first rule, and the one case since is the survivor below.
+
+### ⚠ AND THE SWEEP LEFT TWO SURVIVORS, BOTH BECAUSE THE FIXTURE ECHOED WHAT IT WAS ASKED
+
+**688 mutants at `7127c12`, two survived, and neither was the product's.** Both are
+`ask()`'s answer shape, and both were undrivable for ONE reason: `test/approvals.test.mjs`'s
+`said()` answers `args_hash: body.p_hash` — the hash it was just asked about — so *our* hash
+and *the row's* are the same value in every shape that fixture can produce. **A fixture too
+shallow to separate the two readings**, this directory's most-repeated guard trap.
+
+- **`hash` coming back OURS rather than the ROW'S** is the one that matters: a caller handed
+  its own hash back believes the stored row holds what it sent, which is the opposite of
+  *bound to its arguments*. The shape where they diverge is a row holding a decision about
+  DIFFERENT arguments — exactly the case the feature exists for. Driven now, with the
+  agreeing case as its control.
+- **`expiresAt` never coming back** is not cosmetic either, because it is CONSUMED:
+  `wakeHours(asked.expiresAt, ctx.now)` is what stops the send step's pause outliving the
+  request it waits for, so an answer that dropped it would fall back to a default deadline in
+  silence. **And a THIRD mutant was added beside it** — a junk window passed through rather
+  than refused, since `Date.parse` of a number or an object is NaN and reaches the same
+  fallback wearing the request's own clothes. All three proved red.
+
+**⚠ AND I RAN TWO RUNNERS OVER ONE WORKTREE, which voids both readings — the recorded trap,
+through the door it is recorded on.** The second pass was started with `… &` inside a
+background call, so the tracked wrapper returned at once and the runner became an orphan while
+the FIRST pass was still going: two processes mutating one tree. *Run the sweep as the
+background call's own command.* Killing them then skipped both `finally` blocks, which is the
+other half of the same rule — the worktree is exactly why that was harmless, and it was proved
+restored afterwards (byte-identical to the main tree, anchor census green). **And a `diff -q`
+read MID-SWEEP said the trees differed**, which I briefly took for a leftover mutant and which
+was simply one applied at that instant: *no reading of a tree means anything while a sweep is
+running*, including a reading that looks like evidence of damage.
+- **`npm run test:pg` is untouched and deliberately not re-run as evidence**: `test/integration/`
+  and `supabase/` are both unmodified, so its number is HEAD's.
+
+**⚠ AND ONE CLAIM IN THIS FILE IS CORRECTED: it says ONE file here reads the site builder's
+code.** That was true when written and is not now — **eleven scripts import
+`../../agent-store.mjs`** (`local-rest`, and `verify:chat · automations · workflows · tools ·
+ops · controls · connections · triggers · integration · send`). The reason is unchanged and
+still good: what each verifies is the two halves TOGETHER, one database, the site's routes
+driving this engine. What is wrong is the COUNT, and a count nobody re-derived is exactly what
+this directory's first rule is about. The cost is the same and is now eleven times over: move
+or rename `agent-store.mjs` and every one of them breaks, loudly, on its import.

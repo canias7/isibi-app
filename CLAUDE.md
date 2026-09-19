@@ -8957,3 +8957,113 @@ rule and the measurement.
   site. Every `SafeImage` on every published site draws its placeholder.
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
+
+### THE FOUR STATES A CUSTOMER SEES, AND THE EXAMPLE THEY START FROM (2026-09-19)
+
+Owner: *"The customer should see whether the automation is queued, running, waiting for
+approval, completed, skipped, failed, cancelled, or unresolved… An uncertain send must not
+appear successful or be blindly repeated"*, and *"Provide one editable example automation a
+customer can start from, using the existing workflow editor."* **The engine's half is in
+`agent-builder/CLAUDE.md`** — it needed nothing for either; both gaps were on this side.
+
+**`AUTOMATION_STATES` IS 8 → 11, AND EACH OF THE THREE REPLACED A WORD THAT WAS WRONG ABOUT
+SOMETHING A CUSTOMER WOULD ACT ON.** Measured through `executionRow` before any of them was
+written, which is the only reason they are corrections rather than additions:
+
+| what | it read | it reads |
+|---|---|---|
+| a cancellation | **`failed`, `error: null`** — their own decision as a fault, then nothing | `cancelled`, with who, their words and how far it got |
+| an uncertain send | **`failed`** — *the work did not happen*, about work that may well have | `unresolved`, naming which step |
+| a half-done run | **`queued`** — "about to start" and "half way through" as one word | `running`, told apart by the position |
+
+- **THE ORDER IS THE MEANING, IN BOTH HALVES.** Not stopped: `waiting` outranks the rest,
+  because somebody who CAN answer is the thing to do however far the run got; then the
+  position tells `running` from `queued`. Stopped: a CANCELLATION outranks an unresolved send,
+  because a person's decision is the primary fact about the run — and the send's own outcome is
+  still on the row for anybody reading it. Reversing either is a mutant in the sweep.
+- **AN UNRESOLVED SEND IS READ OFF THE STEP'S OWN OUTCOME, never off the stop.** The stop only
+  ever says the workflow failed, so it cannot tell "it did not happen" from "nobody knows", and
+  the outcome can. Both facts are REFUSED rather than coerced — a truthy `unresolved` is not the
+  boolean, or a failure carrying `"no"` would read as uncertain — and the step ids ride only on
+  `unresolved`, because on any other state a list would invite drawing one.
+- **AND THE SCREEN SAYS WHAT TO DO ABOUT EACH**: a chip per state, a cancellation's who/why/
+  counts with *anything already sent stays sent*, and an uncertain send's *check at the provider
+  before sending again* — which is the brief's *must not be blindly repeated* as a sentence
+  rather than as a field.
+
+**⚠ AND WRITING THE SECOND READER GOT ALL FOUR CANCELLATION FIELD NAMES WRONG.**
+`agent.cancel_run` writes `cancelledBy`, `note`, `completedSteps`, `completedCalls`;
+`executionRow` was written against `by`, `why`, `steps`, `calls`. **MEASURED through the site's
+own history route: `state: "cancelled"` with every one of the four `null`** — the word right and
+nothing under it. The correct reader was FORTY LINES AWAY in the same file (`runView`, written
+against the producer), so this is *two readers of one fact* with the second written against an
+imagined producer. `cancelledFacts` is the one reader of that entry's shape now, and **each
+caller still chooses its own ABSENT value** (a conversation always shows a run and reads a
+missing count as `0`; an execution list has to tell "none completed" from "nobody recorded how
+far it got") — what is shared is the only part a reader can be wrong about.
+
+#### ONE WORKED EXAMPLE, AND IT IS THE ONE THE DEMONSTRATION PROVES
+
+`EXAMPLE_AUTOMATION` — the enquiry reply: two declared inputs, a knowledge lookup, a scripted
+note, a send. **`verify:send` reads THIS object**, so the thing a customer is handed is the
+thing driven through the routes, the queue, the approval and the fake provider's mailbox. Two
+copies agreeing today would make the demonstration a claim ABOUT the example.
+
+- **IT SEEDS THE FORM AND IS EDITABLE THE INSTANT IT IS DRAWN.** No new editor, no stored
+  template, no route: it fills in the draft the Automations form already renders, so every
+  field, step and input can be changed or deleted before it is saved. An example that could not
+  be edited would be a demo. Driven: change a word, drop a step, and the draft follows.
+- **⚠ IT NAMES NO CONNECTION, DELIBERATELY.** An id belongs to one account and cannot be
+  invented, so an example carrying one would be a dead id or somebody else's account. The
+  browser fills it from the person's own first ACTIVE connection and leaves it empty when they
+  have none — where the form's own refusal names the field (*say which connected account to send
+  from*), which is actionable. **Censused both ways**: refused without one at step 3 BY NAME,
+  accepted whole with one (ids `s1..s3`, read back off the validator rather than transcribed).
+- **A WORKER THAT SENDS NO EXAMPLE OFFERS NO BUTTON**, and the seeder refuses when pressed from
+  a stale page — a button that seeds nothing is a dead control. The server's answer is COPIED,
+  so a second press offers the example rather than whatever the last one was edited into.
+
+**⚠ AND A SECOND DEFECT FOUND BY READING IN PASSING: `maxInputs` NEVER REACHED THE BROWSER.**
+The route has sent it all along and `agentAutoCat`'s assignment dropped it, so both readers fell
+through to a hardcoded `8`. **It agrees with `MAX_AUTOMATION_INPUTS` today, which is exactly what
+made it invisible** — two copies of one number waiting for the server's cap to move, after which
+the form either offers a ninth input the server refuses or refuses one it allows. *A value
+computed and never forwarded*, with the fallback right.
+
+**THE GUARD FOR BOTH IS A CENSUS OVER THE ANSWER'S OWN KEY SET, re-anchored from three named
+keys.** The existing case asserted `steps`, `days` and `max` and said nothing about `maxInputs`
+— so a spelling could not see it, and the fixture was missing the same key on the other side of
+the wire. **A census is what a spelling cannot do**: `example` and anything added next month fail
+by existing. And the wiring hop needed its own case, because a census driving
+`EXAMPLE_AUTOMATION` directly cannot see the route dropping it — measured, and with the key gone
+the whole feature is silent.
+
+### Measured
+
+- **Site suite 6,823 → 6,829** (6,827 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-automations` 39 → 41 (the three states, the example census) and
+  `agent-binding` 96 → 100 (the seeded form and its edits, the connection pick, the
+  no-example screen, the cap reaching the form).
+- **`verify:send` 78 → 90 checks, 0 failed**, twelve of them reading the two states back
+  through the site's OWN history route. **Engine suite 589, unchanged — the control.**
+- **EVERY NEW ASSERTION WAS PROVED RED against the defect it forbids, eleven breakages driven
+  one at a time**: `running` collapsed into `queued`, the cancellation read as a failure, the
+  uncertain send read as a failure, the order reversed, the four facts on every state, the
+  reader written against the imagined names again, the example carrying a connection, a step
+  type the catalog has not got, a reference nothing produces, the steps unfrozen, and each
+  wiring hop off the wire.
+- **Site sweeps: `automation-states.json` 14 mutants, 14 killed, 0 survived, 0 never applied,
+  1 comment-only control survived — clean on the first pass**, run in a copy of the tree so the
+  main one held no mutant, and that copy proved restored two ways afterwards (byte-identical to
+  the main tree, and its anchor census green — which it cannot be while a mutant is applied).
+  **`automation-example.json` HOLDS 15 ENTRIES (14 mutants, 1 control) AND ITS TALLY IS
+  DELIBERATELY NOT STAMPED UNTIL ITS RUN ENDS** — a count nobody re-measured is a claim ahead
+  of its evidence. Its first pass left ONE survivor and it was a real gap: `example: j.example
+  || null` — a truthiness check — passed every case because the fixture only ever sent a WHOLE
+  example or none, so a truthy answer carrying no steps (which seeds a form with a name and
+  nothing in it) was undrivable. Closed with a case, its control, and a third fixture shape.
+- **⚠ AND AN ANCHOR CENSUS OVER *EVERY* SPEC IN `scripts/mutants/` IS THE WRONG INSTRUMENT.**
+  Run broad it answered **178 problems**, and every one is a HISTORICAL spec whose anchor has
+  legitimately moved as the tree grew — those files are per-round snapshots, not live guards. So
+  a broad count says nothing about whether a mutant is applied NOW; narrow it to the round's own
+  specs, or the instrument is noise wearing a finding's clothes.

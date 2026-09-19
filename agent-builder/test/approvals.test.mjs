@@ -167,6 +167,44 @@ test("the four answers, and the one that outranks a verdict", async () => {
   assert.equal((await gate.ask({ step: 0, index: 0, tool: "t", args: {} })).note, "not before noon");
 });
 
+test("⚠ THE ANSWER CARRIES THE ROW'S OWN HASH AND THE ROW'S OWN WINDOW, not what was asked", async () => {
+  /**
+   * ⚠ **THE FIXTURE ABOVE ECHOES BACK THE HASH IT WAS ASKED ABOUT (`args_hash: body.p_hash`),
+   * which is why a sweep mutant answering OUR hash instead of the ROW'S survived every case.**
+   * The two are the same value in every shape that fixture can produce — *a fixture too
+   * shallow to separate the two readings* — and the one shape where they diverge is the one
+   * that matters: a row holding a decision about DIFFERENT arguments. A caller handed its own
+   * hash back believes the stored row holds what it sent, which is the opposite of "bound to
+   * its arguments".
+   */
+  const stored = "f".repeat(64);
+  const { gate } = backend(said({ verdict: "approved", matches: false, args_hash: stored }));
+  const stale = await gate.ask({ step: 0, index: 0, tool: "t", args: { a: 1 } });
+  assert.equal(stale.state, "stale");
+  assert.equal(stale.hash, stored, "the hash is the ROW'S, so a caller can see what was approved");
+  assert.notEqual(stale.hash, await argsHash({ a: 1 }), "and it is NOT the hash this call asked about");
+  // AND THE CONTROL: where the row really does hold this call's arguments, the two agree —
+  // without which "it is not ours" is satisfied by an answer carrying no hash at all.
+  const { gate: same } = backend(said({ verdict: "approved" }));
+  const ok = await same.ask({ step: 0, index: 0, tool: "t", args: { a: 1 } });
+  assert.equal(ok.hash, await argsHash({ a: 1 }));
+
+  // ⚠ **AND THE WINDOW COMES BACK, because the send step's pause is derived from it.**
+  // `wakeHours(asked.expiresAt, now)` is what stops a pause outliving the request it waits
+  // for, so an answer that dropped it would silently fall back to a default deadline.
+  const when = "2026-09-20T09:00:00.000Z";
+  const { gate: win } = backend(said({ verdict: null, expiresAt: when }));
+  const pending = await win.ask({ step: 0, index: 0, tool: "t", args: {} });
+  assert.equal(pending.state, "pending");
+  assert.equal(pending.expiresAt, when);
+  // A WINDOW THIS CANNOT READ IS `null` RATHER THAN INVENTED — an older row has none, and a
+  // guessed one is a deadline nothing agreed to.
+  for (const junk of [7, {}, [when], null, undefined]) {
+    const { gate: g } = backend(said({ verdict: null, expiresAt: junk }));
+    assert.equal((await g.ask({ step: 0, index: 0, tool: "t", args: {} })).expiresAt, null, String(junk));
+  }
+});
+
 test("⚠ AN ASK THAT FAILED IS RAISED, NEVER READ AS A VERDICT", async () => {
   // Read as "not approved" an outage stops every run and fills a screen with requests
   // nobody made; read as "approved" it is an outage authorising tool calls. Both are

@@ -1988,7 +1988,21 @@ async function agentAutoLoad(quiet) {
       agentAutoErr = (j && j.error) || 'Couldn’t load the automations.';
     } else {
       agentAutoRows = Array.isArray(j.automations) ? j.automations : [];
-      agentAutoCat = { steps: Array.isArray(j.steps) ? j.steps : [], days: Array.isArray(j.days) ? j.days : [], max: j.max };
+      // ⚠ **EVERY CATALOG KEY THE ROUTE SENDS IS KEPT, and `maxInputs` was NOT — measured.**
+      // It was dropped here while two readers below asked for it, so both fell through to a
+      // hardcoded `8`. That agrees with `MAX_AUTOMATION_INPUTS` today, which is exactly why
+      // nothing noticed: it is two copies of one number, and the day the server's cap moves
+      // the form either offers a ninth input the server refuses or refuses one it allows.
+      // *A value computed and never forwarded*, invisible because the fallback was right.
+      agentAutoCat = {
+        steps: Array.isArray(j.steps) ? j.steps : [], days: Array.isArray(j.days) ? j.days : [],
+        max: j.max, maxInputs: j.maxInputs,
+        // ⚠ **AN EXAMPLE THAT IS NOT A WHOLE WORKFLOW IS NO EXAMPLE.** An older Worker sends
+        // no `example` key at all, and the button is simply not drawn — which is what this
+        // screen did before the example existed. A half-read one would seed a form that
+        // cannot save, which is worse than no button.
+        example: (j.example && Array.isArray(j.example.steps) && j.example.steps.length) ? j.example : null,
+      };
       agentAutoState = 'ready';
       agentAutoErr = '';
     }
@@ -2452,6 +2466,49 @@ function agentAutoBack() {
   if (back) agentOpen(back); else renderAgents();
 }
 function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+
+/** The worked example the server offers, or `null` when it sent none. */
+function autoExample() { return (agentAutoCat && agentAutoCat.example) || null; }
+
+/**
+ * START FROM THE EXAMPLE — a SEED for the form, never a template anybody is stuck with.
+ *
+ * ⚠ **IT OPENS THE SAME NEW-AUTOMATION FORM A BLANK ONE OPENS, with the draft filled in**, so
+ * there is no second editor and nothing is read-only: the person can change a word, swap a
+ * step or delete the lot before saving. An example that could not be edited would be a demo.
+ *
+ * ⚠ **THE SEND STEP'S CONNECTION IS FILLED FROM THE PERSON'S OWN FIRST CONNECTED ACCOUNT, and
+ * left EMPTY when they have none.** The example carries no connection deliberately — an id
+ * belongs to one account and cannot be invented — and an empty one is what the form's own
+ * refusal names (*say which connected account to send from*), which is actionable. Filling it
+ * with anything else would be seeding somebody else's account.
+ */
+function agentAutoExample() {
+  const eg = autoExample();
+  if (!eg) return;
+  const mine = (agentConnRows || []).filter((c) => c && c.state === 'active');
+  const pick = mine.length ? mine[0].id : '';
+  agentAutoWatchStop();
+  agentAutoEditing = '';
+  agentAutoActErr = '';
+  agentAutoSaved = false;
+  agentAutoDraft = {
+    name: typeof eg.name === 'string' ? eg.name : '',
+    enabled: true,
+    schedule: typeof eg.schedule === 'string' ? eg.schedule : 'manual',
+    at: '09:00', zone: autoGuessZone(),
+    // COPIED, not referenced: the server's answer must not be edited in place, or a second
+    // press of the button would offer whatever the last one was changed into.
+    steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {
+      const copy = { ...st };
+      if (copy.type === 'send' && !copy.connection) copy.connection = pick;
+      return copy;
+    }),
+    inputs: (Array.isArray(eg.inputs) ? eg.inputs : []).map((d) => ({ ...d })),
+    gen: 0,
+  };
+  renderAgents();
+}
 function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
 function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
 function agentAutoReload() { agentAutoLoad(); }
@@ -3082,7 +3139,12 @@ function automationsHtml() {
       '</button>' +
       '<div class="ag-thread-name">Automations' + (agent ? ' · ' + esc(agent.name) : '') + '</div>' +
       (agentAutoEditing === null
-        ? '<button class="ag-edit" data-act="agent-auto-new" aria-label="New automation" title="New automation">' +
+        ? (autoExample()
+             ? '<button class="ag-edit" data-act="agent-auto-example" aria-label="Start from an example" title="Start from an example">' +
+                 '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11h6M9 15h4"></path><path d="M6 3h9l3 3v15H6z"></path></svg>' +
+               '</button>'
+             : '') +
+          '<button class="ag-edit" data-act="agent-auto-new" aria-label="New automation" title="New automation">' +
             '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>' +
           '</button>'
         : '') +
@@ -3109,6 +3171,12 @@ function automationsHtml() {
              '<div class="ag-empty-t">No automations yet</div>' +
              '<div class="ag-empty-s">An automation runs a short list of steps — on its own every day, or whenever you press Run now. It doesn’t use the model.</div>' +
              '<button class="ag-retry" data-act="agent-auto-new">New automation</button>' +
+             // ⚠ **THE EXAMPLE IS OFFERED WHERE SOMEBODY HAS NOTHING TO START FROM, and it
+             // seeds the SAME form the blank one opens** — every field, step and input
+             // editable the instant it is drawn. Not drawn at all when the server sent no
+             // example, because a button that seeds nothing is a dead control.
+             (autoExample() ? '<button class="ag-retry ag-auto-eg" data-act="agent-auto-example">' +
+               'Start from an example' + '</button>' : '') +
            '</div>';
   } else {
     body = (agentAutoRows || []).map(automationRowHtml).join('');
@@ -3171,6 +3239,13 @@ const AUTO_STATE_WORDS = {
   // nothing open; `rejected` is somebody having looked at it and said no, which is the
   // automation doing exactly what it was asked.
   waiting: 'Waiting', rejected: 'Rejected',
+  // ⚠ **AND THREE MORE, EACH REPLACING A WORD THAT WAS WRONG.** `running` was `Queued`
+  // (about a run half way through); `cancelled` and `unresolved` were both `Failed` —
+  // one is somebody's own decision and the other is *nobody knows*, and neither is the
+  // automation having broken. `Stopped` rather than `Cancelled` because it is what the
+  // person did rather than a verdict on the work, and `Unconfirmed` rather than
+  // `Unresolved` because the question is whether the send can be confirmed.
+  running: 'Running', cancelled: 'Stopped', unresolved: 'Unconfirmed',
 };
 
 /**
@@ -3243,6 +3318,33 @@ function automationRunsHtml() {
           ' went by while nothing was running them.</div>' : '') +
       (r.state === 'paused'
         ? '<div class="ag-run-why">The agent was paused, so this one didn’t start.</div>' : '') +
+      // ⚠ **A STOPPED RUN SAYS WHO, WHY, AND HOW FAR IT GOT — AND NEVER THAT ANYTHING WAS
+      // UNDONE.** The counts are the only honest thing to say about it: cancelling stops
+      // what is still to come and cannot reach back to a message that has gone out. The
+      // sentence says so in as many words rather than leaving somebody to assume either way.
+      (r.state === 'cancelled'
+        ? '<div class="ag-run-why">Stopped' +
+            (autoSaid(r.cancelledWhy) ? ' — ' + esc(r.cancelledWhy) : '') + '. ' +
+            (Number.isInteger(r.completedSteps)
+              ? esc(String(r.completedSteps)) + ' step' + (r.completedSteps === 1 ? '' : 's') +
+                ' had already run' +
+                (Number.isInteger(r.completedCalls) && r.completedCalls > 0
+                  ? ' and ' + esc(String(r.completedCalls)) + ' action' +
+                    (r.completedCalls === 1 ? '' : 's') + ' had already gone out'
+                  : '') + '. '
+              : '') +
+            'Stopping it ends what was still to come — anything already sent stays sent.' +
+          '</div>' : '') +
+      // ⚠ **AN UNCONFIRMED SEND IS NOT A FAILURE AND MUST NOT INVITE A SECOND ONE.** The
+      // message may well have gone out; what is missing is the provider's answer. So the
+      // sentence says what to DO — check at the provider — rather than offering a retry,
+      // and it names which step, because *"something is unconfirmed"* is not actionable.
+      (r.state === 'unresolved'
+        ? '<div class="ag-run-why">This one sent something and never got an answer back, so' +
+            ' it can’t be confirmed either way' +
+            ((r.unresolved || []).length ? ' (' + esc((r.unresolved || []).join(', ')) + ')' : '') +
+            '. Check at the provider before sending again — it may already have gone.' +
+          '</div>' : '') +
       // ⚠ **WHAT IT IS WAITING FOR, AND THE ONE CONTROL THAT HELPS.** A `waiting` execution
       // is holding nothing open — its worker was released and the row is off the queue — so
       // this is the only place a person can see that and the only place they can answer it.
@@ -3303,6 +3405,17 @@ function automationRunsHtml() {
                 // was taken from which steps below it were skipped.
                 (autoSaid(o.took) ? ' · ' + esc(o.took === 'first' ? 'first arm' : 'other arm') : '') +
               '</span>' +
+              // ⚠ **THE MESSAGE A PERSON APPROVED, AND WHETHER IT IS SIMULATED — the brief's
+              // own *show the prepared message and the provider's actual recorded outcome*.**
+              // `why`/`error`/`result` are all sentences ABOUT the send; none of them is the
+              // text, and the text is the thing somebody checks. The simulated label is read
+              // from the OUTCOME rather than written as a constant, so connecting a real
+              // provider stops it with no change here — and it rides beside the message
+              // because a chip above the panel is gone the moment somebody copies this out.
+              (autoSaid(o.prepared)
+                ? '<span class="ag-step-msg">' + esc(o.prepared) +
+                    (o.simulated === true ? ' <em>[simulated]</em>' : '') + '</span>'
+                : '') +
               '<span class="ag-step-d">' + esc(o.why || o.error || o.result || '') +
                 // WHERE A LOOKUP'S ANSWER CAME FROM, with the version it was at. An excerpt
                 // with no source is an assertion nobody can check.
@@ -13122,6 +13235,7 @@ const CLICK_ACTIONS = {
   'agent-conn-reload': () => agentConnReload(),
   'agent-auto-back': () => agentAutoBack(),
   'agent-auto-new': () => agentAutoNew(),
+  'agent-auto-example': () => agentAutoExample(),
   'agent-auto-edit': (e, el) => agentAutoEdit(el.dataset.id),
   'agent-auto-cancel': () => agentAutoCancel(),
   'agent-auto-save': () => agentAutoSave(),

@@ -1664,6 +1664,12 @@ const spec = [
   m("approvals: the window never comes back, so a caller cannot say when to look again", AP,
     "                expiresAt: isText(answer.expiresAt) ? answer.expiresAt : null,",
     "                expiresAt: null,"),
+  // ⚠ A JUNK WINDOW PASSED THROUGH, which is the other half: `Date.parse` of a number or an
+  // object is NaN, so `wakeHours` falls back — a deadline nothing agreed to, wearing the
+  // request's own clothes. Refused, never coerced.
+  m("approvals: a window this cannot read is passed through rather than refused", AP,
+    "                expiresAt: isText(answer.expiresAt) ? answer.expiresAt : null,",
+    "                expiresAt: answer.expiresAt ?? null,"),
   m("approvals: a request that failed is read as nobody having answered", AP,
     '      const e = new Error(`${name}: HTTP ${res.status}${parsed?.message ? ` — ${parsed.message}` : ""}`);\n      e.status = res.status;\n      throw e;',
     "      return null;"),

@@ -341,14 +341,20 @@ function hydrateAuto(w) {
  * puts on the wire, so a step added next month arrives here by existing. `JSON` round-trips
  * it because that is what a real answer is: frozen objects with no prototype from this realm.
  */
-const { AUTOMATION_STEPS, AUTOMATION_DAYS } = await import("../agent-store.mjs");
+const { AUTOMATION_STEPS, AUTOMATION_DAYS, EXAMPLE_AUTOMATION, MAX_AUTOMATION_INPUTS } = await import("../agent-store.mjs");
 const STEP_CATALOG = JSON.parse(JSON.stringify(AUTOMATION_STEPS));
 assert.ok(STEP_CATALOG.length >= 9, `the catalog read as ${STEP_CATALOG.length} steps`);
 const DAY_LIST = [...AUTOMATION_DAYS];
+/**
+ * ⚠ **THE WORKED EXAMPLE, DERIVED FROM THE ROUTE'S OWN ANSWER rather than typed.** A fixture
+ * that hand-wrote one would be a second example agreeing with the real one today — which is
+ * the trap this file has already paid for twice, with `STEP_CATALOG` and with `hydrateAuto`.
+ */
+const EXAMPLE = JSON.parse(JSON.stringify(EXAMPLE_AUTOMATION));
 
 /** One agent with one automation, and the screen opened on it. */
 function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, history = [],
-  fail = {}, onPost = () => {} } = {}) {
+  fail = {}, noExample = false, halfExample = false, onPost = () => {} } = {}) {
   return (path, init) => {
     const body = init?.body ? JSON.parse(init.body) : {};
     if (path.startsWith("/api/agent/list")) {
@@ -357,7 +363,15 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
     if (path.startsWith("/api/agent/messages")) return { ok: true, body: { ok: true, id: "A", messages: [] } };
     if (path.startsWith("/api/agent/automations")) {
       if (listFails) return { ok: false, body: { error: "the store is away" } };
-      return { ok: true, body: { ok: true, agent: "A", automations, steps, days: DAY_LIST, max: 20 } };
+      // ⚠ EVERY KEY THE ROUTE REALLY SENDS. `maxInputs` was missing here as well as in the
+      // browser, so a fixture-side check could not have seen the browser dropping it — the
+      // same key absent from both sides of the wire.
+      return { ok: true, body: { ok: true, agent: "A", automations, steps, days: DAY_LIST,
+        max: 20, maxInputs: MAX_AUTOMATION_INPUTS,
+        // ⚠ THREE SHAPES, because a sweep survivor showed the middle one was undrivable: a
+        // whole example, NONE at all (an older Worker), and a HALF-READ one — an answer that
+        // is truthy and carries no steps, which a truthiness check would offer as an example.
+        example: noExample ? undefined : (halfExample ? { name: EXAMPLE.name } : EXAMPLE) } };
     }
     // THE HISTORY IS THE FIXTURE'S, so a case about a WAITING execution has one to look at.
     // It held `executions: []` and that is what made every waiting-and-approving case below
@@ -2870,4 +2884,102 @@ test("an argument that is not text is shown as what it is, not as [object Object
   assert.equal(w.ev('agentApprovalValue(null)'), "(nothing)");
   assert.equal(w.ev('agentApprovalValue(undefined)'), "(nothing)");
   assert.equal(w.ev('agentApprovalValue(false)'), "false");
+});
+
+test("⚠ THE EXAMPLE SEEDS THE SAME FORM AND IS EDITABLE THE INSTANT IT IS DRAWN", async () => {
+  // ⚠ **WHAT MAKES IT A STARTING POINT RATHER THAN A DEMO IS THAT IT OPENS THE ORDINARY NEW
+  // FORM WITH A DRAFT IN IT.** So this drives the real button and then EDITS what it drew.
+  const { w } = await withAutomations({ automations: [] });
+  const list = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(list, /agent-auto-example/, "the offer is on the empty screen");
+  assert.match(list, /Start from an example/);
+
+  await w.ev('agentAutoExample()');
+  const f = hydrateAuto(w);
+  // THE WHOLE EXAMPLE IS IN THE FORM: its name, its steps in order, and its inputs.
+  assert.equal(w.s.document.getElementById("agAutoName").value, EXAMPLE_AUTOMATION.name);
+  const typesOf = (h) => h.rows.map((r) => r.getAttribute("data-step-type"));
+  assert.deepEqual(typesOf(f), EXAMPLE_AUTOMATION.steps.map((st) => st.type));
+  assert.equal(w.val("agentAutoDraft").inputs.length, EXAMPLE_AUTOMATION.inputs.length);
+  // ...AND IT IS THE SAME FORM A BLANK ONE OPENS, which is why nothing else had to be built.
+  assert.ok(w.s.document.getElementById("agAutoForm"), "the ordinary automation form");
+
+  // ⚠ **EDITABLE**: change a word and drop a step, and the draft follows — so nothing here is
+  // read-only and the example is a place to start rather than a thing to accept.
+  const body = f.rows[2].fields.find((x) => x.getAttribute("data-field") === "body");
+  body.value = "my own words";
+  await w.ev('agentAutoStepDrop(0)');
+  const after = hydrateAuto(w);
+  assert.deepEqual(typesOf(after), EXAMPLE_AUTOMATION.steps.slice(1).map((st) => st.type),
+    "the first step really went");
+  assert.equal(w.val("agentAutoDraft").steps.at(-1).body, "my own words",
+    "and what was typed into the one below it survived the structural change");
+
+  // ⚠ **THE SERVER'S ANSWER IS COPIED, NOT REFERENCED** — a second press must offer the
+  // example as it came rather than whatever the last one was edited into.
+  await w.ev('agentAutoCancel()');
+  await w.ev('agentAutoExample()');
+  const again = hydrateAuto(w);
+  assert.deepEqual(typesOf(again), EXAMPLE_AUTOMATION.steps.map((st) => st.type));
+  assert.equal(w.val("agentAutoCat").example.steps.length, EXAMPLE_AUTOMATION.steps.length,
+    "the catalog's own copy was never edited");
+});
+
+test("⚠ the example's send step is filled from the person's OWN account, and left empty when they have none", async () => {
+  // ⚠ **A CONNECTION ID BELONGS TO ONE ACCOUNT AND CANNOT BE INVENTED.** So the example
+  // carries none, the browser fills it from the person's own first ACTIVE connection, and
+  // with none it stays empty — where the form's own refusal names the field, which is
+  // actionable. Seeding it with anything else would be seeding somebody else's account.
+  const { w } = await withAutomations({ automations: [] });
+  await w.ev('agentAutoExample()');
+  const send = () => (w.val("agentAutoDraft").steps.find((s) => s.type === "send") || {});
+  assert.equal(send().connection, "", "nothing connected yet, so nothing is guessed");
+
+  // NOW THE PERSON HAS TWO, one of them no longer usable. The FIRST ACTIVE one is taken.
+  await w.ev(`agentConnRows = [
+    { id: "CXOFF", state: "disconnected", provider: "fakemail", account: "old@example.test" },
+    { id: "CXMINE", state: "active", provider: "fakemail", account: "shop@example.test" },
+  ];`);
+  await w.ev('agentAutoCancel()');
+  await w.ev('agentAutoExample()');
+  assert.equal(send().connection, "CXMINE", "a disconnected account is not a place to send from");
+});
+
+test("⚠ a Worker that sends no example offers no button, rather than one that seeds nothing", async () => {
+  // AN OLDER WORKER ANSWERS NO `example` KEY AT ALL, which is what this screen did before the
+  // example existed. A button that seeded nothing would be a dead control.
+  const { w } = await withAutomations({ automations: [], noExample: true });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.doesNotMatch(html, /agent-auto-example/);
+  assert.doesNotMatch(html, /Start from an example/);
+  // AND PRESSING IT ANYWAY CHANGES NOTHING — the action is reachable from a stale page.
+  await w.ev('agentAutoExample()');
+  assert.equal(w.val("agentAutoEditing"), null, "no form was opened");
+  assert.equal(w.val("agentAutoDraft"), null);
+});
+
+test("⚠ AN EXAMPLE THAT IS NOT A WHOLE WORKFLOW IS NO EXAMPLE, and is not offered", async () => {
+  // ⚠ **A SWEEP SURVIVOR IS WHY THIS EXISTS.** `example: j.example || null` — a truthiness
+  // check — passed every case, because the fixture only ever sent a WHOLE example or none at
+  // all. A truthy answer carrying no steps seeds a form with a name and nothing in it: a
+  // button that promises an example and delivers almost none. It fails closed on the shape.
+  const { w } = await withAutomations({ automations: [], halfExample: true });
+  assert.equal(w.val("agentAutoCat").example, null, "a half-read example is not an example");
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.doesNotMatch(html, /agent-auto-example/, "so nothing is offered");
+  await w.ev('agentAutoExample()');
+  assert.equal(w.val("agentAutoEditing"), null, "and pressing it from a stale page does nothing");
+  // AND THE CONTROL: the whole one really is offered, so this is about the SHAPE.
+  const { w: ok } = await withAutomations({ automations: [] });
+  assert.ok(ok.val("agentAutoCat").example, "the whole example is kept");
+  assert.match(ok.s.document.getElementById("viewAgents").innerHTML, /agent-auto-example/);
+});
+
+test("⚠ THE CATALOG'S OWN CAP REACHES THE FORM, rather than a number written here", async () => {
+  // ⚠ **MEASURED DEFECT: `maxInputs` was dropped in the browser's own assignment**, so both
+  // readers fell through to a hardcoded 8 — which agrees with the server today, which is
+  // exactly what made it invisible. Two copies of one number, waiting for the cap to move.
+  const { w } = await withAutomations({ automations: [] });
+  assert.equal(w.val("agentAutoCat").maxInputs, MAX_AUTOMATION_INPUTS,
+    "the cap the server sent is the cap the form holds");
 });

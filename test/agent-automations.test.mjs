@@ -17,6 +17,7 @@ import {
   AUTOMATION_STEPS, AUTOMATION_STEP_TYPES, AUTOMATION_DAYS, AUTOMATION_SCHEDULES,
   AUTOMATION_STEP_KINDS, AUTOMATION_FIELD_KINDS,
   AUTOMATION_STATES, MAX_AUTOMATIONS, MAX_AUTOMATION_STEPS, MAX_STEP_NOTE, MAX_EXECUTIONS,
+  EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   // ── the workflow half: references, branches and what a run is asked for ────
   refsInText, branchShape, cleanInputs, cleanRunInput,
@@ -500,16 +501,30 @@ test("the catalog is a positive list, and its names are derived from it", () => 
   assert.deepEqual(AUTOMATION_DAYS, ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
 });
 
-test("the list read hands the catalog over with it, in one answer", () => {
+test("the list read hands the catalog over with it, in one answer", async () => {
   // ONE READ FOR THE SCREEN: the form is only reachable from the list, so a catalog
   // arriving separately would be a second thing to fail and a second state to draw.
   const f = fakeStore();
-  return call("/api/agent/automations", { store: f.store, query: new URLSearchParams({ agent: A1 }) })
-    .then((r) => {
-      assert.deepEqual(r.body.steps, AUTOMATION_STEPS);
-      assert.deepEqual(r.body.days, AUTOMATION_DAYS);
-      assert.equal(r.body.max, MAX_AUTOMATIONS);
-    });
+  const r = await call("/api/agent/automations", { store: f.store, query: new URLSearchParams({ agent: A1 }) });
+  assert.deepEqual(r.body.steps, AUTOMATION_STEPS);
+  assert.deepEqual(r.body.days, AUTOMATION_DAYS);
+  assert.equal(r.body.max, MAX_AUTOMATIONS);
+  /**
+   * ⚠ **A CENSUS OVER WHAT THE ANSWER REALLY CARRIES, RE-ANCHORED FROM THREE NAMED KEYS.**
+   * This case asserted `steps`, `days` and `max` and said nothing about `maxInputs` — which
+   * the route has sent all along and the BROWSER was dropping, so both its readers fell
+   * through to a hardcoded `8`. It agreed with `MAX_AUTOMATION_INPUTS` by luck, which is
+   * what made it invisible. A census of the whole key set is what a spelling cannot do: the
+   * `example` added this round, and anything added next month, fails by existing.
+   */
+  assert.deepEqual(Object.keys(r.body).sort(),
+    ["agent", "automations", "days", "example", "max", "maxInputs", "ok", "steps"],
+    "every key the catalog answer carries is asserted here, and it carries no other");
+  assert.equal(r.body.maxInputs, MAX_AUTOMATION_INPUTS);
+  // ⚠ **AND THE EXAMPLE REALLY REACHES THE WIRE.** A census that drove `EXAMPLE_AUTOMATION`
+  // directly could not see the route dropping it — measured, and the whole feature is gone
+  // in silence when it does, because the button is drawn only when the key arrives.
+  assert.deepEqual(r.body.example, EXAMPLE_AUTOMATION);
 });
 
 test("⚠ the caps are the columns' own CHECK constraints, read back out of the migration", () => {
@@ -961,6 +976,126 @@ test("⚠ a REJECTED execution has a reason and deliberately NO result", () => {
     assert.equal(executionRow({ run_status: "stopped", run_stop: { reason } }).state, "failed", reason);
   }
 });
+test("⚠ THE THREE STATES THAT REPLACED A LIE: running, cancelled, unresolved", () => {
+  // Each of the three was MEASURED through this reader before it was written, and each
+  // replaced a word that was wrong about something a customer would act on:
+  //   a CANCELLED execution  -> state=failed  error=null   (their own decision, as a fault)
+  //   an UNRESOLVED send     -> state=failed                (may have happened; invites a repeat)
+  //   a RUNNING execution    -> state=queued                ("about to start" and "half done", one word)
+  const of = (run_status, run_stop, extra = {}) => executionRow({ id: R1, run_status, run_stop, ...extra });
+
+  // ⚠ **A CENSUS, NOT A LIST**: every word this reader can say must be REACHABLE through
+  // it, so a state added next month and never exercised fails by existing. The four each
+  // state is reached by are the four inputs the state block really reads.
+  const reached = new Set([
+    of("running", null).state,
+    of("running", null, { position: 3 }).state,
+    of("running", null, { waiting: { kind: "wait", step: "s2" } }).state,
+    of("stopped", { reason: "done", result: "x" }).state,
+    of("stopped", { reason: "skipped", why: "not today" }).state,
+    of("stopped", { reason: "failed", error: "boom" }).state,
+    of("stopped", { reason: "missed", occurrences: 2 }).state,
+    of("stopped", { reason: "paused" }).state,
+    of("stopped", { reason: "rejected", why: "no" }).state,
+    of("stopped", { reason: "cancelled", cancelledBy: T1 }).state,
+    of("stopped", { reason: "failed" }, { outcomes: [{ id: "s4", unresolved: true }] }).state,
+  ]);
+  assert.deepEqual([...reached].sort(), [...AUTOMATION_STATES].sort(),
+    "every state this reader can answer is driven here, and it can answer no other");
+
+  // ⚠ **`running` IS TOLD FROM `queued` BY HOW FAR IT GOT**, exactly as `runView` tells them
+  // apart by the step — and `position` is this table's own copy of that. Both were `queued`.
+  assert.equal(of("running", null, { position: 0 }).state, "queued");
+  assert.equal(of("running", null, { position: 1 }).state, "running");
+  assert.equal(of("running", null, { position: 9 }).state, "running");
+  // REFUSED, NEVER COERCED: a position this cannot read is not a step it got to.
+  for (const position of ["3", 1.5, NaN, null, {}, [2]]) {
+    assert.equal(of("running", null, { position }).state, "queued", String(position));
+  }
+  // AND `waiting` OUTRANKS IT, which is the order being the meaning: somebody who CAN
+  // answer is the thing to do however far the run got.
+  assert.equal(of("running", null, { position: 4, waiting: { kind: "approval", step: "s8" } }).state, "waiting");
+  // A STOPPED RUN IS NEITHER, whatever its position says — `running` may never be read out
+  // of a stop, exactly as `queued` and `waiting` may not.
+  assert.equal(of("stopped", { reason: "running" }, { position: 4 }).state, "failed");
+  assert.equal(of("stopped", { reason: "done", result: "x" }, { position: 4 }).state, "done");
+
+  // ⚠ **A CANCELLATION IS A PERSON'S OWN DECISION AND SAYS WHAT HAD ALREADY RUN** — the
+  // brief's *don't claim completed effects were undone*, which the counts are the only
+  // honest way to say. It read `failed` with `error: null`, so the screen called their own
+  // decision a fault and then said nothing about it.
+  /**
+   * ⚠ **THE FIELD NAMES ARE `agent.cancel_run`'S OWN, and this fixture is derived from that
+   * function rather than guessed.** The first reader here was written against `by`/`why`/
+   * `steps`/`calls` and the producer writes `cancelledBy`/`note`/`completedSteps`/
+   * `completedCalls`, so all four came back `null` for a real cancellation with the state
+   * itself perfectly right. Found by driving the site's own history route; `cancelledFacts`
+   * is the one reader of that shape now, so a fixture agreeing with it is agreeing with the
+   * producer.
+   */
+  const stopped = of("stopped",
+    { reason: "cancelled", cancelledBy: T1, note: "wrong customer", completedSteps: 2, completedCalls: 1 });
+  assert.equal(stopped.state, "cancelled");
+  assert.equal(stopped.cancelledBy, T1);
+  assert.match(stopped.cancelledWhy, /wrong customer/);
+  assert.equal(stopped.completedSteps, 2);
+  assert.equal(stopped.completedCalls, 1);
+  // AND THE READER IS THE PRODUCER'S: the names it used to read carry nothing.
+  assert.equal(of("stopped", { reason: "cancelled", by: T1, why: "x", steps: 2, calls: 1 }).cancelledBy, null);
+  // WHO IT WAS GOES THROUGH `cleanId`, because a stop is a jsonb body and the wire must not
+  // carry whatever else one happens to hold.
+  for (const by of ["not-a-uuid", "", 7, {}, ["x"], null]) {
+    assert.equal(of("stopped", { reason: "cancelled", cancelledBy: by }).cancelledBy, null, String(by));
+  }
+  // NOT A FAILURE AND NOT AN ANSWER: nothing went wrong, and it produced nothing.
+  assert.equal(stopped.error, null);
+  assert.equal(stopped.result, null);
+  assert.equal(stopped.why, null, "a cancellation's words are its own field, not the skip's");
+  // THE COUNTS ARE REFUSED RATHER THAN COERCED, and absent is `null` and never `0`: "none
+  // completed" and "nobody recorded how far it got" are different things to show.
+  const bare = of("stopped", { reason: "cancelled", cancelledBy: T1 });
+  assert.equal(bare.completedSteps, null);
+  assert.equal(bare.completedCalls, null);
+  assert.equal(of("stopped", { reason: "cancelled", cancelledBy: T1, completedSteps: "2", completedCalls: 1.5 })
+    .completedSteps, null);
+  // AND THE FOUR FIELDS RIDE ON `cancelled` ALONE — on any other state there is nobody who
+  // stopped it, and a name beside a failure would say one there was.
+  for (const run_stop of [{ reason: "done", result: "x", cancelledBy: T1, completedSteps: 2, completedCalls: 1 },
+                          { reason: "failed", error: "boom", cancelledBy: T1, completedSteps: 2, completedCalls: 1 }]) {
+    const other = of("stopped", run_stop);
+    assert.equal(other.cancelledBy, null, other.state);
+    assert.equal(other.cancelledWhy, null, other.state);
+    assert.equal(other.completedSteps, null, other.state);
+    assert.equal(other.completedCalls, null, other.state);
+  }
+
+  // ⚠ **AN UNRESOLVED SEND IS READ OFF THE STEP'S OWN OUTCOME, never off the stop** — the
+  // stop only ever says the workflow failed, so it cannot tell "it did not happen" from
+  // "nobody knows", and the outcome can. It read `failed`, which is the reading that
+  // invites sending the message again.
+  const lost = of("stopped", { reason: "failed", error: "no answer came back" },
+    { outcomes: [{ id: "s1", ran: true }, { id: "s4", failed: true, unresolved: true, prepared: "Dear Ada" }] });
+  assert.equal(lost.state, "unresolved");
+  assert.deepEqual(lost.unresolved, ["s4"], "WHICH send nobody can account for, by step");
+  // AND THE LIST IS EMPTY ON EVERY OTHER STATE, because there is nothing uncertain and a
+  // list beside it would invite drawing one.
+  assert.deepEqual(of("stopped", { reason: "done", result: "x" },
+    { outcomes: [{ id: "s1", ran: true }] }).unresolved, []);
+  // REFUSED, NEVER COERCED — a truthy flag is not the boolean, or every failure with an
+  // `unresolved: "no"` on it would read as uncertain.
+  for (const flag of [1, "true", "yes", {}, null]) {
+    assert.equal(of("stopped", { reason: "failed" }, { outcomes: [{ id: "s4", unresolved: flag }] }).state,
+      "failed", String(flag));
+  }
+  // ⚠ **AND A CANCELLATION OUTRANKS IT, which is the second half of the order being the
+  // meaning.** A run somebody stopped after a send that never answered is CANCELLED — the
+  // person's decision is the primary fact — and the send's own outcome is still on the row.
+  const both = of("stopped", { reason: "cancelled", cancelledBy: T1, completedSteps: 1, completedCalls: 1 },
+    { outcomes: [{ id: "s4", unresolved: true }] });
+  assert.equal(both.state, "cancelled");
+  assert.deepEqual(both.unresolved, [], "nothing is uncertain about a run somebody stopped");
+  assert.ok(both.outcomes.some((o) => o.unresolved === true), "and the outcome is still there to read");
+});
 
 test("an approval is answered by run AND step, and the two not-now refusals carry their own flag", async () => {
   const f = fakeStore();
@@ -1289,4 +1424,48 @@ test("⚠ A SCHEDULE THAT IS NOT A WORD IS REFUSED, never read as `by hand`", ()
   // THE CONTROLS, without which "it refuses" is satisfied by a reader that refuses everything.
   assert.equal(cleanSchedule({ schedule: "daily", at: "09:00", zone: "UTC" }).schedule, "daily");
   assert.equal(cleanSchedule({ schedule: "weekly", at: "09:00", zone: "UTC", days: ["mon"] }).schedule, "weekly");
+});
+
+test("⚠ THE WORKED EXAMPLE IS A REAL WORKFLOW, through the door a save really goes through", () => {
+  const eg = EXAMPLE_AUTOMATION;
+  // ⚠ **THE POINT OF THE CENSUS: an example the validator refuses is a dead control that
+  // ANSWERS — it seeds a form, looks right, and cannot be saved. So it is driven through
+  // `cleanInputs` and `cleanWorkflow`, which ARE the route's own readers, rather than read.
+  const declared = cleanInputs(eg.inputs);
+  assert.equal(declared.error, undefined, "the example's inputs are ones the route accepts");
+  assert.deepEqual(declared.inputs.map((d) => d.name), ["who", "topic"]);
+
+  // ⚠ **THE SEND STEP CARRIES NO CONNECTION, DELIBERATELY** — an id belongs to one account
+  // and cannot be invented, so an example holding one would be a dead id or somebody else's.
+  assert.ok(eg.steps.every((st) => st.connection === undefined),
+    "an example may not name a connection: " + JSON.stringify(eg.steps));
+  // ...SO WITHOUT ONE IT IS REFUSED, BY NAME AND BY POSITION. That refusal is the thing the
+  // person acts on, and it is why the browser fills the field from their own account.
+  const bare = cleanWorkflow(eg.steps, undefined, undefined, declared.inputs);
+  assert.match(String(bare.error), /step 3/);
+  assert.match(String(bare.error), /connected account/);
+
+  // AND WITH ONE IT IS ACCEPTED WHOLE — the control, without which "it is refused" is
+  // satisfied by an example that is broken for some other reason entirely.
+  const filled = eg.steps.map((st) => st.type === "send" ? { ...st, connection: R1 } : { ...st });
+  const ok = cleanWorkflow(filled, undefined, undefined, declared.inputs);
+  assert.equal(ok.error, undefined, String(ok.error));
+  assert.deepEqual(ok.steps.map((st) => st.type), ["knowledge", "note", "send"]);
+  // THE IDS ARE THE VALIDATOR'S OWN, minted from the position — read back rather than
+  // transcribed, because a transcription is a guess about a producer.
+  assert.deepEqual(ok.steps.map((st) => st.id), ["s1", "s2", "s3"]);
+
+  // ⚠ **EVERY STEP TYPE IS ONE THE CATALOG REALLY OFFERS.** An example naming a step this
+  // deployment does not have would seed a form with a row nothing can draw.
+  const types = new Set(AUTOMATION_STEPS.map((d) => d.type));
+  for (const st of eg.steps) assert.ok(types.has(st.type), st.type);
+  // AND ITS SCHEDULE IS ONE THE DATABASE ADMITS.
+  assert.ok(AUTOMATION_SCHEDULES.includes(eg.schedule), eg.schedule);
+  // AND IT FITS THE CEILINGS, so it cannot be an example nobody may save.
+  assert.ok(eg.steps.length <= MAX_AUTOMATION_STEPS && eg.inputs.length <= MAX_AUTOMATION_INPUTS);
+
+  // ⚠ **IT IS FROZEN ALL THE WAY DOWN**, because the route hands it to every browser: a
+  // mutable step would let one request's reader change what the next one is offered.
+  assert.ok(Object.isFrozen(eg) && Object.isFrozen(eg.steps) && eg.steps.every(Object.isFrozen));
+  assert.ok(Object.isFrozen(eg.inputs) && eg.inputs.every(Object.isFrozen));
 });

@@ -1,0 +1,123 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the three new automation states",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const AUTOMATION_STATES = Object.freeze([",
+  "to": "/* control: a comment only */\nexport const AUTOMATION_STATES = Object.freeze(["
+ },
+ {
+  "label": "states: `running` collapses back into `queued`, so half-done reads as about-to-start",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    ? (waiting ? \"waiting\" : (step > 0 ? \"running\" : \"queued\"))",
+  "to": "    ? (waiting ? \"waiting\" : \"queued\")"
+ },
+ {
+  "label": "states: a position this cannot read counts as a step it got to",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const step = Number.isInteger(r?.position) ? r.position : 0;",
+  "to": "  const step = Number(r?.position) || 0;"
+ },
+ {
+  "label": "states: how far it got outranks somebody who can answer",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    ? (waiting ? \"waiting\" : (step > 0 ? \"running\" : \"queued\"))",
+  "to": "    ? (step > 0 ? \"running\" : (waiting ? \"waiting\" : \"queued\"))"
+ },
+ {
+  "label": "states: a cancellation reads as a failure, which calls a person's own decision a fault",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    : reason === \"cancelled\" ? \"cancelled\"\n",
+  "to": ""
+ },
+ {
+  "label": "states: an uncertain send reads as a failure, which invites sending it again",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    : uncertain ? \"unresolved\"\n",
+  "to": ""
+ },
+ {
+  "label": "states: an uncertain send outranks a cancellation, so a stopped run reads as unknown",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    : reason === \"cancelled\" ? \"cancelled\"\n    : uncertain ? \"unresolved\"\n",
+  "to": "    : uncertain ? \"unresolved\"\n    : reason === \"cancelled\" ? \"cancelled\"\n"
+ },
+ {
+  "label": "states: a truthy `unresolved` counts, so a failure carrying \"no\" reads as uncertain",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const uncertain = outcomes.some((o) => o && typeof o === \"object\" && o.unresolved === true);",
+  "to": "  const uncertain = outcomes.some((o) => o && o.unresolved);"
+ },
+ {
+  "label": "states: a stop may claim `running`, which is a state no stop has",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      && reason !== \"running\" && reason !== \"unresolved\" ? reason : \"failed\";",
+  "to": "      && reason !== \"unresolved\" ? reason : \"failed\";"
+ },
+ {
+  "label": "states: WHICH send is uncertain is never said, so a screen cannot say what to check",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    unresolved: state === \"unresolved\"\n      ? outcomes.filter((o) => o?.unresolved === true).map((o) => (typeof o?.id === \"string\" ? o.id : \"\")).filter(Boolean)\n      : [],",
+  "to": "    unresolved: [],"
+ },
+ {
+  "label": "cancellation: the four facts ride on every state, so a failure names somebody who stopped it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    cancelledBy: state === \"cancelled\" ? cancelledFacts(stop).by : null,",
+  "to": "    cancelledBy: cancelledFacts(stop).by,"
+ },
+ {
+  "label": "cancellation: the reader is written against its own imagined names again",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    by: cleanId(st && st.cancelledBy) || null,",
+  "to": "    by: cleanId(st && st.by) || null,"
+ },
+ {
+  "label": "cancellation: a count this cannot read is 0 rather than unrecorded",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    steps: Number.isInteger(st?.completedSteps) ? st.completedSteps : null,",
+  "to": "    steps: Number(st?.completedSteps) || 0,"
+ },
+ {
+  "label": "cancellation: who stopped it reaches the wire uncleaned",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    by: cleanId(st && st.cancelledBy) || null,",
+  "to": "    by: typeof st?.cancelledBy === \"string\" ? st.cancelledBy : null,"
+ },
+ {
+  "label": "cancellation: the conversation reader keeps its own copy of the producer's names",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      by: cancelledFacts(stop).by || \"\",",
+  "to": "      by: cleanId(stop && stop.by) || \"\","
+ }
+]

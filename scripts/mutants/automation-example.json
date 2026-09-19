@@ -1,0 +1,123 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the worked example",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const EXAMPLE_AUTOMATION = Object.freeze({",
+  "to": "/* control: a comment only */\nexport const EXAMPLE_AUTOMATION = Object.freeze({"
+ },
+ {
+  "label": "example: it never reaches the wire, so the button is never drawn",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        example: EXAMPLE_AUTOMATION,\n",
+  "to": ""
+ },
+ {
+  "label": "example: the cap the form draws from never reaches the wire",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        maxInputs: MAX_AUTOMATION_INPUTS,\n",
+  "to": ""
+ },
+ {
+  "label": "example: it names a connection, which is a dead id or somebody else's account",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "Object.freeze({ type: \"send\", to: \"{{who}}\", body: \"{{reply}}\" }),",
+  "to": "Object.freeze({ type: \"send\", connection: \"11111111-1111-4111-8111-111111111111\", to: \"{{who}}\", body: \"{{reply}}\" }),"
+ },
+ {
+  "label": "example: a reference nothing produces, so the seeded form cannot save",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "text: \"Hello {{who}} — about your {{topic}}: {{facts}}",
+  "to": "text: \"Hello {{who}} — about your {{topic}}: {{findings}}"
+ },
+ {
+  "label": "example: a step type the catalog has not got",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "Object.freeze({ type: \"knowledge\", query: \"{{topic}}\", out: \"facts\" }),",
+  "to": "Object.freeze({ type: \"lookitup\", query: \"{{topic}}\", out: \"facts\" }),"
+ },
+ {
+  "label": "example: the steps are mutable, so one reader can change what the next is offered",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  steps: Object.freeze([\n    Object.freeze({ type: \"knowledge\"",
+  "to": "  steps: ([\n    ({ type: \"knowledge\""
+ },
+ {
+  "label": "browser: the example is dropped on arrival",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        example: (j.example && Array.isArray(j.example.steps) && j.example.steps.length) ? j.example : null,",
+  "to": "        example: null,"
+ },
+ {
+  "label": "browser: a half-read example is offered anyway",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        example: (j.example && Array.isArray(j.example.steps) && j.example.steps.length) ? j.example : null,",
+  "to": "        example: j.example || null,"
+ },
+ {
+  "label": "browser: the server's cap is dropped again, back to a hardcoded 8",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        max: j.max, maxInputs: j.maxInputs,",
+  "to": "        max: j.max,"
+ },
+ {
+  "label": "browser: the seeder references the server's answer rather than copying it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {\n      const copy = { ...st };\n      if (copy.type === 'send' && !copy.connection) copy.connection = pick;\n      return copy;\n    }),",
+  "to": "    steps: (Array.isArray(eg.steps) ? eg.steps : []),"
+ },
+ {
+  "label": "browser: a disconnected account is a place to send from",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const mine = (agentConnRows || []).filter((c) => c && c.state === 'active');",
+  "to": "  const mine = (agentConnRows || []);"
+ },
+ {
+  "label": "browser: the seeder runs with no example, opening a blank form from the offer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const eg = autoExample();\n  if (!eg) return;",
+  "to": "  const eg = autoExample() || {};"
+ },
+ {
+  "label": "browser: the offer is drawn with no example behind it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "             (autoExample() ? '<button class=\"ag-retry ag-auto-eg\" data-act=\"agent-auto-example\">' +\n               'Start from an example' + '</button>' : '') +",
+  "to": "             ('<button class=\"ag-retry ag-auto-eg\" data-act=\"agent-auto-example\">' +\n               'Start from an example' + '</button>') +"
+ },
+ {
+  "label": "browser: the example overwrites a connection the person already chose",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      if (copy.type === 'send' && !copy.connection) copy.connection = pick;",
+  "to": "      if (copy.type === 'send') copy.connection = pick;"
+ }
+]

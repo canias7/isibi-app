@@ -5105,6 +5105,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .ag-retry:hover { background: var(--panel-2); }
 
+/* The example sits beside the blank one and is the QUIETER of the two, because the person
+   who has read the sentence above already knows which they want. Its own margin-left is
+   what separates them; both are `.ag-retry`, so nothing about the shape is repeated. */
+.ag-auto-eg { margin-left: .5rem; color: var(--muted); }
+.ag-auto-eg:hover { color: var(--text); }
+
 /* A failed send sits between the box and the note, so it is read before the
    sentence about nothing answering — which would otherwise look like the reason. */
 .ag-err-send { margin: .4rem .2rem 0; min-height: 0; }
@@ -5245,6 +5251,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .ag-step-w { font-weight: 600; }
 .ag-step-o { color: var(--muted); text-transform: uppercase; font-size: .66rem; letter-spacing: .07em; }
 .ag-step-d { color: var(--muted); min-width: 0; }
+/* THE MESSAGE THAT WAS PREPARED AND APPROVED. Its own line rather than in `-d`, because it
+   is the customer's own words and the rest of that row is ours: it wraps, keeps its breaks
+   and is not muted, since it is the thing somebody reads to check what really went out. */
+.ag-step-msg {
+  grid-column: 1 / -1; margin-top: .25rem; white-space: pre-wrap; word-break: break-word;
+  font-size: .84rem; line-height: 1.5;
+}
+.ag-step-msg em { color: var(--muted); font-style: normal; }
 /* THE OUTCOME IS IN INK AS WELL AS IN WORDS, and the word is what carries it: a
    reader who cannot tell the two greens apart still reads "skipped". */
 .ag-step-ran .ag-step-o { color: #1b7f4b; }
@@ -5263,6 +5277,14 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    asked. Neither is red, because neither is broken. */
 .ag-chip-waiting { color: #1a6bb8; border-color: #1a6bb8; }
 .ag-chip-rejected { color: #9a6700; border-color: #9a6700; }
+/* AND THREE MORE, EACH REPLACING A WORD THAT WAS WRONG. `running` is work in progress and
+   reads like `waiting` for that reason; `cancelled` is the person's own decision, so it is
+   muted rather than red — nothing is broken; and `unresolved` is AMBER because it is the one
+   state that needs somebody to go and look, and it must not read as either a success or a
+   failure. */
+.ag-chip-running { color: #1a6bb8; border-color: #1a6bb8; }
+.ag-chip-cancelled { color: var(--muted); }
+.ag-chip-unresolved { color: #9a6700; border-color: #9a6700; }
 
 /* WHAT AN EXECUTION IS WAITING FOR, and the one control that helps. Set apart from the
    rest of the run because it is the only part of a history somebody can act on. */

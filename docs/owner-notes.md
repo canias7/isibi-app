@@ -12790,3 +12790,44 @@ own instead.
 
 **Nothing merged, nothing deployed, nothing applied to the live database, no real provider
 connected, no external message and no model call.**
+
+## 2026-09-19 — the four states a customer sees, and an example to start from
+
+Two things a customer gets that they did not have this morning, and **two real defects found on
+the way — one by driving the screen, one by reading in passing.**
+
+**AN AUTOMATION'S HISTORY TELLS THE TRUTH NOW.** Three words were wrong about something
+somebody would act on, and each was measured before it was changed: a run **you** stopped read
+as *failed* with nothing under it, a send that went out and never came back read as *failed*
+(which invites sending it again), and a run half way through read as *queued*. They read
+**Stopped**, **Unconfirmed** and **Running**, and each says what to do: the cancellation names
+who stopped it, their words and what had already run (*anything already sent stays sent*), and
+the unconfirmed one names which step and says to check at the provider before sending again.
+
+**AND THERE IS A WORKED EXAMPLE TO START FROM** — "Start from an example" beside New, which
+fills in the ordinary form with a complete enquiry-reply automation: two questions it asks you,
+a lookup in the agent's reference material, the reply it drafts, and the send. **Editable the
+instant it appears**: change a word, drop a step, keep the rest. Its send step is pointed at
+your own first connected account, and left blank if you have none — because an account id is
+yours and cannot be guessed.
+
+**THE EXAMPLE IS THE ONE THE TEST DRIVES.** `verify:send` reads that very object, so what you
+are handed is what has been run end to end through the routes, the queue, the approval and the
+fake provider's mailbox — rather than something that looks like it.
+
+**THE TWO DEFECTS, both worth knowing:**
+
+1. **The cancellation panel would have shown who/why/counts as blank.** I wrote a second reader
+   of the database's own record and got all four field names wrong — while the correct reader sat
+   forty lines away in the same file. There is one reader of that record now.
+2. **A cap the server sends never reached the form.** It happened to match the number written
+   into the browser, which is exactly why nobody noticed: two copies of one number, waiting for
+   the day the server's cap moves.
+
+**Measured**: site suite 6,823 → **6,829**, 0 failed; `verify:send` 78 → **90** checks, 0
+failed; the engine's own suite **589**, unchanged. Every new assertion was proved to go red
+against the defect it forbids — eleven breakages, one at a time. The site mutation sweep for the
+states is **14 of 14 killed, clean on the first pass**.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** No migration in this round at all — it is entirely
+above the database.
