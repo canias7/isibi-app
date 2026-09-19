@@ -7045,3 +7045,14 @@ two lines because that is how the revocations one reads in my head; in this file
 the generator refused `ANCHOR NOT FOUND` rather than writing a spec whose mutant would have come
 back NOT APPLIED after a five-hour run. *Reading "never applied" afterwards is the same
 information arriving too late.*
+
+**AND THE RED PROOF IS ITS OWN NARROW PASS, at HEAD: 1 mutant, 1 killed, 0 survived, 0 never
+applied, 1 comment-only control survived.** Run against `test/integration/pg-schema.mjs` on a
+real PostgreSQL, in a detached worktree at `9febfc2`, proved restored two ways afterwards (a
+clean `git status`, and the generator's own anchor census green over all 280 entries — which it
+cannot be while a mutant is applied). **The control was WRITTEN for the pass**, because no
+comment-only control in the committed spec sits on that migration and *a pass whose control has
+not been reached is a pass with no control*. A narrow list can only produce a false SURVIVOR,
+never a false kill, so the next full run still decides — and what it establishes is that the
+four new checks really do go red when the policy is widened, which is the half a green run
+cannot say.

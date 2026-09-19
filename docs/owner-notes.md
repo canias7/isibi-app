@@ -12894,3 +12894,7 @@ would not be caught.
 
 **The real-database check is 1,098 → 1,102 and still green**, and I added the missing breakage to
 the sweep so this cannot come back unnoticed.
+
+**And the breakage really does break it**, which is the half a green run cannot tell you: I ran it
+on a real database and the four new checks went red, then put the file back and they went green
+again. One breakage, caught, with a do-nothing control beside it to prove the run was honest.
