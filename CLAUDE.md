@@ -14249,7 +14249,15 @@ were corrected for. **The recorded wiring defect, in the reader for it.**
   (`scripts/mutants/harness-once.json`, against `test/addon-sweep.test.mjs`;
   every anchor censused exactly once before the run, the tree verified clean
   after). Both reported behaviours are mutants in it.
-- **Suite 6,968** — 6,967 + 1, and the arithmetic closes exactly.
+- **Suite 6,968** — 6,967 + 1, and the arithmetic closes exactly. **CI HAS READ
+  IT: `unit tests` run 2797 on `e9332268`, green (the suite step 112.5 s) —
+  `# tests 6968 / # pass 6964 / # fail 0 / # skipped 4`**, against local
+  `6968 / 6968 / 0 / 0`, and **the TOTAL is what matches**; the four are the
+  standing environment skips. **No `site build` fired and none was due** — the
+  five changed files are two documents, `scripts/addon-sweep.mjs`, a mutant spec
+  and `test/addon-sweep.test.mjs`, and not one is in that workflow's `paths`.
+  **And 1218's green still covers this tip**: `e9332268` hashes to
+  `1bb277000510b055`, unmoved.
 
 **3. FOUR CLAIMS IN THE PREVIOUS PLAN WERE STALE, EACH CORRECTED BY
 MEASUREMENT:**
