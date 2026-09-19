@@ -13665,3 +13665,64 @@ live at https://fold-lane-bakery.gofarther.app/gallery.
 measured here. No container harness run fired and none was due: this push touches
 only the harness script, its guard, a mutant spec and these two documents, none of
 which is code the container carries.
+
+---
+
+## 2026-09-19 — Both corrections are in: the frame number stops guessing, and the echo stops arguing with itself
+
+I reproduced both before touching anything. Neither needed a redesign.
+
+**The picture count.** You were right twice over. A declared-but-unused array
+and an array filtered to zero both came back as *"2 picture spaces"* on a page
+a visitor sees none on. The rule underneath was a list of method names to
+distrust — `.map`, `.flatMap`, `Array.from` — and it looked only 600 characters
+back from the entry.
+
+**That list caught nothing.** Over the whole 100-site corpus there are 23 frames
+whose number is really the data's to decide, and the deny-list found **zero** of
+them: a generated page declares its array at the top of the file and maps it two
+hundred lines below, so the call it was hunting for is never nearby. Three
+`.map`s and a `.filter` — and the `.filter` one is your exact reported shape,
+sitting in the corpus the whole time.
+
+So I stopped asking what to distrust and started asking what can be established:
+**the array has to be written where it renders**, `items={[…]}`, as the prop's
+whole value. That is the one place what is written is what the browser draws.
+Measured: **297 of the 320 corpus frames are that shape**, your six-entry gallery
+included, so nothing real loses its number — and the 23 that are not are exactly
+the ones the old rule missed. No method names anywhere, so there is nothing left
+to extend.
+
+Three more shapes turned up when I probed my own first cut rather than reading
+it: a ternary choosing an array, a spread beside a literal, and `.length` taken
+off one. Each sits inside a prop and none says how many frames the page draws.
+They are refused too.
+
+**The QR reply.** Your echo reproduced exactly — one need, two opposite sentences
+in one reply, and the reassuring one was the wrong one. The cause: with no item
+named, nothing could establish what the QR step actually made, so the association
+was correctly refused — and then the *prose* of the answer (*"the gallery code
+points at /gallery"*) matched the code's own name and quietly promoted it anyway.
+
+An echoed id says which request is being answered. It is not evidence that it
+was. So an answer that resolved to nothing can no longer be lifted by its own
+sentence, and it no longer speaks twice: the request it answers already says the
+same thing, and the record keeps both entries whole.
+
+**One thing my first fix got wrong, caught by its own control.** I had it
+silencing any answer that was not resolved — which would have eaten the case
+where the answer names a thing and this layer *looked and did not find it*. That
+is a real finding and the most useful line in the reply (*"Still to do"*). It
+only silences the case where nothing could be established either way.
+
+**And a control from last round was proving nothing.** I wrote it with prose that
+could not trigger the defect, so it passed whether the code was right or wrong.
+It carries your exact sentence now, and asserts the whole customer reply rather
+than one clause — which is the only way to see a contradiction *between* two
+clauses.
+
+Everything else is unchanged: the working association still works, `checked` is
+still empty, and the six-entry gallery still reads six.
+
+Suite **6,876**, sweep 27 of 27, nothing merged, nothing deployed, nothing spent.
+Fal verification is still parked. The photo-reuse guidance work is next.

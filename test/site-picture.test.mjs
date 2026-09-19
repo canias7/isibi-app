@@ -799,54 +799,112 @@ test("the comment scan blanks rather than deletes, and keeps its own shape", () 
     "an escaped quote ended its string and the frame beside it vanished");
 });
 
-test("a frame a browser counts is marked runtime, and contributes no number", () => {
-  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists"*,
-  // then *"don't treat runtime expressions as a positive lower bound."* An
-  // entry inside a `.map` is ONE object in the source and as many boxes on the
-  // page as the mapped array has elements — a number no reader of the source
-  // can know, and `SHOTS` may be empty, which is why it is not a floor either.
-  // It is MARKED so the customer's sentence can say a list draws the pictures;
-  // it is not added to the count.
+test("only an array written where it renders puts a number on the page", () => {
+  // ⚠ RE-ANCHORED 2026-09-19, NOT APPEASED, and the expectations below MOVED
+  // rather than broke. This case has always been *"a frame whose number the
+  // browser decides contributes no number"*; what changed is how that is
+  // decided. Owner: *"An unused image array and an array filtered to zero still
+  // report visible picture spaces. A literal object is not proof that it
+  // renders… Don't keep adding individual runtime-method exceptions."*
+  //
+  // The old rule looked backward for `.map` / `.flatMap` / `Array.from`, and it
+  // was written as a list because a list is what a deny-list is. Its structural
+  // failure is measurable: a generated page declares its array at the top of the
+  // file and maps it two hundred lines below, so **over the whole corpus that
+  // deny-list caught ZERO of the 23 runtime-decided frames**. The positive rule
+  // catches all 23 and names no method at all.
   const one = (source) => listFrames([{ path: "p.tsx", source }])[0];
+  // ── THE TWO THE OWNER REPORTED, which the deny-list let through as exact ──
+  const UNUSED = 'const SHOTS = [{ alt: "the bench", src: null }, { alt: "a loaf", src: null }];\n'
+    + "export default function P() { return <main><h1>Fold Lane</h1></main>; }";
+  const FILTERED = 'const SHOTS = [{ alt: "the bench", src: null, featured: false }];\n'
+    + "export default function P() { return <Gallery items={SHOTS.filter((s) => s.featured)} />; }";
   for (const [what, source] of [
+    ["an array nothing on the page renders", UNUSED],
+    ["an array filtered to zero at runtime", FILTERED],
+    // …AND THE FOUR THE DENY-LIST DID CATCH, which must still contribute none.
     [".map over an unknown array", 'const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));'],
-    // ⚠ A DIRECT `flatMap`, not one wrapping a `.map`: a sweep survivor measured
-    // that the nested shape is decided by the INNER call, so taking `flatMap`
-    // off the list changed nothing and the case proved only that `.map` works.
     ["a flatMap", 'const a = GROUPS.flatMap((g) => ({ alt: "Bread", src: null }));'],
     ["a literal array inside a map callback", 'const a = ROWS.map((r) => ({ shots: [{ alt: "Bread", src: null }] }));'],
     ["Array.from", 'const a = Array.from({ length: 6 }, () => ({ alt: "Bread", src: null }));'],
+    // …AND THE THREE A DENY-LIST WOULD HAVE HAD TO GROW A NAME FOR — every one
+    // sits inside a prop's expression container, and not one of them says how
+    // many frames the page draws. They are why the rule asks whether the array
+    // is the prop's WHOLE value rather than merely what the entry sits in, and
+    // all three were found by probing the first cut rather than by reading it.
+    ["a ternary choosing an array", '<Gallery items={on ? A : [{ alt: "Bread", src: null }]} />'],
+    ["a spread beside a literal", '<Gallery items={[...A, { alt: "one", src: null }]} />'],
+    ["a number taken off an array", '<Gallery n={[{ alt: "one", src: null }].length} />'],
+    ["a call returning an array", '<Gallery items={pick({ alt: "Bread", src: null })} />'],
+    // ⚠ AND AN ARRAY HANDED TO A CALL — a sweep survivor, because every other
+    // shape here reaches its second encloser as a `{` and these reach a `(`.
+    // The array is written down and what the call does with it is not.
+    ["an array handed to a call in a prop", '<Gallery items={pick([{ alt: "one", src: null }])} />'],
+    ["an array built in a memo", 'const s = useMemo(() => [{ alt: "one", src: null }], []);'],
+    ["an array down a call chain", 'const s = wrap(fn([{ alt: "one", src: null }]));'],
+    ["an array inside an object in a prop", '<Gallery cfg={{ items: [{ alt: "one", src: null }] }} />'],
   ]) {
-    assert.equal(one(source).runtime, true, what + " was counted as an exact number of frames");
+    const f = one(source);
+    assert.ok(f, what + " produced no frame at all, so the case proves nothing");
+    assert.equal(f.counted, false, what + " was counted as an exact number of frames");
   }
-  // THE CONTROL: a literal array is written down, so its length is known and
-  // the count is exact. Without this, "everything is runtime" would pass.
-  const lit = listFrames([{ path: "p.tsx", source: 'const a = [{ alt: "one", src: null }, { alt: "two", src: null }];' }]);
+  // ── THE CONTROL: an array written where it renders ────────────────────────
+  //
+  // ⚠ THE OLD CONTROL WAS A BARE `const` ARRAY AND IS NOW ONE OF THE REFUSALS
+  // ABOVE — that is the correction, not a regression: a `const` is exactly the
+  // shape the owner reported, and whether it reaches the page unmodified is not
+  // something this can see. **297 of the corpus's 320 frames are in the shape
+  // below**, so the narrowing costs no real page its number.
+  const lit = listFrames([{ path: "p.tsx", source: '<Gallery items={[{ alt: "one", src: null }, { alt: "two", src: null }]} />' }]);
   assert.equal(lit.length, 2);
-  assert.equal(lit.every((f) => !f.runtime), true, "a literal list was called runtime-dependent: " + JSON.stringify(lit));
-  // …AND THE PAIR THE ROUTE READS — ⚠ CORRECTED 2026-09-19 (owner: *"An empty
-  // mapped array renders zero frames but currently reports 'at least 1'…
-  // don't treat runtime expressions as a positive lower bound."*). The entry
-  // was counted as ONE and the total handed over as a minimum, which is a claim
-  // about data no reader of the source can see: `SHOTS` may hold six pictures
-  // or none. `n` is what is really written down and `more` says separately that
-  // a list may draw some, so a mapped gallery alone contributes NO number.
+  assert.equal(lit.every((f) => f.counted), true, "an array written into a prop was called uncertain: " + JSON.stringify(lit));
+  // AND THE THREE WALLS INSIDE THAT RULE, each its own refusal: the attribute
+  // name, the `=`, and the array. Without the first two a bare JSX expression
+  // container — which is every list a page maps over — would read as a prop.
+  for (const [what, source] of [
+    ["a JSX expression that is not a prop", '<div>{[{ alt: "one", src: null }]}</div>'],
+    ["an arrow body that happens to be an array", 'const f = () => [{ alt: "one", src: null }];'],
+  ]) {
+    const f = one(source);
+    assert.ok(f, what + " produced no frame at all, so the case proves nothing");
+    assert.equal(f.counted, false, what + " was read as an array written where it renders");
+  }
+  // AND WHITESPACE IS NOT ONE OF THOSE WALLS: a generated page writes its
+  // gallery over several lines, and the corpus's 297 are mostly that shape.
+  const wide = listFrames([{ path: "p.tsx", source: "<Gallery\n  items={[\n    { alt: \"one\", src: null },\n    { alt: \"two\", src: null },\n  ]}\n/>" }]);
+  assert.equal(wide.length, 2);
+  assert.equal(wide.every((f) => f.counted), true, "a gallery written over several lines lost its number");
+  // …AND AN ELLIPSIS INSIDE A CAPTION IS A CAPTION, because the spread test
+  // reads the masked copy where a string's contents are gone.
+  assert.equal(one('<Gallery items={[{ alt: "one", caption: "a loaf...", src: null }]} />').counted, true,
+    "an ellipsis inside a caption was read as a spread");
+  // …AND THE PAIR THE ROUTE READS. `n` is what is really established and `more`
+  // says separately that the page draws some from data, so an uncertain gallery
+  // alone contributes NO number and the customer hears no figure at all.
   const page = (source) => [{ path: "gallery.tsx", source }];
-  assert.deepEqual(newListFrames([], page('const a = [{ alt: "one", src: null }, { alt: "two", src: null }];')),
+  assert.deepEqual(newListFrames([], page('<Gallery items={[{ alt: "one", src: null }, { alt: "two", src: null }]} />')),
     { n: 2, more: false });
-  assert.deepEqual(newListFrames([], page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));')),
-    { n: 0, more: true },
-    "a mapped entry was counted as at least one frame on the page");
-  // BOTH AT ONCE: the written ones are counted and the mapped one is said.
+  for (const [what, source] of [["the unused array", UNUSED], ["the filtered array", FILTERED]]) {
+    assert.deepEqual(newListFrames([], page(source)), { n: 0, more: true },
+      what + " was reported as a number of visible picture spaces");
+  }
+  // BOTH AT ONCE: the established ones are counted and the rest is said.
   assert.deepEqual(newListFrames([], page([
-    'const a = [{ alt: "one", src: null }, { alt: "two", src: null }];',
+    '<Gallery items={[{ alt: "one", src: null }, { alt: "two", src: null }]} />',
     'const b = SHOTS.map((s) => ({ alt: "Bread", src: null }));',
   ].join("\n"))), { n: 2, more: true });
   // AND A PAGE THAT GAINED NOTHING SETS NO FLAG, however its own frames are
   // written: the question is about THIS change's number, not about the site.
   const mapped = page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));');
   assert.deepEqual(newListFrames(mapped, mapped), { n: 0, more: false },
-    "an untouched mapped gallery made another page's count a floor");
+    "an untouched uncertain gallery made another page's count a floor");
+  // AND THE BOUND IS UNCERTAINTY, NEVER A NUMBER. A counted entry sits at most
+  // 815 characters from its own `items={` across the whole corpus; past the
+  // bound the walk gives up, and giving up must read as "cannot establish".
+  const far = '<Gallery items={[' + '{ alt: "pad", src: null }, '.repeat(120) + '{ alt: "last", src: null }]} />';
+  const tail = listFrames([{ path: "p.tsx", source: far }]).at(-1);
+  assert.equal(tail.alt, "last");
+  assert.equal(tail.counted, false, "a frame past the lookback bound was given a number anyway");
 });
 
 test("what is not an object literal with a written alt is not a frame", () => {

@@ -2191,3 +2191,77 @@ test("an explicit item earns the set-up sentence and never the delivered one", (
   assert.doesNotMatch(note, /can't see from here whether A QR code/, note);
   assert.doesNotMatch(note, /Still to do/, note);
 });
+
+test("an unresolved answer cannot regain certainty through prose, and is spoken for", () => {
+  // ⚠ Owner, 2026-09-19, reproduced before anything was touched: *"Reproduce an
+  // echo with answers: "page#0", no item, and by: "the gallery code points at
+  // /gallery". It currently produces both "I've set that up" and "I can't see
+  // whether" for the same need. An unresolved answering entry must not regain
+  // certainty through prose and contradict its original handoff."*
+  //
+  // THE ECHO SAYS WHICH REQUEST IS BEING ANSWERED; IT IS NOT EVIDENCE THAT IT
+  // WAS. With no item the answer's own implementation is `unknown`, so
+  // `reconcileHandoffs` refuses it — and `claimEvidence` then matched the word
+  // `gallery` inside the sentence against the qr step's own applied code and
+  // called it `configured`, which is a claim lifted above the request it
+  // answers by prose alone.
+  const NEED = "A QR code opens the gallery page.";
+  const ASK = { need: NEED, status: "elsewhere", step: "qr", from: "page", id: "page#0" };
+  const PROSE = "the gallery code points at /gallery";
+  const made = [{ kind: "qr", name: "gallery", holds: ["gallery"], fails: [], checked: [] }];
+  const existing = { kinds: ["qr", "page"], items: [{ kind: "page", name: "/" }] };
+  const opts = { told: ["qr"], made, reportable: COVERAGE_STEPS, existing };
+  const echo = (extra) => ({ need: NEED, status: "covered", from: "qr", id: "qr#0", answers: "page#0", ...extra });
+
+  const list = [ASK, echo({ by: PROSE })];
+  const out = requirementOutcomes(list, opts);
+  const hand = out.find((r) => r.status === "elsewhere");
+  const ans = out.find((r) => r.status === "covered");
+  assert.equal(ans.state, "unknown", "a prose match lifted an answer that resolved to nothing: " + JSON.stringify(ans));
+  assert.equal(ans.configuredBy, undefined, "the answer took a configuration verdict off its own sentence");
+  assert.equal(hand.state, "unknown", "the hand-off moved: " + JSON.stringify(hand));
+  // …AND THE TWO AGREE IN ONE SENTENCE. Gating the prose removes the
+  // contradiction and leaves the need said TWICE in the customer's own words,
+  // which is the duplicate half of the same incoherence; `spokenForBy` names
+  // the request that says it, and the answer keeps every field in the record.
+  assert.equal(ans.spokenForBy, "page#0", "the answer is not spoken for by its request: " + JSON.stringify(ans));
+  assert.equal(ans.by, PROSE, "the answer's own words were rewritten rather than left alone");
+  const note = requirementNote(list, opts);
+  assert.equal(note, "I can't see from here whether " + NEED + " — nothing I can check says either way, "
+    + "so have a look, and ask me for it again if it isn't there.", "not one honest sentence: " + note);
+  assert.equal((note.match(/A QR code opens the gallery page/g) || []).length, 1, "one need was said twice: " + note);
+
+  // ── CONTROL: THE LEGITIMATE ASSOCIATION IS UNTOUCHED. Same echo, naming its
+  // item, so its implementation is FOUND, the gate opens and the reconciliation
+  // runs exactly as before — which is what the owner asked be kept working.
+  const good = requirementOutcomes([ASK, echo({ by: PROSE, kind: "qr", item: "gallery" })], opts);
+  assert.equal(good.find((r) => r.status === "elsewhere").state, "configured",
+    "the legitimate association stopped working: " + JSON.stringify(good));
+  assert.equal(good.find((r) => r.status === "covered").spokenForBy, undefined,
+    "a resolved answer was silenced as though it had resolved to nothing");
+  assert.match(requirementNote([ASK, echo({ by: PROSE, kind: "qr", item: "gallery" })], opts), /I've set that up/);
+
+  // ── CONTROL: AN ANSWER THAT LOOKED AND FOUND NOTHING IS A FINDING, NOT A
+  // SILENCE. `absent` is resolved — resolved to NOT THERE — and *"Still to do"*
+  // is the most actionable line in the reply. Silencing it would delete it, and
+  // this is the case that made the rule ask for `unknown` rather than
+  // `!== "found"`: the first cut used the looser test and ate this.
+  const gone = requirementOutcomes([ASK, echo({ kind: "qr", item: "wifi" })], opts);
+  const ga = gone.find((r) => r.status === "covered");
+  assert.equal(ga.state, "missing", "the fixture does not reach the finding: " + JSON.stringify(ga));
+  assert.equal(ga.spokenForBy, undefined, "a real finding was silenced as an unresolved answer: " + JSON.stringify(ga));
+  assert.match(requirementNote([ASK, echo({ kind: "qr", item: "wifi" })], opts), /Still to do/);
+
+  // ── CONTROL: AN ECHO NAMING A REQUEST NOBODY SENT KEEPS SPEAKING. It is the
+  // only record of its own need, and silencing it would lose the need entirely
+  // rather than say it once.
+  const orphan = requirementOutcomes([ASK, echo({ by: PROSE, answers: "nobody#9" })], opts);
+  assert.equal(orphan.find((r) => r.status === "covered").spokenForBy, undefined,
+    "an echo answering nothing was silenced into thin air");
+
+  // ── CONTROL: A BARE `covered` CLAIM KEEPS ITS PROSE MATCH. The gate asks for
+  // an echo, so a claim that answers nobody is judged exactly as before — the
+  // stricter reading was measured to lose five real findings and is not this.
+  const plain = requirementOutcomes([{ need: NEED, status: "covered", from: "qr", id: "qr#0", by: PROSE }], opts);
+  assert.equal(plain[0].state, "configured", "a bare claim lost its prose match: " + JSON.stringify(plain[0]));
+});

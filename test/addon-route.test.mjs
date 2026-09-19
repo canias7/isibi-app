@@ -5513,13 +5513,36 @@ test("the QR step says which request its code answers, and the hand-off is assoc
   });
   assert.equal(wrong.body.ok, true, JSON.stringify(wrong.body));
   assert.ok((wrong.body.moved || []).includes("qr"), "no code was made — this control tests nothing");
-  const w = storedAnswer(wrong, "fw-qr-echo-wrong").coverage.requirements.find((x) => x.status === "elsewhere");
+  const wcov = storedAnswer(wrong, "fw-qr-echo-wrong").coverage.requirements;
+  const w = wcov.find((x) => x.status === "elsewhere");
   assert.equal(w.state, "unknown", "an echo naming a code nobody made settled the hand-off: " + JSON.stringify(w));
   assert.equal(w.reconciledBy, undefined, "a reconciliation happened over an item that does not exist: " + JSON.stringify(w));
+  // …AND THE ANSWER'S OWN FINDING SURVIVES. It named a code and this layer
+  // looked and did not find one, which is `missing` — resolved, not unresolved
+  // — so it keeps speaking and the customer gets the actionable line. The
+  // silence below is for an answer that established NOTHING; eating a finding
+  // with it would delete the most useful sentence in the reply.
+  const wa = wcov.find((x) => x.status === "covered");
+  assert.equal(wa.state, "missing", "the control does not reach the finding: " + JSON.stringify(wa));
+  assert.equal(wa.spokenForBy, undefined, "a real finding was silenced: " + JSON.stringify(wa));
+  assert.match(wrong.body.coverNote || "", /Still to do: A QR code opens the gallery page/, wrong.body.coverNote);
 
-  // ── CONTROL 2: NO ITEM AT ALL. The echo answers the id and names nothing, so
-  // there is no reference to check and the uncertainty is preserved — which is
-  // the property the round before this one bought and must survive.
+  // ── CONTROL 2: NO ITEM AT ALL, AND PROSE THAT NAMES THE CODE ─────────────
+  //
+  // ⚠ RE-ANCHORED 2026-09-19 ONTO THE OWNER'S OWN ECHO, and the re-anchor is
+  // the finding. This control was written the round before with
+  // `by: "a code was made"` — prose carrying no applied item's name, so
+  // `claimEvidence` matched nothing and the case passed whatever the product
+  // did. Owner: *"Reproduce an echo with answers: "page#0", no item, and by:
+  // "the gallery code points at /gallery". It currently produces both "I've set
+  // that up" and "I can't see whether" for the same need."* That sentence holds
+  // the word `gallery`, which is the applied code's own name, and THAT is what
+  // armed the defect. **A control whose fixture cannot trigger the defect is a
+  // control that proves nothing**, and this one could not.
+  //
+  // REPRODUCED before the fix: the hand-off `unknown` and the answer
+  // `configured` off the prose, so one need got *"I've set that up, but I can't
+  // confirm…"* AND *"I can't see from here whether…"* in one reply.
   const bare = await addon("fw-qr-echo-bare", "add a gallery page and a QR code that opens it", {
     kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
     written: [writtenPage("/gallery")],
@@ -5527,15 +5550,32 @@ test("the QR step says which request its code answers, and the hand-off is assoc
       page: { page: [page], requirements: [HANDOFF] },
       qr: {
         qr: { name: "gallery", points: "/gallery", label: "Our gallery" },
-        requirements: [{ need: ECHO.need, status: "covered", by: "a code was made", answers: "page#0" }],
+        requirements: [{ need: ECHO.need, status: "covered", by: "the gallery code points at /gallery", answers: "page#0" }],
       },
     },
   });
   assert.equal(bare.body.ok, true, JSON.stringify(bare.body));
   assert.ok((bare.body.moved || []).includes("qr"), "no code was made — this control tests nothing");
-  const b = storedAnswer(bare, "fw-qr-echo-bare").coverage.requirements.find((x) => x.status === "elsewhere");
+  const bcov = storedAnswer(bare, "fw-qr-echo-bare").coverage.requirements;
+  const b = bcov.find((x) => x.status === "elsewhere");
   assert.equal(b.state, "unknown", "an echo naming nothing settled the hand-off from a count again: " + JSON.stringify(b));
   assert.equal(b.reconciledBy, undefined, "a nameless echo reconciled: " + JSON.stringify(b));
+  // AND THE ANSWER AGREES WITH THE REQUEST IT ANSWERS rather than contradicting
+  // it: unresolved, not lifted by its own sentence, and spoken for by the
+  // hand-off in the prose while keeping every field in the record.
+  const ba = bcov.find((x) => x.status === "covered");
+  assert.equal(ba.state, "unknown", "an unresolved answer regained certainty through prose: " + JSON.stringify(ba));
+  assert.equal(ba.configuredBy, undefined, "a prose match lifted an answer that resolved to nothing: " + JSON.stringify(ba));
+  assert.equal(ba.spokenForBy, "page#0", "the record does not say which request speaks for it: " + JSON.stringify(ba));
+  assert.equal(ba.by, "the gallery code points at /gallery", "the answer's own words were rewritten: " + JSON.stringify(ba));
+  // ⚠ AND THE COMPLETE CUSTOMER SENTENCE, because the defect is a contradiction
+  // BETWEEN two clauses and no single assertion about one of them can see it.
+  const bn = bare.body.coverNote || "";
+  assert.equal(bn,
+    "I can't see from here whether A QR code opens the gallery page. — nothing I can check says either way, "
+    + "so have a look, and ask me for it again if it isn't there.", "the reply is not the one honest sentence: " + bn);
+  assert.doesNotMatch(bn, /I've set that up/, "an unresolved answer still claims the work was set up: " + bn);
+  assert.equal((bn.match(/A QR code opens the gallery page/g) || []).length, 1, "one need was said twice: " + bn);
 
   // ── CONTROL 3: A DEPENDENCY THAT FAILED. The hand-off names a code the
   // change could not make, so it carries a FINDING — and an echoed id may

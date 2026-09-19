@@ -1046,7 +1046,36 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     // `unverified`, `configured` or `delivered`. `evidenceItems` is the one
     // scope, derived from `impl` rather than re-resolved, so the two readers
     // cannot come apart.
-    const ev = r.status === "covered" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;
+    // ── …AND AN UNRESOLVED ANSWER MAY NOT REGAIN CERTAINTY THROUGH PROSE ─────
+    //
+    // (owner, 2026-09-19, reproduced before anything was touched.) Run 51's
+    // exact shape: the page step hands *"A QR code opens the gallery page."* to
+    // the qr step with no item; the qr step echoes `answers: "page#0"`, names no
+    // item either, and describes its work in prose — `by: "the gallery code
+    // points at /gallery"`. Its own implementation is `unknown` (no reference,
+    // and a count of a step's output is not an association), so
+    // `reconcileHandoffs` correctly refuses it — and then `claimEvidence`
+    // matched the word `gallery` inside that sentence against the qr step's own
+    // applied code and promoted it to `configured`. **One need, two opposite
+    // sentences in one reply**: *"I've set that up, but I can't confirm…"* from
+    // the answer and *"I can't see from here whether…"* from the hand-off it
+    // claims to answer.
+    //
+    // AN ECHO IS A CLAIM ABOUT WHICH REQUEST IS BEING ANSWERED, NEVER EVIDENCE
+    // THAT IT WAS. An entry that names the hand-off it answers has said where
+    // its work belongs; if nothing can resolve WHAT that work is, the honest
+    // ceiling is the same `unknown` the implementation reader already gave it,
+    // and a prose match must not lift it above the request it is answering.
+    //
+    // NARROW BY CONSTRUCTION, and deliberately so: it asks for `answers`, so a
+    // bare `covered` claim is untouched and the prose match keeps the five real
+    // findings the stricter reading was measured to lose (2026-09-16). And
+    // `absent` never reaches here anyway — it is settled as `missing` above —
+    // so `!== "found"` is `unknown` today and is written as the property rather
+    // than as that neighbour's leftovers.
+    const echoed = r.status === "covered" && typeof r.answers === "string" && !!r.answers;
+    const speaks = !echoed || (!!impl && impl.state === "found");
+    const ev = r.status === "covered" && speaks ? claimEvidence(r.by, evidenceItems(made, impl)) : null;
     let state = "unverified", why = r.why || "", configuredBy = "", contradictedBy = "";
     if (r.status === "unsupported") {
       // The step said so itself, in its own words.
@@ -1225,16 +1254,57 @@ const RECONCILABLE = ["delivered", "configured", "unverified"];
 export function reconcileHandoffs(outcomes) {
   const list = Array.isArray(outcomes) ? outcomes : [];
   const answering = new Map();
+  // ── EVERY REQUEST THAT REALLY EXISTS, so an echo naming nothing is not
+  // silenced into thin air. An entry that answers an id nobody sent is the only
+  // record of its own need, and dropping it would lose the need entirely.
+  const requested = new Set();
+  for (const r of list) {
+    if (r && r.status === "elsewhere" && typeof r.id === "string" && r.id) requested.add(r.id);
+  }
+  // ── AN ANSWER THAT RESOLVED TO NOTHING IS SPOKEN FOR BY ITS REQUEST ───────
+  //
+  // (owner, 2026-09-19.) Gating the prose match above stops the contradiction —
+  // both entries read `unknown` — and leaves the need said TWICE in the
+  // customer's own words: *"I can't see from here whether A QR code opens the
+  // gallery page.; or whether A QR code opens the gallery page."* One need, one
+  // outcome is the whole point of this function, and an answer that resolved to
+  // nothing has nothing to add to the request it is answering.
+  //
+  // SILENT IN THE PROSE, KEPT WHOLE IN THE RECORD, which is the same division
+  // the two silences below make: `spokenForBy` says which request speaks for it,
+  // so a reader can still see that the step answered and that its answer could
+  // not be resolved. It is its OWN field and not `overruledBy` — those are two
+  // different facts a developer acts on differently (*"a finding contradicted
+  // your answer"* against *"your answer named nothing anyone could find"*), and
+  // one field holding both is two values meaning different things.
+  //
+  // ⚠ `unknown` AND NOT MERELY `!== "found"`, and the wrong-item control is what
+  // said so. An answer that names an item this layer LOOKED FOR AND DID NOT FIND
+  // reads `absent` → `missing` → *"Still to do"*, which is a real finding and the
+  // most actionable thing in the reply; silencing it would delete it. `absent` is
+  // resolved — resolved to NOT THERE. Only `unknown` established nothing either
+  // way, and only `unknown` has nothing to add to the request it answers.
+  //
+  // IT IS A DIFFERENT QUESTION FROM THE PROSE GATE ABOVE, deliberately. That one
+  // asks *may this be lifted by a sentence* — no, unless the implementation was
+  // FOUND. This one asks *does this add anything to its request* — no, only when
+  // nothing was established. The two coincide today because `absent` never
+  // reaches the prose branches, and writing each as its own property is what
+  // keeps that an observation rather than a dependency.
+  const spokenFor = new Set();
   for (const r of list) {
     if (!r || r.status !== "covered" || typeof r.answers !== "string" || !r.answers) continue;
-    if (r.implementation !== "found") continue;
+    if (r.implementation !== "found") {
+      if (r.implementation === "unknown" && requested.has(r.answers)) spokenFor.add(r);
+      continue;
+    }
     if (!RECONCILABLE.includes(r.state)) continue;
     // FIRST ANSWER WINS, and a second one for the same id is left alone rather
     // than overwriting: two entries claiming one hand-off is itself a finding,
     // and picking the later would make the outcome depend on list order.
     if (!answering.has(r.answers)) answering.set(r.answers, r);
   }
-  if (!answering.size) return list;
+  if (!answering.size && !spokenFor.size) return list;
   // ── AN ANSWER THAT WAS REFUSED OVER A FINDING DOES NOT SPEAK EITHER ───────
   //
   // Refusing to reconcile is half the fix. The other half is that the answering
@@ -1262,6 +1332,12 @@ export function reconcileHandoffs(outcomes) {
     if (r && r.status === "covered" && typeof r.answers === "string" && overruled.has(r.answers)) {
       return { ...r, overruledBy: r.answers, overruledAs: overruled.get(r.answers) };
     }
+    // ASKED AFTER THE OVERRULE, because a finding on the request is the stronger
+    // thing to record about why this answer is silent. The two are disjoint
+    // today — `overruled` is built only from requests that have a RESOLVED
+    // answer, and one that resolved is never in `spokenFor` — and the order is
+    // what keeps that an observation rather than a dependency.
+    if (spokenFor.has(r)) return { ...r, spokenForBy: r.answers };
     if (!r || r.status !== "elsewhere" || typeof r.id !== "string" || !r.id) return r;
     const a = answering.get(r.id);
     if (!a) return r;
@@ -1325,7 +1401,9 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // too: the finding is the coherent outcome, and "scheduled as you asked"
   // beside "couldn't be created" about one sentence is the incoherence this is
   // for. Both entries stay in the RECORD with their own states.
-  const spoken = (r) => !(r && ((r.status === "elsewhere" && r.reconciledBy) || r.overruledBy));
+  // …AND SO IS AN ANSWER THAT RESOLVED TO NOTHING while the request it answers
+  // is right here saying the same need: `spokenForBy` names that request.
+  const spoken = (r) => !(r && ((r.status === "elsewhere" && r.reconciledBy) || r.overruledBy || r.spokenForBy));
   const unsure = outcomes.filter(spoken).filter((r) => r.state === "unverified" || r.state === "configured");
   // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
   // is inappropriate when implementation is unknown."* The clause below opens

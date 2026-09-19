@@ -384,12 +384,11 @@ export function listFrames(pages) {
       // nothing in it — which is why `isEmptySlot`'s `null` case and a missing
       // key are not separated here the way an attribute's are.
       const v = keyValue(body, "src");
-      // AND WHETHER THE BROWSER DECIDES HOW MANY OF IT THERE ARE. One object
-      // literal inside a `.map` is one entry in the SOURCE and any number of
-      // frames on the PAGE — INCLUDING NONE — so it is neither an exact count
-      // nor a floor. The walk runs on `mask` so a `(` inside a string cannot be
-      // read as a call.
-      out.push({ page: p.path, alt, value: v, empty: !v || v === "null", runtime: inRuntimeList(mask, m.index) });
+      // AND WHETHER ITS NUMBER CAN BE ESTABLISHED AT ALL. A literal object is
+      // not proof that it renders: only an array written where it renders puts
+      // a number on the page. The walk runs on `mask` so a bracket inside a
+      // string cannot be read as one.
+      out.push({ page: p.path, alt, value: v, empty: !v || v === "null", counted: writtenWhereItRenders(mask, m.index) });
       if (out.length >= MAX_LIST_FRAMES) return out;
     }
   }
@@ -486,58 +485,164 @@ export function codeOnly(src, maskStrings = false) {
  */
 const AFTER_WORD = /[A-Za-z0-9]$/;
 
-/** The calls whose argument is evaluated once per element of something else. */
-const RUNTIME_CALL = /(?:\.\s*(?:map|flatMap)|Array\s*\.\s*from)\s*$/;
-
-/** How far back a frame looks for the call that decides how many of it there are. */
-const MAX_RUNTIME_LOOKBACK = 600;
+/**
+ * How far back a frame looks for the prop it is written into.
+ *
+ * MEASURED over the 100-site corpus: the furthest a counted entry sits from its
+ * own `items={` is **815 characters** (`game-studio/press.tsx`, the last of a
+ * long literal list). 600 would have lost 7 of the 297; 1000 finds all of them
+ * and so does everything above it. 2000 is that measurement with real margin,
+ * and a bound reached is UNCERTAINTY rather than a wrong number, so erring
+ * large costs a backward walk and nothing else.
+ */
+const MAX_PROP_LOOKBACK = 2000;
 
 /**
- * Is this object literal evaluated once per element of a list? (2026-09-19)
+ * Is this entry's array written where it renders? (2026-09-19)
  *
- * Owner: *"avoid exact counts for runtime-dependent lists."* A frame written
- * `{alt: "Photo", src: null}` inside `SHOTS.map(…)` is ONE object in the source
- * and as many frames on the page as `SHOTS` has elements — a number no reader
- * of the source can know. The existing rule already refuses an entry whose
- * `alt` is a TEMPLATE, for exactly this reason; this is the same fact where the
- * `alt` happens to be a literal.
+ * ⚠ THIS REPLACES A DENY-LIST OF RUNTIME METHODS, and the replacement is the
+ * owner's instruction and the measurement together. Owner: *"An unused image
+ * array and an array filtered to zero still report visible picture spaces. A
+ * literal object is not proof that it renders. Narrow numeric reporting to
+ * cases where the count can actually be established; use uncertainty otherwise.
+ * Don't keep adding individual runtime-method exceptions."*
  *
- * ⚠ AND IT IS NOT A LOWER BOUND EITHER — CORRECTED 2026-09-19, owner: *"An
- * empty mapped array renders zero frames but currently reports 'at least 1'…
- * don't treat runtime expressions as a positive lower bound."* The first cut
- * counted a runtime entry as one and called the total a floor, which is the
- * same mistake the exact count was: `SHOTS.map(…)` with `SHOTS` empty draws
- * NOTHING, so one object in the source bounds the page from neither side. A
- * runtime entry contributes NOTHING to the number and sets `more` instead, and
- * where nothing else was counted the customer gets a sentence with NO NUMBER in
- * it — which is the only honest thing to say about a count the data decides.
+ * REPRODUCED, both of them, before anything was touched — a `const SHOTS = [{…},
+ * {…}]` nothing on the page references, and `<Gallery items={SHOTS.filter((s) =>
+ * s.featured)} />`, each reporting **an exact 2** where a visitor sees zero.
  *
- * THE WALK GOES OUTWARD THROUGH EVERY UNCLOSED BRACKET, not to the first one.
- * `SHOTS.map((s) => ({…}))` has TWO parentheses around the object — the arrow's
- * own wrapper and the call — so a test that stopped at the first would never
- * see the `.map`; and an entry written `ROWS.map((r) => ({ shots: [{…}] }))` is
- * per-element however many brackets sit between it and the call, so stopping at
- * a `[` would call it exact. **Measured over the 100-site corpus: the wide walk
- * and the narrow one both answer 0 runtime frames**, so the width costs no
- * false alarm on any page the platform has generated.
+ * THE OLD RULE LOOKED BACKWARD FOR `.map` / `.flatMap` / `Array.from` within 600
+ * characters, and its structural failure is measurable: a generated page writes
+ * its array as a module-scope `const` at the top and maps it in the JSX two
+ * hundred lines below, so the call is nowhere near the object. **Over the whole
+ * corpus that deny-list caught ZERO of the 23 runtime-decided frames** — three
+ * `.map`s and a `.filter`, every one of them real. A list of methods can only
+ * ever be extended; this asks the positive question instead, and answers all 23
+ * without naming a single method.
  *
- * THE BALANCE IS WHAT KEEPS IT SOUND, and it is the whole of what stops an
- * unrelated `.map` earlier in the same scope counting: a call whose own
- * parentheses closed before this object is BALANCED on the way out, so the only
- * `(` that can be reached unclosed is one this object really sits inside.
+ * THE ONE SHAPE WHERE THE NUMBER IS ESTABLISHED is a literal array written
+ * directly as a JSX attribute's value — `<Gallery items={[{…}, {…}]} />` — the
+ * one place where what is written is what the browser draws. Anything else
+ * (a named const, a spread, a call, a filter, a map, a ternary) is a value that
+ * reaches the prop by some route this cannot see, and the honest answer is that
+ * the count cannot be established. **MEASURED over the corpus: 297 of the 320
+ * frames are in that shape, run 51's six included, and the 23 that are not are
+ * exactly the runtime-decided ones.** So the narrowing costs no real page its
+ * number and fixes every case the owner reported.
+ *
+ * THE WALK GOES OUTWARD THROUGH UNCLOSED BRACKETS, and the balance is what makes
+ * it sound: a bracket pair that closed before this object is balanced away on
+ * the way out, so the first `[` reached unclosed really is this entry's array
+ * and the `{` outside it really is what that array sits in.
+ *
+ * ⚠ AND THE ARRAY MUST BE THE PROP'S WHOLE VALUE, WHICH THREE PROBED SHAPES
+ * BOUGHT. A first cut asked only what the entry sits INSIDE, and measured
+ * against real JSX that is not the same question:
+ *
+ *   ✗ `items={on ? A : [{…}]}`      the other branch may win — counted anyway
+ *   ✗ `items={[...A, {…}]}`         the spread's elements are unseen
+ *   ✗ `n={[{…}].length}`            a number, not a list of pictures
+ *
+ * Each sits inside a prop's expression container and none of them establishes
+ * how many frames the page draws. So the container must hold the array and
+ * NOTHING ELSE — whitespace-only on both sides, which is one statement of
+ * "written where it renders" rather than three refusals — and the array's own
+ * body must carry no `...`, because a spread's elements come from somewhere
+ * this cannot see. A spread's literal entries really are on the page, so they
+ * could have been a floor; they go to `more` instead, because the customer's
+ * uncertain sentence is exactly right for a list whose length is data's to
+ * decide and a floor invites them to count.
+ *
+ * A BOUND REACHED, OR ANY OTHER SHAPE, IS UNCERTAINTY — never a number. That is
+ * the fail-closed direction here: a wrong `more` costs a vaguer sentence, and a
+ * wrong `n` is the defect being fixed.
  */
-function inRuntimeList(src, at) {
+function writtenWhereItRenders(src, at) {
+  const seq = [];
   let depth = 0;
-  const floor = Math.max(0, at - MAX_RUNTIME_LOOKBACK);
+  const floor = Math.max(0, at - MAX_PROP_LOOKBACK);
   for (let i = at - 1; i >= floor; i--) {
     const c = src[i];
     if (c === ")" || c === "]" || c === "}") { depth++; continue; }
     if (c === "(" || c === "[" || c === "{") {
       if (depth) { depth--; continue; }
-      if (c === "(" && RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;
+      seq.push(i);
+      if (seq.length === 2) break;
     }
   }
-  return false;
+  if (seq.length < 2) return false;
+  const [open, hold] = seq;
+  if (src[open] !== "[" || src[hold] !== "{") return false;
+  // `attr={[` — the `=` immediately before the expression container, and an
+  // attribute NAME immediately before that. Without the name test a bare `={`
+  // could be an arrow body or a comparison; without the `=` the `{` is any JSX
+  // expression at all, which is every list a page maps over.
+  const eq = backFrom(src, hold);
+  if (src[eq] !== "=") return false;
+  // ⚠ THE NAME TEST IS ABSORBED BY THE `=` TEST, MEASURED AND DECLARED. Over 20
+  // constructed shapes and the whole 100-site corpus, cutting this line changes
+  // NO answer — every `= {` a real file writes has an attribute name in front
+  // of it, and the shapes that reach a `{` some other way (`{...{…}}`, a
+  // destructuring default, a comparison) are refused by the `=` above. It stays
+  // because the PAIR is what a reader needs — a JSX prop is `name={value}`, and
+  // half of that stated alone invites the other half to be dropped as noise —
+  // and the sweep mutates the two together, because a sweep cannot say this and
+  // the next session deletes what nothing appears to need.
+  if (!/[A-Za-z0-9_$]/.test(src[backFrom(src, eq)] || "")) return false;
+  // THE ARRAY OPENS THE EXPRESSION…
+  if (backFrom(src, open) !== hold) return false;
+  // …AND CLOSES IT, so nothing else is in there with it.
+  const shut = arrayEnd(src, open);
+  if (shut < 0 || backFrom(src, forward(src, shut)) !== shut || src[forward(src, shut)] !== "}") return false;
+  // AND NO ELEMENT COMES FROM OUT OF SIGHT. Asked of the masked copy, so `...`
+  // inside a caption is a caption.
+  return !src.slice(open, shut).includes("...");
+}
+
+/** The index of the last non-space character before `i`, or -1. */
+function backFrom(src, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(src[j])) j--;
+  return j;
+}
+
+/** The index of the first non-space character after `i`, or the length. */
+function forward(src, i) {
+  let j = i + 1;
+  while (j < src.length && /\s/.test(src[j])) j++;
+  return j;
+}
+
+/**
+ * The `]` matching the `[` at `from`, or -1 past the bound or unterminated.
+ *
+ * Every bracket kind is counted, because a `]` inside a nested object or call is
+ * balanced by its own opener; a `]` inside a string is not, which is why this
+ * reads the masked copy like everything else here. The forward bound is the
+ * backward one: an array longer than that gives up, and giving up is
+ * uncertainty, which is the same answer its own last entry would have reached
+ * walking backward.
+ *
+ * ⚠ THE `-1` IS ABSORBED, MEASURED AND DECLARED — AND IT IS A BELT BEHIND A
+ * BELT. Answering `end` instead changes NO answer over 20 constructed shapes
+ * and the whole corpus, and neither does cutting the caller's own `shut < 0`,
+ * and neither does cutting BOTH: what really refuses is the caller's last test,
+ * that the character after the `]` is the expression's `}`, and at a bound, a
+ * file end or index 0 it is never `}`. So the pair is not a pair — it is three
+ * deep with only the outermost observable, and that outermost one is what the
+ * sweep mutates. The two inner ones stay because this function's contract is
+ * *"the matching `]`, or nothing"*, and a reader that answers an offset it did
+ * not find is the trap this repository keeps recording.
+ */
+function arrayEnd(src, from) {
+  let depth = 0;
+  const end = Math.min(src.length, from + MAX_PROP_LOOKBACK);
+  for (let i = from; i < end; i++) {
+    const c = src[i];
+    if (c === "[" || c === "{" || c === "(") { depth++; continue; }
+    if (c === "]" || c === "}" || c === ")") { depth--; if (!depth) return c === "]" ? i : -1; }
+  }
+  return -1;
 }
 
 /** How far a shallow object literal may run before this stops believing it is one. */
@@ -625,15 +730,16 @@ export function newListFrames(before, after) {
   // positive lower bound. Use wording without a number when the visible count
   // cannot be established."*
   //
-  // `n` IS THE FRAMES WHOSE NUMBER IS WRITTEN DOWN — literal entries in a
-  // literal array, which is run 51's gallery and every one the corpus has. A
-  // runtime entry bounds the page from NEITHER side: its array may hold six or
-  // none, so it can no more floor the total than fix it, and the first cut
-  // counting it as one was the exact count's mistake wearing a hedge.
+  // `n` IS THE FRAMES WHOSE NUMBER IS ESTABLISHED — entries in a literal array
+  // written where it renders, which is run 51's gallery and 297 of the corpus's
+  // 320. An entry anywhere else bounds the page from NEITHER side: the array it
+  // belongs to may reach the page holding six, one or none, so it can no more
+  // floor the total than fix it, and a cut that counted it as one was the exact
+  // count's mistake wearing a hedge.
   //
-  // `more` IS "AND THERE ARE ALSO SOME THE DATA DECIDES", which earns a
-  // different sentence rather than a modifier on this one. With `n > 0` it
-  // makes the number a floor — the literal ones really are there; with
+  // `more` IS "AND THERE ARE ALSO SOME WHOSE NUMBER I CANNOT ESTABLISH", which
+  // earns a different sentence rather than a modifier on this one. With `n > 0`
+  // it makes the number a floor — the established ones really are there; with
   // `n === 0` there is nothing to be a floor OF, and the customer hears no
   // number at all.
   //
@@ -642,10 +748,10 @@ export function newListFrames(before, after) {
   // Both halves go through `grewBy`, so the same per-page increase rule decides
   // each and neither can report the other's page.
   const empties = (pages) => listFrames(pages).filter((f) => f.empty);
-  const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.runtime));
+  const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => f.counted));
   let n = 0;
   for (const g of gain.values()) n += g;
-  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => f.runtime)).size > 0;
+  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.counted)).size > 0;
   return { n, more };
 }
 

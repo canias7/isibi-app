@@ -10333,14 +10333,146 @@ are NAMED out of the log rather than recalled: the privilege-drop case (*"needs
 root and an unprivileged user"*), two RTL cases (*"template deps not
 installed"*) and `site-searchpath`'s baseline-commit case (*"a shallow checkout
 holds one commit"*) — the standing expectation met rather than a new one.
-`site build` run **1195** fired on the same sha, because `builder/site-add.mjs`
-and `builder/site-picture.mjs` moved — **its result is UNREAD as this is
-written**, and is left unstamped rather than carried over from run 1194.
+**AND `site build` RUN 1195 IS GREEN ON THE SAME SHA (2026-09-19
+03:45:23→04:09:25Z), ALL TWENTY STEPS** — read the next day rather than carried
+over from 1194, which is what that paragraph was left open for: `site-build.mjs`
+**382 passed / 0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam
+11, theme-render 29, site-routing 14, site-runtime 47 beside it and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` with no count — the three
+result SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**, 12
+of the 19 markers carrying a result. It fired because `builder/site-add.mjs` and
+`builder/site-picture.mjs` moved. **The unit step's TAP is `# tests 396 /
+# pass 396 / # fail 0`, unchanged from 1194** — correct, because that round adds
+no `page-gen` or `publish-pages` case.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN.** Fal verification stays parked, and
 the photo-reuse guidance work is queued behind these two (the owner: *"Photo
 reuse needs no new permission decision merely to improve guidance. Keep its
 assessment corrected and queue that work after these fixes."*).
+
+### …AND TWO CORRECTIONS TO THAT ROUND, BOTH REPRODUCED FIRST (2026-09-19)
+
+Owner: *"Keep the working QR association and the corrected string/empty-map
+cases. Two bounded corrections remain."* Both were driven before anything was
+touched, and the second is the owner's own echo verbatim.
+
+**1. A LITERAL OBJECT IS NOT PROOF THAT IT RENDERS, AND THE DENY-LIST COULD NOT
+SAY SO.** Owner: *"An unused image array and an array filtered to zero still
+report visible picture spaces… Narrow numeric reporting to cases where the count
+can actually be established; use uncertainty otherwise. Don't keep adding
+individual runtime-method exceptions."* REPRODUCED: a `const SHOTS = [{…},{…}]`
+nothing on the page references, and `<Gallery items={SHOTS.filter((s) =>
+s.featured)} />`, each answering **an exact 2** where a visitor sees zero.
+
+**THE OLD RULE'S FAILURE IS STRUCTURAL AND IT IS MEASURED.** It looked back 600
+characters for `.map` / `.flatMap` / `Array.from`; a generated page declares its
+array at the top of the file and maps it two hundred lines below, so **over the
+100-site corpus that deny-list caught ZERO of the 23 runtime-decided frames** —
+three `.map`s and a `.filter`, and `salon/work.tsx`'s `SETS.filter(...)` is the
+owner's reported shape live in the corpus. A list of methods can only ever be
+extended; **the positive rule catches all 23 and names no method at all.**
+
+**A COUNT IS ESTABLISHED ONLY WHERE THE ARRAY IS THE PROP'S WHOLE VALUE** —
+`<Gallery items={[{…}, {…}]} />`, the one place where what is written is what
+the browser draws. **MEASURED: 297 of the corpus's 320 frames are in that shape,
+run 51's six included**, so the narrowing costs no real page its number and
+`listFrames` still reads 320 / 60 files / 0 filled. Everything else — a named
+const, a call, a memo, an arrow body — is uncertainty, which reaches the customer
+as the no-number sentence.
+
+**⚠ AND "WHAT THE ENTRY SITS INSIDE" IS NOT THAT QUESTION — three shapes bought
+that, found by probing the first cut rather than by reading it.**
+`items={on ? A : [{…}]}`, `items={[...A, {…}]}` and `n={[{…}].length}` each sit
+inside a prop's expression container and none establishes a number. So the
+container must hold the array and NOTHING ELSE (whitespace-only on both sides)
+and the array must carry no `...`. A spread's literal entries really are on the
+page and could have been a floor; they go to `more` instead, because the
+uncertain sentence is exactly right for a list whose length is data's to decide
+and a floor invites the customer to count.
+**`MAX_PROP_LOOKBACK` IS 2000, AND THE 815 IS MEASURED**: that is the furthest a
+counted entry sits from its own `items={` across the corpus (`game-studio/press.tsx`,
+the last of a long literal list); 600 would have lost 7 of the 297, 1000 finds
+all of them. A bound reached is uncertainty, never a number.
+
+**2. AN UNRESOLVED ANSWER REGAINED CERTAINTY THROUGH PROSE.** Owner: *"Reproduce
+an echo with `answers: "page#0"`, no item, and `by: "the gallery code points at
+/gallery"`. It currently produces both "I've set that up" and "I can't see
+whether" for the same need."* REPRODUCED exactly — the hand-off `unknown` and
+the answer `configured`, two opposite sentences about one need in one reply, the
+reassuring one being the wrong one.
+
+**THE ECHO SAYS WHICH REQUEST IS BEING ANSWERED; IT IS NOT EVIDENCE THAT IT WAS.**
+With no item the answer's own implementation is `unknown`, so `reconcileHandoffs`
+refuses it — and `claimEvidence` then matched the word `gallery` inside that
+sentence against the qr step's own applied code. An entry that names the hand-off
+it answers has said where its work belongs; if nothing can resolve WHAT that work
+is, the ceiling is the same `unknown` the implementation reader already gave it.
+**NARROW BY CONSTRUCTION**: the gate asks for `answers`, so a bare `covered`
+claim is untouched and keeps the five real findings the stricter reading was
+measured to lose on 2026-09-16.
+
+**AND GATING THE PROSE IS HALF THE FIX.** Both entries then read `unknown` and
+the need was said TWICE in the customer's own words — the duplicate half of the
+same incoherence. `spokenForBy` names the request that speaks for it: silent in
+the prose, whole in the record, **its OWN field and not `overruledBy`**, because
+*"a finding contradicted your answer"* and *"your answer named nothing anyone
+could find"* are two facts a developer acts on differently.
+
+**⚠ `unknown` AND NOT `!== "found"`, AND THE WRONG-ITEM CONTROL IS WHAT SAID SO.**
+The first cut used the looser test and ate a real finding: an answer naming an
+item this layer LOOKED FOR AND DID NOT FIND reads `absent` → `missing` →
+*"Still to do"*, the most actionable line in the reply. **`absent` is resolved —
+resolved to NOT THERE.** Only `unknown` established nothing either way. The two
+gates are written as two properties (*may this be lifted by a sentence* against
+*does this add anything to its request*) rather than one, because they coincide
+only while `absent` never reaches the prose branches.
+**AND AN ECHO NAMING A REQUEST NOBODY SENT KEEPS SPEAKING** — it is the only
+record of its own need, and silencing it would lose the need rather than say it
+once.
+
+**Guards**: `site-picture` **66** (the frame case REPLACED, not added to — its
+expectations MOVED rather than broke, and the old control was a bare `const`
+array which is now one of the refusals) and `requirement-coverage` **34 → 35**.
+**⚠ AND LAST ROUND'S CONTROL 2 IN `addon-route` WAS VACUOUS, which is the
+finding**: it drove the owner's shape with `by: "a code was made"` — prose
+carrying no applied item's name — so `claimEvidence` matched nothing and it
+passed whatever the product did. It carries the owner's own sentence now, with
+the COMPLETE customer note asserted, because the defect is a contradiction
+BETWEEN two clauses and no assertion about one of them can see it.
+
+**Reach, measured by reverting each product file alone**: the frame reader turns
+exactly **1** case red and the requirements reader exactly **2** (the route's QR
+case and the new module case), with everything else green on both trees.
+
+**Sweep: 27 mutants, 27 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/frames-and-echo.json`, over
+`builder/site-picture.mjs` and `builder/site-requirements.mjs`, against 8 test
+files). **Pass 1 read 25/3 and not one survivor was the product's** — one was a
+real guard gap and two were MEASURED inert:
+
+- **THE GAP: an array handed to a CALL.** Every other shape reaches its second
+  encloser as a `{`; these reach a `(` — `items={pick([{…}])}`, `useMemo(() =>
+  [{…}], [])`, `wrap(fn([{…}]))`. All four answer `false` correctly and no case
+  drove one.
+- **⚠ AND THE OTHER TWO ARE A BELT BEHIND A BELT, three deep with only the
+  outermost observable.** `arrayEnd`'s `-1`, the caller's `shut < 0` and the
+  caller's *"the next character is the expression's `}`"* all enforce one
+  property, and **cutting any one — or the first two together — changes no answer
+  over 20 constructed shapes and the whole corpus**, because a bound, a file end
+  or index 0 is never `}`. So the recorded "mutate the PAIR" does not apply: the
+  pair is not a pair. The outermost is what the sweep mutates and the two inner
+  ones are declared where they live. The name test is a true pair with the `=`
+  test (measured absorbed alone, killed together).
+
+**Suite 6,876** — 6,875 + 1, **and the arithmetic closes exactly against
+baselines measured in a detached worktree at `c745ce9a`** (site-picture 66,
+addon-route 135, requirement-coverage 34) rather than subtracted from a
+paragraph. `addon-route` stays 135: everything it gained is an assertion inside a
+case that already existed.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.** The
+photo-reuse guidance work is next.
 
 ---
 

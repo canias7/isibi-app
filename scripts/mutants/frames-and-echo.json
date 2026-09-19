@@ -1,0 +1,236 @@
+[
+  {
+    "label": "an array anywhere is counted again, so an unused const reports frames — the reported defect",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  if (seq.length < 2) return false;\n  const [open, hold] = seq;\n  if (src[open] !== \"[\" || src[hold] !== \"{\") return false;",
+    "to": "  if (seq.length < 1) return true;\n  const [open, hold] = seq;\n  if (src[open] !== \"[\" || src[hold] !== \"{\") return false;"
+  },
+  {
+    "label": "the array need not sit in a JSX expression container, so a bare const counts",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  if (src[open] !== \"[\" || src[hold] !== \"{\") return false;",
+    "to": "  if (src[open] !== \"[\") return false;\n  if (src[hold] !== \"{\") return true;"
+  },
+  {
+    "label": "PAIR: the whole `name={` test goes — measured absorbed on its own, so the pair is what a sweep can see",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const eq = backFrom(src, hold);\n  if (src[eq] !== \"=\") return false;\n  // ⚠ THE NAME TEST IS ABSORBED BY THE `=` TEST, MEASURED AND DECLARED. Over 20\n  // constructed shapes and the whole 100-site corpus, cutting this line changes\n  // NO answer — every `= {` a real file writes has an attribute name in front\n  // of it, and the shapes that reach a `{` some other way (`{...{…}}`, a\n  // destructuring default, a comparison) are refused by the `=` above. It stays\n  // because the PAIR is what a reader needs — a JSX prop is `name={value}`, and\n  // half of that stated alone invites the other half to be dropped as noise —\n  // and the sweep mutates the two together, because a sweep cannot say this and\n  // the next session deletes what nothing appears to need.\n  if (!/[A-Za-z0-9_$]/.test(src[backFrom(src, eq)] || \"\")) return false;",
+    "to": "  const eq = backFrom(src, hold);\n  void eq;"
+  },
+  {
+    "label": "the `=` is not required, so a list a page maps over reads as a prop value",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const eq = backFrom(src, hold);\n  if (src[eq] !== \"=\") return false;",
+    "to": "  const eq = backFrom(src, hold);\n  if (false) return false;"
+  },
+  {
+    "label": "the array need not OPEN the expression, so a ternary branch is counted",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  if (backFrom(src, open) !== hold) return false;",
+    "to": "  if (false) return false;"
+  },
+  {
+    "label": "the array need not CLOSE the expression, so `[{…}].length` is counted",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const shut = arrayEnd(src, open);\n  if (shut < 0 || backFrom(src, forward(src, shut)) !== shut || src[forward(src, shut)] !== \"}\") return false;",
+    "to": "  const shut = arrayEnd(src, open);\n  if (shut < 0) return false;"
+  },
+  {
+    "label": "a spread's hidden elements are counted as a written number",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  return !src.slice(open, shut).includes(\"...\");",
+    "to": "  return true;"
+  },
+  {
+    "label": "the forward walk stops at the first close of any kind, so a nested object ends the array",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \"[\" || c === \"{\" || c === \"(\") { depth++; continue; }",
+    "to": "    if (c === \"[\") { depth++; continue; }"
+  },
+  {
+    "label": "the lookback bound collapses, so a long gallery's later entries lose their number",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const MAX_PROP_LOOKBACK = 2000;",
+    "to": "const MAX_PROP_LOOKBACK = 120;"
+  },
+  {
+    "label": "a bound reached is read as a number rather than as uncertainty",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  if (seq.length < 2) return false;\n  const [open, hold] = seq;",
+    "to": "  if (seq.length < 2) return seq.length > 0;\n  const [open, hold] = seq;"
+  },
+  {
+    "label": "the walk stops at the first unclosed bracket, so a nested prop array is refused",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (depth) { depth--; continue; }\n      seq.push(i);",
+    "to": "      seq.push(i);"
+  },
+  {
+    "label": "nothing is ever counted, so every gallery loses its number",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "counted: writtenWhereItRenders(mask, m.index) });",
+    "to": "counted: false });"
+  },
+  {
+    "label": "everything is counted, so a mapped gallery reads as an exact number",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "counted: writtenWhereItRenders(mask, m.index) });",
+    "to": "counted: true });"
+  },
+  {
+    "label": "the number and the flag swap, so what is established is said as uncertain",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => f.counted));",
+    "to": "  const gain = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.counted));"
+  },
+  {
+    "label": "the uncertain half is asked of the whole site rather than what this change added",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const more = grewBy(before, after, (pages) => empties(pages).filter((f) => !f.counted)).size > 0;",
+    "to": "  const more = empties(after).some((f) => !f.counted);"
+  },
+  {
+    "label": "the string masking is dropped, so a quoted example counts as a picture",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    const mask = codeOnly(src, true);",
+    "to": "    const mask = codeOnly(src);"
+  },
+  {
+    "label": "the shape walk reads the unmasked copy, so a bracket in a caption is a bracket",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "counted: writtenWhereItRenders(mask, m.index) });",
+    "to": "counted: writtenWhereItRenders(view, m.index) });"
+  },
+  {
+    "label": "an unresolved answer takes a prose verdict again — the reported defect",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const ev = r.status === \"covered\" && speaks ? claimEvidence(r.by, evidenceItems(made, impl)) : null;",
+    "to": "    const ev = r.status === \"covered\" ? claimEvidence(r.by, evidenceItems(made, impl)) : null;"
+  },
+  {
+    "label": "a resolved answer is gated too, so the legitimate association loses its evidence",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const speaks = !echoed || (!!impl && impl.state === \"found\");",
+    "to": "    const speaks = !echoed;"
+  },
+  {
+    "label": "a bare covered claim is gated as though it echoed, losing its prose match",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const echoed = r.status === \"covered\" && typeof r.answers === \"string\" && !!r.answers;",
+    "to": "    const echoed = r.status === \"covered\";"
+  },
+  {
+    "label": "the answer is never spoken for, so one need is said twice",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (r.implementation === \"unknown\" && requested.has(r.answers)) spokenFor.add(r);",
+    "to": "      if (false) spokenFor.add(r);"
+  },
+  {
+    "label": "a finding is silenced as an unresolved answer — Still to do is deleted",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (r.implementation === \"unknown\" && requested.has(r.answers)) spokenFor.add(r);",
+    "to": "      if (requested.has(r.answers)) spokenFor.add(r);"
+  },
+  {
+    "label": "an echo naming a request nobody sent is silenced into thin air",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      if (r.implementation === \"unknown\" && requested.has(r.answers)) spokenFor.add(r);",
+    "to": "      if (r.implementation === \"unknown\") spokenFor.add(r);"
+  },
+  {
+    "label": "the requests are collected from the answers, so nothing is ever spoken for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (r && r.status === \"elsewhere\" && typeof r.id === \"string\" && r.id) requested.add(r.id);",
+    "to": "    if (r && r.status === \"covered\" && typeof r.id === \"string\" && r.id) requested.add(r.id);"
+  },
+  {
+    "label": "the early return skips the silence when nothing reconciled",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (!answering.size && !spokenFor.size) return list;",
+    "to": "  if (!answering.size) return list;"
+  },
+  {
+    "label": "the mark is never written, so the note cannot tell which request speaks",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (spokenFor.has(r)) return { ...r, spokenForBy: r.answers };",
+    "to": "    if (spokenFor.has(r)) return { ...r };"
+  },
+  {
+    "label": "the note ignores the mark, so a silenced answer speaks anyway",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const spoken = (r) => !(r && ((r.status === \"elsewhere\" && r.reconciledBy) || r.overruledBy || r.spokenForBy));",
+    "to": "  const spoken = (r) => !(r && ((r.status === \"elsewhere\" && r.reconciledBy) || r.overruledBy));"
+  },
+  {
+    "label": "CONTROL: a comment-only change to the frame reader",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "function writtenWhereItRenders(src, at) {",
+    "to": "// a comment-only control: this line is unchanged\nfunction writtenWhereItRenders(src, at) {",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment-only change to the reconciliation",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const spokenFor = new Set();",
+    "to": "  // a comment-only control: this line is unchanged\n  const spokenFor = new Set();",
+    "control": true
+  }
+]
