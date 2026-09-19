@@ -6848,6 +6848,16 @@ directory's own notes recorded that branch as never driven; it is driven now**, 
 
 ### Measured
 
+- **THE NARROW SQL PASS AT HEAD: 3 mutants, 3 killed, 0 survived, 0 never applied, 1
+  comment-only control survived** — this milestone's own SQL mutants, against a real
+  PostgreSQL, in a detached worktree at HEAD, proved restored two ways afterwards (a clean
+  `git status` and the generator's own anchor census green over all 279 entries).
+  **⚠ IT EXISTS BECAUSE THE FULL SQL SWEEP DOES NOT COVER THEM, which is a coverage claim
+  somebody would otherwise get wrong.** That run is at `e7a5502`, and FOUR of its own inputs
+  moved between there and HEAD — `sql-sweep-spec.mjs`, `20260917120000`, `20260918030000` and
+  `pg-schema.mjs` — so its tally, whatever it says, is an answer about that commit and says
+  **nothing** about the resume-tick clause or the revocation's not-stopped test. *Reporting
+  what answered is not reporting what is deployed*, in a sweep instead of a Worker.
 - **`npm run verify:send`: 78 → 90 checks, 0 failed.** The twelve are the two states read back
   through the SITE's own history route (a cancellation saying who, their words and how far it
   got; an uncertain send naming which step nobody can account for, not reading as a clean send,

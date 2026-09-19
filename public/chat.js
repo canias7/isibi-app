@@ -2501,6 +2501,13 @@ function agentAutoExample() {
     // press of the button would offer whatever the last one was changed into.
     steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {
       const copy = { ...st };
+      // ⚠ **`!copy.connection` IS A DECLARED SECOND WALL AND IS MEASURED INERT TODAY.** The
+      // example is censused as carrying no connection at all, so this test is true for every
+      // send it can hold — driven over the real object and over five falsy shapes, all
+      // byte-identical with it and without. What separates the two readings is an example
+      // that ALREADY names one, which is exactly what the census forbids. It stays because it
+      // says out loud that a seed may never replace a choice somebody made, and the sweep
+      // mutates the OBSERVABLE half of this line (the fill never happening) instead.
       if (copy.type === 'send' && !copy.connection) copy.connection = pick;
       return copy;
     }),

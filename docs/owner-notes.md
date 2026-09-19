@@ -12824,10 +12824,15 @@ fake provider's mailbox — rather than something that looks like it.
    into the browser, which is exactly why nobody noticed: two copies of one number, waiting for
    the day the server's cap moves.
 
-**Measured**: site suite 6,823 → **6,829**, 0 failed; `verify:send` 78 → **90** checks, 0
-failed; the engine's own suite **589**, unchanged. Every new assertion was proved to go red
-against the defect it forbids — eleven breakages, one at a time. The site mutation sweep for the
-states is **14 of 14 killed, clean on the first pass**.
+**And one more thing a customer sees**: the history now shows **the message that went out**,
+with `[simulated]` beside it rather than only as a chip above the panel — the chip is gone the
+moment somebody copies a reply into an email.
+
+**Measured**: site suite 6,823 → **6,831**, 0 failed; `verify:send` 78 → **90** checks, 0
+failed; the engine's own suite 589 → **590**. Every new assertion was proved to go red against
+the defect it forbids — **27 breakages, one at a time** — and **one proof that did NOT go red**,
+which is the useful one: a check driving the example directly could not see the route dropping
+it, so that failure is what bought the guard which can.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** No migration in this round at all — it is entirely
 above the database.

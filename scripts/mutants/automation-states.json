@@ -119,5 +119,37 @@
   ],
   "from": "      by: cancelledFacts(stop).by || \"\",",
   "to": "      by: cleanId(stop && stop.by) || \"\","
+ },
+ {
+  "label": "prepared: the message a person approved is never on the history",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "              (autoSaid(o.prepared)\n                ? '<span class=\"ag-step-msg\">' + esc(o.prepared) +\n                    (o.simulated === true ? ' <em>[simulated]</em>' : '') + '</span>'\n                : '') +",
+  "to": ""
+ },
+ {
+  "label": "prepared: the simulated label is a constant, so a real provider's answer keeps it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(o.simulated === true ? ' <em>[simulated]</em>' : '')",
+  "to": "' <em>[simulated]</em>'"
+ },
+ {
+  "label": "prepared: the label never rides with the message, only above the panel",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(o.simulated === true ? ' <em>[simulated]</em>' : '')",
+  "to": "''"
+ },
+ {
+  "label": "prepared: a step that prepared nothing draws an empty box",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "              (autoSaid(o.prepared)\n",
+  "to": "              (true\n"
  }
 ]

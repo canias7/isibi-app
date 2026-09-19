@@ -2983,3 +2983,77 @@ test("⚠ THE CATALOG'S OWN CAP REACHES THE FORM, rather than a number written h
   assert.equal(w.val("agentAutoCat").maxInputs, MAX_AUTOMATION_INPUTS,
     "the cap the server sent is the cap the form holds");
 });
+
+test("⚠ THE MESSAGE A PERSON APPROVED IS ON THE HISTORY, and it says it is simulated", async () => {
+  /**
+   * ⚠ **THE BRIEF NAMES THIS IN AS MANY WORDS — *show the prepared message and the provider's
+   * actual recorded outcome* — and `why`/`error`/`result` are all sentences ABOUT the send.**
+   * None of them is the text, and the text is the thing somebody checks against what they
+   * approved. The label rides BESIDE the message rather than only above the panel, because a
+   * chip is gone the moment somebody copies an answer into an email.
+   */
+  const sent = {
+    id: "R7", automationId: "AU1", trigger: "manual", state: "done", result: "sent to ada@example.test",
+    outcomes: [
+      { id: "s1", type: "knowledge", outcome: "ran", why: "found 1 passage",
+        sources: [{ title: "Prices", version: 2 }] },
+      { id: "s3", type: "send", outcome: "ran", sent: true, simulated: true,
+        prepared: "Hello Ada — about your wheel truing: £95.", why: "sent to ada@example.test from shop@example.test" },
+    ],
+    steps: [], unresolved: [], why: null, error: null, at: "2026-09-19T06:00:00Z", finishedAt: "2026-09-19T06:00:09Z",
+  };
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: [sent] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /ag-step-msg/, "the prepared message has its own place");
+  assert.match(html, /Hello Ada — about your wheel truing/, "and it is the words that went out");
+  assert.match(html, /\[simulated\]/, "labelled, beside the message and not only above the panel");
+  // THE PROVIDER'S OWN RECORDED OUTCOME, which is a different thing from the message.
+  assert.match(html, /sent to ada@example\.test from shop@example\.test/);
+  // AND WHERE THE LOOKUP'S ANSWER CAME FROM, with its version — an excerpt with no source is
+  // an assertion nobody can check.
+  assert.match(html, /Prices v2/);
+
+  // ⚠ **THE LABEL IS READ FROM THE OUTCOME, NEVER WRITTEN AS A CONSTANT**, so connecting a
+  // real provider stops it with no change to this renderer. The CONTROL is the same send with
+  // `simulated` absent: the message is still drawn and the label is gone.
+  const real = { ...sent, outcomes: sent.outcomes.map((o) => o.type === "send" ? { ...o, simulated: false } : o) };
+  const w2 = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: [real] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w2.ev("agentsLoad()");
+  await w2.ev('agentAutomations("A")'); await settle();
+  await w2.ev('agentAutoHistory("AU1")'); await settle();
+  const html2 = w2.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html2, /Hello Ada — about your wheel truing/, "the message is still drawn");
+  assert.doesNotMatch(html2, /\[simulated\]/, "and nothing claims a simulation that is not one");
+
+  // AND A STEP THAT PREPARED NOTHING DRAWS NO EMPTY BOX — the recorded defect of drawing the
+  // word `undefined`, one field over.
+  const plain = { ...sent, outcomes: [{ id: "s2", type: "note", outcome: "ran", result: "noted" }] };
+  const w3 = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: [plain] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w3.ev("agentsLoad()");
+  await w3.ev('agentAutomations("A")'); await settle();
+  await w3.ev('agentAutoHistory("AU1")'); await settle();
+  const html3 = w3.s.document.getElementById("viewAgents").innerHTML;
+  assert.doesNotMatch(html3, /ag-step-msg/);
+  assert.doesNotMatch(html3, /undefined/);
+});

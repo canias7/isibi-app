@@ -85,8 +85,8 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "    steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {\n      const copy = { ...st };\n      if (copy.type === 'send' && !copy.connection) copy.connection = pick;\n      return copy;\n    }),",
-  "to": "    steps: (Array.isArray(eg.steps) ? eg.steps : []),"
+  "from": "    steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {",
+  "to": "    steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => { return st; }) || ((st) => {"
  },
  {
   "label": "browser: a disconnected account is a place to send from",
@@ -113,11 +113,11 @@
   "to": "             ('<button class=\"ag-retry ag-auto-eg\" data-act=\"agent-auto-example\">' +\n               'Start from an example' + '</button>') +"
  },
  {
-  "label": "browser: the example overwrites a connection the person already chose",
+  "label": "browser: the send step's connection is never filled, so a person who has one must still pick",
   "files": [
    "public/chat.js"
   ],
   "from": "      if (copy.type === 'send' && !copy.connection) copy.connection = pick;",
-  "to": "      if (copy.type === 'send') copy.connection = pick;"
+  "to": "      if (false) copy.connection = pick;"
  }
 ]

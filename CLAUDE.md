@@ -9023,6 +9023,16 @@ copies agreeing today would make the demonstration a claim ABOUT the example.
   a stale page — a button that seeds nothing is a dead control. The server's answer is COPIED,
   so a second press offers the example rather than whatever the last one was edited into.
 
+**AND THE MESSAGE A PERSON APPROVED IS ON THE HISTORY, which is the other half of item 5's
+own words — *show the prepared message and the provider's actual recorded outcome*.** `why`,
+`error` and `result` are all sentences ABOUT the send; none of them is the text, and the text is
+what somebody checks against what they said yes to. **The `[simulated]` label rides BESIDE the
+message** rather than only as a chip above the panel, because a chip is gone the moment somebody
+copies an answer into an email — and it is **read from the outcome, never written as a
+constant**, so connecting a real provider stops it with no change to that renderer. Driven in a
+real render, with two controls: the same send with `simulated: false` still draws the message and
+no label, and a step that prepared nothing draws no empty box and no `undefined`.
+
 **⚠ AND A SECOND DEFECT FOUND BY READING IN PASSING: `maxInputs` NEVER REACHED THE BROWSER.**
 The route has sent it all along and `agentAutoCat`'s assignment dropped it, so both readers fell
 through to a hardcoded `8`. **It agrees with `MAX_AUTOMATION_INPUTS` today, which is exactly what
@@ -9040,28 +9050,46 @@ the whole feature is silent.
 
 ### Measured
 
-- **Site suite 6,823 → 6,829** (6,827 pass, 2 skipped, 0 fail), and the arithmetic closes
-  exactly: `agent-automations` 39 → 41 (the three states, the example census) and
-  `agent-binding` 96 → 100 (the seeded form and its edits, the connection pick, the
-  no-example screen, the cap reaching the form).
+- **Site suite 6,823 → 6,831** (6,829 pass, 2 skipped, 0 fail), and the arithmetic closes exactly:
+  `agent-automations` 39 → 41 (the three states, the example census) and `agent-binding`
+  96 → 102 (the seeded form and its edits, the connection pick, the no-example screen, the
+  half-read example, the cap reaching the form, and the prepared message with its two
+  controls).
 - **`verify:send` 78 → 90 checks, 0 failed**, twelve of them reading the two states back
   through the site's OWN history route. **Engine suite 589, unchanged — the control.**
-- **EVERY NEW ASSERTION WAS PROVED RED against the defect it forbids, eleven breakages driven
-  one at a time**: `running` collapsed into `queued`, the cancellation read as a failure, the
-  uncertain send read as a failure, the order reversed, the four facts on every state, the
-  reader written against the imagined names again, the example carrying a connection, a step
-  type the catalog has not got, a reference nothing produces, the steps unfrozen, and each
-  wiring hop off the wire.
-- **Site sweeps: `automation-states.json` 14 mutants, 14 killed, 0 survived, 0 never applied,
-  1 comment-only control survived — clean on the first pass**, run in a copy of the tree so the
-  main one held no mutant, and that copy proved restored two ways afterwards (byte-identical to
-  the main tree, and its anchor census green — which it cannot be while a mutant is applied).
-  **`automation-example.json` HOLDS 15 ENTRIES (14 mutants, 1 control) AND ITS TALLY IS
-  DELIBERATELY NOT STAMPED UNTIL ITS RUN ENDS** — a count nobody re-measured is a claim ahead
-  of its evidence. Its first pass left ONE survivor and it was a real gap: `example: j.example
-  || null` — a truthiness check — passed every case because the fixture only ever sent a WHOLE
-  example or none, so a truthy answer carrying no steps (which seeds a form with a name and
-  nothing in it) was undrivable. Closed with a case, its control, and a third fixture shape.
+- **27 BREAKAGES DRIVEN ONE AT A TIME, AND ONE THAT DID *NOT* GO RED — which is the finding that
+  bought a guard.** Counted rather than recalled: 5 for the three states, 4 for the example census,
+  2 for the wire, 6 for the browser's seeding, 1 for the half-read example, 4 for the prepared
+  message, 3 for the approvals answer, and 2 proving a replaced and a re-anchored mutant really
+  observable. **The one that stayed green is the example never reaching the wire**: a census driving
+  `EXAMPLE_AUTOMATION` directly cannot see the route dropping it, and with the key gone the whole
+  feature is silent — so the key-set census exists because a red-proof failed to be red.
+- **Site sweeps, both run in a copy of the tree so the main one held no mutant, and that copy
+  proved restored two ways afterwards (byte-identical to the main tree, and its anchor census
+  green — which it cannot be while a mutant is applied).** `automation-states.json`'s first pass
+  over its original 14 read **14 mutants, 14 killed, 0 survived, 0 never applied, 1 comment-only
+  control survived — clean on the first pass**; it holds **19 entries (18 mutants, 1 control)**
+  now, the four added being the prepared message's, and **that wider tally is stamped below
+  rather than inferred from the first pass** — a count nobody re-measured is a claim ahead of
+  its evidence, and a pass over 14 says nothing about 18.
+  **`automation-example.json` HOLDS 15 ENTRIES (14 mutants, 1 control), AND IT TOOK THREE
+  READINGS — two of which are void and are recorded as such.** Its first pass left ONE
+  survivor and it was a real gap: `example: j.example || null` — a truthiness check — passed
+  every case because the fixture only ever sent a WHOLE example or none, so a truthy answer
+  carrying no steps (which seeds a form with a name and nothing in it) was undrivable. Closed
+  with a case, its control, and a third fixture shape.
+  **⚠ THEN I RAN TWO RUNNERS OVER ONE WORKTREE AND BOTH READINGS WERE WORTHLESS** — the
+  recorded trap, through the door it is recorded on: the second was started with `… &` inside
+  a background call, so the tracked wrapper returned at once, the runner became an orphan, and
+  the FIRST pass was still going. *Run the sweep as the background call's own command.*
+  **The single clean run then read 14 mutants, 13 killed, 1 survived, 1 comment-only control
+  survived — and that survivor is MEASURED INERT**: `!copy.connection` is true for every send
+  the example can hold, driven over the real object and five falsy shapes, byte-identical with
+  and without it. What separates the two readings is an example that ALREADY names a
+  connection, which the census forbids. **So it is DECLARED in the code as a second wall and
+  its mutant is REPLACED by the observable half of the same line** (the fill never happening,
+  so a person who has an account must still pick one), which is red. **Its final tally is
+  stamped below rather than inferred from a pass over a different spec.**
 - **⚠ AND AN ANCHOR CENSUS OVER *EVERY* SPEC IN `scripts/mutants/` IS THE WRONG INSTRUMENT.**
   Run broad it answered **178 problems**, and every one is a HISTORICAL spec whose anchor has
   legitimately moved as the tree grew — those files are per-round snapshots, not live guards. So
