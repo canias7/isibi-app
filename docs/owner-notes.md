@@ -12676,10 +12676,11 @@ test now asks whether the column is really empty rather than whether it is unusa
   **6,814** with nothing failed; the engine's reads **577**, and the one test it skips there is
   the one I predicted before the run — which is what makes a skip count worth reporting at all.
   The deploy gate is not armed, so **nothing was deployed.**
-- **Nine of the ten end-to-end demonstrations green** at their recorded counts, which is the
-  control that says this touched nothing else. The tenth is still running and I have not counted
-  it — writing down a number from a previous run as though it were this one's is the mistake I
-  keep a rule against.
+- **All ten end-to-end demonstrations green** at their recorded counts, every one re-run on this
+  code, which is the control that says this touched nothing else. **I wrote the tenth one's
+  number down once before its run had returned** — it turned out to be the same number, which is
+  exactly why that is worth mentioning: nothing in the figure itself would have told either of
+  us.
 
 **⚠ One thing is still running and I am not calling it done: the full breakage sweep over the
 database migrations.** 278 breakages, each one building a database from scratch, about 75

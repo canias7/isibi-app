@@ -6570,13 +6570,16 @@ the fifth instance in this product.
   privilege-drop case needs to BE root in order to stop being root, and a runner is the user
   `runner` — which is what makes a skip count evidence rather than an observation. Steps 6
   through 13 all read `skipped`: the deploy gate is not armed, so **NOTHING WAS DEPLOYED.**
-- **NINE demonstrations green at their recorded counts**, which is the control that this round
-  broke nothing: `tools` 119 · `chat` 126 · `auto` 70 · `wf` 157 · `triggers` 64 ·
-  `connections` 76 · `controls` 71 · `integration` 89 · **`ops` 53 → 75**.
-  **⚠ `verify:local` IS THE TENTH AND IS STILL RUNNING**, so it is NOT counted above — an
-  earlier draft of this line listed it at its recorded 69, which is a number from a previous
-  round wearing this round's evidence. *Stamp measured numbers only AFTER the run*, and a
-  demonstration nobody has re-run is exactly the case that rule is about.
+- **ALL TEN demonstrations green at their recorded counts, every one re-run on this tree**,
+  which is the control that this round broke nothing: `tools` 119 · `chat` 126 · `auto` 70 ·
+  `wf` 157 · `triggers` 64 · `connections` 76 · `controls` 71 · `integration` 89 ·
+  `local` 69 (`verify-live.mjs exited 0`) · **`ops` 53 → 75**.
+  **⚠ AND `local` WAS WRITTEN DOWN HERE ONCE BEFORE ITS RUN RETURNED**, at that same 69, which
+  is a number from a previous round wearing this round's evidence. Corrected before the commit,
+  then stamped again when the run really landed — *stamp measured numbers only AFTER the run*,
+  and a demonstration nobody has re-run is exactly the case that rule is about. The figure is
+  the same either way, which is what makes it a good instance of the rule rather than a
+  harmless one: nothing in the number would have told anybody.
   **⚠ AND MY FIRST READING OF THAT TABLE WAS THE INSTRUMENT'S FAULT, worth one line**: I read
   each one with `tail -3 | grep "all checks passed"` and five came back blank — they use three
   different final wordings (`all checks passed`, `PASSED — 0 failed`, `ALL CHECKS PASSED`). *A
