@@ -10085,6 +10085,13 @@ Three are worth keeping as rules:
 baseline measured in a detached worktree** (392 → 398 over the five files) rather
 than subtracted from a paragraph.
 
+**CI HAS READ IT: `unit tests` run 2739 on `6096f1bf`, green — `# tests 6873 /
+# pass 6869 / # fail 0 / # skipped 4`**, against local `6873 / 6873 / 0 / 0`; the
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case, and **the TOTAL is what matches**. `site build` run **1194**
+is green on the same sha — it fired because `builder/site-picture.mjs` and
+`builder/site-add.mjs` moved.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN, AND fal VERIFICATION STAYS PARKED.**
 
 #### What the addon can do, measured end to end (2026-09-19)
@@ -10318,6 +10325,17 @@ the baseline, so a sweep that never starts still says what it was trying to do.
 **Suite 6,875** — 6,873 + 1 + 1, **and the arithmetic closes exactly against a
 baseline measured in a detached worktree** (the five touched files read 352 at
 the committed tip and 354 now) rather than subtracted from a paragraph.
+
+**CI HAS READ IT: `unit tests` run 2743 on `7840772d`, green (2026-09-19
+03:45:19→03:47:3xZ) — `# tests 6875 / # pass 6871 / # fail 0 / # skipped 4`**,
+against local `6875 / 6875 / 0 / 0`, and **the TOTAL is what matches**. The four
+are NAMED out of the log rather than recalled: the privilege-drop case (*"needs
+root and an unprivileged user"*), two RTL cases (*"template deps not
+installed"*) and `site-searchpath`'s baseline-commit case (*"a shallow checkout
+holds one commit"*) — the standing expectation met rather than a new one.
+`site build` run **1195** fired on the same sha, because `builder/site-add.mjs`
+and `builder/site-picture.mjs` moved — **its result is UNREAD as this is
+written**, and is left unstamped rather than carried over from run 1194.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN.** Fal verification stays parked, and
 the photo-reuse guidance work is queued behind these two (the owner: *"Photo
@@ -11414,6 +11432,16 @@ rule and the measurement.
   agreeing proves nothing, because a whole snapshot can be old. **What settles it
   is the step's own expected duration** — and a stale reading can persist ~25
   minutes. `date` is the cheap check before calling anything hung.
+- **AND `?head_sha=` ANSWERS `total_count: 0` FOR A SHA THAT REALLY HAS RUNS —
+  measured 2026-09-19 on two consecutive commits.** `GET /actions/runs?branch=…`
+  found `unit tests` and `site build` on both; the same endpoint filtered by
+  `head_sha` answered **zero** for each. **A zero from that filter is the
+  instrument, not the repository**, and it is the worst-shaped answer available:
+  it reads exactly like *"no workflow fired for this push"*, which is a real and
+  ordinary outcome here (`paths` and `paths-ignore` produce it every day), so
+  there is nothing to make it look wrong. It cost one monitor that polled for
+  completion, never saw a run, and **ended silently after 55 rounds**. Ask by
+  BRANCH and match the sha yourself.
 - **A FALSE ALARM IS WORSE THAN A MISS**, and a false ALL-CLEAR is worse than
   either. Any new lint measures its false-alarm rate against the real corpus and
   must reach ZERO before it ships. **A live check's ambiguous anchor fails
