@@ -14284,9 +14284,61 @@ and `last_result` on the row and nothing else a session can read — no trace ro
 no job log. A press and a tick leave the same two fields. So a stamp that
 appears with no press recorded is **consistent with scheduled execution** and is
 not proof of it, which is this file's own *a timestamp does not identify an
-invocation* met from the other side. **And the before/after readings need no
-manual invocation**: the harness's own `jobsBefore` is taken inside the paid run
-before it posts, and the after-reading is the owner's Jobs panel — a read, free,
-and now carrying `on`/`onState` because `jobPanelRow` does.
+invocation* met from the other side.
+
+**AND THE BASELINE IS `jobsAfter`, NOT `jobsBefore` (owner, 2026-09-19).** The
+readings need no manual invocation and both are free, but they answer different
+questions and the first draft used the wrong one. **`jobsBefore` cannot be the
+baseline for a job it does not contain** — the row is registered BY the run, so
+the before-read is the COMPARISON (which row is new, and that every other row is
+untouched) and the after-read is the BASELINE that a later observation is
+measured against. Record it whole: `name`, `fn`, `on`, `at`, `tz`, `onState` and
+`lastRun`, and confirm the site's existing recurring job is unchanged across the
+pair.
+
+**⚠ AND THE SAME STANDARD APPLIES TO THE RECURRING ROW, which a first draft
+exempted.** It proposed reading `nightly_booking_count`'s panel stamp to
+establish that "cron execution on this site is already established" — and **a
+panel shows ONE latest timestamp, which is a scalar**: it cannot show a HISTORY
+of nightly runs, and it cannot identify what wrote it any more than the one-time
+job's own stamp can. Applying the weaker reading to the pre-check and the
+stronger one to the test is how a claim launders itself through a neighbour.
+**One standard throughout: without invocation evidence, an observed change is
+consistent with scheduled execution and is not proof of it.**
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO PRODUCT EXPANSION.**
+
+#### …AND THE PREPARATION MILESTONE IS CLOSED (2026-09-19)
+
+Owner: *"The release-preparation corrections check out. The independent review
+passed all 50 harness tests and reproduced the rollback restoring the exact base
+tree. CI 2798 on ead2c104 is green."* Two wording corrections came with it and
+are made above; **no product change and no testing expansion was needed for
+either**, which is worth saying because the temptation on a reporting
+correction is to build something.
+
+**CI HAS READ THE EXACT PUSHED TIP**: `unit tests` run **2798** on `ead2c104`,
+green — `# tests 6968 / # pass 6964 / # fail 0 / # skipped 4`, against local
+`6968 / 6968 / 0 / 0`. **The number is the same one 2797 read and is
+deliberately not re-stamped as new**: the two trees differ only in `CLAUDE.md`,
+so by the stamp-chain rule this is a reading that is not new — what it adds is
+that CI has now read the tip itself rather than its parent. No `site build`
+fired for either and none was due.
+
+**`expect_deploy` IS THE SHA THE DEPLOY REALLY RAN ON, whatever the merge is
+called.** `DEPLOY_ID` is `github.sha` of the deploy run, so on a fast-forward it
+is the fast-forwarded tip and on a real merge it is the merge commit — the
+harness matches a 7+ character prefix either way. **Read it off the deploy run
+rather than deriving it from the merge strategy**; the strategy decides which
+commit that is, and the wrong inference there buys a refusal at best and a paid
+run against the wrong build at worst.
+
+**THE ROLLBACK'S ONE-TIME-JOB PREREQUISITE STANDS UNCHANGED** and stays first:
+disable or delete any one-time job created while the branch was live BEFORE
+restoring the old scheduler, or it fires every 31 days indefinitely. The range
+revert itself is verified (zero conflicts, tree byte-identical to the base) and
+is reviewed rather than applied blind, because a later commit on the same lines
+makes it conflict.
+
+**READY FOR THE MERGE DECISION. NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** —
+this round authorizes none of the three.

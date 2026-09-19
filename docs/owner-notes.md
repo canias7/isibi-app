@@ -14542,3 +14542,31 @@ after-reading is just opening the Jobs panel.
 Bookings count re-read today: **3**, both functions, both addresses.
 
 Nothing merged, deployed or spent.
+
+## Preparation closed (2026-09-19)
+
+Two wording fixes, no code:
+
+**The baseline is the row the run creates, not the read before it.** I had said
+to use the "before" reading as the baseline for watching the one-time job — but
+that reading doesn't contain the job at all; the run registers it. So the before
+reading is the *comparison* (which row is new, and that nothing else moved), and
+the row read straight after the run is the baseline: its name, function, date,
+time, zone, state and last-run. And check the existing nightly job is untouched
+across the pair.
+
+**I applied a weaker standard to my own pre-check than to the test.** I'd
+suggested glancing at the nightly job's panel to show "cron already works here".
+A panel shows one timestamp. One timestamp is not a history of nightly runs, and
+it doesn't say what wrote it — exactly the point I was making about the new job.
+Same rule everywhere: **without evidence of what invoked it, a change we observe
+is *consistent with* scheduled execution, not proof of it.**
+
+Also: `expect_deploy` is whatever SHA the deploy actually ran on — read it off
+the deploy run, don't work it out from whether the merge was a fast-forward.
+
+The rollback prerequisite is unchanged and still comes first: disable any
+one-time job before rolling back, or it starts firing monthly forever.
+
+CI 2798 green on the pushed tip. Ready for your merge decision — nothing merged,
+deployed or spent.
