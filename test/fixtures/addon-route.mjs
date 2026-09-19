@@ -538,18 +538,24 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       // store would otherwise pass against a tool that never offered either,
       // because the fixture hands the answer in: the same bypass the comment
       // above records, one level deeper.
-      const itemProps = (() => {
+      // ⚠ AND THE ITEM'S SCHEMA, not only its key set (2026-09-19). Which
+      // properties a designer may answer and what each may CONTAIN are two
+      // facts, and only the first was readable — so a case driving a top-level
+      // list sketch all the way to the store passed against a tool whose
+      // `returns` was declared object-only, which is the very drift that round
+      // was correcting. One walk answers both, so they cannot come apart.
+      const itemSchema = (() => {
         const p = schemaOf && schemaOf.properties && schemaOf.properties[kind];
-        const item = p && (p.items || p);
-        return Object.keys((item && item.properties) || {});
+        return (p && (p.items || p)) || null;
       })();
+      const itemProps = Object.keys((itemSchema && itemSchema.properties) || {});
       // ⚠ AND THE PROPERTY SET ITSELF IS KEPT (2026-09-19). Whether a designer
       // MAY answer coverage is a fact about the tool the route hands it, and a
       // fixture that supplies the answer directly bypasses the tool entirely —
       // so without this, a case driving a `requirements` echo passes whether or
       // not the model could ever have written one. Measured: the QR echo case
       // was green against a product whose qr tool had no such property.
-      prompts.push({ tool: asked, kind, props, itemProps, text: JSON.stringify(b.messages || b.system || b) });
+      prompts.push({ tool: asked, kind, props, itemProps, itemSchema, text: JSON.stringify(b.messages || b.system || b) });
       // THE PAGE CALL, for a case that is not pageless. A connection or a
       // PUBLIC function exists to be read by a page, so `pageless` is false and
       // the route writes one — which is right, and is why those two kinds

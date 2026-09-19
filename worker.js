@@ -26149,10 +26149,16 @@ async function handleRequest(request, env, ctx) {
               // is how a customer starts being told about keys nobody asked
               // for.
               //
-              // DERIVED FROM `aSecrets`, never from the model's claim, so a
-              // connection that really needs no key can never produce a
-              // go-and-get-one instruction — that is the whole of "support
-              // connections needing no key", enforced rather than promised.
+              // DERIVED PER CONNECTION FROM ITS OWN DECLARATION, never from the
+              // model's claim and never from the change-wide secrets list. A
+              // flat list answers "does this CHANGE need a key", which is a
+              // different question from "does THIS connection need one" the
+              // moment a request carries both kinds — measured, a keyless
+              // connection beside a keyed one was handed the keyed one's
+              // go-and-sign-up sentence, and a keyless one alone was told it
+              // was "answering already" about a service nobody had called.
+              // `credentialNote` asks `secretsNeeded` itself now, so this call
+              // site cannot hand it the wrong question.
               // READ OFF `aSpec`, the post-apply spec, exactly as `appliedFacts`
               // reads its own api facts — and not off `merged`, which is the
               // apply block's own local and is out of scope here. A first draft
@@ -26162,7 +26168,7 @@ async function handleRequest(request, env, ctx) {
               credentialNote: aApis.length
                 ? (credentialNote(
                     ((aSpec && Array.isArray(aSpec.apis) ? aSpec.apis : []))
-                      .filter((a) => a && aApis.includes(a.name)), aSecrets) || undefined)
+                      .filter((a) => a && aApis.includes(a.name))) || undefined)
                 : undefined,
               provisioned: aProvisioned || undefined,
               // THE MIGRATION RECORD (stage 8): which job made what, and that

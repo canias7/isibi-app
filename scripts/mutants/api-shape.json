@@ -114,20 +114,20 @@
     "to": "    if (v === undefined || v === null) out.push(row.name);"
   },
   {
-    "label": "the no-key sentence is said whatever the declaration needs",
+    "label": "a keyless connection is told it is already answering",
     "files": [
       "site-api-shape.mjs"
     ],
-    "from": "  const need = Array.isArray(secrets) ? secrets : [];\n  if (!need.length) {",
-    "to": "  const need = Array.isArray(secrets) ? secrets : [];\n  if (need.length >= 0) {"
+    "from": "    said.push(free.join(\", \") + (free.length === 1 ? \" needs\" : \" need\") +\n      \" no key, so there is nothing to paste for \" + (free.length === 1 ? \"it\" : \"them\") + \".\");",
+    "to": "    said.push(\"That connection needs no key, so it is answering already.\");"
   },
   {
-    "label": "the credential sentence is composed from the model's claim, not the declaration",
+    "label": "the key sentence reads the whole change's secrets instead of this connection's",
     "files": [
       "site-api-shape.mjs"
     ],
-    "from": "  if (!need.length) {\n    return \"That connection needs no key, so it is answering already.\";\n  }",
-    "to": "  if (!list.some((a) => a && a.credential)) {\n    return \"That connection needs no key, so it is answering already.\";\n  }"
+    "from": "    if (secretsNeeded(a).length) {",
+    "to": "    if (list.some((x) => secretsNeeded(x).length)) {"
   },
   {
     "label": "the engine drops the response sketch",
@@ -270,8 +270,8 @@
     "files": [
       "builder/site-table.mjs"
     ],
-    "from": "    returns: { type: \"object\", description:",
-    "to": "    returnsGone: { type: \"object\", description:"
+    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
+    "to": "    returnsGone: { type: SHAPE_TOP.slice(), description:"
   },
   {
     "label": "the tool stops offering credential guidance",
@@ -288,5 +288,93 @@
     ],
     "from": "    params: {\n      type: \"array\",\n      description: \"Every blank a page may fill in",
     "to": "    params: {\n      type: \"array\",\n      items: { type: \"string\" },\n      description: \"Every blank a page may fill in"
+  },
+  {
+    "label": "the keyless connection is said nothing at all",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "    } else if (free.length < MAX_CREDENTIAL_SAID) {",
+    "to": "    } else if (false) {"
+  },
+  {
+    "label": "the key sentence stops reading headers, where most keys live",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  for (const v of Object.values(api.headers || {})) scan(v);",
+    "to": "  for (const v of []) scan(v);"
+  },
+  {
+    "label": "the key reader stops reading a POST body",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  scan(api.url); scan(api.body);",
+    "to": "  scan(api.url);"
+  },
+  {
+    "label": "the request path forks its own copy of the key reader",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "import { cleanShape, cleanParams, cleanCredential, secretsNeeded, SECRET_RE } from \"./site-api-shape.mjs\";",
+    "to": "import { cleanShape, cleanParams, cleanCredential, secretsNeeded as _sn, SECRET_RE } from \"./site-api-shape.mjs\";\nconst secretsNeeded = (api) => _sn({ url: api.url });"
+  },
+  {
+    "label": "a bare leaf is accepted as a whole answer",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "    if (depth === 1 && !(v && typeof v === \"object\")) return { ok: false, why: \"shape-top\" };\n",
+    "to": ""
+  },
+  {
+    "label": "the root rule admits a leaf, so the tool invites prose",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "export const SHAPE_TOP = Object.freeze([\"object\", \"array\"]);",
+    "to": "export const SHAPE_TOP = Object.freeze([\"object\", \"array\", \"string\"]);"
+  },
+  {
+    "label": "the tool's type is written out instead of derived from the root rule",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
+    "to": "    returns: { type: \"object\", description:"
+  },
+  {
+    "label": "the platform's own frozen rule goes onto the wire",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
+    "to": "    returns: { type: SHAPE_TOP, description:"
+  },
+  {
+    "label": "the refusal forgets what may sit at the root of a sketch",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    case \"shape-too-big\": case \"shape-too-deep\": case \"shape-top\":",
+    "to": "    case \"shape-too-big\": case \"shape-too-deep\":"
+  },
+  {
+    "label": "the hook drops the parameters from the url it builds",
+    "files": [
+      "builder/lovable/template/src/lib/rows.ts"
+    ],
+    "from": "  const suffix = qs.toString() ? `?${qs}` : \"\";",
+    "to": "  const suffix = \"\";"
+  },
+  {
+    "label": "the hook addresses a site the page is not on",
+    "files": [
+      "builder/lovable/template/src/lib/rows.ts"
+    ],
+    "from": "    queryFn: () => send<T>(`/api/db/${siteSlug()}/api/${name}${suffix}`),",
+    "to": "    queryFn: () => send<T>(`/api/db/preview/api/${name}${suffix}`),"
   }
 ]

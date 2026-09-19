@@ -26,6 +26,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { renderRouteSource } from "./fixtures/site-render.mjs";
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
 // a case that hardcoded "12001 characters is too big" would be a second copy of
 // `MAX_PART_CHARS` and would pass silently the day the real one moved.
@@ -57,7 +58,7 @@ import { splitPrivileges, readParens } from "../site-schema-recover.mjs";
 // `apiFor` runs a stored connection back through `normalizeApi`, which is where
 // a field that survives storage and not the readback would be lost.
 import { apiFor } from "../site-apis.mjs";
-import { missingRequired } from "../site-api-shape.mjs";
+import { missingRequired, typeFromShape } from "../site-api-shape.mjs";
 // THE CUSTOMER'S SCREEN, COMPOSED BY THE BROWSER ITSELF. `browserReply` loads
 // `public/chat.js` and runs the real `addonAnswer` — selection and composition
 // both — so a case about what somebody reads is not a second copy of the
@@ -6085,11 +6086,29 @@ test("a connection carries what it answers all the way to the page writer, and t
   // annotation, so neither is a guess.
   const page = pagePrompt(r);
   assert.match(page.text, /it answers \{\\"current\\":\{\\"temp_c\\":\\"number\\"/, "the shape is not in the page prompt");
-  assert.match(page.text, /city: string, REQUIRED — the town or postcode to look up/, "the parameter is not described to the writer");
   assert.match(page.text, /days: number, optional/);
   assert.match(page.text, /useApi<\{ current: \{ temp_c: number; condition: \{ text: string \} \}; forecast: \{ day: string; high: number \}\[\] \}>/,
     "the writer has to invent the annotation");
-  assert.match(page.text, /HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE/, "nothing tells the page to draw loading and error");
+
+  // ⚠ TWO COMPOSERS PRINT THE SAME FACTS AND THEY ARE TWO HOPS. The addon
+  // directive describes the connection THIS CHANGE adds; the page catalogue
+  // lists every connection the site has. They share `apiDetailLines`, so a bare
+  // match on the line's words is satisfied by either — which is how a sweep
+  // mutant that emptied one of them survived. The INDENT is the discriminator:
+  // the directive bullets at two spaces and the catalogue at six.
+  assert.ok(page.text.includes("\\n  - city: string, REQUIRED — the town or postcode to look up"),
+    "the addon directive says nothing about what the connection it adds answers");
+  assert.ok(page.text.includes("\\n      city: string, REQUIRED — the town or postcode to look up"),
+    "the page catalogue says nothing about what the site's connections answer");
+  assert.match(page.text, /HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE/, "the catalogue does not tell the page to draw loading and error");
+  assert.match(page.text, /It crosses the internet, so draw all three states/, "the addon directive does not, and it is the one about the new connection");
+
+  // AND THE TOOL REALLY OFFERS THE TYPED PARAMETER, which is the other half of
+  // "the fixture hands the answer in": a bare-string `items` here would make
+  // every assertion above about a shape no designer could have written.
+  assert.equal(tool.itemSchema.properties.params.items.type, "object", JSON.stringify(tool.itemSchema.properties.params.items));
+  assert.ok(Object.keys(tool.itemSchema.properties.params.items.properties).includes("required"),
+    "the tool's parameters went back to bare names");
 
   // 5. THE CUSTOMER'S OWN SENTENCE, composed by the browser's real formatter.
   // The destination was always there; the provenance is what was missing.
@@ -6099,16 +6118,24 @@ test("a connection carries what it answers all the way to the page writer, and t
 });
 
 test("a connection needing no key is told so, and one that declares nothing is byte for byte what it was", async () => {
-  // ⚠ "SUPPORT CONNECTIONS NEEDING NO KEY" IS DERIVED FROM THE DECLARATION.
-  // This one carries NO `{{SECRET}}` anywhere, so `secretsNeeded` is empty and
-  // the owner is told there is nothing to do — and the credential guidance
-  // declared beside it cannot turn that into a go-and-sign-up instruction.
+  // ⚠ "SUPPORT CONNECTIONS NEEDING NO KEY" IS DERIVED FROM THE DECLARATION,
+  // AND THE SENTENCE IS ABOUT THE OWNER'S OWN WORK. This one carries NO
+  // `{{SECRET}}` anywhere, so `secretsNeeded` is empty — and the credential
+  // guidance declared beside it (`RICH_API`'s WeatherAPI sign-up page) cannot
+  // turn that into a go-and-sign-up instruction.
+  //
+  // It used to read "needs no key, so it is answering already", which is a
+  // claim about a service this platform has never called: the url may not
+  // resolve, the path may be wrong, the response may be nothing like the
+  // sketch. A declared connection is a stored declaration, and whether it
+  // answers is closed by a real call and by nothing here.
   const free = await addon("fw-api-free", "show the forecast", {
     kinds: ["api"], publishes: true,
     answers: { api: { api: [{ ...RICH_API, url: "https://api.test/v1/public?c={{param.city}}" }] } },
   });
   const freeSaid = browserText(free.body);
-  assert.match(freeSaid, /needs no key, so it is answering already/, freeSaid);
+  assert.match(freeSaid, /weather needs no key, so there is nothing to paste for it\./, freeSaid);
+  assert.doesNotMatch(freeSaid, /answering already/, "the reply claims a service nobody called is working: " + freeSaid);
   assert.doesNotMatch(freeSaid, /Cloud → Secrets/, "a keyless connection was told to paste a key: " + freeSaid);
   assert.doesNotMatch(freeSaid, /comes from WeatherAPI/, "a keyless connection was sent to sign up: " + freeSaid);
 
@@ -6126,6 +6153,165 @@ test("a connection needing no key is told so, and one that declares nothing is b
   assert.doesNotMatch(oldPage.text, /it answers/, "a connection that described nothing described something");
   assert.match(browserText(plain.body), /add W_KEY under Cloud → Secrets/, "the destination sentence moved");
   assert.doesNotMatch(browserText(plain.body), /comes from/, "a connection with no credential guidance invented some");
+});
+
+test("a request carrying a keyed and a keyless connection says the right thing about EACH", async () => {
+  // ⚠ THE CASE THE FLAT SECRETS LIST COULD NOT GET RIGHT, and it needs two
+  // connections in ONE request to exist at all. The note took every
+  // `{{SECRET}}` the whole change needed, which answers "does this CHANGE need
+  // a key" — so with a keyed connection in the request the loop ran over the
+  // keyless one too and read its credential metadata as provenance, sending
+  // the owner to sign up for a key nothing would ever use. With no keyed
+  // connection the same list was empty and the whole reply claimed the service
+  // was answering.
+  //
+  // The two services are named DIFFERENTLY on purpose: that is what makes
+  // "the keyed one's provenance is printed and the keyless one's is not" an
+  // assertion rather than a coincidence.
+  const r = await addon("fw-api-mixed", "show the forecast and the tide times", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [
+      RICH_API,
+      { name: "tides", url: "https://tides.test/v1/today?port={{param.port}}",
+        params: [{ name: "port", type: "string", required: true, description: "the harbour" }],
+        returns: [{ time: "string", height: "number" }],
+        credential: { service: "TideWatch", url: "https://tidewatch.test/signup", note: "free for 500 calls" } },
+    ] } },
+  });
+  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
+  assert.deepEqual((r.body.apis || []).slice().sort(), ["tides", "weather"], JSON.stringify(r.body.apis));
+  assert.deepEqual(r.body.needsSecrets, ["W_KEY"], "the destination sentence is about the keyed one alone: " + JSON.stringify(r.body.needsSecrets));
+
+  const said = browserText(r.body);
+  assert.match(said, /The key for weather comes from WeatherAPI at https:\/\/weatherapi\.test\/signup/, said);
+  assert.match(said, /tides needs no key, so there is nothing to paste for it\./, said);
+  assert.doesNotMatch(said, /TideWatch/, "the keyless connection's own credential guidance reached the owner: " + said);
+  assert.doesNotMatch(said, /The key for tides/, "the keyless connection was told it has a key: " + said);
+  assert.doesNotMatch(said, /answering already/, said);
+
+  // AND BOTH ARE REALLY STORED, so the sentence is about a connection the site
+  // has rather than about an answer that was refused on the way in.
+  const meta = r.meta() || {};
+  const stored = meta.apis || [];
+  assert.deepEqual(stored.map((a) => a.name).slice().sort(), ["tides", "weather"], JSON.stringify(stored.map((a) => a.name)));
+
+  // ⚠ AND THE LIST RESPONSE IS THE OTHER HALF OF THIS CASE. `tides` answers a
+  // BARE ARRAY, which is what most list endpoints send and which the tool
+  // refused to let a model say until the root rule became one definition.
+  // Followed to all three places a connection has to reach.
+  const tool = promptFor(r, "api");
+  assert.ok(tool.itemProps.includes("returns"), JSON.stringify(tool.itemProps));
+  // ⚠ THE TOOL'S OWN TYPE, not merely that the property is offered. It was
+  // `"object"` while the cleaner accepted a list, so a designer obeying the
+  // schema could not say this — and a case reading only the key set passes
+  // against that tool, because the fixture hands the answer in.
+  assert.ok([].concat(tool.itemSchema.properties.returns.type).includes("array"),
+    "the tool does not let a designer describe a list answer: " + JSON.stringify(tool.itemSchema.properties.returns.type));
+  assert.deepEqual(stored.find((a) => a.name === "tides").returns, [{ time: "string", height: "number" }],
+    "a top-level list sketch did not survive the store");
+  assert.deepEqual(apiFor(meta, "tides").returns, [{ time: "string", height: "number" }],
+    "the readback dropped it — the serving route and the store disagree about the shape");
+  const page = pagePrompt(r);
+  assert.match(page.text, /it answers \[\{\\"time\\":\\"string\\",\\"height\\":\\"number\\"\}\]/, "the list shape is not in the page prompt");
+  // The prompt rides in a JSON body, so the quotes around the name are escaped
+  // in it — which is why the weather assertion above stops short of them.
+  assert.match(page.text, /useApi<\{ time: string; height: number \}\[\]>\(\\"tides\\", \{ port \}\)/,
+    "the writer is left to invent the annotation for a list answer");
+});
+
+test("ACCEPTANCE: the page the addon route produced renders the service's answer through the real hook and the real route", async () => {
+  // ⚠ THE JOIN, AND WHY IT IS ONE CASE. The tier had three claims, each proved
+  // somewhere else and none of them proving the next: that the declared shape
+  // reaches the writer (the prompt case), that a page written against it
+  // renders (the standalone render, with `@/lib/rows` stubbed), and that the
+  // public route serves the connection (the serving cases). A page can satisfy
+  // all three and still draw nothing, because between the page and the service
+  // sit two hops nothing had ever run together — the url `useApi` builds from
+  // the parameters it is given, and what the platform's route does with them.
+  //
+  // So: the page goes through the REAL addon route, the source is read back
+  // OUT OF THE STORE, and that exact string is rendered with the kit's own
+  // `useApi` against `worker.js`'s own `/api/db/<slug>/api/<name>`. The only
+  // stub left is the third-party service.
+  const FORECAST = typeFromShape(SHAPE);
+  const WRITTEN = [{
+    path: "src/routes/index.tsx",
+    // THE STORED PAGE'S OWN WORDS ARE KEPT, because `keptProse` is a real wall
+    // on this path: an addition may only ADD, and a rewrite that loses the
+    // page's prose is refused 422 before anything is stored.
+    source: "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "import { useApi } from '@/lib/rows'\n"
+      + "type Forecast = " + FORECAST + ";\n"
+      + "export const Route = createFileRoute('/')({ component: Page })\n"
+      + "function Page(){\n"
+      + "  const q = useApi<Forecast>(\"weather\", { city: \"Leeds\" });\n"
+      + "  if (q.isLoading) return <main><h1>index</h1><p>Words for index.</p><p data-slot=\"waiting\">Checking the forecast…</p></main>\n"
+      + "  if (q.error) return <main><h1>index</h1><p>Words for index.</p><p data-slot=\"failed\">The forecast is not available right now.</p></main>\n"
+      + "  return <main><h1>index</h1><p>Words for index.</p>"
+      + "<p data-slot=\"now\">{q.data?.current?.temp_c}°C, {q.data?.current?.condition?.text}</p>"
+      + "<ul>{(q.data?.forecast ?? []).map((d) => <li key={d.day}>{d.day}: {d.high}</li>)}</ul></main>\n"
+      + "}\n",
+  }];
+  const r = await addon("fw-api-live", "show the forecast on the home page", {
+    kinds: ["api"], publishes: true, sitePages: ["/"], written: WRITTEN,
+    answers: { api: { api: [RICH_API] } },
+  });
+  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
+
+  // ── 1. THE COMPILER PAYLOAD, which is what the site was really built from.
+  const sent = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.ok(sent, "the page never reached the builder: " + JSON.stringify(compiledPages(r).map((p) => p.path)));
+  assert.match(sent.source, /useApi<Forecast>\("weather", \{ city: "Leeds" \}\)/, sent.source);
+  assert.match(sent.source, new RegExp("type Forecast = " + FORECAST.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    "the annotation the connection derived did not reach the compiler: " + sent.source);
+
+  // ── 2. THE STORED SOURCE, which is a different claim: what the next edit
+  // works from, and what this case renders. A change that reached the compiler
+  // and not the store leaves the site serving one page and offering another.
+  const src = storedSource(r, "fw-api-live", "index.tsx");
+  assert.match(src, /useApi<Forecast>\("weather"/, "the page is not in the store: " + src);
+  assert.match(src, /q\.data\?\.current\?\.temp_c/, src);
+
+  // ── 3. KNOWN VALUES, through the real hook and the real route.
+  const api = (r.meta().apis || []).find((a) => a.name === "weather");
+  assert.ok(api, "the connection is not in the stored schema");
+  const REAL = { current: { temp_c: 18.5, condition: { text: "Light rain" } }, forecast: [{ day: "Sat", high: 21 }] };
+  const answers = (v, status = 200) => () => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
+
+  const good = await renderRouteSource(src, { slug: "fw-live-ok", api, secrets: { W_KEY: "real-key" }, service: answers(REAL) });
+  assert.match(good.html, /18\.5°C, Light rain/, "the declared field names did not reach the page: " + good.html);
+  assert.match(good.html, /<li>Sat: 21<\/li>/, good.html);
+  assert.match(good.html, /Words for index\./, "the page lost the words it was built on: " + good.html);
+  // THE TWO HOPS A STUBBED HOOK SKIPS, and they are the point of this case.
+  assert.deepEqual(good.routed, ["/api/db/fw-live-ok/api/weather?city=Leeds"],
+    "the hook built a different url from the parameters the page gave it: " + JSON.stringify(good.routed));
+  assert.equal(good.upstream.length, 1, JSON.stringify(good.upstream));
+  assert.match(good.upstream[0], /c=Leeds/, good.upstream[0]);
+  assert.match(good.upstream[0], /key=real-key/, "the platform did not substitute the key; the page must never see it");
+
+  // ── 4. LOADING. Not a stub answering `{isLoading:true}` — a server render
+  // runs no effects, so this IS the hook's own pending state.
+  assert.match(good.loading, /Checking the forecast…/, good.loading);
+  assert.doesNotMatch(good.loading, /18\.5/, "the first render already had the data, so it is not the loading state");
+
+  // ── 5. MISSING CREDENTIALS. The vault holds nothing, `fill` refuses, and
+  // the page draws its error branch instead of a plausible wrong answer.
+  const nokey = await renderRouteSource(src, { slug: "fw-live-nokey", api, secrets: {}, service: answers(REAL) });
+  assert.match(nokey.html, /not available right now/, nokey.html);
+  assert.doesNotMatch(nokey.html, /18\.5/, nokey.html);
+  assert.deepEqual(nokey.upstream, [], "a request went out with the key blank");
+  assert.equal(nokey.errors.length, 1, "the page was handed no error to branch on");
+  assert.doesNotMatch(String(nokey.errors[0].message || ""), /W_KEY/,
+    "the site's own credential name reached the browser: " + nokey.errors[0].message);
+
+  // ── 6. UPSTREAM FAILURE. The service answers and the answer is a failure,
+  // which is a different thing from the platform refusing before the call.
+  const down = await renderRouteSource(src, { slug: "fw-live-down", api, secrets: { W_KEY: "real-key" },
+    service: answers({ error: "gateway" }, 502) });
+  assert.match(down.html, /not available right now/, down.html);
+  assert.doesNotMatch(down.html, /18\.5/, down.html);
+  assert.equal(down.upstream.length, 1, "the service was never called, so this is not the upstream case");
+  assert.equal(down.errors.length, 1, "a failing service rendered as success");
 });
 
 test("a sketch that cannot be read refuses the connection by name, and stores nothing", async () => {
@@ -6146,4 +6332,20 @@ test("a sketch that cannot be read refuses the connection by name, and stores no
   assert.equal(((r.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
     "a refused connection reached the store: " + JSON.stringify((r.meta() || {}).apis));
   assert.equal(r.body.cost, 0, "a refusal charged for something");
+
+  // ⚠ AND THE CREDENTIAL REFUSAL IS ITS OWN WALL, with its own sentence. An
+  // http sign-up page is a link this platform would put in front of its own
+  // customer, and the engine merely DROPS it — so without a refusal here the
+  // connection ships and the owner is told nothing. Driven because the sweep
+  // found the cleaner's line could be cut with every case still green: the
+  // sketch refusal above covers a different branch.
+  const bad = await addon("fw-api-badcred", "show the forecast", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [{ ...RICH_API, credential: { service: "WeatherAPI", url: "http://weatherapi.test/signup" } }] } },
+  });
+  assert.equal(bad.body.ok, false, "a connection with an http sign-up link was published: " + JSON.stringify(bad.body));
+  assert.match(bad.body.msg || "", /has to be an https address/, bad.body.msg);
+  assert.equal(((bad.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
+    "the refused connection reached the store anyway");
+  assert.equal(bad.body.cost, 0, "a refusal charged for something");
 });

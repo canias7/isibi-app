@@ -23,10 +23,12 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import {
   cleanShape, cleanParams, cleanCredential, typeFromShape, shapeJson,
-  paramLine, readHint, apiDetailLines, missingRequired, credentialNote,
+  paramLine, readHint, apiDetailLines, missingRequired, credentialNote, secretsNeeded,
   SHAPE_LEAVES, PARAM_TYPES, MAX_PARAMS, MAX_SHAPE_DEPTH, MAX_SHAPE_NODES,
+  MAX_CREDENTIAL_SAID, SHAPE_TOP,
 } from "../site-api-shape.mjs";
-import { normalizeApi, declFingerprint } from "../site-apis.mjs";
+import { normalizeApi, declFingerprint, secretsNeeded as apiSecretsNeeded } from "../site-apis.mjs";
+import { API_ITEM } from "../builder/site-table.mjs";
 
 const ROOT = new URL("../", import.meta.url);
 const TEMPLATE = path.join(ROOT.pathname, "builder/lovable/template");
@@ -125,6 +127,56 @@ test("a sketch is a tree of TYPE names, and a value is refused", () => {
   assert.equal(cleanShape(wide).why, "shape-too-big");
 });
 
+test("what may sit at the ROOT of a sketch is one rule, and the tool declares exactly it", () => {
+  // ⚠ THE TWO HAD DRIFTED, WHICH IS WHY THIS IS A CENSUS AND NOT A PAIR OF
+  // ASSERTIONS. `API_ITEM.returns` said `type: "object"` while `cleanShape`
+  // walked a top-level ARRAY perfectly happily — so the commonest list
+  // endpoint there is could be described by the pipeline and not by the tool,
+  // and a model obeying the schema had no way to say so. One definition now:
+  // the tool's type IS `SHAPE_TOP`, and this asks BOTH ends of every probe so
+  // widening either alone is a red run.
+  const probes = [
+    { what: "an object", v: { a: "string" }, json: "object" },
+    { what: "a top-level list", v: [{ a: "string" }], json: "array" },
+    { what: "an empty list", v: [], json: "array" },
+    { what: "a bare leaf name", v: "string", json: "string" },
+    { what: "a number", v: 42, json: "number" },
+    { what: "a boolean", v: true, json: "boolean" },
+  ];
+  for (const p of probes) {
+    const admits = API_ITEM.properties.returns.type.includes(p.json);
+    const clean = cleanShape(p.v);
+    const accepts = !!(clean && clean.ok);
+    assert.equal(accepts, admits,
+      p.what + ": the tool " + (admits ? "admits" : "refuses") + " it and the cleaner " + (accepts ? "accepts" : "refuses") + " it");
+  }
+  // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS — a rule admitting everything and
+  // a rule admitting nothing both satisfy a loop that only ever agrees.
+  assert.ok(probes.some((p) => cleanShape(p.v) && cleanShape(p.v).ok), "no probe is accepted");
+  assert.ok(probes.some((p) => { const c = cleanShape(p.v); return c && !c.ok; }), "no probe is refused");
+
+  assert.deepEqual(API_ITEM.properties.returns.type, SHAPE_TOP.slice(),
+    "the tool's type is a second copy of what the root may be");
+  assert.deepEqual(SHAPE_TOP, ["object", "array"]);
+  assert.notEqual(API_ITEM.properties.returns.type, SHAPE_TOP,
+    "the frozen constant itself went onto the wire, where a tool consumer could freeze the platform's own rule");
+
+  // A BARE LEAF IS OUT ON PURPOSE. `returns: "a list of exchange rates"` is
+  // what a model writes when it reaches for prose, and it is named rather than
+  // folded into the nesting refusals.
+  assert.equal(cleanShape("a list of exchange rates").why, "shape-top");
+  assert.equal(cleanShape("string").why, "shape-top", "a leaf NAME is still not a whole answer");
+  assert.equal(cleanShape(42).why, "shape-top");
+  assert.equal(cleanShape(""), null, "an empty string is nothing declared, not a refusal");
+  // AND NESTED LEAVES ARE UNTOUCHED, which is the whole of what a sketch is.
+  assert.deepEqual(cleanShape({ a: "string" }).shape, { a: "string" });
+  assert.deepEqual(cleanShape([{ a: "string" }]).shape, [{ a: "string" }]);
+
+  // THE TOOL SAYS IT IN WORDS TOO, because the type alone leaves a model to
+  // guess what an array at the root would mean.
+  assert.match(API_ITEM.properties.returns.description, /when the WHOLE answer is a list/);
+});
+
 test("the TypeScript type is derived from the sketch, never invented", () => {
   // THE POINT OF THIS FUNCTION: the annotation stops being a guess. An invented
   // `T` typechecks clean against the wrong field names — measured, tsc --strict
@@ -217,6 +269,16 @@ test("parameters keep both shapes, and the names are derived rather than maintai
   const many = cleanParams(Array.from({ length: MAX_PARAMS + 4 }, (_, i) => "p" + i));
   assert.equal(many.names.length, MAX_PARAMS, "capped where it always was");
 
+  // ⚠ A PADDED NAME IS DROPPED, NEVER REPAIRED, and the cost of repairing it is
+  // not in this function at all: `normalizeApi` has lowercased and matched
+  // without trimming since it was written, so every connection on the platform
+  // normalises to exactly the list it normalised to yesterday — which is what
+  // keeps `declFingerprint`, and therefore every cached answer, where it is.
+  // A one-character widening here re-keys a stranger's cache for a name nobody
+  // has ever declared.
+  assert.deepEqual(cleanParams([" city ", "units"]).names, ["units"],
+    "a padded name was repaired, which re-keys a stored connection's cache");
+
   // ⚠ AND RE-READING A STORED DECLARATION MUST PUT THE TWO BACK TOGETHER —
   // found by the end-to-end route case and by nothing else. Once a connection
   // is in `_meta.schema` its `params` is the list of NAMES, so a second pass
@@ -260,21 +322,61 @@ test("a required blank the caller did not fill is named, before anything is call
   assert.deepEqual(missingRequired(plain, {}), []);
 });
 
-test("where the key comes from is DERIVED from the declaration, never claimed", () => {
-  const withKey = [{ name: "rates", credential: { service: "Open Exchange Rates", url: "https://openexchangerates.org/signup", note: "free tier covers 1,000 calls" } }];
-  assert.match(credentialNote(withKey, ["RATES_KEY"]), /comes from Open Exchange Rates at https:\/\/openexchangerates\.org\/signup \(free tier covers 1,000 calls\)/);
+test("where the key comes from is DERIVED from EACH connection's own declaration, never claimed", () => {
+  // ⚠ PER CONNECTION, AND THE FIXTURE HAS TO BE A REAL DECLARATION FOR THAT TO
+  // MEAN ANYTHING. The old one was `{name, credential}` with no url at all, so
+  // it needed no key by accident — a fixture less capable than the thing it
+  // stood for, in the one field the whole derivation reads.
+  const KEYED = { name: "rates", url: "https://oxr.test/latest?app_id={{RATES_KEY}}",
+    credential: { service: "Open Exchange Rates", url: "https://openexchangerates.org/signup", note: "free tier covers 1,000 calls" } };
+  // MISLEADING METADATA ON A KEYLESS CONNECTION: it names a service and a
+  // sign-up page, and it carries no `{{SECRET}}` anywhere. The declaration is
+  // the authority and the claim is ignored.
+  const FREE = { name: "tides", url: "https://tides.test/today",
+    credential: { service: "TideWatch", url: "https://tidewatch.test/signup" } };
 
-  // ⚠ "SUPPORT CONNECTIONS NEEDING NO KEY" IS ENFORCED RATHER THAN PROMISED.
-  // The secrets list comes from `secretsNeeded`, which reads the declaration's
-  // own `{{SECRET}}` placeholders — so a model that wrongly declares credential
-  // guidance for a keyless connection cannot produce a go-and-get-a-key
-  // instruction. Driven with the claim PRESENT and the secrets EMPTY, which is
-  // the only arrangement that can separate the two.
-  assert.equal(credentialNote(withKey, []), "That connection needs no key, so it is answering already.",
-    "a keyless connection was told to go and find a key");
-  assert.equal(credentialNote([], ["RATES_KEY"]), "", "no connection, nothing to say");
-  assert.equal(credentialNote([{ name: "rates" }], ["RATES_KEY"]), "",
+  assert.match(credentialNote([KEYED]), /comes from Open Exchange Rates at https:\/\/openexchangerates\.org\/signup \(free tier covers 1,000 calls\)/);
+
+  // ALONE. It used to answer "That connection needs no key, so it is answering
+  // already" — a claim about a third party nobody had called. What this
+  // platform knows is what the OWNER has left to do, which is nothing.
+  assert.equal(credentialNote([FREE]), "tides needs no key, so there is nothing to paste for it.");
+
+  // ⚠ MIXED, WHICH IS THE ARRANGEMENT A FLAT SECRETS LIST CANNOT READ. The
+  // list is non-empty because of the KEYED one, so every connection in the
+  // request took the keyed branch and the keyless one's metadata was printed
+  // as provenance.
+  const mixed = credentialNote([KEYED, FREE]);
+  assert.match(mixed, /The key for rates comes from Open Exchange Rates/, mixed);
+  assert.match(mixed, /tides needs no key, so there is nothing to paste for it\.$/, mixed);
+  assert.doesNotMatch(mixed, /TideWatch/, "the keyless connection's credential claim was believed: " + mixed);
+
+  // A SECRET IN A HEADER OR A BODY COUNTS, because `fill` refuses on all three
+  // — the sentence and the refusal read the same declaration.
+  assert.match(credentialNote([{ name: "rates", url: "https://oxr.test/latest",
+    headers: { Authorization: "Bearer {{RATES_KEY}}" }, credential: { service: "OXR" } }]), /The key for rates comes from OXR\./);
+  assert.match(credentialNote([{ name: "rates", url: "https://oxr.test/q", method: "POST", body: "{\"k\":\"{{RATES_KEY}}\"}",
+    credential: { service: "OXR" } }]), /The key for rates comes from OXR\./);
+
+  assert.equal(credentialNote([]), "", "no connection, nothing to say");
+  assert.equal(credentialNote([{ ...KEYED, credential: undefined }]), "",
     "a key is needed and nobody said where it comes from — the destination sentence already covers that");
+  assert.equal(credentialNote(null), "", "a reply with no connections at all");
+
+  // BOTH HALVES ARE CAPPED, so one reply is a sentence rather than a page.
+  const many = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+  const lots = credentialNote(many(6, (i) => ({ ...KEYED, name: "r" + i })));
+  assert.equal(lots.split("The key for").length - 1, MAX_CREDENTIAL_SAID, lots);
+  const frees = credentialNote(many(6, (i) => ({ ...FREE, name: "t" + i })));
+  assert.equal(frees, "t0, t1, t2 need no key, so there is nothing to paste for them.", frees);
+
+  // ONE READER, AND IT IS THE ONE THE CALL PATH REFUSES WITH. `site-apis.mjs`
+  // re-exports this rather than keeping a second copy of the pattern — a fork
+  // is how a connection gets told it needs no key while `fill` refuses the
+  // call for a missing one.
+  assert.equal(apiSecretsNeeded, secretsNeeded, "the request path and the sentence read different declarations");
+  assert.deepEqual(secretsNeeded(KEYED), ["RATES_KEY"]);
+  assert.deepEqual(secretsNeeded(FREE), []);
 
   assert.equal(cleanCredential({ url: "http://insecure.example/keys" }).why, "credential-url",
     "an http sign-up page is a link this platform put in front of its own customer");
@@ -331,8 +433,6 @@ test("the three ride the stored declaration, and a connection without them is by
  * request that is not this platform's own, so "nothing was called" is an
  * assertion rather than a hope.
  */
-const VAULT = { SITE_SECRETS_KEY: "test-vault-key-0123456789", SUPABASE_SERVICE_KEY: "k", SUPABASE_ANON_KEY: "a" };
-
 // ⚠ EACH CALL NEEDS ITS OWN SLUG. `siteBackendBySlug` is memoized per slug for
 // five minutes and the schema read is cached beside it, so two calls under one
 // name answer from the FIRST one's spec — measured: the third case here, on a
@@ -341,65 +441,26 @@ const VAULT = { SITE_SECRETS_KEY: "test-vault-key-0123456789", SUPABASE_SERVICE_
 // case after the first a test of the first one's data.
 let served = 0;
 
+/**
+ * ONE PLATFORM STUB, SHARED WITH THE RENDER. `platformFetch` answers Supabase,
+ * Neon and the service; this adds nothing to it but the request. Two copies of
+ * that stub is how a case here and a case there start disagreeing about what a
+ * site's own row looks like.
+ */
 async function serve(query, { api, secrets = { W_KEY: "real-key" }, answer = { temp_c: 18.5 } } = {}) {
   const slug = "fw-serve-" + (++served);
+  const { platformFetch, makeVault } = await import("./fixtures/site-render.mjs");
   const { hit } = await import("./fixtures/worker-harness.mjs");
-  const { encryptSecret } = await import("../site-secrets.mjs");
-  // ⚠ A REAL CIPHERTEXT, MINTED WITH THE VAULT KEY THE ROUTE WILL READ IT
-  // WITH. A first draft answered the literal "stub" and every control came back
-  // 503 — `readSecret` DECRYPTS, so a fixture that skips that hop cannot tell a
-  // site with no key from one whose key does not open, and the case would have
-  // been about the fixture rather than about the wall.
-  const vault = {};
-  for (const [k, v] of Object.entries(secrets)) vault[k] = await encryptSecret(VAULT, v);
+  const vault = await makeVault(secrets);
+  const plat = await platformFetch({ slug, api, vault,
+    service: () => new Response(JSON.stringify(answer), { status: 200, headers: { "content-type": "application/json" } }) });
   const real = globalThis.fetch;
-  const upstream = [];
-  globalThis.fetch = async (input, init) => {
-    const url = String(input && input.url ? input.url : input);
-    const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
-    // `SUPABASE_URL` IS A MODULE CONSTANT, not an env binding — a first draft
-    // of this fixture overrode the env and matched on its own hostname, so
-    // nothing matched, the backend row never resolved and the route answered
-    // its own "no such connection" 404. Match on the PATH, which is what the
-    // route really asks for whatever host it asks.
-    if (url.includes("/rest/v1/")) {
-      // The site's row and its owner's project, which is how a slug becomes a
-      // connection string — TWO reads, and the second is where the endpoint and
-      // credentials live. Both are this platform's own and neither is the
-      // service.
-      // THE DATABASE NAME IS PER CALL TOO, not only the slug: the stored schema
-      // is cached by CONNECTION STRING, so three cases sharing one `neon_db`
-      // all read the first one's spec however many slugs they use. Measured —
-      // the third case, on a connection declaring no required parameter, came
-      // back "this connection needs city" from the case above it.
-      if (url.includes("site_backends")) return json([{ uid: "u-1", brief: "", neon_db: slug.replace(/-/g, "_") }]);
-      if (url.includes("site_project")) return json([{ uid: "u-1", neon_conn: "postgres://u:p@ep-serve.neon.tech/neondb" }]);
-      return json([{ uid: "u-1" }]);
-    }
-    if (url.includes("neon.tech/sql")) {
-      const q = String((() => { try { return JSON.parse(String(init && init.body) || "{}").query; } catch { return ""; } })());
-      // AN ABSENT ROW is how a site with no key in the vault really reads —
-      // `readSecret` answers null on a missing cipher — so the empty case is
-      // the real shape and not a shortcut.
-      // ROWS ARE ARRAYS WITH `fields`, which is Neon's own wire shape, and the
-      // COLUMN NAME is what the driver maps them onto — `siteApiDeps` reads
-      // `rows[0].cipher`, so a fixture naming that column `v` answers
-      // `undefined` and the case reads as a site with no key in the vault.
-      const wantSecret = /_secrets/i.test(q);
-      const name = (() => { try { return (JSON.parse(String(init && init.body) || "{}").params || [])[0]; } catch { return null; } })();
-      const rows = wantSecret
-        ? (name && vault[name] ? [[vault[name]]] : [])
-        : [[JSON.stringify({ tables: [], apis: [api] })]];
-      return json({ command: "SELECT", rowCount: rows.length, rows, fields: [{ name: wantSecret ? "cipher" : "v", dataTypeID: 25 }] });
-    }
-    upstream.push(url);
-    return json(answer);
-  };
+  globalThis.fetch = plat.fetch;
   try {
     const r = await hit("/api/db/" + slug + "/api/weather" + query, {
-      env: VAULT,
+      env: { SITE_SECRETS_KEY: vault.key, SUPABASE_SERVICE_KEY: "k", SUPABASE_ANON_KEY: "a" },
     });
-    return { ...r, upstream };
+    return { ...r, upstream: plat.upstream };
   } finally { globalThis.fetch = real; }
 }
 

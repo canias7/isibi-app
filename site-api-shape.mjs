@@ -55,6 +55,36 @@ export const MAX_PARAM_NOTE = 160;
 export const MAX_SERVICE = 80;
 /** One sentence about the plan or the free tier. */
 export const MAX_CREDENTIAL_NOTE = 200;
+/** At most this many key sentences, and this many keyless names, in one reply. */
+export const MAX_CREDENTIAL_SAID = 3;
+
+/**
+ * A `{{SECRET}}` placeholder — how a declaration says it needs a key.
+ *
+ * `param.` matches neither pattern's alphabet, so the two cannot collide:
+ * secrets are upper-case and parameters are lower-case with a prefix.
+ */
+export const SECRET_RE = /\{\{\s*([A-Z][A-Z0-9_]{0,60})\s*\}\}/g;
+
+/**
+ * Every `{{SECRET}}` THIS declaration needs, so they can be fetched in one go.
+ *
+ * ⚠ LIVES HERE RATHER THAN BESIDE THE REQUEST PATH, which is where it was until
+ * `credentialNote` had to ask it PER CONNECTION. It is a fact about what a
+ * connection SAYS, which is this module's subject, and `site-apis.mjs` re-exports
+ * it so every caller keeps the name it has always imported. A second copy of the
+ * pattern would be how a connection gets told it needs no key while `fill`
+ * refuses the call for a missing one.
+ */
+export function secretsNeeded(api) {
+  const found = new Set();
+  const scan = (s) => {
+    for (const m of String(s || "").matchAll(SECRET_RE)) found.add(m[1]);
+  };
+  scan(api.url); scan(api.body);
+  for (const v of Object.values(api.headers || {})) scan(v);
+  return [...found];
+}
 
 const KEY_MAX = 64;
 const PLAIN_ID = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -72,13 +102,25 @@ const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
  * different things from that last case — the engine DROPS it so a stored spec
  * with a bad sketch still serves, the addon's cleaner REFUSES the item so the
  * customer hears a sentence — and a boolean cannot carry both.
+ *
+ * ⚠ THE TOP LEVEL IS AN OBJECT OR A LIST, AND THE TOOL SAYS THE SAME THING.
+ * The two disagreed: the tool declared `returns` object-only while this walked
+ * a top-level array and a top-level LEAF perfectly happily. `SHAPE_TOP` is the
+ * one definition of what may sit at the root and `API_ITEM.returns.type` is
+ * derived from it, so neither can be widened without the other. A bare leaf is
+ * out on purpose rather than by omission: `returns: "a list of exchange rates"`
+ * is what a model writes when it reaches for prose, and a `type` admitting a
+ * string is an invitation to write it.
  */
+export const SHAPE_TOP = Object.freeze(["object", "array"]);
+
 export function cleanShape(raw) {
   if (raw === undefined || raw === null || raw === "") return null;
   let nodes = 0;
   const walk = (v, depth) => {
     if (++nodes > MAX_SHAPE_NODES) return { ok: false, why: "shape-too-big" };
     if (depth > MAX_SHAPE_DEPTH) return { ok: false, why: "shape-too-deep" };
+    if (depth === 1 && !(v && typeof v === "object")) return { ok: false, why: "shape-top" };
     if (typeof v === "string") {
       // A LEAF IS A TYPE NAME, NEVER A VALUE. `"0.79"` and `"sunny"` are what a
       // model writes when it reaches for a sample instead of a sketch, and a
@@ -307,30 +349,55 @@ export function missingRequired(api, params) {
 /**
  * The sentence the owner reads about where a key comes from.
  *
- * DERIVED FROM `secrets`, NEVER FROM THE MODEL'S CLAIM. `secretsNeeded` reads
- * the declaration's own `{{SECRET}}` placeholders, so a connection that really
- * needs no key can never be told to go and get one — which is the whole of
- * "support connections needing no key", enforced rather than promised.
+ * ⚠ ASKED PER CONNECTION, OF THE CONNECTION'S OWN DECLARATION. It took a FLAT
+ * list of every secret the whole change needed, and that one list answered two
+ * questions it cannot tell apart. Both were reproduced before this was written:
+ *
+ *   * A KEYLESS CONNECTION ALONE. The list was empty, so the whole function
+ *     answered "That connection needs no key, so it is answering already." —
+ *     and this platform has not called the service, does not know whether the
+ *     url resolves, and has no business saying it is working. A declared
+ *     connection is a stored declaration; whether it answers is a different
+ *     claim and is closed by a real call.
+ *   * A MIXED KEYED AND KEYLESS REQUEST. The list was non-empty because of the
+ *     KEYED one, so the loop ran over both and printed "The key for <keyless>
+ *     comes from <service>" off credential metadata a model should not have
+ *     written — sending the owner to sign up for a key nothing will ever use.
+ *
+ * `secretsNeeded` reads THIS declaration's own `{{SECRET}}` placeholders, which
+ * is the same reader `fill` refuses a missing key with — so what the owner is
+ * told and what the request really needs cannot disagree, and misleading
+ * metadata on a keyless connection is ignored rather than believed.
  *
  * Composed HERE and printed verbatim by the browser, the way `pictureNote` and
  * `coverNote` already are: a second composer in `chat.js` is how a customer
  * starts being told about keys that were never asked for.
  */
-export function credentialNote(apis, secrets) {
+export function credentialNote(apis) {
   const list = (Array.isArray(apis) ? apis : []).filter((a) => a && a.name);
   if (!list.length) return "";
-  const need = Array.isArray(secrets) ? secrets : [];
-  if (!need.length) {
-    return "That connection needs no key, so it is answering already.";
-  }
   const said = [];
+  const free = [];
   for (const a of list) {
-    const c = a.credential;
-    if (!c || (!c.service && !c.url)) continue;
-    const where = c.url ? " at " + c.url : "";
-    said.push("The key for " + a.name + " comes from " + (c.service || "the service") + where +
-      (c.note ? " (" + c.note + ")" : "") + ".");
-    if (said.length >= 3) break;
+    if (secretsNeeded(a).length) {
+      const c = a.credential;
+      // A key IS needed and nobody said where it comes from: silent, because
+      // the reply already names the secret and says where to paste it.
+      if (!c || (!c.service && !c.url)) continue;
+      if (said.length >= MAX_CREDENTIAL_SAID) continue;
+      const where = c.url ? " at " + c.url : "";
+      said.push("The key for " + a.name + " comes from " + (c.service || "the service") + where +
+        (c.note ? " (" + c.note + ")" : "") + ".");
+    } else if (free.length < MAX_CREDENTIAL_SAID) {
+      // ⚠ WHAT IS TRUE IS ABOUT THE OWNER'S OWN WORK, never about the service.
+      // "there is nothing to paste" is a fact this platform knows; "it is
+      // answering already" was a fact about a third party nobody had called.
+      free.push(a.name);
+    }
+  }
+  if (free.length) {
+    said.push(free.join(", ") + (free.length === 1 ? " needs" : " need") +
+      " no key, so there is nothing to paste for " + (free.length === 1 ? "it" : "them") + ".");
   }
   return said.join(" ");
 }

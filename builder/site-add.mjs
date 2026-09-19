@@ -2411,13 +2411,14 @@ export function addRefusal(why, kind) {
     // and lose the description — is a page written blind against a service
     // nobody described, which is the defect this field exists to close.
     //
-    // ONE SENTENCE FOR THE FIVE MALFORMED-SKETCH CASES, deliberately. They are
+    // ONE SENTENCE FOR THE MALFORMED-SKETCH CASES, deliberately. They are
     // one mistake from where the customer stands ("the answer wasn't described
-    // in a way I could use") and five different sentences about nesting depth
-    // and array arity would be this platform explaining its own parser. The
+    // in a way I could use") and a sentence each about nesting depth, array
+    // arity and what may sit at the root would be this platform explaining its
+    // own parser. The
     // developer record keeps the reason; the customer gets the action.
     case "shape-leaf": case "shape-array": case "shape-empty": case "shape-key":
-    case "shape-too-big": case "shape-too-deep":
+    case "shape-too-big": case "shape-too-deep": case "shape-top":
       return "I couldn't read the description of what that service sends back, so I've left the site as it was — ask again and say roughly what the answer looks like, or just name the service and I'll connect it without it.";
     case "credential-url": return "The sign-up page for that service has to be an https address — that one wasn't. Nothing was changed.";
     case "credential-shape": return "I couldn't read where the key for that service comes from — ask again and name the service, or leave it out and I'll connect it anyway.";

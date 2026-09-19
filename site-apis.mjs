@@ -21,7 +21,7 @@
 // an open proxy: a caller can change the postcode, never the host.
 
 import { blockedReason } from "./site-ssrf.mjs";
-import { cleanShape, cleanParams, cleanCredential } from "./site-api-shape.mjs";
+import { cleanShape, cleanParams, cleanCredential, secretsNeeded, SECRET_RE } from "./site-api-shape.mjs";
 
 /** Bigger than any answer a page should be rendering. */
 export const MAX_RESPONSE = 256 * 1024;
@@ -84,8 +84,19 @@ export async function kvKeyFor(key, subtle) {
   return "api:" + [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const SECRET_RE = /\{\{\s*([A-Z][A-Z0-9_]{0,60})\s*\}\}/g;
 const PARAM_RE = /\{\{\s*param\.([a-z][a-z0-9_]{0,40})\s*\}\}/gi;
+
+/**
+ * ONE DEFINITION, RE-EXPORTED RATHER THAN COPIED.
+ *
+ * `secretsNeeded` and its pattern moved to `site-api-shape.mjs` when
+ * `credentialNote` had to ask them PER CONNECTION — the sentence the owner reads
+ * about a key and the refusal `fill` raises for a missing one must come from one
+ * reader, or a connection gets told it needs nothing while the call refuses.
+ * This module already imports that one, so the move is a move and not a fork,
+ * and every caller keeps the name it has always imported from here.
+ */
+export { secretsNeeded };
 
 /**
  * Normalise one declaration. Everything the model can get wrong is decided here
@@ -141,19 +152,6 @@ export function normalizeApi(raw) {
     ...(shape && shape.ok ? { returns: shape.shape } : {}),
     ...(cred && cred.ok ? { credential: cred.credential } : {}),
   };
-}
-
-/** Every `{{SECRET}}` this declaration needs, so they can be fetched in one go. */
-export function secretsNeeded(api) {
-  const found = new Set();
-  const scan = (s) => {
-    // `param.` matches neither pattern's alphabet, so the two cannot collide —
-    // secrets are upper-case and parameters are lower-case with a prefix.
-    for (const m of String(s || "").matchAll(SECRET_RE)) found.add(m[1]);
-  };
-  scan(api.url); scan(api.body);
-  for (const v of Object.values(api.headers || {})) scan(v);
-  return [...found];
 }
 
 /**

@@ -23,6 +23,13 @@
 // in both directions, as it did against worker.js before the move.
 //
 // EVERY COMMENT BELOW IS THE BUILD TOOL'S OWN, moved with the text it explains.
+//
+// THE ONE IMPORT, and it is here for the same reason the file exists: `SHAPE_TOP`
+// is what the cleaner accepts at the root of an answer sketch, and `API_ITEM`
+// declares the same thing to the model. Written out here it was a second copy,
+// and it had already drifted — the tool said object-only while the cleaner walked
+// a top-level list. `site-api-shape.mjs` imports nothing, so this stays a leaf.
+import { SHAPE_TOP } from "../site-api-shape.mjs";
 
 export const TABLE_ITEM = {
   type: "object",
@@ -493,13 +500,21 @@ export const API_ITEM = {
     // the same guess — which means the type agrees with the wrong field name
     // and the compiler says nothing. Measured: such a page typechecks clean and
     // renders an empty string.
-    returns: { type: "object", description:
+    // ⚠ THE TYPE IS DERIVED FROM `SHAPE_TOP`, never written out here. It said
+    // `"object"` while the cleaner walked a top-level ARRAY perfectly happily,
+    // so a service whose whole answer is a list — which is most list endpoints —
+    // could be described by the pipeline and not by the tool. Two copies of one
+    // rule, drifted; one definition now, and widening either end is widening
+    // both.
+    returns: { type: SHAPE_TOP.slice(), description:
       "OPTIONAL but write it whenever you know the service's answer: a SKETCH of the JSON it sends back, with the same keys " +
       "nested the same way, and every leaf replaced by what KIND of value it is — \"string\", \"number\", \"boolean\", or " +
-      "\"unknown\" when you genuinely do not know. A list is written as a one-entry array of the entry's own sketch. " +
+      "\"unknown\" when you genuinely do not know. A list is written as a one-entry array of the entry's own sketch — and when " +
+      "the WHOLE answer is a list, that one-entry array is the whole sketch, e.g. [{\"id\":\"number\",\"title\":\"string\"}]. " +
       "e.g. {\"current\":{\"temp_c\":\"number\",\"condition\":{\"text\":\"string\"}},\"forecast\":[{\"day\":\"string\",\"high\":\"number\"}]}. " +
       "NEVER put a real value in it (\"21.5\", \"sunny\") — that is a sample, and a page written against a sample hardcodes today's " +
-      "answer. This is what lets the page read the right field names; leave it out only if you truly cannot say." },
+      "answer, and NEVER write a sentence here. This is what lets the page read the right field names; leave it out only if you " +
+      "truly cannot say." },
     // WHERE THE KEY COMES FROM. The platform already tells the owner where to
     // PUT it — the reply names the secret and says Cloud → Secrets — and
     // nothing anywhere said which service it belongs to or where to sign up, so
