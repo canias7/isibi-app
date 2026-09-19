@@ -297,6 +297,180 @@ try {
     records(B) === 1, String(records(B)));
 
   // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n10. AN EDIT WHOSE ANSWER WAS LOST — the case the record is FOR");
+  // ═════════════════════════════════════════════════════════════════════════
+  /**
+   * ⚠ **REPRODUCED BEFORE IT WAS FIXED, through this same path**: `change_automation` moved a
+   * daily automation from 09:00 to 10:00, the answer was lost, and the retry of the SAME
+   * operation read the stored row, found 10:00 already there, computed an empty patch and
+   * answered `nothing-asked` — never reaching `patch_automation_once`, which was holding
+   * `{ok: true, version: 1, next_run_at: …}` for exactly that identity.
+   *
+   * **THE NARROW FIX WAS TEMPTING AND IS NOT WHAT SHIPPED.** Only the EMPTY patch was broken
+   * — a non-empty one reaches the wrapper, which answers the record itself, measured. But
+   * whether the patch comes out empty depends on WHICH FIELD somebody else moved in between:
+   * change the time and the retry's patch is non-empty and correct; change the NAME and the
+   * retry's patch is empty again and the defect is back. So the record is asked once, above
+   * every decision made from the row.
+   *
+   * A SECOND AGENT, with the authoring tools and a zone, so sections 1–9 keep the agent they
+   * were written against.
+   */
+  const r8MadeB = await api("/api/agent/create", { body: {
+    name: "Scheduler", instructions: "Look after the automations.",
+    tools: ["make_automation", "change_automation"], zone: "Europe/London" } });
+  const r8AG2 = r8MadeB.body?.agent?.id ?? null;
+  check("a second agent exists, with a zone a person set", r8MadeB.status === 200 && r8AG2 !== null,
+    JSON.stringify(r8MadeB.body).slice(0, 120));
+
+  const r8Change = toolNamed("change_automation");
+  const r8MakeAuto = toolNamed("make_automation");
+  const r8AtOf = (id) => q(`select coalesce(at_local::text, '(none)') from agent.automations where id='${id}';`);
+  const r8NameOf = (id) => q(`select coalesce(name, '(none)') from agent.automations where id='${id}';`);
+  const r8Autos = () => Number(q(`select count(*) from agent.automations where agent_id='${r8AG2}';`));
+
+  const r8Plan = { name: "Morning note", schedule: "daily", atLocal: "09:00",
+    steps: [{ type: "note", out: "n", text: "good morning" }] };
+  const r8Born = await r8MakeAuto.run(r8Plan, await ctxFor(r8Plan, 40, 0, RUN, A, r8AG2));
+  const r8AU = r8Born.automation ?? null;
+  check("an automation runs daily at 09:00", r8Born.ok === true && r8AtOf(r8AU).startsWith("09:00"),
+    `${JSON.stringify(r8Born).slice(0, 90)} / ${r8AtOf(r8AU)}`);
+
+  // ── 1. a successful edit, its answer lost, then the retry ────────────────
+  const r8ToTen = { id: r8AU, atLocal: "10:00" };
+  const r8Ctx10 = await ctxFor(r8ToTen, 41, 0, RUN, A, r8AG2);
+  const r8First10 = await r8Change.run(r8ToTen, r8Ctx10);
+  check("the edit moves it to 10:00", r8First10.ok === true && r8AtOf(r8AU).startsWith("10:00"),
+    `${JSON.stringify(r8First10).slice(0, 110)} / ${r8AtOf(r8AU)}`);
+  // THE ANSWER IS LOST. There is nothing to simulate: the row is committed, the record is
+  // written, and nobody wrote the journal entry that would have said so.
+  const r8Retry10 = await r8Change.run(r8ToTen, r8Ctx10);
+  check("⚠ THE RETRY ANSWERS THE RECORDED SUCCESS, not `nothing-asked`",
+    r8Retry10.ok === true && r8Retry10.repeat === true && r8Retry10.error === undefined,
+    JSON.stringify(r8Retry10).slice(0, 150));
+  check("...and it answers the FIRST attempt's version and next run",
+    r8Retry10.version === r8First10.version && r8Retry10.nextRunAt === r8First10.nextRunAt,
+    `${r8Retry10.version}/${r8Retry10.nextRunAt} against ${r8First10.version}/${r8First10.nextRunAt}`);
+  check("...and `changed` is absent, because the record does not hold it",
+    r8Retry10.changed === undefined, JSON.stringify(r8Retry10.changed));
+  check("...and exactly ONE record exists for that identity",
+    q(`select count(*) from agent.operations where tenant_id='${A}' and op_key='${splitOperation(r8Ctx10.operation).key}';`) === "1");
+
+  // ── 2. somebody else edits it in between ────────────────────────────────
+  /**
+   * ⚠ **THE FIELD SOMEBODY ELSE MOVES IS THE NAME, DELIBERATELY.** Moving the TIME makes the
+   * retry's patch non-empty, and the wrapper would have caught that on its own — so a case
+   * written that way passes against the defect. A name change leaves the retry's patch EMPTY
+   * (the time it wants is already there), which is exactly the shape that was broken.
+   */
+  const r8Renamed = await api("/api/agent/automation-update", { body: {
+    id: r8AU, name: "Morning note (theirs)", schedule: "daily", at: "10:00", zone: "Europe/London",
+    steps: [{ type: "note", out: "n", text: "good morning" }] } });
+  check("a person renames it, through their own route", r8Renamed.status === 200 &&
+    r8NameOf(r8AU) === "Morning note (theirs)", `${r8Renamed.status} / ${r8NameOf(r8AU)}`);
+  const r8RetryAfter = await r8Change.run(r8ToTen, r8Ctx10);
+  check("⚠ THE RETRY STILL ANSWERS THE RECORD", r8RetryAfter.ok === true && r8RetryAfter.repeat === true,
+    JSON.stringify(r8RetryAfter).slice(0, 130));
+  check("⚠ ...AND THE NEWER EDIT SURVIVES IT", r8NameOf(r8AU) === "Morning note (theirs)", r8NameOf(r8AU));
+  check("...with the time still where this operation left it", r8AtOf(r8AU).startsWith("10:00"), r8AtOf(r8AU));
+
+  // ── 3. a recorded failure stays a failure ───────────────────────────────
+  /**
+   * ⚠ **THE FIRST DRAFT OF THE FIX GOT THIS WRONG, and it is why the mapping is shared.** The
+   * wrapper records whatever the plain function answered — a refusal included — so a record
+   * proves the work HAPPENED and not that it succeeded. Reading every repeat as `ok: true`
+   * would launder *"that edit named something an automation does not have"* into *"done"* on
+   * the second delivery.
+   */
+  const r8Bad = { id: r8AU, name: "" };
+  const r8CtxBad = await ctxFor(r8Bad, 42, 0, RUN, A, r8AG2);
+  const r8FirstBad = await r8Change.run(r8Bad, r8CtxBad);
+  check("an edit the database refuses comes back refused", r8FirstBad.ok === false,
+    JSON.stringify(r8FirstBad).slice(0, 120));
+  const r8RecordedBad = q(`select coalesce(outcome::text, '(none)') from agent.operations
+                          where tenant_id='${A}' and op_key='${splitOperation(r8CtxBad.operation).key}';`);
+  const r8RetryBad = await r8Change.run(r8Bad, r8CtxBad);
+  check("⚠ AND ITS RETRY IS STILL A REFUSAL, never a success",
+    r8RetryBad.ok === false && r8RetryBad.error === r8FirstBad.error,
+    `${JSON.stringify(r8RetryBad).slice(0, 120)} / recorded ${r8RecordedBad.slice(0, 80)}`);
+
+  // ── 4. the same identity, different arguments ───────────────────────────
+  /**
+   * The identity is `<run>:<step>:<index>:<the arguments' own hash>`, and `operation_check`
+   * compares the action AND the hash — so a slot re-used for a different call is a MISMATCH
+   * rather than that call's own operation. Built by hand here, because `run.mjs` cannot
+   * produce it: it hashes the arguments it is sending.
+   */
+  const r8Other = { id: r8AU, atLocal: "12:00" };
+  const r8Reused = { capabilities: caps(A, r8AG2),
+    operation: `${RUN}:41:0:${await argsHash(r8Other)}` };
+  const r8Clash = await r8Change.run(r8Other, r8Reused);
+  /**
+   * ⚠ **ASSERTED ON THE TOOL'S OWN SENTENCE, because the wrapper refuses this too and the
+   * error alone cannot tell them apart.** `patch_automation_once` compares the action and the
+   * hash inside its transaction, so with the tool's check deleted this still comes back
+   * `operation-mismatch` — measured. The tool's refusal NAMES the action the key was recorded
+   * for and the wrapper's does not, which is what makes the case about the wall being tested.
+   *
+   * **AND THE TOOL'S CHECK IS NOT REDUNDANT, which is why it stays**: the patch here happens
+   * to be non-empty, so the wrapper is reached. A reused slot whose patch comes out EMPTY —
+   * the first call recorded a rename, the second asks for a time the row already has — never
+   * reaches the wrapper at all, and would answer `nothing-asked` about a slot that belongs to
+   * another request.
+   */
+  check("⚠ AN IDENTITY REUSED WITH DIFFERENT ARGUMENTS IS REFUSED",
+    r8Clash.ok === false && r8Clash.error === "operation-mismatch" &&
+    String(r8Clash.say).includes("patch_automation"), JSON.stringify(r8Clash).slice(0, 140));
+  check("...and nothing was changed by it", r8AtOf(r8AU).startsWith("10:00"), r8AtOf(r8AU));
+
+  // ── 5. a genuinely empty NEW request ───────────────────────────────────
+  /**
+   * ⚠ **THE DISTINCTION THE REQUIREMENT ASKS FOR: an empty new call and a retry of completed
+   * work must not collapse into one answer.** A fresh identity naming nothing is still
+   * `nothing-asked` — it cost a person an approval, so answering "done" about nothing is the
+   * dead control again.
+   */
+  const r8Nothing = { id: r8AU, atLocal: "10:00" };
+  const r8Empty = await r8Change.run(r8Nothing, await ctxFor(r8Nothing, 43, 0, RUN, A, r8AG2));
+  check("⚠ A GENUINELY EMPTY NEW REQUEST IS STILL `nothing-asked`",
+    r8Empty.ok === false && r8Empty.error === "nothing-asked", JSON.stringify(r8Empty).slice(0, 130));
+  check("...and it wrote no record, because nothing was done",
+    q(`select count(*) from agent.operations where tenant_id='${A}' and op_key='${RUN}:43:0';`) === "0");
+  check("...and the automation is untouched", r8Autos() === 1 && r8AtOf(r8AU).startsWith("10:00"));
+
+  // ── the same class, one tool over ───────────────────────────────────────
+  /**
+   * ⚠ **`make_automation` HAD THE SAME SHAPE and it is fixed with the same reader.** Its one
+   * refusal that depends on something a person can change is `zoneFor`, which READS the
+   * account's settings — so clearing the zone between two deliveries would answer `no-zone`
+   * about an automation that already exists.
+   */
+  const r8Plan2 = { name: "Evening note", schedule: "daily", atLocal: "18:00",
+    steps: [{ type: "note", out: "n", text: "good evening" }] };
+  const r8CtxP2 = await ctxFor(r8Plan2, 44, 0, RUN, A, r8AG2);
+  const r8Born2 = await r8MakeAuto.run(r8Plan2, r8CtxP2);
+  check("a second automation is created", r8Born2.ok === true && r8Autos() === 2,
+    JSON.stringify(r8Born2).slice(0, 110));
+  const r8Cleared = await api("/api/agent/update", { body: {
+    id: r8AG2, name: "Scheduler", instructions: "Look after the automations.", zone: null } });
+  /**
+   * ⚠ **ASSERTED AS SQL NULL, not merely as "not a usable zone".** The local shim wrote the
+   * STRING `'null'` here (`lit(null)` is `String(null)`), which `agent.zone_is_usable` reads as
+   * a zone it does not know — so the tool would have refused `no-zone` for the RIGHT reason
+   * from the wrong state, and the case would have passed while the setting was neither set nor
+   * cleared. `zone is null` is the only reading that tells the two apart.
+   */
+  check("a person then clears the account's time zone", r8Cleared.status === 200 &&
+    q(`select case when zone is null then 'cleared' else 'still ' || quote_literal(zone) end
+        from agent.agents where id='${r8AG2}';`) === "cleared",
+    q(`select coalesce(quote_literal(zone), 'NULL') from agent.agents where id='${r8AG2}';`));
+  const r8RetryBorn = await r8MakeAuto.run(r8Plan2, r8CtxP2);
+  check("⚠ THE RETRY ANSWERS THE RECORD RATHER THAN `no-zone`",
+    r8RetryBorn.ok === true && r8RetryBorn.repeat === true && r8RetryBorn.automation === r8Born2.automation,
+    JSON.stringify(r8RetryBorn).slice(0, 140));
+  check("...and no second automation was made", r8Autos() === 2, String(r8Autos()));
+
+  // ═════════════════════════════════════════════════════════════════════════
   console.log("\n9. WHAT NONE OF IT LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   check("no run is still claimed", q(`select count(*) from agent.run_work where claimed_by is not null and done_at is null;`) === "0");

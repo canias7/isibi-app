@@ -1164,6 +1164,62 @@ const spec = [
     "input: args.input ?? {}, operation: ctx.operation });",
     "input: args.input ?? {}, operation: args.operation ?? ctx.operation });"),
 
+  // ── THE RECORD IS ASKED BEFORE THE ROW DECIDES ────────────────────────────
+  //
+  // ⚠ **REPRODUCED before any of this existed**: an edit moved a daily automation from 09:00
+  // to 10:00, its answer was lost, and the retry of the SAME operation read the stored row,
+  // found 10:00 already there, computed an empty patch and answered `nothing-asked` — never
+  // reaching `patch_automation_once`, which held that operation's success. Ten mutants, because
+  // the consult can be broken at the reader, at either tool, at the mapping, or at the action
+  // it asks about — and each of those failures looks different from outside.
+  m("tools: an edit never asks the record, so a retry refuses over a recorded success", CT,
+    '    const seen = await recordFor(can, ctx, "patchAutomation");',
+    '    const seen = { state: "unknown" };'),
+  m("tools: a create never asks the record, so a retry refuses for a zone somebody cleared", CT,
+    '    const seen = await recordFor(can, ctx, "createAutomation");',
+    '    const seen = { state: "unknown" };'),
+  // ⚠ CANNOT-TELL READ AS A VALUE, in the direction that INVENTS a success — an unreadable
+  // answer would answer `ok` with no outcome behind it.
+  m("tools: a record nobody could read is treated as a repeat", CT,
+    '  if (state === null) return { state: "unknown" };',
+    '  if (state === null) return { state: "repeat" };'),
+  // ⚠ A RECORDED REFUSAL LAUNDERED INTO A SUCCESS — the first draft's own defect, and worse
+  // than the one being fixed: the wrapper records whatever the plain function answered.
+  m("tools: a recorded FAILURE is answered as a success on retry", CT,
+    "  if (was.ok !== true) {\n    return { ok: false, recorded: true,",
+    "  if (false) {\n    return { ok: false, recorded: true,"),
+  m("tools: an identity reused for different work is answered rather than refused", CT,
+    '    if (seen.state === "mismatch") return REUSED(seen);\n    if (seen.state === "repeat") {\n      return recalled(seen, text(args.id),',
+    '    if (seen.state === "repeat") {\n      return recalled(seen, text(args.id),'),
+  // ⚠ THE OWNERSHIP CHECK MUST STAY IN FRONT. Asked first, the record would answer for an
+  // automation this agent may not touch — and the requirement is explicit that the ownership
+  // wall is preserved.
+  m("tools: the record is asked before whose automation it is", CT,
+    "    const held = await can.readAutomation({ id: text(args.id) });\n    if (!held) {",
+    '    const held = (await recordFor(can, ctx, "patchAutomation")).state === "repeat"\n      ? { id: text(args.id), schedule: "manual", steps: [], inputs: [] }\n      : await can.readAutomation({ id: text(args.id) });\n    if (!held) {'),
+  // ⚠ `changed` IS COMPUTED FROM THIS ATTEMPT'S PATCH, so reporting it on a repeat is a
+  // statement about a row somebody may have moved rather than about the edit that happened.
+  m("tools: a repeat invents what changed", CT,
+    "  return { ok: true, repeat: true,\n    ...(typeof was.id === \"string\" ? { automation: was.id }",
+    "  return { ok: true, repeat: true, changed: [],\n    ...(typeof was.id === \"string\" ? { automation: was.id }"),
+  // ── capabilities.mjs: THE RECORD READER ───────────────────────────────────
+  //
+  // ⚠ THE ACTION IS DERIVED FROM `CAPABILITY_RPC`, so it is the same name the `_once` wrapper
+  // records under. Hardcoded, it asks about a different operation and every answer is `fresh`.
+  m("caps: the record is asked about a hardcoded action rather than the operation's own", CP,
+    "                p_tenant: tenant, p_op_key: id.key, p_action: fn, p_args_hash: id.hash,",
+    '                p_tenant: tenant, p_op_key: id.key, p_action: "patch_automation", p_args_hash: id.hash,'),
+  // ⚠ ONLY A WRITE HAS A RECORD. Admitting a read would have it asking about an operation
+  // that records nothing, and every answer would be `fresh` — a question with no subject.
+  m("caps: a READ is admitted to the record question", CP,
+    "              if (!fn || !CAPABILITY_WRITES.includes(op)) {",
+    "              if (!fn) {"),
+  // ⚠ AND A MALFORMED IDENTITY MUST NOT MINT A KEY. One invented from a junk identity
+  // collides with something, which is the whole reason `splitOperation` refuses.
+  m("caps: a malformed identity is read as a record question anyway", CP,
+    "              const id = splitOperation(operation);\n              if (!id) {",
+    '              const id = splitOperation(operation) ?? { key: String(operation), hash: "" };\n              if (false) {'),
+
   // ── capability-tools.mjs: WRITING A WORKFLOW ──────────────────────────────
   // ⚠ WHAT REACHES THE DATABASE IS `readWorkflow`'S OWN OUTPUT, NEVER THE MODEL'S LIST —
   // a validation that happens BESIDE the call rather than in front of it is the shape of

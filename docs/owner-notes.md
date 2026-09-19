@@ -12592,3 +12592,85 @@ as many words. The sweep is what found the truth.
 
 **Still nothing merged, nothing deployed, nothing applied to the live database, no external
 message and no real model — that last one stays yours to call.**
+
+
+## The edit that said "you changed nothing" about a change it had just made (2026-09-19)
+
+You asked me to finish this round by fixing the retry bug the review found. **I reproduced it
+first, end to end, before touching anything** — because a fix for a defect nobody has watched
+happen is a guess:
+
+1. the agent moves an automation from 09:00 to 10:00. It works — the row says 10:00.
+2. the answer is lost on the way back. Nothing to fake here: the change is committed and the
+   note saying so was never written.
+3. the agent tries the same thing again. It reads the automation, sees 10:00 already there, and
+   answers **"that named no change"**.
+4. and the database had the answer all along: a record of that exact request, holding its
+   success.
+
+**The database was right the whole time. The tool refused above it** — so this fix needed no
+change to your database at all.
+
+### The tempting small fix, and why I did not ship it
+
+Only the case in step 3 was broken: if somebody else had changed the TIME in between, the retry
+would have reached the database and been answered correctly. I measured that before changing
+anything.
+
+**But whether it breaks depends on which field the other person moved.** They change the time —
+fine. They change the NAME — and the retry is back to "you changed nothing", with nothing in the
+change to say so. So the tool now asks the record ONCE, before it decides anything from the row,
+and its answer no longer depends on what somebody else happened to touch. The test renames on
+purpose for that reason.
+
+### What it does now, in order
+
+It still checks **whose automation it is** first — one that is not this agent's, or has since
+been deleted, is still "there is no automation with that id", which is true and useful. Then it
+asks the record. Then, only if there is nothing recorded, it works out what to change.
+
+**A recorded REFUSAL stays a refusal**, and my first draft got that wrong: the record keeps
+whatever happened, refusals included, so reading every record as "it worked" would have turned
+*"that automation needs a name"* into *"done"* on the second try. Worse than the bug I was
+fixing. It reads the record's own answer now, and says the same sentence the first attempt said.
+
+**And it does not claim to know what changed.** "What changed" is worked out from the current
+row, which somebody may have moved since — so on a retry it is left out rather than guessed.
+
+### The same thing was one tool over
+
+I read every tool that changes something, looking for the same shape. Five were clean: they do
+the work as their first act, so they always reach the record. **Two had it** — the edit above,
+and CREATING an automation, where the one thing it checks first is your account's time zone. If
+you cleared the zone between the two attempts, the retry would have said *"ask somebody to set
+the time zone"* about an automation that already existed. Same fix, same reader.
+
+**Your own screens are untouched.** A person pressing a button twice is a different question and
+it is already answered where it was.
+
+### ⚠ And my local test database could not clear a setting at all
+
+Found by needing a person to clear a zone: the stand-in wrote the four letters `null` into the
+column instead of emptying it. So the test would have passed for the wrong reason — the tool
+refusing for the right reason from a state nobody asked for. **The comment beside that line said
+it was already doing the right thing**, which is why nobody had noticed; it is fixed, and the
+test now asks whether the column is really empty rather than whether it is unusable.
+
+### Measured
+
+- **The retry demonstration: 53 → 75 checks, 0 failed**, driven through the real tool, the real
+  adapter and a real PostgreSQL. **Every new check was proved to FAIL against the defect it
+  forbids** before I believed it.
+- **Engine suite 570 → 577, 0 failed.** Those checks exist because the breakage sweep cannot run
+  the demonstration — a property only the demonstration proves is a property no breakage can be
+  caught by, which this directory has now paid for six times.
+- **Breakage spec 659 → 669.** Ten new ones. **Three missed on the first spot-check and all
+  three were the same gap**: every check drove the TOOLS against a stand-in, so the layer that
+  talks to the database was never reached — and a tool can ask the record perfectly while that
+  layer asks the wrong question. Closed, then re-checked: **10 of 10 caught, each by a named
+  test.**
+- **Your site's suite: 6,814, 0 failed — unchanged**, which is the control that this touched
+  nothing on that side.
+
+**Nothing merged, nothing deployed, nothing applied to the live database, no external message
+and no real model.**

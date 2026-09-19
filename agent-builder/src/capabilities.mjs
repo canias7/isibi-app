@@ -65,6 +65,14 @@ export const CAPABILITIES = Object.freeze([
   // authoring tools ask this and then either use what a person set or ASK for it. Narrow by
   // construction — see `agent.read_agent_settings`, which answers the zone and nothing else.
   "readAgentSettings",
+  // ⚠ **A READ OF THIS ACCOUNT'S OWN OPERATION RECORD, and the one thing it exists for
+  // is a refusal that must not be reached.** A tool that validates against CURRENT STATE
+  // before writing can refuse a RETRY of work the record already holds — the edit landed,
+  // the answer was lost, and the second attempt sees a row that already matches and says
+  // "that named no change". So a tool asks this before deciding a fresh write is needed.
+  // **A READ, and not a write's door**: it takes no outcome and cannot record one, so the
+  // only thing on this surface that can write a record is still the `_once` wrapper.
+  "checkOperation",
 ]);
 
 /**
@@ -93,6 +101,7 @@ export const CAPABILITY_RPC = Object.freeze({
   readExecution: "read_execution",
   cancelExecution: "cancel_run",
   readAgentSettings: "read_agent_settings",
+  checkOperation: "operation_check",
 });
 
 /**
@@ -355,6 +364,58 @@ export function makeCapabilities(opts = {}) {
               });
               if (row === null || typeof row !== "object" || row.ok !== true) return { zone: null };
               return { zone: typeof row.zone === "string" && row.zone.trim() ? row.zone.trim() : null };
+            },
+            /**
+             * ⚠ **WHAT THIS ACCOUNT'S RECORD ALREADY SAYS ABOUT ONE OPERATION — read-only,
+             * and it exists because a refusal computed from CURRENT STATE was reaching a
+             * retry whose success is already recorded.**
+             *
+             * **THE DEFECT, REPRODUCED before this existed.** `change_automation` moved a
+             * daily automation from 09:00 to 10:00, its answer was lost, and the retry of the
+             * SAME operation read the stored row, found 10:00 already there, computed an
+             * empty patch and answered `nothing-asked` — never reaching
+             * `patch_automation_once`, which was holding `{ok: true, version: 1, …}` for
+             * exactly that identity. Measured through the real tool against a real
+             * PostgreSQL. The database was right throughout; the tool refused above it.
+             *
+             * **THE ACTION IS DERIVED FROM `CAPABILITY_RPC`, NEVER PASSED IN**, so it is the
+             * same name the `_once` wrapper records under — one copy, and a caller cannot ask
+             * about an action this surface does not perform. **Only a WRITE has a record**, so
+             * asking about a read is `unknown` rather than `fresh`: `fresh` is a statement
+             * about a record, and there is none to make it about.
+             *
+             * ⚠ **CANNOT-TELL IS `unknown` AND NEVER `fresh`, and which way that falls is the
+             * whole safety argument.** Read as `fresh`, an unreadable answer sends the caller
+             * down the ordinary path — which either writes (and the wrapper decides, because
+             * it asks this same function inside the transaction) or refuses as it does today.
+             * Read as `repeat`, it would invent a success with no outcome to answer from. So
+             * the cost of not knowing is the old refusal, never a fabricated answer. A failed
+             * REQUEST throws, exactly as every other operation's does — the write below it
+             * would throw too, so this adds no new failure mode.
+             */
+            async checkOperation({ op, operation } = {}) {
+              const fn = CAPABILITY_RPC[op];
+              if (!fn || !CAPABILITY_WRITES.includes(op)) {
+                return { state: "unknown", why: "not-a-write" };
+              }
+              const id = splitOperation(operation);
+              if (!id) {
+                return { state: "unknown",
+                  why: operation === undefined || operation === null
+                    ? "operation-required" : "operation-unreadable" };
+              }
+              const row = await rpc(CAPABILITY_RPC.checkOperation, {
+                p_tenant: tenant, p_op_key: id.key, p_action: fn, p_args_hash: id.hash,
+              });
+              const state = row && typeof row === "object" && typeof row.state === "string"
+                ? row.state : null;
+              if (state === null) return { state: "unknown", why: "unreadable-answer" };
+              return { state,
+                outcome: row.outcome ?? null,
+                // WHAT THE KEY WAS RECORDED FOR, on a mismatch. It is the only thing a
+                // caller can act on, and it is the wrapper's own field name.
+                action: typeof row.action === "string" ? row.action : null,
+                recordedAt: row.recordedAt ?? null };
             },
             /**
              * ⚠ **STOP ONE EXECUTION — and the WALL is `readExecution`, not a filter in the

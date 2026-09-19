@@ -277,6 +277,10 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
     // here, which is what makes "a model cannot ask about another agent's settings" true by
     // there being nowhere to say one.
     readAgentSettings: [],
+    // ⚠ A READ, AND IT ASKS ABOUT A WRITE. Driven with a WRITE's name because that is the
+    // only thing it answers about — asking about a read is `unknown` and reaches no request
+    // at all, which would leave this operation undriven while looking driven.
+    checkOperation: [{ op: "patchAutomation", operation: OP() }],
   };
   // ⚠ CENSUSED AGAINST `CAPABILITIES` BOTH WAYS, so an operation added next month is not
   // silently left undriven — the silence would read exactly like coverage.
@@ -849,6 +853,14 @@ test("⚠ A READ NEVER ASKS FOR AN OPERATION RECORD — it changes nothing to pr
     // ⚠ THE SETTINGS READ IS ON THIS SIDE OF THE PARTITION, and it belongs here: it changes
     // nothing, so a wrapper would be claiming to protect something no repeat can harm.
     readAgentSettings: {},
+    // ⚠ **THE ONE READ THAT IS ABOUT A RECORD AND STILL MUST NOT ASK FOR ONE**, which is
+    // the distinction this census turns on rather than an exemption from it. It asks
+    // `operation_check` — read-only, and the same function the `_once` wrapper asks inside
+    // its transaction — so it can answer what a record HOLDS and has nowhere to write one.
+    // Routing it through `operation_check_once` would be a record of having looked at a
+    // record. It is driven with a WRITE's name because that is the only thing it answers
+    // about, and the assertion below then proves it reached a plain function.
+    checkOperation: { op: "patchAutomation", operation: OP() },
   };
   assert.deepEqual(Object.keys(reads).sort(),
     CAPABILITIES.filter((c) => !CAPABILITY_WRITES.includes(c)).sort());
@@ -1071,6 +1083,11 @@ const REACH = Object.freeze({
     readAgentSettings:
       "read by the authoring path and offered to no model. It exists so a schedule can resolve "
       + "its zone; a tool for it would widen the surface for nothing a model needs to ask.",
+    checkOperation:
+      "the platform's own retry protection, asked by the authoring tools before they decide a "
+      + "fresh write is needed. A tool for it would let a model ask whether its own earlier "
+      + "call landed and then act on the answer — and what to do about a lost answer is the "
+      + "platform's to settle, in one place, rather than a decision a model gets to make.",
   }),
 });
 
@@ -1844,4 +1861,236 @@ test("⚠ MOVING AN AUTOMATION TO MANUAL CLEARS THE TIME IT NO LONGER HAS", asyn
   assert.equal(daily.ok, true, JSON.stringify(daily));
   assert.equal(w3.sent.find((r) => r.rpc === "patch_automation_once").body.p_patch.atLocal, "07:30",
     "a daily schedule lost the time it was given");
+});
+
+/**
+ * ⚠ **THE RECORD IS ASKED BEFORE THE ROW DECIDES, AND THESE CASES EXIST BECAUSE THE SWEEP
+ * CANNOT RUN THE DEMONSTRATION.**
+ *
+ * `npm run verify:ops` proves this end to end against a real PostgreSQL — and `npm run sweep`
+ * runs `test/*.test.mjs` and not that, so *a property proven only by an instrument the sweep
+ * cannot run is a property no mutant can be caught by*. This directory has paid for that five
+ * times; the cases below are where a mutant on the consult can be seen.
+ *
+ * **THE DEFECT, REPRODUCED before the fix**, through the real tool and adapter against a real
+ * PostgreSQL: an edit moved a daily automation from 09:00 to 10:00, its answer was lost, and
+ * the retry of the SAME operation read the stored row, found 10:00 already there, computed an
+ * empty patch and answered `nothing-asked` — while `patch_automation_once` was holding
+ * `{ok: true, version: 1, …}` for exactly that identity.
+ */
+const recordSeam = (state, extra = {}) => {
+  const asked = [];
+  const can = {
+    readAutomation: async () => ({ id: AUTO, agent: AG, schedule: "daily", atLocal: "10:00:00",
+      zone: "Europe/London", steps: [], inputs: [], days: [], onDate: null, onEvent: null, version: 1 }),
+    readAgentSettings: async () => ({ zone: "Europe/London" }),
+    checkOperation: async (a) => { asked.push({ op: "checkOperation", a }); return { state, ...extra }; },
+    patchAutomation: async (a) => { asked.push({ op: "patchAutomation", a }); return { ok: true, id: AUTO, version: 9 }; },
+    createAutomation: async (a) => { asked.push({ op: "createAutomation", a }); return { ok: true, id: AUTO, version: 1 }; },
+  };
+  return { can, asked, wrote: () => asked.some((x) => x.op === "patchAutomation" || x.op === "createAutomation") };
+};
+const changeTool = () => CAPABILITY_TOOLS.find((t) => t.name === "change_automation");
+const makeTool = () => CAPABILITY_TOOLS.find((t) => t.name === "make_automation");
+
+test("⚠ A RETRY OF A COMPLETED EDIT ANSWERS THE RECORD, NOT `nothing-asked`", async () => {
+  // The reproduced shape: the row ALREADY says what this call asks for, so the patch is empty.
+  const seam = recordSeam("repeat", { outcome: { ok: true, id: AUTO, version: 1, next_run_at: "2026-09-19T09:00:00+00:00" } });
+  const again = await changeTool().run({ id: AUTO, atLocal: "10:00" },
+    { capabilities: seam.can, operation: OP() });
+  assert.equal(again.ok, true, JSON.stringify(again));
+  assert.equal(again.repeat, true, "the answer does not say it was already done");
+  assert.equal(again.error, undefined, `it refused: ${again.error}`);
+  // THE FIRST ATTEMPT'S numbers, out of the record — never re-derived from the row as it stands.
+  assert.equal(again.version, 1);
+  assert.equal(again.nextRunAt, "2026-09-19T09:00:00+00:00");
+  // ⚠ `changed` IS ABSENT BECAUSE THE RECORD DOES NOT HOLD IT. Computed from the patch this
+  // attempt WOULD have sent, it is a fact about this attempt's arithmetic against a row
+  // somebody may have moved since, not about the edit that really happened.
+  assert.equal(again.changed, undefined, `it invented what changed: ${JSON.stringify(again.changed)}`);
+  assert.equal(seam.wrote(), false, "a completed operation was performed a second time");
+  // ⚠ AND IT ASKED ABOUT THE WRITE BY NAME, so the action the record is compared against is
+  // the one the wrapper records under rather than a string typed here.
+  assert.deepEqual(seam.asked.map((x) => x.op), ["checkOperation"]);
+  assert.equal(seam.asked[0].a.op, "patchAutomation");
+});
+
+test("⚠ A RECORDED FAILURE STAYS A FAILURE ON RETRY", async () => {
+  /**
+   * The wrapper records whatever the plain function answered — a refusal included — so a
+   * record proves the work HAPPENED and not that it succeeded. **The first draft of this fix
+   * read every repeat as `ok: true`**, which would have laundered *"that automation needs a
+   * name"* into *"done"* on the second delivery: worse than the defect being fixed.
+   */
+  const seam = recordSeam("repeat", { outcome: { ok: false, error: "bad-name" } });
+  const again = await changeTool().run({ id: AUTO, name: "" }, { capabilities: seam.can, operation: OP() });
+  assert.equal(again.ok, false, JSON.stringify(again));
+  assert.equal(again.error, "bad-name", "the recorded refusal lost its own reason");
+  assert.equal(again.repeat, undefined, "a refusal was reported as a repeat of a success");
+  assert.equal(again.recorded, true, "nothing says this refusal was already given");
+  // THE SENTENCE IS THE LIVE PATH'S OWN, from one place, so a refusal reads the same whichever
+  // delivery gave it.
+  assert.match(String(again.say), /needs a name/);
+  assert.equal(seam.wrote(), false, "a recorded refusal was attempted again");
+});
+
+test("⚠ THE SAME IDENTITY WITH DIFFERENT ARGUMENTS IS REFUSED, AND NOTHING IS WRITTEN", async () => {
+  const seam = recordSeam("mismatch", { action: "create_automation" });
+  const clash = await changeTool().run({ id: AUTO, atLocal: "12:00" }, { capabilities: seam.can, operation: OP() });
+  assert.equal(clash.ok, false, JSON.stringify(clash));
+  assert.equal(clash.error, "operation-mismatch");
+  // ⚠ IT NAMES WHAT THE KEY WAS RECORDED FOR, which is the only thing a caller can act on —
+  // and is what tells this refusal from the wrapper's, which makes the same one without it.
+  assert.match(String(clash.say), /create_automation/);
+  assert.equal(seam.wrote(), false, "a reused identity still performed a write");
+});
+
+test("⚠ A GENUINELY EMPTY NEW REQUEST IS STILL REFUSED — the control", async () => {
+  // ⚠ **WITHOUT THIS, "the retry is answered" IS SATISFIED BY A TOOL THAT NEVER REFUSES.** A
+  // fresh identity naming nothing cost a person an approval, so answering "done" about nothing
+  // is the dead control again. The row already says 10:00, which is what the call asks for.
+  const seam = recordSeam("fresh");
+  const empty = await changeTool().run({ id: AUTO, atLocal: "10:00" }, { capabilities: seam.can, operation: OP() });
+  assert.equal(empty.ok, false, JSON.stringify(empty));
+  assert.equal(empty.error, "nothing-asked");
+  assert.equal(seam.wrote(), false);
+
+  // AND A FRESH CALL THAT REALLY NAMES SOMETHING STILL WRITES, which is the other half of the
+  // control: the consult must not have become a wall in front of every edit.
+  const live = recordSeam("fresh");
+  const did = await changeTool().run({ id: AUTO, atLocal: "11:00" }, { capabilities: live.can, operation: OP() });
+  assert.equal(did.ok, true, JSON.stringify(did));
+  assert.equal(live.wrote(), true, "a fresh edit was not performed");
+});
+
+test("⚠ A RECORD WE COULD NOT READ IS NOT A REPEAT — cannot-tell falls to the ordinary path", async () => {
+  /**
+   * ⚠ **WHICH WAY THIS FALLS IS THE WHOLE SAFETY ARGUMENT.** Read as a repeat, an unreadable
+   * answer invents a success with no outcome to answer from. Read as `unknown`, the cost is the
+   * old behaviour — and the `_once` wrapper asks this same function INSIDE its transaction, so
+   * a write that does go out is still deduplicated there. Driven for every shape that is not a
+   * state: an answer with none, a missing operation, and an adapter that has no such reader at
+   * all (a deployment older than this).
+   */
+  for (const [what, seam] of [
+    ["an answer carrying no state", recordSeam(undefined)],
+    ["a state that is not a string", recordSeam(7)],
+  ]) {
+    const out = await changeTool().run({ id: AUTO, atLocal: "11:00" }, { capabilities: seam.can, operation: OP() });
+    assert.equal(out.ok, true, `${what}: ${JSON.stringify(out)}`);
+    assert.equal(out.repeat, undefined, `${what}: an unreadable record was read as a repeat`);
+    assert.equal(seam.wrote(), true, `${what}: the write was skipped on a record nobody could read`);
+  }
+  // AN ADAPTER WITH NO SUCH READER — the operation is new, so a store built before it must not
+  // throw. The tool asks whether the function exists rather than assuming the surface it has.
+  const older = recordSeam("repeat", { outcome: { ok: true, id: AUTO } });
+  delete older.can.checkOperation;
+  const out = await changeTool().run({ id: AUTO, atLocal: "11:00" }, { capabilities: older.can, operation: OP() });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(older.wrote(), true, "an older adapter's edit was silently dropped");
+});
+
+test("⚠ `make_automation` HAS THE SAME SHAPE, above the one refusal a person can cause", async () => {
+  /**
+   * Every refusal above the consult there is about the model's OWN arguments, which a retry
+   * carries unchanged. `zoneFor` is the exception: it READS the account's settings, so somebody
+   * clearing the zone between two deliveries would answer `no-zone` about an automation that
+   * already exists — and send the model to ask for a setting for work that is done.
+   */
+  const plan = { name: "Morning", schedule: "daily", atLocal: "09:00",
+    steps: [{ type: "note", out: "n", text: "hi" }] };
+  const seam = recordSeam("repeat", { outcome: { ok: true, id: AUTO, version: 1, next_run_at: "2026-09-19T08:00:00+00:00" } });
+  // THE ZONE IS GONE, which is what makes this case about the consult rather than about a
+  // happy path: without it the tool refuses `no-zone` before it can ask anything.
+  seam.can.readAgentSettings = async () => ({ zone: null });
+  const again = await makeTool().run(plan, { capabilities: seam.can, operation: OP() });
+  assert.equal(again.ok, true, JSON.stringify(again));
+  assert.equal(again.repeat, true);
+  assert.equal(again.automation, AUTO, "the recorded automation's id was not answered");
+  assert.equal(seam.wrote(), false, "a second automation was created");
+  assert.equal(seam.asked[0].a.op, "createAutomation", "it asked the record about the wrong action");
+
+  // THE CONTROL: with no record, that same call really does refuse for the zone — so the case
+  // above is about the record being consulted and not about `no-zone` having been deleted.
+  const fresh = recordSeam("fresh");
+  fresh.can.readAgentSettings = async () => ({ zone: null });
+  const refused = await makeTool().run(plan, { capabilities: fresh.can, operation: OP() });
+  assert.equal(refused.ok, false, JSON.stringify(refused));
+  assert.equal(refused.error, "no-zone");
+  assert.equal(fresh.wrote(), false);
+});
+
+test("⚠ THE RECORD READER ASKS ABOUT ONE WRITE, BY ITS OWN NAME, AND NOTHING ELSE", async () => {
+  /**
+   * ⚠ **THREE SWEEP MUTANTS SURVIVED HERE, and the reason is the shape of every case above:
+   * they drive the TOOLS against a fake `can`, so the ADAPTER is never reached.** A tool can
+   * ask the record perfectly and the adapter can ask the wrong question — about a hardcoded
+   * action (so every answer is `fresh` and the retry protection is decorative), about a READ
+   * (a question with no subject), or under a key minted from a malformed identity (which
+   * collides with something). Each of those is invisible to a tool-level fake, and the first
+   * is invisible from outside altogether: it answers `fresh` exactly as a first attempt does.
+   */
+  const { can, sent } = recorder(() => ({ state: "fresh" }));
+  const ops = can.forTenant(T).forAgent(AG);
+  const OPID = OP(77, 0, "cafe1234");
+
+  // ⚠ THE ACTION IS DERIVED FROM `CAPABILITY_RPC`, so it is the same name the `_once` wrapper
+  // records under — one copy of it, and a census over every write rather than one example.
+  for (const w of CAPABILITY_WRITES) {
+    sent.length = 0;
+    const out = await ops.checkOperation({ op: w, operation: OPID });
+    assert.equal(out.state, "fresh", `${w}: ${JSON.stringify(out)}`);
+    const req = sent.at(-1);
+    assert.equal(req.rpc, CAPABILITY_RPC.checkOperation, `${w} asked something other than the record`);
+    assert.equal(req.body.p_action, CAPABILITY_RPC[w],
+      `${w} asked the record about ${req.body.p_action}, which is not what its wrapper records under`);
+    // THE KEY AND THE HASH SPLIT THE WAY THE DATABASE STORES THEM, and the tenant is the
+    // closure's — the four arguments are the one place a new field could smuggle one in.
+    assert.equal(req.body.p_op_key, `${RUN}:77:0`, `${w} sent the hash inside the key`);
+    assert.equal(req.body.p_args_hash, "cafe1234");
+    assert.equal(req.body.p_tenant, T);
+    assert.equal(req.body.p_agent_id, undefined, `${w} sent an agent to a record question`);
+  }
+
+  // ⚠ A READ HAS NO RECORD, so asking about one is `unknown` and reaches NO REQUEST AT ALL.
+  // `fresh` would be a statement about a record, and there is none to make it about.
+  for (const r of CAPABILITIES.filter((c) => !CAPABILITY_WRITES.includes(c))) {
+    sent.length = 0;
+    const out = await ops.checkOperation({ op: r, operation: OPID });
+    assert.equal(out.state, "unknown", `${r} was admitted to the record question`);
+    assert.equal(out.why, "not-a-write");
+    assert.equal(sent.length, 0, `${r} asked the database about a record it cannot have`);
+  }
+  // AND A NAME THAT IS NOT AN OPERATION AT ALL.
+  assert.equal((await ops.checkOperation({ op: "constructor", operation: OPID })).state, "unknown");
+  assert.equal((await ops.checkOperation({ op: "notAnOperation", operation: OPID })).state, "unknown");
+
+  // ⚠ A MALFORMED IDENTITY MINTS NO KEY. `splitOperation` refuses because a key invented from
+  // one collides with something — so the refusal must be the answer, not a repaired key.
+  for (const junk of [undefined, null, "", "nonsense", "a:b", `${RUN}:x:0:cafe`, 7, ["a"], {}]) {
+    sent.length = 0;
+    const out = await ops.checkOperation({ op: "patchAutomation", operation: junk });
+    assert.equal(out.state, "unknown", `${JSON.stringify(junk)} was read as an identity`);
+    assert.equal(sent.length, 0, `${JSON.stringify(junk)} reached the database as a key`);
+  }
+  // THE TWO SILENCES ARE TOLD APART, because one is a caller that forgot and one is a caller
+  // that sent something it could not build.
+  assert.equal((await ops.checkOperation({ op: "patchAutomation" })).why, "operation-required");
+  assert.equal((await ops.checkOperation({ op: "patchAutomation", operation: "nope" })).why, "operation-unreadable");
+
+  // AND THE FOUR STATES COME THROUGH AS THEY ARE, with `unknown` for anything that is not one.
+  for (const [answer, want] of [
+    [{ state: "repeat", outcome: { ok: true }, recordedAt: "t" }, "repeat"],
+    [{ state: "mismatch", action: "create_automation" }, "mismatch"],
+    [{ state: "unfinished" }, "unfinished"],
+    [{ state: "fresh" }, "fresh"],
+    [{}, "unknown"], [{ state: 7 }, "unknown"], [null, "unknown"], ["fresh", "unknown"],
+  ]) {
+    const one = recorder(() => answer).can.forTenant(T).forAgent(AG);
+    const out = await one.checkOperation({ op: "patchAutomation", operation: OPID });
+    assert.equal(out.state, want, `${JSON.stringify(answer)} read as ${out.state}`);
+  }
+  // THE MISMATCH CARRIES WHAT THE KEY WAS RECORDED FOR, which is the only thing a caller can act on.
+  const mm = recorder(() => ({ state: "mismatch", action: "create_automation" })).can.forTenant(T).forAgent(AG);
+  assert.equal((await mm.checkOperation({ op: "patchAutomation", operation: OPID })).action, "create_automation");
 });

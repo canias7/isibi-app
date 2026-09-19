@@ -1019,6 +1019,85 @@ async function zoneFor(can, schedule, held = null) {
   return { zone };
 }
 
+/**
+ * ⚠ **WHAT THE RECORD ALREADY SAYS ABOUT THIS CALL — asked BEFORE any refusal computed
+ * from the state of the row.**
+ *
+ * **THE DEFECT, REPRODUCED before this existed**, through the real tool and adapter against
+ * a real PostgreSQL: `change_automation` moved a daily automation from 09:00 to 10:00, the
+ * answer was lost, and the retry of the SAME operation read the stored row, found 10:00
+ * already there, computed an empty patch and answered `nothing-asked`. It never reached
+ * `patch_automation_once`, which was holding `{ok: true, version: 1, next_run_at: …}` for
+ * exactly that identity. **The database had the answer all along and the tool refused above
+ * it**, which is why the fix is here and not in any migration.
+ *
+ * ⚠ **A COMPLETED OPERATION'S ANSWER IS A HISTORICAL FACT, NEVER A READING OF THE ROW AS
+ * IT STANDS.** That is the whole reason to answer the record rather than re-deriving: between
+ * the two attempts somebody may have edited the automation, or deleted it, or changed the
+ * account's time zone — and none of that alters what this operation did.
+ *
+ * **`changed` IS DELIBERATELY NOT REPORTED ON A REPEAT.** It is computed from the patch this
+ * attempt would have sent, and on a retry that is a patch against a row somebody may have
+ * moved since — so it is a fact about this attempt's arithmetic and not about the edit that
+ * really happened. The record does not hold it, so it is left out rather than invented.
+ *
+ * ⚠ **AND `unknown` IS NOT `fresh`.** A record we could not read must send the caller down
+ * the ordinary path — where the `_once` wrapper asks this same function INSIDE the
+ * transaction and is the second wall — rather than becoming an answer. Reading it as a
+ * repeat would invent a success with no outcome to answer from.
+ */
+async function recordFor(can, ctx, op) {
+  if (typeof can?.checkOperation !== "function") return { state: "unknown" };
+  const seen = await can.checkOperation({ op, operation: ctx?.operation });
+  const state = typeof seen?.state === "string" ? seen.state : null;
+  if (state === null) return { state: "unknown" };
+  return { state,
+    outcome: seen.outcome && typeof seen.outcome === "object" ? seen.outcome : null,
+    action: typeof seen.action === "string" ? seen.action : null };
+}
+
+/**
+ * ⚠ **THE SAME IDENTITY USED FOR DIFFERENT WORK IS REFUSED, and it is refused HERE as well
+ * as in the wrapper.** `operation_check` compares the action AND the arguments' hash, so a
+ * key recorded for something else can only be a caller that reused one — and answering the
+ * other operation's outcome would be answering a question nobody asked. The wrapper makes the
+ * same refusal in its own transaction; this one exists because the tools above it may never
+ * reach the wrapper at all.
+ */
+/**
+ * ⚠ **A RECORDED OUTCOME IS ANSWERED AS WHAT IT WAS, AND A RECORDED FAILURE STAYS A
+ * FAILURE.** The wrapper records whatever the plain function answered — a refusal included —
+ * so a record is not evidence that the work succeeded, only that it HAPPENED. The first draft
+ * of this fix read every repeat as `ok: true`, which would have turned *"that edit named
+ * something an automation does not have"* into *"done"* on the second delivery: a refusal
+ * laundered into a success by a retry, which is worse than the defect being fixed.
+ *
+ * So the refusal is composed by the SAME `sayAutomation` the live path uses — one sentence
+ * per error, from one place — and `recorded: true` rides beside it, because a model that
+ * asked twice should be able to tell a fresh refusal from one it has already been given.
+ */
+function recalled(seen, fallbackId, said) {
+  const was = seen.outcome && typeof seen.outcome === "object" ? seen.outcome : {};
+  if (was.ok !== true) {
+    return { ok: false, recorded: true,
+      error: typeof was.error === "string" ? was.error : "refused",
+      say: sayAutomation(typeof was.error === "string" ? was.error : null, was) };
+  }
+  return { ok: true, repeat: true,
+    ...(typeof was.id === "string" ? { automation: was.id }
+        : fallbackId ? { automation: fallbackId } : {}),
+    ...(was.next_run_at !== undefined ? { nextRunAt: was.next_run_at } : {}),
+    ...(was.version !== undefined ? { version: was.version } : {}),
+    say: said };
+}
+
+const REUSED = (seen) => ({
+  ok: false, error: "operation-mismatch",
+  say: "that identity was already used for different work" +
+    (seen.action ? ` (${seen.action})` : "") +
+    ", so nothing was done — this needs a call of its own.",
+});
+
 const makeAutomation = tool({
   name: "make_automation",
   description:
@@ -1057,6 +1136,24 @@ const makeAutomation = tool({
     if (!read.ok) return read;
     const when = readTrigger(args);
     if (when.error) return { ok: false, error: when.error, say: when.say };
+
+    /**
+     * ⚠ **THE RECORD, ABOVE THE ONE REFUSAL HERE THAT DEPENDS ON SOMETHING A PERSON CAN
+     * CHANGE.** Every refusal above this line is about the model's OWN arguments, which a
+     * retry carries unchanged — so a retry whose arguments were fine the first time reaches
+     * here. `zoneFor` is different: it READS the account's settings, so clearing the zone
+     * between the two attempts would answer `no-zone` about an automation that already
+     * exists, and the model would be told to go and ask somebody to set a setting for work
+     * that is done. **The same class as the edit defect, one tool over**, which is why the
+     * census of the other write tools matters as much as the fix itself.
+     */
+    const seen = await recordFor(can, ctx, "createAutomation");
+    if (seen.state === "mismatch") return REUSED(seen);
+    if (seen.state === "repeat") {
+      return recalled(seen, null,
+        "that was already created by this same request, and nothing was created again");
+    }
+
     const zone = await zoneFor(can, when.schedule);
     if (zone.error) return { ok: false, error: zone.error, say: zone.say };
     const answer = await can.createAutomation({
@@ -1146,6 +1243,36 @@ const changeAutomation = tool({
     if (!held) {
       return { ok: false, error: "no-automation", say: "there is no automation of this agent's with that id" };
     }
+
+    /**
+     * ⚠ **THEN THE RECORD, BEFORE ANYTHING IS DECIDED FROM THE ROW.**
+     *
+     * Everything below reads `held`, so every refusal below is a refusal computed from the
+     * state of the automation NOW — and on a retry of a completed edit that state is the one
+     * this operation itself produced, or one somebody has moved since. The empty patch is the
+     * reproduced case (`nothing-asked` over a recorded success) and it is not the only one:
+     * a person changing the input declarations between attempts can make `checkSteps` refuse,
+     * and clearing the account's zone can make `zoneFor` refuse. **Asking once, here, covers
+     * all of them and makes this tool's answer independent of which field somebody else
+     * happened to touch.**
+     *
+     * **THE OWNERSHIP CHECK STAYS FIRST, deliberately.** An automation this agent may not
+     * edit is `no-automation` whatever any record says, and so is one that has since been
+     * deleted — which is true, actionable, and the answer the requirement asks for.
+     *
+     * ⚠ **AND THE WRAPPER'S OWN REPEAT ANSWER IS NOW A SECOND WALL RATHER THAN DEAD CODE**,
+     * which is declared because a sweep cannot see it: two deliveries in flight at once both
+     * read `fresh` here, both compute a patch and both call `patch_automation_once`, and the
+     * loser of its primary key re-reads the record inside the transaction. That race is the
+     * wrapper's to settle and no check up here can.
+     */
+    const seen = await recordFor(can, ctx, "patchAutomation");
+    if (seen.state === "mismatch") return REUSED(seen);
+    if (seen.state === "repeat") {
+      return recalled(seen, text(args.id),
+        "that was already changed by this same request, and nothing was changed again");
+    }
+
     const patch = {};
     if (Object.hasOwn(args, "name")) patch.name = text(args.name);
     if (Object.hasOwn(args, "enabled")) patch.enabled = args.enabled;

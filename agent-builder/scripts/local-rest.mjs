@@ -36,6 +36,20 @@ export const SQL_TIMEOUT_MS = 30_000;
 /** A SQL string literal. Doubling the quote is the whole of it. */
 const lit = (v) => `'${String(v).replaceAll("'", "''")}'`;
 /**
+ * ⚠ **A NULLABLE COLUMN'S VALUE, AND `lit` CANNOT DO THIS JOB.** `String(null)` is the
+ * four characters `null`, so `lit(null)` is the STRING LITERAL `'null'` — which Postgres
+ * happily stores in a `text` column. PostgREST writes SQL NULL for a JSON null, so a shim
+ * using `lit` there is one that cannot clear a setting at all.
+ *
+ * **MEASURED, and the comment beside the create path asserted the opposite.** It read
+ * *"`lit(null)` (which is `null`) is a real clear"*; clearing an agent's zone through the
+ * real route answered 200 and stored `zone = 'null'`, so `agent.zone_is_usable` read the
+ * string as a zone it does not know and the setting was neither set nor cleared. *A comment
+ * that states a defect as the rule is worse than no comment*, and it is what kept this
+ * invisible — the line looked deliberate.
+ */
+const litOrNull = (v) => (v === null ? "null" : lit(v));
+/**
  * A `text[]` literal, built from its elements rather than from a joined string.
  *
  * `array[...]` with each element quoted, so a name carrying a quote or a comma
@@ -568,13 +582,14 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         // paragraph above records: a fixed list here drops a value the route really sent, and
         // the route then reads its own save back as though nobody had asked. Measured — with
         // this line unchanged the settings form answered 200 and stored nothing.
-        // **`null` IS A VALUE HERE AND `undefined` IS SILENCE**, so `lit(null)` (which is
-        // `null`) is a real clear and only an absent key falls to `default`.
+        // **`null` IS A VALUE HERE AND `undefined` IS SILENCE**, so an explicit `null` is a
+        // real clear through `litOrNull` and only an absent key falls to `default`. It was
+        // `lit`, which writes the STRING `'null'` — see that helper's own note.
         const vals = rows.map((r) =>
           `(${lit(r.id)}::uuid, ${lit(r.tenant_id)}, ${lit(r.name)}, ${lit(r.instructions)}, ` +
           `${r.status === undefined ? "default" : lit(r.status)}, ` +
           `${r.tools === undefined ? "default" : arr(r.tools)}, ` +
-          `${r.zone === undefined ? "default" : lit(r.zone)})`).join(", ");
+          `${r.zone === undefined ? "default" : litOrNull(r.zone)})`).join(", ");
         // A CTE, NOT A SUBQUERY: Postgres does not allow a data-modifying statement
         // inside `from (...)`, which is a syntax error rather than a refusal — so the
         // shim answered 400 and the route reported a save that had never been tried.
@@ -604,7 +619,7 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         // value.** `typeof x === "string"` — the filter the three above use — drops an
         // explicit `null`, which is how somebody CLEARS a zone; PostgREST writes whatever key
         // the body carries. So absent leaves the stored value alone and `null` really clears.
-        if (body && Object.hasOwn(body, "zone")) sets.push(`"zone" = ${lit(body.zone)}`);
+        if (body && Object.hasOwn(body, "zone")) sets.push(`"zone" = ${litOrNull(body.zone)}`);
         if (!sets.length) return send(400, { message: "nothing writable was asked for" });
         const where = whereOf(url.searchParams, AGENT_COLUMNS);
         // NEVER AN UNFILTERED UPDATE — the same rule the queue's PATCH follows, and for

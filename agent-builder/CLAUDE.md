@@ -6383,3 +6383,180 @@ carried that note since it was written. The child gets a clean environment now.
   # skipped 4`** in 109.9 s, against local `6814 / 6812 / 0 / 2`. The TOTAL is what matches and
   the skips are what differ, exactly as this repository's own rule about which number to carry
   says they do.
+
+---
+
+## Milestone 11, finished: a completed operation answers on retry (2026-09-19)
+
+Owner: *"A completed operation must return its recorded result on retry, even when the current
+settings already match or somebody has edited them afterward. Check the operation record before
+deciding whether a fresh edit is necessary. Preserve ownership checks and reject an operation
+identity reused with different arguments. Keep genuinely empty new requests distinct from
+retries of completed work."*
+
+**REPRODUCED FIRST, through the real tool, the real adapter and a real PostgreSQL**, exactly as
+review described it:
+
+| | |
+|---|---|
+| `change_automation` moves a daily automation 09:00 → 10:00 | `{ok: true, changed: ["atLocal"], version: 1}`, the row says `10:00:00` |
+| its answer is LOST | nothing to simulate — the row is committed and nobody wrote the journal entry |
+| the retry of the SAME operation | **`{ok: false, error: "nothing-asked"}`** |
+| what the record held all along | `{"id": …, "ok": true, "version": 1, "next_run_at": "…09:00:00+00:00"}` |
+
+**THE DATABASE WAS RIGHT THROUGHOUT AND THE TOOL REFUSED ABOVE IT**, which is why this fix
+touches no migration. `patch_automation_once` asks `agent.operation_check` inside its own
+transaction and answers the recorded outcome with `repeat: true` — it was simply never reached,
+because the tool computed a patch from the row, found it empty, and refused.
+
+### ⚠ THE NARROW FIX WAS TEMPTING AND IS NOT WHAT SHIPPED
+
+Only the EMPTY patch was broken, and that is measured: with the retry's patch NON-empty the
+wrapper answers the record itself, the newer edit survives, and `repeat: true` comes back — read
+off a probe before anything was changed. So "ask the record only when the patch is empty" would
+have passed every case review named.
+
+**IT IS WRONG BECAUSE WHETHER THE PATCH COMES OUT EMPTY DEPENDS ON WHICH FIELD SOMEBODY ELSE
+MOVED.** Change the time between the two attempts and the retry's patch is non-empty and the
+wrapper catches it; change the NAME and the retry's patch is empty again — the time it wants is
+already there — and the defect is back with nothing in the diff to say so. So the record is
+asked ONCE, above every decision made from the row, and the tool's answer stops depending on
+what another person happened to touch. The case in `verify:ops` renames deliberately for that
+reason, and says so.
+
+### The reader, and where each tool asks it
+
+`checkOperation` on the capability surface — **a READ**, wrapping `agent.operation_check`, which
+is read-only, tenant-scoped and already granted to `service_role`, so **there is no migration in
+this round at all.**
+
+- **THE ACTION IS DERIVED FROM `CAPABILITY_RPC`, NEVER PASSED IN**, so it is the same name the
+  `_once` wrapper records under — one copy of it, and a caller cannot ask about an action this
+  surface does not perform.
+- **ONLY A WRITE HAS A RECORD**, so asking about a read is `unknown` and reaches no request at
+  all: `fresh` is a statement ABOUT a record and there is none to make it about.
+- **⚠ CANNOT-TELL IS `unknown` AND NEVER `fresh`, and which way that falls is the whole safety
+  argument.** Read as `fresh`, an unreadable answer sends the caller down the ordinary path —
+  which either writes (and the wrapper decides, asking this same function inside its
+  transaction) or refuses as it did before. Read as a repeat, it invents a success with no
+  outcome to answer from. So the cost of not knowing is the old refusal, never a fabricated
+  answer. A failed REQUEST throws, as every other operation's does — the write below it would
+  throw too, so this adds no new failure mode.
+- **IT TAKES NO TENANT AND NO AGENT**, like everything else on that surface: both are closures,
+  so a model has nowhere to put one.
+
+**`change_automation` ASKS AFTER THE OWNERSHIP CHECK AND BEFORE THE PATCH.** Everything below
+`readAutomation` reads the stored row, so every refusal below it is computed from the state of
+the automation NOW — and on a retry that state is the one this operation produced, or one
+somebody has moved since. **The ownership check stays first, deliberately**: an automation this
+agent may not edit is `no-automation` whatever any record says, and so is one that has since
+been deleted, which is true and actionable.
+
+**⚠ AND THE WRAPPER'S OWN REPEAT ANSWER IS NOW A SECOND WALL RATHER THAN DEAD CODE**, declared
+because a sweep cannot see it: two deliveries in flight at once both read `fresh` here, both
+compute a patch and both call `patch_automation_once`, and the loser of its primary key re-reads
+the record inside the transaction. That race is the wrapper's to settle and no check up here can.
+
+### ⚠ A RECORDED FAILURE STAYS A FAILURE — the first draft of this fix got it wrong
+
+The wrapper records whatever the plain function answered, **a refusal included** — so a record
+proves the work HAPPENED and not that it succeeded. The first draft read every repeat as
+`ok: true`, which would have laundered *"that automation needs a name"* into *"done"* on the
+second delivery: **a refusal turned into a success by a retry, which is worse than the defect
+being fixed.** `recalled` reads the recorded outcome's own `ok` and composes the refusal through
+the SAME `sayAutomation` the live path uses — one sentence per error, from one place — with
+`recorded: true` beside it, so a model can tell a fresh refusal from one it has already had.
+
+**AND `changed` IS DELIBERATELY NOT REPORTED ON A REPEAT.** It is computed from the patch this
+attempt would have sent, which on a retry is a patch against a row somebody may have moved — a
+fact about this attempt's arithmetic and not about the edit that really happened. The record does
+not hold it, so it is left out rather than invented.
+
+### The census of the other write tools, which the requirement asked for
+
+Every mutating tool was read for the same pattern — a refusal computed from current state,
+returned before the `can.<write>` call:
+
+| tool | its write | a pre-write refusal from current state? |
+|---|---|---|
+| `remember` · `forget` · `pause_automation` · `cancel_execution` | save/delete/set/cancel | **no** — each calls its write as its first act |
+| `run_automation` | `startAutomation` | **no** — its only pre-write refusal (`no-id`) is about the identity itself |
+| `make_automation` | `createAutomation` | **YES** — `zoneFor` READS the account's settings |
+| `change_automation` | `patchAutomation` | **YES** — the reproduced case |
+
+**SO TWO TOOLS HAD IT, and `make_automation`'s is the same class one tool over**: every refusal
+above its consult is about the model's OWN arguments, which a retry carries unchanged, while
+`zoneFor` reads a setting a person can clear between two deliveries — answering `no-zone` about
+an automation that already exists, and sending the model to ask for a setting for work that is
+done. Driven, with the control that with no record that same call really does refuse for the
+zone.
+
+**THE SITE'S OWN ROUTES ARE DELIBERATELY UNCHANGED.** A PERSON pressing a button twice is a
+different question with a different answer, and it is settled where it already was — the form's
+own retry key. Nothing here is about a person's door.
+
+### ⚠ THE LOCAL SHIM WROTE THE STRING `'null'` WHERE POSTGREST WRITES SQL NULL
+
+Found because the `make_automation` case needs a person to CLEAR a zone: the route answered 200
+and `agent.agents.zone` held the four characters `null`, which `agent.zone_is_usable` reads as a
+zone it does not know. So the case would have passed — the tool refuses `no-zone` for the RIGHT
+reason from the WRONG state — while the setting was neither set nor cleared.
+
+`lit(v)` is `String(v)`, so `lit(null)` is the string literal `'null'`. **AND THE CREATE PATH'S
+OWN COMMENT ASSERTED THE DEFECT AS THE RULE** — *"`lit(null)` (which is `null`) is a real
+clear"* — which is what kept it invisible: the line looked deliberate. `litOrNull` writes SQL
+NULL for a JS null, both paths use it, and the demonstration asserts `zone is null` rather than
+"not a usable zone", because that is the only reading that tells the two apart. *A shim less
+capable than the thing it stands in for hides a defect exactly as well as one that is more* —
+the fifth instance in this product.
+
+### Measured
+
+- **`npm run verify:ops`: 53 → 75 checks, 0 failed.** The five regression tests the requirement
+  names, plus `make_automation`'s, each driven through the real tool, the real adapter and a real
+  PostgreSQL — and **every one proved RED against the defect it forbids** before being believed:
+  the consult deleted turns 4 red, a laundering `recalled` turns the recorded-failure case red,
+  and deleting the tool's mismatch refusal turns that case red (it asserts the tool's own
+  sentence, because the wrapper makes the same refusal without naming the action).
+- **Engine suite 570 → 577**, 0 failed — `test/capabilities.test.mjs` 40 → 47, and the
+  arithmetic closes exactly. **⚠ THESE CASES EXIST BECAUSE `npm run sweep` DOES NOT RUN
+  `verify:ops`** — *a property proven only by an instrument the sweep cannot run is a property no
+  mutant can be caught by*, the sixth recorded instance in this directory.
+- **Two existing censuses went red and were RE-ANCHORED, NOT APPEASED**, both right to demand the
+  new operation be classified: *a read never asks for an operation record* now carries the one
+  read that is ABOUT a record and still must not ask for one (it asks `operation_check`, not
+  `operation_check_once`, which would be a record of having looked at a record), and the
+  reachability audit classifies it as restricted with its reason — what to do about a lost answer
+  is the platform's to settle in one place, not a decision a model gets to make.
+- **Sweep spec 659 → 669 entries** (11 controls, 658 product mutants), every anchor unique by the
+  generator's own pre-check. **⚠ THREE OF THE TEN SURVIVED A SPOT-CHECK AND ALL THREE WERE THE
+  SAME GAP**: every case above drives the TOOLS against a fake `can`, so the ADAPTER is never
+  reached — a tool can ask the record perfectly while the adapter asks about a hardcoded action
+  (every answer `fresh`, the protection decorative), about a READ, or under a key minted from a
+  malformed identity. The first of those is invisible from outside altogether, because `fresh` is
+  what a first attempt answers too. Closed by one case that drives the real adapter and reads the
+  REQUEST, censused over every write rather than one example. **Re-checked: 10 of 10 killed, each
+  by a named test**, under the runner's own child environment (`MUTATION_SWEEP=1`, no
+  `NODE_TEST_CONTEXT`) — without which the spec-anchor census fails for every mutant and reports
+  a kill for a reason that has nothing to do with the property.
+- **Site suite 6,814, 0 failed, 2 skipped — unchanged**, which is the control that this round
+  touched nothing on that side. **`npm run test:pg` is untouched too and deliberately not re-run
+  as evidence: `test/integration/` and `supabase/` are both unmodified**, so its number is HEAD's.
+
+### ⚠ Three of this directory's own recorded traps, met again in one change
+
+1. **A NAME COLLISION IN ONE LONG BODY**, for the fourth recorded time: `clash` was already
+   declared in `verify-operations.mjs`. Every local the new section declares is prefixed now, so
+   the next addition cannot collide either.
+2. **AND THE BLANKET RENAME THAT FIXED IT REACHED INSIDE PROSE AND A STRING LITERAL** — a
+   comparison against `"nothing-asked"` became `"r8Nothing-asked"`, so the case failed while the
+   product was right, and three paragraphs read `an r8Empty patch`. *A regex over identifiers
+   cannot tell a local from the same word in a sentence.* Repaired per line, and the repair was
+   then CHECKED by grepping the labels and the literals rather than by looking.
+3. **AND ONE OF MY OWN CASES PROVED NOTHING**: the reused-identity check built its operation by
+   replacing the hash with the ORIGINAL one, which made it the same identity — so it correctly
+   answered `repeat` and the case passed with the mismatch wall deleted. *A negative assertion is
+   only worth what its observer is worth.*
+
+**NO MIGRATION, NOTHING APPLIED, NOTHING DEPLOYED, NOTHING MERGED.** The fix is entirely above
+the database, and the unapplied migrations this round would otherwise have needed are untouched.
