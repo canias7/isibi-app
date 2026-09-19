@@ -263,15 +263,25 @@ export function newEmptySlots(before, after) {
  * disagree about a page the change did not touch.
  */
 function grew(before, after, read) {
+  let n = 0;
+  for (const g of grewBy(before, after, read).values()) n += g;
+  return n;
+}
+
+/** The same increase, per page — what `grew` sums, and what a floor flag asks. */
+function grewBy(before, after, read) {
   const by = (pages) => {
     const m = new Map();
     for (const f of read(pages)) m.set(f.page, (m.get(f.page) || 0) + 1);
     return m;
   };
   const was = by(before), now = by(after);
-  let n = 0;
-  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));
-  return n;
+  const gain = new Map();
+  for (const [page, count] of now) {
+    const g = Math.max(0, count - (was.get(page) || 0));
+    if (g) gain.set(page, g);
+  }
+  return gain;
 }
 
 /** How many list frames one reader will report. A page past this is a contact sheet. */
@@ -338,10 +348,18 @@ export function listFrames(pages) {
   for (const p of Array.isArray(pages) ? pages : []) {
     if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
     const src = p.source;
+    // ⚠ THE SCAN RUNS ON THE CODE, NOT ON THE FILE (2026-09-19). Owner: *"Don't
+    // report arbitrary source objects as visible picture spaces. Comments
+    // currently count."* REPRODUCED in all three shapes a page really carries —
+    // `// { alt: "a stray note", src: null }`, a block comment holding an old
+    // `items={[…]}`, and a jsdoc example — each counted as a picture space a
+    // visitor can see, on a page that draws nothing of the kind. A comment is
+    // the one part of a file guaranteed not to render.
+    const code = codeOnly(src);
     const re = new RegExp(OBJ_START.source, "g");
     let m;
-    while ((m = re.exec(src))) {
-      const body = shallowObject(src, m.index);
+    while ((m = re.exec(code))) {
+      const body = shallowObject(code, m.index);
       if (body === null) continue;
       const alt = literalKey(body, "alt");
       if (!alt) continue;
@@ -350,7 +368,10 @@ export function listFrames(pages) {
       // nothing in it — which is why `isEmptySlot`'s `null` case and a missing
       // key are not separated here the way an attribute's are.
       const v = keyValue(body, "src");
-      out.push({ page: p.path, alt, value: v, empty: !v || v === "null" });
+      // AND WHETHER THE BROWSER DECIDES HOW MANY OF IT THERE ARE. One object
+      // literal inside a `.map` is one entry in the SOURCE and N frames on the
+      // PAGE, so a count over it is exact about the wrong thing.
+      out.push({ page: p.path, alt, value: v, empty: !v || v === "null", runtime: inRuntimeList(code, m.index) });
       if (out.length >= MAX_LIST_FRAMES) return out;
     }
   }
@@ -358,7 +379,98 @@ export function listFrames(pages) {
 }
 
 /** The `{` of an object literal: a brace, a key, a colon. A JSX brace is not one. */
-const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*")\s*:/;
+const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
+
+/**
+ * The source with every comment blanked, LENGTH-PRESERVING (2026-09-19).
+ *
+ * ⚠ ONE PASS FOR STRINGS AND COMMENTS TOGETHER, and that is not tidiness — it
+ * is the only order that is correct in both directions. This repository's own
+ * recorded trap is a `/*` inside a LINE comment opening a block that runs
+ * thousands of characters; its mirror is a `//` inside a STRING — every
+ * `href="https://…"` on every page — which a comment-first pass would read as
+ * the start of a comment and blank the rest of the line with it. Tracking both
+ * states in one walk makes each immune to the other.
+ *
+ * EVERY INDEX SURVIVES, because `shallowObject`, `literalKey` and
+ * `inRuntimeList` all work on offsets into the same string. A blanked comment
+ * keeps its newlines so a `//` cannot swallow the line below it.
+ *
+ * NO REGEX-LITERAL STATE, and this is the one thing it does not model: a `/…/`
+ * holding a quote could open a string here. Measured over the whole 100-site
+ * corpus — every generated page there is — this changes NO page's reading, and
+ * the direction of the risk is a MISSED frame rather than an invented one,
+ * which is the safe side for a number offered to a customer.
+ */
+function codeOnly(src) {
+  let out = "", quote = "", i = 0;
+  while (i < src.length) {
+    const c = src[i], d = src[i + 1];
+    if (quote) {
+      out += c;
+      if (c === "\\") { out += src[i + 1] === undefined ? "" : src[i + 1]; i += 2; continue; }
+      if (c === quote) quote = "";
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; out += c; i++; continue; }
+    if (c === "/" && d === "/") {
+      while (i < src.length && src[i] !== "\n") { out += " "; i++; }
+      continue;
+    }
+    if (c === "/" && d === "*") {
+      const end = src.indexOf("*/", i + 2);
+      const stop = end === -1 ? src.length : end + 2;
+      for (; i < stop; i++) out += src[i] === "\n" ? "\n" : " ";
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/** The calls whose argument is evaluated once per element of something else. */
+const RUNTIME_CALL = /(?:\.\s*(?:map|flatMap)|Array\s*\.\s*from)\s*$/;
+
+/** How far back a frame looks for the call that decides how many of it there are. */
+const MAX_RUNTIME_LOOKBACK = 600;
+
+/**
+ * Is this object literal evaluated once per element of a list? (2026-09-19)
+ *
+ * Owner: *"avoid exact counts for runtime-dependent lists."* A frame written
+ * `{alt: "Photo", src: null}` inside `SHOTS.map(…)` is ONE object in the source
+ * and as many frames on the page as `SHOTS` has elements — a number no reader
+ * of the source can know. The existing rule already refuses an entry whose
+ * `alt` is a TEMPLATE, for exactly this reason; this is the same fact where the
+ * `alt` happens to be a literal.
+ *
+ * IT MAKES THE TOTAL A FLOOR RATHER THAN DROPPING THE ENTRY, because a page
+ * that draws its gallery from a mapped array really does have picture spaces on
+ * it and reporting none is the worse error. The customer hears "at least".
+ *
+ * THE WALK GOES OUTWARD THROUGH PARENTHESES AND STOPS AT A BRACKET OR BRACE.
+ * An unclosed `(` is a call or a grouping and the text before it says which —
+ * `SHOTS.map((s) => ({…}))` has TWO, the arrow's own wrapper and the call — so
+ * a test that stopped at the first would never see the `.map`. An unclosed `[`
+ * or `{` is a literal array or object, which is the ordinary `items={[…]}`
+ * shape: its length is written down, so the count is exact and the walk ends.
+ */
+function inRuntimeList(src, at) {
+  let depth = 0;
+  const floor = Math.max(0, at - MAX_RUNTIME_LOOKBACK);
+  for (let i = at - 1; i >= floor; i--) {
+    const c = src[i];
+    if (c === ")" || c === "]" || c === "}") { depth++; continue; }
+    if (c === "(" || c === "[" || c === "{") {
+      if (depth) { depth--; continue; }
+      if (c !== "(") return false;
+      if (RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;
+    }
+  }
+  return false;
+}
 
 /** How far a shallow object literal may run before this stops believing it is one. */
 const MAX_OBJ_CHARS = 4000;
@@ -394,16 +506,40 @@ function shallowObject(src, from) {
  * because a JSX attribute is a different grammar.
  */
 function literalKey(body, name) {
-  const m = new RegExp("(^|[,{\\s])" + name + "\\s*:\\s*(\"[^\"]*\"|'[^']*')").exec(body);
+  const m = new RegExp(KEY_BEFORE + keyName(name) + "\\s*:\\s*(\"[^\"]*\"|'[^']*')").exec(body);
   return m ? m[2].slice(1, -1).trim() : "";
 }
 
 /** A key's value as written, or "" when the key is not there at all. */
 function keyValue(body, name) {
-  const m = new RegExp("(^|[,{\\s])" + name + "\\s*:\\s*([^,}]*)").exec(body);
+  const m = new RegExp(KEY_BEFORE + keyName(name) + "\\s*:\\s*([^,}]*)").exec(body);
   if (!m) return "";
   return m[2].trim().replace(/^["'`]|["'`]$/g, "").trim();
 }
+
+/**
+ * ⚠ A KEY MAY BE QUOTED, AND UNTIL 2026-09-19 THAT READ AS AN EMPTY FRAME.
+ *
+ * Owner: *"a filled entry with a quoted `"src"` key reads as empty."*
+ * REPRODUCED: `{ alt: "A loaf", "src": "/u/s/abc.jpg" }` came back
+ * `value: "", empty: true` — a photograph the owner paid for, offered to the
+ * customer as a space nothing can fill — with the unquoted control reading
+ * correctly. The mirror was live too: a quoted `"alt"` key was missed
+ * ALTOGETHER, so that entry vanished from the count instead of misreading.
+ *
+ * ONE GRAMMAR, BOTH DIRECTIONS. `OBJ_START` already admitted a quoted key, so
+ * the object was FOUND and then read by a reader that could not see its keys —
+ * which is why the failure was a wrong number rather than a missing one. An
+ * object key is ordinary TypeScript: `src`, `"src"` and `'src'` are one key
+ * written three ways, and a reader that knows only the first is a second copy
+ * of the grammar `OBJ_START` already states.
+ *
+ * THE CHARACTER BEFORE IT IS STILL THE WALL — `,`, `{`, whitespace or the
+ * start — so `dataSrc:` cannot match `src` inside it. A quote is deliberately
+ * NOT in that set: it belongs to the key, not to what precedes it.
+ */
+const KEY_BEFORE = "(^|[,{\\s])";
+const keyName = (name) => "(?:" + name + "|\"" + name + "\"|'" + name + "')";
 
 /**
  * HOW MANY OF THOSE FRAMES THIS CHANGE ADDED — `newEmptySlots` one reader over.
@@ -414,7 +550,25 @@ function keyValue(body, name) {
  * fix the number by shipping a bigger claim than the one it replaced.
  */
 export function newListFrames(before, after) {
-  return grew(before, after, (pages) => listFrames(pages).filter((f) => f.empty));
+  const empty = (pages) => listFrames(pages).filter((f) => f.empty);
+  const gain = grewBy(before, after, empty);
+  let n = 0;
+  for (const g of gain.values()) n += g;
+  // ── AND THE NUMBER IS A FLOOR WHEN A BROWSER DECIDES IT (2026-09-19) ──────
+  //
+  // Owner: *"avoid exact counts for runtime-dependent lists."* An entry inside
+  // a `.map` is one object in the source and N frames on the page, so a total
+  // that includes one is exact about the source and wrong about the page. The
+  // entry is still COUNTED — a mapped gallery really does put picture spaces on
+  // the page and reporting none would be the larger error — and the total is
+  // handed over as a minimum instead.
+  //
+  // ASKED OF THE PAGES THAT GAINED, never of the whole site: a mapped gallery
+  // sitting untouched on some other page says nothing about whether THIS
+  // change's number is exact. The flag can only ever weaken an exact claim into
+  // a floor, so the direction of a wrong answer here is a softer sentence.
+  const atLeast = n > 0 && empty(after).some((f) => f.runtime && gain.has(f.page));
+  return { n, atLeast };
 }
 
 export const PICTURE_TOOL = {

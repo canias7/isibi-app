@@ -9628,7 +9628,7 @@ function addonReplyText(a) {
   // browser starts claiming pictures that were never made.
   if (a.pictureNote) out += ' ' + a.pictureNote;
   out += photoNote(a.photos);
-  out += listPhotoNote(a.listPhotos);
+  out += listPhotoNote(a.listPhotos, a.listPhotosMin);
   // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for on its own is
   // the picture rung's job and did not ride this addition, so the customer is
   // told to ask for it there rather than left looking for it.
@@ -10000,10 +10000,21 @@ function photoNote(n) {
 // one thing that DOES change them is a change to the page, so that is what this
 // offers, and it stands alone rather than saying "more": a page can carry these
 // and no addressable space at all.
-function listPhotoNote(n) {
+// \u26a0 AND THE NUMBER IS SOMETIMES A FLOOR (2026-09-19). Owner: *"avoid exact
+// counts for runtime-dependent lists."* A frame written inside a `.map` is ONE
+// object in the page's source and as many boxes on the screen as the mapped
+// array has elements \u2014 a number no reader of the source can know. The SERVER
+// says which it is (`listPhotosMin`), because the server is the only thing that
+// read the source; this only ever chooses the word.
+//
+// "at least" RATHER THAN DROPPING THE NUMBER, because the count is still the
+// most useful thing here: somebody looking at six boxes and told "at least 6"
+// knows their page was read, where "some" reads as a shrug. An older Worker
+// sends no flag, so every reply that predates the field keeps its own sentence.
+function listPhotoNote(n, min) {
   const c = Number(n) || 0;
   if (!c) return '';
-  return ' The page\u2019s own layout has ' + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +
+  return ' The page\u2019s own layout has ' + (min ? 'at least ' : '') + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +
     ' in it that an upload won\u2019t reach — ask me for photographs there and I\u2019ll change the page itself.';
 }
 // What to say when a build could not run.

@@ -854,7 +854,7 @@ export function referenceOf(r) {
   return kind ? { kind, name } : null;
 }
 
-export function implementationOf(r, made = [], reportable = [], existing = null, asked = null) {
+export function implementationOf(r, made = [], reportable = [], existing = null) {
   const status = r && typeof r === "object" ? r.status : "";
   // ── BOTH STATUSES ARE RECONCILED, AGAINST THE SAME RESULTS (owner, 2026-09-15)
   //
@@ -943,54 +943,45 @@ export function implementationOf(r, made = [], reportable = [], existing = null,
   // responsible produce anything at all", and that is a question about one
   // step's output whichever status asked it.
   //
-  // ── THIS CHANGE'S OWN OUTPUT IS NOT THE SITE'S BACK CATALOGUE (2026-09-19) ─
+  // ── ⚠ AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (2026-09-19) ───────
   //
-  // Owner, after run 51: *"Check why the reply says it cannot establish the QR
-  // implementation when this run created and published it. Keep configuration
-  // separate from verified behavior."*
+  // Owner: *"Remove output-count matching as proof of requirement
+  // implementation. A gallery handoff currently becomes 'set up' when the step
+  // produces only a Wi-Fi code. Associate the requirement with its actual item
+  // explicitly; preserve uncertainty where that association is missing."*
   //
-  // `mine` and `theirs` were one test and they are two facts. `theirs` — the
-  // site already holds five codes — genuinely cannot say whether one of them is
-  // the thing asked for, and `unknown` is right. `mine` is this change's own
-  // step, asked for this in this same message, producing output: that is the
-  // definition of `unverified` in as many words — *the implementation IS
-  // established … and NOTHING ties it to this particular claim* — where
-  // `unknown` says *nothing here can establish whether the implementation is
-  // there at all*, which is FALSE when the step's output is in hand.
+  // REPRODUCED before it was touched, on run 51's own shape: the `page` step
+  // hands *"A QR code opens the gallery page."* to the `qr` step, the `qr` step
+  // designs ONE code — `{name: "wifi", points: "WIFI:S=Bakery;…"}` — and the
+  // reader answered `made` → `unverified` → *"I've set that up"*. A code that
+  // opens no page at all, offered as evidence that a page has a code. The
+  // gallery case and the Wi-Fi case came back BYTE-IDENTICAL, which is the
+  // whole of it: a count cannot tell them apart because a count is not about
+  // the things.
   //
-  // ⚠ TWO CONDITIONS, AND THE FIRST CUT HAD NEITHER — three older guards caught
-  // it within the minute, which is what each of these is written from.
+  // THE COUNT WAS UNSOUND AT EVERY N, not merely at the margin. Its argument
+  // was *"a step that made as many things as there are asks resting on it made
+  // something for each of them"* — which is arithmetic about CARDINALITY and
+  // says nothing whatever about CORRESPONDENCE. One ask and one thing made is
+  // the case it was written for and is exactly the case above.
   //
-  // (1) **A HAND-OFF ONLY.** A `covered` claim says the step covered a need and
-  // names nothing; a step ALWAYS produces something, so reading its own output
-  // as evidence for its own unidentified claim would make every bare `covered`
-  // label buy *"I've set that up"* — which is the exact sentence the owner
-  // struck out on 2026-09-15 (*"covered + no implementation evidence still
-  // produces 'I've set that up.'"*). An `elsewhere` entry is different in kind:
-  // it is a REQUEST addressed to a named step, so that step's output is a
-  // response to it and the count below bounds the correspondence. What a
-  // `covered` claim earns is still `claimEvidence`'s answer and nothing else.
+  // WHAT AN ASSOCIATION IS, AND IT ALREADY EXISTS: `{kind, name}` — the
+  // requirement's own `item`, resolved against the applied items by identity in
+  // the branch above. That is explicit, it is the designer's own claim rather
+  // than our inference, and it is driven. Where it is missing the answer is
+  // `unknown`, which says *nothing here can establish whether the
+  // implementation is there* — true, and the uncertainty the owner asked to
+  // preserve.
   //
-  // (2) **THE STEP HAS TO HAVE HEARD IT.** A hand-off BACKWARD names a step
-  // that already ran, so whatever it made it made for its own reasons and
-  // cannot have been acting on a need written after it finished —
-  // `send_reminder` existing is no evidence that *"the reminder shows their
-  // booking time"* was done, and run 48's own case is this shape one kind over.
-  // `heard` is the steps a brief was really composed for, the same set the
-  // hand-off's own verdict is decided from, so `made` and
-  // `handoff: "delivered"` cannot disagree.
-  const heard = asked && asked.heard && typeof asked.heard.has === "function" ? asked.heard : null;
-  const toldIt = status === "elsewhere" && !!(heard && heard.has(kind));
-  // AND THE COUNT IS WHAT MAKES IT SOUND, rather than a guess about which
-  // output answers which ask. `resting` is how many un-named requirements lean
-  // on this same step; with fewer things made than asks resting on it, at least
-  // one of them has nothing, and which one is not knowable from here — so the
-  // whole group stays `unknown`. One ask and one thing made is the ordinary
-  // case and the one run 51 met. Absent `resting` (an older caller) is ONE, the
-  // requirement in hand, which is the weakest claim that is still true.
-  const rest = asked && asked.resting && typeof asked.resting.get === "function" ? asked.resting : null;
-  const asks = Math.max(1, Math.floor(Number(rest ? rest.get(kind) : 0)) || 1);
-  if (toldIt && mine.length >= asks) return { state: "made", by: "kind", name: "", kind };
+  // ⚠ THE NAMED GAP, because it is a capability call and not this correction's
+  // to make: `qr`, `three` and `photo` are the three kinds off
+  // `REQUIREMENT_ADDS`, so their tools carry no `requirements` property and a
+  // step that makes a code CANNOT echo the id it was handed. So on today's
+  // tools the association for a QR hand-off can only come from the page
+  // designer naming a code whose name it cannot know, and run 51's shape reads
+  // `unknown`. Closing it is one flag (`requirements: true` on those kinds),
+  // measured at +3,579 characters on a 2,228-character tool, and it would also
+  // let those steps RAISE needs — which is more than was asked for here.
   if (mine.length || theirs.length) return { state: "unknown", by: "kind", name: "", kind };
   return { state: seeable(kind) ? "absent" : "unknown", by: "kind", name: "", kind };
 }
@@ -1014,25 +1005,6 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
   // compared the kinds. A requirement whose reference cannot be identified has
   // no dependency to be blocked on and reads `unknown` instead.
   const broken = new Set(items.map((f) => String(f.kind || "") + "::" + String(f.name || "").trim().toLowerCase()));
-  // ── HOW MANY UN-NAMED REQUIREMENTS LEAN ON EACH STEP (2026-09-19) ────────
-  //
-  // Counted here because this is the only place that holds the whole list, and
-  // it is what lets `implementationOf` read one step's output as evidence
-  // without guessing which ask it answers: a step that made as many things as
-  // there are asks resting on it made something for each of them, and one that
-  // made fewer did not. See the no-name branch there for the argument.
-  //
-  // KEYED THE WAY THAT BRANCH ASKS — the step for `elsewhere`, the answering
-  // call for `covered` — so the two cannot come apart; and NAMED requirements
-  // are out because they are resolved by identity and rest on nothing.
-  const resting = new Map();
-  for (const r of Array.isArray(list) ? list : []) {
-    if (!r || typeof r !== "object") continue;
-    if (r.status !== "elsewhere" && r.status !== "covered") continue;
-    if (typeof r.item === "string" && r.item.trim()) continue;
-    const k = String((r.status === "elsewhere" ? r.step : r.from) || "");
-    if (k) resting.set(k, (resting.get(k) || 0) + 1);
-  }
   const out = [];
   for (const r of Array.isArray(list) ? list : []) {
     if (!r || typeof r !== "object") continue;
@@ -1045,7 +1017,7 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     // working function was still to do.
     const handoff = r.status === "elsewhere" ? (owner && heard.has(owner) ? "delivered" : "undelivered") : "";
     const reconciled = r.status === "elsewhere" || r.status === "covered";
-    const impl = reconciled ? implementationOf(r, made, reportable, existing, { resting, heard }) : null;
+    const impl = reconciled ? implementationOf(r, made, reportable, existing) : null;
     // THE NAMED DEPENDENCY, AND WHETHER IT IS THE ONE THAT BROKE. Asked in
     // this order deliberately: a thing KNOWN to have failed is blocked before
     // anything else is asked about it, and only then does a thing known to be
@@ -1155,17 +1127,16 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
     } else if (ev && ev.kind === "config") {
       state = "configured";
       configuredBy = String(ev.name) + ": " + String(ev.token);
-    } else if ((impl && (impl.state === "found" || impl.state === "made")) || (ev && (ev.kind === "named" || ev.kind === "contradicted"))) {
+    } else if ((impl && impl.state === "found") || (ev && (ev.kind === "named" || ev.kind === "contradicted"))) {
       // THE IMPLEMENTATION IS ESTABLISHED and its behaviour is not — an item
       // proves existence and never conduct, whether this change applied it, the
       // site already had it, or the claim named it (`named`: an applied item's
       // real name, word-bounded, with nothing it says contradicted).
       //
-      // `made` IS THE SAME SENTENCE FROM A WEAKER READING and is kept apart on
-      // the record: the step this need was handed produced enough for every
-      // un-named ask resting on it, so an implementation exists — nothing names
-      // WHICH, which is what `unverified` has always meant. See the no-name
-      // branch of `implementationOf` for why the count is what makes it sound.
+      // ⚠ `found` IS THE ONLY POSITIVE STATE, and a `made` alongside it is what
+      // 2026-09-19 removed: a count of one step's output is not an association
+      // between a requirement and a thing, so it never belonged in the branch
+      // whose sentence opens *"I've set that up"*. See `implementationOf`.
       //
       // `contradicted` IS HERE AND NOT IN `unknown`, and the reason is which
       // sentence would be a lie: the claim named an item this change really

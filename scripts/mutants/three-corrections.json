@@ -1,0 +1,282 @@
+[
+  {
+    "label": "CONTROL: the count-removal note's heading changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  // ── ⚠ AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (2026-09-19) ───────",
+    "to": "  // ── ⚠ AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (control) ──────────"
+  },
+  {
+    "label": "CONTROL: the comment-scanner's heading changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": " * The source with every comment blanked, LENGTH-PRESERVING (2026-09-19).",
+    "to": " * The source with every comment blanked, LENGTH-PRESERVING (control)."
+  },
+
+  {
+    "label": "THE REPORTED DEFECT 1: a count of the step's output settles a hand-off",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (mine.length || theirs.length) return { state: \"unknown\", by: \"kind\", name: \"\", kind };",
+    "to": "  if (mine.length) return { state: \"found\", by: \"kind\", name: \"\", kind };\n  if (theirs.length) return { state: \"unknown\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "the item branch answers by name across every kind again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const hit = ofKind(made, ref.kind).find((m) => low(m) === ref.name);",
+    "to": "    const hit = (Array.isArray(made) ? made : []).find((m) => low(m) === ref.name);"
+  },
+  {
+    "label": "an un-named hand-off falls through to absent rather than unknown",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  return { state: seeable(kind) ? \"absent\" : \"unknown\", by: \"kind\", name: \"\", kind };",
+    "to": "  return { state: \"absent\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "a found implementation no longer earns the set-up sentence",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if ((impl && impl.state === \"found\") || (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\"))) {",
+    "to": "    } else if (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\")) {"
+  },
+  {
+    "label": "the record forgets which reader found the item",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      ...(impl ? { implementation: impl.state, ...(impl.state === \"found\" && impl.name ? { implementedBy: impl.name, foundIn: impl.where || \"applied\" } : {}) } : {}),",
+    "to": "      ...(impl ? { implementation: impl.state } : {}),"
+  },
+
+  {
+    "label": "THE REPORTED DEFECT 2a: the frame scan reads the file rather than the code",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    const code = codeOnly(src);",
+    "to": "    const code = src;"
+  },
+  {
+    "label": "a line comment is not blanked, so an object inside one counts",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \"/\" && d === \"/\") {",
+    "to": "    if (false && c === \"/\" && d === \"/\") {"
+  },
+  {
+    "label": "a block comment is not blanked, so an old shape counts",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \"/\" && d === \"*\") {",
+    "to": "    if (false && c === \"/\" && d === \"*\") {"
+  },
+  {
+    "label": "the scanner forgets strings, so a URL in one opens a comment",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === '\"' || c === \"'\" || c === \"`\") { quote = c; out += c; i++; continue; }",
+    "to": "    if (false) { quote = c; out += c; i++; continue; }"
+  },
+  {
+    "label": "the blanking is not length-preserving, so every offset after it shifts",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      while (i < src.length && src[i] !== \"\\n\") { out += \" \"; i++; }",
+    "to": "      while (i < src.length && src[i] !== \"\\n\") { i++; }"
+  },
+  {
+    "label": "a block comment eats the newlines it spans",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      for (; i < stop; i++) out += src[i] === \"\\n\" ? \"\\n\" : \" \";",
+    "to": "      for (; i < stop; i++) out += \" \";"
+  },
+  {
+    "label": "an unterminated block comment stops at its own opener",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      const stop = end === -1 ? src.length : end + 2;",
+    "to": "      const stop = end === -1 ? i + 2 : end + 2;"
+  },
+  {
+    "label": "an escape inside a string is not skipped, so a quote ends it early",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (c === \"\\\\\") { out += src[i + 1] === undefined ? \"\" : src[i + 1]; i += 2; continue; }",
+    "to": "      if (false) { i += 2; continue; }"
+  },
+
+  {
+    "label": "THE REPORTED DEFECT 2b: a quoted key is not a key",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const keyName = (name) => \"(?:\" + name + \"|\\\"\" + name + \"\\\"|'\" + name + \"')\";",
+    "to": "const keyName = (name) => name;"
+  },
+  {
+    "label": "only a double-quoted key is admitted, so a single-quoted one is missed",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const keyName = (name) => \"(?:\" + name + \"|\\\"\" + name + \"\\\"|'\" + name + \"')\";",
+    "to": "const keyName = (name) => \"(?:\" + name + \"|\\\"\" + name + \"\\\")\";"
+  },
+  {
+    "label": "the character before a key stops being a wall, so dataSrc is src",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const KEY_BEFORE = \"(^|[,{\\\\s])\";",
+    "to": "const KEY_BEFORE = \"()\";"
+  },
+
+  {
+    "label": "THE REPORTED DEFECT 2c: a runtime list is reported as an exact count",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      out.push({ page: p.path, alt, value: v, empty: !v || v === \"null\", runtime: inRuntimeList(code, m.index) });",
+    "to": "      out.push({ page: p.path, alt, value: v, empty: !v || v === \"null\", runtime: false });"
+  },
+  {
+    "label": "the walk stops at the first parenthesis, so an arrow's wrapper hides the call",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;",
+    "to": "      return RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i));"
+  },
+  {
+    "label": "an enclosing array literal is read as a call, so every list is runtime",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (c !== \"(\") return false;",
+    "to": "      if (c !== \"(\") continue;"
+  },
+  {
+    "label": "flatMap drops off the runtime calls",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const RUNTIME_CALL = /(?:\\.\\s*(?:map|flatMap)|Array\\s*\\.\\s*from)\\s*$/;",
+    "to": "const RUNTIME_CALL = /(?:\\.\\s*map|Array\\s*\\.\\s*from)\\s*$/;"
+  },
+  {
+    "label": "Array.from drops off the runtime calls",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "const RUNTIME_CALL = /(?:\\.\\s*(?:map|flatMap)|Array\\s*\\.\\s*from)\\s*$/;",
+    "to": "const RUNTIME_CALL = /(?:\\.\\s*(?:map|flatMap))\\s*$/;"
+  },
+  {
+    "label": "the balance is not tracked, so a closed group is read as an enclosing one",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \")\" || c === \"]\" || c === \"}\") { depth++; continue; }",
+    "to": "    if (c === \")\" || c === \"]\" || c === \"}\") { continue; }"
+  },
+  {
+    "label": "the floor flag is never set, so a mapped gallery reads as exact",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const atLeast = n > 0 && empty(after).some((f) => f.runtime && gain.has(f.page));",
+    "to": "  const atLeast = false;"
+  },
+  {
+    "label": "the floor flag is asked of the whole site, not the pages that gained",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const atLeast = n > 0 && empty(after).some((f) => f.runtime && gain.has(f.page));",
+    "to": "  const atLeast = empty(after).some((f) => f.runtime);"
+  },
+  {
+    "label": "the per-page increase becomes a whole-site difference",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    const g = Math.max(0, count - (was.get(page) || 0));\n    if (g) gain.set(page, g);",
+    "to": "    const g = count - (was.get(page) || 0);\n    if (g) gain.set(page, g);"
+  },
+
+  {
+    "label": "the route drops the floor flag on the floor",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const { n: aListSlots, atLeast: aListMin } = newListFrames(aPicsWas, aPicsNow);",
+    "to": "            const { n: aListSlots } = newListFrames(aPicsWas, aPicsNow);\n            const aListMin = false;"
+  },
+  {
+    "label": "the reply never carries the floor flag",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              listPhotosMin: aListMin || undefined,",
+    "to": "              listPhotosMin: undefined,"
+  },
+  {
+    "label": "the browser never says the count is a floor",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return ' The page\\u2019s own layout has ' + (min ? 'at least ' : '') + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +",
+    "to": "  return ' The page\\u2019s own layout has ' + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +"
+  },
+  {
+    "label": "the browser says every count is a floor, so an exact one is hedged",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return ' The page\\u2019s own layout has ' + (min ? 'at least ' : '') + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +",
+    "to": "  return ' The page\\u2019s own layout has at least ' + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +"
+  },
+  {
+    "label": "the browser is never handed the flag",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  out += listPhotoNote(a.listPhotos, a.listPhotosMin);",
+    "to": "  out += listPhotoNote(a.listPhotos);"
+  },
+
+  {
+    "label": "the photograph wall stops seeing a reused url as kept",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "export function photoUrls(source, slug) {",
+    "to": "export function photoUrls(source, slug) {\n  if (typeof source === \"string\" && source.includes(\"again\")) return new Set();"
+  },
+  {
+    "label": "the count stops being distinct, so a reused picture reads as a second one",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);\n  return { known: true, count: seen.size };",
+    "to": "  let n = 0;\n  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) n++;\n  return { known: true, count: n };"
+  }
+]

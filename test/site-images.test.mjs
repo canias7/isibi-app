@@ -1193,3 +1193,63 @@ test("the credits sentence claims a placeholder only where one survived", () => 
   assert.match(imageNote({ made: 0, planned: 1, budget: 0, full: true, frames: 0 }), /image library is full/);
   assert.match(imageNote({ made: 0, planned: 1, budget: 0, slow: true, frames: 0 }), /ran out of time/);
 });
+
+test("REUSING a photograph the site already has is accepted end to end", async () => {
+  // ⚠ THE CAPABILITY ASSESSMENT THIS CORRECTS (owner, 2026-09-19): *"Existing
+  // URLs can already reach the writer through page source, and reuse is
+  // accepted."* Both halves are right, and `CLAUDE.md` had said the opposite —
+  // *"a photograph the site already has cannot be placed on a new page"* — from
+  // reading the directive alone rather than driving the path.
+  //
+  // WHAT IS PROVEN HERE is the second half: a `/u/` url the writer copies onto
+  // a NEW page survives every wall between it and the publish. Nothing has to
+  // be built for that; it is what the pipeline already does.
+  const slug = "fw";
+  const u = (c) => "/u/fw/" + c.repeat(32) + ".jpg";
+  const home = { path: "index.tsx", source: '<SafeImage src="' + u("a") + '" alt="The bench" />' };
+  const about = { path: "about.tsx", source: '<SafeImage src="' + u("b") + '" alt="The oven" />' };
+  const reused = { path: "gallery.tsx", source: '<SafeImage src="' + u("a") + '" alt="The bench again" />' };
+  const before = [home, about];
+  const after = [home, about, reused];
+
+  // 1. THE WALL SEES NO LOSS, because reuse ADDS. `keptImages` asks whether
+  //    every photograph the site SHOWED is still shown, site-wide.
+  assert.deepEqual(keptImages(before, after, slug), { ok: true, lost: [] },
+    "reusing a photograph read as losing one");
+  // 2. THE SWEEP LEAVES IT ALONE — it rewrites unbought `@@IMG:` tokens, and a
+  //    real url is not one. Byte-identical is the assertion, not "still there".
+  const swept = after.map((p) => ({ ...p }));
+  applyImages(swept, {});
+  assert.equal(swept[2].source, reused.source, "the sweep rewrote a url the writer reused");
+  // 3. …AND THE SITE NOW SHOWS THE SAME TWO PHOTOGRAPHS, not three: distinct
+  //    urls, so a picture drawn twice is one picture and no new spend.
+  assert.deepEqual(shownPhotos(swept, slug), { known: true, count: 2 },
+    "a reused photograph was counted as a second one");
+
+  // ── THE TWO GAPS, MEASURED RATHER THAN ARGUED ────────────────────────────
+  //
+  // (a) GUIDANCE. The directive states the COUNT and forbids replacing or
+  //     removing; it says nothing about showing one again, and carries no url.
+  //     Recorded as a measurement of today's prompt: when guidance is added
+  //     this goes red, which is the assessment changing rather than drifting.
+  const d = imageDirective({ buy: null, shown: shownPhotos(before, slug), place: false });
+  assert.match(d, /already shows 2 real photographs/, "the count is not stated at all: " + d);
+  assert.equal(d.includes("/u/"), false, "the directive carries a url — re-read the assessment: " + d);
+  // (b) CONTEXT. The inventory is SITE-WIDE and the source the writer is shown
+  //     is bounded, so on a large site the count can name a photograph whose
+  //     page was withheld — and then no url reaches the writer at all. The two
+  //     readers are different questions and this pins that they can disagree.
+  const { priorPagesSent, MAX_PRIOR_CHARS } = await import("../builder/page-gen.mjs");
+  const filler = (n) => "const x" + n + ' = "' + "y".repeat(44000) + '";';
+  const big = [
+    { path: "index.tsx", source: filler(1) },
+    { path: "about.tsx", source: filler(2) },
+    { path: "kitchen.tsx", source: '<SafeImage src="' + u("a") + '" alt="The bench" />' + filler(3) },
+  ];
+  assert.ok(big.reduce((n, p) => n + p.source.length, 0) > MAX_PRIOR_CHARS, "this site fits — the case tests nothing");
+  const sent = priorPagesSent(big, { keep: ["/"] });
+  assert.equal(sent.shown.some((p) => p.source.includes(u("a"))), false,
+    "the page carrying the photograph was shown — pick a bigger fixture");
+  assert.deepEqual(shownPhotos(big, slug), { known: true, count: 1 },
+    "the count is not site-wide, so the two readers cannot disagree");
+});

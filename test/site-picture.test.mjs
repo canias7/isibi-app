@@ -638,7 +638,7 @@ test("a list of pictures is counted, and an element is left to imageSlots", () =
   // which is its contract (a `src` span to replace and a literal `alt` to match)
   // and is why this reader exists rather than that one being widened.
   assert.equal(imageSlots([page]).length, 1, "imageSlots reached into the list");
-  assert.equal(newEmptySlots([], [page]) + newListFrames([], [page]), 7, "1 + 6 is not 7");
+  assert.equal(newEmptySlots([], [page]) + newListFrames([], [page]).n, 7, "1 + 6 is not 7");
 });
 
 test("a list entry that really carries a picture is not an empty frame", () => {
@@ -658,7 +658,7 @@ test("a list entry that really carries a picture is not an empty frame", () => {
   assert.equal(frames.length, 3);
   assert.deepEqual(frames.map((f) => f.empty), [false, true, true],
     "`src: null` and a missing key are the same empty frame; a real url is not");
-  assert.equal(newListFrames([], [page]), 2);
+  assert.equal(newListFrames([], [page]).n, 2);
 });
 
 test("a computed alt is a row, not a picture somebody wrote — and its count is unknowable", () => {
@@ -678,12 +678,107 @@ test("a computed alt is a row, not a picture somebody wrote — and its count is
 test("the frame count is per page and only the increase, like the slot count", () => {
   const was = { path: "gallery.tsx", source: KIT_LIST(['{ alt: "One" }', '{ alt: "Two" }']) };
   const now = { path: "gallery.tsx", source: KIT_LIST(['{ alt: "One" }', '{ alt: "Two" }', '{ alt: "Three" }']) };
-  assert.equal(newListFrames([was], [now]), 1, "a page that gained one frame reported something else");
-  assert.equal(newListFrames([was], [was]), 0, "an untouched page reported its existing frames as new");
+  assert.equal(newListFrames([was], [now]).n, 1, "a page that gained one frame reported something else");
+  assert.equal(newListFrames([was], [was]).n, 0, "an untouched page reported its existing frames as new");
   // NEGATIVE NEVER SUBTRACTS — a page that LOST frames must not offset another
   // page that really gained one.
   const other = { path: "index.tsx", source: KIT_LIST(['{ alt: "New" }']) };
-  assert.equal(newListFrames([now], [was, other]), 1, "a removal offset a real addition");
+  assert.equal(newListFrames([now], [was, other]).n, 1, "a removal offset a real addition");
+});
+
+test("a comment is not a picture space, whichever way it is written", () => {
+  // ⚠ THE REPRODUCTION (owner, 2026-09-19): *"Don't report arbitrary source
+  // objects as visible picture spaces. Comments currently count."* All three
+  // shapes a generated page really carries were driven before the fix and each
+  // counted — a customer told their page has a picture space in it because a
+  // comment mentions one. A comment is the one part of a file that cannot
+  // render, so this is not a heuristic.
+  const one = (source) => listFrames([{ path: "p.tsx", source }]);
+  const HIDDEN = [
+    ["a line comment", 'const x = 1;\n// { alt: "a stray note", src: null }\nexport default x;'],
+    ["a block comment", '/* items={[{ alt: "an old idea", src: null }]} */\nconst y = 2;'],
+    ["a jsdoc example", '/**\n * { alt: "example", src: null }\n */\nconst z = 3;'],
+  ];
+  for (const [what, source] of HIDDEN) {
+    assert.deepEqual(one(source), [], what + " was counted as a picture space a visitor can see");
+  }
+  // ── AND THE TWO CONTROLS ARE THE POINT, because a comment stripper written
+  // the obvious way breaks a page rather than a comment. Both are shapes this
+  // repository has paid for once already, one in each direction.
+  //
+  // A `//` INSIDE A STRING is every `href="https://…"` on every page there is;
+  // a comment-first pass reads it as a comment and blanks the rest of the line,
+  // taking a real frame with it.
+  assert.equal(one('const u = "https://x.test/a"; const a = [{ alt: "Real", src: null }];').length, 1,
+    "a URL in a string was read as a comment and ate the frame beside it");
+  // A `/*` INSIDE A LINE COMMENT is this file's own recorded trap: read as a
+  // block opener it runs to the next `*/`, which may be thousands of
+  // characters away or absent altogether.
+  assert.equal(one('// see /* the old shape\nconst a = [{ alt: "Real", src: null }];').length, 1,
+    "a block opener inside a line comment swallowed the code below it");
+  // AND A FRAME IN PLAIN CODE STILL READS, so "blank everything" cannot pass.
+  assert.equal(one('const a = [{ alt: "Real", src: null }];').length, 1, "the reader stopped seeing plain code");
+});
+
+test("a key may be quoted, and a filled entry is never an empty space", () => {
+  // ⚠ THE REPRODUCTION (owner, 2026-09-19): *"a filled entry with a quoted
+  // `\"src\"` key reads as empty."* MEASURED before the fix: a photograph the
+  // owner paid for came back `value: "", empty: true` and was offered to the
+  // customer as a space nothing can fill. `OBJ_START` already admitted a quoted
+  // key, so the object was FOUND and read by a grammar that could not see its
+  // keys — which is why the failure was a wrong number rather than a missing
+  // one.
+  const one = (source) => listFrames([{ path: "p.tsx", source }])[0];
+  const URL = "/u/s/abc.jpg";
+  for (const [what, k] of [["double-quoted", '"src"'], ["single-quoted", "'src'"], ["bare (the control)", "src"]]) {
+    const f = one('const a = [{ alt: "A loaf", ' + k + ': "' + URL + '" }];');
+    assert.equal(f.value, URL, what + " src was not read at all: " + JSON.stringify(f));
+    assert.equal(f.empty, false, what + " src read as an empty picture space: " + JSON.stringify(f));
+  }
+  // THE MIRROR, and it fails the other way: a quoted `alt` was missed
+  // ALTOGETHER, so the entry vanished from the count instead of misreading.
+  const q = one('const a = [{ "alt": "A loaf", src: null }];');
+  assert.equal(q && q.alt, "A loaf", "a quoted alt key was not found: " + JSON.stringify(q));
+  assert.equal(q.empty, true, "an entry with no picture read as filled");
+  // AND THE CHARACTER BEFORE THE KEY IS STILL THE WALL — a quote belongs to the
+  // key, and widening the class to admit one would make `dataSrc` a `src`.
+  assert.equal(one('const a = [{ alt: "A loaf", dataSrc: "' + URL + '" }];').value, "",
+    "a key ending in `src` was read as `src`");
+});
+
+test("a frame a browser counts is a floor, not an exact number", () => {
+  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists."* An
+  // entry inside a `.map` is ONE object in the source and as many boxes on the
+  // page as the mapped array has elements — a number no reader of the source
+  // can know. The entry is still counted, because a mapped gallery really does
+  // put picture spaces on the page; what changes is that the total is handed
+  // over as a minimum.
+  const one = (source) => listFrames([{ path: "p.tsx", source }])[0];
+  for (const [what, source] of [
+    [".map over an unknown array", 'const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));'],
+    ["a flatMap", 'const a = GROUPS.flatMap((g) => g.items.map((s) => ({ alt: "Bread", src: null })));'],
+    ["Array.from", 'const a = Array.from({ length: 6 }, () => ({ alt: "Bread", src: null }));'],
+  ]) {
+    assert.equal(one(source).runtime, true, what + " was counted as an exact number of frames");
+  }
+  // THE CONTROL: a literal array is written down, so its length is known and
+  // the count is exact. Without this, "everything is runtime" would pass.
+  const lit = listFrames([{ path: "p.tsx", source: 'const a = [{ alt: "one", src: null }, { alt: "two", src: null }];' }]);
+  assert.equal(lit.length, 2);
+  assert.equal(lit.every((f) => !f.runtime), true, "a literal list was called runtime-dependent: " + JSON.stringify(lit));
+  // …AND THE PAIR THE ROUTE READS. `atLeast` rides beside the number rather
+  // than changing it, because the customer's sentence chooses a word and the
+  // count is still the most useful thing in it.
+  const page = (source) => [{ path: "gallery.tsx", source }];
+  assert.deepEqual(newListFrames([], page('const a = [{ alt: "one", src: null }, { alt: "two", src: null }];')),
+    { n: 2, atLeast: false });
+  assert.deepEqual(newListFrames([], page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));')),
+    { n: 1, atLeast: true });
+  // AND A PAGE THAT GAINED NOTHING SETS NO FLAG, however its own frames are
+  // written: the question is about THIS change's number, not about the site.
+  const mapped = page('const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));');
+  assert.deepEqual(newListFrames(mapped, mapped), { n: 0, atLeast: false },
+    "an untouched mapped gallery made another page's count a floor");
 });
 
 test("what is not an object literal with a written alt is not a frame", () => {
@@ -759,14 +854,25 @@ test("the whole corpus reads clean, and every list frame on it is empty", () => 
   };
   walk(dir);
   assert.ok(pages.length > 300, "the corpus did not load — this case measures nothing");
-  let frames = 0, filled = 0, files = 0;
+  let frames = 0, filled = 0, files = 0, runtime = 0;
   for (const p of pages) {
     const f = listFrames([p]);
     if (f.length) files++;
     frames += f.length;
     filled += f.filter((x) => !x.empty).length;
+    runtime += f.filter((x) => x.runtime).length;
   }
   assert.equal(frames, 320, "the corpus frame count moved — re-measure before moving this number");
   assert.equal(files, 60, "the number of pages carrying one moved");
   assert.equal(filled, 0, "a corpus list frame carries a picture — the 'all empty' measurement is stale");
+  // ⚠ AND THE FALSE-ALARM RATE OF THE 2026-09-19 CORRECTION IS ZERO, measured
+  // the only way it can be: every generated page the platform has, read before
+  // and after. Comments blanked, quoted keys admitted and runtime entries
+  // flagged changed NO page's reading — 320/60/0 on both sides — so the three
+  // fixes fire on the shapes that were wrong and on nothing else.
+  //
+  // `runtime` is 0 TODAY and is asserted rather than left to drift: not one of
+  // the 320 sits inside a `.map`, so a widening that started flagging ordinary
+  // literal galleries would turn every exact count into a floor in silence.
+  assert.equal(runtime, 0, "a corpus frame was called runtime-dependent — the floor flag has widened");
 });

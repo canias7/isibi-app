@@ -1578,8 +1578,14 @@ test("a photo slot nobody can fill is said out loud", async () => {
   assert.match(pair, /imageSources\(aMerge\.pages,/, "the AFTER is the model's answer, not what really publishes");
   assert.doesNotMatch(pair, /aValid\.pages/, "the addon counts frames on pages the publish may never carry");
   assert.match(w, /const aSlots = newEmptySlots\(aPicsWas, aPicsNow\)/, "the slot count took its own reading of the site");
-  assert.match(w, /const aListSlots = newListFrames\(aPicsWas, aPicsNow\)/,
+  // ⚠ RE-ANCHORED 2026-09-19: the reader answers a PAIR now (`{n, atLeast}`),
+  // because a frame inside a `.map` makes the total a floor. The property is
+  // the same — it reads THIS pair and takes no second view of the site — so the
+  // anchor is the arguments rather than the whole assignment's spelling.
+  assert.match(w, /newListFrames\(aPicsWas, aPicsNow\)/,
     "the list-frame count took its own reading of the site");
+  assert.match(w, /\{ n: aListSlots, atLeast: aListMin \} = newListFrames\(/,
+    "the floor flag never leaves the reader, so an exact count is claimed over a runtime list");
 
   assert.match(w, /photos: aSlots/, "the addon answer never carries it");
   // …AND THE SECOND COUNT REACHES THE CUSTOMER TOO (2026-09-19). Run 51 said
@@ -1587,12 +1593,14 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // not see are a separate field with a separate sentence, because `photoNote`
   // offers to FILL a space and nothing can fill one of these.
   assert.match(w, /listPhotos: aListSlots/, "the addon answer never carries the list frames");
+  assert.match(w, /listPhotosMin: aListMin/, "the addon answer never says the count is a floor");
   assert.match(w, /photos: pSlots/, "the page edit never carries it");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /function photoNote\(/);
   assert.equal((chat.match(/function photoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");
   assert.match(chat, /photoNote\(a\.photos\)/, "the addon reply is silent about an empty frame");
-  assert.match(chat, /listPhotoNote\(a\.listPhotos\)/, "the addon reply is silent about a frame nothing can fill");
+  assert.match(chat, /listPhotoNote\(a\.listPhotos, a\.listPhotosMin\)/,
+    "the addon reply is silent about a frame nothing can fill, or claims an exact count over a runtime list");
   assert.equal((chat.match(/function listPhotoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");
   assert.match(chat, /photoNote\(e\.photos\)/, "the page edit is silent about an empty frame");
 });

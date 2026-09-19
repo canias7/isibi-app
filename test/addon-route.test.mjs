@@ -5019,6 +5019,10 @@ test("a page's list frames are counted and said apart from the spaces an upload 
   // 1. THE TWO NUMBERS, and 1 + 6 = 7 is the whole of the fix.
   assert.equal(r.body.photos, 1, "the addressable slot was miscounted: " + JSON.stringify(r.body.photos));
   assert.equal(r.body.listPhotos, 6, "the list frames were not counted: " + JSON.stringify(r.body.listPhotos));
+  // …AND THE COUNT IS EXACT HERE, which is the control for the floor flag
+  // below: run 51's page writes its six entries out as a LITERAL array, so
+  // their number is written down and "at least" would be a hedge over a fact.
+  assert.equal(r.body.listPhotosMin, undefined, "an exact count was offered as a floor: " + JSON.stringify(r.body.listPhotosMin));
   // 2. THE CUSTOMER HEARS BOTH, and each with the sentence that is TRUE of it.
   //    Composed by the browser's own `addonReplyText`, executed, never retyped.
   const said = browserText(r.body);
@@ -5063,20 +5067,71 @@ test("a list entry that really carries a picture is not an empty frame", async (
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.equal(r.body.listPhotos, 5, "a list entry with a real picture was counted as an empty frame");
+  // ⚠ AND THE SAME ENTRY WITH A QUOTED KEY READS THE SAME (2026-09-19). Owner:
+  // *"a filled entry with a quoted `"src"` key reads as empty."* `"src":` is
+  // ordinary TypeScript and a model writes it, and until today it counted the
+  // photograph as a space nothing could fill — the reply telling the customer
+  // their own picture was missing from a page that draws it.
+  const quoted = {
+    path: "gallery.tsx",
+    source: filled.source.replace('{ src: "/u/fw-frames-full/abc123.jpg"', '{ "src": "/u/fw-frames-quoted/abc123.jpg"'),
+  };
+  const q = await addon("fw-frames-quoted", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [quoted],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
+  });
+  assert.equal(q.body.ok, true, JSON.stringify(q.body));
+  assert.equal(q.body.listPhotos, 5, "a quoted `src` key read as an empty frame: " + JSON.stringify(q.body.listPhotos));
+});
+
+test("a gallery a browser counts is reported as a floor and said that way", async () => {
+  // ⚠ Owner, 2026-09-19: *"avoid exact counts for runtime-dependent lists."*
+  // The page maps over an array it is handed, so its source carries ONE entry
+  // and the page draws as many boxes as that array has — a number nothing here
+  // can know. The count is still made (a mapped gallery really does put spaces
+  // on the page) and the sentence says "at least".
+  const mapped = {
+    path: "gallery.tsx",
+    source: "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "import { Gallery } from '@/components/ui/gallery'\n"
+      + "export const Route = createFileRoute('/gallery')({ component: Page })\n"
+      + "function Page(){ return (<main><h1>Our Gallery</h1>\n"
+      + '<Gallery items={SHOTS.map((s) => ({ alt: "A loaf, still warm", caption: s.name }))} />\n'
+      + "<p>Photographs of the bakery.</p></main>) }\n",
+  };
+  const r = await addon("fw-frames-map", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [mapped],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.listPhotos, 1, "the mapped entry was not counted at all: " + JSON.stringify(r.body.listPhotos));
+  assert.equal(r.body.listPhotosMin, true, "a runtime list was reported as an exact number: " + JSON.stringify(r.body));
+  // THE CUSTOMER'S OWN WORDS, composed by the browser's `addonReplyText` and
+  // executed rather than retyped.
+  const said = browserText(r.body);
+  assert.match(said, /at least 1 picture space/, "the count was offered as exact: " + said);
 });
 
 test("a QR code this change made and published is not read as unseeable", async () => {
   // THE REPRODUCTION. Run 51's page step handed *"A QR code opens the gallery
-  // page."* to the `qr` step with no `item`; the `qr` step made one code, the
-  // container baked `qr-gallery.svg`, the site published it and it re-encodes
-  // to that address. The customer was told **"I can't see from here whether A
-  // QR code opens the gallery page — nothing I can check says either way."**
+  // page."* to the `qr` step; the `qr` step made one code, the container baked
+  // `qr-gallery.svg`, the site published it and it re-encodes to that address.
+  // The customer was told **"I can't see from here whether A QR code opens the
+  // gallery page — nothing I can check says either way."**
   //
   // TWO CAUSES AND NEITHER ALONE IS ENOUGH, which is why one case drives both:
   // a code was in no applied list at all (`appliedFacts` spoke for the four
-  // schema tiers and `page`), and the no-name branch of `implementationOf` read
-  // this change's OWN output as if it were the site's back catalogue.
-  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  // schema tiers and `page`), and `implementationOf` read the site's back
+  // catalogue and this change's OWN output as one question.
+  //
+  // ⚠ RE-ANCHORED 2026-09-19, NOT APPEASED. The hand-off carried no `item` and
+  // the reading it pinned was a COUNT of the step's output — which the owner's
+  // own reproduction falsifies: a step that makes only a Wi-Fi code satisfies
+  // the same arithmetic. The case now drives the association that really
+  // resolves it, `{kind, name}`, and the counting shape is its own case below.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr", item: "gallery" };
   const r = await addon("fw-qr-seen", "add a gallery page and a QR code that opens it", {
     kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
     written: [writtenPage("/gallery")],
@@ -5089,7 +5144,9 @@ test("a QR code this change made and published is not read as unseeable", async 
   // THE PRECONDITION, asserted rather than assumed: the code really was stored.
   assert.ok((r.body.moved || []).includes("qr"), "no code was made — this case tests nothing: " + JSON.stringify(r.body.moved));
   const q = storedAnswer(r, "fw-qr-seen").coverage.requirements.find((x) => x.need === HANDOFF.need);
-  assert.equal(q.implementation, "made", "the code this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.implementation, "found", "the code this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.implementedBy, "gallery", "the record does not name the code it resolved: " + JSON.stringify(q));
+  assert.equal(q.foundIn, "applied", "a code this change made was credited to the site: " + JSON.stringify(q));
   assert.equal(q.state, "unverified", "a published code still read as unseeable: " + JSON.stringify(q));
   assert.equal(q.handoff, "delivered", "the hand-off's own verdict changed");
   // ── CONFIGURATION, NEVER BEHAVIOUR — the owner's own instruction ──────────
@@ -5130,7 +5187,12 @@ test("a scene this change added answers its hand-off, and one the site already h
   // wall nobody drove. A site carries at most one scene (`SINGLE_FIELDS`), so
   // the kind IS the name and "this change added one" is the stored field
   // arriving where there was none.
-  const HANDOFF = { need: "There is something in 3D on the page.", status: "elsewhere", step: "three" };
+  //
+  // ⚠ RE-ANCHORED 2026-09-19 with the QR case above and for the same reason:
+  // the hand-off named nothing and the reading it pinned was a count. A scene
+  // has ONE possible name (`SINGLE_FIELDS`, so the kind is the name), which
+  // makes it the clearest case of all for the explicit association.
+  const HANDOFF = { need: "There is something in 3D on the page.", status: "elsewhere", step: "three", item: "three" };
   const page = { path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] };
   const r = await addon("fw-three-made", "add a gallery page and a 3D scene on it", {
     kinds: ["page", "three"], publishes: true, sitePages: ["/"],
@@ -5143,7 +5205,8 @@ test("a scene this change added answers its hand-off, and one the site already h
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.ok((r.body.moved || []).includes("three"), "no scene was stored — this case tests nothing: " + JSON.stringify(r.body.moved));
   const q = storedAnswer(r, "fw-three-made").coverage.requirements.find((x) => x.need === HANDOFF.need);
-  assert.equal(q.implementation, "made", "the scene this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.implementation, "found", "the scene this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.foundIn, "applied", "a scene this change made was credited to the site: " + JSON.stringify(q));
   assert.equal(q.state, "unverified");
 
   // THE CONTROL: the site ALREADY has one and this change adds none. What it
@@ -5167,10 +5230,65 @@ test("a scene this change added answers its hand-off, and one the site already h
   assert.equal((c.body.moved || []).includes("three"), false, "a scene was added — this control tests nothing");
   const cr = storedAnswer(c, "fw-three-had").coverage.requirements;
   const cq = cr.find((x) => x.need === HANDOFF.need);
-  assert.notEqual(cq.implementation, "made", "a scene the site already had was claimed as this change's: " + JSON.stringify(cq));
+  // ⚠ RE-ANCHORED: `notEqual("made")` was vacuous the moment that state went.
+  // The hand-off names the scene, so it RESOLVES — to the site's own, which is
+  // the distinction the control is about and is what `foundIn` records.
+  assert.equal(cq.implementation, "found", "the site's own scene was not found at all: " + JSON.stringify(cq));
+  assert.equal(cq.foundIn, "existing", "a scene the site already had was claimed as this change's: " + JSON.stringify(cq));
   const cn = cr.find((x) => x.need === NAMED.need);
   assert.equal(cn.implementation, "found", "the site's own scene was not found at all: " + JSON.stringify(cn));
   assert.equal(cn.foundIn, "existing", "a scene the site already had was recorded as this change's work: " + JSON.stringify(cn));
+});
+
+test("a code that opens no page does not answer a hand-off about one", async () => {
+  // ⚠ THE REPRODUCTION (owner, 2026-09-19): *"A gallery handoff currently
+  // becomes 'set up' when the step produces only a Wi-Fi code."* Driven through
+  // the real route, this is the shape run 51 had with one word changed — the
+  // page step asks for a code that opens the gallery, and the `qr` step designs
+  // a Wi-Fi code instead. A count of the step's output satisfied it.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const page = { path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] };
+  const r = await addon("fw-qr-wifi", "add a gallery page and a QR code for the wifi", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      qr: { qr: { name: "wifi", points: "WIFI:S=Fretwork;T=WPA;P=loaf;;", label: "Join our wifi" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: a code really was made, so the step's output is in hand
+  // and the old arithmetic really would have been satisfied.
+  assert.ok((r.body.moved || []).includes("qr"), "no code was made — this case tests nothing: " + JSON.stringify(r.body.moved));
+  const q = storedAnswer(r, "fw-qr-wifi").coverage.requirements.find((x) => x.need === HANDOFF.need);
+  assert.equal(q.implementation, "unknown", "a Wi-Fi code answered a hand-off about a gallery page: " + JSON.stringify(q));
+  assert.equal(q.state, "unknown", "the requirement was settled by a code that opens nothing: " + JSON.stringify(q));
+  // …AND THE HAND-OFF'S OWN VERDICT IS UNTOUCHED, which is the separation the
+  // 2026-09-19 round before this one bought: the `qr` step really was told.
+  assert.equal(q.handoff, "delivered", "the hand-off's own verdict moved with the implementation's");
+  const note = r.body.coverNote || "";
+  assert.doesNotMatch(note, /I've set that up/, "the set-up sentence survived a code that opens nothing: " + note);
+  assert.match(note, /can't see from here whether A QR code/, "the uncertainty was not preserved: " + note);
+  // ── THE CONTROL, AND IT IS ABOUT THE ASSOCIATION AND NOT ABOUT THE CODE ───
+  //
+  // The SAME un-named hand-off on a run whose `qr` step made exactly the right
+  // code is ALSO `unknown`, because nothing ties that code to this need. That
+  // is what makes this a case about counting rather than a case about Wi-Fi:
+  // the fix is not "notice the code is wrong", it is "stop answering from a
+  // number". The case above, whose hand-off names `gallery`, is the other half.
+  const c = await addon("fw-qr-right", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(c.body.ok, true, JSON.stringify(c.body));
+  assert.ok((c.body.moved || []).includes("qr"), "no code was made — this control tests nothing");
+  const cq = storedAnswer(c, "fw-qr-right").coverage.requirements.find((x) => x.need === HANDOFF.need);
+  assert.equal(cq.implementation, "unknown",
+    "the right code settled an un-named hand-off, so the reading is still a count: " + JSON.stringify(cq));
 });
 
 test("a code the site already had is not claimed as this change's", async () => {
@@ -5192,7 +5310,11 @@ test("a code the site already had is not claimed as this change's", async () => 
   assert.equal((r.body.moved || []).includes("qr"), false, "a code was added — this control tests nothing");
   const rows = storedAnswer(r, "fw-qr-had").coverage.requirements;
   const q = rows.find((x) => x.need === HANDOFF.need);
-  assert.notEqual(q.implementation, "made", "the site's own code answered a hand-off nobody acted on: " + JSON.stringify(q));
+  // ⚠ RE-ANCHORED: `notEqual("made")` was vacuous the moment that state went.
+  // The property is that an un-named hand-off to a step that never ran is
+  // `unknown` — nobody looked, which is the honest answer and the one the
+  // owner's *"preserve uncertainty"* asks for.
+  assert.equal(q.implementation, "unknown", "the site's own code answered a hand-off nobody acted on: " + JSON.stringify(q));
   const n = rows.find((x) => x.need === NAMED.need);
   assert.equal(n.implementation, "found", "the site's own code was not found at all: " + JSON.stringify(n));
   assert.equal(n.foundIn, "existing", "a code the site already had was recorded as this change's work: " + JSON.stringify(n));

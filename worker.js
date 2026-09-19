@@ -25658,7 +25658,15 @@ async function handleRequest(request, env, ctx) {
             // FILL a slot, and nothing on this platform can fill one of these —
             // the picture rung addresses a `src` span and a list entry has
             // none. Each gets the sentence that is true of it.
-            const aListSlots = newListFrames(aPicsWas, aPicsNow);
+            //
+            // ⚠ AND IT ANSWERS A PAIR, NOT A NUMBER (2026-09-19). Owner:
+            // *"avoid exact counts for runtime-dependent lists."* A frame
+            // written inside a `.map` is one object in the source and as many
+            // frames on the page as the mapped array has elements, so `n` is a
+            // FLOOR whenever `atLeast` is set and the customer hears "at
+            // least". Destructured here rather than passed whole, because the
+            // reply carries two fields a browser reads separately.
+            const { n: aListSlots, atLeast: aListMin } = newListFrames(aPicsWas, aPicsNow);
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
             // (owner, 2026-09-04: "try to fix it, if not fix, send as it is",
@@ -25925,6 +25933,13 @@ async function handleRequest(request, env, ctx) {
               // this field" the same absence — and the second is the one a
               // reader of a stored reply has to be able to tell.
               listPhotos: aListSlots,
+              // …AND WHETHER THAT NUMBER IS A FLOOR (2026-09-19). A frame
+              // inside a `.map` is one object in the source and N on the page,
+              // so an exact total over it is precise about the wrong thing.
+              // ABSENT WHEN THE COUNT IS EXACT, so every reply that existed
+              // before today is byte-identical and a browser that never sees
+              // this field says exactly what it said.
+              listPhotosMin: aListMin || undefined,
               // ── THE PICTURES THIS CHANGE REALLY BOUGHT (2026-09-17) ────────
               //
               // `pictures`, NOT `photos`: that field has meant "empty frames
