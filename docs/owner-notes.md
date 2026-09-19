@@ -13356,7 +13356,56 @@ credits, publishes placeholders, and comes back looking like a complete result
 while proving nothing about the picture. A short balance is the cheaper failure —
 it refuses.
 
-**Nothing merged, nothing deployed, nothing paid.**
+### And it ran — run 51, 2026-09-19
+
+You pressed it at 00:07Z. **Green in 10m47s, the addon job 485 s, cost 13 —
+balance 134 → 121.** It routed all three kinds: `page`, `qr`, `photo`.
+
+**Three of the four things this round was built for came off, and I checked each
+from outside rather than reading it off the reply:**
+
+- **The page.** `/gallery` is live, 200, linked from the homepage twice, in the
+  sitemap, and the nav now carries "Gallery".
+- **The QR code.** Made, published, and verified two ways — the stored settings
+  and the *published file itself*, which I re-encoded and read back as
+  `https://fold-lane-bakery.gofarther.app/gallery`. It renders on `/visit`,
+  beside the opening hours, which is where its designer said to put it.
+- **Your three photographs are untouched.** Same files, same pages, same bytes.
+  This is the reason we picked the bakery: the preservation check does nothing
+  on a site with no pictures, so every other site would have passed it by
+  accident.
+
+**The photograph was not made.** The provider refused it. Not a credits problem
+— you had 134 — and you were **not charged for it**; the 13 credits are the page
+and the QR code. The site came out honest about it: *"Couldn't make the
+photographs this time, so the pictures are placeholders — the site is otherwise
+fine."*
+
+**This is the one I flagged before you pressed**, and it went the way I said it
+would: an empty provider is the *graceful* failure, so the run spends its
+credits, publishes, and comes back looking complete. Worth confirming fal has
+funds before the re-run — that is the whole cost of settling it.
+
+**Two things the run taught us that I could not have found any other way:**
+
+1. **When the picture fails, nothing anywhere says why.** No balance, no key, no
+   outage, no timeout — one sentence for all of them, and the real reason only
+   ever reaches a log inside the container. So if the re-run fails the same way,
+   we still will not know which it was. That wants fixing before we spend again.
+2. **The page shows seven empty frames and you were told about one.** The page
+   writer built a featured picture plus a six-up grid, all empty, all with real
+   captions — and the reply says *"There is a space for a photo"*, singular. The
+   count is probably right about the *source* (the grid is one repeated element)
+   and wrong about what a visitor sees. Confirming that needs a look at the
+   stored page, which I cannot read without your session.
+
+**Where the milestone stands: three quarters proven, the photograph itself
+still not.** No generated picture has been made or placed on this path yet —
+which is the one thing "page + photo in one request" is named for. Nothing in
+the code needs changing first; it needs the provider to answer.
+
+The page as it shipped is at `docs/edits/addon-01-ask-page.png`, and the site is
+live at https://fold-lane-bakery.gofarther.app/gallery.
 
 **CI has read it, green.** The unit suite came back **6,843** — the same number I
 measured here. No container harness run fired and none was due: this push touches

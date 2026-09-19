@@ -9714,7 +9714,81 @@ matches.
 **NOT PRESSED.** The paid run is the owner's dispatch and nothing here spent a
 credit.
 
-**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
+### RUN 51: THREE QUARTERS PROVEN, AND THE PROVIDER REFUSED THE PICTURE (2026-09-19)
+
+The owner's press. `lane sweep` run **51** (**35408232713**), green,
+00:07:09→00:17:58Z; the addon job **485 s**, **cost 13 — balance 134 → 121**.
+One free-text ask on `fold-lane-bakery`, routed **`["page","qr","photo"]`**.
+
+**THE PRE-FLIGHT CLEARED BOTH HALVES BEFORE A CREDIT WENT**, which is the third
+run to do so: `worker deploy: ff9fce5f…`, `container image (cold start):
+3b93a9cae43bac41`, the runtime route agreeing, then *"queued work is on, and the
+code under test is the code answering — proceeding"*.
+
+**WHAT SHIPPED, VERIFIED FROM OUTSIDE.** `/gallery` **200/17,594 B** on build
+`mu7mwvb6-yhwx01` (`x-site-version 01789776828162-bdqv15`), in `sitemap.xml`,
+`href="/gallery"` **twice** on the home page. The stored inventory moved routes
+**4→5**, codes **0→1**, photographs **3→3**.
+
+- **THE QR IS PROVEN TWICE, AND THE SECOND READING IS THE NEW ONE.** The stored
+  settings say it opens `https://fold-lane-bakery.gofarther.app/gallery`, and
+  the **PUBLISHED FILE** — `qr-gallery.svg`, 200/4,079 B — re-encodes to that
+  same address through `qrModules`/`qrEncodes`. It renders on `/visit` as
+  `<img src="/qr-gallery.svg" alt="See photographs of our work">`, which is
+  where its own designer put it (*"beside the opening hours"*). The
+  settings-versus-file split the instrument was built for, answering the same
+  way on both sides.
+- **THE PRESERVATION WALL HELD ON A SITE THAT REALLY HAD SOMETHING TO LOSE** —
+  `existing ones LOST 0`, and independently: the same three `/u/` urls on the
+  same two pages, 1,938,794 / 1,777,447 / 1,517,100 bytes, all 200. This is what
+  `fold-lane-bakery` was chosen for; `keptImages` SHORT-CIRCUITS on a site with
+  no photographs, so every earlier site would have made the case vacuous.
+- **AND THE PHOTOGRAPH WAS NOT BOUGHT.** `imageNote`'s **provider-refused**
+  branch: *"Couldn't make the photographs this time, so the pictures are
+  placeholders — the site is otherwise fine."* Not the affordability branch —
+  the balance was 134 — so the purchase was attempted and the provider said no.
+  **Billed on `made`, so the 13 credits are the page and the QR and the customer
+  paid nothing for the picture that never arrived**, which is the build path's
+  own rule holding on the addon path.
+
+**⚠ AND THE REFUSAL CANNOT NAME ITSELF TO ANYBODY WHO CAN ACT ON IT.**
+`genSitePhoto` throws `"photo " + status + " " + detail`, `makeSitePhoto`
+scrubs it onto `images.error`, and `imageNote` reads that field ONLY as a
+discriminator between four identical-looking placeholder outcomes — **it is
+never put on the reply**. The one surviving copy is `console.error("photo
+failed:", …)`, which under the runner is the job child's stdout inside the
+container. So an empty provider balance, a wrong key, a provider outage, a
+timeout and a non-image answer all reach the owner as one sentence, and none of
+them reaches a session at all. The repository's own *"a failure that cannot name
+itself"* trap, in the money path's decoration step. **Open.**
+
+**⚠ AND THE PAGE SHOWS SEVEN EMPTY FRAMES WHERE THE CUSTOMER WAS TOLD ABOUT
+ONE.** Measured on the live page: `role="img"` **×7**, `bg-muted` **×7**,
+`aspect-ratio` **×7**, `<img>` **×0** — seven placeholders, each carrying real
+alt text the writer wrote. The reply said *"There is a space for a photo"*,
+singular, and the harness read `empty frames left 1`. **The probable mechanism
+is that the grid is ONE `.map()` element in the source** — `site-picture.mjs`
+records that shape in as many words (*"`{SPREADS.map((s) => <SafeImage …/>)}` is
+ONE element"*) — so a source-element count and a rendered-frame count
+legitimately differ and the sentence is composed from the source. **Not
+settled**: confirming it needs the stored source, which is owner-gated. Open.
+
+**⚠ AND THE INSTRUMENT IS BLIND ON EXACTLY THIS OUTCOME.** `imagesOn` reads
+`<img>` elements, and `SafeImage` branches on `!src` to a placeholder that draws
+none — so the browser half answered `0 drawn, 0 whose file loaded NOTHING, 0
+laid out to NO SIZE` on the run it most needed to report. The server-side
+`empty frames left N` is what carries it, and it counts something a visitor does
+not see. Both halves of this were written in the round before the press and
+neither was measured against a real placeholder.
+
+**WHAT IS PROVEN AND WHAT IS NOT.** Proven: the routing (all three kinds
+designed in one request), the QR end to end including the published file, the
+preservation of existing photographs, and billing on `made`. **Not proven: the
+photograph itself** — no generated picture has been made or placed on this path,
+which is the one thing the milestone is named for. The re-run costs ~13 credits
+and needs the provider's readiness confirmed first, which is a precondition and
+not a risk to absorb: an empty provider produces a complete, green, plausible
+run that proves nothing.
 
 
 ## Data, auth, payments, mail
@@ -9920,7 +9994,13 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   `shoeroom-1`, plus older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   REVISES that site.**
-- **Balance: 161 credits** (read off the ledger by the harness itself at the end
+- **Balance: 121 credits** (read off the ledger by the harness itself at both
+  ends of run 51, 2026-09-19 00:17Z — `134 → 121`, spent **13**: the page and
+  the QR code, with the refused photograph correctly costing nothing). Before
+  it, 137 → 134 on run 50 and 149 → 137 on run 49. **Read the ledger, do not
+  trust this line** — the older readings below are kept for the arithmetic and
+  every one of them was current when written.
+- Before those, **161 credits** (read off the ledger by the harness itself at the end
   of run 47, 2026-09-15 02:00Z). The two verification runs on `repairbench-1`
   took it 182 → 174 (run 46, the `bookings` setup, **8**) → 161 (run 47, the
   `/status` page + counting function, **13**). Before them, **182**
