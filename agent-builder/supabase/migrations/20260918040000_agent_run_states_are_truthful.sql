@@ -51,6 +51,21 @@ select
   -- ⚠ APPENDED, AND POSTGRES REQUIRES IT RATHER THAN PREFERRING IT: `create or replace view`
   -- may only ADD columns at the end. Tidying this into the order a reader would like is a
   -- broken deploy.
+  -- ⚠ **BOTH COALESCES ARE DELIBERATE BELTS THAT CANNOT FIRE TODAY, and saying so is the
+  -- point: a sweep reports an inert line as a test gap, and the next reader deletes what
+  -- nothing appears to need.** MEASURED over every row shape that exists — a message with no
+  -- run at all, a run with no log, and a run with an unanswered batch — the view's answers are
+  -- byte-identical with them and without them. The reason is the laterals' own SHAPE: `ask` is
+  -- a scalar `select exists (…)` with no FROM and `open` is an aggregate with no GROUP BY, so
+  -- under `left join lateral … on true` each always returns exactly one row and neither column
+  -- is ever NULL.
+  --
+  -- **WHAT WOULD MAKE THEM LOAD-BEARING is one line away**: a `group by` or a `having` in either
+  -- lateral, or turning one into a plain row select with a WHERE that can eliminate its row.
+  -- Then the column answers NULL, and in SQL `where run_awaiting = false` matches NOTHING for a
+  -- NULL — so a reader filtering on it would silently drop every such run. The site's own reader
+  -- already refuses a non-boolean and a non-integer, which is a SECOND wall at a different
+  -- layer, for a different reader; this one states the view's contract, that it answers a value.
   coalesce(open.calls, 0) as run_open_calls,
   coalesce(ask.waiting, false) as run_awaiting
 from agent.agent_messages m

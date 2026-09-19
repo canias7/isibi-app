@@ -203,7 +203,15 @@ const enclosingView = (src, at) => {
     found = { name: m[1], from: m.index };
   }
   if (!found) return null;
-  const end = src.indexOf(";", found.from);
+  // ⚠ **THE TERMINATOR IS LOOKED FOR IN BLANKED SQL, because a COMMENT inside a view's body
+  // can hold a semicolon and this reader would take it for the end of the view.** MEASURED:
+  // a declaration written into `agent_thread` explaining its two `coalesce`s contained one
+  // ordinary semicolon in a sentence, the view read as ending four lines early, and
+  // `viewHosted` fell from 9 to 5 — so four correct anchors stopped being asked the
+  // superseded question at all. *Prose contains the thing it forbids*, in the reader written
+  // to find a view. `blankedSql` is LENGTH-PRESERVING, so every offset below still indexes
+  // the real source, and the census one screen down is what caught it.
+  const end = blankedSql(src).indexOf(";", found.from);
   if (end < 0) return null;
   return at <= end ? found : null;
 };
@@ -1390,10 +1398,21 @@ const spec = [
     "              and true) as waiting"),
   mThread("⚠ SQL/states: any request of this account's makes every one of its runs read as waiting",
     "            where a.run_id = m.run_id and a.verdict is null", "            where a.verdict is null"),
-  mThread("SQL/states: the waiting flag answers NULL rather than false, so cannot-tell wears a value's clothes",
-    "  coalesce(ask.waiting, false) as run_awaiting", "  ask.waiting as run_awaiting"),
-  mThread("SQL/states: the open-call count answers NULL for a run with no log at all",
-    "  coalesce(open.calls, 0) as run_open_calls", "  open.calls as run_open_calls"),
+  // ⚠ THE TWO `coalesce`S ON THESE LINES WERE MUTANTS AND BOTH SURVIVED, and MEASUREMENT said
+  // why: each is INERT BY CONSTRUCTION. `ask` is a scalar `select exists (…)` with no FROM and
+  // `open` is an aggregate with no GROUP BY, so under `left join lateral … on true` each always
+  // returns exactly one non-NULL row — driven over a message with no run, a run with no log and
+  // a run with an unanswered batch, byte-identical with the coalesces and without them. They are
+  // kept and DECLARED in the migration, because a sweep cannot see a deliberate belt.
+  //
+  // So each is replaced by an OBSERVABLE mutant of the SAME LINE, and both attack the one thing
+  // those two columns exist to keep apart: a run WAITING for a person against a run whose calls
+  // nobody can answer. Reading one lateral where the other was meant is the careless edit three
+  // similarly-named laterals invite, and it is the conflation the whole round was opened to fix.
+  mThread("⚠ SQL/states: the open-call count is read off the PROGRESS lateral, not the calls one",
+    "  coalesce(open.calls, 0) as run_open_calls", "  coalesce(prog.step, 0) as run_open_calls"),
+  mThread("⚠ SQL/states: `waiting` is computed from the open calls, so an unresolved run reads as waiting",
+    "  coalesce(ask.waiting, false) as run_awaiting", "  coalesce(open.calls > 0, false) as run_awaiting"),
   mThread("⚠ SQL/states: the server cannot read the approvals the view reaches, so every conversation fails",
     "grant select on agent.tool_approvals to service_role;", "-- no grant"),
   mPending("⚠ SQL/lists: an expired request is offered as something to answer, and then refused",

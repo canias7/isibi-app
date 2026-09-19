@@ -7136,3 +7136,119 @@ and two migrations — `20260917120000` (a declaration only) and `20260918030000
 REAL product fix, M12's `revoke_agent_tool` not-stopped test. So whatever the full run answers is
 an answer about `e7a5502` and says nothing about any of those three; they are evidenced by their
 own passes instead, which is why those passes exist.
+
+**AND THOSE THREE ARE PROVED: 3 mutants, 3 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — one pass over exactly the three entries the full run cannot cover, on a
+real PostgreSQL, in a detached worktree at `064aa1b`, against the two checks that run drives.
+Two controls rather than one, because a pass whose control has not been reached is a pass with
+no control, and the runner's own `CONTROL WAS KILLED` branch is armed only for a mutant declared
+`control: true`. **The spec entries were SELECTED by diffing the two label sets rather than by
+recalling which ones were new**, which is the difference between covering the gap and covering
+what somebody remembered of it.
+
+### ⚠ AND FOUR MORE SURVIVORS, WHICH SPLIT TWO AND TWO — and only measuring split them
+
+The full sweep went on producing survivors, and they are not one finding but two pairs. **None
+is the product's**, and the difference between the pairs is the whole reason a survivor is a
+question rather than a verdict.
+
+**THE FIRST PAIR IS A GENUINE GAP: `requeue_expired_approvals`' `held` REPORTING HAD NO CHECK.**
+Two mutants — one forcing every row's action to `requeued`, one dropping a held row entirely —
+and both survived because **every run in that section is unheld**, so `requeue_run` always
+answers `queued` and the other arm of that `case` was unreachable. The function's own comment
+says why the branch exists at all: *a wall nobody can drive is a wall nobody is guarding*, and
+**an EARLIER sweep survivor is what bought it**. It was bought and never guarded.
+
+What each mutant really does is different, which is why they are two: reporting a held row as
+`requeued` makes the caller RING it — a doorbell for a delivery `claim_run` refuses — and
+dropping it makes the tick silent about what it looked at, so an operator cannot tell a tick
+that found one run from a tick that found four and could act on one. **Driven with a run whose
+work row carries a live lease, beside one nobody holds, in ONE call**: the first comes back
+`held` and the second `requeued`, and the worker on the first keeps its claim, its lease and
+its `kind`. Scoped to those two ids, because the earlier fixtures are legitimately offered again
+and an exact equality over the whole answer would be an assertion about which fixtures the
+section happens to have built by then.
+
+**THE SECOND PAIR IS INERT BY CONSTRUCTION, MEASURED RATHER THAN REASONED.** Both are the
+`coalesce` on the view's two new columns. `ask` is a scalar `select exists (…)` with no FROM and
+`open` is an aggregate with no GROUP BY, so under `left join lateral … on true` each always
+returns exactly one non-NULL row. **Driven over every row shape that exists** — a message with
+no run at all, a run with no log, and a run with an unanswered batch — the view's answers are
+**byte-identical with the coalesces and without them**.
+
+So they are kept and **DECLARED in the migration**, with what would make them load-bearing (a
+`group by` or a `having` in either lateral, after which `where run_awaiting = false` would match
+NOTHING for a NULL and silently drop every such run), and **each mutant is REPLACED by an
+observable one of the SAME LINE**. Both replacements attack the one thing those two columns
+exist to keep apart — a run WAITING for a person against a run whose calls nobody can answer:
+the count read off the PROGRESS lateral instead of the calls one, and `waiting` computed from
+the open-call count. Reading one lateral where another was meant is the careless edit three
+similarly-named laterals invite, and it is the conflation the whole round was opened to fix.
+
+### ⚠ AND THE GENERATOR'S OWN VIEW DETECTOR READ A SEMICOLON IN MY PROSE AS THE END OF THE VIEW
+
+Writing that declaration into the migration turned the spec generator RED — `THE VIEW CENSUS IS
+BLIND: only 5 anchors read as inside a view; 9 really are`. `enclosingView` found the view's end
+with `src.indexOf(";", …)` on RAW source, and **one ordinary semicolon in a sentence of mine**
+ended the view four lines early, so four correct anchors stopped being asked the superseded
+question at all. *Prose contains the thing it forbids* — this repository's most-recorded trap —
+**in the reader written to find a view.**
+
+**THE FIX IS THE DETECTOR, NOT THE SENTENCE**, and the semicolon is left where it is as the proof:
+the terminator is looked for in `blankedSql(src)`, which is LENGTH-PRESERVING, so every offset
+below it still indexes the real source. **And the census is what caught it** — a floor stated
+rather than a green run trusted, whose own comment records that the FUNCTION arm of the same check
+once shipped DEAD and passed with all eight known-bad entries put back.
+
+### ⚠ AND AN EIGHTH: THE MEMORY REACH'S OWN KEY WAS UNASSERTED, because three regexes were too loose
+
+`SQL/memory: the reach is not answered at all` renames the outer key `affects` to anything, and
+it survived because the three assertions under it were **substring regexes over the whole
+answer** — `/"futureRuns"\s*:\s*true/` and its two siblings match those keys wherever they sit,
+so the object they sit IN was never named.
+
+**AND THE CONSEQUENCE IS THE FEATURE, NOT A DETAIL.** `src/capability-tools.mjs` reads
+`answer.affects` and nothing else, so that rename makes an agent's own `forget` answer
+`affects: null` — *the reach unreportable*, which is the single thing the field exists for, in
+the round whose whole subject was that a delete must not be reported as erasure. The site's
+route is untouched, and deliberately so: it deletes the row itself and writes the three fields
+out with the reason declared beside them, because **they are two DOORS** and only the tool's
+door reads this function's answer.
+
+It is asked as the PATH now, in **one call**, with the **KEY SET censused beside the values**
+(`true/false/false keys=acceptedRuns,futureRuns,runHistory`), so a fourth place a delete reaches
+cannot be added and go unreported by either door. *Assert the property, not the spelling* is the
+recorded rule; this is its mirror — **a needle loose enough to match the parts cannot prove the
+whole**.
+
+### ⚠ AND A NINTH: THE SNAPSHOT'S `source`, AND ITS `run` HALF HAD NEVER BEEN WRITTEN AT ALL
+
+`⚠ SQL/memory: the snapshot drops who confirmed a fact` writes `'source', null` into
+`agent_memory_snapshot`, and the check above it asked for the value and the version **and
+nothing else**. So provenance could be dropped with nothing red — and the engine's memory step
+**FAILS CLOSED to `unknown`**, which is right and is exactly what hides it: every remembered
+fact would have read *"recorded before this was tracked"* instead of *"confirmed by you"* or
+*"written by this agent"*. The distinction the whole M7 round was built for, degraded silently
+and correctly.
+
+**AND LOOKING FOR THE CHECK FOUND A SECOND GAP: NOTHING ANYWHERE HAD EVER WRITTEN A RUN-SOURCED
+MEMORY.** Measured — `'run'` appears nowhere near a memory in the whole file — so the half of
+the column that says *the agent wrote this itself* was untested at every layer, and "it carries
+`source`" would have been satisfied by a snapshot hardcoding the commoner answer. One is written
+now through `save_memory`'s own parameter, read back out of the snapshot as `run` with `tone`
+still `person` beside it, and removed again — this section's own create-and-delete idiom, so the
+state is left as it was, with a control that says so. **The entry's KEY SET is censused too**
+(`source,value,version`), so a field added to the snapshot cannot go unasserted either.
+
+### Measured, after each run rather than before it
+
+- **Real PostgreSQL (`npm run test:pg`): 1,102 → 1,106 → 1,110 → 1,113 checks, 0 failed**, and every
+  step closes exactly: 4 for the expiry wall (two `check`s and two `allowed`s, which count), 4 for
+  the held reporting (its fixture, its observer and its two readings), and 3 for provenance. The
+  memory-reach strengthening REPLACED a check rather than adding one, so it moves no number — which
+  is why the count alone would not have shown it.
+- **Engine suite 590 / 590 / 0 fail / 0 skipped, unchanged** — and that suite RUNS the spec
+  generator through `authored-run.test.mjs`, so the `enclosingView` fix and both replacements are
+  exercised by it rather than merely compiled.
+- **SQL spec 280 entries (12 controls → 268 product mutants)**, every anchor unique by the
+  generator's own pre-check. Two entries REPLACED, none added, so the total is unmoved.

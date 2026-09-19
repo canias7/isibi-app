@@ -2588,8 +2588,42 @@ try {
 
   console.log("\n── memory: the snapshot an execution is given ──");
   const snap = jget(`select agent.agent_memory_snapshot('t1','${AG_ON}')::text;`);
-  check("⚠ the snapshot carries the value AND the version",
-    /"value"\s*:\s*"chatty"/.test(snap) && /"version"\s*:\s*2/.test(snap), snap);
+  // ⚠ **AND IT CARRIES `source`, WHICH IS WHAT MAKES PROVENANCE TRAVEL — a SWEEP SURVIVOR is
+  // what said so.** This check asked for the value and the version and nothing else, so a mutant
+  // writing `'source', null` into the snapshot left it green — and the engine's memory step
+  // FAILS CLOSED to `unknown`, so every remembered fact would have read *"recorded before this
+  // was tracked"* instead of *"confirmed by you"* or *"written by this agent"*: the whole
+  // distinction the round was built for, degraded in silence and with nothing red.
+  //
+  // THE KEY SET IS CENSUSED, so a field added to the snapshot cannot go unasserted either.
+  const snapKeys = jget(`select string_agg(k, ',' order by k) from jsonb_object_keys(
+                           agent.agent_memory_snapshot('t1','${AG_ON}') -> 'tone') as k;`);
+  check("⚠ the snapshot carries the value, the version AND who confirmed it",
+    /"value"\s*:\s*"chatty"/.test(snap) && /"version"\s*:\s*2/.test(snap)
+    && jget(`select agent.agent_memory_snapshot('t1','${AG_ON}') -> 'tone' ->> 'source';`) === "person"
+    && snapKeys === "source,value,version", `${snap} / keys=${snapKeys}`);
+  // ⚠ AND THE OTHER SOURCE IS DRIVEN, or "it carries `source`" is satisfied by a snapshot that
+  // hardcodes the commoner one. Nothing anywhere had ever written a RUN-sourced memory, so the
+  // half of the column that says *the agent wrote this itself* was untested at every layer.
+  // Created and removed again, which is this section's own idiom, so the state is left as it was.
+  // ⚠ THE KEY OBEYS THE COLUMN'S OWN GRAMMAR (`^[a-z][a-z0-9_]{0,39}$`), which my first draft's
+  // `written-by-the-run` does NOT — so nothing was saved, the source read empty, and **the
+  // control under it passed VACUOUSLY** because the key had never been there. *A negative
+  // assertion needs its observer alive*, and a fixture in a different shape from the schema is
+  // what made the probe I wrote beside it pass while the check failed. The save's own answer is
+  // asserted FIRST now, so a refused write is its own failure rather than somebody else's.
+  const RUN_KEY = "written_by_the_run";
+  const runSaved = jget(`select agent.save_memory('t1','${AG_ON}','${RUN_KEY}','its own note', gen_random_uuid(), 'run')::text;`);
+  check("the observer is alive: the run-sourced memory really was written",
+    /"ok"\s*:\s*true/.test(runSaved) && /"source"\s*:\s*"run"/.test(runSaved), runSaved);
+  const runSrc = jget(`select agent.agent_memory_snapshot('t1','${AG_ON}') -> '${RUN_KEY}' ->> 'source';`);
+  check("⚠ ...and a fact the RUN wrote travels as `run`, not as the commoner answer",
+    runSrc === "run"
+    && jget(`select agent.agent_memory_snapshot('t1','${AG_ON}') -> 'tone' ->> 'source';`) === "person",
+    `${RUN_KEY}=${runSrc || "<absent>"}`);
+  jget(`select agent.delete_memory('t1','${AG_ON}','${RUN_KEY}');`);
+  check("the control — removing it leaves the snapshot as it was",
+    jget(`select (agent.agent_memory_snapshot('t1','${AG_ON}') ? '${RUN_KEY}')::text;`) === "false");
   check("⚠ ...and it is scoped to the account", 
     jget(`select agent.agent_memory_snapshot('t2','${AG_ON}')::text;`) === "{}");
   check("an agent with nothing remembered answers {} — a real answer, not an absence",
@@ -2664,10 +2698,23 @@ try {
    * doors report it (an agent's `forget` tool and the site's route) and both read it from
    * here — so a note about what a delete reaches cannot drift from what a delete does.
    */
-  check("⚠ ...and it says what it reaches: later runs yes, accepted runs no, history no",
-    /"futureRuns"\s*:\s*true/.test(fgAnswer)
-    && /"acceptedRuns"\s*:\s*false/.test(fgAnswer)
-    && /"runHistory"\s*:\s*false/.test(fgAnswer), fgAnswer);
+  // ⚠ **ASKED AS THE PATH A READER REALLY WALKS, not as three substrings — a SWEEP SURVIVOR is
+  // what said so.** The first version tested `/"futureRuns"\s*:\s*true/` against the whole
+  // answer, which matches those keys wherever they sit, so a mutant RENAMING the outer key
+  // (`affects` → anything) left all three assertions green. `src/capability-tools.mjs` reads
+  // `answer.affects` and nothing else, so that rename makes the agent's `forget` answer
+  // `affects: null` — the reach unreportable, which is the one thing the field exists for.
+  //
+  // ONE call, under the key, with the KEY SET censused beside the values, so a fourth place a
+  // delete reaches cannot be added and go unreported by both doors. It is a second delete of a
+  // row already gone, which answers `forgot: false` and the SAME reach — deliberately, because
+  // the reach is about how forgetting works rather than about this row.
+  const fgReach = jget(`select coalesce(a ->> 'futureRuns','<none>') || '/' || coalesce(a ->> 'acceptedRuns','<none>')
+                            || '/' || coalesce(a ->> 'runHistory','<none>') || ' keys=' ||
+                          coalesce((select string_agg(k, ',' order by k) from jsonb_object_keys(a) as k),'<none>')
+                          from (select agent.delete_memory('t1','${AG_ON}','${FG_KEY}') -> 'affects' as a) x;`);
+  check("⚠ ...and it says what it reaches, under the key its reader walks: later yes, accepted no, history no",
+    fgReach === "true/false/false keys=acceptedRuns,futureRuns,runHistory", fgReach);
   check("...and it names the fact it forgot, so an answer can be tied to an ask",
     new RegExp(`"key"\\s*:\\s*"${FG_KEY}"`).test(fgAnswer), fgAnswer);
 
@@ -2690,8 +2737,9 @@ try {
   const fgTwice = jget(`select agent.delete_memory('t1','${AG_ON}','${FG_KEY}')::text;`);
   check("⚠ forgetting it again is OK and says there was nothing — not a failure, and not a removal",
     /"ok"\s*:\s*true/.test(fgTwice) && /"forgot"\s*:\s*false/.test(fgTwice), fgTwice);
-  check("...and the reach is still stated, because it is about how forgetting works",
-    /"futureRuns"\s*:\s*true/.test(fgTwice), fgTwice);
+  check("...and the reach is still stated under its own key, because it is about how forgetting works",
+    jget(`select agent.delete_memory('t1','${AG_ON}','${FG_KEY}') -> 'affects' ->> 'futureRuns';`) === "true",
+    fgTwice);
   /**
    * ⚠ **SCOPED BY (ACCOUNT, AGENT), AND THE TWO LAYERS SEPARATE DIFFERENTLY — measured, after
    * my own first draft asked for a shape the schema forbids.**
@@ -3726,6 +3774,45 @@ try {
       nowSwept === "1" &&
       jget(`select (done_at is null and kind = 'resume')::text from agent.run_work where run_id='${S4}';`) === "true",
       nowSwept);
+
+    // ⚠ AND A RUN SOMEBODY IS HOLDING IS REPORTED AS HELD, NOT AS REQUEUED, AND IS NOT DROPPED —
+    // two more SWEEP SURVIVORS, and the function's own comment says why the reporting exists:
+    // *a wall nobody can drive is a wall nobody is guarding*, and an EARLIER sweep survivor is
+    // what bought the `held` branch in the first place. It still had no check, because every
+    // run in this section is unheld, so `requeue_run` always answers `queued` and the other arm
+    // of that `case` was unreachable. **A `held` row must never be RUNG** (the doorbell would be
+    // a delivery `claim_run` refuses) and must never be DROPPED (an operator cannot then tell a
+    // tick that looked at one run from a tick that looked at four and could act on one).
+    const S6 = "ff000000-0000-0000-0000-0000000000a6"; // a worker is on it: held
+    const S7 = "ff000000-0000-0000-0000-0000000000a7"; // nobody is: requeued, in the same call
+    // ⚠ THE HOLDER IS MADE BY THE REAL DOOR, `claim_run`, NOT BY HAND — and the schema is what
+    // insisted: `run_work_claim_whole` refused a row carrying a worker, a time and a lease and
+    // no CLAIM TOKEN, which is the fence's own rule that a claim is whole. So the state under
+    // test is one the product really produces rather than one this file assembled.
+    allowed("a run with a closed window that a worker is still holding, beside one nobody holds", `
+      insert into agent.runs (id, tenant_id, status) values ('${S6}','${XT}','running'), ('${S7}','${XT}','running');
+      insert into agent.run_work (run_id, tenant_id) values ('${S6}','${XT}');
+      insert into agent.run_work (run_id, tenant_id, done_at) values ('${S7}','${XT}', now());
+      insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+        values (gen_random_uuid(),'${XT}','${S6}','${XA}',1,0,'remember','{}'::jsonb,'hG', now() - interval '1 minute'),
+               (gen_random_uuid(),'${XT}','${S7}','${XA}',1,0,'remember','{}'::jsonb,'hH', now() - interval '1 minute');`, asOwner);
+    check("the observer is alive: a worker really holds the first one, through claim_run itself",
+      /"claimed"\s*:\s*true/.test(jget(`select agent.claim_run('${S6}','w-holding',90)::text;`)) &&
+      jget(`select (claimed_by = 'w-holding' and claim_token is not null and lease_expires_at > now())::text
+              from agent.run_work where run_id='${S6}';`) === "true");
+    // ⚠ SCOPED TO THE TWO UNDER TEST, because S4 and S5 above are legitimately offered AGAIN:
+    // their windows are all closed and neither has ended, so a tick that keeps offering them is
+    // the product being right. An exact equality over the whole answer would be an assertion
+    // about which fixtures this section happens to have built by now.
+    const heldSweep = jget(`select coalesce(string_agg((t ->> 'run') || '=' || (t ->> 'action'), ' ' order by t ->> 'run'), 'NONE')
+                              from agent.requeue_expired_approvals(25) as t
+                             where t ->> 'run' in ('${S6}', '${S7}');`);
+    check("⚠ a held run is REPORTED and named `held`, beside an unheld one named `requeued`",
+      heldSweep === `${S6}=held ${S7}=requeued`, heldSweep);
+    check("⚠ ...and the worker on it was not disturbed: its lease and its claim stand",
+      jget(`select (claimed_by = 'w-holding' and lease_expires_at > now() and kind <> 'resume')::text
+              from agent.run_work where run_id='${S6}';`) === "true",
+      jget(`select claimed_by || '/' || kind from agent.run_work where run_id='${S6}';`));
 
     // ...AND A REVOCATION ANSWERS A REQUEST TOO, so it has to put its runs back as well.
     const S3 = "ff000000-0000-0000-0000-0000000000a3";
