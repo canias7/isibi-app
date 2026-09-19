@@ -39,7 +39,12 @@ import { routeOf, addonReply } from "../builder/site-addon.mjs";
 // path rather than restating it.
 import { IMAGE_CAP } from "../builder/site-images.mjs";
 import { THEME_IDS } from "../builder/site-theme-registry.mjs";
-import { cleanAdd, appliedFacts } from "../builder/site-add.mjs";
+import { cleanAdd, appliedFacts, addTool } from "../builder/site-add.mjs";
+// The engine's own language list and its two readers — the tool's enum is
+// derived from the first and the DDL from the second, so a case about what a
+// designer may declare has to compare against the real thing rather than a
+// list typed here, which would be the drift these assertions exist to catch.
+import { FN_LANGUAGES, fnLanguage, functionSql } from "../site-rls.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
 // against, and the one place these files are reached from.
@@ -762,6 +767,107 @@ test("the language rides the stored declaration, and the next designer is told",
   assert.match(nextNote, /functions a scheduled job may run are/, "the job designer lost its own list");
   assert.deepEqual((next.body.jobs || []).map((j) => j && j.name), ["daily_reminder"],
     "a job on a plpgsql function was not registered");
+  // AND AN ORDINARY FUNCTION IS NOT MARKED — the mark is non-default ONLY, so
+  // a site with no plpgsql function reads the line it always read. Without
+  // this the filter could mark everything and every existing site's note would
+  // grow a clause about the language it already had.
+  const plain = await addon("fw-lang-plain", "add a job that runs it", {
+    kinds: ["job"],
+    stored: { tables: [{ name: "bookings", columns: [{ name: "who", type: "text" }], access: "collect" }],
+      functions: [{ name: "send_reminder", args: [], returns: "void", internal: true, language: "sql" }] },
+    answers: { job: { job: [JOB] } },
+  });
+  const plainNote = plain.prompts.map((p) => JSON.stringify(p)).join("\n");
+  assert.match(plainNote, /send_reminder/, "the function did not reach the note at all — this control tests nothing");
+  assert.doesNotMatch(plainNote, /written in/, "an ordinary SQL function is being marked with its language");
+});
+
+test("a function this same change is adding carries its language into the next designer's note", async () => {
+  // THE MARKER AND THE LANGUAGE MEET ON ONE NAME. `siteNote` appends
+  // "(being added by this same change)" to a name this message is adding, and
+  // the language marker is keyed by the RAW name — so without the strip the
+  // two never line up and a function designed one call earlier reaches the job
+  // designer with no language on it. A sweep survivor is why this case exists.
+  const body = "DECLARE n int; BEGIN SELECT count(*) INTO n FROM bookings; RETURN n; END";
+  const r = await addon("fw-lang-inflight", "add a counter and a job that runs it", {
+    kinds: ["function", "job"],
+    answers: {
+      function: { function: [{ ...FN, body, language: "plpgsql" }] },
+      job: { job: [JOB] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const jobPrompt = r.prompts.find((p) => p.tool === "add_to_site" && p.kind === "job");
+  assert.ok(jobPrompt, "the job designer was never called");
+  const text = JSON.stringify(jobPrompt);
+  assert.match(text, /being added by this same change/, "the function is not marked as in flight — this case tests nothing");
+  assert.match(text, /written in plpgsql/,
+    "a function designed one call earlier reached the job designer with no language on it");
+});
+
+test("the language a designer may declare is the engine's own list, and the wire gets a copy", async () => {
+  // TWO PROPERTIES ONE CASE, because they fail the same way and neither has
+  // another home. The enum must be the ENGINE's list — a tool offering a
+  // language `functionSql` will not write is a promise the DDL breaks — and it
+  // must be a COPY: `enum: FN_LANGUAGES` puts the platform's own frozen array
+  // on the wire, where anything downstream that mutates a schema mutates the
+  // constant every later call reads.
+  const r = await addon("fw-lang-enum", "add a reminder sender", {
+    kinds: ["function"], answers: { function: { function: [FN] } },
+  });
+  const tool = r.prompts.find((p) => p.tool === "add_to_site" && p.kind === "function");
+  const sent = tool.itemSchema.properties.language.enum;
+  assert.deepEqual(sent, [...FN_LANGUAGES], "the offered languages are not the engine's own list");
+  // ⚠ AND THE COPY IS ASKED OF THE TOOL, NEVER THROUGH THE ROUTE — a sweep
+  // survivor is why. The fixture reads the tool back off `JSON.parse(init.body)`
+  // (the request the route really sent), and a JSON round trip mints a fresh
+  // array whatever the source — so `notEqual(sent, FN_LANGUAGES)` here is TRUE
+  // by construction and cannot fail. MEASURED: with the `.slice()` removed the
+  // route case stayed GREEN while `api-shape`'s own wire case went RED, because
+  // `toXaiRequest` builds its body in memory and keeps the live reference.
+  // A negative assertion must prove its observer is alive, and this one's
+  // observer is the tool object itself.
+  const fresh = addTool("function").input_schema.properties.function.items.properties.language.enum;
+  assert.deepEqual(fresh, [...FN_LANGUAGES], "the tool does not offer the engine's own list");
+  assert.notEqual(fresh, FN_LANGUAGES,
+    "the platform's own frozen list IS the tool's enum — anything that mutates a schema mutates the constant every later call reads");
+  // AND THE TWO SPELLINGS A MODEL REALLY WRITES, through the route: Postgres's
+  // own language names are case-insensitive, so `PLpgSQL` is a plausible answer
+  // and refusing it would be refusing a language we run.
+  for (const said of ["PLpgSQL", "PLPGSQL"]) {
+    const c = await addon("fw-lang-case", "add a reminder sender", {
+      kinds: ["function"], answers: { function: { function: [{ ...FN, language: said }] } },
+    });
+    assert.deepEqual(c.body.functions, ["send_reminder"], said + " was refused, and it is a language we run");
+    assert.match(c.sql.find((s) => /CREATE OR REPLACE FUNCTION "send_reminder"/.test(s)), /LANGUAGE plpgsql/,
+      said + " did not reach the DDL as plpgsql");
+  }
+  // AND AN EMPTY STRING IS ABSENCE, NOT A LANGUAGE. A model that answers the
+  // property with "" is saying nothing; reading it as a value refuses a
+  // perfectly good function for a word nobody wrote.
+  const empty = await addon("fw-lang-empty", "add a reminder sender", {
+    kinds: ["function"], answers: { function: { function: [{ ...FN, language: "" }] } },
+  });
+  assert.deepEqual(empty.body.functions, ["send_reminder"], "an empty language was read as a language and refused");
+  assert.match(empty.sql.find((s) => /CREATE OR REPLACE FUNCTION "send_reminder"/.test(s)), /LANGUAGE sql/);
+});
+
+test("a stored declaration's language is read whatever case it was written in", async () => {
+  // `fnLanguage` IS THE ONE READER and it folds case, which matters most for a
+  // STORED spec: `_meta.functions` is whatever was written into it, possibly
+  // by a version of this platform that did not normalise, and a `PLpgSQL` read
+  // as unknown falls to `sql` — the silent conversion this round exists to
+  // stop, arriving through the readback instead of through the tool.
+  assert.equal(fnLanguage("PLpgSQL"), "plpgsql");
+  assert.equal(fnLanguage("  PLPGSQL  "), "plpgsql");
+  assert.equal(fnLanguage("SQL"), "sql");
+  assert.equal(fnLanguage("plpython3u"), "sql", "an unknown language does not fall to the default");
+  assert.equal(fnLanguage(undefined), "sql");
+  assert.equal(fnLanguage(null), "sql");
+  // AND THE READER IS WHAT THE EMITTER USES, so a stored mixed-case language
+  // reaches Postgres correctly rather than only normalising in the abstract.
+  const sql = functionSql({ name: "f", args: [], returns: "int", body: "SELECT 1", language: "PLpgSQL", internal: true });
+  assert.match(sql[0], /LANGUAGE plpgsql/, "the emitter did not fold the case the reader folds");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

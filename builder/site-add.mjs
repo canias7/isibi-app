@@ -2737,8 +2737,15 @@ export function foldAdds(answers, priorLook, site) {
     // instance of the class: a field added to `JOB_ITEM` and to the cleaner
     // will be dropped on this line until it is changed with cases beside it.
     if (a.kind === "function" && v.name) {
+      // NO `internal: v.internal === true` HERE. The additive line this
+      // replaces had one, and with a subtractive fold it is a second
+      // application of a rule `cleanAdd` has already applied — MEASURED over
+      // every shape the cleaner can produce (absent, true, false, and beside a
+      // language): byte-identical with it and without. The cleaner is the
+      // wall; a second coercion here is an inert line a sweep reports as a
+      // guard gap for ever.
       const { exists, ...fn } = v;
-      functions.push({ ...fn, internal: v.internal === true });
+      functions.push(fn);
     }
     if (a.kind === "api" && v.name) {
       const { exists, ...api } = v;
