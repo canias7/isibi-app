@@ -559,6 +559,16 @@ test("no automation route reads an account off the body or the query", () => {
     // `secret` IS DELIBERATELY NOT HERE AND MUST NEVER BE**: the route MINTS one, so there is
     // nowhere for a caller-chosen signing key to arrive.
     "event",
+    // ⚠ GROWN BY FOUR, and still not by an exemption. `provider`, `account`, `label` and
+    // `scopes` are fields of the CONNECTED ACCOUNT being made and none can name the account
+    // that OWNS it. `provider` is looked up in `AGENT_PROVIDERS` — a positive list in code, so
+    // a name with no adapter behind it is refused rather than becoming a connection that saves
+    // and fails at every send; `scopes` goes through `cleanScopes`, which refuses a permission
+    // this platform does not offer rather than dropping it; `account` and `label` are the
+    // person's own words about which mailbox it is. **AND `secret` IS NOT HERE AND MUST NEVER
+    // BE**: the route MINTS the credential, so there is nowhere for a caller-chosen one to
+    // arrive — and unlike a webhook's, it is never answered either.
+    "provider", "account", "label", "scopes",
   ]);
   for (const r of reads) assert.ok(allowed.has(r), `an automation route reads ${r} off what somebody sent`);
   // THE OBSERVER, PROVED ALIVE: it can see the reads the block really makes.

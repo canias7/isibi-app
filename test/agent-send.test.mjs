@@ -31,6 +31,7 @@ import {
   MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
   MAX_KNOWLEDGE, KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
   MAX_WEBHOOKS,
+  AGENT_PROVIDERS, MAX_CONNECTIONS, CONNECTION_TROUBLE,
 } from "../agent-store.mjs";
 // ⚠ THE ENGINE'S OWN REGISTRY, IMPORTED HERE AND NOWHERE ELSE. `agent-store.mjs`
 // may not import it — the two are separate products in separate Workers — so the
@@ -48,6 +49,10 @@ import {
   INPUT_LABEL_MAX as ENGINE_INPUT_LABEL_MAX, INPUT_DEFAULT_MAX as ENGINE_INPUT_DEFAULT_MAX,
 } from "../agent-builder/src/capability-tools.mjs";
 import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS } from "../agent-builder/src/automations.mjs";
+import {
+  FAKE_PROVIDER, FAKE_SCOPES, FAKE_ACTIONS, FAKE_WRITES,
+} from "../agent-builder/src/fake-provider.mjs";
+import { MAX_CONNECTIONS as ENGINE_MAX_CONNECTIONS } from "../agent-builder/src/connections.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
@@ -768,41 +773,78 @@ test("⚠ A CONNECTION IS SOMETHING A PERSON MAKES, AND THE CATALOG'S WORDS SAY 
   }
 });
 
-test("⚠ NO ROUTE OF THE SITE'S STORES A CREDENTIAL — an agent must never be able to", () => {
-  // The engine's `connect` exists and is a PERSON's door; there is no site route for it yet,
-  // and when one arrives it must be a deliberate addition rather than something that appeared.
-  // **Asked of the route table itself**, so a route added below cannot slip in — and the
-  // comments are blanked first, because this file and that one both discuss credentials.
+test("⚠ A CREDENTIAL IS MINTED HERE, NEVER READ AND NEVER ANSWERED — and two doors stay shut", () => {
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED, THE DAY THE SITE GAINED A CONNECT ROUTE — and the old case
+   * said in its own words that it should be.** It forbade all four connection functions
+   * *because there was no site route for them yet*, and asked that one arriving be "a
+   * deliberate addition rather than something that appeared". It went red the hour one did,
+   * which is the census working; what it cannot do is stay as it was, because then it would be
+   * asserting that a feature the milestone asks for does not exist.
+   *
+   * The property is now stated three ways instead of one, and each is stronger than the
+   * blanket ban it replaces:
+   *
+   *   1. THE TWO DOORS THAT MOVE A CREDENTIAL ACROSS THE BOUNDARY STAY SHUT.
+   *      `lease_connection` HANDS ONE OUT and is the engine's alone — one door in the whole
+   *      schema. `refresh_connection` takes a NEW one IN, which for a real provider arrives
+   *      from the provider through its own flow and never from a browser.
+   *   2. NOTHING READS A CREDENTIAL OFF A REQUEST. There is nowhere to put one.
+   *   3. NO ANSWER CARRIES ONE. Unlike a webhook's signing secret — answered exactly once,
+   *      because whoever will sign with it needs it — a connection's is used only by the
+   *      engine, so there is no reader to hand it to at all.
+   */
   const blank = (t) => t.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
-  const store = blank(readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8"));
+  const raw = readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
+  const store = blank(raw);
   assert.ok(store.includes("AGENT_ROUTES"), "the scanner cannot see the route table at all");
-  // ⚠ **NAMED BY FUNCTION, NOT BY THE WORD "SECRET" — measured, because the first draft of
-  // this case forbade `p_secret` and went red on correct code.** The site MINTS a credential
-  // of its own already: `agent.create_webhook` takes `p_secret`, which is the signing secret
-  // for an inbound endpoint a person creates. So "this file never names a secret" is false and
-  // would have to be appeased rather than fixed; what is true, and what matters, is that it
-  // never reaches the four functions that store or hand out a PROVIDER's credential. *A needle
-  // that matches a name two features share cannot prove a class.*
-  for (const bad of ["connect_provider", "lease_connection", "refresh_connection",
-                     "disconnect_connection"]) {
-    assert.ok(!store.includes(bad), `agent-store.mjs names ${bad}`);
-  }
-  // ⚠ THE OBSERVER, ALIVE — and getting it right took a measurement rather than a guess.
-  // `agent-store.mjs` names every function as a PATH (`rpc/<name>`), so a needle for a bare
-  // `save_memory` found nothing and reported a correct file as unreadable. It is asked for the
-  // shape the file really uses, and counted, so the absences above are about these four and not
-  // about a scanner that could not see the file at all.
+
+  // THE OBSERVER, ALIVE, and it is asked for the shape this file really uses (`rpc/<name>`) —
+  // a needle for a bare function name finds nothing and reports a correct file as unreadable.
   const calls = store.match(/rpc\/[a-z_]+/g) ?? [];
   assert.ok(calls.length > 10, `the scanner found ${calls.length} database calls`);
-  // `rpc/send_to_agent` rather than a memory function: MEASURED, the 17 calls this file makes
-  // hold neither `save_memory` nor its `_once` wrapper — the memory routes reach the table
-  // directly — so a needle for one found nothing and reported the file as unreadable. The
-  // observer has to be something the file really calls.
   assert.ok(calls.includes("rpc/send_to_agent"), `no send_to_agent among ${calls.length} calls`);
-  // AND THE FOUR ARE ASKED IN THE SAME SHAPE, so a call added in that shape is really covered.
-  for (const bad of ["connect_provider", "lease_connection", "refresh_connection",
-                     "disconnect_connection"]) {
-    assert.ok(!calls.includes(`rpc/${bad}`), `agent-store.mjs calls ${bad}`);
+
+  // 1. THE TWO THAT MOVE A CREDENTIAL — absent, by name and in the shape a call really takes.
+  for (const shut of ["lease_connection", "refresh_connection"]) {
+    assert.ok(!store.includes(shut), `agent-store.mjs names ${shut}`);
+    assert.ok(!calls.includes(`rpc/${shut}`), `agent-store.mjs calls ${shut}`);
+  }
+  // AND THE TWO THAT ARE NOW HERE ARE REALLY HERE, so the absences above are about those two
+  // and not about a scanner that has stopped finding anything.
+  for (const open of ["connect_provider", "disconnect_connection"]) {
+    assert.ok(calls.includes(`rpc/${open}`), `agent-store.mjs no longer calls ${open}`);
+  }
+
+  // 2. NOTHING READS A CREDENTIAL OFF A REQUEST — scanned over the whole file, both doors.
+  const readsFromRequest = [];
+  for (const m of store.matchAll(/\b(?:b|body)\.([A-Za-z_$][\w$]*)/g)) readsFromRequest.push(m[1]);
+  for (const m of store.matchAll(/\bq\.get\(\s*["'`]([^"'`]+)["'`]/g)) readsFromRequest.push(m[1]);
+  assert.ok(readsFromRequest.length > 20, `the request-read scanner found ${readsFromRequest.length}`);
+  const CREDENTIAL_WORDS = ["secret", "credential", "token", "password", "apiKey", "api_key",
+                            "refresh", "refreshSecret", "accessToken"];
+  for (const word of CREDENTIAL_WORDS) {
+    assert.ok(!readsFromRequest.includes(word), `a route reads ${word} off the request`);
+  }
+  // THE OBSERVER AGAIN: a word this file really does read, so the list above is about
+  // credentials rather than about a scan that matched nothing.
+  assert.ok(readsFromRequest.includes("account") || readsFromRequest.includes("scopes"),
+    "the request-read scanner did not find the connect route's own fields");
+
+  // 3. AND THE CREDENTIAL IS MINTED, THEN NEVER SPOKEN OF AGAIN. Read off the connect route's
+  // own body, landmark to landmark on the RAW source so the sentences survive: it mints one,
+  // hands it to the store, and its `ok({...})` names it nowhere.
+  const at = raw.indexOf('path === "/api/agent/connection-connect"');
+  assert.ok(at > 0, "the connect route is not there at all");
+  const end = raw.indexOf('path === "/api/agent/connection-disconnect"', at);
+  assert.ok(end > at, "the connect route's end landmark moved");
+  const route = raw.slice(at, end);
+  assert.match(route, /const secret = mint\w*\(dice\)/, "the credential is not minted server-side");
+  assert.match(route, /store\.connectProvider\(/, "the minted credential does not reach the store");
+  const answer = route.slice(route.indexOf("return ok({"));
+  assert.ok(answer.length > 40, "the connect route's answer could not be found");
+  for (const word of ["secret", "credential", "token", "password"]) {
+    assert.ok(!answer.includes(word), `the connect route answers a ${word}`);
   }
 });
 
@@ -1994,4 +2036,81 @@ test("⚠ REFERENCE MATERIAL IS BOUNDED TOO — and by a DIFFERENT layer, which 
   const hooks = /p_max\s+integer\s+default\s+(\d+)/.exec(hook);
   assert.ok(hooks, "create_webhook does not bound how many endpoints an agent may hold");
   assert.equal(Number(hooks[1]), MAX_WEBHOOKS);
+});
+
+// ── the provider catalog is the same on both sides ───────────────────────────
+
+test("⚠ WHAT MAY BE CONNECTED IS THE SAME ON BOTH SIDES, BOTH WAYS", () => {
+  /**
+   * ⚠ **A PROVIDER THE SITE OFFERS AND THE ENGINE HAS NO ADAPTER FOR IS A CONTROL THAT
+   * ANSWERS: it connects, it lists, and it fails at every send** — the defect this
+   * repository has recorded once already, one product over, when a tool tick outran the
+   * engine that honours it. And one the ENGINE has and the site does not offer is a
+   * capability nobody can reach.
+   *
+   * Neither product may import the other, so the site's `AGENT_PROVIDERS` is a declared
+   * COPY, and this file — the one that may load both — is where the two meet.
+   */
+  const site = AGENT_PROVIDERS.map((p) => p.name).sort();
+  // The engine holds exactly one adapter today and it says so in its own name.
+  assert.deepEqual(site, [FAKE_PROVIDER], "the site offers a provider the engine cannot reach, or misses one it can");
+
+  const fake = AGENT_PROVIDERS.find((p) => p.name === FAKE_PROVIDER);
+  // ⚠ THE PERMISSIONS ARE THE SAME SET, BOTH WAYS. A scope the site lets somebody grant that
+  // the provider does not know is a permission that reads as granted and does nothing; one it
+  // knows and the site never offers is an action no connection can be given.
+  const engineScopes = [...new Set(Object.values(FAKE_SCOPES))].sort();
+  assert.deepEqual(fake.scopes.map((sc) => sc.name).sort(), engineScopes);
+  // AND EVERY ACTION THE PROVIDER OFFERS IS COVERED BY A SCOPE somebody can grant, so a tool
+  // the engine has cannot be unreachable because nothing may authorise it.
+  for (const action of FAKE_ACTIONS) {
+    assert.ok(engineScopes.includes(FAKE_SCOPES[action]), `${action} needs a scope nothing offers`);
+  }
+  // THE WRITES ARE A SUBSET OF THE ACTIONS — the engine's own claim, checked here because
+  // this is where both halves are loaded.
+  for (const w of FAKE_WRITES) assert.ok(FAKE_ACTIONS.includes(w), `${w} is a write and not an action`);
+
+  // ⚠ **THE LABEL SAYS IT IS SIMULATED AND SO DOES THE FLAG, and the flag is what a reader
+  // acts on.** The word in a label is what a later edit tidies away; the field is not.
+  assert.equal(fake.simulated, true);
+  assert.match(fake.label, /simulated/i);
+  assert.match(fake.does, /nothing.*leaves|inside the platform/i);
+  // AND EVERY PERMISSION SAYS WHAT IT LETS THE AGENT DO, because a person is asked to grant it.
+  for (const sc of fake.scopes) {
+    assert.ok(sc.label && sc.does, `the ${sc.name} permission does not say what it allows`);
+  }
+
+  // THE CEILING IS ONE NUMBER IN TWO LANGUAGES — a site that let somebody make a
+  // twenty-first connection would meet the database's own refusal as a 500.
+  assert.equal(MAX_CONNECTIONS, ENGINE_MAX_CONNECTIONS);
+});
+
+test("⚠ WHY A CONNECTION CANNOT BE USED IS ONE SENTENCE PER CAUSE, whichever door says it", () => {
+  /**
+   * ⚠ **THE ENGINE SAYS THESE TO A WORKFLOW AND THE SITE SAYS THEM TO A SCREEN, and if they
+   * drift one of them is wrong about what to do.** An expired credential wants a refresh; a
+   * revoked one wants reconnecting; a disconnected one only its owner can put back. A single
+   * "that does not work" sends somebody to the wrong remedy, and two different sentences for
+   * one cause makes a customer think they have two problems.
+   *
+   * Read out of the engine's SOURCE, because its table is a module-scoped constant that
+   * nothing exports — and blanked first, since that file discusses these very sentences.
+   */
+  const raw = readFileSync(new URL("../agent-builder/src/automations.mjs", import.meta.url), "utf8");
+  const at = raw.indexOf("const CONNECTION_TROUBLE = Object.freeze({");
+  assert.ok(at > 0, "the engine's trouble table is not there at all");
+  const table = raw.slice(at, raw.indexOf("});", at));
+  for (const [status, said] of Object.entries(CONNECTION_TROUBLE)) {
+    assert.ok(table.includes(`${status}:`), `the engine says nothing about a ${status} connection`);
+    assert.ok(table.includes(said), `the two sides say different things about a ${status} connection`);
+  }
+  // BOTH WAYS: a cause the engine names and the site does not would be a workflow refusing
+  // for a reason no screen can explain.
+  const named = [...table.matchAll(/^\s{2}(\w+):/gm)].map((m) => m[1]);
+  assert.ok(named.length >= 3, `the scanner found ${named.length} causes in the engine's table`);
+  for (const status of named) {
+    assert.ok(Object.hasOwn(CONNECTION_TROUBLE, status), `the site says nothing about a ${status} connection`);
+  }
+  // AND THE THREE ARE THREE.
+  assert.equal(new Set(Object.values(CONNECTION_TROUBLE)).size, Object.keys(CONNECTION_TROUBLE).length);
 });

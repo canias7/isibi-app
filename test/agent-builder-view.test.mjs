@@ -469,7 +469,21 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   // types is meant to be answered. It is kept rather than deleted: it is reachable
   // from outside and is the only operation that can add to a conversation without
   // spending work on it.
-  const SERVER_ONLY = ["/api/agent/message"];
+  /**
+   * ⚠ **`/api/agent/connection-revoke` IS SERVER-ONLY, AND WHICH LIST IT GOES ON IS THE
+   * INTERESTING PART.** A person does not withdraw their own access — they DISCONNECT, which
+   * this screen does — so a revocation records something the FAR END did, and the screen is
+   * never meant to be the thing that says so. Putting it on `NO_SCREEN_YET` would claim a
+   * control is coming that nobody has any reason to build.
+   *
+   * It is kept rather than deleted for the same reason `/api/agent/message` is: it is the only
+   * way to record that state at all, which a provider's own callback would use and which the
+   * demonstration uses to produce a revoked connection and check what a workflow says about
+   * one. **And the two acts stay two routes**: a disconnect destroys the credential at the
+   * owner's request and a revocation records the provider refusing, and they need different
+   * remedies, so one door with a flag would be two facts wearing one word.
+   */
+  const SERVER_ONLY = ["/api/agent/message", "/api/agent/connection-revoke"];
   /**
    * ⚠ ROUTES THAT EXIST AND HAVE NO SCREEN YET — a SEPARATE list from `SERVER_ONLY`, because
    * they are separate facts and collapsing them would state something untrue.

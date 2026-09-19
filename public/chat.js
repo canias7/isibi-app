@@ -1861,6 +1861,26 @@ let agentAutoWatch = null;
  */
 let agentAutoAsk = null;
 
+// ── connected accounts ───────────────────────────────────────────────────────
+//
+// ⚠ **ITS OWN SCREEN, OPENED OVER THE CONVERSATION, exactly as the automations list is** —
+// and for the same one rule that makes all of this safe without a per-input guard: nothing
+// redraws behind somebody who is typing.
+let agentConn = null;          // which agent's connected accounts are open
+let agentConnRows = null;      // its connections, as the server last answered
+let agentConnCat = null;       // what may be connected, and each permission's own words
+let agentConnState = 'loading';
+let agentConnErr = '';
+let agentConnActErr = '';
+let agentConnNew = false;      // whether the connect form is open
+/**
+ * ⚠ **THE DRAFT IS THE PERSON'S OWN TYPING AND IS READ BACK BEFORE EVERY REDRAW**, the way
+ * every other form on this screen is. There is NO credential field in it and there cannot
+ * be: the server mints one, and a box for a credential would be a place for somebody to
+ * paste a real account's password into a fake provider.
+ */
+let agentConnDraft = null;
+
 /**
  * ── ANSWERING AN APPROVAL ─────────────────────────────────────────────────────
  *
@@ -2415,6 +2435,9 @@ async function agentMemDelete(key) {
 
 function agentAutomations(id) {
   agentPollStop();
+  // ⚠ AND THE OTHER WAY ROUND — see `agentConnections`. Two screens over one conversation
+  // cannot both be open, and each clearing the other is what says so.
+  agentConn = null; agentConnNew = false; agentConnDraft = null;
   agentAuto = String(id || '');
   agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false;
   agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
@@ -2754,6 +2777,293 @@ async function agentAutoDelete(id) {
     }
   }
   await agentAutoLoad(true);
+}
+
+
+// ── connected accounts: the screen ───────────────────────────────────────────
+
+/**
+ * ⚠ **IS THE SAME AGENT'S ACCOUNTS STILL OPEN, FOR THE SAME ACCOUNT?**
+ *
+ * Its own predicate rather than `agentSame`, which asks about the CONVERSATION — and the
+ * first draft of this asked `bound.agent`, a field `agentBind()` does not carry. Every
+ * comparison against `undefined` was true, so every answer would have been discarded and
+ * the screen would have sat on "Loading…" for ever with the request having succeeded. *A
+ * binding check that can never pass is worse than none, because it looks like care.*
+ */
+const connBind = () => ({ uid: agentUid(), conn: agentConn });
+const connSame = (b) => !!b && b.uid === agentUid() && b.conn === agentConn;
+
+function agentConnections(id) {
+  agentPollStop();
+  // ⚠ THE TWO SCREENS CLEAR EACH OTHER, so they cannot both be open — and the view switch
+  // reads this one first, which is what makes that a property rather than a convention.
+  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null;
+  agentConn = String(id || '');
+  agentConnRows = null; agentConnCat = null; agentConnNew = false;
+  agentConnDraft = null; agentConnActErr = '';
+  agentConnLoad();
+}
+function agentConnBack() {
+  const back = agentConn;
+  agentConn = null; agentConnNew = false; agentConnDraft = null; agentConnActErr = '';
+  if (back) agentOpen(back); else renderAgents();
+}
+function agentConnNewOpen() { agentConnNew = true; agentConnDraft = null; agentConnActErr = ''; renderAgents(); }
+function agentConnCancel() { agentConnNew = false; agentConnDraft = null; agentConnActErr = ''; renderAgents(); }
+function agentConnReload() { agentConnLoad(); }
+
+/**
+ * Read the connect form back out of the DOM, so a redraw cannot eat what is typed.
+ *
+ * ⚠ **THE PERMISSION TICKS KEEP THEIR OWN DOM STATE and are read from the boxes**, the way
+ * the agent settings form's tool ticks already are — so ticking one redraws nothing and the
+ * account box above keeps what is in it.
+ */
+function agentConnFormRead() {
+  const form = document.getElementById('agConnForm');
+  if (!form) return;
+  const get = (n) => { const el = form.querySelector('[data-field="' + n + '"]'); return el ? el.value : ''; };
+  const ticked = [];
+  form.querySelectorAll('[data-scope]').forEach((b) => { if (b.checked) ticked.push(b.getAttribute('data-scope')); });
+  agentConnDraft = {
+    provider: get('provider'),
+    account: get('account'),
+    label: get('label'),
+    scopes: ticked,
+  };
+}
+
+async function agentConnLoad(quiet) {
+  const bound = connBind();
+  const forAgent = agentConn;
+  if (!quiet) { agentConnState = 'loading'; agentConnErr = ''; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/connections?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    // THE SCREEN MAY HAVE MOVED ON, or another account may be signed in. Writing this answer
+    // into a screen showing another agent's accounts would be showing somebody rows that are
+    // not theirs.
+    if (!connSame(bound) || agentConn !== forAgent) return;
+    if (!res.ok || !j.ok) {
+      // A FAILED READ IS NOT AN AGENT WITH NOTHING CONNECTED. The rows it had stay exactly as
+      // they were, so an outage does not look like everything having been disconnected.
+      agentConnState = 'error';
+      agentConnErr = (j && j.error) || 'Couldn’t load the connected accounts.';
+    } else {
+      agentConnRows = Array.isArray(j.connections) ? j.connections : [];
+      agentConnCat = { providers: Array.isArray(j.providers) ? j.providers : [], max: j.max };
+      agentConnState = 'ready';
+      agentConnErr = '';
+    }
+  } catch {
+    if (!connSame(bound) || agentConn !== forAgent) return;
+    agentConnState = 'error';
+    agentConnErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+/** Connect one. The credential is the server's; this sends an account and some permissions. */
+async function agentConnSave() {
+  agentConnFormRead();
+  const bound = connBind();
+  const draft = agentConnDraft || {};
+  agentConnActErr = '';
+  try {
+    const res = await apiFetch('/api/agent/connection-connect', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agent: agentConn, provider: draft.provider, account: draft.account,
+        label: draft.label, scopes: draft.scopes || [],
+      }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!connSame(bound)) return;
+    if (!res.ok || !j.ok) {
+      // THE WORDS STAY, because a refusal somebody can fix is one they should not have to
+      // retype their way out of.
+      agentConnActErr = (j && j.error) || 'Couldn’t connect that.';
+      renderAgents();
+      return;
+    }
+    agentConnNew = false; agentConnDraft = null;
+    agentConnLoad(true);
+  } catch {
+    if (!connSame(bound)) return;
+    agentConnActErr = 'Couldn’t reach the server.';
+    renderAgents();
+  }
+}
+
+/**
+ * Disconnect one.
+ *
+ * ⚠ **IT ASKS FIRST, because the credential is DESTROYED and connecting again makes a new
+ * one** — this is not a toggle, and a control that reads like one is how somebody turns a
+ * live account off expecting to turn it back on.
+ */
+async function agentConnDisconnect(id) {
+  const row = (agentConnRows || []).find((c) => c.id === id);
+  const what = row ? (row.label || row.account) : 'that account';
+  if (!window.confirm('Disconnect ' + what + '?\n\nIts credential is destroyed. Connecting it again makes a new one, and anything waiting to send through it will stop.')) return;
+  const bound = connBind();
+  agentConnActErr = '';
+  try {
+    const res = await apiFetch('/api/agent/connection-disconnect', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: agentConn, id }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!connSame(bound)) return;
+    if (!res.ok || !j.ok) { agentConnActErr = (j && j.error) || 'Couldn’t disconnect that.'; renderAgents(); return; }
+    agentConnLoad(true);
+  } catch {
+    if (!connSame(bound)) return;
+    agentConnActErr = 'Couldn’t reach the server.';
+    renderAgents();
+  }
+}
+
+/**
+ * One connection's own words: what it is, whose it is, what it may do, and its state.
+ *
+ * ⚠ **IT REUSES THE AUTOMATIONS ROW'S OWN CLASSES rather than a set of its own** — the owner
+ * directs the design here, and *use the existing agent screen and design* is the milestone's
+ * own instruction. **This was written twice**: the first draft invented `ag-conn-row`,
+ * `ag-row-main`, `ag-row-name`, `ag-row-sub` and `ag-row-warn`, and MEASURED against the sheet
+ * not one of the five had a rule — an unstyled screen that reads as broken. *A class with no
+ * rule is a control nobody can see.*
+ */
+function agentConnRowHtml(c) {
+  const state = String(c.status || '');
+  const chip = state === 'active'
+    ? ''
+    : '<span class="ag-chip ag-chip-off">' + esc(state.charAt(0).toUpperCase() + state.slice(1)) + '</span>';
+  // ⚠ THE SIMULATED CHIP IS READ FROM THE ROW, never from the provider's name — so connecting
+  // a real provider stops the label with no change to this reader.
+  const sim = c.simulated ? '<span class="ag-chip ag-chip-off">Simulated</span>' : '';
+  const perms = (c.scopes || []).length
+    ? (c.scopes || []).map((sc) => esc(sc)).join(' · ')
+    : 'no permissions granted';
+  return '<div class="ag-auto' + (state === 'active' ? '' : ' ag-auto-off') + '">' +
+    '<div class="ag-auto-top">' +
+      '<div class="ag-auto-m">' +
+        '<div class="ag-auto-n">' + esc(c.label || c.account) + chip + sim + '</div>' +
+        '<div class="ag-auto-s">' + esc(c.providerLabel || c.provider) + ' · ' + esc(c.account) + '</div>' +
+        '<div class="ag-auto-steps">' +
+          '<span class="ag-auto-step">Can: ' + perms + '</span>' +
+          // ⚠ **WHY IT CANNOT BE USED, WHERE IT CANNOT BE USED** — and only when there is
+          // something to say. Each state has its own sentence, so somebody meeting an expired
+          // credential is not sent to reconnect and somebody meeting a revoked one is not sent
+          // to refresh.
+          (c.trouble ? '<span class="ag-auto-step ag-auto-none">' + esc(c.trouble) + '</span>' : '') +
+          (c.stoppedWhy ? '<span class="ag-auto-step ag-auto-none">Noted: ' + esc(c.stoppedWhy) + '</span>' : '') +
+          // THE ID, BECAUSE A SEND STEP NAMES A CONNECTION BY IT. Without it on screen the
+          // workflow editor's connection box is a control nobody can fill in.
+          '<span class="ag-auto-step ag-auto-none">id ' + esc(c.id) + '</span>' +
+        '</div>' +
+      '</div>' +
+      (state === 'disconnected'
+        ? ''
+        : '<div class="ag-auto-acts">' +
+            '<button class="ag-auto-btn" data-act="agent-conn-off" data-id="' + esc(c.id) + '">Disconnect</button>' +
+          '</div>') +
+    '</div>' +
+  '</div>';
+}
+
+/** The connect form. One provider, one account, and the permissions to grant. */
+function agentConnFormHtml() {
+  const cat = agentConnCat || { providers: [] };
+  const d = agentConnDraft || { provider: (cat.providers[0] || {}).name || '', account: '', label: '', scopes: [] };
+  const chosen = cat.providers.find((p) => p.name === d.provider) || cat.providers[0] || null;
+  if (!chosen) {
+    // ⚠ A REAL BRANCH AND AN HONEST SENTENCE. A deployment that offers nothing to connect is
+    // a real state, and a form with an empty picker would be a control that answers nothing.
+    return '<div class="ag-form" id="agConnForm">' +
+        '<div class="ag-nothing">This platform has nothing to connect yet. When it has, the kinds of account will be listed here.</div>' +
+        '<div class="ag-actions"><button class="ag-cancel" data-act="agent-conn-cancel">Back</button></div>' +
+      '</div>';
+  }
+  const picked = new Set(d.scopes || []);
+  return '<div class="ag-form" id="agConnForm">' +
+      '<label class="ag-lbl">What kind of account</label>' +
+      '<select class="ag-in" data-field="provider" data-change="agent-conn-provider">' +
+        cat.providers.map((p) =>
+          '<option value="' + esc(p.name) + '"' + (p.name === chosen.name ? ' selected' : '') + '>' +
+            esc(p.label) + '</option>').join('') +
+      '</select>' +
+      '<div class="ag-hint">' + esc(chosen.does) + '</div>' +
+
+      '<label class="ag-lbl">Which account</label>' +
+      '<input class="ag-in" data-field="account" data-input="agent-conn" maxlength="200" placeholder="shop@example.test" value="' + esc(d.account) + '">' +
+
+      '<label class="ag-lbl">A name for it (optional)</label>' +
+      '<input class="ag-in" data-field="label" data-input="agent-conn" maxlength="80" placeholder="The shop" value="' + esc(d.label) + '">' +
+
+      '<label class="ag-lbl">What the agent may do with it</label>' +
+      (chosen.scopes || []).map((sc) =>
+        '<label class="ag-check">' +
+          '<input type="checkbox" data-scope="' + esc(sc.name) + '"' + (picked.has(sc.name) ? ' checked' : '') + '>' +
+          '<span class="ag-tool-m">' +
+            '<span class="ag-check-t">' + esc(sc.label) + '</span>' +
+            '<span class="ag-tool-d">' + esc(sc.does) + '</span>' +
+          '</span>' +
+        '</label>').join('') +
+
+      // ⚠ **NO CREDENTIAL BOX, AND THE SENTENCE SAYS SO.** Nothing here asks for a password or
+      // a key: the platform mints the credential, keeps it, and never hands it back. A box for
+      // one would be somewhere for a real account's password to be pasted into a fake provider.
+      '<div class="ag-hint">You don’t enter a password or a key. The platform makes the credential, keeps it on the server, and never shows it to anyone — not to you, not to the agent, not in a log.</div>' +
+      (agentConnActErr ? '<div class="ag-err">' + esc(agentConnActErr) + '</div>' : '') +
+      '<div class="ag-actions">' +
+        '<button class="ag-save" data-act="agent-conn-save">Connect</button>' +
+        '<button class="ag-cancel" data-act="agent-conn-cancel">Cancel</button>' +
+      '</div>' +
+    '</div>';
+}
+
+/** The whole screen: a list, or the connect form over it. */
+function connectionsHtml() {
+  const agent = (agentRows || []).find((a) => a.id === agentConn) || null;
+  const head =
+    '<div class="ag-head ag-thread-head">' +
+      '<button class="ag-back" data-act="agent-conn-back" aria-label="Back to the conversation" title="Back">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>' +
+      '</button>' +
+      '<div class="ag-thread-name">Connected accounts' + (agent ? ' · ' + esc(agent.name) : '') + '</div>' +
+      (!agentConnNew
+        ? '<button class="ag-edit" data-act="agent-conn-new" aria-label="Connect an account" title="Connect an account">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>' +
+          '</button>'
+        : '') +
+    '</div>';
+
+  if (agentConnNew) return '<div class="ag-page ag-thread-page">' + head + agentConnFormHtml() + '</div>';
+
+  let body;
+  if (agentConnState === 'loading' && agentConnRows === null) {
+    body = '<div class="ag-empty"><div class="ag-empty-s">Loading…</div></div>';
+  } else if (agentConnState === 'error' && agentConnRows === null) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">Couldn’t load the connected accounts</div>' +
+             '<div class="ag-empty-s">' + esc(agentConnErr) + '</div>' +
+             '<button class="ag-retry" data-act="agent-conn-reload">Try again</button>' +
+           '</div>';
+  } else if (!(agentConnRows || []).length) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">Nothing connected yet</div>' +
+             '<div class="ag-empty-s">Connect an account and an automation can send through it. A person approves every message before it goes out — you are shown the account, who it is for and the exact words first.</div>' +
+           '</div>';
+  } else {
+    body = (agentConnRows || []).map(agentConnRowHtml).join('');
+  }
+  return '<div class="ag-page ag-thread-page">' + head +
+    (agentConnActErr ? '<div class="ag-err">' + esc(agentConnActErr) + '</div>' : '') +
+    body + '</div>';
 }
 
 /**
@@ -3482,6 +3792,10 @@ function renderAgentsNow() {
 
   // AUTOMATIONS FIRST, because it is a screen of its own rather than a panel inside
   // one: while it is open, neither the conversation nor the settings form is.
+  // ⚠ CONNECTED ACCOUNTS ARE A SCREEN OF THEIR OWN, and they come FIRST so the two cannot
+  // both be open: `agentConnections` and `agentAutomations` each clear the other's id, and
+  // this order is what makes that a property rather than something to remember.
+  if (agentConn !== null) { view.innerHTML = connectionsHtml(); wireActions(view); return; }
   if (agentAuto !== null) { view.innerHTML = automationsHtml(); wireActions(view); return; }
   // REFERENCE MATERIAL AND MEMORY, also a screen of its own and for the same reason: it
   // holds a whole document in a box, and nothing may redraw behind somebody typing one.
@@ -3531,6 +3845,15 @@ function renderAgentsNow() {
           '<button class="ag-edit" data-act="agent-automations" data-id="' + esc(a.id) + '" aria-label="Automations" title="Automations">' +
             '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
               '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l2.5 1.5"></path>' +
+            '</svg>' +
+          '</button>' +
+          // ⚠ AND CONNECTED ACCOUNTS ARE A FOURTH DOOR, because they are a fourth thing an
+          // agent is: what it can reach OUTSIDE. It sits next to the automations because that
+          // is what uses one — a send step names a connection by its id, and this is where the
+          // id is.
+          '<button class="ag-edit" data-act="agent-connections" data-id="' + esc(a.id) + '" aria-label="Connected accounts" title="Connected accounts">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M9 15l6-6"></path><path d="M11 6.5l1.8-1.8a3.5 3.5 0 0 1 5 5L16 11.5"></path><path d="M13 17.5l-1.8 1.8a3.5 3.5 0 0 1-5-5L8 12.5"></path>' +
             '</svg>' +
           '</button>' +
           // ITS OWN DOOR, beside the automations and the instructions, because the three
@@ -12790,6 +13113,13 @@ const CLICK_ACTIONS = {
   'agent-reload': () => agentReload(),
   'agent-thread-retry': (e, el) => agentThreadRetry(el.dataset.id),
   'agent-automations': (e, el) => agentAutomations(el.dataset.id),
+  'agent-connections': (e, el) => agentConnections(el.dataset.id),
+  'agent-conn-back': () => agentConnBack(),
+  'agent-conn-new': () => agentConnNewOpen(),
+  'agent-conn-cancel': () => agentConnCancel(),
+  'agent-conn-save': () => agentConnSave(),
+  'agent-conn-off': (e, el) => agentConnDisconnect(el.dataset.id),
+  'agent-conn-reload': () => agentConnReload(),
   'agent-auto-back': () => agentAutoBack(),
   'agent-auto-new': () => agentAutoNew(),
   'agent-auto-edit': (e, el) => agentAutoEdit(el.dataset.id),
@@ -12859,6 +13189,21 @@ const CHANGE_ACTIONS = {
   // the older form. `agentAutoValues` reads the select itself, so nothing has to be passed
   // in — the mutation is the identity and the generation bump is the whole of the work.
   'agent-auto-step-field': () => agentAutoStructural((draft) => draft),
+  /**
+   * ⚠ **PICKING A PROVIDER CHANGES WHICH PERMISSIONS EXIST, so it has to redraw.** Each
+   * provider offers its own, and a form that kept the old ticks would let somebody grant a
+   * permission the new provider has never heard of — which `cleanScopes` then refuses, naming
+   * a control that is no longer on the screen. This is the `agent-auto-step-field` defect one
+   * form over, and it is bound rather than left to be found.
+   */
+  'agent-conn-provider': () => {
+    agentConnFormRead();
+    // A FORM THAT IS NO LONGER THERE LEAVES THE DRAFT ALONE rather than throwing: the change
+    // can only have come from a control that existed, but a redraw can land between the event
+    // and this line, and `null.scopes` is a screen that stops working.
+    if (agentConnDraft) agentConnDraft.scopes = [];
+    renderAgents();
+  },
 };
 const INPUT_ACTIONS = {
   // TYPED WORDS ARE THE DRAFT, IMMEDIATELY — not on Send. A poll re-render reads the
@@ -12867,6 +13212,9 @@ const INPUT_ACTIONS = {
   // no input event. NO RE-RENDER HERE — redrawing the panel on every keystroke would
   // be the twitch this whole wrapper exists to remove.
   'agent-msg': (e, el) => { agentDraftSet((el.getAttribute && el.getAttribute('data-agent')) || '', el.value); },
+  // THE CONNECT FORM'S OWN BOXES. Read back into the draft as they are typed, so a redraw
+  // from anywhere else cannot eat them — and NO RE-RENDER, for the same reason as above.
+  'agent-conn': () => agentConnFormRead(),
 };
 const KEYDOWN_ACTIONS = {
   'agent-send-key': (e) => {

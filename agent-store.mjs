@@ -1261,6 +1261,81 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return Array.isArray(a) ? a.map(webhookRow) : [];
     },
 
+    // ── connected accounts ──────────────────────────────────────────────────
+    //
+    // ⚠ **FOUR OPERATIONS AND NOT ONE OF THEM CAN ANSWER A CREDENTIAL.** The list reads
+    // `agent.connection_list`, which selects neither secret; the other three are functions
+    // whose answers carry a status and an id. `agent.lease_connection` — the only thing in
+    // the schema that selects a credential — is deliberately NOT here: it is the engine's,
+    // reached from a job, and a copy of it on this side would be a second door.
+
+    /**
+     * Every connection of one agent, without its credentials.
+     *
+     * ⚠ **THE COLUMNS ARE NAMED, so a column added to the view later cannot reach a browser
+     * by accident** — and the two secrets are not among them because the VIEW has not got
+     * them, which `test/agent-api.test.mjs` asserts against the migration itself rather than
+     * trusting this list.
+     */
+    async listConnections(tenant, agentId) {
+      const r = await req("GET",
+        `connection_list?tenant_id=eq.${t(tenant)}&agent_id=eq.${t(agentId)}` +
+        `&select=id,agent_id,provider,label,account,scopes,status,expires_at,stopped_why,refreshable,created_at` +
+        `&order=created_at.asc&limit=${MAX_CONNECTIONS + 1}`);
+      if (!r.ok) throw storeFail("list connections", r);
+      return rows(r).map(connectionRow);
+    },
+
+    /**
+     * Connect one.
+     *
+     * ⚠ **THE CREDENTIAL IS AN ARGUMENT AND IS MINTED BY THE ROUTE**, so it crosses this
+     * module once, into the transaction, and there is nothing anywhere that reads it back —
+     * not an answer, not an error, not a log.
+     */
+    async connectProvider(tenant, { agentId, id, provider, label, account, scopes, secret }) {
+      const r = await req("POST", "rpc/connect_provider", {
+        body: {
+          p_tenant: tenant, p_agent_id: agentId, p_id: id, p_provider: provider,
+          p_label: label, p_account: account, p_scopes: scopes, p_secret: secret,
+          p_max: MAX_CONNECTIONS,
+        },
+      });
+      if (!r.ok) throw storeFail("connect account", r);
+      return answerOf(r, "connect account");
+    },
+
+    /**
+     * Disconnect one.
+     *
+     * **IT DESTROYS THE CREDENTIAL RATHER THAN FLAGGING THE ROW** — that is the function's
+     * own doing, and it is why a disconnect cannot be undone by a toggle. The ROW stays as
+     * the record of what was in use; what goes is the only part that can do anything.
+     */
+    async disconnectConnection(tenant, { agentId, id, why }) {
+      const r = await req("POST", "rpc/disconnect_connection", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_id: id, p_why: why ?? null },
+      });
+      if (!r.ok) throw storeFail("disconnect account", r);
+      return answerOf(r, "disconnect account");
+    },
+
+    /**
+     * Record that the provider withdrew access.
+     *
+     * ⚠ **A SEPARATE VERB FROM A DISCONNECT, because they are separate acts with separate
+     * remedies**: one is the account's owner saying stop and the other is the far end saying
+     * no. Collapsing them would leave a screen unable to say which happened, and the two
+     * need different things done about them.
+     */
+    async revokeConnection(tenant, { agentId, id, why }) {
+      const r = await req("POST", "rpc/revoke_connection", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_id: id, p_why: why ?? null },
+      });
+      if (!r.ok) throw storeFail("revoke account", r);
+      return answerOf(r, "revoke account");
+    },
+
     /**
      * Make one.
      *
@@ -1511,6 +1586,138 @@ export const WEBHOOK_NAME_MAX = 80;
  * person to raise the floor breaks.
  */
 export const WEBHOOK_SECRET_BYTES = 32;
+
+// ── connected accounts ───────────────────────────────────────────────────────
+
+/**
+ * WHAT MAY BE CONNECTED, AND IT IS A POSITIVE LIST OF ONE.
+ *
+ * ⚠ **A BROWSER MAY NOT NAME A PROVIDER, and that is the whole of this constant.** The name
+ * on a connection row is what the engine looks an ADAPTER up by, so a caller-chosen provider
+ * is a caller choosing which code runs — and a name with no adapter behind it is a connection
+ * that saves, lists, and fails at every send: a control that answers, wrongly. So the set is
+ * declared here, in code, and a request that names anything else is refused BY NAME.
+ *
+ * **IT HOLDS THE FAKE PROVIDER AND NOTHING ELSE, DELIBERATELY** — the milestone says *use a
+ * clearly labeled fake provider for now* and *do not connect Gmail or another real provider*.
+ * The label travels with it so a screen cannot draw one of these as anything but simulated,
+ * and `simulated: true` is a field rather than a word in the label, because a word in a label
+ * is something a later edit tidies away.
+ *
+ * It is a declared COPY of the engine's own adapter — neither product may import the other —
+ * and `test/agent-send.test.mjs`, the one file that may load both, compares the name and the
+ * scopes both ways.
+ */
+export const AGENT_PROVIDERS = Object.freeze([Object.freeze({
+  name: "fakemail",
+  label: "Fake mail (simulated)",
+  simulated: true,
+  does: "A stand-in mail account that runs entirely inside the platform. Nothing it is asked to send leaves — messages go to a mailbox nobody else can read. It is here so a workflow that sends can be built and watched end to end before a real account is connected.",
+  /**
+   * THE PERMISSIONS A PERSON MAY GRANT, each with what it lets the agent do. **Server-side and
+   * per provider**, so a request cannot invent one — `cleanScopes` keeps only what is here.
+   */
+  scopes: Object.freeze([
+    Object.freeze({ name: "read", label: "Read messages", does: "Let the agent read what is in this mailbox." }),
+    Object.freeze({ name: "send", label: "Send messages", does: "Let the agent send from this account. A person still approves every message before it goes." }),
+  ]),
+})]);
+
+/** By name, for the one lookup every route does. */
+export const providerByName = (name) =>
+  AGENT_PROVIDERS.find((p) => p.name === name) ?? null;
+
+/** At most this many live connections per agent — the database's own ceiling, named here. */
+export const MAX_CONNECTIONS = 20;
+
+/** How long a person's own label for a connection may be. The column's own bound. */
+export const CONNECTION_LABEL_MAX = 80;
+/** And the account it names — an address, a handle, whatever the provider calls one. */
+export const CONNECTION_ACCOUNT_MAX = 200;
+
+/**
+ * How many bytes of credential a connection is minted with.
+ *
+ * ⚠ **AND THE POINT OF THIS ONE IS THAT NOBODY OUTSIDE EVER SEES IT — unlike a webhook
+ * secret, which is answered exactly once because whoever is going to sign with it needs it.**
+ * Here the only thing that ever uses the credential is the engine, through
+ * `agent.lease_connection`, so there is no reader to hand it to and it is never on any answer
+ * at all. That is a stronger rule than "answered once" and it costs nothing, because a real
+ * provider's credential would arrive from the provider rather than from us.
+ */
+export const CONNECTION_SECRET_BYTES = 32;
+
+/**
+ * Keep only the permissions this provider really offers, in ITS OWN ORDER.
+ *
+ * ⚠ **A POSITIVE INTERSECTION, and a name it does not know is REFUSED rather than dropped** —
+ * a permission quietly left out is one that appears granted and is not, which is the worst
+ * direction for a list whose whole job is to say what an agent may do. The provider's order,
+ * so two saves of one selection are byte-identical.
+ */
+export function cleanScopes(given, provider) {
+  const offered = (provider?.scopes ?? []).map((sc) => sc.name);
+  if (!Array.isArray(given)) return { error: "say which permissions to grant" };
+  const seen = new Set();
+  for (const g of given) {
+    if (typeof g !== "string") return { error: "a permission has to arrive as a name" };
+    const name = g.trim().toLowerCase();
+    if (!offered.includes(name)) return { error: `this platform has no permission called ${name}` };
+    seen.add(name);
+  }
+  if (!seen.size) return { error: "grant at least one permission, or there is nothing the agent can do with it" };
+  return { scopes: offered.filter((n) => seen.has(n)) };
+}
+
+/**
+ * ⚠ **WHY A CONNECTION CANNOT BE USED, AND THE THREE ARE THREE DIFFERENT ACTS.** A single
+ * "that connection does not work" would send somebody to reconnect when a refresh is what is
+ * wanted, or to refresh what only the provider can put back. **The engine says the same three
+ * things to a workflow**, and the two copies are compared in the cross-product census: one
+ * sentence per cause, whichever door somebody meets it at.
+ */
+export const CONNECTION_TROUBLE = Object.freeze({
+  expired: "the credential for that connection has run out — refresh it and run this again",
+  revoked: "the provider withdrew access to that connection — it has to be connected again",
+  disconnected: "that connection was disconnected, so nothing can be sent through it",
+});
+
+/**
+ * What a screen is told about one connection. **Never a credential**, because the view it
+ * comes from does not select one — asserted against the view itself in `test/agent-api.test.mjs`.
+ *
+ * ⚠ **A STATUS IT CANNOT READ IS `disconnected`, WHICH FAILS CLOSED.** Being wrong that way
+ * costs somebody a reconnect; the other way round draws an unusable connection as ready and
+ * sends them looking for a fault in their workflow.
+ */
+export const CONNECTION_STATES = Object.freeze(["active", "expired", "revoked", "disconnected"]);
+export function connectionRow(r) {
+  const status = CONNECTION_STATES.includes(r?.status) ? r.status : "disconnected";
+  const provider = typeof r?.provider === "string" ? r.provider : "";
+  const known = providerByName(provider);
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    agentId: typeof r?.agent_id === "string" ? r.agent_id : "",
+    provider,
+    /** THE PROVIDER'S OWN WORDS, so a screen does not hold a second copy of them. */
+    providerLabel: known?.label ?? provider,
+    /** ⚠ **UNKNOWN MEANS SIMULATED HERE, and that is the safe direction**: a row naming a
+     * provider this deployment does not have cannot send anything at all, so drawing it as
+     * real would be the one claim that matters made wrongly. */
+    simulated: known ? known.simulated === true : true,
+    label: typeof r?.label === "string" ? r.label : "",
+    account: typeof r?.account === "string" ? r.account : "",
+    scopes: Array.isArray(r?.scopes) ? r.scopes.filter((x) => typeof x === "string") : [],
+    status,
+    /** WHY IT CANNOT BE USED, in a sentence — and only where there is something to say. */
+    trouble: status === "active" ? null : (CONNECTION_TROUBLE[status] ?? null),
+    /** WHETHER A REFRESH IS EVEN POSSIBLE, read from the view's own generated column. */
+    refreshable: r?.refreshable === true,
+    expiresAt: typeof r?.expires_at === "string" ? r.expires_at : null,
+    stoppedWhy: typeof r?.stopped_why === "string" ? r.stopped_why : null,
+    at: typeof r?.created_at === "string" ? r.created_at : null,
+  };
+}
 
 /**
  * THE PATH A DELIVERY IS POSTED TO, on the agent engine.
@@ -2789,6 +2996,15 @@ export const AGENT_ROUTES = Object.freeze({
   // ⚠ NO `webhook-rotate`, DELIBERATELY. A rotate has to hand back the new secret, which
   // is a SECOND door that gives one out — and the whole design is that there is exactly
   // one. Delete and make another does the same job through the door that already exists.
+  // ── connected accounts ────────────────────────────────────────────────────
+  // ⚠ NO `connection-refresh` AND NO `connection-lease`, DELIBERATELY. A refresh needs a NEW
+  // credential, which for a real provider arrives from the provider and never from a browser;
+  // and a lease hands one OUT, which is the engine's business and has exactly one door in the
+  // whole schema. Adding either here would be a second place a credential can move.
+  "/api/agent/connections": "GET",
+  "/api/agent/connection-connect": "POST",
+  "/api/agent/connection-disconnect": "POST",
+  "/api/agent/connection-revoke": "POST",
   "/api/agent/webhooks": "GET",
   "/api/agent/webhook-create": "POST",
   "/api/agent/webhook-enable": "POST",
@@ -3338,6 +3554,23 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       return a ? ok({ automation: a }) : NO_AUTOMATION();
     }
 
+    // ── CONNECTED ACCOUNTS ────────────────────────────────────────────────────
+    if (path === "/api/agent/connections") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      /**
+       * ⚠ **THE CATALOG RIDES ON THE ANSWER, so a screen does not hold a second copy of what
+       * may be connected or what each permission means.** It is the same reason `AGENT_TOOLS`
+       * rides on the agent list: a browser drawing a control from its own list is a browser
+       * that can offer something the server refuses.
+       */
+      return ok({
+        connections: await store.listConnections(who, agentId),
+        providers: AGENT_PROVIDERS, max: MAX_CONNECTIONS,
+      });
+    }
+
     // ── AN INBOUND ENDPOINT ───────────────────────────────────────────────────
     if (path === "/api/agent/webhooks") {
       const agentId = cleanId(q.get("agent"));
@@ -3347,6 +3580,97 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // one nobody can configure — and it is a PATH, since this product does not hold the
       // engine's origin and inventing one prints a URL that does not work.
       return ok({ webhooks: await store.listWebhooks(who, agentId), max: MAX_WEBHOOKS });
+    }
+
+    if (path === "/api/agent/connection-connect") {
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      /**
+       * ⚠ **THE PROVIDER IS LOOKED UP IN A LIST THIS CODE HOLDS, and a name not on it is
+       * refused BY NAME.** The name on the row is what the engine looks an ADAPTER up by, so
+       * admitting one we have no adapter for makes a connection that saves, lists, and fails
+       * at every send — a control that answers, wrongly.
+       */
+      const provider = providerByName(typeof b.provider === "string" ? b.provider.trim().toLowerCase() : "");
+      if (!provider) {
+        return no(400, `this platform can only connect: ${AGENT_PROVIDERS.map((x) => x.name).join(", ")}`);
+      }
+      const account = cleanText(b.account, CONNECTION_ACCOUNT_MAX);
+      if (!account) return no(400, "say which account this is — the address or handle it sends as");
+      // A PERSON'S OWN LABEL IS OPTIONAL and falls back to the account, because a list of
+      // rows all called the same thing is a list nobody can choose from.
+      const label = cleanText(b.label, CONNECTION_LABEL_MAX) || account;
+      /**
+       * ⚠ **THE PERMISSIONS ARE THE PERSON'S OWN CHOICE, from a server-side catalog.**
+       * *Connecting accounts and granting permissions remain user-only actions* — so they
+       * arrive on the request, and what bounds them is `cleanScopes`, which refuses a name
+       * this platform does not offer rather than dropping it.
+       */
+      const grant = cleanScopes(b.scopes, provider);
+      if (grant.error) return no(400, grant.error);
+      /**
+       * ⚠ **THE CREDENTIAL IS MINTED HERE AND IS NEVER ANSWERED, NEVER LOGGED, AND NEVER
+       * READ BACK.** For a fake provider there is nothing for a person to paste in and
+       * nothing for them to keep, so the strongest available rule is the simplest one: no
+       * route reads a credential off a request and no answer carries one. A real provider's
+       * would arrive from the provider through its own flow, not through this door.
+       */
+      const secret = mintWebhookSecret(dice);
+      const id = mint();
+      const a = await store.connectProvider(who, {
+        agentId, id, provider: provider.name, label, account, scopes: grant.scopes, secret,
+      });
+      if (a?.error === "no-agent") return NO_AGENT();
+      if (a?.error === "too-many") {
+        return no(409, `that's as many connected accounts as one agent can hold (${MAX_CONNECTIONS}) — disconnect one first`);
+      }
+      if (a?.ok !== true) return NO_AGENT();
+      /**
+       * ⚠ **THE ANSWER CARRIES NO CREDENTIAL AND SAYS WHAT IT IS.** A `repeat` is the same
+       * press twice — the function absorbs it — and it is said rather than dressed up as a
+       * new connection, because a person pressing Connect twice should not end up wondering
+       * which of two rows is live.
+       */
+      return ok({
+        id: typeof a.id === "string" ? a.id : id,
+        provider: provider.name, providerLabel: provider.label, simulated: provider.simulated === true,
+        label, account, scopes: grant.scopes,
+        repeat: a.repeat === true,
+        note: provider.simulated === true
+          ? "this is a simulated account — nothing it sends leaves the platform, and a person still approves every message"
+          : null,
+      });
+    }
+
+    if (path === "/api/agent/connection-disconnect") {
+      const id = cleanId(b.id);
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      if (!id) return no(400, "which connected account?");
+      const a = await store.disconnectConnection(who, { agentId, id, why: cleanText(b.reason, TOOL_NOTE_MAX) || null });
+      if (a?.ok !== true) return no(404, "that connected account isn't here any more");
+      /**
+       * ⚠ **IT SAYS THE CREDENTIAL IS GONE, because that is what makes this different from a
+       * toggle.** Somebody who reads "disconnected" and expects a switch back is somebody who
+       * will be surprised; the sentence is the whole of what stops that.
+       */
+      return ok({
+        id, status: "disconnected", repeat: a.repeat === true,
+        note: "the credential for that account has been destroyed — connecting it again makes a new one",
+      });
+    }
+
+    if (path === "/api/agent/connection-revoke") {
+      const id = cleanId(b.id);
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      if (!id) return no(400, "which connected account?");
+      const a = await store.revokeConnection(who, { agentId, id, why: cleanText(b.reason, TOOL_NOTE_MAX) || null });
+      if (a?.ok !== true) return no(404, "that connected account isn't here any more");
+      return ok({
+        id, status: "revoked", repeat: a.repeat === true,
+        note: CONNECTION_TROUBLE.revoked,
+      });
     }
 
     if (path === "/api/agent/webhook-create") {

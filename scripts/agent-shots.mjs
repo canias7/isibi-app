@@ -86,6 +86,25 @@ const MEMORIES = [
   { id: "M2", key: "callback_hours", value: "weekdays before five", source: "person", version: 1, at: "2026-09-16T09:05:00Z", updatedAt: "2026-09-16T09:05:00Z" },
 ];
 
+/**
+ * CONNECTED ACCOUNTS, in the four states a screen has to be able to explain — and the
+ * catalog beside them, because the form draws its permissions from the answer rather than
+ * from a list of its own.
+ */
+const { AGENT_PROVIDERS, connectionRow } = await import(path.join(ROOT, "agent-store.mjs"));
+const CONNS = [
+  connectionRow({ id: "8f3c1e20-0000-4000-8000-00000000c001", agent_id: "A", provider: "fakemail",
+    label: "The shop", account: "shop@example.test", scopes: ["read", "send"],
+    status: "active", refreshable: false, created_at: "2026-09-18T09:00:00Z" }),
+  connectionRow({ id: "8f3c1e20-0000-4000-8000-00000000c002", agent_id: "A", provider: "fakemail",
+    label: "Old address", account: "old@example.test", scopes: ["send"],
+    status: "expired", refreshable: true, expires_at: "2026-09-18T12:00:00Z",
+    created_at: "2026-09-10T09:00:00Z" }),
+  connectionRow({ id: "8f3c1e20-0000-4000-8000-00000000c003", agent_id: "A", provider: "fakemail",
+    label: "Workshop", account: "workshop@example.test", scopes: ["send"],
+    status: "revoked", stopped_why: "the provider said no", created_at: "2026-09-11T09:00:00Z" }),
+];
+
 const ANSWERS = {
   "/api/agent/list": { ok: true, agents: [AGENT], tools: [{ name: "echo", label: "Echo", does: "Repeats a short piece of text back." }] },
   "/api/agent/messages": { ok: true, id: "A", messages: [] },
@@ -93,6 +112,7 @@ const ANSWERS = {
   "/api/agent/automation-history": { ok: true, id: "AU1", executions: [WAITING, DONE, REJECTED] },
   "/api/agent/knowledge": { ok: true, agent: "A", sources: SOURCES, max: 20, bodyMax: 200000, formats: ["text", "markdown"] },
   "/api/agent/memory": { ok: true, agent: "A", memories: MEMORIES, max: 100, valueMax: 4000 },
+  "/api/agent/connections": { ok: true, agent: "A", connections: CONNS, providers: AGENT_PROVIDERS, max: 20 },
 };
 
 // ── serve `public/` on a loopback port, so the page loads exactly as it ships ─
@@ -195,6 +215,14 @@ await page.waitForTimeout(500);
 await shot("6-knowledge", () => { agentAutoBack(); agentKnows("A"); });
 await page.waitForTimeout(500);
 await shot("7-knowledge-edit", () => { agentKnowEdit("K1"); });
+await page.waitForTimeout(400);
+// ⚠ CONNECTED ACCOUNTS: the list first, with all three states side by side, so the reasons
+// one cannot be used are readable beside a working one — then the connect form, which is the
+// one place a person grants permissions and the one place it has to be plain that no
+// credential is being asked for.
+await shot("8-connections", () => { agentKnowCancel(); agentConnections("A"); });
+await page.waitForTimeout(500);
+await shot("9-connect-form", () => { agentConnNewOpen(); });
 await page.waitForTimeout(400);
 
 await browser.close();

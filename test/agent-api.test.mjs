@@ -29,6 +29,8 @@ import {
   AGENT_ROUTES, AGENT_POST_ROUTES, AGENT_SCHEMA, agentBodyMax,
   AGENT_NAME_MAX, AGENT_INSTRUCTIONS_MAX, AGENT_BODY_MAX,
   MAX_AGENTS, MAX_THREAD, MAX_IMPORT_MESSAGES, MAX_IMPORT_BODY, AGENT_TOOLS,
+  AGENT_PROVIDERS, MAX_CONNECTIONS, CONNECTION_STATES, CONNECTION_TROUBLE,
+  connectionRow, cleanScopes, providerByName,
 } from "../agent-store.mjs";
 
 const SRC = fs.readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
@@ -124,6 +126,13 @@ function fakeStore(over = {}) {
     // create's own answer carries `id` and `event_name` and no key: the ROUTE mints the
     // secret and hands it back once, so a fake that returned one would be a fake teaching a
     // reader that the database can be asked for it.
+    // ⚠ THE CONNECTION SIDE, because a fake missing an operation makes the route THROW and
+    // this census reads a 502 — which this file has paid for four times now and which reads
+    // exactly like a route that forgot its tenant.
+    listConnections: async (...a) => { calls.push({ name: "listConnections", args: a }); return []; },
+    connectProvider: async (...a) => { calls.push({ name: "connectProvider", args: a }); return { ok: true, id: a[1]?.id }; },
+    disconnectConnection: async (...a) => { calls.push({ name: "disconnectConnection", args: a }); return { ok: true }; },
+    revokeConnection: async (...a) => { calls.push({ name: "revokeConnection", args: a }); return { ok: true }; },
     listWebhooks: async (...a) => { calls.push({ name: "listWebhooks", args: a }); return []; },
     createWebhook: async (...a) => {
       calls.push({ name: "createWebhook", args: a });
@@ -233,6 +242,16 @@ test("every operation is scoped by the tenant the handler was given", async () =
         // nothing about its scoping. **There is no `secret` here and there cannot be**: the
         // route mints one and reads none.
         event: "order.paid",
+        // ⚠ AND ONCE MORE for a connected account, for the same reason and not as an
+        // exemption. `provider` has to be a REAL provider, because the route looks it up in
+        // `AGENT_PROVIDERS` rather than admitting any name — a connection naming a provider
+        // with no adapter behind it saves, lists, and fails at every send. `scopes` has to
+        // hold real permissions, because `cleanScopes` refuses one this platform does not
+        // offer. Driven without either, this census would read the 400 the route correctly
+        // gives and prove nothing about its scoping. **Again there is no `secret` and there
+        // cannot be**: the route mints one, and unlike an endpoint's it is never answered.
+        provider: AGENT_PROVIDERS[0].name, scopes: [AGENT_PROVIDERS[0].scopes[0].name],
+        account: "shop@example.test", label: "The shop",
       },
       newId: () => A1,
     });
@@ -380,6 +399,16 @@ test("no route reads an account off the body or the query — asserted over the 
   // called. **AND NOTHING READS A SECRET OFF A REQUEST AT ALL**: the route mints one, which is
   // why `secret` is not on this list and must never be.
                            "event",
+                           // ⚠ GROWN BY FOUR, and still not by an exemption. `provider`, `account`, `label` and
+                           // `scopes` are fields of the CONNECTED ACCOUNT being made and none can name the account
+                           // that OWNS it. `provider` is looked up in `AGENT_PROVIDERS` — a positive list in code, so
+                           // a name with no adapter behind it is refused rather than becoming a connection that saves
+                           // and fails at every send; `scopes` goes through `cleanScopes`, which refuses a permission
+                           // this platform does not offer rather than dropping it; `account` and `label` are the
+                           // person's own words about which mailbox it is. **AND `secret` IS NOT HERE AND MUST NEVER
+                           // BE**: the route MINTS the credential, so there is nowhere for a caller-chosen one to
+                           // arrive — and unlike a webhook's, it is never answered either.
+                           "provider", "account", "label", "scopes",
   // ⚠ RE-ANCHORED A FIFTH TIME, by THREE TRIGGER fields and still not by an exemption. `days`,
   // `on_date` and `on_event` say WHEN an automation runs, exactly as `schedule`, `at` and `zone`
   // already do — and each goes through `cleanSchedule`, which refuses a day that is not a day, a
@@ -1177,4 +1206,189 @@ test("⚠ A MALFORMED REVOKED-TOOLS ANSWER IS NOT READ AS ONE TOOL NAME", async 
       { status: 200, headers: { "content-type": "application/json" } }),
   });
   assert.deepEqual(await junk.listRevokedTools(T1, A1), []);
+});
+
+// ── connected accounts ───────────────────────────────────────────────────────
+
+const CID = "8f3c1e20-0000-4000-8000-00000000c001";
+const FAKE = AGENT_PROVIDERS[0];
+
+/** One connect press, through the real handler against a recording store. */
+const connect = async (body, over = {}) => {
+  const f = fakeStore(over.store);
+  const r = await handleAgentApi({
+    path: "/api/agent/connection-connect", method: "POST", tenant: T1, store: f.store,
+    query: new URLSearchParams(), newId: () => CID,
+    body: { agent: A1, provider: FAKE.name, account: "shop@example.test", scopes: ["send"], ...body },
+    ...over.opts,
+  });
+  return { r, f };
+};
+
+test("⚠ A CONNECTION IS MADE WITH A CREDENTIAL NOBODY OUTSIDE EVER SEES", async () => {
+  const { r, f } = await connect({});
+  assert.equal(r.status, 200);
+  // WHAT COMES BACK IS WHAT A SCREEN NEEDS AND NOTHING MORE.
+  assert.equal(r.body.id, CID);
+  assert.equal(r.body.provider, FAKE.name);
+  assert.equal(r.body.providerLabel, FAKE.label);
+  assert.equal(r.body.simulated, true);
+  assert.deepEqual(r.body.scopes, ["send"]);
+  assert.match(r.body.note, /simulated account/);
+  // ⚠ **AND NO CREDENTIAL IS ON THE ANSWER AT ALL** — unlike a webhook's signing secret,
+  // which is answered exactly once because whoever will sign with it needs it. Here the only
+  // thing that ever uses it is the engine, so there is no reader to hand it to.
+  const wire = JSON.stringify(r.body);
+  for (const word of ["secret", "credential", "token", "password"]) {
+    assert.ok(!wire.includes(word), `the answer carries a ${word}`);
+  }
+
+  // IT REALLY REACHED THE STORE, with a credential minted here rather than sent.
+  const made = f.calls.find((c) => c.name === "connectProvider");
+  assert.ok(made, `nothing was connected: ${JSON.stringify(f.calls.map((c) => c.name))}`);
+  const arg = made.args[1];
+  assert.equal(arg.provider, FAKE.name);
+  assert.equal(arg.account, "shop@example.test");
+  assert.deepEqual(arg.scopes, ["send"]);
+  // 32 bytes as hex — the length is the claim, because a credential nobody can read back is
+  // only as good as what it was minted from.
+  assert.match(arg.secret, /^[0-9a-f]{64}$/);
+});
+
+test("⚠ A PROVIDER THIS PLATFORM HAS NO ADAPTER FOR IS REFUSED BY NAME, and Gmail is one", async () => {
+  for (const name of ["gmail", "outlook", "", "constructor", "FAKEMAIL "]) {
+    const { r, f } = await connect({ provider: name });
+    if (name === "FAKEMAIL ") {
+      // FOLDED AND TRIMMED, so a form's own capitalisation is not a refusal.
+      assert.equal(r.status, 200, "a folded name is the same provider");
+      continue;
+    }
+    assert.equal(r.status, 400, `${name} was admitted`);
+    assert.match(r.body.error, /can only connect: fakemail/);
+    assert.equal(f.calls.filter((c) => c.name === "connectProvider").length, 0, `${name} reached the store`);
+  }
+});
+
+test("⚠ THE PERMISSIONS ARE THE PERSON'S, from a catalog this code holds", async () => {
+  // A NAME THIS PLATFORM DOES NOT OFFER IS REFUSED BY NAME, never dropped — a permission
+  // quietly left out is one that appears granted and is not.
+  const bad = await connect({ scopes: ["send", "delete_everything"] });
+  assert.equal(bad.r.status, 400);
+  assert.match(bad.r.body.error, /no permission called delete_everything/);
+  assert.equal(bad.f.calls.filter((c) => c.name === "connectProvider").length, 0);
+
+  // AND GRANTING NOTHING IS ITS OWN REFUSAL, because a connection an agent may do nothing
+  // with is a control that answers.
+  for (const none of [[], undefined, "send", null]) {
+    const r = (await connect({ scopes: none })).r;
+    assert.equal(r.status, 400, `${JSON.stringify(none)} was admitted`);
+  }
+  // THE TWO REFUSALS SAY DIFFERENT THINGS.
+  assert.notEqual((await connect({ scopes: [] })).r.body.error,
+    (await connect({ scopes: ["nope"] })).r.body.error);
+
+  // THE SELECTION TAKES THE CATALOG'S ORDER, so two saves of one choice are byte-identical.
+  const both = await connect({ scopes: ["send", "read", "send"] });
+  assert.deepEqual(both.r.body.scopes, ["read", "send"]);
+});
+
+test("⚠ DISCONNECTING AND REVOKING ARE TWO VERBS, and they say two different things", async () => {
+  const off = fakeStore();
+  const a = await handleAgentApi({
+    path: "/api/agent/connection-disconnect", method: "POST", tenant: T1, store: off.store,
+    query: new URLSearchParams(), body: { agent: A1, id: CID, reason: "not needed" }, newId: () => CID,
+  });
+  assert.equal(a.status, 200);
+  assert.equal(a.body.status, "disconnected");
+  // IT SAYS THE CREDENTIAL IS GONE, which is what makes this not a toggle.
+  assert.match(a.body.note, /credential .* has been destroyed/);
+  assert.ok(off.calls.some((c) => c.name === "disconnectConnection"));
+
+  const gone = fakeStore();
+  const b = await handleAgentApi({
+    path: "/api/agent/connection-revoke", method: "POST", tenant: T1, store: gone.store,
+    query: new URLSearchParams(), body: { agent: A1, id: CID }, newId: () => CID,
+  });
+  assert.equal(b.status, 200);
+  assert.equal(b.body.status, "revoked");
+  assert.equal(b.body.note, CONNECTION_TROUBLE.revoked);
+  assert.ok(gone.calls.some((c) => c.name === "revokeConnection"));
+
+  // ⚠ TWO SENTENCES, because one is the account's owner saying stop and the other is the far
+  // end saying no, and they need different things done about them.
+  assert.notEqual(a.body.note, b.body.note);
+
+  // AND ONE THAT IS NOT THERE IS A 404 FOR BOTH.
+  for (const path of ["/api/agent/connection-disconnect", "/api/agent/connection-revoke"]) {
+    const f = fakeStore({ disconnectConnection: async () => ({ ok: false, error: "no-connection" }),
+                          revokeConnection: async () => ({ ok: false, error: "no-connection" }) });
+    const r = await handleAgentApi({ path, method: "POST", tenant: T1, store: f.store,
+      query: new URLSearchParams(), body: { agent: A1, id: CID }, newId: () => CID });
+    assert.equal(r.status, 404, path);
+  }
+});
+
+test("the list answers the catalog beside the rows, so a screen holds no second copy", async () => {
+  const f = fakeStore({ listConnections: async () => [connectionRow({
+    id: CID, agent_id: A1, provider: FAKE.name, label: "The shop", account: "shop@example.test",
+    scopes: ["read", "send"], status: "active", refreshable: false, created_at: "2026-09-19T00:00:00Z",
+  })] });
+  const r = await handleAgentApi({
+    path: "/api/agent/connections", method: "GET", tenant: T1, store: f.store,
+    query: new URLSearchParams({ agent: A1 }), body: {}, newId: () => CID,
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.max, MAX_CONNECTIONS);
+  assert.equal(r.body.providers[0].name, FAKE.name);
+  assert.ok(r.body.providers[0].scopes.every((sc) => sc.label && sc.does),
+    "a permission a person is asked to grant has to say what it lets the agent do");
+  assert.equal(r.body.connections[0].account, "shop@example.test");
+  assert.equal(r.body.connections[0].simulated, true);
+  assert.equal(r.body.connections[0].trouble, null, "an active connection has nothing to explain");
+  // AND ANOTHER ACCOUNT'S AGENT IS THE SAME ANSWER A MISSING ONE GETS.
+  const nope = fakeStore({ ownsAgent: async () => false });
+  const d = await handleAgentApi({
+    path: "/api/agent/connections", method: "GET", tenant: T1, store: nope.store,
+    query: new URLSearchParams({ agent: A1 }), body: {}, newId: () => CID,
+  });
+  assert.equal(d.status, 404);
+  assert.equal(nope.calls.filter((c) => c.name === "listConnections").length, 0);
+});
+
+test("⚠ A STATUS IT CANNOT READ FAILS CLOSED, and each trouble is its own sentence", () => {
+  // Being wrong this way costs a reconnect; the other way draws an unusable connection as
+  // ready and sends somebody looking for a fault in their workflow.
+  for (const junk of [undefined, null, "", "ACTIVE", "fine", ["active"], 1, { s: "active" }]) {
+    const row = connectionRow({ id: CID, provider: FAKE.name, status: junk });
+    assert.equal(row.status, "disconnected", `${JSON.stringify(junk)} was read as usable`);
+    assert.equal(row.trouble, CONNECTION_TROUBLE.disconnected);
+  }
+  assert.equal(connectionRow({ status: "active", provider: FAKE.name }).status, "active",
+    "the control: a real status is kept");
+  // THREE CAUSES, THREE SENTENCES, and each names what to do about it.
+  const said = new Set(["expired", "revoked", "disconnected"].map(
+    (st) => connectionRow({ status: st, provider: FAKE.name }).trouble));
+  assert.equal(said.size, 3);
+  // AND A ROW NAMING A PROVIDER THIS DEPLOYMENT HAS NOT GOT READS AS SIMULATED, which is the
+  // safe direction: it cannot send anything at all, so drawing it as real is the one claim
+  // that matters made wrongly.
+  assert.equal(connectionRow({ status: "active", provider: "whoknows" }).simulated, true);
+  assert.equal(connectionRow({ status: "active", provider: "whoknows" }).providerLabel, "whoknows");
+  // AND NO ROW ANYWHERE CARRIES A CREDENTIAL, even when one is handed in.
+  const forced = connectionRow({ id: CID, provider: FAKE.name, status: "active",
+    secret: "s3cret", refresh_secret: "r3fresh" });
+  const wire = JSON.stringify(forced);
+  assert.ok(!wire.includes("s3cret") && !wire.includes("r3fresh"), `a row carried a credential: ${wire}`);
+});
+
+test("cleanScopes and providerByName are the two readers, and both fail closed", () => {
+  assert.equal(providerByName("fakemail"), FAKE);
+  for (const junk of ["gmail", "", null, undefined, "constructor", "toString"]) {
+    assert.equal(providerByName(junk), null, `${junk} resolved to a provider`);
+  }
+  assert.deepEqual(cleanScopes(["send", "read"], FAKE).scopes, ["read", "send"]);
+  assert.match(cleanScopes([1], FAKE).error, /has to arrive as a name/);
+  assert.match(cleanScopes("send", FAKE).error, /say which permissions/);
+  assert.match(cleanScopes(["read"], null).error, /no permission called read/,
+    "with no provider nothing is offered, so nothing may be granted");
 });
