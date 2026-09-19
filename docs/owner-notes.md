@@ -12992,7 +12992,12 @@ the real list carries what the screen needs and the account it picks is the one 
 goes out through, with a read-only account beside it that is listed, is healthy, and is correctly
 not offered.
 
-Nothing is applied, deployed or merged. **Site tests 6,831 → 6,835, the engine's 590 unchanged,
+The breakage run over the changed lines then found two more things worth having, and one of them
+was a real wall nobody had tried: an account whose permission list holds an empty entry, against a
+provider that does not say which permission a send needs — two nothings matching, which is not a
+yes. Thirteen deliberate breakages in total, all caught.
+
+Nothing is applied, deployed or merged. **Site tests 6,831 → 6,840, the engine's 590 unchanged,
 and all ten end-to-end runs green.**
 
 **One honest note about my own instruments**: my first reading of those ten runs said three of

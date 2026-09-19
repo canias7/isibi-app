@@ -450,6 +450,21 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
    * passed" and "the gate was never built" read identically from outside.
    */
   let refusedProfiles = 0;
+
+  /**
+   * ⚠ **WHAT WAS ASKED OF THE DATABASE, AS METHOD AND PATH — an OBSERVER, and the only thing
+   * that can say two doors reach the same operation.**
+   *
+   * A screen and an agent both save a fact; the row afterwards is the same row either way, so
+   * reading the row cannot tell one implementation from two. What separates them is the request
+   * that went out — and comparing those is how "one backend implementation for each operation"
+   * becomes a measurement instead of a claim.
+   *
+   * It holds a BOUND, because a demonstration drives thousands of requests and a log with no
+   * ceiling is a leak; it records nothing else, so no body and no credential can reach it.
+   */
+  const SEEN_MAX = 4000;
+  let seen = [];
   const READ_VERBS = new Set(["GET", "HEAD"]);
   const profileHeaderFor = (method) => (READ_VERBS.has(String(method ?? "").toUpperCase())
     ? "accept-profile" : "content-profile");
@@ -485,6 +500,9 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
       for await (const chunk of req) raw += chunk;
       const body = raw ? JSON.parse(raw) : undefined;
       if (!quiet) console.log(`  [rest] ${req.method} ${p}`);
+      // RECORDED BEFORE THE PROFILE GATE, so a request refused for its header is still visible
+      // — the question this answers is what was ASKED, not what was served.
+      if (seen.length < SEEN_MAX) seen.push(`${req.method} ${p}`);
 
       // ⚠ THE PROFILE IS CHECKED ONCE, ABOVE EVERY ROUTE, which is stricter than a check
       // per route: a relation added below cannot be reached without naming its schema,
@@ -869,6 +887,10 @@ const FILTER_SHAPE = /^(eq|neq|gt|gte|lt|lte|like|ilike|is|in|not)\./;
         close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }),
         /** How many requests the profile gate turned away. See `refusedProfiles`. */
         refusedProfiles: () => refusedProfiles,
+        /** Every `METHOD /path` asked of the database since the last `forget()`. See `seen`. */
+        seen: () => seen.slice(),
+        /** Start a fresh window, so one assertion is about one operation's own requests. */
+        forget: () => { seen = []; },
       });
     });
   });

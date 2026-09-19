@@ -9201,14 +9201,43 @@ one" is satisfied by a list of one.
 
 ### Measured
 
-- **Site suite 6,831 → 6,835** (6,833 pass, 2 skipped, 0 fail), and the arithmetic closes
-  exactly: `agent-binding` 102 → 109 and `agent-send` 69 unchanged (assertions inside the
-  provider census, no new case). **Both baselines measured at HEAD in a clean worktree** rather
-  than derived from a note.
+- **Site suite 6,831 → 6,840** (6,838 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-binding` 102 → **111** — nine cases where one stood — and `agent-send` 69
+  unchanged (assertions inside the provider census, no new case). **Both baselines measured at
+  HEAD in a clean worktree** rather than derived from a note. The last two of the nine are the
+  sweep's own survivors, closed below, and **thirteen breakages are driven in total**.
+  **⚠ AND THIS LINE READ 6,835 AND THEN 6,837 BEFORE THE RUN ANSWERED 6,840**: the first was
+  measured before the survivors were closed, and the second was me subtracting 111 − 102 as six.
+  *Stamp measured numbers only AFTER the run*, and do the arithmetic from the two numbers rather
+  than from memory of how many cases were added.
 - **`verify:send` 90 → 97, 0 failed.** **Engine suite 590, unchanged — the control.**
 - **The other nine demonstrations green at their recorded counts**: `tools` 119 · `chat` 126 ·
   `auto` 70 · `wf` 157 · `triggers` 64 · `connections` 76 · `controls` 71 · `integration` 89 ·
   `ops` 75.
+- **Sweep (`scripts/mutants/example-account.json`): 13 mutants, 13 killed, 0 survived, 0 never
+  applied, 1 comment-only control survived** — 14 spec entries, being those 13 plus the control,
+  which is why the two numbers never have to be reconciled by arithmetic. Taken after the run, in
+  a detached worktree so the main tree held no mutant while it ran, and that worktree proved
+  restored **two ways** afterwards: `git status` clean with an empty diff against the commit, and
+  the spec's own anchor census green over all 14 entries — which it cannot be while a mutant is
+  applied. **`verify:local` exited 0**, its recorded verdict.
+- **⚠ PASS 1 READ 13/11/2 AND NEITHER SURVIVOR WAS THE PRODUCT'S, but they are two different
+  faults and only measurement separated them.**
+  - **THE FIRST LOOKS LIKE A REDUNDANCY AND IS NOT.** Cutting the "we cannot tell which
+    permission a send needs" line leaves `needs` as `''`, and an ordinary scope list does not
+    include the empty string — so it reads as a second wall in front of the one below it.
+    **MEASURED over ten shapes: two separate the two readings, and both are ones the answer can
+    really carry.** `connectionRow` keeps any STRING in `scopes`, `""` included, so a row holding
+    one against a provider that names no send scope makes `includes('')` TRUE — and an account is
+    offered on the strength of an empty permission matching an empty requirement. **Two nothings
+    matching is not a yes**, and the case carries its own observer: the same row with a real
+    grant IS offered.
+  - **THE SECOND WAS A MUTANT AIMED PAST ITS OWN PROPERTY.** A refusal arrives as a Response with
+    `ok: false`; an outage arrives as a REJECTION, and only the second reaches the `catch` — so
+    the refusal case could not drive that branch at all and the fixture had no way to produce the
+    other shape. It throws now (`apiFetch` is async, so a throw is a rejected promise, which is
+    what a browser with no network really produces), and both shapes must seed the example while
+    neither may pick an account.
 - **⚠ AND MY OWN READER OF THOSE NINE REPORTED THREE GREEN RUNS AS FAILING.** `grep -c FAIL`
   matched check LABELS containing the word — *"⚠ AND THE RETRY IS A FAILURE TOO"*, *"A KNOWN
   NON-EVENT IS A FAILURE WITH ITS REASON"* — which is *a verdict read by one spelling of it*, a
