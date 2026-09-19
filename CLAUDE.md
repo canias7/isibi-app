@@ -9968,6 +9968,125 @@ expectation met rather than a new one.
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN.** The photograph test is parked awaiting
 fal funding, at the owner's word.
 
+### …AND TWO CORRECTIONS TO THAT ROUND, BOTH REPRODUCED FIRST (2026-09-19)
+
+Owner: *"Remove output-count matching as proof of requirement implementation… A
+gallery handoff currently becomes 'set up' when the step produces only a Wi-Fi
+code. Associate the requirement with its actual item explicitly; preserve
+uncertainty where that association is missing."* And: *"Don't report arbitrary
+source objects as visible picture spaces. Comments currently count, and a filled
+entry with a quoted `"src"` key reads as empty… avoid exact counts for
+runtime-dependent lists."*
+
+**1. A COUNT OF A STEP'S OUTPUT IS NOT AN ASSOCIATION WITH A REQUIREMENT.** The
+round above closed run 51's *"I can't see from here whether A QR code opens the
+gallery page"* by letting `implementationOf`'s no-name branch answer `made` when
+a step made at least as many things as there were un-named asks resting on it.
+**REPRODUCED before anything was touched**: the `page` step hands *"A QR code
+opens the gallery page."* to the `qr` step, the `qr` step designs ONE code —
+`{name: "wifi", points: "WIFI:S=Bakery;…"}` — and the reader answered
+`implementation: "made"` → `unverified` → *"I've set that up"*. **The gallery
+case and the Wi-Fi case came back byte-identical**, which is the whole finding:
+a count cannot tell them apart because a count is not about the things.
+
+- **IT WAS UNSOUND AT EVERY N, not at the margin.** Its argument was *"a step
+  that made as many things as there are asks resting on it made something for
+  each of them"* — arithmetic about CARDINALITY, silent about CORRESPONDENCE.
+  One ask and one thing made is the case it was written for and is exactly the
+  case above. The branch, the `asked` bag, the `heard` bound and the `resting`
+  map all go; `requirementOutcomes` no longer computes the map at all.
+- **THE ASSOCIATION THAT ANSWERS ALREADY EXISTED**: `{kind, name}` — the
+  requirement's own `item`, resolved against the applied items by identity.
+  Driven: a hand-off naming `gallery` against the gallery code reads `found` /
+  `applied` / *"I've set that up"*, and against a Wi-Fi code reads **`missing`**,
+  which is the actionable answer rather than the reassuring one.
+- **WHERE IT IS MISSING THE ANSWER IS `unknown`**, which says *nothing here can
+  establish whether the implementation is there* — true, and the uncertainty the
+  owner asked to preserve.
+- **⚠ THE GAP IS NAMED RATHER THAN CLOSED, because it is a capability call.**
+  `qr`, `three` and `photo` are the three kinds off `REQUIREMENT_ADDS`, so their
+  tools carry no `requirements` property and a step that makes a code CANNOT
+  echo the id `requirementBrief` handed it. On today's tools the association for
+  a QR hand-off can therefore only come from the page designer naming a code
+  whose name it cannot know — so run 51's own shape reads `unknown`. Closing it
+  is one flag (`requirements: true` on those kinds), **measured at +3,579
+  characters on a 2,228-character tool**, and it would also let those steps
+  RAISE needs, which is more than was asked for. The owner's call.
+
+**2. THREE THINGS THE FRAME READER GOT WRONG, all reproduced.** An object
+literal inside a **line, block or jsdoc comment** counted as a picture space a
+visitor can see; a **FILLED entry with a quoted `"src"` key** came back
+`value: "", empty: true` — a photograph the owner paid for, offered as a space
+nothing can fill — while a quoted `"alt"` was missed altogether; and a `.map`
+over a runtime array was counted as **exactly one**.
+
+- **THE SCAN RUNS ON THE CODE.** `codeOnly` blanks comments in ONE pass that
+  tracks strings and comments together, which is the only order correct in both
+  directions: this repository's recorded trap is a `/*` inside a LINE comment
+  opening a block that runs thousands of characters, and its mirror is the `//`
+  inside every `href="https://…"` on every page. Both are driven as CONTROLS.
+  **`codeOnly` is EXPORTED and its length-preservation asserted**, because
+  everything downstream reads the blanked copy and nothing there can tell
+  blanking from deleting — two sweep survivors said so.
+- **A KEY IS `src`, `"src"` OR `'src'`, FROM ONE DEFINITION.** `OBJ_START`
+  already admitted a quoted key, so the object was FOUND and then read by a
+  grammar that could not see its keys — which is why the failure was a wrong
+  number rather than a missing one. The character before it is still the wall.
+- **A RUNTIME ENTRY MAKES THE TOTAL A FLOOR, never drops it.** A mapped gallery
+  really does put spaces on the page, so it is counted and the number is handed
+  over as a minimum: `listPhotosMin` on the reply, *"at least 6 picture spaces"*
+  in the browser. **The walk goes out through EVERY unclosed bracket** — a
+  correction the sweep bought, since stopping at a `[` called
+  `ROWS.map((r) => ({shots: [{…}]}))` exact — and the BALANCE is what keeps that
+  sound: a call whose parentheses closed before the object is balanced on the
+  way out, so the only `(` reachable unclosed is one the object really sits in.
+- **FALSE-ALARM RATE ZERO, MEASURED THE ONLY WAY IT CAN BE**: every generated
+  page the platform has, read before and after. **320 frames in 60 of 324 files,
+  0 filled, 0 runtime — byte-identical on both sides**, and the wide walk
+  answers the same as the narrow one. So the three fixes fire on the shapes that
+  were wrong and on nothing else; `runtime === 0` is asserted in the corpus case
+  so a widening that started flagging ordinary literal galleries would turn
+  every exact count into a floor in silence.
+
+**Guards**: `requirement-coverage` **34** (three cases re-anchored onto the
+property and one REPLACED by the reproduction — the count is gone, so the old
+fixtures' arms answer alike and discriminate nothing), `addon-route` **132 →
+134** (the Wi-Fi reproduction with the control that the RIGHT code answers the
+same way, and the mapped gallery said as a floor), `site-picture` **61 → 65**,
+`site-images` **78 → 79**, `site-apply` re-anchored onto the pair.
+**Five older guards re-anchored, not appeased**, each naming the property that
+moved — and two of them had become VACUOUS rather than wrong: `notEqual(…,
+"made")` is satisfied by every answer once that state is gone, so both now
+assert `found` + `foundIn: "existing"`, which is the distinction they were
+always about.
+
+**Sweep: 33 mutants, 33 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/three-corrections.json`, over
+`builder/site-requirements.mjs`, `builder/site-picture.mjs`, `worker.js`,
+`public/chat.js` and `builder/site-images.mjs`, against eight test files — a
+narrow list can only produce a false SURVIVOR, never a false kill). **Pass 1
+read 32/23/9 and not one survivor was the product's**: seven were gaps in this
+round's own guards, one was a vacuous case of mine and one was an inert mutant.
+Three are worth keeping as rules:
+
+- **⚠ THE `dataSrc` CASE WAS VACUOUS AND THE CAPITAL IS WHY.** `dataSrc` carries
+  a capital S, so a lowercase `src` needle never matches inside it and the case
+  asserting the character-before-the-key wall could not fail. **`image_src` is
+  the snake_case shape that discriminates**; both are kept, the second declared,
+  because the camelCase one is what a model really writes.
+- **⚠ THE `flatMap` CASE WAS DECIDED BY ITS INNER `.map`.** The fixture wrapped
+  one in the other, so the answer came from the inner call and taking `flatMap`
+  off the list changed nothing.
+- **⚠ AND TWO SURVIVORS WERE A PROPERTY WITH NO READER**, not a gap: `codeOnly`'s
+  length-preservation is invisible to every caller in the module. The answer was
+  to give it one rather than to hunt it.
+
+**Suite 6,873** — 6,866 + 6 + 1, **and the arithmetic closes exactly against a
+baseline measured in a detached worktree** (392 → 398 over the five files) rather
+than subtracted from a paragraph.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN, AND fal VERIFICATION STAYS PARKED.**
+
 #### What the addon can do, measured end to end (2026-09-19)
 
 Owner: *"Review the remaining addon capabilities end to end… what customers can
@@ -10020,9 +10139,38 @@ before the job that runs it, all before the page that shows them.
 
 **WHAT IS UNSUPPORTED, and the honest reason for each:**
 
-- **A photograph the site ALREADY has cannot be placed on a new page.** The
-  writer is told the count and never the urls. Run 51's six blank frames are
-  exactly this.
+- **⚠ "A photograph the site already has cannot be placed on a new page" WAS
+  WRONG AND IS CORRECTED (owner, 2026-09-19: *"Existing URLs can already reach
+  the writer through page source, and reuse is accepted."*).** Both halves are
+  right and the line above them was written from reading the directive rather
+  than driving the path. **Measured**: a `/u/` url copied onto a new page passes
+  `keptImages` (`{ok: true, lost: []}` — reuse ADDS, and the wall asks about
+  losses), survives `applyImages` **byte-identical** (the sweep rewrites unbought
+  `@@IMG:` tokens and a real url is not one), and publishes; `shownPhotos` then
+  answers the same DISTINCT count, so a picture drawn twice is one picture and
+  no new spend. **The capability is there.** What is missing is two other things,
+  and naming them apart is the point:
+  - **GUIDANCE.** `keepClause` states the COUNT and forbids replacing or
+    removing — *"they stay exactly as they are — do not replace one, and do not
+    remove it"* — and says nothing about showing one again; the sentence beside
+    it, *"Any picture this change adds stays a `<SafeImage>` with an empty src"*,
+    reads literally as an instruction to leave a new page's picture empty even
+    when the picture is one the site already owns. **Measured: the directive
+    contains no `/u/` url at all.**
+  - **CONTEXT, and only on a large site.** The inventory is SITE-WIDE
+    (`photoInventory` over every page and component) while the source the writer
+    is shown is BOUNDED by `priorPagesSent` — so a photograph on a WITHHELD page
+    is counted in the sentence and its url never reaches the writer. Driven.
+    **Unreachable today: 0 of 100 corpus sites exceed `MAX_PRIOR_CHARS`, the
+    largest being 50,646 characters**, so this arrives by growth.
+  **NOT FIXED HERE, and the risk is why**: the obvious guidance ("you may show
+  one again") invites an INVENTED `/u/` path, which nothing validates —
+  `keptImages` sees only losses and `applyImages` does not check — so it would
+  publish as a broken image. The wall for that is capability work and is the
+  owner's call. `test/site-images.test.mjs` pins both measurements so the
+  assessment cannot drift again. **Run 51's six blank frames are a separate
+  thing**: the page writer had a gallery band to fill, no shot list, and no
+  sentence inviting reuse.
 - **An `api` cannot say where its credential comes from.** A required secret
   reaches the owner as a bare name (`WEATHER_KEY`) with nothing saying where to
   get one, and `params` is a name allow-list with **no types and no required

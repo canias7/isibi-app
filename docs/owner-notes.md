@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-19 — Three corrections: the QR count, the frame reader, and what I got wrong about photo reuse
+
+All three reproduced before anything was touched. **No paid run, nothing merged,
+nothing deployed, and the photograph test stays parked until fal is funded.**
+
+### 1. The count was answering a question it could not answer
+
+You were right, and the reproduction is one sentence: I ask the QR step for *"a
+code that opens the gallery page"*, it makes a **Wi-Fi code instead**, and the
+reply said **"I've set that up"**. It did that because the reader was counting —
+one thing asked for, one thing made, so something must have been done. That is
+arithmetic about how MANY, and it says nothing about WHICH. The gallery case and
+the Wi-Fi case came back identical, which is the proof it was never looking at
+the codes at all.
+
+The count is gone. What answers now is the requirement naming its own thing, and
+then it really does separate them: naming the gallery code gets *"I've set that
+up"*, and the same request against a Wi-Fi code gets **"Still to do"** — which is
+the useful answer.
+
+**Where nothing names it, you get "I can't see from here whether…"** — which is
+honest, and is what you asked for. **One consequence you should know about**:
+that is what run 51's own hand-off gets now, because the QR step has no way to
+say *"this code is the one you asked for"* — its tool carries no field for it.
+Giving it one is about 3,600 characters on a 2,200-character tool and would also
+let it raise new requirements, which is more than a correction. **Your call**,
+and it is written down either way.
+
+### 2. Three things the picture-space counter got wrong
+
+- **A comment counted.** `// { alt: "a stray note", src: null }` was read as a
+  picture space on the page. All three shapes — line, block and jsdoc.
+- **Your own photograph read as an empty space.** An entry written
+  `{ "src": "/u/…" }` — quoted key, which is ordinary code — came back as a
+  space nothing can fill. That is a picture you paid for, reported missing on a
+  page that draws it.
+- **A gallery built from a list was counted as one.** If the page maps over an
+  array, one line of code draws however many boxes that array holds, and nobody
+  reading the code can know the number.
+
+Fixed: the scan runs on the code with comments blanked, the key grammar accepts
+all three ways of writing a key, and a list the browser decides makes the number
+a **floor** — you get *"at least 6 picture spaces"* rather than a figure I cannot
+stand behind.
+
+**And I checked it against every page the platform has ever generated** — all 324
+across your 100 sites. The reading is **identical before and after**: 320 spaces
+in 60 files. So the fixes only touch the shapes that were wrong.
+
+### 3. I was wrong about reusing a photograph
+
+I wrote that a photograph your site already has **cannot** be put on a new page.
+That is not true, and you spotted it. I drove the whole path: a picture's address
+copied onto a new page passes every check, survives untouched, and publishes.
+**The capability is there.** What is missing is two smaller things:
+
+- **Nothing tells the writer it may.** It is told *how many* photographs the site
+  has and that it must not replace or remove one — and the next sentence says any
+  picture it adds stays empty, which reads as *leave it blank*. The addresses
+  themselves are never in the instructions.
+- **On a big site it could not anyway.** The count covers the whole site, but the
+  page source shown to the writer is capped — so a photograph on a page that got
+  left out is counted and its address never arrives. **Not something you can hit
+  today**: your largest site is 50,646 characters against a 90,000 cap.
+
+**I have not changed the wording**, and the reason is a risk: tell a model it may
+reuse a picture and it may **invent** an address, which nothing checks and which
+would publish as a broken image. The wall for that is real work. Recorded for you
+to decide.
+
+### Checks
+
+Suite **6,873**, mutation sweep **33/33 with 0 survivors** (two passes; not one
+survivor at any point was the product's). Every number measured after the run.
+
+---
+
 ## 2026-09-19 — Run 51's two defects, and an honest list of what the addon can do
 
 Both fixed, both reproduced first from the page run 51 really published. **No
