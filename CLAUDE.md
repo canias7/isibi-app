@@ -8056,6 +8056,185 @@ available in either direction.
 **NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
 as for the last four. No paid call was made and no demo site was touched.
 
+### THE FUNCTION LANGUAGE THE ENGINE ALREADY SUPPORTED (2026-09-19)
+
+Night queue item 2, and the recorded gap was stated as two hops. **Traced, it
+was four** — the fourth is the one nothing had found:
+
+| hop | what it did |
+|---|---|
+| tool | `FUNCTION_ITEM` had no `language`, so a designer could not say it |
+| cleaner | `cleanAdd` REBUILDS the item, so a declared one was binned |
+| **fold** | **`foldAdds` REBUILDS IT AGAIN** |
+| storage | `_meta.functions` kept `{name, args, returns, internal}` |
+
+**THE FOLD IS THE HOP A MODULE TEST CANNOT SEE, and the route case is what
+found it**: the tool, the cleaner and `proposedSpec` were all correct and the
+DDL still read `LANGUAGE sql`. It is SUBTRACTIVE now (`const { exists, ...fn }
+= v`), which is why the api tier beside it took three new properties this week
+with no change at all. **`job` is still additive and is NAMED in the code as
+the remaining instance of the class.**
+
+**`FN_LANGUAGES` LIVES BESIDE THE EMITTER** (`site-rls.mjs`, next to
+`functionSql`), and `fnLanguage` is the ONE reader — the normaliser and the
+emitter had a copy each of the same ternary. The tool's enum is DERIVED from
+it, so it cannot offer a language the DDL will not write.
+
+**TOLERANT READER, REFUSING CLEANER** — the `normalizeApi`/`cleanShape`
+precedent. A stored spec re-applies through `normalizeSchema` on every later
+change and must not fail over one unreadable word; at the moment a person
+asked, `cleanAdd` refuses `bad-language` BY NAME, because a body written for
+plpgsql and silently created as SQL fails at CREATE with nothing pointing back
+at the dropped word. **Absent stays absent — the KEY, not just its value**,
+since the objects are what `auditTier`, `keptItem` and `appliedFacts` read keys
+off.
+
+**`language` WAS THE `unexpressed` BUCKET'S ONE PRODUCT INSTANCE.** Measured
+across all four tiers, nothing is left in it.
+
+**PROVEN ON A REAL POSTGRESQL 16** — `test/integration/local-pg-language.mjs`,
+**11 checks, 0 failed**, nothing typed (the DDL comes out of `applySiteSchema`
+through the `fetch` seam): the same body declared `sql` is REFUSED (*syntax
+error at or near "int"*), created as plpgsql it ANSWERS 30 over rows the probe
+inserted, `pg_proc` agrees the live function is plpgsql, and **SECURITY DEFINER
+and `search_path = public, pg_temp` both survive**. Guards: `addon-route`
+144 → 147. Suite 6,905.
+
+### A SUPPLIED MEDIA URL REACHES ITS COMPONENT (2026-09-19)
+
+Night queue item 3, and **the trace found the capability already there.**
+`video-embed`, `video-player`, `video-hero`, `audio-player` and
+`audio-recorder` are ALL in `COMPONENT_MENU`, and `siteComponentApi` already
+hands the page writer their exact props — measured through the route:
+`VideoEmbed(url, title? = "Video", ratio? = "16/9")`, `VideoPlayer(src,
+poster?, captions?: {src,label,lang,default?}[], title?)`, `AudioPlayer(src,
+title?)`. **No field carries the url**: it rides the customer's own sentence
+and the designer's `does`, and both reach the page prompt.
+
+**⚠ AND THE PLATFORM CANNOT HOST AUDIO OR VIDEO**, which decides the shape
+rather than being a footnote: `UPLOAD_EXTS` is png · jpg · webp · gif · pdf ·
+the zip family, so a supplied sound file is ALWAYS somebody else's origin and
+every `/u/`-scoped wall is out of its way. An INVENTED hosted url is emptied by
+the stray wall — correctly, because no such object can exist.
+
+**⚠ ONE REAL DEFECT, MEASURED BOTH WAYS. `<AudioPlayer src>` and `<VideoPlayer
+src>` are both `src`, so `shownPhotos` COUNTED THEM**: a site showing one
+photograph beside them answered `count: 3` and offered a sound file and a film
+for a page writer to copy into a `<SafeImage>`. **The reuse list is an
+INVITATION, so being wrong there propagates the mistake onto the next page.**
+The `src`/`href` rule was half the question; `IMAGE_EXTS` is the other half and
+is DERIVED in `site-uploads.mjs` from that file's own two definitions — what
+either sniffer mints, less what `uploadIsImage` calls a document — so there is
+no third list to drift. **THE REACHABLE HALF IS THE PDF, not the media**: a
+`/u/` media url can only be one a model invented, while a PDF really can be
+uploaded and written into a `src`. `keptImages` STAYS WIDE on `photoUrls` — the
+loss wall asks what the customer PAID FOR, not what renders.
+
+**AND THE RECORDED `data-slot` DEFECT IS CLOSED.** `video-embed` stamped one on
+its FALLBACK branch alone, so a video that WORKS was invisible to the
+`data-slot` census and the css lane and **only a BROKEN one showed up** — both
+consequences exactly backwards. One attribute on the success branch's outer
+div. The three components a supplied url ends at are DRIVEN with
+react-dom/server over the real template files: both branches countable, the
+privacy hosts across five URL shapes with **the TRACKING host asserted ABSENT**
+(rendering the right embed beside the wrong one passes a substring check and
+sets the cookie anyway), both `<track>` elements with their labels and langs,
+and **`playsInline` — without which iOS takes the video fullscreen, invisible
+on every desktop browser used to build the page.** Sweep 17/17/0, 2 controls.
+Suite 6,913 then 6,918.
+
+### A SCENE AND A PHOTOGRAPH CAN ANSWER FOR THEMSELVES (2026-09-19)
+
+Night queue item 4. `three` and `photo` carry `requirements` now, so each can
+raise a gap and echo an id its brief already handed it. **Verified first**:
+`addTool("three").input_schema.properties` was `["three"]` and `photo`'s was
+`["photo"]` — both briefs reached them and neither had anywhere to answer.
+
+**THE IDENTITIES ARE THE KINDS' OWN.** A scene's name IS the kind
+(`SINGLE_FIELDS` allows one per site); **a photograph's is its PLACEMENT** —
+the designer answers `{page, describe}` and the url is minted by the provider
+after it has spoken, so the route it lands on is the only identity that exists
+before the picture does. `aPhotoMade` is computed off the PUBLICATION, so a page
+the merge withheld contributes nothing.
+
+**DECLARED AND ON-THE-PAGE ARE TWO FACTS FOR A SCENE, and they come apart
+structurally**: `three` is a stored look field decided by the design step, and
+the canvas is written by the page step. `sceneOn` lives beside `sceneDirective`
+— the reader beside what it orders — and requires **both** the import and the
+element, the conservative direction; `fails: ["onpage"]` when declared and drawn
+nowhere, so a claim that it shows on the page is CONTRADICTED rather than
+quietly reading as configuration. Measured: the 100-site corpus has zero of
+either marker, so it fires on nothing that exists today.
+
+**⚠ AND THE FOLLOW-UP ROUND FOUND A PRODUCT DEFECT IN ITS OWN NEW GUARD'S
+SUBJECT.** `existingFacts` tested `imageRefs(p.source, slug).length` — and
+**`imageRefs` answers a Set, whose `.length` is `undefined`**. The branch was
+falsy for every page on every site, so **the site's own photographs had never
+once been enumerated**. It is the worst-shaped version rather than a quiet one:
+`speaks("photo")` fired regardless, so `photo` read as an ENUMERATED kind with
+an empty inventory — a customer's claim about a picture the site has had for
+months came back *"Still to do"*, which means **we looked and there are none**,
+on evidence nobody had collected.
+
+**TWO SWEEP SURVIVORS, both gaps in that round's own guards:** `sceneOn` had NO
+direct case anywhere (only exercised transitively, and every route fixture
+happened to carry both halves of its test), and **the scene-off-publication case
+was VACUOUS** — it handed the writer bare markup with no `createFileRoute`
+export, so `validatePages` REFUSED it and the canvas never reached the merge.
+Its precondition (*nothing compiled carries a Canvas*) is satisfied just as well
+by a page dropped at validation as by one reverted. **A negative precondition
+must name the mechanism it relies on.**
+
+`checked` stays empty everywhere: a placement read back off what was published
+is configuration; nothing here loads an image or starts a WebGL context.
+**Sweep 28/28/0, 2 controls — and RE-RUN on the night's final tree (pass 3,
+2026-09-19), same tally**, so the two closures hold against everything shipped
+after them. Suite 6,924 then 6,927.
+
+**RECORDED, NOT FIXED**: a request for a page AND a second scene is refused
+whole, before any model call — the page was possible and is not built. That is
+refusal GRANULARITY, not a wiring failure, and it is asserted as it really
+behaves with a control that goes red if it changes.
+
+### KIE.AI AS A SECOND IMAGE PROVIDER — A PROPOSAL (2026-09-19)
+
+Night queue item 7, and it is a PROPOSAL: **no paid call, no key, no model
+chosen.** What it settles is what such a change would have to be, read out of
+Kie's own documentation and this repository's code rather than recalled.
+
+**THE SEAM IS ONE FUNCTION.** `genSitePhoto` is the whole of where a photograph
+enters this platform — the build path and the addon path both reach it and
+nothing else calls a provider — so a second provider is
+`builder/site-photo-provider.mjs` behind `env.PHOTO_PROVIDER`, defaulting to
+`fal`, with `KIE_KEY` carrying a `|| fallback` because an optional secret that
+does not is a deploy that fails whole.
+
+**WHAT THE DOCUMENTATION SAYS, AND WHAT IT DOES NOT.** One async job protocol
+(`createTask` → `recordInfo`), `state` ∈ waiting|queuing|generating|success|fail,
+and `resultJson` is a STRING of JSON rather than an object. **⚠ The docs' own
+success example carries `code: 505`**, so `code === 200` is the wrong success
+test and `state` is the field to read. `seedream/5-lite-text-to-image` documents
+**NO price, NO credit rate, NO rate limit and NO url expiry** — stated as
+absences rather than filled in with a guess, with the charge analysis given as
+three quantities and the arithmetic left open where the input is unknown.
+
+**POLLING, NOT THE CALLBACK, and the reason is a POSTURE rather than a
+preference**: no callback signature is documented, and a public endpoint nobody
+can authenticate would be an unauthenticated inbound request **that causes a
+spend to be recorded**. Both of this platform's existing inbound webhooks verify
+(Stripe's `hmacHex` and its `t=…,v1=…` header; a site's own through
+`site-inbound.mjs`). A third that cannot would be a new posture, not a new route.
+
+**AND THE PROVIDER'S URL IS NEVER STORED** — every photograph here is fetched and
+re-hosted under `/u/<slug>/`, which makes an undocumented expiry a non-question
+rather than a risk to accept. `aspect_ratio` on the 5-lite model carries our
+`IMAGE_ASPECT` (`"4:3"`) exactly; Seedream 4.0 takes `image_size` +
+`image_resolution` and would need a translation table — worth knowing before the
+model is picked, **which is the owner's call and is not made here.**
+
+**RECOMMENDATION: build behind the flag, default `fal`, and let the first Kie
+call be the owner's press.**
+
 ### A JOB CAN RUN ONCE AND THEN NEVER AGAIN (2026-09-19)
 
 Owner's night queue, item 5: native one-time scheduling. Until now `JOB_ITEM`

@@ -14163,6 +14163,54 @@ wrote down what happened — the tally that stands is the clean one.
 
 Nothing merged, nothing deployed, nothing spent. Fal is still parked.
 
+## Four smaller pieces from the same night — 2026-09-19
+
+Written up here late because the entries went into the code notes and not into
+this file at the time. All four are on the branch, none is merged.
+
+**A function can say which language it is written in.** The database engine has
+always supported two ways of writing a function; the add-on could not carry the
+choice, so it silently made everything the simpler kind — and a function written
+for the other one fails at creation with nothing pointing back at the word that
+was dropped. I traced the whole route and it was **four** places losing it, not
+the two the note said. The fourth was one no isolated test could have seen; only
+running a real customer request end to end found it. Proven against a real
+PostgreSQL: the same function refused one way, working the other, and 30 rows
+counted correctly.
+
+**Video and audio turned out to already work.** The note said this was missing.
+It was not — all five media components are in the library and the page writer
+already gets their exact settings. What the trace found instead was a real
+mistake next door: **a sound file and a film were being offered to the page
+writer as photographs to reuse**, because the code counted anything with a `src`
+as a picture. A site with one photo was telling the next page it had three. Now
+only pictures are offered. A second thing: a working video was invisible to our
+own tooling and only a *broken* one showed up, which is exactly backwards; one
+line fixed it.
+
+Worth knowing: **we cannot host video or audio.** A customer supplies a link to
+one somewhere else. Images and PDFs we host; media we do not.
+
+**3D scenes and photographs can now report on themselves.** They were the last
+two kinds that could be asked for something and had no way to answer. And
+chasing it found a real one-character bug: the code asking *"what photographs
+does this site already have?"* was reading the wrong property and got nothing,
+every time, on every site. So a customer asking about a picture their site has
+had for months was told **"Still to do"** — which means *we looked and there are
+none* — on the strength of a look that never happened.
+
+**Kie.ai — a written proposal, nothing built and nothing spent.** You asked what
+a second image provider would take. The short answer is that it is a small
+change: there is exactly one place in the whole platform where a photograph
+comes in, so a second provider goes behind a switch there, defaulting to what we
+use now. Their documentation is missing four things I would want before
+switching anything on — price, credit rate, rate limit, and how long their image
+links last — and I have written those down as **unknown** rather than guessing.
+My recommendation is to build it behind the switch and let the first real call
+be your press.
+
+Nothing merged, nothing deployed, nothing spent. Fal is still parked.
+
 ## A reminder that goes out once — 2026-09-19
 
 You asked for jobs that run once. Until tonight there was no way to say it: a
