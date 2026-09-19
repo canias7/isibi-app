@@ -2804,6 +2804,12 @@ async function agentAutoSave() {
 
   const { gen, ...sent } = values;
   void gen;
+  // ⚠ **WHAT THIS FORM HAS NO CONTROL FOR, CARRIED FORWARD FROM THE STORED ROW — read here,
+  // synchronously, before anything awaits**, so a list that reloads mid-save cannot change what
+  // is being preserved. Only on the EDIT branch: a create has no stored automation, so there is
+  // no binding to preserve and `agentAutoRow()` is `null` there by construction — spreading it
+  // on both would be a provably empty object beside a real one.
+  const keeps = agentAutoKeeps(agentAutoRow());
   const bound = agentBind();
   const editing = agentAutoEditing;
   const forAgent = agentAuto;
@@ -2819,7 +2825,7 @@ async function agentAutoSave() {
       // should say what it means, and a server reading a field nobody meant to send is
       // how a field ends up load-bearing by accident.
       body: JSON.stringify(editing
-        ? { id: editing, ...sent }
+        ? { id: editing, ...sent, ...keeps }
         : { agent: forAgent, ...sent }),
     });
     const j = await res.json().catch(() => ({}));
@@ -3628,6 +3634,48 @@ function agentAutoUnshowable(row) {
   return s && AGENT_FORM_SCHEDULES.indexOf(s) < 0 ? s : '';
 }
 
+/**
+ * ⚠ **THE TRIGGER FIELDS THIS FORM HAS NO CONTROL FOR AND THEREFORE MUST NOT DROP — the row's
+ * name to the WIRE's name, in one declaration, so the two cannot become two lists.**
+ *
+ * An event is not a schedule: `cleanSchedule` answers `onEvent` for EVERY schedule, on purpose,
+ * because "every morning AND whenever a payment lands" is a thing somebody wants. So a `manual`
+ * or `daily` automation can carry one, the schedule wall above correctly says nothing about it
+ * (that schedule really is showable), and the save went through with no such field in the body —
+ * into `update_automation`, whose `on_event = p_on_event` is a straight assignment. **Renaming an
+ * automation that listens stopped it listening.**
+ *
+ * **PRESERVING IS THE ANSWER HERE AND REFUSING IS THE ANSWER ABOVE, and the difference is which
+ * way the form is wrong.** A stored `weekly` makes the `<select>` answer `manual` — a WRONG value,
+ * which no amount of carrying other fields forward repairs, and `cleanSchedule` drops `days` for a
+ * manual schedule anyway. An event has no control to answer wrongly; it is simply absent, and
+ * absent is repaired by carrying what is stored.
+ *
+ * **`days` AND `onDate` ARE DELIBERATELY NOT ON THIS LIST.** The refusal above stops those saves
+ * before this is reached, so an entry for either would be unreachable by construction — and the
+ * census in `test/agent-binding.test.mjs` requires every name here to be one the form really has
+ * no control for, so a field that gains one cannot stay and become a dead control.
+ */
+const AGENT_FORM_KEEPS = { onEvent: 'on_event' };
+
+/** What a save must carry forward from the stored row, already under the names the server reads. */
+function agentAutoKeeps(row) {
+  const out = {};
+  for (const field in AGENT_FORM_KEEPS) {
+    // ⚠ CANNOT-TELL IS NOT A VALUE. `automationRow` already fails a binding it cannot read
+    // closed to `null`; a non-string reaching the wire would be refused by the server with a
+    // sentence about an event name nobody typed.
+    const v = row && typeof row[field] === 'string' ? row[field] : '';
+    if (v) out[AGENT_FORM_KEEPS[field]] = v;
+  }
+  return out;
+}
+
+/** How an event binding this form cannot change reads to a person, or `''` when there is none. */
+function agentAutoListensFor(row) {
+  return row && typeof row.onEvent === 'string' ? row.onEvent : '';
+}
+
 /** How a schedule this form has no control for reads to a person. */
 function agentSchedWord(s) {
   if (s === 'weekly') return 'on chosen days of the week';
@@ -3668,6 +3716,17 @@ function automationFormHtml(agent) {
       // people, and it is what the arithmetic really does.
       '<div class="ag-hint">The time is local to that zone, so it stays at the same clock time when the clocks change.</div>' +
     '</div>' +
+    // ⚠ **A SECOND WAY IN, SAID OUT LOUD — because without it this panel reads as a
+    // complete account of what starts the automation and it is not one.** Its own line rather
+    // than folded into the either/or above, since an event is independent of the schedule: both
+    // can be true at once. The save PRESERVES it (see `AGENT_FORM_KEEPS`); this sentence is what
+    // stops the preservation being invisible, and it names the chat because that is where
+    // `change_automation` can really change it.
+    (agentAutoListensFor(cur)
+      ? '<div class="ag-hint">It also listens for ' + esc(agentAutoListensFor(cur)) +
+          ' — that starts it as well, whatever the box above says. This form can’t change ' +
+          'that yet, and saving from here leaves it exactly as it is; ask the agent in the chat to change it.</div>'
+      : '') +
 
     '<label class="ag-lbl">What it asks for</label>' +
     '<div class="ag-hint">Optional. Anything you name here is filled in when you press Run now, and a step can use it by putting {{the name}} in its own text.</div>' +

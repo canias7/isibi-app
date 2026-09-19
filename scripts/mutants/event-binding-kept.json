@@ -1,0 +1,81 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the list of what a save must carry forward",
+  "control": true,
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_KEEPS = { onEvent: 'on_event' };",
+  "to": "// the row's name to the wire's name\nconst AGENT_FORM_KEEPS = { onEvent: 'on_event' };"
+ },
+ {
+  "label": "⚠ THE DEFECT: the save carries nothing forward, so an unrelated edit clears the event",
+  "files": ["public/chat.js"],
+  "from": "        ? { id: editing, ...sent, ...keeps }",
+  "to": "        ? { id: editing, ...sent }"
+ },
+ {
+  "label": "⚠ the binding goes out under a name the server does not read",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_KEEPS = { onEvent: 'on_event' };",
+  "to": "const AGENT_FORM_KEEPS = { onEvent: 'onEvent' };"
+ },
+ {
+  "label": "nothing is preserved at all",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_KEEPS = { onEvent: 'on_event' };",
+  "to": "const AGENT_FORM_KEEPS = {};"
+ },
+ {
+  "label": "a field that HAS a control is preserved too, so that control is dead",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_KEEPS = { onEvent: 'on_event' };",
+  "to": "const AGENT_FORM_KEEPS = { onEvent: 'on_event', name: 'name' };"
+ },
+ {
+  "label": "⚠ the keeps are read off the FORM rather than the stored row, so the form's own gap decides",
+  "files": ["public/chat.js"],
+  "from": "  const keeps = agentAutoKeeps(agentAutoRow());",
+  "to": "  const keeps = agentAutoKeeps(agentAutoForm());"
+ },
+ {
+  "label": "⚠ a CREATE carries the first listed row's binding, which is another automation's",
+  "files": ["public/chat.js"],
+  "from": "        : { agent: forAgent, ...sent }),",
+  "to": "        : { agent: forAgent, ...sent, ...agentAutoKeeps((agentAutoRows || [])[0]) }),"
+ },
+ {
+  "label": "a binding it cannot read is carried anyway, so a non-string reaches the wire",
+  "files": ["public/chat.js"],
+  "from": "    const v = row && typeof row[field] === 'string' ? row[field] : '';",
+  "to": "    const v = row ? row[field] : '';"
+ },
+ {
+  "label": "an absent binding is sent as a key anyway, so absent and empty stop being one answer",
+  "files": ["public/chat.js"],
+  "from": "    if (v) out[AGENT_FORM_KEEPS[field]] = v;",
+  "to": "    out[AGENT_FORM_KEEPS[field]] = v;"
+ },
+ {
+  "label": "⚠ the form does not say the automation listens, so the panel reads as the whole story",
+  "files": ["public/chat.js"],
+  "from": "    (agentAutoListensFor(cur)\n      ? '<div class=\"ag-hint\">It also listens for '",
+  "to": "    (false && agentAutoListensFor(cur)\n      ? '<div class=\"ag-hint\">It also listens for '"
+ },
+ {
+  "label": "the form claims a binding on an automation that has none",
+  "files": ["public/chat.js"],
+  "from": "    (agentAutoListensFor(cur)\n      ? '<div class=\"ag-hint\">It also listens for '",
+  "to": "    ('order.paid'\n      ? '<div class=\"ag-hint\">It also listens for '"
+ },
+ {
+  "label": "the sentence does not say where the event CAN be changed",
+  "files": ["public/chat.js"],
+  "from": "'that yet, and saving from here leaves it exactly as it is; ask the agent in the chat to change it.</div>'",
+  "to": "'that yet, and saving from here leaves it exactly as it is.</div>'"
+ },
+ {
+  "label": "a binding the reader cannot read is drawn as one",
+  "files": ["public/chat.js"],
+  "from": "  return row && typeof row.onEvent === 'string' ? row.onEvent : '';",
+  "to": "  return row ? row.onEvent : '';"
+ }
+]

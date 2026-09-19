@@ -306,6 +306,156 @@ try {
   const AU = made.id;
 
   // ═══════════════════════════════════════════════════════════════════════════
+  console.log("\n3b. THE WHOLE RECOVERY: a QUESTION, a RESTART, an answer, then a proposal");
+  // ═══════════════════════════════════════════════════════════════════════════
+  /**
+   * ⚠ **WHY THIS EXISTS BESIDE SECTION 2, WHICH IS ABOUT SOMETHING ELSE.** There the agent
+   * PROPOSED an incomplete configuration, a person approved it, and the platform refused it —
+   * which is the milestone's "missing information must not create a partially configured
+   * automation" and is worth keeping. What it is NOT is a clarification: nothing was asked,
+   * nothing was answered, and the run that eventually carried the time was a new message
+   * volunteered by the customer.
+   *
+   * This is the sequence itself — **ask, restart, answer, propose, approve** — on a FRESH agent
+   * so the conversation under test is the only one in it.
+   *
+   * ⚠ **AND WHAT IS PROVED IS THE PLATFORM CARRYING THE CONVERSATION, NEVER COMPREHENSION.**
+   * The complete arguments below are the TEST's, armed by position, exactly as every other
+   * script in this file is: a scripted sender understands nothing and must never be read as
+   * evidence that it did. The causal claim is made by asserting the CONTEXT the model was
+   * really handed after the restart — the earlier request, the agent's own question, and the
+   * new answer — because that is the part the platform is responsible for. A run that merely
+   * finishes proves the queue worked and says nothing about the turns.
+   */
+  const CLAR = (await api("/api/agent/create", {
+    body: { name: "Saturday desk", instructions: "Help with weekend enquiries.", zone: ZONE },
+  })).body.agent.id;
+  await api("/api/agent/update", {
+    body: { id: CLAR, name: "Saturday desk", instructions: "Help with weekend enquiries.",
+            tools: CAPABILITY_TOOLS.map((t) => t.name) },
+  });
+
+  // ── the clarifying question: NOTHING is proposed, so there is nothing to approve ──
+  const ASK = "Send the price list to anyone who enquires on a Saturday.";
+  const QUESTION = "What time on Saturday should it go out?";
+  const c1 = await say(CLAR, ASK, [{ text: QUESTION }]);
+  check("the first message is accepted", c1.status === 200, JSON.stringify(c1.body).slice(0, 140));
+  /**
+   * ⚠ **COUNTED, NOT MATCHED AGAINST A SENTINEL — and the first draft of this line got it
+   * wrong in a way worth keeping.** `toolOf` coalesces a tool entry's missing NAME to
+   * `"(none)"`; a run with NO tool entry at all has no row for it to coalesce, so the query
+   * answers `""`. Those are two different facts and this check is about the second, so it asks
+   * for the count. A sentinel that never appears is an assertion nobody is making.
+   */
+  const toolCalls = (runId) => Number(q(`select count(*) from agent.run_entries
+                                         where run_id='${runId}' and body ->> 'kind' = 'tool';`));
+  check("⚠ THE AGENT ASKS, AND PROPOSES NOTHING — no tool call at all",
+    toolCalls(c1.body.runId) === 0, `${toolCalls(c1.body.runId)} tool calls`);
+  check("⚠ ...so there is nothing waiting for a person, because nothing was proposed",
+    (await waiting(CLAR)).length === 0, JSON.stringify((await waiting(CLAR)).map((r) => r.tool)));
+  check("⚠ ...and nothing was created", (await autos(CLAR)).length === 0);
+  const askedQuestion = answerOf(c1.body.runId);
+  check("...and the question really is the agent's recorded answer",
+    askedQuestion.includes(QUESTION), askedQuestion.slice(0, 90));
+
+  // ── THE RESTART ────────────────────────────────────────────────────────────
+  /**
+   * ⚠ **A BRAND-NEW DISPATCHER *AND* A BRAND-NEW SCRIPTED SENDER, and the second half is what
+   * makes the assertion below mean anything.** Reusing `model` would leave the old process's
+   * own record in scope and the context could have come from anywhere; a fresh sender has seen
+   * nothing, so whatever reaches it came out of the database. This is the shape a deploy leaves
+   * behind — the old isolate gone, the conversation still on disk.
+   */
+  check("⚠ nothing is held open across the restart — the doorbell is empty",
+    rung.length === 0, `${rung.length} still rung`);
+  const after = dispatcher({ worker, rest });
+  const model2 = makeScriptedModel();
+  const deliver2 = async (runId) => {
+    let acked = 0;
+    await worker.queue({ messages: [{ body: { runId }, ack: () => { acked++; }, retry: () => {} }] },
+                       after.env, after.ctx, { send: model2.send });
+    return acked;
+  };
+  const say2 = async (agent, words, script) => {
+    model2.arm(script);
+    const sent = await api("/api/agent/send", { body: { id: agent, body: words, key: `press-${++press}` }, ring: after.ring });
+    for (const id of after.rung.splice(0)) await deliver2(id);
+    return sent;
+  };
+  check("⚠ ...and the new process has no memory of the conversation at all",
+    model2.asked.length === 0, `${model2.asked.length} calls already seen`);
+
+  // ── the customer answers, in the restarted process ─────────────────────────
+  const ANSWER = "Ten in the morning.";
+  const c2 = await say2(CLAR, ANSWER, [
+    { tool: "make_automation",
+      args: { name: "Saturday price list", schedule: "weekly", atLocal: "10:00", days: ["sat"],
+              inputs: INPUTS, steps: STEPS } },
+    { text: "Set up: Saturdays at ten, sending the price list." },
+  ]);
+  check("the answer is accepted by the restarted process", c2.status === 200, JSON.stringify(c2.body).slice(0, 140));
+
+  /**
+   * ⚠ **THE ASSERTION THIS SECTION EXISTS FOR: what the model was REALLY SHOWN after the
+   * restart.** Read off `context`, which is `journal.mjs` rebuilding the message list from the
+   * snapshot `agent.send_to_agent` wrote inside its own transaction — so it is the conversation
+   * as the database holds it, not as this process remembers it.
+   *
+   * THREE SEPARATE THINGS, and each is one a weaker reading would miss: a count of user turns
+   * is satisfied by a context that dropped every assistant turn, and the last user message is
+   * satisfied by a context with nothing before it.
+   */
+  const ctx2 = model2.asked[0]?.context || [];
+  check("⚠ the restarted run's model call carried a real conversation, not just the new message",
+    ctx2.length >= 3, `${ctx2.length} messages reached the model`);
+  const asUser = ctx2.filter((m) => m.role === "user").map((m) => String(m.content));
+  const asAgent = ctx2.filter((m) => m.role === "assistant").map((m) => String(m.content));
+  check("⚠ ...the EARLIER REQUEST is in it",
+    asUser.some((t) => t.includes("enquires on a Saturday")), JSON.stringify(asUser).slice(0, 160));
+  check("⚠ ...the agent's own CLARIFICATION QUESTION is in it, as an assistant turn",
+    asAgent.some((t) => t.includes(QUESTION)), JSON.stringify(asAgent).slice(0, 160));
+  check("⚠ ...and the NEW ANSWER is in it",
+    asUser.some((t) => t.includes(ANSWER)), JSON.stringify(asUser).slice(0, 160));
+  // AND IN THAT ORDER, because three things present in the wrong order is not this conversation.
+  const posOf = (needle) => ctx2.findIndex((m) => String(m.content).includes(needle));
+  const [pAsk, pQ, pAns] = [posOf("enquires on a Saturday"), posOf(QUESTION), posOf(ANSWER)];
+  check("⚠ ...in the order they happened: request, then question, then answer",
+    pAsk >= 0 && pQ > pAsk && pAns > pQ, `${pAsk} / ${pQ} / ${pAns}`);
+  // AND THE LAST TURN IS THE NEW MESSAGE, which is what makes it the prompt rather than history.
+  check("...and the last turn is the answer the customer just sent",
+    ctx2[ctx2.length - 1]?.role === "user" && String(ctx2[ctx2.length - 1]?.content).includes(ANSWER),
+    JSON.stringify(ctx2[ctx2.length - 1]).slice(0, 120));
+
+  // ── the complete proposal, and only then a person's yes ────────────────────
+  const wc = await waiting(CLAR);
+  check("⚠ NOW it proposes, and it holds for a person",
+    wc.length === 1 && wc[0].tool === "make_automation", JSON.stringify(wc.map((r) => r.tool)));
+  check("⚠ ...and the configuration presented is COMPLETE — it carries the time that was missing",
+    wc[0]?.args?.atLocal === "10:00" && Array.isArray(wc[0]?.args?.days) && wc[0].args.days.length === 1,
+    JSON.stringify({ at: wc[0]?.args?.atLocal, days: wc[0]?.args?.days }));
+  check("⚠ ...and STILL nothing is created before the button", (await autos(CLAR)).length === 0);
+
+  const okc = await api("/api/agent/tool-approve", { body: { id: wc[0].id, verdict: "approved" }, ring: after.ring });
+  check("the approval is accepted", okc.status === 200, `${okc.status} ${JSON.stringify(okc.body).slice(0, 120)}`);
+  for (const id of after.rung.splice(0)) await deliver2(id);
+  const clarMade = (await autos(CLAR)).find((a) => a.name === "Saturday price list");
+  check("⚠ SAVED, complete, and only after the person said yes",
+    !!clarMade && clarMade.schedule === "weekly" && clarMade.at === "10:00"
+    && JSON.stringify(clarMade.days) === '["sat"]',
+    JSON.stringify({ schedule: clarMade?.schedule, at: clarMade?.at, days: clarMade?.days }));
+  check("⚠ ...and the refusal that section 2 measured did NOT happen this time",
+    toolResult(c2.body.runId)?.ok === true, JSON.stringify(toolResult(c2.body.runId)).slice(0, 160));
+  /**
+   * ⚠ **THE CONTROL FOR "PROPOSES NOTHING", AND IT HAD TO MOVE TO BE ONE.** Asked straight
+   * after the answer it read `0 tool calls` and failed — correctly, because at that moment the
+   * call was HELD and a journal entry is written when a tool RUNS. So the counter is proved
+   * alive here, past the approval: without this, the zero above is satisfied by a counter that
+   * could only ever answer zero.
+   */
+  check("...and the counter that read zero above really can count — this run called one",
+    toolCalls(c2.body.runId) >= 1, `${toolCalls(c2.body.runId)} tool calls`);
+
+  // ═══════════════════════════════════════════════════════════════════════════
   console.log("\n4. IT RUNS, THE CUSTOMER WATCHES, AND APPROVES THE EXACT MESSAGE");
   // ═══════════════════════════════════════════════════════════════════════════
   const before = mailbox().length;

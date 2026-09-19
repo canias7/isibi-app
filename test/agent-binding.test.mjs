@@ -1882,6 +1882,97 @@ test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", asyn
   }
 });
 
+test("⚠ AN EVENT BINDING SURVIVES AN EDIT THAT IS NOT ABOUT IT", async () => {
+  // ⚠ **MEASURED BEFORE THE FIX, and it is the weekly wall's defect through a door that wall
+  // does not cover.** An event is NOT a schedule — `cleanSchedule` answers `onEvent` for every
+  // schedule, deliberately, because "every morning AND whenever a payment lands" is a thing
+  // somebody wants. So a `manual` or `daily` automation can carry one, `agentAutoUnshowable`
+  // correctly says nothing (its schedule really is showable), and the save went through:
+  //
+  //   the form's draft   : name · enabled · schedule · at · zone · steps · inputs   (no event)
+  //   the body it sent   : the same seven
+  //   `update_automation`: `on_event = p_on_event`, a straight assignment
+  //
+  // **So renaming an automation that listens for an event stopped it listening**, silently,
+  // and the run that would have fired on the next `order.paid` never came.
+  const LISTENS = {
+    ...ONE, id: "AU7", name: "Payment follow-up", schedule: "manual", onEvent: "order.paid",
+  };
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-(update|create)$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU7" }); }
+      return okRes({ agents: ROWS, automations: [LISTENS], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(LISTENS)}]; agentAutoCat = { steps: [], days: [] };`);
+  w.ev('agentAutoEditing = "AU7"; agentAutoDraft = null; agentAutoActErr = "";');
+
+  // ⚠ IT SAVES — this is not the weekly wall's case and must not become it. Refusing here
+  // would make an automation that listens uneditable, which is a worse answer than the one
+  // being fixed: the event is a field with no control, not a schedule the select lies about.
+  w.ev('agentAutoFormRead = function () {};');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, "an edit of an automation that listens was refused outright");
+
+  // ⚠ AND THE BINDING IS ON THE WIRE, UNDER THE NAME THE SERVER READS. `cleanSchedule` asks
+  // `b?.on_event` and nothing anywhere reads a camel-cased one, so `onEvent` here is a field
+  // the server ignores — which is this defect wearing a spelling.
+  assert.equal(sent[0].on_event, "order.paid",
+    "the save dropped the event binding, so `on_event = p_on_event` cleared it");
+  assert.equal(sent[0].id, "AU7");
+  assert.equal(sent[0].name, "Payment follow-up");
+
+  // AND THE FORM SAYS SO, where the controls it does have are — otherwise the panel reads as
+  // a complete account of what starts this automation, and it is not one.
+  const html = w.ev("automationFormHtml()");
+  assert.match(html, /order\.paid/, "the form does not say the automation listens for an event");
+  assert.match(html, /ask the agent in the chat/, "it does not say where the event CAN be changed");
+
+  // ⚠ THE CONTROL, and without it "the field was carried" is satisfied by carrying it always:
+  // an automation with NO binding must not gain an `on_event` key, because `null` and absent
+  // are both "no event" and a key nobody meant to send is how one becomes load-bearing.
+  const quiet = { ...ONE, id: "AU6", schedule: "daily", at: "09:00", zone: "Europe/London" };
+  w.ev(`agentAutoRows = [${JSON.stringify(quiet)}]; agentAutoEditing = "AU6"; agentAutoDraft = null; agentAutoActErr = "";`);
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2);
+  assert.ok(!Object.hasOwn(sent[1], "on_event"),
+    "an automation with no event binding invented one on the wire");
+  const quietHtml = w.ev("automationFormHtml()");
+  assert.ok(!/listens for/.test(quietHtml), "it claims an event on an automation that has none");
+
+  // ⚠ AND A CREATE CARRIES NOTHING, for `agentAutoRow()`'s own reason: there is no stored
+  // automation, so there is no binding to preserve and nothing to read one off.
+  w.ev('agentAutoEditing = null; agentAutoActErr = "";');
+  w.ev('agentAutoDraft = { name: "New one", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", steps: [], inputs: [], gen: 0 };');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 3);
+  assert.ok(!Object.hasOwn(sent[2], "on_event"), "a create invented an event binding");
+
+  // ⚠ AND A BINDING THAT CANNOT BE READ IS NOT CARRIED. `automationRow` already fails it
+  // closed to `null`; a non-string reaching the wire would be refused by the server with a
+  // sentence about a name nobody typed.
+  assert.deepEqual(JSON.parse(w.ev("JSON.stringify(agentAutoKeeps({ onEvent: 7 }))")), {});
+  assert.deepEqual(JSON.parse(w.ev("JSON.stringify(agentAutoKeeps(null))")), {});
+  assert.deepEqual(JSON.parse(w.ev('JSON.stringify(agentAutoKeeps({ onEvent: "order.paid" }))')),
+    { on_event: "order.paid" });
+  // AND THE SENTENCE FAILS CLOSED THE SAME WAY, so a binding nobody can read is not drawn as
+  // one: `esc(7)` would put "It also listens for 7" on the panel.
+  assert.equal(w.ev("agentAutoListensFor({ onEvent: 7 })"), "");
+  assert.equal(w.ev("agentAutoListensFor(null)"), "");
+  assert.equal(w.ev('agentAutoListensFor({ onEvent: "order.paid" })'), "order.paid");
+
+  // ⚠ AND EVERY PRESERVED FIELD IS ONE THIS FORM REALLY HAS NO CONTROL FOR — the census, so a
+  // field gaining a control cannot stay on this list and become a dead control.
+  const keeps = JSON.parse(w.ev("JSON.stringify(Object.keys(AGENT_FORM_KEEPS))"));
+  assert.ok(keeps.length >= 1, "nothing is preserved at all");
+  for (const k of keeps) {
+    assert.ok(!new RegExp(`data-field="${k}"|id="agAuto${k[0].toUpperCase()}${k.slice(1)}"`).test(html),
+      `${k} is preserved AND has a control, so the control is dead`);
+  }
+});
+
 test("⚠ THE TIME ZONE IS DRAWN FROM THE ROW, EDITED, AND SENT", async () => {
   // **A SETTING NO SCREEN CAN SET IS A SETTING NOBODY SETS**, and the agent's authoring
   // tools refuse a scheduled automation while this is empty and say to come here — so the

@@ -21,6 +21,12 @@
  * label rather than passed through, because a scripted answer that reads like a real one is
  * the one outcome this file must not produce.
  *
+ * **WHAT IT RECORDS IS THE EVIDENCE, AND `context` IS THE WHOLE OF IT.** A demonstration that
+ * asserts a conversation survived something has to read what the model was really shown, not
+ * what the run did afterwards — a run that finishes proves the queue worked and says nothing
+ * about the turns. `asked[n].context` is the message list verbatim, roles included, so an
+ * assertion can name the earlier request, the agent's own question and the new answer.
+ *
  * **AND IT RUNS OUT LOUDLY.** A run that makes more model calls than were armed gets a
  * NAMED answer saying so, rather than a plausible one — an instrument that invents a reply
  * for an unscripted call reports a conversation nobody wrote.
@@ -56,6 +62,16 @@ export function makeScriptedModel() {
       // conversation reached it rather than assuming the snapshot did its job.
       prompt: [...(messages ?? [])].reverse().find((m) => m?.role === "user")?.content ?? null,
       turns: (messages ?? []).filter((m) => m?.role === "user").length,
+      /**
+       * ⚠ **THE WHOLE CONTEXT, ROLES AND ALL — because `prompt` and `turns` cannot say
+       * whether the agent's OWN earlier words reached it.** A clarification question is an
+       * ASSISTANT turn; a count of user turns is satisfied by a context that dropped every
+       * one of them, and the last user message is satisfied by a context with nothing before
+       * it. `journal.mjs` rebuilds this list from the snapshot in the database, so asserting
+       * on it is asserting that the conversation really travelled — which is the one thing a
+       * restart between two messages is supposed to show.
+       */
+      context: (messages ?? []).map((m) => ({ role: m?.role ?? null, content: m?.content ?? null })),
       instructions: typeof system === "string" ? system : null,
       offered: (tools ?? []).map((t) => t?.name).filter((n) => typeof n === "string"),
     });

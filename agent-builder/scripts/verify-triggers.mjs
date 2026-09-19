@@ -273,6 +273,61 @@ try {
   await drain();
   check("⚠ a second tick files nothing, because the stamp is the gate", execsOf(evAuto).length === 1);
 
+  // ── 4b. AN UNRELATED EDIT DOES NOT STOP IT LISTENING ───────────────────────
+  /**
+   * ⚠ **THE BROWSER'S SAVE IS A FULL REPLACE, AND IT CARRIED NO EVENT.** The form has no
+   * control for one, so its body was `name · enabled · schedule · at · zone · steps · inputs`
+   * and `update_automation` assigns `on_event = p_on_event` — so **renaming an automation that
+   * listens stopped it listening**, with nothing anywhere saying so. The browser now carries the
+   * stored binding forward (`AGENT_FORM_KEEPS` in `public/chat.js`); this is the same body
+   * arriving at the real route, and then the event really being sent again.
+   *
+   * THE STORED COLUMN IS NOT THE CLAIM. "It still listens" is a claim about what an event DOES,
+   * so the column is read and then an event is delivered and the execution is watched to the end.
+   */
+  const editBody = {
+    id: evAuto, name: "On a payment, renamed", enabled: true,
+    schedule: "manual", at: "09:00", zone: "UTC", inputs: [],
+    steps: [{ type: "note", text: "a payment landed" }],
+  };
+  const kept = await api("/api/agent/automation-update", { body: { ...editBody, on_event: "order.paid" } });
+  check("an unrelated edit saves", kept.status === 200, JSON.stringify(kept.body));
+  check("...the name really changed, so the edit was not a no-op",
+    q(`select name from agent.automations where id='${evAuto}';`) === "On a payment, renamed");
+  check("⚠ ...and the event binding is still there",
+    q(`select coalesce(on_event,'(none)') from agent.automations where id='${evAuto}';`) === "order.paid");
+
+  const after = await deliver({ amount: 43 }, { delivery: "dlv-after-edit" });
+  check("a second payment is accepted", after.status === 202, JSON.stringify(after.body));
+  await tick();
+  await drain();
+  const ran = execsOf(evAuto);
+  check("⚠ ...AND THE EVENT STILL TRIGGERS THE AUTOMATION after the edit",
+    ran.length === 2 && ran[1].trigger === "event" && ran[1].finished === true, JSON.stringify(ran));
+
+  /**
+   * ⚠ **THE CONTROL, AND WITHOUT IT THE CHECK ABOVE IS SATISFIED BY AN EVENT THAT WOULD FIRE
+   * WHATEVER THE SAVE DID.** This is the PRE-FIX body — byte for byte what the form sent before
+   * `AGENT_FORM_KEEPS` existed — so it measures the defect rather than describing it: the
+   * binding goes, and the next payment reaches nothing.
+   */
+  const dropped = await api("/api/agent/automation-update", { body: editBody });
+  check("the pre-fix body saves too, which is why this was silent", dropped.status === 200, JSON.stringify(dropped.body));
+  check("⚠ ...and it CLEARS the binding — the defect, measured",
+    q(`select coalesce(on_event,'(none)') from agent.automations where id='${evAuto}';`) === "(none)");
+  const orphan = await deliver({ amount: 44 }, { delivery: "dlv-after-drop" });
+  check("a third payment is still accepted by the endpoint", orphan.status === 202, JSON.stringify(orphan.body));
+  await tick();
+  await drain();
+  check("⚠ ...and reaches NOTHING, because the automation stopped listening",
+    execsOf(evAuto).length === 2, JSON.stringify(execsOf(evAuto)));
+
+  // PUT IT BACK, so the sections below read the automation this one found rather than the one
+  // the control broke.
+  await api("/api/agent/automation-update", { body: { ...editBody, on_event: "order.paid" } });
+  check("the binding is restored for the sections below",
+    q(`select coalesce(on_event,'(none)') from agent.automations where id='${evAuto}';`) === "order.paid");
+
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n5. AN EVENT WAIT, AND THE ARRIVAL RACE BOTH WAYS ROUND");
   // ═════════════════════════════════════════════════════════════════════════
