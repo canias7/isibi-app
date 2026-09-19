@@ -7056,3 +7056,37 @@ not been reached is a pass with no control*. A narrow list can only produce a fa
 never a false kill, so the next full run still decides — and what it establishes is that the
 four new checks really do go red when the policy is widened, which is the half a green run
 cannot say.
+
+### ⚠ AND A THIRD SURVIVOR: THE EXPIRY SWEEP'S "ALL WINDOWS CLOSED" WALL WAS NEVER DRIVEN
+
+The full SQL sweep's third survivor is
+`⚠ SQL/expiry: a run somebody can still answer is woken, so it is requeued for ever`, and it is
+the same class as the two above — **a check that passed at the WRONG GATE**, which is this
+directory's own most-repeated guard trap.
+
+**`requeue_expired_approvals`' OUTER `where` ALREADY DEMANDS AN EXPIRED REQUEST**
+(`a.expires_at is not null and a.expires_at <= now()`), so the clause under test —
+`not exists (… b.verdict is null and (b.expires_at is null or b.expires_at > now()))` — can only
+ever matter for a run holding **BOTH** a closed window and an open one. The fixture's second run
+held only an OPEN one, so it was excluded by the first condition and never reached the clause at
+all: *"a run somebody can still answer is left for them to answer"* was green with the wall
+deleted. **And the note above that check describes the missing run in as many words** — *"a run
+holding one expired and one live request would be requeued, hold again on the live one, and be
+requeued again"* — so the scenario was written down and never built. *Prose beside an assertion
+is not an assertion.*
+
+**TWO CHECKS AND A CONTROL, and the shape is what makes the negative half worth anything.** One
+run holds a closed window and an open one; a second holds only a closed one; **ONE CALL reads
+both**, so "the first is not offered" is asserted in a call that demonstrably DOES sweep its
+neighbour — a sweep answering nothing at all would satisfy it otherwise. Then the control closes
+that one remaining window **and nothing else about the run**, and the very same run is put back,
+which is what says the exclusion was about the live request rather than about anything else.
+
+**PROVED IN BOTH DIRECTIONS.** Green on the real tree: `npm run test:pg` **1,102 → 1,106 checks,
+0 failed**, the arithmetic closing exactly at four (two `check`s and two `allowed`s, which count).
+Red against the defect, in a detached worktree with `and true` in the migration: the check fails
+and **its diagnostic names the defect outright** — `bothWays` reads both run ids where it should
+read one, which is the run that is still waiting for a person being requeued anyway. **The
+CONTROL stays green under the mutant, which is correct**: it asserts a run whose windows have all
+closed IS swept, and that is true either way — a control that went red there would have been red
+about something else.

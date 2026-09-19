@@ -3690,6 +3690,43 @@ try {
     check("⚠ ...and a run that has already ended is not offered again",
       jget(`select count(*) from agent.requeue_expired_approvals(25) as t where t ->> 'run' = '${S1}';`) === "0");
 
+    // ⚠ AND THE WALL ABOVE THIS WAS NEVER DRIVEN — a SWEEP SURVIVOR is what said so, and the
+    // check written for it was passing at the WRONG GATE. `requeue_expired_approvals`' outer
+    // `where` already demands an expired request, so `S2` — which holds only a LIVE one — is
+    // excluded by that condition and never reaches the `not exists (a live request)` clause at
+    // all. So the clause could be deleted and `S2` would still be left alone. **The shape that
+    // separates them is a run holding BOTH**, which is exactly what the note above describes
+    // and what no fixture built: it would be requeued, hold again on the live request, and be
+    // requeued once a minute for ever.
+    const S4 = "ff000000-0000-0000-0000-0000000000a4"; // one expired AND one live: left alone
+    const S5 = "ff000000-0000-0000-0000-0000000000a5"; // only expired: the observer, same call
+    allowed("a run holding one CLOSED window and one still open, beside one with only a closed one", `
+      insert into agent.runs (id, tenant_id, status) values ('${S4}','${XT}','running'), ('${S5}','${XT}','running');
+      insert into agent.run_work (run_id, tenant_id, done_at) values ('${S4}','${XT}', now()), ('${S5}','${XT}', now());
+      insert into agent.tool_approvals (id, tenant_id, run_id, agent_id, step, idx, tool, args, args_hash, expires_at)
+        values (gen_random_uuid(),'${XT}','${S4}','${XA}',1,0,'remember','{}'::jsonb,'hD', now() - interval '1 minute'),
+               (gen_random_uuid(),'${XT}','${S4}','${XA}',2,0,'remember','{}'::jsonb,'hE', now() + interval '1 day'),
+               (gen_random_uuid(),'${XT}','${S5}','${XA}',1,0,'remember','{}'::jsonb,'hF', now() - interval '1 minute');`, asOwner);
+    // ⚠ ONE CALL, BOTH READINGS, which is what makes the negative half worth anything: a sweep
+    // that answered nothing at all would satisfy "S4 is not offered" on its own.
+    const bothWays = jget(`select coalesce(string_agg(t ->> 'run', ',' order by t ->> 'run'), 'NONE')
+                             from agent.requeue_expired_approvals(25) as t;`);
+    check("⚠ a run with one window still open is left alone, in a call that DOES sweep its neighbour",
+      bothWays === S5 &&
+      jget(`select (done_at is not null)::text from agent.run_work where run_id='${S4}';`) === "true" &&
+      jget(`select (done_at is null and kind = 'resume')::text from agent.run_work where run_id='${S5}';`) === "true",
+      bothWays);
+    // THE CONTROL: close the one window that was still open and nothing else, and the same run
+    // is swept. Without it, "left alone" could be about anything else at all about that run.
+    allowed("its last window closes, with nothing else about the run touched",
+      `update agent.tool_approvals set expires_at = now() - interval '1 second'
+         where run_id = '${S4}' and args_hash = 'hE';`, asOwner);
+    const nowSwept = jget(`select count(*) from agent.requeue_expired_approvals(25) as t where t ->> 'run' = '${S4}';`);
+    check("THE CONTROL: with its last window closed, the very same run IS put back",
+      nowSwept === "1" &&
+      jget(`select (done_at is null and kind = 'resume')::text from agent.run_work where run_id='${S4}';`) === "true",
+      nowSwept);
+
     // ...AND A REVOCATION ANSWERS A REQUEST TOO, so it has to put its runs back as well.
     const S3 = "ff000000-0000-0000-0000-0000000000a3";
     allowed("a third run waiting on a tool about to be taken away", `

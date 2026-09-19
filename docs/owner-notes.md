@@ -12898,3 +12898,19 @@ the sweep so this cannot come back unnoticed.
 **And the breakage really does break it**, which is the half a green run cannot tell you: I ran it
 on a real database and the four new checks went red, then put the file back and they went green
 again. One breakage, caught, with a do-nothing control beside it to prove the run was honest.
+
+### …and a third one, on the job that unsticks a run nobody answered
+
+The sweep's third finding is the same shape again. A run waiting for your approval is taken off
+the work list until you answer; a job runs every minute and puts back any run whose approval
+windows have all closed, so it is not stuck for ever. **The check that a run you can still answer
+is left alone was passing for the wrong reason** — the job already only looks at runs with a
+closed window, so the run in the test was excluded before the rule under test was ever consulted.
+
+The run that separates them is one holding two requests: one closed, one still open. That one must
+be left alone, or the job would put it back every minute for the rest of time. Built it, plus a
+neighbour with only a closed window so the same call is seen to do its job, plus a control that
+closes the last window and watches the same run come back.
+
+**The real-database check is 1,102 → 1,106 and still green**, and it goes red against the defect —
+one failure, naming both runs where it should name one.
