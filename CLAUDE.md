@@ -11362,9 +11362,16 @@ describe a list answer at all.
   may not make. **It is the first type union in any tool in this repository**
   (measured: zero `type: [` anywhere in `builder/`, `site-*.mjs` or
   `worker.js` before today), so a first paid call after this merges is what
-  confirms it, and the blast radius if it is refused is the whole `add_to_site`
-  tool for the four backend tiers. Worth reading that log line rather than
-  assuming.
+  confirms it. **⚠ AND THE BLAST RADIUS STATED HERE WAS WRONG IN ONE DIRECTION
+  AND SILENT ABOUT A BIGGER ONE — corrected 2026-09-19 by reading `addTool`.**
+  It said *"the whole `add_to_site` tool for the four backend tiers"*;
+  `addTool(kind)` builds a tool with exactly ONE property, named for the kind
+  (`const properties = { [kind]: … }`), so only the **`api` kind's** tool
+  carries `API_ITEM` and the other three are untouched. What it missed is the
+  other door: `design_schema` carries `backend.apis.items = API_ITEM` **by
+  identity**, so a refusal takes the DESIGN call — every build, first or
+  revise — not one addon kind. Worth reading that log line rather than
+  assuming, and now worth reading it for the right reason.
 - **THE LIST RESPONSE IS FOLLOWED TO ALL FOUR PLACES** in one route case — the
   TOOL the designer really received, the store, the readback through `apiFor`,
   and the page prompt's `useApi<{ time: string; height: number }[]>("tides", …)`.
@@ -11453,7 +11460,8 @@ cache), and the addon's credential refusal gained a route case — an http sign-
 link is refused 422, stores nothing and costs 0, where the engine merely drops
 it.
 
-**Sweep: 45 product mutants, 2 comment-only controls**
+**Sweep: 45 product mutants, 43 killed, 2 survived, 0 never applied, 2
+comment-only controls survived**
 (`scripts/mutants/api-shape.json`, over `site-api-shape.mjs`, `site-apis.mjs`,
 `builder/site-table.mjs`, `builder/site-add.mjs`, `worker.js`, `public/chat.js`,
 `site-schema.mjs` and the kit's own `rows.ts`, against 13 test files — a narrow
@@ -11462,6 +11470,10 @@ checked to occur exactly once before the run.** Two of the mutants are the kit
 hook's own url — the parameters dropped from it, and a different site addressed
 — and **only the joined acceptance can kill either**, which is what makes that
 case load-bearing rather than a demonstration.
+**NEITHER SURVIVOR WAS THE PRODUCT'S, and they are closed in the round below**:
+one was a real gap in this round's own guards (`shape-top` off the
+malformed-sketch list) and one was a mutant of mine that MEASURED INERT. Both
+are written up there, because the tally that stands is the clean one.
 
 **Suite 6,901**, measured; the branch tip measured **6,898** in a detached
 worktree and 6,898 + 3 closes exactly (api-shape +1, addon-route +2). A worktree
@@ -11486,6 +11498,126 @@ which attribute by construction. **The unit step's TAP is `# pass 396 /
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, `checked` STILL EMPTY, fal
 verification still parked.**
+
+### …AND THE SKETCH'S OWN FIELD NAMES WERE NOT PERMITTED ON THE WIRE (2026-09-19)
+
+Owner: *"xAI's documented tool-schema rules default `additionalProperties` to
+false. The outgoing returns schema currently declares object/array but does not
+explicitly permit the arbitrary field names a response sketch needs… Make that
+permission explicit using the provider's supported schema forms. Check the
+actual request after `toXaiRequest`… Keep `cleanShape`'s existing validation and
+bounds."*
+
+**MEASURED BEFORE ANYTHING WAS TOUCHED: `API_ITEM.properties.returns` went out
+as `{type: ["object","array"], description}` and `additionalProperties` was
+`undefined`.** `toXaiRequest` passes `t.input_schema` VERBATIM as the function's
+`parameters` — the one line that matters here — so what the provider is handed
+is that object unchanged. Under the documented rule a declared object with no
+key permission admits **no keys at all**, and a sketch is nothing BUT arbitrary
+field names: they are the service's own, unknowable when the tool is written.
+So the one thing this field exists to carry was the one thing the outgoing
+schema did not permit.
+
+**THE PERMISSION SITS WHERE A TYPE IS DECLARED, AND THAT IS ONE PLACE.** Only a
+declared object schema can be closed, and this schema declares a type exactly
+once. The ARRAY branch declares no `items`, so its entries are unconstrained and
+there is no object schema for the rule to close; below the root nothing declares
+a type either, because `additionalProperties: true` is *any value* rather than a
+further schema. **A belt at either would be a keyword that constrains nothing**,
+and the risk of one is asymmetric — it cannot widen what is already unconstrained
+and it is one more thing a strict validator can have an opinion about. A
+recursive sketch cannot be written out without `$ref`, whose support in provider
+tool schemas is exactly the kind of thing no probe here can settle; the
+one-declaration argument makes it unnecessary rather than risky.
+
+**ONE `API_ITEM` AND BOTH DOORS READ IT BY IDENTITY** — `worker.js`'s
+`design_schema` and `builder/site-add.mjs`'s `add_to_site`, asserted rather than
+assumed. A permission on one and not the other is a first build whose sketches
+are refused and an addon whose are not.
+
+**THE THREE CLAIMS ARE KEPT APART, because only two of them happen here:**
+
+| claim | state |
+|---|---|
+| **documented compatibility** — standard JSON Schema, and the form `builder/site-table.mjs` already uses twice for an open-key map (`searchWeights`, `computed`) | established |
+| **local validation** — a checker implementing the documented closed-by-default rule admits a real object sketch and a real top-level list against the schema as `toXaiRequest` really sends it | established |
+| **provider acceptance** — that xAI takes it | **NOT established, here or anywhere.** One paid call settles it and no paid probe is authorized |
+
+**THE CHECKER IS LOCAL AND WRITTEN OUT, DELIBERATELY.** The rule under test is
+the provider's DEPARTURE from JSON Schema's own default, so a spec-conformant
+validator off the shelf would admit the closed object and prove nothing. The
+departure is one branch, marked in the case and mutated by the sweep. **The two
+sketches are ones `cleanShape` really accepts, asserted first** — or the case
+could prove the wire admits something the cleaner refuses, which is the drift it
+exists to stop rather than a property worth having. **And the observer is proved
+alive in the direction that matters**: take the permission away and the same
+checker refuses the same object sketch, while still admitting the list — which
+is said out loud rather than implied, because it is *why* there is no `items`
+belt.
+
+**THE RISK IS UNCHANGED IN KIND AND IS RECORDED AS SUCH.** This is the same
+schema that already carries the repository's first type union, with the same
+caveat and the same blast radius — **which is bigger than that flag said, and
+the correction is beside it**: `addTool(kind)` builds one property per kind, so
+only the `api` kind's addon tool carries `API_ITEM`, while `design_schema`
+carries it BY IDENTITY as `backend.apis.items`, so a refusal takes **every
+build** rather than one addon kind. It is in ONE place for the reason
+`toXaiRequest`'s own header gives about the nested tool form: **a live 400 is a
+one-line flip rather than a hunt.** A first paid call after this merges reads
+both the union and the permission, because they are one line.
+
+#### …AND THE TWO SWEEP SURVIVORS, one a real gap and one mine
+
+**THE GAP: `shape-top` CAME OFF THE MALFORMED-SKETCH LIST WITH EVERY CASE GREEN.**
+`cleanAdd`'s refusal switch falls seven sketch reasons through to one sentence,
+and a mutant dropping `shape-top` still REFUSES — it falls to the default — so
+only the ADVICE changes. Measured: the one route case that asserts that sentence
+drives `returns: {current: {temp_c: 18.5}}`, which is `shape-leaf`; nothing
+anywhere drove a `shape-top`. The specific sentence says what to do about a
+sketch; the default says *"say what you want on the site and where"*, which is
+the wrong thing to tell somebody whose only problem is how the answer was
+described. **Closed with the shape a model really writes** — `returns: "a list
+of exchange rates"`, which the tool's own description warns against in as many
+words — and the generic sentence is asserted ABSENT beside it.
+
+**⚠ AND THE OTHER WAS INERT BY DUPLICATE KEY, which is a form of that trap this
+file has not recorded before.** The mutant put `items: {type:"string"}` on
+`params` to take the tool back to bare names; it inserts that key ABOVE the real
+`items`, and **JavaScript keeps one key at the FIRST position with the LAST
+value** — so the effective `items` is the object form, unchanged, and only the
+keyword ORDER of `params` moves. MEASURED: `type, description, items` →
+`type, items, description`, the items deep-equal, **the whole tool equal
+ignoring key order**. It was read as a guard gap and the measurement says
+otherwise: *read what a mutant really does, not what it was meant to do*, for
+the second time this milestone and the first through a duplicate key.
+
+**REPLACED BY TWO OBSERVABLE MUTANTS OF THE SAME PROPERTY, and the property was
+worth having anyway**: nothing asserted that the tool OFFERS what the cleaner
+STORES. A bare-string item is the shape every connection stored before today,
+and as the OFFER it is a tool that can never be told a type, a required flag or
+a description — the `returns` drift correction 2 fixed, one property over. It is
+a census BOTH WAYS now, with **the one rename stated once** (the tool says
+`description`, the store says `note`) and the offered type enum asserted against
+`PARAM_TYPES` rather than beside it.
+
+**THREE OLDER MUTANTS RE-ANCHORED, NOT APPEASED, and the anchor census is what
+found them** — all three sit on the `returns` line this change edited, so they
+read `0x` before the run rather than NOT APPLIED after it. Each keeps the
+property it asserts and gains the permission in its own `to`, so it goes on
+removing exactly one thing.
+
+**Guards**: `api-shape` **11 → 12** (the wire case), with the offer census and
+the `shape-top` route refusal as assertions inside cases that already existed.
+**Each half red-checked ALONE**: the permission reverted turns exactly **1**
+case red and leaves `addon-route` at 144 — the honest reading, since this is
+about the wire and not about the local pipeline — and the `shape-top` mutant
+turns exactly **1** red.
+
+**Suite 6,902**, measured, 0 fail and 0 skipped; 6,901 + 1 and the arithmetic
+closes exactly, the one being the wire case.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO PAID PROBE, `checked` STILL
+EMPTY, fal verification still parked.**
 
 ---
 

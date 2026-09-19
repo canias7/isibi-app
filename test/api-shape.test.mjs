@@ -29,6 +29,9 @@ import {
 } from "../site-api-shape.mjs";
 import { normalizeApi, declFingerprint, secretsNeeded as apiSecretsNeeded } from "../site-apis.mjs";
 import { API_ITEM } from "../builder/site-table.mjs";
+import { addTool } from "../builder/site-add.mjs";
+import { toXaiRequest } from "../builder/model-xai.mjs";
+import { readSchemaTool } from "./integration/schema-tool.mjs";
 
 const ROOT = new URL("../", import.meta.url);
 const TEMPLATE = path.join(ROOT.pathname, "builder/lovable/template");
@@ -251,6 +254,26 @@ test("parameters keep both shapes, and the names are derived rather than maintai
   const old = cleanParams(["city", "units", "city", "Bad Name", 7, "units"]);
   assert.deepEqual(old.names, ["city", "units"], "deduped, lowercased, junk dropped");
   assert.equal(old.info, null, "nothing was said, so nothing rides beside the names");
+
+  // ⚠ AND THE TOOL MUST OFFER WHAT THE CLEANER CAN STORE, which is the same
+  // drift `returns` had and was caught the same way — by a sweep mutant that
+  // put `items: {type:"string"}` back on `params` with every case still green.
+  // A bare-string item is the shape every connection stored before today, and
+  // as the OFFER it is a tool that can never be told a type, a required flag
+  // or a description: the pipeline keeps all three and no model can say one.
+  // Censused BOTH WAYS, because a tool offering more than the cleaner keeps is
+  // a field answered and silently dropped.
+  const offered = API_ITEM.properties.params.items;
+  assert.equal(offered.type, "object", "the tool asks for a bare name, so the three below are unreachable");
+  // The one rename, stated once: the tool says `description` and the store says
+  // `note`. Everything else is the same word at both ends.
+  const STORED_AS = { name: "name", type: "type", required: "required", description: "note" };
+  const full = cleanParams([{ name: "city", type: "string", required: true, description: "the town or postcode" }]);
+  assert.deepEqual(Object.keys(offered.properties).sort(), Object.keys(STORED_AS).sort(),
+    "the tool's parameter properties and the mapping have drifted");
+  assert.deepEqual(Object.keys(full.info[0]).sort(), Object.values(STORED_AS).sort(),
+    "the cleaner keeps a field the tool does not offer, or drops one it does");
+  assert.deepEqual(offered.properties.type.enum, PARAM_TYPES, "the offered types are a second copy of the accepted ones");
 
   const rich = cleanParams([{ name: "city", type: "string", required: true, description: "the town or postcode" }, "units"]);
   assert.deepEqual(rich.names, ["city", "units"]);
@@ -524,4 +547,119 @@ test("the facts a page writer needs have ONE definition, and none for a connecti
   assert.equal(paramLine({ name: "a" }), "a: optional", "a bare name still says whether it may be left out");
   assert.equal(paramLine({}), "", "nothing to say about nothing");
   assert.equal(readHint({ name: "x" }), 'useApi("x")', "no parameters, no braces");
+});
+
+// ── THE PROVIDER'S OWN WIRE FORM ────────────────────────────────────────────
+//
+// ⚠ THREE CLAIMS, KEPT APART, because only the first two happen here.
+//
+//   DOCUMENTED COMPATIBILITY — the forms the outgoing schema uses are standard
+//   JSON Schema, and `additionalProperties` as an open-key permission is what
+//   `builder/site-table.mjs` already uses twice for a map whose keys are the
+//   customer's own (`searchWeights`, `computed`).
+//
+//   LOCAL VALIDATION — a checker implementing the rule xAI DOCUMENTS (an object
+//   is closed unless its schema says otherwise) admits a real object sketch and
+//   a real top-level list against the schema as `toXaiRequest` really sends it.
+//
+//   PROVIDER ACCEPTANCE — NOT ESTABLISHED, here or anywhere in this repository.
+//   That needs one real call to xAI, which costs money and is the owner's; no
+//   paid probe is authorized. The type union on this same field carries the
+//   same caveat and for the same reason.
+//
+// WHY A LOCAL CHECKER RATHER THAN A VALIDATOR OFF THE SHELF: the rule under
+// test is the provider's DEPARTURE from JSON Schema's default, so a
+// spec-conformant validator would admit the closed object and prove nothing.
+// The departure is one branch, written out below and mutated by the sweep.
+test("a sketch's own field names survive onto the wire, in the request the provider really gets", async () => {
+  // The documented rule, and the one branch that is not JSON Schema's own is
+  // marked. `null` is "admitted"; a string is why it was refused.
+  const admits = (schema, v, at = "$") => {
+    if (!schema || typeof schema !== "object") return null;   // no schema: unconstrained
+    const want = schema.type === undefined ? null : (Array.isArray(schema.type) ? schema.type : [schema.type]);
+    const raw = Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
+    const jt = raw === "number" && Number.isInteger(v) ? "integer" : raw;
+    if (want && !want.includes(jt) && !(jt === "integer" && want.includes("number"))) {
+      return at + ": a " + jt + " where the schema says " + want.join("|");
+    }
+    if (Array.isArray(v)) {
+      if (schema.items === undefined) return null;            // no `items`: entries unconstrained
+      for (let i = 0; i < v.length; i++) {
+        const bad = admits(schema.items, v[i], at + "[" + i + "]");
+        if (bad) return bad;
+      }
+      return null;
+    }
+    if (v && typeof v === "object") {
+      const props = schema.properties || {};
+      for (const k of Object.keys(v)) {
+        if (Object.hasOwn(props, k)) {
+          const bad = admits(props[k], v[k], at + "." + k);
+          if (bad) return bad;
+          continue;
+        }
+        // ⚠ THE DEPARTURE, and the whole subject of this case: absent reads as
+        // FALSE. Under JSON Schema's own default this branch would admit.
+        const extra = schema.additionalProperties;
+        if (extra === undefined || extra === false) return at + "." + k + ": the schema admits no such key";
+        if (extra === true) continue;
+        const bad = admits(extra, v[k], at + "." + k);
+        if (bad) return bad;
+      }
+      return null;
+    }
+    return null;
+  };
+
+  // THE TWO SKETCHES ARE ONES THE PRODUCT REALLY ACCEPTS, asserted first — or
+  // this case could prove the wire admits something `cleanShape` refuses,
+  // which is the drift it exists to stop rather than a property worth having.
+  const OBJ = { current: { temp_c: "number", condition: { text: "string" } },
+    forecast: [{ day: "string", high: "number" }] };
+  const LIST = [{ id: "number", title: "string" }];
+  assert.equal(cleanShape(OBJ).ok, true, "the object sketch is not one the cleaner takes");
+  assert.equal(cleanShape(LIST).ok, true, "the list sketch is not one the cleaner takes");
+
+  // THE SCHEMA AS IT REALLY GOES OUT — walked out of the request BODY and not
+  // out of the module, because the translation is the hop under test. This
+  // repo's own wiring trap: a permission perfect in the source and dropped one
+  // hop later is indistinguishable from one nobody wrote.
+  const tool = addTool("api");
+  const { body } = toXaiRequest({
+    model: "grok-4.6", max_tokens: 8000,
+    messages: [{ role: "user", content: "connect the forecast service" }],
+    tools: [tool], tool_choice: { type: "tool", name: tool.name },
+  });
+  const fn = (body.tools || []).find((t) => t.function && t.function.name === tool.name);
+  assert.ok(fn, "the api tool did not survive the translation: " + JSON.stringify(Object.keys(body)));
+  const sent = fn.function.parameters.properties.api.items.properties.returns;
+
+  assert.equal(admits(sent, OBJ), null, "the object sketch is refused on the wire: " + admits(sent, OBJ));
+  assert.equal(admits(sent, LIST), null, "the list sketch is refused on the wire: " + admits(sent, LIST));
+
+  // THE OBSERVER PROVED ALIVE, and in the direction that matters: take the
+  // permission away and the SAME checker must refuse the SAME sketch.
+  const closed = { ...sent };
+  delete closed.additionalProperties;
+  assert.ok(admits(closed, OBJ), "the checker admits an object with no key permission, so it proves nothing");
+
+  // AND THE LIST BRANCH WAS NEVER AT RISK — said out loud rather than implied,
+  // because it is why there is no `items` belt beside the permission. A
+  // top-level list declares no object schema anywhere for the rule to close.
+  assert.equal(admits(closed, LIST), null, "the list sketch depends on the object permission, so the reasoning is wrong");
+
+  // THE TYPE UNION SURVIVES THE SAME HOP, and it is a COPY: the platform's own
+  // frozen rule must never be the thing on the wire.
+  assert.deepEqual(sent.type, ["object", "array"], "the root rule did not reach the provider: " + JSON.stringify(sent.type));
+  assert.notEqual(sent.type, SHAPE_TOP, "the platform's own frozen constant went onto the wire");
+
+  // BOTH DOORS, and they are one object: the design step asks for a connection
+  // too, so a permission on one tool and not the other is a first build whose
+  // sketches are refused and an addon whose are not.
+  const design = await readSchemaTool();
+  const designItem = design.tool.input_schema.properties.backend.properties.apis.items;
+  assert.equal(designItem.properties.returns.additionalProperties, true,
+    "the design step's own connection schema admits no field names");
+  assert.equal(designItem, API_ITEM, "the design step reads its own copy of what a connection declares");
+  assert.equal(tool.input_schema.properties.api.items, API_ITEM, "the addon step reads its own copy");
 });

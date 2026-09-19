@@ -506,7 +506,37 @@ export const API_ITEM = {
     // could be described by the pipeline and not by the tool. Two copies of one
     // rule, drifted; one definition now, and widening either end is widening
     // both.
-    returns: { type: SHAPE_TOP.slice(), description:
+    //
+    // ⚠ AND THE ARBITRARY FIELD NAMES ARE PERMITTED IN AS MANY WORDS, because
+    // a schema that declares an object and says nothing about its keys is
+    // CLOSED under xAI's documented tool-schema rules — `additionalProperties`
+    // defaults to false there. A sketch is nothing BUT arbitrary field names:
+    // they are the service's own, unknowable when this tool is written, and a
+    // closed object admits none of them. So the one thing this field exists to
+    // carry was the one thing the outgoing schema did not permit.
+    //
+    // THE PERMISSION SITS WHERE A TYPE IS DECLARED, AND THAT IS ONE PLACE.
+    // Only a declared object schema can be closed, and this schema declares a
+    // type exactly once — here, at the root. The ARRAY branch declares no
+    // `items`, so its entries are unconstrained and there is no object schema
+    // for the rule to close; below the root nothing declares a type either,
+    // because `additionalProperties: true` is "any value" rather than a
+    // further schema. A belt at either of those would be a keyword that
+    // constrains nothing, and the risk of one is asymmetric: it cannot widen
+    // what is already unconstrained, and it is one more thing a strict
+    // validator can have an opinion about.
+    //
+    // LOCAL VALIDATION IS NOT PROVIDER ACCEPTANCE, and `test/api-shape.test.mjs`
+    // keeps the two apart. What is established: this is standard JSON Schema,
+    // it is the form this very file already uses for an open-key map
+    // (`searchWeights`, `computed`), and a checker implementing the documented
+    // closed-by-default rule admits a real object sketch and a real top-level
+    // list against the schema as `toXaiRequest` really sends it. What is NOT
+    // established is that xAI accepts it — that needs one paid call, which is
+    // the owner's. Both this and the type union above are in ONE place for the
+    // reason `toXaiRequest`'s own header gives about the nested tool form: a
+    // live 400 is a one-line flip rather than a hunt.
+    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:
       "OPTIONAL but write it whenever you know the service's answer: a SKETCH of the JSON it sends back, with the same keys " +
       "nested the same way, and every leaf replaced by what KIND of value it is — \"string\", \"number\", \"boolean\", or " +
       "\"unknown\" when you genuinely do not know. A list is written as a one-entry array of the entry's own sketch — and when " +

@@ -14106,3 +14106,59 @@ connection / job" form would fail, so it is worth glancing at that run rather
 than assuming. Everything else in this round is checked locally.
 
 Nothing merged, nothing deployed, nothing spent. Fal is still parked.
+
+## The form had a hole I had not looked at — 2026-09-19
+
+You caught something I would not have: the form I hand the designer to describe
+what an outside service sends back **did not allow it to name any of the
+fields**.
+
+Here is why that is not as strange as it sounds. When I describe a form to the
+model provider, an "object" with no list of allowed names is treated as
+**closed** — no names at all. Everywhere else that is fine, because everywhere
+else I know the names in advance: a table has a name, columns, who can read it.
+But a service's answer is the one thing I cannot know in advance. Its field
+names are *theirs* — `temp_c`, `drop_off_day`, whatever they chose — and the
+whole point of the field is to write them down. So the one thing it exists for
+was the one thing the form forbade.
+
+**What I changed is one line**, and I have said in the code exactly why it is
+one line rather than several: the form declares a type in exactly one place, so
+there is exactly one place that can be closed. Anything nested below it is not
+described at all, which means there is nothing there to close either. Adding
+more "permissions" further down would be adding keywords that say nothing, and
+each one is another thing that could trip a strict checker.
+
+**What I proved and what I did not**, kept apart on purpose:
+
+| | |
+|---|---|
+| the form is standard, and it is the same shape the table form already uses twice | checked |
+| a real answer-description survives the translation and is allowed through, checking it with the provider's own stricter rule | checked, both an object and a plain list |
+| **the provider actually accepts it** | **not checked — that needs one real call, and I did not spend your money** |
+
+That last row is the same caveat as the one in the previous note about the
+"object or list" change, and it is the same one line of code, so **one paid run
+reads both**.
+
+**And I had the consequences of that wrong in the note above, so here they are
+corrected.** I wrote that a refusal would break "the add a table / function /
+connection / job form". It would not: each of those is its own separate form,
+and only the *connection* one carries this. What I missed is bigger — the form
+used to design a **whole new site** carries the same piece, so a refusal would
+stop builds, not one kind of addition. Either way it fails loudly rather than
+quietly, so the first paid run after this ships is worth a glance; I have just
+named the right thing to glance at.
+
+**Two other things, both mine rather than the product's.** The mutation sweep
+(where I break my own code on purpose to check the tests notice) left two
+survivors last time. One was a real gap: a connection whose description was
+written as a sentence instead of a sketch was still refused, but the customer
+got generic advice — "say what you want on the site and where" — instead of the
+useful sentence about describing the answer. That is fixed and tested with the
+exact mistake a model really makes. The other turned out to be **a broken test
+of mine**: the way I wrote it, the change undid itself. I measured that rather
+than assuming it, replaced it with two that really do break something, and
+wrote down what happened — the tally that stands is the clean one.
+
+Nothing merged, nothing deployed, nothing spent. Fal is still parked.

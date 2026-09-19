@@ -6348,4 +6348,26 @@ test("a sketch that cannot be read refuses the connection by name, and stores no
   assert.equal(((bad.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
     "the refused connection reached the store anyway");
   assert.equal(bad.body.cost, 0, "a refusal charged for something");
+
+  // ⚠ A SENTENCE WHERE THE SKETCH GOES IS ITS OWN BRANCH, and it is the one a
+  // model really writes: the tool's own description says NEVER write a
+  // sentence here precisely because reaching for prose is the habit. It lands
+  // on `shape-top` rather than `shape-leaf` — a leaf is a type NAME and may sit
+  // anywhere but the root — and a sweep mutant took `shape-top` off the
+  // malformed-sketch list with every case above still green, because a
+  // fall-through to the default still REFUSES and only the advice changes. The
+  // specific sentence says what to do about a sketch; the default says "say
+  // what you want on the site and where", which is the wrong thing to tell
+  // somebody whose only problem is how the answer was described.
+  const prose = await addon("fw-api-prose", "show the forecast", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [{ ...RICH_API, returns: "a list of exchange rates" }] } },
+  });
+  assert.equal(prose.body.ok, false, "a connection whose sketch is a sentence was published: " + JSON.stringify(prose.body));
+  assert.match(prose.body.msg || "", /couldn't read the description of what that service sends back/, prose.body.msg);
+  assert.doesNotMatch(prose.body.msg || "", /say what you want on the site and where/,
+    "the customer got the generic advice about a connection whose only problem is its sketch");
+  assert.equal(((prose.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
+    "the refused connection reached the store anyway");
+  assert.equal(prose.body.cost, 0, "a refusal charged for something");
 });

@@ -270,8 +270,8 @@
     "files": [
       "builder/site-table.mjs"
     ],
-    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
-    "to": "    returnsGone: { type: SHAPE_TOP.slice(), description:"
+    "from": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:",
+    "to": "    returnsGone: { type: SHAPE_TOP.slice(), additionalProperties: true, description:"
   },
   {
     "label": "the tool stops offering credential guidance",
@@ -282,12 +282,20 @@
     "to": "    credentialGone: { type: \"object\", description:"
   },
   {
-    "label": "the tool's parameters go back to bare strings",
+    "label": "the tool asks for a bare parameter NAME, so a type, a required flag and a description are unreachable",
     "files": [
       "builder/site-table.mjs"
     ],
-    "from": "    params: {\n      type: \"array\",\n      description: \"Every blank a page may fill in",
-    "to": "    params: {\n      type: \"array\",\n      items: { type: \"string\" },\n      description: \"Every blank a page may fill in"
+    "from": "      items: {\n        type: \"object\",\n        required: [\"name\"],\n        properties: {\n          name: { type: \"string\", description: \"lowercase, matching the {{param.x}} it fills",
+    "to": "      items: {\n        type: \"string\",\n        required: [\"name\"],\n        properties: {\n          name: { type: \"string\", description: \"lowercase, matching the {{param.x}} it fills"
+  },
+  {
+    "label": "the tool stops offering a parameter its one line of description",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "          description: { type: \"string\", description: \"One line: what it is, in the words a page would use.",
+    "to": "          descriptionX: { type: \"string\", description: \"One line: what it is, in the words a page would use."
   },
   {
     "label": "the keyless connection is said nothing at all",
@@ -342,16 +350,16 @@
     "files": [
       "builder/site-table.mjs"
     ],
-    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
-    "to": "    returns: { type: \"object\", description:"
+    "from": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:",
+    "to": "    returns: { type: \"object\", additionalProperties: true, description:"
   },
   {
     "label": "the platform's own frozen rule goes onto the wire",
     "files": [
       "builder/site-table.mjs"
     ],
-    "from": "    returns: { type: SHAPE_TOP.slice(), description:",
-    "to": "    returns: { type: SHAPE_TOP, description:"
+    "from": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:",
+    "to": "    returns: { type: SHAPE_TOP, additionalProperties: true, description:"
   },
   {
     "label": "the refusal forgets what may sit at the root of a sketch",
@@ -376,5 +384,21 @@
     ],
     "from": "    queryFn: () => send<T>(`/api/db/${siteSlug()}/api/${name}${suffix}`),",
     "to": "    queryFn: () => send<T>(`/api/db/preview/api/${name}${suffix}`),"
+  },
+  {
+    "label": "the sketch's own field names are not permitted on the wire (the reported defect)",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:",
+    "to": "    returns: { type: SHAPE_TOP.slice(), description:"
+  },
+  {
+    "label": "the schema says in as many words that a sketch may carry no field names",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: true, description:",
+    "to": "    returns: { type: SHAPE_TOP.slice(), additionalProperties: false, description:"
   }
 ]
