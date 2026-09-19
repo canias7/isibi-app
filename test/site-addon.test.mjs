@@ -998,6 +998,32 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.match(backend, /The function broken_one couldn’t be created — column d does not exist\./, backend);
   assert.match(backend, /add RATES_KEY under Cloud → Secrets/, backend);
   assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
+  // ⚠ A ONE-TIME JOB IS SAID BY ITS DATE, AND THE INTERVAL IS A LIE HERE —
+  // reproduced 2026-09-19 on the reply the addon route really composes for a
+  // job stored with `on: "2026-10-03"`: **"scheduled remind_once (every 31 days
+  // at 09:00 (Europe/London))"**. `everyMinutes` is `MAX_EVERY_MINUTES` for a
+  // one-time job — a ceiling `normalizeJob` forces and `dueJobs` never consults
+  // — and it was the only number this composer knew about. The customer asked
+  // for one reminder and was told they had a monthly one.
+  const once = reply({ added: [], changed: [], jobs: [{ name: "remind_once", fn: "remind_once", everyMinutes: 44640, at: "09:00", tz: "Etc/GMT-14", on: "2026-10-03" }] });
+  assert.match(once, /scheduled remind_once \(once on 3 October 2026 at 09:00 \(Etc\/GMT-14\)\)/, once);
+  assert.ok(!/every 31 days/.test(once), "the reply still describes a one-time job by its forced interval: " + once);
+  // …AND THAT RUN NOW SPENDS IT. Nobody would guess: the button sits in the
+  // panel beside a job that has not fired, and pressing it consumes the
+  // occurrence so the scheduled tick afterwards finds the stamp and skips.
+  assert.match(once, /remind_once runs once and then stops — pressing Run now in Cloud → Schedule uses up that one run\./, once);
+  // TWO OF THEM READ AS TWO, and a recurring job beside them earns no such
+  // sentence — the note is derived from which jobs carry a readable date.
+  const mixed = reply({ added: [], changed: [], jobs: [
+    { name: "a", everyMinutes: 44640, at: "09:00", tz: "Etc/GMT-14", on: "2026-10-03" },
+    { name: "b", everyMinutes: 44640, at: "18:00", tz: "Etc/GMT-14", on: "2026-11-01" },
+    { name: "nightly", everyMinutes: 1440, at: "23:00", tz: "Etc/GMT-14" }] });
+  assert.match(mixed, /scheduled a \(once on 3 October 2026 at 09:00 \(Etc\/GMT-14\)\), b \(once on 1 November 2026 at 18:00 \(Etc\/GMT-14\)\), nightly \(every day at 23:00 \(Etc\/GMT-14\)\)/, mixed);
+  assert.match(mixed, /a, b each run once and then stop — pressing Run now/, mixed);
+  assert.ok(!/nightly runs once/.test(mixed), "a recurring job was described as one-time: " + mixed);
+  // THE RECURRING CONTROL, byte for byte what it was.
+  const daily = reply({ added: [], changed: [], jobs: [{ name: "nightly", everyMinutes: 1440, at: "23:00", tz: "Etc/GMT-14" }] });
+  assert.equal(daily, "✅ Done — scheduled nightly (every day at 23:00 (Etc/GMT-14)).", daily);
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
   // ⚠ A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, and this asserted the

@@ -414,10 +414,20 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
     // photographs has to be able to assert. `shotFail: true` makes the
     // provider refuse, which is the arm where the money is not spent and the
     // token has to sweep back to a placeholder.
+    //
+    // ⚠ AND IT REFUSES PER PROMPT AS WELL AS WHOLESALE (2026-09-19), because
+    // PARTIAL SUCCESS is a case this fixture could not produce: `shotFail` was
+    // a boolean, so a run where one picture arrives and another does not — the
+    // shape that separates a per-REQUEST association from a per-ROUTE one —
+    // had no way of existing. A fixture less capable than reality hides the
+    // defect exactly as well as one that is more. An ARRAY refuses only the
+    // prompts containing one of its strings; `true` still refuses everything,
+    // so every case written before today is byte-identical.
     if (url.includes("fal.run/")) {
       let prompt = ""; try { prompt = String(JSON.parse(String((init && init.body) || "{}")).prompt || ""); } catch { prompt = ""; }
       if (shots) shots.push(prompt);
-      if (shotFail) return new Response(JSON.stringify({ detail: "no credit" }), { status: 402, headers: { "content-type": "application/json" } });
+      const refuse = Array.isArray(shotFail) ? shotFail.some((s) => prompt.includes(s)) : !!shotFail;
+      if (refuse) return new Response(JSON.stringify({ detail: "no credit" }), { status: 402, headers: { "content-type": "application/json" } });
       // ONE URL PER PROMPT, so two different pictures cannot collapse into one
       // stored file — `makeSitePhoto` hashes the BYTES, so identical bytes for
       // two prompts would store one name and the case could not tell a second

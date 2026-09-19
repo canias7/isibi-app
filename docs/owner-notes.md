@@ -14319,3 +14319,81 @@ assuming a passing check had looked at anything.
 re-running now.
 
 Nothing merged, nothing deployed, nothing spent. Fal is still parked.
+
+## The three gaps the review found, all closed (2026-09-19)
+
+The review of last night's work passed 380 focused checks and still found three
+real things. All three are fixed, and each one I reproduced first — I wrote the
+failure down before I touched anything, so I could tell a fix from a hope.
+
+**1. A scheduled job was selected and then refused by the next line.** The
+calendar said "this is due"; the bit that actually grabs the job to run it was
+still using the old rule and said no. So the job sat there, chosen and never
+run, with nothing in the logs to say why. Now there is only one rule: the grab
+simply asks "is this still the same row I picked up" and never second-guesses
+the calendar. Two ticks racing each other still can't run one job twice — that
+protection got stronger, not weaker, because it's now a property of the database
+write rather than a rule written twice.
+
+**2. A one-time reminder was described as if it repeated.** You'd ask for
+something on the 3rd of October, and both the chat reply and the Schedule panel
+would say "every 31 days". That number is a ceiling the system puts on one-time
+jobs internally and it was never meant to be shown to anybody. Both now say the
+real date, time and timezone — "3 October 2026 at 09:00 (Europe/London)" — and
+they tell you plainly that pressing Run now uses up that one run. There are four
+different things a one-time job can be (waiting, already used, missed, or a date
+we couldn't read) and each gets its own sentence, because each needs you to do
+something different.
+
+One deliberate piece of wording: a one-time job that has run says **"Ran once"**
+and not "sent". The timestamp is written before the message goes out, so all it
+proves is that the run was used up — whether anything arrived is a separate
+line, and I won't let one stand in for the other.
+
+**3. A photograph nobody made was reported as done.** This is the one I'd most
+want fixed. You'd ask for a new photo on a new page; the image provider would
+fail; the page would fall back to showing a photo you already owned; and the
+reply would say "Couldn't make the photographs this time" and, four words later,
+"I've set that up." Two opposite sentences about the same picture in one message.
+
+The cause is that we were asking "is there a photo on that page" when the real
+question is "is the photo you asked for on that page". Those are the same
+question right up until the page has some other photo on it — which is exactly
+what a fallback produces. Every request is now followed from the words you asked
+for, through the picture that was bought, to the file it landed in. Another
+photo on the same page can't answer for it.
+
+I kept the wording narrow on purpose. If the page has no photo at all, you still
+get the plain "Still to do: a photograph of the bench is on the gallery page",
+which is the more useful sentence; the vaguer "waiting on another part" line only
+appears when something else on the page would otherwise have answered for the
+missing one. Six outcomes are covered and driven: it worked, the provider
+refused, two asked for and both arrived, two asked for and one arrived, bought
+but put on the wrong page, and a photo deliberately reused.
+
+**Also corrected: a note in my own records that had gone stale.** It said three
+of the nine addon steps couldn't report a coverage gap. They all can — that was
+fixed the same day and the note outlived it by a paragraph. Corrected in three
+places, checked by asking the code rather than by reading the note.
+
+**The whole suite passes locally: 6,962 checks, none failing** — 11 more than
+before, and I counted them file by file at both versions rather than working it
+out on paper, so the sum is a measurement. I also ran the deliberate-sabotage
+check: 28 broken versions of this code, every one caught, including all three of
+the faults the review reported.
+
+One of those 28 caught something in my own **test scaffolding** rather than in
+the product, and it's the kind of thing worth telling you about: my stand-in for
+the database was treating "has never run" as a value you could compare against,
+where a real database treats it as unknown and refuses every comparison. So a
+test that looked like it was checking the fix was checking nothing. Fixed, and
+the check now really does fail when the code is wrong.
+
+**Nothing merged, nothing deployed, nothing spent.** No paid run, no live
+messages, no customer sites touched. Fal is still parked.
+
+On the bookings test you asked about: I agree with the review — it would mostly
+re-check the path Run 49 already proved, and it wouldn't test one-time
+scheduling, the API response shapes or the photo association at all. Not worth
+the credits as it stands.
+

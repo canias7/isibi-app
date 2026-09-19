@@ -1,6 +1,6 @@
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
-import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow } from "./site-jobs.mjs";
+import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow, claimFilter } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
@@ -160,7 +160,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -2217,7 +2217,16 @@ async function runWebhookQueue(env) {
   }
 }
 
-async function runScheduledSiteJobs(env, ctx) {
+// EXPORTED FOR THE GUARD, and this is the reason rather than a convenience.
+// The selector (`dueJobs`) and the atomic claim (`jobDeps().stamp`) are two
+// readers of one question — "may this job run now" — and for a year the only
+// thing asserting they agreed was a guard that read the claim's SPELLING. A
+// spelling is not an agreement: on 2026-09-19 the selector's daily rule moved
+// off elapsed time and the claim did not, so `dueJobs` selected a job at 22:00Z
+// and the claim refused it in the same tick, silently, with `runJob` making
+// zero function calls. Driving this function is what makes the disagreement
+// observable at all; nothing below it can be reached any other way.
+export async function runScheduledSiteJobs(env, ctx) {
   if (!env.SUPABASE_SERVICE_KEY) return;
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
   let rows = [];
@@ -2254,11 +2263,16 @@ async function runScheduledSiteJobs(env, ctx) {
  * chain test read the module and never ran the deps. `siteBackendBySlug` is
  * the slug-to-connection reader every data path uses.
  *
- * `force` is the manual run's: the stamp still lands (a run is a run), but
- * without the dueness clause, because the owner pressing the button IS the
- * decision that it is due.
+ * ⚠ `force` IS GONE (2026-09-19), AND IT IS DELETED RATHER THAN LEFT INERT.
+ * It meant "drop the dueness clause, because the owner pressing Run now IS the
+ * decision that the job is due" — an argument about DUENESS, and the claim is
+ * no longer a dueness test. Under `claimFilter` a press asks only that nothing
+ * ran in between, which is what the press meant, and a parameter that once
+ * disabled a wall is the kind of thing a later session re-wires by mistake.
+ * The one real difference between a press and a tick lives at the CALL SITE,
+ * where the press skips `dueJobs` and the tick does not.
  */
-function jobDeps(env, row, { force = false } = {}) {
+export function jobDeps(env, row) {
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
   return {
       // Stamped FIRST, inside runJob, and that ordering is load-bearing: stamped
@@ -2267,36 +2281,24 @@ function jobDeps(env, row, { force = false } = {}) {
       // sending a reminder four times is not.
       // A CONDITIONAL CLAIM, exactly the notify-cooldown pattern: one caller
       // wins the window, decided by the database rather than by two ticks
-      // agreeing not to overlap. The WHERE re-states dueness (never run, or
-      // last_run older than the schedule minus the 30s slack dueJobs allows),
-      // so an overlapping tick that reads the same row as due loses here and
-      // sends nothing. OWNER-SCOPED like every filter on this table now: slug
-      // alone crosses tenants the day a freed slug is re-claimed and the model
-      // reuses a job name. And r.ok is CHECKED — the old write was not, so a
-      // Supabase in read-only mode (reads fine, writes 5xx) let the send
-      // proceed unstamped and re-mail the whole batch every tick until writes
-      // recovered. A claim that cannot be recorded is a claim lost.
+      // agreeing not to overlap. OWNER-SCOPED like every filter on this table
+      // now: slug alone crosses tenants the day a freed slug is re-claimed and
+      // the model reuses a job name. And r.ok is CHECKED — the old write was
+      // not, so a Supabase in read-only mode (reads fine, writes 5xx) let the
+      // send proceed unstamped and re-mail the whole batch every tick until
+      // writes recovered. A claim that cannot be recorded is a claim lost.
+      //
+      // ⚠ THE CONDITION IS `claimFilter`'s AND IS NOT WRITTEN HERE (2026-09-19).
+      // It used to be composed inline from `schedule_minutes` — a second copy
+      // of the selector's dueness rule, in another module, with nothing
+      // comparing the two. `dueJobs` moved its daily rule onto the calendar
+      // occurrence on 2026-09-16 and this did not follow, so a nightly job was
+      // SELECTED and then REFUSED in the same tick, making zero function calls
+      // and leaving no trace. `site-jobs.mjs` owns both halves now and the
+      // claim asks the one question that cannot drift from any selector rule:
+      // is this still the row the selector looked at?
       stamp: async (r2) => {
-        const mins = parseInt(r2.schedule_minutes, 10) || 0;
-        const cutoff = new Date(Date.now() - Math.max(0, mins * 60000 - 30000)).toISOString();
-        // ── A ONE-TIME JOB KEEPS ITS CLAUSE UNDER `force` (2026-09-19) ─────
-        //
-        // The dueness clause is DROPPED under `force` because the owner
-        // pressing "Run now" decides the job is due now. It cannot decide the
-        // job is due TWICE: a one-time job has exactly one occurrence, and a
-        // press that re-ran it would send the same reminder to the same people
-        // a second time — the failure `runJob`'s stamp-before-send ordering
-        // exists to prevent, arriving through the button instead of the tick.
-        //
-        // `last_run.is.null` is therefore kept whatever `force` says, so the
-        // press CONSUMES the occurrence and the scheduled tick afterwards finds
-        // the stamp set and skips. Overlapping runners were already safe by
-        // construction — both PATCH with the same condition and exactly one
-        // gets a row back.
-        const once = r2.spec && typeof r2.spec === "object" && typeof r2.spec.on === "string";
-        const dueness = once ? "&last_run=is.null"
-          : force ? ""
-            : `&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`;
+        const dueness = claimFilter(r2);
         try {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}${dueness}`, {
             method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=representation" },
@@ -2623,6 +2625,37 @@ async function buySitePhotos(env, { slug, pages, parts, budget, balance, reserve
   const done = (urls, rest) => ({
     pages: applyImages(pages, urls), parts: applyImages(parts, urls),
     planned, budget: affordable, overflow: plan.overflow,
+    // ── WHICH PICTURE WAS BOUGHT FOR WHICH REQUEST (2026-09-19) ─────────────
+    //
+    // `made` IS A COUNT AND A COUNT CANNOT ANSWER THE QUESTION. It says how
+    // many photographs this run minted and nothing whatever about whether the
+    // one a customer asked for on /gallery is among them — which is how a run
+    // whose generation FAILED came to report a requirement for a new picture as
+    // set up, on the strength of an old one the page happened to reuse.
+    //
+    // THE ASSOCIATION IS CARRIED OUT, NEVER RECONSTRUCTED. The caller holds the
+    // requests and the publication; what only this function can say is which
+    // token got a url, and the token carries the request's own words. So one
+    // entry per token that REALLY got a picture — a token the provider refused
+    // is simply not here, and that absence is the fact the caller needs.
+    //
+    // KEYED BY THE PROMPT THROUGH `shotKey`, never by the raw token: the token
+    // is whatever the page writer typed and the prompt is what
+    // `parseImageTokens` made of it, so a request's own `describe` can be asked
+    // the same question with the same function.
+    //
+    // ⚠ THE `.filter` IS ABSORBED BY THE READER AND IS DECLARED RATHER THAN
+    // DELETED (measured 2026-09-19, a sweep survivor). The route keeps only
+    // entries whose `url` is a string and then asks whether it is TRUTHY, so a
+    // refused shot is dropped twice over with or without this line — driven
+    // over every shape a run produces (nothing bought, one of two, both), zero
+    // readings differ. It stays because `bought` is a list of what was BOUGHT,
+    // and a list that also carries what was not is a lie the moment anything
+    // counts it; the two mutants that CAN be observed here — the list emptied,
+    // and the key taken off the prompt — are in the sweep, and this one is not,
+    // because a sweep cannot say any of the above and the next session deletes
+    // what nothing appears to need.
+    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: urls.get(s.token) })),
     ...(plan.empty ? { empty: plan.empty } : {}),
     ...(libraryFull ? { full: true } : {}),
     // The third cause of a zero, and it needs its own sentence for the same
@@ -23756,7 +23789,13 @@ async function handleRequest(request, env, ctx) {
             // reason: which ROUTES really carry the canvas. `aLookMade.three`
             // says the site is configured for a scene; this says a page really
             // draws one, and the two are decided by different model calls.
-            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [];
+            // `aPhotoLost` RIDES HERE AND NOT BESIDE ITS OWN COMPUTATION, which
+            // is this route's thrice-recorded temporal-dead-zone trap: it is
+            // read from inside `aFailedItems()`, whose first possible call is a
+            // refusal in the kinds loop hundreds of lines ABOVE where the
+            // photographs are settled. Declare what a closure reads above its
+            // first possible call, not above its obvious one.
+            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aPhotoLost = [];
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
@@ -23853,6 +23892,18 @@ async function handleRequest(request, env, ctx) {
               ...aFnErrors.map((e) => ({ kind: "function", name: (e && e.name) || "" })),
               ...aJobErrors.map((e) => ({ kind: "job", name: (e && e.name) || "" })),
               ...aMissing.map((r) => ({ kind: "page", name: r })),
+              // ── AND A PHOTOGRAPH THAT WAS ASKED FOR AND IS NOT THERE ───────
+              //
+              // THIS IS THE WALL, AND IT IS THE ONLY ONE THAT BEATS BOTH
+              // HAYSTACKS. `depBroke` is asked before the implementation
+              // readers, so a route named here is `blocked` whether a picture
+              // the site already owned is on it (`existingFacts`) or the page
+              // reused one this change wrote (`appliedFacts`) — which is
+              // exactly the owner's *"another photograph on the same route
+              // must not satisfy the failed request"*. Suppressing the route
+              // from the inventory instead would close only the second, and
+              // would make the inventory lie about what the page shows.
+              ...aPhotoLost.map((r) => ({ kind: "photo", name: r })),
               // …AND THE ITEMS THE ENGINE DROPPED WHOLE (2026-09-15). This was
               // the ONE writer of `aFailedKinds` with nothing on this list:
               // `aUnbuilt` NAMES them and the kind was failing wholesale off
@@ -25747,7 +25798,13 @@ async function handleRequest(request, env, ctx) {
                 // leaves behind would render as broken images; `applyImages`
                 // with an empty map is the sweep `buySitePhotos` would have
                 // done, and it is what turns them back into placeholders.
-                aPhotos = { made: 0, planned: aShots.length, budget: 0, overflow: 0, error: String((e && e.message) || e).slice(0, 200) };
+                // `bought: []` IS PART OF THE SHAPE, not a tidiness thing: the
+                // association reader below asks this field, and a throw here
+                // means not one picture was minted — so the honest answer is
+                // the empty list, where an absent field would read as a
+                // `buySitePhotos` that predates the association and leave every
+                // requested photograph unjudged.
+                aPhotos = { made: 0, planned: aShots.length, budget: 0, overflow: 0, bought: [], error: String((e && e.message) || e).slice(0, 200) };
                 aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
                 if (aParts) aParts = applyImages(aParts, new Map());
                 aMark("photos", "fail", { planned: aFold.photos.length, offered: aShots.length });
@@ -26121,6 +26178,95 @@ async function handleRequest(request, env, ctx) {
               const touched = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]
                 .map((f) => routeOf(f)).filter(Boolean));
               aPhotoMade = [...byRoute.values()].filter((x) => touched.has(x.route));
+              // ── AND WHICH REQUESTED PHOTOGRAPH IS REALLY THERE (2026-09-19) ─
+              //
+              // Owner: *"Preserve explicit request-to-result association
+              // through generation and placement. Another photograph on the
+              // same route must not satisfy the failed request."*
+              //
+              // REPRODUCED THROUGH THIS ROUTE BEFORE ANYTHING WAS TOUCHED:
+              // generation failed, the page writer put a photograph the site
+              // already owned on the new /gallery page, and the requirement
+              // claiming *"a new photograph of the bakery is on the gallery
+              // page"* resolved `found` → `unverified` → *"I've set that up"* —
+              // in the same reply as `pictureNote` saying the photographs could
+              // not be made. One picture, two opposite sentences.
+              //
+              // THE CAUSE IS THAT `aPhotoMade` IS AN INVENTORY AND A CLAIM IS
+              // ABOUT A REQUEST. Both are honest and they answer different
+              // questions: the list above says what the route really shows, and
+              // a picture being there says nothing about whether it is the one
+              // that was asked for. So the inventory is left exactly as it is —
+              // what this adds is the second question.
+              //
+              // THE CHAIN IS request → token → url → file → route, and every
+              // link already existed but the middle one was never carried out:
+              // `imageDirective` writes the describe INTO the token,
+              // `buySitePhotos` now reports which token got which url, and the
+              // publication says which file holds it. `shotKey` is the ONE
+              // normalisation, asked of both ends.
+              //
+              // EVERY REQUEST, NOT ONLY THE AFFORDABLE ONES. A shot the balance
+              // cut before the writer ever saw it is still a picture the
+              // customer asked for and has not got — the reply's own credits
+              // clause says WHY, and this says THAT.
+              //
+              // THE LIMIT, STATED: the join is the token's own words, so a
+              // writer that paraphrases one has bought a different picture and
+              // its request reads lost. That is the conservative direction, and
+              // it is what the directive already demands in as many words
+              // (*"write each token VERBATIM — a word changed is a different
+              // picture bought"*), so being wrong here costs a sentence
+              // inviting the customer to look.
+              const rid = (v) => pageId(v).toLowerCase();
+              const boughtAt = new Map();
+              for (const b of (aPhotos && Array.isArray(aPhotos.bought)) ? aPhotos.bought : []) {
+                if (b && typeof b.key === "string" && typeof b.url === "string" && !boughtAt.has(b.key)) boughtAt.set(b.key, b.url);
+              }
+              // WHERE EACH URL REALLY IS, off the same `live` the inventory
+              // reads — so "it was bought" and "it is on that page" are two
+              // readings of one publication and cannot come apart.
+              const urlsAt = new Map();
+              for (const p of live) {
+                const r = rid(p && p.path);
+                if (!r) continue;
+                const set = urlsAt.get(r) || new Set();
+                for (const u of imageRefs(p && p.source, ownerSlug)) set.add(u);
+                urlsAt.set(r, set);
+              }
+              const lostAt = new Set();
+              for (const s of (aFold && Array.isArray(aFold.photos)) ? aFold.photos : []) {
+                const r = rid(s && s.page);
+                if (!r) continue;
+                const url = boughtAt.get(shotKey(s && s.describe));
+                const at = urlsAt.get(r);
+                if (url && at && at.has(url)) continue;
+                // ⚠ THE WALL FIRES ONLY WHERE SOMETHING ELSE WOULD ANSWER FOR
+                // IT, and that is the owner's sentence turned into a condition:
+                // *"another photograph on the same route must not satisfy the
+                // failed request"*. A page carrying no photograph at all is
+                // already `absent` to the implementation reader, which earns
+                // the better sentence — *"Still to do: the gallery page shows a
+                // photograph"* — and naming it here would trade that for the
+                // vaguer dependency clause on the commonest failure there is.
+                //
+                // OFF THE PUBLICATION, SO IT COVERS BOTH HAYSTACKS AT ONCE.
+                // `live` is every file this site will serve, so a picture the
+                // writer reused on a new page (`appliedFacts`) and one the site
+                // has had on that page for months (`existingFacts`) are the
+                // same reading — which is what makes this the one wall that
+                // beats both.
+                if (at && at.size) lostAt.add(r);
+              }
+              aPhotoLost = [...lostAt];
+              if (aPhotoLost.length) {
+                // THE KIND AS WELL AS THE ITEMS, and the two cover different
+                // claims: `aFailedItems()` is what a requirement NAMING the
+                // route is judged on, and the kind is the only thing available
+                // about one that names nothing.
+                aFailedKinds.add("photo");
+                aMark("photos", "lost", { n: aPhotoLost.length, asked: aFold.photos.length });
+              }
               // ── AND WHICH ROUTES REALLY DRAW THE SCENE ──────────────────
               //
               // The same reading one field over, and for the same reason: a
@@ -26957,10 +27103,16 @@ async function handleRequest(request, env, ctx) {
               // RUN IT NOW (owner, 2026-09-03): the one way to see a job work
               // without waiting a day. Owner-scoped like the switch, the SAME
               // deps the cron uses (so what the button sends is what the
-              // schedule would send, on the owner's own key), the stamp
-              // landing without the dueness clause because the press is the
-              // decision, and the outcome written where the panel reads it
-              // and answered as the sentence, so the owner sees it at once.
+              // schedule would send, on the owner's own key), the outcome
+              // written where the panel reads it and answered as the sentence,
+              // so the owner sees it at once.
+              //
+              // THE PRESS'S ONE DIFFERENCE FROM A TICK IS HERE AND NOWHERE
+              // ELSE: it reads the row itself instead of asking `dueJobs`. The
+              // claim below is the same claim the tick makes — a press asks
+              // that nothing ran in between, which is why pressing twice
+              // quickly sends one reminder rather than two, and why a press on
+              // a one-time job that has already gone out is refused.
               if (jbody && jbody.run === true) {
                 const jr = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(ou.id)}&slug=eq.${encodeURIComponent(jslug)}&name=eq.${encodeURIComponent(jname)}&schedule_minutes=not.is.null&select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled&limit=1`,
                   { headers: svcHeaders(env), signal: AbortSignal.timeout(10000) });
@@ -26968,7 +27120,7 @@ async function handleRequest(request, env, ctx) {
                 const jrows = await jr.json().catch(() => null);
                 const jrow = Array.isArray(jrows) ? jrows[0] : null;
                 if (!jrow) return Response.json({ error: "no such job" }, { status: 404 });
-                const out = await runJob(jobDeps(env, jrow, { force: true }), jrow);
+                const out = await runJob(jobDeps(env, jrow), jrow);
                 await recordJobOutcome(env, jrow, out);
                 return Response.json({ ok: true, name: jname, ran: true, sent: Number(out && out.sent) || 0, result: jobOutcome(out) });
               }

@@ -622,7 +622,12 @@ export const BROWSER_FNS = Object.freeze([
   // and the paid run comes back with no customer screen at all. The census in
   // `test/addon-sweep.test.mjs` derives the requirement from `addonReplyText`'s
   // own body so the next one fails at the guard rather than in a live run.
-  "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "browserTimeZone", "jobWords",
+  // ⚠ AND `onceWhen`/`jobZone`/`jobOnceNote` FOR THE SAME REASON (2026-09-19).
+  // The one-time schedule sentence is composed by three functions calling one
+  // another, so all three have to be cut: `jobWords` alone throws the moment a
+  // job carries `on`, which is every one-time reminder a customer asks for.
+  "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "browserTimeZone",
+  "jobZone", "onceWhen", "jobWords", "jobOnceNote",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
 ]);
 

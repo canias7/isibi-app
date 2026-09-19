@@ -937,6 +937,33 @@ export function parseImageTokens(pages) {
 }
 
 /**
+ * THE ONE JOIN KEY BETWEEN A PHOTOGRAPH THAT WAS ASKED FOR AND ONE THAT WAS
+ * BOUGHT (2026-09-19).
+ *
+ * An addon's `photo` request is `{page, describe}`; what reaches the provider
+ * is a TOKEN the page writer copied out of the directive. The only thing tying
+ * the two together is the text inside it — so this is that text, normalised
+ * once, and BOTH ends ask it rather than repeating the normalisation by hand.
+ *
+ * THREE HOPS ALREADY NORMALISE, WHICH IS WHY A HAND-WRITTEN JOIN DRIFTS:
+ * `imageDirective` writes `@@IMG:${describe}@@` after collapsing whitespace,
+ * trimming and slicing; `parseImageTokens` reads it back collapsed and
+ * trimmed; `planImages` slices again. A comparison that repeats any one of
+ * them is a second copy of it.
+ *
+ * IT TRIMS LAST, and that is the hop the other three do not have: a describe
+ * longer than the cap is cut mid-text, and a cut landing on a space leaves a
+ * trailing one on the directive's side that the token's side has already
+ * trimmed away. Idempotent by construction — collapse, trim and slice all
+ * leave an already-keyed string alone — so it does not matter which side of a
+ * comparison has been through it before.
+ */
+export function shotKey(describe) {
+  return String(describe == null ? "" : describe)
+    .replace(/\s+/g, " ").trim().slice(0, MAX_PROMPT_CHARS).trim();
+}
+
+/**
  * Which tokens get a real photograph and which fall back.
  *
  * A token with no description is DROPPED rather than sent — `@@IMG:@@` is the

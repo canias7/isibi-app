@@ -208,9 +208,25 @@ export function onceAt(on, at, tz) {
 }
 
 /**
- * What became of a one-time job, for the owner's panel: `scheduled` · `done` ·
- * `missed` · `unreadable`, and **null for a recurring job**, which has no such
- * thing.
+ * Every answer `onceState` can give, so the browser and the guards read one
+ * list rather than each typing the words.
+ */
+export const ONCE_STATES = Object.freeze(["scheduled", "attempted", "missed", "unreadable"]);
+
+/**
+ * What became of a one-time job, for the owner's panel: `scheduled` ·
+ * `attempted` · `missed` · `unreadable`, and **null for a recurring job**,
+ * which has no such thing.
+ *
+ * ⚠ `attempted`, NOT `done` — RENAMED 2026-09-19 (owner: *"a consumed attempt
+ * is not proof of successful delivery"*), and the old word was a claim this
+ * function is in no position to make. It reads `last_run`, which `runJob`
+ * stamps BEFORE it sends anything — deliberately, so a job that dies mid-batch
+ * does not re-mail everyone it already reached. So a stamped one-time job means
+ * *the occurrence was consumed and the work was attempted*, and whether a
+ * single message arrived is in `last_result` and nowhere else. `done` read as
+ * the reminder having gone out, on a row that is equally consistent with the
+ * provider being down.
  *
  * DERIVED FROM THE ROW, never stored. A `state` column would be a second value
  * that can disagree with `last_run`, and the whole job of this line is to be
@@ -230,7 +246,7 @@ export function onceState(row, now = Date.now()) {
   const spec = row && typeof row.spec === "object" && row.spec ? row.spec : null;
   const on = spec && typeof spec.on === "string" ? spec.on : null;
   if (!on) return null;
-  if (row.last_run) return "done";
+  if (row.last_run) return "attempted";
   const when = onceAt(on, spec.at, spec.tz);
   if (when == null) return "unreadable";
   const t = Number(now);
@@ -487,6 +503,59 @@ export function dueJobs(rows, now) {
     // to supply is one a later edit drops silently.
     .sort((a, b) => waited(b) - waited(a))
     .slice(0, MAX_JOBS_PER_TICK);
+}
+
+/**
+ * WHAT MUST STILL BE TRUE OF THIS ROW FOR THE SELECTION ABOVE TO STILL HOLD —
+ * the atomic claim's condition, as a PostgREST filter fragment.
+ *
+ * ⚠ THE DEFECT THIS REPLACES, reproduced 2026-09-19 through the real tick.
+ * The claim used to RESTATE dueness in its own words — `last_run` null, or
+ * older than the schedule minus the 30-second slack — and a restatement is a
+ * second copy of a rule. On 2026-09-16 the selector's daily rule moved off
+ * elapsed time and onto the calendar occurrence, and the claim did not move
+ * with it. MEASURED on the owner's own row (`last_run` 19:29:36.345Z, every
+ * 1440 minutes at 23:00 Europe/London) at 22:00Z: `dueJobs` selected the job,
+ * the claim went out as `or=(last_run.is.null,last_run.lt.2026-09-15T22:00:30Z)`,
+ * matched NO row, and `runJob` returned `skipped` having made ZERO function
+ * calls. Nothing failed, nothing logged, and the nightly job simply never ran.
+ *
+ * SO THE CLAIM STOPS RESTATING THE RULE AND ASKS THE ONE QUESTION IT IS REALLY
+ * FOR: **has this row changed since the selector looked at it?** A
+ * compare-and-swap on `last_run` — the etag pattern this repository already
+ * uses for the build pointer, where the version is the etag and here the stamp
+ * is. It cannot drift from `dueJobs` because it does not know what `dueJobs`
+ * decided or why: whatever rule the selector applies, to whatever row, this
+ * asserts that the row it applied it to is the row being claimed.
+ *
+ * AND THE DUPLICATE PROTECTION IS STRICTLY STRONGER, which is the property that
+ * had to survive. Two overlapping ticks read the same row and both PATCH with
+ * the same `last_run.eq.<value>`; the first writes a new stamp and the second
+ * matches nothing. Where the old clause could admit both (whenever the interval
+ * had elapsed for each of them independently), this cannot: exactly one caller
+ * can find a given value in place.
+ *
+ * `force` IS GONE FROM THIS QUESTION AND THE PARAMETER WITH IT. It used to drop
+ * the clause entirely for the owner's "Run now", on the argument that the press
+ * IS the decision that the job is due. That argument is about DUENESS, and this
+ * is no longer a dueness test — so under a press the CAS simply asks that
+ * nothing ran in between, which is what the press meant. It also closes the
+ * double-press door: two rapid presses used to send the same reminder twice.
+ *
+ * A ONE-TIME JOB KEEPS ITS OWN, STRONGER CONDITION and is not a CAS. `is.null`
+ * says "never run, ever", which is what one-time means; a CAS would happily
+ * re-run a consumed one-time job whose stamp had not moved since the caller
+ * read it, which is the exact second send the whole tier exists to prevent.
+ */
+export function claimFilter(row) {
+  const spec = row && typeof row.spec === "object" && row.spec ? row.spec : null;
+  if (spec && typeof spec.on === "string") return "&last_run=is.null";
+  // `undefined` AND `null` BOTH MEAN "never run", and reading them apart would
+  // be a wall that fails OPEN: a caller whose select forgot the column would
+  // get `eq.undefined`, which matches nothing — a job that can never be
+  // claimed and never says why.
+  const seen = row && row.last_run != null ? String(row.last_run) : null;
+  return seen === null ? "&last_run=is.null" : "&last_run=eq." + encodeURIComponent(seen);
 }
 
 /**

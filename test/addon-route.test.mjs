@@ -6719,6 +6719,310 @@ test("a photograph cannot be reported absent before the publish has said anythin
     "work that was never attempted was reported as outstanding: " + r.body.coverNote);
 });
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE REQUEST AND THE PICTURE THAT ANSWERS IT (2026-09-19)
+
+   Owner: *"Reproduced: generation fails, an old photograph is reused on
+   /gallery, and the requirement for a newly generated photograph becomes
+   configured. pictureNote says failure while coverNote says 'I've set that
+   up.' Preserve explicit request-to-result association through generation and
+   placement. Another photograph on the same route must not satisfy the failed
+   request."*
+
+   WHY THE EXISTING CASES ABOVE COULD NOT SEE IT: every one of them puts at
+   most ONE picture in play per route, so "a picture is on that page" and "the
+   picture this asked for is on that page" are the same reading. The two come
+   apart the moment a route carries a photograph the request did not buy — a
+   reuse, or a second request's — and that is the whole of the defect.
+
+   THE CHAIN IS request → token → url → file → route. `imageDirective` writes
+   the describe INTO the token, `buySitePhotos` reports which token got which
+   url, and the publication says which file holds it. `shotKey` is the one
+   normalisation both ends ask.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("a reused photograph does not answer a request for a new one that was never made", async () => {
+  // THE OWNER'S REPRODUCTION, and the shape is exact: the provider refuses,
+  // the page writer falls back to a photograph the site already owns, and the
+  // requirement names the ROUTE — which is the only identity a photograph has.
+  const OWNED = "/u/fw-photo-lost/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg";
+  const CLAIM = { need: "A new photograph of the bakery is on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item: "/gallery",
+    by: "a new photograph of the bakery on the gallery page" };
+  const r = await photoAsk("fw-photo-lost", {
+    kinds: ["page", "photo"], credits: 400, shotFail: true, sitePages: ["/"],
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"" + OWNED + "\" alt=\"the bench\" /></main>" }],
+    // THE WRITER OBEYED: it wrote the token for the picture that was asked for
+    // AND showed one the site already owns beside it. So the provider really is
+    // paid to try, the refusal sweeps that token back to `src=""`, and what the
+    // page ends up carrying is the OLD photograph — which is the owner's shape
+    // exactly, and the one where a per-route reading cannot tell the two apart.
+    written: [galleryWith('<SafeImage src="' + OWNED + '" alt="the bench" />'
+      + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE TWO PRECONDITIONS, because without either this case is about something
+  // else: the provider really was asked and really refused, and the page really
+  // does carry another photograph.
+  assert.equal(r.shots.length, 1, "the provider was never asked — this case tests nothing: " + JSON.stringify(r.shots));
+  assert.ok(!r.body.pictures, "a picture was bought from a refusing provider: " + JSON.stringify(r.body));
+  const page = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.ok(page && page.source.includes(OWNED),
+    "the reused photograph is not on the published page — the wall has nothing to beat");
+
+  const q = storedAnswer(r, "fw-photo-lost").coverage.requirements[0];
+  // ⚠ THIS IS THE ASSERTION THAT MAKES IT A WALL RATHER THAN AN ABSENCE. The
+  // implementation reader FOUND a picture on /gallery and the requirement is
+  // still refused — which is the owner's *"another photograph on the same
+  // route must not satisfy the failed request"*, in the one shape where the
+  // two readings disagree.
+  assert.equal(q.implementation, "found",
+    "the route carries no picture, so this case would pass without the fix: " + JSON.stringify(q));
+  assert.equal(q.state, "blocked", "a refused photograph reads as set up: " + JSON.stringify(q));
+  assert.equal(q.why, "the photograph it asked for on /gallery isn't there",
+    "the clause names no reason a customer can check: " + JSON.stringify(q));
+  // …AND THE TWO SENTENCES AGREE, which is the incoherence that was reported:
+  // one reply said the photographs could not be made and, four words later,
+  // that it had been set up.
+  assert.doesNotMatch(r.body.coverNote || "", /I've set that up/, r.body.coverNote);
+  assert.match(r.body.coverNote || "", /A new photograph of the bakery is on the gallery page/, r.body.coverNote);
+  assert.match(r.body.pictureNote || "", /Couldn't make the photographs this time/, String(r.body.pictureNote));
+
+  // ── AND A CLAIM THAT NAMES NOTHING IS COVERED BY THE KIND, not the item.
+  // The two walls answer different requirements and only one of them can see
+  // an un-named claim: with no `item` there is no reference, so `depBroke`
+  // cannot fire and the step's own failure is the only evidence there is.
+  const vague = await photoAsk("fw-photo-lost-vague", {
+    kinds: ["page", "photo"], credits: 400, shotFail: true, sitePages: ["/"],
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"/u/fw-photo-lost-vague/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg\" alt=\"the bench\" /></main>" }],
+    written: [galleryWith('<SafeImage src="/u/fw-photo-lost-vague/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg" alt="the bench" />'
+      + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }],
+        requirements: [{ need: "The bakery's own photographs are on the site.", status: "covered",
+          from: "photo", by: "a new photograph of the bakery on the gallery page" }] },
+    },
+  });
+  assert.equal(vague.body.ok, true, JSON.stringify(vague.body));
+  const v = storedAnswer(vague, "fw-photo-lost-vague").coverage.requirements[0];
+  assert.equal(v.item, undefined, "the claim names an item — this sub-case tests the other wall: " + JSON.stringify(v));
+  assert.equal(v.state, "failed",
+    "a claim naming nothing was rescued by a picture it never asked for: " + JSON.stringify(v));
+  assert.match(vague.body.coverNote || "", /Still to do: The bakery's own photographs/, vague.body.coverNote);
+
+  // ── THE CONTROL: the same claim, the same page, the same reuse — and the
+  // request really answered. Without it "blocked" could be what this route
+  // says about every photograph, and the case would prove nothing.
+  const ok = await photoAsk("fw-photo-lost-ok", {
+    kinds: ["page", "photo"], credits: 400, sitePages: ["/"],
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"/u/fw-photo-lost-ok/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg\" alt=\"the bench\" /></main>" }],
+    written: [galleryWith('<SafeImage src="/u/fw-photo-lost-ok/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg" alt="the bench" />'
+      + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+    },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(ok.body.pictures, 1, "no picture was bought — the control tests nothing: " + JSON.stringify(ok.body));
+  const g = storedAnswer(ok, "fw-photo-lost-ok").coverage.requirements[0];
+  assert.equal(g.state, "unverified", "a picture that really landed was refused: " + JSON.stringify(g));
+  assert.match(ok.body.coverNote || "", /I've set that up/, ok.body.coverNote);
+});
+
+test("two photographs asked for on one page: both landing answers, one landing does not", async () => {
+  // THE OWNER'S "multiple requested photographs sharing a page" AND "partial
+  // success", which are one case and its control — and the pair is why the
+  // association has to be per REQUEST. Per ROUTE the two are identical: one
+  // page, one claim, a photograph on it either way.
+  const OVEN = "the oven at dawn, flour on the bench";
+  const CLAIM = { need: "Photographs of the bakery are on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item: "/gallery",
+    by: "photographs of the bakery on the gallery page" };
+  const both = (slug, opts) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryWith('<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />'
+      + '<SafeImage src="@@IMG:' + OVEN + '@@" alt="the oven" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }, { page: "/gallery", describe: OVEN }],
+        requirements: [CLAIM] },
+    },
+    ...opts,
+  });
+
+  // BOTH LAND — the control, and it runs first so a partial that reads
+  // `blocked` cannot be the route saying that about every two-picture page.
+  const all = await both("fw-photo-two");
+  assert.equal(all.body.ok, true, JSON.stringify(all.body));
+  assert.equal(all.shots.length, 2, "two pictures were not asked for: " + JSON.stringify(all.shots));
+  assert.equal(all.body.pictures, 2, "two pictures did not reach the page: " + JSON.stringify(all.body));
+  const a = storedAnswer(all, "fw-photo-two").coverage.requirements[0];
+  assert.equal(a.state, "unverified", "two pictures that both landed were refused: " + JSON.stringify(a));
+
+  // PARTIAL — the SECOND provider call refuses. `shotFail` takes a list of
+  // prompt fragments precisely so this shape can exist: as a boolean it could
+  // only refuse everything, and a run where one picture arrives and another
+  // does not is the one that separates a per-request reading from a per-route
+  // one.
+  const part = await both("fw-photo-two-part", { shotFail: [OVEN] });
+  assert.equal(part.body.ok, true, JSON.stringify(part.body));
+  assert.equal(part.shots.length, 2, "the second picture was never asked for: " + JSON.stringify(part.shots));
+  assert.equal(part.body.pictures, 1,
+    "this is not a partial success — the case tests nothing: " + JSON.stringify(part.body));
+  const p = compiledPages(part).find((x) => x.path.includes("gallery"));
+  assert.ok(p && /\/u\/fw-photo-two-part\//.test(p.source),
+    "the picture that DID land is not on the page, so the route carries none: " + (p && p.source));
+  const b = storedAnswer(part, "fw-photo-two-part").coverage.requirements[0];
+  assert.equal(b.implementation, "found",
+    "the route carries no picture, so this case would pass without the fix: " + JSON.stringify(b));
+  assert.equal(b.state, "blocked",
+    "one picture answered for two, which is a count standing in for an association: " + JSON.stringify(b));
+  // …AND THE REPLY STILL SAYS WHAT IT REALLY BOUGHT. The two clauses are about
+  // different things and both are true: one photograph was made, and the
+  // requirement that asked for the pair is not satisfied.
+  assert.match(part.body.pictureNote || "", /Made 1 photograph/, String(part.body.pictureNote));
+  assert.doesNotMatch(part.body.coverNote || "", /I've set that up/, part.body.coverNote);
+});
+
+test("a photograph bought for one page and written onto another is not on the page that asked", async () => {
+  // THE PLACEMENT HALF, which is the second word in *"through generation and
+  // placement"*: a picture can be paid for, stored and published and still not
+  // be where the request put it. Generation alone cannot see that — the token
+  // got its url — so a reader that stopped at the purchase would call this
+  // answered.
+  //
+  // AND IT READS `missing` RATHER THAN `blocked`, which is the wall being
+  // narrow on purpose: `/gallery` carries no photograph at all, so the
+  // implementation reader LOOKED and did not find one, and *"Still to do"* is
+  // the actionable line. The dependency clause is kept for the one shape where
+  // something else on the page would otherwise answer.
+  //
+  // ⚠ SO THIS CASE IS A CONTROL AND PASSES ON BOTH TREES, said out loud rather
+  // than left to be discovered: the pre-change product answers `missing` here
+  // too, by the implementation reader alone. What it guards is that the new
+  // wall did not WIDEN — a `failedItems` entry written for every lost request,
+  // rather than only for the ones something else would answer, trades this
+  // sentence for the vaguer one on the commonest failure there is.
+  const CLAIM = { need: "A photograph of the bench is on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item: "/gallery",
+    by: "a photograph of the bench on the gallery page" };
+  const PRESS = { path: "/press", name: "Press", purpose: "what people say",
+    sections: ["a list of quotes"], components: [] };
+  const r = await photoAsk("fw-photo-misplaced", {
+    kinds: ["page", "photo"], credits: 400,
+    written: [
+      galleryWith("<p>Our work, soon.</p>"),
+      { path: "src/routes/press.tsx",
+        source: "import { createFileRoute } from '@tanstack/react-router'\n"
+          + "import { SafeImage } from '@/components/ui/safe-image'\n"
+          + "export const Route = createFileRoute('/press')({ component: P })\n"
+          + 'function P(){ return <main><h1>Press</h1><SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" /></main> }\n' },
+    ],
+    answers: {
+      page: { page: [PHOTO_PAGE, PRESS] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION IS THE WHOLE POINT: the picture was really bought and
+  // really published — on the wrong page. Without it this is a refusal case.
+  assert.equal(r.body.pictures, 1, "no picture was bought — this case tests nothing: " + JSON.stringify(r.body));
+  const pages = compiledPages(r);
+  const press = pages.find((p) => p.path.includes("press"));
+  const gal = pages.find((p) => p.path.includes("gallery"));
+  assert.ok(press && /\/u\/fw-photo-misplaced\//.test(press.source), "the picture is on no page at all: " + (press && press.source));
+  assert.ok(gal && !/\/u\/fw-photo-misplaced\//.test(gal.source), "the picture IS on the page that asked: " + (gal && gal.source));
+
+  const q = storedAnswer(r, "fw-photo-misplaced").coverage.requirements[0];
+  assert.equal(q.implementation, "absent",
+    "a picture on another page was found for this one: " + JSON.stringify(q));
+  assert.equal(q.state, "missing", "a misplaced photograph answered the request: " + JSON.stringify(q));
+  assert.match(r.body.coverNote || "", /Still to do: A photograph of the bench is on the gallery page/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote || "", /I've set that up/, r.body.coverNote);
+
+  // ── AND THE SHAPE WHERE THE PLACEMENT HALF IS THE ONLY THING STOPPING IT.
+  //
+  // ⚠ A SWEEP SURVIVOR, AND IT IS THE CASE ABOVE ONE CONDITION SHORT. With
+  // `/gallery` carrying nothing, the implementation reader settles it whatever
+  // the association says — so a route that asked only *"was a picture minted
+  // for this request"* and never *"is it on the page that asked"* passes the
+  // whole case above. The two part company exactly when the requested page has
+  // ANOTHER photograph on it: then the reader finds one, and only the
+  // placement test can say it is not the one that was asked for.
+  const OWNED = "/u/fw-photo-misplaced-2/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg";
+  const both = await photoAsk("fw-photo-misplaced-2", {
+    kinds: ["page", "photo"], credits: 400, sitePages: ["/"],
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"" + OWNED + "\" alt=\"the bench\" /></main>" }],
+    written: [
+      galleryWith('<SafeImage src="' + OWNED + '" alt="the bench" />'),
+      { path: "src/routes/press.tsx",
+        source: "import { createFileRoute } from '@tanstack/react-router'\n"
+          + "import { SafeImage } from '@/components/ui/safe-image'\n"
+          + "export const Route = createFileRoute('/press')({ component: P })\n"
+          + 'function P(){ return <main><h1>Press</h1><SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" /></main> }\n' },
+    ],
+    answers: {
+      page: { page: [PHOTO_PAGE, PRESS] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+    },
+  });
+  assert.equal(both.body.ok, true, JSON.stringify(both.body));
+  assert.equal(both.body.pictures, 1, "no picture was bought — this sub-case tests nothing: " + JSON.stringify(both.body));
+  const bg = compiledPages(both).find((p) => p.path.includes("gallery"));
+  assert.ok(bg && bg.source.includes(OWNED), "the reused photograph is not on /gallery: " + (bg && bg.source));
+  const b = storedAnswer(both, "fw-photo-misplaced-2").coverage.requirements[0];
+  assert.equal(b.implementation, "found",
+    "/gallery carries no picture, so this sub-case is the one above again: " + JSON.stringify(b));
+  assert.equal(b.state, "blocked",
+    "a picture bought for this page and written onto another answered it: " + JSON.stringify(b));
+  assert.doesNotMatch(both.body.coverNote || "", /I've set that up/, both.body.coverNote);
+});
+
+test("the request and its token are joined on the words, however the describe was spaced", async () => {
+  // ⚠ THE JOIN IS A STRING AND THREE HOPS NORMALISE IT. `imageDirective`
+  // collapses whitespace writing the token, `parseImageTokens` collapses and
+  // trims reading it back, and `planImages` slices — so a comparison that
+  // repeats any one of them by hand drifts, and the drift shows up as a
+  // photograph that really landed being reported as still to do.
+  //
+  // `shotKey` IS THE ONE DEFINITION AND BOTH ENDS ASK IT. This case drives the
+  // only shape where a hand-written join differs from it: a describe carrying
+  // a newline and a double space, which the directive collapses and the
+  // request does not.
+  //
+  // ⚠ ITS OBSERVER IS THE SWEEP, NOT A RED-CHECK, and that is worth saying:
+  // the pre-change product has no association at all, so it answers
+  // `unverified` here for its own reason and the case passes on both trees.
+  // What it can see is a `shotKey` that stops normalising — which is the way
+  // this join really breaks, one careless edit at a time.
+  const SPACED = "the workshop bench\nunder  the window,\twarm afternoon light";
+  const CLAIM = { need: "A photograph of the bench is on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item: "/gallery",
+    by: "a photograph of the bench on the gallery page" };
+  const r = await photoAsk("fw-photo-spaced", {
+    kinds: ["page", "photo"], credits: 400,
+    // THE WRITER COPIES THE TOKEN AS THE DIRECTIVE WROTE IT — collapsed —
+    // which is what a model reading that line really does.
+    written: [galleryWith('<SafeImage src="@@IMG:' + SPACED.replace(/\s+/g, " ").trim() + '@@" alt="the bench" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: { photo: [{ page: "/gallery", describe: SPACED }], requirements: [CLAIM] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.pictures, 1, "no picture was bought — this case tests nothing: " + JSON.stringify(r.body));
+  const q = storedAnswer(r, "fw-photo-spaced").coverage.requirements[0];
+  assert.equal(q.state, "unverified",
+    "a photograph that really landed was lost to the join's own spacing: " + JSON.stringify(q));
+  assert.match(r.body.coverNote || "", /I've set that up/, r.body.coverNote);
+});
+
 test("a scene the site already has is refused, and nothing is claimed for the refusal", async () => {
   // THE OWNER'S THIRD 3D DISTINCTION: *"A refused addition, including the
   // existing one-scene-per-site restriction."* `SINGLE_FIELDS` allows one, so

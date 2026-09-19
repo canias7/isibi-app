@@ -1,0 +1,244 @@
+[
+  {
+    "label": "CONTROL: a comment only — must survive",
+    "control": true,
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "export function claimFilter(row) {",
+    "to": "export function claimFilter(row) { // comment-only control"
+  },
+  {
+    "label": "CONTROL: a comment only in the route — must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const rid = (v) => pageId(v).toLowerCase();",
+    "to": "              // comment-only control\n              const rid = (v) => pageId(v).toLowerCase();"
+  },
+  {
+    "label": "GAP 1 — the claim carries no condition at all, so two ticks both claim one job",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const seen = row && row.last_run != null ? String(row.last_run) : null;\n  return seen === null ? \"&last_run=is.null\" : \"&last_run=eq.\" + encodeURIComponent(seen);",
+    "to": "  void row;\n  return \"\";"
+  },
+  {
+    "label": "GAP 1 — the claim restores the elapsed-interval cutoff, which is the reported defect",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const seen = row && row.last_run != null ? String(row.last_run) : null;\n  return seen === null ? \"&last_run=is.null\" : \"&last_run=eq.\" + encodeURIComponent(seen);",
+    "to": "  const mins = Math.max(1, Number((row && row.spec && row.spec.everyMinutes) || 1));\n  return \"&or=(last_run.is.null,last_run.lt.\" + new Date(Date.now() - mins * 60000 + 30000).toISOString() + \")\";"
+  },
+  {
+    "label": "GAP 1 — a never-run job is claimed by etag rather than is.null, so `eq.null` matches nothing",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  const seen = row && row.last_run != null ? String(row.last_run) : null;\n  return seen === null ? \"&last_run=is.null\" : \"&last_run=eq.\" + encodeURIComponent(seen);",
+    "to": "  const seen = String((row && row.last_run) || null);\n  return \"&last_run=eq.\" + encodeURIComponent(seen);"
+  },
+  {
+    "label": "GAP 1 — a one-time job is claimed by etag, so Run now does not consume its one occurrence",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  if (spec && typeof spec.on === \"string\") return \"&last_run=is.null\";",
+    "to": "  if (spec && typeof spec.on === \"string\" && false) return \"&last_run=is.null\";"
+  },
+  {
+    "label": "GAP 1 — the stamp writes its own dueness instead of asking the selector's module",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        const dueness = claimFilter(r2);",
+    "to": "        const dueness = \"&or=(last_run.is.null,last_run.lt.\" + new Date(Date.now() - 86400000).toISOString() + \")\";"
+  },
+  {
+    "label": "GAP 1 — `jobDeps` takes a force option again, so a press can bypass the claim",
+    "files": [
+      "worker.js"
+    ],
+    "from": "export function jobDeps(env, row) {",
+    "to": "export function jobDeps(env, row, { force = false } = {}) { void force;"
+  },
+  {
+    "label": "GAP 1 — a consumed one-time job reads `done`, which claims the message was delivered",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "  if (row.last_run) return \"attempted\";",
+    "to": "  if (row.last_run) return \"done\";"
+  },
+  {
+    "label": "GAP 1 — the one-time vocabulary loses `attempted`",
+    "files": [
+      "site-jobs.mjs"
+    ],
+    "from": "export const ONCE_STATES = Object.freeze([\"scheduled\", \"attempted\", \"missed\", \"unreadable\"]);",
+    "to": "export const ONCE_STATES = Object.freeze([\"scheduled\", \"done\", \"missed\", \"unreadable\"]);"
+  },
+  {
+    "label": "GAP 2 — the reply describes a one-time job by its interval again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const once = onceWhen(j);\n  if (once) return j.name + ' (once on ' + once + ')';",
+    "to": "  const once = onceWhen(j);\n  if (once && false) return j.name + ' (once on ' + once + ')';"
+  },
+  {
+    "label": "GAP 2 — the date is never rendered at all",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const m = typeof (j && j.on) === 'string' ? /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(j.on) : null;",
+    "to": "  const m = null; void j;"
+  },
+  {
+    "label": "GAP 2 — the zone is dropped, so a job in another timezone reads as the reader's own",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '';",
+    "to": "  void j;\n  return '';"
+  },
+  {
+    "label": "GAP 2 — the time is dropped from the rendered date",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  return Number(m[3]) + ' ' + months[mo - 1] + ' ' + m[1] + ' at ' + at + jobZone(j);",
+    "to": "  return Number(m[3]) + ' ' + months[mo - 1] + ' ' + m[1] + jobZone(j);"
+  },
+  {
+    "label": "GAP 2 — a one-time date coerces through String, so a one-element array prints a confident date",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const m = typeof (j && j.on) === 'string' ? /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(j.on) : null;",
+    "to": "  const m = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(String((j && j.on) || ''));"
+  },
+  {
+    "label": "GAP 2 — the panel chip keys on the rendered date, so an unreadable one falls back to the interval",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const once = onceWhen(j);\n  const sch = j.onState != null",
+    "to": "  const once = onceWhen(j);\n  const sch = once"
+  },
+  {
+    "label": "GAP 2 — \"Hasn't run yet\" comes back on a one-time job that already says more",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    : j.onState != null\n      ? ''\n      : '<div class=\"fn-flow\"><span class=\"fn-step\">Hasn\\u2019t run yet.</span></div>';",
+    "to": "    : '<div class=\"fn-flow\"><span class=\"fn-step\">Hasn\\u2019t run yet.</span></div>';"
+  },
+  {
+    "label": "GAP 2 — the reply says nothing about a one-time job using up its run",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const once = (Array.isArray(jobs) ? jobs : []).filter((j) => j && j.name && onceWhen(j));\n  if (!once.length) return '';",
+    "to": "  const once = (Array.isArray(jobs) ? jobs : []).filter((j) => j && j.name && onceWhen(j));\n  if (once.length >= 0) return '';"
+  },
+  {
+    "label": "GAP 2 — the reply harness drops `onceWhen` from the scope it cuts, so the composer throws",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "\"jobZone\", \"onceWhen\", \"jobWords\", \"jobOnceNote\",",
+    "to": "\"jobZone\", \"jobWords\", \"jobOnceNote\","
+  },
+  {
+    "label": "GAP 3 — the purchase reports no association, so no request can be tied to its picture",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: urls.get(s.token) })),",
+    "to": "    bought: [],"
+  },
+  {
+    "label": "GAP 3 — the association is keyed by the raw token, which no request can ask for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: urls.get(s.token) })),",
+    "to": "    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: s.token, url: urls.get(s.token) })),"
+  },
+  {
+    "label": "GAP 3 — every picture is reported at one made-up url, so no request can find its own",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: urls.get(s.token) })),",
+    "to": "    bought: plan.shots.filter((s) => urls.has(s.token)).map((s) => ({ key: shotKey(s.prompt), url: \"/u/elsewhere/deadbeefdeadbeefdeadbeefdeadbeef.jpg\" })),"
+  },
+  {
+    "label": "GAP 3 — the join stops normalising, so a describe spaced differently from its token misses",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  return String(describe == null ? \"\" : describe)\n    .replace(/\\s+/g, \" \").trim().slice(0, MAX_PROMPT_CHARS).trim();",
+    "to": "  return String(describe == null ? \"\" : describe).slice(0, MAX_PROMPT_CHARS);"
+  },
+  {
+    "label": "GAP 3 — placement is not asked, so a picture bought for one page answers another",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (url && at && at.has(url)) continue;",
+    "to": "                if (url) continue;"
+  },
+  {
+    "label": "GAP 3 — nothing is ever lost, so the reported defect returns whole",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (at && at.size) lostAt.add(r);",
+    "to": "                void at;"
+  },
+  {
+    "label": "GAP 3 — the wall widens to every lost request, trading the better sentence on the commonest failure",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (at && at.size) lostAt.add(r);",
+    "to": "                lostAt.add(r);"
+  },
+  {
+    "label": "GAP 3 — the lost routes never reach the failed items, so a claim naming one is rescued",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ...aPhotoLost.map((r) => ({ kind: \"photo\", name: r })),",
+    "to": "              ...[].map((r) => ({ kind: \"photo\", name: r })),"
+  },
+  {
+    "label": "GAP 3 — the photo step is not marked failed, so a claim naming nothing is judged on prose",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aFailedKinds.add(\"photo\");\n                aMark(\"photos\", \"lost\"",
+    "to": "                aMark(\"photos\", \"lost\""
+  },
+  {
+    "label": "GAP 3 — a photograph's blocked clause says a page could not be created",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (ref && ref.kind === \"photo\") return \"the photograph it asked for on \" + name + \" isn't there\";",
+    "to": "  void ref;"
+  },
+  {
+    "label": "GAP 3 — the blocked clause is dropped entirely, so the customer is told nothing to check",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "      why = why || brokeWhy(ref);",
+    "to": "      why = why || \"\";"
+  }
+]

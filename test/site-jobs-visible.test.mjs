@@ -167,8 +167,17 @@ test("AN UNREADABLE LIST IS NOT AN EMPTY ONE, at both ends", () => {
   // landed above the toggle's).
   const panel = chat.slice(c, chat.indexOf("async function siteFiles(", c));
   assert.match(panel, /if \(!r\.ok\)/, "the client treats a failed load as an empty schedule");
-  assert.match(panel, /Hasn\\u2019t run yet|Hasn’t run yet/,
+  // ⚠ RE-ANCHORED 2026-09-19: the row's markup moved out of this closure into
+  // `jobRowHtml`, so the sentence is asserted where it is now composed. The
+  // property is unchanged and is strictly narrower than it was — it is the
+  // RECURRING job that must say "hasn't run yet", because a one-time job that
+  // has not fired says something better (whether it is still coming, or whether
+  // its moment went by), and "yet" would promise a run that is not coming.
+  const rowFn = chat.slice(chat.indexOf("\nfunction jobRowHtml("), chat.indexOf("\n}", chat.indexOf("\nfunction jobRowHtml(")) + 2);
+  assert.ok(rowFn.length > 500, "jobRowHtml is gone — the panel composes its rows somewhere else again");
+  assert.match(rowFn, /Hasn\\u2019t run yet|Hasn’t run yet/,
     "a job that has never run is given an invented outcome");
+  assert.match(panel, /jobRowHtml\(j, j\.lastRun \?/, "the panel does not compose its rows through jobRowHtml");
 });
 
 test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie", () => {
@@ -201,7 +210,12 @@ test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie"
   // `c + 6400` and went red on 2026-09-03 when the Run now button's handler
   // landed above the toggle's).
   const panel = chat.slice(c, chat.indexOf("async function siteFiles(", c));
-  assert.match(panel, /fn-tgl/, "the switch is gone from the panel");
+  // ⚠ RE-ANCHORED 2026-09-19 for the same reason: the BUTTON is drawn by
+  // `jobRowHtml` and the HANDLER is wired in the panel, so each half is
+  // asserted where it lives. Splitting them is what the assertions below
+  // already do for the POST and the repaint.
+  const rowSrc = chat.slice(chat.indexOf("\nfunction jobRowHtml("), chat.indexOf("\n}", chat.indexOf("\nfunction jobRowHtml(")) + 2);
+  assert.match(rowSrc, /fn-tgl/, "the switch is gone from the row");
   assert.match(panel, /method: 'POST'[^}]*\/jobs'|\/jobs',\s*\{ method: 'POST'/, "nothing posts to the jobs route");
   assert.match(panel, /JSON\.stringify\(\{ name: b\.dataset\.job, enabled: next \}\)/, "the toggle does not send name+enabled");
   // The OPPOSITE of the server's last answer. A spelling pin, deliberately:
@@ -213,8 +227,8 @@ test("THE OFF SWITCH: POST {name, enabled} exists, refuses junk, and cannot lie"
   // panel's own initial `load();` (inside this same window) cannot satisfy it.
   assert.match(panel, /return; \}\s*\n\s*load\(\);/, "the panel does not repaint from the server's answer");
   // And the two states carry the dataset the handler reads.
-  assert.match(panel, /fn-tgl fn-off" data-job="[^"]*" data-on=""/, "the paused state lost its dataset");
-  assert.match(panel, /fn-tgl" data-job="[^"]*" data-on="1"/, "the running state lost its dataset");
+  assert.match(rowSrc, /fn-tgl fn-off" data-job="[^"]*" data-on=""/, "the paused state lost its dataset");
+  assert.match(rowSrc, /fn-tgl" data-job="[^"]*" data-on="1"/, "the running state lost its dataset");
 });
 
 test("THE PANEL IS REACHABLE — the card is not forced Off", () => {

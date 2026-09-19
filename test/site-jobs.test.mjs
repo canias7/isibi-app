@@ -12,7 +12,7 @@ import { buildSource } from "./fixtures/build-source.mjs";
 import path from "node:path";
 import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome, lastDueAt, validTimeZone, workDone,
          MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK,
-         onceAt, onceState, jobPanelRow, MISSED_GRACE_MS } from "../site-jobs.mjs";
+         onceAt, onceState, jobPanelRow, MISSED_GRACE_MS, ONCE_STATES } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
 import { FUNCTION_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
@@ -336,33 +336,47 @@ test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost cl
   // three scopes, and for the cron the WHERE re-states dueness.
   assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*\$\{dueness\}`/,
     "the stamp lost a scope or its claim condition");
-  // ⚠ RE-ANCHORED 2026-09-19, AND THE EXPECTATION MOVED RATHER THAN BROKE.
-  // It read `force ? "" : <clause>` — two cases — and there are three now,
-  // because a ONE-TIME job keeps a claim condition even under `force`. That is
-  // not the old property weakened; it is the old property plus a case it never
-  // had to consider. The owner pressing "Run now" decides a job is due NOW; it
-  // cannot decide a one-time job is due TWICE, and without this the press
-  // would re-send the same reminder to the same people.
+  // ⚠ RE-ANCHORED TWICE, AND THE SECOND TIME IS WHY THE SPELLING IS GONE.
   //
-  // Asserted as the three branches in ORDER, because the order is the whole of
-  // it: `once` must be asked BEFORE `force`, or `force` answers first and the
-  // one-time claim is gone.
-  assert.match(st, /const dueness = once \? "&last_run=is\.null"\s*\n?\s*: force \? ""\s*\n?\s*: `&or=\(last_run\.is\.null,last_run\.lt\./,
-    "the claim condition is not the three-branch dueness clause, or `force` is asked before `once`");
-  // …AND `once` IS READ OFF THE SPEC, which is where `dueJobs` reads it. A
-  // second reader deciding what a one-time job is could disagree with the
-  // selector, and then the tick and the claim would be about different jobs.
-  assert.match(st, /const once = r2\.spec && typeof r2\.spec === "object" && typeof r2\.spec\.on === "string"/,
-    "the stamp decides what a one-time job is some other way than `dueJobs` does");
+  // This used to pin the branches of the claim's own ternary — first two, then
+  // three when one-time jobs arrived. Both versions were green on 2026-09-19
+  // while the claim and the selector DISAGREED about the owner's nightly job:
+  // the clause was spelled exactly as asserted and restated a rule `dueJobs`
+  // had stopped using. **A spelling is not an agreement**, and pinning one is
+  // what made this look guarded for three days.
+  //
+  // So the condition is no longer composed here at all: `claimFilter` in
+  // `site-jobs.mjs` owns it, beside the selector, and the property asserted
+  // here is the WIRING — this stamp asks that module and composes nothing of
+  // its own. Whether the condition is RIGHT is decided where it can be driven,
+  // by the cases at the end of this file.
+  assert.match(st, /const dueness = claimFilter\(r2\);/,
+    "the stamp composes its own claim condition again — a second copy of the selector's rule, which is the defect");
+  assert.ok(!/schedule_minutes|cutoff|last_run\.lt\./.test(st),
+    "the stamp still reasons about the schedule or an elapsed cutoff: " + st.slice(0, 400));
   // Judged by REPRESENTATION — a row back means we won; empty means we lost.
   assert.match(st, /Prefer: "return=representation"/, "the stamp cannot see whether it matched anything");
   // r.ok CHECKED. The old write was fire-and-forget, so Supabase in read-only
   // mode (reads fine, writes 5xx) let the send proceed unstamped and re-mail
   // the whole batch every tick until writes recovered.
   assert.match(st, /if \(!r\.ok\) return \{ won: false \}/, "an HTTP-level stamp failure reads as a won claim");
-  // The claim's window mirrors dueJobs' 30s slack, or the claim refuses runs
-  // dueJobs correctly offered whenever the ticks land badly.
-  assert.match(st, /mins \* 60000 - 30000/, "the claim window and dueJobs disagree about the slack");
+  // ⚠ RE-ANCHORED 2026-09-19, AND THIS ONE IS THE DEFECT'S OWN EPITAPH. It
+  // read `assert.match(st, /mins \* 60000 - 30000/)` under the note "the
+  // claim's window mirrors dueJobs' 30s slack, or the claim refuses runs
+  // dueJobs correctly offered" — the right property, asserted as a shared
+  // ARITHMETIC. Then the selector's daily rule stopped being arithmetic at all
+  // and this went on passing over a claim that refused exactly the runs it
+  // warns about.
+  //
+  // THERE IS NO WINDOW TO MIRROR NOW. What replaces it is structural: the claim
+  // and the selector are the same module, so one cannot be edited without the
+  // other in front of you, and the agreement itself is DRIVEN as a census at
+  // the end of this file rather than inferred from two expressions matching.
+  const jobs = fs.readFileSync(path.join(import.meta.dirname, "..", "site-jobs.mjs"), "utf8");
+  assert.match(jobs, /export function claimFilter\(/, "claimFilter has left the module that owns dueJobs");
+  assert.match(jobs, /export function dueJobs\(/, "dueJobs has left site-jobs.mjs — rescope this");
+  assert.match(worker, /import \{[^}]*\bclaimFilter\b[^}]*\} from "\.\/site-jobs\.mjs"/,
+    "worker.js gets its claim condition from somewhere other than the scheduling module");
 
   // A lost claim writes no last_result — the winning tick's outcome is the
   // record, and overwriting it with "skipped" every overlap buries the one
@@ -825,7 +839,12 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   // twenty-six registered, zero sends, and this file's own chain test green
   // the whole time because it read the module and never ran the deps.
   const worker = noComments(fs.readFileSync(path.join(import.meta.dirname, "..", "worker.js"), "utf8"));
-  const open = worker.indexOf("function jobDeps(env, row, { force = false } = {}) {");
+  // ⚠ RE-ANCHORED 2026-09-19: `force` is gone from the signature, because the
+  // claim is no longer a dueness test for it to disable. Anchored on the name
+  // and the `env, row` pair rather than on the whole parameter list, which is a
+  // spelling — this guard has now gone red twice for a signature change that
+  // was not its subject.
+  const open = worker.indexOf("function jobDeps(env, row) {");
   const shut = worker.indexOf("async function recordJobOutcome(env, row, out) {", open);
   assert.ok(open > 0 && shut > open, "jobDeps or recordJobOutcome is gone");
   const deps = worker.slice(open, shut);
@@ -833,16 +852,18 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   assert.equal(reads.length, 3, "the three deps do not all read the connection through siteBackendBySlug: " + reads.length);
   assert.doesNotMatch(deps, /siteNeonProject\(/, "a dep still reads the project row where a connection is wanted");
   for (const dep of ["callFn:", "credentials:", "smsCredentials:", "stamp:", "send:", "sendSms:", "phone:", "recipient"]) assert.ok(deps.includes(dep), "jobDeps lost " + dep);
-  // The stamp keeps its dueness clause for the cron and drops it under force —
-  // ⚠ EXCEPT for a ONE-TIME job, which keeps a claim condition whatever the
-  // owner presses. RE-ANCHORED 2026-09-19: the expectation MOVED rather than
-  // broke, because "drops it under force" was a complete description of the
-  // branch while every job recurred. A press decides a job is due NOW; it
-  // cannot decide a one-time job is due twice, and a re-press without this
-  // would send the same reminder to the same people again.
-  assert.match(deps, /const dueness = once \? "&last_run=is\.null"\s*\n?\s*: force \? ""\s*\n?\s*: `&or=\(last_run\.is\.null,last_run\.lt\.\$\{encodeURIComponent\(cutoff\)\}\)`;/,
-    "the stamp's dueness clause lost a branch, or `force` is asked before `once`");
-  assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the dueness clause");
+  // ⚠ THE CLAIM'S CONDITION IS ASKED OF `claimFilter`, NOT COMPOSED HERE, and
+  // the expectation MOVED rather than broke. It used to pin the branches of an
+  // inline ternary — which was spelled exactly as asserted on 2026-09-19 while
+  // the claim and `dueJobs` disagreed about the owner's nightly job, because a
+  // restated rule is a second copy and the copy had drifted. Two properties
+  // now: the deps ask the module that owns the selector, and nothing here
+  // reasons about the schedule.
+  assert.match(deps, /const dueness = claimFilter\(r2\);/,
+    "the stamp composes its own claim condition again instead of asking claimFilter");
+  assert.ok(!/const cutoff|schedule_minutes, 10\) \|\| 0/.test(deps),
+    "the stamp reasons about the schedule again — a second copy of the selector's rule");
+  assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the claim condition");
   // The cron: due rows, one call each, the outcome recorded; and the select carries updated_at.
   const cron = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), open);
   assert.match(cron, /for \(const row of dueJobs\(rows, Date\.now\(\)\)\) \{\s*const out = await runJob\(jobDeps\(env, row\), row\);\s*await recordJobOutcome\(env, row, out\);\s*\}/, "the cron does not run each due job through the shared deps and record it");
@@ -855,7 +876,14 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   const branch = worker.slice(run, enabledCheck);
   assert.match(branch, /owner_id=eq\.\$\{encodeURIComponent\(ou\.id\)\}&slug=eq\.\$\{encodeURIComponent\(jslug\)\}&name=eq\.\$\{encodeURIComponent\(jname\)\}&schedule_minutes=not\.is\.null/, "run-now is not owner-scoped to one scheduled job");
   assert.match(branch, /select=owner_id,slug,name,spec,schedule_minutes,last_run,updated_at,enabled/, "run-now's row lacks what the deps read");
-  assert.match(branch, /const out = await runJob\(jobDeps\(env, jrow, \{ force: true \}\), jrow\);/, "run-now does not run the shared deps under force");
+  // ⚠ AND THE PRESS TAKES THE SAME DEPS AS THE TICK, with no option between
+  // them (2026-09-19). `{ force: true }` meant "skip the dueness clause"; the
+  // claim is a compare-and-swap now, so the press asks only that nothing ran in
+  // between — which is what the press meant and what makes two rapid presses
+  // send one reminder rather than two. An option forbidden by name, because a
+  // parameter that once disabled a wall is what a later session re-wires.
+  assert.match(branch, /const out = await runJob\(jobDeps\(env, jrow\), jrow\);/, "run-now does not run the shared deps");
+  assert.ok(!/force/.test(branch), "run-now passes an option to the deps again: " + (branch.match(/.{0,60}force.{0,60}/) || [""])[0]);
   assert.match(branch, /await recordJobOutcome\(env, jrow, out\);/, "run-now's outcome is not written where the panel reads");
   assert.match(branch, /result: jobOutcome\(out\)/, "run-now does not answer the sentence");
   assert.match(branch, /error: "no such job" \}, \{ status: 404 \}/, "run-now on a name that matches nothing says ok");
@@ -891,8 +919,19 @@ test("the owner's panel shows the clock time and has a Run now button wired to t
   const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
   const panel = chat.slice(chat.indexOf("async function siteFunctions("), chat.indexOf("async function siteFiles("));
   assert.ok(panel.length > 1000, "the jobs panel is gone");
-  assert.match(panel, /' at ' \+ j\.at/, "the schedule label does not show the clock time");
-  assert.match(panel, /class="fn-tgl fn-run" data-run="' \+ esc\(j\.name\) \+ '"/, "no Run now button");
+  // ⚠ RE-ANCHORED 2026-09-19: the row's markup moved out of this closure into
+  // `jobRowHtml`, so every assertion about what a row SAYS moved with it — to
+  // the case that DRIVES that function rather than scanning for its text.
+  // Which is the point of the move: this scan is what let a one-time reminder
+  // sit here labelled "Every 31 days" while reading as guarded.
+  //
+  // What stays here is the WIRING — that the panel composes its rows through
+  // that function and hands it the "ran N ago" text it computes locally — and
+  // the two halves the row cannot own: the POST and the toast.
+  assert.match(panel, /jobs\.map\(\(j\) => jobRowHtml\(j, j\.lastRun \? when\(j\.lastRun\) : ''\)\)/,
+    "the panel composes its own rows again instead of going through jobRowHtml");
+  assert.ok(!/fn-sch|fn-run" data-run/.test(panel),
+    "row markup is back inside the panel's closure, where nothing can drive it");
   assert.match(panel, /body: JSON\.stringify\(\{ name: b\.dataset\.run, run: true \}\)/, "Run now does not post run:true");
   assert.match(panel, /sbToast\(d\.result \|\| 'Ran\.'\)/, "the sentence that comes back is not shown");
   assert.match(chat, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone\(\) \}\)/, "the addon post does not carry the owner's zone");
@@ -1101,7 +1140,12 @@ test("onceState tells a job ahead of its time from one that was missed", () => {
   assert.equal(onceState(row(SPEC), T - 60000), "scheduled");
   assert.equal(onceState(row(SPEC), T + 60000), "scheduled", "a job inside its grace read as missed");
   assert.equal(onceState(row(SPEC), T + MISSED_GRACE_MS + 1000), "missed");
-  assert.equal(onceState(row(SPEC, "2026-10-03T08:00:05Z"), T), "done");
+  // ⚠ RE-ANCHORED 2026-09-19 AND THE EXPECTATION MOVED RATHER THAN BROKE:
+  // `done` → `attempted` (owner: "a consumed attempt is not proof of successful
+  // delivery"). The row is unchanged and so is the branch; what changed is that
+  // the word no longer claims a message arrived, which `last_run` — stamped
+  // BEFORE the send — was never in a position to say.
+  assert.equal(onceState(row(SPEC, "2026-10-03T08:00:05Z"), T), "attempted");
   // `unreadable` IS ITS OWN ANSWER rather than folded into `missed`: a date the
   // scheduler cannot parse will never fire whatever the clock does, so the fix
   // is to say it again, not to wait.
@@ -1140,7 +1184,8 @@ test("the panel's row says which function, which schedule, and what became of it
 
   // …AND IT TRACKS THE ROW. `onState` is DERIVED, so a stamp changes it with
   // no second column to disagree.
-  assert.equal(jobPanelRow({ ...ONCE, last_run: "2026-10-03T08:00:05Z" }).onState, "done");
+  // RE-ANCHORED with `onceState` above, for the same reason and in the same words.
+  assert.equal(jobPanelRow({ ...ONCE, last_run: "2026-10-03T08:00:05Z" }).onState, "attempted");
   assert.equal(jobPanelRow({ ...ONCE, spec: { ...ONCE.spec, on: "2020-01-01" } }).onState, "missed",
     "a one-time job whose moment went by years ago reads as still scheduled");
 
@@ -1167,4 +1212,292 @@ test("the panel's row says which function, which schedule, and what became of it
     assert.equal(j.on, null);
     assert.equal(j.onState, null);
   }
+});
+
+// ─── THE SELECTOR AND THE ATOMIC CLAIM ARE ONE QUESTION ──────────────────────
+//
+// ⚠ WHAT THESE EXIST TO STOP, reproduced 2026-09-19 through the REAL cron tick
+// before a line was changed. `dueJobs` and `jobDeps().stamp` both answer "may
+// this job run now", and the claim answered it by RESTATING the rule in
+// PostgREST. On 2026-09-16 the selector's daily rule moved off elapsed time and
+// onto the calendar occurrence; the claim did not move with it. Measured on the
+// owner's own row (`last_run` 19:29:36.345Z, every 1440 minutes at 23:00
+// Europe/London) at 22:00Z:
+//
+//   selector  nightly_booking_count          ← selected
+//   claim     or=(last_run.is.null,last_run.lt.2026-09-15T22:00:30.000Z)
+//   PATCH     issued, matched NO row
+//   last_run  unchanged
+//   fnCalls   0                              ← the job simply did not run
+//
+// Nothing failed and nothing logged. The guard that was supposed to hold this
+// asserted the SPELLING of the claim's ternary — which is a claim about a
+// string, not an agreement between two readers — so it was green throughout.
+//
+// SO THESE DRIVE THE REAL CONSTRUCTION AND THE REAL CONDITIONAL WRITE. The
+// fixture parses whatever `worker.js` sends and applies it to a stored row; it
+// does not know what the condition is supposed to be. A fixture that
+// reimplemented the intended rule would agree with itself whatever the product
+// did, which is the shape of the guard that let this ship.
+import { runCron, claimUrl, claimTwice, rowMatches } from "./fixtures/job-cron.mjs";
+import { claimFilter } from "../site-jobs.mjs";
+
+// The owner's row, verbatim from the report.
+const NIGHTLY = {
+  owner_id: "u1", slug: "fold-lane-bakery", name: "nightly_booking_count",
+  spec: { fn: "nightly_booking_count", at: "23:00", tz: "Europe/London" },
+  schedule_minutes: 1440,
+  last_run: "2026-09-16T19:29:36.345Z",
+  updated_at: "2026-09-10T00:00:00.000Z",
+  enabled: true,
+};
+const AT_2200 = Date.parse("2026-09-16T22:00:00Z");
+const filters = (u) => [...u.searchParams.entries()].filter(([k]) => k !== "select").map(([k, v]) => k + "=" + v);
+
+test("ACCEPTANCE: the nightly job a manual run had pushed off the calendar is claimed and RUNS", async () => {
+  // 1. The selector selects it — this half was already correct.
+  assert.deepEqual(dueJobs([NIGHTLY], AT_2200).map((r) => r.name), ["nightly_booking_count"],
+    "the selector no longer selects the occurrence — the calendar rule has regressed");
+
+  // 2. The claim the product really builds, read off the request it really made.
+  const c = await claimUrl(NIGHTLY, {}, AT_2200);
+  assert.ok(filters(c.url).includes("last_run=eq.2026-09-16T19:29:36.345Z"),
+    "the claim is not a compare-and-swap on the stamp the selector saw: " + filters(c.url).join(" "));
+  // THE SPECIFIC THING THAT WAS WRONG, forbidden by name: an elapsed-interval
+  // cutoff is a second copy of a dueness rule, and a second copy is what drifted.
+  assert.ok(!filters(c.url).some((f) => /last_run=lt\.|or=\(last_run/.test(f)),
+    "the claim still restates dueness as an elapsed cutoff: " + filters(c.url).join(" "));
+
+  // 3. The whole tick, against a store that really evaluates the condition.
+  const out = await runCron({ rows: [NIGHTLY], now: AT_2200, fnAnswer: { did: "counted 3 bookings" } });
+  assert.equal(out.patches.length >= 1, true, "the tick issued no claim at all");
+  assert.equal(out.store[0].last_run, "2026-09-16T22:00:00.000Z",
+    "the claim did not land — the row was selected and then refused, which is the reported defect");
+  assert.deepEqual(out.fnCalls, ['SELECT "nightly_booking_count"() AS out'],
+    "the site's own function was not called: " + JSON.stringify(out.fnCalls));
+  assert.equal(out.store[0].last_result, "Done — counted 3 bookings.",
+    "the outcome the owner reads was not recorded");
+});
+
+test("the selector and the claim agree on EVERY row, as a census rather than a list", async () => {
+  // DERIVED, NOT ENUMERATED. Each shape is run through both readers and the
+  // two must answer the same thing — so a rule added to `dueJobs` next month
+  // that the claim cannot express fails here by existing, which is precisely
+  // what did not happen when the calendar rule landed.
+  const base = { owner_id: "u1", slug: "s", name: "j", updated_at: "2026-09-01T00:00:00.000Z", enabled: true };
+  const rows = [
+    // the reported shape, and the same row an hour before its occurrence
+    { ...base, spec: { fn: "f", at: "23:00", tz: "Europe/London" }, schedule_minutes: 1440, last_run: "2026-09-16T19:29:36.345Z" },
+    // never run
+    { ...base, spec: { fn: "f", at: "23:00", tz: "Europe/London" }, schedule_minutes: 1440, last_run: null },
+    // ran this occurrence already
+    { ...base, spec: { fn: "f", at: "23:00", tz: "Europe/London" }, schedule_minutes: 1440, last_run: "2026-09-16T22:00:05.000Z" },
+    // SLOWER THAN DAILY — the control the interval rule still governs
+    { ...base, spec: { fn: "f", at: "09:00", tz: "Europe/London" }, schedule_minutes: 10080, last_run: "2026-09-14T08:00:02.000Z" },
+    { ...base, spec: { fn: "f", at: "09:00", tz: "Europe/London" }, schedule_minutes: 10080, last_run: "2026-09-08T08:00:02.000Z" },
+    // PLAIN INTERVAL — no clock time at all
+    { ...base, spec: { fn: "f" }, schedule_minutes: 60, last_run: "2026-09-16T21:59:00.000Z" },
+    { ...base, spec: { fn: "f" }, schedule_minutes: 60, last_run: "2026-09-16T20:00:00.000Z" },
+    // ONE-TIME, in each of its three states
+    { ...base, spec: { fn: "f", on: "2026-09-16", at: "21:00", tz: "UTC" }, schedule_minutes: 44640, last_run: null },
+    { ...base, spec: { fn: "f", on: "2026-09-16", at: "21:00", tz: "UTC" }, schedule_minutes: 44640, last_run: "2026-09-16T21:00:04.000Z" },
+    { ...base, spec: { fn: "f", on: "2026-11-30", at: "21:00", tz: "UTC" }, schedule_minutes: 44640, last_run: null },
+    // AN UNREADABLE STAMP, which `dueJobs` runs rather than strands
+    { ...base, spec: { fn: "f" }, schedule_minutes: 60, last_run: "not a date" },
+    // A STAMP IN THE FUTURE — a clock skew or a hand-edited row
+    { ...base, spec: { fn: "f" }, schedule_minutes: 60, last_run: "2027-01-01T00:00:00.000Z" },
+  ];
+  const times = ["2026-09-16T21:00:00Z", "2026-09-16T22:00:00Z", "2026-09-17T09:01:00Z", "2026-09-19T09:01:00Z"].map(Date.parse);
+
+  let selected = 0, refused = 0;
+  for (const row of rows) {
+    for (const now of times) {
+      const isDue = dueJobs([row], now).length === 1;
+      // The claim's own condition, parsed back out of the fragment the product
+      // wrote, and applied to the row as it stands.
+      const params = [...new URLSearchParams(claimFilter(row).replace(/^&/, "")).entries()];
+      const claims = rowMatches(row, params);
+      if (isDue) { selected++; assert.ok(claims, "SELECTED AND REFUSED — the defect: " + JSON.stringify({ row, now: new Date(now).toISOString(), filter: claimFilter(row) })); }
+      else refused++;
+      // AND THE CLAIM MUST REFUSE A ROW THAT MOVED, whatever the selector said.
+      // This is the duplicate protection, asked of every shape rather than one.
+      assert.equal(rowMatches({ ...row, last_run: new Date(now).toISOString() }, params), false,
+        "the claim admits a row whose stamp has moved since it was read: " + JSON.stringify(claimFilter(row)));
+    }
+  }
+  // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS. All-selected would make the
+  // agreement assertion trivially satisfiable by a claim that matches
+  // everything; none-selected would skip it entirely.
+  assert.ok(selected >= 6, "too few rows were selected for this to be testing agreement: " + selected);
+  assert.ok(refused >= 6, "too few rows were refused — the matrix is not exercising the selector: " + refused);
+});
+
+test("two overlapping ticks claim one row and exactly one wins", async () => {
+  // The reason the claim is conditional at all: Cloudflare's cron ticks overlap
+  // when a tick outlasts its two-minute interval, so both can read the same job
+  // as due and both would mail its whole batch.
+  const { won, stored } = await claimTwice(NIGHTLY, AT_2200);
+  assert.deepEqual(won, [true, false], "both runners claimed the same job, or neither did: " + JSON.stringify(won));
+  assert.equal(stored.last_run, "2026-09-16T22:00:00.000Z");
+
+  // …AND A SECOND TICK AT THE SAME INSTANT MAKES NO FUNCTION CALL. Driven
+  // through the real entry point, because the sequential shape is the one a
+  // slow tick really produces.
+  const first = await runCron({ rows: [NIGHTLY], now: AT_2200, fnAnswer: { did: "counted 3" } });
+  assert.equal(first.fnCalls.length, 1);
+  const again = await runCron({ rows: [first.store[0]], now: AT_2200, fnAnswer: { did: "counted 3" } });
+  assert.deepEqual(again.fnCalls, [], "the same occurrence ran twice: " + JSON.stringify(again.fnCalls));
+});
+
+test("a ONE-TIME job is claimed once and never again, and a press cannot decide it is due twice", async () => {
+  // ITS OWN SLUG, because the Worker caches a site's schema per connection and
+  // a second site's jobs read through a warm cache would answer "this job is no
+  // longer part of the site" — zero function calls, which is what the defect
+  // under test looks like. The fixture refuses a reuse rather than allowing it.
+  const on = { ...NIGHTLY, slug: "hearth-paper", name: "remind_once", spec: { fn: "remind_once", on: "2026-09-16", at: "21:00", tz: "UTC" }, schedule_minutes: 44640, last_run: null };
+  assert.equal(claimFilter(on), "&last_run=is.null",
+    "a one-time job's claim became a compare-and-swap, which would re-run a consumed occurrence");
+
+  const first = await runCron({ rows: [on], now: AT_2200, fnAnswer: { did: "reminded 2 people" } });
+  assert.equal(first.fnCalls.length, 1, "the one-time job did not run at its moment");
+  assert.equal(first.store[0].last_run, "2026-09-16T22:00:00.000Z");
+
+  // CONSUMED, FOR EVER — and the claim refuses it even though the row is
+  // exactly the row this caller read, which is the one place a CAS is not
+  // enough and the stronger condition is kept.
+  const consumed = first.store[0];
+  assert.equal(rowMatches(consumed, [...new URLSearchParams(claimFilter(consumed).replace(/^&/, "")).entries()]), false,
+    "a consumed one-time job can be claimed again");
+  const again = await runCron({ rows: [consumed], now: AT_2200 + 60000, fnAnswer: { did: "reminded 2 people" } });
+  assert.deepEqual(again.fnCalls, [], "the one-time reminder went out twice");
+});
+
+// ─── WHAT THE OWNER IS TOLD ABOUT A ONE-TIME JOB ─────────────────────────────
+//
+// ⚠ REPRODUCED 2026-09-19 on a job really stored with `on: "2026-10-03"`: the
+// Jobs panel labelled it **"Every 31 days at 09:00 (Europe/London)"**. It read
+// `everyMinutes`, which for a one-time job is `MAX_EVERY_MINUTES` — a ceiling
+// `normalizeJob` forces and `dueJobs` never consults — so the one screen an
+// owner opens to check what is scheduled described a single reminder as a
+// monthly one.
+//
+// DRIVEN, NOT READ. `jobRowHtml` was lifted out of the panel's closure for
+// exactly this: every earlier assertion about this screen was a source scan,
+// and a source scan is what let the wrong label sit here.
+import { createRequire } from "node:module";
+const CHAT = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
+const cutFn = (n) => {
+  const at = CHAT.indexOf("\nfunction " + n + "(");
+  assert.ok(at > 0, "public/chat.js has no function " + n + " — the panel's composer moved");
+  return CHAT.slice(at, CHAT.indexOf("\n}", at) + 2);
+};
+// `ic` is handed in rather than cut: it reads an icon table this has no opinion
+// about, and a stub keeps the assertions on the WORDS.
+const jobRow = new Function("ic",
+  ["esc", "browserTimeZone", "jobZone", "onceWhen", "jobEvery", "jobRowHtml"].map(cutFn).join("\n") + "\nreturn jobRowHtml;")(() => "");
+const words = (h) => h.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+test("the Jobs panel says a one-time job's real date, and tells its four states apart", () => {
+  const spec = { fn: "remind_once", on: "2026-10-03", at: "09:00", tz: "Europe/London" };
+  const row = (over) => jobPanelRow({ name: "remind_once", spec, schedule_minutes: MAX_EVERY_MINUTES,
+    enabled: true, last_run: null, last_result: null, ...over });
+
+  // SCHEDULED — the reproduction. The date, the time and the zone, and NOT the
+  // interval the ceiling implies.
+  const sched = jobRow(row({}), "");
+  assert.match(words(sched), /Once on 3 October 2026 at 09:00 \(Europe\/London\)/, words(sched));
+  assert.ok(!/Every 31 days/.test(sched), "the panel still describes a one-time job by its forced interval: " + words(sched));
+  assert.match(words(sched), /It runs once and then stops\. Run now uses up that one run\./,
+    "the panel does not say that Run now consumes the occurrence: " + words(sched));
+  assert.match(sched, /class="fn-tgl fn-run" data-run="remind_once" title="[^"]*uses up this job’s one run"/,
+    "the Run now button does not warn that it consumes the one run");
+
+  // ATTEMPTED — and the word is the whole point. `last_run` is stamped BEFORE
+  // the send, so a stamped row says the occurrence was used up and nothing
+  // about whether a message arrived; the result line is the only thing that
+  // can say that, and it is right underneath.
+  const ran = jobRow(row({ last_run: "2026-10-03T08:00:05Z", last_result: "Sent 2 messages." }), "2 hours ago");
+  assert.match(words(ran), /Ran once on 3 October 2026 at 09:00/, words(ran));
+  assert.match(words(ran), /That was its one run — what happened is below\. Sent 2 messages\./, words(ran));
+  assert.ok(!/\bSent\b[^.]*\bone run\b|delivered/i.test(words(ran).replace("Sent 2 messages.", "")),
+    "the panel claims delivery from a consumed attempt: " + words(ran));
+  assert.match(ran, /fn-run" disabled title="Already used its one run"/,
+    "Run now is still offered on a job whose one run is spent — the claim would refuse it and answer Skipped");
+
+  // MISSED — its moment went by unserved, and "Hasn't run yet" would promise a
+  // run that is never coming.
+  const missed = jobRow(row({ spec: { ...spec, on: "2020-01-01" } }), "");
+  assert.match(words(missed), /Was due 1 January 2020 at 09:00/, words(missed));
+  assert.match(words(missed), /Its moment passed without it running — ask for it again with a new date\./, words(missed));
+  assert.ok(!/Hasn’t run yet/.test(words(missed)), "a missed job still reads as one that has not run YET: " + words(missed));
+
+  // UNREADABLE — and this one is the gap the DRIVE found and a source read
+  // would not have. `onceWhen` answers '' for a date it cannot parse, so the
+  // first cut of the fix fell straight back to the interval and printed
+  // "Every 31 days at 09:00" directly above a line saying the date could not be
+  // read. `onState` is what knows which KIND of job this is.
+  const bad = jobRow(row({ spec: { ...spec, on: "2026-13-45" } }), "");
+  assert.ok(!/Every 31 days/.test(bad), "an unreadable one-time date falls back to the interval: " + words(bad));
+  assert.match(words(bad), /Once — date unreadable/, words(bad));
+  assert.match(words(bad), /can’t be read, so it will never run/, words(bad));
+  assert.match(bad, /fn-run" disabled/, "Run now is offered on a job that can never run");
+
+  // THE RECURRING CONTROL, byte for byte what it was: no date, no one-time
+  // sentence, the interval chip, the ordinary Run now title, and "Hasn't run
+  // yet" — which is true of a daily job that has not fired.
+  const daily = jobRow(jobPanelRow({ name: "nightly", spec: { fn: "f", at: "23:00", tz: "Europe/London" },
+    schedule_minutes: 1440, enabled: true, last_run: null, last_result: null }), "3 hours ago");
+  assert.match(words(daily), /Daily at 23:00 \(Europe\/London\)/, words(daily));
+  assert.match(words(daily), /Hasn’t run yet\./, words(daily));
+  assert.ok(!/once/i.test(words(daily)), "a recurring job gained a one-time sentence: " + words(daily));
+  assert.match(daily, /data-run="nightly" title="Run it now — sends for real, on your own key"/, daily);
+});
+
+test("the one-time date is split from the stored string, never parsed as a Date", () => {
+  // `new Date("2026-10-03")` is UTC midnight, so formatting it in any zone
+  // behind UTC prints the 2nd — a reminder a day out, from a formatter that
+  // looks obviously right. Driven at both year boundaries and across the
+  // date-line zones where a Date round-trip would visibly slip.
+  const when = new Function(["browserTimeZone", "jobZone", "onceWhen"].map(cutFn).join("\n") + "\nreturn onceWhen;")();
+  assert.equal(when({ on: "2026-01-01", at: "00:00", tz: "Pacific/Kiritimati" }), "1 January 2026 at 00:00 (Pacific/Kiritimati)");
+  assert.equal(when({ on: "2026-12-31", at: "23:59", tz: "Pacific/Niue" }), "31 December 2026 at 23:59 (Pacific/Niue)");
+  assert.equal(when({ on: "2026-10-03", at: "09:00", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    "3 October 2026 at 09:00", "the browser's own zone is said back to it");
+  // EVERY MONTH, so an off-by-one in the table is a red run rather than a
+  // reminder in the wrong month eleven times out of twelve.
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  for (let i = 1; i <= 12; i++) {
+    assert.match(when({ on: "2026-" + String(i).padStart(2, "0") + "-15", at: "12:00", tz: "UTC" }), new RegExp("^15 " + months[i - 1] + " 2026 "));
+  }
+  // FAILS CLOSED, and every caller reads '' as "not a one-time job I can
+  // describe" rather than inventing a date.
+  for (const junk of [{}, null, { on: "2026-13-45", at: "09:00" }, { on: "tomorrow", at: "09:00" }, { on: "2026-10-03" }, { on: "2026-10-03", at: "9am" }, { on: ["2026-10-03"], at: "09:00" }]) {
+    assert.equal(when(junk), "", "a date was invented from " + JSON.stringify(junk));
+  }
+});
+
+test("a consumed attempt is not a delivery — the state word says so", () => {
+  // ⚠ RENAMED 2026-09-19 (owner: "a consumed attempt is not proof of
+  // successful delivery"). `onceState` reads `last_run`, which `runJob` stamps
+  // BEFORE it sends — so `done` was a claim about delivery made from a row that
+  // is equally consistent with the provider being down.
+  assert.deepEqual([...ONCE_STATES], ["scheduled", "attempted", "missed", "unreadable"]);
+  assert.ok(!ONCE_STATES.includes("done"), "the state that means `last_run` is set is called `done` again");
+  const spec = { fn: "f", on: "2026-10-03", at: "09:00", tz: "UTC" };
+  assert.equal(onceState({ spec, last_run: "2026-10-03T09:00:04Z" }, Date.parse("2026-10-03T10:00:00Z")), "attempted");
+  // …AND EVERY ANSWER IS ON THE LIST, so the browser's four branches cannot be
+  // handed a fifth word nobody drew a sentence for.
+  const seen = new Set();
+  for (const on of ["2026-10-03", "2020-01-01", "2026-13-45"]) {
+    for (const last of [null, "2026-10-03T09:00:04Z"]) {
+      const s = onceState({ spec: { ...spec, on }, last_run: last }, Date.parse("2026-10-03T10:00:00Z"));
+      assert.ok(ONCE_STATES.includes(s), "onceState answered " + s + ", which is not one of ONCE_STATES");
+      seen.add(s);
+    }
+  }
+  // ALL FOUR, which is what makes the membership check above worth anything: a
+  // probe that only ever reached `scheduled` would pass with the other three
+  // renamed to nonsense.
+  assert.deepEqual([...seen].sort(), ["attempted", "missed", "scheduled", "unreadable"],
+    "the probe did not reach every state — it is not exercising the reader: " + [...seen].join(", "));
 });

@@ -984,17 +984,63 @@ export function implementationOf(r, made = [], reportable = [], existing = null)
   // implementation is there* — true, and the uncertainty the owner asked to
   // preserve.
   //
-  // ⚠ THE NAMED GAP, because it is a capability call and not this correction's
-  // to make: `qr`, `three` and `photo` are the three kinds off
-  // `REQUIREMENT_ADDS`, so their tools carry no `requirements` property and a
-  // step that makes a code CANNOT echo the id it was handed. So on today's
-  // tools the association for a QR hand-off can only come from the page
-  // designer naming a code whose name it cannot know, and run 51's shape reads
-  // `unknown`. Closing it is one flag (`requirements: true` on those kinds),
-  // measured at +3,579 characters on a 2,228-character tool, and it would also
-  // let those steps RAISE needs — which is more than was asked for here.
+  // ⚠ AND THE GAP THAT USED TO BE NAMED HERE IS CLOSED — corrected 2026-09-19,
+  // because it was stale in the direction that matters. It read *"`qr`, `three`
+  // and `photo` are the three kinds off `REQUIREMENT_ADDS`, so their tools
+  // carry no `requirements` property and a step that makes a code CANNOT echo
+  // the id it was handed"*. MEASURED on this tree: `REQUIREMENT_ADDS` is all
+  // NINE add kinds, so every step that designs anything can raise a need and
+  // echo the id of a hand-off it answers. `three` and `photo` joined on
+  // 2026-09-19 (night queue 4) and `qr` in the round that wrote this very
+  // paragraph — the note simply outlived its own fix by one commit.
+  //
+  // WHAT STANDS is the rule it was explaining, which is about associations and
+  // not about which tools exist: with no `item` there is nothing to resolve,
+  // and a count of a step's output is not an association whatever the tools
+  // offer.
   if (mine.length || theirs.length) return { state: "unknown", by: "kind", name: "", kind };
   return { state: seeable(kind) ? "absent" : "unknown", by: "kind", name: "", kind };
+}
+
+/**
+ * WHY A NAMED DEPENDENCY BEING BROKEN STOPS THIS REQUIREMENT, in the customer's
+ * own terms (2026-09-19).
+ *
+ * The blocked clause used to be one sentence for every kind — *"the X it needs
+ * could not be created"* — which is exact wherever the name IS the thing that
+ * gets created: a function, a job, a table, an api, a page, a QR code, a scene.
+ *
+ * A PHOTOGRAPH IS THE EXCEPTION AND IT IS NOT A NEAR MISS. Its identity is the
+ * ROUTE it was asked for, because the url is minted by the provider after the
+ * designer has spoken and the page is the only thing either haystack can name
+ * — so the general sentence reads *"the /gallery it needs could not be
+ * created"* about a page that published perfectly well and is merely missing
+ * its picture. That sends the customer to look at the wrong thing.
+ *
+ * A KIND WITH NO ENTRY GETS THE GENERAL SENTENCE, which is the right default:
+ * it is true of every kind whose name is the artifact, and a kind added later
+ * reads oddly at worst rather than pointing somewhere false.
+ *
+ * AND THE PHOTOGRAPH'S SENTENCE SAYS *"the one it asked for isn't there"*,
+ * which is the distinction its wall exists to draw. A photo route only reaches
+ * this branch when the page really does carry a picture — a route with none is
+ * `absent` to the implementation reader and earns the better *"Still to do"*
+ * clause — so *"could not be created"* would read as a flat contradiction of
+ * what the customer can see on the page.
+ *
+ * IT NAMES NO CAUSE, deliberately. A requested picture can be missing three
+ * ways here (the provider refused it, the balance could not afford it, or the
+ * writer put its token on another page that already has one), and the addon
+ * route can tell all three apart. It does not carry which, because
+ * `failedItems` is `{kind, name}` and giving one kind a reason field is a
+ * mechanism every other kind would then want. The REPLY's own `pictureNote`
+ * names the cause where there is one to name.
+ */
+export function brokeWhy(ref) {
+  const name = String((ref && ref.name) || "").trim();
+  if (!name) return "";
+  if (ref && ref.kind === "photo") return "the photograph it asked for on " + name + " isn't there";
+  return "the " + name + " it needs could not be created";
 }
 
 export function requirementOutcomes(list, { told = [], failed = [], failedItems = [], made = [], reportable = [], existing = null } = {}) {
@@ -1097,7 +1143,15 @@ export function requirementOutcomes(list, { told = [], failed = [], failedItems 
       // statuses**, because a `covered` claim resting on a function the
       // database refused is waiting on the same broken part as a hand-off is.
       state = "blocked";
-      why = why || "the " + dep + " it needs could not be created";
+      // ⚠ AND THE SENTENCE IS THE KIND'S, because one wording cannot serve
+      // every kind and a wrong one points the customer at the wrong thing.
+      // *"the send_reminder it needs could not be created"* is exact for a
+      // function, a job, a table or a page — each of those IS created — and is
+      // FALSE of a photograph, where the name is the ROUTE the picture was
+      // asked for: *"the /gallery it needs could not be created"* says a page
+      // failed, about a page that published perfectly well and is simply
+      // missing its picture.
+      why = why || brokeWhy(ref);
     } else if (reconciled && owner && bad.has(owner) && !depThere) {
       // THE STEP FAILED AND NOTHING SAYS THIS REQUIREMENT ESCAPED IT.
       //

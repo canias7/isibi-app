@@ -9549,8 +9549,63 @@ function importWords(d) {
   if (d && d.stopped) bits.push('Stopped at line ' + d.stopped + ' — try again from there.');
   return bits.join(' ');
 }
+/**
+ * WHEN A ONE-TIME JOB RUNS, in words: "3 October 2026 at 09:00 (Europe/London)".
+ * Empty when the date or the time cannot be read, which every caller treats as
+ * "this is not a one-time job I can describe" rather than inventing a date.
+ *
+ * ⚠ THE DEFECT THIS EXISTS TO END, measured 2026-09-19 on a job really stored
+ * with `on: "2026-10-03"`: the reply said **"scheduled remind_once (every 31
+ * days at 09:00 (Europe/London))"** and the Jobs panel said **"Every 31 days at
+ * 09:00 (Europe/London)"**. Both are reading `everyMinutes`, which for a
+ * one-time job is `MAX_EVERY_MINUTES` — a forced ceiling the scheduler never
+ * consults and the only number these two composers knew about. The customer
+ * asked for one reminder on the 3rd and was told they had signed up for a
+ * monthly one.
+ *
+ * ONE FUNCTION FOR BOTH SURFACES, because they were two copies of the interval
+ * wording already (`jobWords` says "every day", the panel says "Daily") and
+ * this half has no register to differ on — a date is a date. The caller
+ * supplies the lead-in.
+ *
+ * SPLIT FROM THE STRING, NEVER PARSED AS A DATE. `new Date("2026-10-03")` is
+ * UTC midnight, and rendering that in a zone behind UTC prints the 2nd — a
+ * reminder one day out, from a formatter that looks obviously right. The three
+ * parts are the stored wall-clock date and are printed as they stand.
+ */
+function onceWhen(j) {
+  // The month table lives INSIDE, not beside: everything these composers touch
+  // has to be cut out of this file by name for the reply harness, and a `const`
+  // at file scope is not a `function` — it would be missing there and throw
+  // `ReferenceError` on the first reply that reached it. The recorded trap.
+  const months = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  // ⚠ `typeof`, NOT `String(...)` — caught by the guard that drives this.
+  // `String(["2026-10-03"])` is `"2026-10-03"`, so a one-element array would
+  // have printed a perfectly confident date. This repository's most-repeated
+  // coercion bug, in a reader written the same day it was recorded again.
+  const m = typeof (j && j.on) === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(j.on) : null;
+  if (!m) return '';
+  const mo = Number(m[2]);
+  if (!(mo >= 1 && mo <= 12)) return '';
+  const at = typeof j.at === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at) ? j.at : '';
+  if (!at) return '';
+  return Number(m[3]) + ' ' + months[mo - 1] + ' ' + m[1] + ' at ' + at + jobZone(j);
+}
+
+/** The job's zone, said only when it is not this browser's own — one rule, two readers. */
+function jobZone(j) {
+  return typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '';
+}
+
 function jobWords(j) {
   if (!j || typeof j !== 'object' || !j.name) return '';
+  // A ONE-TIME JOB IS ANSWERED FIRST AND COMPLETELY. Its `everyMinutes` is a
+  // ceiling with no meaning — `dueJobs` asks `spec.on` before it looks at the
+  // interval at all — so falling through to the interval wording below is how
+  // "once on the 3rd" became "every 31 days".
+  const once = onceWhen(j);
+  if (once) return j.name + ' (once on ' + once + ')';
   const m = Number(j.everyMinutes);
   const every = !Number.isFinite(m) || m <= 0 ? ''
     : m % 10080 === 0 ? (m === 10080 ? 'every week' : 'every ' + (m / 10080) + ' weeks')
@@ -9561,9 +9616,131 @@ function jobWords(j) {
   // added from — the owner's own, so it is said only when it differs from
   // the browser's now.
   const at = typeof j.at === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at)
-    ? ' at ' + j.at + (typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '')
+    ? ' at ' + j.at + jobZone(j)
     : '';
   return j.name + (every ? ' (' + every + at + ')' : '');
+}
+
+/**
+ * The sentence a one-time job earns in the addon reply, after the job list.
+ *
+ * TWO FACTS THE INTERVAL WORDING NEVER HAD TO CARRY (owner, 2026-09-19): that
+ * the job stops after its one run, and that **Run now uses that run up**. The
+ * second is the one nobody would guess — the button sits in the panel beside a
+ * job that has not fired yet, and pressing it consumes the occurrence so the
+ * scheduled tick afterwards finds the stamp set and skips. That is the claim
+ * working as designed, and it is a very unpleasant surprise if nothing said so.
+ */
+/** The Jobs panel's interval chip: "Daily", "Every 3 days", "Every 45m". */
+function jobEvery(m) {
+  return m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : m >= 1440 ? 'Every ' + Math.round(m / 1440) + ' days' : m >= 60 ? 'Every ' + Math.round(m / 60) + 'h' : 'Every ' + m + 'm';
+}
+
+/**
+ * ONE ROW OF THE JOBS PANEL.
+ *
+ * ⚠ LIFTED OUT OF THE PANEL'S CLOSURE (2026-09-19), and there are two reasons.
+ *
+ * The first is that nothing could drive it. The panel builds its markup inside
+ * `load()` inside the opener, so every assertion about what an owner SEES here
+ * had to be a source read — and this round is about exactly that kind of
+ * assertion passing over a screen that said the wrong thing. A wall nobody can
+ * drive is a wall nobody is guarding.
+ *
+ * The second was found by reading the first draft of the one-time fix: adding
+ * `const when = onceWhen(j)` inside the map callback SHADOWED the closure's
+ * `when(iso)` — the "ran 3 hours ago" formatter — and `const ran = ... when(...)`
+ * sits above it in the same block, so every row threw `ReferenceError: Cannot
+ * access 'when' before initialization`. The temporal dead zone, in a screen a
+ * paying customer opens. Out here there is no closure to shadow and `ran` is a
+ * parameter.
+ */
+function jobRowHtml(j, ran) {
+  // NEVER RUN AND RAN-WITH-NOTHING-TO-DO ARE DIFFERENT FACTS. Inventing a
+  // cheerful line for the first is how a brand-new site reads as working
+  // before it ever has.
+  // ⚠ AND "HASN'T RUN YET" IS SUPPRESSED FOR A ONE-TIME JOB THAT SAYS MORE.
+  // On a MISSED job it contradicts the line above it — "yet" promises a run
+  // that will never come — and on a scheduled one it repeats it. The one-time
+  // sentence below is the fuller fact, so it stands alone until there is a real
+  // result to show.
+  const result = j.lastResult
+    ? '<div class="fn-flow"><span class="fn-step">' + esc(j.lastResult) + '</span></div>'
+    : j.onState != null
+      ? ''
+      : '<div class="fn-flow"><span class="fn-step">Hasn\u2019t run yet.</span></div>';
+  // THE CLOCK TIME, when the job has one (2026-09-03): "Daily at 09:00",
+  // with the zone only when it is not the browser's own.
+  const at = typeof j.at === 'string' && j.at ? ' at ' + j.at + jobZone(j) : '';
+  // ⚠ A ONE-TIME JOB IS DESCRIBED BY ITS DATE, NOT BY `everyMinutes`
+  // (2026-09-19). This panel read the interval and nothing else, so a reminder
+  // stored for 3 October 2026 sat here labelled "Every 31 days at 09:00" — the
+  // same defect the addon reply had, in the one screen an owner opens when they
+  // want to check what is scheduled.
+  //
+  // THE FOUR STATES GET FOUR DIFFERENT SENTENCES, because they need four
+  // different things doing: wait, look at the result, ask again with a new
+  // date, say it again readably. `attempted` is deliberately NOT "sent" —
+  // `last_run` is stamped BEFORE the first message goes out, so what it records
+  // is that the one run was used up; whether anything arrived is the result
+  // line below, and nowhere else.
+  //
+  // ⚠ AND `onState` IS THE DISCRIMINATOR, NOT `onceWhen` — found by driving
+  // this composer rather than by reading it. `onceWhen` answers '' for a date
+  // it cannot parse, so keying the chip on it sent the `unreadable` state
+  // straight back to the interval wording: the row said **"Every 31 days at
+  // 09:00"** directly above a line explaining that the date could not be read
+  // and the job would never run. The chip and the sentence contradicting each
+  // other is worse than either alone. `jobPanelRow` answers `onState: null`
+  // for a recurring job and one of the four words otherwise, so it is the one
+  // thing that knows WHICH KIND of job this is.
+  const once = onceWhen(j);
+  const sch = j.onState != null
+    ? (!once ? 'Once \u2014 date unreadable'
+      : j.onState === 'attempted' ? 'Ran once on ' + once
+        : j.onState === 'missed' ? 'Was due ' + once
+          : 'Once on ' + once)
+    : jobEvery(Number(j.everyMinutes) || 0) + at;
+  const onceLine = j.onState == null || !once ? ''
+    : j.onState === 'missed'
+      ? '<div class="fn-flow"><span class="fn-step">Its moment passed without it running \u2014 ask for it again with a new date.</span></div>'
+      : j.onState === 'attempted'
+        ? '<div class="fn-flow"><span class="fn-step">That was its one run \u2014 what happened is below.</span></div>'
+        : '<div class="fn-flow"><span class="fn-step">It runs once and then stops. Run now uses up that one run.</span></div>';
+  // …AND A JOB WHOSE DATE CANNOT BE READ WILL NEVER FIRE, whatever the clock
+  // does, so it is said rather than left looking scheduled.
+  const badDate = j.onState === 'unreadable'
+    ? '<div class="fn-flow"><span class="fn-step">The date on this one can\u2019t be read, so it will never run \u2014 say it again with a date like 3 October 2026.</span></div>'
+    : '';
+  // RUN NOW ON A SPENT ONE-TIME JOB IS REFUSED BY THE CLAIM ANYWAY, so the
+  // button says why instead of offering a press that comes back "Skipped".
+  const spent = j.onState === 'attempted' || j.onState === 'unreadable';
+  return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
+    '<span class="fn-sch">' + esc(sch) + '</span>' +
+    (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
+    // THE BADGE IS THE OFF SWITCH now, not a label. It reads the state
+    // ("On"/"Paused") and clicking it flips it — the one write this panel has,
+    // wired to POST /jobs {name, enabled}. Before this the only path to "stop
+    // the weekly digest" was asking the builder, which has no lane that can do
+    // it (the 2026-08-13 audit).
+    (j.enabled === false
+      ? '<button type="button" class="fn-tgl fn-off" data-job="' + esc(j.name) + '" data-on="" title="Paused \u2014 click to resume">Paused</button>'
+      : '<button type="button" class="fn-tgl" data-job="' + esc(j.name) + '" data-on="1" title="Running on schedule \u2014 click to pause">On</button>') +
+    // RUN NOW (owner, 2026-09-03): the one way to see a job work without
+    // waiting a day. It sends for real, on the owner's own key, and the
+    // sentence that comes back is the same one the schedule writes.
+    (spent
+      ? '<button type="button" class="fn-tgl fn-run" disabled title="' + (j.onState === 'attempted' ? 'Already used its one run' : 'Its date can\u2019t be read, so there is nothing to run') + '">Run now</button>'
+      : '<button type="button" class="fn-tgl fn-run" data-run="' + esc(j.name) + '" title="' + (j.onState != null ? 'Run it now \u2014 sends for real, on your own key, and uses up this job\u2019s one run' : 'Run it now \u2014 sends for real, on your own key') + '">Run now</button>') +
+    '</div>' + badDate + onceLine + result + '</div>';
+}
+
+function jobOnceNote(jobs) {
+  const once = (Array.isArray(jobs) ? jobs : []).filter((j) => j && j.name && onceWhen(j));
+  if (!once.length) return '';
+  const names = once.map((j) => j.name);
+  return ' ' + (names.length === 1 ? names[0] + ' runs once and then stops' : names.join(', ') + ' each run once and then stop') +
+    ' — pressing Run now in Cloud → Schedule uses up that one run.';
 }
 /** The browser's IANA zone, or '' where it cannot say. Sent with an addon so a job's clock time is the owner's. */
 function browserTimeZone() {
@@ -9599,6 +9776,9 @@ function addonReplyText(a) {
   if (Array.isArray(a.apis) && a.apis.length) bits.push('connected ' + a.apis.join(', '));
   if (Array.isArray(a.jobs) && a.jobs.length) bits.push('scheduled ' + a.jobs.map(jobWords).filter(Boolean).join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
+  // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
+  // and before anything about the database or the pictures.
+  out += jobOnceNote(a.jobs);
   if (a.provisioned === true) out += ' Your site has its own database now.';
   // A FUNCTION THE DATABASE REFUSED IS SAID, with its own reason: the rest
   // of the addition landed, and "added the function" would be a lie for
@@ -11321,7 +11501,6 @@ async function siteFunctions(site) {
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const listEl = box.querySelector('#fnList');
-  const every = (m) => (m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : m >= 1440 ? 'Every ' + Math.round(m / 1440) + ' days' : m >= 60 ? 'Every ' + Math.round(m / 60) + 'h' : 'Every ' + m + 'm');
   const when = (iso) => {
     const t = Date.parse(iso || '');
     if (!Number.isFinite(t)) return '';
@@ -11342,37 +11521,7 @@ async function siteFunctions(site) {
       const jobs = d && Array.isArray(d.jobs) ? d.jobs : null;
       if (!jobs) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
       if (!jobs.length) { listEl.innerHTML = '<div class="si-empty">No scheduled jobs. In the builder, say what you want to happen on a timer — e.g. “email people the day before their appointment”.</div>'; return; }
-      listEl.innerHTML = jobs.map((j) => {
-        const ran = j.lastRun ? when(j.lastRun) : '';
-        // NEVER RUN AND RAN-WITH-NOTHING-TO-DO ARE DIFFERENT FACTS. Inventing a
-        // cheerful line for the first is how a brand-new site reads as working
-        // before it ever has.
-        const result = j.lastResult
-          ? '<div class="fn-flow"><span class="fn-step">' + esc(j.lastResult) + '</span></div>'
-          : '<div class="fn-flow"><span class="fn-step">Hasn\u2019t run yet.</span></div>';
-        // THE BADGE IS THE OFF SWITCH now, not a label. It reads the state
-        // ("On"/"Paused") and clicking it flips it — the one write this panel
-        // has, wired to POST /jobs {name, enabled}. Before this the only path
-        // to "stop the weekly digest" was asking the builder, which has no
-        // lane that can do it (the 2026-08-13 audit) — so the switch lives
-        // where the owner is already looking at what the job did.
-        // THE CLOCK TIME, when the job has one (2026-09-03): "Daily at 09:00",
-        // with the zone only when it is not the browser's own.
-        const at = typeof j.at === 'string' && j.at
-          ? ' at ' + j.at + (typeof j.tz === 'string' && j.tz && j.tz !== browserTimeZone() ? ' (' + j.tz + ')' : '')
-          : '';
-        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('history', 15) + '</span><b class="fn-name">' + esc(j.name) + '</b>' +
-          '<span class="fn-sch">' + esc(every(Number(j.everyMinutes) || 0) + at) + '</span>' +
-          (ran ? '<span class="fn-trig">ran ' + esc(ran) + '</span>' : '') +
-          (j.enabled === false
-            ? '<button type="button" class="fn-tgl fn-off" data-job="' + esc(j.name) + '" data-on="" title="Paused — click to resume">Paused</button>'
-            : '<button type="button" class="fn-tgl" data-job="' + esc(j.name) + '" data-on="1" title="Running on schedule — click to pause">On</button>') +
-          // RUN NOW (owner, 2026-09-03): the one way to see a job work without
-          // waiting a day. It sends for real, on the owner's own key, and the
-          // sentence that comes back is the same one the schedule writes.
-          '<button type="button" class="fn-tgl fn-run" data-run="' + esc(j.name) + '" title="Run it now — sends for real, on your own key">Run now</button>' +
-          '</div>' + result + '</div>';
-      }).join('');
+      listEl.innerHTML = jobs.map((j) => jobRowHtml(j, j.lastRun ? when(j.lastRun) : '')).join('');
       listEl.querySelectorAll('.fn-run').forEach((b) => b.onclick = async () => {
         b.disabled = true;
         try {

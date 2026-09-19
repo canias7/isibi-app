@@ -10498,15 +10498,18 @@ a count cannot tell them apart because a count is not about the things.
 - **WHERE IT IS MISSING THE ANSWER IS `unknown`**, which says *nothing here can
   establish whether the implementation is there* — true, and the uncertainty the
   owner asked to preserve.
-- **⚠ THE GAP IS NAMED RATHER THAN CLOSED, because it is a capability call.**
-  `qr`, `three` and `photo` are the three kinds off `REQUIREMENT_ADDS`, so their
-  tools carry no `requirements` property and a step that makes a code CANNOT
-  echo the id `requirementBrief` handed it. On today's tools the association for
-  a QR hand-off can therefore only come from the page designer naming a code
-  whose name it cannot know — so run 51's own shape reads `unknown`. Closing it
-  is one flag (`requirements: true` on those kinds), **measured at +3,579
-  characters on a 2,228-character tool**, and it would also let those steps
-  RAISE needs, which is more than was asked for. The owner's call.
+- **⚠ THE GAP NAMED HERE IS CLOSED, and the entry is corrected rather than
+  left standing (2026-09-19).** It read *"`qr`, `three` and `photo` are the
+  three kinds off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
+  property and a step that makes a code CANNOT echo the id `requirementBrief`
+  handed it"*, with the closing flag priced at **+3,579 characters on a
+  2,228-character tool**. That flag was set for all three within the day —
+  `three` and `photo` by night queue 4 and `qr` by the round two sections
+  below — so **MEASURED on this tree, all nine kinds offer `requirements`** and
+  the association for a QR hand-off no longer depends on the page designer
+  naming a code whose name it cannot know. **What stands is the rule the gap
+  was explaining**: with no `item` there is nothing to resolve, and a count of
+  a step's output is not an association whatever the tools offer.
 
 **2. THREE THINGS THE FRAME READER GOT WRONG, all reproduced.** An object
 literal inside a **line, block or jsdoc comment** counted as a picture space a
@@ -10739,10 +10742,16 @@ before the job that runs it, all before the page that shows them.
 - **A function cannot choose its `language`** — the engine reads `f.language`
   and emits `LANGUAGE plpgsql`; the addon's cleaner drops the key and reports it
   as `unexpressed`.
-- **`three` and `photo` cannot report a coverage gap at all**: they are the two
-  kinds still off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
-  property and they can neither raise a need nor echo a hand-off. **`qr` JOINED
-  THEM on 2026-09-19** and every other kind could already.
+- **⚠ AND THE ENTRY THAT SAT HERE IS WITHDRAWN, NOT RESTATED (2026-09-19).** It
+  read *"`three` and `photo` cannot report a coverage gap at all: they are the
+  two kinds still off `REQUIREMENT_ADDS`"*, and it was already false when it was
+  written — `qr`, `three` and `photo` all joined that list the same day, and the
+  bullet's own closing sentence says `qr` did. **MEASURED on this tree by
+  evaluating `addTool(k)` for all nine kinds: every one offers `requirements`**,
+  so any step can raise a need and echo the id it was handed. Nothing is
+  unsupported here; the entry outlived its own fix by one paragraph, which is
+  this file's recorded *a number stamped in two places drifts when only one is
+  corrected*, in prose.
 - **Nothing deletes ON THIS PATH, and the edit path's verb is narrower than
   "everything else" — measured off `site-lanes.mjs` rather than recalled.**
   `REMOVABLE_LANES` is fifteen and includes `components` and `tsx`, so *"take
@@ -12119,6 +12128,244 @@ closes exactly, the one being the wire case.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO PAID PROBE, `checked` STILL
 EMPTY, fal verification still parked.**
+
+### THREE GAPS FROM THE REVIEW OF `31fe5b61`, EACH REPRODUCED FIRST (2026-09-19)
+
+Owner: *"Independent review of 31fe5b61 passed 380 focused tests but reproduced
+three gaps. Close these before merging or proposing a paid dispatch."* Every one
+was driven before anything was touched, and every fix was red-checked on its own
+afterwards.
+
+#### 1. THE SELECTOR SELECTED AND THE ATOMIC CLAIM REFUSED
+
+Owner: *"With last_run=2026-09-16T19:29:36.345Z, everyMinutes=1440, at=23:00,
+tz=Europe/London, `dueJobs` selects the job at 22:00Z, but `jobDeps.stamp` still
+applies the elapsed-interval cutoff and refuses it. `runJob` skips with zero
+function calls."*
+
+**REPRODUCED THROUGH A REAL CRON TICK, on run 50's own row.** The claim went out
+as `&or=(last_run.is.null,last_run.lt.2026-09-15T22:00:30.000Z)`, the PATCH
+matched **0 rows**, `last_run` never moved and `fnCalls` was **empty** — a job
+the calendar had selected, refused by the same code path that was supposed to
+run it. **The two readers were two rules**: `dueJobs` had moved to the occurrence
+rule when the manual-run drift was fixed, and the stamp's filter was still the
+elapsed one written beside it.
+
+**THE FIX IS A COMPARE-AND-SWAP, NOT A SECOND COPY OF THE RULE.** `claimFilter`
+answers `&last_run=eq.<what this tick read>` — **`last_run` IS the etag** — so
+the claim asks *"is this the row I selected"* and never re-derives whether it was
+due. The duplicate protection is unchanged and is now structural: two ticks that
+both select one job send the same condition and exactly one PATCH matches. A
+never-run job is `is.null`, because `eq.null` matches nothing in PostgREST and
+would be a job that can never be claimed and never says why.
+
+- **A ONE-TIME JOB IS ALWAYS `is.null`**, whatever `last_run` holds, so Run now
+  really consumes the one occurrence and a later tick cannot re-run it.
+- **`jobDeps`'s `force` OPTION IS GONE**, not defaulted: the press decides a job
+  is due NOW and cannot decide a one-time job is due twice, so the dueness lives
+  in the claim and there is no second door past it.
+- **THE TWO READERS ARE ONE MODULE**: `claimFilter` sits beside `dueJobs` in
+  `site-jobs.mjs` and `worker.js` imports it, so the selector and the claim
+  cannot drift apart again by editing one of them.
+
+**Verified through the same fixture**: the claim reads
+`&last_run=eq.2026-09-16T19%3A29%3A36.345Z`, `last_run` moves to
+`2026-09-16T22:00:00.000Z`, and `fnCalls` is `['SELECT "nightly_booking_count"()
+AS out']` with `last_result` the function's own sentence. `test/fixtures/job-cron.mjs`
+is new and **evaluates the PostgREST filter for real** — `not.` prefixes, `is`,
+`eq`, `lt` compared as INSTANTS rather than strings, and an unknown operator
+THROWS rather than passing — so "the claim matched" is a measurement and not a
+fixture agreeing with itself. The interval, slower-than-daily and one-time
+controls are retained.
+
+**⚠ AND THE FIXTURE HAD TO FREEZE THE `Date` CONSTRUCTOR, not only `Date.now`.**
+The stamp writes `new Date().toISOString()`, so a half-frozen clock wrote the
+real wall time into the row the case then asserted on.
+
+**⚠ AND A SLUG REUSED ACROSS TWO `runCron` CALLS ANSWERED `fnCalls: 0` WITH THE
+PRODUCT CORRECT** — the Worker memoizes the connection per slug and caches the
+schema per connection, so the second call read the first's job set. Measured,
+then made a refusal in the fixture rather than a comment.
+
+#### 2. ONE-TIME SCHEDULING AT THE CUSTOMER-FACING BOUNDARY
+
+Owner: *"The real addon response preserves `on=2026-10-03`, but `browserReply`
+says 'every 31 days'. The Jobs panel also ignores `on`/`onState`."*
+
+**BOTH REPRODUCED, AND THE CAUSE IS THE SAME LINE TWICE.** `everyMinutes` on a
+one-time job is the forced monthly CEILING — `dueJobs` asks `spec.on` before it
+looks at the interval at all — so any composer that reads the interval first
+prints a schedule that will never happen. The reply said *"every 31 days"* and
+the panel row said *"Every 31 days at 09:00"* about a reminder stored for one
+date.
+
+**A ONE-TIME JOB IS ANSWERED FIRST AND COMPLETELY**, in both composers:
+`onceWhen(j)` renders `3 October 2026 at 09:00 (Europe/London)` — the date, the
+time and the zone, the zone said only when it is not the reader's own, which is
+`jobZone`'s one rule with two readers.
+
+**FOUR STATES, FOUR SENTENCES, because they need four different things doing**:
+wait, look at the result, ask again with a new date, say it again readably.
+`ONCE_STATES` is `scheduled · attempted · missed · unreadable`, and **`attempted`
+is deliberately not `done`** — `last_run` is stamped BEFORE the first message
+goes out, so what it records is that the one run was used up; whether anything
+arrived is the result line and nowhere else. **A consumed attempt is not proof of
+delivery** was the owner's requirement and is the vocabulary rather than a
+comment.
+
+**AND RUN NOW IS SAID TO USE IT UP**, once, where the customer can act on it:
+`jobOnceNote` rides the addon reply — *"…runs once and then stops — pressing Run
+now in Cloud → Schedule uses up that one run"* — and the panel disables Run now
+on a job whose occurrence is gone.
+
+**⚠ THE CHIP KEYS ON `onState`, NOT ON THE RENDERED DATE — found by DRIVING the
+composer rather than reading it.** `onceWhen` answers `''` for a date it cannot
+parse, so keying on it sent the `unreadable` state straight back to the interval
+wording: the row read **"Every 31 days at 09:00"** directly above a line
+explaining that the date could not be read and the job would never run. A chip
+and a sentence contradicting each other is worse than either alone.
+
+**⚠ AND A TEMPORAL DEAD ZONE OF MY OWN, caught by reading**: `const when =
+onceWhen(j)` inside the panel's row closure shadowed the closure's own `when(iso)`
+one line above it. The row composer is `jobRowHtml` at top level now, which is
+also what made it drivable.
+
+**`jobPanelRow` IS LIFTED INTO `site-jobs.mjs`** for the recorded reason — a
+wall nobody can drive is a wall nobody is guarding — and it belongs beside the
+scheduler on its own merits: every field it answers is the scheduler's view of
+that row.
+
+#### 3. A PHOTOGRAPH ANSWERS THE REQUEST THAT ASKED FOR IT
+
+Owner: *"Reproduced: generation fails, an old photograph is reused on /gallery,
+and the requirement for a newly generated photograph becomes configured.
+`pictureNote` says failure while `coverNote` says 'I've set that up.' Preserve
+explicit request-to-result association through generation and placement. Another
+photograph on the same route must not satisfy the failed request."*
+
+**REPRODUCED THROUGH `POST /api/site/<slug>/addon`**: the provider refused, the
+page writer showed a photograph the site already owned on the new `/gallery`
+page, and the claim resolved `implementation: found` → `unverified` → *"I've set
+that up"*, four words from `pictureNote` saying the photographs could not be
+made. **One picture, two opposite sentences in one reply.**
+
+**THE CAUSE IS THAT `aPhotoMade` IS AN INVENTORY AND A CLAIM IS ABOUT A
+REQUEST.** Both are honest and they answer different questions: the inventory
+says what a route really shows, and a picture being there says nothing about
+whether it is the one that was asked for. So the inventory is untouched — what
+this adds is the second question.
+
+**THE CHAIN IS request → token → url → file → route, and every link existed but
+the middle one was never carried out.** `imageDirective` writes the describe INTO
+the token, `buySitePhotos` now reports which token got which url (`bought`, keyed
+through `shotKey`), and the publication says which file holds it. **`shotKey` is
+the ONE normalisation and both ends ask it** — three hops already collapse
+whitespace, trim and slice, so a join that repeats any one of them by hand
+drifts, and the drift shows up as a photograph that really landed being reported
+as still to do.
+
+**⚠ THE WALL FIRES ONLY WHERE SOMETHING ELSE WOULD ANSWER FOR IT, and that is
+the owner's sentence turned into a condition.** A lost request on a route that
+carries no photograph at all is already `absent` to the implementation reader and
+earns the better clause — *"Still to do: a photograph of the bench is on the
+gallery page"* — so naming it in `failedItems` too would trade that for the
+vaguer dependency sentence on the commonest failure there is. The wall is asked
+off the PUBLICATION, so a picture the writer reused (`appliedFacts`) and one the
+site has had on that page for months (`existingFacts`) are the same reading —
+which is what makes it the one wall that beats both. **MEASURED: with it
+unconditional, two older guards go red for the right reason; with it narrow,
+both keep their better sentence and the reproduction is still refused.**
+
+**AND THE BLOCKED CLAUSE IS THE KIND'S.** *"the /gallery it needs could not be
+created"* says a PAGE failed, about a page that published perfectly well and is
+merely missing its picture. `brokeWhy(ref)` answers *"the photograph it asked for
+on /gallery isn't there"* for a photo and the general sentence for every kind
+whose name IS the artifact. It names no cause, deliberately: a requested picture
+can be missing three ways here and `failedItems` is `{kind, name}`, so giving one
+kind a reason field is a mechanism every other kind would then want — the reply's
+own `pictureNote` names the cause where there is one to name.
+
+**THE FIVE OUTCOMES, EACH DRIVEN THROUGH THE ROUTE WITH THE PROVIDER STUBBED:**
+
+| what happened | what the customer hears |
+|---|---|
+| the picture landed on the page that asked | *"I've set that up, but I can't confirm…"* |
+| the provider refused, another photograph is on the page | *"…waiting on another part of the same change that didn't work — the photograph it asked for on /gallery isn't there"* |
+| two asked for on one page, both landed | *"I've set that up…"* |
+| two asked for, one refused | the dependency clause, and `pictureNote` still says *"Made 1 photograph"* |
+| bought and written onto another page | *"Still to do: A photograph of the bench is on the gallery page."* |
+| intentional reuse, no photograph asked for | *"I've set that up…"* — unchanged |
+
+**`checked` STAYS EMPTY**, as everywhere else: a url in a `src` is configuration
+read back off what was published, and nothing on this path has loaded the image.
+
+**⚠ AND THE FIXTURE COULD NOT PRODUCE PARTIAL SUCCESS AT ALL.** `shotFail` was a
+boolean, so a run where one picture arrives and another does not — the one shape
+that separates a per-REQUEST reading from a per-ROUTE one — had no way of
+existing. It takes a list of prompt fragments now; `true` still refuses
+everything, so every case written before today is byte-identical.
+
+#### …AND THE STALE ENTRY THE SAME REVIEW NAMED
+
+Owner: *"Correct the morning report's stale unsupported entry — QR, three and
+photo now have requirement fields."* **MEASURED by evaluating `addTool(k)` for
+all nine kinds: every one offers `requirements`.** Three places said otherwise —
+the capability review's unsupported list, the round that named the gap, and
+`implementationOf`'s own comment — and all three are corrected in place. The rule
+they were explaining stands and is unchanged: with no `item` there is nothing to
+resolve, and a count of a step's output is not an association whatever the tools
+offer.
+
+#### The measurements
+
+**Guards**, per file at both trees rather than subtracted from a paragraph —
+`31fe5b61` read in a detached worktree, the working tree read beside it:
+
+| file | before | after |
+|---|---|---|
+| `site-jobs` | 52 | **59** |
+| `addon-route` | 168 | **172** |
+| `site-jobs-visible` · `site-addon` · `job-delivery` · `addon-sweep` | 12 · 89 · 16 · 49 | unchanged |
+
+The four unchanged files gained ASSERTIONS inside cases that already existed —
+the panel's rendered row, the browser's own composer, the harness's reading —
+which is why the count is the wrong instrument for them and the red-check is the
+right one.
+
+**Suite 6,962** (6,962 pass, 0 fail, 0 skipped), and **the arithmetic closes
+exactly**: 6,951 + 7 + 4, against a baseline two independent readings already
+agree on.
+
+**Sweep: 28 mutants, 28 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/three-gaps.json`, over `site-jobs.mjs`,
+`worker.js`, `public/chat.js`, `scripts/addon-sweep.mjs`,
+`builder/site-images.mjs` and `builder/site-requirements.mjs`, against 12 test
+files — a narrow list can only produce a false SURVIVOR, never a false kill, and
+the runner prints its own scope line). All three reported defects are mutants in
+it. **Pass 1 read 28/25/3 and NOT ONE SURVIVOR WAS THE PRODUCT'S** — one was a
+real gap in this round's own guards, one was the FIXTURE, and one was measured
+INERT:
+
+- **⚠ THE FIXTURE MODELLED `eq.null` AS A STRING COMPARISON, which is the one
+  thing PostgREST never does.** `String(null) === "null"` made a never-run row
+  match `last_run=eq.null`, so the mutant that claims such a row by etag instead
+  of `is.null` survived — a fixture MORE capable than reality, in the one field
+  gap 1 turns on. Postgres's three-valued logic is what the real filter obeys:
+  `eq.<anything>` is UNKNOWN against NULL and matches no row, and `is.null` is
+  the only operator that does. Fixed at `passes()`; the mutant died in pass 2.
+- **THE PLACEMENT HALF HAD NO OBSERVABLE CASE.** A picture bought for one page
+  and written onto another is `absent` to the implementation reader either way —
+  so the wall only changes an answer when the REQUESTED route carries some other
+  photograph. That sub-case is the one that observes it.
+- **AND `.filter((s) => urls.has(s.token))` IS ABSORBED, MEASURED AND DECLARED.**
+  The route's own `typeof b.url === "string"` and its truthiness test both reject
+  a shot with no url, so reporting every shot changes no reading over any shape
+  driven. It is kept because it says what `bought` MEANS — the shots that really
+  got a picture — and replaced in the spec by an observable mutant of the same
+  line (every shot reported at one made-up url).
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO CUSTOMER-SITE
+REPAIR** — the owner's standing constraint for this round, unchanged.
 
 ---
 
