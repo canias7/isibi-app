@@ -7252,3 +7252,28 @@ state is left as it was, with a control that says so. **The entry's KEY SET is c
   exercised by it rather than merely compiled.
 - **SQL spec 280 entries (12 controls → 268 product mutants)**, every anchor unique by the
   generator's own pre-check. Two entries REPLACED, none added, so the total is unmoved.
+
+### ⚠ AND ALL ELEVEN DEMONSTRATIONS WERE RE-RUN ON THIS HEAD, which is the control this round needs
+
+A round that only ever touches checks and a comment is exactly the round where "nothing else
+moved" is assumed rather than measured. Every one is green at its **recorded** count, so the
+table is a comparison and not a fresh claim:
+
+| | checks | verdict |
+|---|---|---|
+| `verify:send` | **90** | ALL CHECKS PASSED |
+| `verify:tools` | **119** | all checks passed |
+| `verify:chat` | **126** | PASSED — 0 failed |
+| `verify:auto` | **70** | all checks passed |
+| `verify:wf` | **157** | all checks passed |
+| `verify:triggers` | **64** | ALL CHECKS PASSED |
+| `verify:connections` | **76** | ALL CHECKS PASSED |
+| `verify:controls` | **71** | ALL CHECKS PASSED |
+| `verify:integration` | **89** | ALL CHECKS PASSED |
+| `verify:ops` | **75** | all checks passed |
+| `verify:local` | **69** | `verify-live.mjs exited 0` |
+
+**THE VERDICT IS COUNTED, NOT GREPPED FOR ONE SPELLING.** These eleven end in three different
+wordings (`all checks passed`, `PASSED — 0 failed`, `ALL CHECKS PASSED`) and one exits silently,
+so a reader looking for a single phrase goes quiet about a green run — measured once already in
+this directory. The count of `FAIL` lines is the property, and it is **0 in all eleven**.
