@@ -12914,3 +12914,29 @@ closes the last window and watches the same run come back.
 
 **The real-database check is 1,102 → 1,106 and still green**, and it goes red against the defect —
 one failure, naming both runs where it should name one.
+
+### …and six more, none of them the product, and two of them only my tests' fault
+
+The breakage run kept going and kept finding things nothing was checking. **Not one was a bug in
+what runs** — every single one was a test that would have stayed green while the thing it names
+stopped working. Two are worth a sentence each because they are the same shape:
+
+**The job that unsticks a run somebody is holding.** When a worker is already on a run, the job
+is supposed to say "held" and leave it alone. There was no test for that at all, because every run
+in that section had nobody on it — so the rule could have been deleted and nothing would have
+noticed. It is driven now, with a real worker on a real claim, beside a run nobody holds, in the
+same call so the difference is visible.
+
+**What the snapshot says about who wrote a fact.** A remembered fact says whether YOU confirmed it
+or the agent wrote it itself. The test asked for the value and the version and never for that — and
+the engine politely answers "we don't know" when it is missing, which is exactly what hides it.
+Worse, **nothing anywhere had ever written a fact the agent produced**, so half of that distinction
+had never been tested by anything.
+
+**Two of my own tests were wrong and I am recording them rather than quietly fixing them.** One
+used a name the database refuses, so nothing was saved and the check under it passed for no reason
+at all. And one comment I wrote into a database file contained a semicolon, which the breakage
+tool's own reader took for the end of a definition — so four correct breakages stopped being
+checked. Both were caught by a check written to catch exactly that, which is the system working.
+
+**The real-database check is 1,102 → 1,113 and still green.**
