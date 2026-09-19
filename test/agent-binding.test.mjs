@@ -22,7 +22,7 @@ import vm from "node:vm";
  * so the census over what a conversation draws is derived rather than transcribed, and a
  * state added to `runView` next month fails here by existing rather than by being noticed.
  */
-import { RUN_STATES, toolApprovalRow } from "../agent-store.mjs";
+import { RUN_STATES, AUTOMATION_SCHEDULES, toolApprovalRow } from "../agent-store.mjs";
 
 /**
  * ⚠ **A WAITING REQUEST IN THE SHAPE THE ROUTE REALLY ANSWERS, because it comes OUT OF
@@ -1796,6 +1796,90 @@ test("A SAVE SENDS THE TICKS, THE PAUSE AND THE WORDS — read out of the form",
   // shape `status` failed in once and `zone` would have failed in next.
   assert.deepEqual(sent.body, { id: "A", name: "Renamed", instructions: "Do the thing.",
                                 status: "paused", tools: ["echo"], zone: "Europe/London" });
+});
+
+test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", async () => {
+  // ⚠ **MEASURED BEFORE THE WALL EXISTED, with the observer proved alive** (my first needle
+  // looked for `value='x'` where the markup writes `value="x"` and answered "the form offers
+  // nothing", which is a false alarm of my own making):
+  //
+  //   the platform stores : manual · daily · weekly · once
+  //   the form offers     : manual · daily
+  //   a stored `weekly`   : NO option carries `selected`, so a browser picks the FIRST — manual
+  //   what a save sends   : 'daily' when the box says daily, otherwise 'manual', never anything else
+  //
+  // and `automation-update` REPLACES the whole automation. So editing the NAME of a weekly
+  // automation turned it into a manual one and dropped its days and its next run — silently.
+  // Reachable today, because the agent's own `make_automation` really does create weekly ones.
+  const WEEKLY = {
+    ...ONE, id: "AU9", name: "Weekday follow-up", schedule: "weekly", at: "09:00",
+    zone: "Europe/London", days: ["mon", "tue", "wed", "thu", "fri"],
+  };
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-(update|create)$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU9" }); }
+      return okRes({ agents: ROWS, automations: [WEEKLY], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(WEEKLY)}]; agentAutoCat = { steps: [], days: [] };`);
+  w.ev('agentAutoEditing = "AU9"; agentAutoDraft = null; agentAutoActErr = "";');
+
+  // ⚠ THE FORM SAYS SO, where the control that would lie about it is.
+  const html = w.ev("automationFormHtml()");
+  assert.match(html, /runs on chosen days of the week/, "the form does not say what it cannot change");
+  assert.match(html, /can’t be saved from here/, "it does not say that saving is refused");
+  assert.match(html, /ask the agent in the chat/, "it does not say where it CAN be changed");
+  // AND IT DOES NOT ALSO CLAIM THE ORDINARY THING, which would be two accounts of one fact.
+  assert.ok(!/Either way it runs the same steps/.test(html), "it says both sentences at once");
+
+  // AND THE SAVE REFUSES, WRITING NOTHING — the wall, not the sentence.
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(sent, [], "a weekly automation was replaced by what the form can express");
+  assert.match(w.ev("agentAutoActErr"), /chosen days of the week/, "the refusal does not say why");
+  assert.match(w.ev("agentAutoActErr"), /turn it into a manual one/, "it does not say what would be lost");
+
+  // ⚠ THE CONTROLS, three of them, because a wall that refuses everything is not a wall.
+  // A DAILY one saves.
+  const daily = { ...ONE, id: "AU8", schedule: "daily", at: "09:00", zone: "Europe/London" };
+  w.ev(`agentAutoRows = [${JSON.stringify(daily)}]; agentAutoEditing = "AU8"; agentAutoDraft = null; agentAutoActErr = "";`);
+  w.ev('agentAutoFormRead = function () {};');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, "a daily automation could not be saved either");
+  assert.equal(sent[0].id, "AU8");
+  // A CREATE is never locked, whatever is in the list — there is no stored schedule to lose,
+  // and reading it the other way round would make the button dead for everybody the first
+  // time somebody made a weekly automation in the chat.
+  w.ev(`agentAutoRows = [${JSON.stringify(WEEKLY)}]; agentAutoEditing = null; agentAutoActErr = "";`);
+  w.ev('agentAutoDraft = { name: "New one", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", steps: [], inputs: [], gen: 0 };');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, "a NEW automation was refused because another one is weekly");
+  assert.equal(sent[1].agent, "A");
+  // AND A ROW WHOSE SCHEDULE CANNOT BE READ IS NOT LOCKED — it is not one of the two this
+  // form cannot show; `automationRow` has already failed it closed to `manual`.
+  assert.equal(w.ev('agentAutoUnshowable({ schedule: 7 })'), "");
+  assert.equal(w.ev("agentAutoUnshowable(null)"), "");
+  assert.equal(w.ev('agentAutoUnshowable({ schedule: "once" })'), "once");
+
+  // ⚠ AND THE LIST IS THE MARKUP'S, BOTH WAYS. `AGENT_FORM_SCHEDULES` is what the refusal
+  // reads and the `<option>` values are what a person can pick; the two disagreeing is either
+  // a control nobody can use or a refusal that fires over one they can.
+  const offered = [...String(html).matchAll(/<option value="([a-z_]+)"/g)].map((m) => m[1]);
+  assert.ok(offered.length >= 2, `the option needle matched ${offered.length} — it is not reading the select`);
+  // ⚠ CARRIED OUT AS JSON, because an array built inside the vm has THAT realm's
+  // `Array.prototype` and `assert.deepEqual` rejects it — this file's own recorded trap, whose
+  // failure message shows two identical-looking lists.
+  const listed = JSON.parse(w.ev("JSON.stringify(AGENT_FORM_SCHEDULES)"));
+  assert.deepEqual(offered.slice().sort(), listed.slice().sort(),
+    "the form's own options and the list the refusal reads have come apart");
+  // AND EVERY SCHEDULE THE PLATFORM STORES IS EITHER OFFERED OR LOCKED — derived, so one added
+  // to `AUTOMATION_SCHEDULES` next month cannot be silently neither.
+  for (const s of AUTOMATION_SCHEDULES) {
+    const shown = offered.includes(s);
+    const lockedBy = w.ev(`agentAutoUnshowable({ schedule: ${JSON.stringify(s)} })`);
+    assert.equal(shown, lockedBy === "", `${s} is ${shown ? "offered AND locked" : "neither offered nor locked"}`);
+  }
 });
 
 test("⚠ THE TIME ZONE IS DRAWN FROM THE ROW, EDITED, AND SENT", async () => {

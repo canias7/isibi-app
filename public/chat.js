@@ -2783,6 +2783,24 @@ async function agentAutoSave() {
   agentAutoSaved = false;
   const say = (m) => { agentAutoActErr = m; renderAgents(); };
   if (!values.name) { say('Give it a name first.'); return; }
+  // ⚠ **A SCHEDULE THIS FORM CANNOT SHOW MUST NOT BE REPLACED BY WHAT IT CAN.** The route is
+  // a full REPLACE and the select answers `manual` for a stored `weekly`, so without this a
+  // save of the NAME alone dropped the schedule and its days. Refusing is the only honest
+  // answer while the controls do not exist: it says what it cannot do and where to do it.
+  // ⚠ **A CREATE IS NEVER LOCKED, AND `agentAutoRow()` IS THE WHOLE OF WHY** — it is
+  // `find(a => a.id === agentAutoEditing) || null`, so with nothing being edited there is no
+  // stored schedule to lose and `locked` is `''`. A first draft said `&& !!agentAutoEditing`
+  // here as well; a sweep mutant that removed that half SURVIVED every case, which is how it
+  // was measured as the same condition written twice rather than a second wall. Reading it the
+  // other way round — locking on any weekly row in the LIST — would make the button dead for
+  // everybody the first time somebody made a weekly automation in the chat, and that is the
+  // mutant in `scripts/mutants/form-locked-schedule.json`.
+  const locked = agentAutoUnshowable(agentAutoRow());
+  if (locked) {
+    say('This one runs ' + agentSchedWord(locked) + ', and this form can’t change that yet — ' +
+        'saving from here would turn it into a manual one. Ask the agent in the chat to change it instead.');
+    return;
+  }
 
   const { gen, ...sent } = values;
   void gen;
@@ -3581,6 +3599,42 @@ function automationRunsHtml() {
 }
 
 /** The form: a name, whether it is on, how it starts, and the ordered steps. */
+/**
+ * ⚠ **WHICH SCHEDULES THIS FORM CAN SHOW — and the platform stores more than that.**
+ *
+ * MEASURED: `AUTOMATION_SCHEDULES` is `manual · daily · weekly · once` and this form's own
+ * `<select>` offers the first two. A `<select>` with no option marked `selected` answers its
+ * FIRST option, so a stored `weekly` drew as *"Only when I press Run now"* — and
+ * `agentAutoValues` reads that box and sends `manual`, into a route that REPLACES the whole
+ * automation. **So editing the NAME of a weekly automation silently turned it into a manual
+ * one and dropped its days**, `next_run_at` with them. Reachable today: the agent's own
+ * `make_automation` really does create weekly ones.
+ *
+ * The wall is here rather than a new control, because **not destroying somebody's
+ * configuration is not a design decision and the controls are**: day pickers and a date box
+ * are the owner's call, and until they exist this form says what it cannot edit and refuses
+ * rather than answering wrongly. The chat can still change it — `change_automation` is a
+ * PATCH and touches only what it is given.
+ *
+ * DERIVED FROM THE MARKUP IT IS ABOUT: one list, named beside the select, so an option added
+ * there has to be added here for the refusal to lift — and `test/agent-binding.test.mjs`
+ * censuses it against the option values the form really emits, both ways.
+ */
+const AGENT_FORM_SCHEDULES = ['manual', 'daily'];
+
+/** The schedule this form cannot express, or `''` when it can. */
+function agentAutoUnshowable(row) {
+  const s = row && typeof row.schedule === 'string' ? row.schedule : '';
+  return s && AGENT_FORM_SCHEDULES.indexOf(s) < 0 ? s : '';
+}
+
+/** How a schedule this form has no control for reads to a person. */
+function agentSchedWord(s) {
+  if (s === 'weekly') return 'on chosen days of the week';
+  if (s === 'once') return 'once, on one date';
+  return s;
+}
+
 function automationFormHtml(agent) {
   void agent;
   const f = agentAutoForm();
@@ -3592,7 +3646,15 @@ function automationFormHtml(agent) {
     '<input class="ag-in" id="agAutoName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Morning check" value="' + esc(f.name) + '">' +
 
     '<label class="ag-lbl" for="agAutoSched">How it starts</label>' +
-    '<div class="ag-hint">Either way it runs the same steps, through the same queue.</div>' +
+    // ⚠ WHAT THIS FORM CANNOT SHOW, SAID WHERE THE CONTROL THAT CANNOT SHOW IT IS. Without
+    // this the box below reads "Only when I press Run now" about an automation that runs on
+    // chosen days, because a `<select>` with nothing selected answers its first option.
+    (agentAutoUnshowable(cur)
+      ? '<div class="ag-hint">This one runs ' +
+          esc(agentSchedWord(agentAutoUnshowable(cur))) +
+          ', which this form can’t change yet — so it can’t be saved from here. ' +
+          'Everything else about it is shown below, and you can ask the agent in the chat to change it.</div>'
+      : '<div class="ag-hint">Either way it runs the same steps, through the same queue.</div>') +
     '<select class="ag-in" id="agAutoSched" data-change="agent-auto-sched">' +
       '<option value="manual"' + (f.schedule === 'manual' ? ' selected' : '') + '>Only when I press Run now</option>' +
       '<option value="daily"' + (f.schedule === 'daily' ? ' selected' : '') + '>Every day, at a time I choose</option>' +

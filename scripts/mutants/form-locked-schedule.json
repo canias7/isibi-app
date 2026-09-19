@@ -1,0 +1,57 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the list of what the form can show",
+  "control": true,
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_SCHEDULES = ['manual', 'daily'];",
+  "to": "// what this form's own select offers\nconst AGENT_FORM_SCHEDULES = ['manual', 'daily'];"
+ },
+ {
+  "label": "⚠ the save replaces a schedule the form cannot show with what it can",
+  "files": ["public/chat.js"],
+  "from": "  const locked = agentAutoUnshowable(agentAutoRow());\n  if (locked) {",
+  "to": "  const locked = agentAutoUnshowable(agentAutoRow());\n  if (false) {"
+ },
+ {
+  "label": "⚠ a CREATE is locked by any weekly row in the LIST, so the button is dead for everybody",
+  "files": ["public/chat.js"],
+  "from": "  const locked = agentAutoUnshowable(agentAutoRow());\n  if (locked) {",
+  "to": "  const locked = agentAutoUnshowable((agentAutoRows || [])[0]);\n  if (locked) {"
+ },
+ {
+  "label": "the list claims the form can show every schedule the platform stores",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_SCHEDULES = ['manual', 'daily'];",
+  "to": "const AGENT_FORM_SCHEDULES = ['manual', 'daily', 'weekly', 'once'];"
+ },
+ {
+  "label": "the list forgets one the form really offers, so a refusal fires over a control somebody can use",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_SCHEDULES = ['manual', 'daily'];",
+  "to": "const AGENT_FORM_SCHEDULES = ['manual'];"
+ },
+ {
+  "label": "⚠ the form does not say what it cannot edit, so the box reads `manual` about a weekly one",
+  "files": ["public/chat.js"],
+  "from": "    (agentAutoUnshowable(cur)",
+  "to": "    (false && agentAutoUnshowable(cur)"
+ },
+ {
+  "label": "the sentence says it cannot be saved and the ordinary one is said as well",
+  "files": ["public/chat.js"],
+  "from": "      : '<div class=\"ag-hint\">Either way it runs the same steps, through the same queue.</div>') +",
+  "to": "      : '') + '<div class=\"ag-hint\">Either way it runs the same steps, through the same queue.</div>' +"
+ },
+ {
+  "label": "a schedule that cannot be READ is treated as one the form cannot show",
+  "files": ["public/chat.js"],
+  "from": "  const s = row && typeof row.schedule === 'string' ? row.schedule : '';",
+  "to": "  const s = row ? String(row.schedule) : '';"
+ },
+ {
+  "label": "the refusal does not say which schedule, so nobody can act on it",
+  "files": ["public/chat.js"],
+  "from": "  if (s === 'weekly') return 'on chosen days of the week';",
+  "to": "  if (s === 'weekly') return 'on a schedule';"
+ }
+]
