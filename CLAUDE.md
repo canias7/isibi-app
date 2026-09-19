@@ -10587,6 +10587,26 @@ predicted from the filter before the push and confirmed after: `site-build.yml`'
 `paths` name `test/page-gen.test.mjs` and the `test/integration/*` files, and
 `test/site-picture.test.mjs` is neither.
 
+**AND THE STAMP CHAIN ENDS AT THE LAST COMMIT THAT MOVED A TEST OR PRODUCT
+FILE — stated because the alternative is an infinite regress, and this file's
+"CI HAS READ IT" practice walks straight into one.** Run **2750** on
+`531336e1` (the photo-count correction, documents only) read
+`# tests 6879 / # pass 6875 / # fail 0 / # skipped 4`, the suite step 111 s —
+**the same numbers run 2748 read, and necessarily so**: the two trees differ
+ONLY in `CLAUDE.md` and `docs/owner-notes.md` (measured —
+`git diff d6118b65 531336e1 -- test/ builder/ worker.js public/ scripts/` is
+empty), so the suite that ran is byte-identical to the one already read.
+Stamping it takes another docs-only commit, which starts another run, which
+wants another stamp. **A reading that is not new is where it stops.**
+- **BUT THE RUN IS STILL READ, because a document here is DATA to real
+  guards.** `test/brand-rename.test.mjs` and `test/media-deleted.test.mjs` both
+  PARSE `docs/owner-notes.md`'s "Names that must not be renamed" table —
+  deliberately, so that adding a row there is what puts a name under guard —
+  and each asserts the heading as a landmark (`assert.ok(at > 0)`) with a floor
+  on the rows it parsed. So a docs-only push really can turn the suite red, and
+  "documents cannot break the build" is false here. **Read every run; stamp
+  only a number no earlier run has answered.**
+
 ### A PHOTOGRAPH THE SITE ALREADY HAS MAY BE SHOWN AGAIN (2026-09-19)
 
 Owner: *"Photo reuse needs no new permission decision merely to improve

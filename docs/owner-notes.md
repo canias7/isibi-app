@@ -13842,3 +13842,24 @@ I also dropped the table's `<img>` column rather than fixing it. It counted
 every image tag on the page, including ones that aren't photographs, so
 `fretwork-1` read "3" with no photographs at all — it invited exactly the
 reading it can't support.
+
+## 2026-09-19 — Where the "CI has read it" chain stops
+
+Small housekeeping note, because I nearly started a loop.
+
+The habit in here is that every commit gets its CI run read and recorded. That
+works while commits change code. The last one changed only these two documents
+— so CI ran the identical suite again and answered the identical numbers (6,879
+tests, 0 failures). Recording *that* would take another documents-only commit,
+which starts another run, which wants another line. There's no end to it.
+
+So the rule is now written down: the chain stops at the last commit that moved
+a test or a piece of the product. A run whose numbers aren't new doesn't get a
+line.
+
+**But I still read it, and that isn't a formality.** Two of the guards read
+*this file* as data — the "Names that must not be renamed" table is the real
+source for both of them, which is the whole point of keeping the list here
+where a person looks rather than buried in a test. That means a documents-only
+edit genuinely can turn the suite red. So: read every run, write down only what
+it tells you that you didn't already know.
