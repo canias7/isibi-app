@@ -13065,8 +13065,12 @@ than in the database. That is a known, written-down trade rather than something 
 caught by the check written for it. Three of the test fixtures had to be corrected first —
 they were answering the old shape, so the route would have read nothing and passed.
 
+The breakage run over the changed lines then found nothing further: twenty deliberate
+breakages, twenty caught, first time.
+
 Nothing is applied, deployed or merged. **Site tests 6,840 → 6,843, and the end-to-end run of
-the tools went 119 → 148 checks, all green.**
+the tools went 119 → 148 checks, all green.** The two other end-to-end runs that touch the pause
+button are unchanged at 70 and 75, which is how I know this broke nothing.
 
 **Two honest notes about my own instruments.** My first version of one new check read to the end
 of the file instead of to the end of the function it was about, so it complained about a setting

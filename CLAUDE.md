@@ -9373,6 +9373,11 @@ PRESENT (not to a value, because a disable leaves the schedule alone).
 - **`verify:tools` 119 → 143 → 148** (0 FAIL): section 7d, three parts — what chat changed is on
   the screen, what the screen changed the agent sees, and the one-deciding-implementation census
   measured ON THE WIRE — plus the pause reproduction driven through both doors.
+- **Site sweep (`scripts/mutants/memory-one-door.json`, 21 entries): 20 mutants, 20 killed, 0
+  survived, 0 never applied, 1 comment-only control survived — CLEAN ON THE FIRST PASS**, taken
+  after the run, in a detached worktree at `dde2991` so the main tree held no mutant while it ran,
+  and that worktree **proved restored two ways** afterwards (a clean `git status`, and all 21
+  anchors present exactly once, which cannot be true while a mutant is applied).
 - **SIXTEEN BREAKAGES DRIVEN ONE AT A TIME, every one caught by the case written for it** — the
   save and the delete back to direct statements, `p_max` dropped, `source` hardcoded, the count
   restored in JavaScript, the reach composed again, the non-object guard removed, a name that
