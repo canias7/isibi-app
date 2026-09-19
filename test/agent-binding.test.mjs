@@ -22,7 +22,20 @@ import vm from "node:vm";
  * so the census over what a conversation draws is derived rather than transcribed, and a
  * state added to `runView` next month fails here by existing rather than by being noticed.
  */
-import { RUN_STATES } from "../agent-store.mjs";
+import { RUN_STATES, toolApprovalRow } from "../agent-store.mjs";
+
+/**
+ * ⚠ **A WAITING REQUEST IN THE SHAPE THE ROUTE REALLY ANSWERS, because it comes OUT OF
+ * the route's own producer.** `toolApprovalRow` answers eight fields; a hand-typed
+ * fixture here had five, which is the fixture trap this very file keeps paying for —
+ * less capable than the thing it stands in for, and it teaches the next reader a shape
+ * the server cannot produce. Derived, a field added to that row reaches every case.
+ */
+const waitingFor = (over = {}) => toolApprovalRow({
+  id: "ap-1", run: "r1", agent: "A", tool: "pause_automation",
+  args: { id: "auto-7", enabled: false }, step: 1, index: 0,
+  requestedAt: "2026-09-17T09:00:00Z", ...over,
+});
 
 const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 
@@ -1252,10 +1265,14 @@ test("⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting 
   // scenario the milestone names: the browser remembers nothing about a pending decision,
   // so what a person comes back to is whatever the SERVER says is waiting. Driven with
   // the real shapes both routes answer.
-  const pending = {
-    id: "ap-1", tool: "make_automation", step: 1, index: 0,
+  const pending = waitingFor({
+    tool: "make_automation",
     args: { name: "Weekday follow-up", schedule: "weekly", at: "09:00" },
-  };
+  });
+  // AND THE FIXTURE REALLY IS THE ROUTE'S SHAPE, or the case below is about an object
+  // nothing can send: eight fields, out of the producer, with nothing missing.
+  assert.deepEqual(Object.keys(pending).sort(),
+    ["agent", "args", "id", "index", "requestedAt", "run", "step", "tool"]);
   const back = sending(t, {
     thread: [msg("m1", "every weekday at nine", run("waiting", { open: 1 }))],
     approvals: [pending],
@@ -2868,10 +2885,7 @@ test("⚠ EVERY HOOK THE MARKUP DECLARES IS BOUND TO SOMETHING — the census th
 // and wrong, and a source read cannot see any of it.
 // ────────────────────────────────────────────────────────────────────────────
 
-const WAITING = [{
-  id: "ap-1", run: "r1", agent: "A", tool: "pause_automation",
-  args: { id: "auto-7", enabled: false }, step: 1, index: 0, requestedAt: "2026-09-17T09:00:00Z",
-}];
+const WAITING = [waitingFor()];
 
 test("⚠ WHAT IS WAITING IS DRAWN FOR THE CONVERSATION IT WAS READ FOR, and no other", async () => {
   const gate = held(okRes({ approvals: WAITING, agent: "A" }));

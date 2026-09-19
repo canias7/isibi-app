@@ -9540,3 +9540,32 @@ which is a backend change. The requirement's own *"where practical"* is what tha
   or an assertion nothing can break is one nobody is guarding.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** This round adds no SQL at all.
+
+### M13-6: where each of the six scenarios is proved, measured rather than recalled
+
+Owner: *"Verify the complete path… Use real response shapes in browser fixtures. Verify stored
+records and the fake mailbox, not only success text."* **Every row below was checked by grepping
+for the check's own words, not from these notes** — and the one that was missing is the case this
+round added.
+
+| scenario | proved by | reads |
+|---|---|---|
+| reload while waiting for clarification or approval | `⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting shows the banner` (**added this round**) | the real shapes both routes answer |
+| duplicate submission, and a committed change whose response was lost | `verify:chat` §6 *a double send is one message and one run*; `verify:ops`' reproduction; `⚠ AN EDITED RETRY AFTER A LOST RESPONSE IS A NEW PRESS` | `agent.agent_messages` and the operation record |
+| editing a proposal before confirming | `verify:conversation` §4 *the automation can be edited while an execution waits* + *the HELD execution still holds the words the person was shown* | `agent.automation_runs.steps` |
+| switching conversations or accounts while a response is pending | `⚠ A POLL THAT FIRES AFTER THE SCREEN MOVED TOUCHES NOTHING`, `a send answered after the ACCOUNT changed…`, `a thread read answered after…`, and the `agentApprovalDecide` binding cases | the screen's own state, with controls |
+| another account attempting the same resources | `verify:conversation` §6 — the agent, the decision and the memory, all 404 | the routes' own answers |
+| corrected memory affecting subsequent work, per the snapshot rules | `verify:wf` §5 — *THE CORRECTION REACHED THE NEXT RUN* (`chatty v2`) and *it could NOT have reached the one already accepted* (`formal`) | `agent.automation_runs.memory` |
+| a paused automation refusing a new execution | `verify:conversation` §5 — 409 `disabled`, **nothing written** | the route, and the row counts |
+| a disconnected account, and rejected / expired / revoked approvals preventing sends | `verify:connections`; `verify:controls` (28 checks naming those three) | the fake provider's mailbox |
+
+**AND THE FIXTURE SHAPES ARE DERIVED FROM THEIR PRODUCERS, which is the half of that instruction
+that had to be acted on.** My own new fixture was hand-typed with FIVE of `toolApprovalRow`'s
+EIGHT fields — *a fake less capable than the thing it stands in for*, in the case written to close
+a fixture fault. Both approval fixtures in that file now come out of `toolApprovalRow` itself, and
+the case asserts the key set, so an object nothing can send cannot be what the screen is driven
+with.
+
+**Every claim above reads a stored record or the mailbox rather than success text**, which is the
+instruction's own closing clause: the memory row's version, the held execution's steps, the
+message count under a send key, the row counts across a refusal, and the provider's postbox.
