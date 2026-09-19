@@ -4448,8 +4448,15 @@ test("a change that buys a photograph may not take the ones already there off th
     "the paid directive still tells the writer every other picture has no src — the reported defect");
   assert.match(flat, /already shows 2 real photographs, and they stay exactly as they are/,
     "the paid directive does not say what the site already shows: " + (flat.match(/PHOTOGRAPHS:[^|]{0,600}/) || [""])[0]);
-  assert.match(flat, /A picture this change ADDS beyond those is a <SafeImage> with an EMPTY src/,
+  // ⚠ RE-ANCHORED 2026-09-19: the sentence gained a carve-out for a src copied
+  // from the list, because the clause beside it now GRANTS reuse. The property
+  // is the one this case has always asserted — the ban is scoped to what this
+  // change ADDS and the shape is an EMPTY src, not a missing one.
+  assert.match(flat, /A picture this change ADDS .*is a <SafeImage> with an EMPTY src/,
     "the ban stopped being scoped to what this change adds, or went back to a missing src");
+  // …AND THE URLS ARE IN THE PROMPT NOW, which is what makes the reuse the
+  // permission describes possible without inventing a path.
+  assert.match(flat, /You MAY show one of them again somewhere new/, "the reuse permission is not in the paid form");
 
   // 2. AND THE WALL REFUSES THE ANSWER ANYWAY. A prompt is what should stop it;
   //    this is what stops it reaching the customer's site if it happens anyway.
@@ -4493,6 +4500,104 @@ test("a change that buys a photograph may not take the ones already there off th
   assert.match(String(two.body.msg), /taking 2 of the photographs already on your site off it/,
     "two lost photographs were reported as one: " + two.body.msg);
   assert.match(String(two.body.msg), /leave them exactly where they are/);
+});
+
+test("a photograph the site already has may be shown again, and an invented one never ships", async () => {
+  // ⚠ Owner, 2026-09-19: *"Photo reuse needs no new permission decision merely
+  // to improve guidance."* Both halves were REPRODUCED before anything moved.
+  //
+  // THE CAPABILITY WAS ALREADY THERE AND NOTHING SAID SO. A `/u/` url copied
+  // onto a new page passes `keptImages` (reuse ADDS; that wall asks about
+  // losses), comes through `applyImages` byte-identical and leaves the distinct
+  // count where it was — and MEASURED, the directive carried **zero** `/u/`
+  // urls in all three of its forms, while the sentence beside the count read
+  // *"any picture this change adds stays a `<SafeImage>` with an empty src"*.
+  // A model asked to show a picture it has only been COUNTED has exactly one
+  // way to comply: invent a path.
+  const KEPT = "/u/fw-reuse/a1b2c3d4.jpg";
+  const reuse = await photoAsk("fw-reuse", {
+    kinds: ["page"], storedPages: [photoHome("fw-reuse")],
+    written: [
+      galleryWith('<SafeImage src="' + KEPT + '" alt="the workshop bench again" />'),
+      linkHome("fw-reuse", '<SafeImage src="' + KEPT + '" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(reuse.body.ok, true, JSON.stringify(reuse.body));
+  // 1. THE WRITER WAS GIVEN THE URL AND THE PERMISSION, which is the fix: a
+  //    count cannot be copied into a `src`.
+  const flat = pagePrompt(reuse).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /already shows 2 real photographs/, "the count is not stated: " + flat.slice(0, 200));
+  assert.match(flat, /You MAY show one of them again somewhere new/, "the permission never reached the writer");
+  assert.ok(flat.includes(KEPT), "the writer was counted a photograph it was never given the src of");
+  // 2. AND IT REALLY SHIPS. The compiler payload is the artifact; the stored
+  //    source is what the next edit works from; both carry the reused url.
+  const shipped = compiledPages(reuse).find((f) => /gallery/.test(f.path));
+  assert.ok(shipped, "the gallery page never reached the compiler: " + JSON.stringify(compiledPages(reuse).map((f) => f.path)));
+  assert.ok(shipped.source.includes(KEPT), "the reused photograph was stripped on the way to the compiler");
+  assert.match(storedSource(reuse, "fw-reuse", "gallery.tsx"), /\/u\/fw-reuse\/a1b2c3d4\.jpg/,
+    "the reused photograph is not in the source the next edit reads");
+  // 3. AND IT COST NOTHING AND ADDED NOTHING. A picture drawn twice is one
+  //    picture: no purchase, and no "space for a photo" sentence about a frame
+  //    that is full.
+  assert.deepEqual(reuse.shots, [], "showing a photograph again bought a second copy of it");
+  assert.equal(reuse.body.photos || 0, 0, "a filled frame was reported as an empty one: " + JSON.stringify(reuse.body.photos));
+
+  // ── THE WALL: A src THIS SITE DOES NOT OWN NEVER SHIPS ───────────────────
+  //
+  // MEASURED before it existed: an invented `/u/<slug>/…` url passed
+  // `keptImages` (`{ok: true, lost: []}`), came through `applyImages`
+  // byte-identical and `photoUrls` read it as this site's — so it would have
+  // published as a broken image on a real customer's page. It is SWEPT to an
+  // empty src rather than refused, which is `applyImages`' own answer to an
+  // unbought token: the page ships and the frame becomes a slot.
+  const FAKE = "/u/fw-invent/deadbeefdeadbeef.jpg";
+  const invent = await photoAsk("fw-invent", {
+    kinds: ["page"], storedPages: [photoHome("fw-invent")],
+    written: [
+      galleryWith('<SafeImage src="' + FAKE + '" alt="a picture nobody bought" />'),
+      linkHome("fw-invent", '<SafeImage src="/u/fw-invent/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(invent.body.ok, true, "the sweep refused the whole change instead of emptying one src");
+  const bad = compiledPages(invent).find((f) => /gallery/.test(f.path));
+  assert.ok(bad, "the gallery page never reached the compiler");
+  assert.equal(bad.source.includes(FAKE), false, "an invented url reached the compiler: " + bad.source.slice(0, 300));
+  assert.match(bad.source, /src=""/, "the invented src was deleted rather than emptied — the picture rung cannot fill a missing one");
+  assert.equal(storedSource(invent, "fw-invent", "gallery.tsx").includes(FAKE), false,
+    "an invented url is in the source the next edit reads");
+  // …AND THE ONES THE SITE REALLY OWNS ARE UNTOUCHED, which is what makes this
+  // a wall on invention rather than on `/u/` urls.
+  assert.match(storedSource(invent, "fw-invent", "index.tsx"), /\/u\/fw-invent\/a1b2c3d4\.jpg/,
+    "the sweep took a photograph the site really owns");
+  // AND THE CUSTOMER HEARS ABOUT THE FRAME IT LEFT, through the sentence that
+  // already exists — the swept src is an empty slot the picture rung can fill.
+  assert.ok((invent.body.photos || 0) >= 1,
+    "the emptied frame was not counted, so nobody is told about it: " + JSON.stringify(invent.body.photos));
+
+  // ── AND A COMPONENT IS A GENERATED FILE TOO ──────────────────────────────
+  //
+  // ⚠ A SWEEP SURVIVOR. The route sweeps two lists and the case above drove
+  // one, so cutting the parts half changed nothing anybody could see — and a
+  // section is where a gallery lives on this platform, which makes it the
+  // likelier place for an invented path than a page is.
+  const PART_FAKE = "/u/fw-invent-part/cafebabecafebabe.jpg";
+  const inPart = await photoAsk("fw-invent-part", {
+    kinds: ["page"], storedPages: [photoHome("fw-invent-part")],
+    written: [
+      galleryWith('<GalleryStrip />'),
+      linkHome("fw-invent-part", '<SafeImage src="/u/fw-invent-part/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+    writtenParts: [{ name: "gallery-strip", source: 'export default function GalleryStrip(){ return <SafeImage src="' + PART_FAKE + '" alt="nobody bought this" /> }' }],
+  });
+  assert.equal(inPart.body.ok, true, JSON.stringify(inPart.body));
+  // READ OFF THE CONTAINER PAYLOAD'S OWN `parts`, not off a reply field: the
+  // question is what was HANDED to the thing that builds the site.
+  const sentParts = ((inPart.compiles || [])[0] || {}).body?.parts || [];
+  const strip = sentParts.find((p) => /gallery-strip/.test(String(p && p.name)));
+  assert.ok(strip, "the component never reached the compiler: " + JSON.stringify(sentParts.map((p) => p && p.name)));
+  assert.equal(String(strip.source).includes(PART_FAKE), false,
+    "an invented url inside a component reached the compiler: " + String(strip.source).slice(0, 200));
+  assert.match(String(strip.source), /src=""/, "the component's invented src was deleted rather than emptied");
 });
 
 test("the same request that keeps them buys the photograph and publishes — the control", async () => {
@@ -5066,8 +5171,19 @@ test("a list entry that really carries a picture is not an empty frame", async (
       '{ alt: "The brick oven after the morning fire", caption: "The oven", fallbackSeed: "oven" }',
       '{ src: "/u/fw-frames-full/abc123.jpg", alt: "The brick oven after the morning fire", caption: "The oven" }'),
   };
+  // ⚠ THE HOME PAGE REALLY SHOWS THAT PHOTOGRAPH (2026-09-19), and it has to.
+  // The wall added with the reuse permission empties any `/u/<slug>/` src the
+  // site does not own, so a url invented for a fixture is swept and the frame
+  // reads empty — which is the wall being right about a made-up path and has
+  // nothing to do with what this case tests. A picture the site really has is
+  // the honest instance of *"a list entry that really carries a picture"*, and
+  // it makes this a route-level proof that a reused url survives end to end.
+  const owned = (slug) => ({
+    ...storedPage("/"),
+    source: '<SafeImage src="/u/' + slug + '/abc123.jpg" alt="The brick oven" />',
+  });
   const r = await addon("fw-frames-full", "add a gallery page", {
-    kinds: ["page"], publishes: true, sitePages: ["/"],
+    kinds: ["page"], publishes: true, storedPages: [owned("fw-frames-full")],
     written: [filled],
     answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
   });
@@ -5083,7 +5199,7 @@ test("a list entry that really carries a picture is not an empty frame", async (
     source: filled.source.replace('{ src: "/u/fw-frames-full/abc123.jpg"', '{ "src": "/u/fw-frames-quoted/abc123.jpg"'),
   };
   const q = await addon("fw-frames-quoted", "add a gallery page", {
-    kinds: ["page"], publishes: true, sitePages: ["/"],
+    kinds: ["page"], publishes: true, storedPages: [owned("fw-frames-quoted")],
     written: [quoted],
     answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
   });

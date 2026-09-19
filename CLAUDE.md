@@ -10157,27 +10157,22 @@ before the job that runs it, all before the page that shows them.
   answers the same DISTINCT count, so a picture drawn twice is one picture and
   no new spend. **The capability is there.** What is missing is two other things,
   and naming them apart is the point:
-  - **GUIDANCE.** `keepClause` states the COUNT and forbids replacing or
-    removing — *"they stay exactly as they are — do not replace one, and do not
-    remove it"* — and says nothing about showing one again; the sentence beside
-    it, *"Any picture this change adds stays a `<SafeImage>` with an empty src"*,
-    reads literally as an instruction to leave a new page's picture empty even
-    when the picture is one the site already owns. **Measured: the directive
-    contains no `/u/` url at all.**
-  - **CONTEXT, and only on a large site.** The inventory is SITE-WIDE
-    (`photoInventory` over every page and component) while the source the writer
-    is shown is BOUNDED by `priorPagesSent` — so a photograph on a WITHHELD page
-    is counted in the sentence and its url never reaches the writer. Driven.
+  - **GUIDANCE — ⚠ CLOSED 2026-09-19.** It stated the COUNT and forbade
+    replacing or removing, said nothing about showing one again, and the
+    sentence beside it read literally as an instruction not to. **Measured: the
+    directive carried no `/u/` url at all, in all three of its forms.** It
+    carries them now, with the permission and the wall stated — see the entry
+    below.
+  - **CONTEXT, and only on a large site — STILL OPEN.** The inventory is
+    SITE-WIDE (`photoInventory` over every page and component) while the source
+    the writer is shown is BOUNDED by `priorPagesSent` — so a photograph on a
+    WITHHELD page is counted in the sentence and its page's source never reaches
+    the writer. **The url now does**, which narrows this to the source it would
+    have copied the surrounding markup from rather than the src itself. Driven.
     **Unreachable today: 0 of 100 corpus sites exceed `MAX_PRIOR_CHARS`, the
     largest being 50,646 characters**, so this arrives by growth.
-  **NOT FIXED HERE, and the risk is why**: the obvious guidance ("you may show
-  one again") invites an INVENTED `/u/` path, which nothing validates —
-  `keptImages` sees only losses and `applyImages` does not check — so it would
-  publish as a broken image. The wall for that is capability work and is the
-  owner's call. `test/site-images.test.mjs` pins both measurements so the
-  assessment cannot drift again. **Run 51's six blank frames are a separate
-  thing**: the page writer had a gallery band to fill, no shot list, and no
-  sentence inviting reuse.
+  **Run 51's six blank frames are a separate thing**: the page writer had a
+  gallery band to fill, no shot list, and no sentence inviting reuse.
 - **An `api` cannot say where its credential comes from.** A required secret
   reaches the owner as a bare name (`WEATHER_KEY`) with nothing saying where to
   get one, and `params` is a name allow-list with **no types and no required
@@ -10473,6 +10468,105 @@ case that already existed.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.** The
 photo-reuse guidance work is next.
+
+**CI HAS READ IT: `unit tests` run 2745 on `6ec04963`, green (2026-09-19
+04:29:44→04:31:47Z) — `# tests 6876 / # pass 6872 / # fail 0 / # skipped 4`**,
+against local `6876 / 6876 / 0 / 0`, and **the TOTAL is what matches**. The four
+are NAMED out of the log rather than recalled: the privilege-drop case, the two
+RTL cases and `site-searchpath`'s baseline-commit case — the standing
+expectation met rather than a new one. `site build` run **1196** fired on the
+same sha because `builder/site-picture.mjs` moved; **its result is UNREAD as
+this is written** and is left unstamped rather than carried over from 1195.
+
+### A PHOTOGRAPH THE SITE ALREADY HAS MAY BE SHOWN AGAIN (2026-09-19)
+
+Owner: *"Photo reuse needs no new permission decision merely to improve
+guidance… then proceed to the queued photo-reuse guidance."* Both halves were
+REPRODUCED before anything was touched.
+
+**THE CAPABILITY WAS ALREADY THERE AND NOTHING SAID SO.** Measured: a `/u/` url
+copied onto a new page passes `keptImages` (reuse ADDS; that wall asks about
+losses), comes through `applyImages` **byte-identical** (the sweep rewrites
+unbought `@@IMG:` tokens and a real url is not one), and leaves the DISTINCT
+count where it was — so it costs nothing. And **the directive carried zero `/u/`
+urls in all three of its forms**, while the sentence beside the count read *"any
+picture this change adds stays a `<SafeImage>` with an empty src"*, which reads
+literally as an instruction not to.
+
+**A COUNT CANNOT BE COPIED INTO A `src`.** That is the whole of why the list and
+the permission arrive together or not at all: a model told *"this site already
+shows 2 photographs"* and asked to show one has exactly one way to comply, which
+is to invent a path. `shownPhotos` carries `urls` now — **distinct, sorted** (the
+set's order is the walk's, and a prompt that moves for no reason is a cache miss
+and an unreadable diff), **capped at `MAX_KEEP_URLS` (12) against a measured
+real-site maximum of 3** (`fold-lane-bakery`), and the COUNT stays the whole
+site's while the list may be shorter, with the clause saying so. **With no list
+`keepClause` says nothing about reuse and the protection stands alone** — the
+fail-closed shape an older caller or a failed inventory read gets.
+
+**AND THE WALL IS STATED TO THE MODEL, not only enforced behind it.** The three
+"empty src" sentences gained a carve-out for a src copied from the list, and the
+paid form's keep clause **moved ahead of** the ban it now has to carve out —
+read the other way round the two contradict each other for a whole sentence.
+
+**A `src` THIS SITE DOES NOT OWN NEVER SHIPS.** `strayPhotos` is `keptImages`
+turned round: that one asks which photographs went MISSING, this asks which
+appeared that the site never had, and **one function cannot answer both** because
+each is an addition as far as the other is concerned. MEASURED before it existed:
+an invented `/u/<slug>/deadbeef….jpg` passed `keptImages` (`{ok: true, lost:
+[]}`), came through `applyImages` byte-identical and `photoUrls` read it as this
+site's — it would have published as a broken image on a customer's page.
+
+- **SWEPT TO EMPTY, NOT REFUSED**, and the precedent is exact: `applyImages`
+  already answers an unbought token with `src=""`. The page ships, the frame
+  becomes a real slot the picture rung can fill, and `newEmptySlots` counts it
+  into the sentence the customer already gets. Refusing would cost them a page
+  and a QR code over one wrong attribute.
+- **ASKED BESIDE `keptImages`, BEFORE THE PURCHASE**, because after it every
+  photograph this change bought is a url the site did not have and would read as
+  invented. At that moment every such url is either one the site owns or one the
+  model made up, and there is no third kind.
+- **BOTH LISTS, EACH WRITTEN BACK INTO ITS OWN** — pages and components — never
+  the union sliced apart by length, which is `applyImages`' own recorded reason.
+  **The value is matched WHOLE, between its quotes**, so a url that is a prefix
+  of another cannot take its sibling with it; both quote styles; and the caller's
+  files are copied rather than rewritten in place.
+
+**Guards**: `addon-route` **135 → 136** (reuse driven end to end — the prompt
+carries the url, the compiler payload and the stored source both carry it, no
+purchase, no empty-frame sentence — then the invented url swept in a PAGE and in
+a COMPONENT, with the owned one beside it untouched) and `site-images` **79 →
+81** (the list's bound, order and count; the sweeper's four properties).
+**Each half proved RED on its own**: cutting the guidance turns 3 cases red,
+cutting the route's sweep exactly 1.
+
+**Five older guards re-anchored, not appeased** — four `shownPhotos` shape
+assertions that compared a frozen object rather than the property, and the paid
+form's empty-src sentence, whose carve-out is the correction. **AND THE GUARD
+THAT PINNED THE GAP WENT RED, WHICH IS WHAT IT WAS FOR**: it asserted
+`d.includes("/u/") === false` with a note that adding guidance would turn it red
+— *the assessment changing rather than drifting*. It asserts the new state now.
+**And one route fixture was inventing a url**: the list-frame case wrote
+`/u/<slug>/abc123.jpg` into a new gallery on a site that never had it, so the
+wall correctly emptied it and the frame read empty. The home page really owns
+that photograph now, which makes the case an honest instance of *"a list entry
+that really carries a picture"* and a second route-level proof of reuse.
+
+**Sweep: 24 mutants, 24 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/photo-reuse.json`, over
+`builder/site-images.mjs` and `worker.js`, against 7 test files). **Pass 1 read
+12/12 and NOT ONE SURVIVOR WAS THE PRODUCT'S** — every product mutant that
+matters died on the first pass (the reported gap, the permission, the wall, the
+route hop), and all twelve survivors were gaps in this change's own guards:
+four at `shownPhotos` (nothing drove a site past the cap or with its urls out of
+order), three in `keepClause`'s wording, four in `dropStrayPhotos` (nothing drove
+it directly — the route case only ever showed it one double-quoted url in one
+file), and one at the route's PARTS half, which the case drove for pages only.
+
+**Suite 6,879** — 6,876 + 1 (`addon-route`) + 2 (`site-images`), and the
+arithmetic closes exactly.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
 ---
 

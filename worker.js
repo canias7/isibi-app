@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, strayPhotos, dropStrayPhotos, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -25425,17 +25425,49 @@ async function handleRequest(request, env, ctx) {
             //
             // BEFORE THE PURCHASE, so a change that would lose one does not
             // first spend $0.15 on the replacement.
-            const aKeptPics = keptImages(
-              imageSources(aSrc, aPartsRead.parts),
-              imageSources(aMerge.pages, aParts || aPartsRead.parts),
-              ownerSlug,
-            );
+            const aPicsBefore = imageSources(aSrc, aPartsRead.parts);
+            const aPicsAfter = imageSources(aMerge.pages, aParts || aPartsRead.parts);
+            const aKeptPics = keptImages(aPicsBefore, aPicsAfter, ownerSlug);
             aMark("pics", aKeptPics.ok ? "ok" : "fail", { lost: aKeptPics.lost.length });
             if (!aKeptPics.ok) {
               return Response.json({
                 ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),
                 msg: lostPhotosMsg(aKeptPics.lost),
               }, { status: 422 });
+            }
+            // ── AND A `src` THIS SITE DOES NOT OWN NEVER SHIPS (2026-09-19) ──
+            //
+            // The wall behind the reuse permission the directive now grants.
+            // `keptImages` above asks what went MISSING; this asks what
+            // APPEARED that the site never had — both are additions as far as
+            // the other is concerned, which is why one reader cannot answer
+            // both. MEASURED before it existed: an invented `/u/<slug>/…` url
+            // passed `keptImages`, came through `applyImages` byte-identical
+            // and would have published as a broken image.
+            //
+            // SWEPT TO EMPTY RATHER THAN REFUSED — `applyImages`' own answer to
+            // an unbought token, so the page ships, the frame becomes a slot
+            // the picture rung can fill, and `newEmptySlots` below counts it
+            // into the sentence the customer already gets. Refusing would cost
+            // them a page and a QR code over one wrong attribute.
+            //
+            // HERE, BESIDE `keptImages` AND BEFORE THE PURCHASE, because after
+            // it every photograph this change bought is a url the site did not
+            // have and would read as invented. At this moment every such url is
+            // either one the site owns or one the model made up.
+            const aStray = strayPhotos(aPicsBefore, aPicsAfter, ownerSlug);
+            if (aStray.length) {
+              // EACH LIST GETS ITS OWN FILES BACK, never the union sliced apart
+              // by length — `applyImages` records why, and this is the same hop.
+              const aSweptPages = dropStrayPhotos(aMerge.pages, aStray);
+              aMerge = { ...aMerge, pages: aSweptPages.files };
+              let aStrayIn = aSweptPages.dropped;
+              if (aParts) {
+                const aSweptParts = dropStrayPhotos(aParts, aStray);
+                aParts = aSweptParts.files;
+                aStrayIn = aStrayIn.concat(aSweptParts.dropped);
+              }
+              aMark("pics", "stray", { urls: aStray.length, files: aStrayIn.length });
             }
 
             // ── AND ONLY NOW IS THE DESIGN STORED ───────────────────────────

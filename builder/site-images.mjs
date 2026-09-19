@@ -259,11 +259,36 @@ export function hasBoughtPhotos(pages, slug) {
  * richer than it is.
  */
 export function shownPhotos(pages, slug) {
-  if (!Array.isArray(pages) || !slug) return { known: false, count: 0 };
+  if (!Array.isArray(pages) || !slug) return { known: false, count: 0, urls: [] };
   const seen = new Set();
   for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);
-  return { known: true, count: seen.size };
+  // ── AND THE URLs THEMSELVES, BECAUSE A COUNT CANNOT BE COPIED (2026-09-19)
+  //
+  // A page writer told *"this site already shows 2 photographs"* and given
+  // nothing else can protect them and cannot REUSE one: showing a picture the
+  // owner already paid for on a new page needs its exact `src`, and until today
+  // the directive carried no `/u/` url at all (measured: zero, in all three
+  // forms). The capability was there the whole time — a copied url passes
+  // `keptImages`, survives `applyImages` byte-identical and adds no spend — and
+  // nothing invited it.
+  //
+  // `count` STAYS THE DISTINCT TOTAL AND THE LIST MAY BE SHORTER. The count is
+  // what the protection sentence is about and must be true of the whole site;
+  // the list is what may be copied, and a cap on it is a cap on the prompt, not
+  // a claim about the site. `MAX_KEEP_URLS` is 12 against a measured real-site
+  // maximum of 3 (`fold-lane-bakery`), so today it never cuts — and when it
+  // does, the clause says the list is partial rather than letting a shorter
+  // list read as a smaller site.
+  //
+  // SORTED, so two reads of one site produce one prompt: the set's order is
+  // the order the files happened to be walked in, and a prompt that moves for
+  // no reason is a cache miss and an unreadable diff.
+  const urls = [...seen].sort();
+  return { known: true, count: seen.size, urls: urls.slice(0, MAX_KEEP_URLS) };
 }
+
+/** How many of a site's own photograph urls the directive will list. */
+export const MAX_KEEP_URLS = 12;
 
 /**
  * THE PHOTOGRAPHS ONE FILE SHOWS — this site's own, by exact URL (2026-09-17).
@@ -343,6 +368,72 @@ export function keptImages(before, after, slug) {
   }
   const lost = [...had].filter((u) => !now.has(u));
   return { ok: !lost.length, lost };
+}
+
+/**
+ * ── A `src` THIS SITE DOES NOT OWN NEVER SHIPS (2026-09-19) ────────────────
+ *
+ * The wall behind the reuse permission, and it is `keptImages` turned round:
+ * that one asks which of the site's photographs went MISSING, this one asks
+ * which `/u/<slug>/` urls APPEARED that the site never had. Both are additions
+ * as far as the other is concerned, which is why one function cannot answer
+ * both — measured before this existed: an invented
+ * `/u/fw/deadbeef….jpg` passed `keptImages` (`{ok: true, lost: []}`), came
+ * through `applyImages` byte-identical (the sweep rewrites `@@IMG:` tokens and
+ * this is not one) and `photoUrls` read it as this site's, so it would have
+ * published as a broken image on a real customer's page.
+ *
+ * SWEPT TO EMPTY, NOT REFUSED, and the precedent is exact. `applyImages`
+ * already answers an unbought token by writing `src=""` — the page ships, the
+ * frame becomes a real slot the picture rung can fill, and `newEmptySlots`
+ * counts it so the customer is told about it in the sentence that already
+ * exists. Refusing the whole change instead would cost a customer their page
+ * and their QR code over one wrong path in one attribute.
+ *
+ * ASKED BEFORE THE PURCHASE, because after it every photograph this change
+ * bought is a url the site did not have and would read as invented. At the
+ * moment `keptImages` runs, every `/u/<slug>/` url in the answer is either one
+ * the site owns or one the model made up, and there is no third kind.
+ *
+ * EACH FILE IS WRITTEN BACK INTO THE LIST IT CAME FROM. `applyImages`' own
+ * comment records why: the union is sliced apart by length nowhere, because
+ * that is how a fix of this shape silently breaks again.
+ */
+export function strayPhotos(before, after, slug) {
+  const had = new Set();
+  for (const p of Array.isArray(before) ? before : []) {
+    for (const u of photoUrls(p && p.source, slug)) had.add(u);
+  }
+  const stray = new Set();
+  for (const p of Array.isArray(after) ? after : []) {
+    for (const u of photoUrls(p && p.source, slug)) if (!had.has(u)) stray.add(u);
+  }
+  return [...stray].sort();
+}
+
+/**
+ * Empty every `src` in `files` that is one of `stray`, and say which files moved.
+ *
+ * THE VALUE IS MATCHED WHOLE, between its own quotes, which is what keeps a url
+ * that is a PREFIX of another from taking its sibling with it — the same reason
+ * `photoUrls` captures the quoted span rather than scanning for `/u/`.
+ */
+export function dropStrayPhotos(files, stray) {
+  const drop = new Set((Array.isArray(stray) ? stray : []).filter((u) => typeof u === "string" && u));
+  if (!drop.size || !Array.isArray(files)) return { files: Array.isArray(files) ? files : [], dropped: [] };
+  const dropped = [];
+  const out = files.map((f) => {
+    if (!f || typeof f.source !== "string") return f;
+    let src = f.source, hit = false;
+    for (const u of drop) {
+      const next = src.split('"' + u + '"').join('""').split("'" + u + "'").join("''");
+      if (next !== src) { src = next; hit = true; }
+    }
+    if (!hit) return f;
+    dropped.push(String(f.path || ""));
+    return { ...f, source: src };
+  });
+  return { files: out, dropped };
 }
 
 /**
@@ -783,8 +874,39 @@ function keepClause(shown) {
   const has = s.known ? Math.max(0, Math.floor(Number(s.count)) || 0) : null;
   if (has === null) return " Leave every picture already on this site exactly as it is.";
   if (has > 0) {
-    return " This site already shows " + has + " real " + (has === 1 ? "photograph" : "photographs") +
+    let out = " This site already shows " + has + " real " + (has === 1 ? "photograph" : "photographs") +
       ", and they stay exactly as they are — do not replace one, and do not remove it.";
+    // ── AND THEY MAY BE SHOWN AGAIN (2026-09-19) ─────────────────────────
+    //
+    // Owner: *"Photo reuse needs no new permission decision merely to improve
+    // guidance."* The capability is already there and was measured — a `/u/`
+    // url copied onto a new page passes `keptImages` (reuse ADDS; the wall asks
+    // about losses), comes through `applyImages` byte-identical (the sweep
+    // rewrites unbought `@@IMG:` tokens and a real url is not one), and leaves
+    // the distinct count where it was, so it costs nothing. What was missing is
+    // that nothing ever said so, and the sentence beside this one — *"any
+    // picture this change adds stays a `<SafeImage>` with an empty src"* — read
+    // literally as an instruction not to.
+    //
+    // THE LIST IS THE WHOLE POINT. A count cannot be copied into a `src`, and a
+    // model asked to show a picture it has only been counted has exactly one
+    // way to comply: invent a path. So the permission and the urls arrive
+    // together or not at all — with no list this says nothing about reuse and
+    // the protection stands alone, which is the fail-closed direction and the
+    // shape an older caller (or a failed inventory read) gets.
+    //
+    // AND THE WALL IS STATED TO THE MODEL, not only enforced behind it. A `src`
+    // this site does not own is swept to empty by `strayPhotos` either way;
+    // saying so here is what makes the sweep a rule the writer can follow
+    // rather than a silent correction it cannot see.
+    const urls = Array.isArray(s.urls) ? s.urls.filter((u) => typeof u === "string" && u) : [];
+    if (urls.length) {
+      out += " You MAY show one of them again somewhere new: copy its src EXACTLY from this list" +
+        (urls.length < has ? " (" + urls.length + " of the " + has + ")" : "") + " — " + urls.join(", ") +
+        ". A src of that shape that is not on the list, or one you have altered, is not a picture this site " +
+        "owns and will be emptied.";
+    }
+    return out;
   }
   return " This site shows no real photographs yet; every picture on it is a placeholder.";
 }
@@ -857,8 +979,14 @@ export function imageDirective(n) {
       // AND AN EMPTY SRC RATHER THAN NO SRC, for the reason written out below:
       // the picture rung fills a slot by rewriting a `src`, so an element with
       // none is invisible to the one step that could later fill it.
-      "Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with an EMPTY " +
-      "src, which renders this theme's own placeholder." + keepClause(n.shown);
+      // ⚠ THE KEEP CLAUSE MOVED AHEAD OF THE EMPTY-SRC SENTENCE (2026-09-19),
+      // because it now grants something that sentence has to carve out: the
+      // urls a writer may reuse have to be in hand before it is told what to do
+      // with a picture that is NOT one of them. Read in the old order the two
+      // contradict each other for a whole sentence.
+      keepClause(n.shown).trim() + (n.shown ? " " : "") +
+      "Do NOT invent an extra token. A picture this change ADDS that is neither one of those tokens nor a src " +
+      "copied from the list above is a <SafeImage> with an EMPTY src, which renders this theme's own placeholder.";
   }
   // ── THE FORM FOR A CHANGE THAT BUYS NONE (2026-09-17) ────────────────────
   //
@@ -907,13 +1035,20 @@ export function imageDirective(n) {
     // about the site rather than guessing at it.
     lines.push(keepClause(n.shown || { known: false }).trim());
     // AND A SLOT THE NEXT STEP CAN FILL, when the customer asked for a picture.
+    // ⚠ AND BOTH SENTENCES CARVE THE REUSE OUT (2026-09-19). Each said "empty
+    // src" of EVERY picture this change adds, which on a site with photographs
+    // is an instruction not to show one again — the clause above has just said
+    // it may. A picture that is one of those is a copied src; everything else is
+    // a placeholder, exactly as before.
+    const spare = (n.shown && Array.isArray(n.shown.urls) && n.shown.urls.length) ? " that is not one of those" : "";
     if (n.place) {
-      lines.push("Where this change wants a photograph, write `<SafeImage src=\"\" alt=\"what will be here\" />` — " +
+      lines.push("Where this change wants a photograph" + spare + ", write " +
+        "`<SafeImage src=\"\" alt=\"what will be here\" />` — " +
         "an EMPTY src, never a missing one. That renders this theme's own placeholder now, and it is the slot " +
         "the picture step fills when they ask for the photograph itself.");
     } else {
-      lines.push("Any picture this change adds stays a <SafeImage> with an empty src, which renders this theme's " +
-        "own placeholder.");
+      lines.push("Any picture this change adds" + spare + " stays a <SafeImage> with an empty src, which renders " +
+        "this theme's own placeholder.");
     }
     return lines.join(" ");
   }

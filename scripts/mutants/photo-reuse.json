@@ -1,0 +1,212 @@
+[
+  {
+    "label": "the urls never leave the inventory, so a count cannot be copied — the reported gap",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const urls = [...seen].sort();\n  return { known: true, count: seen.size, urls: urls.slice(0, MAX_KEEP_URLS) };",
+    "to": "  const urls = [...seen].sort();\n  return { known: true, count: seen.size, urls: [] };"
+  },
+  {
+    "label": "the list is unsorted, so one site composes two different prompts",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const urls = [...seen].sort();",
+    "to": "  const urls = [...seen];"
+  },
+  {
+    "label": "the list is uncapped, so a contact sheet is pasted into the prompt",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "urls: urls.slice(0, MAX_KEEP_URLS) };",
+    "to": "urls: urls };"
+  },
+  {
+    "label": "the count follows the cut list, so a shorter list reads as a smaller site",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  return { known: true, count: seen.size, urls: urls.slice(0, MAX_KEEP_URLS) };",
+    "to": "  return { known: true, count: urls.slice(0, MAX_KEEP_URLS).length, urls: urls.slice(0, MAX_KEEP_URLS) };"
+  },
+  {
+    "label": "the permission is granted with no urls to copy, so the only way to comply is to invent one",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (urls.length) {\n      out += \" You MAY show one of them again somewhere new:",
+    "to": "    if (true) {\n      out += \" You MAY show one of them again somewhere new:"
+  },
+  {
+    "label": "the permission is never granted, so the guidance gap comes back",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (urls.length) {\n      out += \" You MAY show one of them again somewhere new:",
+    "to": "    if (false) {\n      out += \" You MAY show one of them again somewhere new:"
+  },
+  {
+    "label": "a cut list is presented as the whole of what the site owns",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "        (urls.length < has ? \" (\" + urls.length + \" of the \" + has + \")\" : \"\") +",
+    "to": "        \"\" +"
+  },
+  {
+    "label": "the wall is not stated to the model, so the sweep is a silent correction",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "        \". A src of that shape that is not on the list, or one you have altered, is not a picture this site \" +\n        \"owns and will be emptied.\";",
+    "to": "        \".\";"
+  },
+  {
+    "label": "the paid form keeps the old order, so the ban contradicts the permission above it",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      keepClause(n.shown).trim() + (n.shown ? \" \" : \"\") +\n      \"Do NOT invent an extra token. A picture this change ADDS that is neither one of those tokens nor a src \" +\n      \"copied from the list above is a <SafeImage> with an EMPTY src, which renders this theme's own placeholder.\";",
+    "to": "      \"Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with an EMPTY \" +\n      \"src, which renders this theme's own placeholder.\" + keepClause(n.shown);"
+  },
+  {
+    "label": "the zero form's two sentences stop carving the reuse out",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    const spare = (n.shown && Array.isArray(n.shown.urls) && n.shown.urls.length) ? \" that is not one of those\" : \"\";",
+    "to": "    const spare = \"\";"
+  },
+  {
+    "label": "the carve-out is written even with no urls, so a site with none hears about \"those\"",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    const spare = (n.shown && Array.isArray(n.shown.urls) && n.shown.urls.length) ? \" that is not one of those\" : \"\";",
+    "to": "    const spare = \" that is not one of those\";"
+  },
+  {
+    "label": "a url the site never had is not a stray — the reported defect",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    for (const u of photoUrls(p && p.source, slug)) if (!had.has(u)) stray.add(u);",
+    "to": "    for (const u of photoUrls(p && p.source, slug)) if (false) stray.add(u);"
+  },
+  {
+    "label": "every url is a stray, so a photograph the site owns is emptied too",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    for (const u of photoUrls(p && p.source, slug)) if (!had.has(u)) stray.add(u);",
+    "to": "    for (const u of photoUrls(p && p.source, slug)) stray.add(u);"
+  },
+  {
+    "label": "the two lists swap, so what was lost is called invented",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "export function strayPhotos(before, after, slug) {\n  const had = new Set();\n  for (const p of Array.isArray(before) ? before : []) {",
+    "to": "export function strayPhotos(after, before, slug) {\n  const had = new Set();\n  for (const p of Array.isArray(before) ? before : []) {"
+  },
+  {
+    "label": "the src is deleted rather than emptied, so the picture rung cannot fill the slot",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      const next = src.split('\"' + u + '\"').join('\"\"').split(\"'\" + u + \"'\").join(\"''\");",
+    "to": "      const next = src.split('src=\"' + u + '\"').join('').split(\"src='\" + u + \"'\").join('');"
+  },
+  {
+    "label": "the value is matched without its quotes, so a url takes its longer sibling with it",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      const next = src.split('\"' + u + '\"').join('\"\"').split(\"'\" + u + \"'\").join(\"''\");",
+    "to": "      const next = src.split(u).join('');"
+  },
+  {
+    "label": "the single-quoted form is left alone, so half the shapes a model writes survive",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      const next = src.split('\"' + u + '\"').join('\"\"').split(\"'\" + u + \"'\").join(\"''\");",
+    "to": "      const next = src.split('\"' + u + '\"').join('\"\"');"
+  },
+  {
+    "label": "a file that did not move is reported as swept",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (!hit) return f;\n    dropped.push(String(f.path || \"\"));",
+    "to": "    dropped.push(String(f.path || \"\"));"
+  },
+  {
+    "label": "the sweeper rewrites the file in place rather than copying it",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    dropped.push(String(f.path || \"\"));\n    return { ...f, source: src };",
+    "to": "    dropped.push(String(f.path || \"\"));\n    f.source = src;\n    return f;"
+  },
+  {
+    "label": "the route never sweeps, so an invented src publishes as a broken image",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aStray = strayPhotos(aPicsBefore, aPicsAfter, ownerSlug);\n            if (aStray.length) {",
+    "to": "            const aStray = [];\n            if (aStray.length) {"
+  },
+  {
+    "label": "the swept pages are thrown away, so the sweep changes nothing that ships",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aMerge = { ...aMerge, pages: aSweptPages.files };",
+    "to": "              aMerge = { ...aMerge };"
+  },
+  {
+    "label": "the components are not swept, so an invented src in a section still ships",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (aParts) {\n                const aSweptParts = dropStrayPhotos(aParts, aStray);\n                aParts = aSweptParts.files;",
+    "to": "              if (false) {\n                const aSweptParts = dropStrayPhotos(aParts, aStray);\n                aParts = aSweptParts.files;"
+  },
+  {
+    "label": "the wall reads the whole site's after against nothing, so every url is invented",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aStray = strayPhotos(aPicsBefore, aPicsAfter, ownerSlug);",
+    "to": "            const aStray = strayPhotos([], aPicsAfter, ownerSlug);"
+  },
+  {
+    "label": "the directive is given the count without the urls, so the writer cannot reuse one",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),",
+    "to": "                  shown: { ...shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug), urls: [] },"
+  },
+  {
+    "label": "CONTROL: a comment-only change to the keep clause",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    const urls = Array.isArray(s.urls) ? s.urls.filter((u) => typeof u === \"string\" && u) : [];",
+    "to": "    // a comment-only control: this line is unchanged\n    const urls = Array.isArray(s.urls) ? s.urls.filter((u) => typeof u === \"string\" && u) : [];",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment-only change to the sweeper",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "export function dropStrayPhotos(files, stray) {",
+    "to": "// a comment-only control: this line is unchanged\nexport function dropStrayPhotos(files, stray) {",
+    "control": true
+  }
+]

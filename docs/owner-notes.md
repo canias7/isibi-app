@@ -13726,3 +13726,51 @@ still empty, and the six-entry gallery still reads six.
 
 Suite **6,876**, sweep 27 of 27, nothing merged, nothing deployed, nothing spent.
 Fal verification is still parked. The photo-reuse guidance work is next.
+
+---
+
+## 2026-09-19 — Photo reuse: the site's own pictures can go on a new page now, and an invented path can't
+
+This was the queued item. Both halves reproduced before I changed anything.
+
+**It always worked; nothing ever said so.** A picture the site already owns can
+be shown again on a new page — I drove it end to end and it passes every wall,
+survives the sweep byte-for-byte, and costs nothing, because a picture drawn
+twice is one picture. What was missing is that the page writer was told the
+**count** and never the **addresses**: the prompt carried zero of them. And the
+sentence next to the count read *"any picture this change adds stays a
+placeholder"*, which reads as an instruction not to reuse one.
+
+A count cannot be copied into a page. A model told "this site has 2
+photographs" and asked to show one has exactly one way to comply, which is to
+make up a path — so the permission and the list had to arrive together, and now
+they do.
+
+**And a made-up path is the thing that would have hurt.** Measured: an invented
+`/u/…` address passed every existing check and would have published as a broken
+image on a customer's page. There is a wall for it now, and it **empties the
+frame rather than refusing the whole change** — same as what already happens to
+a picture that couldn't be bought. The page still ships, the space becomes a
+real slot, and you get the sentence about it you'd get anyway. Refusing would
+have cost someone their page and their QR code over one wrong attribute.
+
+**Three things I got wrong first and found by probing rather than reading:**
+
+1. My first rule counted an array inside a ternary, a spread, and a `.length`
+   expression as real picture spaces. None of them says how many the page draws.
+2. My first version of the wall would have eaten a **real** finding — the case
+   where the writer names a picture that genuinely isn't there, which is the
+   most useful line in the reply.
+3. A test fixture from an earlier round was inventing an address itself, so the
+   new wall correctly emptied it and the test failed. I gave that site the
+   photograph for real rather than switching the wall off.
+
+**One thing still open, and it only bites on a big site.** The count is
+site-wide, but the page source the writer is shown is capped — so on a site
+bigger than anything you have today, a photograph on a page that didn't fit
+would be counted without its surrounding markup being visible. The address
+itself now always reaches the writer, so this is narrower than it was. No
+corpus site is anywhere near the cap.
+
+Suite **6,879**, sweep 24 of 24. Nothing merged, nothing deployed, nothing
+spent. Fal verification is still parked.

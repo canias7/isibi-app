@@ -15,7 +15,7 @@ import {
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
   budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
-  photoUrls, keptImages,
+  photoUrls, keptImages, strayPhotos, dropStrayPhotos, MAX_KEEP_URLS,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -892,21 +892,26 @@ test("shownPhotos is three-state, because unknown must not pick a side", () => {
     { source: '<SafeImage src="/u/fw/a.jpg" /><SafeImage src="/u/fw/b.jpg" />' },
     { source: '<SafeImage src="/u/fw/a.jpg" />' },   // the SAME picture twice
   ];
-  assert.deepEqual(shownPhotos(withTwo, "fw"), { known: true, count: 2 },
-    "a repeated photograph was counted twice");
-  assert.deepEqual(shownPhotos([{ source: '<SafeImage alt="x" />' }], "fw"), { known: true, count: 0 });
+  // ⚠ RE-ANCHORED 2026-09-19: the answer gained `urls`, so a frozen object
+  // compares a shape rather than the property. The COUNT is still the distinct
+  // total — that is what this case has always been about — and the list beside
+  // it is the same set, which is the assertion that keeps the two from drifting.
+  assert.deepEqual(shownPhotos(withTwo, "fw"),
+    { known: true, count: 2, urls: ["/u/fw/a.jpg", "/u/fw/b.jpg"] },
+    "a repeated photograph was counted twice, or its urls disagree with its count");
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage alt="x" />' }], "fw"), { known: true, count: 0, urls: [] });
 
   // UNKNOWN IS ITS OWN ANSWER, and it is the whole reason this is not
   // `hasBoughtPhotos`. That reader answers TRUE when it cannot tell, because
   // not knowing must cost nothing — the right direction for SPENDING and the
   // wrong one for DESCRIBING, where it becomes "this site has photographs"
   // over a source nobody read.
-  assert.deepEqual(shownPhotos(null, "fw"), { known: false, count: 0 });
-  assert.deepEqual(shownPhotos([{ source: "x" }], ""), { known: false, count: 0 });
+  assert.deepEqual(shownPhotos(null, "fw"), { known: false, count: 0, urls: [] });
+  assert.deepEqual(shownPhotos([{ source: "x" }], ""), { known: false, count: 0, urls: [] });
   assert.equal(hasBoughtPhotos(null, "fw"), true, "the control moved: the spending reader no longer fails closed");
 
   // ANOTHER SITE'S UPLOAD IS NOT THIS SITE'S PHOTOGRAPH.
-  assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/other/a.jpg" />' }], "fw"), { known: true, count: 0 });
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/other/a.jpg" />' }], "fw"), { known: true, count: 0, urls: [] });
 });
 
 test("photoInventory is the WHOLE site or nothing, never a shorter list", () => {
@@ -917,9 +922,10 @@ test("photoInventory is the WHOLE site or nothing, never a shorter list", () => 
   // pages, and a site's own components live in their own list.
   const pages = [{ path: "index.tsx", source: "<h1>Fretwork</h1>" }];
   const parts = [{ name: "gallery-grid", source: '<SafeImage src="/u/fw/hero.jpg" alt="the bench" />' }];
-  assert.deepEqual(shownPhotos(pages, "fw"), { known: true, count: 0 },
+  assert.deepEqual(shownPhotos(pages, "fw"), { known: true, count: 0, urls: [] },
     "the control moved: the pages alone were never the defect");
-  assert.deepEqual(shownPhotos(photoInventory(pages, parts, true), "fw"), { known: true, count: 1 },
+  assert.deepEqual(shownPhotos(photoInventory(pages, parts, true), "fw"),
+    { known: true, count: 1, urls: ["/u/fw/hero.jpg"] },
     "a photograph inside a component was not counted — the reported defect");
 
   // AND AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST (the owner's
@@ -929,13 +935,13 @@ test("photoInventory is the WHOLE site or nothing, never a shorter list", () => 
   // exactly that — handing it the pages alone instead would be a real count of
   // part of the site presented as a count of all of it.
   assert.equal(photoInventory(pages, null, false), null, "an unreadable component store answered a partial inventory");
-  assert.deepEqual(shownPhotos(photoInventory(pages, null, false), "fw"), { known: false, count: 0 });
+  assert.deepEqual(shownPhotos(photoInventory(pages, null, false), "fw"), { known: false, count: 0, urls: [] });
   assert.equal(photoInventory(null, parts, true), null, "a site with no readable pages answered an inventory anyway");
 
   // A SITE WITH NO COMPONENTS IS A READ THAT SUCCEEDED, so it is the pages and
   // is `known` — the difference between "there are none" and "nobody looked",
   // which is the same distinction `readSiteParts` draws one layer up.
-  assert.deepEqual(shownPhotos(photoInventory(pages, [], true), "fw"), { known: true, count: 0 });
+  assert.deepEqual(shownPhotos(photoInventory(pages, [], true), "fw"), { known: true, count: 0, urls: [] });
   assert.deepEqual(photoInventory(pages, [], true).map((f) => f.path), ["index.tsx"]);
 
   // AND THE PATHS ARE `imageSources`' OWN, so this and the frame counter key
@@ -1081,7 +1087,11 @@ test("a paid directive names what the site already has, and bans only what the c
   // site", which on a site with photographs is an instruction to strip them.
   assert.doesNotMatch(paid, /any other picture stays a <SafeImage> with no src/);
   assert.doesNotMatch(paid, /the intended look for the rest of the site/);
-  assert.match(paid, /A picture this change ADDS beyond those is a <SafeImage> with an EMPTY src/);
+  // ⚠ RE-ANCHORED 2026-09-19: the sentence gained a carve-out, because the
+  // clause beside it now GRANTS reuse — *"beyond those"* alone would have gone
+  // on forbidding what the line above had just allowed. The property is
+  // unchanged: a picture this change adds and did not buy is an empty src.
+  assert.match(paid, /A picture this change ADDS .*is a <SafeImage> with an EMPTY src/);
   assert.match(paid, /already shows 2 real photographs, and they stay exactly as they are/);
 
   // THE SAME CLAUSE, FROM ONE DEFINITION. The zero form has said this since it
@@ -1099,7 +1109,7 @@ test("a paid directive names what the site already has, and bans only what the c
   const build = imageDirective(shots);
   assert.doesNotMatch(build, /already shows/, "the build path was told about photographs nobody counted");
   assert.doesNotMatch(build, /Leave every picture/, "the build path gained a sentence about an inventory it has not got");
-  assert.match(build, /A picture this change ADDS beyond those is a <SafeImage> with an EMPTY src/,
+  assert.match(build, /A picture this change ADDS .*is a <SafeImage> with an EMPTY src/,
     "the two doors compose different paid instructions");
 
   // AND THE ZERO FORM READS AN ABSENT INVENTORY AS "nobody looked", where the
@@ -1223,18 +1233,32 @@ test("REUSING a photograph the site already has is accepted end to end", async (
   assert.equal(swept[2].source, reused.source, "the sweep rewrote a url the writer reused");
   // 3. …AND THE SITE NOW SHOWS THE SAME TWO PHOTOGRAPHS, not three: distinct
   //    urls, so a picture drawn twice is one picture and no new spend.
-  assert.deepEqual(shownPhotos(swept, slug), { known: true, count: 2 },
+  assert.equal(shownPhotos(swept, slug).count, 2,
     "a reused photograph was counted as a second one");
 
-  // ── THE TWO GAPS, MEASURED RATHER THAN ARGUED ────────────────────────────
+  // ── (a) GUIDANCE — ⚠ CLOSED 2026-09-19, AND THIS CASE IS WHY IT COULD BE ──
   //
-  // (a) GUIDANCE. The directive states the COUNT and forbids replacing or
-  //     removing; it says nothing about showing one again, and carries no url.
-  //     Recorded as a measurement of today's prompt: when guidance is added
-  //     this goes red, which is the assessment changing rather than drifting.
+  // It pinned the gap as a measurement of the prompt: *"the directive states
+  // the COUNT and forbids replacing or removing; it says nothing about showing
+  // one again, and carries no url"*, with the note that adding guidance would
+  // turn it red — the assessment CHANGING rather than drifting. It did, and
+  // this is the re-anchor onto the state that replaced it: the urls are in the
+  // prompt, the permission is stated, and the count is still the law.
   const d = imageDirective({ buy: null, shown: shownPhotos(before, slug), place: false });
   assert.match(d, /already shows 2 real photographs/, "the count is not stated at all: " + d);
-  assert.equal(d.includes("/u/"), false, "the directive carries a url — re-read the assessment: " + d);
+  assert.match(d, /You MAY show one of them again somewhere new/, "the permission is not stated: " + d);
+  for (const url of [u("a"), u("b")]) {
+    assert.ok(d.includes(url), "the writer cannot copy a src it was never given: " + d);
+  }
+  // …AND THE SENTENCE BESIDE IT NO LONGER CONTRADICTS THE ONE ABOVE IT. Before
+  // the carve-out it read "any picture this change adds stays a <SafeImage>
+  // with an empty src", which is an instruction not to do what the clause has
+  // just permitted.
+  assert.match(d, /Any picture this change adds that is not one of those stays a <SafeImage> with an empty src/, d);
+  // AND THE PERMISSION NEEDS THE LIST: a count alone leaves a model asked to
+  // show a picture with exactly one way to comply, which is to invent a path.
+  assert.doesNotMatch(imageDirective({ buy: null, shown: { known: true, count: 2 }, place: false }),
+    /You MAY show one of them again/, "reuse was invited with no url to copy");
   // (b) CONTEXT. The inventory is SITE-WIDE and the source the writer is shown
   //     is bounded, so on a large site the count can name a photograph whose
   //     page was withheld — and then no url reaches the writer at all. The two
@@ -1250,6 +1274,100 @@ test("REUSING a photograph the site already has is accepted end to end", async (
   const sent = priorPagesSent(big, { keep: ["/"] });
   assert.equal(sent.shown.some((p) => p.source.includes(u("a"))), false,
     "the page carrying the photograph was shown — pick a bigger fixture");
-  assert.deepEqual(shownPhotos(big, slug), { known: true, count: 1 },
+  assert.equal(shownPhotos(big, slug).count, 1,
     "the count is not site-wide, so the two readers cannot disagree");
+});
+
+test("the reuse list is bounded, ordered and never mistaken for the count", () => {
+  // ⚠ EVERY ASSERTION HERE CLOSED A SWEEP SURVIVOR. `shownPhotos` gained a list
+  // of urls so a page writer can COPY one; four mutants of that list lived
+  // through the first pass, because no case anywhere drove a site with more
+  // photographs than the cap or with them written out of order.
+  const u = (n) => "/u/fw/" + String(n).padStart(8, "0") + ".jpg";
+  const page = (n) => ({ path: "p" + n + ".tsx", source: '<SafeImage src="' + u(n) + '" alt="x" />' });
+  // 1. ORDERED, so one site composes ONE prompt. The set's order is whatever
+  //    order the files happened to be walked in; a prompt that moves for no
+  //    reason is a cache miss and an unreadable diff.
+  const jumbled = [page(9), page(1), page(5)];
+  assert.deepEqual(shownPhotos(jumbled, "fw").urls, [u(1), u(5), u(9)],
+    "the list follows the walk order, so two reads of one site disagree");
+  // 2. BOUNDED, because this goes into a prompt.
+  const many = Array.from({ length: MAX_KEEP_URLS + 4 }, (_, i) => page(i + 1));
+  const big = shownPhotos(many, "fw");
+  assert.equal(big.urls.length, MAX_KEEP_URLS, "the list is uncapped: " + big.urls.length);
+  // 3. AND THE COUNT IS THE WHOLE SITE, not the cut list. The count is what the
+  //    protection sentence is about and has to be true of every picture the
+  //    owner paid for; a count that followed the list would tell them their
+  //    site is smaller than it is.
+  assert.equal(big.count, MAX_KEEP_URLS + 4, "the count followed the cut list: " + big.count);
+  // 4. AND THE CLAUSE SAYS THE LIST IS PARTIAL, so a writer that can only see
+  //    twelve is not told those twelve are all there are.
+  const cut = imageDirective({ buy: null, shown: big });
+  assert.match(cut, new RegExp("\\(" + MAX_KEEP_URLS + " of the " + (MAX_KEEP_URLS + 4) + "\\)"),
+    "a cut list was presented as the whole of what the site owns: " + cut);
+  const whole = imageDirective({ buy: null, shown: shownPhotos(jumbled, "fw") });
+  assert.doesNotMatch(whole, / of the /, "a complete list was announced as partial: " + whole);
+  // 5. THE WALL IS STATED TO THE MODEL, not only enforced behind it. `strayPhotos`
+  //    empties an unowned src either way; saying so is what makes the sweep a
+  //    rule a writer can follow rather than a silent correction it cannot see.
+  assert.match(whole, /not a picture this site owns and will be emptied/, whole);
+  // 6. AND THE PAID FORM PUTS THE PERMISSION BEFORE THE BAN. Read the other way
+  //    round the two contradict each other for a whole sentence.
+  const paid = imageDirective({ buy: [{ page: "/g", describe: "the bench" }], shown: shownPhotos(jumbled, "fw") });
+  assert.ok(paid.indexOf("You MAY show one of them again") < paid.indexOf("Do NOT invent an extra token"),
+    "the ban is read before the permission it has to carve out: " + paid);
+  // 7. AND A SITE WITH NO PHOTOGRAPHS HEARS NOTHING ABOUT "those". The carve-out
+  //    is written only where there is a list to carve out of.
+  const none = imageDirective({ buy: null, shown: { known: true, count: 0, urls: [] }, place: true });
+  assert.doesNotMatch(none, /that is not one of those/, "a site with no pictures was told about ones it has not got: " + none);
+  assert.match(imageDirective({ buy: null, shown: shownPhotos(jumbled, "fw"), place: true }), /that is not one of those/);
+});
+
+test("a src this site does not own is emptied, and its neighbours are not", () => {
+  // ⚠ FOUR SWEEP SURVIVORS LIVED IN `dropStrayPhotos` — nothing drove it
+  // directly, and the route case only ever showed it one double-quoted url in
+  // one file. Each assertion below is one of them.
+  const owned = "/u/fw/a1b2c3d4.jpg";
+  const fake = "/u/fw/deadbeef.jpg";
+  const before = [{ path: "index.tsx", source: '<SafeImage src="' + owned + '" alt="x" />' }];
+  const after = [
+    before[0],
+    { path: "g.tsx", source: '<SafeImage src="' + fake + '" alt="y" />' },
+  ];
+  assert.deepEqual(strayPhotos(before, after, "fw"), [fake], "the invented url was not seen");
+  assert.deepEqual(strayPhotos(before, before, "fw"), [], "a site that changed nothing invented something");
+
+  // 1. EMPTIED, NEVER DELETED. The picture rung fills a slot by rewriting a
+  //    `src`; an element with none is invisible to it, so a deletion turns a
+  //    fillable frame into one nothing can reach.
+  const one = dropStrayPhotos(after, [fake]);
+  assert.match(one.files[1].source, /src=""/, "the attribute was deleted rather than emptied: " + one.files[1].source);
+  assert.equal(one.files[1].source.includes(fake), false);
+  assert.deepEqual(one.dropped, ["g.tsx"], "the file that moved was not named, or one that did not was");
+  assert.equal(one.files[0], before[0], "a file with nothing to sweep was copied anyway");
+
+  // 2. THE CALLER'S LIST IS NOT REWRITTEN UNDER IT. The route hands this the
+  //    merge's own pages; mutating them in place writes the sweep into a list
+  //    another reader may already hold.
+  assert.equal(after[1].source.includes(fake), true, "the input file was rewritten in place");
+
+  // 3. SINGLE QUOTES ARE A SHAPE A MODEL WRITES, and half a sweeper is a
+  //    sweeper that misses half of them.
+  const sq = dropStrayPhotos([{ path: "g.tsx", source: "<SafeImage src='" + fake + "' alt='y' />" }], [fake]);
+  assert.match(sq.files[0].source, /src=''/, "a single-quoted src survived the sweep: " + sq.files[0].source);
+
+  // 4. AND THE VALUE IS MATCHED WHOLE, BETWEEN ITS QUOTES. Without that a url
+  //    that is a PREFIX of another takes its sibling with it — measured on the
+  //    shape a hash suffix really produces.
+  const short = "/u/fw/abc.jpg";
+  const longer = "/u/fw/abc.jpg.jpg";
+  const pair = dropStrayPhotos([{ path: "g.tsx", source: '<SafeImage src="' + short + '" /><SafeImage src="' + longer + '" />' }], [short]);
+  assert.ok(pair.files[0].source.includes('src="' + longer + '"'),
+    "emptying one url took its longer sibling with it: " + pair.files[0].source);
+  assert.match(pair.files[0].source, /src=""/, "the stray itself was not emptied");
+
+  // AND NOTHING TO DO IS NOTHING DONE, files and report alike.
+  const idle = dropStrayPhotos(after, []);
+  assert.equal(idle.files, after, "an empty stray list rebuilt the file list");
+  assert.deepEqual(idle.dropped, []);
 });
