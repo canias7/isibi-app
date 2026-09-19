@@ -99,6 +99,52 @@ function run(js, local) {
 }
 
 /**
+ * RENDER ONE KIT COMPONENT, from the template's real file.
+ *
+ * Added 2026-09-19 for the media components, and it lives beside
+ * `renderRouteSource` rather than in a second loader because the resolver, the
+ * transpile and the `require` shim are the same three — `test/kit-form.test.mjs`
+ * already keeps its own copy of them and a third would be two copies too many.
+ *
+ * `@/lib/utils` is resolved from the template like any other kit file, so `cn`
+ * is the real one; anything else a component reaches for THROWS by name rather
+ * than resolving to a stub, because a component quietly rendered against a fake
+ * dependency is a render that proves nothing about the shipped file.
+ */
+export function renderKit(file, exportName, props = {}) {
+  const req = resolver();
+  const React = req("react");
+  const server = req("react-dom/server");
+  const cache = new Map();
+  const load = (rel) => {
+    const abs = path.join(TEMPLATE, rel);
+    if (cache.has(abs)) return cache.get(abs);
+    const js = transpile(fs.readFileSync(abs, "utf8"), abs);
+    const mod = run(js, (id) => {
+      if (id === "react") return React;
+      if (id === "react/jsx-runtime") return req("react/jsx-runtime");
+      if (id === "react-dom/server") return server;
+      if (id.startsWith("@/")) {
+        const base = path.join("src", id.slice(2));
+        for (const ext of [".tsx", ".ts"]) { if (fs.existsSync(path.join(TEMPLATE, base + ext))) return load(base + ext); }
+        throw new Error(rel + " imports " + id + ", which the template has no file for");
+      }
+      // A REAL PACKAGE IS LOADED, NEVER STUBBED — `lucide-react` is a real
+      // dependency of the kit and a component drawing a stub icon is not the
+      // component that ships.
+      return req(id);
+    });
+    cache.set(abs, mod);
+    return mod;
+  };
+  const mod = load(file);
+  const Component = mod[exportName];
+  assert.equal(typeof Component, "function",
+    file + " exports no " + exportName + ": " + Object.keys(mod).join(", "));
+  return server.renderToStaticMarkup(React.createElement(Component, props));
+}
+
+/**
  * The fetch every hop shares, and the ONLY thing in it that stands in for a
  * third party is the last branch.
  *

@@ -19,8 +19,15 @@ export function VideoEmbed({ url, title = "Video", ratio = "16/9", className }: 
         style={{ aspectRatio: ratio }}>Video unavailable</div>
     );
   }
+  // `data-slot` ON BOTH BRANCHES (2026-09-19). Only the fallback carried one,
+  // so a video that WORKS was invisible to every reader that counts slots —
+  // `curl … | grep -o 'data-slot="[^"]*"'`, which is how "what does this site
+  // really use" is answered with no auth and no publish, and the css lane,
+  // which is required to target by `data-slot`. The two consequences were
+  // exactly backwards: a site with a working video read as a site with none,
+  // and only a BROKEN one showed up.
   return (
-    <div className={cn("overflow-hidden rounded-lg bg-muted", className)} style={{ aspectRatio: ratio }}>
+    <div data-slot="video-embed" className={cn("overflow-hidden rounded-lg bg-muted", className)} style={{ aspectRatio: ratio }}>
       <iframe src={src} title={title} loading="lazy" allowFullScreen
         allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture"
         className="size-full border-0" />
