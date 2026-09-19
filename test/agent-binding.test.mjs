@@ -16,6 +16,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
+/**
+ * ⚠ **THE STATES THE SERVER CAN ANSWER, FROM THE SERVER'S OWN LIST.** Both halves are the
+ * site's — `agent-store.mjs` is this product's module and `public/chat.js` is its screen —
+ * so the census over what a conversation draws is derived rather than transcribed, and a
+ * state added to `runView` next month fails here by existing rather than by being noticed.
+ */
+import { RUN_STATES } from "../agent-store.mjs";
+
 const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 
 /**
@@ -1098,13 +1106,19 @@ const run = (state, over = {}) =>
  * counted rather than inferred, and `thread` is what the next read answers — which
  * is how a run is moved from queued to answered without waiting for anything.
  */
-function sending(t, { thread = [], sendAnswer = null, uid = "acct-A" } = {}) {
+function sending(t, { thread = [], sendAnswer = null, uid = "acct-A", approvals = [] } = {}) {
   const sends = [];
   const reads = [];
   let rows = thread;
   const w = loadScreen({
     uid,
     answer: (path, opts) => {
+      // ⚠ **WHAT IS WAITING FOR A PERSON, because the thread load ASKS FOR IT on every
+      // read** — and this fixture answered the agent list to that request, so
+      // `agentApprovals` was `[]` in every case in this file whatever the screen did.
+      // A fake LESS capable than the thing it stands in for: the banner above the box is
+      // the one control whose absence is silent, and nothing here could see it.
+      if (path.startsWith("/api/agent/tool-approvals")) return okRes({ approvals });
       if (path === "/api/agent/send") {
         const body = JSON.parse(opts.body);
         sends.push(body);
@@ -1217,6 +1231,55 @@ test("A RELOAD MID-RUN NEEDS NO RECOVERY, because the browser remembers nothing"
   await done.w.ev('agentThreadLoad("A")');
   assert.equal(done.w.val("agentLive(agentMsgs)"), false, "a finished conversation is still being watched");
   assert.equal(done.w.ev("agentPollTimer === null"), true, "a finished conversation armed a poll");
+});
+
+test("⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting shows the banner", async (t) => {
+  // ⚠ **`AGENT_LIVE_STATES` WAS WRITTEN FOR A FOUR-STATE WORLD** and its own comment
+  // enumerated it. It happens to be right about all seven — the five it excludes are
+  // states where nothing will move on its own — but nothing asserted that, so an eighth
+  // state would have defaulted to "not live" in silence. The census is derived from
+  // `RUN_STATES`, so a new state forces the decision rather than inheriting one.
+  const b = sending(t, { thread: [] });
+  const live = (state) => b.w.ev(`agentLive([{ run: ${JSON.stringify({ id: "r", state })} }])`);
+  const yes = RUN_STATES.filter((s) => live(s));
+  assert.deepEqual(yes, ["queued", "working"],
+    `the live set is ${JSON.stringify(yes)} — every other state must have a reason not to be`);
+  // AND THE OBSERVER: a message with no run, and a row that is not one, are not live either.
+  assert.equal(b.w.ev("agentLive([{ run: null }, {}, null])"), false);
+  assert.equal(b.w.ev('agentLive("not a list")'), false);
+
+  // ⚠ **A RELOAD WHILE WAITING FOR AN APPROVAL IS AN ORDINARY FIRST READ**, which is the
+  // scenario the milestone names: the browser remembers nothing about a pending decision,
+  // so what a person comes back to is whatever the SERVER says is waiting. Driven with
+  // the real shapes both routes answer.
+  const pending = {
+    id: "ap-1", tool: "make_automation", step: 1, index: 0,
+    args: { name: "Weekday follow-up", schedule: "weekly", at: "09:00" },
+  };
+  const back = sending(t, {
+    thread: [msg("m1", "every weekday at nine", run("waiting", { open: 1 }))],
+    approvals: [pending],
+  });
+  await back.w.ev('agentThreadLoad("A")');
+  // ⚠ THE APPROVALS READ IS STARTED AND NOT AWAITED by the thread load — deliberately, so
+  // the conversation draws without waiting on a second request — so awaiting the load alone
+  // asserts against a screen that has not heard yet. One macrotask turn is enough because
+  // the fixture answers immediately; nothing about the product's own timing is being waited on.
+  await settle();
+  assert.equal(back.w.val("agentMsgs[0].run.state"), "waiting");
+  assert.equal(back.w.val("agentApprovals.length"), 1, "the reload did not read what is waiting");
+  assert.equal(back.w.val("agentApprovalsFor"), "A", "the banner is not bound to this agent");
+  // ⚠ NO POLL, and that is the point rather than an omission: nothing will deliver this
+  // run until a person answers, so a poll would ask the same question for ever.
+  assert.equal(back.w.ev("agentPollTimer === null"), true, "a run waiting for a person armed a poll");
+  // AND WHAT THE PERSON READS CARRIES THE ARGUMENTS THEY ARE APPROVING, because approving
+  // what you were not shown is the one mistake here that cannot be taken back.
+  const banner = back.w.ev(`agentApprovalHtml(${JSON.stringify(pending)})`);
+  assert.match(banner, /Waiting for you/);
+  assert.match(banner, /Weekday follow-up/, "the arguments are not shown");
+  assert.match(banner, /Nothing has happened yet/, "it does not say nothing has happened");
+  assert.match(banner, /data-act="agent-tool-approve"/, "there is no way to approve it");
+  assert.match(banner, /data-act="agent-tool-reject"/, "there is no way to refuse it");
 });
 
 test("A FAILED RUN IS SHOWN AS A FAILURE, with the engine's own reason", async (t) => {
@@ -1346,6 +1409,67 @@ test("WHAT EACH RUN STATE DRAWS, and what a message with no run draws", (t) => {
     // And the STATE still draws either way, so the label is not what carries it.
     assert.match(off, /ag-msg-bot/, `${state}: nothing is drawn for a real answer`);
   }
+
+
+  // ⚠ **EVERY STATE `runView` CAN ANSWER, DERIVED FROM `RUN_STATES` RATHER THAN LISTED —
+  // and listing them is exactly how three went unguarded.** The census above iterated the
+  // four this function happened to draw, so `waiting`, `unresolved` and `cancelled` were
+  // neither drawn nor asked about: MEASURED, `waiting` and `unresolved` both read *"It
+  // stopped, and there is no reason recorded."* in the warn colour, and `cancelled` read
+  // *"It stopped: cancelled."* with the who, the words and the counts dropped. A run needing
+  // one press of Approve was a broken run; a stranded one was the same sentence; and
+  // somebody's own decision was a fault.
+  const shown = new Map();
+  for (const state of RUN_STATES) {
+    const h = draw(run(state, {
+      step: 2, text: "hello", why: state === "cancelled" ? "cancelled" : "call-failed", at: 1,
+      open: 2, by: "acct-A", note: "changed my mind", steps: 2, calls: 1,
+    }));
+    assert.match(h, /ag-msg-bot/, `${state}: nothing is drawn at all`);
+    // WHAT A PERSON READS, with the markup taken off — which is the level the defect lived
+    // at. Three states drawing three different classes and one sentence would still be
+    // three states a customer cannot tell apart.
+    const words = h.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    assert.ok(words.length > 0, `${state}: draws no words`);
+    const same = [...shown].find(([, w]) => w === words);
+    assert.ok(!same, `${state} reads exactly like ${same && same[0]}: ${words}`);
+    shown.set(state, words);
+  }
+  assert.equal(shown.size, RUN_STATES.length);
+
+  // ⚠ AND THE THREE FACTS EACH STATE MUST CARRY, because "they differ" is satisfied by
+  // three different wrong sentences. Each was proved RED against the branch it forbids.
+  const waiting = shown.get("waiting");
+  assert.match(waiting, /Waiting for you/, "a run waiting for a person does not say so");
+  assert.match(waiting, /2 actions/, "it does not say how many are waiting");
+  assert.ok(!/ag-run-fail/.test(draw(run("waiting", { open: 1 }))),
+    "a run waiting for one press of Approve is drawn as a failure");
+
+  const stranded = shown.get("unresolved");
+  assert.match(stranded, /can’t carry on/, "a stranded run does not say it cannot carry on");
+  assert.match(stranded, /2 actions/, "it does not say how many are unanswered");
+  assert.match(stranded, /may already have gone/, "it does not say to check before asking again");
+  assert.notEqual(stranded, shown.get("waiting"),
+    "stranded and waiting read the same, which is the defect this case exists for");
+
+  const stopped = shown.get("cancelled");
+  assert.match(stopped, /Stopped/, "a cancellation does not say it was stopped");
+  assert.match(stopped, /changed my mind/, "the person's own words are dropped");
+  assert.match(stopped, /2 steps had already run/, "what had already run is dropped");
+  assert.match(stopped, /1 action had already gone out/, "1 action, not 1 actions");
+  assert.match(stopped, /anything already sent stays sent/,
+    "it does not say that stopping cannot reach back");
+  assert.ok(!/undone|reversed|rolled back/i.test(stopped),
+    "a cancellation claims completed effects were undone");
+  // ⚠ NOT DRAWN AS A FAILURE: nothing went wrong, a person asked for it to stop.
+  assert.ok(!/ag-run-fail/.test(draw(run("cancelled", { why: "cancelled", steps: 1 }))),
+    "somebody's own decision is drawn as a fault");
+  // AND A CANCELLATION THAT RECORDED NOTHING SAYS THE ONE TRUE THING and invents no counts.
+  const bare = draw(run("cancelled", { why: "cancelled" }));
+  assert.match(bare, /anything already sent stays sent/);
+  assert.ok(!/had already run/.test(bare), "it invented a count nobody recorded");
+  // AND THE ACCOUNT ID IS NEVER DRAWN — a raw uuid is not something a person can read.
+  assert.ok(!stopped.includes("acct-A"), "an account id reached the conversation");
 
   // AN ANSWERED RUN WITH NO WORDS IS SAID, not drawn as an empty bubble — an empty
   // bubble reads as a rendering fault rather than as what happened.

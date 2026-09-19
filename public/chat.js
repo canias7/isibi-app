@@ -1623,6 +1623,17 @@ async function agentApprovalDecide(id, verdict) {
   }
 }
 
+/**
+ * "2 actions", with whatever punctuation the sentence around it needs.
+ *
+ * ONE PLACE, because three branches of `agentRunHtml` say it and three copies of a
+ * pluralisation drift in the direction where one of them says "1 actions".
+ */
+function agentCalls(n, before, after) {
+  if (typeof n !== 'number' || !(n > 0)) return '';
+  return before + esc(String(n)) + ' action' + (n === 1 ? '' : 's') + after;
+}
+
 /** One waiting call, as a sentence somebody can act on. */
 function agentApprovalHtml(r) {
   // ⚠ THE ARGUMENTS ARE SHOWN, NOT SUMMARISED. Approving what you were not shown is the
@@ -1672,10 +1683,25 @@ function agentToolLabel(name) {
 /**
  * WHICH RUNS ARE STILL GOING, out of the thread the server sent.
  *
- * `queued` and `working` are live; `answered` and `failed` are done; `null` is a
- * message that started nothing, which every imported conversation is. Derived from
- * the rows rather than remembered, so a reload mid-run is the ordinary case and not
- * a recovery path — the browser holds no state about a run at all.
+ * Derived from the rows rather than remembered, so a reload mid-run is the ordinary case
+ * and not a recovery path — the browser holds no state about a run at all.
+ *
+ * ⚠ **ALL SEVEN OF `runView`'S STATES, AND THE FIVE THAT ARE NOT LIVE ARE NOT LIVE FOR A
+ * REASON.** This list was written when there were four, and its own comment enumerated
+ * that world — which would have gone quietly wrong the day a live state was added. The
+ * rule is *will anything move on its own*:
+ *   • `queued`, `working`  — yes, so the conversation is re-read;
+ *   • `waiting`            — no: the work row is off the queue and nothing will deliver it
+ *                            until a PERSON answers. The banner above the box is what they
+ *                            act on, and it is re-read with the thread; pressing Approve
+ *                            reloads it, after which the run is `queued` again and polling
+ *                            resumes on its own;
+ *   • `unresolved`         — no: nobody can move it, which is the whole meaning of the word;
+ *   • `answered`, `cancelled`, `failed` — no: they have ended.
+ * A poll armed for any of the five would ask the same question for as long as the screen
+ * is open and never get a different answer. `test/agent-binding.test.mjs` requires every
+ * state in `RUN_STATES` to be classified, so an eighth forces this decision rather than
+ * defaulting to "not live".
  */
 const AGENT_LIVE_STATES = ['queued', 'working'];
 const agentLive = (msgs) =>
@@ -1756,6 +1782,63 @@ function agentRunHtml(run) {
     return '<div class="ag-msg ag-msg-bot">' +
       '<div class="ag-run ag-run-wait">' + tag +
         '<span class="ag-run-t">Working\u2026 step ' + esc(String(run.step)) + '</span>' +
+      '</div></div>';
+  }
+  // ⚠ **THREE STATES THE BACKEND ANSWERS AND THIS FUNCTION DREW AS FAILURES — MEASURED,
+  // not inferred.** `runView` has answered seven states since the run-states round; this
+  // drew four and let the rest fall to the failure branch. What a customer really saw:
+  // `waiting` and `unresolved` BOTH read *"It stopped, and there is no reason recorded."*
+  // in the warn colour — so a run needing one press of Approve was a broken run, and a
+  // stranded one was indistinguishable from it — and `cancelled` read *"It stopped:
+  // cancelled."* with the who, the words and the counts thrown away, which tells somebody
+  // their own decision was a fault. The three need three different things done about them,
+  // which is the whole reason the backend tells them apart.
+  //
+  // **THE WORDS ARE THE EXECUTION HISTORY'S OWN**, because these are the same facts one
+  // screen over and a customer must not read two accounts of one thing. No class is
+  // invented either: the conversation has exactly two treatments (`ag-run-wait` italic,
+  // `ag-run-fail` warn) plus the plain row, and a cancellation is deliberately the plain
+  // one — nothing went wrong.
+  if (run.state === 'waiting') {
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run ag-run-wait">' + tag +
+        '<span class="ag-run-t">Waiting for you' + agentCalls(run.open, ' — ', '') + '. ' +
+          'Nothing has happened yet.</span>' +
+      '</div></div>';
+  }
+  if (run.state === 'unresolved') {
+    // ⚠ **NOT A FAILURE, AND IT MUST NOT INVITE A SECOND ATTEMPT.** The calls may well have
+    // happened; what is missing is an answer. So the sentence says what to DO and names how
+    // many, because "something is unconfirmed" is not actionable.
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run ag-run-fail">' + tag +
+        '<span class="ag-run-t">It stopped part-way and can’t carry on by itself.</span>' +
+        '<div class="ag-run-why">' +
+          (run.open > 0
+            ? agentCalls(run.open, '', ' were started and never answered, so they can’t be confirmed either way. ')
+            : 'Something was started and never answered. ') +
+          'Check before asking for it again — it may already have gone.' +
+        '</div>' +
+      '</div></div>';
+  }
+  if (run.state === 'cancelled') {
+    // ⚠ **WHAT HAD ALREADY RUN, AND NEVER THAT IT WAS UNDONE.** The counts are the only
+    // honest thing to say: stopping a run ends what is still to come and cannot reach back.
+    // **WHO is deliberately NOT drawn** — `by` is an account id, and a raw uuid is not
+    // something a person can read; this screen has no name to put beside it.
+    var done = '';
+    if (typeof run.steps === 'number' && run.steps >= 0) {
+      done = esc(String(run.steps)) + ' step' + (run.steps === 1 ? '' : 's') + ' had already run' +
+        (typeof run.calls === 'number' && run.calls > 0
+          ? ' and ' + agentCalls(run.calls, '', '') + ' had already gone out'
+          : '') + '. ';
+    }
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run">' + tag +
+        '<span class="ag-run-t">Stopped' + (run.note ? ' — ' + esc(run.note) : '') + '.</span>' +
+        '<div class="ag-run-why">' + done +
+          'Stopping it ends what was still to come — anything already sent stays sent.' +
+        '</div>' +
       '</div></div>';
   }
   if (run.state === 'answered') {
