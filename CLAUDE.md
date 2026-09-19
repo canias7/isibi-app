@@ -8056,6 +8056,279 @@ available in either direction.
 **NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
 as for the last four. No paid call was made and no demo site was touched.
 
+### A JOB CAN RUN ONCE AND THEN NEVER AGAIN (2026-09-19)
+
+Owner's night queue, item 5: native one-time scheduling. Until now `JOB_ITEM`
+carried `everyMinutes` and an optional `at` and **no run-once field**, so
+*"remind me on the 3rd"* became a reminder that fires for ever. A missing FIELD
+rather than a missing capability — and **its failure mode is silent AND
+repeating, which is the worst pair available**: nobody notices the first wrong
+send and every send after it is another one.
+
+**`spec.on` IS THE WHOLE REPRESENTATION AND ITS PRESENCE IS THE MARKER.** One
+place to ask, and no second flag that can disagree with it. `"YYYY-MM-DD"` in
+the site's own local time, beside the `at` and `tz` that were already there.
+
+- **`on` REQUIRES `at`, AND THE PAIR IS REFUSED WHOLE WITHOUT IT.** A one-time
+  reminder has no second occurrence to be right at, so "midnight, presumably" is
+  a guess made once and then made for ever. `no-time` at the cleaner.
+- **⚠ AN UNREADABLE `on` REFUSES THE JOB RATHER THAN FALLING BACK TO THE
+  INTERVAL, and this is the ONE place the engine departs from its tolerant
+  habit.** The departure is the point: dropping `on` leaves a perfectly valid
+  RECURRING job, so the tolerant reading is not the feature degrading, it is the
+  feature INVERTED — the customer asked for one message and gets one a month for
+  ever. `normalizeJob` answers `null`; `cleanAdd` answers `bad-date`.
+- **`everyMinutes` IS FORCED TO THE MONTHLY CEILING** (`MAX_EVERY_MINUTES`, and
+  `MAX_JOB_MINUTES` is its twin in the cleaner, censused equal). It is never read
+  for selection, so it matters only if `spec.on` is ever lost — and at the
+  ceiling such a job degrades to *at most monthly* rather than to whatever the
+  model happened to ask for. **The forcing sits ABOVE the `at` gate** and the
+  order is load-bearing: `at` is only stored at 1440 or slower.
+- **THE CLAIM CONDITION SURVIVES "RUN NOW".** The owner pressing the button
+  decides a job is due NOW; it cannot decide a one-time job is due TWICE. The
+  stamp's `dueness` asks `once` BEFORE `force`, so the press consumes the
+  occurrence and the scheduled tick afterwards skips. A re-press sends nothing.
+- **`dueJobs` ASKS `once` FIRST, above the `mins > 0` test**, or the forced
+  ceiling would decide. Four answers and three of them are "never": consumed
+  (`last_run` set), unreadable (`onceAt` is null — cannot tell WHEN, so never),
+  not yet, and due.
+
+**`last_run` IS THE CONSUMPTION RECORD, AND IT IS THE ONLY ONE AVAILABLE.**
+`persistSiteJobs` rewrites `spec` on every publish, so a `done` flag written
+there by the runner would be destroyed by the next unrelated change to the site
+and the job would run again weeks later.
+
+**AN ATTEMPT CONSUMES THE OCCURRENCE**, because `runJob` stamps before it sends —
+so a one-time job whose send fails is not retried. Deliberate: a retry after a
+provider timeout is how one reminder becomes two, and nobody can tell a timeout
+from a slow success.
+
+**`MISSED_GRACE_MS` IS 24 HOURS** and past it the occurrence is gone rather than
+late. `onceState` answers `scheduled · done · missed · unreadable`, and `null`
+for a recurring job — because "never run" is three facts and only two of them
+need anything doing, in opposite directions.
+
+**THE DST POLICIES ARE INHERITED BY IDENTITY, not restated.** `onceAt` calls
+`occurrenceOn`, the same function the daily rule uses, so a repeated local time
+takes the FIRST reading and a nonexistent one takes the LATER candidate without
+a second copy of either rule. A date that is not a real day (`2026-02-30`) is
+refused by the calendar check rather than by its shape.
+
+**AND THE PAST-DATE WALL NEEDS THE BROWSER'S ZONE.** `aToday` is computed from
+the request's `tz` through `Intl`, so "already gone" is judged in the site's own
+local day. **With no zone the check STANDS DOWN** rather than comparing a local
+date against UTC, which would refuse a perfectly good "today" for everybody west
+of Greenwich for most of the working day.
+
+**⚠ AND THE FIXTURE HAD TO GAIN THE ZONE, which made the whole wall drivable.**
+`test/fixtures/addon-route.mjs` posted no `tz` at all — so `aToday` was unknown,
+the past-date refusal stood down on every case, and a fixture less capable than
+the real request hid the defect exactly as well as one that is more.
+
+**⚠ AND THE FOLD DROPPED `on` ONE HOP AFTER THE CLEANER KEPT IT** — the recorded
+wiring defect, found by the route case failing at `kept.on`. `foldAdds` rebuilds
+a job from the keys it knows and the new one was not among them: the tool
+correct, the cleaner correct, every later step correct, the value gone.
+
+**`jobPanelRow` IS LIFTED INTO `site-jobs.mjs`, and a sweep is why.** The panel
+route's row projection lived inline in `worker.js`, where nothing can drive it —
+a fixture needs Supabase, the owner gate and a session — so two of its fields
+could be emptied with the whole suite green. *A wall nobody can drive is a wall
+nobody is guarding*, and the answer is to make it drivable. It belongs beside the
+scheduler on its own merits: every field is the scheduler's view of that row
+(`fn` is what `runJob` calls, `on`/`onState` are what `dueJobs` selects by), so a
+copy in the route is a second idea of what a job is. **Every field fails closed.**
+
+**Guards**: `site-jobs` 47 → **52**, `job-delivery` 14 → **16**,
+`addon-route` 161 → **164** (the date through the tool, the cleaner, the fold,
+the registry row and the reply; the three refusals; the past-date wall with its
+no-zone control; and the recurring CONTROL, byte for byte what it was).
+**One older guard re-anchored, not appeased**: the panel's clock-time assertion
+was pinned to the route's inline projection, which is a SPELLING; it asserts the
+property in BOTH halves now — the shared reader really answers the clock time
+(driven), and the route really goes through it — which is strictly stronger,
+because the old form allowed either half to be cut. Both halves red-checked
+alone.
+
+**Sweep: 34 mutants, 34 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/one-time-jobs.json`, against six test
+files). Four survived the first pass and **not one was the product's**: one was
+measured INERT (`Number.isFinite` on `occurrenceOn`'s answer — 432 probes, zero
+differences), two were the route's undrivable row projection (closed by the lift
+above), and one was a case that could not arm the calendar check, because
+`"3 Oct"` is refused by SHAPE long before a day number is looked at.
+
+**⚠ AND THE SWEEP'S OWN TEST LIST NAMED A FILE THAT DOES NOT EXIST.** It carried
+`test/site-schema.test.mjs`; the schema guards are `schema-*.test.mjs` and
+`site-schema-*.test.mjs`. `node --test` prints `Could not find '<path>'` and
+carries on, so the baseline was green, the tally was clean, and **the scope line
+printed seven files when six had run** — the line added two days ago to make a
+tally auditable, its own claim made false by a typo. It fails in the quiet
+direction, because a narrower list can only produce a false SURVIVOR. The runner
+REFUSES now, before the baseline, naming the file;
+`test/sweep-runner.test.mjs` 7 → **8**, driven as a process with its own control.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN. Automatic execution of a one-time job
+on a real tick is UNVERIFIED**, exactly as the daily rule's is: `dueJobs` is
+driven on a fixed clock and a real tick is the only thing that settles it.
+
+### THE NINE KINDS, REVIEWED — AND FOUR WHOLE REQUESTS DRIVEN (2026-09-19)
+
+Owner's night queue, item 6: a bounded capability review of all nine addon
+kinds, plus four complete requests. **`docs/addon-capabilities.md` is the
+review**, and every list and number in it is DERIVED by driving the modules
+rather than read off a description — re-derive before trusting it, because the
+lists in this file have gone stale twice.
+
+**What the re-derivation confirmed**, all measured today: `ADD_KINDS` is nine,
+`DISPATCHED_ADDS` is EMPTY, `PLACING_ADDS` is `photo` alone, `REQUIREMENT_ADDS`
+is all nine, `APPLIED_KINDS` and `SITE_KINDS` are eight each (everything but
+`component`), `OPAQUE_KINDS` is `component` alone, and every kind's tool shape
+and cap matches what the doc records. The unsupported list is measured too —
+`isImageColumn` answers NO to `attachment · file · upload · receipt · document ·
+screenshot · artwork`; `UPLOAD_EXTS` is `png · jpg · webp · gif · pdf · zip ·
+xlsx · docx · pptx`; `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`
+against 15 removable lanes and `PAGE_VERBS` `add · remove · move`.
+
+**THE FOUR COMPLETE REQUESTS ARE IN `test/addon-route.test.mjs`**, each a whole
+customer sentence through `POST /api/site/<slug>/addon`, each asserting the
+designer's real request, the compiler payload, the stored source and the
+customer's reply. They exist because their value crosses a boundary no
+single-kind case can see: an existing TABLE reaching a new function and that
+function reaching the page designer after it; an existing INTERNAL FUNCTION
+reaching a new job and surviving `normalizeSchema`'s drop; a connection's
+DECLARED RESPONSE SHAPE reaching the page WRITER; and a page, a component on it
+and a QR code at it resolving against `site.planned` in one message.
+
+**Three things the first draft of those cases got wrong, and each is the
+product being right:**
+
+- **A connection is never pageless**, so asking for a `page` kind aimed at `/`
+  beside it is a request to ADD a page the site already has — refused
+  `no-path`, correctly. The draft read that refusal as the tier being broken.
+- **`keptProse` refuses a change that loses a word the page already said**, so
+  taking the fixture's default `write_pages` answer is a `rewrote` refusal
+  before anything about connections is reached.
+- **Reading `c.name` off every stored column answered
+  `[undefined, undefined, undefined]`** — and chasing that found the defect
+  below.
+
+#### …AND THE COLUMN UNION COULD NOT READ AN OBJECT COLUMN'S NAME
+
+**The first run of complete request 1 stored SIX columns for a three-column
+table** — `["who","slot","phone",{name:"who"},{name:"slot"},{name:"phone"}]`,
+each once as a bare name and once as an object. Nothing failed, nothing was
+logged, and the stored spec is what every later designer reads.
+
+**PRE-EXISTING, and confirmed so** by running the same request against the
+branch's merge base before changing anything. The cause is one expression in
+`applySiteSchema`'s late merge — the block whose own comment says *"a revise
+re-declaring a table with two of its six columns would otherwise shrink the
+list"* — which deduped on `String(c)`, **`"[object object]"` for every object
+column**.
+
+**WHICH SHAPE SITS ON WHICH SIDE DECIDES WHICH FAILURES ARE REACHABLE, and it
+is measured rather than assumed.** This run's list is ALWAYS bare names
+(`norm.push({…, columns: colNames, …})` flattens, whatever the tool declared);
+the stored list is whatever last wrote `_meta.schema` — names when the engine
+wrote it, OBJECTS when `mergeAddonSchema`, the schema recovery or an older
+apply did. Both shapes are permanent here by design.
+
+**Measured on the pre-fix expression, one re-declared column against three
+stored, where the right answer is 3:**
+
+| this run ∪ stored | got |
+|---|---|
+| names ∪ names | **3** — correct, and why it went unnoticed |
+| names ∪ objects | **4** — the live defect, every stored column re-added |
+| objects ∪ objects | **1** — the union DEAD; unreachable through this function |
+| objects ∪ names | **4** |
+
+The name is read the way every other reader in the codebase reads it, and
+**`have` GROWS as it goes** — a stored list already carrying a duplicate, and
+those exist because the old code is what wrote them, would otherwise be doubled
+again on every apply, for ever.
+
+**Guards**: `test/schema-column-union.test.mjs` (**5**, new) drives the real
+engine with a stub that ANSWERS the `_meta` read — which no existing
+`applySiteSchema` driver did, so `prevStored` was empty there and this block
+never ran at all. **Four of the five go red against the pre-fix expression and
+the fifth is the CONTROL** (a stored list of NAMES, correct on both trees),
+which is what makes it a control rather than a second copy of the case.
+
+**Two older guards re-anchored, not appeased**, and both are the same class —
+pinned to a SPELLING that moved. `site-features-reachable`'s union assertion
+read the one-liner (now a block) and asserts the property in two halves
+instead, one of them forbidding the defect by name; `addon-sweep`'s jobs-route
+assertion read the route's inline projection and now DRIVES `jobPanelRow` and
+asserts the route goes through it — strictly stronger than either, because the
+old forms allowed the reader and the call to be cut independently.
+
+**Sweep: 10 mutants, 10 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/column-union.json`, over `site-schema.mjs`
+and `scripts/mutate.mjs`, against five test files). **Pass 1 read 10/8/2 and
+NEITHER survivor was the product's**: one was a wall nobody drove (a stored
+column whose name cannot be read — `!n ||` could be cut with every other case
+green, and a stored list holds junk because nobody controls what wrote it), and
+**one was my own VACUOUS ASSERTION** — the new sweep-runner case matched the
+filename anywhere in the output, which the SCOPE LINE prints two lines above the
+refusal, so it passed with the refusal saying nothing at all. It reads the
+refusal's own line now. *An assertion satisfied by a neighbouring line is not an
+assertion about the line it names.*
+
+**Suite 6,951** (6,951 pass, 0 fail, 0 skipped) — **and the arithmetic closes
+exactly against baselines measured in a detached worktree**: 6,939 plus
+`addon-route`'s 4 (164 → 168), `schema-column-union`'s 5 (new),
+`sweep-runner`'s 1 (7 → 8) and `workflow-deps`' 2 (2 → 4, the section below).
+
+#### ⚠ …AND CI RAN NONE OF IT, BECAUSE `npm ci` REFUSED THE INSTALL
+
+**MEASURED: `unit tests` 2785 and `site build` 1214 both failed in SIXTEEN
+SECONDS**, at step 4 of 11, `npm ci --no-audit --no-fund`, in **one second**.
+Not a suite failure — the suite never started, and `npm test` is recorded
+`skipped` in the job.
+
+**IT IS THIS BRANCH'S OWN, AND IT IS THE FIX FOR THE PREVIOUS DEFECT.** Commit
+`6b1f29b3` put `lucide-react` into the root `package.json` to stop two render
+guards failing in CI, and **never regenerated `package-lock.json`**. `npm ci`
+reads the LOCKFILE and treats `package.json` as a contract the lock must
+already satisfy; an out-of-sync pair is refused outright. So a change that
+fixed **two red cases** produced **no cases at all** — strictly worse, and it
+looks identical to a suite failure until somebody notices the job lasted
+sixteen seconds.
+
+**AND THE CENSUS WRITTEN IN THAT SAME COMMIT COULD NOT SEE IT**, which is the
+finding worth keeping: it asserts every package a render guard loads is
+DECLARED at the root, and stops there. Declared is not installable. **A
+stricter check on the wrong half of an invariant reads as progress.**
+
+**THE GUARD ALREADY EXISTED — FOR THE OTHER LOCKFILE.**
+`test/template-deps.test.mjs` has carried *"the lockfile carries the types, or
+`npm ci` in the container installs nothing"* since 2026-09-12, about the
+TEMPLATE's pair. The root's had no twin. It does now
+(`test/workflow-deps.test.mjs`, whose own subject is *"a CI step that runs tests
+without installing what they import"* — this is the third link in that chain):
+
+- **DERIVED, NEVER A TYPED LIST.** The template's twin names its three
+  packages, which is right there — they are one feature's dependencies. Here
+  the subject is the MANIFEST ITSELF, so a list would be a second copy of it and
+  the next package added would have to find that line to stay green, which is
+  exactly the shape that let this through. **Three assertions, because `npm ci`
+  compares two different things and they fail differently**: the lock's root
+  entry must name every declared package (absent → refused), at the SAME range
+  (drifted → refused), and something must be resolved to install from.
+- **⚠ AND THE SECOND CASE'S FIRST DRAFT MISSED ITS OWN SUBJECT.** *"Every
+  workflow that runs the suite installs with `npm ci`"* — matching `node --test`
+  alone reads **three** workflows and **not `unit.yml`**, the one whose install
+  actually refused, because that workflow runs `npm test` and the runner
+  invocation lives in `package.json`'s scripts. It asks for both spellings now
+  (the script names DERIVED from `package.json`), reads **five**, and **asserts
+  `unit.yml` by name** — a census that silently skips its own subject is this
+  repository's vacuous-assertion trap, and it was caught by PRINTING what the
+  scan found rather than by trusting a green case to have looked at anything.
+- Both red-checked against the lockfile CI refused: the census names
+  `lucide-react` **and the command that fixes it**.
+
 ### A DEPENDENCY IS COMPLETED OR WITHHELD, NEVER WARNED ABOUT — AND A PAGE HAS ONE IDENTITY (2026-09-17)
 
 Owner, on the two rounds above: *"Remove the exception that publishes a newly

@@ -14162,3 +14162,112 @@ than assuming it, replaced it with two that really do break something, and
 wrote down what happened — the tally that stands is the clean one.
 
 Nothing merged, nothing deployed, nothing spent. Fal is still parked.
+
+## A reminder that goes out once — 2026-09-19
+
+You asked for jobs that run once. Until tonight there was no way to say it: a
+job carried "every N minutes" and an optional time of day, so *"remind me on the
+3rd"* became a reminder that fires **for ever**. Not a missing capability — a
+missing field — and the worst kind of bug, because it is silent and repeating.
+Nobody notices the first wrong message and every one after it is another one.
+
+A job can now carry a single date. Five things hold it together, and each is
+there because of a way it could otherwise go wrong:
+
+- **A date needs a time.** A one-time reminder has no second chance to be at
+  the right hour, so "midnight, presumably" is a guess made once and then made
+  for ever. Asking for a date without a time is refused and says so.
+- **A date we cannot read refuses the whole job.** This is the one place the
+  engine stops being forgiving, and that is the point: quietly ignoring the date
+  leaves a perfectly valid *repeating* job, so being generous here does not
+  degrade the feature, it inverts it — one message becomes one a month.
+- **Pressing "Run now" does not let it go twice.** The button decides a job is
+  due *now*; it cannot decide a one-time job is due *twice*. The press uses the
+  occurrence up and the schedule afterwards skips.
+- **An attempt uses it up**, even if the send fails. Deliberate: retrying after
+  a provider timeout is exactly how one reminder becomes two, and nothing can
+  tell a timeout from a slow success.
+- **A day late is gone, not late.** Past 24 hours the occurrence is recorded as
+  missed rather than fired, and the Jobs panel says which of the four states it
+  is in.
+
+The clocks-change rules are the daily ones, not a second copy: a date whose time
+happens twice takes the first reading, a time that does not happen that day runs
+an hour later rather than being skipped. A date that is not a real day
+(`2026-02-30`) is refused.
+
+**And a sweep found something in my own tooling.** The list of test files a
+sweep runs against is printed in its log, so a clean result can be checked for
+what it covered. Mine named a file that **does not exist** — a typo — and the
+test runner quietly skips a missing file, so the run was green, the tally was
+clean, and the log claimed seven files when six had run. It refuses now, before
+it starts, naming the file. The thing that checks my work was not itself checked.
+
+## What the add-on can do, and one thing it was quietly getting wrong — 2026-09-19
+
+I went through all nine kinds of addition end to end and wrote it up in
+`docs/addon-capabilities.md` — every list in it derived by running the code
+rather than read off an old description, because that document has gone stale
+twice before.
+
+Then I drove **four whole customer sentences** through the real route, because
+every other test covers one hop and these cross a boundary none of them can see:
+
+1. *"add a page showing how many bookings we have, and a function to count
+   them"* — does the function designer learn the site already **has** a bookings
+   table and what its columns are, and does the page designer then learn about
+   the function?
+2. *"every night at 11 run the hold sweep"* — a job pointed at a function the
+   site already has, which the engine would otherwise drop in silence.
+3. *"show the live tide times on the home page"* — does the shape of the answer
+   reach the thing that writes the page?
+4. *"add a /tour page with the video on it, and a QR code that opens it"* —
+   three things at once, all pointing at a page that does not exist yet.
+
+All four work. **The first one found a real bug**, and it was not mine — it is
+older than this branch and I checked that before touching anything.
+
+**A site's stored list of columns was being doubled.** A three-column table came
+back with six entries, each one listed twice in two different formats. Nothing
+failed, nothing was logged, and that list is what every later designer reads to
+understand the site — so the next addition to that site is planned against a
+picture of it that is wrong. The cause is one line comparing two column entries
+by turning them into text, which gives the same useless answer for every entry
+of one of the two formats. Fixed, with tests that fail against the old line and
+one control that passes on both, so the fix is a correction rather than a change
+of behaviour.
+
+### And the automatic checks had not been running at all
+
+Worth knowing before you read anything else here: **GitHub's checks have been
+failing all night, and not for the reason it looks like.**
+
+They were not failing the tests. They were failing sixteen seconds in, before a
+single test started, on the step that installs the project's libraries. The two
+files that list those libraries had drifted apart — I added one earlier tonight
+and forgot to update the second file that pins its exact version — and the
+install command refuses outright when they disagree rather than muddling
+through.
+
+The ugly part is that this was **my fix for a smaller problem making it
+bigger**. Two checks were failing because a library was missing; I declared the
+library, which was right, and the missed second half turned two failing checks
+into no checks running at all. From the outside both look the same — a red
+cross — so it read as "the tests broke" rather than "nothing ran".
+
+Fixed, and the reason it can't happen again is the more useful half: there was
+already a check for exactly this, guarding the *other* pair of files (the one
+the site-building container uses). The main project's pair simply had no
+equivalent. It has one now, and it works itself out from the file rather than
+from a list I typed, so a library added next month is covered without anyone
+remembering this.
+
+I also caught that check missing its own target on the first attempt — it was
+reading four of the five places that run the tests, and the one it skipped was
+the exact one that had broken. Found by printing what it looked at instead of
+assuming a passing check had looked at anything.
+
+**The whole test suite passes locally: 6,951 checks, none failing.** GitHub is
+re-running now.
+
+Nothing merged, nothing deployed, nothing spent. Fal is still parked.
