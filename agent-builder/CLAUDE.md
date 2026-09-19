@@ -7462,3 +7462,107 @@ decision: the recompute is `agent.automation_next_run`'s own arithmetic either w
 - **Engine suite 590, unchanged, which is the control**: this round touches no file under `src/`.
   **`npm run test:pg` is untouched and deliberately not re-run as evidence** — `test/integration/`
   and `supabase/` are both unmodified, so its number is HEAD's.
+
+---
+
+## M13: one whole conversation, scripted, through everything (2026-09-19)
+
+Owner: *"Demonstrate the complete flow with deterministic scripted model responses: remember a
+fact, ask for an automation with a required detail missing, answer it in a later message, present
+the configuration, save after confirmation, run it, inspect progress, approve the exact message,
+then change the schedule, pause it and correct the fact. Clearly label the demonstration as
+simulated… Do not build a phrase-matching chatbot or claim general language understanding."*
+
+**`npm run verify:conversation` — 58 checks, 0 failed, seven sections**, against a throwaway
+PostgreSQL with this repository's migrations, the SITE's own routes for everything a person does,
+`worker.queue` and `worker.scheduled` as the dispatcher, the real tools over the real capability
+store, the real approval gate and the fake provider's own mailbox.
+
+### THE SCRIPTED MODEL IS NOT A CHATBOT, AND THE LABEL IS THE FIRST THING IN THE FILE
+
+`scripts/lib/scripted-model.mjs` — `makeScriptedModel()` answering `{send, arm, asked, left}`.
+
+- **IT IS ARMED BY POSITION AND NEVER BY THE WORDS.** A caller says what this run's first,
+  second and third model calls will answer; the words of the prompt decide nothing. **So there is
+  no phrase matching anywhere and no claim about language** — what the demonstration proves is
+  about the PLATFORM: the routes, the snapshot, the tool dispatch, the approval's argument
+  binding, the mailbox and the database.
+- **EVERY ANSWER IS LABELLED `[simulated]`**, by the model rather than by the checks, so an
+  answer that reached a customer would carry it.
+- **A SCRIPT THAT RUNS OUT SAYS SO LOUDLY** rather than repeating its last answer, because a
+  silent fallback would make a section that asks for one more call than it armed pass while
+  proving something else.
+- **IT RECORDS WHAT IT WAS ASKED** (`{at, prompt, turns, instructions, offered}`), which is what
+  lets a section assert that the run answering a follow-up was shown the EARLIER turns of that
+  conversation and that its prompt is the message just sent.
+
+**AND A DEPLOYMENT HAS NOWHERE TO PUT ONE.** `parts(env, {notify, fetchImpl, send})` takes the
+sender as an injected seam and `worker.queue(batch, env, ctx, opts)` forwards it — reachable only
+from a caller in this repository, because Cloudflare calls `queue(batch, env, ctx)` with three
+arguments. `worker.queue.length === 3` is asserted, which is the property that says the call
+shape Cloudflare uses is unchanged; a non-function `send` throws rather than being coerced.
+
+### What the seven sections drive
+
+0. the set-up a person does — an agent, its tools, one connected account — and the census that
+   **no tool grants, approves or decides anything** (the only connection operation a tool can
+   reach is READING the list);
+1. the customer asks it to remember the opening hours, and the fact is on the MEMORY SCREEN
+   marked `source: "run"`;
+2. a weekday follow-up **with the time missing**: it holds for a person, the configuration they
+   are shown carries the days and NO time, **nothing is created while it waits**, the approval is
+   given and it is **still refused** `bad-time` with a sentence an assistant can relay — and
+   **still nothing exists, not a draft, not a disabled one**. Then the same for a missing zone,
+   which names whose settings to change;
+3. the customer answers **in a later message**: the run is shown three user turns, its prompt is
+   the newest, the opening-hours turn is in the database's own snapshot, **it holds AGAIN**
+   (every authoring call needs a person, not just the first), the clarification **decides
+   nothing** — the request is still waiting after it — and the automation exists only once
+   somebody presses the button, with the days in the week's own order;
+4. it runs, the execution reads **`waiting` rather than working**, the person is shown the
+   account, the recipient and the exact message with its `{{references}}` already filled in,
+   **nothing is in the mailbox while it waits**, the automation is EDITED while the execution
+   holds and the held execution still carries the words the person was shown, then the approval
+   sends **exactly one message matching what was shown and not the edit**;
+5. the schedule is changed, the automation is paused (and a paused one refuses with nothing
+   written), and the remembered hours are corrected to version 2 — each read back through the
+   route the screen itself calls;
+6. the account next door is refused on every door, and **a blanked-source census that exactly one
+   thing in the site calls `decide_tool_approval`** and that nothing in the send route's own
+   block decides, withdraws or revokes anything;
+7. what none of it did: every answer labelled, one message sent, `attempts` never above 1, and no
+   credential anywhere.
+
+### ⚠ IT FOUND TWO DEFECTS ON THE SITE'S SIDE THAT NO SUITE COULD SEE
+
+Both are recorded in full in the root `CLAUDE.md`; what belongs here is that **an end-to-end
+demonstration through the real routes is what found them**, and that neither is visible from
+either product's unit suite:
+
+1. **`listAutomations`' `&select=` named ten of the fourteen columns its own reader reads**, so a
+   weekly automation came back with no days and no declared inputs. Section 3's last check —
+   read back through the site's own list route — is what went red.
+2. **The conversation drew three of `runView`'s seven states as failures**, so a run waiting for
+   one press of Approve read *"It stopped, and there is no reason recorded."*
+
+### ⚠ And the update route is a full REPLACE, which is the route being right
+
+`automation-update` refused this demonstration's edit `a weekly schedule needs a time zone, so
+the time means somewhere` — because the body omitted `zone`. A body of `{id, steps}` is refused
+*"give it a name first"* for the same reason. **The PATCH shape is `change_automation`, the
+AGENT's own tool**, and conflating the two is how a section ends up running against an automation
+it believes it edited.
+
+### Measured
+
+- **`npm run verify:conversation`: 58 checks, 0 failed** (new).
+- **Engine suite 590 → 591**, 0 failed — the scripted-sender seam's own case.
+- **ALL ELEVEN DEMONSTRATIONS RE-RUN AT THIS HEAD, every one green at its recorded count**,
+  which is the control this round needs because both `agent-store.mjs` and `public/chat.js` moved:
+  `conversation` **58** · `tools` **148** · `chat` **126** · `auto` **70** · `wf` **157** ·
+  `triggers` **64** · `connections` **76** · `controls` **71** · `ops` **75** ·
+  `integration` **89** · `send` **97** — **`FAIL` count 0 in all eleven.**
+  **THE VERDICT IS COUNTED, NOT GREPPED FOR ONE SPELLING** (these end in three different wordings
+  and one exits silently), and it is read on the LEADING token — `grep -c FAIL` matches check
+  LABELS containing the word and has reported three green runs as failing here twice.
+- **Engine suite 591**, 0 failed. **Site suite 6,845** (6,843 pass, 2 skipped, 0 fail).

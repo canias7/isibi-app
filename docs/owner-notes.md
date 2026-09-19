@@ -13077,3 +13077,69 @@ of the file instead of to the end of the function it was about, so it complained
 belonging to something else entirely. And my first attempt at reproducing the pause problem said
 "not reproduced" while the thing it was comparing against had actually refused my request,
 because I had named an argument wrongly — it now refuses to report anything when that happens.
+
+---
+
+## 2026-09-19 — the whole conversation, run end to end, and three things it found
+
+You asked for one complete demonstration: the customer tells the agent to remember something,
+asks for a weekday follow-up without saying what time, is asked, answers in a later message, is
+shown the configuration, approves it, watches it run, approves the exact message it wants to send,
+then changes the schedule, pauses it and corrects the remembered fact.
+
+**That now runs end to end, with nothing faked but the model and the wiring between machines.**
+58 checks, all green. The routes are the real ones, the database is real, the queue is real, the
+approval gate is real, and the message really lands in the fake provider's postbox.
+
+**The model is scripted and it is labelled everywhere.** It is told, in order, what each call will
+answer — it never reads the customer's words to decide anything — so **this is not a chatbot and
+it does not claim to understand language.** What it proves is that the platform underneath works:
+the right tool runs, nothing is created until somebody says yes, the right words go out, and
+everything a person sees is marked as simulated.
+
+### It found three real problems, and none of them was visible from the tests
+
+**1. A weekly automation was showing no days, and one that asks the customer a question was
+starting with none of the answers.** The list the screen reads was asking the database for ten
+columns and reading fourteen — so which days it runs on, which date, which event, and what it
+asks for all came back empty. **Nothing failed and nothing was logged**, because the reader is
+built to treat a value it cannot read as "none". The worst of it: pressing **Run now** on an
+automation that asks a question skipped the question entirely and started it blank, and opening
+one to edit it and pressing Save dropped what it asks for.
+
+Now there is one list of those columns, right beside the reader that uses it, and the check
+**works out the list from the reader itself** — so a field added to it next month cannot be
+forgotten.
+
+**2. Three things a run can be were drawn as failures in the conversation.** A run that is
+**waiting for you to approve something** said *"It stopped, and there is no reason recorded."* in
+the warning colour. So did a run that is **stuck and cannot carry on**. And a run **you stopped
+yourself** read as a fault, with who stopped it, your own note and what had already happened all
+thrown away.
+
+Each has its own sentence now, and they are the same words the automation history already uses,
+so you never read two different accounts of one thing. A cancellation says what had already run
+and says plainly that stopping it does not undo what has already gone out. Nothing is restyled
+and no new look was invented.
+
+**3. A small stale piece of reasoning, checked rather than assumed.** The rule for "is this run
+still going, keep watching it" was written when there were four kinds of run and there are now
+seven. It turns out to be right about all seven — the ones it leaves out are exactly the ones
+where nothing will move until a person does something — but nothing anywhere said so, so the next
+new kind would have quietly inherited the wrong answer. It is written down and checked now.
+
+### What it cost to be sure
+
+Ten deliberate breakages, put back one at a time, each caught by the check written for it. Seven
+more through the automatic breakage run — all caught, and the one that got through first time was
+a gap in my checking rather than a fault in the product, which I closed.
+
+**Two honest notes about my own work.** My day-order check was wrong and the code was right: the
+week starts on Sunday in this code, the way browsers number days, and I had written Monday. And a
+test fixture had been answering the wrong request all along for the "what is waiting for you"
+banner, which meant no test in that file could see the banner at all — fixed, and it is why the
+reload case is worth having.
+
+**Nothing is applied, deployed or merged.** Site tests 6,843 → 6,845; the agent engine's own 591;
+and all eleven end-to-end runs green at their recorded counts, which is how I know this broke
+nothing.

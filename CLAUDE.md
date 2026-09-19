@@ -9406,3 +9406,137 @@ PRESENT (not to a value, because a disable leaves the schedule alone).
    between adding the pause block and counting it — *stamp measured numbers only AFTER the run*,
    this repository's own rule, in the entry that records three other traps. Corrected before the
    commit, and recorded rather than edited away, because the correction is the useful part.
+
+---
+
+## M13-3/4/5: one scripted conversation, and the three defects it found (2026-09-19)
+
+Owner: *"Demonstrate the complete flow with deterministic scripted model responses… Clearly
+label the demonstration as simulated. Do not build a phrase-matching chatbot or claim general
+language understanding."* **The demonstration itself is the engine's and is recorded in
+`agent-builder/CLAUDE.md`**; what belongs here is the three things it found on this side, each
+reproduced before it was fixed and none of them found by reading.
+
+### ⚠ DEFECT 1 — `automationRow` READ FOURTEEN COLUMNS AND THE LIST NAMED TEN
+
+PostgREST sends only the columns a request NAMES, and `automationRow` fails closed on every
+field it cannot read. So `days`, `on_date`, `on_event` and `inputs` came back ABSENT and read as
+*"no days"*, *"not on a date"*, *"not on an event"* and *"asks for nothing"* — **no error
+anywhere, on rows that held all four.** `readAutomation` named twelve, missing three, and asked
+for a `created_at` nothing reads.
+
+**WHAT IT COST THROUGH THE EXISTING SCREEN, which is what makes it a defect rather than
+untidiness:** `agentAutoRunPress` reads `row.inputs`, so pressing Run on an automation that
+asks for answers **skipped the form and started it with none of them** — which the database then
+refuses for a required one; and `agentAutoForm` seeded the edit draft with `inputs: []` into a
+route that REPLACES the whole automation, so opening one and saving it dropped its declarations.
+
+**`AUTOMATION_COLUMNS` IS ONE LIST, declared beside the reader whose reads it names**, and both
+requests derive their `&select=` from it. Two were two copies of one thing that had already
+drifted apart from each other *and* from the reader.
+
+**THE GUARD DERIVES THE SET FROM `automationRow` ITSELF — a recording Proxy, never a scan of its
+source.** Every read it makes is `r?.<column>`, so a proxy that records what it is asked for
+answers the question exactly, and a field added to that function next month fails by existing.
+Asserted on the WIRE and BY NAME, with **nothing missing and nothing spare** (a column named and
+never read is one somebody believes is arriving), plus the observer that the constant and the
+reader agree both ways, and the control that the pre-fix ten no longer satisfy it. Proved red in
+BOTH directions: the short list back, and the reader gaining a field.
+
+**AND `readAutomation` WAS MISSING FROM THAT FILE'S "EVERY OPERATION" CENSUS**, whose own comment
+says an operation added next month fails by existing. Nine now, not eight.
+
+### ⚠ DEFECT 2 — THREE RUN STATES THE CONVERSATION DREW AS FAILURES
+
+MEASURED by driving `agentRunHtml` with the shapes `runView` really answers. It has answered
+**seven** states since the run-states round; this drew **four** and let the rest fall through:
+
+| state | what a customer really saw |
+|---|---|
+| `waiting` — the agent wants a person to approve a call | **"It stopped, and there is no reason recorded."**, in the warn colour |
+| `unresolved` — nobody can move it; it is stranded | **the same sentence**, indistinguishable |
+| `cancelled` — the person stopped it themselves | "It stopped: cancelled." as a fault, with `by`, `note`, `steps` and `calls` all dropped |
+
+So a run needing one press of Approve was a broken run; a stranded one and a waiting one were
+one sentence, which is exactly what the backend work separated; and somebody's own decision read
+as a fault — **with the counts thrown away, the counts that exist precisely so a screen can say
+what had already run without claiming it was undone.**
+
+- **THE WORDS ARE THE EXECUTION HISTORY'S OWN**, because these are the same facts one screen over
+  and a customer must not read two accounts of one thing.
+- **NO CLASS IS INVENTED.** The conversation has exactly two treatments (`ag-run-wait` italic,
+  `ag-run-fail` warn) plus the plain row, and **a cancellation is deliberately the plain one** —
+  nothing went wrong. `agentCalls` is one pluralisation, because three branches say it and three
+  copies drift in the direction where one says "1 actions".
+- **THE ACCOUNT ID IS NEVER DRAWN.** `by` is a uuid and this screen has no name to put beside it.
+- **THE CENSUS IS DERIVED FROM `RUN_STATES`**, and listing them is how three went unguarded: the
+  old loop iterated the four this function happened to draw. Every state must draw, must draw
+  words, and must read DIFFERENTLY from every other **with the markup stripped**, which is the
+  level the defect lived at — three classes and one sentence would still be three states nobody
+  can tell apart. Proved red against each branch, one at a time.
+
+### ⚠ DEFECT 3 (a stale model rather than a bug) — `AGENT_LIVE_STATES` WAS WRITTEN FOR FOUR STATES
+
+Its own comment enumerated that world. **It is accidentally right about all seven, and that was
+checked rather than assumed**: the five it excludes are every state in which nothing will move on
+its own — a `waiting` run's work row is off the queue and only a PERSON can move it, an
+`unresolved` one nobody can, and three have ended — so a poll armed for any of them would ask the
+same question for as long as the screen is open and never get a different answer. Pressing Approve
+reloads the thread, after which the run is `queued` again and polling resumes by itself.
+
+The comment says all of that now, and **the census requires every `RUN_STATES` member to be
+classified**, so an eighth forces the decision rather than inheriting *"not live"*.
+
+### The reload-while-waiting scenario, and what it proves
+
+The milestone names *"reload while waiting for clarification or approval"*. The browser remembers
+nothing about a pending decision, so what somebody comes back to is whatever the SERVER says is
+waiting — driven with the real shapes both routes answer: the run reads `waiting`, the banner is
+re-read and BOUND to its agent, **no poll is armed** (and that is the point rather than an
+omission), and the arguments a person is approving are on screen with both buttons.
+
+**⚠ AND THE HARNESS ANSWERED THE AGENT LIST TO THE APPROVALS READ.** `agentThreadLoad` asks
+`/api/agent/tool-approvals` on every read and `sending()` had no route for it, so `agentApprovals`
+was `[]` in every case in that file whatever the screen did — *a fake less capable than the thing
+it stands in for*, on the one control above the message box whose absence is silent.
+
+### What item 5 already had, verified rather than assumed
+
+Read off the cases rather than off these notes, **and BY NAME rather than by number — my own
+first draft of this paragraph cited nine case numbers, and inserting one case above them shifted
+every one.** *A case number is a spelling, not a property*, which is this repository's most
+recorded trap arriving in prose about the guards:
+
+| requirement | the cases that prove it |
+|---|---|
+| do not show success before the backend confirms it | `A SUCCESSFUL SEND EMPTIES THE BOX`, `a FAILED send leaves the box exactly as it was`, `it only removes WHAT WAS SENT` |
+| preserve drafts on failure | `TYPING WHILE IT ANSWERS SURVIVES THE POLL`, and the failed-send case above |
+| prevent delayed responses from changing another conversation | `a send answered after the ACCOUNT changed cannot write into the new one`, `a thread read answered after the account changed cannot paint the new one`, `A POLL THAT FIRES AFTER THE SCREEN MOVED TOUCHES NOTHING`, `the box is only restored into the conversation it came from` |
+| an approval decision is bound too, and the race loser is told whose answer stands | the `agentApprovalDecide` cases and their controls |
+
+**⚠ AND "OPEN THE RELEVANT AUTOMATION, MEMORY OR REFERENCE FROM THE RESULT" IS SERVED BY THE
+SCREEN AND NOT BY A LINK, which is stated rather than claimed.** The thread's header already
+carries four doors — Automations, Connected accounts, What it knows, Instructions — one press
+each, on the very screen the result appears on. A per-RESULT deep link is not one line: the run's
+projection carries no tool calls at all, so it would need the journal's tool entries on the wire,
+which is a backend change. The requirement's own *"where practical"* is what that turns on.
+
+### Measured
+
+- **Site suite 6,843 → 6,845** (6,843 pass, 2 skipped, 0 fail), and **the arithmetic closes
+  exactly**: `agent-automations` 42 → 43 (the derived select census) and `agent-binding` 111 → 112
+  (the live/reload census). Every other new assertion is inside a case that already existed.
+- **Sweep (`scripts/mutants/automation-columns.json`, 8 entries): 7 mutants, 7 killed, 0 survived,
+  0 never applied, 1 comment-only control survived.** One survived the first pass and it was a
+  guard gap, not the product's: `automationRow` had only ever been driven with MISSING values, and
+  `x || []` answers those exactly as `Array.isArray(x) ? x : []` does — so the truthy-junk half of
+  failing closed was unasserted on all three list fields. Not cosmetic: the screen does
+  `(row.inputs || []).map(...)`, and a string has no `.map`. Closed, and the tree proved restored
+  two ways (clean `git status`, and every anchor present exactly once).
+- **⚠ AND MY OWN DAY-ORDER ASSERTION WAS RED ABOUT A READER THAT IS RIGHT.** `AUTOMATION_DAYS` is
+  **Sunday-first**, the way `Date.getDay()` numbers them, and I wrote Monday-first. It asserts the
+  PROPERTY now — the answer's positions in the catalog strictly increase — with one concrete value
+  beside it because the Sunday-first order is the surprising part, and its own mutant in the spec,
+  or an assertion nothing can break is one nobody is guarding.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** This round adds no SQL at all.
