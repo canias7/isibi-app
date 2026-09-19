@@ -1727,9 +1727,37 @@ export async function applySiteSchema(uuid, spec) {
           // table with two of its six columns would otherwise shrink the list,
           // and the four still sitting in Postgres would stop being readable
           // with nothing to explain it.
+          //
+          // ⚠ AND IT COMPARED `String(c)`, WHICH IS `"[object object]"` FOR
+          // EVERY OBJECT COLUMN (2026-09-19, found by driving a complete
+          // `function` + `page` request through the addon route). A column is
+          // legally a bare name OR `{name, type, …}` — both shapes are
+          // permanent here, `normalizeSchema` emits the second and
+          // `mergeAddonSchema` reads both — and stringifying one gives a
+          // constant, so this dedup could not tell any object column from any
+          // other. MEASURED, both directions:
+          //
+          //   objects ∪ objects → `have` is the ONE entry "[object object]",
+          //     which matches every stored column, so NOTHING is restored and
+          //     the union is dead in exactly the case its own comment above
+          //     describes. A revise naming two of six columns drops four.
+          //   objects ∪ strings (and the reverse) → no stored name matches, so
+          //     EVERY column is appended a second time. Measured live through
+          //     the route: a site whose `bookings` has three columns stored
+          //     back six, each once as a name and once as an object.
+          //
+          // The name is read the way every other reader in this codebase reads
+          // it, so the three shapes cannot disagree. `have` GAINS each name as
+          // it goes, or a stored list that carries one twice appends it twice.
           if (Array.isArray(prevT.columns) && Array.isArray(t.columns)) {
-            const have = new Set(t.columns.map((c) => String(c).toLowerCase()));
-            for (const c of prevT.columns) if (!have.has(String(c).toLowerCase())) t.columns.push(c);
+            const colName = (c) => String(typeof c === "string" ? c : ((c && c.name) || "")).toLowerCase();
+            const have = new Set(t.columns.map(colName).filter(Boolean));
+            for (const c of prevT.columns) {
+              const n = colName(c);
+              if (!n || have.has(n)) continue;
+              t.columns.push(c);
+              have.add(n);
+            }
           }
         }
         byName.set(key, t);

@@ -194,8 +194,25 @@ test("a revise that says nothing about a feature keeps it", () => {
   // Columns UNION rather than override: this list is the data API's allow-list
   // and the DDL never drops a column, so shrinking it makes live columns
   // unreadable with nothing to explain it.
-  assert.match(schema, /for \(const c of prevT\.columns\) if \(!have\.has/,
-    "a re-declared table shrinks its own column allow-list");
+  //
+  // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke. It
+  // pinned the union's one-liner — `for (const c of prevT.columns) if
+  // (!have.has` — which is a SPELLING, and the loop became a block when the
+  // name reader was corrected. What is asserted now is the PROPERTY in two
+  // halves, which is strictly stronger than the line it replaces:
+  //
+  //   the union still EXISTS — something walks the stored columns and pushes
+  //     into this run's list, which is what stops a re-declared table shrinking;
+  //   and the name is READ, not stringified. `String(c)` is "[object object]"
+  //     for every object column, and a column is legally a bare name OR
+  //     `{name, type, …}` — both shapes are permanent here. That made the dedup
+  //     blind: measured, it doubled every column of a site whose stored spec
+  //     held objects, and would have restored NOTHING had this run's side ever
+  //     carried them. `test/schema-column-union.test.mjs` drives all of it.
+  assert.match(schema, /for \(const c of prevT\.columns\)[\s\S]{0,200}t\.columns\.push\(c\)/,
+    "a re-declared table shrinks its own column allow-list — nothing carries the stored columns forward");
+  assert.match(schema, /const colName = \(c\) => String\(typeof c === "string" \? c : \(\(c && c\.name\) \|\| ""\)\)\.toLowerCase\(\);/,
+    "the column union reads a name some other way — `String(c)` is \"[object object]\" for every object column");
 });
 
 test("apis and jobs are merged, and jobs are written at all", () => {

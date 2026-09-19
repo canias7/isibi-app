@@ -1,0 +1,78 @@
+[
+  {
+    "label": "CONTROL: a comment-only change in site-schema.mjs must survive",
+    "control": true,
+    "files": ["site-schema.mjs"],
+    "from": "          // COLUMNS UNION RATHER THAN OVERRIDE, because this is the data API's",
+    "to": "          // COLUMNS UNION RATHER THAN OVERRIDE (control), because this is the data API's"
+  },
+  {
+    "label": "CONTROL: a comment-only change in scripts/mutate.mjs must survive",
+    "control": true,
+    "files": ["scripts/mutate.mjs"],
+    "from": "// ⚠ …AND IT MUST HAVE BEEN RUN AGAINST THEM. A test path that does not exist",
+    "to": "// ⚠ …AND IT MUST HAVE BEEN RUN AGAINST THEM (control). A test path that does not exist"
+  },
+
+  {
+    "label": "the column name is read by stringifying it again — the defect itself",
+    "files": ["site-schema.mjs"],
+    "from": "            const colName = (c) => String(typeof c === \"string\" ? c : ((c && c.name) || \"\")).toLowerCase();",
+    "to": "            const colName = (c) => String(c).toLowerCase();"
+  },
+  {
+    "label": "an object column's name is read off the wrong key, so nothing ever matches",
+    "files": ["site-schema.mjs"],
+    "from": "            const colName = (c) => String(typeof c === \"string\" ? c : ((c && c.name) || \"\")).toLowerCase();",
+    "to": "            const colName = (c) => String(typeof c === \"string\" ? c : ((c && c.column) || \"\")).toLowerCase();"
+  },
+  {
+    "label": "the name is compared case-sensitively, so Who and who are two columns",
+    "files": ["site-schema.mjs"],
+    "from": "            const colName = (c) => String(typeof c === \"string\" ? c : ((c && c.name) || \"\")).toLowerCase();",
+    "to": "            const colName = (c) => String(typeof c === \"string\" ? c : ((c && c.name) || \"\"));"
+  },
+  {
+    "label": "a nameless stored entry is appended rather than skipped",
+    "files": ["site-schema.mjs"],
+    "from": "              if (!n || have.has(n)) continue;",
+    "to": "              if (have.has(n)) continue;"
+  },
+  {
+    "label": "the set does not grow, so a stored duplicate is restored twice",
+    "files": ["site-schema.mjs"],
+    "from": "              t.columns.push(c);\n              have.add(n);",
+    "to": "              t.columns.push(c);"
+  },
+  {
+    "label": "the union is dropped, so a re-declared table loses every column it did not restate",
+    "files": ["site-schema.mjs"],
+    "from": "              t.columns.push(c);\n              have.add(n);",
+    "to": "              have.add(n);"
+  },
+  {
+    "label": "this run's columns are not seeded into the set, so every one is added twice",
+    "files": ["site-schema.mjs"],
+    "from": "            const have = new Set(t.columns.map(colName).filter(Boolean));",
+    "to": "            const have = new Set();"
+  },
+
+  {
+    "label": "a test file that does not exist is silently dropped again",
+    "files": ["scripts/mutate.mjs"],
+    "from": "const missing = testFiles.filter((f) => !fs.existsSync(f));",
+    "to": "const missing = [];"
+  },
+  {
+    "label": "the missing-file refusal prints but does not stop the sweep",
+    "files": ["scripts/mutate.mjs"],
+    "from": "  console.error(`NO SUCH TEST FILE: ${missing.join(\", \")} — node --test would DROP it and the scope line above would be a claim about a file nothing ran.`);\n  process.exit(2);",
+    "to": "  console.error(`NO SUCH TEST FILE: ${missing.join(\", \")} — node --test would DROP it and the scope line above would be a claim about a file nothing ran.`);"
+  },
+  {
+    "label": "the refusal does not name the file, so nobody can fix it",
+    "files": ["scripts/mutate.mjs"],
+    "from": "  console.error(`NO SUCH TEST FILE: ${missing.join(\", \")} — node --test would DROP it and the scope line above would be a claim about a file nothing ran.`);",
+    "to": "  console.error(`NO SUCH TEST FILE — node --test would DROP it and the scope line above would be a claim about a file nothing ran.`);"
+  }
+]
