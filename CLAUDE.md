@@ -9569,3 +9569,75 @@ with.
 **Every claim above reads a stored record or the mailbox rather than success text**, which is the
 instruction's own closing clause: the memory row's version, the held execution's steps, the
 message count under a send key, the row counts across a refusal, and the provider's postbox.
+
+### ⚠ AND THE FORM SILENTLY TURNED A WEEKLY AUTOMATION INTO A MANUAL ONE (2026-09-19)
+
+Found by asking what else reads the four columns the `&select=` had been dropping, and
+MEASURED **with the observer proved alive** — my first needle looked for `value='x'` where the
+markup writes `value="x"` and answered *"the form offers nothing"*, which is a false alarm of my
+own making and is why a needle that cannot match proves no absence:
+
+| | |
+|---|---|
+| the platform stores | `manual · daily · weekly · once` (four; **`on_event` is NOT a schedule**, by this platform's own design) |
+| the form's `<select>` offers | `manual · daily` |
+| a stored `weekly` or `once` | **NO option carries `selected`**, so a browser picks the FIRST — `manual`. The screen said *"Only when I press Run now"* about an automation that runs every weekday at nine |
+| what a save sends | `'daily'` when the box says daily, otherwise `'manual'`, **never anything else** |
+| the draft carries | no `days`, no `onDate`, no `onEvent` at all |
+
+**And `automation-update` REPLACES the whole automation.** So editing the NAME of a weekly
+automation turned it into a manual one and dropped its days and its next run, silently.
+**Reachable today**: the agent's own `make_automation` really does create weekly ones, and the
+scripted demonstration does exactly that.
+
+**THE FIX IS A WALL AND NOT A CONTROL, deliberately.** Day pickers and a date box are design
+decisions the owner directs; **not destroying somebody's configuration is not one.** So the form
+SAYS what it cannot change — where the control that would lie about it is — and the save refuses,
+naming the schedule, saying what would be lost, and pointing at the chat, where
+`change_automation` is a PATCH and really can change it. **No new class**: `ag-hint` already
+styles that line, and a class with no rule is a design decision nobody made.
+
+`AGENT_FORM_SCHEDULES` is one list beside the select it is about, and the guard censuses it
+against the option values the form really emits **both ways** — a list that drifted either way is
+a dead control or a refusal over a live one — plus, derived from `AUTOMATION_SCHEDULES`, that
+every schedule the platform stores is either offered or locked, so one added next month cannot be
+silently neither.
+
+**⚠ AND A RED-PROOF FOUND A REDUNDANCY IN MY OWN FIX.** The first draft guarded
+`!!locked && !!agentAutoEditing`; removing the second half survived every case, because
+`agentAutoRow()` IS `find(a => a.id === agentAutoEditing) || null` and cannot answer a row
+without it — **the same condition written twice, not a second wall.** Deleted, with the reason in
+the code, and replaced by the observable mutant of the same property: locking on any weekly row in
+the LIST, which would make the button dead for everybody.
+
+**OPEN, and it is the owner's call rather than a defect**: `weekly` and `once` still cannot be
+CREATED or edited from the form at all. The chat can do both today.
+
+### The two chat.js sweeps
+
+- **`scripts/mutants/run-states-drawn.json` (16 entries): 15 mutants, 15 killed, 0 survived,
+  0 never applied, 1 comment-only control survived — clean on the first pass.** Each of the three
+  branches falling through, the waiting row drawn in the failure colour or losing its count, the
+  stranded row losing its what-to-do sentence, the cancellation drawn as a fault or dropping the
+  person's words or claiming it was undone or inventing counts nobody recorded or printing the raw
+  account id, the pluralisation, a waiting run counted as live, the thread not reading what is
+  waiting, and the banner unbound.
+  **⚠ ONE ANCHOR WAS AMBIGUOUS AND THE PRE-CHECK CAUGHT IT**: *"anything already sent stays
+  sent"* occurs twice, because the conversation and the execution history say the same sentence
+  DELIBERATELY. It carries the line above it now — reading NOT APPLIED after the run would have
+  been the same information arriving too late.
+- **`scripts/mutants/form-locked-schedule.json` (9 entries): 8 mutants, 8 killed, 0 survived,
+  0 never applied, 1 comment-only control survived — clean on the first pass.**
+- **Both trees proved restored two ways afterwards**: a clean `git status`, and every anchor
+  present exactly once, which it cannot be while a mutant is applied.
+- **⚠ AND THE STOP HOOK REPORTED "UNCOMMITTED CHANGES" MID-SWEEP, which is the live mutant and
+  not work to commit.** The rule this repository already carries — *never commit while a sweep is
+  running; no reading of the tree means anything while one is* — met from the direction of an
+  instrument asking for a commit. The tally and then a clean `git status` are what settled it.
+
+### Measured, at the final tree
+
+- **Site suite 6,843 → 6,846** (6,844 pass, 2 skipped, 0 fail), and **the arithmetic closes
+  exactly**: `agent-automations` 42 → 43, `agent-binding` 111 → 113.
+- **Engine suite 591**, unchanged — the control, since nothing under `agent-builder/src/` moved.
+- **All eleven demonstrations green at their recorded counts**, `FAIL` 0 in each.

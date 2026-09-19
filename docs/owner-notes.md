@@ -13143,3 +13143,21 @@ reload case is worth having.
 **Nothing is applied, deployed or merged.** Site tests 6,843 → 6,845; the agent engine's own 591;
 and all eleven end-to-end runs green at their recorded counts, which is how I know this broke
 nothing.
+
+**And one more, found by pulling the same thread.** Having fixed the list that was dropping which
+days an automation runs on, I asked what else reads those days — and found that **the automations
+form could turn a weekly automation into a manual one without saying a word.** The form only
+offers "only when I press Run now" and "every day at a time I choose"; the platform also stores
+weekly and one-off. Opening a weekly one showed *"only when I press Run now"* — because a dropdown
+with nothing selected shows its first entry — and pressing Save replaced the whole automation with
+what the form could see. **Its days and its next run were gone, silently.** Reachable today,
+because the agent itself can make a weekly one when you ask it to.
+
+**I have fixed the destroying and not the missing controls, on purpose.** Day pickers and a date
+box are a design decision and yours to make; not throwing away what somebody set up is not. So
+the form now says, right above the dropdown, that this one runs on chosen days and cannot be
+changed from here — and Save refuses rather than quietly replacing it, pointing you at the chat,
+where the agent really can change it. Nothing was restyled and no new look was invented.
+
+**Still open, and it is your call**: weekly and one-off automations cannot be created or edited
+from the form at all. The chat can do both today.
