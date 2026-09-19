@@ -12336,6 +12336,22 @@ right one.
 exactly**: 6,951 + 7 + 4, against a baseline two independent readings already
 agree on.
 
+**CI HAS READ IT: `unit tests` run 2788 on `c3e2d0ec`, green (2026-09-19
+15:22:41→15:24:43Z, the suite step 98.9 s) — `# tests 6962 / # pass 6958 /
+# fail 0 / # skipped 4`**, against local `6962 / 6962 / 0 / 0`, and **the TOTAL
+is what matches**. **The four skips are proved PRE-EXISTING rather than
+recalled**: run 2787, on the baseline `31fe5b61`, reads `# skipped 4` too — so
+this change adds none, which is a stronger statement than naming them from
+memory. And `npm ci` succeeded in 6 s, so the lockfile defect that took CI down
+for four pushes is not back.
+
+**AND THE TWO DOCUMENTS WERE EDITED AFTER THE SUITE RAN, which is its own
+hazard here**: `brand-rename` and `media-deleted` PARSE `docs/owner-notes.md`,
+and fourteen other guards read one of the two files, so a docs-only edit really
+can turn the suite red. The fifteen were re-run against the edited documents —
+**396 pass, 0 fail** — before the push, and CI then read the whole suite over
+the same tree.
+
 **Sweep: 28 mutants, 28 killed, 0 survived, 0 never applied, 2 comment-only
 controls survived** (`scripts/mutants/three-gaps.json`, over `site-jobs.mjs`,
 `worker.js`, `public/chat.js`, `scripts/addon-sweep.mjs`,
