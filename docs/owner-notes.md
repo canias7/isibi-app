@@ -13210,3 +13210,55 @@ understood it.
 **Nothing is applied, deployed or merged.** Site tests 6,846 → 6,847; the agent engine's own 591,
 unchanged, which is the control. The conversation run went 58 → 79 checks and the triggers run 64
 → 74, both with nothing failing.
+
+**The event fix I shipped yesterday had the wrong shape, and you spotted why.** Carrying the event
+forward out of the browser's own copy of the row worked for one person editing one automation — and
+made the browser the authority on what that event currently is, which it isn't. So if you had the
+automation open in one tab and changed its trigger in another, saving the older tab put the old
+trigger back. Same if you'd REMOVED it: the older tab restored it.
+
+I reproduced both of those first, through the real form and the real route, before changing
+anything.
+
+**The fix is that an edit now sends only what you actually changed.** Not the whole automation —
+just the fields that are different from what the form was showing you when it drew. Everything you
+didn't touch is filled in by the database itself, from the row, while it holds the lock — so
+nothing about the current state of an automation comes out of a browser any more. There's nothing
+left to carry forward, so the carrying-forward code is gone.
+
+Two things worth knowing about how it behaves now:
+
+- **Clearing a box and not touching a box are different.** Empty a field and it really clears;
+  leave it alone and it's preserved. That distinction is the whole thing — collapsing them is how
+  a form with no control for a field ends up deleting it by saying nothing.
+- **If nothing changed, nothing is sent.** Pressing Save on a form you haven't edited used to
+  write the whole row back; now it makes no request at all.
+
+**And two real defects turned up while driving it, neither of them visible from reading.** Every
+time change came back "that isn't a time" — two readers wanted the seconds and the third didn't —
+and changing a schedule was refused over the time and zone boxes the form HIDES, which would have
+left you with a refusal about a control you can't see. Both fixed.
+
+**The A/B case is driven end to end**, not checked as a stored value: two browsers, one changes the
+event, the other saves a name-only edit, and then I send the OLD event and prove it reaches nothing
+and send the NEW one and prove it starts the automation. Both halves, because either on its own is
+satisfied by an automation that listens for nothing.
+
+**⚠ One thing to know before this goes out: the database has to go first, and it really has to.**
+The function this now calls is in a migration that hasn't been applied. Until it is, every
+automation edit from the screen fails — not just the stale-form case, all of them. So the order is
+database, then the agent engine, then the site, and the site being last matters more than usual
+this time.
+
+**The mutation sweep found three things my own new tests had missed**, and none of them was the
+product being wrong — they were all places I had tested the right thing at the wrong level. The
+useful one: nothing anywhere pressed Save twice. Every test I had written re-opened the form between
+presses, and re-opening is what resets the comparison — so the code that resets it could have been
+deleted and nothing would have gone red, and a second press would have re-sent a field the first
+press already saved. Which is the exact bug this round is about, coming back through the door that
+was supposed to close it. All three are closed and each one is proved to catch its own bug.
+
+**Nothing is applied, deployed or merged.** Site tests 6,847 → 6,861; the agent engine's own 591,
+unchanged, which is the control. The triggers run went 74 → 98 checks, and all eleven end-to-end
+demonstrations are green at their recorded numbers with nothing failing. The sweep is 28 breakages,
+28 caught, nothing surviving.

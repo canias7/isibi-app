@@ -9762,3 +9762,224 @@ committed BEFORE the sweep started, which is what made refusing cost nothing.
   `integration` 89 · `ops` 75.
 - **NOT MERGED AND NOT DEPLOYED**, by instruction. This round adds no SQL at all, and `public/` is
   not a container image input — so whenever it does go, the image is reused and no hold applies.
+
+### ⚠ AN EDIT UPDATES ONLY WHAT THE CUSTOMER CHANGED — the stale form was a LOST UPDATE (2026-09-19)
+
+Owner, on the review of `5d30ad9`: *"The event-preservation fix works for an ordinary edit, but it
+copies onEvent from the browser's cached row into a full replacement. If another browser changes or
+removes that trigger, saving the older form can overwrite the newer configuration."*
+
+**RIGHT, AND THE PRESERVATION WAS THE WRONG SHAPE OF FIX RATHER THAN AN INCOMPLETE ONE.** Carrying a
+field forward from a cached row makes the browser the authority on what that field currently is —
+which it is not, and cannot be. **REPRODUCED through the real form and the real route before
+anything was changed**, exactly as review described it:
+
+| | |
+|---|---|
+| A opens an automation listening for `order.paid` | the form draws its name, its schedule and its steps |
+| B changes the event to `order.shipped` | stored |
+| A changes only the NAME and saves | the body carries `on_event: "order.paid"` — A's stale copy |
+| the row afterwards | **`order.shipped` reverted to `order.paid`** |
+| and B REMOVING it instead | A's save **put it back** |
+
+### PRESENCE IS THE INTERFACE, AND THE ROW IS RESOLVED WHERE IT IS LOCKED
+
+`store.updateAutomation` is **DELETED** and `store.patchAutomation` calls
+`agent.patch_automation`, which reads every field the patch does not name off the row it has
+locked, inside the transaction that writes. So an omitted field is resolved from the DATABASE and
+never from a browser, which is the requirement's own *"do not reconstruct them from the browser's
+cached row"* met by there being nowhere to reconstruct from.
+
+- **THE BACKEND OPERATION IS REUSED RATHER THAN WRITTEN.** `agent.patch_automation` already
+  existed for the AGENT's `change_automation` tool, and it delegates its write to
+  `agent.update_automation` — so this is the eighth capability write with **both doors on one
+  function**, which is what the M13-2 census asked for and the one row it could not then answer.
+- **`Object.hasOwn`, NEVER TRUTHINESS.** `fieldNamed` is what decides whether a body names a
+  field, and a truthiness test drops `enabled: false`, `steps: []` and `zone: ""` — the three
+  falsy values a person most needs to be able to save. An explicit `undefined` reads as absent,
+  because a parsed JSON body cannot carry one and a JavaScript caller passing one means *I have
+  nothing to say about this*.
+- **⚠ AND EXPLICIT REMOVAL STAYS DISTINCT FROM OMISSION, which is the requirement's own clause.**
+  A blank (`null`, or the `""` an emptied box sends) CLEARS; an absent key PRESERVES. Collapsing
+  the two would make a form with no control for a field able to delete that field by saying
+  nothing about it — which is the defect being fixed, wearing the fix's clothes.
+- **A FORM WITH NO EVENT CONTROL NEVER TOUCHES THE EVENT**, and that is now structural rather than
+  a list of fields to carry: `AGENT_FORM_FIELDS` is what the form HAS a control for, so a field
+  outside it cannot be diffed, cannot be named, and is therefore preserved by construction.
+  `AGENT_FORM_KEEPS` and `agentAutoKeeps` are **gone** — the cached row is not read at all.
+- **NO VERSION FENCE FROM THIS DOOR, and that is a decision rather than an omission.**
+  `agent.automations.version` moves on a change of STEPS and on nothing else, so a concurrent
+  rename does not move it and a version check would refuse edits nobody was competing over while
+  passing exactly the ones that are. What protects every other field is that the patch writes only
+  what it names, under the lock the database takes before it resolves anything.
+
+### THE DIFF IS AGAINST WHAT THE PERSON WAS SHOWN, never against the stored row
+
+`agentAutoWas` is captured **after each draw** (`agentAutoWasRead`, at the end of `renderAgents`)
+and `agentAutoChanges` compares the form's current values against it.
+
+- **THE BASELINE CANNOT BE THE ROW, and this is measured rather than preferred.** The form
+  NORMALISES as it seeds — a manual automation with no time draws `09:00` in a hidden box, one with
+  no zone draws this browser's guess — so diffing against the row reports two fields as changed on
+  a form nobody touched, and SENDS them. What the customer changed is the difference from what they
+  were shown.
+- **IT IS CAPTURED AFTER THE DRAW BECAUSE THAT IS THE ONLY MOMENT IT IS READABLE**, and once per
+  drawing: a form being typed into is a drawing of the DRAFT, so recapturing there would move the
+  baseline to whatever has just been typed and the diff would always be empty.
+- **AN UNCHANGED FORM SENDS NOTHING AT ALL.** What is on screen is what is stored, so there is no
+  request — and making one anyway would take the row's lock and move its `updated_at` to say
+  somebody had changed something.
+- **A BASELINE THAT IS NOT THIS AUTOMATION'S IS A REFUSAL, never a fall back to sending
+  everything.** Falling back is the whole-row replace returning through a door nobody watches. It
+  cannot happen — the form must have been drawn for Save to be pressed, and the drawing is what
+  captures it — which is what makes it a wall rather than a path.
+- **THE COMPARISON IS STRUCTURAL AND NOT `JSON.stringify`.** Key order is not a change a person
+  made, and a stringify comparison reports one — on `steps`, which every save would then carry,
+  putting the lost update back for the one field most worth protecting.
+- **⚠ A CHANGE OF SCHEDULE CARRIES THE TIME AND ZONE IT IMPLIES, and MEASURED, both directions
+  were broken without it.** The database makes a half-whole combination unstorable
+  (`automations_schedule_is_whole`), so `daily → manual` was refused `bad-schedule` and
+  `manual → daily` was refused `bad-time`, **both over controls the form hides**. It is not the
+  route inventing a removal: the customer named the schedule, and a form that hides the time box
+  while choosing "by hand" has really cleared it. `AGENT_SCHED_OWNS` declares which fields a
+  schedule owns, so a third one is a line rather than a rediscovery.
+
+### ⚠ THE STEPS ARE VALIDATED AGAINST THE DECLARATIONS WITHOUT BEING WRITTEN BACK
+
+A `{{reference}}` is refused unless something produces it, and a declared input is half of what
+can — so new steps have to be checked against the declarations the automation will really have.
+`patchNeedsStored` is true only when the patch names `steps` and not `inputs`, and the route then
+reads the stored declarations **to validate against**; the patch never carries them back. Both
+halves matter: reading them for every patch is a request nobody needs, and reading them when the
+patch supplies its own would check the new steps against the OLD declarations.
+
+**AND OWNERSHIP IS ENFORCED IN THE TRANSACTION, not by that read.** `agent.patch_automation` puts
+the tenant in its own locked lookup, so another account's automation and one that does not exist
+are the same `no-automation` and the same 404 — the read above it is a convenience for the
+validator and decides nothing.
+
+**AN EMPTY PATCH IS REFUSED RATHER THAN WRITTEN** (*"say which fields to change"*): `{}` would
+resolve every field from the row and write them all back, a no-op that still moves `updated_at` and
+still takes the lock. The screen never sends one, so it is a wall for a caller rather than a path —
+and it is the answer `change_automation` already gives for the same body.
+
+**AND ALREADY-ACCEPTED EXECUTIONS ARE UNTOUCHED BY CONSTRUCTION.** What a run executes was copied
+into its own record when it was accepted, so nothing this statement does can reach one — which is
+the property `steps` being a snapshot exists for, and is asserted rather than assumed.
+
+### ⚠ TWO REAL DEFECTS, AND BOTH WERE FOUND BY THE DEMONSTRATION RATHER THAN BY READING
+
+Each is a wire shape the modules were right about on their own:
+
+1. **EVERY TIME EDIT WAS REFUSED `bad-time`.** `agent.patch_automation` reads `atLocal` against
+   `^HH:MM$` — the same shape the engine's `change_automation` sends — and `trigAt` answered
+   `HH:MM:SS`, because `cleanSchedule` wants the seconds and the two readers were one function.
+   `trigAt` answers `HH:MM` now and `cleanSchedule` appends the `:00` itself.
+2. **A SCHEDULE CHANGE CARRIED NEITHER THE TIME NOR THE ZONE**, which is the `AGENT_SCHED_OWNS`
+   finding above. Both refusals were about controls that are not on the screen, so a person would
+   have had nothing to act on.
+
+### Measured
+
+- **Site suite 6,847 → 6,861** (6,859 pass, 2 skipped, 0 fail), and **the arithmetic closes
+  exactly**: `agent-automations` 43 → **49** and `agent-binding` 114 → **122**; `agent-api` 56,
+  unchanged in count and re-anchored onto `patchAutomation`. The last three of the fourteen are
+  the sweep's own survivors, closed below — **6,858 at the first commit, 6,861 at the second.**
+  **MEASURED LIKE-FOR-LIKE IN ONE
+  WORKTREE** rather than by subtracting notes — HEAD reads 6,847 there and this tree 6,858, both
+  with the same 2 skips and the same 1 fail a worktree run carries (`render-sandbox`'s
+  privilege-drop case, which is about writing outside the repository root), so the delta is +11 on
+  one machine in one environment. **AND THE WORKTREE ADDS NO TEST, which is measured rather than
+  assumed**: this tree reads 6,858 in the worktree AND 6,858 in the main tree, so what a worktree
+  changes is the fail count and not the total — which is why the total is the number carried.
+  **⚠ AND THIS LINE READ "6,846 → 6,857" UNTIL THE RUNS ANSWERED, wrong on BOTH sides.** The left
+  was a stamp two entries up that had already been superseded by 6,847, and the right was 6,846 + 11
+  done in my head. *Stamp measured numbers only AFTER the run* — and read the LATEST recorded number
+  rather than the one that catches the eye, which is the half of that rule a prediction hides.
+- **`verify:triggers` 74 → 98 checks, 0 FAIL** on a real PostgreSQL: section 4c is the review's
+  own A/B scenario end to end, plus B removing the event, plus the unchanged-form row and the
+  cross-account 404. **Engine suite 591, unchanged — the control.**
+- **ALL ELEVEN DEMONSTRATIONS GREEN**, every one re-run on this tree, and the ten other counts
+  unchanged is what says this round broke nothing: `triggers` **98** · `conversation` 79 ·
+  `tools` 148 · `send` 97 · `chat` 126 · `auto` 70 · `wf` 157 · `connections` 76 ·
+  `controls` 71 · `integration` 89 · `ops` 75. **`FAIL` count 0 in all eleven**, read on the
+  LEADING token — `grep -c FAIL` matches check LABELS containing the word and has reported green
+  runs as failing here twice.
+
+### ⚠ The A/B scenario is driven through the browser-to-backend path, not against the module
+
+`verify:triggers` section 4c is the five steps the review names: A opens an automation with
+`order.paid`, B changes it to `order.shipped` through three separate patches, A saves **the body
+the browser really sends** (`{id, name}` — nothing else), and then
+
+- the new name is stored **and** the event is still `order.shipped`;
+- a delivery of `order.paid` reaches **nothing**, which is what says the old binding is gone rather
+  than merely overwritten in a column;
+- a second endpoint delivering `order.shipped` **starts the automation**, which is what says the
+  current binding is live. Both halves, because either alone is satisfied by an automation that
+  listens for nothing at all.
+
+Plus: **B removing the event and A's save not restoring it**; B changing the SCHEDULE and the STEPS
+and A's name-only edit preserving both; an intentional removal through the supported operation
+(`{id, on_event: null}`) still working; **an unchanged form changing nothing, asserted as
+`md5(row(...)::text)` byte-identical across the save**; and another account refused.
+
+**⚠ AND THE OLD `editBody` WAS A BODY THE PATCH DOOR CORRECTLY REFUSES.** It carried seven fields
+including a `manual` schedule and a time, which `automations_schedule_is_whole` forbids — so the
+demonstration's own fixture had to become the browser's real body before it could test the browser's
+real path. *A fixture that is not the shape the thing under test really sends is not testing it.*
+
+### ⚠ AND THE SWEEP LEFT THREE SURVIVORS, EVERY ONE A GAP IN THIS ROUND'S OWN GUARDS
+
+**Pass 1 read 28 mutants, 25 killed, 3 survived, 0 never applied, 2 comment-only controls
+survived**; pass 2, after they were closed, reads **28 mutants, 28 killed, 0 survived, 0 never
+applied, 2 comment-only controls survived** — taken after the run, in a detached worktree at the
+commit that carries them, against the eight test files that can SEE these two files. The spec's 30
+entries are those 28 plus the two controls, which is why the two numbers never have to be
+reconciled by arithmetic. **The worktree is proved restored TWO WAYS afterwards**: a clean
+`git status` with an empty diff against the commit, and the spec's own anchor census green over all
+30 — which it cannot be while a mutant is applied. *A narrow list can only produce a false SURVIVOR,
+never a false kill*, so the full suite still decides, and it is green at 6,861.
+
+**NOT ONE SURVIVOR WAS THE PRODUCT'S, and each was a different shape of gap:**
+
+1. **NOTHING PRESSED SAVE TWICE.** Every other case in that file re-opens the form between
+   presses — and re-opening is what captures a baseline — so `agentAutoWas = null` on the success
+   path could be deleted with nothing red. **And the second press is where that bites**: with the
+   pre-save baseline still held, the diff still holds the FIRST edit, so a second press re-sends a
+   field that is already stored, on a row somebody else may have touched in between. *The revert
+   this round removes, returning through the door that was supposed to close it.* The new case does
+   not re-open the form, deliberately: that is the sequence a person performs when they save, look
+   at it, and change one more thing.
+2. **THE STRUCTURAL-COMPARISON CASE DROVE `autoSame` AND THE MUTANT CHANGES WHICH READER
+   `agentAutoChanges` USES** — the recorded *a guard proves the branch it drives, and no other*. So
+   `autoSame` stayed correct, every assertion about it stayed green, and the diff had swapped to
+   `JSON.stringify`. **MEASURED over sixteen value shapes the form can really build: the two readers
+   diverge on exactly two, and both are a key ORDER difference** (`{type,text}` against
+   `{text,type}` in a step, and the same in an input declaration) — under which every save carries
+   `steps` and the lost update is back for the one field most worth protecting. Driven at
+   `agentAutoChanges` now, with four controls, because `{}` is otherwise satisfied by a diff that
+   answers nothing at all.
+3. **NOTHING DROVE A JUNK VALUE AT THE PATCH DOOR.** The field census above it sends only values a
+   form really produces, so `enabled`'s type check could go and `"false"` would reach the patch as a
+   STRING. Closed as a census over every field in **both** recorded shapes — `Boolean("false")` is
+   `true` and `String(["daily"])` is `"daily"` — with **nothing-was-written asserted on every
+   refusal**, which is the half a status code cannot carry: a 400 with a `patchAutomation` behind it
+   has already taken the lock and moved `updated_at` over a change it then refused. Plus the control
+   that each field's real value still reaches the patch, without which "every junk value is refused"
+   is satisfied by a door that refuses everything.
+
+**ALL THREE WERE PROVED RED AGAINST THEIR OWN DEFECT before being believed, one failure each** —
+the baseline write deleted, the comparison swapped, the type check cut — with the tree restored
+byte-exactly between them. **AND ONE OF MY OWN EXPECTATIONS WAS WRONG RATHER THAN THE PRODUCT'S**:
+a bad date says *"2027-02-30 isn't a day in the calendar"*, which `/date/i` does not match, so the
+case failed about a refusal that was working. The sentences are read off the reader now rather than
+guessed a second time.
+
+### NOT MERGED, NOT DEPLOYED — and the order is MANDATORY this time
+
+**⚠ `agent.patch_automation` IS IN AN UNAPPLIED MIGRATION** (`20260918120000`, whose round-number
+name is that folder's own tell), so this route calls a function the live database has not got.
+Against it, PostgREST answers `PGRST202` and **every** automation edit from the screen fails — not
+the retry, not a stale form, all of them. So the recorded order is not a preference here:
+**migration → engine → site**, and the site is last for a reason sharper than usual.
