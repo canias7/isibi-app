@@ -6868,8 +6868,17 @@ directory's own notes recorded that branch as never driven; it is driven now**, 
 
 ### ⚠ AND THE SWEEP LEFT TWO SURVIVORS, BOTH BECAUSE THE FIXTURE ECHOED WHAT IT WAS ASKED
 
-**688 mutants at `7127c12`, two survived, and neither was the product's.** Both are
-`ask()`'s answer shape, and both were undrivable for ONE reason: `test/approvals.test.mjs`'s
+**677 mutants at `7127c12`, 675 killed, two survived, 0 never applied, 11 comment-only
+controls survived — and neither survivor was the product's.**
+**⚠ THIS LINE READ "688 mutants" BEFORE THE RUN ENDED, WHICH IS WRONG TWICE OVER.** It was
+stamped from a partial reading — the two survivors had already printed, and "two survived"
+asserts nothing ELSE did, which only the end of a run can say — and 688 was the spec's ENTRY
+count rather than its mutant count. **The runner counts PRODUCT mutants and reports controls on
+their own line**, which is exactly why this file says the two numbers never have to be
+reconciled by arithmetic: 677 + 11 = 688. *Stamp measured numbers only AFTER the run*, and
+name which of the two counts you mean.
+Both survivors are `ask()`'s answer shape, and both were undrivable for ONE reason:
+`test/approvals.test.mjs`'s
 `said()` answers `args_hash: body.p_hash` — the hash it was just asked about — so *our* hash
 and *the row's* are the same value in every shape that fixture can produce. **A fixture too
 shallow to separate the two readings**, this directory's most-repeated guard trap.
@@ -6907,3 +6916,89 @@ still good: what each verifies is the two halves TOGETHER, one database, the sit
 driving this engine. What is wrong is the COUNT, and a count nobody re-derived is exactly what
 this directory's first rule is about. The cost is the same and is now eleven times over: move
 or rename `agent-store.mjs` and every one of them breaks, loudly, on its import.
+
+### The sweeps and CI, finished and read on the pushed head (2026-09-19)
+
+Owner: *"Finish the outstanding SQL sweep and report its result separately."* So the three runs
+are reported as three, each with the commit it covers, because a tally that does not name its
+commit is a stamp rather than a measurement.
+
+- **ENGINE SWEEP at `7127c12`: 677 mutants, 675 killed, 2 survived, 0 never applied, 11
+  comment-only controls survived**, and the worktree is proved restored against git afterwards
+  (`git status` clean, 0 modified). Its two survivors are the ones above, and **both are closed
+  at `c22d067`**, evidenced by the red-proofs and by a targeted pass rather than by the next full
+  sweep: **3 mutants, 3 killed, 0 survived, 0 never applied, 1 comment-only control survived**,
+  against `test/approvals.test.mjs` alone, in a detached worktree at `c22d067`, **under the
+  runner's own child environment** — without which the spec-anchor census fails for every mutant
+  and reports a kill for a reason that has nothing to do with the property. **The control had to
+  be WRITTEN for that pass**, because no comment-only control in the committed spec sits on
+  `approvals.mjs`, and a pass with no control is a pass whose own honesty check is unarmed. *A
+  narrow list can only produce a false SURVIVOR, never a false kill*, so the next full run still
+  decides — and the engine spec at `c22d067` is **689 entries (11 controls → 678 product
+  mutants)**, every anchor unique by the generator's own pre-check.
+- **CI HAS READ THE PUSHED HEAD, BOTH WORKFLOWS, ON `c22d067`:**
+  - **`agent deploy` run 90 — green**, the `agent checks` step 06:15:18→06:15:27Z (**8.7 s**
+    against a 45-minute timeout): `# tests 590 / # pass 589 / # fail 0 / # skipped 1`, against
+    local `590 / 590 / 0 / 0`. **The one skip is the one predicted** — the privilege-drop case
+    needs to BE root in order to stop being root, and a runner is the user `runner` — which is
+    what makes a skip count evidence rather than an observation. Steps 6 through 13 all read
+    `skipped`, so **NOTHING WAS DEPLOYED**.
+  - **`unit tests` run 2754 — green**, the suite step 06:15:17→06:17:08Z: `# tests 6831 /
+    # pass 6827 / # fail 0 / # skipped 4`, against local `6831 / 6829 / 0 / 2`. The TOTAL is what
+    matches and the skips are what differ, which is why the total is the number carried.
+  - **`site build` run 1200 on `dd1a1d7` — green**, and **it covers `c22d067` by the recorded
+    ancestor rule rather than by a run of its own.** The second push's whole diff
+    (`dd1a1d7..c22d067`) is two documents, `public/chat.js`, two mutant specs and
+    `test/agent-binding.test.mjs`, and **not one of them matches that workflow's `paths`** —
+    `*.mjs` is a ROOT glob, so a nested test file is outside it. So no run fired for the tip and
+    none was due. *A green harness on an ancestor is only evidence when nothing between it and
+    the tip is an image input*, and that was checked per path rather than assumed.
+
+### ⚠ AND THE SQL SWEEP FOUND A CROSS-ACCOUNT READ NOBODY WAS GUARDING (2026-09-19)
+
+The full SQL sweep at `e7a5502` left a second survivor —
+`SQL/revocation: every account can read every revocation` — and unlike the resume-tick one
+above it, **this is the fifth class: a genuine guard gap, still open at HEAD.** The mutant
+replaces `agent.tool_revocations`' SELECT policy
+
+```sql
+  for select to authenticated using (tenant_id = agent.tenant_id());
+```
+
+with `using (true)`, so every signed-in account reads every account's revocations. Nothing in
+`pg-schema.mjs` or `authored-run.test.mjs` could see it, and **the policy line is byte-identical
+between `e7a5502` and HEAD**, so the gap is this tree's and not that commit's.
+
+**⚠ WHY IT HID IS THE REUSABLE PART, AND IT IS WRITTEN IN THAT FILE'S OWN COMMENT.** The
+privileges block opens *"ASKED AS PRIVILEGES rather than as refusals: `authenticated` holds no
+USAGE on the schema, so a refusal says nothing about the table grant"* — and that reasoning is
+right about the GRANT and **false about this schema's reads**: `grant usage on schema agent to
+authenticated` is in THREE migrations, so a customer really does reach the table. Having
+concluded "ask the privilege instead", the section then asked `has_table_privilege` three ways
+and **never asked the POLICY at all.** *Asking the privilege is the right instrument for the
+grant and is blind to the policy* — two questions, and the comment retired one of them by
+answering the other.
+
+**FOUR CHECKS CLOSE IT, in the shape every other table's isolation already has** — a real
+`authenticated` client with claims, never the writer that bypasses:
+
+- a second account with an agent and a revocation of its own, **so neither read is about an
+  empty table** — the observer, without which "sees one" is satisfied by there being only one;
+- each account reads exactly ONE, **one each and never both**;
+- a token with no claims, and one whose claims will not parse, read none — `agent.tenant_id()`
+  answers NULL and `tenant_id = NULL` is NULL rather than true;
+- and both revocations are lifted and the second account's agent removed afterwards, so the
+  cancellation section below reads the state it expects.
+
+**PROVED IN BOTH DIRECTIONS.** Green on the real tree: `npm run test:pg` **1,092 → 1,098
+checks, 0 failed**, and the arithmetic closes exactly at six. Red against the defect: with
+`using (true)` applied to the migration in a detached worktree the run read **1,095 passed, 3
+failed** — and the three are exactly the three that are about the policy: each account reading
+two, and the no-claims pair reading two as well, because `true` does not consult the claims at
+all. **The observer check stays GREEN**, which is right: it reads as the writer and the policy
+cannot touch it, so a check that had gone red there would have been red about something else.
+
+**AND THE SURVIVOR IS WHY THE CHECK EXISTS, which is the argument for running the sweep at all.**
+Hand-written coverage only ever tests what somebody thought of; this table had six checks over
+its grants, its UPDATE revocation and its RLS flags, and none over the one line that separates
+two customers.

@@ -9095,3 +9095,36 @@ the whole feature is silent.
   legitimately moved as the tree grew — those files are per-round snapshots, not live guards. So
   a broad count says nothing about whether a mutant is applied NOW; narrow it to the round's own
   specs, or the instrument is noise wearing a finding's clothes.
+
+### The site sweeps finished, and CI read the pushed head (2026-09-19)
+
+Both tallies are stamped here rather than inferred from a pass over a different spec, which is
+what the two entries above promised.
+
+- **`automation-states.json` (19 entries): 18 mutants, 18 killed, 0 survived, 0 never applied,
+  1 comment-only control survived** — RUN TWICE, and the second run is the one this stamps.
+  **⚠ THE FIRST WAS OVER A MIXED TREE AND IS RECORDED RATHER THAN QUOTED.** It ran in a copy
+  whose seven changed files were the head's and whose OTHER files — including three of the six
+  test files the sweep runs (`agent-send`, `agent-api`, `agent-builder-view`) — were an
+  ancestor's. That reading can only ever produce a FALSE SURVIVOR, never a false kill, because
+  those three are additive between the two commits (**+380/−1, +228/−1, +32/−2**, the four
+  deletions all re-anchors), so an older file can miss an assertion the head's has and cannot
+  fail on a baseline that was green. It read the same 18/18. **The stamped one is a detached
+  worktree at `c22d067` with nothing copied in**, proved restored two ways afterwards — `git
+  status` clean, and both specs' anchor censuses green, which they cannot be while a mutant is
+  applied. *A tally that needs a caveat is not worth stamping when the clean one is thirteen
+  minutes away.*
+- **`automation-example.json` (15 entries): 14 mutants, 13 killed, 1 survived, 1 comment-only
+  control survived**, the survivor MEASURED INERT and replaced as the entry above records.
+- **CI HAS READ `c22d067`, both workflows green.** `unit tests` run **2754** — the suite step
+  06:15:17→06:17:08Z — `# tests 6831 / # pass 6827 / # fail 0 / # skipped 4`, against local
+  `6831 / 6829 / 0 / 2`: **the TOTAL is what matches**, the two extra being the recorded
+  environment skips, which is why the total is the number carried. `agent deploy` run **90**
+  green with steps 6–13 `skipped`, so **nothing was deployed**.
+- **`site build` run 1200 on `dd1a1d7` — GREEN, and it covers `c22d067` by the ancestor rule
+  rather than by a run of its own.** The second push's whole diff is two documents,
+  `public/chat.js`, two mutant specs and `test/agent-binding.test.mjs`, and **not one matches
+  that workflow's `paths`** — `*.mjs` there is a ROOT glob, so a nested test file is outside it
+  and `agent-store.mjs` (which is in it) changed in the FIRST push, the one #1200 ran on. So no
+  run fired for the tip and none was due. *A green harness on an ancestor is only evidence when
+  nothing between it and the tip is an image input* — checked per path, not assumed.

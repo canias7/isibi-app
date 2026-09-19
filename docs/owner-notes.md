@@ -12836,3 +12836,41 @@ it, so that failure is what bought the guard which can.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** No migration in this round at all — it is entirely
 above the database.
+
+## 2026-09-19 — The sweeps finished, and one of them found a real hole
+
+The three mutation sweeps I left running have all reported, and one of them found something
+worth having, so here is each in turn with the one thing it settles.
+
+**The engine sweep read 677 mutants, 675 killed, 2 survived.** Both survivors were already
+fixed before the run ended — they are the two I found and closed yesterday — and I proved the
+fixes with a targeted pass at the pushed commit: 3 mutants, 3 killed, plus a control I had to
+write, because a pass with no control is a pass that cannot catch itself lying.
+
+**I also had to correct my own note.** It said "688 mutants" and that was wrong twice: the run
+had not finished when I wrote it, and 688 is the number of entries in the spec rather than the
+number of breakages it makes (the other 11 are controls). My own first rule here is to write a
+number down only after the run, and I broke it in the paragraph that quotes it.
+
+**The site sweeps read 18 of 18 and 13 of 14**, the one survivor being a line I measured as
+changing nothing and replaced with one that does.
+
+**⚠ And the SQL sweep found a genuine gap: every signed-in account could have read every other
+account's withdrawn tool permissions.** Not today — the rule in the database is correct — but
+*nothing was checking that rule*, so anybody who edited that one line would have found out from
+a customer rather than from a test. The reason it hid is the interesting part: the file has three
+checks on who is ALLOWED to read that table, and a comment explaining that asking "is this
+refused?" would prove nothing. That reasoning is right about the permission and blind to the
+rule sitting behind it, so the rule itself was never asked. Four checks now ask it, as a real
+signed-in customer with a second account's data sitting next to theirs — and I proved them by
+breaking the rule on purpose: three of the four go red, the fourth stays green because it reads
+as the server, which the rule does not apply to.
+
+**The real-database check went 1,092 → 1,098.** Nothing else moved: same engine suite, same site
+suite, same ten demonstrations.
+
+**CI is green on the pushed commit** — the site's unit tests (6,831) and the engine's checks
+(590), both matching what I measure here, and the engine's deploy steps all skipped, so nothing
+went out.
+
+**Still nothing applied, nothing deployed, nothing merged.**

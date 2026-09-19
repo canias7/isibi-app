@@ -3515,6 +3515,42 @@ try {
       jget(`select relrowsecurity::text || '/' || relforcerowsecurity::text
               from pg_class where oid = 'agent.tool_revocations'::regclass;`) === "true/true");
 
+    // ⚠ AND THE POLICY IS ITS OWN QUESTION — ASKING THE PRIVILEGE SAYS NOTHING ABOUT IT.
+    // The three checks above ask `has_table_privilege`, which is exactly right for the GRANT
+    // and blind to the RLS policy; the comment introducing them reasons that a refusal would
+    // come from the schema gate, which is TRUE OF THIS TABLE'S WRITES and false of its reads:
+    // `grant usage on schema agent to authenticated` is in three migrations, so a customer
+    // really does reach this table and `using (tenant_id = agent.tenant_id())` is the only
+    // thing between one account and another's revocations.
+    //
+    // NOTHING ASKED IT UNTIL A SQL MUTANT WIDENING IT TO `using (true)` SURVIVED A WHOLE
+    // SWEEP. So it is asked as a REAL CUSTOMER, the way every other table's isolation is,
+    // with the OWNER's count of both rows as the observer — without which "sees one" is
+    // satisfied by there being only one revocation in the table.
+    const XT2 = "rv-tenant-2";
+    const XA3 = "cccccccc-3333-4333-8333-cccccccccccc";
+    const seenBy = (t) => psql(`select count(*) from agent.tool_revocations;`,
+      { role: "authenticated", claims: `{"tenant_id":"${t}"}` }).out;
+    allowed("a second account, with an agent of its own", `insert into agent.agents (id, tenant_id, name, instructions)
+       values ('${XA3}', '${XT2}', 'Next door', 'x');`, asOwner);
+    check("...and one revocation for EACH account, so neither read is about an empty table",
+      /"ok"\s*:\s*true/.test(jget(`select agent.revoke_agent_tool('${XT}','${XA}','run_automation','person-1',null)::text;`))
+      && /"ok"\s*:\s*true/.test(jget(`select agent.revoke_agent_tool('${XT2}','${XA3}','run_automation','person-9',null)::text;`))
+      && jget(`select count(*) from agent.tool_revocations;`) === "2");
+    check("⚠ a customer reads its OWN account's revocation and no other", seenBy(XT) === "1");
+    check("⚠ ...and so does the account next door — one each, never both", seenBy(XT2) === "1");
+    // The two ways a token fails, each its own reading: `agent.tenant_id()` answers NULL, and
+    // `tenant_id = NULL` is NULL rather than true, so the policy matches no rows.
+    check("a customer with no claims at all, and one whose claims will not parse, read none",
+      psql(`select count(*) from agent.tool_revocations;`,
+        { role: "authenticated", claims: "" }).out === "0"
+      && psql(`select count(*) from agent.tool_revocations;`,
+        { role: "authenticated", claims: "not json" }).out === "0");
+    allowed("lift both and take the second account away, so section 7 reads what it expects",
+      `select agent.restore_agent_tool('${XT}','${XA}','run_automation');
+       select agent.restore_agent_tool('${XT2}','${XA3}','run_automation');
+       delete from agent.agents where id='${XA3}';`, asOwner);
+
     // ── 7. CANCELLING A RUN ───────────────────────────────────────────────
     const C1 = "ff000000-0000-0000-0000-0000000000c1";
     allowed("a run part way through, with work claimed and a request waiting",
