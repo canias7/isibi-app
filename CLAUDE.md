@@ -12555,6 +12555,19 @@ the instrument was fine and its INPUT was fabricated, which is indistinguishable
 from "the runs have not finished" for as long as you are willing to wait. Read
 the full sha out of `git rev-parse`; never extend a short one.
 
+**CLOSED — 1217's FINAL RESULT CONFIRMED FROM THE API RATHER THAN FROM MY OWN
+RECORD (2026-09-19).** Run **1217**, id `35461325999`, job `105945609358`:
+`status: completed`, `conclusion: success`, `head_sha
+81cd5472862fadbe86c63bee7c036c8730430c74` — the reviewed code — created
+18:28:54Z, **completed 18:49:07Z**, and **every one of its 23 step entries is
+`success`** (20 real steps; the three trailing ones are GitHub's own `Post Run
+actions/setup-node@v4`, `Post Run actions/checkout@v4` and `Complete job`,
+numbered 39/40/41). The counts above stand unchanged; what this adds is that the
+run is FINISHED rather than read in flight, which is the one thing a mid-run
+read cannot say. **Both corrections are closed** — the Jobs panel's click wiring
+and the photo request identity — and no further reporting or harness work is
+opened on them.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO
 REPORTING REDESIGN** — the owner's standing constraint, unchanged.
 

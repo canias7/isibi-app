@@ -14461,3 +14461,11 @@ matched, so the watcher sat quiet for half an hour while both checks were
 already green — and a quiet watcher looks exactly like a check that is still
 running. No harm done; I read them directly instead.
 
+**And the big container check is confirmed FINISHED, not just green when I
+looked.** I asked GitHub for the run itself rather than trusting my own note:
+it started at 18:28:54 and **finished at 18:49:07**, on exactly the version you
+reviewed, with every single one of its steps successful. That is the one thing
+a mid-run glance cannot tell you. **Both corrections are closed** — the Run now
+button, and a failed photograph no longer dragging a successful one down with
+it — and I am not opening any more reporting work on them.
+
