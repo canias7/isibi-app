@@ -7343,3 +7343,25 @@ measurement.*
 this run's 266, so those sentences are answered by one measurement — with the same commit caveat,
 and with the honest addition that the three closures since are covered by their own passes and not
 by this one.
+
+### CI on the final head, both workflows
+
+**`agent deploy` run 101 on `c724b8b` — green**: `# tests 590 / # pass 589 / # fail 0 /
+# skipped 1` against local `590 / 590 / 0 / 0`, the one skip the predicted privilege-drop case
+(it needs to BE root in order to stop being root, and a runner is the user `runner`). **Steps 6
+through 13 all read `skipped`, so NOTHING WAS DEPLOYED.**
+
+**`unit tests` run 2769 on `c724b8b` — green**: `# tests 6831 / # pass 6827 / # fail 0 /
+# skipped 4` against local `6831 / 6829 / 0 / 2`. **The TOTAL is what matches and the skips are
+what differ**, which is why the total is the number carried.
+
+**AND `site build` NEEDED NO RUN AND HAD NONE**: nothing in the eleven commits since `c22d067`
+matches that workflow's `paths` — the whole diff is two documents, the SQL spec generator, one
+migration COMMENT (proved comment-only by diffing away every `+ --` line) and
+`test/integration/pg-schema.mjs`. So run 1200's green still covers this tip by the recorded
+ancestor rule, checked per path rather than assumed.
+
+**NOTHING IS APPLIED, DEPLOYED OR MERGED.** This round touches no product source at all — `git
+diff --name-only c22d067..HEAD` over `worker.js`, `agent-store.mjs`, `public/`, `builder/` and
+`agent-builder/src/` is EMPTY — so what changed is the checks, the sweep spec, one comment and
+the notes.
