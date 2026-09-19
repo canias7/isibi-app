@@ -2274,7 +2274,12 @@ export const TIER_LIST = Object.freeze({ table: "tables", function: "functions",
 export const TOOL_FIELDS = Object.freeze({
   table: TOOL_TABLE_FIELDS,
   function: new Set(["name", "args", "returns", "body", "internal"]),
-  api: new Set(["name", "url", "method", "headers", "body", "params", "cacheSeconds"]),
+  // `returns` and `credential` joined 2026-09-19. This set is what `auditTier`
+  // calls the OFFERED fields, so a property the tool asks for and this set does
+  // not name reads as one the pipeline never heard of — reported to the
+  // customer as "a setting the design asked for that this kind of change can't
+  // carry" about a field the connection really stores.
+  api: new Set(["name", "url", "method", "headers", "body", "params", "returns", "credential", "cacheSeconds"]),
   job: new Set(["name", "fn", "everyMinutes", "at"]),
 });
 

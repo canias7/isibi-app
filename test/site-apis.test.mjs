@@ -282,7 +282,18 @@ test("the route exists and reads the site's own vault", () => {
 test("the SECRETS never reach the response", () => {
   const i = worker.indexOf('url.pathname.includes("/api/")');
   assert.ok(i > 0, "the dispatch exists");
-  const block = worker.slice(i, i + 2500);
+  // ⚠ RE-ANCHORED, NOT APPEASED (2026-09-19). This was `worker.slice(i, i +
+  // 2500)` — a BYTE WINDOW, the trap this repository has recorded ten times —
+  // and it went red on a change that added a comment ABOVE the line it asserts:
+  // the required-parameter refusal and its reasoning pushed `Response.json(
+  // out.body` past 2,500 characters, so the guard reported the secret wall as
+  // gone on code where it is exactly where it was.
+  //
+  // Landmark to landmark now, with BOTH ends asserted — `indexOf` answering -1
+  // gives `slice(-1, -1)` and everything inside an empty string passes.
+  const end = worker.indexOf("SOMEBODY ELSE'S SYSTEM PUSHING DATA INTO A PUBLISHED SITE", i);
+  assert.ok(end > i, "the next sibling block is where it was — re-anchor this window rather than widening it");
+  const block = worker.slice(i, end);
   // `out` carries `missing` and `refused` for the owner's log; only status and
   // body may be sent back.
   assert.ok(/Response\.json\(out\.body/.test(block), "only the body is returned");

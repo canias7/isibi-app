@@ -21,6 +21,7 @@
 // an open proxy: a caller can change the postcode, never the host.
 
 import { blockedReason } from "./site-ssrf.mjs";
+import { cleanShape, cleanParams, cleanCredential } from "./site-api-shape.mjs";
 
 /** Bigger than any answer a page should be rendering. */
 export const MAX_RESPONSE = 256 * 1024;
@@ -111,13 +112,35 @@ export function normalizeApi(raw) {
     if (typeof v !== "string" || v.length > 500) continue;
     headers[k] = v;
   }
-  const params = [...new Set((Array.isArray(raw.params) ? raw.params : [])
-    .map((p) => String(p).toLowerCase())
-    .filter((p) => /^[a-z][a-z0-9_]{0,40}$/.test(p)))].slice(0, 8);
+  // THE NAMES AND THE METADATA COME OUT OF ONE WALK. `params` is still the
+  // plain list of names every other reader in this file iterates — the
+  // fingerprint, the cache key, `takeParams` — and `paramInfo` sits beside it
+  // carrying one entry per name in the same order, present only when something
+  // was really said about a parameter. Two lists of one thing is this
+  // repository's most-repeated defect, so they are derived rather than
+  // maintained, and a guard asserts the names of one equal the other.
+  const p = cleanParams(raw.params);
+  const params = p.names;
   const body = method === "POST" && typeof raw.body === "string" ? raw.body.slice(0, MAX_API_BODY) : "";
   let ttl = parseInt(raw.cacheSeconds != null ? raw.cacheSeconds : raw.ttl, 10);
   ttl = Number.isFinite(ttl) ? Math.max(MIN_TTL, Math.min(MAX_TTL, ttl)) : 60;
-  return { name, url, method, headers, params, body, ttl };
+  // THE ENGINE IS TOLERANT AND THE ADDON'S CLEANER REFUSES, deliberately. This
+  // function is the allow-list every STORED spec passes through on its way to
+  // being served, so a declaration whose sketch cannot be read must still make
+  // the connection work — guidance is not the feature. `cleanAdd` asks the same
+  // three functions at the moment a person can be told, and refuses by name
+  // there. One definition of "clean", two decisions about what to do with it.
+  const shape = cleanShape(raw.returns);
+  const cred = cleanCredential(raw.credential);
+  return {
+    name, url, method, headers, params, body, ttl,
+    // Spread-conditional, so a connection declaring none of the three is byte
+    // for byte the object this function has always returned — which is every
+    // connection on the platform today and the negative control for all of it.
+    ...(p.info ? { paramInfo: p.info } : {}),
+    ...(shape && shape.ok ? { returns: shape.shape } : {}),
+    ...(cred && cred.ok ? { credential: cred.credential } : {}),
+  };
 }
 
 /** Every `{{SECRET}}` this declaration needs, so they can be fetched in one go. */
@@ -193,6 +216,15 @@ export function takeParams(api, search) {
  * declaration changes nothing. And it is JSON rather than a joined string —
  * escaping makes it injective, so no body containing a separator can be made to
  * look like a different declaration.
+ *
+ * `returns`, `paramInfo` AND `credential` ARE DELIBERATELY NOT IN IT, and it is
+ * said here because adding them is the obvious next edit. This function's
+ * subject is WHAT REQUEST IS MADE; none of those three changes a byte of it.
+ * Correcting a parameter's description or where the owner buys the key would
+ * otherwise drop every cached answer on that connection and put the owner's
+ * third-party quota back on the next page view — a documentation fix billed as
+ * a configuration change. The PARAMETER NAMES are in it and stay in it, because
+ * they really do decide the request.
  */
 export function declFingerprint(api) {
   const h = Object.keys(api.headers || {})

@@ -17,6 +17,7 @@ import { checkDns, dnsSentence } from "./site-dns.mjs";
 import { detectProvider, providerSentence } from "./site-registrar.mjs";
 import { offerFor as dcOfferFor, applyUrl as dcApplyUrl, signQuery as dcSign, rsaSigner as dcSigner } from "./site-domain-connect.mjs";
 import { callApi, apiFor, secretsNeeded, takeParams, MAX_PER_MINUTE as SITE_API_PER_MIN, MAX_TTL as SITE_API_MAX_TTL , kvKeyFor, kvEligible, KV_MIN_TTL } from "./site-apis.mjs";
+import { missingRequired, credentialNote } from "./site-api-shape.mjs";
 import { Container, getContainer } from "@cloudflare/containers";
 import { makeCache, memoize } from "./ttl-cache.mjs";
 import { makeLimiter, bucketKey, tooMany, WINDOW_MS } from "./rate-limit.mjs";
@@ -18943,6 +18944,26 @@ async function handleRequest(request, env, ctx) {
         const api = apiFor(spec, aname);
         if (!api) return Response.json({ error: "no such connection" }, { status: 404 });
         const params = takeParams(api, url.searchParams);
+        // A REQUIRED BLANK THE CALLER DID NOT FILL IS REFUSED BEFORE THE CALL
+        // (2026-09-19), and the point is what does NOT happen: no upstream
+        // request, so none of the owner's third-party quota is spent on one
+        // that could never work. Without it `fill` substitutes the blank as an
+        // empty string and plenty of services answer 200 to that with a default
+        // or a degraded answer — the page then renders something plausible and
+        // wrong, which is the same failure the missing-secret refusal exists to
+        // prevent, one blank over.
+        //
+        // NAMES THEM, because the caller is this site's own page and a
+        // parameter name is already in its bundle — there is nothing here a
+        // visitor could not read off the page that made the request, and the
+        // name is the whole of what a developer needs to fix it.
+        //
+        // A connection that declared no parameter metadata requires nothing and
+        // reaches `callApi` exactly as it always has.
+        const amiss = missingRequired(api, params);
+        if (amiss.length) {
+          return Response.json({ error: "this connection needs " + amiss.join(", "), missing: amiss }, { status: 400 });
+        }
         // THE OWNER IS PART OF THE CACHE KEY, not part of the authorisation —
         // this route is public by design. A slug is re-claimable, so without it
         // an answer fetched with one account's API key is served to whoever
@@ -26118,6 +26139,31 @@ async function handleRequest(request, env, ctx) {
               // scheduled and nothing anywhere would ever run it.
               jobErrors: aJobErrors.length ? aJobErrors : undefined,
               needsSecrets: aSecrets.length ? aSecrets : undefined,
+              // WHERE THE KEY COMES FROM, beside the sentence that already says
+              // where it GOES (2026-09-19). `needsSecrets` names the secret and
+              // the browser says "add RATES_KEY under Cloud → Secrets", which
+              // is a destination with no provenance: nothing anywhere said
+              // which service `RATES_KEY` is a key for or which page to sign up
+              // on. Composed HERE and printed verbatim, the way `pictureNote`
+              // and `coverNote` are, because a second composer in the browser
+              // is how a customer starts being told about keys nobody asked
+              // for.
+              //
+              // DERIVED FROM `aSecrets`, never from the model's claim, so a
+              // connection that really needs no key can never produce a
+              // go-and-get-one instruction — that is the whole of "support
+              // connections needing no key", enforced rather than promised.
+              // READ OFF `aSpec`, the post-apply spec, exactly as `appliedFacts`
+              // reads its own api facts — and not off `merged`, which is the
+              // apply block's own local and is out of scope here. A first draft
+              // reached for it and the route threw `ReferenceError: merged is
+              // not defined` on every connection: caught by driving the route,
+              // which `node --check` and every source guard pass.
+              credentialNote: aApis.length
+                ? (credentialNote(
+                    ((aSpec && Array.isArray(aSpec.apis) ? aSpec.apis : []))
+                      .filter((a) => a && aApis.includes(a.name)), aSecrets) || undefined)
+                : undefined,
               provisioned: aProvisioned || undefined,
               // THE MIGRATION RECORD (stage 8): which job made what, and that
               // the page it was made for is live. Absent when the addon

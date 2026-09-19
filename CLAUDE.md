@@ -10236,15 +10236,32 @@ before the job that runs it, all before the page that shows them.
   not recorded at all.** The kit's hook is `useApi<T = unknown>`, so a page that
   reads a field either declares its own `T` — **a guess about a third party's
   JSON, from a model that has never seen a response** — or leaves it unstated.
-  **MEASURED with the real compiler** (`tsc --strict`, isolated from the repo's
-  own `@types` so the reading is about the code and not the environment): the
-  unstated read is **`TS2339: Property 'current' does not exist on type '{}'`,
-  exit 2**, and the same read against a declared `T` is clean. By this
-  platform's own rule the typecheck REPORTS and only `vite build` refuses, so
-  **that page SHIPS** with the error riding out as a `typeErrors` line and
-  nothing rendering where the data should be. Nothing in the design, the digest
-  or the rules describes the shape. **This is the one tier where the page
-  provably cannot be written correctly from what it is given.**
+  Nothing in the design, the digest or the rules describes the shape. **This is
+  the one tier where the page provably cannot be written correctly from what it
+  is given.**
+  **⚠ AND THE FIRST WRITE-UP OF THIS MADE `TS2339` THE EVIDENCE, WHICH IS THE
+  WRONG READING — corrected 2026-09-19 (owner: *"TS2339 proves a typing problem,
+  not blank rendering. Typed and untyped examples can emit identical JavaScript
+  and render the same response. The demonstrated gap is missing response-shape
+  information."*).** Both halves are right and both are now MEASURED rather than
+  restated.
+  **A TYPE ANNOTATION CHANGES NOTHING A VISITOR SEES.** Two `.tsx` pages
+  differing only in `useApi<Rates>(…)` against `useApi(…)`, built with the
+  template's own esbuild: **408 bytes each, sha256 `73a4782b79a186d0`,
+  byte-identical** — with both outputs asserted NON-EMPTY first, because
+  esbuild answers zero bytes on a bad flag and two empty files are vacuously
+  identical. TypeScript is erased; the call that reaches the browser is the
+  same call.
+  **AND AN INVENTED TYPE CANNOT CATCH A WRONG FIELD NAME, because the same
+  guess produced both.** A page that declares `type Rates = {rate: number}` and
+  reads `q.data?.rate` **typechecks CLEAN — `tsc --strict` exit 0** (isolated
+  `types: []`/`typeRoots: []`, so the reading is about the code and not the
+  environment). Against the answer the service really sends —
+  `{rates:{current:{gbp:0.79}}}` — that read is `undefined` and renders `""`.
+  So the page ships, the typecheck is silent, and the panel is empty: **the
+  failure is the field name, and the type is what stopped anybody noticing.**
+  `TS2339` is only what an UNSTATED read reports, and stating an invented type
+  silences it while the page renders exactly the same nothing.
 - **A job cannot run ONCE.** Measured off `JOB_ITEM`: `name · fn · everyMinutes
   · at`, required `["name","fn","everyMinutes"]`, minimum 15 — there is no
   run-once field, so *"remind me on the 3rd"* becomes a job that fires for ever.
@@ -10349,12 +10366,20 @@ stubbed seams: no fal, no container, no paid run, no deploy.**
 - **A real PostgreSQL** is not needed: `_meta.schema` is where a connection is
   stored and the route's fixture already drives it.
 
-**WHAT THIS CANNOT PROVE WITHOUT A PRESS**: that a real third-party service
-answers the declared shape. The honest ceiling here is *the page is written
-against a shape somebody stated*, and the measurement that would close it is a
-probe call with the owner's own key — which cannot run on the change that
-creates the connection, because the key is added afterwards. Say that in the
-entry rather than letting a green guard imply it.
+**A DECLARED SHAPE AND A VERIFIED PROVIDER RESPONSE STAY TWO CLAIMS.** Every
+acceptance check above establishes the first: the page is written against a
+shape somebody stated, and it really renders that shape's values. None of them
+establishes that the service the owner names sends it.
+**⚠ AND "THAT NEEDS THE OWNER'S KEY" IS FALSE AS A GENERAL RULE — corrected
+2026-09-19 (owner: *"Real-service verification does not universally require an
+owner key; public APIs exist."*).** The first write-up said the closing
+measurement is a probe with the owner's own credential and therefore cannot run
+on the change that creates the connection. That is true only of a connection
+that HAS a credential. A keyless endpoint — and the new `credential` field
+exists precisely to let a declaration say it needs none — can be read by
+anybody, so the shape claim is checkable without any secret at all. What it
+still costs is a real outbound call to a third party, which is the owner's
+decision rather than a session's, and is why no such call is made here.
 
 
 ### …AND THE TWO THAT FINISHED THEM (2026-09-19)

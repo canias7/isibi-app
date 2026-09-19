@@ -156,6 +156,7 @@ import { MAX_FN_BODY } from "../site-schema.mjs";
 // bugs have been paid for reading the preset name instead).
 import { resolveAccess, ACCESS_PRESETS, READ_LEVELS, WRITE_LEVELS } from "../site-access.mjs";
 import { MAX_API_BODY } from "../site-apis.mjs";
+import { cleanShape, cleanParams, cleanCredential, apiDetailLines } from "../site-api-shape.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** The picked model, never a hardcoded one — the rule `site-lanes.mjs` states at length. */
@@ -2207,7 +2208,26 @@ export function cleanAdd(kind, value, site) {
         const method = str(v.method, 4).toUpperCase() === "POST" ? "POST" : "GET";
         const headers = v.headers && typeof v.headers === "object" && !Array.isArray(v.headers)
           ? Object.fromEntries(Object.entries(v.headers).filter(([k, x]) => typeof k === "string" && typeof x === "string").slice(0, 12)) : undefined;
-        const params = (Array.isArray(v.params) ? v.params : []).filter((p) => typeof p === "string" && TABLE_NAME.test(p)).slice(0, 12);
+        // THE SAME WALK THE ENGINE DOES, so the names this refusal reasons
+        // about and the names `normalizeApi` will store cannot differ. It took
+        // strings only, which quietly dropped every parameter a designer
+        // described rather than named — the metadata arriving and being binned
+        // one hop after it was written, which is this repository's own
+        // `readAddAnswer` finding in the tier below it.
+        const pinfo = cleanParams(v.params);
+        const params = pinfo.names;
+        // A SKETCH THAT CANNOT BE READ REFUSES THE CONNECTION, where the engine
+        // merely drops it. The difference is who is listening: here a person
+        // asked for this in this message and can be told to say it again, and
+        // the alternative is a page written blind against a service nobody
+        // described — which is the exact defect this field exists to close. A
+        // connection that declares NO sketch is not refused: that is every
+        // connection made before today and an honest answer for a service the
+        // designer does not know.
+        const shape = cleanShape(v.returns);
+        if (shape && !shape.ok) return { ok: false, why: shape.why };
+        const cred = cleanCredential(v.credential);
+        if (cred && !cred.ok) return { ok: false, why: cred.why };
         const cacheSeconds = Number.isFinite(Number(v.cacheSeconds)) ? Math.max(0, Math.min(3600, Math.round(Number(v.cacheSeconds)))) : undefined;
         // THE SAME SILENT SLICE, ONE TIER OVER, AND A GET CANNOT SEE IT.
         // `normalizeApi` cuts a POST body at `MAX_API_BODY` and a GET's body
@@ -2220,7 +2240,11 @@ export function cleanAdd(kind, value, site) {
         if (rawBody.length > MAX_API_BODY) return { ok: false, why: "body-too-long" };
         const exists = (Array.isArray(s.apis) ? s.apis : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         ctx.apis.push(name);
-        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(rawBody ? { body: rawBody } : {}), params, ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
+        return { ok: true, value: { name, url, method, ...(headers ? { headers } : {}), ...(rawBody ? { body: rawBody } : {}), params,
+          ...(pinfo.info ? { paramInfo: pinfo.info } : {}),
+          ...(shape && shape.ok ? { returns: shape.shape } : {}),
+          ...(cred && cred.ok ? { credential: cred.credential } : {}),
+          ...(cacheSeconds !== undefined ? { cacheSeconds } : {}), exists } };
       }
       case "job": {
         const name = str(v.name, 63).toLowerCase();
@@ -2382,6 +2406,21 @@ export function addRefusal(why, kind) {
     case "no-function": return "I couldn't turn that into a database function — say what it should look up, change or receive, and I'll write it.";
     case "no-api": return "I couldn't tell which outside service to connect to — name the service and what the page should read from it.";
     case "bad-url": return "An outside connection has to be an https address — that one isn't. Nothing was changed.";
+    // A SKETCH THAT CANNOT BE READ IS REFUSED RATHER THAN DROPPED, and the
+    // sentence says what to do about it. The alternative — keep the connection
+    // and lose the description — is a page written blind against a service
+    // nobody described, which is the defect this field exists to close.
+    //
+    // ONE SENTENCE FOR THE FIVE MALFORMED-SKETCH CASES, deliberately. They are
+    // one mistake from where the customer stands ("the answer wasn't described
+    // in a way I could use") and five different sentences about nesting depth
+    // and array arity would be this platform explaining its own parser. The
+    // developer record keeps the reason; the customer gets the action.
+    case "shape-leaf": case "shape-array": case "shape-empty": case "shape-key":
+    case "shape-too-big": case "shape-too-deep":
+      return "I couldn't read the description of what that service sends back, so I've left the site as it was — ask again and say roughly what the answer looks like, or just name the service and I'll connect it without it.";
+    case "credential-url": return "The sign-up page for that service has to be an https address — that one wasn't. Nothing was changed.";
+    case "credential-shape": return "I couldn't read where the key for that service comes from — ask again and name the service, or leave it out and I'll connect it anyway.";
     case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
     case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
     case "bad-time": return "A time of day only fits a job that runs once a day or less often — say how often it should run, or drop the time and it runs on the interval. Nothing was changed.";
@@ -2505,6 +2544,14 @@ export function addDirective(kind, value, site) {
       out.push("- `" + v.name + "(" + params + ")` is served by the platform, which holds the key and makes the call. " +
         "Read it from the page that needs it with `useApi(\"" + v.name + "\", { " + params + " })` and write the page against " +
         "the service's real answer shape; nothing else on that page moves.");
+      // THE SAME FACTS THE PAGE CATALOGUE PRINTS, from the same function. The
+      // sentence above told the page writer to write against "the service's
+      // real answer shape" and then described that shape nowhere — an
+      // instruction it had no way to follow. Empty for a connection that
+      // declared none of it, so a directive for a connection made the old way
+      // is byte for byte what it was.
+      for (const line of apiDetailLines(v)) out.push("  - " + line);
+      out.push("  - It crosses the internet, so draw all three states: waiting, unreachable-or-not-configured-yet, and the answer.");
       break;
     }
     case "job": {

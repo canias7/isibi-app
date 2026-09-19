@@ -359,7 +359,19 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // budget constant and nothing else, so it costs no dependency, and it
     // carries VOCABULARY and no path's wording — the property this test is
     // really about.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
+    // `../site-api-shape.mjs` (2026-09-19) is dependency-free and is the
+    // platform's single answer to "what does a connection say about itself" —
+    // `cleanShape`, `cleanParams`, `cleanCredential` and `apiDetailLines`. The
+    // `api` kind's tool offers a response sketch, typed parameters and
+    // credential guidance, and this step has to CLEAN all three before storing
+    // them; the engine's own `normalizeApi` asks the same three functions on
+    // its way to `_meta.schema`. A second cleaner here would be two ideas of
+    // what a valid sketch is, deciding different things about the same
+    // declaration on the two paths it takes — the "two copies of one thing"
+    // trap the two body caps above are imported to avoid. It carries
+    // VOCABULARY and no path's wording, which is the property this test is
+    // really about.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }

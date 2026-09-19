@@ -783,6 +783,7 @@ import { MANAGED_COLUMNS, canReadAccess, canWriteAccess, whyNotReadable, needsMe
 // this file would drift into a digest promising an upload the route refuses.
 // site-uploads.mjs imports only site-access.mjs, so this stays dependency-free.
 import { acceptsVisitorUploads } from "../site-uploads.mjs";
+import { apiDetailLines } from "../site-api-shape.mjs";
 
 // DELIBERATELY NOT CUT WITH THE PLAN'S CAP (2026-08-28, when site-plan's
 // MAX_PAGES fell 5 -> 1). This one bounds what the WRITER returns, and a full
@@ -1856,13 +1857,32 @@ export function schemaDigest(spec) {
   // repo's signature failure and the reason `apis` is stated here beside the
   // functions rather than left for the model to discover.
   const apis = (spec && Array.isArray(spec.apis) ? spec.apis : []).filter((a) => a && a.name);
+  // WHAT EACH ONE ANSWERS, which is the half a page cannot be written without
+  // (2026-09-19). Naming the connection made the tier reachable; it did not
+  // make it renderable — `useApi<T = unknown>` means a page reading a field
+  // invents both the type and the field names from one guess, so the type
+  // agrees with the wrong name and the compiler is silent. `apiDetailLines` is
+  // the one definition of those facts, shared with the addon directive, and it
+  // answers NOTHING for a connection that declared none of them: every
+  // connection stored before today prints exactly the line it printed before.
   const apiLines = apis.length
     ? "\n\nOUTSIDE DATA this site can read — call these by NAME with useApi(name, { params }), and NO others:\n" +
       apis.map((a) => {
         const ps = (Array.isArray(a.params) ? a.params : []).join(", ");
+        const detail = apiDetailLines(a).map((l) => "\n      " + l).join("");
         return "  " + a.name + "(" + ps + ")" +
-          " — the platform holds the key and does the call; the page only gets the answer back as JSON.";
-      }).join("\n")
+          " — the platform holds the key and does the call; the page only gets the answer back as JSON." + detail;
+      }).join("\n") +
+      // A THIRD-PARTY READ IS SLOW, CAN BE UNCONFIGURED AND CAN FAIL, and no
+      // rule anywhere said so — measured, the word "loading" did not occur in
+      // this file at all. A database read is local and fast enough that a page
+      // ignoring the wait looks fine; this one crosses the internet, answers
+      // 503 until the owner's key is in the vault, and answers 502/504 when the
+      // service is down. A page with no branch for those renders a blank where
+      // the data should be and gives the visitor nothing to read.
+      "\n  EVERY ONE OF THESE HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE: `isLoading` while it waits, " +
+      "`error` when the service is unreachable or this site's key is not in the vault yet, and the answer itself. " +
+      "Say something human in the first two — never a blank space where the data goes."
     : "";
   // NOW the table half may be empty, and it is said plainly with whatever the
   // other two tiers came to — never silently instead of them.

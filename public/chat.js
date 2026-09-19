@@ -9621,6 +9621,14 @@ function addonReplyText(a) {
   if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {
     out += ' To switch it on, add ' + a.needsSecrets.join(', ') + ' under Cloud → Secrets.';
   }
+  // AND WHERE THAT KEY COMES FROM, which the line above never said: it gives a
+  // destination and a bare name, so the owner is told to paste RATES_KEY
+  // somewhere with no way to find out what it is a key for. Printed VERBATIM —
+  // `credentialNote` is the server's own composer and it reads the declaration
+  // itself, so a connection needing no key says so and one that does names the
+  // service. A second composition here is how this line starts describing keys
+  // the connection never declared.
+  if (a.credentialNote) out += ' ' + a.credentialNote;
   // WHAT THIS CHANGE BOUGHT, IN THE SERVER'S OWN WORDS, BEFORE the sentence
   // about what is still empty — they are two different facts and the one the
   // customer asked for comes first. Printed VERBATIM: `imageNote` is the build

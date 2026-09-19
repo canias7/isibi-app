@@ -459,7 +459,61 @@ export const API_ITEM = {
         "expires: an action would run sometimes and not others. Outbound actions belong in a database function." },
     headers: { type: "object", description: "e.g. {\"Authorization\":\"Bearer {{RATES_KEY}}\"}" },
     body: { type: "string", description: "POST only. The request body, with the same {{SECRET}} and {{param.x}} placeholders." },
-    params: { type: "array", items: { type: "string" }, description: "Names a page may pass. Anything else is dropped." },
+    // WHAT EACH BLANK IS, not merely what it is called. `params` was an array
+    // of bare strings, so the catalogue the page writer reads said
+    // `weather(city)` and nothing about whether `city` may be left out, what
+    // kind of value it takes, or what it means. A page that omits a parameter
+    // the service requires used to send the request anyway with the blank
+    // substituted empty — and plenty of services answer 200 to that with a
+    // default, so the page renders something plausible and wrong.
+    //
+    // A BARE STRING IS STILL ACCEPTED, because every connection stored before
+    // today is a list of them and they go on working exactly as they did.
+    params: {
+      type: "array",
+      description: "Every blank a page may fill in — each {{param.x}} in the url or body. A plain string still works " +
+        "and says only the name; an object says what the page must know. Anything a page sends that is not named here is dropped.",
+      items: {
+        type: "object",
+        required: ["name"],
+        properties: {
+          name: { type: "string", description: "lowercase, matching the {{param.x}} it fills, e.g. city" },
+          type: { type: "string", enum: ["string", "number", "boolean"], description: "What kind of value the service expects." },
+          required: { type: "boolean", description:
+            "true when the service cannot answer without it. A page that leaves a required one out is refused BEFORE the call, " +
+            "so the owner is not billed for a request that could never work. Leave it out for a parameter that is optional." },
+          description: { type: "string", description: "One line: what it is, in the words a page would use. e.g. the town or postcode to look up" },
+        },
+      },
+    },
+    // WHAT THE ANSWER LOOKS LIKE — the largest gap in this tier and the reason
+    // the whole thing could be applied, stored, reported as added and still
+    // render nothing. The page's hook is `useApi<T = unknown>`, so without this
+    // the page writer invents both the type AND the field names it reads, from
+    // the same guess — which means the type agrees with the wrong field name
+    // and the compiler says nothing. Measured: such a page typechecks clean and
+    // renders an empty string.
+    returns: { type: "object", description:
+      "OPTIONAL but write it whenever you know the service's answer: a SKETCH of the JSON it sends back, with the same keys " +
+      "nested the same way, and every leaf replaced by what KIND of value it is — \"string\", \"number\", \"boolean\", or " +
+      "\"unknown\" when you genuinely do not know. A list is written as a one-entry array of the entry's own sketch. " +
+      "e.g. {\"current\":{\"temp_c\":\"number\",\"condition\":{\"text\":\"string\"}},\"forecast\":[{\"day\":\"string\",\"high\":\"number\"}]}. " +
+      "NEVER put a real value in it (\"21.5\", \"sunny\") — that is a sample, and a page written against a sample hardcodes today's " +
+      "answer. This is what lets the page read the right field names; leave it out only if you truly cannot say." },
+    // WHERE THE KEY COMES FROM. The platform already tells the owner where to
+    // PUT it — the reply names the secret and says Cloud → Secrets — and
+    // nothing anywhere said which service it belongs to or where to sign up, so
+    // a bare `RATES_KEY` arrived with no way to act on it.
+    credential: { type: "object", description:
+      "Where the owner gets the key, when the url or headers carry a {{SECRET}}. LEAVE IT OUT ENTIRELY for a service that " +
+      "needs no key — plenty of public endpoints do not, and the platform works that out from the declaration itself rather " +
+      "than from this field, so an empty one costs nothing and a wrong one would send somebody to sign up for nothing.",
+      properties: {
+        service: { type: "string", description: "The service's own name, as the owner would recognise it. e.g. WeatherAPI" },
+        url: { type: "string", description: "https only. The page the owner signs up or finds the key on." },
+        note: { type: "string", description: "One line about the plan, if it matters. e.g. the free tier covers 1,000 calls a month" },
+      },
+    },
     cacheSeconds: { type: "integer", description: "0-3600. How long one answer stays good. Every uncached read costs the owner." },
   },
 };
