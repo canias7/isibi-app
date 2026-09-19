@@ -14570,3 +14570,28 @@ one-time job before rolling back, or it starts firing monthly forever.
 
 CI 2798 green on the pushed tip. Ready for your merge decision — nothing merged,
 deployed or spent.
+
+## Merged and live — deploy 2135 (2026-09-19)
+
+Green in 2m55s. Main is now `a23450bb`, and **that is the SHA to put in
+`expect_deploy`** — read off the deploy run itself.
+
+Everything I predicted before the push came back matching:
+
+- The container image id I computed beforehand (`1bb277000510b055`) is the one
+  the deploy built, and the log's own diff shows it replacing the old one. **The
+  container rolled at 22:03:00Z**, so the 15–20 minute settle ran to about
+  22:18–22:23Z.
+- The served `chat.js` is **byte-identical to the merged tree** — 719,958 bytes,
+  exactly the number written down before the merge. The word `onceWhen` went
+  from 0 to 7 in what the platform serves, which is the one-time job wording
+  going live.
+- **Nothing a visitor sees changed**: all seven sites the same byte-for-byte,
+  both repairbench pages the same on the same version, both counts still 3.
+  Baseline taken 25 seconds before the push, compared four minutes after.
+
+One thing I can't read from here and won't pretend to: the Worker's own deploy
+SHA, because that route needs your login. The byte-identical chat.js is the
+strongest check available instead.
+
+Nothing spent. The live test is still waiting on your separate go-ahead.

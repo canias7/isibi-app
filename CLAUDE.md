@@ -14342,3 +14342,62 @@ makes it conflict.
 
 **READY FOR THE MERGE DECISION. NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** —
 this round authorizes none of the three.
+
+### MERGED AND LIVE — deploy 2135 (2026-09-19)
+
+Owner: *"I authorize merging the reviewed claude/help-needed-ehlwlj branch,
+currently a23450bb, and deploying it once the required CI checks pass."*
+
+**Deploy 2135, 22:00:11→22:03:06Z, green in 2m55s**, on `main` `50034567` →
+**`a23450bb`** (fast-forward, 55 commits, 69 files, +19,830/−390).
+**`expect_deploy` IS `a23450bbacb3f04c957e441238bc227f69c79187`** — read off the
+deploy run's own `head_sha`, because `DEPLOY_ID` is `github.sha` and the merge
+strategy only decides WHICH commit that is.
+
+- **THE PRE-FLIGHT WAS THE RECORDED ONE AND IT PAID.** `unit tests` **2799**
+  green on the exact tip (`# tests 6968 / # pass 6964 / # fail 0 / # skipped 4`,
+  local `6968 / 6968 / 0 / 0`), and **the in-flight check asked GitHub what was
+  RUNNING rather than what had LANDED** — nothing in flight on any branch, which
+  is the September near-miss's own lesson (a paid run is only visible as a
+  RUNNING action; main's history arrives at the commit, minutes too late).
+- **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED ON BOTH ENDS
+  — the ninth cross-check of that technique, in its strongest form.**
+  `origin/main` → **`3b93a9cae43bac41`** (183 inputs) and the candidate →
+  **`1bb277000510b055`** (184 inputs), both hashed before anything moved; the
+  log's own diff then reads `- "image": …3b93a9cae43bac4*` / `+ "image":
+  …bb2770005*0b055`, `EDIT isibi-app-sitebuildcontainer` at **22:02:58.00Z**,
+  `SUCCESS Modified application` at **22:03:00.03Z**, `Applied changes`. **The
+  container ROLLED — read out of the diff, never inferred from the step's
+  duration — so the 15–20 minute hold ran to ~22:18–22:23Z.** (GitHub masks
+  digit runs in the log, hence the `*`; every unmasked character matches.)
+- **WORKER**: `Uploaded isibi-app (4.95 sec)`, `Worker Startup Time: 25 ms`,
+  `Total Upload: 3632.37 KiB / gzip: 983.44 KiB`, `Current Version ID:
+  e7cea694-cae5-40b3-8e24-…`.
+- **THE SERVED-FILE CHECK IS AVAILABLE AND IT LANDED ON THE PREDICTED VALUE.**
+  `/chat.js` is **byte-identical to the merged candidate — 719,958 bytes, sha256
+  `78e18303077d2381`** (707,785 / `4b3e8c869af12519` before), which is exactly
+  the figure measured and written down BEFORE the merge rather than read off
+  afterwards. **The cheap discriminator holds: `onceWhen` 0 → 7 and
+  `jobOnceNote` 0 → 2**, with `agAutoForm` 2 → 2 as the control that the probe
+  is reading a real file. **So the one-time wording is now in the bytes the
+  platform serves** — the claim `browserReply` alone could never make, since it
+  reads the CHECKED-OUT file.
+- **THE WORKER'S OWN DEPLOY SHA CANNOT BE READ FROM A SESSION**, said rather
+  than glossed: both routes that carry it are owner-gated. What stands in is the
+  served-file identity above plus the gate discriminator, measured after:
+  `/api/site/build-health` **401**, `/api/site/runtime` **401**,
+  `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**.
+- **REGRESSION: BYTE-IDENTICAL, with the baseline taken 25 seconds BEFORE the
+  push** (21:59:41Z) **and compared at 22:04:03Z** — the practice the 2124 round
+  missed, not repeated. Seven sites 200 at the same sizes (repairbench-1 46,357 ·
+  fretwork-1 58,551 · ashgrove-1 31,120 · northgroup-5 1,641 · washhouse-1
+  52,404 · ben-crowe-guitar 52,060 · fold-lane-bakery 12,098), and the
+  interactive half because a 200 is an availability check and never a health
+  check: `/status` **200/6,272** and `/booking-check` **200/6,390** on the same
+  `x-site-version 01789551373761-47doj7`, with `count_booked_repairs` and
+  `count_existing_bookings` both **200 answering 3**.
+- **The merge started exactly one workflow** — deploy 2135 and nothing else,
+  asked of the API by sha, which is the merge-trigger census holding in the live.
+
+**NOT DISPATCHED. No paid run, no Run now, no scheduled job touched, and no
+implementation expanded** — the live one-time-job test is a separate approval.
