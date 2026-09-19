@@ -14401,3 +14401,150 @@ strategy only decides WHICH commit that is.
 
 **NOT DISPATCHED. No paid run, no Run now, no scheduled job touched, and no
 implementation expanded** — the live one-time-job test is a separate approval.
+
+### RUN 52: THE JOB WAS REGISTERED AND THE REPORT DENIED IT (2026-09-19)
+
+The owner's press. `lane sweep` run **52**, green in 4m24s, **cost 2 — balance
+121 → 119**, routed `["job"]` on `repairbench-1`. **The pre-flight cleared both
+halves before a credit moved** (`worker deploy: a23450bb…` [build-health 200],
+`container image (cold start): 1bb277000510b055`, the runtime route agreeing,
+`queued work is on, and the code under test is the code answering`), the ask
+collapsed the case list to one (`cases: ask`), and `SWEEP_RUN_JOB` was blank —
+`did not run any job now: not asked for`.
+
+**PAGELESS PROVEN LIVE RATHER THAN DRIVEN**: build UNMOVED
+(`mu3wolgr-eqt2r5` → the same), pages `[]`, routes 4→4, codes 0→0, photographs
+0→0, home text 5,238→5,238. **First measured pageless cost is 2**, against run
+50's 3, run 49's 12 and run 47's 13.
+
+**THE BASELINE, which is `jobsAfter` and not `jobsBefore`** — the row is
+registered BY the run, so the before-read is the comparison and the after-read
+is what a later observation is measured against:
+
+| | |
+|---|---|
+| name · fn | `count_bookings_once` · `nightly_booking_count` — **it REUSED the stored internal function** |
+| on · at · tz | `2026-10-03` · `09:00` · `Europe/London` |
+| onState · lastRun · lastResult | `scheduled` · never · (none) |
+| stored everyMinutes | 44,640, the forced ceiling; **`on` governs** |
+
+The recurring row is unchanged across the pair: `nightly_booking_count` at 23:00
+Europe/London every 1440m, `lastRun 2026-09-19T22:04:24.736+00:00`, `lastResult
+"Done — counted 3 bookings."` — 23:04 London, four minutes past its occurrence,
+with nothing in this session pressing anything. **Consistent with scheduled
+execution and not proof of it**, which is the one standard throughout: the row
+records the time and the result and nothing about what fired it.
+
+**AND THE HARNESS READER PRINTED IT AS BUILT**: `ONCE on 2026-10-03 at 09:00
+Europe/London — scheduled (stored everyMinutes 44640, the forced ceiling; `on`
+governs)`.
+
+#### ⚠ THE DEFECT: two readers of one fact, and only the wrong one reached the reply
+
+The customer's screen, composed by the browser's own `addonAnswer`:
+
+> ✅ Done — scheduled count_bookings_once (once on 3 October 2026 at 09:00
+> (Europe/London))… **And this one is waiting on another part of the same change
+> that didn't work: … — the count_bookings_once it needs could not be created**
+
+about the job it had just said it scheduled. Coverage `{covered: 4, unverified:
+2, blocked: 2}`, both blocked entries naming the job.
+
+**THE CAUSE.** `applySiteSchema` persists a function as `{name, args, returns,
+internal}` with **NO BODY**; `normalizeSchema` drops a bodiless function and the
+job goes behind it. Measured through the real engine:
+
+    job alone (no function at all)  -> fns []                jobs []
+    job + STORED fn (no body)       -> fns []                jobs []   <- here
+    job + fn WITH body, internal    -> fns ["nightly_count"] jobs ["count_once"]
+    job + fn with body, PUBLIC      -> fns ["nightly_count"] jobs []
+
+So the audit (in the kinds loop) called the job `unbuilt` and marked the whole
+`job` step failed, while the apply (three hundred lines later) re-attached
+exactly such a job and registered it. **The context's own comment already had
+the right argument** — *"a job alone normalises to nothing; in the proposal its
+function is there and it survives"* — and it was true of a function designed in
+the same message, which carries a body, and false of a stored one. The reasoning
+stopped one case short.
+
+**IT WAS NEVER ABOUT `on`.** A recurring job on a stored function took the same
+path; both are driven.
+
+**FIXED AT THE SOURCE, NOT AFTER THE FACT.** `withJobDeps` gives a declared
+internal function with nothing to normalise a stand-in body, so the engine's own
+cross-reference resolves; `storedJobFns` is the ONE answer to *"which functions
+may a job name"* and the apply reads it too, so the two cannot drift apart again
+by editing either one. Neither the item-level `unbuilt` record nor the
+step-level `aFailedKinds` is ever wrongly written — narrower than clearing them
+afterwards, and it leaves one rule instead of a rule plus an exception.
+
+- **THE REPAIRED CONTEXT IS NEVER APPLIED.** Re-sending a stored function would
+  `CREATE OR REPLACE` the live one with the stand-in, which is the recorded
+  reason the engine drops bodiless functions in the first place — and it still
+  does, everywhere but here. The stand-in is deliberately not runnable SQL, so a
+  path that did apply it would fail loudly rather than quietly install a no-op.
+- **SCOPED TO THE JOB TIER BY ITS CALLER.** A table's `confirm.fn`/`sms.fn`
+  cross-reference the same map and are nulled for a stored function — and the
+  APPLY nulls them too, so the audit is already telling the truth there.
+  Repairing them would make the audit disagree with the apply in the other
+  direction, which is this defect wearing its own fix.
+- **THE GENUINE FAILURES ARE UNTOUCHED AND EACH IS ASSERTED.** A missing
+  function and a PUBLIC stored function are refused **at the cleaner** — one hop
+  earlier than the audit, `no-job-fn`, cost 0, nothing registered, a sentence a
+  customer can act on — so they never reach the widened context at all; a job
+  whose NEW function the database refused is blocked by name; a registration
+  that does not land is reported.
+- **WHAT THE CUSTOMER HEARS NOW**: *"✅ Done — scheduled count_once… Scheduled as
+  you asked: the booking count runs on its own. Automatic running hasn't been
+  verified from here yet, so have a look after the first one is due."* The job
+  clause, which is more specific than the general can't-confirm one and is true
+  of every job this platform has registered. **`checked` stays empty and
+  `delivered` stays 0.**
+
+**Guards**: `addon-route` **176 → 179** (one-time reuse and recurring reuse,
+each asserting registration, the stored coverage and the browser-composed reply;
+plus the four genuine-failure controls) and `site-schema-audit` **25 → 26** (the
+contract, driven where the cleaner cannot mask it). The fixture gains
+`jobsFail`, the one job failure the audit structurally cannot see because it
+happens after every validation has passed.
+
+**RED-CHECKED**: with the audit half reverted, both reuse cases fail with
+`state: "blocked"` — run 52's exact state — and **every control stays green on
+both trees**, which is what makes them controls rather than second copies.
+
+**Two older guards re-anchored, not appeased, and both were SPELLING ANCHORS on
+lines this change moved** — `site-add`'s pin on the inline re-attach filter, and
+`requirement-coverage`'s pin on the audit call's third argument, in a guard
+whose own comments record two earlier instances of that same trap. Each asserts
+the property now, and both are strictly stronger: the re-attach and the audit
+must read the SAME rule.
+
+**Sweep: 13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/job-stored-fn.json`, over `worker.js` and
+`site-schema.mjs`, against seven test files). The reported defect is a mutant in
+it, as are the repair given to every tier, the apply re-attaching everything or
+nothing, and the case fold. **Pass 1 read 10/3 and NOT ONE SURVIVOR WAS THE
+PRODUCT'S** — two were **ABSORBED BY THE ENGINE**, measured rather than read
+(`PUBLIC + stand-in body → jobs []`, `NAMELESS + stand-in body → fns []`), so
+asserting the job list proves nothing about `withJobDeps`' own scope tests; the
+answer was the recorded one — *a wall nobody can drive is a wall nobody is
+guarding* — and the reader is the function's own OUTPUT, a public or nameless
+declaration coming back with no body, with a stored internal one as the control.
+The third was a real gap: `normalizeJob` lowercases the function a job names, so
+a stored `Nightly_Count` matched nothing and every fixture was already lowercase.
+
+**⚠ AND THE SPEC'S LABELS WERE ALL `undefined` ON THE FIRST RUN**, because the
+runner reads `m.label` and the spec said `note` — so a tally with three
+survivors could not say WHICH three, and they had to be identified by position.
+The controls were fine (`m.control` is the right key), which is why the two
+`ok` lines printed correctly and nothing looked wrong. *The sibling of the
+recorded "a control must be DECLARED, not merely labelled".*
+
+**Suite 6,972** — 6,968 + 3 (`addon-route`) + 1 (`site-schema-audit`), and the
+arithmetic closes exactly.
+
+**NOT MERGED AND NOT DEPLOYED. No paid run, no Run now, and
+`count_bookings_once` and the recurring job are untouched** — the owner's
+instruction. **AUTOMATIC EXECUTION REMAINS UNVERIFIED**: run 52 establishes
+registration and stored-function reuse, and a real scheduled tick is the only
+thing that settles the rest.

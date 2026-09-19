@@ -14595,3 +14595,54 @@ SHA, because that route needs your login. The byte-identical chat.js is the
 strongest check available instead.
 
 Nothing spent. The live test is still waiting on your separate go-ahead.
+
+---
+
+## Run 52 — the job was registered, and the report said it wasn't (2026-09-19)
+
+Your press. Green in 4m24s, **2 credits** (121 → 119), and it routed `job` only
+— no page, no compile, the site's build id unmoved. That's the cheapest run
+we've measured; the next cheapest was 3.
+
+**It did the right thing.** It reused `nightly_booking_count` — the function the
+site already had — rather than making a second one, which is what you said to
+accept. The job is on the site: `count_bookings_once`, 3 October 2026 at 09:00
+Europe/London, `scheduled`, never run. Your nightly job is untouched and still
+reading 3 bookings.
+
+**And then it told you the job couldn't be created.** Same reply, four sentences
+apart from "✅ Done — scheduled count_bookings_once".
+
+The cause was two bits of the code answering the same question differently. When
+we save a function to the database we keep its name and shape but not its body —
+the body lives in Postgres. The checker that decides "will this job survive?"
+sees a function with no body, assumes it isn't real, and writes the job off. The
+part that actually saves the job knows better and saves it anyway. Neither knew
+about the other.
+
+**Fixed so there's only one answer.** The checker is now told the same thing the
+saver knows, and both read it from the same place, so they can't drift apart
+again by somebody editing one of them. I did it that way rather than "clear the
+error afterwards" because that leaves you with a rule plus an exception, and the
+exception is what rots.
+
+**The failures that are real still show.** A job pointing at a function that
+doesn't exist, or at one a visitor could call (which would hand out everyone's
+details), is still refused by name and costs nothing. A job whose new function
+the database rejected is still blocked. A schedule that fails to save is still
+reported. Each of those has its own test now, on a site that ALSO has a
+reusable function — which is the exact situation the fix widened.
+
+**What you'll read now**: *"Scheduled as you asked: the booking count runs on
+its own. Automatic running hasn't been verified from here yet, so have a look
+after the first one is due."* Honest in both directions — it's set up, and
+nobody has watched it fire.
+
+**Still not proven: that it fires on its own.** Your nightly job's timestamp
+sits four minutes past its 23:00 slot, which is what a working cron looks like,
+but the row records the time and the result and nothing about what wrote it —
+so it's consistent with the schedule working and isn't proof. Only 3 October
+settles that one, and nothing here touched `count_bookings_once` or pressed Run
+now.
+
+Suite 6,972, all green. Sweep 13/13. Not merged, not deployed — waiting on you.
