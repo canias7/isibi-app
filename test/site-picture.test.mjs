@@ -11,6 +11,7 @@ import {
   PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
   applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace, newEmptySlots,
+  listFrames, newListFrames, MAX_LIST_FRAMES,
 } from "../builder/site-picture.mjs";
 
 const HOME = {
@@ -598,4 +599,174 @@ test("newEmptySlots counts the frames a change added, and only those", () => {
     "a file that left the AFTER was counted, so the addon route's `|| aPartsRead.parts` is no longer inert");
   assert.equal(newEmptySlots([PG("src/routes/gallery.tsx", EMPTY("a"))], [PG("src/routes/index.tsx", FULL("c"))]), 0,
     "a file absent from the AFTER contributed, so the addon route's AFTER expression now changes the answer");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A PICTURE A PAGE DRAWS FROM A LIST IN ITS OWN SOURCE (2026-09-19)
+//
+// Owner, after run 51: *"Fix the mismatch between the gallery's seven empty
+// frames and the reply's 'one photo space.'"*
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The two kit components that take one — read off their own prop types. */
+const KIT_LIST = (items) =>
+  '<Gallery className="mt-10" items={[\n' + items.map((i) => "    " + i + ",\n").join("") + "  ]} />";
+
+test("a list of pictures is counted, and an element is left to imageSlots", () => {
+  // THE REAL SHAPE, written back from the bundle run 51 published: one
+  // addressable `<SafeImage src="">` and a six-entry `Gallery`. `1 + 6 = 7` is
+  // what a browser measured on that page (`role="img"` ×7, `<img>` ×0).
+  const page = {
+    path: "gallery.tsx",
+    source: 'function Page(){ return (<main>\n'
+      + '  <SafeImage src="" alt="Harbour Loaf interior in warm morning light" ratio="16/9" />\n'
+      + KIT_LIST([
+        '{ alt: "A crusty country loaf on the cooling rack", caption: "Country loaf", fallbackSeed: "loaf-country" }',
+        '{ alt: "Seeded sourdough on a wooden board", caption: "Seeded sourdough" }',
+        '{ alt: "Flour-dusted bannetons", caption: "Bannetons" }',
+        '{ alt: "A dark rye loaf", caption: "Dark rye" }',
+        '{ alt: "Batards stacked after the bake", caption: "Batards" }',
+        '{ alt: "The brick oven", caption: "The oven" }',
+      ])
+      + "\n</main>) }",
+  };
+  const frames = listFrames([page]);
+  assert.equal(frames.length, 6, "the list entries were not read: " + JSON.stringify(frames.map((f) => f.alt)));
+  assert.ok(frames.every((f) => f.empty), "a list entry with no picture was not read as empty");
+  assert.equal(frames[0].page, "gallery.tsx", "a frame does not carry the page it is on");
+  // THE DIVISION IS THE POINT: `imageSlots` sees the element and NOT the list,
+  // which is its contract (a `src` span to replace and a literal `alt` to match)
+  // and is why this reader exists rather than that one being widened.
+  assert.equal(imageSlots([page]).length, 1, "imageSlots reached into the list");
+  assert.equal(newEmptySlots([], [page]) + newListFrames([], [page]), 7, "1 + 6 is not 7");
+});
+
+test("a list entry that really carries a picture is not an empty frame", () => {
+  // THE OTHER DIRECTION, and it has NO case in the 100-site corpus: measured,
+  // all 320 list frames there are empty (254 `src: null`, 66 with no key), so
+  // without this the `empty` test is a branch nothing drives. (254 of the 320
+  // are `src: null` and 66 carry no key at all; both are the same empty frame.)
+  const page = {
+    path: "gallery.tsx",
+    source: KIT_LIST([
+      '{ src: "/u/fw/abc.jpg", alt: "The oven", caption: "The oven" }',
+      '{ src: null, alt: "Bannetons", caption: "Bannetons" }',
+      '{ alt: "Dark rye", caption: "Dark rye" }',
+    ]),
+  };
+  const frames = listFrames([page]);
+  assert.equal(frames.length, 3);
+  assert.deepEqual(frames.map((f) => f.empty), [false, true, true],
+    "`src: null` and a missing key are the same empty frame; a real url is not");
+  assert.equal(newListFrames([], [page]), 2);
+});
+
+test("a computed alt is a row, not a picture somebody wrote — and its count is unknowable", () => {
+  // MEASURED over the corpus: exactly ONE page of 324 carries this, and it is
+  // `items={HOUSES.filter(...).map((x) => ({ alt: `${x.name}, ${x.where}` }))}`
+  // — a list whose LENGTH is decided at runtime, so no reader of the source can
+  // say how many frames it draws. Refusing it is the same rule `imageSlots`
+  // states at its head, and it is the one place this count is a floor rather
+  // than the truth; the limit is stated rather than papered over.
+  const page = {
+    path: "houses.tsx",
+    source: "<Gallery items={HOUSES.map((x) => ({ alt: `${x.name}, ${x.where}`, caption: `${x.name}` }))} />",
+  };
+  assert.deepEqual(listFrames([page]), [], "a data-driven list was counted as a known number of frames");
+});
+
+test("the frame count is per page and only the increase, like the slot count", () => {
+  const was = { path: "gallery.tsx", source: KIT_LIST(['{ alt: "One" }', '{ alt: "Two" }']) };
+  const now = { path: "gallery.tsx", source: KIT_LIST(['{ alt: "One" }', '{ alt: "Two" }', '{ alt: "Three" }']) };
+  assert.equal(newListFrames([was], [now]), 1, "a page that gained one frame reported something else");
+  assert.equal(newListFrames([was], [was]), 0, "an untouched page reported its existing frames as new");
+  // NEGATIVE NEVER SUBTRACTS — a page that LOST frames must not offset another
+  // page that really gained one.
+  const other = { path: "index.tsx", source: KIT_LIST(['{ alt: "New" }']) };
+  assert.equal(newListFrames([now], [was, other]), 1, "a removal offset a real addition");
+});
+
+test("what is not an object literal with a written alt is not a frame", () => {
+  // THE FALSE-ALARM WALL, and the corpus is what sizes it: 320 of these exist
+  // across 100 sites and every one is a picture entry, so the rule is `alt`
+  // and the refusals below are what keep it that narrow.
+  const shapes = [
+    ["a JSX expression brace", "<div className={cx('a')}>{rows.length}</div>"],
+    ["an object with no alt", "<StatsBand items={[{ value: '4', label: 'Houses' }]} />"],
+    ["a nested object", "<Thing cfg={{ alt: 'x', inner: { deep: 1 } }} />"],
+    ["a prop attribute", '<SafeImage src="" alt="An element, not an entry" />'],
+    ["a sentence about alt", "// the alt: \"is what identifies a slot\""],
+  ];
+  for (const [what, source] of shapes) {
+    assert.deepEqual(listFrames([{ path: "p.tsx", source }]), [], what + " was read as a picture frame");
+  }
+  // …AND THE SHAPE IT MUST STILL FIND, so the five above are refusals rather
+  // than the reader being switched off.
+  assert.equal(listFrames([{ path: "p.tsx", source: "items={[{ alt: 'A loaf', caption: 'Loaf' }]}" }]).length, 1);
+});
+
+test("the reader refuses a page it cannot read, and bounds what it returns", () => {
+  assert.deepEqual(listFrames(null), []);
+  assert.deepEqual(listFrames([null, { path: 1, source: "{ alt: 'x' }" }, { path: "p.tsx", source: null }]), []);
+  // AN UNTERMINATED OBJECT IS NOT ONE. A source cut mid-literal must answer
+  // nothing rather than running to the end of the file.
+  assert.deepEqual(listFrames([{ path: "p.tsx", source: '{ alt: "never closed"' }]), []);
+  // THE CAP, read from the product rather than typed.
+  const many = Array.from({ length: MAX_LIST_FRAMES + 20 }, (_, i) => `{ alt: "Shot ${i}" }`);
+  assert.equal(listFrames([{ path: "p.tsx", source: KIT_LIST(many) }]).length, MAX_LIST_FRAMES);
+  // …AND AN OBJECT TOO LONG TO BE A PICTURE ENTRY IS NOT ONE. A gallery item is
+  // short by construction, so `MAX_OBJ_CHARS` is the shape test rather than a
+  // performance bound: measured, without it a 5,000-character flat object
+  // carrying an `alt` reads as a frame. Fail-closed is the right direction —
+  // nothing that long is a picture somebody wrote into a list.
+  const huge = `{ note: "${"x".repeat(5000)}", alt: "Far away", caption: "C" }`;
+  assert.deepEqual(listFrames([{ path: "p.tsx", source: KIT_LIST([huge]) }]), [],
+    "an object too long to be a picture entry was counted as one");
+});
+
+test("an escaped quote inside an alt does not lose the frame after it", () => {
+  // MEASURED: without the escape test in the scanner, `alt: "a 3\" length"`
+  // ends the string early and the object boundary shifts — the FIRST frame is
+  // lost entirely and only the second survives (2 frames against 1). A trade
+  // measurement is exactly where this shows up (`a 3" length of pipe`).
+  const src = KIT_LIST([
+    String.raw`{ alt: "a 3\" length of pipe", caption: "Pipe" }`,
+    '{ alt: "Second", caption: "B" }',
+  ]);
+  const frames = listFrames([{ path: "p.tsx", source: src }]);
+  assert.equal(frames.length, 2, "a frame was lost to an escaped quote: " + JSON.stringify(frames.map((f) => f.alt)));
+  assert.equal(frames[1].alt, "Second", "the second entry's own alt was mis-read");
+  // AND THE VALUE ITSELF IS CUT AT THE ESCAPE, which is `literalKey`'s own
+  // double-quote rule and is honest rather than a defect: this reader COUNTS
+  // frames, and the alt it carries is a label. Asserted so the day it changes
+  // is deliberate.
+  assert.equal(frames[0].alt, "a 3\\", "the alt's own truncation moved without anybody deciding to");
+});
+
+test("the whole corpus reads clean, and every list frame on it is empty", () => {
+  // THE FALSE-ALARM RATE, measured against the real corpus rather than argued:
+  // 320 frames in 60 of 324 page files, and NOT ONE carries a picture. That is
+  // the scale of what no reader on this platform has ever counted, and it is
+  // why run 51's six are the ordinary case rather than a curiosity.
+  const dir = new URL("./fixtures/corpus/", import.meta.url);
+  const pages = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const at = new URL(e.name + (e.isDirectory() ? "/" : ""), d);
+      if (e.isDirectory()) walk(at);
+      else if (/\.(tsx|jsx)$/.test(e.name)) pages.push({ path: at.pathname, source: fs.readFileSync(at, "utf8") });
+    }
+  };
+  walk(dir);
+  assert.ok(pages.length > 300, "the corpus did not load — this case measures nothing");
+  let frames = 0, filled = 0, files = 0;
+  for (const p of pages) {
+    const f = listFrames([p]);
+    if (f.length) files++;
+    frames += f.length;
+    filled += f.filter((x) => !x.empty).length;
+  }
+  assert.equal(frames, 320, "the corpus frame count moved — re-measure before moving this number");
+  assert.equal(files, 60, "the number of pages carrying one moved");
+  assert.equal(filled, 0, "a corpus list frame carries a picture — the 'all empty' measurement is stale");
 });

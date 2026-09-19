@@ -3609,8 +3609,34 @@ export function shownSchema(site) {
  * which falls to `unverified`. **Cannot-tell must never read as a value**, this
  * repository's most-repeated rule, met where the wrong direction is a sentence
  * telling a customer a shipped feature is still to do.
+ *
+ * ── `qr` AND `three` JOINED IT 2026-09-19, AND RUN 51 IS THE INSTANCE ───────
+ *
+ * Owner: *"Check why the reply says it cannot establish the QR implementation
+ * when this run created and published it."*
+ *
+ * The page step handed *"A QR code opens the gallery page."* to the `qr` step,
+ * the `qr` step made one code pointing at `/gallery`, the container baked
+ * `qr-gallery.svg`, the site published it and it re-encodes to that address.
+ * The customer was told **"I can't see from here whether A QR code opens the
+ * gallery page — nothing I can check says either way."**
+ *
+ * NOTHING WAS WRONG WITH THE READER; IT HAD NOTHING TO READ. A code and a
+ * scene are applied results of the change exactly as a page is, and neither
+ * appeared in any applied list — so `implementationOf` asked its question of an
+ * empty haystack and correctly answered "nobody looked". The kinds were on
+ * `SITE_KINDS` (the site can hold one and `existingFacts` enumerates them) and
+ * off this list, which is the combination that says *we can see what the site
+ * already had and never what this change added* — true of no other kind here.
+ *
+ * WHAT THEY ARE READY IS NOT WHEN THE BACKEND APPLIES. The four schema tiers
+ * are answerable once `applySiteSchema` has run and `page` once the merge has
+ * decided what compiled; a code and a scene are decided by the look merge and
+ * the dead-QR drop, which happen before either. `aReportable` in the addon
+ * route carries that per-kind readiness, so a coverage composed on a refusal
+ * path still answers `unknown` for them rather than `absent`.
  */
-export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page"]);
+export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page", "qr", "three"]);
 
 /**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
@@ -3710,7 +3736,7 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -3808,5 +3834,56 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
     const n = String(p || "").trim();
     if (n) out.push({ kind: "page", name: n, holds: [], fails: [], checked: [] });
   }
+  // ── A CODE THIS CHANGE MADE, AND ITS DESTINATION IS THE CHECKABLE PART ───
+  //
+  // A QR code is the one addition here whose whole point is a DESTINATION, and
+  // that destination is a string we stored — so it is configuration in exactly
+  // the sense the head of this function means: read back off what was applied,
+  // never exercised. Nothing has scanned the drawing with a camera and nothing
+  // here ever will, so `checked` stays empty and the furthest a claim naming a
+  // code can get is `configured`.
+  //
+  // THE TOKENS ARE THE DESTINATION'S OWN PATH WORDS and nothing else. The label
+  // is prose somebody wrote for a customer to read, and matching a claim
+  // against it would be the keyword heuristic this reader exists to replace;
+  // the path is what the code really opens. `fails` is EMPTY because there is
+  // no closed vocabulary with an opposite side here — a function is internal or
+  // public and a connection is GET or POST, but a code pointing at `/gallery`
+  // contradicts nothing, it simply does not mention `/prices`.
+  //
+  // The NAME is the identifier the file and the binding are made from
+  // (`qr-<name>.svg`, `SITE_QRS.<name>`), which is what a `{kind, name}`
+  // reference can be resolved against.
+  for (const q of qrList(qrs)) {
+    const n = String((q && q.name) || "").trim();
+    if (!n) continue;
+    const holds = [];
+    // THE PATH OF A WEB ADDRESS, AND NOTHING ELSE. A stored destination is
+    // absolute (`https://<slug>.gofarther.app/gallery`), so the HOST's words are
+    // the site's slug repeated on every code and would match any claim naming
+    // the business; the path is the one part that differs per code.
+    //
+    // ⚠ AND THE SCHEME IS CHECKED RATHER THAN LEFT TO `URL` THROWING — a sweep
+    // survivor's case measured it. `new URL("WIFI:S=Fretwork;;")` parses
+    // perfectly well and its pathname is `S=Fretwork;;`, so a Wi-Fi code was
+    // contributing the network's name — which on a real site is the business's
+    // name, and is the collision this split exists to avoid. `tel:` and
+    // `mailto:` are the same shape. Only `http`/`https` has a path that means a
+    // page; everything else contributes nothing, which is the honest answer
+    // about a payload that opens no page at all.
+    let path = "";
+    try {
+      const u = new URL(String((q && q.points) || ""));
+      if (u.protocol === "http:" || u.protocol === "https:") path = u.pathname;
+    } catch { path = ""; }
+    for (const w of path.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);
+    out.push({ kind: "qr", name: n, holds, fails: [], checked: [] });
+  }
+  // A SCENE, AND A SITE CARRIES AT MOST ONE (`SINGLE_FIELDS`), so it has no
+  // name of its own and the kind IS the name — the same identity
+  // `existingFacts` gives it, so one reference resolves in both haystacks.
+  // `holds` is EMPTY for `page`'s reason: existence is the entire claim, and
+  // what a scene DOES is not something any reader here can speak to.
+  if (three) out.push({ kind: "three", name: "three", holds: [], fails: [], checked: [] });
   return out;
 }

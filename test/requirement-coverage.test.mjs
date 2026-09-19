@@ -26,7 +26,7 @@ import fs from "node:fs";
 
 import {
   COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
-  ITEM_KINDS, referenceOf, evidenceItems,
+  ITEM_KINDS, referenceOf, evidenceItems, implementationOf,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
 } from "../builder/site-requirements.mjs";
@@ -1202,7 +1202,19 @@ test("the six states separate implementation from hand-off, and evidence is asym
   const [hoff] = requirementOutcomes([handoff], { told: ["function"], made: KINDED, reportable: ["table", "function"], existing: { items: [], kinds: ["table", "function"] } });
   assert.equal(handoff.by, "count_rows is internal", "the fixture lost the claim this case is about");
   assert.equal(hoff.configuredBy, undefined, "a hand-off's prose was read as a claim it never made");
-  assert.equal(hoff.state, "unknown", "a hand-off that named nothing was settled by its own prose");
+  assert.equal(hoff.contradictedBy, undefined, "a hand-off's prose was weighed against the applied items");
+  // ⚠ RE-ANCHORED 2026-09-19, AND THE EXPECTATION MOVED RATHER THAN BROKE. It
+  // asserted `state === "unknown"`, which was a PROXY for "the prose bought
+  // nothing" and stopped being one: the `function` step here was told this
+  // hand-off and did apply a function, so `unverified` is earned by the step's
+  // own output and not by a word in `by`. The two assertions above are the
+  // property, and the isolating control below is what keeps them honest —
+  // take the step's output away and the prose still buys nothing at all.
+  assert.notEqual(hoff.state, "configured", "a hand-off's prose bought a configuration reading");
+  assert.notEqual(hoff.state, "delivered", "a hand-off's prose bought a delivery reading");
+  const [alone] = requirementOutcomes([handoff], { told: ["function"], made: [], reportable: ["table", "function"], existing: { items: [], kinds: ["table", "function"] } });
+  assert.equal(alone.state, "missing", "with nothing applied, a hand-off's prose settled it anyway");
+  assert.equal(alone.configuredBy, undefined);
 });
 
 test("an invalid property is said as a lost guarantee, never by its name", () => {
@@ -1737,7 +1749,14 @@ test("a hand-off is reconciled by the id the receiving step echoes, never by pro
   // reconciles nothing rather than guessing.
   const noEcho = m.cleanRequirements([{ need: NEED, status: "covered", by: "nightly_booking_count job at 23:00", kind: "job", item: "nightly_booking_count" }], "job").list;
   const before = m.requirementOutcomes([...handed, ...noEcho], OPTS).find((r) => r.status === "elsewhere");
-  assert.equal(before.state, "unknown", "with no echo the hand-off must read exactly as it did before this fix");
+  // ⚠ RE-ANCHORED 2026-09-19: `unknown` was a PROXY for "the reconciliation did
+  // nothing", and it stopped being one when a hand-off the step really heard
+  // started reading its own step's output (run 51's fix). The property is the
+  // reconciliation, so it is asserted directly: no link, and none of the
+  // readings only an echo can buy.
+  assert.equal(before.reconciledBy, undefined, "a hand-off with no echo was linked to something");
+  assert.equal(before.reconciledItem, undefined, "a hand-off with no echo was credited an item");
+  assert.notEqual(before.state, "configured", "with no echo the hand-off took the echo's reading");
   assert.equal(before.reconciledBy, undefined);
 
   // PROSE MUST NOT JOIN THEM. The needs are word-for-word identical here and
@@ -1989,4 +2008,122 @@ test("an answer is refused when it comes from the wrong step or names a differen
   ];
   assert.equal(ho(unnamed).reconciledBy, "job#0", "an unnamed hand-off answered by its own step must still reconcile");
   assert.equal(ho(unnamed).state, "configured");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THIS CHANGE'S OWN OUTPUT IS NOT THE SITE'S BACK CATALOGUE (2026-09-19)
+//
+// Owner, after run 51: *"Check why the reply says it cannot establish the QR
+// implementation when this run created and published it. Keep configuration
+// separate from verified behavior."*
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a kind this layer cannot see at all is never reportable", () => {
+  // THE `reportable` LIST IS WHAT SAYS "NOBODY LOOKED", and a kind off
+  // `APPLIED_KINDS` has to stay off it however the route computes readiness —
+  // otherwise an unenumerable kind answers `absent`, which is "still to do"
+  // over work that may be perfectly there. A sweep survivor is why this is
+  // here: the route's filter is what enforces it and no case asked.
+  const ASK = { need: "the page shows opening hours", status: "elsewhere", step: "component", item: "hours-band", kind: "component" };
+  const told = { heard: new Set(["component"]), resting: new Map() };
+  // WITH THE KIND ADMITTED TO `reportable` IT IS STILL UNKNOWN, because
+  // `OPAQUE_KINDS` is the wall — the two are separate and both must hold.
+  assert.equal(implementationOf(ASK, [], ["component"], { items: [], kinds: [] }, told).state, "unknown",
+    "an unenumerable kind was read as absent");
+  // …AND A KIND THE SITE CAN HOLD NEEDS ITS INVENTORY READ. `qr` is on
+  // `SITE_KINDS`, so "this change made none" is half an answer.
+  const CODE = { need: "a code for the gallery", status: "elsewhere", step: "qr", item: "gallery", kind: "qr" };
+  assert.equal(implementationOf(CODE, [], ["qr"], null, told).state, "unknown",
+    "a kind whose site inventory was never read answered absent");
+  assert.equal(implementationOf(CODE, [], ["qr"], { items: [], kinds: ["qr"] }, told).state, "absent",
+    "the control: with the inventory read, both readers empty IS absence");
+  // AND A KIND NOT REPORTABLE AT ALL IS UNKNOWN whatever the inventory says.
+  assert.equal(implementationOf(CODE, [], [], { items: [], kinds: ["qr"] }, told).state, "unknown",
+    "a kind this change cannot answer for was read as absent");
+});
+
+test("a step that was told and produced enough establishes an implementation", () => {
+  const ASK = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const made = [{ kind: "qr", name: "gallery", holds: ["gallery"], fails: [], checked: [] }];
+  const told = { heard: new Set(["qr"]), resting: new Map([["qr", 1]]) };
+  // THE FIX: one ask on the step, one thing made by it, and the step really
+  // heard it. `unknown` said "nothing here can establish whether it is there",
+  // which is false when the step's own output is in hand.
+  assert.deepEqual(implementationOf(ASK, made, COVERAGE_STEPS, null, told),
+    { state: "made", by: "kind", name: "", kind: "qr" });
+  // …AND THE SITE'S OWN CODES ARE NOT THAT. A change that made nothing, on a
+  // site that carries five, still cannot say which one this asked for.
+  const site = { items: [{ kind: "qr", name: "wifi" }], kinds: ["qr"] };
+  assert.equal(implementationOf(ASK, [], COVERAGE_STEPS, site, told).state, "unknown",
+    "the site's existing codes answered for one this change did not make");
+});
+
+test("a hand-off the step never heard is not answered by what that step made", () => {
+  // ⚠ THE HALF THE FIRST CUT LEFT OUT, and two older guards caught it within the
+  // minute. A hand-off BACKWARD names a step that already ran, so whatever that
+  // step made it made for its own reasons and cannot have been acting on a need
+  // written after it finished. Run 48's own case is this shape one kind over.
+  const BACK = { need: "the reminder shows their booking time", status: "elsewhere", step: "function" };
+  const made = [{ kind: "function", name: "send_reminder", holds: [], fails: [], checked: [] }];
+  assert.equal(implementationOf(BACK, made, COVERAGE_STEPS, null, { heard: new Set(), resting: new Map([["function", 1]]) }).state,
+    "unknown", "a step that never heard it answered for it");
+  assert.equal(implementationOf(BACK, made, COVERAGE_STEPS, null, { heard: new Set(["function"]), resting: new Map([["function", 1]]) }).state,
+    "made", "the control: a step that WAS told and made something does establish one");
+});
+
+test("a bare `covered` label earns nothing from its own step's output", () => {
+  // ⚠ THE OTHER CONDITION, and the first cut of this change had it backwards.
+  // A step ALWAYS produces something, so letting its output answer its own
+  // unidentified claim makes every bare `covered` label buy *"I've set that
+  // up"* — the exact sentence the owner struck out on 2026-09-15 (*"covered +
+  // no implementation evidence still produces 'I've set that up.'"*). The
+  // reading is for a HAND-OFF, which is a request addressed to a named step.
+  const OWN = { need: "the codes are on the site", status: "covered", from: "qr" };
+  const made = [{ kind: "qr", name: "gallery", holds: [], fails: [], checked: [] }];
+  assert.equal(implementationOf(OWN, made, COVERAGE_STEPS, null, { heard: new Set(["qr"]), resting: new Map([["qr", 1]]) }).state,
+    "unknown", "a step's own output answered its own unidentified claim");
+  // THE CONTROL: the same step, the same output, asked as a HAND-OFF.
+  const ASK = { need: "the codes are on the site", status: "elsewhere", step: "qr" };
+  assert.equal(implementationOf(ASK, made, COVERAGE_STEPS, null, { heard: new Set(["qr"]), resting: new Map([["qr", 1]]) }).state,
+    "made", "a hand-off the step heard and answered establishes nothing");
+});
+
+test("more asks than things made keeps the whole group unknown", () => {
+  // THE COUNT IS WHAT MAKES `made` SOUND. Two un-named hand-offs on one step
+  // and one thing made: at least one of them has nothing, and which one is not
+  // knowable from here — so neither may be told "I've set that up".
+  const A = { need: "a code for the gallery", status: "elsewhere", step: "qr" };
+  const made = [{ kind: "qr", name: "gallery", holds: [], fails: [], checked: [] }];
+  const heard = new Set(["qr"]);
+  assert.equal(implementationOf(A, made, COVERAGE_STEPS, null, { heard, resting: new Map([["qr", 2]]) }).state, "unknown");
+  assert.equal(implementationOf(A, made, COVERAGE_STEPS, null, { heard, resting: new Map([["qr", 1]]) }).state, "made",
+    "the control: one ask and one thing made is the ordinary case");
+  // TWO MADE ANSWERS TWO ASKS, which is the other side of the same arithmetic.
+  const two = [...made, { kind: "qr", name: "order", holds: [], fails: [], checked: [] }];
+  assert.equal(implementationOf(A, two, COVERAGE_STEPS, null, { heard, resting: new Map([["qr", 2]]) }).state, "made");
+  // AN OLDER CALLER WITH NO `asked` IS ONE — the requirement in hand, which is
+  // the weakest claim that is still true, and it must not throw.
+  assert.equal(implementationOf(A, made, COVERAGE_STEPS, null).state, "unknown",
+    "with nothing said about who heard it, a hand-off must not be answered");
+});
+
+test("`made` earns the set-up sentence and never the delivered one", () => {
+  // CONFIGURATION, NEVER BEHAVIOUR — the owner's own instruction. The code is
+  // there; nothing scanned it; the customer hears *"I've set that up, but I
+  // can't confirm"* rather than *"I can't see from here whether"*.
+  const ASK = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr", id: "page#0" };
+  const made = [{ kind: "qr", name: "gallery", holds: ["gallery"], fails: [], checked: [] }];
+  const opts = { told: ["qr"], made, reportable: COVERAGE_STEPS };
+  const out = requirementOutcomes([ASK], opts);
+  assert.equal(out[0].state, "unverified", JSON.stringify(out[0]));
+  assert.equal(out[0].implementation, "made", "the record does not say which reader answered");
+  assert.equal(out[0].implementedBy, undefined, "a by-kind answer named a thing it did not identify");
+  assert.equal(out[0].handoff, "delivered");
+  // THE NOTE TAKES THE RAW LIST AND THE SAME OPTIONS — it recomputes the
+  // outcomes itself, so handing it `out` with nothing else asks a second,
+  // evidence-free question and answers `unknown` about everything.
+  const note = requirementNote([ASK], opts);
+  assert.match(note, /I've set that up/, note);
+  assert.doesNotMatch(note, /can't see from here whether A QR code/, note);
+  assert.doesNotMatch(note, /Still to do/, note);
 });

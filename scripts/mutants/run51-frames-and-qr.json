@@ -1,0 +1,364 @@
+[
+  {
+    "label": "CONTROL: the list-frame reader's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": " * ── A PICTURE A PAGE DRAWS FROM A LIST IN ITS OWN SOURCE (2026-09-19) ───────",
+    "to": " * ── A PICTURE A PAGE DRAWS FROM A LIST IN ITS OWN SOURCE (control) ─────────"
+  },
+  {
+    "label": "CONTROL: the applied-kinds note's heading changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": " * ── `qr` AND `three` JOINED IT 2026-09-19, AND RUN 51 IS THE INSTANCE ───────",
+    "to": " * ── `qr` AND `three` JOINED IT (control), AND RUN 51 IS THE INSTANCE ───────"
+  },
+  {
+    "label": "THE REPORTED DEFECT 1: the route never counts a list frame",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aListSlots = newListFrames(aPicsWas, aPicsNow);",
+    "to": "            const aListSlots = 0;"
+  },
+  {
+    "label": "the list frames never reach the reply",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              listPhotos: aListSlots,",
+    "to": "              listPhotos: undefined,"
+  },
+  {
+    "label": "the list count is sent only when non-zero, so an old Worker and a change with none read alike",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              listPhotos: aListSlots,",
+    "to": "              listPhotos: aListSlots || undefined,"
+  },
+  {
+    "label": "the browser never says the second sentence",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  out += listPhotoNote(a.listPhotos);",
+    "to": "  out += '';"
+  },
+  {
+    "label": "the two counts are summed into the one that offers to fill",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  out += photoNote(a.photos);\n  out += listPhotoNote(a.listPhotos);",
+    "to": "  out += photoNote((Number(a.photos) || 0) + (Number(a.listPhotos) || 0));"
+  },
+  {
+    "label": "the second sentence promises an upload will reach them",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    ' in it that an upload won\\u2019t reach — ask me for photographs there and I\\u2019ll change the page itself.';",
+    "to": "    ' in it — upload yours in the Data panel and they\\u2019ll fill in.';"
+  },
+  {
+    "label": "the before and after are two different readings of the site",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aListSlots = newListFrames(aPicsWas, aPicsNow);",
+    "to": "            const aListSlots = newListFrames(imageSources(aSrc, null), aPicsNow);"
+  },
+  {
+    "label": "a list entry with a real picture is counted as an empty frame",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      out.push({ page: p.path, alt, value: v, empty: !v || v === \"null\" });",
+    "to": "      out.push({ page: p.path, alt, value: v, empty: true });"
+  },
+  {
+    "label": "an explicit `src: null` is read as a picture rather than an empty frame",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      out.push({ page: p.path, alt, value: v, empty: !v || v === \"null\" });",
+    "to": "      out.push({ page: p.path, alt, value: v, empty: !v });"
+  },
+  {
+    "label": "a computed alt is counted, so a data-driven list reports a number nobody can know",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const m = new RegExp(\"(^|[,{\\\\s])\" + name + \"\\\\s*:\\\\s*(\\\"[^\\\"]*\\\"|'[^']*')\").exec(body);\n  return m ? m[2].slice(1, -1).trim() : \"\";",
+    "to": "  const m = new RegExp(\"(^|[,{\\\\s])\" + name + \"\\\\s*:\\\\s*([\\\"'`][^\\\"'`]*[\\\"'`])\").exec(body);\n  return m ? m[2].slice(1, -1).trim() : \"\";"
+  },
+  {
+    "label": "a nested object is descended into, so a data row of some other shape is a picture",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (c === \"{\") { depth++; if (depth > 1) return null; continue; }",
+    "to": "    if (c === \"{\") { depth++; continue; }"
+  },
+  {
+    "label": "an unterminated object literal runs to the end of the file",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  const end = Math.min(src.length, from + MAX_OBJ_CHARS);",
+    "to": "  const end = src.length;"
+  },
+  {
+    "label": "a quote inside a string ends the scan, so an apostrophe truncates an object",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "    if (quote) { if (c === quote && src[i - 1] !== \"\\\\\") quote = \"\"; continue; }",
+    "to": "    if (quote) { if (c === quote) quote = \"\"; continue; }"
+  },
+  {
+    "label": "the cap is gone, so one page can flood the reader",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (out.length >= MAX_LIST_FRAMES) return out;\n    }\n  }\n  return out;\n}\n\n/** The `{` of an object literal",
+    "to": "      if (false) return out;\n    }\n  }\n  return out;\n}\n\n/** The `{` of an object literal"
+  },
+  {
+    "label": "the increase rule is dropped, so an untouched page reports its old frames as new",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));",
+    "to": "  for (const [, count] of now) n += count;"
+  },
+  {
+    "label": "a removal subtracts, so one page's loss hides another's real addition",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));",
+    "to": "  for (const [page, count] of now) n += count - (was.get(page) || 0);"
+  },
+  {
+    "label": "a full frame counts, so a list of real pictures reads as empty spaces",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  return grew(before, after, (pages) => listFrames(pages).filter((f) => f.empty));",
+    "to": "  return grew(before, after, (pages) => listFrames(pages));"
+  },
+  {
+    "label": "the slot count reads the list frames too, so the two promises merge",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "  return grew(before, after, (pages) => imageSlots(pages).filter(isEmptySlot));",
+    "to": "  return grew(before, after, (pages) => [...imageSlots(pages).filter(isEmptySlot), ...listFrames(pages).filter((f) => f.empty)]);"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2: appliedFacts cannot speak for a code",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export const APPLIED_KINDS = Object.freeze([\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\"]);",
+    "to": "export const APPLIED_KINDS = Object.freeze([\"table\", \"function\", \"api\", \"job\", \"page\"]);"
+  },
+  {
+    "label": "a code this change made is in no applied list",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    out.push({ kind: \"qr\", name: n, holds, fails: [], checked: [] });",
+    "to": "    if (false) out.push({ kind: \"qr\", name: n, holds, fails: [], checked: [] });"
+  },
+  {
+    "label": "a code claims an exercised behaviour nothing performed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    out.push({ kind: \"qr\", name: n, holds, fails: [], checked: [] });",
+    "to": "    out.push({ kind: \"qr\", name: n, holds, fails: [], checked: holds });"
+  },
+  {
+    "label": "a code's destination is not readable as configuration",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const w of path.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);",
+    "to": "    for (const w of []) holds.push(w);"
+  },
+  {
+    "label": "the whole url is split, so every code carries the site's own name",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    try {\n      const u = new URL(String((q && q.points) || \"\"));\n      if (u.protocol === \"http:\" || u.protocol === \"https:\") path = u.pathname;\n    } catch { path = \"\"; }",
+    "to": "    try { path = String((q && q.points) || \"\"); } catch { path = \"\"; }"
+  },
+  {
+    "label": "the scheme is not checked, so a payload that opens no page contributes its own words",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (u.protocol === \"http:\" || u.protocol === \"https:\") path = u.pathname;",
+    "to": "      path = u.pathname;"
+  },
+  {
+    "label": "a scene this change made is in no applied list",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (three) out.push({ kind: \"three\", name: \"three\", holds: [], fails: [], checked: [] });",
+    "to": "  if (false) out.push({ kind: \"three\", name: \"three\", holds: [], fails: [], checked: [] });"
+  },
+  {
+    "label": "the route never records what the look added",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aLookMade = {\n                qrs: qrList(aMerged.qr).filter((c) => c && !aHadQr.has(c.name)),",
+    "to": "              aLookMade = {\n                qrs: [],"
+  },
+  {
+    "label": "the codes the site already had are claimed as this change's",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                qrs: qrList(aMerged.qr).filter((c) => c && !aHadQr.has(c.name)),",
+    "to": "                qrs: qrList(aMerged.qr),"
+  },
+  {
+    "label": "a scene the site already had is claimed as this change's",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                three: !!aMerged.three && !aLook.three,",
+    "to": "                three: !!aMerged.three,"
+  },
+  {
+    "label": "the applied facts never see the look at all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              qrs: (aLookMade && aLookMade.qrs) || [],",
+    "to": "              qrs: [],"
+  },
+  {
+    "label": "a code is answerable only once the backend applied, so a frontend-only change never sees one",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const ready = { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade };",
+    "to": "              const ready = { page: !!aShipped };"
+  },
+  {
+    "label": "every kind is reportable the moment it ran, whatever its results",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                return Object.hasOwn(ready, k) ? ready[k] : aApplied;",
+    "to": "                return true;"
+  },
+  {
+    "label": "a section is seeable, so a change that ran no component step reports one as still to do",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    return canApplied && !OPAQUE_KINDS.includes(k) && (!SITE_KINDS.includes(k) || canExisting);",
+    "to": "    return canApplied && (!SITE_KINDS.includes(k) || canExisting);"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2b: this change's own output is read as the site's back catalogue",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (toldIt && mine.length >= asks) return { state: \"made\", by: \"kind\", name: \"\", kind };",
+    "to": "  if (false) return { state: \"made\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "the step need not have heard it, so a hand-off backward is answered by what that step made",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const toldIt = status === \"elsewhere\" && !!(heard && heard.has(kind));",
+    "to": "  const toldIt = status === \"elsewhere\";"
+  },
+  {
+    "label": "a bare `covered` label reads its own step's output as evidence",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  const toldIt = status === \"elsewhere\" && !!(heard && heard.has(kind));",
+    "to": "  const toldIt = !!(heard && heard.has(kind)) || status === \"covered\";"
+  },
+  {
+    "label": "the ask count is not asked, so one thing made answers every hand-off on the step",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (toldIt && mine.length >= asks) return { state: \"made\", by: \"kind\", name: \"\", kind };",
+    "to": "  if (toldIt && mine.length) return { state: \"made\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "the site's own things count towards the asks, so its back catalogue answers a hand-off",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  if (toldIt && mine.length >= asks) return { state: \"made\", by: \"kind\", name: \"\", kind };",
+    "to": "  if (toldIt && mine.length + theirs.length >= asks) return { state: \"made\", by: \"kind\", name: \"\", kind };"
+  },
+  {
+    "label": "the un-named requirements are not counted per step",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (typeof r.item === \"string\" && r.item.trim()) continue;\n    const k = String((r.status === \"elsewhere\" ? r.step : r.from) || \"\");\n    if (k) resting.set(k, (resting.get(k) || 0) + 1);",
+    "to": "    if (typeof r.item === \"string\" && r.item.trim()) continue;\n    const k = String((r.status === \"elsewhere\" ? r.step : r.from) || \"\");\n    if (k) resting.set(k, 1);"
+  },
+  {
+    "label": "the reader is never handed who was told or how many asked",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const impl = reconciled ? implementationOf(r, made, reportable, existing, { resting, heard }) : null;",
+    "to": "    const impl = reconciled ? implementationOf(r, made, reportable, existing) : null;"
+  },
+  {
+    "label": "`made` does not earn the set-up sentence, so a published code still reads as unseeable",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    } else if ((impl && (impl.state === \"found\" || impl.state === \"made\")) || (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\"))) {",
+    "to": "    } else if ((impl && impl.state === \"found\") || (ev && (ev.kind === \"named\" || ev.kind === \"contradicted\"))) {"
+  },
+  {
+    "label": "`made` excuses its step's other failures, which nothing named it escaped",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const depThere = !!impl && impl.state === \"found\";",
+    "to": "    const depThere = !!impl && (impl.state === \"found\" || impl.state === \"made\");"
+  },
+  {
+    "label": "the harness never reads the list frames, so the next run repeats the understatement",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "list frames nothing can fill ${said(r.listPhotos)}; ",
+    "to": ""
+  },
+  {
+    "label": "the browser's cut source loses the second composer",
+    "files": [
+      "scripts/addon-sweep.mjs"
+    ],
+    "from": "  \"problemNote\", \"photoNote\", \"listPhotoNote\", \"sitePathOf\", \"browserTimeZone\", \"jobWords\",",
+    "to": "  \"problemNote\", \"photoNote\", \"sitePathOf\", \"browserTimeZone\", \"jobWords\","
+  }
+]

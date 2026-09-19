@@ -9790,6 +9790,251 @@ and needs the provider's readiness confirmed first, which is a precondition and
 not a risk to absorb: an empty provider produces a complete, green, plausible
 run that proves nothing.
 
+### …AND BOTH OF RUN 51'S DEFECTS ARE CLOSED (2026-09-19)
+
+Owner: *"Fix the mismatch between the gallery's seven empty frames and the
+reply's 'one photo space.' Check whether those extra frames should have been
+created for this request. Check why the reply says it cannot establish the QR
+implementation when this run created and published it. Keep configuration
+separate from verified behavior."* Both reproduced from the page run 51 really
+published, written back from the live bundle rather than invented.
+
+**1. A PICTURE A PAGE DRAWS FROM A LIST WAS COUNTED BY NOTHING.** `/gallery`
+ships `<SafeImage src="" alt="…"/>` once and `<Gallery items={[…six…]}/>` once,
+so a visitor sees SEVEN empty frames and the reply said ONE. `imageSlots` sees
+the first and is RIGHT not to see the other six — its contract is a `src` SPAN
+to replace and a LITERAL `alt` to match a sentence against, which is what makes
+it the picture rung's addressability reader, and widening it would offer that
+rung slots it cannot edit. **The customer's sentence is about what they SEE, not
+about what this layer can edit, and those are two questions.**
+
+- **THE SCALE, MEASURED BY THE PRODUCT OVER THE 100-SITE CORPUS: 320 of these
+  frames, in 60 of 324 page files, and EVERY ONE IS EMPTY** — 254 carrying
+  `src: null` explicitly and 66 with no picture key at all; zero carry a url and
+  zero carry a token. So run 51's six are not a curiosity: this is the ordinary
+  shape of every gallery the platform has ever generated, and not one of those
+  frames has ever been counted by anything.
+- **THE RULE IS `alt`, AND IT IS THE KIT'S OWN.** `Gallery` and `MediaGrid` both
+  declare `items: { src?: string | null; alt?: string; caption?: string | null }[]`
+  — the SAME `src`/`alt` pair `imageSlots`' component branch already calls "the
+  kit's own naming", as object keys rather than attributes. So `listFrames` knows
+  nothing about which components exist: an object literal carrying a written
+  `alt` is a picture entry, and it is EMPTY when no picture value sits beside it.
+- **A COMPUTED `alt` IS A DATA ROW AND IS REFUSED.** Exactly ONE corpus page of
+  324 carries `items={HOUSES.map((x) => ({ alt: \`${x.name}\` }))}`, whose LENGTH
+  is decided at runtime — so no reader of the source can say how many frames it
+  draws. That is the one place this count is a floor rather than the truth, and
+  it is stated rather than papered over. **A first measurement using a hand-
+  written scan answered 321/61 because it accepted that shape; the product
+  refusing it is the right answer and the ad-hoc number was the wrong
+  instrument.**
+- **TWO NUMBERS, NEVER ONE.** Summing them would fix the count and ship a bigger
+  claim than the one it replaced: `photoNote` offers to FILL a space from an
+  upload, and nothing on this platform can fill a list entry. `listPhotos` rides
+  the reply beside `photos` with its own sentence — *"The page's own layout has
+  6 picture spaces in it that an upload won't reach — ask me for photographs
+  there and I'll change the page itself."*
+- **ALWAYS A NUMBER, 0 included**, so "this change added none" and "the Worker
+  that answered predates the field" stay two different absences — which is what
+  the harness's `(not said)` then means.
+
+**AND NO, THE SIX SHOULD NOT HAVE BEEN CREATED.** The ask was *"showing
+photographs of our work, with a new photograph of the bakery on it"* on a site
+that **already owns three photographs**, and the page shows none of them: the
+writer was told the count (*"This site already shows 3 real photographs, and
+they stay exactly as they are"*) and never told WHERE they are or that it may
+place one. Its own designer planned a `gallery` section, so it filled the band
+with six blanks. **The capability gap is that a page writer cannot place a
+photograph the site already has** — recorded, not fixed here.
+
+**2. A CODE THIS CHANGE MADE AND PUBLISHED READ AS UNSEEABLE.** The page step
+handed *"A QR code opens the gallery page."* to the `qr` step, which made one
+code pointing at `/gallery`; the container baked `qr-gallery.svg`, the site
+published it, and it re-encodes to that address. The customer was told **"I
+can't see from here whether A QR code opens the gallery page — nothing I can
+check says either way."** **TWO CAUSES AND NEITHER ALONE IS ENOUGH** — proved by
+reverting each on its own and watching the case go red:
+
+- **`appliedFacts` SPOKE FOR FIVE KINDS AND A CODE WAS NONE OF THEM.** A QR and
+  a scene are applied results of the change exactly as a page is. They were on
+  `SITE_KINDS` (the site can hold one and `existingFacts` enumerates them) and
+  off `APPLIED_KINDS`, which is the combination that says *we can see what the
+  site already had and never what this change added* — true of no other kind.
+  A code now carries its DESTINATION'S PATH WORDS as `holds` (configuration read
+  back off what was stored; `fails` empty, because a code pointing at `/gallery`
+  contradicts nothing) and `checked` stays EMPTY — nothing scanned the drawing
+  and nothing here ever will.
+- **AND `implementationOf` READ THIS CHANGE'S OWN OUTPUT AS THE SITE'S BACK
+  CATALOGUE.** `mine` and `theirs` were one test and they are two facts: the site
+  already holding five codes genuinely cannot say which one was asked for, while
+  this change's own step, asked for this in this same message, producing output
+  IS the definition of `unverified` — *the implementation is established and
+  nothing ties it to this particular claim*. `made` is that reading.
+- **TWO CONDITIONS MAKE IT SOUND, AND THREE OLDER GUARDS WROTE BOTH.** It is a
+  HAND-OFF only — a step always produces something, so letting a bare `covered`
+  label read its own step's output restores the *"I've set that up"* the owner
+  struck out on 2026-09-15 — and **the step has to have HEARD it**, because a
+  hand-off BACKWARD names a step that already ran and whatever it made it made
+  for its own reasons. Plus the COUNT: with more un-named asks resting on a step
+  than things it made, at least one has nothing and which one is unknowable, so
+  the whole group stays `unknown`.
+- **CONFIGURATION, NEVER BEHAVIOUR.** `unverified`, not `delivered` and not
+  `configured`: the customer hears *"I've set that up, but I can't confirm"*
+  rather than *"I can't see from here whether"* — the difference between a thing
+  that exists and a thing nobody looked for.
+- **`aReportable` IS PER KIND NOW, NOT ONE FLAG.** A code is settled by the look
+  merge and the dead-QR drop, long before any backend apply — and on a change
+  with no database `aApplied` is false for ever, so a code this change really
+  made would have read as unseeable on every frontend-only addon there is.
+  `ready` names the kinds whose results arrive on their own clock; everything
+  else falls to the apply, so a kind added to `APPLIED_KINDS` next month gets the
+  conservative answer rather than a wrong one.
+
+**⚠ AND `listPhotoNote` THREW IN TWO PLACES THE HOUR IT WAS WRITTEN** — the free
+identifier trap, in the two files that keep a hand-written list of what the
+browser's reply composer needs in scope. `BROWSER_FNS` gained the name AND a
+census derived from `addonReplyText`'s own body, so the next one fails at the
+guard rather than in a paid run; `test/site-addon.test.mjs` was keeping a SECOND
+copy of that list and now derives it from `BROWSER_FNS` — one definition.
+
+**Guards**: `addon-route` **123 → 132** (the seven-frame mismatch with its
+control and the filled-entry direction; the QR reproduction, a code the change
+did not make, a NAMED code the step ran and did not make — which is what makes
+`APPLIED_KINDS` load-bearing — two asks on one step, and the two already-had
+controls below), `site-picture` **53 → 61**, `requirement-coverage` **28 → 34**.
+**Nine red-checks, each reverting ONE line and asserting exactly which cases go
+red**, so no part of the change is decoration.
+
+**⚠ AND THE TWO ALREADY-HAD CONTROLS WERE VACUOUS UNTIL THE SWEEP SAID SO, both
+for one reason worth keeping.** Each drove a bare hand-off naming the `qr` /
+`three` step on a change where that step never RAN — so nothing heard it, the
+`made` branch is unreachable, there is no `item` to reach the other branch, and
+BOTH readings answer `unknown`. The negative was true whatever the diff did.
+**A `covered` claim NAMING the thing is what makes the two part**, because it
+goes through the item branch where they differ not in `state` (both `found`)
+but in `foundIn` — `existing` against `applied`. So the assertion is on which
+READER answered: calling the site's own code or its own scene this change's
+work is the defect, and `foundIn` is the only field that can say so.
+
+**Four older guards re-anchored, not appeased**, each naming the property that
+moved: `site-apply`'s frame-count anchor (pinned to the argument list, which was
+hoisted into a named pair when a second counter started reading it — the new
+assertion is strictly stronger, because BOTH counters must take that same pair);
+`addon-sweep`'s `photoLines` line; and two in `requirement-coverage` where
+`unknown` was a PROXY for a property and stopped being one — *"a hand-off's `by`
+is never read"* (now asserted as `configuredBy`/`contradictedBy` undefined, with
+an isolating control) and *"with no echo the reconciliation does nothing"* (now
+`reconciledBy` undefined and not `configured`).
+
+**Sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/run51-frames-and-qr.json`, over
+`builder/site-picture.mjs`, `builder/site-add.mjs`, `worker.js`,
+`public/chat.js`, `builder/site-requirements.mjs` and `scripts/addon-sweep.mjs`,
+against 11 test files — a narrow list can only produce a false SURVIVOR, never a
+false kill). **Three passes, and NOT ONE SURVIVOR AT ANY POINT WAS THE
+PRODUCT'S.** Pass 1 read 42/35/7 and pass 2 43/40/3; every survivor was a gap in
+this change's own guards, and two of the seven are worth keeping as rules — the
+vacuous already-had controls above, and **one that was MEASURED INERT and is
+declared in the code rather than hunted.** `if (!APPLIED_KINDS.includes(k))
+return false;` in `aReportable` cannot change any answer today: the only kinds
+that can be in `ran` and are not in `APPLIED_KINDS` are `component` and `photo`,
+and `seeable` — the ONE reader of that list — asks `OPAQUE_KINDS` independently,
+which holds exactly those two. **A two-FILE pair is not expressible** (the runner
+applies one `from`/`to` against `files[0]`, which this file already records), so
+the mutant moved onto the OBSERVABLE half of the pair — `seeable`'s own
+`OPAQUE_KINDS` test, which two existing cases already kill — and the absorbed
+line keeps its measurement beside it, because the deadness is a property of that
+NEIGHBOUR and not of the expression.
+
+**Suite 6,866** (6,866 pass, 0 fail, 0 skipped) — 6,843 + 9 + 8 + 6, **and the
+arithmetic closes exactly against baselines measured in a detached worktree at
+`bd0b00c4`** (123 / 53 / 28) rather than subtracted from a paragraph; the three
+files that gained only ASSERTIONS (`addon-sweep` 49, `site-addon` 89,
+`site-apply` 87) are unmoved. A worktree run reads one FAIL and two SKIPs a
+repo-root run does not — `render-sandbox`'s privilege-drop case is about writing
+outside the repository root, which is the recorded environment case — so the
+TOTAL is what carries across.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN.** The photograph test is parked awaiting
+fal funding, at the owner's word.
+
+#### What the addon can do, measured end to end (2026-09-19)
+
+Owner: *"Review the remaining addon capabilities end to end… what customers can
+add now, what works only in certain combinations, and what remains
+unsupported."* Every line here is DERIVED by driving the modules, never read off
+a description. **`ADD_KINDS` is nine and `DISPATCHED_ADDS` is EMPTY** — the whole
+list acts here except `photo`, which is `PLACING_ADDS`: it carries a tool AND
+names a layer, so it designs a shot list beside a page and hops to the `picture`
+rung when it is the only thing asked for.
+
+| kind | cap per ask | what it really makes |
+|---|---|---|
+| `table` · `function` · `api` · `job` | 6 · 6 · 4 · 4 | the database half; the first of any of them PROVISIONS the database |
+| `page` | 6 | a route, in `sitemap.xml`, linked from the nav |
+| `component` | 12 | a band on a page — a kit part by name, or a `tsx` part written for this site (`MAX_TSX` 3 against a 2,112-entry menu) |
+| `qr` | one per ask, `MAX_QRS` 6 per site | drawn by us from the stored string, baked as `/qr-<name>.svg` |
+| `three` | one per SITE (`SINGLE_FIELDS`) | a WebGL element |
+| `photo` | 6 (`IMAGE_CAP`) | bought from fal and placed in the same request |
+
+**`MAX_ADDS` is 9, so one message may name every kind it asks for**, and
+`ADD_KINDS` order IS run order — a table before the function that reads it, both
+before the job that runs it, all before the page that shows them.
+
+**WHAT ONLY WORKS IN COMBINATION**, each measured rather than inferred:
+
+- **A visitor upload needs a column named one of fifteen words.**
+  `/api/db/<slug>/uploads` is live (POST, images only — PNG/JPEG/WebP/GIF by
+  magic number, SVG refused as stored XSS, 2 MB, throttled), the kit ships
+  `uploadFile(table, file)`, and `acceptsVisitorUploads` requires a write grant
+  AND a column matching `isImageColumn`. **That function's own comment records
+  the gap**: `attachment`, `file`, `upload`, `receipt`, `document`, `screenshot`
+  and `artwork` all answer NO. So *"let people attach a receipt"* builds a
+  perfect form that refuses every file.
+- **…AND `uploadFile` IS IN ZERO PROMPTS.** Measured: `builder/page-gen.mjs`,
+  `builder/site-add.mjs` and `builder/site-plan.mjs` contain the identifier **0
+  times**, while page rule 1 reads *"NO FETCH CODE. Read with `useRows`, write
+  with `useCreateRow`"*. The route, the kit helper, the sniffer, the throttle and
+  the column rule all exist and the one entry point is named nowhere — this
+  repository's own wiring trap, at the capability level.
+- **Video and audio EMBED; they do not HOST.** `video-embed`, `video-player`,
+  `video-hero`, `audio-player` and `audio-recorder` are all in
+  `COMPONENT_MENU` and all make **zero network calls** — they are prop-driven, so
+  a `component` ask places one around a URL the owner supplies. There is nothing
+  to supply it FROM: uploads are images only, so a media file has no home here.
+- **A page this same change adds is a real destination** for a component, a QR
+  code or a photograph (`site.planned`), and the dependent set is withheld
+  together when the page does not survive.
+- **`pageless` is job + INTERNAL function only** — driven. Anything else wants a
+  compile and a publish, which is most of the bill.
+
+**WHAT IS UNSUPPORTED, and the honest reason for each:**
+
+- **A photograph the site ALREADY has cannot be placed on a new page.** The
+  writer is told the count and never the urls. Run 51's six blank frames are
+  exactly this.
+- **An `api` cannot say where its credential comes from.** A required secret
+  reaches the owner as a bare name (`WEATHER_KEY`) with nothing saying where to
+  get one, and `params` is a name allow-list with **no types and no required
+  flag**, so a connection cannot say which parameter a page must supply.
+- **A job cannot run ONCE.** `JOB_ITEM` carries `everyMinutes` (minimum 15) and
+  an optional `at`; there is no run-once field. A missing field, not a missing
+  capability.
+- **A function cannot choose its `language`** — the engine reads `f.language`
+  and emits `LANGUAGE plpgsql`; the addon's cleaner drops the key and reports it
+  as `unexpressed`.
+- **`qr`, `three` and `photo` cannot report a coverage gap at all**: they are
+  the three kinds off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
+  property and they can neither raise a need nor echo a hand-off. Every other
+  kind can.
+- **Nothing deletes.** `remove` is the edit path's verb; the addon adds.
+
+**COST, from the runs that were really bought**: pageless **3** (run 50),
+`function`+`page` **12** (run 49), `table`+`function`+`page` **13** (run 47),
+`page`+`qr`+a refused photograph **13** (run 51 — billed on `made`, so the
+picture that never arrived cost nothing). A photograph is `IMAGE_USD /
+CREDIT_USD` ≈ **18.75 credits**, which is most of any bill that includes one.
+
 
 ## Data, auth, payments, mail
 

@@ -19,6 +19,9 @@ import { addRule } from "../builder/site-add.mjs";
 // the server said, so the fixture below is that composer's output rather than
 // a second copy of it typed here.
 import { imageNote } from "../builder/site-images.mjs";
+// THE ONE DEFINITION of what the browser's reply composer needs in scope. See
+// the re-anchor note in the driven-reply case below.
+import { BROWSER_FNS } from "../scripts/addon-sweep.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -957,7 +960,15 @@ test("the addon reply is DRIVEN, not grepped", () => {
   // function needs the browser's global — the real module, not a stub, so the
   // recovered branch is driven here too rather than read.
   const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
-  const reply = new Function("EditPoll", [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("browserTimeZone"), cut("jobWords"), cut("addonReplyText")].join("\n") +
+  // ⚠ RE-ANCHORED 2026-09-19, AND IT WAS A SECOND COPY OF A LIST (not appeased).
+  // This named its six cuts by hand, so a sentence added to `addonReplyText`
+  // whose composer was not among them threw `ReferenceError` here — which is
+  // exactly what `listPhotoNote` did the hour it was written, in the SECOND
+  // place keeping such a list. `BROWSER_FNS` is the harness's own set and is
+  // already censused against `addonReplyText`'s body there, so deriving from it
+  // leaves ONE definition of what the composer needs in scope. The extras it
+  // carries (`addonAnswer` and its branches) are defined and never called here.
+  const reply = new Function("EditPoll", BROWSER_FNS.map(cut).join("\n") +
     "\nreturn addonReplyText;")(EditPoll);
   // THE SWEEP'S REPLY: a success whose details were lost, never '✅ Done.'
   // with every list empty.

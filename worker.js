@@ -186,7 +186,7 @@ import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
-import { runPictureEdit, newEmptySlots } from "./builder/site-picture.mjs";
+import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
@@ -23636,11 +23636,21 @@ async function handleRequest(request, env, ctx) {
             // than `absent`. An empty list read as "nothing was made" is the
             // recorded cannot-tell trap, and here it would print "still to do"
             // over work that had not been attempted.
-            let aApplied = false, aShipped = null;
+            //
+            // …AND `aLookMade` IS THE THIRD (2026-09-19). A code and a scene
+            // are decided by the look merge and the dead-QR drop, not by the
+            // backend apply and not by the publish — so they are in hand
+            // EARLIER than either, and gating them on `aApplied` would have
+            // made every change with no database answer "nobody looked" about
+            // a code it had just made. It holds the codes that survived the
+            // drop, which is the list the container really bakes.
+            let aApplied = false, aShipped = null, aLookMade = null;
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
               pages: aShipped || [],
+              qrs: (aLookMade && aLookMade.qrs) || [],
+              three: !!(aLookMade && aLookMade.three),
             });
             // WHICH STEPS THIS CHANGE CAN ANSWER "IT MADE NOTHING" FOR, and the
             // first clause is the one that does most of the work: a kind this
@@ -23655,12 +23665,36 @@ async function handleRequest(request, env, ctx) {
             // the backend four after the apply, `page` after the publish.
             // Before that the honest answer is "cannot tell", which falls to
             // `unverified` — never to "still to do" over work in flight.
+            //
+            // ⚠ AND "ITS RESULTS EXIST" IS PER KIND, NOT ONE FLAG (2026-09-19).
+            // It was `aApplied` for everything but `page`, which is right for
+            // the four schema tiers and wrong for the two look fields: a QR
+            // code is settled by the merge and the dead-QR drop, long before
+            // any apply, and on a change with no database `aApplied` is false
+            // for ever — so a code this change really made would have read as
+            // unseeable on every frontend-only addon there is. `ready` names
+            // the kinds whose results arrive on their own clock and everything
+            // else falls to the apply, so a kind added to `APPLIED_KINDS` next
+            // month gets the conservative answer rather than a wrong one.
+            // ⚠ AND THE `APPLIED_KINDS` LINE IS ABSORBED TODAY — MEASURED, and
+            // kept with its pair rather than deleted. The only kinds that can
+            // be in `ran` and are NOT in `APPLIED_KINDS` are `component` and
+            // `photo`, and `seeable` (the one reader of this list) asks
+            // `OPAQUE_KINDS` independently — which holds exactly those two — so
+            // `false` and `true` here are indistinguishable through every
+            // reachable path. The deadness is a property of that NEIGHBOUR and
+            // not of this expression, so it stays: the day a non-opaque kind
+            // leaves `APPLIED_KINDS`, this is the line that stops a claim about
+            // it reading as "still to do" over something nothing can see. Its
+            // sweep mutant moves the PAIR, because a mutant of this line alone
+            // cannot die and would read as a guard gap for ever.
             const aReportable = () => {
               const ran = new Set(aKinds || []);
+              const ready = { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade };
               return COVERAGE_STEPS.filter((k) => {
                 if (!ran.has(k)) return true;
-                if (k === "page") return !!aShipped;
-                return APPLIED_KINDS.includes(k) && aApplied;
+                if (!APPLIED_KINDS.includes(k)) return false;
+                return Object.hasOwn(ready, k) ? ready[k] : aApplied;
               });
             };
             // ── WHAT THE SITE ALREADY HAD, beside what this change applied ──
@@ -25229,6 +25263,40 @@ async function handleRequest(request, env, ctx) {
               aGone = missingPages(aWanted, [...aMerge.added, ...aMerge.changed]);
             }
 
+            // ── WHAT THE LOOK REALLY ADDED, for the coverage (2026-09-19) ──
+            //
+            // Owner, after run 51: *"Check why the reply says it cannot
+            // establish the QR implementation when this run created and
+            // published it."* It said so because a code was in no applied list
+            // at all — `appliedFacts` spoke for the four schema tiers and
+            // `page`, and a code and a scene are applied results of this change
+            // exactly as a page is. See `APPLIED_KINDS`.
+            //
+            // BELOW THE DROP, WHICH IS THE WHOLE REASON IT IS HERE AND NOT AT
+            // THE MERGE. A code whose destination did not survive generation is
+            // dropped a few lines up, and claiming it as an applied result
+            // would tell a customer the very thing the drop exists to prevent.
+            //
+            // WHAT THIS CHANGE ADDED, NEVER WHAT THE SITE HOLDS. `aMerged` is
+            // the merge of the stored look with this change's answers, so it
+            // carries every code the site already had; those belong to
+            // `existingFacts`, which reads `aLook`, and counting them here
+            // would let a site's old code answer for a new one nobody made.
+            // BY NAME, because that is the identifier the file and the binding
+            // are built from (`qr-<name>.svg`, `SITE_QRS.<name>`) and the one a
+            // `{kind, name}` reference resolves against.
+            {
+              const aHadQr = new Set(qrList(aLook.qr).map((c) => c.name));
+              aLookMade = {
+                qrs: qrList(aMerged.qr).filter((c) => c && !aHadQr.has(c.name)),
+                // A SITE CARRIES AT MOST ONE SCENE (`SINGLE_FIELDS`), so "this
+                // change added one" is the stored field arriving where there
+                // was none — an edit to a scene the site already had is not an
+                // addition and the `three` kind never runs for one.
+                three: !!aMerged.three && !aLook.three,
+              };
+            }
+
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
             //
             // `aCharge` above says when and why. Every usage is known by this
@@ -25565,10 +25633,32 @@ async function handleRequest(request, env, ctx) {
             // module, asserted in `test/site-picture` for this line's sake — so
             // the day removals count, this stops being documentation and starts
             // being a wall.
-            const aSlots = newEmptySlots(
-              imageSources(aSrc, aPartsRead.parts),
-              imageSources(aMerge.pages, aParts || aPartsRead.parts),
-            );
+            const aPicsWas = imageSources(aSrc, aPartsRead.parts);
+            const aPicsNow = imageSources(aMerge.pages, aParts || aPartsRead.parts);
+            const aSlots = newEmptySlots(aPicsWas, aPicsNow);
+            // ── AND THE FRAMES THE PAGE DRAWS FROM A LIST (2026-09-19) ──────
+            //
+            // Owner, after run 51: *"Fix the mismatch between the gallery's
+            // seven empty frames and the reply's 'one photo space.'"*
+            //
+            // MEASURED on the page that run published: `<SafeImage src="" …/>`
+            // once and `<Gallery items={[…six…]}/>` once, so a visitor sees
+            // SEVEN empty frames and `aSlots` answers ONE. `listFrames` reads
+            // the six; `imageSlots` is right not to, and the note on that
+            // function says why. **1 + 6 = 7**, driven against the real page.
+            //
+            // THE SAME PAIR, so one idea of before-and-after serves both
+            // counters and a page the change did not touch contributes nothing
+            // to either. Counted AFTER the sweep for `aSlots`' own reason: a
+            // token is an empty `src=""` by then, and a frame this change
+            // FILLED is not a space to warn anybody about.
+            //
+            // TWO NUMBERS, NEVER ONE. Summing them would fix the count and ship
+            // a bigger claim than the one it replaced: `photoNote` offers to
+            // FILL a slot, and nothing on this platform can fill one of these —
+            // the picture rung addresses a `src` span and a list entry has
+            // none. Each gets the sentence that is true of it.
+            const aListSlots = newListFrames(aPicsWas, aPicsNow);
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
             // (owner, 2026-09-04: "try to fix it, if not fix, send as it is",
@@ -25821,6 +25911,20 @@ async function handleRequest(request, env, ctx) {
               // a page" from "added a code to a page".
               moved: aLookMoved,
               photos: aSlots,
+              // ── AND THE ONES NOTHING CAN FILL (2026-09-19) ────────────────
+              //
+              // `photos` is the frames the picture rung can address; this is
+              // the frames a page draws from a list in its own source, which it
+              // cannot. Both are empty picture boxes a visitor sees, and only
+              // the first is a "space for a photo" anybody can offer to fill —
+              // so they are two fields with two sentences rather than one
+              // number that would make the count right and the promise wrong.
+              // ALWAYS A NUMBER, exactly as `photos` is, and 0 is a real
+              // answer. Sending it only when non-zero would make "this change
+              // added no list frames" and "the Worker that answered predates
+              // this field" the same absence — and the second is the one a
+              // reader of a stored reply has to be able to tell.
+              listPhotos: aListSlots,
               // ── THE PICTURES THIS CHANGE REALLY BOUGHT (2026-09-17) ────────
               //
               // `pictures`, NOT `photos`: that field has meant "empty frames

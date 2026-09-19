@@ -542,7 +542,16 @@ export function photoLines(reply) {
   const lost = Array.isArray(r.lostPhotos) ? r.lostPhotos : [];
   const said = (v) => (Number.isFinite(v) ? String(v) : "(not said)");
   const out = [];
-  out.push(`photographs: bought ${said(r.pictures)}; empty frames left ${said(r.photos)}; existing ones LOST ${lost.length}${lost.length ? ` — ${JSON.stringify(lost.slice(0, 6))}` : ""}`);
+  // ⚠ `listPhotos` IS HERE BECAUSE RUN 51 IS WHY IT EXISTS (2026-09-19). That
+  // run reported "empty frames left 1" over a page a browser measured at SEVEN
+  // — the other six are entries in a list the page's own code carries, which no
+  // reader on the platform counted. Printing only `photos` here would leave the
+  // next run repeating the same understatement in the one instrument bought to
+  // catch it: the recorded value-computed-and-never-forwarded defect, in the
+  // reader for the claim it was added for. ABSENT stays "(not said)" rather
+  // than 0, because a Worker that predates the field and a change that added no
+  // gallery are two different facts.
+  out.push(`photographs: bought ${said(r.pictures)}; empty frames left ${said(r.photos)}; list frames nothing can fill ${said(r.listPhotos)}; existing ones LOST ${lost.length}${lost.length ? ` — ${JSON.stringify(lost.slice(0, 6))}` : ""}`);
   // THE SENTENCE IS THE ONE THING THAT CAN TELL FOUR IDENTICAL BLANK FRAMES
   // APART — bought, unaffordable, refused by the provider, none asked for —
   // so it is printed VERBATIM and never summarised into a word of our own.
@@ -606,7 +615,14 @@ export function photoLines(reply) {
  * below still prints, which is what makes this additive.
  */
 export const BROWSER_FNS = Object.freeze([
-  "problemNote", "photoNote", "sitePathOf", "browserTimeZone", "jobWords",
+  // ⚠ `listPhotoNote` IS HERE BECAUSE ITS ABSENCE THREW (2026-09-19). This list
+  // is the whole of what the cut source has in scope, so a sentence added to
+  // `addonReplyText` whose composer is not named here is a `ReferenceError` at
+  // the first reply that reaches it — the browser reader answers `{ok: false}`
+  // and the paid run comes back with no customer screen at all. The census in
+  // `test/addon-sweep.test.mjs` derives the requirement from `addonReplyText`'s
+  // own body so the next one fails at the guard rather than in a live run.
+  "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "browserTimeZone", "jobWords",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
 ]);
 

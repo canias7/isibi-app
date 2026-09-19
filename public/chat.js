@@ -9628,6 +9628,7 @@ function addonReplyText(a) {
   // browser starts claiming pictures that were never made.
   if (a.pictureNote) out += ' ' + a.pictureNote;
   out += photoNote(a.photos);
+  out += listPhotoNote(a.listPhotos);
   // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for on its own is
   // the picture rung's job and did not ride this addition, so the customer is
   // told to ask for it there rather than left looking for it.
@@ -9983,6 +9984,27 @@ function photoNote(n) {
   if (!c) return '';
   return ' There ' + (c === 1 ? 'is a space' : 'are ' + c + ' spaces') +
     ' for a photo — upload yours in the Data panel and ' + (c === 1 ? 'it' : 'they') + '\u2019ll fill in.';
+}
+// ── AND THE PICTURE BOXES NOTHING CAN FILL (2026-09-19) ─────────────────────
+//
+// Owner, after run 51: *"Fix the mismatch between the gallery's seven empty
+// frames and the reply's 'one photo space.'"* The published page drew SEVEN
+// empty picture boxes and this file was handed ONE, because six of them are
+// entries in a list the page's own code carries (`<Gallery items={[…]}/>`) and
+// every reader on the platform counted elements. `listPhotos` is those six.
+//
+// ITS OWN SENTENCE, NEVER ADDED TO `photoNote`'s NUMBER. That one offers to
+// FILL a space — the picture step addresses a `src` and a list entry has none —
+// so folding the two together would correct the count by making the promise
+// false for most of it, which is a worse answer than the wrong number was. The
+// one thing that DOES change them is a change to the page, so that is what this
+// offers, and it stands alone rather than saying "more": a page can carry these
+// and no addressable space at all.
+function listPhotoNote(n) {
+  const c = Number(n) || 0;
+  if (!c) return '';
+  return ' The page\u2019s own layout has ' + c + ' picture ' + (c === 1 ? 'space' : 'spaces') +
+    ' in it that an upload won\u2019t reach — ask me for photographs there and I\u2019ll change the page itself.';
 }
 // What to say when a build could not run.
 //

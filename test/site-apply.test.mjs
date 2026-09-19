@@ -1562,17 +1562,38 @@ test("a photo slot nobody can fill is said out loud", async () => {
   assert.ok(sweepAt < aAt, "the addon counts frames before the sweep, where a token is not yet one");
   const mergeAt = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(mergeAt > 0 && mergeAt < aAt, "the addon counts frames before the merge decides what publishes");
-  const call = w.slice(aAt, w.indexOf(");", aAt));
-  assert.match(call, /imageSources\(aSrc,/, "the BEFORE is pages only, so a component's own frames read as new");
-  assert.match(call, /imageSources\(aMerge\.pages,/, "the AFTER is the model's answer, not what really publishes");
-  assert.doesNotMatch(call, /aValid\.pages/, "the addon counts frames on pages the publish may never carry");
+  // ⚠ RE-ANCHORED 2026-09-19, NOT APPEASED: the pair was hoisted into two
+  // named values when a SECOND counter started reading it, so pinning the
+  // argument list was pinning a spelling. The property is what the two sides
+  // ARE, so they are read where they are defined — and the property is now
+  // strictly stronger, because BOTH counters have to take that same pair. Two
+  // ideas of before-and-after is how a component reads as new to one reader
+  // and not to the other.
+  const wasAt = w.indexOf("const aPicsWas = ");
+  const nowAt = w.indexOf("const aPicsNow = ");
+  assert.ok(wasAt > 0 && nowAt > wasAt, "the addon's before/after pair is gone — rescope this guard");
+  assert.ok(wasAt > sweepAt && wasAt > mergeAt, "the pair is taken before the sweep or before the merge");
+  const pair = w.slice(wasAt, w.indexOf("\n", nowAt));
+  assert.match(pair, /imageSources\(aSrc,/, "the BEFORE is pages only, so a component's own frames read as new");
+  assert.match(pair, /imageSources\(aMerge\.pages,/, "the AFTER is the model's answer, not what really publishes");
+  assert.doesNotMatch(pair, /aValid\.pages/, "the addon counts frames on pages the publish may never carry");
+  assert.match(w, /const aSlots = newEmptySlots\(aPicsWas, aPicsNow\)/, "the slot count took its own reading of the site");
+  assert.match(w, /const aListSlots = newListFrames\(aPicsWas, aPicsNow\)/,
+    "the list-frame count took its own reading of the site");
 
   assert.match(w, /photos: aSlots/, "the addon answer never carries it");
+  // …AND THE SECOND COUNT REACHES THE CUSTOMER TOO (2026-09-19). Run 51 said
+  // "one photo space" over a page a browser measured at seven; the six it could
+  // not see are a separate field with a separate sentence, because `photoNote`
+  // offers to FILL a space and nothing can fill one of these.
+  assert.match(w, /listPhotos: aListSlots/, "the addon answer never carries the list frames");
   assert.match(w, /photos: pSlots/, "the page edit never carries it");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /function photoNote\(/);
   assert.equal((chat.match(/function photoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");
   assert.match(chat, /photoNote\(a\.photos\)/, "the addon reply is silent about an empty frame");
+  assert.match(chat, /listPhotoNote\(a\.listPhotos\)/, "the addon reply is silent about a frame nothing can fill");
+  assert.equal((chat.match(/function listPhotoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");
   assert.match(chat, /photoNote\(e\.photos\)/, "the page edit is silent about an empty frame");
 });
 

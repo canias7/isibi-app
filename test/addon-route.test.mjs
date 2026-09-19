@@ -38,7 +38,7 @@ import { routeOf, addonReply } from "../builder/site-addon.mjs";
 // path rather than restating it.
 import { IMAGE_CAP } from "../builder/site-images.mjs";
 import { THEME_IDS } from "../builder/site-theme-registry.mjs";
-import { cleanAdd } from "../builder/site-add.mjs";
+import { cleanAdd, appliedFacts } from "../builder/site-add.mjs";
 // REAL GENERATED PAGES, so "a site too large to show whole" is real source
 // rather than padding — the same corpus a dozen false-alarm checks measure
 // against, and the one place these files are reached from.
@@ -52,6 +52,17 @@ import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // hand-typed permission is a second copy of the emitter and the two drift.
 import { grantsFor, policiesFor } from "../site-rls.mjs";
 import { splitPrivileges, readParens } from "../site-schema-recover.mjs";
+// THE CUSTOMER'S SCREEN, COMPOSED BY THE BROWSER ITSELF. `browserReply` loads
+// `public/chat.js` and runs the real `addonAnswer` — selection and composition
+// both — so a case about what somebody reads is not a second copy of the
+// sentences written out here. The harness is its one other caller, which is why
+// it lives there and is imported rather than re-created.
+import { browserReply } from "../scripts/addon-sweep.mjs";
+const browserText = (body) => {
+  const b = browserReply(body, true);
+  assert.ok(b.ok, "the browser's own composer could not run: " + b.why);
+  return b.text;
+};
 
 /** An internal function and a job over it: the pageless pair, so the whole
  *  route runs without a container. */
@@ -4957,4 +4968,311 @@ test("a failed publish puts the old look back", async () => {
   // object did not carry. What must be true is that nothing this change
   // DESIGNED survived, and that nothing the site had was lost.
   assert.equal(look.three, undefined, "a scene this change designed survived a failed publish");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RUN 51: SEVEN EMPTY FRAMES SAID AS ONE, AND A PUBLISHED CODE READ AS UNSEEN
+//
+// Owner, 2026-09-19: *"Fix the mismatch between the gallery's seven empty
+// frames and the reply's 'one photo space.' … Check why the reply says it
+// cannot establish the QR implementation when this run created and published
+// it. Keep configuration separate from verified behavior."*
+//
+// Both are driven here on the page run 51 really published, written back from
+// the live bundle at `fold-lane-bakery.gofarther.app/assets/gallery-*.js` — a
+// real producer's output rather than a shape invented to suit the reader.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The gallery page run 51 shipped: one addressable slot and a six-entry list. */
+const R51_GALLERY = {
+  path: "gallery.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "import { Gallery } from '@/components/ui/gallery'\n"
+    + "export const Route = createFileRoute('/gallery')({ component: Page })\n"
+    + "function Page(){ return (<main><h1>Our Gallery</h1>\n"
+    + '  <SafeImage className="mt-10" src="" alt="Harbour Loaf interior in warm morning light" ratio="16/9" fallbackSeed="bakery-interior" />\n'
+    + '  <Gallery className="mt-10" items={[\n'
+    + '    { alt: "A crusty country loaf on the cooling rack", caption: "Country loaf", fallbackSeed: "loaf-country" },\n'
+    + '    { alt: "Seeded sourdough on a wooden board", caption: "Seeded sourdough", fallbackSeed: "loaf-seeded" },\n'
+    + '    { alt: "Flour-dusted bannetons after the morning prove", caption: "Bannetons", fallbackSeed: "bannetons" },\n'
+    + '    { alt: "A dark rye loaf with a split crust", caption: "Dark rye", fallbackSeed: "loaf-rye" },\n'
+    + '    { alt: "Batards stacked after the bake", caption: "Batards", fallbackSeed: "batards" },\n'
+    + '    { alt: "The brick oven after the morning fire", caption: "The oven", fallbackSeed: "oven" },\n'
+    + "  ]} />\n"
+    + "<p>Photographs of the bakery.</p></main>) }\n",
+};
+
+test("a page's list frames are counted and said apart from the spaces an upload can fill", async () => {
+  // THE REPRODUCTION. Run 51 published this page and told the customer *"There
+  // is a space for a photo"* — one — over a page a real browser measured at
+  // SEVEN empty picture boxes (`role="img"` ×7, `<img>` ×0). Six of them are
+  // entries in the `Gallery` list, which `imageSlots` deliberately cannot see:
+  // its contract is a `src` SPAN to replace and a LITERAL `alt` to match, and
+  // an item in a data array has neither.
+  const r = await addon("fw-frames", "add a gallery page showing photographs of our work", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [R51_GALLERY],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs of our work", sections: ["A gallery"], components: ["gallery"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // 1. THE TWO NUMBERS, and 1 + 6 = 7 is the whole of the fix.
+  assert.equal(r.body.photos, 1, "the addressable slot was miscounted: " + JSON.stringify(r.body.photos));
+  assert.equal(r.body.listPhotos, 6, "the list frames were not counted: " + JSON.stringify(r.body.listPhotos));
+  // 2. THE CUSTOMER HEARS BOTH, and each with the sentence that is TRUE of it.
+  //    Composed by the browser's own `addonReplyText`, executed, never retyped.
+  const said = browserText(r.body);
+  assert.match(said, /is a space for a photo/, "the fillable space was not offered: " + said);
+  assert.match(said, /6 picture spaces/, "the six were not said at all: " + said);
+  // 3. …AND THE PROMISE IS NOT WIDENED. `photoNote` offers to FILL a space from
+  //    an upload; nothing on this platform can fill a list entry, so summing
+  //    the two would have corrected the count by making the offer false for six
+  //    of the seven. The upload sentence must cover ONE.
+  assert.doesNotMatch(said, /are 7 spaces for a photo/, "the two counts were summed into the fillable one: " + said);
+  assert.match(said, /an upload won.t reach/, "the six were offered as uploadable: " + said);
+});
+
+test("a page with no list frames is byte-identical to what it was", async () => {
+  // THE CONTROL. Without it "6 was reported" could be true for some reason
+  // other than the gallery, and the new field could be firing on every change.
+  const r = await addon("fw-frames-none", "add a prices page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/prices")],
+    answers: { page: { page: [{ path: "/prices", name: "Prices", purpose: "What it costs", sections: ["A list"], components: [] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.listPhotos, 0, "a page with no list of pictures reported some");
+  const said = browserText(r.body);
+  assert.doesNotMatch(said, /picture spaces/, "a page with no list frames drew the sentence: " + said);
+});
+
+test("a list entry that really carries a picture is not an empty frame", async () => {
+  // THE OTHER DIRECTION, and it has no case in the 100-site corpus at all —
+  // measured, every one of the 321 list frames there is empty — so without this
+  // the `empty` test is a branch nothing drives and could be deleted green.
+  const filled = {
+    path: "gallery.tsx",
+    source: R51_GALLERY.source.replace(
+      '{ alt: "The brick oven after the morning fire", caption: "The oven", fallbackSeed: "oven" }',
+      '{ src: "/u/fw-frames-full/abc123.jpg", alt: "The brick oven after the morning fire", caption: "The oven" }'),
+  };
+  const r = await addon("fw-frames-full", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [filled],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: ["gallery"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.listPhotos, 5, "a list entry with a real picture was counted as an empty frame");
+});
+
+test("a QR code this change made and published is not read as unseeable", async () => {
+  // THE REPRODUCTION. Run 51's page step handed *"A QR code opens the gallery
+  // page."* to the `qr` step with no `item`; the `qr` step made one code, the
+  // container baked `qr-gallery.svg`, the site published it and it re-encodes
+  // to that address. The customer was told **"I can't see from here whether A
+  // QR code opens the gallery page — nothing I can check says either way."**
+  //
+  // TWO CAUSES AND NEITHER ALONE IS ENOUGH, which is why one case drives both:
+  // a code was in no applied list at all (`appliedFacts` spoke for the four
+  // schema tiers and `page`), and the no-name branch of `implementationOf` read
+  // this change's OWN output as if it were the site's back catalogue.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const r = await addon("fw-qr-seen", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [HANDOFF] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, asserted rather than assumed: the code really was stored.
+  assert.ok((r.body.moved || []).includes("qr"), "no code was made — this case tests nothing: " + JSON.stringify(r.body.moved));
+  const q = storedAnswer(r, "fw-qr-seen").coverage.requirements.find((x) => x.need === HANDOFF.need);
+  assert.equal(q.implementation, "made", "the code this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.state, "unverified", "a published code still read as unseeable: " + JSON.stringify(q));
+  assert.equal(q.handoff, "delivered", "the hand-off's own verdict changed");
+  // ── CONFIGURATION, NEVER BEHAVIOUR — the owner's own instruction ──────────
+  //
+  // `unverified`, not `delivered` and not `configured`: nothing scanned the
+  // drawing and nothing here ever will. The customer hears *"I've set that up,
+  // but I can't confirm"* rather than *"I can't see from here whether"*, which
+  // is the difference between a thing that exists and a thing nobody looked for.
+  assert.notEqual(q.state, "delivered", "a code nothing scanned was called delivered");
+  const note = r.body.coverNote || "";
+  assert.doesNotMatch(note, /can't see from here whether A QR code/, "the can't-see sentence survived: " + note);
+  assert.match(note, /I've set that up/, "the set-up sentence is missing: " + note);
+  // AND THE APPLIED ITEM CARRIES ITS DESTINATION AS CONFIGURATION, with
+  // `checked` empty — the rule the whole of `appliedFacts` rests on.
+  const made = appliedFacts({ qrs: [{ name: "gallery", points: "https://fw.gofarther.app/gallery", label: "x" }] });
+  assert.deepEqual(made.map((m) => m.kind), ["qr"]);
+  assert.ok(made[0].holds.includes("gallery"), "the destination is not readable as configuration: " + JSON.stringify(made[0]));
+  assert.deepEqual(made[0].checked, [], "a QR code claimed an exercised behaviour");
+  assert.deepEqual(made[0].fails, [], "a QR code claimed a contradiction it cannot have");
+  // THE PATH, NOT THE WHOLE URL: the host's own words are the site's slug
+  // repeated on every code, so splitting the address would give every one of
+  // them the business's name and a claim naming the business would match any
+  // code at all. Measured against a real stored destination.
+  assert.ok(!made[0].holds.includes("gofarther"), "the host's words are in the tokens: " + JSON.stringify(made[0].holds));
+  assert.ok(!made[0].holds.includes("https"), "the scheme is in the tokens: " + JSON.stringify(made[0].holds));
+  // A PAYLOAD THAT IS NOT A PAGE HAS NO PATH TO SPLIT, and contributes nothing.
+  const wifi = appliedFacts({ qrs: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] });
+  assert.deepEqual(wifi[0].holds, [], "a non-page payload produced tokens: " + JSON.stringify(wifi[0].holds));
+  // …AND A SCENE IS AN APPLIED RESULT TOO, with an empty vocabulary for
+  // `page`'s reason: existence is the entire claim.
+  assert.deepEqual(appliedFacts({ three: true }), [{ kind: "three", name: "three", holds: [], fails: [], checked: [] }]);
+  assert.deepEqual(appliedFacts({ three: false }), [], "a scene nobody added was claimed as applied");
+});
+
+test("a scene this change added answers its hand-off, and one the site already had does not", async () => {
+  // ⚠ THE `three` HALF, and a sweep survivor is why it is here: `qr` had three
+  // route cases and `three` had none, so every line of its own wiring was a
+  // wall nobody drove. A site carries at most one scene (`SINGLE_FIELDS`), so
+  // the kind IS the name and "this change added one" is the stored field
+  // arriving where there was none.
+  const HANDOFF = { need: "There is something in 3D on the page.", status: "elsewhere", step: "three" };
+  const page = { path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] };
+  const r = await addon("fw-three-made", "add a gallery page and a 3D scene on it", {
+    kinds: ["page", "three"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      three: { three: { scene: "a slowly turning loaf", page: "/gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok((r.body.moved || []).includes("three"), "no scene was stored — this case tests nothing: " + JSON.stringify(r.body.moved));
+  const q = storedAnswer(r, "fw-three-made").coverage.requirements.find((x) => x.need === HANDOFF.need);
+  assert.equal(q.implementation, "made", "the scene this change made was not read as an implementation: " + JSON.stringify(q));
+  assert.equal(q.state, "unverified");
+
+  // THE CONTROL: the site ALREADY has one and this change adds none. What it
+  // had belongs to `existingFacts`; counting it here would let an old scene
+  // answer for a new one nobody made.
+  // …AND WHICH READER ANSWERED IS THE ASSERTION, not merely that it is not
+  // `made`. A sweep survivor is why: with no `item` the hand-off cannot reach
+  // either haystack (`three` never ran, so nothing heard it) and BOTH readings
+  // answer `unknown` — so the negative was true whatever the diff did. A
+  // `covered` claim NAMING the scene goes through the item branch, where the
+  // two readings part: `existing` is the site's back catalogue and `applied`
+  // is this change's own work, and calling an old scene ours is the defect.
+  const NAMED = { need: "The 3D scene is on the page.", status: "covered", from: "page", kind: "three", item: "three" };
+  const c = await addon("fw-three-had", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    look: { three: "a globe that was always there" },
+    written: [writtenPage("/gallery")],
+    answers: { page: { page: [page], requirements: [HANDOFF, NAMED] } },
+  });
+  assert.equal(c.body.ok, true, JSON.stringify(c.body));
+  assert.equal((c.body.moved || []).includes("three"), false, "a scene was added — this control tests nothing");
+  const cr = storedAnswer(c, "fw-three-had").coverage.requirements;
+  const cq = cr.find((x) => x.need === HANDOFF.need);
+  assert.notEqual(cq.implementation, "made", "a scene the site already had was claimed as this change's: " + JSON.stringify(cq));
+  const cn = cr.find((x) => x.need === NAMED.need);
+  assert.equal(cn.implementation, "found", "the site's own scene was not found at all: " + JSON.stringify(cn));
+  assert.equal(cn.foundIn, "existing", "a scene the site already had was recorded as this change's work: " + JSON.stringify(cn));
+});
+
+test("a code the site already had is not claimed as this change's", async () => {
+  // THE SAME WALL ON THE OTHER LOOK FIELD. `aMerged.qr` carries every code the
+  // site holds, so without the diff a change that added NONE would answer a
+  // hand-off out of the site's back catalogue.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  // The NAMED claim is what makes the diff observable — see the scene case
+  // above for why the bare hand-off cannot be: with `qr` never run it reaches
+  // neither haystack, so `unknown` is the honest answer under either reading.
+  const NAMED = { need: "The Wi-Fi code is on the site.", status: "covered", from: "page", kind: "qr", item: "wifi" };
+  const r = await addon("fw-qr-had", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    look: { qr: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] },
+    written: [writtenPage("/gallery")],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [HANDOFF, NAMED] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal((r.body.moved || []).includes("qr"), false, "a code was added — this control tests nothing");
+  const rows = storedAnswer(r, "fw-qr-had").coverage.requirements;
+  const q = rows.find((x) => x.need === HANDOFF.need);
+  assert.notEqual(q.implementation, "made", "the site's own code answered a hand-off nobody acted on: " + JSON.stringify(q));
+  const n = rows.find((x) => x.need === NAMED.need);
+  assert.equal(n.implementation, "found", "the site's own code was not found at all: " + JSON.stringify(n));
+  assert.equal(n.foundIn, "existing", "a code the site already had was recorded as this change's work: " + JSON.stringify(n));
+});
+
+test("a QR code the change did NOT make is still to do, not 'set up'", async () => {
+  // THE CONTROL, and it asserts what it claims rather than only the negative:
+  // the same hand-off, the same step named, and no `qr` answer at all. Nothing
+  // was made, the site has no codes, and BOTH readers being empty is what makes
+  // absence establishable — so the customer gets a finding they can act on.
+  // Without this, "it reads `made`" could be true whatever happened.
+  const HANDOFF = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const r = await addon("fw-qr-unseen", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [HANDOFF] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal((r.body.moved || []).includes("qr"), false, "a code was made — this control tests nothing");
+  const q = storedAnswer(r, "fw-qr-unseen").coverage.requirements.find((x) => x.need === HANDOFF.need);
+  assert.equal(q.implementation, "absent", "a code nobody made read as something: " + JSON.stringify(q));
+  assert.equal(q.state, "missing");
+  assert.equal(q.handoff, "undelivered", "a step this change never ran was recorded as told");
+  assert.match(r.body.coverNote, /Still to do: A QR code opens the gallery page/,
+    "the customer was not told the code is outstanding: " + r.body.coverNote);
+});
+
+test("a NAMED code the qr step ran and did not make is still to do", async () => {
+  // ⚠ THIS IS WHAT MAKES `APPLIED_KINDS` LOAD-BEARING, and it is here because a
+  // red-check found the list doing nothing: the `made` branch reads
+  // `appliedFacts`' own output and never `reportable`, so run 51's case passes
+  // with `qr` off the list entirely. A wall nobody can drive is a wall nobody is
+  // guarding, so this is the case that drives it.
+  //
+  // THE SHAPE IS THE ONE WHERE `seeable` DECIDES: the `qr` step RAN and made a
+  // code, and the requirement NAMES a different one. Neither reader has it, so
+  // the answer turns on whether this layer can see that kind at all —
+  // `APPLIED_KINDS` with `qr` off it answers `unknown` ("nobody looked") about a
+  // step that looked and came back with something else.
+  const NAMED = { need: "A QR code opens the order page.", status: "elsewhere", step: "qr", item: "order", kind: "qr" };
+  const r = await addon("fw-qr-named", "add a gallery page and QR codes", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [NAMED] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: the step really ran and really made a code — a DIFFERENT
+  // one. Without it this case is about a step that did nothing.
+  assert.ok((r.body.moved || []).includes("qr"), "the qr step made nothing — this case tests nothing");
+  const q = storedAnswer(r, "fw-qr-named").coverage.requirements.find((x) => x.need === NAMED.need);
+  assert.equal(q.implementation, "absent", "a named code nobody made was not seen as absent: " + JSON.stringify(q));
+  assert.equal(q.state, "missing");
+  assert.equal(q.handoff, "delivered", "the step really was told");
+  assert.match(r.body.coverNote, /Still to do: A QR code opens the order page/, r.body.coverNote);
+});
+
+test("two un-named requirements resting on one step, and one thing made, stay unknown", async () => {
+  // THE COUNT IS WHAT MAKES `made` SOUND, and this is the case that says so.
+  // With two hand-offs on `qr` and one code, at least one of them has nothing
+  // behind it and which one is not knowable from here — so BOTH stay `unknown`
+  // rather than both being told *"I've set that up"*.
+  const A = { need: "A QR code opens the gallery page.", status: "elsewhere", step: "qr" };
+  const B = { need: "A QR code opens the order page.", status: "elsewhere", step: "qr" };
+  const r = await addon("fw-qr-two", "add a gallery page and QR codes", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }], requirements: [A, B] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok((r.body.moved || []).includes("qr"), "no code was made — this case tests nothing");
+  const cov = storedAnswer(r, "fw-qr-two").coverage.requirements;
+  for (const need of [A.need, B.need]) {
+    const q = cov.find((x) => x.need === need);
+    assert.equal(q.implementation, "unknown", "one code answered for two asks: " + JSON.stringify(q));
+    assert.equal(q.state, "unknown");
+  }
 });

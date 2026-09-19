@@ -987,6 +987,33 @@ test("the browser's own selection decides which screen a reply gets, status incl
   for (const n of BROWSER_FNS) {
     assert.ok(chatSrc.includes("function " + n + "("), "the executed set names " + n + ", which is gone from chat.js");
   }
+  // ⚠ …AND EVERY COMPOSER THE REPLY TEXT CALLS MUST BE IN IT (2026-09-19). The
+  // set is the whole of what the cut source has in scope, so a sentence added to
+  // `addonReplyText` whose helper is not named here is a `ReferenceError` on the
+  // first reply that reaches it — the reader answers `{ok: false}` and a paid run
+  // comes back with no customer screen at all. That is what `listPhotoNote` did
+  // the hour it was written, caught by a route case rather than here; this is the
+  // half that makes the NEXT one fail at the guard.
+  //
+  // DERIVED FROM `addonReplyText`'S OWN BODY, never a list beside it: every name
+  // it calls that `chat.js` defines as a top-level function has to be in the set.
+  // A call to something chat.js does NOT define is somebody else's — a global, a
+  // method, an injected seam — and is not this census's business.
+  const bodyAt = chatSrc.indexOf("function addonReplyText(");
+  assert.ok(bodyAt > 0, "addonReplyText is gone from chat.js");
+  const bodyEnd = chatSrc.indexOf("\n}", bodyAt);
+  assert.ok(bodyEnd > bodyAt, "addonReplyText has no end in chat.js");
+  const called = new Set();
+  for (const m of chatSrc.slice(bodyAt, bodyEnd).matchAll(/(^|[^\w$.])([a-z][\w$]*)\s*\(/g)) called.add(m[2]);
+  const defined = new Set();
+  for (const m of chatSrc.matchAll(/(^|\n)function ([A-Za-z_$][\w$]*)\(/g)) defined.add(m[2]);
+  const missing = [...called].filter((n) => defined.has(n) && !BROWSER_FNS.includes(n));
+  assert.deepEqual(missing, [],
+    "addonReplyText calls " + JSON.stringify(missing) + ", which the cut source will not have in scope");
+  // THE OBSERVER IS ALIVE, so the empty answer above is a pass and not a scan
+  // that matched nothing: the two it definitely calls are found.
+  assert.ok(called.has("photoNote") && called.has("listPhotoNote"),
+    "the call scan found neither photo sentence — it is reading the wrong body");
   // AND THE BROWSER REALLY HANDS ITS RESPONSE'S `ok` TO IT — read at the call
   // site, so the harness's `httpOk` is the same thing the page's is.
   assert.match(chatSrc, /return addonAnswer\(r && r\.ok, a, \{/,
@@ -1029,6 +1056,10 @@ test("the report reads the photographs and the reply on a refusal, which is the 
   assert.equal(lost.ok, true, "a named refusal is being read as a failure");
   assert.match(lost.note, /existing ones LOST 1 — \["\/u\/ag\/86833f9a21022de9a22d55cd6bc3ba0d\.jpg"\]/,
     "the refusal's own lost-photograph list never reaches the report");
+  // …AND THE FOURTH READING IS ABSENT RATHER THAN ZERO on a refusal, which is
+  // the honest pair: a Worker that predates the field and a change that added
+  // no list frame are two different facts, and a 422 carries neither.
+  assert.match(lost.note, /list frames nothing can fill \(not said\)/, lost.note);
   assert.match(lost.note, /· msg: "I'd have taken a photograph off your site/);
   assert.match(lost.note, /refused: lost-photos/);
   // AND THE SCREEN IS THE REFUSAL'S OWN (2026-09-18, re-anchored not appeased —
@@ -1040,10 +1071,16 @@ test("the report reads the photographs and the reply on a refusal, which is the 
   // AND ON A SUCCESS, the numbers and the sentence both.
   const ok = c.check(before, { build: "b2", text: "x".repeat(400), routes: ["/", "/gallery"] }, {
     ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"],
-    pictures: 1, photos: 0, pictureNote: "Made 1 photograph for the site.",
+    pictures: 1, photos: 0, listPhotos: 6, pictureNote: "Made 1 photograph for the site.",
     coverNote: "I've set that up, but I can't confirm from here that …",
   }, { askKinds: ["page", "photo"], status: 200 });
-  assert.match(ok.note, /photographs: bought 1; empty frames left 0; existing ones LOST 0/);
+  // RE-ANCHORED 2026-09-19, NOT APPEASED: the line gained a fourth reading, and
+  // the property was never the spelling — it is that every photograph fact the
+  // reply carries reaches the report. `listPhotos` is here because run 51
+  // reported "empty frames left 1" over a page a browser measured at SEVEN, and
+  // a report printing only `photos` would repeat that understatement in the
+  // instrument bought to catch it.
+  assert.match(ok.note, /photographs: bought 1; empty frames left 0; list frames nothing can fill 6; existing ones LOST 0/, ok.note);
   assert.match(ok.note, /the picture sentence: "Made 1 photograph for the site\."/);
   // RE-ANCHORED, NOT APPEASED: "sentence by sentence" was the per-field
   // breakdown's own wording. Both halves are asserted now — the screen a person

@@ -155,6 +155,115 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-19 — Run 51's two defects, and an honest list of what the addon can do
+
+Both fixed, both reproduced first from the page run 51 really published. **No
+paid run, nothing merged, nothing deployed.** The photograph test stays parked
+until fal is funded, at your word.
+
+### 1. Seven empty frames, and you were told about one
+
+Your gallery page draws its pictures two ways. One is a single `<SafeImage>`
+with an empty `src` — the shape the "upload yours and it'll fill in" promise is
+about. The other six are **entries in a list** handed to the kit's `Gallery`
+component, and nothing on this platform has ever counted one of those.
+
+**The scale is not a curiosity.** I ran the new reader over the whole 100-site
+corpus: **320 of these frames, across 60 of 324 page files, and every single one
+is empty.** That is the ordinary shape of every gallery this platform has
+generated, going back months.
+
+They are counted now, and **as a second number with its own sentence, never
+added to the first** — because the first offers to fill a space from an upload
+and nothing can fill a list entry. You now get both:
+
+> There is a space for a photo — upload yours in the Data panel and it'll fill in.
+> The page's own layout has 6 picture spaces in it that an upload won't reach —
+> ask me for photographs there and I'll change the page itself.
+
+**And no, the six should not have been created.** You asked for photographs of
+your work on a site that **already owns three photographs**, and the page shows
+none of them. The page writer was told the count — *"This site already shows 3
+real photographs, and they stay exactly as they are"* — and was never told
+**where** they are or that it may place one. So its own gallery band had nothing
+to put in it. **That is a real capability gap and I have not fixed it here**: a
+page writer cannot place a photograph the site already has. It is the cheapest
+thing on the list below and needs no fal credits to prove.
+
+### 2. The QR code it made, published, and could not vouch for
+
+Run 51 made a code pointing at `/gallery`, baked it, published it, and I read it
+back off the live file and confirmed it opens that address. The reply said:
+
+> I can't see from here whether A QR code opens the gallery page — nothing I can
+> check says either way.
+
+**Two causes, and neither alone was enough** — I reverted each on its own to be
+sure. The part of the code that lists "what this change applied" spoke for
+tables, functions, connections, jobs and pages, and a QR code was none of them:
+it could see codes the site *already had* and never one this change *made*. And
+the reader deciding whether a hand-off was answered was treating this change's
+own output as the site's back catalogue.
+
+It now says **"I've set that up, but I can't confirm from here"** — the honest
+line. It is not "done": nothing scanned the code, and **configuration and
+verified behaviour stay separate**, which was your instruction. A step only gets
+to answer a hand-off it actually **heard**, and only when it made at least as
+many things as were asked of it — otherwise which ask was answered is unknowable
+and the whole group stays silent.
+
+### What the addon can do today, measured
+
+**Nine things a customer can add**, and one message may ask for all of them:
+tables (6), functions (6), API connections (4), scheduled jobs (4), pages (6),
+sections/components (12), QR codes (6 per site), one 3D scene per site, and
+photographs (6). Order is fixed — a table before the function that reads it,
+both before the job that runs them, all before the page that shows them — and
+the first backend thing of any kind **creates the database**.
+
+**Three things work only in combination, each measured:**
+
+- **Visitor uploads exist and are nearly unreachable.** The whole chain is
+  live — the route, the 2 MB image check, the rate limit, and a helper in your
+  site's own code. Two things stop it: the column must be named one of fifteen
+  words (the code's own comment lists `attachment`, `file`, `upload`, `receipt`,
+  `document`, `screenshot` and `artwork` as ones that **do not count**), and the
+  helper's name appears **zero times in any prompt** while the page rules say
+  "no fetch code". So *"let people attach a receipt"* builds a perfect form that
+  refuses every file.
+- **Video and audio embed; they do not host.** Every media component is in the
+  menu and none of them makes a network call — they take a URL you supply. There
+  is nothing to supply it from, because uploads are images only.
+- **A page this same change adds is a real destination** for a section, a code or
+  a photograph, and if the page does not survive the whole dependent set is
+  withheld together rather than shipping broken.
+
+**What is genuinely unsupported:** placing a photograph the site already owns;
+telling an owner where an API's key comes from (they get a bare name); a job that
+runs once rather than on a schedule; choosing a function's language; and any
+kind of deletion — that is the edit path's job. Also: QR codes, 3D scenes and
+photographs are the three kinds that structurally cannot report a coverage gap,
+so they can neither raise a need nor answer one.
+
+**Cost, from runs really bought**: a job-only change **3**, function + page
+**12**, table + function + page **13**, page + code + a refused photograph
+**13**. A photograph alone is about **18.75 credits**, so it is most of any bill
+that includes one.
+
+### Checks
+
+Suite **6,866**, mutation sweep **43/43 with 0 survivors** (three passes; not one
+survivor at any point was the product's). Nine red-checks, each reverting one
+line. The frame count is measured against the real published page: **1 + 6 = 7**.
+
+**One line is declared absorbed rather than deleted**, with its measurement: a
+filter in the route that cannot change any answer today because a rule one file
+over already covers the same two kinds. It stays because it is the line that
+stops a wrong "still to do" the day that rule moves, and its sweep mutant moved
+onto the half that can be seen.
+
+---
+
 ## 2026-09-18 — The test kit can now see the things the test is about
 
 Your six corrections. Four were code, and all four were the same thing: **the

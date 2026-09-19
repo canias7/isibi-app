@@ -251,18 +251,170 @@ export function isEmptySlot(slot) {
  * net of zero over a page that really does have an empty frame on it.
  */
 export function newEmptySlots(before, after) {
-  const empties = (pages) => {
-    const by = new Map();
-    for (const s of imageSlots(pages)) {
-      if (!isEmptySlot(s)) continue;
-      by.set(s.page, (by.get(s.page) || 0) + 1);
-    }
-    return by;
+  return grew(before, after, (pages) => imageSlots(pages).filter(isEmptySlot));
+}
+
+/**
+ * THE PER-PAGE INCREASE, SHARED BY BOTH COUNTERS.
+ *
+ * One machine, two readers: the rules above — per page, only the increase,
+ * negative never subtracting — are the same argument whichever kind of picture
+ * frame is being counted, and writing them twice is how the two come to
+ * disagree about a page the change did not touch.
+ */
+function grew(before, after, read) {
+  const by = (pages) => {
+    const m = new Map();
+    for (const f of read(pages)) m.set(f.page, (m.get(f.page) || 0) + 1);
+    return m;
   };
-  const was = empties(before), now = empties(after);
+  const was = by(before), now = by(after);
   let n = 0;
   for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));
   return n;
+}
+
+/** How many list frames one reader will report. A page past this is a contact sheet. */
+export const MAX_LIST_FRAMES = 200;
+
+/**
+ * ── A PICTURE A PAGE DRAWS FROM A LIST IN ITS OWN SOURCE (2026-09-19) ───────
+ *
+ * Owner, after run 51: *"Fix the mismatch between the gallery's seven empty
+ * frames and the reply's 'one photo space.'"*
+ *
+ * The published `/gallery` renders **seven** empty picture frames and the
+ * customer was told about **one**. Read out of the live bundle, the page is:
+ *
+ *     <SafeImage src="" alt="Harbour Loaf interior in warm morning light…" />
+ *     <Gallery items={[{alt:"A crusty country loaf…", caption:"Country loaf"},
+ *                      …five more…]} />
+ *
+ * `imageSlots` sees the first and is RIGHT not to see the other six: its
+ * contract is a `src` SPAN it can replace and a LITERAL `alt` to match a
+ * sentence against, which is what makes it the picture rung's addressability
+ * reader. An item in a data array has neither, so widening it would offer the
+ * rung slots it cannot edit — the note at the head of that function says so and
+ * that limit stays.
+ *
+ * **BUT THE CUSTOMER'S SENTENCE IS ABOUT WHAT THEY SEE, NOT ABOUT WHAT THIS
+ * LAYER CAN EDIT**, and those are two questions. This is the second one.
+ *
+ * ── THE SCALE, MEASURED OVER THE 100-SITE CORPUS ────────────────────────────
+ *
+ * **320 of these frames, in 60 of 324 page files, and EVERY ONE IS EMPTY** —
+ * 254 carrying `src: null` explicitly and 66 with no picture key at all; zero
+ * carry a url and zero carry a token. Counted by THIS function over the
+ * corpus, not by a script beside it: a first measurement using a hand-written
+ * scan answered 321/61, because it accepted a TEMPLATE-literal `alt` — a data
+ * row whose count no reader of the source can know. The product refusing it is
+ * the right answer and the ad-hoc number was the wrong instrument. So run 51's six are not a curiosity: this
+ * is the ordinary shape of every gallery the platform has ever generated, and
+ * not one of those frames has ever been counted by anything.
+ *
+ * ── THE RULE IS `alt`, AND IT IS THE KIT'S OWN ─────────────────────────────
+ *
+ * `Gallery` and `MediaGrid` both declare `items: { src?: string | null; alt?:
+ * string; caption?: string | null }[]` — the SAME `src`/`alt` pair
+ * `imageSlots`' component branch already calls "the kit's own naming for a
+ * component that has one picture", here as object keys rather than attributes.
+ * So this knows nothing about which components exist: an object literal
+ * carrying a literal `alt` is a picture entry, because `alt` describes a
+ * picture and nothing else in JSX, and it is EMPTY when no picture value sits
+ * beside it.
+ *
+ * NESTED OBJECTS ARE SKIPPED, not descended into. A picture entry is flat by
+ * construction, and an object holding another object is a data row of some
+ * other kind whose inner entries are examined on their own account anyway.
+ *
+ * THE SCAN STARTS FROM A KEY, WHICH IS WHAT KEEPS IT CHEAP. A `.tsx` page is
+ * mostly braces — every JSX expression opens one — so walking from each of them
+ * is quadratic on a 48,000-character page. `OBJ_START` finds the `{` that
+ * begins an object literal (a `{`, an identifier, a colon), which a JSX
+ * expression brace is not.
+ */
+export function listFrames(pages) {
+  const out = [];
+  for (const p of Array.isArray(pages) ? pages : []) {
+    if (!p || typeof p.path !== "string" || typeof p.source !== "string") continue;
+    const src = p.source;
+    const re = new RegExp(OBJ_START.source, "g");
+    let m;
+    while ((m = re.exec(src))) {
+      const body = shallowObject(src, m.index);
+      if (body === null) continue;
+      const alt = literalKey(body, "alt");
+      if (!alt) continue;
+      // THE PICTURE'S OWN VALUE, or "" for a key that is not there. Both read
+      // as empty and they are the same fact about the page — a frame with
+      // nothing in it — which is why `isEmptySlot`'s `null` case and a missing
+      // key are not separated here the way an attribute's are.
+      const v = keyValue(body, "src");
+      out.push({ page: p.path, alt, value: v, empty: !v || v === "null" });
+      if (out.length >= MAX_LIST_FRAMES) return out;
+    }
+  }
+  return out;
+}
+
+/** The `{` of an object literal: a brace, a key, a colon. A JSX brace is not one. */
+const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*")\s*:/;
+
+/** How far a shallow object literal may run before this stops believing it is one. */
+const MAX_OBJ_CHARS = 4000;
+
+/**
+ * The body of the shallow object literal starting at `from`, or null.
+ *
+ * `null` for a nested object, an unterminated one, or one past the bound — each
+ * of which is "not a picture entry", and answering null rather than guessing is
+ * what keeps a data row of some other shape out of the count.
+ */
+function shallowObject(src, from) {
+  let depth = 0, quote = "";
+  const end = Math.min(src.length, from + MAX_OBJ_CHARS);
+  for (let i = from; i < end; i++) {
+    const c = src[i];
+    if (quote) { if (c === quote && src[i - 1] !== "\\") quote = ""; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "{") { depth++; if (depth > 1) return null; continue; }
+    if (c === "}") { depth--; if (!depth) return src.slice(from + 1, i); }
+  }
+  return null;
+}
+
+/**
+ * A key's string-literal value, or "" for anything computed or absent.
+ *
+ * BOTH QUOTES, AND A BACKTICK IS NOT ONE. A generated page writes `"` (measured:
+ * every one of the corpus's list frames does), but an object key is ordinary
+ * TypeScript and `'` is as written as `"` — where a TEMPLATE is the tell that
+ * the entry is a data ROW whose count is decided at runtime, which is exactly
+ * what this must refuse. `imageSlots`' attribute reader stays double-only
+ * because a JSX attribute is a different grammar.
+ */
+function literalKey(body, name) {
+  const m = new RegExp("(^|[,{\\s])" + name + "\\s*:\\s*(\"[^\"]*\"|'[^']*')").exec(body);
+  return m ? m[2].slice(1, -1).trim() : "";
+}
+
+/** A key's value as written, or "" when the key is not there at all. */
+function keyValue(body, name) {
+  const m = new RegExp("(^|[,{\\s])" + name + "\\s*:\\s*([^,}]*)").exec(body);
+  if (!m) return "";
+  return m[2].trim().replace(/^["'`]|["'`]$/g, "").trim();
+}
+
+/**
+ * HOW MANY OF THOSE FRAMES THIS CHANGE ADDED — `newEmptySlots` one reader over.
+ *
+ * SAID APART FROM THE SLOTS, NEVER SUMMED INTO THEM, because the customer's two
+ * sentences are different promises. `photoNote` offers to fill a slot; nothing
+ * on this platform can fill one of these, so folding them into that count would
+ * fix the number by shipping a bigger claim than the one it replaced.
+ */
+export function newListFrames(before, after) {
+  return grew(before, after, (pages) => listFrames(pages).filter((f) => f.empty));
 }
 
 export const PICTURE_TOOL = {
