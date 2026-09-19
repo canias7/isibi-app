@@ -225,7 +225,27 @@ function missingFor(env, job) {
 }
 
 /** Everything the three handlers are built from, so they cannot be built differently. */
-function parts(env, { notify, fetchImpl } = {}) {
+/**
+ * ⚠ **`send` IS AN INJECTED SEAM FOR A LOCAL DRIVER, exactly as `notify` and `fetchImpl` are,
+ * and it is UNREACHABLE IN PRODUCTION BY CONSTRUCTION.** Cloudflare calls
+ * `queue(batch, env, ctx)` with three arguments, so the option that carries it cannot be
+ * supplied by a deployment — there is nowhere to put it. That is the whole safety argument, and
+ * it is stronger than a setting with a guard on it: a `MODELS` entry answering from a script
+ * would be one `MODEL=` away from a deployment that believes it is talking to a provider and is
+ * quietly answering canned text, which is the failure this file already refuses an unknown
+ * model over.
+ *
+ * **IT DOES NOT CHANGE WHAT THE RUN RECORDS.** `agent.runs.model` is the database's — for a
+ * conversation it is `agent.authored_run()`'s — so an injected sender's answers are still
+ * labelled by whatever that says, and a reader asking "was this simulated" gets the same
+ * answer it always did. A scripted sender has to label its own text as well, for the same
+ * reason the stand-in does: the chrome's label is gone the moment somebody copies an answer.
+ *
+ * **REFUSED, NEVER COERCED.** A non-function is a caller bug and falling back to the model's
+ * own sender would make a driver believe it was scripting a conversation that was answering
+ * from somewhere else.
+ */
+function parts(env, { notify, fetchImpl, send } = {}) {
   const modelName = isText(env.MODEL) ? env.MODEL : "stand-in";
   const make = Object.hasOwn(MODELS, modelName) ? MODELS[modelName] : null;
   if (!make) throw new TypeError(`no such model: ${modelName}`);
@@ -279,7 +299,11 @@ function parts(env, { notify, fetchImpl } = {}) {
    */
   const connections = makeConnections({ ...wire, adapters: ADAPTERS });
 
-  return { store, work, automations, capabilities, connections, approvals, send: make(), ring, doFetch, modelName };
+  if (send !== undefined && typeof send !== "function") {
+    throw new TypeError("send must be a function when it is supplied at all");
+  }
+  return { store, work, automations, capabilities, connections, approvals,
+           send: send ?? make(), ring, doFetch, modelName };
 }
 
 /**
@@ -313,14 +337,16 @@ export function buildApi(env, { now, newId, notify, fetchImpl } = {}) {
 }
 
 /** Build the consumer. The only thing in the deployment that executes a run. */
-export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryMs } = {}) {
+export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryMs, send } = {}) {
   // THE CONSUMER NEVER PRODUCES. It claims, executes and releases; the only thing
   // that sends a message is the sweeper, and that is a different handler.
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
-  const { store, work, automations, capabilities, connections, approvals, send } = parts(env, { notify, fetchImpl });
+  const parted = parts(env, { notify, fetchImpl, send });
+  const { store, work, automations, capabilities, connections, approvals } = parted;
+  const sender = parted.send;
   return makeRunner({
-    work, store, automations, capabilities, connections, approvals, send, agents: AGENTS, now,
+    work, store, automations, capabilities, connections, approvals, send: sender, agents: AGENTS, now,
     // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
     // so both fall back to `runner.mjs`'s own constants — and a test asserts that
     // this file never names a number of its own for them.
@@ -502,9 +528,17 @@ export default {
    * message eventually dead-lettering for a reason that has nothing to do with the
    * run. One authority, and it is the one that can see the run's state.
    */
-  async queue(batch, env, ctx) {
+  /**
+   * ⚠ **THE FOURTH ARGUMENT IS A LOCAL DRIVER'S SEAM AND A DEPLOYMENT CANNOT REACH IT.**
+   * Cloudflare invokes this handler as `queue(batch, env, ctx)`, so `opts` is `undefined` in
+   * every deployment — there is no setting, no binding and no body field that can carry one.
+   * It exists so a demonstration can script the model's answers while still driving THIS
+   * handler, rather than building a runner of its own and proving something about a code path
+   * no customer takes.
+   */
+  async queue(batch, env, ctx, opts = {}) {
     let runner;
-    try { runner = buildRunner(env); }
+    try { runner = buildRunner(env, opts); }
     catch (e) {
       // Nothing can be executed, so nothing is acked: this is the one case where
       // the queue's own retry is the right mechanism, because the work row cannot

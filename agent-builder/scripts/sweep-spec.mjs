@@ -31,8 +31,11 @@ const W = at("worker.mjs");
  * generator's anchor census is what turns a moved line into a refusal rather than a mutant
  * that lands on nothing, and it is how this one was caught.
  */
+// ⚠ RE-ANCHORED, NOT APPEASED: `send` became an INJECTABLE SEAM (`send: sender`), so this line
+// moved. The four mutants below drop one dependency each from the runner's construction, and the
+// property is unchanged — what moved is the spelling of the sender's own key.
 const NEW_RUNNER_LINE =
-  "    work, store, automations, capabilities, connections, approvals, send, agents: AGENTS, now,";
+  "    work, store, automations, capabilities, connections, approvals, send: sender, agents: AGENTS, now,";
 const A2 = at("agents.mjs");
 const RN = at("runner.mjs");
 const ST = at("model-standin.mjs");
@@ -1623,17 +1626,32 @@ const spec = [
   // these four names what it takes AWAY from the same current spelling. The properties are
   // unchanged; only the line they cut from moved.
   m("worker: the runner is built with no automation executor", W, NEW_RUNNER_LINE,
-    "    work, store, capabilities, connections, approvals, send, agents: AGENTS, now,"),
+    "    work, store, capabilities, connections, approvals, send: sender, agents: AGENTS, now,"),
   m("worker: the runner is built with no backend for its tools to reach", W, NEW_RUNNER_LINE,
-    "    work, store, automations, connections, approvals, send, agents: AGENTS, now,"),
+    "    work, store, automations, connections, approvals, send: sender, agents: AGENTS, now,"),
   m("worker: the runner is built with nowhere to ask a person", W, NEW_RUNNER_LINE,
-    "    work, store, automations, capabilities, connections, send, agents: AGENTS, now,"),
+    "    work, store, automations, capabilities, connections, send: sender, agents: AGENTS, now,"),
   // ⚠ AND THE NEW HOP, which is the one this round adds: a seam built and never handed over
   // makes every connection tool answer `no-connections` while the run completes, the queue
   // acks and the customer is told the agent cannot reach anything. The wiring layer, for the
   // fourteenth-odd time in this repository.
   m("worker: the runner is built with nothing to reach outside", W, NEW_RUNNER_LINE,
-    "    work, store, automations, capabilities, approvals, send, agents: AGENTS, now,"),
+    "    work, store, automations, capabilities, approvals, send: sender, agents: AGENTS, now,"),
+  // ⚠ THE INJECTED SENDER IS A SEAM FOR A LOCAL DRIVER, and its three walls fail differently.
+  // Ignored, a demonstration scripts a conversation that answers from somewhere else and every
+  // assertion about what the model said is about the stand-in — the wiring layer, in the one
+  // place a scripted run could silently stop being scripted. Coerced, a caller bug becomes a
+  // silent fall-back to the model's own sender. Not forwarded by `queue`, the seam exists and
+  // is unreachable from the handler a customer's work really goes through.
+  m("worker: an injected sender is built and then ignored", W,
+    "           send: send ?? make(), ring, doFetch, modelName };",
+    "           send: make(), ring, doFetch, modelName };"),
+  m("worker: a sender that is not a function falls back instead of refusing", W,
+    '  if (send !== undefined && typeof send !== "function") {\n    throw new TypeError("send must be a function when it is supplied at all");\n  }',
+    "  if (typeof send !== \"function\") send = undefined;"),
+  m("worker: the queue handler does not forward a local driver's options", W,
+    "    try { runner = buildRunner(env, opts); }",
+    "    try { runner = buildRunner(env); }"),
   m("worker: the approval store is never built at all", W,
     "  const approvals = makeApprovals(wire);",
     "  const approvals = null;"),

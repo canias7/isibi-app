@@ -2180,3 +2180,85 @@ test("⚠ THE EVENT TICK'S LOG TELLS FILING FROM WAKING — one total could not"
     assert.ok(tally.rung >= 2, line);
   });
 });
+
+/**
+ * ⚠ **A LOCAL DRIVER MAY SCRIPT THE MODEL'S ANSWERS, AND A DEPLOYMENT CANNOT.**
+ *
+ * The milestone that needed this asked for *deterministic scripted model responses* through the
+ * real handler, and `queue` builds its sender from `env.MODEL` — so the choice was a fourth
+ * argument or a `MODELS` entry. **A registered `scripted` model would be one `MODEL=` away from a
+ * deployment answering canned text while believing it was talking to a provider**, which is the
+ * failure this file already refuses an unknown model over. Cloudflare invokes the handler as
+ * `queue(batch, env, ctx)`, so a fourth argument is unreachable from any deployment by
+ * construction — no setting, no binding, no body field can carry one.
+ *
+ * Three properties, and each fails differently: the seam WORKS (or a demonstration scripts a
+ * conversation that answers from somewhere else and every assertion about it is about the
+ * stand-in), it REFUSES a non-function rather than falling back, and `queue` FORWARDS it (or the
+ * seam exists and is unreachable from the handler a customer's work goes through).
+ */
+test("⚠ A SCRIPTED SENDER REACHES THE REAL QUEUE HANDLER, and a deployment has nowhere to put one", async () => {
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    const start = async () => {
+      const res = await worker.fetch(new Request("https://x/runs", {
+        method: "POST", headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({ agent: "support", prompt: "hello there" }),
+      }), env, ctx);
+      assert.equal(res.status, 202);
+      return (await res.json()).runId;
+    };
+    const answerOf = async (runId) => (await (await worker.fetch(
+      new Request(`https://x/runs/${runId}`, { headers: { authorization: `Bearer ${token}` } }),
+      env, ctx)).json()).text;
+
+    // ── 1. THE CONTROL: with no options at all, the model named by `env` answers. ──
+    const plain = await start();
+    await worker.queue(batchOf([{ runId: plain }]), env, ctx);
+    const said = await answerOf(plain);
+    assert.match(String(said), /hello there/, "the stand-in's answer never came back");
+    assert.doesNotMatch(String(said), /scripted here/, "nothing was scripted and something scripted answered");
+
+    // ── 2. THE SEAM: a scripted sender's own words are the run's answer. ───────────
+    const scripted = await start();
+    let asked = 0;
+    const send = async () => {
+      asked++;
+      return { text: "[simulated] scripted here, deterministically", toolCalls: [],
+               usage: { inputTokens: 1, outputTokens: 1 }, costMicros: 0 };
+    };
+    await worker.queue(batchOf([{ runId: scripted }]), env, ctx, { send });
+    assert.ok(asked >= 1, "the scripted sender was never asked");
+    assert.match(String(await answerOf(scripted)), /scripted here, deterministically/,
+      "the scripted sender's answer did not reach the run");
+
+    // ── 3. REFUSED, NEVER COERCED. A caller bug must not quietly become the model's own
+    //       sender — a driver would then believe it was scripting a conversation that was
+    //       answering from somewhere else. `queue` catches a build failure and RETRIES, so the
+    //       observable is that nothing was acked and nothing executed.
+    const junk = await start();
+    const batch = batchOf([{ runId: junk }]);
+    await worker.queue(batch, env, ctx, { send: "not a function" });
+    assert.deepEqual(batch.acked, [], "a run was acked although no runner could be built");
+    assert.deepEqual(batch.retried, [0], "the delivery was not retried");
+    assert.deepEqual([...rest.entries.get(junk).values()].map((e) => e.kind), ["started"],
+      "something executed with a sender that is not one");
+
+    // ── 4. AND THE DEPLOYED SHAPE CANNOT CARRY ONE: three arguments, so the option is
+    //       `undefined` and the model named by `env` answers. Asserted as the ARITY of what
+    //       Cloudflare calls, because that is the whole safety argument.
+    // ⚠ **`Function.length` EXCLUDES A DEFAULTED PARAMETER, which is why THREE is the right
+    // number here and my first draft asserted four and was red.** That is this directory's own
+    // recorded fact (a sweep survivor once turned on it), and it is the assertion that matters:
+    // the handler's declared arity is still the three Cloudflare passes, so the seam is a
+    // DEFAULTED fourth — present for a caller in this repository and absent for every delivery.
+    assert.equal(worker.queue.length, 3,
+      "the seam stopped being a defaulted fourth parameter, so a deployment's call shape changed");
+    const deployed = await start();
+    await worker.queue(batchOf([{ runId: deployed }]), env, ctx);   // three, as Cloudflare calls it
+    assert.doesNotMatch(String(await answerOf(deployed)), /scripted here/,
+      "a three-argument delivery reached a scripted sender");
+  });
+});
