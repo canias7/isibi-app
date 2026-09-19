@@ -10528,10 +10528,37 @@ was the instrument that was wrong*, which is this file's own **derive it from
 the real producer** trap met while checking a stamp.
 
 **Nothing else read the field** — a scan of the guards, the modules, the Worker,
-the scripts and `public/` finds no other `\.runtime\b` on a frame. The case's
-title gained the split, so a red run points at the property that moved rather
-than at "a frame carries a picture". **Suite 6,879, unchanged**: this is a
-re-anchor inside a case that already existed.
+the scripts and `public/` finds no other `\.runtime\b` on a frame, and the three
+identifiers the round deleted (`RUNTIME_CALL`, `MAX_RUNTIME_LOOKBACK`,
+`inRuntimeList`) survive only as anchors in two spent mutant specs, where a
+re-run would say NOT APPLIED rather than pass quietly. The case's title gained
+the split, so a red run points at the property that moved rather than at "a
+frame carries a picture".
+
+**AND THE KEY SET IS PINNED, which is the guard for the finding rather than a
+second copy of it.** The rename went unseen because every assertion in that file
+reads a frame property BY NAME, and a name that no longer exists reads as
+`undefined` rather than as an error — where `shownPhotos`' own cases
+`deepEqual` the whole object and would have gone red on the same move (measured:
+all seven of them carry `urls` since the day it was added). One `deepEqual` of
+the key set gives a frame the same protection, and **it is the ONLY thing that
+catches a field ADDED**, which is the direction the two count assertions
+structurally cannot see: driven, a sixth field turns exactly ONE case red —
+this one — with `["page","alt","value","empty","counted","hint"]` in the
+message. A rename turns five red, this one among them. **Its fixture is asserted
+to have drawn two frames first**, because a key set read off an empty list is a
+`deepEqual` against nothing; and the fixture is declared ABOVE the case rather
+than beside the assertion, since a `const` read from above its own line is this
+repository's recorded temporal-dead-zone trap and *"the test callback runs after
+the module evaluates"* is a reason that holds today and is not worth resting on.
+
+**Suite 6,879, unchanged**: every one of these is an assertion inside a case
+that already existed. **CI HAS READ IT: `unit tests` run 2747 on `76a653c2`,
+green — `# tests 6879 / # pass 6875 / # fail 0 / # skipped 4`**, against local
+`6879 / 6879 / 0 / 0`. **No `site build` fired and none was due** — predicted
+from the filter before the push and confirmed after: `site-build.yml`'s `paths`
+name `test/page-gen.test.mjs` and the `test/integration/*` files, and
+`test/site-picture.test.mjs` is neither.
 
 ### A PHOTOGRAPH THE SITE ALREADY HAS MAY BE SHOWN AGAIN (2026-09-19)
 

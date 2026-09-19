@@ -999,6 +999,17 @@ test("an escaped quote inside an alt does not lose the frame after it", () => {
   assert.equal(frames[0].alt, "a 3\\", "the alt's own truncation moved without anybody deciding to");
 });
 
+// A REAL TWO-ENTRY GALLERY, written where it renders — the ordinary shape, and
+// its one reader is the key-set assertion at the end of the case below. It is
+// declared HERE rather than beside that assertion because a `const` read from
+// above its own line is this repository's recorded temporal-dead-zone trap, and
+// "the test callback runs after the module finishes evaluating" is a reason
+// that holds today and is not one worth resting on.
+const LIST_SHAPE_PAGE =
+  'export default function P() {\n' +
+  '  return <Gallery items={[{ alt: "the bench", src: null }, { alt: "the window", src: null }]} />;\n' +
+  '}\n';
+
 test("the whole corpus reads clean: every list frame empty, and the counted split held", () => {
   // THE FALSE-ALARM RATE, measured against the real corpus rather than argued:
   // 320 frames in 60 of 324 page files, and NOT ONE carries a picture. That is
@@ -1054,4 +1065,17 @@ test("the whole corpus reads clean: every list frame empty, and the counted spli
   // floor into a number the page does not draw.
   assert.equal(counted, 297, "the corpus's established-count split moved — re-measure before moving this number");
   assert.equal(frames - counted, 23, "the corpus's uncertain count moved — these are the runtime-decided galleries");
+  // ⚠ AND THE KEY SET IS PINNED, which is the guard for the defect above rather
+  // than a second copy of it. The rename went unseen because every assertion
+  // here reads a frame property BY NAME, and a name that no longer exists reads
+  // as `undefined` rather than as an error — where `shownPhotos`' own cases
+  // compare the whole object and would have gone red on the same move. One
+  // `deepEqual` of the key set gives a frame the same protection: rename, add
+  // or drop a field and this is red at one place, with the name that moved in
+  // the message.
+  const made = listFrames([{ path: "p.tsx", source: LIST_SHAPE_PAGE }]);
+  assert.equal(made.length, 2, "the shape fixture drew no frames, so the key set below is asserted over nothing");
+  assert.deepEqual(Object.keys(made[0]), ["page", "alt", "value", "empty", "counted"],
+    "a frame's fields moved — every assertion in this file reads them BY NAME, so re-anchor them all: " +
+    JSON.stringify(Object.keys(made[0])));
 });

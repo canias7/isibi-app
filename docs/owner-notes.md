@@ -13811,5 +13811,13 @@ broken instrument. It says so in the file now.
 And I checked that nothing else in the whole codebase was reading the dead field
 — nothing was.
 
-The suite is still **6,879**, because this is a repair to a test that already
-existed rather than a new one. Nothing merged, nothing deployed, nothing spent.
+**And I put a lock on the drawer it came out of.** The reason this slipped is
+that every check in that file asks for a field *by name*, and a name that isn't
+there any more just reads as blank — no error, no red. So there is now one check
+that asserts the whole list of field names at once. It is the only thing that
+would catch a field being *added*, which the number checks can't see at all: I
+proved that by adding one and watching exactly this check go red, naming it.
+
+The suite is still **6,879**, because all of this is repair to a test that
+already existed rather than a new one. Nothing merged, nothing deployed, nothing
+spent.
