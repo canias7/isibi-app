@@ -13932,3 +13932,51 @@ site counts 1 where it used to count 2.
 
 Nothing merged or deployed, nothing spent. The photo test is still parked on
 fal.
+
+## 2026-09-19 — What the add-on can and can't do, checked rather than remembered
+
+The correction milestone is closed. Before starting anything new I went back
+over the list of what the add-on can do and **checked each line against the code
+instead of trusting what the notes said**. Two of them were wrong, and one of
+those was wrong in the direction that matters — it said something was broken
+that isn't.
+
+**Letting a visitor attach a photo to a form works, and my notes said it
+didn't.** The note claimed the one instruction the page writer needs was in none
+of the prompts. It is — I'd searched for the wrong name. The whole chain is
+there: the form rule has a worked example, the page writer is told per table
+whether that table takes a file and which column to put it in, the table
+designer is told what to call the column, and there's a check that catches a
+form built on a table that can't take one. Nothing to fix.
+
+What *is* still true about uploads, precisely:
+
+- a **visitor** can send a picture (PNG, JPEG, WebP, GIF, 2 MB) and nothing else;
+- **you** can also upload a PDF or a spreadsheet, which is what the download
+  cards on your sites rest on;
+- so "put our menu PDF up" works and "let customers attach a receipt PDF"
+  doesn't, and they're different questions about different doors;
+- there's no home for a video or audio file at all — those components embed a
+  YouTube or Vimeo link, they don't host anything.
+
+**I also split the list in two**, because it had been mixing up two different
+things. One pile is *built but never proven*: the generated photograph (waiting
+on fal), a scheduled job actually sending a message (waiting on a test
+recipient), a job firing on its own timer, taking a section off a page, this
+branch, and the four sites whose database reference still needs your two
+presses. Each of those is waiting on a press or a credential, not on code. The
+other pile is *genuinely not built*, and those need work.
+
+**The next thing worth building, and why.** When a site reads outside data —
+today's weather, exchange rates, a delivery estimate — the connection gets made
+and saved and reported as done, and **the page that's supposed to show it can't
+be written properly**. Nobody tells the page writer what the answer looks like,
+so it guesses the field names; nobody says which of the settings you have to
+fill in; and you're told to put a key in Settings without being told where to
+get one. It's the same shape as everything I've been fixing for the last week —
+it looks delivered and it doesn't work — and it's the last place I can find
+where that's structurally true rather than a bug.
+
+I can do all of it and check all of it without spending a credit or touching a
+real site. Nothing merged or deployed, nothing spent, and the photo test is
+still parked on fal.

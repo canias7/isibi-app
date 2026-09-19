@@ -10145,25 +10145,45 @@ before the job that runs it, all before the page that shows them.
 
 **WHAT ONLY WORKS IN COMBINATION**, each measured rather than inferred:
 
-- **A visitor upload needs a column named one of fifteen words.**
-  `/api/db/<slug>/uploads` is live (POST, images only — PNG/JPEG/WebP/GIF by
-  magic number, SVG refused as stored XSS, 2 MB, throttled), the kit ships
-  `uploadFile(table, file)`, and `acceptsVisitorUploads` requires a write grant
-  AND a column matching `isImageColumn`. **That function's own comment records
-  the gap**: `attachment`, `file`, `upload`, `receipt`, `document`, `screenshot`
-  and `artwork` all answer NO. So *"let people attach a receipt"* builds a
-  perfect form that refuses every file.
-- **…AND `uploadFile` IS IN ZERO PROMPTS.** Measured: `builder/page-gen.mjs`,
-  `builder/site-add.mjs` and `builder/site-plan.mjs` contain the identifier **0
-  times**, while page rule 1 reads *"NO FETCH CODE. Read with `useRows`, write
-  with `useCreateRow`"*. The route, the kit helper, the sniffer, the throttle and
-  the column rule all exist and the one entry point is named nowhere — this
-  repository's own wiring trap, at the capability level.
+- **⚠ "A visitor upload is unreachable because `uploadFile` is in ZERO prompts"
+  IS FALSIFIED AND IS CORRECTED HERE (2026-09-19).** That bullet greped for the
+  bare function name; **the kit exports TWO things and the prompts name the
+  other one** — `uploadFile(table, file)` and the hook `useUploadFile(table)`,
+  and page rule 1's own sentence is *"NO FETCH CODE … Read with `useRows`,
+  write with `useCreateRow`"*, which is an instruction to use HOOKS. Measured:
+  `useUploadFile` occurs **6 times in `builder/page-gen.mjs`** and the chain is
+  whole at every hop — **page rule 8** carries a worked example
+  (`const upload = useUploadFile("bookings")` … `form.setValue("photo", url)`),
+  **`schemaDigest` states `FILE UPLOAD: YES/NO` per table** from
+  `acceptsVisitorUploads` itself and NAMES the column to put the url in, the
+  **table tool tells the designer what to call that column** (*"name it photo,
+  image_url, avatar, logo, cover or hero_image … that is what lets the form
+  accept a file at all"*), and a **lint refuses `useUploadFile` on a table that
+  takes none**. *A grep for the wrong identifier reads exactly like a missing
+  wire* — and this file recorded it as the wiring trap for four days.
+- **WHAT IS REALLY LEFT THERE IS ONE LINE AND IT IS OWNER-GATED.**
+  `isImageColumn` still answers NO to `attachment`, `file`, `upload`, `receipt`,
+  `document`, `screenshot` and `artwork`, so a designer that ignores the naming
+  guidance produces a form with no attach control — honest, and not what was
+  asked for. **`site-access.mjs`'s own comment already states the decision**:
+  widening the list widens an endpoint that is UNAUTHENTICATED by design, which
+  is the owner's call and not a thing to fold into a fix.
+- **A VISITOR MAY SEND A PICTURE AND NOTHING ELSE; AN OWNER MAY SEND A
+  DOCUMENT.** Measured off the two sniffers rather than recalled:
+  `handleVisitorUpload` takes PNG/JPEG/WebP/GIF by magic number, 2 MB,
+  throttled, SVG refused as stored XSS — while an OWNER's upload also takes
+  **PDF and the zip family** (`sniffUpload`, `MAX_DOC_BYTES` 10 MB), which is
+  what `DownloadCard` and rule 7's "the owner uploads the file after the build"
+  already rest on. So *"put our menu PDF up"* works and *"let customers attach a
+  receipt PDF"* does not, and they are different questions about different
+  routes.
 - **Video and audio EMBED; they do not HOST.** `video-embed`, `video-player`,
   `video-hero`, `audio-player` and `audio-recorder` are all in
   `COMPONENT_MENU` and all make **zero network calls** — they are prop-driven, so
   a `component` ask places one around a URL the owner supplies. There is nothing
-  to supply it FROM: uploads are images only, so a media file has no home here.
+  to supply it FROM: **neither sniffer admits a video or audio container at all**
+  (`UPLOAD_EXTS` is png · jpg · webp · gif · pdf · the zip members), so a media
+  file has no home here.
 - **A page this same change adds is a real destination** for a component, a QR
   code or a photograph (`site.planned`), and the dependent set is withheld
   together when the page does not survive.
@@ -10199,13 +10219,37 @@ before the job that runs it, all before the page that shows them.
     largest being 50,646 characters**, so this arrives by growth.
   **Run 51's six blank frames are a separate thing**: the page writer had a
   gallery band to fill, no shot list, and no sentence inviting reuse.
-- **An `api` cannot say where its credential comes from.** A required secret
-  reaches the owner as a bare name (`WEATHER_KEY`) with nothing saying where to
-  get one, and `params` is a name allow-list with **no types and no required
-  flag**, so a connection cannot say which parameter a page must supply.
-- **A job cannot run ONCE.** `JOB_ITEM` carries `everyMinutes` (minimum 15) and
-  an optional `at`; there is no run-once field. A missing field, not a missing
-  capability.
+- **AN OUTSIDE CONNECTION IS APPLIED AND STORED AND THE PAGE CANNOT BE WRITTEN
+  AGAINST IT — three gaps in one tier, re-measured 2026-09-19 off the tool
+  itself** (`API_ITEM` is `name · url · method · headers · body · params ·
+  cacheSeconds`, required `["name","url"]`).
+  **(a) WHERE THE KEY COMES FROM.** The owner IS told where to put it — the
+  reply carries `needsSecrets` and the browser says *"To switch it on, add
+  RATES_KEY under Cloud → Secrets"* — and nothing anywhere says which service,
+  which page to sign up on, or whether it is free. The earlier wording here
+  ("a bare name with nothing saying where to get one") conflated the two halves;
+  the destination is wired and the PROVENANCE is the gap.
+  **(b) WHAT EACH PARAMETER IS.** `params` is `array of string`, lowercased and
+  capped at 8 — no type, no required flag, no sentence — and `apiLines` prints
+  it as `weather(city)`, so a page cannot know which parameter it must supply.
+  **(c) WHAT THE ANSWER LOOKS LIKE, which is the largest of the three and was
+  not recorded at all.** The kit's hook is `useApi<T = unknown>`, so a page that
+  reads a field either declares its own `T` — **a guess about a third party's
+  JSON, from a model that has never seen a response** — or leaves it unstated.
+  **MEASURED with the real compiler** (`tsc --strict`, isolated from the repo's
+  own `@types` so the reading is about the code and not the environment): the
+  unstated read is **`TS2339: Property 'current' does not exist on type '{}'`,
+  exit 2**, and the same read against a declared `T` is clean. By this
+  platform's own rule the typecheck REPORTS and only `vite build` refuses, so
+  **that page SHIPS** with the error riding out as a `typeErrors` line and
+  nothing rendering where the data should be. Nothing in the design, the digest
+  or the rules describes the shape. **This is the one tier where the page
+  provably cannot be written correctly from what it is given.**
+- **A job cannot run ONCE.** Measured off `JOB_ITEM`: `name · fn · everyMinutes
+  · at`, required `["name","fn","everyMinutes"]`, minimum 15 — there is no
+  run-once field, so *"remind me on the 3rd"* becomes a job that fires for ever.
+  A missing field, not a missing capability, and the failure is silent and
+  repeating.
 - **A function cannot choose its `language`** — the engine reads `f.language`
   and emits `LANGUAGE plpgsql`; the addon's cleaner drops the key and reports it
   as `unexpressed`.
@@ -10213,13 +10257,104 @@ before the job that runs it, all before the page that shows them.
   kinds still off `REQUIREMENT_ADDS`, so their tools carry no `requirements`
   property and they can neither raise a need nor echo a hand-off. **`qr` JOINED
   THEM on 2026-09-19** and every other kind could already.
-- **Nothing deletes.** `remove` is the edit path's verb; the addon adds.
+- **Nothing deletes ON THIS PATH, and the edit path's verb is narrower than
+  "everything else" — measured off `site-lanes.mjs` rather than recalled.**
+  `REMOVABLE_LANES` is fifteen and includes `components` and `tsx`, so *"take
+  the testimonials block off"* is a real edit-path rung; `PAGE_VERBS` is
+  `add · remove · move` with `add` dispatching back to the addon. What
+  `NOT_REMOVABLE` names, with a sentence each, is `backend` · `lang` · `slug` ·
+  `kind` · `purpose` — so **a table, a saved function, a connection or a
+  scheduled job cannot be taken away in chat at all**, which is the half of
+  "nothing deletes" that is really a missing capability rather than a path
+  boundary. **And the removal verb itself is implemented and UNVERIFIED**: no
+  live run has ever exercised it (the standing task names `move`, `remove` and
+  `cancel` together).
 
 **COST, from the runs that were really bought**: pageless **3** (run 50),
 `function`+`page` **12** (run 49), `table`+`function`+`page` **13** (run 47),
 `page`+`qr`+a refused photograph **13** (run 51 — billed on `made`, so the
 picture that never arrived cost nothing). A photograph is `IMAGE_USD /
 CREDIT_USD` ≈ **18.75 credits**, which is most of any bill that includes one.
+
+#### IMPLEMENTED-BUT-UNVERIFIED IS NOT UNSUPPORTED (2026-09-19)
+
+Owner: *"Keep implemented-but-unverified behavior separate from unsupported
+capabilities."* They are not degrees of the same thing: one is waiting on a
+press or a credential and its next step is a MEASUREMENT, the other has no code
+behind it and its next step is a CHANGE. Mixing them is how a capability review
+turns into a to-do list nobody can price.
+
+**IMPLEMENTED, NOT PROVEN — every one blocked on something that is not code:**
+
+| what | blocked on |
+|---|---|
+| a generated photograph placed in the same request | **fal funding.** Run 51 reached the provider and was refused; the code bought nothing and billed nothing, which is the right behaviour and is not the proof |
+| a scheduled job DELIVERING a message | **a test recipient.** Every case stubs the sender; the last hop anyone has seen is the payload. No real message has been sent and none may be |
+| a job firing on a real CRON TICK | **a tick.** Run now passes `force: true`, which drops the dueness clause, so the press proves the runner and says nothing about selection. The DST correction is guarded and undeployed |
+| the edit path's `remove` / `move` verbs | **a live run.** Fifteen removable lanes and the page verbs, never once exercised against a real site |
+| this whole branch, and the `search_path` pin | **a merge.** Guarded, swept, and not on main |
+| four sites' `site_backends.neon_db` | **two presses.** `ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1` are still `incomplete`; `repairbench-1` is repaired and verified |
+
+**AND THE BACKEND TIER HAS NO CORPUS, which bounds what can be claimed about it
+here.** Measured: the 100-site corpus is **324 `.tsx` files with ZERO
+`useRows`, ZERO `useCreateRow`, ZERO `useApi`, ZERO `useRpc` and ZERO
+`useUploadFile`** — it is a frontend corpus, because a first build is
+frontend-only by default and most sites never get a database. So the
+false-alarm measurements this file leans on (the kit closure's 9–53 files, the
+322-against-222 lint reading, the 320 picture frames) are all statements about
+the FRONTEND, and no equivalent evidence exists for the four backend kinds.
+Anything asserted about them rests on driven guards plus the live runs, and
+saying so beats implying a corpus that is not there.
+
+#### THE NEXT CAPABILITY: AN OUTSIDE CONNECTION A PAGE CAN ACTUALLY RENDER
+
+Of everything above it is the only gap where **the page provably cannot be
+written correctly from what it is given**, and it is the shape this whole
+milestone has been closing — a feature that is applied, stored, reported as
+added, and does not work. The others are each a real gap and each is smaller:
+run-once jobs is one field plus scheduler arithmetic; `language` is a key the
+cleaner drops; visitor documents widen an unauthenticated endpoint and are the
+owner's call; deleting a table is its own path.
+
+**Three pieces, in the order they fail:**
+
+1. **`returns` on `API_ITEM`** — a small sketch of the answer, the shape the
+   page must read. It DECLARES and the page step writes the source, which is
+   the `tsx` precedent in as many words. `apiLines` prints it, so the page has a
+   `T` to declare rather than one to invent.
+2. **`params` becomes items with a `required` flag and a sentence** — the
+   cleaner already lowercases, dedupes and caps at 8, so the shape change is
+   contained and the wire stays a list.
+3. **`credential`** — which service, and where the owner signs up — carried
+   beside `needsSecrets` into the sentence the browser already composes, so the
+   owner is told where to GET the key as well as where to put it.
+
+**ACCEPTANCE — all of it drivable through `POST /api/site/<slug>/addon` with
+stubbed seams: no fal, no container, no paid run, no deploy.**
+
+- The designer's request carries the three new properties (read off the tool
+  the route really sent, never a source scan — the QR echo round's own
+  finding: a fixture that hands the answer in bypasses the tool entirely).
+- A connection designed with a `returns` reaches the page prompt: `apiLines`
+  names the shape, and **the control is the same site with `returns` absent**,
+  where the line is unchanged byte for byte.
+- A page written against it declares a real `T` — asserted on the **compiler
+  payload**, not the model's answer, with the stored source checked too.
+- A `params` entry marked required and omitted by the page is **named**, not
+  silently dropped; an unknown param is still dropped as it is today.
+- The customer's own sentence carries the provenance beside the destination,
+  composed by the real `addonReply` and the browser's real `addonReplyText`.
+- **The negative**: a connection with none of the three behaves byte for byte
+  as it does today — every existing site is that case.
+- **A real PostgreSQL** is not needed: `_meta.schema` is where a connection is
+  stored and the route's fixture already drives it.
+
+**WHAT THIS CANNOT PROVE WITHOUT A PRESS**: that a real third-party service
+answers the declared shape. The honest ceiling here is *the page is written
+against a shape somebody stated*, and the measurement that would close it is a
+probe call with the owner's own key — which cannot run on the change that
+creates the connection, because the key is added afterwards. Say that in the
+entry rather than letting a green guard imply it.
 
 
 ### …AND THE TWO THAT FINISHED THEM (2026-09-19)
