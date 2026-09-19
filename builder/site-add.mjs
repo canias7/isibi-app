@@ -283,6 +283,44 @@ export const MIN_JOB_MINUTES = 15;
  */
 export const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
+/**
+ * The longest interval a job may run at, and the value a ONE-TIME job's
+ * interval is forced to. `site-jobs.mjs` (`MAX_EVERY_MINUTES`) is the
+ * authority; this module may not import from the root, so the number is
+ * repeated here and a test holds the two together — and the test matters more
+ * than usual for this one, because the forcing is a FAIL-SAFE: if the two ever
+ * drift apart, a one-time job whose `on` is lost degrades to whatever number
+ * THIS file happens to hold.
+ */
+export const MAX_JOB_MINUTES = 60 * 24 * 31;
+
+/**
+ * The single date a one-time job runs, "YYYY-MM-DD" — the shape
+ * `site-jobs.mjs` keeps under the same name; the twin is held by a test.
+ */
+export const ON_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * That date as a comparable number (`20261003`), or null if it is not a real
+ * calendar day — `ON_RE` admits `2026-13-45`, so the shape is not the answer.
+ *
+ * A NUMBER RATHER THAN A `Date`, because the only thing anything here does
+ * with it is compare it against today in the site's own zone, and `YYYYMMDD`
+ * orders exactly as the calendar does. Going through `Date` would drag a zone
+ * into a comparison between two dates that are both already IN that zone —
+ * and `Date.UTC(1, 0, 1)` silently means 1901, which is how a well-formed
+ * early year gets reported as invalid.
+ */
+export function onceDay(s) {
+  const m = ON_RE.exec(String(s || ""));
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return null;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const len = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  return d <= len ? y * 10000 + mo * 100 + d : null;
+}
+
 /** A page is at most this many bands, top to bottom. */
 export const MAX_SECTIONS = 12;
 
@@ -2351,17 +2389,44 @@ export function cleanAdd(kind, value, site) {
         // naming any other function, silently; this is the sentence for it.
         const known = (Array.isArray(s.jobFns) ? s.jobFns : []).map((x) => str(x, 63).toLowerCase());
         if (!TABLE_NAME.test(fn) || !known.includes(fn)) return { ok: false, why: "no-job-fn" };
-        const every = Number.isFinite(Number(v.everyMinutes)) ? Math.max(MIN_JOB_MINUTES, Math.round(Number(v.everyMinutes))) : MIN_JOB_MINUTES;
+        const everyAsked = Number.isFinite(Number(v.everyMinutes)) ? Math.max(MIN_JOB_MINUTES, Math.round(Number(v.everyMinutes))) : MIN_JOB_MINUTES;
         // A CLOCK TIME (owner, 2026-09-03) belongs to a daily-or-slower job
         // and is refused by name otherwise — the engine would drop the time
         // and keep the interval, which is a job that runs at the wrong hour
         // reported as the one they asked for. The zone is stamped by the
         // route from the owner's browser; this module never knows it.
         const at = str(v.at, 5);
+        // ── A JOB THAT RUNS ONCE (2026-09-19) ────────────────────────────
+        //
+        // The interval is forced BEFORE the clock-time test, for the reason
+        // `normalizeJob` forces it: `at` belongs to a daily-or-slower job, and
+        // a model writing `{on, at, everyMinutes: 60}` — thinking about a date
+        // rather than an interval, which is exactly what a one-time job is —
+        // would otherwise be refused `bad-time` for a combination that is
+        // perfectly sensible.
+        const on = str(v.on, 10);
+        const once = on ? onceDay(on) : null;
+        if (on && !once) return { ok: false, why: "bad-date" };
+        const every = once ? MAX_JOB_MINUTES : everyAsked;
         if (at && (!AT_RE.test(at) || every < 1440)) return { ok: false, why: "bad-time" };
+        // A DATE WITH NO TIME IS REFUSED HERE, where there is somebody to tell
+        // — `normalizeJob` refuses it too, one layer down, but silently.
+        if (once && !at) return { ok: false, why: "no-time" };
+        // …AND A DATE ALREADY GONE, which is the one refusal only THIS layer
+        // can make well. The designer knows today's date; the scheduler only
+        // ever sees a job that will never be selected, and says nothing to
+        // anybody. Telling the customer now beats a reminder about a thing
+        // that has already happened — which is to say, beats silence.
+        // `s.today` is the site's OWN local date, stamped by the route from the
+        // browser's zone — the same zone `at` is read in. Absent, the check
+        // stands down rather than guessing: comparing a local date against UTC
+        // would refuse a perfectly good "today" for anybody west of Greenwich
+        // for most of their working day, which is a worse failure than the one
+        // it prevents.
+        if (once && s.today && once < onceDay(s.today)) return { ok: false, why: "past-date" };
         const exists = (Array.isArray(s.jobs) ? s.jobs : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         ctx.jobs.push(name);
-        return { ok: true, value: { name, fn, everyMinutes: every, ...(at ? { at } : {}), exists } };
+        return { ok: true, value: { name, fn, everyMinutes: every, ...(at ? { at } : {}), ...(once ? { on } : {}), exists } };
       }
       case "qr": {
         let points = str(v.points, 1000);
@@ -2518,6 +2583,12 @@ export function addRefusal(why, kind) {
     case "no-job": return "I couldn't tell what should happen on a timer — say what to send, to whom, and how often.";
     case "no-job-fn": return "That scheduled job names a function this site doesn't have — describe what it should send and I'll write both together.";
     case "bad-time": return "A time of day only fits a job that runs once a day or less often — say how often it should run, or drop the time and it runs on the interval. Nothing was changed.";
+    // THREE SENTENCES FOR THREE REFUSALS, because they need three different
+    // things done about them and a shared one would send the customer looking
+    // in the wrong place. Each says what to do rather than what went wrong.
+    case "bad-date": return "I couldn't read the date that job should run on — give it as a day, a month and a year, like 3 October 2026. Nothing was changed.";
+    case "no-time": return "A job that runs once needs a time of day as well as a date — say what time it should go out, because there's no second chance for it to be right. Nothing was changed.";
+    case "past-date": return "That date has already gone, so the job would never run. Give a date in the future and I'll set it up. Nothing was changed.";
     case "no-destination": return "A QR code needs a real destination — a link, a phone number, a wifi network — and that wasn't in the message. Nothing was changed.";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
     case "no-such-page": return "That code would open a page this site doesn't have. Name one of its pages, or a link, a number or an address — nothing was changed.";
@@ -2798,7 +2869,13 @@ export function foldAdds(answers, priorLook, site) {
       const { exists, ...api } = v;
       apis.push(api);
     }
-    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes, ...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}) });
+    // ⚠ THE FOLD REBUILDS A JOB KEY BY KEY, so a field added to `cleanAdd` and
+    // not to this line is CLEANED, VALIDATED, and then dropped one hop later —
+    // this repository's most-recorded defect, and the one-time date walked
+    // straight into it: the cleaner kept `on`, the reply lost it, and from the
+    // outside that is indistinguishable from a model that never said it.
+    // MEASURED: `{on: "2026-10-03"}` in, `undefined` out of `foldAdds`.
+    if (a.kind === "job" && v.name) jobs.push({ name: v.name, fn: v.fn, everyMinutes: v.everyMinutes, ...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}), ...(v.on ? { on: v.on } : {}) });
     // APPENDED TO THE STORED LIST BY NAME (2026-09-03), never replacing it —
     // the `tsx` rule one loop up, for the same reason: a site with a code that
     // gets another must keep the first.

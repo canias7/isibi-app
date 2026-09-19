@@ -1,6 +1,6 @@
 import { sendConfirmation, recipient, pickProvider } from "./site-mail.mjs";
 import { sendSms, pickSmsProvider, toE164, SMS_SECRET_NAMES } from "./site-sms.mjs";
-import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone } from "./site-jobs.mjs";
+import { dueJobs, runJob, jobOutcome, normalizeJob, validTimeZone, jobPanelRow } from "./site-jobs.mjs";
 import { hostIsBlocked, blockedReason } from "./site-ssrf.mjs";
 import { deliverWebhook, firesFor, signPayload, retryable as webhookRetryable, MAX_PER_MINUTE as WEBHOOK_PER_MIN } from "./site-webhooks.mjs";
 import { drainQueue, enqueueRow, sameOwner, queueFull, retentionCutoffs, LEASE_MS as WEBHOOK_LEASE_MS, MAX_PENDING_PER_SITE } from "./site-webhook-queue.mjs";
@@ -1996,7 +1996,16 @@ async function persistSiteJobs(env, ownerId, slug, jobs) {
     // THE CLOCK TIME RIDES THE SPEC (2026-09-03): `at` and the zone it is
     // read in, beside the function — the runner's `dueJobs` reads them off
     // the row, and a job without one is exactly the row it always was.
-    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}) },
+    // `on` rides the spec beside `at`, and its PRESENCE is what makes this a
+    // one-time job — `dueJobs` asks for nothing else. `schedule_minutes` keeps
+    // an ordinary value deliberately: a 0 or a sentinel would be the
+    // structurally stronger marker, and this repository cannot read
+    // `site_functions`' CHECK constraints (the table was created by hand and
+    // no migration defines it), so writing an unusual value into a column
+    // whose constraints are unknown is the kind of assumption that costs a
+    // deploy. `normalizeJob` forces the interval to its ceiling instead, which
+    // is the fail-safe if `on` is ever lost.
+    owner_id: ownerId, slug, name: j.name, spec: { fn: j.fn, ...(j.at ? { at: j.at, ...(j.tz ? { tz: j.tz } : {}) } : {}), ...(j.on ? { on: j.on } : {}) },
     ...(unknown || paused.has(String(j.name)) ? {} : { enabled: true }),
     updated_at: now, schedule_minutes: j.everyMinutes,
   }));
@@ -2270,7 +2279,24 @@ function jobDeps(env, row, { force = false } = {}) {
       stamp: async (r2) => {
         const mins = parseInt(r2.schedule_minutes, 10) || 0;
         const cutoff = new Date(Date.now() - Math.max(0, mins * 60000 - 30000)).toISOString();
-        const dueness = force ? "" : `&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`;
+        // ── A ONE-TIME JOB KEEPS ITS CLAUSE UNDER `force` (2026-09-19) ─────
+        //
+        // The dueness clause is DROPPED under `force` because the owner
+        // pressing "Run now" decides the job is due now. It cannot decide the
+        // job is due TWICE: a one-time job has exactly one occurrence, and a
+        // press that re-ran it would send the same reminder to the same people
+        // a second time — the failure `runJob`'s stamp-before-send ordering
+        // exists to prevent, arriving through the button instead of the tick.
+        //
+        // `last_run.is.null` is therefore kept whatever `force` says, so the
+        // press CONSUMES the occurrence and the scheduled tick afterwards finds
+        // the stamp set and skips. Overlapping runners were already safe by
+        // construction — both PATCH with the same condition and exactly one
+        // gets a row back.
+        const once = r2.spec && typeof r2.spec === "object" && typeof r2.spec.on === "string";
+        const dueness = once ? "&last_run=is.null"
+          : force ? ""
+            : `&or=(last_run.is.null,last_run.lt.${encodeURIComponent(cutoff)})`;
         try {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(r2.owner_id)}&slug=eq.${encodeURIComponent(r2.slug)}&name=eq.${encodeURIComponent(r2.name)}${dueness}`, {
             method: "PATCH", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=representation" },
@@ -23165,6 +23191,22 @@ async function handleRequest(request, env, ctx) {
             // Intl, so an unknown name is nothing rather than a throw at the
             // cron; nothing means UTC, which the runner reads absent as.
             const aTz = validTimeZone(ab && ab.tz);
+            // ── TODAY, IN THE SITE'S OWN ZONE (2026-09-19) ─────────────────
+            //
+            // For the one-time job's past-date refusal, and read through the
+            // same `Intl` the scheduler reads its occurrences through — so
+            // "already gone" means the same thing to the designer's cleaner
+            // and to `dueJobs`. `en-CA` is not a locale choice, it is the one
+            // that formats a date as `YYYY-MM-DD`; asking for the parts and
+            // joining them by hand would be a second date formatter.
+            //
+            // NULL WHEN THE BROWSER SENT NO ZONE, and the cleaner then stands
+            // down rather than comparing a local date against UTC — which
+            // would refuse a perfectly good "today" for everybody west of
+            // Greenwich for most of their working day.
+            const aToday = aTz
+              ? (() => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: aTz }).format(new Date()); } catch { return null; } })()
+              : null;
             const aAuth = request.headers.get("Authorization") || "";
             // Same shape as the edit lane's: this rung has one above it too.
             const aEscalate = (reason, extra) =>
@@ -23975,7 +24017,16 @@ async function handleRequest(request, env, ctx) {
               if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
               aKept.push({ kind: k, answered: ran.value !== undefined, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
               if (ran.value === undefined) { aDeclined.push(k); continue; }
-              const clean = cleanAdd(k, ran.value, aSite);
+              // `today` IS THE SITE'S OWN LOCAL DATE, not ours, and it is
+              // stamped HERE rather than inside `siteFacts` for one reason:
+              // `aSite` is rebuilt from the proposal after every kind, so a
+              // field the rebuild does not know about would silently vanish
+              // between the first designer and the last — which for a
+              // past-date check means the wall stands down for every kind but
+              // the first, exactly as if it were not there. One place, at the
+              // one call that reads it. `cleanAdd` never writes to its site
+              // argument (`ctx` is its own), so the spread costs nothing.
+              const clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });
               if (!clean.ok) {
                 // A REFUSAL CARRIES THE COVERAGE TOO. The model told us what
                 // the change needed before we decided its design was unusable,
@@ -24483,7 +24534,7 @@ async function handleRequest(request, env, ctx) {
                 aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
                 aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
                 aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
-                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));
+                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}), ...(j.on ? { on: j.on } : {}) }));
                 aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
                 // REGISTER THE JOBS — the build route's own call, still
                 // non-fatal (the database is live and the rest of the change
@@ -26948,38 +26999,19 @@ async function handleRequest(request, env, ctx) {
             if (!q.ok) return Response.json({ error: "unavailable" }, { status: 503 });
             const jrows = await q.json().catch(() => null);
             if (!Array.isArray(jrows)) return Response.json({ error: "unavailable" }, { status: 503 });
-            return Response.json({
-              jobs: jrows.map((j) => ({
-                name: String(j.name || ""),
-                // ── WHICH FUNCTION IT RUNS (owner, 2026-09-16) ────────────
-                //
-                // *"An identical count is not proof of which function was
-                // called."* This route answered the schedule and never the
-                // reference, so the one thing a job IS — a function on a timer
-                // — could not be read back at all. Run 50's job and its
-                // function happened to share a name, which made the omission
-                // invisible: the line looked complete and was ambiguous.
-                //
-                // Off the SPEC, where `runJob` reads it (`spec.fn`), so this
-                // reports the reference the runner would really call rather
-                // than a second copy of it. Empty for a row whose spec lost it
-                // — which is a job that can never run, and saying nothing
-                // would hide exactly that.
-                fn: j.spec && typeof j.spec === "object" && typeof j.spec.fn === "string" ? j.spec.fn : "",
-                everyMinutes: Number(j.schedule_minutes) || 0,
-                // The clock time and its zone, off the spec (2026-09-03);
-                // null for a job on a plain interval.
-                at: j.spec && typeof j.spec === "object" && typeof j.spec.at === "string" ? j.spec.at : null,
-                tz: j.spec && typeof j.spec === "object" && typeof j.spec.tz === "string" ? j.spec.tz : null,
-                enabled: j.enabled !== false,
-                lastRun: j.last_run || null,
-                // NULL rather than a cheerful default. A job that has never run
-                // and a job whose last run sent nothing are different facts, and
-                // inventing a sentence for the first is how a brand-new site
-                // reads as working before it ever has.
-                lastResult: typeof j.last_result === "string" ? j.last_result : null,
-              })),
-            });
+            // ⚠ THE ROW IS `jobPanelRow`'s, IN `site-jobs.mjs`, and lifting it
+            // there is a sweep survivor's doing: two of this projection's
+            // fields could be emptied with the whole suite green, because
+            // nothing anywhere drives this route's mapping — a fixture for it
+            // needs Supabase, the owner gate and a session. *A wall nobody can
+            // drive is a wall nobody is guarding*, and the answer is to make
+            // it drivable rather than to declare it unguardable.
+            //
+            // It belongs beside the scheduler anyway: every field here is the
+            // scheduler's own view of a row (`spec.fn` is what `runJob` calls,
+            // `onState` is what `dueJobs` will and will not select), so a
+            // second copy in the route is a second idea of what a job is.
+            return Response.json({ jobs: jrows.map(jobPanelRow) });
           } else if (bk) {
             // THE NIGHTLY COPIES — list them, download one. Read-only by
             // design: a backup an owner could DELETE is a backup an attacker

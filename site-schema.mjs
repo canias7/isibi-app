@@ -2297,7 +2297,13 @@ export const TOOL_FIELDS = Object.freeze({
   // customer as "a setting the design asked for that this kind of change can't
   // carry" about a field the connection really stores.
   api: new Set(["name", "url", "method", "headers", "body", "params", "returns", "credential", "cacheSeconds"]),
-  job: new Set(["name", "fn", "everyMinutes", "at"]),
+  // `on` joined 2026-09-19 with native one-time scheduling — the single date a
+  // job runs and then never again. The engine reads `spec.on` to select it at
+  // all, so leaving it out here would tell the customer that the date they
+  // asked for is "a setting this kind of change can't carry" about the one
+  // field the whole feature turns on. The census in `addon-steps` caught the
+  // omission the moment the tool gained the property, which is what it is for.
+  job: new Set(["name", "fn", "everyMinutes", "at", "on"]),
 });
 
 /**

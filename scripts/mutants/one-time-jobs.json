@@ -1,0 +1,292 @@
+[
+ {
+  "label": "CONTROL: a comment-only change in site-jobs.mjs must survive",
+  "control": true,
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "/** A single calendar date as a job states it: \"YYYY-MM-DD\". */",
+  "to": "/** A single calendar date as a job states it (comment-only control). */"
+ },
+ {
+  "label": "CONTROL: a comment-only change in site-add.mjs must survive",
+  "control": true,
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "/** A page is at most this many bands, top to bottom. */",
+  "to": "/** A page is at most this many bands (comment-only control). */"
+ },
+ {
+  "label": "an unreadable date silently downgrades to a recurring job",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (onRaw && !on) return null;",
+  "to": "  if (false) return null;"
+ },
+ {
+  "label": "the date's shape is taken as the answer, so 2026-13-45 is a real day",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  const on = onRaw && ON_RE.test(onRaw) && calendarDay(onRaw) ? onRaw : null;",
+  "to": "  const on = onRaw && ON_RE.test(onRaw) ? onRaw : null;"
+ },
+ {
+  "label": "the interval is left as the model asked, so a lost date leaves an hourly job",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (on) out.everyMinutes = MAX_EVERY_MINUTES;",
+  "to": "  if (false) out.everyMinutes = MAX_EVERY_MINUTES;"
+ },
+ {
+  "label": "a one-time job with no time of day is given one instead of refused",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (on && !out.at) return null;",
+  "to": "  if (false) return null;"
+ },
+ {
+  "label": "the date never reaches the stored job at all",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (on) out.on = on;",
+  "to": "  if (false) out.on = on;"
+ },
+ {
+  "label": "onceAt ignores the site's zone and answers in UTC",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  const zone = validTimeZone(tz) || \"UTC\";\n  const x = occurrenceOn(zone, day.y, day.mo, day.d, Number(m[1]), Number(m[2]));",
+  "to": "  const zone = \"UTC\";\n  const x = occurrenceOn(zone, day.y, day.mo, day.d, Number(m[1]), Number(m[2]));"
+ },
+ {
+  "label": "onceAt answers nothing, so no one-time job can ever fire",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  return Number.isFinite(x) ? x : null;\n}",
+  "to": "  return null;\n}"
+ },
+ {
+  "label": "a consumed one-time job comes back",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "      if (r.last_run) return false;                 // consumed, for ever",
+  "to": "      if (false) return false;                 // consumed, for ever"
+ },
+ {
+  "label": "an unreadable instant fires rather than never firing",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "      if (when == null) return false;               // cannot tell WHEN → never",
+  "to": "      if (when == null) return true;               // cannot tell WHEN → never"
+ },
+ {
+  "label": "a one-time job fires before its time",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "      if (t < when) return false;                   // not yet",
+  "to": "      if (false) return false;                   // not yet"
+ },
+ {
+  "label": "a stale reminder goes out days after its moment",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "      return (t - when) <= MISSED_GRACE_MS;",
+  "to": "      return true;"
+ },
+ {
+  "label": "the one-time branch is asked after the interval test, so a forced ceiling decides",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "    const once = r.spec && typeof r.spec === \"object\" && typeof r.spec.on === \"string\" ? r.spec.on : null;\n    if (once) {",
+  "to": "    const once = null;\n    if (once) {"
+ },
+ {
+  "label": "onceState reads a missed job as still scheduled",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  return (t - when) <= MISSED_GRACE_MS ? \"scheduled\" : \"missed\";",
+  "to": "  return \"scheduled\";"
+ },
+ {
+  "label": "onceState folds an unreadable date into missed",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (when == null) return \"unreadable\";",
+  "to": "  if (when == null) return \"missed\";"
+ },
+ {
+  "label": "onceState gives a recurring job a one-time state",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "  if (!on) return null;\n  if (row.last_run) return \"done\";",
+  "to": "  if (!on) return \"scheduled\";\n  if (row.last_run) return \"done\";"
+ },
+ {
+  "label": "Run now can re-send a one-time reminder",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        const dueness = once ? \"&last_run=is.null\"\n          : force ? \"\"",
+  "to": "        const dueness = force ? \"\"\n          : once ? \"&last_run=is.null\""
+ },
+ {
+  "label": "the stamp decides what a one-time job is some other way than dueJobs does",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        const once = r2.spec && typeof r2.spec === \"object\" && typeof r2.spec.on === \"string\";",
+  "to": "        const once = false;"
+ },
+ {
+  "label": "the registry row loses the date, so the job is monthly the moment it is saved",
+  "files": [
+   "worker.js"
+  ],
+  "from": "...(j.on ? { on: j.on } : {}) },\n",
+  "to": " },\n"
+ },
+ {
+  "label": "the panel cannot read which date a one-time job runs on",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "    on: str(\"on\"),",
+  "to": "    on: null,"
+ },
+ {
+  "label": "the panel cannot tell a job ahead of its time from one that was missed",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "    onState: onceState(row),",
+  "to": "    onState: null,"
+ },
+ {
+  "label": "today is read in UTC rather than the site's own zone",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aToday = aTz\n              ? (() => { try { return new Intl.DateTimeFormat(\"en-CA\", { timeZone: aTz }).format(new Date()); } catch { return null; } })()\n              : null;",
+  "to": "            const aToday = (() => { try { return new Intl.DateTimeFormat(\"en-CA\", { timeZone: \"UTC\" }).format(new Date()); } catch { return null; } })();"
+ },
+ {
+  "label": "the date never reaches the cleaner, so the past-date wall stands down always",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });",
+  "to": "              const clean = cleanAdd(k, ran.value, aSite);"
+ },
+ {
+  "label": "the reply loses the date a one-time job runs on",
+  "files": [
+   "worker.js"
+  ],
+  "from": "...(j.at ? { at: j.at, tz: j.tz || null } : {}), ...(j.on ? { on: j.on } : {}) }));",
+  "to": "...(j.at ? { at: j.at, tz: j.tz || null } : {}) }));"
+ },
+ {
+  "label": "the fold drops the date one hop after the cleaner kept it",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}), ...(v.on ? { on: v.on } : {}) });",
+  "to": "...(v.at ? { at: v.at, ...(v.tz ? { tz: v.tz } : {}) } : {}) });"
+ },
+ {
+  "label": "a date already gone is accepted and the job never runs",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (once && s.today && once < onceDay(s.today)) return { ok: false, why: \"past-date\" };",
+  "to": "        if (false) return { ok: false, why: \"past-date\" };"
+ },
+ {
+  "label": "the past-date comparison is inverted, so only future dates are refused",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (once && s.today && once < onceDay(s.today)) return { ok: false, why: \"past-date\" };",
+  "to": "        if (once && s.today && once > onceDay(s.today)) return { ok: false, why: \"past-date\" };"
+ },
+ {
+  "label": "a date with no time is accepted by the cleaner",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (once && !at) return { ok: false, why: \"no-time\" };",
+  "to": "        if (false) return { ok: false, why: \"no-time\" };"
+ },
+ {
+  "label": "a date the cleaner cannot read is passed on rather than named",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (on && !once) return { ok: false, why: \"bad-date\" };",
+  "to": "        if (false) return { ok: false, why: \"bad-date\" };"
+ },
+ {
+  "label": "onceDay takes the shape as the answer, so 2026-02-30 is a real day",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return d <= len ? y * 10000 + mo * 100 + d : null;",
+  "to": "  return y * 10000 + mo * 100 + d;"
+ },
+ {
+  "label": "the cleaner leaves a one-time job's interval as the model asked",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        const every = once ? MAX_JOB_MINUTES : everyAsked;",
+  "to": "        const every = everyAsked;"
+ },
+ {
+  "label": "the ceiling twin drifts from the engine's, so the fail-safe is not one",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "export const MAX_JOB_MINUTES = 60 * 24 * 31;",
+  "to": "export const MAX_JOB_MINUTES = 60 * 24;"
+ },
+ {
+  "label": "the audit reports the one-time date as a setting the pipeline never heard of",
+  "files": [
+   "site-schema.mjs"
+  ],
+  "from": "  job: new Set([\"name\", \"fn\", \"everyMinutes\", \"at\", \"on\"]),",
+  "to": "  job: new Set([\"name\", \"fn\", \"everyMinutes\", \"at\"]),"
+ },
+ {
+  "label": "the jobs route stops using the shared row, so the panel drifts from the scheduler",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return Response.json({ jobs: jrows.map(jobPanelRow) });",
+  "to": "return Response.json({ jobs: jrows.map((j) => ({ name: String(j.name || \"\") })) });"
+ },
+ {
+  "label": "the panel cannot say which function the runner would call",
+  "files": [
+   "site-jobs.mjs"
+  ],
+  "from": "    fn: str(\"fn\") || \"\",",
+  "to": "    fn: \"\","
+ }
+]

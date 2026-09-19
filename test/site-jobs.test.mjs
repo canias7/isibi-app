@@ -11,7 +11,8 @@ import fs from "node:fs";
 import { buildSource } from "./fixtures/build-source.mjs";
 import path from "node:path";
 import { normalizeJob, dueJobs, shapeMessages, runJob, jobOutcome, lastDueAt, validTimeZone, workDone,
-         MIN_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK } from "../site-jobs.mjs";
+         MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, MAX_MESSAGES_PER_RUN, MAX_JOBS_PER_TICK,
+         onceAt, onceState, jobPanelRow, MISSED_GRACE_MS } from "../site-jobs.mjs";
 import { recipient } from "../site-mail.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
 import { FUNCTION_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
@@ -335,8 +336,24 @@ test("THE RUNNER'S STAMP IS A CONDITIONAL CLAIM, and a failed write is a lost cl
   // three scopes, and for the cron the WHERE re-states dueness.
   assert.match(st, /site_functions\?owner_id=eq\.[^`]*&slug=eq\.[^`]*&name=eq\.[^`]*\$\{dueness\}`/,
     "the stamp lost a scope or its claim condition");
-  assert.match(st, /const dueness = force \? "" : `&or=\(last_run\.is\.null,last_run\.lt\./,
-    "the claim condition is not the dueness clause, or is not off only under force");
+  // ⚠ RE-ANCHORED 2026-09-19, AND THE EXPECTATION MOVED RATHER THAN BROKE.
+  // It read `force ? "" : <clause>` — two cases — and there are three now,
+  // because a ONE-TIME job keeps a claim condition even under `force`. That is
+  // not the old property weakened; it is the old property plus a case it never
+  // had to consider. The owner pressing "Run now" decides a job is due NOW; it
+  // cannot decide a one-time job is due TWICE, and without this the press
+  // would re-send the same reminder to the same people.
+  //
+  // Asserted as the three branches in ORDER, because the order is the whole of
+  // it: `once` must be asked BEFORE `force`, or `force` answers first and the
+  // one-time claim is gone.
+  assert.match(st, /const dueness = once \? "&last_run=is\.null"\s*\n?\s*: force \? ""\s*\n?\s*: `&or=\(last_run\.is\.null,last_run\.lt\./,
+    "the claim condition is not the three-branch dueness clause, or `force` is asked before `once`");
+  // …AND `once` IS READ OFF THE SPEC, which is where `dueJobs` reads it. A
+  // second reader deciding what a one-time job is could disagree with the
+  // selector, and then the tick and the claim would be about different jobs.
+  assert.match(st, /const once = r2\.spec && typeof r2\.spec === "object" && typeof r2\.spec\.on === "string"/,
+    "the stamp decides what a one-time job is some other way than `dueJobs` does");
   // Judged by REPRESENTATION — a row back means we won; empty means we lost.
   assert.match(st, /Prefer: "return=representation"/, "the stamp cannot see whether it matched anything");
   // r.ok CHECKED. The old write was fire-and-forget, so Supabase in read-only
@@ -816,8 +833,15 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   assert.equal(reads.length, 3, "the three deps do not all read the connection through siteBackendBySlug: " + reads.length);
   assert.doesNotMatch(deps, /siteNeonProject\(/, "a dep still reads the project row where a connection is wanted");
   for (const dep of ["callFn:", "credentials:", "smsCredentials:", "stamp:", "send:", "sendSms:", "phone:", "recipient"]) assert.ok(deps.includes(dep), "jobDeps lost " + dep);
-  // The stamp keeps its dueness clause for the cron and drops it under force.
-  assert.match(deps, /const dueness = force \? "" : `&or=\(last_run\.is\.null,last_run\.lt\.\$\{encodeURIComponent\(cutoff\)\}\)`;/, "the stamp's dueness clause is not gated on force");
+  // The stamp keeps its dueness clause for the cron and drops it under force —
+  // ⚠ EXCEPT for a ONE-TIME job, which keeps a claim condition whatever the
+  // owner presses. RE-ANCHORED 2026-09-19: the expectation MOVED rather than
+  // broke, because "drops it under force" was a complete description of the
+  // branch while every job recurred. A press decides a job is due NOW; it
+  // cannot decide a one-time job is due twice, and a re-press without this
+  // would send the same reminder to the same people again.
+  assert.match(deps, /const dueness = once \? "&last_run=is\.null"\s*\n?\s*: force \? ""\s*\n?\s*: `&or=\(last_run\.is\.null,last_run\.lt\.\$\{encodeURIComponent\(cutoff\)\}\)`;/,
+    "the stamp's dueness clause lost a branch, or `force` is asked before `once`");
   assert.match(deps, /\$\{dueness\}`, \{/, "the stamp's WHERE does not carry the dueness clause");
   // The cron: due rows, one call each, the outcome recorded; and the select carries updated_at.
   const cron = worker.slice(worker.indexOf("async function runScheduledSiteJobs"), open);
@@ -835,10 +859,32 @@ test("THE RUNNER READS THE SITE'S CONNECTION, not its project row — and one se
   assert.match(branch, /await recordJobOutcome\(env, jrow, out\);/, "run-now's outcome is not written where the panel reads");
   assert.match(branch, /result: jobOutcome\(out\)/, "run-now does not answer the sentence");
   assert.match(branch, /error: "no such job" \}, \{ status: 404 \}/, "run-now on a name that matches nothing says ok");
-  // The registration carries the clock time, and the panel's read hands it back.
-  assert.match(worker, /spec: \{ fn: j\.fn, \.\.\.\(j\.at \? \{ at: j\.at, \.\.\.\(j\.tz \? \{ tz: j\.tz \} : \{\}\) \} : \{\}\) \}/, "persistSiteJobs drops the clock time");
+  // The registration carries the clock time, and the panel's read hands it
+  // back. ⚠ AND THE ONE-TIME DATE SINCE 2026-09-19 — re-anchored, and the
+  // expectation MOVED rather than broke: `spec` is what `dueJobs` reads to
+  // decide a job is one-time at all, so a registration that drops `on` turns
+  // every "remind me on the 3rd" into a monthly job the moment it is saved.
+  // The FULL spec is asserted rather than `on` alone, because the property is
+  // that this one object carries everything the runner needs.
+  assert.match(worker, /spec: \{ fn: j\.fn, \.\.\.\(j\.at \? \{ at: j\.at, \.\.\.\(j\.tz \? \{ tz: j\.tz \} : \{\}\) \} : \{\}\), \.\.\.\(j\.on \? \{ on: j\.on \} : \{\}\) \}/, "persistSiteJobs drops the clock time or the one-time date");
   assert.match(worker, /select=name,spec,schedule_minutes,enabled,last_run,last_result&order=name\.asc/, "the panel's read does not fetch the spec");
-  assert.match(worker, /at: j\.spec && typeof j\.spec === "object" && typeof j\.spec\.at === "string" \? j\.spec\.at : null,/, "the panel is not told the clock time");
+  // THE PANEL IS TOLD THE CLOCK TIME — ⚠ RE-ANCHORED 2026-09-19, and the
+  // expectation MOVED rather than broke. It used to pin the route's own inline
+  // projection (`at: j.spec && typeof j.spec === "object" && …`), which is a
+  // SPELLING; the projection is now `jobPanelRow` in `site-jobs.mjs`, lifted
+  // there because a sweep proved two of its fields could be emptied with the
+  // whole suite green — nothing can drive this route's mapping without
+  // Supabase, the owner gate and a session.
+  //
+  // The new form is strictly stronger, because it asserts the property in BOTH
+  // halves rather than the text in one: the shared reader really answers the
+  // clock time (driven, not read), AND the route really goes through it. Either
+  // alone is the wiring trap — a perfect reader nothing calls, or a call to a
+  // reader that answers nothing.
+  assert.equal(jobPanelRow({ name: "n", spec: { fn: "f", at: "09:00", tz: "Europe/London" }, schedule_minutes: 1440 }).at,
+    "09:00", "the shared panel row does not answer the clock time");
+  assert.match(worker, /return Response\.json\(\{ jobs: jrows\.map\(jobPanelRow\) \}\);/,
+    "the panel route does not project its rows through the shared jobPanelRow");
 });
 
 test("the owner's panel shows the clock time and has a Run now button wired to the route; the addon post carries the browser's zone", () => {
@@ -908,4 +954,217 @@ test("the designers are told the housekeeping shape, and the router that clearin
   assert.match(jobKind, /clearing out records older than thirty days/);
   assert.match(jobKind, /\{\\"did\\": \\"what it did\\"\}/);
   assert.match(ask, /a weekly digest, clearing out old records\./, "the router does not know clearing out is a timer job");
+});
+
+// ── A JOB THAT RUNS ONCE (2026-09-19) ────────────────────────────────────────
+//
+// Owner: *"Add native one-time scheduling as a separate, reviewable
+// capability… A request to run once must never silently become a recurring
+// job."*
+//
+// The representation is one field: `spec.on`, a single calendar date, and its
+// PRESENCE is the marker. `last_run` is the consumption record — the only one
+// available, because `persistSiteJobs` rewrites `spec` on every publish, so a
+// `done` flag written there by the runner would be destroyed by the next
+// unrelated change to the site and the job would run again weeks later.
+test("normalizeJob keeps a one-time job, and refuses rather than downgrading it", () => {
+  const base = { name: "remind", fn: "send_note", everyMinutes: 60, at: "09:00", tz: "Europe/London" };
+
+  // ⚠ THE INTERVAL IS FORCED, AND ITS ORDER IS LOAD-BEARING. `at` is kept only
+  // for a daily-or-slower job, so a model writing `{on, at, everyMinutes: 60}`
+  // — an entirely reasonable thing to write while thinking about a date rather
+  // than an interval — would lose `at` at that gate and then be refused for
+  // having a date with no time. The forcing happens first.
+  const once = normalizeJob({ ...base, on: "2026-10-03" });
+  assert.equal(once.on, "2026-10-03", "the date was dropped: " + JSON.stringify(once));
+  assert.equal(once.at, "09:00", "a one-time job at 60 minutes lost its time of day");
+  assert.equal(once.tz, "Europe/London");
+  // FORCED TO THE CEILING AS A FAIL-SAFE: never read for selection, but if
+  // `on` were ever lost the job degrades to *at most monthly* rather than to
+  // the hourly the model asked for.
+  assert.equal(once.everyMinutes, MAX_EVERY_MINUTES,
+    "the interval was left as asked, so a lost `on` would leave an hourly job: " + JSON.stringify(once));
+
+  // ⚠ THE OWNER'S SENTENCE, AS A WALL. An `on` that is present and unreadable
+  // REFUSES THE JOB WHOLE — it must not fall back to the interval, because
+  // dropping `on` leaves a perfectly valid RECURRING job and turns "remind me
+  // on the 3rd" into a reminder every month for ever. MEASURED before this
+  // existed: `{on: "2026-13-45", …}` came back as a clean daily job with no
+  // `on` at all.
+  for (const bad of ["2026-13-45", "2026-02-30", "next tuesday", "03/10/2026", 20261003, "2026-10-3"]) {
+    assert.equal(normalizeJob({ ...base, everyMinutes: 1440, on: bad }), null,
+      "an unreadable date became a recurring job: " + JSON.stringify(bad));
+  }
+  // A DATE WITH NO TIME is refused for the same reason and not defaulted to
+  // midnight — a one-time reminder has no second occurrence to be right at.
+  assert.equal(normalizeJob({ name: "r", fn: "f", everyMinutes: 1440, on: "2026-10-03" }), null,
+    "a date with no time was given a time");
+
+  // THE CONTROLS: absent means recurring, and every recurring job is byte for
+  // byte what it was. An empty string is ABSENT rather than unreadable, which
+  // is what keeps a spec that carries `on: ""` from losing its job.
+  const plain = normalizeJob({ ...base, everyMinutes: 1440 });
+  assert.deepEqual(normalizeJob({ ...base, everyMinutes: 1440, on: "" }), plain, "an empty date refused a recurring job");
+  assert.deepEqual(normalizeJob({ ...base, everyMinutes: 1440, on: null }), plain);
+  assert.equal(plain.on, undefined, "a recurring job gained a date");
+  assert.equal(plain.everyMinutes, 1440, "a recurring job's interval moved");
+});
+
+test("onceAt is the recurring path's own zone arithmetic, both daylight policies", () => {
+  const iso = (x) => (x == null ? null : new Date(x).toISOString());
+
+  assert.equal(iso(onceAt("2026-10-03", "09:00", "Europe/London")), "2026-10-03T08:00:00.000Z");
+  assert.equal(iso(onceAt("2026-10-03", "09:00", "UTC")), "2026-10-03T09:00:00.000Z");
+  assert.equal(iso(onceAt("2026-10-03", "09:00", null)), "2026-10-03T09:00:00.000Z", "an absent zone is not UTC");
+
+  // ⚠ THE TWO POLICIES ARE `occurrenceOn`'s, INHERITED BY IDENTITY rather than
+  // restated — two rules for one arithmetic is how they drift, and this
+  // repository has already paid for that on this exact function.
+  //
+  // London goes BACK at 2026-10-25T01:00Z, so 01:30 local happens TWICE. The
+  // FIRST reading wins: one local day is one run.
+  assert.equal(iso(onceAt("2026-10-25", "01:30", "Europe/London")), "2026-10-25T00:30:00.000Z",
+    "a repeated local time took the later reading");
+  // London goes FORWARD at 2026-03-29T01:00Z, so 01:30 local never happens.
+  // The LATER candidate wins: the job is NOT skipped — for one day it runs an
+  // hour later by the clock. A reminder that silently does not go out once a
+  // year is the failure nobody notices.
+  assert.equal(iso(onceAt("2026-03-29", "01:30", "Europe/London")), "2026-03-29T01:30:00.000Z",
+    "a nonexistent local time was skipped");
+  // AND THE ARITHMETIC IS THE ZONE'S, NOT AN HOUR'S — Lord Howe shifts THIRTY
+  // minutes, which a fix that hardcoded an hour would get wrong while passing
+  // every London case.
+  assert.ok(onceAt("2026-10-04", "02:15", "Australia/Lord_Howe") != null, "the half-hour zone answered nothing");
+
+  // CANNOT-TELL IS NULL, and `dueJobs` reads null as never due. Fail closed: a
+  // reminder that does not go out is a complaint; one that goes out at the
+  // wrong time on the wrong day is already in somebody's customers' inboxes.
+  for (const [on, at] of [["2026-13-45", "09:00"], ["2026-10-03", "25:00"], ["", "09:00"], ["2026-10-03", ""], [null, null]]) {
+    assert.equal(onceAt(on, at, "UTC"), null, "an unreadable instant answered a number: " + JSON.stringify([on, at]));
+  }
+});
+
+test("dueJobs selects a one-time job once, within its grace, and never again", () => {
+  const SPEC = { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" };
+  const T = Date.parse("2026-10-03T08:00:00Z");
+  const row = (spec, last) => ({ enabled: true, schedule_minutes: MAX_EVERY_MINUTES, spec, last_run: last || null, updated_at: "2026-09-01T00:00:00Z" });
+  const due = (r, t) => dueJobs([r], t).length === 1;
+
+  assert.equal(due(row(SPEC), T - 60000), false, "it fired before its time");
+  assert.equal(due(row(SPEC), T), true, "it did not fire on the minute");
+  assert.equal(due(row(SPEC), T + 3600000), true, "a tick an hour late did not catch it");
+  // …AND NOT SO LATE IT IS STALE. Past the grace the occurrence is gone: a
+  // reminder about a thing that already happened is worse than silence.
+  assert.equal(due(row(SPEC), T + MISSED_GRACE_MS - 1000), true, "the grace ends early");
+  assert.equal(due(row(SPEC), T + MISSED_GRACE_MS + 1000), false, "a stale reminder went out after an outage");
+
+  // `last_run` IS THE CONSUMPTION MARKER — whatever set it, and for ever.
+  assert.equal(due(row(SPEC, "2026-10-03T08:00:05Z"), T + 60000), false, "it ran a second time");
+  assert.equal(due(row(SPEC, "2026-10-03T08:00:05Z"), T + 40 * 86400000), false, "it came back a month later");
+
+  // AN UNREADABLE INSTANT NEVER FIRES, and a disabled job never fires.
+  assert.equal(due(row({ ...SPEC, on: "2026-13-45" }), T), false, "an unreadable date fired");
+  assert.equal(due(row({ ...SPEC, at: "" }), T), false, "a date with no time fired");
+  assert.equal(dueJobs([{ ...row(SPEC), enabled: false }], T).length, 0, "a paused one-time job fired");
+
+  // ⚠ THE INTERVAL IS NOT CONSULTED, which is the whole reason the branch is
+  // asked FIRST. A one-time job carries a forced ceiling that means nothing;
+  // letting it decide would fire the job again a month later.
+  assert.equal(due({ ...row(SPEC), schedule_minutes: 0 }, T), true,
+    "the one-time branch fell through to the interval test");
+
+  // THE CONTROL: the recurring path is untouched. A daily 09:00 London job
+  // that has never run is due once its latest occurrence is behind BOTH now
+  // and the moment it was registered.
+  //
+  // ⚠ REGISTERED THE SAME MORNING, and that is not a detail. The first shape
+  // of this control registered the job two days earlier and expected "not due"
+  // an hour before its time — and the product was RIGHT to disagree:
+  // YESTERDAY's 09:00 (2026-10-02T08:00Z, measured) is the latest occurrence
+  // at that instant, and it is behind a job registered on the 1st, so the job
+  // really is due. Registering it at midnight on the day is what makes the two
+  // readings differ, and without that the control asserts nothing about
+  // "before its time" at all.
+  const daily = { enabled: true, schedule_minutes: 1440, spec: { fn: "f", at: "09:00", tz: "Europe/London" }, last_run: null, updated_at: "2026-10-03T00:00:00Z" };
+  assert.equal(dueJobs([daily], T).length, 1, "the recurring path changed");
+  assert.equal(dueJobs([daily], T - 3600000).length, 0, "the recurring path changed");
+});
+
+test("onceState tells a job ahead of its time from one that was missed", () => {
+  const SPEC = { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" };
+  const T = Date.parse("2026-10-03T08:00:00Z");
+  const row = (spec, last) => ({ spec, last_run: last || null });
+
+  // ⚠ "NEVER RUN" IS THREE FACTS, and only two of them need anything doing —
+  // in opposite directions. Collapsing them is how a reminder that never went
+  // out reads as one that has not gone out YET, for ever.
+  assert.equal(onceState(row(SPEC), T - 60000), "scheduled");
+  assert.equal(onceState(row(SPEC), T + 60000), "scheduled", "a job inside its grace read as missed");
+  assert.equal(onceState(row(SPEC), T + MISSED_GRACE_MS + 1000), "missed");
+  assert.equal(onceState(row(SPEC, "2026-10-03T08:00:05Z"), T), "done");
+  // `unreadable` IS ITS OWN ANSWER rather than folded into `missed`: a date the
+  // scheduler cannot parse will never fire whatever the clock does, so the fix
+  // is to say it again, not to wait.
+  assert.equal(onceState(row({ ...SPEC, on: "2026-13-45" }), T), "unreadable");
+
+  // NULL FOR A RECURRING JOB, which has no such thing — and for junk, so a row
+  // of some other shape can never draw a state word.
+  assert.equal(onceState(row({ fn: "f", at: "09:00" }), T), null, "a recurring job gained a one-time state");
+  for (const junk of [null, undefined, {}, { spec: null }, { spec: "x" }, { spec: { on: 42 } }]) {
+    assert.equal(onceState(junk, T), null, "junk drew a state: " + JSON.stringify(junk));
+  }
+});
+
+// ── THE OWNER'S PANEL ROW (lifted 2026-09-19) ──────────────────────────────
+//
+// ⚠ THIS GUARD IS A SWEEP SURVIVOR'S DOING. The projection used to live inline
+// in `GET /api/site/<slug>/jobs`, where driving it needs Supabase, the owner
+// gate and a session — so nothing anywhere asked it a question it could fail,
+// and TWO of its fields could be emptied with the whole suite green. *A wall
+// nobody can drive is a wall nobody is guarding*, and the fix this repository
+// keeps reaching for is to make it drivable rather than to call it unguardable.
+test("the panel's row says which function, which schedule, and what became of it", () => {
+  const ONCE = { name: "closing_note", spec: { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" },
+    schedule_minutes: MAX_EVERY_MINUTES, enabled: true, last_run: null, last_result: null };
+
+  const r = jobPanelRow(ONCE);
+  assert.equal(r.on, "2026-10-03", "the panel cannot read which date a one-time job runs on");
+  assert.equal(r.onState, "scheduled", "the panel cannot tell what became of a one-time job");
+  assert.equal(r.fn, "send_note", "the panel cannot say which function the runner would call");
+  assert.equal(r.at, "09:00");
+  assert.equal(r.tz, "Europe/London");
+  assert.equal(r.everyMinutes, MAX_EVERY_MINUTES);
+  assert.equal(r.enabled, true);
+  assert.equal(r.lastRun, null);
+  assert.equal(r.lastResult, null, "a job that has never run was given a cheerful sentence");
+
+  // …AND IT TRACKS THE ROW. `onState` is DERIVED, so a stamp changes it with
+  // no second column to disagree.
+  assert.equal(jobPanelRow({ ...ONCE, last_run: "2026-10-03T08:00:05Z" }).onState, "done");
+  assert.equal(jobPanelRow({ ...ONCE, spec: { ...ONCE.spec, on: "2020-01-01" } }).onState, "missed",
+    "a one-time job whose moment went by years ago reads as still scheduled");
+
+  // THE RECURRING CONTROL: no date, no state, and every other field as it was.
+  const daily = jobPanelRow({ name: "daily_reminder", spec: { fn: "send_reminder", at: "09:00", tz: "Europe/London" },
+    schedule_minutes: 1440, enabled: false, last_run: "2026-10-02T08:00:01Z", last_result: "Sent 3." });
+  assert.equal(daily.on, null, "a recurring job gained a date");
+  assert.equal(daily.onState, null, "a recurring job gained a one-time state");
+  assert.equal(daily.everyMinutes, 1440);
+  assert.equal(daily.enabled, false, "a paused job read as running");
+  assert.equal(daily.lastResult, "Sent 3.");
+
+  // EVERY FIELD FAILS CLOSED. A row of some other shape draws no sentence, no
+  // number and no state word rather than drawing junk — and `fn` EMPTY is the
+  // one that matters: a spec that lost its reference is a job that can never
+  // run, and saying nothing about it would hide exactly that.
+  const keys = ["name", "fn", "everyMinutes", "at", "tz", "on", "onState", "enabled", "lastRun", "lastResult"];
+  for (const junk of [null, undefined, {}, { spec: "x" }, { spec: null }, { name: 42, schedule_minutes: "soon" }]) {
+    const j = jobPanelRow(junk);
+    assert.deepEqual(Object.keys(j).sort(), [...keys].sort(), "the row's shape moved on junk: " + JSON.stringify(junk));
+    assert.equal(typeof j.name, "string");
+    assert.equal(j.fn, "", "a spec with no reference did not read as a job that cannot run");
+    assert.equal(j.everyMinutes, 0);
+    assert.equal(j.on, null);
+    assert.equal(j.onState, null);
+  }
 });

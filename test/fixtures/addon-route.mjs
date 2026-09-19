@@ -642,7 +642,12 @@ export async function addon(slug, instruction, opts) {
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },
-      body: JSON.stringify({ instruction }),
+      // ⚠ THE ZONE IS PART OF WHAT A REAL BROWSER SENDS, and leaving it out
+      // made a whole wall undrivable: `aTz` decides `aToday`, and without a
+      // date the one-time job's past-date refusal stands down. A fixture less
+      // capable than the real request hides a defect exactly as well as one
+      // that is more.
+      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}) }),
     });
     // THE SERVICE KEY IS PART OF THE ENVIRONMENT UNDER TEST: `persistSiteJobs`
     // returns at its first line without one, so a fixture that leaves it out

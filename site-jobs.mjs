@@ -71,16 +71,173 @@ export function normalizeJob(raw) {
   // left off rather than clamping the interval to a day behind the model's
   // back (the addon's own cleaner refuses that combination by name first).
   const at = typeof raw.at === "string" && AT_RE.test(raw.at.trim()) ? raw.at.trim() : null;
-  if (at && everyMinutes >= 1440) {
+  // ── A JOB THAT RUNS ONCE (2026-09-19) ────────────────────────────────────
+  //
+  // `on` is a single calendar date in the site's own zone and its PRESENCE is
+  // the one-time marker — nothing else carries it, so there is one place to
+  // ask and no second flag to disagree with.
+  //
+  // THE ORDER IS LOAD-BEARING AND IS WHY THE FORCING SITS ABOVE THE `at`
+  // GATE. `at` is kept only for a daily-or-slower job, so a model that writes
+  // `{on, at, everyMinutes: 60}` — an entirely reasonable thing for it to
+  // write, since it is thinking about a date and not about an interval —
+  // would lose `at` at the gate below and then be refused for having a date
+  // with no time. The interval is meaningless for a one-time job and is
+  // forced first.
+  //
+  // FORCED TO `MAX_EVERY_MINUTES`, AND THAT IS THE FAIL-SAFE RATHER THAN A
+  // TIDY DEFAULT. The interval is never read for selection (the `on` branch
+  // in `dueJobs` is asked first and returns), so the value only matters if
+  // `spec.on` is ever LOST — a hand-edited row, a spec rewritten by a version
+  // that does not know about `on`. At the monthly ceiling such a job degrades
+  // to *at most monthly*; at the model's 60 it would degrade to hourly, which
+  // is the runaway this field exists to prevent, arriving through the back
+  // door. A wrong number here is a reminder nobody asked for, for ever.
+  //
+  // ⚠ AND AN `on` THAT IS PRESENT AND UNREADABLE REFUSES THE JOB WHOLE — it
+  // does NOT fall back to the interval. This is the one place this module
+  // departs from its own tolerant habit, and the departure is the owner's
+  // sentence: *"a request to run once must never silently become a recurring
+  // job."* Everywhere else the engine drops what it cannot read and the site
+  // goes on working (a connection loses its response sketch and still
+  // answers); here, dropping `on` leaves a `{name, fn, everyMinutes}` that is
+  // a perfectly valid RECURRING job — so the tolerant reading turns "remind me
+  // on the 3rd" into a reminder every month for ever, which is not the feature
+  // degrading, it is the feature inverted.
+  //
+  // MEASURED before this line existed: `{on: "2026-13-45", at: "09:00",
+  // everyMinutes: 1440}` came back as a clean daily job with no `on`.
+  //
+  // What it costs: a stored spec carrying a junk `on` loses its job on the
+  // next publish rather than quietly recurring. That is the recoverable
+  // direction — the owner sees the job is gone and asks again, where nobody
+  // ever notices the other one.
+  const onRaw = raw.on == null ? null : String(raw.on).trim();
+  const on = onRaw && ON_RE.test(onRaw) && calendarDay(onRaw) ? onRaw : null;
+  if (onRaw && !on) return null;
+  if (on) out.everyMinutes = MAX_EVERY_MINUTES;
+  if (at && out.everyMinutes >= 1440) {
     out.at = at;
     const tz = validTimeZone(raw.tz);
     if (tz) out.tz = tz;
   }
+  // REFUSED WHOLE, never downgraded to a recurring job. This is the owner's
+  // own sentence — *"a request to run once must never silently become a
+  // recurring job"* — and dropping `on` while keeping the rest is exactly
+  // that: the owner is told their one-time reminder is set up, and it goes
+  // out every month for ever. A job that half exists is worse than none.
+  if (on && !out.at) return null;
+  if (on) out.on = on;
   return out;
 }
 
 /** A clock time as a job states it: "HH:MM", 24-hour. */
 export const AT_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** A single calendar date as a job states it: "YYYY-MM-DD". */
+export const ON_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * How late a missed one-time job may still go out.
+ *
+ * A tick missed by minutes must still send — that is the whole reason
+ * `!last_run && due <= now` exists on the recurring path — and a reminder for
+ * last Tuesday must NOT go out today because an outage ended. Past the grace
+ * the job is never selected again, and the readback reports it as `missed`
+ * rather than as "never run", because those are different facts and only one
+ * of them is something the owner can act on.
+ */
+export const MISSED_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Is this a real calendar day? `ON_RE` admits `2026-13-45`, so the shape is
+ * not the answer.
+ *
+ * Plain arithmetic, no `Date`: `Date.UTC(1, 0, 1)` silently means 1901, so a
+ * round-trip through it reports a well-formed early year as invalid. The same
+ * reader the counts mode uses, for the same reason.
+ */
+function calendarDay(s) {
+  const m = ON_RE.exec(String(s || ""));
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1) return null;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const len = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  return d <= len ? { y, mo, d } : null;
+}
+
+/**
+ * The instant a one-time job runs: the wall time `on` + `at` in `tz`, or null
+ * when any of the three cannot be read.
+ *
+ * REUSES `occurrenceOn` BY IDENTITY rather than repeating its arithmetic, so
+ * the two daylight-saving policies are the recurring path's own and cannot
+ * drift from them: a REPEATED local time takes the FIRST reading (one local
+ * day stays one run) and a NONEXISTENT one takes the LATER candidate (the job
+ * is not skipped; for one day it runs an hour later by the clock). Two rules
+ * for one arithmetic is how they come apart, and this repository has paid for
+ * that once already on this exact function.
+ *
+ * NULL FOR AN UNREADABLE DATE, TIME OR ZONE, and `dueJobs` reads that as never
+ * due. Fail closed: a reminder that does not go out is a complaint somebody
+ * can make, and one that goes out at the wrong time on the wrong day is a
+ * message already sitting in somebody's customers' inboxes.
+ */
+export function onceAt(on, at, tz) {
+  const day = calendarDay(on);
+  const m = AT_RE.exec(String(at || "").trim());
+  if (!day || !m) return null;
+  const zone = validTimeZone(tz) || "UTC";
+  const x = occurrenceOn(zone, day.y, day.mo, day.d, Number(m[1]), Number(m[2]));
+  // ⚠ `Number.isFinite` IS A DECLARED BELT, MEASURED INERT rather than reasoned
+  // about: once `calendarDay` and `AT_RE` have passed and the zone is
+  // `validTimeZone(tz) || "UTC"`, `occurrenceOn` answers either a finite
+  // instant or `null`, and `null` is what this line would return anyway.
+  // **432 probes — nine zones including junk ones, eight dates including both
+  // daylight transitions and the year bounds, six times — ZERO cases where the
+  // check changed an answer.**
+  //
+  // It stays because the deadness is a property of a NEIGHBOUR (what
+  // `occurrenceOn` promises to return) and not of this expression, and because
+  // the answer here is read by a scheduler: a `NaN` reaching `dueJobs` would
+  // make `t < when` and `(t - when) <= GRACE` both false, so the job would
+  // never fire and nothing anywhere would say why. The sweep mutates the
+  // observable half of this line instead.
+  return Number.isFinite(x) ? x : null;
+}
+
+/**
+ * What became of a one-time job, for the owner's panel: `scheduled` · `done` ·
+ * `missed` · `unreadable`, and **null for a recurring job**, which has no such
+ * thing.
+ *
+ * DERIVED FROM THE ROW, never stored. A `state` column would be a second value
+ * that can disagree with `last_run`, and the whole job of this line is to be
+ * the truth about `last_run`.
+ *
+ * `missed` EXISTS BECAUSE "never run" IS THREE FACTS. A job ahead of its time,
+ * a job whose moment went by unserved, and a job whose date nobody can read
+ * all have an empty `last_run` — and only two of them are something the owner
+ * can act on, in opposite ways. Collapsing them is how a reminder that never
+ * went out reads as a reminder that has not gone out YET, for ever.
+ *
+ * `unreadable` is its own answer rather than folded into `missed`: a date the
+ * scheduler cannot parse will never fire whatever the clock does, so the fix
+ * is to say it again, not to wait.
+ */
+export function onceState(row, now = Date.now()) {
+  const spec = row && typeof row.spec === "object" && row.spec ? row.spec : null;
+  const on = spec && typeof spec.on === "string" ? spec.on : null;
+  if (!on) return null;
+  if (row.last_run) return "done";
+  const when = onceAt(on, spec.at, spec.tz);
+  if (when == null) return "unreadable";
+  const t = Number(now);
+  if (!Number.isFinite(t)) return "scheduled";
+  if (t < when) return "scheduled";
+  return (t - when) <= MISSED_GRACE_MS ? "scheduled" : "missed";
+}
 
 /** One day, for the clock-time arithmetic below. */
 const DAY_MS = 86400000;
@@ -234,6 +391,30 @@ export function dueJobs(rows, now) {
   };
   return (Array.isArray(rows) ? rows : []).filter((r) => {
     if (!r || r.enabled === false) return false;
+    // ── A JOB THAT RUNS ONCE, ASKED FIRST (2026-09-19) ─────────────────────
+    //
+    // Asked above the interval test because for a one-time job the interval
+    // is not a weaker rule, it is the WRONG rule: `everyMinutes` is a forced
+    // ceiling with no meaning, and letting it decide would make the job fire
+    // again a month later. This branch answers completely and returns.
+    //
+    // `last_run` IS THE CONSUMPTION MARKER, and it is the only one available.
+    // `persistSiteJobs` rewrites `spec` on every publish, so a `done` flag
+    // written there by the runner would be destroyed by the next unrelated
+    // change to the site — and the job would run a second time, weeks later,
+    // because somebody changed a colour.
+    const once = r.spec && typeof r.spec === "object" && typeof r.spec.on === "string" ? r.spec.on : null;
+    if (once) {
+      if (r.last_run) return false;                 // consumed, for ever
+      const when = onceAt(once, r.spec.at, r.spec.tz);
+      if (when == null) return false;               // cannot tell WHEN → never
+      if (t < when) return false;                   // not yet
+      // …AND NOT SO LATE IT IS STALE. Past the grace the occurrence is gone:
+      // a reminder about a thing that already happened is worse than silence,
+      // and the owner is told rather than left to wonder (the readback calls
+      // this state `missed`).
+      return (t - when) <= MISSED_GRACE_MS;
+    }
     const mins = parseInt(r.schedule_minutes, 10);
     if (!(mins > 0)) return false;
     // A CLOCK-TIME JOB (owner, 2026-09-03) is due once the latest occurrence
@@ -542,4 +723,56 @@ export async function runJob(deps, row) {
   } catch (e) {
     return { ok: false, name, reason: "threw", error: String((e && e.message) || e).slice(0, 200) };
   }
+}
+
+/**
+ * One row of the owner's Jobs panel, from one row of `site_functions`.
+ *
+ * ⚠ IT LIVES HERE RATHER THAN IN THE ROUTE BECAUSE OF A SWEEP SURVIVOR. Two of
+ * these fields could be emptied with the whole suite green: driving
+ * `GET /api/site/<slug>/jobs` needs Supabase, the owner gate and a session, so
+ * nothing anywhere asked the projection a question it could fail. *A wall
+ * nobody can drive is a wall nobody is guarding*, and the answer this
+ * repository keeps reaching for is to make it drivable — `appliedFacts`,
+ * `expectedCode` and `addLayerIn` were all moved for the same reason.
+ *
+ * AND IT BELONGS BESIDE THE SCHEDULER ON ITS OWN MERITS: every field is the
+ * scheduler's view of that row. `fn` is what `runJob` will call, `everyMinutes`
+ * is what `dueJobs` measures, `on`/`onState` are what it selects a one-time job
+ * by. A copy in the route is a second idea of what a job is.
+ *
+ * EVERY FIELD FAILS CLOSED — a row of some other shape draws no sentence, no
+ * number and no state word rather than drawing junk.
+ */
+export function jobPanelRow(j) {
+  const row = j && typeof j === "object" ? j : {};
+  const spec = row.spec && typeof row.spec === "object" ? row.spec : null;
+  const str = (k) => (spec && typeof spec[k] === "string" ? spec[k] : null);
+  return {
+    name: String(row.name || ""),
+    // WHICH FUNCTION IT RUNS (owner, 2026-09-16: *"an identical count is not
+    // proof of which function was called"*), off the SPEC where `runJob` reads
+    // it. Empty for a row whose spec lost it — a job that can never run, and
+    // saying nothing would hide exactly that.
+    fn: str("fn") || "",
+    everyMinutes: Number(row.schedule_minutes) || 0,
+    // The clock time and its zone (2026-09-03); null on a plain interval.
+    at: str("at"),
+    tz: str("tz"),
+    // THE ONE DATE A ONE-TIME JOB RUNS (2026-09-19), null for a recurring one,
+    // so the panel can say "once, on 2026-10-03 at 09:00 Europe/London" rather
+    // than "every 44640 minutes" — which is the forced ceiling and is true of
+    // nothing anybody asked for.
+    on: str("on"),
+    // …AND WHAT BECAME OF IT. Derived from the row rather than stored: a state
+    // column could disagree with `last_run`, and the whole job of this field is
+    // to be the truth about it.
+    onState: onceState(row),
+    enabled: row.enabled !== false,
+    lastRun: row.last_run || null,
+    // NULL rather than a cheerful default. A job that has never run and a job
+    // whose last run sent nothing are different facts, and inventing a sentence
+    // for the first is how a brand-new site reads as working before it ever has.
+    lastResult: typeof row.last_result === "string" ? row.last_result : null,
+  };
 }

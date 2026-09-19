@@ -41,7 +41,8 @@
 // shows at a real clock edge is the bug that never gets caught.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runJob, dueJobs, shapeMessages, jobOutcome, lastDueAt, MAX_MESSAGES_PER_RUN } from "../site-jobs.mjs";
+import { runJob, dueJobs, shapeMessages, jobOutcome, lastDueAt, MAX_MESSAGES_PER_RUN,
+         MAX_EVERY_MINUTES, MISSED_GRACE_MS } from "../site-jobs.mjs";
 
 // 2026-09-17T08:00:00Z — a Thursday morning, chosen so the London zone is on
 // BST (+01:00) and a clock-time job's zone is load-bearing rather than a no-op.
@@ -425,4 +426,97 @@ test("a job slower than daily keeps the elapsed interval, unchanged", async () =
   const late = weekly("2026-09-07T09:05:00Z");
   assert.equal(due(late, "2026-09-14T09:00:30Z"), false, "four and a half minutes short of the week");
   assert.equal(due(late, "2026-09-14T09:06:00Z"), true, "…and due on the same morning once the week is up");
+});
+
+// ── A ONE-TIME JOB IS CONSUMED BY WHATEVER RUNS IT (2026-09-19) ─────────────
+//
+// Owner: *"A request to run once must never silently become a recurring
+// job."* The selector's own arithmetic is driven in `site-jobs.test.mjs`;
+// what these two drive is the LIFECYCLE — the real `runJob` against a fake
+// store that behaves like the real one, and then `dueJobs` asked again.
+//
+// ⚠ THE STAMP IS WHAT CONSUMES THE OCCURRENCE, and `runJob` stamps BEFORE it
+// sends. So an attempt consumes it: a one-time job whose send FAILS is not
+// retried. That is deliberate and it is the owner's own reasoning about
+// external delivery — a retry after a provider timeout is how one reminder
+// becomes two, and nobody can tell a timeout from a slow success. It is
+// asserted here rather than left implicit, because it is the one property of
+// this feature somebody would otherwise assume the other way round.
+test("a one-time job is consumed by its run, and the scheduled tick then skips it", async () => {
+  const SPEC = { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" };
+  const T = Date.parse("2026-10-03T08:00:00Z");
+  // A STORE THAT BEHAVES LIKE THE REAL ONE: the stamp is conditional on
+  // `last_run` being null, which is exactly the WHERE the Worker sends for a
+  // one-time job — under the cron AND under the owner's press. Exactly one
+  // caller can win it.
+  const store = { last_run: null };
+  const deps = (seen) => ({
+    stamp: async () => {
+      if (store.last_run) return { won: false };
+      store.last_run = new Date(T + 5000).toISOString();
+      seen.stamped++;
+      return { won: true };
+    },
+    callFn: async () => [{ channel: "email", to: "alex@example.com", subject: "Tomorrow", body: "See you then." }],
+    recipient, phone,
+    credentials: async () => ({ provider: "resend", key: "k", from: "shop@example.com" }),
+    smsCredentials: async () => null,
+    send: async (p) => { seen.email.push(p); return { ok: true }; },
+    sendSms: async () => ({ ok: true }),
+  });
+  const row = () => ({ enabled: true, schedule_minutes: MAX_EVERY_MINUTES, spec: SPEC, last_run: store.last_run, updated_at: "2026-09-01T00:00:00Z" });
+  const named = () => ({ ...row(), name: "remind_once" });
+
+  // BEFORE: the tick would select it.
+  assert.equal(dueJobs([row()], T).length, 1, "the job was not due when it should have been");
+
+  // THE PRESS (or the tick — `runJob` cannot tell, and must not need to).
+  const first = { stamped: 0, email: [] };
+  const out = await runJob(deps(first), named());
+  assert.equal(first.stamped, 1, "the run did not claim the occurrence");
+  assert.equal(first.email.length, 1, "the one-time job sent nothing");
+  assert.equal(out.sent, 1, JSON.stringify(out));
+  assert.ok(store.last_run, "the claim was not recorded, so nothing consumed the occurrence");
+
+  // AFTER: the scheduled tick finds the stamp and skips — that same minute,
+  // an hour later, and a month later.
+  for (const t of [T + 60000, T + 3600000, T + 40 * 86400000]) {
+    assert.equal(dueJobs([row()], t).length, 0, "the job came back at " + new Date(t).toISOString());
+  }
+
+  // AND A SECOND RUN CLAIMS NOTHING AND SENDS NOTHING — the overlapping-runner
+  // shape, and the double-press shape, which are the same event from here.
+  const second = { stamped: 0, email: [] };
+  const again = await runJob(deps(second), named());
+  assert.equal(second.stamped, 0, "a second run staked the claim again");
+  assert.equal(second.email.length, 0, "a second run sent the reminder twice");
+  assert.equal(again.sent, undefined, "a lost claim reported a send: " + JSON.stringify(again));
+});
+
+test("a one-time job that fails to send is still consumed, and says so", async () => {
+  // THE DELIBERATE COST, driven so it is a decision rather than an accident.
+  const seen = { stamped: 0 };
+  const store = { last_run: null };
+  const deps = {
+    stamp: async () => { if (store.last_run) return { won: false }; store.last_run = "2026-10-03T08:00:05Z"; seen.stamped++; return { won: true }; },
+    callFn: async () => [{ channel: "email", to: "alex@example.com", subject: "Tomorrow", body: "See you then." }],
+    recipient, phone,
+    credentials: async () => ({ provider: "resend", key: "k", from: "shop@example.com" }),
+    smsCredentials: async () => null,
+    // THE PROVIDER REFUSES. `failed`, never `unsent`: one needs looking at,
+    // the other needs a key.
+    send: async () => ({ ok: false }),
+    sendSms: async () => ({ ok: true }),
+  };
+  const SPEC = { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" };
+  const out = await runJob(deps, { name: "remind_once", spec: SPEC, schedule_minutes: MAX_EVERY_MINUTES });
+  assert.equal(seen.stamped, 1);
+  assert.equal(out.failed, 1, "a refused send was not reported as failed: " + JSON.stringify(out));
+  assert.equal(out.sent, 0);
+  // …AND IT IS NOT RETRIED. The occurrence is gone; the owner is told by the
+  // outcome, which is the honest place for it — a silent retry would send the
+  // reminder twice on the first provider hiccup.
+  const row = { enabled: true, schedule_minutes: MAX_EVERY_MINUTES, spec: SPEC, last_run: store.last_run, updated_at: "2026-09-01T00:00:00Z" };
+  assert.equal(dueJobs([row], Date.parse("2026-10-03T08:10:00Z")).length, 0, "a failed one-time job was retried");
+  assert.match(jobOutcome(out), /couldn't be sent|failed/i, "the outcome sentence does not say it failed: " + jobOutcome(out));
 });

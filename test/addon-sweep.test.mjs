@@ -2008,13 +2008,26 @@ test("the owner's jobs route answers which function each job runs", async () => 
   // THE ROUTE'S HALF OF THE SAME FIX. Reading it off the SPEC is the property:
   // `runJob` does `spec.fn`, so a second copy stored elsewhere could disagree
   // with what the runner would really call.
-  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("jobs: jrows.map((j) => ({");
-  assert.ok(at > 0, "the jobs listing moved — this window is reading something else");
-  const block = w.slice(at, w.indexOf("\n            });", at));
-  assert.match(block, /fn: j\.spec && typeof j\.spec === "object" && typeof j\.spec\.fn === "string" \? j\.spec\.fn : ""/,
-    "the jobs route does not answer the persisted function reference, off the spec the runner reads");
+  // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke. It
+  // read the route's own inline projection out of `worker.js` — a window opened
+  // on `jobs: jrows.map((j) => ({`, which is a SPELLING. That projection is
+  // `jobPanelRow` in `site-jobs.mjs` now, lifted there because a sweep proved
+  // two of its fields could be emptied with the whole suite green: nothing can
+  // drive this route's mapping without Supabase, the owner gate and a session,
+  // so *a wall nobody can drive is a wall nobody is guarding*.
+  //
+  // The new form is strictly stronger, because it DRIVES the property instead
+  // of reading it, and asserts the route really goes through the reader.
+  // Either half alone is the wiring trap — a perfect reader nothing calls, or a
+  // call to a reader that answers nothing.
+  const { jobPanelRow } = await import("../site-jobs.mjs");
+  assert.equal(jobPanelRow({ name: "n", spec: { fn: "send_reminder" }, schedule_minutes: 1440 }).fn, "send_reminder",
+    "the jobs row does not answer the persisted function reference, off the spec the runner reads");
   // AND IT IS EMPTY RATHER THAN ABSENT for a row that lost it — a job with no
   // reference can never run, and a missing key reads as "not asked about".
-  assert.doesNotMatch(block, /fn: [^\n]*\?\s*j\.spec\.fn\s*:\s*undefined/, "an absent reference must read as empty, not undefined");
+  assert.equal(jobPanelRow({ name: "n", spec: {}, schedule_minutes: 1440 }).fn, "",
+    "an absent reference must read as empty, not undefined");
+  const w = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(w, /return Response\.json\(\{ jobs: jrows\.map\(jobPanelRow\) \}\);/,
+    "the jobs route does not project its rows through the shared jobPanelRow");
 });

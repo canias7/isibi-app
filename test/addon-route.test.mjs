@@ -7289,3 +7289,123 @@ test("a supplied AUDIO url is external by construction, and an invented hosted o
     "an invented hosted url shipped as a live reference to an object that cannot exist: " + builtBad.source.slice(0, 300));
   assert.ok(!builtBad.source.includes("interview.mp3"), "the invented url survived into the compiled page");
 });
+
+// ── A JOB THAT RUNS ONCE, THROUGH THE REAL ROUTE (2026-09-19) ───────────────
+//
+// Owner: *"Add native one-time scheduling as a separate, reviewable
+// capability… A request to run once must never silently become a recurring
+// job."* The scheduler's own arithmetic and the run/skip lifecycle are driven
+// where they live; what these drive is the hop chain the route owns — the TOOL
+// the designer really received, what the cleaner kept, what reached
+// `site_functions`, and what the customer was told.
+const ONCE_FN = { name: "send_note", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
+const ONCE_JOB = { name: "closing_note", fn: "send_note", everyMinutes: 60, at: "09:00", on: "2026-10-03" };
+
+test("a one-time job is offered, kept, registered and reported", async () => {
+  const r = await addon("fw-once", "email everyone on the 3rd of October that we're closed", {
+    kinds: ["function", "job"], tz: "Europe/London",
+    answers: { function: { function: [ONCE_FN] }, job: { job: [ONCE_JOB] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // HOP 1 — THE TOOL REALLY OFFERED IT. Read one level IN, off the request the
+  // route sent, because a case that hands the answer in bypasses the tool
+  // entirely: from outside, "the model did not say it" and "we never gave it
+  // anywhere to say it" are the same absence. This repository has paid for
+  // that distinction twice.
+  const jobCall = r.prompts.find((p) => p.kind === "job");
+  assert.ok(jobCall.itemProps.includes("on"),
+    "the job designer has nowhere to say a job runs once: " + JSON.stringify(jobCall.itemProps));
+  assert.match(jobCall.itemSchema.properties.on.description, /runs ONCE/,
+    "the tool does not say what `on` is for");
+  assert.match(jobCall.itemSchema.properties.on.description, /MUST also give `at`/,
+    "the tool does not say a date needs a time");
+
+  // HOP 2 — THE CLEANER KEPT IT, and forced the interval to the ceiling. The
+  // model asked for 60 minutes while thinking about a date; the interval means
+  // nothing for a one-time job and the forcing is the fail-safe if `on` is
+  // ever lost.
+  const kept = r.body.jobs.find((j) => j.name === "closing_note");
+  assert.equal(kept.on, "2026-10-03", "the date did not survive cleaning: " + JSON.stringify(kept));
+  assert.equal(kept.at, "09:00", "a one-time job asked at 60 minutes lost its time of day");
+  assert.ok(kept.everyMinutes >= 44640,
+    "the interval was left as asked, so a lost date would leave an hourly job: " + JSON.stringify(kept));
+
+  // HOP 3 — IT REACHED THE REGISTRY, in the SPEC, which is where `dueJobs`
+  // reads it. A registration that drops `on` turns the request into a monthly
+  // job the moment it is saved, and nothing downstream could tell.
+  const row = r.registered.find((x) => x.name === "closing_note");
+  assert.ok(row, "the job was never registered: " + JSON.stringify(r.registered.map((x) => x.name)));
+  assert.equal(row.spec.on, "2026-10-03", "the registry row lost the date: " + JSON.stringify(row.spec));
+  assert.equal(row.spec.at, "09:00");
+  assert.equal(row.spec.tz, "Europe/London", "the browser's zone did not reach the registry");
+  assert.equal(row.spec.fn, "send_note");
+
+  // HOP 4 — AND NOTHING WAS PUBLISHED. An internal function and a job change
+  // no page, so this is the pageless path: no container, no compile.
+  assert.equal(r.compiles.length, 0, "a job-only change wanted a container");
+});
+
+test("a one-time job is refused by name rather than quietly recurring", async () => {
+  // ⚠ THE OWNER'S SENTENCE AS THREE REFUSALS, and they are three because they
+  // need three different things done about them. Each is asserted on the
+  // customer's own words, and each costs nothing: `cost: 0`, no registration.
+  const ask = async (job, extra) => addon("fw-once-bad", "email everyone on the 3rd that we're closed", {
+    kinds: ["function", "job"], tz: "Europe/London", ...extra,
+    answers: { function: { function: [ONCE_FN] }, job: { job: [job] } },
+  });
+
+  const past = await ask({ ...ONCE_JOB, on: "2020-01-01" });
+  assert.equal(past.body.ok, false, "a date already gone was accepted: " + JSON.stringify(past.body));
+  assert.equal(past.body.reason, "past-date");
+  assert.equal(past.body.cost, 0, "a refusal charged");
+  assert.match(past.body.msg, /already gone/, past.body.msg);
+  assert.deepEqual(past.registered.map((x) => x.name), [], "a refused change registered a job");
+
+  const bad = await ask({ ...ONCE_JOB, on: "3 Oct" });
+  assert.equal(bad.body.reason, "bad-date", JSON.stringify(bad.body));
+  assert.match(bad.body.msg, /couldn't read the date/, bad.body.msg);
+
+  // ⚠ AND A DATE THAT IS THE RIGHT SHAPE AND NOT A REAL DAY — a sweep
+  // survivor, because "3 Oct" is refused by the SHAPE and so could not tell a
+  // working calendar check from none at all. `2026-02-30` and `2026-13-45`
+  // both match `ON_RE` exactly; only the arithmetic separates them from a day.
+  // The leap year is the control on the other side: 2024 really has a 29th of
+  // February and must be accepted.
+  for (const junk of ["2026-02-30", "2026-13-45", "2026-00-10", "2026-04-31"]) {
+    const r = await ask({ ...ONCE_JOB, on: junk });
+    assert.equal(r.body.reason, "bad-date", "a date that is not a day was accepted: " + junk + " " + JSON.stringify(r.body));
+  }
+  const leap = await ask({ ...ONCE_JOB, on: "2028-02-29" });
+  assert.equal(leap.body.ok, true, "a real leap day was refused — the check is too strict: " + JSON.stringify(leap.body));
+
+  const noTime = await ask({ name: "closing_note", fn: "send_note", everyMinutes: 1440, on: "2026-10-03" });
+  assert.equal(noTime.body.reason, "no-time", JSON.stringify(noTime.body));
+  assert.match(noTime.body.msg, /needs a time of day/, noTime.body.msg);
+
+  // …AND THE CONTROL THAT MAKES THE PAST-DATE WALL A WALL: the same date, with
+  // no zone on the request. `aToday` is then unknown and the check stands down
+  // rather than comparing a local date against UTC — which would refuse a
+  // perfectly good "today" for everybody west of Greenwich for most of the
+  // working day. Without this the case could not tell a working wall from one
+  // that refuses everything.
+  const noZone = await ask({ ...ONCE_JOB, on: "2020-01-01" }, { tz: null });
+  assert.equal(noZone.body.ok, true, "the wall fired with no zone to judge against: " + JSON.stringify(noZone.body));
+});
+
+test("an ordinary recurring job is byte for byte what it was", async () => {
+  // THE CONTROL FOR THE WHOLE FEATURE. Every site on the platform is this case,
+  // and a change that quietly gave one of them a date would be the defect
+  // inverted.
+  const r = await addon("fw-still-daily", "remind people the day before", {
+    kinds: ["function", "job"], tz: "Europe/London",
+    answers: { function: { function: [FN] }, job: { job: [JOB] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const kept = r.body.jobs.find((j) => j.name === "daily_reminder");
+  assert.equal(kept.on, undefined, "a recurring job gained a date");
+  assert.equal(kept.everyMinutes, 1440, "a recurring job's interval moved");
+  const row = r.registered.find((x) => x.name === "daily_reminder");
+  assert.equal(row.spec.on, undefined, "a recurring job was registered as one-time");
+  assert.deepEqual(Object.keys(row.spec).sort(), ["at", "fn", "tz"], "the recurring spec's shape moved: " + JSON.stringify(row.spec));
+});

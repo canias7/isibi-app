@@ -437,6 +437,27 @@ export const JOB_ITEM = {
       "For a job that runs once a day or less often: the time of day it runs, \"HH:MM\" on a 24-hour clock in the " +
       "site's own local time — \"09:00\" for a morning reminder, \"18:30\" for an end-of-day summary. Leave it out " +
       "for a job on a plain interval (hourly, every 15 minutes)." },
+    // ── A JOB THAT RUNS ONCE (2026-09-19) ──────────────────────────────────
+    //
+    // Owner: *"A request to run once must never silently become a recurring
+    // job."* Until today there was no run-once field at all, so "remind me on
+    // the 3rd" became a reminder that fires every day for ever — a missing
+    // FIELD rather than a missing capability, and its failure mode is silent
+    // AND repeating, which is the worst pair available: nobody notices the
+    // first wrong send, and every send after it is another one.
+    //
+    // THE DATE ALONE, because the time of day is `at`'s job already and a
+    // second time field here would be two copies of one thing that can
+    // disagree. `on` REQUIRES `at` and `normalizeJob` refuses the pair
+    // outright without it: a reminder is a message going out at a moment
+    // somebody chose, and "midnight, presumably" is a guess about what they
+    // meant — made once, and then made for ever, since there is no second
+    // occurrence to correct it at.
+    on: { type: "string", description:
+      "For a job that runs ONCE and then never again: the single date it runs, \"YYYY-MM-DD\" in the site's own " +
+      "local time. You MUST also give `at` — say what time of day as well, because a one-time reminder has no " +
+      "second chance to be at the right time. Leave `on` out for anything that repeats, however rarely. Never " +
+      "give a date that has already passed." },
   },
 };
 

@@ -30,11 +30,11 @@ import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
 import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
-import { MIN_EVERY_MINUTES, AT_RE as JOBS_AT_RE } from "../site-jobs.mjs";
+import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import {
   ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
-  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, AT_RE, backendDesigned, pageless, jobEvery,
+  BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
@@ -1056,6 +1056,14 @@ test("the three other tiers are kinds here — the build's own shapes by identit
   // The engine's floor for a job and this module's are one number, and the
   // rule says it.
   assert.equal(MIN_JOB_MINUTES, MIN_EVERY_MINUTES, "the job floor drifted from site-jobs.mjs");
+  // ⚠ AND THE CEILING, WHICH MATTERS MORE THAN THE FLOOR. A one-time job's
+  // interval is FORCED to this value as a fail-safe: if `spec.on` is ever lost
+  // the job degrades to *at most monthly* rather than to whatever the model
+  // asked for. If the two numbers drift apart, that fail-safe silently becomes
+  // whatever number THIS file happens to hold — which is the runaway the field
+  // exists to prevent, arriving through the twin.
+  assert.equal(MAX_JOB_MINUTES, MAX_EVERY_MINUTES, "the job ceiling drifted from site-jobs.mjs");
+  assert.equal(String(ON_RE), String(JOBS_ON_RE), "the one-time date shape drifted from site-jobs.mjs");
   assert.match(addRule("job"), new RegExp("under " + MIN_JOB_MINUTES + " minutes"), "the job rule does not say the floor");
   // The picker is told a reminder is a job AND a function.
   const desc = pickTool().input_schema.properties.kinds.description;
@@ -1316,7 +1324,15 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // now and the first tier designed MAKES the database, so what follows the
   // fold is the provision, then the schema work, then the look merge.
   const run = at(b, "const ran = await runAdd(", "run");
-  const clean = at(b, "const clean = cleanAdd(k, ran.value, aSite);", "clean");
+  // ⚠ RE-ANCHORED 2026-09-19, and the expectation MOVED rather than broke: the
+  // site handed to the cleaner is `aSite` PLUS `today`, the site's own local
+  // date, for the one-time job's past-date refusal. `aSite` is rebuilt from the
+  // proposal after every kind, so a field stamped inside `siteFacts` would
+  // vanish between the first designer and the last — which for that wall means
+  // it stands down for every kind but the first. The spread at the call is the
+  // fix, and the assertion is that the cleaner still gets the site facts AND
+  // gets the date.
+  const clean = at(b, "const clean = cleanAdd(k, ran.value, { ...aSite, today: aToday });", "clean");
   const fold = at(b, "const aFold = foldAdds(aAnswers, aLook, aSite);", "fold");
   const designed = at(b, "const aDesigned = aFold.designed;", "designed");
   const prov = at(b, "adb = await ensureSiteBackend(env, ownerSlug, ou.id, aInstruction, (n) => aMark(\"prov:\" + n, \"ok\"));", "provision");
