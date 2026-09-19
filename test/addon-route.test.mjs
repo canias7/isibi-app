@@ -7837,6 +7837,162 @@ test("an ordinary recurring job is byte for byte what it was", async () => {
   assert.deepEqual(Object.keys(row.spec).sort(), ["at", "fn", "tz"], "the recurring spec's shape moved: " + JSON.stringify(row.spec));
 });
 
+// ── A JOB THAT REUSES A FUNCTION THE SITE ALREADY HAS (2026-09-19) ──────────
+//
+// REPRODUCED LIVE ON RUN 52, and the feature worked while the report denied it.
+// The ask registered `count_bookings_once` — a one-time job on the site's own
+// `nightly_booking_count` — and the customer was told, on the same screen that
+// had just said it was scheduled:
+//
+//   "…waiting on another part of the same change that didn't work: … — the
+//    count_bookings_once it needs could not be created"
+//
+// THE CAUSE WAS TWO READERS OF ONE FACT. `applySiteSchema` persists a function
+// with NO BODY, `normalizeSchema` drops a bodiless function, and the job goes
+// behind it — so the audit called the job `unbuilt` and marked the whole `job`
+// step failed. The apply then re-attached exactly such a job and registered it.
+// `withJobDeps` and `storedJobFns` are the one rule both read now.
+//
+// IT IS NOT ABOUT `on`. A recurring job on a stored function took the same
+// path, which is why both are driven here.
+const STORED_FN = { name: "nightly_count", args: "", returns: "json", internal: true };
+const SITE_HAS_FN = { tables: STORED_SCHEMA.tables, functions: [STORED_FN], apis: [], jobs: [] };
+const ONCE_REUSE = { name: "count_once", fn: "nightly_count", everyMinutes: 1440, at: "09:00", on: "2026-10-03" };
+const DAILY_REUSE = { name: "count_daily", fn: "nightly_count", everyMinutes: 1440, at: "07:00" };
+/** The claim a designer really makes about a job it scheduled. */
+const jobNeed = (item) => ({
+  need: "the booking count runs on its own",
+  status: "covered",
+  by: item + " runs nightly_count on the schedule asked for",
+  kind: "job",
+  item,
+});
+
+for (const [shape, job] of [["one-time", ONCE_REUSE], ["recurring", DAILY_REUSE]]) {
+  test("a " + shape + " job reusing a stored function is registered AND reported as scheduled", async () => {
+    const r = await addon("fw-reuse-job-" + shape, "count the bookings on a schedule", {
+      kinds: ["job"], tz: "Europe/London", stored: SITE_HAS_FN,
+      answers: { job: { job: [job], requirements: [jobNeed(job.name)] } },
+    });
+    assert.equal(r.body.ok, true, JSON.stringify(r.body));
+    // THIS CASE IS ABOUT REUSE, so it must not have created the function — the
+    // whole defect lives in the branch where `appliedFacts` is silent.
+    assert.deepEqual(r.body.functions || [], [], "the change created a function: this is not the reuse path");
+
+    // ── REGISTRATION. The job really reached `site_functions`, in the SPEC,
+    // which is where `dueJobs` reads it.
+    const row = r.registered.find((x) => x.name === job.name);
+    assert.ok(row, "the reused-function job was never registered: " + JSON.stringify(r.registered.map((x) => x.name)));
+    assert.equal(row.spec.fn, "nightly_count", "the registry row lost the function it reuses");
+    assert.equal(row.spec.on, job.on, "the registry row disagrees with the shape asked for");
+
+    // ── AND THE STEP IS NOT FAILED. `jobErrors` is the route's own report of a
+    // job that could not be set up; a reuse job must produce none.
+    assert.deepEqual(r.body.jobErrors || [], [], "a registered job was reported as an error");
+    assert.deepEqual((r.body.unbuilt || {}).job || [], [],
+      "a job the engine really built was reported as dropped whole: " + JSON.stringify(r.body.unbuilt));
+
+    // ── STORED COVERAGE. The claim naming the job resolves against the job
+    // this change applied, and the state is the honest ceiling: it exists and
+    // nothing here has watched it fire.
+    const cov = storedAnswer(r, "fw-reuse-job-" + shape).coverage;
+    const q = cov.requirements.find((x) => x.need === "the booking count runs on its own");
+    assert.equal(q.implementation, "found", "a registered job was not found by its own claim");
+    assert.equal(q.foundIn, "applied", "the job this change made was not read as this change's work");
+    assert.equal(q.implementedBy, job.name);
+    assert.equal(q.state, "unverified", "a registered job was not read as there-and-unchecked: " + q.state);
+    assert.equal(cov.counts.blocked, 0, "a registered job left a blocked requirement: " + JSON.stringify(cov.counts));
+    assert.equal(cov.counts.failed, 0, "a registered job left a failed requirement");
+    assert.equal(cov.counts.missing, 0, "a registered job was counted as work that is not there");
+
+    // ── `checked` STAYS EMPTY, asserted by its OBSERVABLE consequence. The
+    // stored record carries no `made` list, so a loop over one here would be a
+    // negative assertion with no observer — this repository's own most
+    // expensive shape. `delivered` is the state `checked` and only `checked`
+    // buys, so a filled one shows up exactly here; the census that drives
+    // `appliedFacts` over every applied kind lives in `addon-steps`.
+    assert.equal(cov.counts.delivered, 0,
+      "a job claimed a behaviour nothing on this path exercises: " + JSON.stringify(cov.counts));
+
+    // ── AND THE CUSTOMER'S OWN SCREEN, composed by the browser's real
+    // `addonAnswer`. The scheduling is stated; run 52's sentence is not.
+    const said = browserText(r.body);
+    assert.match(said, new RegExp("scheduled " + job.name), "the reply does not say the job was scheduled: " + said);
+    assert.doesNotMatch(said, /could not be created/,
+      "run 52's sentence came back about a job that was registered: " + said);
+    assert.doesNotMatch(said, /waiting on another part of the same change/,
+      "a registered job is still reported as a broken dependency: " + said);
+    // AUTOMATIC EXECUTION IS STILL UNVERIFIED AND THE REPLY SAYS SO — the job
+    // clause, which is more specific than the general can't-confirm one and is
+    // true of every job this platform has ever registered. Losing it would
+    // trade one over-claim for another, so it is asserted rather than assumed.
+    assert.match(said, /Scheduled as you asked/, "the reply does not state the scheduling: " + said);
+    assert.match(said, /Automatic running hasn't been verified from here yet/,
+      "the reply claims the schedule has been seen to run: " + said);
+  });
+}
+
+test("the genuine job failures are still reported when a stored function is in play", async () => {
+  // ⚠ THE CONTROLS, and without them the fix above is indistinguishable from
+  // clearing every job failure. Each is a DIFFERENT reason a job legitimately
+  // does not happen, and each must survive on a site that also has a reusable
+  // stored function — which is the exact context the fix widened.
+  const ask = (slug, opts) => addon(slug, "count the bookings on a schedule", {
+    kinds: ["job"], tz: "Europe/London", stored: SITE_HAS_FN, ...opts,
+  });
+
+  // (a) A NAME NOBODY DECLARED, and (b) A PUBLIC STORED FUNCTION. Both are
+  // refused BY THE CLEANER, one hop earlier than the audit — `cleanAdd` admits
+  // a job only against the site's internal functions — so they never reach the
+  // context this fix widened at all. That is the stronger place for them to be
+  // caught: a named refusal with a sentence, cost 0, nothing written. The
+  // walls INSIDE the widened context are driven at the module, where the
+  // cleaner cannot mask them (`site-schema-audit`).
+  //
+  // (b) IS THE ONE THAT MATTERS HERE. A job on a function a visitor could call
+  // hands out every recipient's address to anyone who asks; the engine refuses
+  // it deliberately, and a fix that widened the context by internal-ness would
+  // show up as this case passing where it should not.
+  for (const [what, slug, stored, job] of [
+    ["a function nobody declared", "fw-reuse-ghost", SITE_HAS_FN, { ...ONCE_REUSE, name: "count_ghost", fn: "no_such_fn" }],
+    ["a PUBLIC stored function", "fw-reuse-public", { ...SITE_HAS_FN, functions: [{ ...STORED_FN, internal: false }] }, ONCE_REUSE],
+  ]) {
+    const x = await ask(slug, { stored, answers: { job: { job: [job], requirements: [jobNeed(job.name)] } } });
+    assert.equal(x.body.ok, false, "a job on " + what + " was accepted: " + JSON.stringify(x.body));
+    assert.equal(x.body.reason, "no-job-fn", "a job on " + what + " was refused for the wrong reason: " + x.body.reason);
+    assert.equal(x.body.cost, 0, "a refused job charged");
+    assert.match(x.body.msg, /names a function this site doesn't have/, x.body.msg);
+    assert.deepEqual(x.registered.map((n) => n.name), [], "a job on " + what + " was registered");
+  }
+
+  // (c) A NEW FUNCTION THE DATABASE REFUSED. The job depends on something this
+  // change tried and failed to create; it is blocked by NAME, and the site's
+  // reusable stored function must not rescue it.
+  const c = await ask("fw-reuse-fnfail", {
+    kinds: ["function", "job"], fnFail: true,
+    answers: {
+      function: { function: [{ name: "fresh_fn", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" }] },
+      job: { job: [{ ...ONCE_REUSE, name: "count_fresh", fn: "fresh_fn" }], requirements: [jobNeed("count_fresh")] },
+    },
+  });
+  assert.equal((c.body.jobErrors || []).length, 1, "a job on a failed new function was not reported: " + JSON.stringify(c.body));
+  assert.match(c.body.jobErrors[0].error, /fresh_fn/, "the failed dependency is not named");
+  assert.deepEqual(c.registered.map((x) => x.name), [], "a job on a function that failed to create was registered");
+
+  // (d) THE REGISTRATION ITSELF FAILING. The job is perfectly well formed and
+  // the upsert does not land — the one failure the audit can never see, and
+  // the one the reply must still carry.
+  const d = await ask("fw-reuse-regfail", {
+    jobsFail: true,
+    answers: { job: { job: [ONCE_REUSE], requirements: [jobNeed("count_once")] } },
+  });
+  assert.equal((d.body.jobErrors || []).length, 1,
+    "a job whose registration failed was reported as scheduled: " + JSON.stringify(d.body));
+  assert.deepEqual(d.body.jobs || [], [], "a job that never registered was still claimed");
+  const dq = storedAnswer(d, "fw-reuse-regfail").coverage.requirements[0];
+  assert.notEqual(dq.state, "unverified", "a job whose registration failed still read as set up");
+});
+
 // ── FOUR COMPLETE REQUESTS, EACH THROUGH THE REAL ROUTE (2026-09-19) ────────
 //
 // Owner: *"a customer describes an addition, the builder understands the

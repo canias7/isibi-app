@@ -14,7 +14,7 @@ import fs from "node:fs";
 import {
   normalizeSchema, fillFromStored, seedSiteRows, checkSql, sqlIdent,
   derivedName, derivedIdent, MAX_PG_IDENT, INTERNAL_TABLES, INTERNAL_TABLE_RE,
-  refusedFields, droppedFields,
+  refusedFields, droppedFields, withJobDeps, storedJobFns,
 } from "../site-schema.mjs";
 
 const SRC = fs.readFileSync(new URL("../site-schema.mjs", import.meta.url), "utf8");
@@ -454,4 +454,54 @@ test("one reading of a tier's list, shared by every diagnostic", () => {
   assert.ok(audit > 0, "auditTier is gone");
   assert.match(CODE.slice(audit, CODE.indexOf("\n}", audit)), /declaredItems\(spec, tier\)/,
     "auditTier does not read the tier's list");
+});
+
+// ── THE DEPENDENCY CONTEXT A JOB IS VALIDATED IN (2026-09-19) ───────────────
+//
+// Run 52's defect and its three walls, driven where the ADDON'S CLEANER cannot
+// mask them. On the route, a job naming a missing or public function is refused
+// by `cleanAdd` one hop earlier — the right place, and it means the route can
+// never exercise what the widened context itself admits. These four shapes are
+// the contract `withJobDeps` is allowed to have.
+test("withJobDeps admits a stored internal function and nothing else", () => {
+  const JOB = { name: "count_once", fn: "nightly_count", everyMinutes: 1440, at: "09:00", on: "2026-10-03" };
+  const RECURRING = { name: "count_daily", fn: "nightly_count", everyMinutes: 1440, at: "07:00" };
+  // AS `applySiteSchema` REALLY PERSISTS ONE: four fields and NO BODY. Typing a
+  // body here would be a fixture more capable than the producer, in the one
+  // field the whole defect turns on.
+  const stored = (internal) => ({ name: "nightly_count", args: "", returns: "json", internal });
+  const jobs = (ctx, job) => (normalizeSchema({ ...withJobDeps(ctx), jobs: [job] }).jobs || []).map((j) => j.name);
+
+  // THE DEFECT: the job survives its own site's function now.
+  assert.deepEqual(jobs({ functions: [stored(true)] }, JOB), ["count_once"],
+    "a one-time job on a stored internal function is still dropped whole");
+  assert.deepEqual(jobs({ functions: [stored(true)] }, RECURRING), ["count_daily"],
+    "a RECURRING job on a stored internal function is still dropped — the defect was never about `on`");
+
+  // THE TWO WALLS INSIDE IT, and they are the whole reason this is a rule and
+  // not a blanket repair. A public function is refused BY THE ENGINE because a
+  // job on one hands every recipient's address to anyone who can call it.
+  assert.deepEqual(jobs({ functions: [stored(false)] }, JOB), [],
+    "a job on a PUBLIC function was admitted by the widened context");
+  assert.deepEqual(jobs({ functions: [] }, JOB), [],
+    "a job on a function nobody declared was admitted by the widened context");
+
+  // A FUNCTION THIS CHANGE DESIGNED IS LEFT EXACTLY AS IT IS — the stand-in is
+  // for a declaration with nothing to normalise, never a replacement for a real
+  // body, and a repair that overwrote one would apply it.
+  const designed = { name: "fresh", args: "", returns: "void", internal: true, body: "BEGIN PERFORM 1; END;" };
+  assert.equal(withJobDeps({ functions: [designed] }).functions[0].body, designed.body,
+    "a designed function's real body was replaced by the stand-in");
+  // …AND A CONTEXT WITH NOTHING TO REPAIR IS HANDED BACK UNTOUCHED, so every
+  // call site that had no stored function is byte for byte what it was.
+  const plain = { functions: [designed], tables: [] };
+  assert.equal(withJobDeps(plain), plain, "a context needing no repair was rebuilt anyway");
+
+  // `storedJobFns` IS THE SAME RULE, and the apply reads it: one answer to
+  // "which functions may a job name", so the two cannot drift again.
+  assert.deepEqual([...storedJobFns({ functions: [stored(true)] })], ["nightly_count"]);
+  assert.deepEqual([...storedJobFns({ functions: [stored(false)] })], [],
+    "storedJobFns offered a public function to the apply");
+  assert.deepEqual([...storedJobFns({ functions: [{ name: "x", internal: "yes" }] })], [],
+    "a non-boolean `internal` was read as internal — cannot-tell must not read as the permissive answer");
 });

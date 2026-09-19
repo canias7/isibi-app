@@ -133,7 +133,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
@@ -24155,8 +24155,20 @@ async function handleRequest(request, env, ctx) {
                 if (mine.length) {
                   // The proposal WITH this kind's items in it, so a sibling
                   // designed earlier in the same message counts as present.
+                  //
+                  // …AND, FOR A JOB, WITH THE SITE'S OWN FUNCTIONS PRESENT TOO
+                  // (2026-09-19). The line above was right about a sibling and
+                  // silent about a STORED function: those are persisted with no
+                  // body, `normalizeSchema` drops a bodiless function, and the
+                  // job naming it was dropped behind it and reported `unbuilt`.
+                  // The apply disagreed — it re-attaches exactly such a job —
+                  // so run 52 registered `count_bookings_once` and told the
+                  // customer it "could not be created". `withJobDeps` is the
+                  // one rule both now read; a public function and a name nobody
+                  // declared are still dropped and still reported.
                   const withMine = proposedSpec(aProposed, k, clean.value);
-                  const audit = auditTier({ [tier]: mine }, k, withMine, { sent });
+                  const context = k === "job" ? withJobDeps(withMine) : withMine;
+                  const audit = auditTier({ [tier]: mine }, k, context, { sent });
                   for (const n of audit.reached) aBadProps.add(n);
                   for (const n of audit.refused) aBadProps.add(n);
                   // THE OTHER PARTY. The engine had a use for it and this step
@@ -24481,11 +24493,16 @@ async function handleRequest(request, env, ctx) {
               // admitted the job against the stored internal names, so it is
               // re-attached here through the engine's own reader, and only
               // when the stored function really is internal.
+              // `storedJobFns` IS THAT READER AND THE AUDIT ASKS IT TOO
+              // (2026-09-19). This was an inline filter, and the audit a
+              // thousand lines above had no equivalent at all — so the two
+              // answered differently about the same job and run 52 registered
+              // one the customer was told could not be created.
+              const aJobFns = storedJobFns(aSpec);
               for (const raw of Array.isArray(folded.spec.jobs) ? folded.spec.jobs : []) {
                 const j = normalizeJob(raw);
                 if (!j || (merged.jobs || []).some((x) => x.name === j.name)) continue;
-                const stored = ((aSpec && aSpec.functions) || []).find((f) => f && f.internal && String(f.name).toLowerCase() === j.fn);
-                if (stored) merged.jobs = [...(merged.jobs || []), j];
+                if (aJobFns.has(j.fn)) merged.jobs = [...(merged.jobs || []), j];
               }
               // THE SEED NET, on the lane that ADDS display tables to LIVE
               // sites. The build path grew this on 2026-08-12 (the designer

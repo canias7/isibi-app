@@ -270,7 +270,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
+function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -388,8 +388,14 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
     // that says which schedules the platform will really run. Without this the
     // function returns at its first line (no service key) and a job blocked on
     // the reply and a job blocked in the DATABASE are indistinguishable.
+    // `jobsFail` REFUSES THE UPSERT (2026-09-19) — the one job failure the
+    // audit structurally cannot see, because it happens after every validation
+    // has passed. Without a seam here, "the route reports a registration that
+    // did not land" is a claim in a comment; with it, a fix that cleared job
+    // failures wholesale is a red run.
     if (url.includes("/rest/v1/site_functions")) {
       if (init && String(init.method || "GET").toUpperCase() === "POST") {
+        if (jobsFail) return new Response('{"message":"the schedule could not be saved"}', { status: 500, headers: { "content-type": "application/json" } });
         try { for (const row of JSON.parse(String(init.body || "[]"))) registered.push(row); } catch { /* the assertion below reads the list */ }
         return new Response("", { status: 201 });
       }

@@ -2647,6 +2647,100 @@ function scalar(v) {
 }
 
 /**
+ * The stand-in body a stored function is validated with. It is never applied —
+ * see `withJobDeps` — and is deliberately not valid SQL anybody would want to
+ * run, so a path that did apply it would fail loudly rather than quietly
+ * replace a live function with a no-op.
+ */
+const STORED_FN_STANDIN = "-- stored: body lives in the database, not in the spec";
+
+/**
+ * THE INTERNAL FUNCTIONS A JOB MAY BE ATTACHED TO, by lowercased name.
+ *
+ * `normalizeSchema` keeps a job only when the function it runs is declared in
+ * the SAME spec and is internal (`confirmFns.get(j.fn)`, and that map is built
+ * from the functions that SURVIVED normalisation). This is the one reader of
+ * "which functions satisfy that", so the audit and the apply cannot answer it
+ * differently — which is exactly what they did until 2026-09-19.
+ *
+ * PUBLIC IS NOT ON THE LIST, and that is a guarantee rather than an omission: a
+ * job on a public function is one a visitor could call, handing out every
+ * recipient's address to anyone who asks, and the engine refuses it for that
+ * reason. A name nobody declared is not on it either. Both stay reportable.
+ */
+export function storedJobFns(spec) {
+  const out = new Set();
+  const fns = spec && typeof spec === "object" && Array.isArray(spec.functions) ? spec.functions : [];
+  for (const f of fns) {
+    if (!f || typeof f !== "object" || f.internal !== true) continue;
+    const name = String(f.name || "").trim().toLowerCase();
+    if (name) out.add(name);
+  }
+  return out;
+}
+
+/**
+ * THE CONTEXT A JOB IS VALIDATED IN, WITH THE SITE'S OWN FUNCTIONS PRESENT.
+ *
+ * ── THE DEFECT THIS CLOSES, MEASURED (run 52, 2026-09-19) ───────────────────
+ *
+ * `applySiteSchema` persists a function as `{name, args, returns, internal}`
+ * with NO BODY, and `normalizeSchema` drops a bodiless function — correctly,
+ * since a body is what makes one. The job naming it is then dropped behind it.
+ * Four shapes through the real engine:
+ *
+ *   job alone (no function at all)  -> fns []                 jobs []
+ *   job + STORED fn (no body)       -> fns []                 jobs []   <- here
+ *   job + fn WITH body, internal    -> fns ["nightly_count"]  jobs ["count_once"]
+ *   job + fn with body, PUBLIC      -> fns ["nightly_count"]  jobs []
+ *
+ * So a job REUSING a function the site already has was audited as dropped
+ * whole. The apply disagreed and was right: it re-attaches exactly such a job,
+ * registers it, and the customer was nonetheless told "the <job> it needs could
+ * not be created" about a job that is on the site and scheduled. One fact, two
+ * readers, and only the wrong one reached the reply.
+ *
+ * The context's own comment already had the right argument — *"a job alone
+ * normalises to nothing; in the proposal its function is there and it
+ * survives"* — and it was true of a function designed in the same message,
+ * which carries a body, and false of a stored one. The reasoning stopped one
+ * case short.
+ *
+ * ── WHY A STAND-IN BODY, AND WHY IT IS SAFE ─────────────────────────────────
+ *
+ * The only question asked of the context here is whether the cross-reference
+ * resolves. The live body is in Postgres, this Worker does not hold it, and it
+ * is not needed to answer that. THE REPAIRED CONTEXT IS NEVER APPLIED: the
+ * apply runs `normalizeSchema` over the real spec and re-sending a stored
+ * function would `CREATE OR REPLACE` the live one with this stand-in — which is
+ * the recorded reason `normalizeSchema` drops bodiless functions in the first
+ * place, and it still does, everywhere but here.
+ *
+ * SCOPED TO THE JOB TIER BY ITS CALLER, deliberately. A table's `confirm.fn`
+ * and `sms.fn` cross-reference the same map and are nulled for a stored
+ * function — and the APPLY nulls them too, so the audit is already telling the
+ * truth about those. Repairing them here would make the audit disagree with the
+ * apply in the other direction, which is this defect wearing its own fix.
+ */
+export function withJobDeps(context) {
+  const base = context && typeof context === "object" ? context : {};
+  const fns = Array.isArray(base.functions) ? base.functions : [];
+  if (!fns.length) return base;
+  let repaired = false;
+  const out = fns.map((f) => {
+    // ONLY A DECLARED INTERNAL FUNCTION WITH NOTHING TO NORMALISE. A function
+    // this message designed arrives with its real body and is left exactly as
+    // it is; a public one is left to be refused.
+    if (!f || typeof f !== "object" || f.internal !== true) return f;
+    if (typeof f.body === "string" && f.body.trim()) return f;
+    if (!String(f.name || "").trim()) return f;
+    repaired = true;
+    return { ...f, body: STORED_FN_STANDIN };
+  });
+  return repaired ? { ...base, functions: out } : base;
+}
+
+/**
  * WOULD THE ENGINE HAVE USED THIS, HAD IT ARRIVED?
  *
  * The difference between two sentences that read the same and mean opposite

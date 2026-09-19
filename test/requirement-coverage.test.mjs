@@ -1463,7 +1463,19 @@ test("the route validates the MODEL's tables, not the folded spec or the engine'
     "the audit is not told what really goes into the engine");
   assert.match(block, /\.map\(\(t\) => \[String\(t\.name\)\.toLowerCase\(\), t\]\)/,
     "the cleaned items are paired by position — a refused one shifts every index behind it");
-  assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, withMine, \{ sent \}\)/, "the per-tier audit is gone");
+  // RE-ANCHORED 2026-09-19 (fourth time), and the spelling that moved is the
+  // CONTEXT ARGUMENT, not anything this test is about. It read
+  // `auditTier({ [tier]: mine }, k, withMine, { sent })`; the third argument is
+  // now a `const context` that is `withMine` for every tier but `job`, which
+  // gets the site's own functions present. Pinning an argument's NAME is the
+  // recorded "assert the property, not the spelling" — met, again, in a guard
+  // whose own comments record two earlier instances of it. The properties are
+  // what the audit is HANDED and that its context is built from the proposal.
+  assert.match(block, /auditTier\(\{ \[tier\]: mine \}, k, context, \{ sent \}\)/, "the per-tier audit is gone");
+  assert.match(block, /const withMine = proposedSpec\(aProposed, k, clean\.value\);/,
+    "the audit's context is no longer the proposal this message has built");
+  assert.match(block, /const context = k === "job" \? withJobDeps\(withMine\) : withMine;/,
+    "a job is validated without the site's own functions, or another tier gained them");
   // …AND THE THIRD REPORT IS READ. A declared value the pipeline kept under a
   // DIFFERENT value is neither reached-for nor refused, and it is the one shape
   // where the customer is told the thing they asked for was done and it

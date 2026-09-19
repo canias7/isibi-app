@@ -1305,7 +1305,22 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   const norm = at(b, "const merged = normalizeSchema(folded.spec);", "normalize");
   const reattach = b.slice(norm, at(b, "let aSeed = aDesigned.seed;", "seed"));
   assert.match(reattach, /const j = normalizeJob\(raw\);/, "a designed job is not read by the engine's reader");
-  assert.match(reattach, /f && f\.internal && String\(f\.name\)\.toLowerCase\(\) === j\.fn/, "a job on a public stored function is re-attached");
+  // RE-ANCHORED 2026-09-19, NOT APPEASED. This was pinned to the inline filter
+  // `f && f.internal && String(f.name).toLowerCase() === j.fn`, which is a
+  // SPELLING — and that spelling was the whole defect: the AUDIT a thousand
+  // lines above had no equivalent, so the two answered differently about the
+  // same job and run 52 registered one the customer was told could not be
+  // created. `storedJobFns` is now the one rule and BOTH read it, which is a
+  // strictly stronger claim than the filter existing here.
+  assert.match(reattach, /aJobFns\.has\(j\.fn\)/, "the re-attachment no longer asks which functions a job may name");
+  assert.match(b, /const aJobFns = storedJobFns\(aSpec\);/,
+    "the apply built its own idea of which stored functions a job may name");
+  assert.doesNotMatch(reattach, /f\.internal/,
+    "the re-attachment kept a second, inline copy of the rule it now shares with the audit");
+  // …AND THE AUDIT ASKS THE SAME RULE. Without this the two can drift apart
+  // again by editing either one, which is exactly how the defect arrived.
+  assert.match(b, /k === "job" \? withJobDeps\(withMine\) : withMine/,
+    "the audit validates a job without the site's own functions present");
   // THE SEED NET ONLY FOR AN ADDED TABLE; the engine's report read for what
   // it made; the jobs registered by the build route's own call.
   const apply = at(b, "aMade = await applySiteSchema(adb, merged);", "apply");
