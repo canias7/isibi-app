@@ -10837,6 +10837,126 @@ the unknown mark.
 **Suite 6,882** — 6,879 + 2 + 1, and the arithmetic closes exactly.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
+**CI HAS READ IT: `unit tests` run 2752 on `296f1a38`, green — `# tests 6882 /
+# pass 6878 / # fail 0 / # skipped 4`**, against local `6882 / 6882 / 0 / 0`,
+and **the TOTAL is what matches**. And **`site build` run 1199 is green on the
+same sha (05:49:01→06:13:22Z), all twenty steps: `site-build.mjs` 382 passed /
+0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it, and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` — the three result SHAPES a
+census has to ask for. Every count read out of the run's **per-step log files**,
+which attribute by construction rather than by a window somebody drew. It fired
+because `worker.js` and `builder/site-images.mjs` moved. The unit step's TAP is
+`# tests 396 / # pass 396 / # fail 0`, unchanged.
+
+### …AND TWO NARROW CORRECTIONS TO THAT WALL (2026-09-19)
+
+Owner: *"1. Make URL lookup follow the serving route's parsing. Valid image URLs
+with `?v=2` or `#preview` currently serve successfully but get emptied by the
+addon. Resolve the storage key from the pathname while preserving the original
+valid URL in source… 2. Separate the photo-reuse list from the preservation
+inventory. Leave the existing loss protection intact, but stop describing PDF
+downloads as photographs or offering them as image sources."* Both REPRODUCED
+through `POST /api/site/<slug>/addon` before anything was touched.
+
+**1. THE KEY WAS RESOLVED FROM THE WHOLE STRING AND THE ROUTE ASKS THE
+PATHNAME.** `uploadKeyFor` answered `null` for `/u/fw-q/9f9f….jpg?v=2` and for
+the same url with `#preview` — read as a url no object could back, therefore
+swept — while **the serve route's own read of both is `["fw-q", "9f9f….jpg"]`**,
+because it matches `url.pathname` and the URL parser has already taken the query
+and the fragment off. Measured: the compiler payload came back
+`<SafeImage src="" alt="the bench" />` on both, on files the fixture really held.
+
+- **`new URL(raw, base).pathname` IS THAT PARSER**, and using it rather than a
+  hand-written split is what keeps the two answers the same — it is also what
+  normalises the dot segments, so `/u/fw/../secrets` resolves to `/u/secrets`
+  and the SHAPE refuses it (one segment after `/u/`), exactly as the route
+  refuses it, rather than by a rule of ours that could disagree.
+- **THE ORIGINAL URL IS NEVER REWRITTEN.** This answers a KEY to look up; what
+  goes back into the page is whatever the source said, query string and all — a
+  normalised url written into a customer's source would be a guard editing a
+  page to suit itself, and a `?v=` is how a browser is told the picture changed.
+  Asserted in the compiler payload AND the stored source.
+- **`/u/` IS REQUIRED BEFORE THE PARSE**, because `new URL` resolves anything
+  against the base: `https://evil.example/u/fw/a.jpg` and `//evil.example/u/…`
+  both yield a pathname the shape accepts, and neither is a url this site
+  serves. Six such shapes driven.
+- **AND THE SHAPE IS ONE CONSTANT NOW.** It was two copies of one regex — the
+  serve route's and this reader's — with a doc comment promising they agreed
+  *"character for character"*, which is the recorded two-lists trap wearing a
+  promise. `UPLOAD_URL_PATH` lives in `site-uploads.mjs` beside `uploadUrl`,
+  which MINTS that path, for the reason `uploadFileName` is there; both read it,
+  so the promise is structural. No cycle: that module reads `site-access.mjs`
+  alone, and it is already in the worker's module graph.
+- **THE `catch` IS A DECLARED BELT, MEASURED INERT**: with the base a constant
+  valid URL and `raw` known to start with `/u/`, `new URL` does not throw — a
+  lone surrogate, a bare `%`, a NUL, a hundred thousand characters, a backslash
+  and a trailing newline all parse (**10 of 10 hostile inputs, 0 throws**). It
+  stays because the alternative to a `null` there is an exception escaping into
+  the publish path, and it is said in the code because a sweep cannot say it.
+
+**2. A DOWNLOAD WAS COUNTED AND OFFERED AS A PHOTOGRAPH.** A site whose home
+page SHOWS one picture and LINKS one PDF price list was described to the page
+writer as *"This site already shows 2 real photographs… copy its src EXACTLY
+from this list — /u/fw-mix/a1b2c3d4.jpg, /u/fw-mix/pricelist….pdf"*. The count
+was wrong and the second entry was an invitation to put a PDF in a
+`<SafeImage>` — **one reader answering two different questions.**
+
+- **THE DISCRIMINATOR IS HOW THE SITE USES THE FILE, not what it is called.** A
+  `src` — attribute or object key — is a picture the site DRAWS; an `href` is a
+  file it LINKS. That is `imageRefs`' whole definition, already here from the
+  round above and already measured, and it answers both halves of `shownPhotos`:
+  the count is what the site SHOWS, the list is what may be copied into a `src`.
+  **An extension rule would be a second idea of what a picture is** and would be
+  wrong about a `.jpg` offered as a download — driven both ways round, with a
+  drawn `.pdf` counted and a linked `.jpg` not.
+- **`keptImages` DELIBERATELY STAYS ON `photoUrls`.** The loss wall is about
+  what the customer paid for and not about how a page uses it, so it goes on
+  protecting the PDF reference too — over-protective, the safe direction, and
+  the owner's own *"leave the existing loss protection intact"*. Two mutants
+  narrowing either side of it are a red run.
+
+**PLUS ONE INCIDENTAL, surfaced by the reproduction and neither of the two.**
+The clause read *"1 real photograph, and THEY stay exactly as THEY are — do not
+replace one"*. Pre-existing and reachable on any site with exactly one; a mixed
+site now counts 1 where it counted 2, so it stopped being rare. Fixed in one
+line, flagged in the code as not the owner's ask rather than folded in silently.
+
+**Guards**: `site-images` **81 → 84** (the pathname over six tail shapes, the
+shared shape's own flags, the traversal by the ROUTE's arithmetic, six urls that
+are not this site's path, the query not reaching the key, and a mixed site
+driven at BOTH readers with its loss controls both ways plus the keep-both
+control) and `addon-route` **137 → 139** (both corrections end to end, asserting
+the compiler payload, the stored source and the directive the writer reads —
+with the missing-file and unreadable-store controls **retained on the
+query-string shape**, and the reused photograph really shipping for `pictures:
+0`). **Each half red-checked ALONE**: reverting the pathname parse turns exactly
+**2** red, reverting the reader **2**, reverting the clause **2**, and halves 1
+and 2 share no case.
+
+**Two older guards re-anchored, not appeased, and both are the same recorded
+trap.** `site-documents`' `/u/` route window opened on the regex LITERAL
+(`url.pathname.match(/^\/u\//`) — it reads what the route DOES now and asserts
+there is exactly ONE copy of that shape in the tree, which is strictly stronger;
+and `addon-route`'s custom-component case pinned the PLURAL sentence on a count
+of **1**, so it asserts the protection in either number plus the new agreement.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived — ON THE FIRST PASS**
+(`scripts/mutants/upload-lookup-and-reuse.json`, over `builder/site-images.mjs`,
+`site-uploads.mjs` and `worker.js`, against seven test files — a narrow list can
+only produce a false SURVIVOR, never a false kill, and **the runner printed the
+list**, which is the scope line from two rounds ago paying for itself). Both
+reported defects are mutants; so are the key carrying the query or the fragment,
+the `/u/` guard dropped or weakened to `includes`, the slug half not folding
+case, the shared shape folding case or losing its end anchor or admitting a
+space, **the serve route growing its own copy again**, the loss wall narrowed on
+either side, and each half of the number agreement.
+
+**Suite 6,885** — 6,882 + 2 (`addon-route`) + 1 (`site-images`), and the
+arithmetic closes exactly.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
 ---
 

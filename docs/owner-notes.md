@@ -13894,3 +13894,41 @@ already exists.
 
 Nothing merged or deployed, nothing spent. The photo test is still parked on
 fal.
+
+## 2026-09-19 — A picture with `?v=2` on the end, and a PDF called a photograph
+
+Two more, both of which I reproduced on the real route first.
+
+**A perfectly good picture was emptied because its address had a `?v=2` on the
+end.** That's an ordinary thing to have — it's how a browser is told the picture
+changed — and the site serves it fine. The check that asks "does this address
+have a file behind it" was reading the whole string including the `?v=2`,
+decided no such file existed, and emptied the picture. Same for a `#preview` on
+the end. It now asks the question the way the site's own serve route asks it:
+look at the path, ignore what comes after. And your page keeps the address
+exactly as it was written — the check works out what to look up, it doesn't
+rewrite your page to suit itself.
+
+While I was in there I made the two halves share one definition of what an
+upload address looks like. There were two copies with a comment promising they
+matched; now there's one, so they can't drift apart.
+
+**And a PDF you link for download was being counted as a photograph.** On a site
+showing one picture and linking one price list, the page writer was told "this
+site already shows 2 real photographs" and handed both addresses to copy from —
+so the PDF was on offer as something to put in a picture frame. It reads what
+the site *shows* now: a picture the page draws is a photograph, a file the page
+links is a download. The count is right and the PDF is off the list.
+
+**The protection is unchanged and is deliberately wider.** The wall that stops a
+change losing a picture you paid for still covers the PDF too. That one is about
+what you paid for, not about how a page happens to use it, so being
+over-protective there is the right way round.
+
+One small thing I fixed while I was there, which wasn't asked for: the sentence
+said "1 real photograph, and **they** stay exactly as **they** are". It had been
+like that for a while and only showed up now because a mixed picture-and-PDF
+site counts 1 where it used to count 2.
+
+Nothing merged or deployed, nothing spent. The photo test is still parked on
+fal.
