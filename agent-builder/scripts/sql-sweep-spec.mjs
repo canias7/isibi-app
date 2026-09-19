@@ -1011,7 +1011,23 @@ const spec = [
   mWkm("⚠ SQL/resume: two ticks take the SAME rows, so one execution is rung twice at once",
     "     for update skip locked", "     for update"),
   mWkm("SQL/resume: a run that is not yet due is woken anyway", "       and ar.wait_until <= now()", "       and true"),
-  mWkm("SQL/resume: a FINISHED execution is put back on the queue", "       and ar.finished_at is null", "       and true"),
+  /**
+   * ⚠ **REPLACED, NOT RE-ANCHORED: the old mutant here was INERT BY CONSTRUCTION and SURVIVED.**
+   * It removed `and ar.finished_at is null` from `resume_due_automations` — and
+   * `automation_runs_finished_is_not_waiting` forbids a row from being finished AND waiting, so
+   * `waiting is not null` already excludes every finished execution. **MEASURED on a real
+   * database: zero rows can ever be both**, so no answer moves either way. The clause is a
+   * declared second wall (the migration says so where the next reader meets it) and carries no
+   * mutant of its own.
+   *
+   * What IS observable is the CONSTRAINT, which is the wall that really does the work — and
+   * closing this found two faults in the check that was supposed to cover it: its fixture's
+   * UPDATE was refused by that constraint (so it had never reached the state it described) and
+   * its query had ALWAYS errored, which `jget` answers as the empty string.
+   */
+  mWkm("⚠ SQL/resume: A FINISHED EXECUTION MAY ALSO BE WAITING, so the scheduler re-offers it for ever",
+    "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check (\n  finished_at is null or waiting is null\n);",
+    "alter table agent.automation_runs add constraint automation_runs_finished_is_not_waiting check (\n  true\n);"),
   mWkm("SQL/resume: the batch is unbounded, so one tick can wake everything at once",
     "     limit greatest(1, coalesce(p_limit, 25))", "     limit 1000000"),
 
@@ -1244,9 +1260,30 @@ const spec = [
   mCtrl("SQL/revocation: row level security is not forced, so the owner is exempt",
     "alter table agent.tool_revocations force row level security;",
     "-- force row level security removed"),
+  // RE-ANCHORED, NOT APPEASED: the WHERE gained the "and its run has not ended" clause below,
+  // so this mutant's old anchor ran to `returning` through text that no longer sits there. The
+  // property is unchanged — nothing is withdrawn at all — and the anchor is the two lines it is
+  // really about rather than the whole clause.
   mRevoke("⚠ SQL/revocation: the requests still waiting for that tool are left pending",
-    "     where a.tenant_id = p_tenant and a.agent_id = p_agent_id\n       and a.tool = p_tool and a.verdict is null\n    returning a.run_id",
-    "     where false\n    returning a.run_id"),
+    "     where a.tenant_id = p_tenant and a.agent_id = p_agent_id\n       and a.tool = p_tool and a.verdict is null",
+    "     where false"),
+  /**
+   * ⚠ **AND THE OTHER DIRECTION: a request whose run has ALREADY ENDED must be left alone.**
+   * Without the clause, an EXPIRED-but-undecided request (an expiry is derived from the clock
+   * and never written as a verdict) was withdrawn and its FINISHED run requeued — delivered,
+   * re-run, conflicting at the fence, released unfinished, and offered again every minute.
+   * MEASURED on `verify:send`: `attempts: 4` and climbing. Guarded in `pg-schema.mjs`, which
+   * asserts BOTH the undecided request and the run staying off the queue, with the live run
+   * beside it as its control.
+   */
+  // ⚠ **ANCHORED BY ITS FOLLOWING LINE, because the expression is the expiry sweep's own.**
+  // Reusing it rather than inventing one is deliberate, and it makes the two anchors identical:
+  // the generator's own pre-check refused both as AMBIGUOUS rather than letting a mutant land in
+  // whichever function came first. `returning a.run_id` is the revocation's, `-- ...AND NOTHING`
+  // is the sweep's.
+  mRevoke("⚠ SQL/revocation: A FINISHED RUN IS WITHDRAWN AND PUT BACK ON THE QUEUE FOR EVER",
+    "                        where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped')\n    returning a.run_id",
+    "                        where true)\n    returning a.run_id"),
   mRevoke("⚠ SQL/revocation: the run it just answered is NOT put back, so it is stranded for ever",
     "    v_back := agent.requeue_run(v_run.run_id, p_tenant);\n    if v_back ->> 'state' = 'queued' then",
     "    v_back := jsonb_build_object('state', 'skipped');\n    if v_back ->> 'state' = 'queued' then"),
@@ -1300,9 +1337,11 @@ const spec = [
   mExpiredSweep("⚠ SQL/expiry: a run somebody can still answer is woken, so it is requeued for ever",
     "       and not exists (select 1 from agent.tool_approvals b\n                        where b.run_id = a.run_id and b.verdict is null\n                          and (b.expires_at is null or b.expires_at > now()))",
     "       and true"),
+  // RE-ANCHORED, NOT APPEASED: the revocation now carries the identical expression, so this
+  // anchor stopped being unique the day that landed. Pinned by its own following line.
   mExpiredSweep("⚠ SQL/expiry: a run that has already ended is offered again, once a minute for ever",
-    "       and not exists (select 1 from agent.run_entries e\n                        where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped')",
-    "       and true"),
+    "                        where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped')\n       -- ...AND NOTHING IT IS WAITING FOR MAY STILL BE ANSWERED",
+    "                        where true)\n       -- ...AND NOTHING IT IS WAITING FOR MAY STILL BE ANSWERED"),
   mExpiredSweep("⚠ SQL/expiry: nothing is put back at all, so the run is stranded",
     "    v_back := agent.requeue_run(v_run.run_id, v_run.tenant_id);",
     "    v_back := jsonb_build_object('state', 'skipped');"),

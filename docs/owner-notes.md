@@ -12691,3 +12691,102 @@ it lands rather than now.
 
 **Nothing merged, nothing deployed, nothing applied to the live database, no external message
 and no real model.**
+
+---
+
+## 2026-09-19 — one automation a customer can configure, run, approve and inspect
+
+You asked for the whole thing end to end: *a request arrives → the agent looks something up in
+the business's own material → it prepares a scripted reply → it waits for you to approve it →
+it sends through the fake provider → the outcome is saved and shown.* That works now, and
+**every check reads the provider's own mailbox or the database rather than the step's own
+sentence** — which is what you asked for in as many words, and it is what found the defects
+below.
+
+### What a customer can do now
+
+- **Connect a labelled fake account** on the existing agent screen: its account, what it may do,
+  and whether it is usable. Disconnect it. And where one cannot be used, the screen says *why*
+  rather than that something went wrong — the credential ran out, the provider withdrew access,
+  or somebody disconnected it, which are three different things to do something about.
+- **Write one automation that sends.** The existing workflow editor draws the new step with no
+  new form: which account, who it goes to, what it says — the last two taking `{{names}}` from
+  earlier steps, so the message is built from what the automation found.
+- **See exactly what will go out, and approve it.** The request shows the ACCOUNT it will send
+  from, the RECIPIENT and the EXACT WORDS, with the references already filled in. Nothing is
+  sent while it waits.
+- **Run it three ways** — by hand, on a schedule, or from an authenticated endpoint something
+  outside can post to — and all three stop and wait for a person in the same way.
+
+**What is simulated, plainly**: the provider (`fakemail` — no network, nothing leaves the
+process, and it says so in its own name and in every answer) and the reply itself, which is a
+template with values substituted in and says *"this reply is scripted, not written by a model"*
+in the message a person approves. **No model was called anywhere in any of it**, which the last
+section of the demonstration asserts rather than assumes.
+
+### Three defects it found, and none of them by reading
+
+**1. The send step could never have worked, and eleven green tests were hiding it.** It asked
+the store for the list of connected accounts and read the answer in the wrong shape — so it
+found nothing, every time, and every send failed *"that connected account is not one of this
+agent's"* whatever was connected. The tests passed because the FAKE I had written answered in
+the shape my code expected rather than the shape the real store answers. **With the fake
+corrected and the defect put back, eight tests go red.** This is the same class of mistake this
+repository has recorded several times now: a stand-in that differs from the real thing hides a
+bug exactly as well as one that is less capable.
+
+**2. A finished automation was being picked up again every single minute, for ever.** Not
+harmlessly: each time, the system claimed it, tried to re-run it, collided with its own history,
+and put it back — and the count of attempts was climbing when I found it. **A run nothing will
+ever finish, looking busy.** The wall that stops this has existed for ordinary agent runs since
+the queue was built; the automation path never got one.
+
+**3. And the thing that started it was taking a tool away.** When you withdraw a permission, the
+system withdraws anything waiting on it and puts those runs back so they are not left waiting
+for a decision nobody can make. It was doing that to runs that had **already ended** — including
+one whose approval had simply timed out, because a timeout is worked out from the clock rather
+than written down as a decision.
+
+**Both fixes are in, and I measured that either one alone closes it** — so they are two walls
+rather than one written twice. I kept both, said so in the code, and gave each its own test at
+its own layer, because they stop different things: one stops that state being created, the other
+stops it being harmful however it is created.
+
+### Four things I had wrong before the code corrected me
+
+Worth your seeing, because in each case the thing I was testing was right and my test was not:
+the create route answers an id rather than the steps; an execution's own id *is* its run's id;
+saving an automation is a full replace and needs the whole form, not just the part that changed;
+and I forbade the word "undone" anywhere in the cancellation's answer — when the honest sentence
+is *"what had already run has already run and was **not** undone"*, which is exactly what you
+asked that message to say.
+
+### Measured
+
+- **The new demonstration: 78 checks, 0 failed**, thirteen sections covering your whole list —
+  including a duplicate delivery, a restart while it waits, a lost answer followed by a retry,
+  rejection, expiry, a withdrawn permission, a disconnected account, cancellation before it
+  sends, an edit while a run is in flight, and another account being refused all of it.
+- **The engine's suite 588 → 589** and **the database checks 1,085 → 1,092**, both arithmetics
+  closing exactly, and both starting numbers measured on the previous commit rather than taken
+  from a note about it.
+- **All ten of the older end-to-end demonstrations green at their recorded counts** — 119, 126,
+  70, 157, 64, 76, 71, 75, 89 — which is the control that says this round broke nothing.
+- **⚠ And the breakage sweep found one more thing, which turned out to be three faults stacked
+  and not the one it looked like.** A breakage to the scheduler survived — meaning no check
+  noticed it — and measuring showed why: the line it removed *cannot matter*, because the
+  database already forbids the state through a constraint; the check meant to cover it had never
+  once been in the state it described, because that same constraint refused its setup; and its
+  query had been failing outright all along, which the harness reads as "found nothing". All
+  three are fixed, and the check now proves it is looking at something before it says it did not
+  find anything.
+- **Your site's suite is untouched by this round** — nothing on that side changed.
+
+**⚠ And the long breakage sweep over the database migrations is STILL RUNNING, at the point it
+started from — which is NOT this code.** This round changed one of the files that sweep reads,
+so when it lands its number will be an answer about the previous state and I will say so rather
+than letting it stand as cover for this change. The two breakages I added are proved on their
+own instead.
+
+**Nothing merged, nothing deployed, nothing applied to the live database, no real provider
+connected, no external message and no model call.**

@@ -49,7 +49,21 @@ import { makeFakeProvider, FAKE_PROVIDER } from "./fake-provider.mjs";
  * the mailbox. That is correct for a fake — nothing real is being kept — and it is the one
  * reason a fake provider could never stand in for a real one in production.
  */
-const ADAPTERS = { [FAKE_PROVIDER]: makeFakeProvider() };
+/**
+ * ⚠ **EXPORTED, SO A DEMONSTRATION CAN READ THE MAILBOX THIS WORKER REALLY SENT TO.**
+ *
+ * The milestone asks for it in as many words — *use the fake provider's mailbox to verify
+ * what was actually sent, not just the success message* — and the only alternative is a
+ * demonstration that builds a provider of its own, which would then not be the one
+ * `worker.queue` used. A check against a registry nobody sent to proves nothing.
+ *
+ * **IT HANDS OUT NO CREDENTIAL AND CANNOT.** What a caller gets is the adapter's own frozen
+ * surface: `run`, `reconcile`, `describe`, and the readers `calls`, `seen` and `mailbox` —
+ * and the fake records no credential in any of them, which `test/connections.test.mjs`
+ * asserts with a sentinel over every answer and every error it can produce. A real adapter
+ * would keep its own secret in its own closure, exactly as this one does.
+ */
+export const ADAPTERS = { [FAKE_PROVIDER]: makeFakeProvider() };
 import { makeApprovals } from "./approvals.mjs";
 import { makeWork } from "./work.mjs";
 import { makeApi } from "./api.mjs";

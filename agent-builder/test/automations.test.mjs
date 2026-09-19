@@ -3191,8 +3191,20 @@ function sendBench({
 } = {}) {
   const asked = [];
   const performed = [];
+  /**
+   * ⚠ **`list` ANSWERS A BARE ARRAY, BECAUSE THAT IS WHAT THE REAL STORE ANSWERS.** This
+   * fixture answered `{ok: true, connections: rows}` — the site ROUTE's shape — and the step
+   * read `rows.connections` to match it, so every one of these cases passed over a step that
+   * **failed on every real send**: `connections.mjs`'s `readRows` answers the rows themselves
+   * (`list_connections` reads `rows.length` straight off them), so the find ran over `[]`
+   * whatever was connected. Found by `verify:send` against a real database.
+   *
+   * *A fake in a DIFFERENT SHAPE from its real producer hides a defect exactly as well as one
+   * that is less capable* — so the shape here is `readRows`', and the one object is the
+   * `{ok: false}` a REFUSAL answers, which a caller must not mistake for a row.
+   */
   const connections = {
-    list: async () => { if (listThrows) throw new Error(listThrows); return { ok: true, connections: rows }; },
+    list: async () => { if (listThrows) throw new Error(listThrows); return rows; },
     perform: async (p) => { performed.push(p); return did(p, performed.length); },
   };
   const approve = async (a) => {

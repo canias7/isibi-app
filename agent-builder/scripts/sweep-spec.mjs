@@ -651,6 +651,17 @@ const spec = [
     "if (false) return await finish(true, \"already-finished\");"),
   m("runner: a run whose log cannot be read is executed anyway", at("runner.mjs"),
     "      if (open.state.problems.length) {", "      if (false) {"),
+  // ⚠ THE AUTOMATION BRANCH'S OWN COPY OF THAT WALL, which it did not have until `verify:send`
+  // found a finished execution being re-offered every minute for ever. It is guarded in
+  // `test/worker.test.mjs`, which drives a real delivery over the in-memory project — the
+  // demonstration cannot be run from here.
+  m("runner: A FINISHED AUTOMATION EXECUTION IS RUN AGAIN", at("runner.mjs"),
+    "      if (isText(exec.finishedAt)) {", "      if (false) {"),
+  // AND THE OTHER DIRECTION, because "it answers something" is not the property: it has to
+  // come OFF the queue, or it is offered again on the next tick whatever it answered.
+  m("runner: ...and is answered but left on the queue, so the cron re-offers it", at("runner.mjs"),
+    'return await finish(true, "already-finished", null,\n          { reason: "done", why: "this execution had already finished" });',
+    'return await finish(false, "already-finished", null,\n          { reason: "done", why: "this execution had already finished" });'),
   m("runner: A RUN THAT CANNOT BE SAFELY RESUMED IS RETRIED FOR EVER", at("runner.mjs"),
     'if (reason === "cannot-resume") {\n        return await finish(true,', 'if (reason === "cannot-resume") {\n        return await finish(false,'),
   m("runner: a broken journal is never retried", at("runner.mjs"),

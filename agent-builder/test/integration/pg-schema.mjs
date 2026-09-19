@@ -3422,6 +3422,46 @@ try {
       jget(`select count(*) from agent.tool_approvals where run_id='${R3}' and step=7;`, asOwner) === "0");
     check("the engine reads what is revoked for one agent",
       jget(`select coalesce(string_agg(t, ','), 'NONE') from agent.revoked_tools('${XT}','${XA}') as t;`) === "run_automation");
+
+    /**
+     * ⚠ **AND A REQUEST WHOSE RUN HAS ALREADY ENDED IS LEFT ALONE — MEASURED, AND WITHOUT THIS
+     * A FINISHED RUN WENT BACK ON THE QUEUE FOR EVER.** `verdict is null` matches an EXPIRED
+     * request too (an expiry is derived from the clock and deliberately never written as a
+     * verdict), so a run the expiry sweep had already run to a stop still had an undecided
+     * request here — and the withdraw loop REQUEUED it. Read off `verify:send`: the delivery
+     * re-ran it from its recorded position, met its own `stopped` entry at the fence, was
+     * released UNFINISHED as `conflict`, and `sweep_run_work` offered it again every minute;
+     * `attempts` reached 4 and was climbing.
+     *
+     * Two things are asserted, because they are two properties: the request is NOT decided
+     * (writing `decided_by` over an unanswerable request would record a person deciding a call
+     * already dealt with — `decide_tool_approval` refuses a finished run), and the run is NOT
+     * put back. **Its CONTROL is the run beside it that is still going**, which must still be
+     * withdrawn and requeued — without that, both assertions are satisfied by a revocation
+     * that stopped withdrawing anything at all.
+     */
+    const RD = "ff000000-0000-0000-0000-0000000000f4";   // a run that has ENDED
+    const RL = "ff000000-0000-0000-0000-0000000000f5";   // a run that is still going
+    allowed("a run that has ended and one that has not, each waiting on the same tool",
+      `insert into agent.runs (id, tenant_id, status) values ('${RD}','${XT}','running'), ('${RL}','${XT}','running');
+       insert into agent.run_work (run_id, tenant_id, kind, done_at) values
+         ('${RD}','${XT}','start', now()), ('${RL}','${XT}','start', now());
+       select agent.request_tool_approval('${XT}','${RD}','${XA2}',1,0,'forget','{}'::jsonb,'hd');
+       select agent.request_tool_approval('${XT}','${RL}','${XA2}',1,0,'forget','{}'::jsonb,'hl');
+       insert into agent.run_entries (run_id, seq, body) values
+         ('${RD}', 9, '{"kind":"stopped","at":1,"stop":{"reason":"failed"}}'::jsonb);`, asOwner);
+    const both = jget(`select agent.revoke_agent_tool('${XT}','${XA2}','forget','person-9',null)::text;`);
+    check("⚠ a revocation leaves a request alone when its run has already ended",
+      jget(`select coalesce(verdict,'UNDECIDED') from agent.tool_approvals where run_id='${RD}';`, asOwner)
+        === "UNDECIDED", both);
+    check("⚠ ...and does NOT put that finished run back on the queue",
+      jget(`select (done_at is not null)::text from agent.run_work where run_id='${RD}';`, asOwner) === "true");
+    check("⚠ CONTROL: the run beside it that is still going IS withdrawn and put back",
+      jget(`select verdict from agent.tool_approvals where run_id='${RL}';`, asOwner) === "revoked"
+      && jget(`select (done_at is null)::text from agent.run_work where run_id='${RL}';`, asOwner) === "true"
+      && /"withdrew"\s*:\s*1/.test(both), both);
+    allowed("lift it again so the section's later checks read what they expect",
+      `select agent.restore_agent_tool('${XT}','${XA2}','forget');`, asOwner);
     // ⚠ SCOPED TO THE AGENT, WHICH IS THE WALL NO TENANT FILTER CAN SEE: both agents share an
     // owner, so only the agent id tells them apart.
     check("⚠ ...and the SIBLING agent of the same account is unaffected",
@@ -3914,13 +3954,45 @@ try {
   const bounded = jget(`select count(*) from agent.resume_due_automations(2);`);
   check("⚠ the resume batch is BOUNDED, so one tick cannot wake everything after an outage",
     bounded === "2", `it woke ${bounded} of three`);
-  // ⚠ A FINISHED EXECUTION IS NEVER PUT BACK. Its deadline is still in the past, so the
-  // only thing between it and the queue is that clause.
+  /**
+   * ⚠ **A FINISHED EXECUTION IS NEVER PUT BACK, AND THE WALL IS THE CONSTRAINT RATHER THAN THE
+   * CLAUSE — which this check used to get backwards, vacuously.** It set `finished_at` on a
+   * waiting row and asserted the tick did not return it. MEASURED: that UPDATE is REFUSED by
+   * `automation_runs_finished_is_not_waiting` (`finished_at is null or waiting is null`), so the
+   * row never reached the state the check describes — `finished_at` was still null, its deadline
+   * was still in the future, and the tick answered the EMPTY STRING, which `!"".includes(id)`
+   * satisfies trivially. **It had never once been in the state it was about**, and a SQL sweep
+   * survivor is what said so: removing `and ar.finished_at is null` from
+   * `resume_due_automations` changed nothing any check could see.
+   *
+   * That clause is a **DECLARED SECOND WALL and its mutant is INERT BY CONSTRUCTION** — measured
+   * on a real database, zero rows can ever be both waiting and finished, so `waiting is not
+   * null` already excludes every finished execution. So what is asserted here is the property
+   * that really holds: the state is IMPOSSIBLE, and the tick still answers about the rows that
+   * are legitimately due (the observer, without which "it did not return D4" is satisfied by a
+   * tick that returns nothing at all).
+   */
   const SW_D4 = "ffff0000-0000-0000-0000-00000000d004";
-  due(SW_D4, ", finished_at = now()");
-  const after = jget(`select coalesce(string_agg(run_id::text, ','), '-') from agent.resume_due_automations(25);`);
-  check("⚠ a FINISHED execution whose deadline has passed is NOT put back on the queue",
-    !after.includes(SW_D4), after);
+  due(SW_D4);
+  // ⚠ READ FOR ITS OWN GATE: a refusal from another one looks exactly like this wall working.
+  refused("⚠ a finished execution cannot also be waiting — the state is IMPOSSIBLE",
+    `update agent.automation_runs set finished_at = now() where id='${SW_D4}';`,
+    "automation_runs_finished_is_not_waiting", asOwner);
+  /**
+   * ⚠ **AND THE QUERY ITSELF WAS THE ROOT OF THE VACUITY — it had ALWAYS errored.**
+   * `resume_due_automations` answers `setof jsonb`, so there is no `run_id` COLUMN to aggregate:
+   * `select string_agg(run_id::text, ',') from agent.resume_due_automations(25)` is a syntax
+   * error, and **`jget` answers the EMPTY STRING for a statement that failed** — so a broken
+   * query read exactly like *"the tick found nothing"*, which is what `!after.includes(id)` was
+   * quietly satisfied by. *Cannot-tell wearing a value's clothes*, in the harness's own reader.
+   * The other call sites in this file all say `t->>'run_id'`; this one did not.
+   */
+  const after = jget(`select coalesce(string_agg(t->>'run_id', ','), '-') from agent.resume_due_automations(25) t;`);
+  check("⚠ OBSERVER ALIVE: the tick really does answer the executions that ARE due",
+    after.includes(SW_D4), after);
+  check("⚠ ...and a FINISHED execution is not among them, because it cannot be waiting at all",
+    jget(`select count(*) from agent.automation_runs where waiting is not null and finished_at is not null;`)
+      === "0");
   // ⚠ **`for update skip locked` — TWO TICKS NEVER TAKE THE SAME ROW**, and a sequential
   // harness cannot see that: a lock only means anything under concurrency. A second session
   // holds the row and `lock_timeout` turns WAITING into an observable refusal.

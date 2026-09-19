@@ -120,12 +120,30 @@ begin
   -- away — the approval and the permission disagreeing, with the approval winning.
   --
   -- WHICH RUNS THOSE WERE IS REMEMBERED, because of the next paragraph.
+  --
+  -- ⚠ **AND ONLY WHILE ITS RUN IS STILL GOING — MEASURED, AND WITHOUT IT A FINISHED RUN WENT
+  -- BACK ON THE QUEUE FOR EVER.** `verdict is null` matches an EXPIRED request too, because an
+  -- expiry is derived from the clock and is deliberately never written as a verdict — so a run
+  -- the expiry sweep had already run to a stop still had an undecided request here, was
+  -- withdrawn, and was REQUEUED by the loop below. It was then delivered, re-ran from its
+  -- recorded position, met its own `stopped` entry at the fence, was released UNFINISHED as
+  -- `conflict`, and the sweeper offered it again every minute: read off the demonstration,
+  -- `attempts: 4` on a run that had ended.
+  --
+  -- The test is the same one `requeue_expired_approvals` above already makes, and reusing its
+  -- expression rather than inventing one is deliberate. **AND IT SKIPS THE WITHDRAWAL, not
+  -- merely the requeue**: `decide_tool_approval` refuses a finished run, so such a request is
+  -- unanswerable by construction — writing `verdict = 'revoked', decided_by = p_by` over it
+  -- would record a person deciding a call that had already been dealt with, and `withdrew`
+  -- would count history rather than the live work this function exists to stop.
   for v_run in
     update agent.tool_approvals a
        set verdict = 'revoked', decided_at = now(), decided_by = p_by,
            note = coalesce(p_note, 'the permission for this tool was withdrawn')
      where a.tenant_id = p_tenant and a.agent_id = p_agent_id
        and a.tool = p_tool and a.verdict is null
+       and not exists (select 1 from agent.run_entries e
+                        where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped')
     returning a.run_id
   loop
     v_withdrew := v_withdrew + 1;

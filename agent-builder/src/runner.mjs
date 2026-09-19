@@ -374,6 +374,31 @@ export function makeRunner(opts = {}) {
       }
 
       /**
+       * ⚠ **AN EXECUTION THAT HAS ALREADY ENDED IS NOT RUN AGAIN, and this wall was missing.**
+       * The agent branch has had one since the queue was written (`status === "stopped"` →
+       * `already-finished`); this branch never got the equivalent, and the claim was doing the
+       * work instead — a finished execution's work row is `done`, so `claim_run` refuses and
+       * no delivery arrives. That holds until something clears `done_at` on a run that has
+       * ended, and **MEASURED, `revoke_agent_tool` did exactly that**: it withdraws every
+       * request whose `verdict is null`, an EXPIRED one included (an expiry is derived from the
+       * clock and never written as a verdict), and requeues each one's run — so a run the
+       * expiry sweep had already run to a stop went back on the queue, was delivered, re-ran
+       * from its recorded position, met its own `stopped` entry at the fence, was released
+       * UNFINISHED as `conflict`, and was offered again by the sweeper **every minute for
+       * ever**. Read off the demonstration: `attempts: 4` and climbing on a run that ended.
+       *
+       * The SQL is fixed too, but this is the wall that kills the class rather than the
+       * instance: whatever puts a finished execution back on the queue, one delivery answers
+       * `already-finished`, takes it off, and the loop cannot start. `finished_at` is the
+       * execution's own record of having ended — the same field `finish_automation_run` sets
+       * and every reader here already trusts.
+       */
+      if (isText(exec.finishedAt)) {
+        return await finish(true, "already-finished", null,
+          { reason: "done", why: "this execution had already finished" });
+      }
+
+      /**
        * ⚠ **THE SUBWORKFLOWS ARE COPIED IN BEFORE THE FIRST STEP, AND ONLY THERE.**
        *
        * `expandWorkflow` replaces a `workflow` step with the child's own steps, so from here

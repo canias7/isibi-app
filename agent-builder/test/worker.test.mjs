@@ -834,6 +834,96 @@ test("⚠ a RING that fails costs that row its latency and nothing else", async 
   });
 });
 
+test("⚠ AN EXECUTION THAT HAS ALREADY FINISHED IS NOT RUN AGAIN", async () => {
+  /**
+   * **THE WALL THE AGENT BRANCH HAS HAD SINCE THE QUEUE WAS WRITTEN AND THIS ONE DID NOT.**
+   * A finished execution's work row is `done`, so `claim_run` refuses and no delivery
+   * arrives — which held right up until something cleared `done_at` on a run that had ended.
+   * MEASURED through `verify:send`: `revoke_agent_tool` withdrew an EXPIRED-but-undecided
+   * request (an expiry is derived from the clock and never written as a verdict) and requeued
+   * its run, which had already been run to a stop by the expiry sweep. The delivery re-ran it
+   * from its recorded position, met its own `stopped` entry at the fence, was released
+   * UNFINISHED as `conflict`, and the sweeper offered it again **every minute for ever** —
+   * `attempts: 4` and climbing on a run nothing would ever finish.
+   *
+   * The SQL is fixed too and **the two are a DECLARED REDUNDANCY, measured**: either alone
+   * closes that demonstration, so it cannot tell them apart. They are not the same wall —
+   * the SQL stops one producer, this stops the state being harmful whatever produces it, and
+   * `requeue_run` has three other callers — so each is guarded at its own layer: this case,
+   * and a check in `test/integration/pg-schema.mjs` against a real PostgreSQL.
+   */
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const auto = seedAutomation(rest, { over: { next_run_at: null, occurrence_for: null, schedule: "manual" } });
+
+    /**
+     * ⚠ **BOTH ROWS GO THROUGH `accept_automation_run` AND `requeue_run`, NEVER STRAIGHT INTO
+     * THE MAPS** — this file's own rule, and the first draft of this case broke it. A
+     * hand-written work row has no `started` entry behind it, so the delivery claimed it and
+     * then stopped at its first checkpoint with the lease still live and nothing released: the
+     * CONTROL failed and reported a working delivery as broken. *A fixture in a different shape
+     * from its real producer*, in the case written to catch a stranding.
+     *
+     * One execution has ended and one has not; they are otherwise identical, and both are
+     * REQUEUED so both are claimable — so the case is about `finished_at` and not about a
+     * refusal from some other gate.
+     */
+    const seed = async (id) => {
+      const r = await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_automation_run", {
+        method: "POST", headers: { "content-profile": "agent" },
+        body: JSON.stringify({ p_tenant: TENANT, p_automation_id: auto.id, p_run_id: id, p_trigger: "manual" }),
+      });
+      assert.equal(r.status, 200, await r.text());
+      assert.equal(JSON.parse(await r.text()).ok, true, `${id} was not accepted`);
+    };
+    await seed("ended");
+    await seed("going");
+    // THE ENDED ONE IS RUN TO ITS END BY A REAL DELIVERY, so its `finished_at`, its outcomes
+    // and its stop entry are the ones the engine itself writes.
+    await worker.queue(batchOf([{ runId: "ended" }]), env, ctx);
+    assert.notEqual(rest.execs.get("ended").finished_at, null, "the first delivery did not finish it");
+    const endedOutcomes = JSON.parse(JSON.stringify(rest.execs.get("ended").outcomes));
+    assert.ok(endedOutcomes.length > 0, "the first delivery recorded no outcome");
+    // AND THEN PUT BACK ON THE QUEUE, which is the state `revoke_agent_tool` produced.
+    for (const id of ["ended", "going"]) {
+      const back = await rest.fetch("https://p.supabase.co/rest/v1/rpc/requeue_run", {
+        method: "POST", headers: { "content-profile": "agent" },
+        body: JSON.stringify({ p_run_id: id, p_tenant: TENANT }),
+      });
+      assert.equal(JSON.parse(await back.text()).state, "queued", `${id} was not put back`);
+    }
+
+    // ⚠ ASSERTED ON THE STORE RATHER THAN ON A LOG LINE, because `worker.queue` takes no
+    // logger — and the store is the stronger reader anyway: what matters is that the row came
+    // off the queue and that nothing of the execution moved.
+    const endedBefore = rest.execs.get("ended").finished_at;
+    const endedAt = rest.execs.get("ended").position;
+    const endedBatch = batchOf([{ runId: "ended" }]);
+    await worker.queue(endedBatch, env, ctx);
+    assert.deepEqual(endedBatch.acked, [0], "the delivery was not acked");
+
+    // **TAKEN OFF THE QUEUE, which is the whole of the fix**: released unfinished it comes
+    // straight back, and that is the loop.
+    assert.notEqual(rest.work.get("ended").done_at, null, "the finished execution is still on the queue");
+    // NOTHING RAN: the outcomes and the ending are exactly what they were.
+    assert.deepEqual(rest.execs.get("ended").outcomes, endedOutcomes,
+      "the finished execution's outcomes were written over");
+    assert.equal(rest.execs.get("ended").finished_at, endedBefore,
+      "the finished execution was finished a second time");
+    assert.equal(rest.execs.get("ended").position, endedAt, "the finished execution advanced");
+
+    // THE CONTROL — without it, every assertion above is satisfied by a delivery that refuses
+    // every automation execution there is.
+    const goingBatch = batchOf([{ runId: "going" }]);
+    await worker.queue(goingBatch, env, ctx);
+    assert.deepEqual(goingBatch.acked, [0]);
+    assert.notEqual(rest.execs.get("going").finished_at, null,
+      `the unfinished execution did not run: ${JSON.stringify({ work: rest.work.get("going"), exec: rest.execs.get("going") })}`);
+    assert.ok(rest.execs.get("going").outcomes.length > 0, "the unfinished execution recorded nothing");
+  });
+});
+
 // ── the backend the deployment's own tools reach ─────────────────────────────
 
 const MEM_AGENT = "44444444-4444-4444-8444-444444444444";

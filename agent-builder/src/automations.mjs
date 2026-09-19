@@ -1246,11 +1246,21 @@ const sendStep = defineStep({
      * which account it is.** A request that said only "connection 8f3c…" is one nobody can
      * answer honestly. And the row is read through `list`, which selects no credential —
      * the lease is `perform`'s business and happens after somebody has said yes.
+     *
+     * ⚠ **`list()` ANSWERS A BARE ARRAY, and reading it as `rows.connections` is what this
+     * step shipped with.** That is the site ROUTE's shape, not the store's — `readRows`
+     * answers the rows themselves and `list_connections` reads `rows.length` directly, so
+     * this was the one caller reading a key nothing produces. MEASURED through the real
+     * store: the find ran over `[]` every time and **every send failed "that connected
+     * account is not one of this agent's" whatever was connected** — the whole step dead,
+     * with eleven green guards over it, because the bench answered `{connections: rows}`.
+     * *A fake in a different shape from the real producer hides a defect exactly as well as
+     * one that is less capable*, and the fixture is derived from `readRows` now.
      */
     let rows;
     try { rows = await ctx.connections.list(); }
     catch (e) { return { failed: `the connected accounts could not be read: ${String(e?.message ?? e)}` }; }
-    const row = (Array.isArray(rows?.connections) ? rows.connections : []).find((c) => c?.id === config.connection);
+    const row = (Array.isArray(rows) ? rows : []).find((c) => c?.id === config.connection);
     if (!row) return { failed: "that connected account is not one of this agent's" };
     if (row.status !== "active") {
       return { failed: CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used" };

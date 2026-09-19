@@ -1304,6 +1304,18 @@ begin
            ar.wait_until
       from agent.automation_runs ar
      where ar.waiting is not null
+       -- ⚠ **A DECLARED SECOND WALL, AND ITS MUTANT IS INERT BY CONSTRUCTION — measured, not
+       -- reasoned about.** `automation_runs_finished_is_not_waiting` above forbids a row from
+       -- being finished AND waiting, so `waiting is not null` already excludes every finished
+       -- execution: on a real database, ZERO rows can ever satisfy both, and removing this line
+       -- changes no answer. A SQL sweep survivor is what said so, and the check that should have
+       -- caught it had never been in the state it described — the UPDATE that set `finished_at`
+       -- on a waiting row was refused by that very constraint, and its query had always errored
+       -- besides. So the SWEEP mutates the CONSTRAINT (observable: a refusal check goes red) and
+       -- this line carries no mutant of its own, deliberately.
+       --
+       -- It stays because the two say different things: the constraint says the state cannot
+       -- exist, this says the tick does not want it even if a future migration relaxes that.
        and ar.finished_at is null
        and ar.wait_until <= now()
      -- OLDEST FIRST, so a backlog is worked through in the order it built up rather than

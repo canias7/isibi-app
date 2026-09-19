@@ -2360,6 +2360,65 @@ page scope; nothing is merged or deployed.
   could hold was text — which `repeat … each` then refuses at run time. `cleanRunInput` here
   already read each answer as its declared kind and sent a real list, so the two doors
   disagreed and the strict one was the database.
+- **A CUSTOMER CAN CONNECT AN ACCOUNT AND AN AUTOMATION CAN SEND THROUGH IT (2026-09-19).**
+  Owner: *"Request arrives → retrieve relevant business information → prepare a scripted response
+  → wait for the customer's approval → send through the fake provider → save and display the
+  outcome… Add only what is needed to create a clearly labeled fake-provider connection, see its
+  account, permissions, and status, disconnect it, and understand why an expired or revoked
+  connection cannot be used."* **The engine's half — the `send` step, the approval bound to its
+  payload, and the two stranding defects — is in `agent-builder/CLAUDE.md`**; what belongs here is
+  the site's.
+  **FOUR MORE `/api/agent/*` ROUTES, 37 IN ALL — counted off `AGENT_ROUTES` rather than by adding to the last entry's number — AND `worker.js` NEEDED NO CHANGE AGAIN** — the
+  block dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)` and hands every handler `query`,
+  `body`, `tenant: user.id`, `store`, `ring` and `log`, so `connections`, `connection-connect`,
+  `connection-disconnect` and `connection-revoke` are four entries on one object. **That is the
+  gate-once design paying for itself a fifth time**: there is nowhere to add a route that is not
+  already behind the gate, and the tenant census over the whole family passes by construction.
+  **⚠ CONNECTING AN ACCOUNT IS A PERSON'S DOOR AND CANNOT BECOME A TOOL'S.** The brief's own words
+  — *"connecting accounts and granting permissions remain user-only actions"* — and the wall is
+  that there is no tool for it: the engine's catalog offers `list_connections`, `read_messages` and
+  `send_message`, and `agent-store.mjs` is the only caller of `connect_provider`. **No credential
+  of anybody's exists anywhere in this work**: the fake provider accepts any non-empty one, and
+  `test/agent-api.test.mjs` asserts the four answers carry no `secret`, `token`, `password` or
+  `credential` and that the store never reads one off a request.
+  **`AGENT_PROVIDERS` IS A DECLARED COPY OF THE ENGINE'S ADAPTER REGISTRY, CENSUSED BOTH WAYS** in
+  `test/agent-send.test.mjs` — the one file that may load both products — because `worker.js`'s
+  module graph is a container image input and importing the engine would put the agent product
+  inside the site's image. **What lives here and not there is the WORDS**: the adapter's own
+  `describe()` is written for an executor, `label` and the simulated note for a person choosing
+  whether to trust it.
+  **FOUR STATES, FOUR SENTENCES, AND THE TABLE IS THE COPY THAT IS CENSUSED** — `CONNECTION_TROUBLE`
+  against the engine's, both ways, so *"the credential for that connection has run out"*,
+  *"the provider withdrew access"* and *"that connection was disconnected"* say the same thing
+  whichever half a customer reads them from. `connectionRow` FAILS CLOSED: a status it cannot read
+  is not `active`.
+  **⚠ AND MY OWN BINDING CHECK COULD NEVER HAVE PASSED.** The writers compared `bound.agent` — a
+  field `agentBind()` does not carry — so every comparison was against `undefined`, which is equal
+  to itself: **every answer would have been discarded as belonging to another screen.** `connBind`
+  and `connSame` carry the agent explicitly. *A binding check that can never pass is a dead control
+  that ANSWERS, and it answers "this is not yours" about every single request.*
+  **⚠ AND THE FIRST DRAFT OF THE SCREEN INVENTED FIVE CSS CLASSES WITH NO RULES** — an unstyled
+  panel that reads as broken. It is drawn on the automations row's own classes now, and every class
+  was checked to have a rule. *The owner directs design; a new class is a design decision nobody
+  made.*
+  **THE `send` STEP IS IN THE SITE'S `AUTOMATION_STEPS` COPY**, so the existing workflow editor
+  draws it with no new form: a connection, a recipient and a message, the last two taking
+  `{{references}}`. `MAX_STEP_RECIPIENT` and `MAX_STEP_MESSAGE` are censused against the engine's
+  like every other cap.
+  **⚠ AND THE GENERIC `id` READER SAID THE WRONG NOUN ABOUT EVERY ID FIELD.** It refused with
+  *"didn't arrive as an automation"* whatever the field named — correct for `workflow`'s `runs` and
+  false for a connection — and the cross-product SENTENCE census is what found it. A field carries
+  `names` now, so the noun comes from the declaration rather than from the reader's one hardcoded
+  guess.
+  **FOUR CENSUSES WENT RED AND EVERY ONE WAS RIGHT**, which is the point of having them: the
+  credential census (re-anchored onto three properties rather than one spelling), both body
+  censuses (grown to admit the endpoint's own fields and **deliberately never `secret`**), and the
+  tenant census's fake store, which needed the four new operations — a fake missing one makes the
+  route throw and the census reads a 502, which this file has paid for five times now.
+  **NOT MERGED AND NOT DEPLOYED**, and when it goes the order is the recorded one —
+  **migration → engine → site** — with the site last for its usual reason: it is the only half a
+  person touches, and a screen that offers to connect an account the live engine cannot send
+  through is a control that ANSWERS, wrongly.
 - **ADDING A VIEW NOW MEANS SATISFYING A PROPERTY, NOT A COUNT.**
   `test/media-deleted.test.mjs` pinned `KNOWN_VIEWS` to exactly `["settings","sites"]`,
   which was bought by a survivor that added `viewGallery` back — a door to a screen whose

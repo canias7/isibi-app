@@ -6621,3 +6621,202 @@ no file that sweep reads — `git diff` over `supabase/migrations/`, `sql-sweep.
 (`test/integration/pg-schema.mjs`, `test/authored-run.test.mjs`) is EMPTY between `e7a5502` and
 this head — so whatever it answers is an answer about this tree, by the same reasoning the site
 records for a green container harness on an ancestor.
+
+---
+
+## Milestone 12: one automation a customer configures, runs, approves and inspects (2026-09-19)
+
+Owner: *"Request arrives → retrieve relevant business information → prepare a scripted response →
+wait for the customer's approval → send through the fake provider → save and display the
+outcome. Clearly label the response and provider as simulated. The workflow execution,
+persistence, permissions, and approval handling must be real."* **The site builder's half — the
+Connections screen, the four routes and the provider catalog — is in the root `CLAUDE.md`**; what
+belongs here is the engine's.
+
+**NO NEW SQL WAS NEEDED, and that is the whole reason this round is small.** The inspection that
+opened it found the mechanism already built: an automation execution IS a run in `agent.runs`, so
+`agent.request_tool_approval` needs only that the run exist for the tenant;
+`agent.decide_tool_approval` already calls `agent.requeue_run`; and `requeue_run` clears `done_at`
+without touching `executor`, so a resumed execution is still routed to the automation branch. The
+one migration this round touches is a CORRECTION to an unapplied file (below), not a feature.
+
+### ONE STEP, NOT TWO, AND THE BRIEF SAYS WHY
+
+*"A generic approval step followed by an independently constructed send is insufficient."* Two
+steps would each resolve their own `{{references}}` at their own moment, so what a person approved
+and what went out would be two objects that merely usually agree. `send` is one step of kind
+`pause`, and the ONE payload it builds is hashed by `ask`, stored on the request a person reads,
+and handed to `perform` unchanged.
+
+- **THE CONNECTION IS RESOLVED BEFORE THE APPROVAL, because the approval has to SHOW which
+  account it is.** A request that said only "connection 8f3c…" is one nobody can answer honestly.
+  The row is read through `list`, which selects no credential; the LEASE is `perform`'s business
+  and happens after somebody has said yes.
+- **IT MAY GO IN A LOOP, unlike `approval`**, and the reason is the identity: the operation key
+  carries the round (`<run>:<step>:<index>`), so round two is a different call rather than round
+  one's verdict read again. `approval` and `event` carry `decided: true` and are refused in a loop
+  for exactly the opposite reason.
+- **FOUR REFUSALS, FOUR SENTENCES**, because each needs something different done about it:
+  rejected (somebody said no), expired (nobody answered in time), revoked (the permission was
+  withdrawn), and the connection's own three troubles (expired credential, revoked access,
+  disconnected). Driven live, and the demonstration asserts the four are FOUR.
+- **`wakeHours` IS DERIVED FROM THE REQUEST'S OWN WINDOW**, clamped into `[1, MAX_APPROVAL_HOURS]`,
+  so the pause's deadline cannot outlive the request it is waiting for.
+
+### ⚠ THREE DEFECTS THE DEMONSTRATION FOUND, EACH REPRODUCED BEFORE IT WAS FIXED
+
+None was found by reading, and the first two were invisible to eleven green unit cases.
+
+**1. THE STEP READ A KEY NOTHING PRODUCES, AND THE BENCH WAS THE REASON.** `list()` answers a
+BARE ARRAY — `connections.mjs`'s `readRows` answers the rows themselves, and `list_connections`
+reads `rows.length` straight off them — and the step read `rows.connections`, which is the site
+ROUTE's shape. So the find ran over `[]` every time and **every send failed *"that connected
+account is not one of this agent's"* whatever was connected**: the whole step dead, with eleven
+green guards over it, because `sendBench` answered `{ok: true, connections: rows}`.
+*A fake in a DIFFERENT SHAPE from its real producer hides a defect exactly as well as one that is
+less capable* — and the fix is both halves: the step reads the array, and the bench is derived
+from `readRows`. **MEASURED: with the defect put back under the corrected bench, 8 cases go red**;
+under the old one, all eleven passed.
+
+**2. A FINISHED EXECUTION WAS RE-OFFERED EVERY MINUTE FOR EVER.** The agent branch has answered
+`already-finished` since the queue was written; the automation branch never got the equivalent,
+and the CLAIM was doing the work instead — a finished execution's work row is `done`, so
+`claim_run` refuses. That holds until something clears `done_at` on a run that has ended, which
+defect 3 did. The delivery then re-ran it from its recorded position, met its own `stopped` entry
+at the fence, was released UNFINISHED as `conflict`, and the sweeper offered it again on every
+tick: **read off the demonstration, `attempts: 4` and climbing on a run nothing would ever
+finish** — a stranded run, from the queue's side.
+
+**3. `revoke_agent_tool` PUT A FINISHED RUN BACK ON THE QUEUE.** Its withdraw loop matches
+`verdict is null`, which includes an EXPIRED request — an expiry is DERIVED from the clock and is
+deliberately never written as a verdict — so a run the expiry sweep had already run to a stop
+still had an undecided request here, was withdrawn, and was requeued. It carries the same
+`not exists (… 'kind' = 'stopped')` test `requeue_expired_approvals` already makes, reusing that
+expression rather than inventing one. **AND IT SKIPS THE WITHDRAWAL, not merely the requeue**:
+`decide_tool_approval` refuses a finished run, so such a request is unanswerable by construction
+— writing `decided_by` over it would record a person deciding a call already dealt with, and
+`withdrew` would count history rather than the live work this function exists to stop.
+
+**⚠ AND 2 AND 3 ARE A DECLARED REDUNDANCY, MEASURED RATHER THAN ASSUMED.** Either alone closes
+the demonstration — driven both ways round — so it cannot tell them apart. They are NOT the same
+wall: the SQL stops one producer of the state, the runner stops the state being harmful whatever
+produces it, and `requeue_run` has three other callers. So each is guarded at its OWN layer and
+each is killable on its own: `test/worker.test.mjs` drives a real delivery over the in-memory
+project, and `test/integration/pg-schema.mjs` drives the revocation on a real PostgreSQL. Both
+were proved RED against their own defect (the engine case names *"the finished execution is still
+on the queue"*; the SQL trio reads `withdrew: 2` with both runs requeued).
+
+### ⚠ And the fixture trap arrived a second time in the guard written for the first
+
+The engine case's first draft wrote its work rows STRAIGHT INTO THE MAPS, which `worker.test.mjs`'s
+own rule forbids (*"it goes through `accept_run` and `claim_run`, never straight into the maps"*).
+A hand-written row has no `started` entry behind it, so the delivery claimed it and then stopped at
+its first checkpoint with the lease still live and nothing released — **the CONTROL failed and
+reported a working delivery as broken.** Both executions go through `accept_automation_run`, the
+ended one is run to its end by a REAL delivery, and both are then put back with `requeue_run`, so
+the state under test is the one the defect really produced.
+
+### What the demonstration drives, and what is simulated
+
+`npm run verify:send` — thirteen sections, the brief's own item-6 list: the SITE's routes for
+everything a person does, `worker.fetch` for a signed delivery, `worker.queue` and
+`worker.scheduled` as the dispatcher, and a throwaway PostgreSQL with this repository's migrations.
+
+**⚠ EVERY CHECK READS THE MAILBOX OR THE DATABASE, NEVER THE SENTENCE** — the brief in as many
+words (*"use the fake provider's mailbox to verify what was actually sent, not just the success
+message"*). What is asserted is `ADAPTERS[FAKE_PROVIDER].mailbox(account)`, the very registry
+`worker.queue` sends through, and the row read straight out of PostgreSQL.
+
+**WHAT IS SIMULATED, in three places and named in the file's own header**: the PROVIDER
+(`fakemail`, no network, no credential of anybody's, **no idempotency key on purpose** so a second
+send really is a second message); the TRANSPORT (PostgREST is a local shim, the queue an in-process
+doorbell); and TWO CLOCKS pushed rather than waited out (an approval's 24-hour window, a schedule's
+next run) — which simulates no DECISION, because `decide_tool_approval` still compares
+`expires_at` against `now()` and `tick_automations` still selects on `next_run_at <= now()`.
+
+- **THE PROVIDER IS SCRIPTED THROUGH ITS OWN DOOR.** `makeFakeProvider` already takes a `script`
+  (`FAKE_OUTCOMES`: ok · lost · timeout · refused · unauthorised), so ONE adapter serves the whole
+  file with `arm` deciding what the next call does. The first draft reached for a `Proxy` over
+  `run` — a second mechanism beside the one the adapter documents — and it never reached the
+  mailbox at all.
+- **THE THREE WAYS IN ARE THREE SECTIONS**: a manual run, a SCHEDULED one through the real cron,
+  and an AUTHENTICATED EVENT through `worker.fetch` signed with the engine's own `signDelivery` —
+  and all three HOLD for a person and then send through the same path. A second delivery of the
+  same event is ONE event, ONE execution and ONE message, and says `repeat: true`.
+- **THE DELIVERY'S BODY CARRIES A TENANT AND AN EVENT NAME OF ITS OWN AND NEITHER IS BELIEVED**:
+  the event is recorded under the ENDPOINT's account with the ENDPOINT's event name, and the
+  forged `tenant`/`tenant_id`/`name` reach `payload` and nowhere else.
+- **A LOST ANSWER IS RECONCILED, NEVER RE-SENT**: the message really is in the mailbox, a check
+  found it, and a redelivery adds nothing.
+- **THE CANCELLATION SAYS WHAT HAD ALREADY COMPLETED** — *"stopped — what had already run has
+  already run and was not undone"*, which is the brief's own requirement.
+
+### ⚠ Four of my own assertions were wrong before the product corrected them
+
+Each is the route or the schema being right, and each is worth a line:
+
+1. **`automation-create` ANSWERS `{id, nextRunAt}`**, not the steps — so asserting `auto.body.steps`
+   was asserting a key it has never carried. Read back through the LIST the screen itself reads,
+   which is the stronger claim anyway: it proves the row holds the step as the VALIDATOR minted it.
+2. **AN EXECUTION'S `id` IS ITS RUN'S ID** (`primary key references agent.runs(id)`), so there is
+   no `run_id` column on `agent.automation_runs` — and `automation-run` answers `runId` for the run
+   and `id` for the AUTOMATION, so every `find(e => e.id === run.body.id)` matched nothing.
+3. **`automation-update` IS A FULL REPLACE AND DEMANDS THE WHOLE SHAPE**, which is the route being
+   right rather than strict: it reads the same `cleanSchedule` + `cleanInputs` + `cleanWorkflow` the
+   create does, so a body of `{id, steps}` is refused *"give it a name first"*. The PATCH shape is
+   `change_automation`, the AGENT's own tool, and conflating the two made a section run against a
+   connection it thought it had re-pointed.
+4. **FORBIDDING THE WORD `undone` IS NOT THE CHECK.** The honest sentence says the completed work
+   was **not** undone, so a needle over the bare word went red about the one thing it was written to
+   demand. Asserted POSITIVELY now — the answer must SAY the completed work stands — plus the
+   counts, plus the absence of a CLAIMED reversal matched as a phrase.
+
+### ⚠ And the SQL spec's own pre-check earned its keep
+
+My new mutant's anchor was byte-identical to the expiry sweep's, because the fix reuses that
+function's expression deliberately. The generator refused BOTH as AMBIGUOUS rather than letting
+one land in whichever function came first — the recorded *"an anchor can be a substring of its own
+neighbour"*, met between two functions. Each is pinned by its own FOLLOWING line now, and the
+expiry sweep's mutant was **re-anchored, not appeased**.
+
+### Measured
+
+- **`npm run verify:send`: 78 checks, 0 failed** (new), thirteen sections. **⚠ THIS LINE READ
+  "63 → 70" UNTIL THE RUN ANSWERED** — I wrote it down between adding the event section and
+  counting it, which is this directory's own first rule broken in the entry that quotes it:
+  *stamp measured numbers only AFTER the run.* Counted off the run's own `ok`/`FAIL` lines.
+- **Engine suite 588 → 589**, 0 failed, and the arithmetic closes exactly (one `worker.test.mjs`
+  case). **588 is HEAD's own number, measured in a clean worktree at `a4a4f32`.**
+- **Real PostgreSQL (`npm run test:pg`): 1,085 → 1,092, 0 failed**, and that closes exactly too:
+  five for the revocation (three `check`s and two `allowed`s, which count) and two net for the
+  resume tick's rewrite below. **1,085 is HEAD's own number, measured in the same worktree** —
+  neither M12 commit touched that file or any migration.
+- **Sweep spec 669 → 688 entries** (11 controls, 677 product mutants): the two for the runner's
+  wall, in both directions, because *"it answers something"* is not the property — it has to come
+  OFF the queue. **SQL spec 279** (12 controls), with one re-anchored and one REPLACED (below).
+
+### ⚠ AND THE SQL SWEEP FOUND A SURVIVOR THAT WAS A VACUOUS CHECK OVER AN INERT CLAUSE
+
+`SQL/resume: a FINISHED execution is put back on the queue` survived — the clause
+`and ar.finished_at is null` in `resume_due_automations`, removed, changed nothing any check could
+see. **It is not a product defect and it is not a guard gap either; it is three faults in a row,
+and only measurement separated them.**
+
+- **THE CLAUSE IS INERT BY CONSTRUCTION.** `automation_runs_finished_is_not_waiting` forbids a row
+  from being finished AND waiting, so `waiting is not null` already excludes every finished
+  execution. **MEASURED on a real database: the UPDATE is refused, and ZERO rows can ever satisfy
+  both.** Declared in the migration where the next reader meets it, and it carries no mutant of
+  its own — the SWEEP mutates the CONSTRAINT instead, which is observable and is killed.
+- **THE CHECK HAD NEVER BEEN IN THE STATE IT DESCRIBED.** Its fixture set `finished_at` on a
+  waiting row — the very UPDATE that constraint refuses — so the row stayed unfinished with its
+  deadline still in the future.
+- **AND ITS QUERY HAD ALWAYS ERRORED.** `resume_due_automations` answers `setof jsonb`, so
+  `select string_agg(run_id::text, ',') from agent.resume_due_automations(25)` names a column that
+  does not exist; **`jget` answers the EMPTY STRING for a failed statement**, so a broken query
+  read exactly like *"the tick found nothing"* and `!after.includes(id)` was satisfied by it.
+  *Cannot-tell wearing a value's clothes, in the harness's own reader* — and every other call site
+  in that file says `t->>'run_id'`.
+
+It asserts the property that really holds now: the state is IMPOSSIBLE (refused, read for its own
+gate BY NAME), no row can be both, **and the tick really does answer the executions that ARE due**
+— the observer, without which the whole thing is satisfied by a tick that returns nothing.
