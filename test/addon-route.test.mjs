@@ -4600,6 +4600,134 @@ test("a photograph the site already has may be shown again, and an invented one 
   assert.match(String(strip.source), /src=""/, "the component's invented src was deleted rather than emptied");
 });
 
+test("an upload the site owns survives the stray wall, whether or not a page has drawn it", async () => {
+  // ⚠ Owner, 2026-09-19: *"'Not referenced in existing source' does not mean
+  // 'not owned by this site.' … Establish asset existence from the site's
+  // upload storage when validation is needed. An unreadable check must remain
+  // unknown. Restrict any image correction to actual image references; never
+  // blanket-replace matching strings in links or other content."*
+  //
+  // BOTH REPRODUCED THROUGH THIS ROUTE before anything was touched, on the
+  // asks below:
+  //
+  //   a valid uploaded image, never placed →  <SafeImage src="" alt="…" />
+  //   a valid uploaded PDF, linked         →  <a href="" download>…</a>
+  //
+  // The first is this platform deleting a customer's own photograph because
+  // nothing had drawn it before; the second is a download button that downloads
+  // nothing, produced by a photograph guard reaching into a link.
+
+  // ── 1. A VALID UPLOAD THE OWNER HAS NOT PLACED YET ──────────────────────
+  //
+  // `uploads` is the state no page source can express: the owner uploaded it
+  // and it is on nothing. `before` cannot vouch for it and the upload store
+  // can, which is the whole correction.
+  const UP = "/u/fw-owned/9f9f9f9f9f9f9f9f.jpg";
+  const owned = await photoAsk("fw-owned", {
+    kinds: ["page"], storedPages: [photoHome("fw-owned")],
+    uploads: ["9f9f9f9f9f9f9f9f.jpg"],
+    written: [
+      galleryWith('<SafeImage src="' + UP + '" alt="the bench, uploaded last week" />'),
+      linkHome("fw-owned", '<SafeImage src="/u/fw-owned/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(owned.body.ok, true, JSON.stringify(owned.body));
+  const ownedPage = compiledPages(owned).find((f) => /gallery/.test(f.path));
+  assert.ok(ownedPage, "the gallery page never reached the compiler");
+  assert.ok(ownedPage.source.includes(UP),
+    "the owner's own upload was emptied on the way to the compiler: " + ownedPage.source.slice(0, 300));
+  assert.match(storedSource(owned, "fw-owned", "gallery.tsx"), /9f9f9f9f9f9f9f9f\.jpg/,
+    "the owner's own upload is not in the source the next edit reads");
+  // …AND IT IS NOT A SPACE. A frame holding a real picture must not be offered
+  // to the customer as one an upload could fill.
+  assert.equal(owned.body.photos || 0, 0,
+    "a filled frame was reported as an empty one: " + JSON.stringify(owned.body.photos));
+
+  // ── 2. A VALID UPLOADED PDF, LINKED AS A DOWNLOAD ───────────────────────
+  const PDF = "/u/fw-doc/pricelist20260919.pdf";
+  const doc = await photoAsk("fw-doc", {
+    kinds: ["page"], storedPages: [photoHome("fw-doc")],
+    uploads: ["pricelist20260919.pdf"],
+    written: [
+      galleryWith('<SafeImage src="/u/fw-doc/a1b2c3d4.jpg" alt="the workshop bench" />'
+        + '<a href="' + PDF + '" download>Our price list (PDF)</a>'),
+      linkHome("fw-doc", '<SafeImage src="/u/fw-doc/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(doc.body.ok, true, JSON.stringify(doc.body));
+  const docPage = compiledPages(doc).find((f) => /gallery/.test(f.path));
+  assert.ok(docPage.source.includes('href="' + PDF + '"'),
+    "the download link was emptied: " + docPage.source.slice(0, 400));
+  assert.match(storedSource(doc, "fw-doc", "gallery.tsx"), /pricelist20260919\.pdf/,
+    "the download link is gone from the source the next edit reads");
+
+  // …AND A DOCUMENT IS SAFE FOR THE SECOND REASON TOO, which is the stronger
+  // one: an `href` is not an image reference, so it is never a CANDIDATE and
+  // the store is never even asked about it. Same ask, nothing uploaded.
+  const stray = await photoAsk("fw-nodoc", {
+    kinds: ["page"], storedPages: [photoHome("fw-nodoc")],
+    written: [
+      galleryWith('<SafeImage src="/u/fw-nodoc/a1b2c3d4.jpg" alt="the workshop bench" />'
+        + '<a href="/u/fw-nodoc/pricelist20260919.pdf" download>Our price list (PDF)</a>'),
+      linkHome("fw-nodoc", '<SafeImage src="/u/fw-nodoc/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.ok(compiledPages(stray).find((f) => /gallery/.test(f.path)).source.includes("pricelist20260919.pdf"),
+    "an href was emptied because nothing had uploaded it — the correction reached a link");
+
+  // ── 3. THE CONTROL: A GENUINELY MISSING IMAGE IS STILL CORRECTED ────────
+  //
+  // Without this the two arms above pass with the wall deleted, which is the
+  // whole of what makes them worth anything.
+  const GONE = "/u/fw-missing/deadbeefdeadbeef.jpg";
+  const missing = await photoAsk("fw-missing", {
+    kinds: ["page"], storedPages: [photoHome("fw-missing")],
+    written: [
+      galleryWith('<SafeImage src="' + GONE + '" alt="a picture nobody uploaded" />'),
+      linkHome("fw-missing", '<SafeImage src="/u/fw-missing/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(missing.body.ok, true, "the wall refused the whole change instead of emptying one src");
+  const gonePage = compiledPages(missing).find((f) => /gallery/.test(f.path));
+  assert.equal(gonePage.source.includes(GONE), false,
+    "a url no upload backs reached the compiler: " + gonePage.source.slice(0, 300));
+  assert.match(gonePage.source, /src=""/, "the missing src was deleted rather than emptied");
+  assert.ok((missing.body.photos || 0) >= 1,
+    "the emptied frame was not counted, so nobody is told about it: " + JSON.stringify(missing.body.photos));
+
+  // …AND A URL THE SERVE ROUTE ITSELF REFUSES IS A REAL ABSENCE, not a
+  // cannot-tell: no object in any bucket can make `/u/<slug>/a b.jpg` fetch,
+  // because the shape is 404 before the bucket is consulted. Reading that as
+  // unknown would ship a broken image on the strength of not having looked.
+  const BAD = "/u/fw-shape/a b.jpg";
+  const shape = await photoAsk("fw-shape", {
+    kinds: ["page"], storedPages: [photoHome("fw-shape")],
+    uploads: ["a b.jpg"],   // even WITH bytes behind it, the address cannot reach them
+    written: [
+      galleryWith('<SafeImage src="' + BAD + '" alt="a path the serve route 404s on" />'),
+      linkHome("fw-shape", '<SafeImage src="/u/fw-shape/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(compiledPages(shape).find((f) => /gallery/.test(f.path)).source.includes(BAD), false,
+    "a url the serve route cannot answer was shipped as a picture");
+
+  // ── 4. AND AN UNREADABLE STORE IS UNKNOWN, NEVER ABSENT ─────────────────
+  //
+  // The SAME ask as the control, with the upload store throwing: nothing may
+  // be swept, because "we could not look" and "it is not there" are the two
+  // answers this round exists to keep apart.
+  const blind = await photoAsk("fw-missing", {
+    kinds: ["page"], storedPages: [photoHome("fw-missing")], uploadsFail: true,
+    written: [
+      galleryWith('<SafeImage src="' + GONE + '" alt="a picture nobody uploaded" />'),
+      linkHome("fw-missing", '<SafeImage src="/u/fw-missing/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.equal(blind.body.ok, true, JSON.stringify(blind.body));
+  assert.ok(compiledPages(blind).find((f) => /gallery/.test(f.path)).source.includes(GONE),
+    "an unreadable check swept a src — cannot-tell was read as not-there");
+});
+
 test("the same request that keeps them buys the photograph and publishes — the control", async () => {
   // THE CONTROL, and it is what makes the case above about the LOSS rather than
   // about the wall refusing every purchase on a photographed site: the same ask,

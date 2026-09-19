@@ -711,8 +711,13 @@ function keyValue(body, name) {
  * start — so `dataSrc:` cannot match `src` inside it. A quote is deliberately
  * NOT in that set: it belongs to the key, not to what precedes it.
  */
-const KEY_BEFORE = "(^|[,{\\s])";
-const keyName = (name) => "(?:" + name + "|\"" + name + "\"|'" + name + "')";
+// EXPORTED because `site-images.mjs`' stray-image wall asks the same question of
+// the same grammar (2026-09-19): which `src` in this source is an IMAGE's, as
+// against an `href` or a word that merely ends in "src". A second spelling of it
+// over there is how the finder and the corrector come to disagree about what an
+// image reference is, which is the whole class this file already records.
+export const KEY_BEFORE = "(^|[,{\\s])";
+export const keyName = (name) => "(?:" + name + "|\"" + name + "\"|'" + name + "')";
 
 /**
  * HOW MANY OF THOSE FRAMES THIS CHANGE ADDED — `newEmptySlots` one reader over.

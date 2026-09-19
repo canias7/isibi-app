@@ -145,7 +145,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look, parts, css, partsFail, configFail) {
+function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, uploadsFail) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -170,6 +170,13 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail) {
   // a missing key, which is what every site in every earlier case here is, so
   // those read exactly as they did.
   if (Array.isArray(parts) && parts.length) store.set("source/" + slug + "/parts.json", JSON.stringify(parts));
+  // WHAT THE OWNER HAS REALLY UPLOADED — file names under `uploads/<slug>/`,
+  // which is where the serve route reads `/u/<slug>/<file>` from. A case says
+  // `uploads: ["9f9f….jpg"]` to mean "the owner uploaded this and has not put
+  // it on a page yet", which is precisely the state no page source can express
+  // and the one the correction is about. DEFAULTS TO NONE, so every case
+  // written before this reads exactly as it did: an invented url is absent.
+  for (const f of Array.isArray(uploads) ? uploads : []) store.set("uploads/" + slug + "/" + f, "bytes");
   // ── A READ THAT FAILS AND THEN RECOVERS (2026-09-17) ─────────────────────
   //
   // `partsFail: N` throws on the FIRST N reads of `source/<slug>/parts.json`
@@ -206,6 +213,23 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail) {
     },
     async delete(k) { store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
+    // ── THE SITE'S UPLOAD STORE (2026-09-19) ────────────────────────────────
+    //
+    // `head` is how `siteUploadExists` asks whether `/u/<slug>/<file>` really
+    // serves bytes, and until this existed the fake answered by not having the
+    // method at all — which the product reads as CANNOT TELL, so every case
+    // would have passed by the wall standing down rather than by it working.
+    // The recorded "a fake LESS capable than the thing it stands in for hides a
+    // defect exactly as well as one that is more", in the one method the
+    // correction turns on.
+    //
+    // `uploadsFail` THROWS, because that is what R2 does when it cannot read —
+    // and `null` would be a key that is honestly absent, which is the opposite
+    // answer. The two are what this round is about.
+    async head(k) {
+      if (uploadsFail && k.startsWith("uploads/")) throw new Error("R2 HeadObject: connection reset");
+      return store.has(k) ? { key: k } : null;
+    },
   };
 }
 
@@ -573,7 +597,7 @@ export async function addon(slug, instruction, opts) {
     const store = bucket(slug,
       (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(storedPage) : null),
       opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail,
-      opts && opts.configFail);
+      opts && opts.configFail, opts && opts.uploads, opts && opts.uploadsFail);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },

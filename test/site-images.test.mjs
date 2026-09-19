@@ -15,7 +15,7 @@ import {
   imagesAffordable,
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
   budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
-  photoUrls, keptImages, strayPhotos, dropStrayPhotos, MAX_KEEP_URLS,
+  photoUrls, keptImages, imageRefs, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, MAX_KEEP_URLS,
 } from "../builder/site-images.mjs";
 import { uploadUrl } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
@@ -1334,8 +1334,15 @@ test("a src this site does not own is emptied, and its neighbours are not", () =
     before[0],
     { path: "g.tsx", source: '<SafeImage src="' + fake + '" alt="y" />' },
   ];
-  assert.deepEqual(strayPhotos(before, after, "fw"), [fake], "the invented url was not seen");
-  assert.deepEqual(strayPhotos(before, before, "fw"), [], "a site that changed nothing invented something");
+  // ⚠ RE-ANCHORED, NOT APPEASED (2026-09-19). This read `strayPhotos(before,
+  // after, slug)` and took its answer as the verdict — which asserted the
+  // defect as correct, because "not on a page before" was the whole of what
+  // that function called invented. The finder answers CANDIDATES now and the
+  // verdict comes from the upload store; the property this case was always
+  // about — a url new in `after` is seen, and a site that changed nothing
+  // invents nothing — is unmoved.
+  assert.deepEqual(newImageRefs(before, after, "fw"), [fake], "the new url was not seen");
+  assert.deepEqual(newImageRefs(before, before, "fw"), [], "a site that changed nothing invented something");
 
   // 1. EMPTIED, NEVER DELETED. The picture rung fills a slot by rewriting a
   //    `src`; an element with none is invisible to it, so a deletion turns a
@@ -1370,4 +1377,104 @@ test("a src this site does not own is emptied, and its neighbours are not", () =
   const idle = dropStrayPhotos(after, []);
   assert.equal(idle.files, after, "an empty stray list rebuilt the file list");
   assert.deepEqual(idle.dropped, []);
+});
+
+test("only an image reference is a candidate, and only an image reference is corrected", () => {
+  // ⚠ Owner, 2026-09-19: *"Restrict any image correction to actual image
+  // references; never blanket-replace matching strings in links or other
+  // content."* REPRODUCED through the route first: a valid uploaded price list
+  // linked as `<a href="/u/<slug>/menu….pdf" download>` came back `href=""`.
+  //
+  // ONE GRAMMAR, BOTH DIRECTIONS — the finder and the corrector read the same
+  // definition, because two spellings of "an image reference" is how a sweep
+  // comes to empty something its finder never claimed.
+  const src = [
+    '<SafeImage src="/u/fw/attr.jpg" alt="an attribute" />',
+    '<a href="/u/fw/menu.pdf" download>the price list</a>',
+    '<Gallery items={[{ alt: "a", src: "/u/fw/key.jpg" }, { "src": "/u/fw/quoted.jpg", alt: "b" }]} />',
+    '<img dataSrc="/u/fw/lazy.jpg" /><div image_src="/u/fw/snake.jpg" />',
+    '<SafeImage src="/u/other/theirs.jpg" alt="another site" />',
+  ].join("\n");
+
+  // 1. WHAT IS AN IMAGE REFERENCE: a `src` as an attribute or as an object key,
+  //    in either quoting, which is the kit's own naming in both places.
+  assert.deepEqual([...imageRefs(src, "fw")].sort(),
+    ["/u/fw/attr.jpg", "/u/fw/key.jpg", "/u/fw/quoted.jpg"],
+    "the image references read wrong: " + JSON.stringify([...imageRefs(src, "fw")].sort()));
+  // 2. AND WHAT IS NOT. An `href` is the reported defect; `dataSrc`/`image_src`
+  //    are `site-picture.mjs`' own recorded trap, which is why that grammar is
+  //    imported rather than restated; another site's prefix was never ours.
+  //    AND THE PREMISE IS ASSERTED RATHER THAN COUNTED: `photoUrls` matches any
+  //    quoted url of ours, so the GAP between the two readers is the fix — a
+  //    count here would be a second copy of the fixture, and it was wrong the
+  //    first time it was written.
+  const any = [...photoUrls(src, "fw")];
+  for (const u of ["/u/fw/menu.pdf", "/u/fw/lazy.jpg", "/u/fw/snake.jpg"]) {
+    assert.ok(any.includes(u), "photoUrls stopped matching " + u + " — this case's premise is that the two readers differ");
+    assert.equal(imageRefs(src, "fw").has(u), false, u + " is not an image reference and was read as one");
+  }
+  for (const u of imageRefs(src, "fw")) assert.ok(any.includes(u), u + " is an image reference photoUrls cannot see");
+
+  // 3. THE CORRECTION TOUCHES NOTHING BUT A `src`, even when handed the url of
+  //    something that is not one. A stray list naming the PDF may not empty it.
+  const out = dropStrayPhotos([{ path: "g.tsx", source: src }],
+    ["/u/fw/attr.jpg", "/u/fw/menu.pdf", "/u/fw/quoted.jpg", "/u/fw/lazy.jpg"]);
+  const after = out.files[0].source;
+  assert.ok(after.includes('href="/u/fw/menu.pdf"'), "the download link was emptied by a photograph guard: " + after);
+  assert.ok(after.includes('dataSrc="/u/fw/lazy.jpg"'), "a word ending in `src` was treated as one: " + after);
+  // …AND THE KEY, THE SEPARATOR AND THE QUOTE ARE ALL KEPT — only the value
+  // between the quotes goes, or an object key stops being one.
+  assert.match(after, /<SafeImage src="" alt="an attribute"/, "the attribute form did not survive: " + after);
+  assert.match(after, /"src": ""/, "a quoted object key was rewritten into something else: " + after);
+  assert.ok(after.includes('src: "/u/fw/key.jpg"'), "a src nobody named was emptied: " + after);
+});
+
+test("existence comes from the upload store, and an unreadable check stays unknown", async () => {
+  // ⚠ Owner, 2026-09-19: *"'Not referenced in existing source' does not mean
+  // 'not owned by this site.' Establish asset existence from the site's upload
+  // storage when validation is needed. An unreadable check must remain
+  // unknown."*
+  //
+  // 1. THE KEY IS THE SERVE ROUTE'S OWN SHAPE, because the question is whether
+  //    the url fetches bytes — and a shape that route refuses answers 404
+  //    whatever the bucket holds, so no object could make it true.
+  assert.equal(uploadKeyFor("fw", "/u/fw/a1b2c3d4.jpg"), "uploads/fw/a1b2c3d4.jpg");
+  assert.equal(uploadKeyFor("FW", "/u/fw/a1b2c3d4.jpg"), "uploads/fw/a1b2c3d4.jpg",
+    "the slug did not fold case — it is lowercased at every door this platform has");
+  assert.equal(uploadKeyFor("fw", "/u/fw/A1B2.JPG"), "uploads/fw/A1B2.JPG",
+    "the FILE folded case — the rest of the path is an R2 key, where a re-cased hash is a different object");
+  assert.equal(uploadKeyFor("fw", "/u/other/a1.jpg"), null, "another site's upload read as ours");
+  assert.equal(uploadKeyFor("fw", "/u/fw/../secrets"), null, "a traversal read as an upload");
+  assert.equal(uploadKeyFor("fw", "/u/FW/a1.jpg"), null,
+    "a spelling the serve route 404s on read as an upload that could exist");
+  assert.equal(uploadKeyFor("fw", null), null);
+  assert.equal(uploadKeyFor(null, "/u/fw/a1.jpg"), null);
+
+  // 2. THREE ANSWERS, AND ONLY `false` SWEEPS. Anything that is not an explicit
+  //    yes-or-no is cannot-tell, which leaves the src standing: an unknown left
+  //    is at worst a broken image, an unknown swept is somebody's photograph.
+  const urls = ["/u/fw/here.jpg", "/u/fw/gone.jpg", "/u/fw/threw.jpg", "/u/fw/mumbled.jpg"];
+  const answers = {
+    "/u/fw/here.jpg": true,
+    "/u/fw/gone.jpg": false,
+    "/u/fw/mumbled.jpg": undefined,      // a reader that did not say
+  };
+  const seen = await strayImages(urls, async (u) => {
+    if (u === "/u/fw/threw.jpg") throw new Error("R2 HeadObject: connection reset");
+    return answers[u];
+  });
+  assert.deepEqual(seen.stray, ["/u/fw/gone.jpg"], "something other than a demonstrated absence was swept");
+  assert.deepEqual(seen.unknown, ["/u/fw/mumbled.jpg", "/u/fw/threw.jpg"],
+    "a throw or a silence did not read as unknown: " + JSON.stringify(seen.unknown));
+
+  // 3. AND A READER THAT IS NOT THERE AT ALL IS UNKNOWN TOO, never a sweep —
+  //    the shape a Worker with no bucket binding really has.
+  assert.deepEqual((await strayImages(urls, null)).stray, [],
+    "with nobody to ask, every url was called invented");
+  assert.deepEqual((await strayImages(urls, null)).unknown, urls.slice().sort());
+  // 4. NOTHING TO ASK ABOUT ASKS NOTHING.
+  let asked = 0;
+  const quiet = await strayImages([], async () => { asked += 1; return false; });
+  assert.deepEqual(quiet, { stray: [], unknown: [] });
+  assert.equal(asked, 0, "an empty candidate list still opened a connection");
 });

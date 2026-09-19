@@ -1,0 +1,172 @@
+[
+  {
+    "label": "THE REPORTED DEFECT 1: ownership read from the pages again, so an upload nobody placed is invented",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aPicCheck = aNewPics.length\n              ? await strayImages(aNewPics, (u) => siteUploadExists(env, ownerSlug, u))\n              : { stray: [], unknown: [] };",
+    "to": "            const aPicCheck = { stray: aNewPics, unknown: [] };"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2a: any quoted url is an image reference again, so an href is a candidate",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  for (const m of source.matchAll(imgRefRe())) {\n    if (m[4].toLowerCase().startsWith(mark)) out.add(m[4]);",
+    "to": "  for (const m of source.matchAll(/[\"'](\\/u\\/[^\"']+)[\"']/g)) {\n    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1]);"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2b: the correction is a blanket string replace again, so it reaches a link",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    let hit = false;\n    const src = f.source.replace(imgRefRe(), (whole, lead, _before, quote, url) => {\n      if (!drop.has(url)) return whole;\n      hit = true;\n      return lead + quote + quote;\n    });",
+    "to": "    let src = f.source, hit = false;\n    for (const u of drop) {\n      const next = src.split('\"' + u + '\"').join('\"\"').split(\"'\" + u + \"'\").join(\"''\");\n      if (next !== src) { src = next; hit = true; }\n    }"
+  },
+  {
+    "label": "an unknown is swept - cannot-tell read as not-there, the direction that deletes a picture",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (answer === true) continue;\n    if (answer === false) stray.push(u); else unknown.push(u);",
+    "to": "    if (answer === true) continue;\n    stray.push(u);"
+  },
+  {
+    "label": "a truthy answer passes, so a reader answering a string counts as present",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (answer === true) continue;\n    if (answer === false) stray.push(u); else unknown.push(u);",
+    "to": "    if (answer) continue;\n    if (answer === false) stray.push(u); else unknown.push(u);"
+  },
+  {
+    "label": "a throw inside the check reads as absent rather than as cannot-tell",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    try { answer = typeof exists === \"function\" ? await exists(u) : null; } catch { answer = null; }",
+    "to": "    try { answer = typeof exists === \"function\" ? await exists(u) : null; } catch { answer = false; }"
+  },
+  {
+    "label": "no reader at all reads as absent, so a Worker with no way to ask sweeps everything",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    try { answer = typeof exists === \"function\" ? await exists(u) : null; } catch { answer = null; }",
+    "to": "    try { answer = typeof exists === \"function\" ? await exists(u) : false; } catch { answer = null; }"
+  },
+  {
+    "label": "a bucket with no head method reads as absent instead of cannot-tell",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!b || typeof b.head !== \"function\") return null;",
+    "to": "  if (!b || typeof b.head !== \"function\") return false;"
+  },
+  {
+    "label": "a throw from the store reads as absent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  try { return !!(await b.head(key)); } catch { return null; }",
+    "to": "  try { return !!(await b.head(key)); } catch { return false; }"
+  },
+  {
+    "label": "a url the serve route refuses reads as cannot-tell, so a 404 address ships as a picture",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (key === null) return false;",
+    "to": "  if (key === null) return null;"
+  },
+  {
+    "label": "the slug is not compared, so another site's upload vouches for this one",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (m[1].toLowerCase() !== String(slug == null ? \"\" : slug).toLowerCase()) return null;",
+    "to": "  if (false) return null;"
+  },
+  {
+    "label": "the FILE folds case, so a re-cased hash reads as the same object",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  return \"uploads/\" + m[1].toLowerCase() + \"/\" + m[2];",
+    "to": "  return \"uploads/\" + m[1].toLowerCase() + \"/\" + m[2].toLowerCase();"
+  },
+  {
+    "label": "the shape rule folds case, so a spelling the serve route 404s on reads as an upload",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const m = String(url == null ? \"\" : url).match(/^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/);",
+    "to": "  const m = String(url == null ? \"\" : url).match(/^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/i);"
+  },
+  {
+    "label": "the key grammar's leading wall goes, so dataSrc and image_src are image references",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  \"(\" + KEY_BEFORE + keyName(\"src\") + \"\\\\s*[:=]\\\\s*)([\\\"'])(\\\\/u\\\\/[^\\\"']+)\\\\3\", \"g\");",
+    "to": "  \"(\" + keyName(\"src\") + \"\\\\s*[:=]\\\\s*)()([\\\"'])(\\\\/u\\\\/[^\\\"']+)\\\\3\", \"g\");"
+  },
+  {
+    "label": "the quote need not match itself, so a mismatched pair is read as a value",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  \"(\" + KEY_BEFORE + keyName(\"src\") + \"\\\\s*[:=]\\\\s*)([\\\"'])(\\\\/u\\\\/[^\\\"']+)\\\\3\", \"g\");",
+    "to": "  \"(\" + KEY_BEFORE + keyName(\"src\") + \"\\\\s*[:=]\\\\s*)([\\\"'])(\\\\/u\\\\/[^\\\"']+)[\\\"']\", \"g\");"
+  },
+  {
+    "label": "the key and the separator are eaten by the correction, leaving a bare empty string",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      return lead + quote + quote;",
+    "to": "      return quote + quote;"
+  },
+  {
+    "label": "KEY_BEFORE is restated here rather than imported, so the two grammars can drift",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "import { KEY_BEFORE, keyName } from \"./site-picture.mjs\";",
+    "to": "const KEY_BEFORE = \"()\"; const keyName = (n) => n;"
+  },
+  {
+    "label": "before stops vouching, so every picture on the site is re-asked of the store",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const had = new Set();\n  for (const p of Array.isArray(before) ? before : []) {\n    for (const u of imageRefs(p && p.source, slug)) had.add(u);\n  }\n  const fresh = new Set();",
+    "to": "  const had = new Set();\n  const fresh = new Set();"
+  },
+  {
+    "label": "the unknown count never reaches the trace, so a wall that stood down says nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aMark(\"pics\", \"unknown\", { urls: aPicCheck.unknown.length });",
+    "to": "              void aPicCheck;"
+  },
+  {
+    "label": "CONTROL: a comment in the module",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": " * THE CANDIDATES \u2014 image references in `after` that were not in `before`, which",
+    "to": " * THE CANDIDATES (control) \u2014 image references in `after` not in `before`, which",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment in the route",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // have and would read as invented.",
+    "to": "            // have and would read as invented. (control)",
+    "control": true
+  }
+]

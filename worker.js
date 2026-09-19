@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, strayPhotos, dropStrayPhotos, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -7071,6 +7071,32 @@ async function siteUploadList(env, slug) {
     if (!page.truncated || !page.cursor) return out;
     cursor = page.cursor;
   }
+}
+
+/**
+ * DOES `/u/<slug>/<file>` REALLY SERVE BYTES — `true`, `false`, or `null` for
+ * cannot tell (2026-09-19).
+ *
+ * Owner: *"Establish asset existence from the site's upload storage when
+ * validation is needed. An unreadable check must remain unknown."* This is the
+ * one reader of that question, and the stray-image wall's only source of truth
+ * about what the site owns: an upload the owner made and has not placed on a
+ * page yet is the site's, and nothing about the PAGES can say so.
+ *
+ * A HEAD, NOT A GET — `assetsFor`'s own `exists` is the precedent two thousand
+ * lines up, and the question is existence rather than bytes.
+ *
+ * THREE ANSWERS, AND EVERY WAY OF NOT KNOWING IS THE THIRD: no bucket binding,
+ * no `head` on it, or a throw. `uploadKeyFor` answering `null` is NOT one of
+ * them and is a real `false` — it means the SERVE route's own shape rule
+ * refuses this url, so no object in any bucket could make it fetch.
+ */
+async function siteUploadExists(env, slug, url) {
+  const key = uploadKeyFor(slug, url);
+  if (key === null) return false;
+  const b = env && env.SITES_BUCKET;
+  if (!b || typeof b.head !== "function") return null;
+  try { return !!(await b.head(key)); } catch { return null; }
 }
 
 // Tell the owner a booking arrived. Detached — the submission already succeeded.
@@ -25453,9 +25479,32 @@ async function handleRequest(request, env, ctx) {
             //
             // HERE, BESIDE `keptImages` AND BEFORE THE PURCHASE, because after
             // it every photograph this change bought is a url the site did not
-            // have and would read as invented. At this moment every such url is
-            // either one the site owns or one the model made up.
-            const aStray = strayPhotos(aPicsBefore, aPicsAfter, ownerSlug);
+            // have and would read as invented.
+            //
+            // ⚠ AND "INVENTED" IS THE UPLOAD STORE'S ANSWER, NOT THE PAGES'
+            // (corrected 2026-09-19). This block read `before` as the definition
+            // of what the site owns, and MEASURED through this route, a valid
+            // upload the owner had not placed on a page yet came back
+            // `<SafeImage src="">` — the platform deleting a customer's own
+            // photograph because nothing had drawn it before. `before` is a
+            // FAST PATH now and nothing more: a url already on a live page is
+            // one the site has been serving, and sweeping it would be this
+            // change removing a picture `keptImages` refuses to let it remove
+            // three lines up. Everything else is asked of `siteUploadExists`,
+            // which answers `null` for cannot-tell — and an unknown is LEFT
+            // STANDING, because an unknown swept is somebody's picture gone.
+            const aNewPics = newImageRefs(aPicsBefore, aPicsAfter, ownerSlug);
+            const aPicCheck = aNewPics.length
+              ? await strayImages(aNewPics, (u) => siteUploadExists(env, ownerSlug, u))
+              : { stray: [], unknown: [] };
+            const aStray = aPicCheck.stray;
+            if (aPicCheck.unknown.length) {
+              // SAID, BECAUSE A SILENT UNKNOWN IS A WALL NOBODY CAN SEE STAND
+              // DOWN: a run that swept nothing because the bucket was
+              // unreadable and a run with nothing to sweep are the same log
+              // line otherwise.
+              aMark("pics", "unknown", { urls: aPicCheck.unknown.length });
+            }
             if (aStray.length) {
               // EACH LIST GETS ITS OWN FILES BACK, never the union sliced apart
               // by length — `applyImages` records why, and this is the same hop.

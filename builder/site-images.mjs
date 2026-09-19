@@ -29,6 +29,10 @@
 
 
 import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
+// THE KEY GRAMMAR IS `site-picture.mjs`' AND IS IMPORTED RATHER THAN RESTATED —
+// see `imageRefs` below. That module imports `site-addon.mjs` and
+// `build-models.mjs`, both of which import nothing, so there is no cycle.
+import { KEY_BEFORE, keyName } from "./site-picture.mjs";
 
 /* ------------------------------------------------------- the clock, not the money */
 
@@ -398,25 +402,130 @@ export function keptImages(before, after, slug) {
  * EACH FILE IS WRITTEN BACK INTO THE LIST IT CAME FROM. `applyImages`' own
  * comment records why: the union is sliced apart by length nowhere, because
  * that is how a fix of this shape silently breaks again.
+ *
+ * ⚠ AND THE FIRST CUT OF IT GOT BOTH HALVES WRONG — corrected 2026-09-19, both
+ * REPRODUCED through the route first.
+ *
+ * Owner: *"'Not referenced in existing source' does not mean 'not owned by this
+ * site.' … Establish asset existence from the site's upload storage when
+ * validation is needed. An unreadable check must remain unknown. Restrict any
+ * image correction to actual image references; never blanket-replace matching
+ * strings in links or other content."*
+ *
+ * (1) OWNERSHIP WAS INFERRED FROM THE PAGES, and a picture the owner uploaded
+ * and has not placed yet is on no page. MEASURED through the route: a valid
+ * upload put on a new gallery came back `<SafeImage src="" …>` — this platform
+ * deleting the customer's own photograph because nothing had drawn it before.
+ * The question "is this the site's" is answered by the UPLOAD STORE, which is
+ * the thing that decides whether `/u/<slug>/<file>` serves bytes; `before` is
+ * kept as a fast path and NOT as the definition, because a url already on a
+ * live page is one the site has been serving, and sweeping it would be this
+ * change removing a picture `keptImages` refuses to let it remove one line up.
+ *
+ * (2) THE CORRECTION WAS A BLANKET STRING REPLACE, so it reached anything
+ * quoting that value. MEASURED: a valid uploaded price list linked as
+ * `<a href="/u/<slug>/menu….pdf" download>` came back `href=""` — a download
+ * button that downloads nothing, from a photograph guard. The rewrite is
+ * restricted to an IMAGE reference now, by `site-picture.mjs`' own key grammar,
+ * so an `href` is not a candidate and cannot be one.
  */
-export function strayPhotos(before, after, slug) {
-  const had = new Set();
-  for (const p of Array.isArray(before) ? before : []) {
-    for (const u of photoUrls(p && p.source, slug)) had.add(u);
+/**
+ * THE ONE DEFINITION OF AN IMAGE REFERENCE, read by the finder AND the
+ * corrector — a `src` as a JSX attribute (`src="…"`) or as an object key
+ * (`src: "…"`, `"src": "…"`), which is the kit's own naming in both places:
+ * `Gallery` and `MediaGrid` declare `items: { src?, alt?, caption? }` and every
+ * `<SafeImage>` takes `src`. `href` is neither, which is the correction.
+ *
+ * THE GRAMMAR IS IMPORTED, NEVER RESTATED. `KEY_BEFORE` is what stops `dataSrc`
+ * and `image_src` matching the `src` inside them, and `keyName` is what admits
+ * the quoted key — both already measured over the corpus where they live.
+ */
+const imgRefRe = () => new RegExp(
+  "(" + KEY_BEFORE + keyName("src") + "\\s*[:=]\\s*)([\"'])(\\/u\\/[^\"']+)\\3", "g");
+
+export function imageRefs(source, slug) {
+  const out = new Set();
+  if (typeof source !== "string" || !slug) return out;
+  const mark = sitePhotoUrl(slug);
+  for (const m of source.matchAll(imgRefRe())) {
+    if (m[4].toLowerCase().startsWith(mark)) out.add(m[4]);
   }
-  const stray = new Set();
-  for (const p of Array.isArray(after) ? after : []) {
-    for (const u of photoUrls(p && p.source, slug)) if (!had.has(u)) stray.add(u);
-  }
-  return [...stray].sort();
+  return out;
 }
 
 /**
- * Empty every `src` in `files` that is one of `stray`, and say which files moved.
+ * `/u/<slug>/<file>` → the R2 key it is served from, or `null` when it is not a
+ * url this platform could serve at all.
+ *
+ * THE SHAPE IS THE SERVE ROUTE'S OWN, character for character, because the
+ * question being asked is *"does this url fetch bytes"* — and a url whose shape
+ * the serve route refuses answers 404 whatever is in the bucket, so there is no
+ * object that could make it true. The slug folds case (it is lowercased at every
+ * door) and the FILE does not: the rest of the path is an R2 key, where a
+ * re-cased hash is a different object.
+ */
+export function uploadKeyFor(slug, url) {
+  const m = String(url == null ? "" : url).match(/^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/);
+  if (!m) return null;
+  if (m[1].toLowerCase() !== String(slug == null ? "" : slug).toLowerCase()) return null;
+  return "uploads/" + m[1].toLowerCase() + "/" + m[2];
+}
+
+/**
+ * THE CANDIDATES — image references in `after` that were not in `before`, which
+ * is every url this change could have invented and no url it inherited.
+ */
+export function newImageRefs(before, after, slug) {
+  const had = new Set();
+  for (const p of Array.isArray(before) ? before : []) {
+    for (const u of imageRefs(p && p.source, slug)) had.add(u);
+  }
+  const fresh = new Set();
+  for (const p of Array.isArray(after) ? after : []) {
+    for (const u of imageRefs(p && p.source, slug)) if (!had.has(u)) fresh.add(u);
+  }
+  return [...fresh].sort();
+}
+
+/**
+ * WHICH OF THOSE THE UPLOAD STORE SAYS ARE NOT THERE — and which it could not
+ * answer for.
+ *
+ * `exists` ANSWERS THREE THINGS AND ONLY `false` SWEEPS. `true` is an asset the
+ * site really holds; `false` is one it demonstrably does not; anything else —
+ * a throw, a missing binding, a shape this reader does not recognise — is
+ * `unknown` and the src is LEFT ALONE. Owner: *"An unreadable check must remain
+ * unknown."* The direction is the cheap one either way round: an unknown left
+ * standing is at worst a broken image on a page, where an unknown swept is the
+ * customer's own photograph deleted by a guard.
+ *
+ * STRICTLY `=== true` / `=== false`, because a reader that answered `undefined`
+ * for "I did not look" would otherwise be indistinguishable from one that
+ * looked and found nothing — this repository's own most-repeated defect, in the
+ * branch where being wrong costs somebody a picture.
+ */
+export async function strayImages(urls, exists) {
+  const stray = [], unknown = [];
+  for (const u of Array.isArray(urls) ? urls : []) {
+    if (typeof u !== "string" || !u) continue;
+    let answer = null;
+    try { answer = typeof exists === "function" ? await exists(u) : null; } catch { answer = null; }
+    if (answer === true) continue;
+    if (answer === false) stray.push(u); else unknown.push(u);
+  }
+  return { stray: stray.sort(), unknown: unknown.sort() };
+}
+
+/**
+ * Empty the `src` of every IMAGE reference in `files` naming one of `stray`,
+ * and say which files moved.
+ *
+ * THE KEY, THE SEPARATOR AND THE QUOTE ARE ALL KEPT — only the value between
+ * the quotes goes — so `src: '…'` stays an object key and `src="…"` stays an
+ * attribute, and nothing that is not a `src` is looked at at all.
  *
  * THE VALUE IS MATCHED WHOLE, between its own quotes, which is what keeps a url
- * that is a PREFIX of another from taking its sibling with it — the same reason
- * `photoUrls` captures the quoted span rather than scanning for `/u/`.
+ * that is a PREFIX of another from taking its sibling with it.
  */
 export function dropStrayPhotos(files, stray) {
   const drop = new Set((Array.isArray(stray) ? stray : []).filter((u) => typeof u === "string" && u));
@@ -424,11 +533,12 @@ export function dropStrayPhotos(files, stray) {
   const dropped = [];
   const out = files.map((f) => {
     if (!f || typeof f.source !== "string") return f;
-    let src = f.source, hit = false;
-    for (const u of drop) {
-      const next = src.split('"' + u + '"').join('""').split("'" + u + "'").join("''");
-      if (next !== src) { src = next; hit = true; }
-    }
+    let hit = false;
+    const src = f.source.replace(imgRefRe(), (whole, lead, _before, quote, url) => {
+      if (!drop.has(url)) return whole;
+      hit = true;
+      return lead + quote + quote;
+    });
     if (!hit) return f;
     dropped.push(String(f.path || ""));
     return { ...f, source: src };
