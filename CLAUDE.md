@@ -11295,6 +11295,198 @@ rather than assumed**: no `FAL*` name exists in this environment at all, so
 nothing here can read that balance or spend it — the parked status is
 structural, and the balance is the owner's read.
 
+### …AND THREE BOUNDED CORRECTIONS TO IT (2026-09-19)
+
+Owner: *"Fix credential reporting per connection… Align the tool's returns
+schema with the shapes the cleaner supports… Join the acceptance path."* Each
+was reproduced through the real route before anything was touched, and each was
+red-checked ALONE against the pre-change product afterwards.
+
+**1. "NEEDS NO KEY" WAS SAYING "IS ANSWERING ALREADY", AND A MIXED REQUEST GOT
+BOTH CONNECTIONS WRONG.** `credentialNote` took a FLAT list of every
+`{{SECRET}}` the whole change needed, and that one list answers *does this
+CHANGE need a key* — a different question from *does THIS connection need one*
+the moment a request carries both kinds. Both reproduced:
+
+| the request | what the owner was told |
+|---|---|
+| one keyless connection | *"That connection needs no key, so it is answering already."* |
+| one keyed + one keyless carrying misleading metadata | *"The key for tides comes from TideWatch at …"* — sign up for a key nothing will use |
+
+**THE SECOND SENTENCE IS THE WORSE ONE AND THE FIRST IS THE WRONGER CLAIM.**
+This platform had not called that service, does not know the url resolves, and
+has no business saying it works — a declared connection is a stored
+declaration, and whether it answers is closed by a real call and by nothing
+here. What the platform DOES know is what the owner has left to do, which is
+nothing: *"tides needs no key, so there is nothing to paste for it."*
+
+- **ASKED PER CONNECTION, OF ITS OWN DECLARATION.** `secretsNeeded` is the same
+  reader `fill` refuses a missing key with, so what the owner is told and what
+  the request really needs cannot disagree — and **misleading metadata on a
+  keyless connection is ignored rather than believed**, which is the whole of
+  "support connections needing no key" enforced rather than promised.
+- **THE READER MOVED RATHER THAN FORKED.** `secretsNeeded` and `SECRET_RE` now
+  live in `site-api-shape.mjs` — a fact about what a connection SAYS, which is
+  that module's subject — and `site-apis.mjs` RE-EXPORTS it, so every caller
+  keeps the name it has always imported and a guard asserts the two are the
+  same function by identity. A second copy of the pattern is how a connection
+  gets told it needs no key while the call refuses for a missing one.
+- **A KEY WITH NO PROVENANCE IS STILL SILENT**, because the reply already names
+  the secret and says where to paste it. Both halves capped at
+  `MAX_CREDENTIAL_SAID` (3), so one reply is a sentence and not a page.
+
+**2. THE TOOL SAID OBJECT-ONLY WHILE THE CLEANER WALKED A LIST — AND A LEAF.**
+`API_ITEM.returns` declared `type: "object"`; `cleanShape` accepted a top-level
+ARRAY, which is what most list endpoints send, and a bare leaf string. Two
+copies of one rule, drifted, and a model obeying the schema had no way to
+describe a list answer at all.
+
+- **`SHAPE_TOP` IS THE ONE DEFINITION and the tool's type is DERIVED from it**,
+  so neither end can be widened without the other. The guard is a CENSUS over
+  six probes asking BOTH ends of each — an object, a top-level list, an empty
+  list, a leaf name, a number, a boolean — with the observer proved alive in
+  both directions, because a rule admitting everything and a rule admitting
+  nothing both satisfy a loop that only ever agrees.
+- **A BARE LEAF IS OUT ON PURPOSE rather than by omission** (`shape-top`, its
+  own refusal name): `returns: "a list of exchange rates"` is what a model
+  writes when it reaches for prose, and a `type` admitting a string is an
+  invitation to write it. Nested leaves are untouched — that is what a sketch
+  IS.
+- **`builder/site-table.mjs` GAINED ITS FIRST IMPORT** and the file is still a
+  leaf, because `site-api-shape.mjs` imports nothing. `SHAPE_TOP.slice()` goes
+  on the wire, never the frozen constant itself.
+- **⚠ A TYPE UNION IS CORE JSON SCHEMA AND NOTHING HERE HAS PUT ONE IN FRONT OF
+  THE REAL API.** `"type": ["object","array"]` is draft-4-onward standard and
+  the tool schema is JSON Schema, so this is expected to be accepted — but the
+  only instrument that could settle it is a live model call, which this session
+  may not make. **It is the first type union in any tool in this repository**
+  (measured: zero `type: [` anywhere in `builder/`, `site-*.mjs` or
+  `worker.js` before today), so a first paid call after this merges is what
+  confirms it, and the blast radius if it is refused is the whole `add_to_site`
+  tool for the four backend tiers. Worth reading that log line rather than
+  assuming.
+- **THE LIST RESPONSE IS FOLLOWED TO ALL FOUR PLACES** in one route case — the
+  TOOL the designer really received, the store, the readback through `apiFor`,
+  and the page prompt's `useApi<{ time: string; height: number }[]>("tides", …)`.
+- **⚠ AND THE FIXTURE HAD TO GAIN THE TOOL'S SCHEMA, not only its key set.**
+  `itemProps` says which properties a designer may answer; what each may
+  CONTAIN was unreadable — so a case driving a top-level list all the way to the
+  store passed against a tool whose `returns` was object-only, which is the
+  drift being corrected. `itemSchema` rides beside it out of the same walk.
+
+**3. THE ACCEPTANCE PATH IS JOINED, and the join is the point.** The tier had
+three claims, each proved somewhere else and none of them proving the next: the
+declared shape reaches the writer (the prompt case), a page written against it
+renders (the standalone render, with `@/lib/rows` stubbed), and the public route
+serves the connection (the serving cases). A page can satisfy all three and
+still draw nothing, because between the page and the service sit **two hops
+nothing had ever run together** — the url `useApi` builds from the parameters it
+is given, and what the platform's own route does with them.
+
+So: the page goes through the REAL addon route, the source is read back **out of
+the store**, and that exact string is rendered with the kit's own `useApi`
+against `worker.js`'s own `/api/db/<slug>/api/<name>`. Measured, in one case:
+
+| state | what it draws | what left the platform |
+|---|---|---|
+| known values | `18.5°C, Light rain` and `<li>Sat: 21</li>` | `https://api.test/v1/forecast?c=Leeds&key=real-key` |
+| loading | `Checking the forecast…` | — |
+| missing credentials | the error branch | **nothing** — `fill` refuses first |
+| upstream failure | the error branch | one call, answered 502 |
+
+and the hook's own url is asserted whole: `/api/db/fw-live-ok/api/weather?city=Leeds`.
+
+- **`test/fixtures/site-render.mjs` IS THE HARNESS AND THE ONLY STUB IN IT IS
+  THE SERVICE.** Supabase, Neon and `@tanstack/react-router`'s `createFileRoute`
+  are named as stubs in the file's own header rather than glossed; the component
+  is taken from `Route.options.component`, which is where the real router takes
+  it from, so the page needs no test-only export.
+- **`@tanstack/react-query` IS A ROOT devDependency NOW**, beside `react`,
+  `react-dom` and `react-hook-form` — the kit dependencies the render guards
+  already need. A guard that never runs in CI proves nothing there, and this one
+  is the acceptance.
+- **TWO RENDERS, AND THE FIRST IS NOT A FORMALITY**: `renderToStaticMarkup` runs
+  no effects, so the hook's own pending state IS the loading branch — taken from
+  the product rather than from a stub answering `{isLoading: true}`. Between them
+  every query the render REGISTERED is fetched through its own `queryFn`.
+- **⚠ TWO HARNESS SETTINGS, BOTH DECLARED AS SETTINGS.** `retry: false` (a real
+  site takes TanStack's default of three, which is recorded measured behaviour
+  and a delay a test has no reason to sit through) and `retryOnMount: false` —
+  **MEASURED, and without it the error state is unreachable**: a fresh observer
+  over an errored query presents OPTIMISTICALLY as pending, because a real client
+  would refetch on mount, so the second render draws the loading branch for ever
+  with `status: "error"` and `isLoading: true`. That is react-query's own SSR
+  behaviour and not the page's. **A SUCCESS is surfaced with neither setting**,
+  so the known-values case owes nothing to either.
+- **`import.meta` IS THE ONE SUBSTITUTION** and it is Node's limitation: TS emits
+  it verbatim under CommonJS, which is a SyntaxError outside a module. It is
+  `siteSlug()`'s LAST fallback, reached only when neither the `/s/<slug>` path nor
+  the meta tag answers — and the render supplies the path, exactly as the
+  platform's own serving does. Asserted afterwards that none survives, so a
+  second one added to `rows.ts` cannot slip through unhandled.
+- **ONE PLATFORM STUB, SHARED.** `api-shape`'s `serve()` was folded onto
+  `platformFetch`, so the serving cases and the render cannot disagree about what
+  a site's own row looks like.
+
+**Guards**: `api-shape` **10 → 11** (the root-rule census; the credential case
+was REWRITTEN rather than added to, onto the per-connection property),
+`addon-route` **142 → 144** (the mixed keyed/keyless request with the list
+response followed through all four places, and the joined acceptance). **Each
+correction red-checked alone**: correction 1 turns **3** cases red, the tool's
+type **2**, the root rule **1**, and every other case passes on both trees.
+
+**⚠ AND THE OLD CREDENTIAL FIXTURE WAS THE REASON THE DEFECT WAS INVISIBLE.** It
+was `{name, credential}` with **no url at all**, so it needed no key by accident
+— a fixture less capable than the thing it stood for, in the one field the whole
+derivation reads. The replacement is a real declaration, and a header-borne and
+a body-borne secret are driven beside it, because `fill` refuses on all three.
+
+**SIX SWEEP SURVIVORS FROM THE PREVIOUS PASS CLOSED, and four of them are one
+finding.** The addon DIRECTIVE and the page CATALOGUE both print
+`apiDetailLines`, so a bare match on the line's words is satisfied by either —
+which is how a mutant that emptied one of them survived with the case green.
+**The INDENT is the discriminator**: the directive bullets at two spaces and the
+catalogue at six, and both are now asserted, as are the two three-states
+sentences (each composer has its own). The other two: a padded parameter name is
+asserted DROPPED rather than repaired (trimming re-keys a stored connection's
+cache), and the addon's credential refusal gained a route case — an http sign-up
+link is refused 422, stores nothing and costs 0, where the engine merely drops
+it.
+
+**Sweep: 45 product mutants, 2 comment-only controls**
+(`scripts/mutants/api-shape.json`, over `site-api-shape.mjs`, `site-apis.mjs`,
+`builder/site-table.mjs`, `builder/site-add.mjs`, `worker.js`, `public/chat.js`,
+`site-schema.mjs` and the kit's own `rows.ts`, against 13 test files — a narrow
+list can only produce a false SURVIVOR, never a false kill). **Every anchor was
+checked to occur exactly once before the run.** Two of the mutants are the kit
+hook's own url — the parameters dropped from it, and a different site addressed
+— and **only the joined acceptance can kill either**, which is what makes that
+case load-bearing rather than a demonstration.
+
+**Suite 6,901**, measured; the branch tip measured **6,898** in a detached
+worktree and 6,898 + 3 closes exactly (api-shape +1, addon-route +2). A worktree
+run reads one FAIL and two SKIPs a repo-root run does not — `render-sandbox`'s
+privilege-drop case is about writing outside the repository root, the recorded
+environment case — so the TOTAL is what carries across.
+
+**AND THE BASELINE IS CONFIRMED TWICE, WHICH IS WHY THE ARITHMETIC IS WORTH
+ANYTHING.** `unit tests` run **2766** on the tip `77ef4647` read
+`# tests 6898 / # pass 6894 / # fail 0 / # skipped 4` — the same 6,898 the
+worktree measured, from a machine that shares none of this one's state. The four
+are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case. And `site build` run **1202** is green on that sha, all
+twenty steps (the API answers 23; three are GitHub's own): `site-build.mjs`
+**382 passed / 0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam
+11, theme-render 29, site-routing 14, site-runtime 47 beside it and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` — the three result SHAPES a
+census has to ask for. Every count read out of the run's **per-step log files**,
+which attribute by construction. **The unit step's TAP is `# pass 396 /
+# fail 0`, unchanged**, which is correct for a round adding no `page-gen` or
+`publish-pages` case.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, `checked` STILL EMPTY, fal
+verification still parked.**
+
 ---
 
 ## Data, auth, payments, mail

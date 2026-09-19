@@ -14042,3 +14042,67 @@ that is only true of connections that have one.
 Nothing merged, nothing deployed, nothing spent. Fal is still parked and I
 checked rather than assumed: there is no fal key in this session at all, so
 nothing here can read that balance or spend against it.
+
+## Three corrections to the connection work — 2026-09-19
+
+You named three and all three were real. Each one I reproduced first, so the
+record says what it did rather than what I meant it to do.
+
+**1. What I told you about keys was wrong in two different ways.** The sentence
+was worked out from *every* key the whole change needed, lumped together, rather
+than from each connection on its own — and that goes wrong the moment one
+request adds two connections.
+
+- A connection needing **no key** got *"That connection needs no key, so it is
+  answering already."* I have never called that service. I do not know the
+  address resolves or that it answers anything at all. It now says *"tides needs
+  no key, so there is nothing to paste for it"* — which is about what YOU have
+  left to do, and is something I actually know.
+- A **keyless connection beside a keyed one** got the keyed one's sign-up
+  instruction, so you would have been sent off to get a key nothing was ever
+  going to use. Each connection is now asked about itself, using the same reader
+  that refuses the call when a key really is missing — so what you are told and
+  what the request needs cannot disagree, and a service description the model
+  got wrong is ignored rather than believed.
+
+**2. The form could not describe a list.** Most "give me the latest X" services
+answer with a plain list, and the form I hand the designer said the answer had
+to be an object — while the code underneath accepted a list perfectly happily.
+Two descriptions of one rule that had drifted apart. There is one rule now and
+the form is built from it, so neither can move without the other. A list answer
+is followed all the way through: the form offers it, the site stores it, it is
+read back, and the page writer is handed
+`useApi<{ time: string; height: number }[]>("tides", { port })` instead of
+guessing.
+
+**3. The proof now runs end to end instead of in three separate halves.** Before
+this, three things were each proved on their own: the shape reaches the page
+writer, a page written against it renders, and the site's own address serves the
+connection. A page can pass all three and still show nothing, because between
+the page and the service there are two steps nothing had ever run together.
+
+So now one page goes through the real "add" request, I read the page back **out
+of the site's own store**, and that exact file is rendered using the site kit's
+real data hook against the platform's real address — with only the outside
+service faked. What it draws:
+
+| | |
+|---|---|
+| the service answers | `18.5°C, Light rain`, `Sat: 21` |
+| still waiting | "Checking the forecast…" |
+| key not in the vault yet | the error message — and **no call goes out at all** |
+| the service is down | the error message |
+
+**What is still not proved** is the same thing as before and I am not going to
+blur it: that the service you name really sends the shape that was declared.
+That needs one real call to that service, and it is your decision.
+
+**One thing to watch on the first paid run after this merges.** Widening the
+form to allow a list meant writing the field as "an object or a list", which is
+ordinary and standard — but it is the first time any form in this project has
+used that construction, and the only way to know the model provider accepts it
+is to send one. If it were refused, the whole "add a table / function /
+connection / job" form would fail, so it is worth glancing at that run rather
+than assuming. Everything else in this round is checked locally.
+
+Nothing merged, nothing deployed, nothing spent. Fal is still parked.
