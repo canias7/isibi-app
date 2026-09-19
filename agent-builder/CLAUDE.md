@@ -7104,3 +7104,35 @@ round touches `test/integration/pg-schema.mjs` — which that glob does not matc
 is the same number for the same reason it was before, and nothing since `c22d067` touches a
 migration, a product source file, or anything the site's suite reads (`git diff --name-only`
 over those paths is empty), so the site's 6,831 stands on its own CI read.
+
+**AND THE MUTANT DIES AT HEAD: 1 mutant, 1 killed, 0 survived, 0 never applied, 1 comment-only
+control survived** — a narrow pass on a real PostgreSQL in a detached worktree at `4c5c488`,
+against the two checks the full sweep runs, proved restored two ways afterwards (a clean
+`git status` and the generator's own anchor census green over all 280 entries, which it cannot
+be while a mutant is applied). **No spec change was needed**: the mutant already existed — being
+the survivor — so what moved is the check.
+
+**AND CI HAS READ THE SITE SIDE TOO: `unit tests` run 2761 on `4c5c488`, green** —
+`# tests 6831 / # pass 6827 / # fail 0 / # skipped 4`, **identical to the reading at `c22d067`**,
+which is the control that says nothing moved on that side.
+
+### ⚠ THE FULL SWEEP'S COVERAGE, DERIVED RATHER THAN ASSUMED — it cannot see three of HEAD's entries
+
+*Saying which commit a tally covers is the difference between a measurement and a stamp*, so the
+gap is measured instead of described. Both spec generators were run from clean checkouts and
+their LABEL SETS diffed: **`e7a5502` emits 278 entries and HEAD emits 280**, and the difference
+is not two additions but **three additions and one removal** —
+
+| | entry |
+|---|---|
+| **+** | `⚠ SQL/resume: A FINISHED EXECUTION MAY ALSO BE WAITING, so the scheduler re-offers it for ever` |
+| **+** | `SQL/approvals: every account can read every approval request` |
+| **+** | `⚠ SQL/revocation: A FINISHED RUN IS WITHDRAWN AND PUT BACK ON THE QUEUE FOR EVER` |
+| **−** | `SQL/resume: a FINISHED execution is put back on the queue` (the inert clause, REPLACED) |
+
+278 − 1 + 3 = 280, and the arithmetic closes. **FOUR of the sweep's own inputs moved** between
+that commit and this head, measured per path: `sql-sweep-spec.mjs`, `test/integration/pg-schema.mjs`,
+and two migrations — `20260917120000` (a declaration only) and `20260918030000`, which gained a
+REAL product fix, M12's `revoke_agent_tool` not-stopped test. So whatever the full run answers is
+an answer about `e7a5502` and says nothing about any of those three; they are evidenced by their
+own passes instead, which is why those passes exist.
