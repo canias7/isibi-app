@@ -7277,3 +7277,20 @@ table is a comparison and not a fresh claim:
 wordings (`all checks passed`, `PASSED — 0 failed`, `ALL CHECKS PASSED`) and one exits silently,
 so a reader looking for a single phrase goes quiet about a green run — measured once already in
 this directory. The count of `FAIL` lines is the property, and it is **0 in all eleven**.
+
+### The six are proved dead at HEAD
+
+**6 mutants, 6 killed, 0 survived, 0 never applied, 2 comment-only controls survived** — one pass
+over exactly this round's six entries, on a real PostgreSQL, in a detached worktree at `012720f`,
+against the two checks the full run drives, with the spec **generated from that worktree** so no
+mutant could land in the main tree. Proved restored two ways afterwards: a clean `git status` and
+the generator's own anchor census green over all 280 entries, which it cannot be while a mutant is
+applied.
+
+**Two controls, deliberately.** A pass whose control has not been reached is a pass with no
+control, and the runner's `CONTROL WAS KILLED` branch is armed only for an entry declared
+`control: true` rather than merely labelled one — this repository's own recorded trap.
+
+**A narrow list can only produce a false SURVIVOR, never a false kill**, so the next full run still
+decides; what this establishes is that each of the six checks written for those mutants really does
+go red, which a green run on its own cannot say.
