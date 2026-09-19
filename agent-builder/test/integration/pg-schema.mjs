@@ -2854,6 +2854,62 @@ try {
       'ab000000-0000-0000-0000-000000000005','manual',null,'{"lines":["a"]}'::jsonb)::text;`);
   check("THE CONTROL: one thing in it is an answer", /"ok"\s*:\s*true/.test(tyOneReq), tyOneReq);
 
+  // ⚠ **A NON-EMPTY DEFAULT WAS NEVER DRIVEN, and a sweep survivor is what said so.** Both
+  // declarations above set `"default":""`, so the line that reads one
+  // (`v_json := to_jsonb(coalesce(v_d ->> 'default', ''))`) had no case anywhere: a mutant
+  // that ignored the default entirely would have passed this file. Four properties, two
+  // calls, and the fourth is the one the survivor was really about.
+  allowed("an automation whose text input has a real default and whose list has one too",
+    `update agent.automations set inputs = '[
+       {"name":"topic","label":"Topic","required":true,"default":"boilers","type":"text"},
+       {"name":"lines","label":"Lines","required":false,"default":"a,b","type":"list"}]'::jsonb
+     where id='${AU2}';`, asOwner);
+  const R_DFLT = "ab000000-0000-0000-0000-000000000006";
+  const tyDflt = jget(`select agent.accept_automation_run('t1','${AU2}','${R_DFLT}','manual',null,
+      '{}'::jsonb)::text;`);
+  // A DEFAULT SATISFIES `required`, because whether something is blank is asked AFTER the
+  // fill. Without this, an automation with a default could never run unanswered — which is
+  // the whole point of having one.
+  check("an unanswered REQUIRED text input is accepted when it has a default",
+    /"ok"\s*:\s*true/.test(tyDflt), tyDflt);
+  check("...and the default is what the run carries",
+    jget(`select vars->>'topic' from agent.automation_runs where id='${R_DFLT}';`) === "boilers");
+  // ⚠ AND A LIST NEVER REACHES ITS DEFAULT: the empty-list arm comes first, so a default on
+  // a list input is unreachable by construction. THAT is why the declaration's default is
+  // read as TEXT and never as raw JSON — a `"a,b"` read as a list would be exactly the
+  // coercion the kind loop refuses, and no door can even store a non-text default
+  // (`typeof d.default === "string" ? d.default : ""`, in the site's `cleanWorkflow` and the
+  // engine's `readInputs` alike).
+  check("...and a list ignores its own default, which is the empty list either way",
+    jget(`select (vars->'lines')::text from agent.automation_runs where id='${R_DFLT}';`) === "[]");
+  const R_ANS = "ab000000-0000-0000-0000-000000000007";
+  const tyAns = jget(`select agent.accept_automation_run('t1','${AU2}','${R_ANS}','manual',null,
+      '{"topic":"radiators"}'::jsonb)::text;`);
+  check("THE CONTROL: an answer beats the default", /"ok"\s*:\s*true/.test(tyAns)
+    && jget(`select vars->>'topic' from agent.automation_runs where id='${R_ANS}';`) === "radiators", tyAns);
+
+  // ⚠ **AND `0` IS A REAL ANSWER, which nothing drove either.** The block above answers a
+  // number with `2` against an input that is NOT required, so whether a number counts as
+  // answered could not be observed: the run is accepted either way. `0` against a REQUIRED
+  // number is the one shape that separates them, and it is this repository's own recorded
+  // falsy-zero defect asked of a form (`Number("")` is `0`, and `0` is not nothing).
+  allowed("an automation whose number has to be answered",
+    `update agent.automations set inputs = '[
+       {"name":"count","label":"How many","required":true,"default":"","type":"number"}]'::jsonb
+     where id='${AU2}';`, asOwner);
+  const R_ZERO = "ab000000-0000-0000-0000-000000000008";
+  const tyZero = jget(`select agent.accept_automation_run('t1','${AU2}','${R_ZERO}','manual',null,
+      '{"count":0}'::jsonb)::text;`);
+  check("⚠ a required number answered with ZERO is answered", /"ok"\s*:\s*true/.test(tyZero), tyZero);
+  check("...and the run carries the zero rather than a blank",
+    jget(`select (vars->'count')::text from agent.automation_runs where id='${R_ZERO}';`) === "0");
+  // THE CONTROL, without which "zero is accepted" could be true because the input was never
+  // required at all: the same declaration, left unanswered, is refused BY NAME.
+  const tyNoNum = jget(`select agent.accept_automation_run('t1','${AU2}',
+      'ab000000-0000-0000-0000-000000000009','manual',null,'{}'::jsonb)::text;`);
+  check("THE CONTROL: the same number left out is refused",
+    /"error"\s*:\s*"missing-input"/.test(tyNoNum) && tyNoNum.includes("count"), tyNoNum);
+
 
   // ══════════════════════════════════════════════════════════════════════════
   console.log("\n── the capability operations: what a person's screen and their agent BOTH run ──");

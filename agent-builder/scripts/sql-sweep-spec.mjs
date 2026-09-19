@@ -865,9 +865,27 @@ const spec = [
   mAcceptAuto("⚠ SQL/accept: an unanswered LIST is a blank string, so a loop over it fails",
     "      elsif v_want = 'list' then\n        v_json := '[]'::jsonb;",
     "      elsif false then\n        v_json := '[]'::jsonb;"),
-  mAcceptAuto("⚠ SQL/accept: a DEFAULT fills a list, which is a coercion the form cannot produce",
+  // ⚠ **THE MUTANT THAT USED TO SIT HERE WAS INERT, MEASURED RATHER THAN ARGUED.** It read
+  // the declaration's default as raw JSON (`v_d -> 'default'`) instead of as text
+  // (`->>`), which its label called "a coercion the form cannot produce" — an argument.
+  // The measurement, on a real PostgreSQL 16 over every shape a default can take: the two
+  // expressions are IDENTICAL for a string default (`"a,b"` both ways) and for an absent
+  // one (`""` both ways), and differ only for an array (`"[\"a\", \"b\"]"` against
+  // `["a","b"]`), a number (`"7"` against `7`) and a JSON `null` (`""` against `null`).
+  // Neither door can store any of those three: `typeof d.default === "string" ? d.default
+  // : ""` is the coercion in the site's `cleanWorkflow` AND in the engine's `readInputs`.
+  // So it could not change an answer for any declaration the platform can hold, and its
+  // survival said nothing about the database check.
+  //
+  // REPLACED BY THE OBSERVABLE HALF OF THE SAME LINE — the default being read at all —
+  // which had no case anywhere: both driven declarations set `"default":""`, so ignoring
+  // the default entirely was invisible. `''::text` and not `''`, because the untyped
+  // literal makes the function ERROR and a mutant that breaks a function is killed for
+  // the wrong reason (measured: 6 assertions red, three of them pre-existing, against
+  // exactly 3 for the typed one).
+  mAcceptAuto("⚠ SQL/accept: the declaration's DEFAULT is ignored, so an unanswered input is blank",
     "        v_json := to_jsonb(coalesce(v_d ->> 'default', ''));",
-    "        v_json := coalesce(to_jsonb(v_d -> 'default'), to_jsonb(coalesce(v_d ->> 'default', '')));"),
+    "        v_json := to_jsonb(''::text);"),
   mAcceptAuto("⚠ SQL/accept: an EMPTY list counts as an answer, so a required one is never asked for",
     "        when jsonb_typeof(v_json) = 'array'  then jsonb_array_length(v_json) = 0",
     "        when jsonb_typeof(v_json) = 'array'  then false"),
