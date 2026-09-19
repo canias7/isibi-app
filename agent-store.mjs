@@ -955,7 +955,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     async listAutomations(tenant, agentId) {
       const r = await req("GET",
         `automations?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +
-        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,next_run_at,updated_at` +
+        `&select=${AUTOMATION_COLUMNS.join(",")}` +
         `&order=updated_at.desc&limit=${MAX_AUTOMATIONS}`);
       if (!r.ok) throw storeFail("list automations", r);
       return rows(r).map(automationRow);
@@ -983,7 +983,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     async readAutomation(tenant, id) {
       const r = await req("GET",
         `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}` +
-        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,inputs,next_run_at,created_at,updated_at&limit=1`);
+        `&select=${AUTOMATION_COLUMNS.join(",")}&limit=1`);
       if (!r.ok) throw storeFail("read automation", r);
       return rows(r).length === 1 ? automationRow(rows(r)[0]) : null;
     },
@@ -2920,6 +2920,27 @@ export function cleanSchedule(b) {
   // SECONDS ARE OURS, NOT THE CALLER'S. The screen offers a time, not a stopwatch.
   return when;
 }
+
+/**
+ * ⚠ **EVERY COLUMN `automationRow` READS, AND THE `&select=` OF EVERY READ IT MAPS.**
+ *
+ * PostgREST sends only the columns a request NAMES, and `automationRow` fails closed on
+ * every field it cannot read — so a column missing from a select list is not an error
+ * anywhere: it is a weekly automation showing no days, a one-off with no date, an event
+ * trigger listening for nothing, and declared inputs absent from the screen's own list.
+ * **MEASURED before this constant existed**: the list named ten of the fourteen, so
+ * `agentAutoRunPress` read `inputs: []` and started an automation that asks for answers
+ * with none of them, and the edit form seeded `inputs: []` over a full replace.
+ *
+ * It is ONE list because two were two copies of one thing that had already drifted apart
+ * from each other and from the reader. `test/agent-automations.test.mjs` derives the set
+ * from `automationRow` ITSELF — driving it through a recording proxy, never a scan of its
+ * source — so a field added to that function next month fails by existing.
+ */
+export const AUTOMATION_COLUMNS = Object.freeze([
+  "id", "agent_id", "name", "enabled", "schedule", "at_local", "zone",
+  "days", "on_date", "on_event", "steps", "inputs", "next_run_at", "updated_at",
+]);
 
 /**
  * One automation, as the browser reads it.

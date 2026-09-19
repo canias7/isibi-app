@@ -20,6 +20,7 @@
     "verify:connections": "node scripts/verify-connections.mjs",
     "verify:triggers": "node scripts/verify-triggers.mjs",
     "verify:send": "node scripts/verify-automation-send.mjs",
-    "verify:integration": "node scripts/verify-integration.mjs"
+    "verify:integration": "node scripts/verify-integration.mjs",
+    "verify:conversation": "node scripts/verify-conversation.mjs"
   }
 }

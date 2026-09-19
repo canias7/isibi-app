@@ -17,6 +17,7 @@ import {
   AUTOMATION_STEPS, AUTOMATION_STEP_TYPES, AUTOMATION_DAYS, AUTOMATION_SCHEDULES,
   AUTOMATION_STEP_KINDS, AUTOMATION_FIELD_KINDS,
   AUTOMATION_STATES, MAX_AUTOMATIONS, MAX_AUTOMATION_STEPS, MAX_STEP_NOTE, MAX_EXECUTIONS,
+  AUTOMATION_COLUMNS,
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   // ── the workflow half: references, branches and what a run is asked for ────
@@ -279,8 +280,12 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   await store.runAutomation(T1, { automationId: C1, runId: R1 });
   await store.executions(T1, C1);
   await store.removeAutomation(T1, C1);
-  const AUTOMATION_OPS = ["listAutomations", "ownsAutomation", "createAutomation", "updateAutomation",
-    "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
+  // ⚠ `readAutomation` WAS NOT ON THIS LIST, in a census whose own comment says an
+  // operation added next month fails by existing. It is the read the run route asks for
+  // what an automation wants, so it was the one operation of the nine nothing here drove.
+  await store.readAutomation(T1, C1);
+  const AUTOMATION_OPS = ["listAutomations", "readAutomation", "ownsAutomation", "createAutomation",
+    "updateAutomation", "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
   for (const op of AUTOMATION_OPS) {
     assert.equal(typeof store[op], "function", `the store has no ${op}`);
   }
@@ -317,6 +322,64 @@ test("the store hands the ceiling to the transaction, and profiles every write",
     // for a transaction. That is the wall: `service_role` bypasses row level security.
     assert.ok(r.url.includes(`tenant_id=eq.${T1}`) || r.body?.p_tenant === T1, `${r.method} ${r.url} is unscoped`);
   }
+});
+
+test("⚠ EVERY COLUMN `automationRow` READS IS NAMED ON THE WIRE, derived from the reader itself", async () => {
+  // ⚠ **REPRODUCED BEFORE THE FIX: the list named ten of the fourteen.** PostgREST sends
+  // only the columns a request names and `automationRow` fails closed on every field it
+  // cannot read, so `days`, `on_date`, `on_event` and `inputs` came back absent and read as
+  // "no days", "not on a date", "not on an event" and "asks for nothing" — no error
+  // anywhere, on a row that really held all four. What it cost through the existing
+  // screen: `agentAutoRunPress` reads `row.inputs`, so an automation that asks for
+  // answers started with none of them, and the edit form seeded `inputs: []` into a
+  // route that replaces the whole automation.
+  //
+  // **THE SET IS DERIVED FROM `automationRow` ITSELF, never from a scan of its source.**
+  // Every read it makes is `r?.<column>`, so a proxy that records what it is asked for
+  // answers the question exactly — and a field added to that function next month fails
+  // here by existing rather than by being remembered.
+  const touched = new Set();
+  automationRow(new Proxy({}, {
+    get(_t, k) { if (typeof k === "string") touched.add(k); return undefined; },
+  }));
+  assert.ok(touched.size >= 14, `the proxy recorded only ${touched.size} columns — it is not reading the row`);
+
+  const seen = [];
+  const store = makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async (url, init) => {
+      seen.push({ url: String(url), method: (init && init.method) || "GET" });
+      return { ok: true, status: 200, text: async () => "[]" };
+    },
+  });
+  await store.listAutomations(T1, A1);
+  await store.readAutomation(T1, C1);
+  assert.equal(seen.length, 2);
+
+  // BY NAME AND ON THE WIRE. A count would pass a list of fourteen wrong columns, and
+  // a substring would let `on_date` be satisfied by `on_date_at`.
+  const named = (r) => new Set((new URL(r.url).searchParams.get("select") || "").split(",").filter(Boolean));
+  for (const r of seen) {
+    const cols = named(r);
+    assert.ok(cols.size > 0, `${r.url} names no columns at all`);
+    const missing = [...touched].filter((c) => !cols.has(c)).sort();
+    assert.deepEqual(missing, [], `${r.url} does not name ${JSON.stringify(missing)}, which automationRow reads`);
+    // AND NOTHING SPARE, because a column named and never read is a column somebody
+    // believes is arriving. `readAutomation` asked for `created_at`, which nothing reads.
+    const spare = [...cols].filter((c) => !touched.has(c)).sort();
+    assert.deepEqual(spare, [], `${r.url} names ${JSON.stringify(spare)}, which automationRow never reads`);
+  }
+
+  // THE OBSERVER, without which "nothing is missing" is satisfied by a reader that reads
+  // nothing: the constant and the proxy's answer are the same set, both ways round.
+  assert.deepEqual([...AUTOMATION_COLUMNS].sort(), [...touched].sort(),
+    "the column list and what automationRow reads have come apart");
+  // AND THE CONTROL: a select list that had stopped naming these would not satisfy the
+  // check above. Proved against the spelling the list really carried before the fix.
+  const short = new Set("id,agent_id,name,enabled,schedule,at_local,zone,steps,next_run_at,updated_at".split(","));
+  assert.deepEqual([...touched].filter((c) => !short.has(c)).sort(),
+    ["days", "inputs", "on_date", "on_event"],
+    "the pre-fix select list no longer reads as short — this check has stopped discriminating");
 });
 
 test("⚠ an answer that is not an object is a FAILURE, never a refusal", async () => {
