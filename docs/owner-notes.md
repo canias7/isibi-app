@@ -14469,3 +14469,29 @@ a mid-run glance cannot tell you. **Both corrections are closed** — the Run no
 button, and a failed photograph no longer dragging a successful one down with
 it — and I am not opening any more reporting work on them.
 
+
+**And the small correction I made afterwards is green too.** While preparing the
+branch for you I found that the design step's size — the number this file and
+five others quote — had gone stale again, and by two commits on this same
+branch: the tool grew when I added the function language and the one-time job
+date, and nothing re-measured it. It reads **97,142** now, and the arithmetic
+closes exactly against the old figure plus those two additions. Sixteen places
+carried the old number; all sixteen are corrected, and every one of them is
+prose or a comment — no code and no test asserts it. Both CI checks are green on
+that version: the container check passed all twenty steps with **382** checks
+and nothing failing, and the test suite read **6,967** again. Reading the same
+6,967 is the point rather than a formality — the correction was words only, so
+the suite had to be unmoved, and it is.
+
+**One number that did move, and it moved before today**: the container check's
+own small unit step reads **397**, not the 396 this file has carried six times.
+It gained one case during the night's work and nothing stamped it, because no
+check between then and now had that step read. Two separate readings agree on
+397. Nothing is wrong; the old number was simply never re-taken.
+
+**And the watcher went quiet on me a second time**, with the version number read
+correctly this time rather than typed from memory. Half an hour of silence while
+both checks were already green. I do not yet know why that watcher fails, and I
+am not guessing — what I take from it is simpler: a quiet watcher is not an
+answer, so I read the checks directly. That is twice in two turns, two different
+causes, the same misleading silence.

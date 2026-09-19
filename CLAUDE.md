@@ -12585,6 +12585,45 @@ read cannot say. **Both corrections are closed** — the Jobs panel's click wiri
 and the photo request identity — and no further reporting or harness work is
 opened on them.
 
+**AND THE FIGURE CORRECTION'S OWN TREE IS GREEN TOO — `site build` 1218 and
+`unit tests` 2795 on `3526e3d6` (2026-09-19 20:09:45Z).** Run **1218** (id
+`35466534036`, job `105959779641`, 20:09:45→20:34:03Z), **all twenty steps
+green** — the API answers 23 and three are GitHub's own: `site-build.mjs`
+**382 passed / 0 failed**, the step 20:11:50→20:29:28Z (**17m38s**), with
+kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result
+SHAPES a census has to ask for. **Every count read out of the run's PER-STEP
+log files**, which attribute by construction rather than by a window somebody
+drew; 12 of the 20 steps carry a result and 8 are setup. It fired because
+`worker.js` and `builder/**` moved. **The unit step reads `# tests 397 /
+# pass 397 / # fail 0 / # skipped 0`, unchanged from 1216 and 1217** — correct,
+because that step's glob is `page-gen` + `publish-pages` and the figure
+correction touches neither's cases.
+
+**AND `unit tests` 2795 READS 6,967, THE SAME NUMBER 2791 READ — WHICH IS THE
+POINT RATHER THAN A REASON TO SKIP IT.** `# tests 6967 / # pass 6963 /
+# fail 0 / # skipped 4`, the suite step 111.1 s, against local
+`6967 / 6967 / 0 / 0`. The stamp-chain rule stops at a reading that is not new,
+and **NEW IS ABOUT THE TREE AND NOT ONLY THE NUMBER**: `3526e3d6` moved
+`worker.js`, three `builder/` modules and three guards, so this is a fresh
+reading of a tree that really changed — and every one of those sixteen edits is
+prose or a comment, so **the suite MUST NOT move, and did not.** A docs-only run
+answering 6,967 next is the one the chain stops at.
+
+**⚠ AND THE MONITOR FOR THIS PUSH WENT SILENT TOO, WITH A CORRECT SHA THIS TIME
+— so the rule is wider than the instance above bought.** That one was a sha I
+had extended from a short hash rather than read; this one carried
+`3526e3d6669f0bbd4f6a390dad8fb5c320a80140` verbatim out of `git rev-parse`,
+watched for thirty minutes, emitted nothing and expired — while **both runs had
+already finished green inside that window** (20:11:55Z and 20:34:03Z). **The
+watcher's own failure is undiagnosed and is recorded as undiagnosed** rather
+than guessed at. What is settled is the reading: *a watcher's silence is not a
+measurement*, so read the runs directly before concluding anything from one that
+did not speak — the second instance of this repository's "a zero from a blind
+instrument is not evidence of absence" in two turns, with two different causes
+and one symptom.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO
 REPORTING REDESIGN** — the owner's standing constraint, unchanged.
 
