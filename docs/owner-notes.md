@@ -13980,3 +13980,10 @@ where that's structurally true rather than a bug.
 I can do all of it and check all of it without spending a credit or touching a
 real site. Nothing merged or deployed, nothing spent, and the photo test is
 still parked on fal.
+
+**The corrections are signed off by CI and that milestone is closed.** Both
+checks green on the same commit: the unit suite (6,885 tests, nothing failing)
+and the full site-build harness, all twenty steps, 382 checks through a real
+container in 17m38s. I read the harness numbers out of the run's own per-step
+files rather than a search through one long log, so each count is attached to
+the step that produced it.

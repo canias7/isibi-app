@@ -11091,6 +11091,37 @@ either side, and each half of the number agreement.
 **Suite 6,885** — 6,882 + 2 (`addon-route`) + 1 (`site-images`), and the
 arithmetic closes exactly.
 
+**CI HAS READ BOTH, ON `23aed896`, AND THE CORRECTION MILESTONE IS CLOSED.**
+`unit tests` run **2755**, green (2026-09-19 06:17:05→06:19:14Z, the suite step
+110.05 s) — `# tests 6885 / # pass 6881 / # fail 0 / # skipped 4`, against local
+`6885 / 6885 / 0 / 0`, and **the TOTAL is what matches**. The four are NAMED out
+of the log rather than recalled: the privilege-drop case (*"needs root and an
+unprivileged user"*), two RTL cases (*"template deps not installed"*) and
+`site-searchpath`'s baseline-commit case (*"a shallow checkout holds one
+commit"*) — the standing expectation met rather than a new one.
+**And `site build` run 1201 (06:17:05→06:41:30Z, the job 24m20s), ALL TWENTY
+STEPS GREEN** — the API answers 23 and three are GitHub's own (two `Post` steps
+and `Complete job`): `site-build.mjs` **382 passed / 0 failed**, the step
+06:19:15→06:36:53Z (17m38s), with kit-typecheck 4, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it and
+kit-render / kit-a11y / kit-effects / kit-paint each `all passed` with no count
+— the three result SHAPES a census has to ask for. **Every count read out of the
+run's PER-STEP log files**, which attribute by construction rather than by a
+window somebody drew: 12 of the 20 steps carry a result and 8 are setup. It
+fired because `worker.js`, `builder/site-images.mjs` and `site-uploads.mjs`
+moved — the last through the `*.mjs` glob. **The unit step's TAP is
+`# tests 396 / # pass 396 / # fail 0 / # skipped 0`, unchanged from runs 1194
+through 1199** — correct, because this round adds no `page-gen` or
+`publish-pages` case.
+**AND THE DOCS PUSH AFTER IT WAS READ AND DELIBERATELY NOT STAMPED**, which is
+this file's own stamp-chain rule: `unit tests` run **2756** on `d02b0fc4` is
+green and answers `6885 / 6881 / 0 / 4` — necessarily the same numbers, because
+the two trees differ only in these documents — so it is a reading that is not
+new and the chain stops there. It is still READ, because a document here is
+DATA to `brand-rename` and `media-deleted`, which parse `docs/owner-notes.md`
+and really can turn the suite red. **No `site build` fired for it and none was
+due**: that workflow's `paths` covers neither document.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 
 ---
