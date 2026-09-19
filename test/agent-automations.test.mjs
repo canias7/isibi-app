@@ -541,6 +541,40 @@ test("automationRow fails closed on every field it cannot read", () => {
     at_local: "09:00:00", zone: "UTC", steps: [], next_run_at: "2026-09-17T08:00:00Z", updated_at: "x" });
   assert.equal(real.at, "09:00", "HH:MM:SS out of Postgres, HH:MM on screen");
   assert.equal(real.nextRunAt, "2026-09-17T08:00:00Z");
+
+  // ⚠ **A VALUE THAT IS PRESENT AND OF THE WRONG KIND, not merely an absent one — and a
+  // sweep survivor is why.** Every field above was driven with a MISSING value, which
+  // `x || []` and `Array.isArray(x) ? x : []` answer identically, so the truthy-junk half
+  // of failing closed was unasserted on all three list fields. It is not cosmetic: the
+  // screen does `(row.inputs || []).map(...)`, and a string has no `.map`, so a junk row
+  // would take the whole form down rather than merely misreport it.
+  const wrong = automationRow({
+    id: C1, agent_id: A1, name: "N", enabled: true, schedule: "weekly",
+    at_local: "09:00:00", zone: "UTC",
+    days: "mon,tue", steps: "s1", inputs: "who", on_date: 20260921, on_event: { name: "x" },
+  });
+  assert.deepEqual(wrong.days, [], "a `days` that is not a list must not reach the screen as one");
+  assert.deepEqual(wrong.steps, []);
+  assert.deepEqual(wrong.inputs, [], "an `inputs` that is not a list must not reach the screen as one");
+  assert.equal(wrong.onDate, null);
+  assert.equal(wrong.onEvent, null);
+  // AND THE CONTROL, or "it answers []" is satisfied by a reader that answers [] always.
+  const list = automationRow({ days: ["mon", "sun"], steps: [{ type: "note" }], inputs: [{ name: "who" }] });
+  assert.equal(list.steps.length, 1);
+  assert.deepEqual(list.inputs, [{ name: "who" }]);
+  // ⚠ AND `days` COMES BACK IN THE CATALOG'S OWN ORDER, never the row's, so two saves of one
+  // selection are byte-identical. **THE ORDER IS SUNDAY-FIRST** (`AUTOMATION_DAYS`, the way
+  // `Date.getDay()` numbers them) — my own first draft of this assertion wrote Monday-first
+  // and was red about a reader that is right. It is asserted as the PROPERTY rather than as
+  // that spelling: the answer's positions in the catalog must strictly increase, so a reader
+  // that took the row's order fails whatever the catalog's order becomes.
+  assert.deepEqual(list.days, ["sun", "mon"], "the catalog's order, which starts on Sunday");
+  const shuffled = automationRow({ days: ["sat", "wed", "sun", "fri"] }).days;
+  const at = shuffled.map((d) => AUTOMATION_DAYS.indexOf(d));
+  assert.deepEqual([...at].sort((x, y) => x - y), at, `not in the catalog's order: ${shuffled}`);
+  assert.deepEqual([...shuffled].sort(), ["fri", "sat", "sun", "wed"], "and it is the same four days");
+  // A DAY NOTHING RECOGNISES IS DROPPED, and the ones beside it survive.
+  assert.deepEqual(automationRow({ days: ["mon", "funday", "fri"] }).days, ["mon", "fri"]);
 });
 
 test("⚠ an execution's state comes off the run's stop, and cannot-tell is not `queued`", () => {

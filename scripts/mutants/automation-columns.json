@@ -2,44 +2,66 @@
  {
   "label": "CONTROL: a comment only, above the column list",
   "control": true,
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "export const AUTOMATION_COLUMNS = Object.freeze([",
   "to": "// one list, and it is the reader's own\nexport const AUTOMATION_COLUMNS = Object.freeze(["
  },
  {
   "label": "⚠ the list read the screen draws names the ten columns it named before, so days/inputs arrive absent",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "        `automations?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +\n        `&select=${AUTOMATION_COLUMNS.join(\",\")}` +",
   "to": "        `automations?tenant_id=eq.${t(tenant)}&agent_id=eq.${agentId}` +\n        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,next_run_at,updated_at` +"
  },
  {
   "label": "⚠ the read the run route makes names its old twelve, so a weekly automation has no days",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "        `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}` +\n        `&select=${AUTOMATION_COLUMNS.join(\",\")}&limit=1`);",
   "to": "        `automations?id=eq.${id}&tenant_id=eq.${t(tenant)}` +\n        `&select=id,agent_id,name,enabled,schedule,at_local,zone,steps,inputs,next_run_at,created_at,updated_at&limit=1`);"
  },
  {
   "label": "the column list loses what an automation asks for",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "  \"days\", \"on_date\", \"on_event\", \"steps\", \"inputs\", \"next_run_at\", \"updated_at\",",
   "to": "  \"days\", \"on_date\", \"on_event\", \"steps\", \"next_run_at\", \"updated_at\","
  },
  {
   "label": "the column list gains one nothing reads, so a caller believes it is arriving",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "  \"days\", \"on_date\", \"on_event\", \"steps\", \"inputs\", \"next_run_at\", \"updated_at\",",
   "to": "  \"days\", \"on_date\", \"on_event\", \"steps\", \"inputs\", \"next_run_at\", \"updated_at\", \"created_at\","
  },
  {
   "label": "a column name is a PREFIX of the real one, so a substring check would pass it",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "  \"days\", \"on_date\", \"on_event\", \"steps\", \"inputs\", \"next_run_at\", \"updated_at\",",
   "to": "  \"days\", \"on_date_at\", \"on_event\", \"steps\", \"inputs\", \"next_run_at\", \"updated_at\","
  },
  {
   "label": "⚠ the reader stops failing closed on what an automation asks for, so a junk row reads as a declaration",
-  "files": ["agent-store.mjs"],
+  "files": [
+   "agent-store.mjs"
+  ],
   "from": "    inputs: Array.isArray(r?.inputs) ? r.inputs : [],",
   "to": "    inputs: r?.inputs || [],"
+ },
+ {
+  "label": "⚠ the reader hands back the row's own day order, so two saves of one selection differ",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    days: Array.isArray(r?.days) ? AUTOMATION_DAYS.filter((d) => r.days.includes(d)) : [],",
+  "to": "    days: Array.isArray(r?.days) ? r.days.filter((d) => AUTOMATION_DAYS.includes(d)) : [],"
  }
 ]
