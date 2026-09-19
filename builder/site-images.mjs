@@ -33,6 +33,11 @@ import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
 // see `imageRefs` below. That module imports `site-addon.mjs` and
 // `build-models.mjs`, both of which import nothing, so there is no cycle.
 import { KEY_BEFORE, keyName } from "./site-picture.mjs";
+// The shape `uploadUrl` mints and the serve route answers, so `uploadKeyFor`
+// below is asking the same question the route asks rather than a copy of it.
+// Root, dependency-free of this tree (it reads `site-access.mjs` alone), so no
+// cycle and no file the container image does not already carry.
+import { UPLOAD_URL_PATH } from "../site-uploads.mjs";
 
 /* ------------------------------------------------------- the clock, not the money */
 
@@ -265,7 +270,32 @@ export function hasBoughtPhotos(pages, slug) {
 export function shownPhotos(pages, slug) {
   if (!Array.isArray(pages) || !slug) return { known: false, count: 0, urls: [] };
   const seen = new Set();
-  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);
+  // ── AND IT READS `imageRefs`, NOT `photoUrls` (2026-09-19) ───────────────
+  //
+  // Owner: *"Separate the photo-reuse list from the preservation inventory.
+  // Leave the existing loss protection intact, but stop describing PDF
+  // downloads as photographs or offering them as image sources."*
+  //
+  // REPRODUCED: a site whose home page shows one photograph and links one PDF
+  // price list was described to the page writer as *"This site already shows 2
+  // real photographs… copy its src EXACTLY from this list — /u/…/a1b2c3d4.jpg,
+  // /u/…/pricelist….pdf"*. The count was wrong and the second entry was an
+  // invitation to put a PDF in a `<SafeImage>`.
+  //
+  // THE DISCRIMINATOR IS HOW THE SITE USES THE FILE, not what it is called. A
+  // `src` — attribute or object key — is a picture the site DRAWS; an `href` is
+  // a file it LINKS. That is `imageRefs`' whole definition, already here,
+  // already measured, and it is the honest answer to both halves of this
+  // function's job: the count is what the site SHOWS, and the list is what may
+  // be copied into a `src`. An extension rule would be a second idea of what a
+  // picture is, and would be wrong about a `.jpg` offered as a download.
+  //
+  // `keptImages` DELIBERATELY STAYS ON `photoUrls`, which matches any quoted
+  // `/u/<slug>/` url. The loss wall is about what the customer paid for and not
+  // about how a page uses it, so it goes on protecting the PDF reference too —
+  // over-protective, which is the safe direction, and the owner's own
+  // *"leave the existing loss protection intact"*.
+  for (const p of pages) for (const u of imageRefs(p && p.source, slug)) seen.add(u);
   // ── AND THE URLs THEMSELVES, BECAUSE A COUNT CANNOT BE COPIED (2026-09-19)
   //
   // A page writer told *"this site already shows 2 photographs"* and given
@@ -457,15 +487,59 @@ export function imageRefs(source, slug) {
  * `/u/<slug>/<file>` → the R2 key it is served from, or `null` when it is not a
  * url this platform could serve at all.
  *
- * THE SHAPE IS THE SERVE ROUTE'S OWN, character for character, because the
- * question being asked is *"does this url fetch bytes"* — and a url whose shape
- * the serve route refuses answers 404 whatever is in the bucket, so there is no
- * object that could make it true. The slug folds case (it is lowercased at every
- * door) and the FILE does not: the rest of the path is an R2 key, where a
- * re-cased hash is a different object.
+ * THE SHAPE IS THE SERVE ROUTE'S OWN — `UPLOAD_URL_PATH`, the one constant both
+ * read — because the question being asked is *"does this url fetch bytes"*, and
+ * a url whose shape the serve route refuses answers 404 whatever is in the
+ * bucket, so there is no object that could make it true. It was two copies of
+ * one regex with a comment promising they agreed; deriving both from
+ * `site-uploads.mjs`, where `uploadUrl` mints the path, makes that promise
+ * structural instead.
+ *
+ * ⚠ AND IT IS ASKED OF THE PATHNAME, WHICH IS WHAT THE ROUTE ASKS (2026-09-19).
+ *
+ * Owner: *"Make URL lookup follow the serving route's parsing. Valid image URLs
+ * with `?v=2` or `#preview` currently serve successfully but get emptied by the
+ * addon."* REPRODUCED: `/u/fw-q/9f9f….jpg?v=2` and the same url with
+ * `#preview` each answered `null` here — read as a url no object could back,
+ * therefore swept — while the serve route's own read of both is
+ * `["fw-q", "9f9f….jpg"]`, because it matches `url.pathname` and the URL parser
+ * has already taken the query and the fragment off. So a customer's own
+ * photograph, at an address that serves, came back `src=""`.
+ *
+ * `new URL(raw, base)` IS THAT PARSER, and using it rather than a hand-written
+ * split is what keeps the two answers the same: it is also what normalises the
+ * dot segments, so `/u/fw/../secrets` resolves to `/secrets` and is refused by
+ * the shape — exactly as the route refuses it — rather than by a rule of ours.
+ *
+ * THE ORIGINAL URL IS NEVER REWRITTEN. This answers a KEY to look up; what goes
+ * back into the page is whatever the source already said, query string and all.
+ * A normalised url written into the source would be this reader editing a page
+ * to suit itself.
+ *
+ * `/u/` IS REQUIRED BEFORE THE PARSE, because `new URL` resolves anything
+ * against the base — `//evil.example/u/fw/a.jpg` and a full `https://…` url
+ * would both yield a pathname this shape accepts, and neither is a url this
+ * site serves.
+ *
+ * The slug folds case (it is lowercased at every door) and the FILE does not:
+ * the rest of the path is an R2 key, where a re-cased hash is a different
+ * object.
  */
 export function uploadKeyFor(slug, url) {
-  const m = String(url == null ? "" : url).match(/^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/);
+  const raw = String(url == null ? "" : url);
+  if (!raw.startsWith("/u/")) return null;
+  let path;
+  // THE `catch` IS A DECLARED BELT AND IS MEASURED INERT: with the base a
+  // constant valid URL and `raw` known to start with `/u/`, `new URL` does not
+  // throw — a lone surrogate, a bare `%`, a NUL, a hundred thousand characters,
+  // a backslash and a trailing newline all parse (10 of 10 hostile inputs, 0
+  // throws). It stays because the alternative to a returned `null` here is an
+  // exception escaping into the addon's publish path, and because the next
+  // session should not have to re-derive that the parser is total. Said out
+  // loud, because a sweep cannot say it and a survivor there is this record
+  // rather than a gap.
+  try { path = new URL(raw, "https://site.invalid").pathname; } catch { return null; }
+  const m = path.match(UPLOAD_URL_PATH);
   if (!m) return null;
   if (m[1].toLowerCase() !== String(slug == null ? "" : slug).toLowerCase()) return null;
   return "uploads/" + m[1].toLowerCase() + "/" + m[2];
@@ -984,8 +1058,17 @@ function keepClause(shown) {
   const has = s.known ? Math.max(0, Math.floor(Number(s.count)) || 0) : null;
   if (has === null) return " Leave every picture already on this site exactly as it is.";
   if (has > 0) {
-    let out = " This site already shows " + has + " real " + (has === 1 ? "photograph" : "photographs") +
-      ", and they stay exactly as they are — do not replace one, and do not remove it.";
+    // AND THE REST OF THE SENTENCE AGREES WITH THE COUNT TOO. It read
+    // *"1 real photograph, and THEY stay exactly as THEY are"* — pre-existing,
+    // reachable on any site with exactly one, and surfaced by the reproduction
+    // above because a mixed picture-and-download site now counts 1 where it
+    // counted 2. Noted rather than folded in silently: it is neither of the two
+    // corrections, it is one line, and a directive a model reads should not
+    // disagree with itself about how many things it is talking about.
+    const one = has === 1;
+    let out = " This site already shows " + has + " real " + (one ? "photograph" : "photographs") +
+      (one ? ", and it stays exactly as it is — do not replace it, and do not remove it."
+           : ", and they stay exactly as they are — do not replace one, and do not remove it.");
     // ── AND THEY MAY BE SHOWN AGAIN (2026-09-19) ─────────────────────────
     //
     // Owner: *"Photo reuse needs no new permission decision merely to improve
@@ -1011,7 +1094,7 @@ function keepClause(shown) {
     // rather than a silent correction it cannot see.
     const urls = Array.isArray(s.urls) ? s.urls.filter((u) => typeof u === "string" && u) : [];
     if (urls.length) {
-      out += " You MAY show one of them again somewhere new: copy its src EXACTLY from this list" +
+      out += " You MAY show " + (one ? "it" : "one of them") + " again somewhere new: copy its src EXACTLY from this list" +
         (urls.length < has ? " (" + urls.length + " of the " + has + ")" : "") + " — " + urls.join(", ") +
         ". A src of that shape that is not on the list, or one you have altered, is not a picture this site " +
         "owns and will be emptied.";

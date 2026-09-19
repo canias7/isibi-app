@@ -1,0 +1,118 @@
+[
+  {
+    "label": "THE REPORTED DEFECT 1: the key is resolved from the raw string, so ?v=2 and #preview read as a url no object can back",
+    "files": ["builder/site-images.mjs"],
+    "from": "  const raw = String(url == null ? \"\" : url);\n  if (!raw.startsWith(\"/u/\")) return null;",
+    "to": "  const raw = String(url == null ? \"\" : url);\n  if (!raw.startsWith(\"/u/\")) return null;\n  { const m0 = raw.match(UPLOAD_URL_PATH); if (!m0) return null; }"
+  },
+  {
+    "label": "the key carries the query string, so two urls differing only in ?v= name two objects",
+    "files": ["builder/site-images.mjs"],
+    "from": "  try { path = new URL(raw, \"https://site.invalid\").pathname; } catch { return null; }",
+    "to": "  try { const u0 = new URL(raw, \"https://site.invalid\"); path = u0.pathname + u0.search; } catch { return null; }"
+  },
+  {
+    "label": "the key carries the fragment",
+    "files": ["builder/site-images.mjs"],
+    "from": "  try { path = new URL(raw, \"https://site.invalid\").pathname; } catch { return null; }",
+    "to": "  try { const u0 = new URL(raw, \"https://site.invalid\"); path = u0.pathname + u0.hash; } catch { return null; }"
+  },
+  {
+    "label": "the /u/ prefix is not required before the parse, so an absolute url on another origin resolves to one of ours",
+    "files": ["builder/site-images.mjs"],
+    "from": "  if (!raw.startsWith(\"/u/\")) return null;",
+    "to": "  if (!raw) return null;"
+  },
+  {
+    "label": "the prefix test is a substring rather than a prefix, so https://evil.example/u/fw/a.jpg passes",
+    "files": ["builder/site-images.mjs"],
+    "from": "  if (!raw.startsWith(\"/u/\")) return null;",
+    "to": "  if (!raw.includes(\"/u/\")) return null;"
+  },
+  {
+    "label": "the slug half of the key stops folding case, so /u/FW/ resolves for fw",
+    "files": ["builder/site-images.mjs"],
+    "from": "  if (m[1].toLowerCase() !== String(slug == null ? \"\" : slug).toLowerCase()) return null;\n  return \"uploads/\" + m[1].toLowerCase() + \"/\" + m[2];",
+    "to": "  if (m[1] !== String(slug == null ? \"\" : slug)) return null;\n  return \"uploads/\" + m[1] + \"/\" + m[2];"
+  },
+  {
+    "label": "the shared shape folds case, so the FILE half stops naming one R2 object",
+    "files": ["site-uploads.mjs"],
+    "from": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/;",
+    "to": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/i;"
+  },
+  {
+    "label": "the shared shape stops anchoring at the end, so /u/fw/a.jpg/../../etc resolves",
+    "files": ["site-uploads.mjs"],
+    "from": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/;",
+    "to": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})/;"
+  },
+  {
+    "label": "the shared shape admits a space in the file name, which the serve route 404s on",
+    "files": ["site-uploads.mjs"],
+    "from": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/;",
+    "to": "export const UPLOAD_URL_PATH = /^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([^\\/]{1,80})$/;"
+  },
+  {
+    "label": "the serve route grows its own copy of the shape again, so the two can drift",
+    "files": ["worker.js"],
+    "from": "      const um = url.pathname.match(UPLOAD_URL_PATH);",
+    "to": "      const um = url.pathname.match(/^\\/u\\/([a-z0-9][a-z0-9-]{0,80})\\/([A-Za-z0-9._-]{1,80})$/);"
+  },
+  {
+    "label": "THE REPORTED DEFECT 2: the reuse list and the count read photoUrls, so a linked PDF is a photograph",
+    "files": ["builder/site-images.mjs"],
+    "from": "  for (const p of pages) for (const u of imageRefs(p && p.source, slug)) seen.add(u);",
+    "to": "  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);"
+  },
+  {
+    "label": "the LOSS wall narrows to image references, so a download the customer paid for stops being protected",
+    "files": ["builder/site-images.mjs"],
+    "from": "  const had = new Set();\n  for (const p of Array.isArray(before) ? before : []) {\n    for (const u of photoUrls(p && p.source, slug)) had.add(u);\n  }\n  if (!had.size) return { ok: true, lost: [] };",
+    "to": "  const had = new Set();\n  for (const p of Array.isArray(before) ? before : []) {\n    for (const u of imageRefs(p && p.source, slug)) had.add(u);\n  }\n  if (!had.size) return { ok: true, lost: [] };"
+  },
+  {
+    "label": "the loss wall's AFTER side narrows, so every download reads as lost on every change",
+    "files": ["builder/site-images.mjs"],
+    "from": "  const now = new Set();\n  for (const p of Array.isArray(after) ? after : []) {\n    for (const u of photoUrls(p && p.source, slug)) now.add(u);\n  }",
+    "to": "  const now = new Set();\n  for (const p of Array.isArray(after) ? after : []) {\n    for (const u of imageRefs(p && p.source, slug)) now.add(u);\n  }"
+  },
+  {
+    "label": "the singular clause goes back to the plural, so one photograph is described as 'they'",
+    "files": ["builder/site-images.mjs"],
+    "from": "      (one ? \", and it stays exactly as it is — do not replace it, and do not remove it.\"\n           : \", and they stay exactly as they are — do not replace one, and do not remove it.\");",
+    "to": "      \", and they stay exactly as they are — do not replace one, and do not remove it.\";"
+  },
+  {
+    "label": "the plural clause is lost instead, so two photographs are described as 'it'",
+    "files": ["builder/site-images.mjs"],
+    "from": "      (one ? \", and it stays exactly as it is — do not replace it, and do not remove it.\"\n           : \", and they stay exactly as they are — do not replace one, and do not remove it.\");",
+    "to": "      \", and it stays exactly as it is — do not replace it, and do not remove it.\";"
+  },
+  {
+    "label": "the number test is inverted, so each count gets the other's sentence",
+    "files": ["builder/site-images.mjs"],
+    "from": "    const one = has === 1;",
+    "to": "    const one = has !== 1;"
+  },
+  {
+    "label": "the reuse offer stops agreeing with the count",
+    "files": ["builder/site-images.mjs"],
+    "from": "      out += \" You MAY show \" + (one ? \"it\" : \"one of them\") + \" again somewhere new:",
+    "to": "      out += \" You MAY show one of them again somewhere new:"
+  },
+  {
+    "label": "CONTROL: a comment in the upload path constant",
+    "control": true,
+    "files": ["site-uploads.mjs"],
+    "from": " * MATCHED AGAINST A PATHNAME, NEVER A WHOLE URL. The route reads",
+    "to": " * MATCHED AGAINST A PATHNAME (comment-only control). The route reads"
+  },
+  {
+    "label": "CONTROL: a comment in shownPhotos' reader note",
+    "control": true,
+    "files": ["builder/site-images.mjs"],
+    "from": "  // THE DISCRIMINATOR IS HOW THE SITE USES THE FILE, not what it is called. A",
+    "to": "  // THE DISCRIMINATOR IS HOW THE SITE USES THE FILE (comment-only control). A"
+  }
+]

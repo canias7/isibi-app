@@ -4228,8 +4228,19 @@ test("a photograph inside an existing CUSTOM COMPONENT counts, and is not report
   assert.doesNotMatch(flat, /shows no real photographs yet/,
     "a site whose component holds a photograph was told every picture on it is a placeholder — the reported defect");
   assert.match(flat, /already shows 1 real photograph/, "the photograph inside the component was not counted");
-  assert.match(flat, /do not replace one, and do not remove it/,
-    "the photograph was counted and not protected, which is the half a model reads past");
+  // RE-ANCHORED ONTO THE PROPERTY, NOT THE SPELLING (2026-09-19). This read
+  // `/do not replace one, and do not remove it/` — the PLURAL sentence, on a
+  // case whose count is exactly 1 — and went red when the clause learned to
+  // agree with its own number. What it is about is that a counted photograph is
+  // also PROTECTED, which is the half a model reads past, and that is true in
+  // either number.
+  assert.match(flat, /do not replace/, "the photograph was counted and not protected");
+  assert.match(flat, /do not remove/, "the photograph was counted and not protected");
+  // …AND THE SENTENCE AGREES WITH ITSELF, which is strictly stronger than what
+  // the old anchor asked: one photograph described as *"they stay exactly as
+  // they are"* is a directive arguing with its own count.
+  assert.doesNotMatch(flat, /1 real photograph, and they stay/,
+    "one photograph was described in the plural: " + (flat.match(/already shows[^.]*\./) || [""])[0]);
 
   // ⚠ AND AN UNREADABLE STORE MUST NOT REPORT THE SITE'S OWN FRAMES AS SPACES
   // THIS CHANGE MADE. That is the customer-facing end of the same symmetry: the
@@ -4758,6 +4769,138 @@ test("an upload the site owns survives the stray wall, whether or not a page has
   });
   assert.ok(compiledPages(mute).find((f) => /gallery/.test(f.path)).source.includes(GONE),
     "a bucket that cannot be asked swept a src");
+});
+
+test("a valid url with a query string or a fragment is looked up the way the route serves it", async () => {
+  // ⚠ Owner, 2026-09-19: *"Make URL lookup follow the serving route's parsing.
+  // Valid image URLs with `?v=2` or `#preview` currently serve successfully but
+  // get emptied by the addon. Resolve the storage key from the pathname while
+  // preserving the original valid URL in source."*
+  //
+  // REPRODUCED THROUGH THIS ROUTE before anything was touched, on both shapes:
+  // the compiler payload came back `<SafeImage src="" alt="the bench" />`, with
+  // `uploadKeyFor` answering `null` — read as a url no object could back,
+  // therefore swept — while the serve route's own read of the SAME url is
+  // `["fw-q", "9f9f….jpg"]`, because it matches `url.pathname` and the URL
+  // parser has already taken the query and the fragment off.
+  const FILE = "/u/fw-q/9f9f9f9f9f9f9f9f.jpg";
+  const at = (tail) => photoAsk("fw-q", {
+    kinds: ["page"], storedPages: [photoHome("fw-q")],
+    uploads: ["9f9f9f9f9f9f9f9f.jpg"],
+    written: [
+      galleryWith('<SafeImage src="' + FILE + tail + '" alt="the bench" />'),
+      linkHome("fw-q", '<SafeImage src="/u/fw-q/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+
+  for (const tail of ["?v=2", "#preview", "?v=2&w=800"]) {
+    const r = await at(tail);
+    assert.equal(r.body.ok, true, JSON.stringify(r.body));
+    const page = compiledPages(r).find((f) => /gallery/.test(f.path));
+    // THE ORIGINAL URL IS WHAT SHIPS, character for character. The lookup
+    // answers a KEY; nothing here may rewrite the page to a normalised address
+    // of its own — that would be a guard editing a customer's source to suit
+    // itself, and a `?v=` is how a browser is told the picture changed.
+    assert.ok(page.source.includes('src="' + FILE + tail + '"'),
+      "a url that serves was emptied, or rewritten: " + (page.source.match(/<SafeImage[^>]*>/) || [""])[0]);
+    assert.match(storedSource(r, "fw-q", "gallery.tsx"), new RegExp(tail.replace(/[?&#]/g, "\\$&")),
+      "the next edit reads a source the query string has been taken out of");
+    assert.equal(r.body.photos || 0, 0,
+      "a filled frame was reported as an empty one: " + JSON.stringify(r.body.photos));
+  }
+
+  // ── THE TWO CONTROLS THE OWNER ASKED TO RETAIN ──────────────────────────
+  //
+  // Without these the loop above passes with the wall deleted, and the fix
+  // would read as working while sweeping nothing at all.
+  //
+  // 1. A MISSING FILE IS STILL SWEPT — same shape, same query string, nothing
+  //    uploaded behind it.
+  const missing = await photoAsk("fw-q-missing", {
+    kinds: ["page"], storedPages: [photoHome("fw-q-missing")],
+    written: [
+      galleryWith('<SafeImage src="/u/fw-q-missing/deadbeefdeadbeef.jpg?v=2" alt="nobody uploaded this" />'),
+      linkHome("fw-q-missing", '<SafeImage src="/u/fw-q-missing/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  const gonePage = compiledPages(missing).find((f) => /gallery/.test(f.path));
+  assert.equal(gonePage.source.includes("deadbeefdeadbeef.jpg?v=2"), false,
+    "a query string made a url no upload backs survive the wall: " + gonePage.source.slice(0, 300));
+  assert.match(gonePage.source, /src=""/, "the missing src was deleted rather than emptied");
+
+  // 2. AN UNREADABLE STORE IS STILL UNKNOWN — the same ask, the store throwing.
+  const blind = await photoAsk("fw-q-missing", {
+    kinds: ["page"], storedPages: [photoHome("fw-q-missing")], uploadsFail: true,
+    written: [
+      galleryWith('<SafeImage src="/u/fw-q-missing/deadbeefdeadbeef.jpg?v=2" alt="nobody uploaded this" />'),
+      linkHome("fw-q-missing", '<SafeImage src="/u/fw-q-missing/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.ok(compiledPages(blind).find((f) => /gallery/.test(f.path)).source.includes("deadbeefdeadbeef.jpg?v=2"),
+    "an unreadable check swept a src — cannot-tell was read as not-there");
+});
+
+test("a mixed picture-and-download site offers the photograph and leaves the PDF a download", async () => {
+  // ⚠ Owner, 2026-09-19: *"Separate the photo-reuse list from the preservation
+  // inventory. Leave the existing loss protection intact, but stop describing
+  // PDF downloads as photographs or offering them as image sources.
+  // Demonstrate a mixed image/PDF site: the photograph is offered for reuse,
+  // the PDF remains a download, and both existing references survive."*
+  //
+  // REPRODUCED THROUGH THIS ROUTE: the writer was told *"This site already
+  // shows 2 real photographs… copy its src EXACTLY from this list —
+  // /u/fw-mix/a1b2c3d4.jpg, /u/fw-mix/pricelist20260919.pdf"*. The count was
+  // wrong and the second entry was an invitation to put a PDF in a
+  // `<SafeImage>` — one reader answering two different questions.
+  const PDF = "/u/fw-mix/pricelist20260919.pdf";
+  const PIC = "/u/fw-mix/a1b2c3d4.jpg";
+  const DOC = '  <a href="' + PDF + '" download>Our price list (PDF)</a>\n';
+  const home = {
+    path: "index.tsx",
+    source: photoHome("fw-mix").source
+      // ONE photograph and ONE download, so the two readers can disagree.
+      .replace('  <SafeImage src="/u/fw-mix/e5f6a7b8.jpg" alt="a guitar being refretted" />\n', DOC),
+  };
+  const r = await photoAsk("fw-mix", {
+    kinds: ["page"], storedPages: [home], uploads: ["a1b2c3d4.jpg", "pricelist20260919.pdf"],
+    written: [
+      // The writer takes the offer: it shows the site's own photograph again on
+      // the new page, which is the capability the list exists for.
+      galleryWith('<SafeImage src="' + PIC + '" alt="the workshop bench" />'),
+      { path: "index.tsx", source: home.source.replace("</main>",
+        '  <p>Also see the <a href="/gallery">gallery</a>.</p>\n</main>') },
+    ],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE PHOTOGRAPH IS OFFERED FOR REUSE AND THE PDF IS NOT.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  const clause = (flat.match(/This site already shows[^]*?will be emptied\./) || [""])[0];
+  assert.ok(clause, "the reuse clause is gone from the directive");
+  assert.match(clause, /already shows 1 real photograph/,
+    "the download was counted as a photograph: " + clause.slice(0, 160));
+  assert.ok(clause.includes(PIC), "the site's own photograph was not offered for reuse: " + clause.slice(0, 300));
+  assert.equal(clause.includes("pricelist20260919.pdf"), false,
+    "a PDF download was offered as an image source: " + clause.slice(0, 300));
+
+  // 2. BOTH EXISTING REFERENCES SURVIVE — the loss wall is unmoved, and it is
+  //    deliberately the wider reader: it protects the download too.
+  const out = compiledPages(r);
+  const idx = out.find((f) => /index/.test(f.path));
+  assert.ok(idx.source.includes('href="' + PDF + '"'),
+    "the download link was emptied: " + idx.source.slice(0, 400));
+  assert.ok(idx.source.includes('src="' + PIC + '"'), "the home page's photograph was lost");
+  assert.match(storedSource(r, "fw-mix", "index.tsx"), /pricelist20260919\.pdf/,
+    "the download is gone from the source the next edit reads");
+
+  // 3. AND THE REUSED PHOTOGRAPH REALLY SHIPS ON THE NEW PAGE, so the offer is
+  //    a capability and not a sentence. It is the site's own url, so the stray
+  //    wall leaves it alone and nothing is bought for it.
+  const gal = out.find((f) => /gallery/.test(f.path));
+  assert.ok(gal.source.includes('src="' + PIC + '"'),
+    "the photograph the writer was invited to reuse was emptied: " + gal.source.slice(0, 300));
+  assert.equal(r.body.pictures || 0, 0, "reuse bought a photograph: " + JSON.stringify(r.body.pictures));
+  assert.equal(r.body.photos || 0, 0, "a reused photograph was reported as an empty frame");
 });
 
 test("the same request that keeps them buys the photograph and publishes — the control", async () => {

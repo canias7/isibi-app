@@ -34,7 +34,7 @@ import { policiesFor, grantsFor } from "./site-rls.mjs";
 import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
-import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage } from "./site-uploads.mjs";
+import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, UPLOAD_URL_PATH } from "./site-uploads.mjs";
 import { handleOwnerExport } from "./site-export.mjs";
 import { notifyOwner, COOLDOWN_MS } from "./site-notify.mjs";
 import { makeTrace } from "./builder/trace.mjs";
@@ -17130,7 +17130,7 @@ async function handleRequest(request, env, ctx) {
     // served inline is rendered by the browser's own viewer on this origin
     // rather than saved, which is not what a download button means.
     {
-      const um = url.pathname.match(/^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/);
+      const um = url.pathname.match(UPLOAD_URL_PATH);
       if (um && env.SITES_BUCKET) {
         const obj = await env.SITES_BUCKET.get("uploads/" + um[1].toLowerCase() + "/" + um[2]);
         if (!obj) return new Response("Not found", { status: 404 });

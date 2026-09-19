@@ -366,8 +366,22 @@ test("the serve route decides the disposition rather than hardcoding inline", ()
   // perfectly correct and called by nothing, which is the shape this repo has
   // recorded a dozen times.
   const w = read("worker.js");
-  const i = w.indexOf('url.pathname.match(/^\\/u\\/');
+  // ⚠ RE-ANCHORED 2026-09-19, off the regex LITERAL and onto the property.
+  // This opened on `url.pathname.match(/^\/u\//` — the shape written out here —
+  // and went red when that shape became one shared constant, read by this route
+  // and by `uploadKeyFor`, so the two could stop being two copies with a
+  // comment promising they agreed. The landmark is what the route DOES: it
+  // matches the PATHNAME against the upload path, which is the only part this
+  // window's claims rest on.
+  const i = w.indexOf("url.pathname.match(UPLOAD_URL_PATH)");
   assert.ok(i > 0, "the /u/ route moved — re-anchor this check");
+  // …AND IT IS THE SHARED ONE, not a second copy re-introduced beside it: there
+  // is exactly one upload-path shape in the tree, and it lives where
+  // `uploadUrl` mints the path.
+  assert.equal((w.match(/\/\^\\\/u\\\/\(\[a-z0-9\]/g) || []).length, 0,
+    "worker.js grew its own copy of the upload path shape again");
+  assert.match(read("site-uploads.mjs"), /export const UPLOAD_URL_PATH = \/\^\\\/u\\\//,
+    "the shared upload path shape is not where uploadUrl mints the path");
   const win = w.slice(i, i + 1400);
   assert.match(win, /"content-disposition": dispositionFor\(/, "the /u/ route still hardcodes a disposition");
   assert.match(win, /readDownloadName\(/, "the stored name never reaches the header");

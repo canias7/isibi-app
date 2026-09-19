@@ -259,6 +259,22 @@ export function uploadName(hashHex, ext) {
 export const uploadKey = (slug, name) => "uploads/" + String(slug).toLowerCase() + "/" + name;
 export const uploadUrl = (slug, name) => "/u/" + String(slug).toLowerCase() + "/" + name;
 /**
+ * THE SHAPE `uploadUrl` MINTS, AND THE ONLY ONE THE SERVE ROUTE ANSWERS — one
+ * constant, read by the route that serves `/u/<slug>/<file>` and by the reader
+ * that asks whether such a url fetches bytes (`uploadKeyFor`).
+ *
+ * IT IS HERE FOR THE REASON `uploadFileName` IS: the layout of that path is
+ * this module's, so a second copy elsewhere is a second place that knows it —
+ * and the two drifting is not a compile error, it is a reader disagreeing with
+ * the route about whether a customer's own file exists.
+ *
+ * MATCHED AGAINST A PATHNAME, NEVER A WHOLE URL. The route reads
+ * `url.pathname`, so a query string or a fragment is already gone by the time
+ * this is asked; a reader that matched the raw string would refuse
+ * `/u/fw/a.jpg?v=2` — a url that serves perfectly well.
+ */
+export const UPLOAD_URL_PATH = /^\/u\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9._-]{1,80})$/;
+/**
  * The inverse of `uploadKey` — the file's own name out of a stored object key.
  *
  * HERE BECAUSE `uploadKey` IS HERE. The layout of that key is this module's, so

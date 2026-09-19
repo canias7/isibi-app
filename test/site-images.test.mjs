@@ -17,7 +17,7 @@ import {
   budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
   photoUrls, keptImages, imageRefs, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, MAX_KEEP_URLS,
 } from "../builder/site-images.mjs";
-import { uploadUrl } from "../site-uploads.mjs";
+import { uploadUrl, UPLOAD_URL_PATH } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
 import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
@@ -1039,6 +1039,75 @@ test("photoUrls reads this site's own photographs, by exact url", () => {
     "an array was coerced to its own single element and read as a page's source");
 });
 
+test("a download is not a photograph in the reuse list, and is still protected by the loss wall", () => {
+  // ⚠ Owner, 2026-09-19: *"Separate the photo-reuse list from the preservation
+  // inventory. Leave the existing loss protection intact, but stop describing
+  // PDF downloads as photographs or offering them as image sources."*
+  //
+  // REPRODUCED at the module and through the route: a site whose home page
+  // SHOWS one photograph and LINKS one PDF price list answered
+  // `{known: true, count: 2, urls: [<the jpg>, <the pdf>]}`, and the directive
+  // read *"This site already shows 2 real photographs… copy its src EXACTLY
+  // from this list — /u/fw/a1b2c3d4.jpg, /u/fw/pricelist….pdf"*. Both halves
+  // wrong from one reader: the count is not what the site shows, and the second
+  // entry is an invitation to put a PDF in a `<SafeImage>`.
+  const mixed = [{
+    path: "index.tsx",
+    source: '<SafeImage src="/u/fw/a1b2c3d4.jpg" alt="the bench" />'
+      + '<a href="/u/fw/pricelist20260919.pdf" download>Our price list (PDF)</a>',
+  }];
+
+  // 1. THE REUSE LIST AND THE COUNT ARE WHAT THE SITE *SHOWS*.
+  assert.deepEqual(shownPhotos(mixed, "fw"),
+    { known: true, count: 1, urls: ["/u/fw/a1b2c3d4.jpg"] },
+    "a linked document was counted and offered as an image source");
+
+  // 2. THE LOSS WALL IS UNMOVED, and deliberately wider. It asks what the
+  //    customer paid for, not how a page uses it — so the PDF reference is
+  //    still protected, which is the owner's *"leave the existing loss
+  //    protection intact"*. Dropping either one is a loss.
+  const gone = (keep) => [{ path: "index.tsx", source: keep }];
+  assert.deepEqual(keptImages(mixed, gone('<SafeImage src="/u/fw/a1b2c3d4.jpg" />'), "fw"),
+    { ok: false, lost: ["/u/fw/pricelist20260919.pdf"] },
+    "the download reference was dropped and the loss wall did not see it");
+  assert.deepEqual(keptImages(mixed, gone('<a href="/u/fw/pricelist20260919.pdf" download>x</a>'), "fw"),
+    { ok: false, lost: ["/u/fw/a1b2c3d4.jpg"] },
+    "the photograph was dropped and the loss wall did not see it");
+  // …AND THE CONTROL: keeping both is no loss. Without it the two assertions
+  // above pass over a wall that refuses everything.
+  assert.deepEqual(keptImages(mixed, mixed, "fw"), { ok: true, lost: [] },
+    "a change that kept both references was reported as losing one");
+
+  // 3. THE DISCRIMINATOR IS THE REFERENCE, NOT THE EXTENSION — which is what
+  //    makes this one definition rather than a second idea of what a picture
+  //    is. A `.jpg` the site only LINKS is a download; a `.pdf` the site
+  //    DRAWS is a picture reference (a broken one, and copying it is copying
+  //    what the site already shows).
+  assert.deepEqual(shownPhotos([{ source: '<a href="/u/fw/poster.jpg" download>Poster</a>' }], "fw"),
+    { known: true, count: 0, urls: [] }, "a linked .jpg was offered as an image source");
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/fw/scan.pdf" alt="x" />' }], "fw"),
+    { known: true, count: 1, urls: ["/u/fw/scan.pdf"] },
+    "a drawn .pdf was dropped from the list of what the site shows");
+
+  // 4. AND THE OBJECT-KEY FORM COUNTS, because a kit gallery names its pictures
+  //    `src` in an items array and `imageRefs` already reads both spellings.
+  assert.deepEqual(shownPhotos([{ source: '<Gallery items={[{ src: "/u/fw/g1.jpg", alt: "a" }]} />' }], "fw"),
+    { known: true, count: 1, urls: ["/u/fw/g1.jpg"] },
+    "a picture named by an object key was not counted as one the site shows");
+
+  // 5. THE SENTENCE AGREES WITH ITS OWN COUNT. Pre-existing and surfaced by the
+  //    reproduction, because a mixed site now counts 1 where it counted 2.
+  const one = imageDirective({ buy: 0, shown: shownPhotos(mixed, "fw") });
+  assert.match(one, /already shows 1 real photograph, and it stays exactly as it is/,
+    "one photograph is described in the plural: " + (one.match(/already shows[^.]*\./) || [""])[0]);
+  assert.doesNotMatch(one, /they stay exactly as they are/, "the plural clause reached a count of one");
+  assert.match(one, /You MAY show it again/, "the reuse offer is plural over one photograph");
+  const many = imageDirective({ buy: 0, shown: { known: true, count: 2, urls: ["/u/fw/a.jpg", "/u/fw/b.jpg"] } });
+  assert.match(many, /already shows 2 real photographs, and they stay exactly as they are/,
+    "the plural clause moved: " + (many.match(/already shows[^.]*\./) || [""])[0]);
+  assert.match(many, /You MAY show one of them again/, "the plural reuse offer moved");
+});
+
 test("keptImages is site-wide across pages AND components", () => {
   const page = (s) => ({ path: "index.tsx", source: s });
   const part = (s) => ({ name: "strip", source: s });
@@ -1458,6 +1527,56 @@ test("existence comes from the upload store, and an unreadable check stays unkno
     "a spelling the serve route 404s on read as an upload that could exist");
   assert.equal(uploadKeyFor("fw", null), null);
   assert.equal(uploadKeyFor(null, "/u/fw/a1.jpg"), null);
+
+  // 1b. ⚠ AND IT IS ASKED OF THE PATHNAME, BECAUSE THAT IS WHAT THE ROUTE ASKS
+  //     (owner, 2026-09-19: *"Make URL lookup follow the serving route's
+  //     parsing. Valid image URLs with `?v=2` or `#preview` currently serve
+  //     successfully but get emptied by the addon."*).
+  //
+  //     REPRODUCED: both answered `null` — read as a url no object could back,
+  //     therefore swept — while the route's own read of each is
+  //     `["fw", "a1.jpg"]`, because it matches `url.pathname` and the parser
+  //     has already taken the query and the fragment off.
+  for (const [tail, why] of [["?v=2", "a cache-busting query"], ["#preview", "a fragment"],
+    ["?v=2&w=800", "two parameters"], ["?", "an empty query"], ["#", "an empty fragment"],
+    ["?v=2#preview", "both at once"]]) {
+    assert.equal(uploadKeyFor("fw", "/u/fw/a1.jpg" + tail), "uploads/fw/a1.jpg",
+      why + " made a url that serves read as one that cannot: " + JSON.stringify(tail));
+  }
+  // …AND THE SHAPE IS THE ROUTE'S BY DERIVATION, not by a comment promising it.
+  // One constant, in the module where `uploadUrl` mints the path — so the two
+  // cannot drift, which is what a text comparison of two regexes could only
+  // report after the fact.
+  assert.equal(typeof UPLOAD_URL_PATH.test, "function", "the shared shape is not a regexp");
+  assert.deepEqual("/u/fw/a1.jpg".match(UPLOAD_URL_PATH).slice(1), ["fw", "a1.jpg"],
+    "the shared shape does not read a plain upload path");
+  assert.equal(new RegExp(UPLOAD_URL_PATH.source, UPLOAD_URL_PATH.flags).flags, "",
+    "the shared shape folds case — the FILE half is an R2 key and must not");
+  //     THE QUERY IS NOT PART OF THE KEY, which is the half a normalising
+  //     reader gets wrong in the other direction: two urls differing only in
+  //     `?v=` name ONE object.
+  assert.equal(uploadKeyFor("fw", "/u/fw/a1.jpg?v=2"), uploadKeyFor("fw", "/u/fw/a1.jpg?v=3"),
+    "a query string reached the R2 key");
+  //     AND `/u/` IS REQUIRED BEFORE THE PARSE. `new URL` resolves anything
+  //     against a base, so without this an absolute url and a protocol-relative
+  //     one both yield a pathname this shape accepts — and neither is a url
+  //     this site serves.
+  for (const away of ["https://evil.example/u/fw/a1.jpg", "//evil.example/u/fw/a1.jpg",
+    "http://x.test/u/fw/a1.jpg", "u/fw/a1.jpg", "/U/fw/a1.jpg", " /u/fw/a1.jpg"]) {
+    assert.equal(uploadKeyFor("fw", away), null,
+      "a url that is not this site's own path read as an upload: " + JSON.stringify(away));
+  }
+  //     A TRAVERSAL IS STILL REFUSED, and now by the ROUTE's own arithmetic:
+  //     `new URL` normalises the dot segments exactly as the route's parser
+  //     does, so `/u/fw/../secrets` resolves to `/secrets` and the shape says
+  //     no — rather than a rule of ours that could disagree with the route.
+  assert.equal(new URL("/u/fw/../secrets", "https://x.test").pathname, "/u/secrets",
+    "the parser this depends on stopped normalising dot segments");
+  assert.equal(UPLOAD_URL_PATH.test("/u/secrets"), false,
+    "the normalised traversal still looks like an upload path — it has only one segment after /u/");
+  assert.equal(uploadKeyFor("fw", "/u/fw/../../etc/passwd"), null, "a traversal read as an upload");
+  assert.equal(uploadKeyFor("fw", "/u/fw/a b.jpg"), null,
+    "a space is not in the file charset the route accepts");
 
   // 2. THREE ANSWERS, AND ONLY `false` SWEEPS. Anything that is not an explicit
   //    yes-or-no is cannot-tell, which leaves the src standing: an unknown left
