@@ -25,6 +25,7 @@
 // `fixtures/addon-route.mjs`.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { renderKit } from "./fixtures/site-render.mjs";
 import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
 import { renderRouteSource } from "./fixtures/site-render.mjs";
 // THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
@@ -6588,4 +6589,179 @@ test("a sketch that cannot be read refuses the connection by name, and stores no
   assert.equal(((prose.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
     "the refused connection reached the store anyway");
   assert.equal(prose.body.cost, 0, "a refusal charged for something");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SUPPLIED VIDEO OR AUDIO URL, FROM THE CUSTOMER'S SENTENCE TO THE COMPONENT
+//
+// Owner, 2026-09-19: *"For supplied video/audio URLs, trace the whole route
+// from the customer request to the selected component, its exact props, the
+// page prompt, compiler payload and stored source. Ensure the actual kit
+// component receives the intended URL and the relevant existing options, such
+// as captions when supported."*
+//
+// WHAT WAS FOUND BEFORE WRITING ANY OF THIS, because the instruction was to
+// determine what already works rather than build a second mechanism:
+// `video-embed`, `video-player`, `video-hero`, `audio-player` and
+// `audio-recorder` are ALL in `COMPONENT_MENU`, and `siteComponentApi` already
+// hands the page writer their exact props — measured through the route:
+//
+//   video-embed  — VideoEmbed(url: string, title?: string = "Video", ratio?: string = "16/9")
+//   video-player — VideoPlayer(src: string, poster?: string, captions?: { src, label, lang, default? }[], title?: string)
+//   audio-player — AudioPlayer(src: string, title?: string)
+//
+// So no new field carries the url: it rides the customer's own sentence and the
+// designer's `does`, both of which reach the page prompt. These cases prove
+// that end to end rather than adding a mechanism beside it.
+//
+// ⚠ AND THE SCOPE OF WHAT A GREEN RUN HERE MEANS, stated rather than implied:
+// the designer's answer and the writer's page are SUPPLIED. This is local
+// pipeline evidence — the url a designer names really reaches the component's
+// prop, survives to the compiler payload and to the store, and renders — and it
+// is NOT evidence that a real model independently produces that answer.
+const YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+/** A new page whose body is this case's own — `writtenPage`'s shape, its words. */
+const pageWith = (route, body) => {
+  const w = writtenPage(route);
+  return { ...w, source: w.source.replace("</main>", body + "</main>") };
+};
+
+test("a supplied video url reaches the kit component's own prop, and renders", async () => {
+  const ask = "Put a video of our workshop on the home page — it's at " + YT;
+  const r = await addon("fw-video", ask, {
+    publishes: true, sitePages: ["/"],
+    kinds: ["component"],
+    answers: { component: { component: [{
+      page: "/", where: "after the opening band",
+      does: "shows the workshop tour video from " + YT,
+      components: ["video-embed"],
+    }] } },
+    written: [addedTo("/", '<VideoEmbed url="' + YT + '" title="The workshop tour" />')],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE WRITER WAS GIVEN EVERYTHING IT NEEDS: the customer's own sentence
+  //    (which is where the url really lives), the url itself, and the exact
+  //    signature — so `url` is a prop it was told about rather than guessed.
+  const pp = pagePrompt(r).text;
+  assert.ok(pp.includes(YT), "the supplied url never reached the page writer");
+  assert.ok(pp.includes("Put a video of our workshop"), "the customer's own words never reached the page writer");
+  assert.ok(pp.includes("VideoEmbed(url: string"), "the component's signature never reached the page writer");
+
+  // 2. THE COMPILER PAYLOAD — what the route HANDED the thing that builds the
+  //    site, which is the artifact rather than a claim on the reply.
+  const built = compiledPages(r).find((p) => p.path.includes("index"));
+  assert.ok(built, "no home page reached the compiler");
+  assert.ok(built.source.includes('url="' + YT + '"'),
+    "the url did not reach the component's prop in the compiled page: " + built.source.slice(0, 300));
+
+  // 3. AND THE STORE, a third claim: a change that reached the compiler and not
+  //    the store leaves the next edit working from the old file.
+  const kept = storedSource(r, "fw-video", "index.tsx");
+  assert.ok(kept.includes('url="' + YT + '"'), "the stored source lost the url");
+
+  // 4. THE COMPONENT REALLY TURNS THAT URL INTO A WORKING EMBED. The two halves
+  //    are joined here rather than asserted apart: the url is read back OUT of
+  //    what the route stored and handed to the REAL kit file, so "the pipeline
+  //    kept it" and "the component can use it" are one chain.
+  const url = (kept.match(/url="([^"]+)"/) || [])[1];
+  assert.equal(url, YT);
+  const html = renderKit("src/components/ui/video-embed.tsx", "VideoEmbed", { url, title: "The workshop tour" });
+  assert.match(html, /youtube-nocookie\.com\/embed\/dQw4w9WgXcQ/, "the stored url does not embed");
+  assert.match(html, /data-slot="video-embed"/, "the working embed is uncountable");
+  assert.match(html, /title="The workshop tour"/, "the title did not reach the iframe");
+  assert.doesNotMatch(html, /src="https:\/\/(www\.)?youtube\.com/, "the tracking host reached the page");
+
+  // 5. AND NOTHING WAS BOUGHT. A video is not a photograph: no provider call,
+  //    no picture on the reply, and the bill is the page rung's own.
+  assert.equal(r.shots.length, 0, "the image provider was paid for a video");
+  assert.ok(!r.body.pictures, "a video was reported as a photograph made");
+});
+
+test("a NEW page plus a hosted film keeps its captions all the way down", async () => {
+  // THE COMBINATION THE OWNER NAMED — "new page plus media component" — and
+  // `captions` is the option most easily lost: it is the one prop here that is
+  // an ARRAY OF OBJECTS, so a pipeline that stringifies or re-shapes anything
+  // loses it silently and the site promises subtitles it does not serve.
+  const SRC = "https://films.example.com/workshop-tour.mp4";
+  const FILM = '<VideoPlayer src="' + SRC + '" poster="https://films.example.com/poster.jpg" '
+    + 'captions={[{ src: "https://films.example.com/en.vtt", label: "English", lang: "en", default: true }]} '
+    + 'title="The workshop film" />';
+  const r = await addon("fw-film", "Add a page showing our workshop film, with English subtitles", {
+    publishes: true, sitePages: ["/"],
+    kinds: ["page", "component"],
+    answers: {
+      page: { page: [{ path: "/film", name: "The film", purpose: "shows the workshop film",
+        sections: ["the film"], components: ["card"] }] },
+      component: { component: [{ page: "/film", where: "the whole page",
+        does: "plays the workshop film with English subtitles", components: ["video-player"] }] },
+    },
+    written: [pageWith("/film", FILM), addedTo("/", '<a href="/film">The film</a>')],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.kinds, ["page", "component"], "both kinds were not designed in one change");
+
+  // THE SIGNATURE THE WRITER WAS SHOWN NAMES `captions` AND ITS SHAPE — without
+  // that, a page writing them is inventing a prop.
+  assert.ok(pagePrompt(r).text.includes("captions?: { src: string; label: string; lang: string; default?: boolean }[]"),
+    "the caption shape never reached the page writer");
+
+  const built = compiledPages(r).find((p) => p.path.includes("film"));
+  assert.ok(built, "the film page never reached the compiler: " + JSON.stringify(compiledPages(r).map((p) => p.path)));
+  assert.ok(built.source.includes('src="' + SRC + '"'), "the film url did not reach the component");
+  assert.ok(built.source.includes('label: "English"'), "the caption track was lost on the way to the compiler");
+  assert.ok(built.source.includes('lang: "en"'), "the caption language was lost");
+
+  const kept = storedSource(r, "fw-film", "film.tsx");
+  assert.ok(kept.includes('src="' + SRC + '"') && kept.includes('label: "English"'),
+    "the store lost the film or its captions");
+
+  // AND THE REAL COMPONENT DOES SOMETHING WITH THEM, which a prop reaching a
+  // file does not by itself establish.
+  const html = renderKit("src/components/ui/video-player.tsx", "VideoPlayer", {
+    src: SRC, title: "The workshop film",
+    captions: [{ src: "https://films.example.com/en.vtt", label: "English", lang: "en", default: true }],
+  });
+  assert.match(html, /<track/, "the captions reached the component and it rendered no track");
+  assert.match(html, /label="English"/);
+});
+
+test("a supplied AUDIO url is external by construction, and an invented hosted one is emptied", async () => {
+  // ⚠ THE PLATFORM CANNOT HOST AUDIO OR VIDEO, and that decides this case's
+  // shape rather than being a footnote. `UPLOAD_EXTS` is png · jpg · webp · gif
+  // · pdf · the zip family, so a `/u/<slug>/…mp3` is a url this platform can
+  // never serve — which means a SUPPLIED sound file is always somebody else's
+  // origin, and every `/u/`-scoped image wall is out of its way by definition.
+  const MP3 = "https://audio.example.com/interview.mp3";
+  const r = await addon("fw-audio", "Put the interview recording on the home page — " + MP3, {
+    publishes: true, sitePages: ["/"],
+    kinds: ["component"],
+    answers: { component: { component: [{ page: "/", where: "below the opening band",
+      does: "plays the interview from " + MP3, components: ["audio-player"] }] } },
+    written: [addedTo("/", '<AudioPlayer src="' + MP3 + '" title="The interview" />')],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.ok(pagePrompt(r).text.includes("AudioPlayer(src: string"), "the signature never reached the page writer");
+  const built = compiledPages(r).find((p) => p.path.includes("index"));
+  assert.ok(built.source.includes('src="' + MP3 + '"'), "an external audio url was altered on the way to the compiler");
+  assert.ok(storedSource(r, "fw-audio", "index.tsx").includes('src="' + MP3 + '"'), "the store lost the audio url");
+
+  // THE CONTROL, and it is the behaviour rather than an aside: a model that
+  // INVENTS a hosted url writes one this platform cannot serve, and the stray
+  // wall empties it — correctly, because no such object exists. An empty `src`
+  // is a player with nothing in it; a live url to a 404 is the same thing with
+  // a network request. Measured so the difference between the two shapes is on
+  // the record rather than assumed.
+  const bad = await addon("fw-audio2", "Put the interview recording on the home page", {
+    publishes: true, sitePages: ["/"],
+    kinds: ["component"],
+    answers: { component: { component: [{ page: "/", where: "below the band",
+      does: "plays the interview", components: ["audio-player"] }] } },
+    written: [addedTo("/", '<AudioPlayer src="/u/fw-audio2/interview.mp3" title="The interview" />')],
+  });
+  assert.equal(bad.body.ok, true, JSON.stringify(bad.body));
+  const builtBad = compiledPages(bad).find((p) => p.path.includes("index"));
+  assert.ok(builtBad.source.includes('src=""'),
+    "an invented hosted url shipped as a live reference to an object that cannot exist: " + builtBad.source.slice(0, 300));
+  assert.ok(!builtBad.source.includes("interview.mp3"), "the invented url survived into the compiled page");
 });

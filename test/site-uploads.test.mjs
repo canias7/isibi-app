@@ -12,6 +12,7 @@ import {
   MAX_UPLOAD_BYTES, MAX_FILES_PER_SITE, MAX_SITE_BYTES,
   handleVisitorUpload, acceptsVisitorUploads,
   MAX_VISITOR_UPLOAD_BYTES, MAX_VISITOR_FILES, MAX_VISITOR_BYTES,
+  IMAGE_EXTS, UPLOAD_EXTS, uploadIsImage, sniffUpload,
 } from "../site-uploads.mjs";
 
 // Real leading bytes for each type we accept.
@@ -468,4 +469,50 @@ test("an empty visitor upload is refused", async () => {
   const { deps, puts } = vharness();
   assert.equal((await vup(deps, new Uint8Array(0))).status, 400);
   assert.deepEqual(puts, []);
+});
+
+// THE SAME BYTE CONSTANTS THE REST OF THIS FILE ALREADY DRIVES — a second copy
+// of a magic number is a second thing to keep in step with the sniffer.
+const PDF = Uint8Array.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);   // "%PDF-1"
+const ZIP = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0]);
+
+test("IMAGE_EXTS is exactly what the sniffer mints as a picture, derived and not typed", () => {
+  // ⚠ WHY A POSITIVE SET EXISTS AT ALL (2026-09-19). `uploadIsImage` answers a
+  // NEGATIVE — "not a pdf and not a zip member" — which is right for its two
+  // original callers, because both are handed a name OUR OWN sniffer minted.
+  // It is wrong for a caller holding a url a MODEL wrote: measured,
+  // `uploadIsImage("interview.mp3")` is TRUE. So `shownPhotos` needed the
+  // positive form, and this asserts the derivation rather than the value.
+  assert.ok(uploadIsImage("interview.mp3"),
+    "the negative reader stopped admitting an mp3 — the reason IMAGE_EXTS exists has changed");
+
+  // ── THE CENSUS, BOTH WAYS ROUND, AGAINST THE SNIFFER ITSELF ──────────────
+  //
+  // Every ext in IMAGE_EXTS must be one `sniffImage` really answers for real
+  // bytes, and every ext it answers must be in IMAGE_EXTS. A list typed here
+  // would drift from `sniffImage` the day a fifth format is added; this fails
+  // by existing instead.
+  const minted = new Set();
+  for (const bytes of [PNG, JPEG, WEBP, GIF]) {
+    const got = sniffImage(bytes);
+    assert.ok(got, "sniffImage refused bytes this file already drives — this census reads nothing");
+    minted.add(got.ext);
+  }
+  assert.deepEqual([...minted].sort(), [...IMAGE_EXTS].sort(),
+    "IMAGE_EXTS and what sniffImage mints have come apart");
+
+  // AND THE DOCUMENTS ARE OUT — asked of the OTHER sniffer, for the same
+  // reason: `sniffUpload` is what mints a pdf and a zip member, and neither
+  // may ever reach a set whose callers copy urls into an `<img src>`.
+  assert.equal(sniffUpload(PDF, "x.pdf").kind, "doc");
+  assert.equal(sniffUpload(ZIP, "x.xlsx").kind, "doc");
+  for (const doc of ["pdf", "zip", "xlsx", "docx", "pptx"]) {
+    assert.ok(!IMAGE_EXTS.includes(doc), doc + " is offered as a picture");
+    assert.ok(UPLOAD_EXTS.includes(doc), doc + " left UPLOAD_EXTS — this assertion tests nothing");
+  }
+
+  // THE TWO LISTS STAY ONE DEFINITION: IMAGE_EXTS is a SUBSET of what `/u/` may
+  // address, so an extension can never be offered as a picture that the upload
+  // route would refuse to store.
+  for (const e of IMAGE_EXTS) assert.ok(UPLOAD_EXTS.includes(e), e + " is not an extension /u/ can address");
 });

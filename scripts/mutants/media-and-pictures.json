@@ -1,0 +1,98 @@
+[
+  { "label": "CONTROL: a comment in the component says nothing different",
+    "control": true,
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": " * A YouTube or Vimeo video, from whatever URL somebody pasted.",
+    "to": " * A YouTube or Vimeo video, from whatever URL somebody pasted. (control)" },
+
+  { "label": "CONTROL: a comment in the picture predicate says nothing different",
+    "control": true,
+    "files": ["builder/site-images.mjs"],
+    "from": " * IS THIS URL A PICTURE, by the only extensions this platform can mint?",
+    "to": " * IS THIS URL A PICTURE, by the only extensions this platform can mint? (control)" },
+
+  { "label": "the WORKING video embed loses its data-slot again (the reported defect)",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "<div data-slot=\"video-embed\" className={cn(\"overflow-hidden",
+    "to": "<div className={cn(\"overflow-hidden" },
+
+  { "label": "the FALLBACK loses its data-slot, so a broken video is uncountable too",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "<div data-slot=\"video-embed\" className={cn(\"grid place-items-center",
+    "to": "<div className={cn(\"grid place-items-center" },
+
+  { "label": "the embed reaches the tracking host instead of the privacy one",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "https://www.youtube-nocookie.com/embed/",
+    "to": "https://www.youtube.com/embed/" },
+
+  { "label": "Vimeo is embedded without do-not-track",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "https://player.vimeo.com/video/${vm[1]}?dnt=1",
+    "to": "https://player.vimeo.com/video/${vm[1]}" },
+
+  { "label": "the supplied title never reaches the iframe",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "<iframe src={src} title={title} loading=\"lazy\"",
+    "to": "<iframe src={src} title=\"Video\" loading=\"lazy\"" },
+
+  { "label": "the supplied ratio is ignored on the working branch",
+    "files": ["builder/lovable/template/src/components/ui/video-embed.tsx"],
+    "from": "className={cn(\"overflow-hidden rounded-lg bg-muted\", className)} style={{ aspectRatio: ratio }}",
+    "to": "className={cn(\"overflow-hidden rounded-lg bg-muted\", className)} style={{ aspectRatio: \"16/9\" }}" },
+
+  { "label": "IMAGE_EXTS stops being derived and admits every upload type",
+    "files": ["site-uploads.mjs"],
+    "from": "export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);",
+    "to": "export const IMAGE_EXTS = UPLOAD_EXTS.slice();" },
+
+  { "label": "IMAGE_EXTS is typed out and drifts from the sniffer",
+    "files": ["site-uploads.mjs"],
+    "from": "export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);",
+    "to": "export const IMAGE_EXTS = [\"png\", \"jpg\"];" },
+
+  { "label": "a document joins the pictures",
+    "files": ["site-uploads.mjs"],
+    "from": "export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);",
+    "to": "export const IMAGE_EXTS = [...UPLOAD_EXTS.filter(uploadIsImage), \"pdf\"];" },
+
+  { "label": "UPLOAD_EXTS and IMAGE_EXTS come apart, so a picture is offered that /u/ cannot store",
+    "files": ["site-uploads.mjs"],
+    "from": "export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);",
+    "to": "export const IMAGE_EXTS = [...UPLOAD_EXTS.filter(uploadIsImage), \"svg\"];" },
+
+  { "label": "the picture predicate coerces a non-string again",
+    "files": ["builder/site-images.mjs"],
+    "from": "  if (typeof url !== \"string\") return false;\n  const path = url.split(/[?#]/)[0];",
+    "to": "  const path = String(url || \"\").split(/[?#]/)[0];" },
+
+  { "label": "a query string is read as part of the extension",
+    "files": ["builder/site-images.mjs"],
+    "from": "  const path = url.split(/[?#]/)[0];",
+    "to": "  const path = url;" },
+
+  { "label": "an upper-case extension is refused",
+    "files": ["builder/site-images.mjs"],
+    "from": "return IMAGE_EXTS.includes(path.slice(dot + 1).toLowerCase());",
+    "to": "return IMAGE_EXTS.includes(path.slice(dot + 1));" },
+
+  { "label": "a url with no extension is read as a picture",
+    "files": ["builder/site-images.mjs"],
+    "from": "  if (dot < 0) return false;",
+    "to": "  if (dot < 0) return true;" },
+
+  { "label": "the FIRST dot decides the extension, not the last",
+    "files": ["builder/site-images.mjs"],
+    "from": "  const dot = path.lastIndexOf(\".\");",
+    "to": "  const dot = path.indexOf(\".\");" },
+
+  { "label": "the reuse list stops asking whether the file is a picture (the defect)",
+    "files": ["builder/site-images.mjs"],
+    "from": "{ if (isPictureUrl(u)) seen.add(u); }",
+    "to": "seen.add(u);" },
+
+  { "label": "the LOSS WALL narrows with the reuse list, so a paid-for document is unprotected",
+    "files": ["builder/site-images.mjs"],
+    "from": "    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1]);",
+    "to": "    if (m[1].toLowerCase().startsWith(mark) && isPictureUrl(m[1])) out.add(m[1]);" }
+]

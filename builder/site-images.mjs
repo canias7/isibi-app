@@ -37,7 +37,7 @@ import { KEY_BEFORE, keyName } from "./site-picture.mjs";
 // below is asking the same question the route asks rather than a copy of it.
 // Root, dependency-free of this tree (it reads `site-access.mjs` alone), so no
 // cycle and no file the container image does not already carry.
-import { UPLOAD_URL_PATH } from "../site-uploads.mjs";
+import { UPLOAD_URL_PATH, IMAGE_EXTS } from "../site-uploads.mjs";
 
 /* ------------------------------------------------------- the clock, not the money */
 
@@ -295,7 +295,35 @@ export function shownPhotos(pages, slug) {
   // about how a page uses it, so it goes on protecting the PDF reference too —
   // over-protective, which is the safe direction, and the owner's own
   // *"leave the existing loss protection intact"*.
-  for (const p of pages) for (const u of imageRefs(p && p.source, slug)) seen.add(u);
+  // ── AND THE FILE HAS TO BE A PICTURE, NOT ONLY DRAWN LIKE ONE (2026-09-19) ─
+  //
+  // The `src`/`href` rule above answers "is the site DRAWING this", which is
+  // half the question and is the half that was wrong for the PDF it was written
+  // for. The other half is "is this a picture AT ALL", and the two compose: the
+  // recorded objection to an extension rule — *"would be wrong about a `.jpg`
+  // offered as a download"* — is about the FIRST axis, which `imageRefs`
+  // already decides, so a `.jpg` in an `href` is still excluded by it and the
+  // example still holds.
+  //
+  // FOUND BY THE MEDIA WORK. `<AudioPlayer src="/u/fw/interview.mp3" />` and
+  // `<VideoPlayer src="/u/fw/tour.mp4" />` both use `src`, so a site showing one
+  // photograph beside them was described to the page writer as having THREE, and
+  // the reuse list offered a sound file to copy into a `<SafeImage>`. MEASURED
+  // before the fix: count 3, urls [the jpg, the mp3, the mp4].
+  //
+  // AND THE REACHABLE HALF IS THE PDF, not the media. This platform hosts
+  // exactly nine extensions and none of them is audio or video, so a `/u/` media
+  // url can only be one a model INVENTED — which `dropStrayPhotos` empties on
+  // the way out, today, for the right reason. A PDF is different: it really can
+  // be uploaded, and a model told to reuse the site's own files can write one
+  // into a `src`. That is the case this closes.
+  //
+  // `keptImages` STAYS WIDE, on `photoUrls`. The loss wall is about what the
+  // customer PAID FOR rather than about what renders, so it goes on protecting
+  // the PDF and the invented media url alike — over-protective, the safe
+  // direction, and the owner's own *"leave the existing loss protection
+  // intact"*.
+  for (const p of pages) for (const u of imageRefs(p && p.source, slug)) { if (isPictureUrl(u)) seen.add(u); }
   // ── AND THE URLs THEMSELVES, BECAUSE A COUNT CANNOT BE COPIED (2026-09-19)
   //
   // A page writer told *"this site already shows 2 photographs"* and given
@@ -323,6 +351,39 @@ export function shownPhotos(pages, slug) {
 
 /** How many of a site's own photograph urls the directive will list. */
 export const MAX_KEEP_URLS = 12;
+
+/**
+ * IS THIS URL A PICTURE, by the only extensions this platform can mint?
+ *
+ * `IMAGE_EXTS` is derived in `site-uploads.mjs` from that file's own two
+ * definitions — what either sniffer mints, less what it calls a document — so
+ * there is no third list here to drift from them.
+ *
+ * THE PATH IS READ BEFORE THE EXTENSION, and that is not tidiness: a url may
+ * carry a query or a fragment (`…/a1b2.jpg?v=2`), which the serve route strips
+ * and which a bare `split(".").pop()` would read as the extension `jpg?v=2`.
+ * `UPLOAD_URL_PATH`'s own reader does the stripping everywhere else; here the
+ * two delimiters are enough, and a url that parses as neither falls through to
+ * the same answer as an unknown extension.
+ *
+ * FAIL-CLOSED: no dot, no extension, an extension nobody recognises — all
+ * FALSE. The caller offers this url to a page writer to copy into a `src`, so
+ * being wrong the other way ships a file that cannot render.
+ *
+ * ⚠ AND A NON-STRING IS REFUSED RATHER THAN COERCED. `String(["/u/fw/a.jpg"])`
+ * is `"/u/fw/a.jpg"`, so a one-element array would answer TRUE — this repo's
+ * own most-repeated value trap, which has shipped as a real bug three times.
+ * Unreachable from `shownPhotos`, whose input is `imageRefs`' strings; refused
+ * anyway, because the rule is refuse and never coerce, and an exported
+ * predicate takes whatever a later caller hands it.
+ */
+export function isPictureUrl(url) {
+  if (typeof url !== "string") return false;
+  const path = url.split(/[?#]/)[0];
+  const dot = path.lastIndexOf(".");
+  if (dot < 0) return false;
+  return IMAGE_EXTS.includes(path.slice(dot + 1).toLowerCase());
+}
 
 /**
  * THE PHOTOGRAPHS ONE FILE SHOWS — this site's own, by exact URL (2026-09-17).

@@ -143,6 +143,31 @@ export const uploadIsImage = (name) => {
 };
 
 /**
+ * THE EXTENSIONS THAT REALLY ARE PICTURES — derived, never typed (2026-09-19).
+ *
+ * `uploadIsImage` above answers a NEGATIVE — "not a document" — which is exactly
+ * right for its two callers, because both are handed a name OUR OWN sniffer
+ * minted, so the universe they ask about is `UPLOAD_EXTS` and nothing else. It
+ * is the wrong shape for a caller holding a url a MODEL wrote, where the
+ * universe is anything at all: `uploadIsImage("interview.mp3")` is TRUE, since
+ * an mp3 is not a pdf and not a zip member.
+ *
+ * So the POSITIVE set is the intersection of the two definitions this file
+ * already has — what we mint, less what we call a document — and it needs no
+ * third list to drift from them. A fifth format added to `sniffImage` joins
+ * `UPLOAD_EXTS` in the same edit and arrives here by existing.
+ *
+ * WHO ASKS, AND WHY IT IS THE POSITIVE FORM. `shownPhotos` offers a page writer
+ * this site's own picture urls to COPY INTO A `src`, and an invitation is where
+ * being wrong propagates: a `/u/…/pricelist.pdf` offered as a photograph is a
+ * broken image on the next page, and the reasoning is `uploadIsImage`'s own —
+ * a PDF behind an `<img>` renders NOTHING, silently. An unknown extension, and
+ * a url with none, are OUT: not offering a real picture costs a reuse nobody
+ * asked for, and offering a file that cannot render costs a visible defect.
+ */
+export const IMAGE_EXTS = UPLOAD_EXTS.filter(uploadIsImage);
+
+/**
  * What a browser should DO with the bytes, decided from the type that was
  * STORED — which is what the leading bytes said, and the one thing about a file
  * the caller cannot lie about.

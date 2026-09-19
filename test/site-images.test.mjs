@@ -16,8 +16,9 @@ import {
   parseImageTokens, planImages, applyImages, imagePrompt, imageDirective, imageNote,
   budgetFor, planBudget, hasBoughtPhotos, imageBrief, shownPhotos, photoInventory, imageSources,
   photoUrls, keptImages, imageRefs, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, MAX_KEEP_URLS,
+  isPictureUrl,
 } from "../builder/site-images.mjs";
-import { uploadUrl, UPLOAD_URL_PATH } from "../site-uploads.mjs";
+import { uploadUrl, UPLOAD_URL_PATH, IMAGE_EXTS, UPLOAD_EXTS } from "../site-uploads.mjs";
 import { IMAGE_USD, pageCost, pageCredits } from "../builder/publish-pages.mjs";
 import { normalizePlan } from "../builder/site-plan.mjs";
 import { lintPages, PAGE_RULES, briefWithLayout, SAFE_IMAGE_COMPONENTS, schemaDigest, validatePages } from "../builder/page-gen.mjs";
@@ -1078,16 +1079,33 @@ test("a download is not a photograph in the reuse list, and is still protected b
   assert.deepEqual(keptImages(mixed, mixed, "fw"), { ok: true, lost: [] },
     "a change that kept both references was reported as losing one");
 
-  // 3. THE DISCRIMINATOR IS THE REFERENCE, NOT THE EXTENSION — which is what
-  //    makes this one definition rather than a second idea of what a picture
-  //    is. A `.jpg` the site only LINKS is a download; a `.pdf` the site
-  //    DRAWS is a picture reference (a broken one, and copying it is copying
-  //    what the site already shows).
+  // 3. TWO AXES, AND BOTH MUST HOLD — the reference AND the file.
+  //
+  //    ⚠ THE SECOND ASSERTION HERE IS AN EXPECTATION THAT MOVED, not one that
+  //    broke, and the old one's own parenthesis is why. It read *"a `.pdf` the
+  //    site DRAWS is a picture reference (a broken one, and copying it is
+  //    copying what the site already shows)"* — and conceding "a broken one"
+  //    is conceding the case. This list is an INVITATION: its whole job is to
+  //    say what may be copied into a `src`, so offering a reference that
+  //    renders NOTHING does not preserve a mistake, it propagates it onto the
+  //    next page. And the count is "how many real photographs this site
+  //    shows", which a PDF behind an `<img>` does not.
+  //
+  //    THE OLD OBJECTION STILL HOLDS AND IS STILL ASSERTED. *"An extension
+  //    rule would be wrong about a `.jpg` offered as a download"* is about the
+  //    FIRST axis, which `imageRefs` decides and which the first assertion
+  //    below drives. The two compose rather than replace each other: the site
+  //    must be DRAWING it, and it must be a picture.
   assert.deepEqual(shownPhotos([{ source: '<a href="/u/fw/poster.jpg" download>Poster</a>' }], "fw"),
     { known: true, count: 0, urls: [] }, "a linked .jpg was offered as an image source");
   assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/fw/scan.pdf" alt="x" />' }], "fw"),
-    { known: true, count: 1, urls: ["/u/fw/scan.pdf"] },
-    "a drawn .pdf was dropped from the list of what the site shows");
+    { known: true, count: 0, urls: [] },
+    "a drawn .pdf was offered as a photograph to copy into a src");
+  //    …AND THE POSITIVE FOR EACH AXIS, or the two assertions above are
+  //    satisfied by a reader that answers nothing at all.
+  assert.deepEqual(shownPhotos([{ source: '<SafeImage src="/u/fw/real.jpg" alt="x" />' }], "fw"),
+    { known: true, count: 1, urls: ["/u/fw/real.jpg"] },
+    "a drawn .jpg is the case this reader exists for and it was dropped");
 
   // 4. AND THE OBJECT-KEY FORM COUNTS, because a kit gallery names its pictures
   //    `src` in an items array and `imageRefs` already reads both spellings.
@@ -1612,4 +1630,62 @@ test("existence comes from the upload store, and an unreadable check stays unkno
   const quiet = await strayImages([], async () => { asked += 1; return false; });
   assert.deepEqual(quiet, { stray: [], unknown: [] });
   assert.equal(asked, 0, "an empty candidate list still opened a connection");
+});
+
+test("only a file that really is a picture may be offered to copy into a src", () => {
+  // ⚠ FOUND BY THE MEDIA WORK (2026-09-19), and the reproduction is measured
+  // rather than argued. `<AudioPlayer src>` and `<VideoPlayer src>` are both
+  // `src`, so before this a site showing ONE photograph beside them answered
+  // `count: 3` and offered a sound file and a film to copy into a `<SafeImage>`.
+  const media = [{
+    path: "index.tsx",
+    source: '<SafeImage src="/u/fw/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg" alt="the bench" />'
+      + '<AudioPlayer src="/u/fw/interview.mp3" title="The interview" />'
+      + '<VideoPlayer src="/u/fw/tour.mp4" poster="/u/fw/poster.jpg" />',
+  }];
+  assert.deepEqual(shownPhotos(media, "fw"),
+    { known: true, count: 1, urls: ["/u/fw/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"] },
+    "a sound file or a film was counted as a photograph and offered as an image source");
+
+  // AND THE LOSS WALL IS UNMOVED, which is the half the owner asked to keep:
+  // it asks what the customer PAID FOR, not what renders, so dropping the
+  // media reference is still a loss.
+  const without = [{ path: "index.tsx", source: media[0].source.replace(/<AudioPlayer[^>]*\/>/, "") }];
+  assert.deepEqual(keptImages(media, without, "fw"),
+    { ok: false, lost: ["/u/fw/interview.mp3"] },
+    "the loss wall narrowed with the reuse list — a reference the owner paid for is unprotected");
+
+  // ── THE PREDICATE ITSELF ─────────────────────────────────────────────────
+  //
+  // DERIVED, so a fifth format added to `sniffImage` arrives by existing. The
+  // census in `test/site-uploads.test.mjs` is what ties `IMAGE_EXTS` to the
+  // sniffer; this asserts the two lists are still the ones this reader means.
+  for (const ext of IMAGE_EXTS) {
+    assert.ok(isPictureUrl("/u/fw/a." + ext), "." + ext + " is minted as a picture and is refused as one");
+  }
+  for (const ext of UPLOAD_EXTS.filter((e) => !IMAGE_EXTS.includes(e))) {
+    assert.ok(!isPictureUrl("/u/fw/a." + ext), "a ." + ext + " document is offered as a picture");
+  }
+
+  // A QUERY OR A FRAGMENT IS NOT PART OF THE EXTENSION — the serve route strips
+  // both, and a bare `split(".").pop()` would read `jpg?v=2` and refuse a real
+  // photograph the owner is versioning.
+  // THE LAST DOT IS THE EXTENSION, and a sweep survivor is why this is driven:
+  // our own uploads are `<32 hex>.<ext>` and carry exactly one, so every fixture
+  // here agreed with a reader that took the FIRST. A model writing a versioned
+  // or descriptive name — `photo.v2.jpg` — is the shape that separates them, and
+  // reading `v2.jpg` as the extension refuses a real photograph.
+  assert.ok(isPictureUrl("/u/fw/photo.v2.jpg"), "a name with two dots was refused — the first dot is deciding");
+  assert.ok(!isPictureUrl("/u/fw/photo.jpg.pdf"), "the extension was read from the first dot, so a PDF passed as a picture");
+  assert.ok(isPictureUrl("/u/fw/a1b2.jpg?v=2"), "a versioned photograph was refused");
+  assert.ok(isPictureUrl("/u/fw/a1b2.jpg#preview"), "a fragment was read as part of the extension");
+  assert.ok(isPictureUrl("/u/fw/a1b2.JPG"), "an upper-case extension was refused");
+
+  // AND FAIL-CLOSED: no dot, no extension after the dot, an extension nobody
+  // knows, and the junk shapes. Being wrong the other way offers a page writer
+  // a url that renders nothing.
+  for (const bad of ["/u/fw/interview.mp3", "/u/fw/tour.mp4", "/u/fw/tour.webm", "/u/fw/clip.mov",
+    "/u/fw/noextension", "/u/fw/trailing.", "/u/fw/a.exe", "", null, undefined, 42, ["/u/fw/a.jpg"]]) {
+    assert.ok(!isPictureUrl(bad), JSON.stringify(bad) + " was offered as a picture");
+  }
 });
