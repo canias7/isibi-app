@@ -372,6 +372,7 @@ const connAnswer = (r) => connectionRow({
 
 function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, history = [],
   fail = {}, noExample = false, halfExample = false, connections = [], connFails = false,
+  connThrows = false,
   noSendScope = false, onPost = () => {} } = {}) {
   return (path, init) => {
     const body = init?.body ? JSON.parse(init.body) : {};
@@ -381,6 +382,10 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
      * post and would make every example press look like one.
      */
     if (path.startsWith("/api/agent/connections")) {
+      // ⚠ A REFUSED ANSWER AND A READ THAT NEVER HAPPENED ARE TWO SHAPES, and only the second
+      // reaches the `catch`. `apiFetch` is `async`, so a throw here is a rejected promise —
+      // which is what a browser with no network really produces.
+      if (connThrows) throw new Error("the network went away");
       if (connFails) return { ok: false, body: { error: "the store is away" } };
       // AND THE CATALOG RIDES ON IT, as the real route sends it. `noSendScope` is the older
       // Worker: a provider described with no send scope at all, which nothing may read as
@@ -3069,6 +3074,53 @@ test("⚠ A READ WE COULD NOT MAKE SEEDS NO ACCOUNT, and still seeds the example
 const connBody = (rows) => ({
   ok: true, connections: rows.map(connAnswer),
   providers: JSON.parse(JSON.stringify(AGENT_PROVIDERS)), max: MAX_CONNECTIONS,
+});
+
+test("⚠ TWO NOTHINGS MATCHING IS NOT A YES: an empty permission does not satisfy an empty requirement", async () => {
+  /**
+   * ⚠ **A SWEEP SURVIVOR IS WHY THIS EXISTS, and it is not the redundancy it looks like.**
+   * Cutting the "we cannot tell which permission a send needs" line leaves `needs` as `''`,
+   * and `[].includes('')` is false for every ordinary scope list — so over nine shapes the two
+   * readings agree and the line reads as a second wall in front of the one below it.
+   *
+   * **TWO SHAPES SEPARATE THEM, and both are ones the answer can carry.** `connectionRow` keeps
+   * any STRING in `scopes`, `""` included, so a row holding one against a provider that names no
+   * send scope makes `includes('')` TRUE — and an account is offered on the strength of an empty
+   * permission matching an empty requirement. Measured: identical on the other eight shapes and
+   * different on these two.
+   */
+  const { w } = await withAutomations({ automations: [], noSendScope: true,
+    connections: [{ id: "CXEMPTY", status: "active", scopes: [""] }] });
+  await w.ev('agentAutoExample()');
+  assert.equal(sendStepOf(w).connection, "",
+    "an empty permission was read as satisfying an unknown requirement");
+
+  // THE SAME ROW AGAINST A PROVIDER THAT DOES NAME ITS SEND SCOPE is refused too — for the
+  // OTHER reason, which is the one the line below it carries.
+  const { w: named } = await withAutomations({ automations: [],
+    connections: [{ id: "CXEMPTY", status: "active", scopes: [""] }] });
+  await named.ev('agentAutoExample()');
+  assert.equal(sendStepOf(named).connection, "");
+
+  // THE OBSERVER: the same fixture with a real grant IS offered, so neither refusal above is
+  // "this case can never pick anything".
+  const { w: real } = await withAutomations({ automations: [],
+    connections: [{ id: "CXEMPTY", status: "active", scopes: ["send"] }] });
+  await real.ev('agentAutoExample()');
+  assert.equal(sendStepOf(real).connection, "CXEMPTY");
+});
+
+test("⚠ A READ THAT NEVER HAPPENED IS THE SAME ANSWER AS ONE THAT WAS REFUSED", async () => {
+  // ⚠ **A REFUSAL ARRIVES AS A RESPONSE AND AN OUTAGE ARRIVES AS A REJECTION**, and only the
+  // second reaches the `catch` — so the refusal case above it could not drive this branch at
+  // all. Both must seed the example and neither may pick an account.
+  const { w } = await withAutomations({ automations: [], connThrows: true,
+    connections: [{ id: "CXMINE", status: "active" }] });
+  await w.ev('agentAutoExample()');
+  const draft = w.val("agentAutoDraft");
+  assert.ok(draft, "a browser with no network got no example at all");
+  assert.equal(draft.steps.length, EXAMPLE.steps.length, "the whole workflow is still there");
+  assert.equal(sendStepOf(w).connection, "", "an account was picked out of a read that never happened");
 });
 
 test("⚠ A SEED THAT LANDS AFTER THE SCREEN HAS MOVED ON WRITES NOTHING", async () => {

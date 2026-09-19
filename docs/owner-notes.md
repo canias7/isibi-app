@@ -12959,3 +12959,42 @@ the old ground is covered, and the small runs say today's is.
 
 This also answers three older notes of mine that said a breakage run was outstanding and never
 gave a number. They were all smaller versions of this one, so one measurement settles all three.
+
+### The "start from an example" button could never fill in the account — and the test agreed with it
+
+You spotted it: the screen was looking at a field called `state` on each connected account, and
+the server has never sent one. It sends `status`. So the comparison was always false, the button
+always left the "send from" box empty, and **the test written to guard that had invented the same
+field by hand** — both halves agreeing about something that does not exist.
+
+Three things were wrong, and only one of them was the spelling:
+
+1. **The field.** It reads `status` now, the name the server really answers.
+2. **It was not asking whether the account may SEND.** An account you connected for reading only
+   is perfectly healthy — the credential works, nothing was revoked — and it cannot send. Seeding
+   one gives you a workflow that saves, asks you to approve a message, and is then refused at the
+   last step. So it now asks for the permission as well as the state, and which permission a send
+   needs comes from the provider rather than from a word written into the screen.
+3. **It was reading the wrong list.** The accounts it looked at belonged to the *connected
+   accounts* screen, and opening Automations clears which agent that screen was for without
+   clearing the list — so it was reading whichever agent you had last looked at, or nothing at
+   all if you had not looked at any. It asks the server for THIS agent's accounts at the moment
+   you press the button, through the same route the accounts screen uses.
+
+Because it asks the server now, the answer can come back late — after you have opened another
+agent, or signed in as somebody else, or pressed the button again. All three are checked when the
+answer arrives, so a late one cannot drop a form into the wrong place. And if that read fails,
+you still get the example; what you do not get is a guessed account.
+
+**What it cost to be sure**: nine deliberate breakages, put in one at a time, each one caught by
+the check written for it. The end-to-end run now also proves the part no browser test can — that
+the real list carries what the screen needs and the account it picks is the one a message really
+goes out through, with a read-only account beside it that is listed, is healthy, and is correctly
+not offered.
+
+Nothing is applied, deployed or merged. **Site tests 6,831 → 6,835, the engine's 590 unchanged,
+and all ten end-to-end runs green.**
+
+**One honest note about my own instruments**: my first reading of those ten runs said three of
+them had failures. They had not — my counter was matching the word FAIL inside the *names* of
+checks like "AND THE RETRY IS A FAILURE TOO". Read properly, all ten are clean.

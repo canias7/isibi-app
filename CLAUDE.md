@@ -9128,3 +9128,101 @@ what the two entries above promised.
   and `agent-store.mjs` (which is in it) changed in the FIRST push, the one #1200 ran on. So no
   run fired for the tip and none was due. *A green harness on an ancestor is only evidence when
   nothing between it and the tip is an image input* — checked per path, not assumed.
+
+### ⚠ THE EXAMPLE'S ACCOUNT: read off the answer, active, AND able to send (2026-09-19)
+
+Owner: *"At the reviewed head, `agentAutoExample()` checks `connection.state`, but the API
+returns `connection.status`. Its test uses the same incorrect field. Fix this using the actual
+API response shape. Load connections for the current account and agent, rather than relying on
+whichever connection screen was previously opened. Only offer active connections with the
+required permission."*
+
+**ALL OF IT IS RIGHT, AND THE FIXTURE SHARING THE DEFECT IS THE PART WORTH KEEPING.**
+`connectionRow()` answers `status` and **has no `state` key at all** — measured over the reader
+rather than recalled — so the filter was `undefined === 'active'` for every real row, `pick` was
+always `''`, and the send step's connection was never filled. The case written to guard it set
+`agentConnRows` by hand with the same invented field, so *both halves agreed about a field
+neither the route nor the reader has ever produced.* It is now built by passing a
+database-shaped row through the real `connectionRow`, which is what makes that impossible: a
+field renamed on the answer moves here too, or the fixture stops compiling.
+
+**THREE CORRECTIONS, AND THE THIRD IS THE ONE NO UNIT TEST COULD HAVE FOUND.**
+
+1. **THE FIELD IS THE ANSWER'S OWN**, `status`.
+2. **AND THE PERMISSION IS ASKED FOR TOO, because status alone is not "able to send".** An
+   account granted `read` and not `send` is perfectly `active` — the credential works, nothing
+   was revoked, nobody disconnected it — and what it cannot do is the one thing the step is
+   for: `perform` re-asks the database for the action's own scope and is refused. So seeding one
+   is a workflow that saves, asks a person, and fails at its last step.
+3. **AND THE ROWS COME FROM THIS AGENT'S ROUTE, READ AT THE PRESS.** `agentConnRows` belongs to
+   the connected-accounts SCREEN and is scoped to `agentConn`, which **`agentAutomations` sets
+   to `null` on the way in WITHOUT clearing the rows** — so the seed was reading whichever
+   agent's accounts had last been looked at, and an id from another agent's list is one this
+   agent cannot send through at all. With none ever opened it is `null` and the example could
+   never be seeded. It reads `/api/agent/connections?agent=<this one>`, **the same route the
+   screen itself reads**, so there is one backend answer to *what has this agent connected*
+   whichever door asks.
+
+**WHICH PERMISSION A SEND NEEDS IS A DECLARED COPY, CENSUSED BOTH WAYS.** `AGENT_PROVIDERS[]`
+gains `sendScope`, and `agent-builder/src/automations.mjs` EXPORTS `SEND_ACTION` so the census
+in `test/agent-send.test.mjs` — the one file that may load both products — reads the engine's own
+action name and its own `adapter.scopes` map rather than the word `send` written twice. **It is
+per PROVIDER on purpose**: the mapping from an action to the permission it needs lives on the
+adapter, so a second provider may spell its own differently, and reading the first scope or
+matching the word "send" in a label would each be a guess about a provider rather than a fact
+about it. **The census is a CENSUS** — every provider must name a `sendScope` that is one of its
+OWN scopes, so a fifth provider added next month is covered by existing, and one naming a
+permission nobody can grant would leave the screen offering nothing for ever.
+
+**THE SEED IS A REQUEST NOW, SO IT CAN LAND LATE — and what it would write is a whole form.**
+Three walls, asked once after the request and each killable on its own: the press is still the
+newest (`agentAutoEgAsk`, so two presses mean the LAST one decides), the agent is still the one
+it was asked for, and so is the account. Seeded into another agent's screen it is that agent's
+editor holding a workflow naming an account it cannot send through.
+
+**A FAILED READ SEEDS NO CONNECTION AND STILL SEEDS THE EXAMPLE.** *Cannot-tell must never read
+as a value*, and here the value would be somebody's account; the workflow is what the button is
+for, so an outage costs a pick rather than the example. Fail-closed the same way for a provider
+the answer does not describe and for one that names no send scope at all (a Worker older than
+the field) — neither is an account we can say may send, so neither is offered, and the form's
+own refusal names the box to fill in.
+
+**NINE BREAKAGES DRIVEN ONE AT A TIME, every one caught by the case written for it**: `state`
+for `status` (3 red), the scope condition dropped (1), the rows taken off the stale screen (3),
+a missing send scope guessed at (1), a failed read refusing to seed (1), and the three late-answer
+walls each removed alone (1 each) and then all three together (3).
+
+**⚠ AND `verify:send` GAINED THE WIRING HOP, which is the half a browser guard cannot reach**
+because a browser guard answers with a fixture. The real route's list must carry both things the
+editor filters on, and the id those two conditions pick must be the one the send really goes
+through — with **a second account connected for READING ONLY as the control**: it is listed,
+it is `active`, and it is not offered, while the first still is. Without it "the filter found
+one" is satisfied by a list of one.
+
+### Measured
+
+- **Site suite 6,831 → 6,835** (6,833 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-binding` 102 → 109 and `agent-send` 69 unchanged (assertions inside the
+  provider census, no new case). **Both baselines measured at HEAD in a clean worktree** rather
+  than derived from a note.
+- **`verify:send` 90 → 97, 0 failed.** **Engine suite 590, unchanged — the control.**
+- **The other nine demonstrations green at their recorded counts**: `tools` 119 · `chat` 126 ·
+  `auto` 70 · `wf` 157 · `triggers` 64 · `connections` 76 · `controls` 71 · `integration` 89 ·
+  `ops` 75.
+- **⚠ AND MY OWN READER OF THOSE NINE REPORTED THREE GREEN RUNS AS FAILING.** `grep -c FAIL`
+  matched check LABELS containing the word — *"⚠ AND THE RETRY IS A FAILURE TOO"*, *"A KNOWN
+  NON-EVENT IS A FAILURE WITH ITS REASON"* — which is *a verdict read by one spelling of it*, a
+  trap this file records against these very scripts, met in the counter written after it. Asked
+  on the LEADING token and on the verdict line: 0 real failures in all three.
+
+### ⚠ Two recorded traps met in one change
+
+1. **A NAME COLLISION IN ONE LONG BODY, for the fifth time**: `verify:send` is a single function
+   body and `listed` was already declared, so the file would not parse. Every local the new block
+   declares is prefixed `cx`.
+2. **AND THE BLANKET RENAME THAT FIXED IT REACHED INSIDE A CHECK LABEL** — *"...it really is
+   cxList, and really is active"*. *A regex over identifiers cannot tell a local from the same
+   word in a sentence.* **And the first check of the repair was ALSO too loose**: `"[^"]*\bcx[A-Z]`
+   lets `[^"]*` run past the closing quote onto the code after it, so every line holding a label
+   AND a `cx` local matched and it reported six false alarms. Asked properly — on the string
+   literals and comment lines THEMSELVES — it answers none.

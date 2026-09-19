@@ -7365,3 +7365,24 @@ ancestor rule, checked per path rather than assumed.
 diff --name-only c22d067..HEAD` over `worker.js`, `agent-store.mjs`, `public/`, `builder/` and
 `agent-builder/src/` is EMPTY — so what changed is the checks, the sweep spec, one comment and
 the notes.
+
+### ⚠ `SEND_ACTION` is exported, so the site can ask which permission a send needs (2026-09-19)
+
+One line of this product's, and it is here rather than only in the root notes because it is a
+new thing this module PROMISES to a reader outside it. **The site builder's screen has to be
+able to tell an account that could carry a send from one connected for reading only** — and the
+mapping from an action to the scope it needs lives on the ADAPTER (`adapter.scopes[act]`, which
+`connections.mjs` asks the database with), nowhere else.
+
+- **NEITHER PRODUCT MAY IMPORT THE OTHER**, so the site's provider catalog carries
+  `sendScope` as a declared COPY, and `test/agent-send.test.mjs` — the one file that may load
+  both — compares it against **this module's own `SEND_ACTION` and the adapter's own `scopes`
+  map**, both ways. Reading the first scope of the list, or matching the word "send" in a
+  label, would each be a guess about a provider rather than a fact about it.
+- **THE CENSUS READS THE ACTION NAME FROM HERE**, so renaming the action moves both sides or
+  fails there. It also asserts the action is one the provider really offers and that it is a
+  WRITE — which is what makes a send approval-gated and reconciled rather than repeated, and the
+  two lists are only both in scope in that file.
+- **NOTHING ELSE MOVED.** `SEND_TOOL` beside it is unchanged, no behaviour changed, and the
+  **engine suite reads 590, unchanged, which is the control.** The site's half — the defect, the
+  three corrections and the nine driven breakages — is in the root `CLAUDE.md`.
