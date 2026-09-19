@@ -392,9 +392,13 @@ const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
  * the start of a comment and blank the rest of the line with it. Tracking both
  * states in one walk makes each immune to the other.
  *
- * EVERY INDEX SURVIVES, because `shallowObject`, `literalKey` and
- * `inRuntimeList` all work on offsets into the same string. A blanked comment
- * keeps its newlines so a `//` cannot swallow the line below it.
+ * LENGTH-PRESERVING, SO AN OFFSET MEANS THE SAME THING IN BOTH. Every reader
+ * downstream works on the blanked copy, so nothing in THIS module can see the
+ * difference today — which is exactly why it is exported and asserted rather
+ * than left as a habit: a scan that blanks by DELETING gives back positions
+ * that cannot be read against the file anybody is looking at, and the first
+ * reader to want one would be reading a lie. A blanked comment keeps its
+ * newlines for the same reason.
  *
  * NO REGEX-LITERAL STATE, and this is the one thing it does not model: a `/…/`
  * holding a quote could open a string here. Measured over the whole 100-site
@@ -402,7 +406,7 @@ const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
  * the direction of the risk is a MISSED frame rather than an invented one,
  * which is the safe side for a number offered to a customer.
  */
-function codeOnly(src) {
+export function codeOnly(src) {
   let out = "", quote = "", i = 0;
   while (i < src.length) {
     const c = src[i], d = src[i + 1];
@@ -450,12 +454,19 @@ const MAX_RUNTIME_LOOKBACK = 600;
  * that draws its gallery from a mapped array really does have picture spaces on
  * it and reporting none is the worse error. The customer hears "at least".
  *
- * THE WALK GOES OUTWARD THROUGH PARENTHESES AND STOPS AT A BRACKET OR BRACE.
- * An unclosed `(` is a call or a grouping and the text before it says which —
- * `SHOTS.map((s) => ({…}))` has TWO, the arrow's own wrapper and the call — so
- * a test that stopped at the first would never see the `.map`. An unclosed `[`
- * or `{` is a literal array or object, which is the ordinary `items={[…]}`
- * shape: its length is written down, so the count is exact and the walk ends.
+ * THE WALK GOES OUTWARD THROUGH EVERY UNCLOSED BRACKET, not to the first one.
+ * `SHOTS.map((s) => ({…}))` has TWO parentheses around the object — the arrow's
+ * own wrapper and the call — so a test that stopped at the first would never
+ * see the `.map`; and an entry written `ROWS.map((r) => ({ shots: [{…}] }))` is
+ * per-element however many brackets sit between it and the call, so stopping at
+ * a `[` would call it exact. **Measured over the 100-site corpus: the wide walk
+ * and the narrow one both answer 0 runtime frames**, so the width costs no
+ * false alarm on any page the platform has generated.
+ *
+ * THE BALANCE IS WHAT KEEPS IT SOUND, and it is the whole of what stops an
+ * unrelated `.map` earlier in the same scope counting: a call whose own
+ * parentheses closed before this object is BALANCED on the way out, so the only
+ * `(` that can be reached unclosed is one this object really sits inside.
  */
 function inRuntimeList(src, at) {
   let depth = 0;
@@ -465,8 +476,7 @@ function inRuntimeList(src, at) {
     if (c === ")" || c === "]" || c === "}") { depth++; continue; }
     if (c === "(" || c === "[" || c === "{") {
       if (depth) { depth--; continue; }
-      if (c !== "(") return false;
-      if (RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;
+      if (c === "(" && RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;
     }
   }
   return false;

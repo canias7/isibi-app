@@ -11,7 +11,7 @@ import {
   PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
   applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace, newEmptySlots,
-  listFrames, newListFrames, MAX_LIST_FRAMES,
+  listFrames, newListFrames, MAX_LIST_FRAMES, codeOnly,
 } from "../builder/site-picture.mjs";
 
 const HOME = {
@@ -741,9 +741,44 @@ test("a key may be quoted, and a filled entry is never an empty space", () => {
   assert.equal(q && q.alt, "A loaf", "a quoted alt key was not found: " + JSON.stringify(q));
   assert.equal(q.empty, true, "an entry with no picture read as filled");
   // AND THE CHARACTER BEFORE THE KEY IS STILL THE WALL — a quote belongs to the
-  // key, and widening the class to admit one would make `dataSrc` a `src`.
+  // key, and widening the class to admit one makes any name ending in `src` a
+  // `src`. ⚠ `image_src` IS THE SHAPE THAT DISCRIMINATES AND `dataSrc` IS NOT:
+  // a sweep survivor measured it — `dataSrc` carries a CAPITAL S, so the
+  // lowercase needle never matches it and the case that used it was vacuous.
+  // Both are kept, the second declared, because the camel-case one is the
+  // shape a model really writes and it must go on reading clean.
+  assert.equal(one('const a = [{ alt: "A loaf", image_src: "' + URL + '" }];').value, "",
+    "a snake_case key ending in `src` was read as `src`");
   assert.equal(one('const a = [{ alt: "A loaf", dataSrc: "' + URL + '" }];').value, "",
-    "a key ending in `src` was read as `src`");
+    "a camelCase key ending in `Src` was read as `src`");
+});
+
+test("the comment scan blanks rather than deletes, and keeps its own shape", () => {
+  // ⚠ THE PROPERTY HAS NO READER INSIDE THE MODULE, which is why it is
+  // exported and asserted here: every scan downstream works on the blanked
+  // copy, so nothing there can tell blanking from deleting — and a scan that
+  // deletes gives back offsets that cannot be read against the file anybody is
+  // looking at. Two sweep survivors are what said so.
+  const src = ['const a = 1; // { alt: "x" }', "/* two", "   lines */", "const b = 2;"].join("\n");
+  const out = codeOnly(src);
+  assert.equal(out.length, src.length, "the blanking moved every offset after a comment");
+  assert.equal(out.split("\n").length, src.split("\n").length, "a blanked comment lost its newlines");
+  assert.equal(out.includes("alt"), false, "a line comment survived the blanking");
+  assert.equal(out.includes("lines"), false, "a block comment survived the blanking");
+  assert.match(out, /const a = 1;/, "code before a comment was blanked with it");
+  assert.match(out, /const b = 2;/, "code after a comment was blanked with it");
+  // AN UNTERMINATED BLOCK COMMENT RUNS TO THE END OF THE FILE, because that is
+  // what it really means — stopping at its own opener would read everything
+  // after it as code, which is the defect wearing a subtler hat.
+  const open = ['/* { alt: "never closed", src: null }', "const c = 3;"].join("\n");
+  assert.equal(codeOnly(open).trim(), "", "an unterminated block comment let its body count");
+  assert.deepEqual(listFrames([{ path: "p.tsx", source: open }]), [],
+    "an object inside an unterminated comment was counted as a picture space");
+  // AND AN ESCAPED QUOTE DOES NOT END ITS STRING. Without this the rest of the
+  // line reads as code and a `//` in it opens a comment over real source.
+  const esc = 'const t = "a \\" b // not a comment"; const a = [{ alt: "Real", src: null }];';
+  assert.equal(listFrames([{ path: "p.tsx", source: esc }]).length, 1,
+    "an escaped quote ended its string and the frame beside it vanished");
 });
 
 test("a frame a browser counts is a floor, not an exact number", () => {
@@ -756,7 +791,11 @@ test("a frame a browser counts is a floor, not an exact number", () => {
   const one = (source) => listFrames([{ path: "p.tsx", source }])[0];
   for (const [what, source] of [
     [".map over an unknown array", 'const a = SHOTS.map((s) => ({ alt: "Bread", src: null }));'],
-    ["a flatMap", 'const a = GROUPS.flatMap((g) => g.items.map((s) => ({ alt: "Bread", src: null })));'],
+    // ⚠ A DIRECT `flatMap`, not one wrapping a `.map`: a sweep survivor measured
+    // that the nested shape is decided by the INNER call, so taking `flatMap`
+    // off the list changed nothing and the case proved only that `.map` works.
+    ["a flatMap", 'const a = GROUPS.flatMap((g) => ({ alt: "Bread", src: null }));'],
+    ["a literal array inside a map callback", 'const a = ROWS.map((r) => ({ shots: [{ alt: "Bread", src: null }] }));'],
     ["Array.from", 'const a = Array.from({ length: 6 }, () => ({ alt: "Bread", src: null }));'],
   ]) {
     assert.equal(one(source).runtime, true, what + " was counted as an exact number of frames");

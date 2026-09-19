@@ -5,8 +5,8 @@
     "files": [
       "builder/site-requirements.mjs"
     ],
-    "from": "  // ── ⚠ AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (2026-09-19) ───────",
-    "to": "  // ── ⚠ AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (control) ──────────"
+    "from": "  // \u2500\u2500 \u26a0 AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (2026-09-19) \u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "to": "  // \u2500\u2500 \u26a0 AND A COUNT OF THAT OUTPUT IS NOT AN ASSOCIATION (control) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
   },
   {
     "label": "CONTROL: the comment-scanner's heading changes nothing",
@@ -17,7 +17,6 @@
     "from": " * The source with every comment blanked, LENGTH-PRESERVING (2026-09-19).",
     "to": " * The source with every comment blanked, LENGTH-PRESERVING (control)."
   },
-
   {
     "label": "THE REPORTED DEFECT 1: a count of the step's output settles a hand-off",
     "files": [
@@ -58,7 +57,6 @@
     "from": "      ...(impl ? { implementation: impl.state, ...(impl.state === \"found\" && impl.name ? { implementedBy: impl.name, foundIn: impl.where || \"applied\" } : {}) } : {}),",
     "to": "      ...(impl ? { implementation: impl.state } : {}),"
   },
-
   {
     "label": "THE REPORTED DEFECT 2a: the frame scan reads the file rather than the code",
     "files": [
@@ -92,7 +90,7 @@
     "to": "    if (false) { quote = c; out += c; i++; continue; }"
   },
   {
-    "label": "the blanking is not length-preserving, so every offset after it shifts",
+    "label": "the blanking deletes rather than blanks, so an offset stops meaning anything",
     "files": [
       "builder/site-picture.mjs"
     ],
@@ -100,7 +98,7 @@
     "to": "      while (i < src.length && src[i] !== \"\\n\") { i++; }"
   },
   {
-    "label": "a block comment eats the newlines it spans",
+    "label": "a blanked block comment loses the newlines it spanned",
     "files": [
       "builder/site-picture.mjs"
     ],
@@ -123,7 +121,6 @@
     "from": "      if (c === \"\\\\\") { out += src[i + 1] === undefined ? \"\" : src[i + 1]; i += 2; continue; }",
     "to": "      if (false) { i += 2; continue; }"
   },
-
   {
     "label": "THE REPORTED DEFECT 2b: a quoted key is not a key",
     "files": [
@@ -148,7 +145,6 @@
     "from": "const KEY_BEFORE = \"(^|[,{\\\\s])\";",
     "to": "const KEY_BEFORE = \"()\";"
   },
-
   {
     "label": "THE REPORTED DEFECT 2c: a runtime list is reported as an exact count",
     "files": [
@@ -162,16 +158,16 @@
     "files": [
       "builder/site-picture.mjs"
     ],
-    "from": "      if (RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;",
-    "to": "      return RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i));"
+    "from": "      if (c === \"(\" && RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;",
+    "to": "      return c === \"(\" && RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i));"
   },
   {
-    "label": "an enclosing array literal is read as a call, so every list is runtime",
+    "label": "the lookback is too short to reach the call's own name",
     "files": [
       "builder/site-picture.mjs"
     ],
-    "from": "      if (c !== \"(\") return false;",
-    "to": "      if (c !== \"(\") continue;"
+    "from": "const MAX_RUNTIME_LOOKBACK = 600;",
+    "to": "const MAX_RUNTIME_LOOKBACK = 6;"
   },
   {
     "label": "flatMap drops off the runtime calls",
@@ -221,7 +217,6 @@
     "from": "    const g = Math.max(0, count - (was.get(page) || 0));\n    if (g) gain.set(page, g);",
     "to": "    const g = count - (was.get(page) || 0);\n    if (g) gain.set(page, g);"
   },
-
   {
     "label": "the route drops the floor flag on the floor",
     "files": [
@@ -262,14 +257,13 @@
     "from": "  out += listPhotoNote(a.listPhotos, a.listPhotosMin);",
     "to": "  out += listPhotoNote(a.listPhotos);"
   },
-
   {
-    "label": "the photograph wall stops seeing a reused url as kept",
+    "label": "the sweep clears a real url, so a reused photograph is lost at publish",
     "files": [
       "builder/site-images.mjs"
     ],
-    "from": "export function photoUrls(source, slug) {",
-    "to": "export function photoUrls(source, slug) {\n  if (typeof source === \"string\" && source.includes(\"again\")) return new Set();"
+    "from": "export function applyImages(pages, urlByToken) {",
+    "to": "export function applyImages(pages, urlByToken) {\n  for (const p of Array.isArray(pages) ? pages : []) if (p && typeof p.source === \"string\") p.source = p.source.replace(/src=\"\\/u\\/[^\"]*\"/g, 'src=\"\"');"
   },
   {
     "label": "the count stops being distinct, so a reused picture reads as a second one",
@@ -278,5 +272,13 @@
     ],
     "from": "  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);\n  return { known: true, count: seen.size };",
     "to": "  let n = 0;\n  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) n++;\n  return { known: true, count: n };"
+  },
+  {
+    "label": "the call's name is read from after the parenthesis rather than before it",
+    "files": [
+      "builder/site-picture.mjs"
+    ],
+    "from": "      if (c === \"(\" && RUNTIME_CALL.test(src.slice(Math.max(0, i - 40), i))) return true;",
+    "to": "      if (c === \"(\" && RUNTIME_CALL.test(src.slice(i + 1, i + 41))) return true;"
   }
 ]

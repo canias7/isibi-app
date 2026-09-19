@@ -5028,6 +5028,12 @@ test("a page's list frames are counted and said apart from the spaces an upload 
   const said = browserText(r.body);
   assert.match(said, /is a space for a photo/, "the fillable space was not offered: " + said);
   assert.match(said, /6 picture spaces/, "the six were not said at all: " + said);
+  // ⚠ AND IT IS NOT HEDGED. `at least 6` matches `/6 picture spaces/` too, so
+  // without this a browser that says "at least" over every count passes — a
+  // sweep survivor measured exactly that. The page's six are written out as a
+  // literal array, so the number is known and hedging it is a false modesty
+  // that would teach a customer to distrust every count we give them.
+  assert.doesNotMatch(said, /at least/, "an exact count was hedged: " + said);
   // 3. …AND THE PROMISE IS NOT WIDENED. `photoNote` offers to FILL a space from
   //    an upload; nothing on this platform can fill a list entry, so summing
   //    the two would have corrected the count by making the offer false for six
