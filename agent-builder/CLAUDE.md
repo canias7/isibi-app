@@ -7090,3 +7090,17 @@ read one, which is the run that is still waiting for a person being requeued any
 CONTROL stays green under the mutant, which is correct**: it asserts a run whose windows have all
 closed IS swept, and that is true either way — a control that went red there would have been red
 about something else.
+
+**AND CI HAS READ THE ENGINE SIDE ON THIS HEAD: `agent deploy` run 94 on `4c5c488`, green**,
+the `agent checks` step at 06:55:35Z reporting `# tests 590 / # pass 589 / # fail 0 /
+# skipped 1` against local `590 / 590 / 0 / 0`. **The one skip is the predicted one** — the
+privilege-drop case needs to BE root in order to stop being root, and a runner is the user
+`runner` — which is what makes a skip count evidence rather than an observation. Steps 6
+through 13 all read `skipped`, so **NOTHING WAS DEPLOYED**.
+
+**AND THE SUITE COUNT IS UNMOVED BY THIS CHANGE RATHER THAN RE-RUN AS EVIDENCE, which is worth
+saying precisely.** The engine's own `npm test` is `node --test "test/*.test.mjs"`, and this
+round touches `test/integration/pg-schema.mjs` — which that glob does not match at all. So 590
+is the same number for the same reason it was before, and nothing since `c22d067` touches a
+migration, a product source file, or anything the site's suite reads (`git diff --name-only`
+over those paths is empty), so the site's 6,831 stands on its own CI read.
