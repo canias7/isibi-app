@@ -6586,6 +6586,28 @@ the fifth instance in this product.
   verdict read by one spelling of it is a verdict that can go quiet about a green run.* Counting
   the `FAIL` lines is the property, and that is what the table above rests on.
 
+### ⚠ AND THE READER CANNOT ARRIVE AFTER THE WRAPPERS IT IS ASKED ABOUT — checked, not assumed
+
+`checkOperation` calls `agent.operation_check`, which does not exist on the live database: it is
+in `20260918020000_agent_operation_records.sql`, and every `20260918*` file is unapplied (the
+round-number name is this folder's tell). So the obvious worry is a partial apply in which a tool
+has a wrapper to call and no reader to ask — where `rpc` throws `PGRST202`, `recordFor` throws,
+and **every** `change_automation` and `make_automation` fails rather than just the retry.
+
+**It is not a reachable state, and the reason is filename order.** Migrations apply sorted, and:
+
+| function | defined in |
+|---|---|
+| `agent.operation_check` | `20260918020000` |
+| `create_automation_once` | `20260918020000`, redefined in `20260918050000` |
+| `patch_automation_once` | `20260918120000` |
+
+So the reader lands in the same file as one wrapper and strictly before the other. There is no
+order in which a tool gains a `_once` wrapper it can reach and no `operation_check` to ask — and
+the two tools already could not work at all without those same files, so **this adds no
+dependency the deployment did not have.** The recorded order stands unchanged:
+**migration → engine → site.**
+
 **NO MIGRATION, NOTHING APPLIED, NOTHING DEPLOYED, NOTHING MERGED.** The fix is entirely above
 the database, and the unapplied migrations this round would otherwise have needed are untouched.
 
