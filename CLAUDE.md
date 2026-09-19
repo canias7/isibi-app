@@ -10474,9 +10474,64 @@ photo-reuse guidance work is next.
 against local `6876 / 6876 / 0 / 0`, and **the TOTAL is what matches**. The four
 are NAMED out of the log rather than recalled: the privilege-drop case, the two
 RTL cases and `site-searchpath`'s baseline-commit case — the standing
-expectation met rather than a new one. `site build` run **1196** fired on the
-same sha because `builder/site-picture.mjs` moved; **its result is UNREAD as
-this is written** and is left unstamped rather than carried over from 1195.
+expectation met rather than a new one.
+**AND `site build` RUN 1196 IS GREEN ON THAT SHA (2026-09-19
+04:29:44→04:53:10Z, ALL TWENTY STEPS — the API answers 23 and three are
+GitHub's own): `site-build.mjs` 382 passed / 0 failed in 17m01s**, with
+kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it, and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result
+SHAPES a census has to ask for. Every count read out of the run's **per-step log
+files**, which attribute by construction rather than by a window somebody drew.
+It fired because `builder/site-picture.mjs` moved. **The unit step's TAP is
+`# tests 396 / # pass 396 / # fail 0`, unchanged** — correct, because that step's
+glob is `page-gen` + `publish-pages` and this round's case is in
+`test/site-picture.test.mjs`.
+
+#### …AND THAT ROUND'S RENAME LEFT THE CORPUS ASSERTION READING A DEAD FIELD
+
+**FOUND BY RE-MEASURING A NUMBER THIS FILE HAD JUST STAMPED, which is the whole
+argument for re-measuring one.** The frame flag was renamed `runtime` →
+`counted` and INVERTED (negative deny-list → positive "the count can be
+established"); the corpus case's filter was not, so it read
+
+    runtime += f.filter((x) => x.runtime).length;   assert.equal(runtime, 0, …)
+
+**MEASURED: 0 of the 320 corpus frames carry a `runtime` key at all** — the
+reader emits `{page, alt, value, empty, counted}` — so that filter answers `[]`
+for every possible input and the assertion was **vacuously true**. It is the
+recorded *a negative assertion must prove its observer is alive*, in the one
+case that reads this flag over real pages, and it was green the whole time.
+
+**PROVEN, not argued, by driving `writtenWhereItRenders` both ways round:**
+
+| the corpus case | forced `false` | forced `true` |
+|---|---|---|
+| the old `x.runtime` form | **green** | **green** |
+| the `x.counted` form | **RED** | **RED** |
+
+So the old line would have passed with the reader deleted, inverted, or
+returning garbage. It asserts the real split now — **297 counted and 23
+uncertain** — and **both numbers are non-zero, which is what keeps the observer
+alive in both directions**: 297 proves the flag can be true, 23 proves it can be
+false, so a rule that counted everything or nothing is red rather than silently
+turning every exact count into a floor, or every floor into a number the page
+does not draw.
+
+**AND THE CASE'S OWN LOADER HAS A REASON THAT WAS NEVER WRITTEN DOWN: it calls
+`listFrames([p])` ONE PAGE AT A TIME because the reader caps its answer at
+`MAX_LIST_FRAMES` (200).** Handing it all 324 pages at once reads **200 frames
+in 36 files** — the cap wearing the corpus's name — against the real **320 in
+60**. Measured both ways, and it is exactly how an ad-hoc re-measurement of this
+number first disagreed with the guard: *the guard was right and the ad-hoc walk
+was the instrument that was wrong*, which is this file's own **derive it from
+the real producer** trap met while checking a stamp.
+
+**Nothing else read the field** — a scan of the guards, the modules, the Worker,
+the scripts and `public/` finds no other `\.runtime\b` on a frame. The case's
+title gained the split, so a red run points at the property that moved rather
+than at "a frame carries a picture". **Suite 6,879, unchanged**: this is a
+re-anchor inside a case that already existed.
 
 ### A PHOTOGRAPH THE SITE ALREADY HAS MAY BE SHOWN AGAIN (2026-09-19)
 
@@ -10565,6 +10620,14 @@ file), and one at the route's PARTS half, which the case drove for pages only.
 
 **Suite 6,879** — 6,876 + 1 (`addon-route`) + 2 (`site-images`), and the
 arithmetic closes exactly.
+
+**CI HAS READ IT: `unit tests` run 2746 on `5a0f12e1`, green (2026-09-19
+04:46:52→04:48:49Z, the suite step 105 s) — `# tests 6879 / # pass 6875 /
+# fail 0 / # skipped 4`**, against local `6879 / 6879 / 0 / 0`, and **the TOTAL
+is what matches**. The four are NAMED out of the log rather than recalled: the
+privilege-drop case (*"needs root and an unprivileged user"*), the two RTL cases
+(*"template deps not installed"*) and `site-searchpath`'s baseline-commit case
+(*"a shallow checkout holds one commit"*).
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN; fal verification stays parked.**
 

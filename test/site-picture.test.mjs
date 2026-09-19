@@ -999,7 +999,7 @@ test("an escaped quote inside an alt does not lose the frame after it", () => {
   assert.equal(frames[0].alt, "a 3\\", "the alt's own truncation moved without anybody deciding to");
 });
 
-test("the whole corpus reads clean, and every list frame on it is empty", () => {
+test("the whole corpus reads clean: every list frame empty, and the counted split held", () => {
   // THE FALSE-ALARM RATE, measured against the real corpus rather than argued:
   // 320 frames in 60 of 324 page files, and NOT ONE carries a picture. That is
   // the scale of what no reader on this platform has ever counted, and it is
@@ -1015,25 +1015,43 @@ test("the whole corpus reads clean, and every list frame on it is empty", () => 
   };
   walk(dir);
   assert.ok(pages.length > 300, "the corpus did not load — this case measures nothing");
-  let frames = 0, filled = 0, files = 0, runtime = 0;
+  // ⚠ ONE PAGE AT A TIME, AND THAT IS NOT A STYLE CHOICE. `listFrames` caps its
+  // answer at MAX_LIST_FRAMES (200), so handing it all 324 pages at once reads
+  // 200 frames in 36 files — the cap, wearing the corpus's name. Per page the
+  // cap is never reached and the sum is the real one. Measured both ways.
+  let frames = 0, filled = 0, files = 0, counted = 0;
   for (const p of pages) {
     const f = listFrames([p]);
     if (f.length) files++;
     frames += f.length;
     filled += f.filter((x) => !x.empty).length;
-    runtime += f.filter((x) => x.runtime).length;
+    counted += f.filter((x) => x.counted).length;
   }
   assert.equal(frames, 320, "the corpus frame count moved — re-measure before moving this number");
   assert.equal(files, 60, "the number of pages carrying one moved");
   assert.equal(filled, 0, "a corpus list frame carries a picture — the 'all empty' measurement is stale");
-  // ⚠ AND THE FALSE-ALARM RATE OF THE 2026-09-19 CORRECTION IS ZERO, measured
-  // the only way it can be: every generated page the platform has, read before
-  // and after. Comments blanked, quoted keys admitted and runtime entries
-  // flagged changed NO page's reading — 320/60/0 on both sides — so the three
-  // fixes fire on the shapes that were wrong and on nothing else.
+  // ⚠ AND THE FALSE-ALARM RATE OF THE COMMENT AND QUOTED-KEY FIXES IS ZERO,
+  // measured the only way it can be: every generated page the platform has,
+  // read before and after. Blanking comments and admitting a quoted key changed
+  // NO page's reading — 320/60/0 on both sides — so they fire on the shapes
+  // that were wrong and on nothing else.
   //
-  // `runtime` is 0 TODAY and is asserted rather than left to drift: not one of
-  // the 320 sits inside a `.map`, so a widening that started flagging ordinary
-  // literal galleries would turn every exact count into a floor in silence.
-  assert.equal(runtime, 0, "a corpus frame was called runtime-dependent — the floor flag has widened");
+  // ⚠ THE SPLIT IS ASSERTED, AND THE FIELD IT READS IS `counted` — 2026-09-19,
+  // and this line spent a commit reading a field that no longer exists. It was
+  // `runtime += f.filter((x) => x.runtime).length` with `assert.equal(runtime,
+  // 0)` under it, written when the flag was a NEGATIVE deny-list; the rename to
+  // the positive `counted` left the filter reading `x.runtime`, which is
+  // `undefined` on every frame the reader can emit. MEASURED: 0 of the 320
+  // carry that key at all, so the assertion was true for every possible corpus
+  // and would have passed with `writtenWhereItRenders` deleted, inverted, or
+  // returning garbage. *A negative assertion must prove its observer is alive*,
+  // in the one case that reads this flag over real pages.
+  //
+  // BOTH NUMBERS ARE ASSERTED AND BOTH ARE NON-ZERO, which is what keeps the
+  // observer alive in both directions: 297 proves the flag can be true and 23
+  // proves it can be false. A rule that counted everything, or nothing, is red
+  // rather than silently turning every exact count into a floor — or every
+  // floor into a number the page does not draw.
+  assert.equal(counted, 297, "the corpus's established-count split moved — re-measure before moving this number");
+  assert.equal(frames - counted, 23, "the corpus's uncertain count moved — these are the runtime-decided galleries");
 });

@@ -13774,3 +13774,42 @@ corpus site is anywhere near the cap.
 
 Suite **6,879**, sweep 24 of 24. Nothing merged, nothing deployed, nothing
 spent. Fal verification is still parked.
+
+---
+
+### A test that had stopped testing anything (2026-09-19)
+
+I went back to re-check a number I'd just written down — the one that says how
+many picture spaces the whole 100-site corpus has — and found that the test
+guarding it had quietly stopped working, in the same change that produced the
+number.
+
+Earlier in the day I renamed the flag that says *"this page's picture count can
+actually be established"*, and flipped its sense: it used to mean "this one is
+uncertain", it now means "this one is established". The reader was updated; the
+one test that checks it across every real page was not. So it was filtering on a
+field that no longer exists, which means it was filtering on nothing, which means
+it passed no matter what.
+
+**Measured: it would have passed with that reader deleted, inverted, or
+returning garbage.** I proved that rather than assuming it — forced the reader to
+say "yes" to everything, ran it; forced it to say "no" to everything, ran it; the
+test stayed green both times. With the fix it goes red both times.
+
+It asserts the real split now — **297 established, 23 uncertain, out of 320** —
+and it asserts *both* numbers, which is the part that matters: one non-zero
+number proves the flag can be true and the other proves it can be false, so a
+rule that counted everything, or nothing, is caught.
+
+**Two smaller things fell out of it.** The test loads the corpus one page at a
+time, and nobody had written down why — it's because the reader caps its answer
+at 200. Asking it about all 324 pages at once gives you 200, which looks like a
+corpus measurement and is really just the cap. That's exactly how my re-check
+first disagreed with the test: the test was right and my quick check was the
+broken instrument. It says so in the file now.
+
+And I checked that nothing else in the whole codebase was reading the dead field
+— nothing was.
+
+The suite is still **6,879**, because this is a repair to a test that already
+existed rather than a new one. Nothing merged, nothing deployed, nothing spent.
