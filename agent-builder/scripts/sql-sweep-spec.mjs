@@ -167,6 +167,47 @@ const enclosing = (src, at) => {
   return found;
 };
 
+/**
+ * The VIEW a position sits inside, for the same reason `enclosing` exists one function up.
+ *
+ * ⚠ **AND THE CENSUS BELOW CLAIMED VIEWS WERE COVERED WHILE READING ONLY FUNCTIONS —
+ * measured 2026-09-19, and a sweep survivor is what found it.** Its own comment says
+ * "FUNCTIONS AND VIEWS ONLY, and the narrowness is measured", which describes the INTENT;
+ * the code asked `enclosing` (a `create or replace function` reader) and `lastDefining`
+ * for a function name, so a mutant whose anchor sat inside a view was never asked the
+ * question at all. `agent_overview`'s `a.status` line is written by TWO migrations —
+ * `20260916085453` and `20260918120000` — and the mutant was aimed by
+ * `mSettings` at the first, which the second replaces: it landed on dead code and
+ * SURVIVED, reading as a gap in the database check. **The check was alive all along**:
+ * with the mutation in the migration really in force, `pg-schema.mjs` answers
+ * `1074 passed, 2 failed` and names `the overview carries the status`.
+ * *A promise nothing ever compiled*, in the census written for exactly this class.
+ *
+ * MEASURED: **9 of the spec's anchors sit inside a view**, across `agent_thread` (5),
+ * `automation_history` (2), `agent_overview` (1) and `connection_list` (1) — so this arm
+ * has live subjects, which is what the function arm's own dead-observer history says to
+ * state as a number rather than assume.
+ *
+ * A VIEW ENDS AT ITS FIRST `;` and that is enough here: these definitions carry no
+ * statement-terminating semicolon inside them (no function bodies, no dollar quoting), so
+ * the first one after the header is the end of the view. A header with no `;` answers
+ * `null` and no claim is made — the same fail-silent direction `enclosing` takes, because
+ * a wrong claim reports a correct mutant as broken.
+ */
+const enclosingView = (src, at) => {
+  if (at < 0) return null;
+  const re = /^create or replace view (agent\.[a-z_]+)/gm;
+  let found = null, m;
+  while ((m = re.exec(src)) !== null) {
+    if (m.index > at) break;
+    found = { name: m[1], from: m.index };
+  }
+  if (!found) return null;
+  const end = src.indexOf(";", found.from);
+  if (end < 0) return null;
+  return at <= end ? found : null;
+};
+
 const lastDefining = (needle) => {
   const hit = [...files].reverse().find((f) => fs.readFileSync(path.join(DIR, f), "utf8").includes(needle));
   if (!hit) { console.error(`no migration defines ${needle}`); process.exit(1); }
@@ -210,6 +251,15 @@ const mForget = mFn("delete_memory");
 const mSnap = mFn("agent_memory_snapshot");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
+/**
+ * THE AGENTS-LIST VIEW, aimed the way `mThread` already aims at the other one. It rode on
+ * `mSettings` — the FILE that adds the status column — which is the right file for the
+ * column and the wrong one for the view: `20260918120000` re-creates `agent_overview`, so
+ * the mutation landed on a definition nothing applies. It survived a full sweep for that
+ * reason alone, and the census above now refuses the shape rather than leaving it to a run.
+ */
+const mOverview = (label, from, to, control = false) =>
+  ({ label, files: [lastDefining("create or replace view agent.agent_overview")], from, to, control });
 /**
  * ⚠ **THE MESSAGE TABLE'S OWN DDL IS NOT THE VIEW'S, and conflating them cost an anchor.**
  * `run_id` and `messages_one_send_per_agent` are `agent.agent_messages`' column and index,
@@ -692,7 +742,7 @@ const spec = [
     "and array_to_string(tools, ',') ~ '^(.{1,64}(,.{1,64})*)?$'"),
   mSettings("SQL/settings: a NULL among the tool names is stored rather than refused",
     "and array_position(tools, null) is null", "and true"),
-  mSettings("SQL/settings: the list screen stops reading the status",
+  mOverview("SQL/settings: the list screen stops reading the status",
     "  last.body as last_message,\n  a.status,\n  a.tools",
     "  last.body as last_message,\n  null::text as status,\n  a.tools"),
   mSettings("⚠ SQL/send: a paused agent starts work anyway",
@@ -1404,6 +1454,7 @@ const spec = [
 // reported as missing: the tenant and queue mutants target their own migrations,
 // not the first.
 let bad = 0;
+let viewHosted = 0;
 const text = new Map();
 for (const s of spec) {
   const f = s.files[0];
@@ -1452,6 +1503,28 @@ for (const s of spec) {
       bad++;
     }
   }
+  // ⚠ **AND THE SAME QUESTION FOR A VIEW, which the comment above promised and the code
+  // did not ask.** `enclosingView`'s own note has the measurement; what matters here is
+  // that this arm and the function arm are the SAME check over two kinds of replaceable
+  // object, so neither can be the one that was forgotten.
+  const vEncl = enclosingView(text.get(f), text.get(f).indexOf(s.from));
+  if (vEncl && !s.control) {
+    const owner = lastDefining(`create or replace view ${vEncl.name}`);
+    if (owner !== f) {
+      console.error(`SUPERSEDED VIEW: ${s.label}\n    its anchor is inside ${vEncl.name}, which ${path.basename(owner)} defines last`);
+      bad++;
+    }
+  }
+  if (vEncl && !s.control) viewHosted++;
+}
+// A NEGATIVE ASSERTION NEEDS ITS OBSERVER PROVED ALIVE, and this one has a history: the
+// function arm shipped DEAD (its terminator read the minority form) and passed with all
+// eight known-bad entries put back. So the view arm states its floor rather than trusting
+// a green run — 9 anchors sit inside a view today, and a reader that stops finding them is
+// a check that has stopped asking.
+if (viewHosted < 9) {
+  console.error(`THE VIEW CENSUS IS BLIND: only ${viewHosted} anchors read as inside a view; 9 really are`);
+  bad++;
 }
 if (bad) { console.error(`\n${bad} anchor problems — spec NOT written.`); process.exit(1); }
 fs.writeFileSync(process.argv[2], JSON.stringify(spec, null, 1));
