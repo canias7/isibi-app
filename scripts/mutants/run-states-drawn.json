@@ -1,0 +1,131 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the waiting branch",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (run.state === 'waiting') {",
+  "to": "  // a run waiting for a person\n  if (run.state === 'waiting') {"
+ },
+ {
+  "label": "⚠ a run waiting for one press of Approve falls through to the failure branch",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (run.state === 'waiting') {",
+  "to": "  if (false && run.state === 'waiting') {"
+ },
+ {
+  "label": "⚠ a STRANDED run falls through, so it reads exactly like a waiting one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (run.state === 'unresolved') {",
+  "to": "  if (false && run.state === 'unresolved') {"
+ },
+ {
+  "label": "⚠ somebody's own decision falls through and reads as a fault",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (run.state === 'cancelled') {",
+  "to": "  if (false && run.state === 'cancelled') {"
+ },
+ {
+  "label": "a waiting run is drawn in the failure colour",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<span class=\"ag-run-t\">Waiting for you' + agentCalls(run.open, ' — ', '') + '. ' +",
+  "to": "        '<span class=\"ag-run-t ag-run-fail\">Waiting for you' + agentCalls(run.open, ' — ', '') + '. ' +"
+ },
+ {
+  "label": "a waiting run does not say how many calls are waiting",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<span class=\"ag-run-t\">Waiting for you' + agentCalls(run.open, ' — ', '') + '. ' +",
+  "to": "        '<span class=\"ag-run-t\">Waiting for you. ' +"
+ },
+ {
+  "label": "a stranded run does not say to check before asking again",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          'Check before asking for it again — it may already have gone.' +",
+  "to": "          '' +"
+ },
+ {
+  "label": "⚠ a cancellation is drawn as a fault",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      '<div class=\"ag-run\">' + tag +\n        '<span class=\"ag-run-t\">Stopped'",
+  "to": "      '<div class=\"ag-run ag-run-fail\">' + tag +\n        '<span class=\"ag-run-t\">Stopped'"
+ },
+ {
+  "label": "⚠ a cancellation drops the person's own words",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<span class=\"ag-run-t\">Stopped' + (run.note ? ' — ' + esc(run.note) : '') + '.</span>' +",
+  "to": "        '<span class=\"ag-run-t\">Stopped.</span>' +"
+ },
+ {
+  "label": "⚠ a cancellation stops saying that what went out stays out",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<div class=\"ag-run-why\">' + done +\n          'Stopping it ends what was still to come — anything already sent stays sent.' +",
+  "to": "        '<div class=\"ag-run-why\">' + done +\n          'It was undone.' +"
+ },
+ {
+  "label": "⚠ a cancellation invents counts nobody recorded",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (typeof run.steps === 'number' && run.steps >= 0) {",
+  "to": "    if (true) {"
+ },
+ {
+  "label": "⚠ the account id that stopped it is drawn to whoever reads the conversation",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<span class=\"ag-run-t\">Stopped' + (run.note ? ' — ' + esc(run.note) : '') + '.</span>' +",
+  "to": "        '<span class=\"ag-run-t\">Stopped by ' + esc(String(run.by)) + '.</span>' +"
+ },
+ {
+  "label": "one action is said as \"1 actions\"",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return before + esc(String(n)) + ' action' + (n === 1 ? '' : 's') + after;",
+  "to": "  return before + esc(String(n)) + ' actions' + after;"
+ },
+ {
+  "label": "⚠ a WAITING run is counted as live, so a poll asks for ever and never gets a different answer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AGENT_LIVE_STATES = ['queued', 'working'];",
+  "to": "const AGENT_LIVE_STATES = ['queued', 'working', 'waiting', 'unresolved'];"
+ },
+ {
+  "label": "⚠ the thread never reads what is waiting, so the banner appears on nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentMsgsErr) agentApprovalsLoad(id);",
+  "to": "  if (false) agentApprovalsLoad(id);"
+ },
+ {
+  "label": "⚠ the banner is not bound to the agent it was read for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      agentApprovalsFor = id;",
+  "to": "      agentApprovalsFor = null;"
+ }
+]
