@@ -912,9 +912,10 @@ const ADDS = {
     // haystacks already use the kind as the name for that reason.
     //
     // THE CAP STANDS: an echo earns the hand-off `configured` and never
-    // `delivered`. `holds` is EMPTY for a scene — existence is the entire
-    // claim, and what a canvas DOES is not something any reader here can speak
-    // to — so `checked` is empty and nothing here says the scene works.
+    // `delivered`. A scene's `holds` carries `declared` and, when a page
+    // really draws the canvas, `onpage` and the routes — both ARTIFACT facts —
+    // while `checked` stays empty, because nothing here starts a WebGL context
+    // and a `<Canvas>` in the source is not a scene a visitor can see.
     requirements: true,
   },
   /* ---- the one whose home depends on who is making the place for it ---- */
@@ -3763,7 +3764,15 @@ export function existingFacts({ spec = null, pages = null, look = null, sources 
     for (const p of sources) {
       if (!p || typeof p.source !== "string") continue;
       const r = routeOf(p.path);
-      if (r && imageRefs(p.source, slug).length) items.push({ kind: "photo", name: r });
+      // ⚠ `.size`, NOT `.length` — `imageRefs` answers a SET, and `Set.length`
+      // is `undefined`. MEASURED: with `.length` this branch was false for
+      // every page on every site, so `existingFacts` has never once emitted a
+      // photograph — `speaks("photo")` fired, so the kind read as ENUMERATED
+      // and the inventory was always empty, which is the worst way round: an
+      // absence that reads as "we looked and there are none". Found by the
+      // guard below rather than by a sweep, because the mutant that renamed
+      // the entry could not fail over a list nothing ever put anything in.
+      if (r && imageRefs(p.source, slug).size) items.push({ kind: "photo", name: r });
     }
   }
   if (look && typeof look === "object") {

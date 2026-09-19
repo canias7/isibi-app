@@ -732,6 +732,35 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
     ...appliedFacts({ photos: [{ route: "/gallery", bought: true }] }),
   ];
   assert.ok(everyKind.length >= 9, "the observer is not alive: " + everyKind.length);
+  // ── THE TWO NEW KINDS' OWN SHAPES, DRIVEN (2026-09-19) ────────────────────
+  //
+  // Four sweep survivors, all here: the census above proved an ENTRY exists
+  // for each kind and nothing read what a photograph's or a scene's entry
+  // SAYS, so every field inside them was a wall nobody drove.
+  //
+  // HOW A PICTURE GOT THERE IS THE FACT, and `bought` against `reused` is the
+  // whole of it — one is money this change spent and the other is money the
+  // owner had already spent. Collapsing them to one word costs the record the
+  // only distinction it has about a photograph.
+  const bought = appliedFacts({ photos: [{ route: "/gallery", bought: true }] })[0];
+  assert.ok(bought.holds.includes("bought") && !bought.holds.includes("reused"),
+    "a purchase is not told from a reuse: " + JSON.stringify(bought.holds));
+  const reused = appliedFacts({ photos: [{ route: "/gallery", reused: true }] })[0];
+  assert.ok(reused.holds.includes("reused") && !reused.holds.includes("bought"),
+    "a reuse is claimed as a purchase: " + JSON.stringify(reused.holds));
+  // A PLACEMENT WITH NO ROUTE IS NO PLACEMENT. An entry named `""` would match
+  // a reference of `""` — and every reference that failed to read its item is
+  // exactly that — so an unnamed picture would answer for anything.
+  assert.deepEqual(appliedFacts({ photos: [{ bought: true }, { route: "", reused: true }, null] }), [],
+    "a photograph with no route was emitted, so an unnamed placement can match it");
+  // AND A JUNK ROUTE IS NOT A PAGE DRAWING THE SCENE. `threeOn` comes from a
+  // walk over published files; a non-string in it must not become a token a
+  // claim can match, and must not turn `fails: ["onpage"]` into a silence.
+  const junk = appliedFacts({ three: true, threeOn: [null, 42, "", "/gallery"] })[0];
+  assert.deepEqual(junk.holds, ["declared", "onpage", "/gallery"],
+    "a junk route reached the scene's evidence: " + JSON.stringify(junk.holds));
+  assert.deepEqual(appliedFacts({ three: true, threeOn: [null, "", 42] })[0].fails, ["onpage"],
+    "junk alone was read as the scene being on a page");
   // …AND EVERY APPLIED KIND IS REPRESENTED, derived rather than counted, so a
   // kind added to that list next month cannot slip past this census.
   assert.deepEqual([...new Set(everyKind.map((e) => e.kind))].sort(), [...APPLIED_KINDS].sort(),

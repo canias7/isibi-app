@@ -5468,3 +5468,54 @@ test("the stylesheet is sent as already applied, and a cut one says it was cut",
   assert.equal(api.styleDirective(), "");
   assert.equal(api.styleDirective({ theme: "   ", css: "  " }), "");
 });
+
+// ── `sceneOn` — IS THERE REALLY A 3D SCENE IN THIS FILE? ─────────────────────
+//
+// A SWEEP SURVIVOR IS WHY THIS EXISTS, and the shape is the recorded one: the
+// function had NO direct case anywhere. It is read by the addon route to decide
+// which published routes really draw the scene, and every route fixture happened
+// to carry both halves of its test — so a mutant that dropped one half changed
+// no answer in the whole suite. *A wall nobody can drive is a wall nobody is
+// guarding*, on the reader that separates "the site is configured for a scene"
+// from "a visitor is served one".
+//
+// BOTH HALVES ARE REQUIRED, and the direction is deliberate: the cost of
+// answering NO about a real scene is one claim reading `unverified` instead of
+// `configured`, and the cost of answering YES about a page with no canvas is
+// telling a customer their 3D element is on a page that does not draw it.
+test("sceneOn wants the import AND the canvas, and a boundary that is not a prefix", async () => {
+  const { sceneOn } = await import("../builder/page-gen.mjs");
+  const IMPORT = "import { Canvas } from '@react-three/fiber'\n";
+  const BARE = "@react-three/fiber";
+
+  assert.equal(sceneOn(IMPORT + "<Canvas><mesh /></Canvas>"), true, "a real scene was not read as one");
+  assert.equal(sceneOn(IMPORT + "<Canvas />"), true, "a self-closing canvas was not read as one");
+  assert.equal(sceneOn(IMPORT + "<Canvas>\n  <mesh />\n</Canvas>"), true, "a canvas opened across lines was not read as one");
+
+  // ⚠ THE SURVIVOR: the import ALONE. A file can carry the dependency and draw
+  // nothing — a leftover import after a section was rewritten, a helper that
+  // re-exports a type — and a reader that took the import as the answer would
+  // report the scene as on a page whose markup has no canvas in it.
+  assert.equal(sceneOn(IMPORT + "<main><h1>Gallery</h1></main>"), false,
+    "a dead dependency read as a scene on the page");
+  assert.equal(sceneOn("import type { Props } from '" + BARE + "'\nexport type X = Props"), false,
+    "a type-only import read as a scene on the page");
+
+  // …AND THE CANVAS ALONE. `<Canvas>` is not ours: a charting component, a
+  // signature pad or a hand-written `<canvas>` wrapper can be called that, and
+  // none of them is a WebGL scene this platform configured.
+  assert.equal(sceneOn("import { Canvas } from '@/components/ui/chart'\n<Canvas data={rows} />"), false,
+    "somebody else's Canvas read as our scene");
+
+  // THE BOUNDARY IS THE WHOLE OF WHY `[\\s/>]` IS THERE — a component whose
+  // name merely STARTS with Canvas is a different component. This repository
+  // has paid for the prefix version of this mistake three times.
+  assert.equal(sceneOn(IMPORT + "<CanvasBoard rows={rows} />"), false,
+    "a component whose name starts with Canvas read as the canvas");
+
+  // CANNOT-TELL IS NO, in a reader whose YES puts a sentence in front of a
+  // customer. Nothing here throws and nothing coerces.
+  for (const junk of [null, undefined, "", 42, {}, [], ["<Canvas>"], { source: IMPORT + "<Canvas />" }]) {
+    assert.equal(sceneOn(junk), false, "junk read as a scene: " + JSON.stringify(junk));
+  }
+});

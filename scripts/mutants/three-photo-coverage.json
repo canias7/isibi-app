@@ -1,0 +1,244 @@
+[
+  {
+    "label": "CONTROL: a comment-only change in site-add.mjs must survive",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // A SCENE, AND A SITE CARRIES AT MOST ONE (`SINGLE_FIELDS`), so it has no",
+    "to": "  // A SCENE, AND A SITE CARRIES AT MOST ONE — comment-only control."
+  },
+  {
+    "label": "CONTROL: a comment-only change in worker.js must survive",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "              // ── AND WHICH ROUTES REALLY DRAW THE SCENE ──────────────────",
+    "to": "              // ── the scene's routes — comment-only control ───────────────"
+  },
+  {
+    "label": "the three step cannot answer coverage again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    // and a `<Canvas>` in the source is not a scene a visitor can see.\n    requirements: true,",
+    "to": "    // and a `<Canvas>` in the source is not a scene a visitor can see.\n    requirements: false,"
+  },
+  {
+    "label": "the photo step cannot answer coverage again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    // count or a word match.\n    requirements: true,",
+    "to": "    // count or a word match.\n    requirements: false,"
+  },
+  {
+    "label": "photo is not an applied kind, so nothing it made can answer",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export const APPLIED_KINDS = Object.freeze([\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\", \"photo\"]);",
+    "to": "export const APPLIED_KINDS = Object.freeze([\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\"]);"
+  },
+  {
+    "label": "photo is opaque, so an absent picture can never be reported",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "export const SITE_KINDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\", \"photo\"];\nexport const OPAQUE_KINDS = [\"component\"];",
+    "to": "export const SITE_KINDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"qr\", \"three\"];\nexport const OPAQUE_KINDS = [\"component\", \"photo\"];"
+  },
+  {
+    "label": "existingFacts stops speaking for the site's own photographs",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (Array.isArray(sources) && slug) {\n    speaks(\"photo\");",
+    "to": "  if (false && Array.isArray(sources) && slug) {\n    speaks(\"photo\");"
+  },
+  {
+    "label": "existingFacts names a photograph by its FILE rather than its route",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (r && imageRefs(p.source, slug).size) items.push({ kind: \"photo\", name: r });",
+    "to": "      if (r && imageRefs(p.source, slug).size) items.push({ kind: \"photo\", name: String(p.path || \"\") });"
+  },
+  {
+    "label": "a photograph carries no evidence of how it got there",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (p.bought) holds.push(\"bought\");\n    if (p.reused) holds.push(\"reused\");",
+    "to": "    if (p.bought) holds.push(\"placed\");\n    if (p.reused) holds.push(\"placed\");"
+  },
+  {
+    "label": "a photograph's route contributes no words, so a real clause cannot resolve",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const w of name.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);\n    out.push({ kind: \"photo\", name, holds, fails: [], checked: [] });",
+    "to": "    out.push({ kind: \"photo\", name, holds, fails: [], checked: [] });"
+  },
+  {
+    "label": "a photograph claims a behaviour was exercised",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    out.push({ kind: \"photo\", name, holds, fails: [], checked: [] });",
+    "to": "    out.push({ kind: \"photo\", name, holds, fails: [], checked: holds.slice() });"
+  },
+  {
+    "label": "a photo entry with no route is emitted anyway, so an unnamed placement matches everything",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const name = String((p && p.route) || \"\").trim();\n    if (!name) continue;\n    const holds = [];\n    if (p.bought) holds.push(\"bought\");",
+    "to": "    const name = String((p && p.route) || \"\").trim();\n    const holds = [];\n    if (p.bought) holds.push(\"bought\");"
+  },
+  {
+    "label": "a scene says only that it was declared, so on-the-page is unknowable",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      holds: [\"declared\", ...(on.length ? [\"onpage\", ...on] : [])],\n      fails: on.length ? [] : [\"onpage\"],",
+    "to": "      holds: [\"declared\"],\n      fails: [],"
+  },
+  {
+    "label": "a scene on no page reads as configuration that holds",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      fails: on.length ? [] : [\"onpage\"],",
+    "to": "      fails: [],"
+  },
+  {
+    "label": "a scene drawn nowhere still claims to be on the page",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      holds: [\"declared\", ...(on.length ? [\"onpage\", ...on] : [])],",
+    "to": "      holds: [\"declared\", \"onpage\", ...on],"
+  },
+  {
+    "label": "a scene claims a behaviour was exercised",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      fails: on.length ? [] : [\"onpage\"],\n      checked: [],",
+    "to": "      fails: on.length ? [] : [\"onpage\"],\n      checked: on.slice(),"
+  },
+  {
+    "label": "a junk route in threeOn is taken as a page drawing the scene",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const on = Array.isArray(threeOn) ? threeOn.filter((r) => typeof r === \"string\" && r) : [];",
+    "to": "    const on = Array.isArray(threeOn) ? threeOn : [];"
+  },
+  {
+    "label": "a scene nobody added is an applied result because a page happens to draw one",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (three) {\n    const on = Array.isArray(threeOn)",
+    "to": "  if (three || (Array.isArray(threeOn) && threeOn.length)) {\n    const on = Array.isArray(threeOn)"
+  },
+  {
+    "label": "sceneOn answers no for every page, so declared and on-the-page collapse",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  return /[\"'@]react-three\\/fiber[\"']/.test(s) && /<Canvas[\\s/>]/.test(s);",
+    "to": "  return false;"
+  },
+  {
+    "label": "sceneOn answers yes for every page with source, so the split is decorative",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  return /[\"'@]react-three\\/fiber[\"']/.test(s) && /<Canvas[\\s/>]/.test(s);",
+    "to": "  return true;"
+  },
+  {
+    "label": "sceneOn takes the import alone, so a dead dependency reads as a scene",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  return /[\"'@]react-three\\/fiber[\"']/.test(s) && /<Canvas[\\s/>]/.test(s);",
+    "to": "  return /[\"'@]react-three\\/fiber[\"']/.test(s);"
+  },
+  {
+    "label": "the route never works out which pages drew the scene",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aThreeOn = live\n                .filter((p) => sceneOn(p && p.source))",
+    "to": "              aThreeOn = []\n                .filter((p) => sceneOn(p && p.source))"
+  },
+  {
+    "label": "the route reads the scene off the writer's answer rather than the publication",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aThreeOn = live\n                .filter((p) => sceneOn(p && p.source))\n                .map((p) => routeOf(p && p.path))",
+    "to": "              aThreeOn = imageSources(aValid.pages || [], aValid.parts || [])\n                .filter((p) => sceneOn(p && p.source))\n                .map((p) => routeOf(p && p.path))"
+  },
+  {
+    "label": "the scene's routes never reach appliedFacts",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              threeOn: aThreeOn,",
+    "to": "              threeOn: [],"
+  },
+  {
+    "label": "the route never works out which pages gained a picture",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aPhotoMade = [...byRoute.values()].filter((x) => touched.has(x.route));",
+    "to": "              aPhotoMade = [];"
+  },
+  {
+    "label": "a picture on a page this change never wrote counts as its work",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aPhotoMade = [...byRoute.values()].filter((x) => touched.has(x.route));",
+    "to": "              aPhotoMade = [...byRoute.values()];"
+  },
+  {
+    "label": "every picture reads as bought, so reuse is claimed as a purchase",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  if (had.has(u)) at.reused = true; else at.bought = true;",
+    "to": "                  at.bought = true;"
+  },
+  {
+    "label": "the placements never reach appliedFacts",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              photos: aPhotoMade || [],",
+    "to": "              photos: [],"
+  },
+  {
+    "label": "photo is reportable before the publish, so a claim reads absent while the answer does not exist",
+    "files": [
+      "worker.js"
+    ],
+    "from": "photo: !!aPhotoMade };",
+    "to": "photo: true };"
+  },
+  {
+    "label": "imageRefs' Set is read with `.length`, so the site's photographs are never enumerated",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (r && imageRefs(p.source, slug).size) items.push({ kind: \"photo\", name: r });",
+    "to": "      if (r && imageRefs(p.source, slug).length) items.push({ kind: \"photo\", name: r });"
+  }
+]

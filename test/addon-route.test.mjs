@@ -2027,6 +2027,31 @@ test("existing-site evidence is used only where it was really read", async () =>
   assert.ok(full.items.some((m) => m.kind === "qr" && m.name === "wifi"));
   assert.ok(full.items.some((m) => m.kind === "three" && m.name === "three"),
     "a site's one scene has no entry, so a requirement handed to `three` can never resolve");
+  // ── A PHOTOGRAPH IS NAMED BY THE ROUTE IT SITS ON, NEVER BY ITS FILE ──────
+  //
+  // A sweep survivor is why this is here: nothing anywhere asserted which
+  // identity `existingFacts` gives a picture, so naming it `gallery.tsx`
+  // changed no result — and a requirement names `/gallery`, because that is
+  // what a designer can know. `routeOf` is the one reader both sides go
+  // through, so the two lists cannot spell one page two ways.
+  const shot = existingFacts({
+    sources: [
+      { path: "src/routes/gallery.tsx", source: '<main><SafeImage src="/u/fw/a1b2.jpg" alt="the bench" /></main>' },
+      { path: "src/routes/prices.tsx", source: "<main><h1>Prices</h1></main>" },
+    ],
+    slug: "fw",
+  });
+  assert.ok(shot.kinds.includes("photo"), "the site's own photographs are not enumerable at all");
+  assert.deepEqual(shot.items, [{ kind: "photo", name: "/gallery" }],
+    "a photograph is not named by the route a requirement can name: " + JSON.stringify(shot.items));
+  // …AND THE SLUG IS WHAT SCOPES IT. Another site's upload is a `src` too, and
+  // a kit illustration is a `src` too; neither is a photograph this owner paid
+  // for. With no slug the inventory is unreadable and `photo` MUST NOT SPEAK —
+  // "nobody looked" rather than a silent "there are none".
+  assert.deepEqual(existingFacts({ sources: [{ path: "src/routes/gallery.tsx", source: '<SafeImage src="/u/other/a1b2.jpg" />' }], slug: "fw" }).items, [],
+    "another site's upload was counted as this one's photograph");
+  assert.ok(!existingFacts({ sources: [{ path: "src/routes/gallery.tsx", source: '<SafeImage src="/u/fw/a1b2.jpg" />' }] }).kinds.includes("photo"),
+    "with no slug the photographs are unreadable and the reader spoke anyway");
   // NOTHING HANDED OVER MEANS NOTHING CLAIMED — the conservative default, and
   // the answer an unchanged caller keeps.
   assert.deepEqual(existingFacts(), { items: [], kinds: [] });
@@ -6355,6 +6380,14 @@ test("a photograph this change put on a page answers its hand-off, and one for a
   assert.equal(q.reconciledItem, "/gallery", "the record does not name the placement that answered: " + JSON.stringify(q));
   assert.equal(q.reconciledKind, "photo", "the record does not say what kind of thing answered: " + JSON.stringify(q));
   assert.ok(/^photo#/.test(q.reconciledBy || ""), "the answering entry is not the photo step's: " + JSON.stringify(q));
+  // …AND THE ANSWER'S OWN CLAIM RESOLVES ON THE ROUTE'S WORDS, so a real `by`
+  // clause about a picture reads as configuration that holds rather than
+  // falling to the bare-name reading. A sweep survivor: nothing read what a
+  // photograph's entry SAYS, only that one existed.
+  const qa = cov.find((x) => x.status === "covered");
+  assert.equal(qa.state, "configured", "a picture really on the page did not resolve: " + JSON.stringify(qa));
+  assert.equal(qa.configuredBy, "/gallery: gallery",
+    "the placement that was read back is not recorded: " + JSON.stringify(qa));
   // THE CAP HOLDS. A placement read back off what was published is
   // configuration; nothing here looks at the picture, so `delivered` is a claim
   // this platform cannot make about a photograph.
@@ -6450,6 +6483,60 @@ test("an existing photograph shown again answers the same way, and is not claime
   assert.equal(q.implementation, "found", "a photograph really on the page was not found: " + JSON.stringify(q));
   assert.equal(q.foundIn, "applied", "a picture this change placed was credited to the site's back catalogue: " + JSON.stringify(q));
   assert.equal(q.state, "unverified");
+  // ── AND IT IS RECORDED AS A REUSE, NOT AS A PURCHASE ─────────────────────
+  //
+  // A sweep survivor: the route decides `bought` against `reused` by whether
+  // the url was in the source this change started from, and no case anywhere
+  // read which it wrote. They are not interchangeable — one is money this
+  // change spent and the other is money the owner had already spent — and a
+  // `by` clause naming the wrong one is a claim about a charge that did not
+  // happen. The claim below resolves ONLY against `reused`, so a route that
+  // marks every picture bought fails it.
+  // ⚠ ITS OWN SLUG'S URL. `imageRefs` is scoped to the site's own `/u/<slug>/`
+  // prefix, so reusing the first sub-case's url here would be ANOTHER site's
+  // upload and the wall would empty it — the case would then be about
+  // `strayPhotos` rather than about how a reuse is recorded.
+  const MINE = "/u/fw-photo-reuse-mark/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg";
+  const REUSED = { need: "The gallery shows one of the photographs we already paid for.",
+    status: "covered", from: "page", kind: "photo", item: "/gallery", by: "the bench photograph reused on /gallery" };
+  const marked = await photoAsk("fw-photo-reuse-mark", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"" + MINE + "\" alt=\"the bench\" /></main>" }],
+    written: [galleryWith('<SafeImage src="' + MINE + '" alt="the bench" />')],
+    answers: { page: { page: [PHOTO_PAGE], requirements: [REUSED] } },
+  });
+  assert.equal(marked.body.ok, true, JSON.stringify(marked.body));
+  const m = storedAnswer(marked, "fw-photo-reuse-mark").coverage.requirements[0];
+  assert.equal(m.configuredBy, "/gallery: reused",
+    "a photograph the owner already had was recorded as bought: " + JSON.stringify(m));
+});
+
+test("a picture on a page this change never wrote is not claimed as its work", async () => {
+  // A SWEEP SURVIVOR AND A REAL PROPERTY. `aPhotoMade` is filtered by what the
+  // merge really added or changed, so a page the change never touched shows
+  // whatever it always showed — and naming it as an applied placement would
+  // let a picture the site has had for months answer a request made today.
+  // That is `existingFacts`' job (`foundIn: "existing"`), and the distinction
+  // between the two readers is the whole of what `foundIn` records.
+  const OWNED = "/u/fw-photo-untouched/c0ffee00c0ffee00c0ffee00c0ffee00.jpg";
+  const HANDOFF = { need: "The home page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/" };
+  const r = await photoAsk("fw-photo-untouched", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    // THE HOME PAGE ALREADY DRAWS ONE and this change does not rewrite it —
+    // only `/gallery` is returned, so `/` is in neither `added` nor `changed`.
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"" + OWNED + "\" alt=\"the bench\" /></main>" }],
+    written: [writtenPage("/gallery")],
+    answers: { page: { page: [PHOTO_PAGE], requirements: [HANDOFF] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.changed || [], [], "the home page was rewritten — this case tests nothing: " + JSON.stringify(r.body));
+  const q = storedAnswer(r, "fw-photo-untouched").coverage.requirements.find((x) => x.status === "elsewhere");
+  // IT RESOLVES — to the SITE'S own picture, which is the honest answer and is
+  // what makes the reader-identity assertion below load-bearing rather than a
+  // second copy of "it was not found".
+  assert.equal(q.implementation, "found", "the site's own photograph was not found at all: " + JSON.stringify(q));
+  assert.equal(q.foundIn, "existing",
+    "a picture on a page this change never wrote was claimed as its work: " + JSON.stringify(q));
 });
 
 test("a photograph for a page that never shipped is not claimed, and the page is named", async () => {
@@ -6543,6 +6630,93 @@ test("a scene declared and a scene really on the page are two answers, and a cla
   // separates them. That is deliberate: nothing here is entitled to call a
   // claim wrong, which is this repository's never-move-towards-`failed` rule.
   assert.equal(offA.state, "unverified", "a contradicted claim moved towards failed: " + JSON.stringify(offA));
+
+  // ── AND IT IS READ OFF THE PUBLICATION, NOT OFF THE WRITER'S ANSWER ──────
+  //
+  // A sweep survivor, and it is the same correction `newEmptySlots` and
+  // `aPhotoMade` both took. The writer RETURNS a page carrying the canvas and
+  // the publication does NOT — here because the preservation rule reverts a
+  // changed page nobody asked for that carries no link to an added route — so
+  // a reader that trusted the answer would say the scene is on a page whose
+  // canvas no visitor will ever be served.
+  //
+  // ⚠ AND THE FIRST SHAPE OF THIS CASE WAS VACUOUS, which is worth recording
+  // because it passed with the mutant applied. It handed the writer a raw
+  // `{path, source}` of bare markup — no `createFileRoute` export — so
+  // `validatePages` REFUSED it and the canvas never reached the merge at all.
+  // The precondition it asserted (`nothing compiled carries a Canvas`) is
+  // satisfied just as well by a page dropped at validation as by one reverted,
+  // so it could not tell the two apart. **A negative precondition must name
+  // the mechanism it is relying on**: the assertion that makes this case real
+  // is `reverted`, not the absence of the canvas.
+  const about = storedPage("/about");
+  const held = await addon("fw-three-held", "add a gallery page with a 3D scene on it", {
+    kinds: ["page", "three"], publishes: true, sitePages: ["/", "/about"],
+    // THE CANVAS IS ONLY ON `/about` — a real page, through the real
+    // validator — which the design never asked for and which carries no link
+    // to `/gallery`, so the preservation rule puts back what the site was
+    // already serving. The home page carries the link and is KEPT, which is
+    // what stops this being a case about the merge refusing everything.
+    written: [
+      writtenPage("/gallery"),
+      addedTo("/", '<Link to="/gallery">Gallery</Link>'),
+      { ...about, path: "src/routes/about.tsx", source: about.source + "\n" + SCENE },
+    ],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      three: { three: { scene: "a slowly turning loaf", page: "/gallery" }, requirements: [ECHO] },
+    },
+  });
+  assert.equal(held.body.ok, true, JSON.stringify(held.body));
+  assert.ok((held.body.moved || []).includes("three"), "no scene was stored — this case tests nothing");
+  // ⚠ THE PRECONDITION THAT MAKES THIS CASE REAL: the canvas page reached the
+  // merge and the merge REVERTED it. Without this, "nothing compiled carries a
+  // canvas" is true of a page that was never admitted, and the case is about
+  // the validator rather than about which list the route reads.
+  assert.deepEqual(held.body.reverted, ["about.tsx"],
+    "the canvas page was not reverted, so the two lists do not differ here: " + JSON.stringify(held.body.reverted));
+  assert.ok((held.body.changed || []).includes("index.tsx"),
+    "the linking home page was reverted too — the merge refused everything: " + JSON.stringify(held.body.changed));
+  const shipped = compiledPages(held);
+  assert.ok(!shipped.some((p) => /Canvas/.test(p.source)),
+    "the canvas was published after all — this case tests nothing: "
+    + JSON.stringify(shipped.map((p) => p.path)));
+  const heldA = storedAnswer(held, "fw-three-held").coverage.requirements.find((x) => x.status === "covered");
+  assert.equal(heldA.contradictedBy, "three: onpage",
+    "a canvas on a page nobody will be served read as the scene being on the site: " + JSON.stringify(heldA));
+  assert.equal(heldA.configuredBy, undefined,
+    "the writer's own answer bought a configuration verdict: " + JSON.stringify(heldA));
+});
+
+test("a photograph cannot be reported absent before the publish has said anything", async () => {
+  // A SWEEP SURVIVOR, AND THE PROPERTY IS THE RECORDED CANNOT-TELL RULE.
+  // `aReportable` gates `photo` on `aPhotoMade` having been computed, which
+  // happens at the publish — so on a path that never gets there, "no picture
+  // was placed" and "the answer does not exist yet" must not be one answer.
+  // A refusal composes its coverage from the kinds loop, long before any of
+  // that, and a reader that said `absent` there would print "Still to do"
+  // over work that was never attempted.
+  const HANDOFF = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const r = await photoAsk("fw-photo-early", {
+    kinds: ["page", "photo"], credits: 400,
+    // THE REFUSAL: the writer returns a page that lost the words the site
+    // already said, so `keptProse` refuses the whole change at cost 0 — before
+    // the merge, before the purchase and before anything is published.
+    storedPages: [{ path: "index.tsx", source: "<main><h1>Fretwork</h1><p>Hand-built guitars since 1974.</p></main>" }],
+    written: [{ path: "src/routes/index.tsx", source: "<main><h1>Fretwork</h1></main>" }],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, false, "the change was published — this case tests nothing: " + JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a refused change was charged: " + JSON.stringify(r.body));
+  const q = storedAnswer(r, "fw-photo-early").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(q.implementation, "unknown",
+    "a picture was reported absent before the publish could say anything: " + JSON.stringify(q));
+  assert.equal(q.state, "unknown");
+  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
+    "work that was never attempted was reported as outstanding: " + r.body.coverNote);
 });
 
 test("a scene the site already has is refused, and nothing is claimed for the refusal", async () => {
