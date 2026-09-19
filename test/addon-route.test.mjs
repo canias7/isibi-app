@@ -7409,3 +7409,232 @@ test("an ordinary recurring job is byte for byte what it was", async () => {
   assert.equal(row.spec.on, undefined, "a recurring job was registered as one-time");
   assert.deepEqual(Object.keys(row.spec).sort(), ["at", "fn", "tz"], "the recurring spec's shape moved: " + JSON.stringify(row.spec));
 });
+
+// ── FOUR COMPLETE REQUESTS, EACH THROUGH THE REAL ROUTE (2026-09-19) ────────
+//
+// Owner: *"a customer describes an addition, the builder understands the
+// existing site, passes the right information between designers, creates the
+// complete feature, preserves existing work, and accurately reports the
+// result."* Every other case in this file isolates ONE hop; these four are
+// whole customer sentences, and each is chosen because its value crosses a
+// boundary no single-kind case can see:
+//
+//   1. an EXISTING table reaching a new function, and that function reaching
+//      the page designer that runs after it
+//   2. an EXISTING internal function reaching a new job — the re-attach hop,
+//      which `normalizeSchema` would otherwise drop in silence
+//   3. a connection's DECLARED RESPONSE SHAPE reaching the page writer, which
+//      is the whole of what made that tier unwritable
+//   4. a page, a component ON that page and a QR code pointing AT it, in one
+//      message — three kinds whose destination is a route this same change is
+//      adding, which was a silent substitution until 2026-09-17
+//
+// WHAT THEY PROVE AND WHAT THEY DO NOT. Every seam is its real producer's
+// shape, so these prove the WIRING: a declared thing survives cleaning,
+// reaches storage, reaches the later designers, produces an artifact and is
+// reported honestly. They never prove a real model would answer this way —
+// that is what the live runs are for, and they are the owner's press.
+
+test("COMPLETE REQUEST 1 — an existing table reaches a new function, and the function reaches the page", async () => {
+  // *"Add a page at /how-busy showing how many bookings we have, and a
+  // function the page calls to count them."*
+  //
+  // THE TWO CROSSINGS ARE THE SUBJECT. The function designer must be told the
+  // site already has `bookings` AND what its columns are — run 47's whole
+  // defect was a designer told the site had no tables, which invented a second
+  // one and counted that, and the page read 0 for ever. Then the PAGE
+  // designer, one call later, must be told the function exists, or it writes a
+  // page calling a name it cannot know.
+  const r = await addon("fw-cr1", "add a page at /how-busy showing how many bookings we have, and a function the page calls to count them", {
+    kinds: ["function", "page"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<Link to="/how-busy">How busy</Link>'), writtenPage("/how-busy")],
+    answers: {
+      function: { function: [{ name: "count_bookings", returns: "bigint", body: "SELECT COUNT(*) FROM bookings" }] },
+      page: { page: [{ path: "/how-busy", name: "How busy", purpose: "show the number of bookings", sections: ["the count"], components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // CROSSING 1 — the function designer was shown the existing table WITH its
+  // columns. A name alone is not enough: a body naming a column the table has
+  // not got is a function that fails at CREATE, which is the measured reason
+  // that hop carries columns at all.
+  const fn = promptFor(r, "function");
+  assert.ok(fn, "the function designer was never called");
+  assert.match(fn.text, /bookings/, "the function designer was not told the site has `bookings`");
+  for (const c of STORED_SCHEMA.tables[0].columns) {
+    assert.ok(fn.text.includes(c.name), "the function designer was not shown the column " + c.name);
+  }
+
+  // CROSSING 2 — the PAGE designer, running after it, was told the function
+  // this same message designed one call earlier.
+  const pg = promptFor(r, "page");
+  assert.ok(pg, "the page designer was never called");
+  assert.match(pg.text, /count_bookings/, "the page designer was not told about the function designed one call earlier");
+
+  // THE FEATURE REALLY EXISTS — the statement reached Postgres, the page
+  // reached the compiler, and the site is left holding it.
+  assert.ok(r.sql.some((s) => /CREATE OR REPLACE FUNCTION/i.test(s) && /count_bookings/.test(s)),
+    "no CREATE for the function reached the database: " + JSON.stringify(r.sql));
+  assert.ok(compiledPages(r).some((p) => /how-busy/.test(p.path)), "the page never reached the compiler");
+  assert.match(storedSource(r, "fw-cr1", "how-busy.tsx"), /createFileRoute/, "the site does not hold the new page");
+
+  // AND THE EXISTING TABLE IS UNTOUCHED — three columns and `access: "user"`,
+  // which is precisely what a replaced table loses.
+  //
+  // ⚠ THE NAME IS READ FROM EITHER SHAPE, because the stored list legally holds
+  // both and the engine's own `norm.push` flattens to bare names. Asserting
+  // `c.name` alone answered `[undefined, undefined, undefined]` on the first
+  // run of this case — and chasing that is what found the column-union defect
+  // in `applySiteSchema` (see `test/schema-column-union.test.mjs`): this same
+  // request used to store SIX columns for this three-column table.
+  const kept = (r.meta().tables || []).find((t) => t.name === "bookings");
+  assert.ok(kept, "the site's own table is gone from the stored spec");
+  const cols = kept.columns.map((c) => String(typeof c === "string" ? c : ((c && c.name) || "")));
+  assert.deepEqual(cols, ["who", "slot", "phone"], "the existing table lost or doubled columns: " + JSON.stringify(kept.columns));
+  assert.equal(kept.access, "user", "the existing table's access was replaced by the default");
+});
+
+test("COMPLETE REQUEST 2 — an existing internal function reaches a new job, and survives the normaliser", async () => {
+  // *"Every night at 11 run the hold sweep."* The site already HAS
+  // `sweep_holds`; this message designs only a job.
+  //
+  // ⚠ THIS IS THE RE-ATTACH HOP AND WITHOUT IT THE DROP IS SILENT.
+  // `normalizeSchema` keeps a job only when its function is declared in the
+  // SAME spec — right for a build, where the spec is the whole backend, and
+  // wrong here, where the spec is only what this message designed. A stored
+  // function has no body to re-send (re-sending one would `CREATE OR REPLACE`
+  // the live function with nothing), so the job is re-attached against the
+  // stored INTERNAL names instead, and only when the stored one really is
+  // internal.
+  const r = await addon("fw-cr2", "every night at 11 run the hold sweep", {
+    kinds: ["job"], tz: "Europe/London",
+    stored: { ...STORED_SCHEMA, functions: [{ name: "sweep_holds", args: "", returns: "json", internal: true }] },
+    answers: { job: { job: [{ name: "nightly_sweep", fn: "sweep_holds", everyMinutes: 1440, at: "23:00" }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE CROSSING — the job designer was told which functions it MAY run. Only
+  // an INTERNAL function qualifies, which is the engine's own rule and is why
+  // that list is `jobFns` rather than `functions`.
+  const jb = promptFor(r, "job");
+  assert.ok(jb, "the job designer was never called");
+  assert.match(jb.text, /sweep_holds/, "the job designer was not told it may run the site's own internal function");
+
+  // IT SURVIVED — the row the cron really selects carries the stored
+  // function's name, the clock time and the browser's own zone.
+  const row = r.registered.find((x) => x.name === "nightly_sweep");
+  assert.ok(row, "the job was dropped by the normaliser: " + JSON.stringify(r.registered));
+  assert.equal(row.spec.fn, "sweep_holds", "the job lost the function it runs");
+  assert.equal(row.spec.at, "23:00", "the job lost its clock time");
+  assert.equal(row.spec.tz, "Europe/London", "the job lost the owner's zone");
+  assert.equal(row.spec.on, undefined, "a nightly job was registered as one-time");
+
+  // PAGELESS — a job changes no page, so nothing was compiled. `getContainer`
+  // throws by default in this fixture, so reaching one is an error rather than
+  // a silent extra, and that is what makes this assertion worth making.
+  assert.deepEqual(r.compiles, [], "a job-only change compiled something");
+  assert.equal(r.body.jobErrors, undefined, "the job was reported as failing: " + JSON.stringify(r.body.jobErrors));
+});
+
+test("COMPLETE REQUEST 3 — a connection's declared response shape reaches the page writer", async () => {
+  // *"Show the live tide times on the home page, from tides.example."*
+  //
+  // THIS IS THE TIER THAT COULD NOT BE WRITTEN AT ALL. `useApi<T = unknown>`
+  // means a page either declares its own `T` — a guess about a third party's
+  // JSON, from a model that has never seen a response — or leaves it unstated;
+  // and an INVENTED type typechecks clean while the page renders "". So the
+  // declared shape reaching the writer IS the feature, and it crosses from the
+  // `api` designer to the page call.
+  // ⚠ `api` ALONE, AND THAT IS THE PRODUCT BEING RIGHT. A connection exists to
+  // be READ by a page, so the route is never pageless for one — it writes a
+  // page whether or not the customer asked for a new route. Adding a `page`
+  // kind here aimed at `/` is a request to ADD a page the site already has,
+  // which `cleanAdd` correctly refuses `no-path`; the first draft of this case
+  // did exactly that and reported the tier broken.
+  // ⚠ AND THE WRITER RETURNS THE HOME PAGE **PLUS** THE TIDE TABLE, not a
+  // rewrite of it. `keptProse` refuses a change that loses a word the page
+  // already said, which is the wall that makes "an addition only ADDS" real —
+  // and the fixture's default `write_pages` answer is a different home page
+  // entirely, so a case that takes it is refused `rewrote` before anything
+  // about connections is reached. That refusal is the product being correct;
+  // taking the default here would have reported it as this tier failing.
+  const r = await addon("fw-cr3", "show the live tide times on the home page, from tides.example", {
+    kinds: ["api"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<TideTable/>")],
+    answers: {
+      api: { api: [{
+        name: "tides", url: "https://tides.example/v1/today?port={{PORT}}&key={{TIDES_KEY}}", method: "GET",
+        params: [{ name: "port", type: "string", required: true, description: "the harbour code" }],
+        returns: { times: [{ time: "string", height: "number" }] },
+        credential: { name: "TIDES_KEY", service: "Tides Example", signup: "https://tides.example/signup" },
+      }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE CROSSING — the page WRITER (not the designer) is handed the shape, as
+  // something it can declare rather than a sketch it has to interpret, plus
+  // which parameter it must supply.
+  const pw = pagePrompt(r);
+  assert.ok(pw, "the page writer was never called");
+  assert.match(pw.text, /tides/, "the page writer was not told the connection exists");
+  assert.match(pw.text, /height/, "the page writer was not told the answer's own field names");
+  assert.match(pw.text, /port/, "the page writer was not told which parameter the connection needs");
+
+  // IT IS STORED WHOLE, so the next change reads it back rather than
+  // re-deriving it from nothing.
+  const api = (r.meta().apis || []).find((a) => a.name === "tides");
+  assert.ok(api, "the connection was not stored: " + JSON.stringify(r.meta().apis));
+  assert.ok(api.returns, "the stored connection lost its declared response shape");
+
+  // AND THE OWNER IS TOLD WHICH SECRET IT NEEDS. Where to GET one is the
+  // provenance half; where to PUT it was already wired.
+  assert.match(JSON.stringify(r.body), /TIDES_KEY/, "the owner is not told which secret the connection needs");
+});
+
+test("COMPLETE REQUEST 4 — a page, a component on it, and a QR code pointing at it, in one message", async () => {
+  // *"Add a /tour page with the workshop video on it, and a QR code that opens
+  // it."*
+  //
+  // THREE KINDS WHOSE DESTINATION IS A ROUTE THIS SAME CHANGE IS ADDING. Until
+  // 2026-09-17 a component aimed at a page being added in the same message was
+  // silently built on the FRONT page and reported as done, and a QR aimed at
+  // one was refused `no-such-page`. `site.planned` is what makes both legal;
+  // the QR withholding is what keeps it honest, because a printed code
+  // pointing at a page that did not survive is dropped whole. THIS IS THE
+  // POSITIVE HALF — the page ships, so the code ships with it.
+  const r = await addon("fw-cr4", "add a /tour page with the workshop video on it, and a QR code that opens it", {
+    kinds: ["page", "component", "qr"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<Link to="/tour">The tour</Link>'), writtenPage("/tour")],
+    answers: {
+      page: { page: [{ path: "/tour", name: "The tour", purpose: "show the workshop video", sections: ["the video"], components: ["video-embed"] }] },
+      component: { component: [{ page: "/tour", does: "play the workshop video", components: ["video-embed"] }] },
+      qr: { qr: { name: "tour", points: "/tour", label: "Watch the workshop tour" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE CROSSING, IN BOTH LATER DESIGNERS — each was told `/tour` is coming
+  // AND that there is no source to read for it, which is the half that stops a
+  // designer asked to copy a like section going looking for a file.
+  for (const kind of ["component", "qr"]) {
+    const p = promptFor(r, kind);
+    assert.ok(p, "the " + kind + " designer was never called");
+    assert.match(p.text, /This same change is ALSO adding/,
+      "the " + kind + " designer was not told about the page being added in the same message");
+    assert.match(p.text, /\/tour/, "the " + kind + " designer was not told which page is coming");
+  }
+
+  // THE PAGE SHIPPED, so nothing was withheld and the code is kept.
+  assert.deepEqual(r.body.added, ["tour.tsx"], JSON.stringify(r.body.added));
+  assert.ok(compiledPages(r).some((p) => /tour/.test(p.path)), "the new page never reached the compiler");
+  assert.equal(r.body.heldPages, undefined, "a page was withheld on a request where everything arrived");
+  assert.equal(r.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+
+  // THE CODE IS STORED AGAINST THE SITE, opening the route this change added.
+  const codes = storedLook(r, "fw-cr4").qr || [];
+  const tour = codes.find((c) => c && c.name === "tour");
+  assert.ok(tour, "the QR code was not stored: " + JSON.stringify(codes));
+  assert.match(tour.points, /\/tour$/, "the stored code does not open the page this change added: " + tour.points);
+});
