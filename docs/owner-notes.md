@@ -14449,6 +14449,15 @@ end to end, with a control where both pictures land and nothing is outstanding.
 — and it should. What changed is that a request about one picture can now
 actually be about one picture.
 
-Suite 6,967, all green. Sweep 24 of 24 killed, nothing survived. Nothing
-merged, nothing deployed, nothing spent.
+Suite 6,967, all green. Sweep 24 of 24 killed, nothing survived. Both CI checks
+are green on this exact version — the test suite read the same 6,967, and the
+big container check passed all twenty of its steps with 382 checks and nothing
+failing. Nothing merged, nothing deployed, nothing spent.
+
+**One thing I got wrong on the way, since it is the sort of thing worth
+writing down:** I set a watcher to tell me when those two checks finished, and
+typed the version number into it from memory instead of reading it. It never
+matched, so the watcher sat quiet for half an hour while both checks were
+already green — and a quiet watcher looks exactly like a check that is still
+running. No harm done; I read them directly instead.
 

@@ -12529,6 +12529,32 @@ guard that owns `REQUIREMENT_ITEM`.
 baselines measured in a detached worktree at `31ff4161` (12 / 172 / 45) rather
 than subtracted from a paragraph.
 
+**CI HAS READ BOTH, ON `81cd5472`.** `unit tests` run **2791**, green
+(2026-09-19 18:28:54→18:31:03Z, the suite step 110.3 s) — `# tests 6967 /
+# pass 6963 / # fail 0 / # skipped 4`, against local `6967 / 6967 / 0 / 0`, and
+**the TOTAL is what matches**; the four are the standing environment skips.
+**And `site build` run 1217 (18:28:54→18:49:08Z), ALL TWENTY STEPS GREEN** —
+the API answers 23 and three are GitHub's own: `site-build.mjs` **382 passed /
+0 failed**, the step 18:30:36→18:45:11 (14m35s), with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it and kit-render / kit-a11y / kit-effects / kit-paint each `all
+passed` with no count — the three result SHAPES a census has to ask for. **Every
+count read out of the run's PER-STEP log files**, which attribute by
+construction. It fired because `worker.js` and `builder/**` moved. **The unit
+step reads `# tests 397 / # pass 397 / # fail 0`, unchanged from 1216** —
+correct, because that step's glob is `page-gen` + `publish-pages` and this round
+touches neither.
+
+**⚠ AND THE MONITOR WATCHING FOR THOSE TWO RUNS SAT SILENT FOR THIRTY MINUTES
+WHILE BOTH FINISHED, BECAUSE I GAVE IT A SHA I HAD MADE UP.** The short hash was
+`81cd5472` and the full one is `81cd5472862fadbe…`; what went into the watch was
+`81cd5472f2a63b9c…`, invented rather than read, so its prefix test matched
+nothing and the poll had nothing to emit. **A zero from a blind instrument is
+not evidence of absence** — this file's own recorded trap, through a new door:
+the instrument was fine and its INPUT was fabricated, which is indistinguishable
+from "the runs have not finished" for as long as you are willing to wait. Read
+the full sha out of `git rev-parse`; never extend a short one.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO
 REPORTING REDESIGN** — the owner's standing constraint, unchanged.
 
