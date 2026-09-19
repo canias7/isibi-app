@@ -4733,7 +4733,8 @@ the database says `running`.
   them PostgREST does not send them, both readers fail closed, and every waiting or stranded
   run reads `working` again. Asserted on the wire and by NAME rather than by counting, with
   a control that a select list which had stopped naming anything would not satisfy it.
-- **The SQL sweep is 231 entries (9 controls) and is RUNNING as this is written**, over
+- **The SQL sweep is 231 entries (9 controls) and was RUNNING as this was written — ANSWERED
+  2026-09-19 by the 266-mutant run at the end of this file, whose entries are a superset**, over
   M4's own migration and this one — neither of which has ever been swept. Its tally is
   deliberately NOT stamped here yet: *a count nobody re-measured is a claim ahead of its
   evidence*, and the two SQL mutants this round adds to the expiry sweep's answer are
@@ -5511,7 +5512,8 @@ use every tool"* in as many words.
   against git afterwards. **578 of the spec's 579 entries**, and the missing one is said rather
   than rounded away: the narrowing mutant was added AFTER the run started, so it is evidenced
   by its own spot-check and not by this tally. (568 product + 10 controls = 578.)
-- **The SQL sweep is still running at that commit**, over 238 entries; every mutant creates a
+- **The SQL sweep is still running at that commit**, over 238 entries — ANSWERED 2026-09-19 by
+  the 266-mutant run at the end of this file, whose entries are a superset; every mutant creates a
   database and applies every migration, which is what it costs to prove a guarantee against
   the engine that enforces it. Its tally is deliberately not stamped until it ends.
 
@@ -5819,7 +5821,8 @@ It is one line, below the comment, and re-throwing is the same property.
   away**: their evidence is the nine-mutant spot-check and their own red-proofs, not this
   tally. *Saying which commit a tally covers is the difference between a measurement and a
   stamp.*
-- **THE SQL SWEEP OF THE 245 PRE-EXISTING ENTRIES IS OUTSTANDING, and that is stated rather
+- **THE SQL SWEEP OF THE 245 PRE-EXISTING ENTRIES IS OUTSTANDING — ANSWERED 2026-09-19 by the
+  266-mutant run at the end of this file, whose entries are a superset. It was stated rather
   than rounded into a pass.** Every mutant creates a database and applies every migration, so
   **one costs ~75 seconds measured** and the whole 268 is ~5.5 hours; the run at `1ae72ef` was
   killed by a container restart before it ended, and its worktree is proved restored two ways
@@ -7294,3 +7297,49 @@ control, and the runner's `CONTROL WAS KILLED` branch is armed only for an entry
 **A narrow list can only produce a false SURVIVOR, never a false kill**, so the next full run still
 decides; what this establishes is that each of the six checks written for those mutants really does
 go red, which a green run on its own cannot say.
+
+### THE FULL SQL SWEEP IS FINISHED, and reported on its own as the owner asked
+
+**266 mutants, 257 killed, 9 SURVIVED, 0 never applied, 12 comment-only controls survived**, at
+`e7a5502`, in a detached worktree so the main tree held no mutant while it ran. The runner's own
+`finally` restored it (`git status` clean with no checkout of mine needed) and the generator's
+anchor census reads **278 entries, every anchor unique**, which it cannot while a mutant is
+applied. **The two numbers are the recorded distinction rather than an arithmetic puzzle**: the
+spec holds 278 entries, the runner counts the 266 that are PRODUCT mutants, and 266 + 12 = 278.
+
+**ALL TWELVE CONTROLS SURVIVED, so the run's one check on its own honesty was armed** — a sweep
+whose control was killed, or never reached, reports nothing trustworthy, and this file has paid
+for both.
+
+**AND NOT ONE OF THE NINE WAS THE PRODUCT'S — seven guard gaps and two measured inert.** Each is
+recorded above with what it turned out to be, and each is closed at HEAD with a check proved RED
+against its own defect and then proved dead by a narrow pass:
+
+| survivor | what it was | closed |
+|---|---|---|
+| resume: a finished execution re-offered | INERT (a constraint already forbids the state) | declared + replaced |
+| revocation: every account reads every revocation | **GAP — a real cross-account read** | `3ec9f45` |
+| expiry: a run somebody can still answer is woken | **GAP — the check passed at the wrong gate** | `4c5c488` |
+| expiry: a held row reported as requeued | **GAP — the branch was unreachable** | `012720f` |
+| expiry: a held row dropped | **GAP — same** | `012720f` |
+| states: the waiting flag answers NULL | INERT (the lateral's own shape) | declared + replaced |
+| states: the open-call count answers NULL | INERT (same) | declared + replaced |
+| memory: the reach is not answered | **GAP — the regexes matched the inner keys** | `012720f` |
+| memory: the snapshot drops `source` | **GAP — and its `run` half was never written** | `012720f` |
+
+**WHAT THIS TALLY COVERS AND WHAT IT DOES NOT, stated rather than implied.** It is an answer about
+`e7a5502`. Four of the sweep's own inputs moved between there and this head — `sql-sweep-spec.mjs`,
+`test/integration/pg-schema.mjs`, and two migrations, one of which gained a REAL product fix
+(M12's `revoke_agent_tool` not-stopped test). HEAD's spec emits **280** entries against that run's
+278, and the difference is **three additions and one removal**, derived by diffing the two label
+sets from clean checkouts rather than by recalling what was new. So this run says nothing about
+those three, nor about the six closures above — **which is exactly why each has a pass of its
+own**: 3/3 killed for the head-only entries, 1/1 for the approvals mutant, 1/1 for the expiry one,
+6/6 for this round's six. *A tally that does not name its commit is a stamp rather than a
+measurement.*
+
+**AND IT ANSWERS THE THREE OLDEST OUTSTANDING CLAIMS IN THIS FILE**, which said a sweep over 231,
+238 and 245 entries was running or outstanding and was never stamped. All three are subsets of
+this run's 266, so those sentences are answered by one measurement — with the same commit caveat,
+and with the honest addition that the three closures since are covered by their own passes and not
+by this one.

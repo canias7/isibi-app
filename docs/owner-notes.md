@@ -12940,3 +12940,22 @@ tool's own reader took for the end of a definition — so four correct breakages
 checked. Both were caught by a check written to catch exactly that, which is the system working.
 
 **The real-database check is 1,102 → 1,113 and still green.**
+
+### The breakage run finished: 266 breakages, 257 caught, 9 not — and none was a real bug
+
+Every migration file broken one way at a time against a real database, nine and a half hours of it.
+**Nine breakages went unnoticed, and not one of them was a fault in what runs** — seven were tests
+that would have stayed green while the thing they name stopped working, and two were changes that
+genuinely make no difference (proved by measuring, not by arguing). Every one of the nine is fixed,
+and each fix was checked to really go red against the thing it is about before I believed it.
+
+**All twelve do-nothing controls came back untouched**, which is the run's own check on its own
+honesty: a run where those get "caught" is a run telling you nothing.
+
+**One caveat I am stating rather than hiding.** The run took nine and a half hours, and the code
+moved while it ran — so its answer is about where it started, not about where the branch is now.
+That is why each of the nine has a small run of its own against today's code: the full run says
+the old ground is covered, and the small runs say today's is.
+
+This also answers three older notes of mine that said a breakage run was outstanding and never
+gave a number. They were all smaller versions of this one, so one measurement settles all three.
