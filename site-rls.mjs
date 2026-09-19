@@ -896,6 +896,44 @@ export function publicViewSql(t, columns, tableNames) {
  */
 export const FN_SEARCH_PATH = "public, pg_temp";
 
+/**
+ * THE LANGUAGES THE ENGINE REALLY SUPPORTS, in one place, beside the emitter
+ * that writes the `LANGUAGE` clause (2026-09-19).
+ *
+ * This was an inline ternary in TWO modules — `normalizeSchema`'s
+ * `String(f.language || "sql").toLowerCase() === "plpgsql" ? "plpgsql" : "sql"`
+ * and `functionSql`'s `f.language === "plpgsql" ? "plpgsql" : "sql"` — which is
+ * two copies of one rule that could drift, and NEITHER the addon's tool nor its
+ * cleaner could express the field at all. So the engine supported `plpgsql`,
+ * every hop above it dropped the word, and a customer asking for something that
+ * needs control flow got a `LANGUAGE sql` function that fails to create.
+ *
+ * `sql` IS FIRST AND IS THE DEFAULT, which is what keeps every declaration
+ * written before today byte-identical: absent means `sql`, exactly as it always
+ * did. `fnLanguage` is the ONE reader, so the normaliser and the emitter cannot
+ * disagree about what a stored spec means.
+ *
+ * TOLERANT HERE, REFUSING AT THE ADDON'S CLEANER, and the split is deliberate
+ * and is this repository's own `normalizeApi`/`cleanShape` precedent. A STORED
+ * spec passes through `normalizeSchema` on its way to being re-applied and must
+ * never fail a whole apply over one unreadable word, so an unknown language
+ * falls to the default here; at the moment a PERSON asked for it, `cleanAdd`
+ * refuses by name, because "silently built you a SQL function instead" is the
+ * one outcome nobody can act on.
+ *
+ * NOT A PLACE TO ADD A LANGUAGE. `plpython3u`, `plv8` and the rest are
+ * untrusted or absent on Neon, and a body in one of them is arbitrary code
+ * running as the database owner; the two here are the two Postgres trusts by
+ * default.
+ */
+export const FN_LANGUAGES = Object.freeze(["sql", "plpgsql"]);
+
+/** The canonical language for a declaration, tolerant: unknown falls to `sql`. */
+export function fnLanguage(v) {
+  const s = String(v == null ? "" : v).trim().toLowerCase();
+  return FN_LANGUAGES.includes(s) ? s : FN_LANGUAGES[0];
+}
+
 export function functionSql(f) {
   const args = (f.args || []).map((a) => q(a.name) + " " + a.type).join(", ");
   const argTypes = (f.args || []).map((a) => a.type).join(", ");
@@ -904,7 +942,7 @@ export function functionSql(f) {
     : String(f.returns).toUpperCase();
   const out = [
     "CREATE OR REPLACE FUNCTION " + q(f.name) + "(" + args + ") RETURNS " + ret +
-    " LANGUAGE " + (f.language === "plpgsql" ? "plpgsql" : "sql") +
+    " LANGUAGE " + fnLanguage(f.language) +
     (f.definer === false ? "" : " SECURITY DEFINER") +
     " SET search_path = " + FN_SEARCH_PATH +
     " AS $isibi$ " + f.body + " $isibi$",

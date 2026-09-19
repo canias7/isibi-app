@@ -15,7 +15,7 @@
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
 import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
-import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, FN_SEARCH_PATH, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
+import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, fnLanguage, FN_LANGUAGES, FN_SEARCH_PATH, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 
 /**
@@ -733,7 +733,13 @@ export function normalizeSchema(spec) {
     if (!returns) continue;
     const body = String(f.body || "").slice(0, MAX_FN_BODY).trim();
     if (!body) continue;
-    const lang = String(f.language || "sql").toLowerCase() === "plpgsql" ? "plpgsql" : "sql";
+    // ONE READER, shared with the emitter (`site-rls.mjs`). This was its own
+    // inline ternary and `functionSql` had a second copy of the same rule, so
+    // the language a spec MEANS and the language that reached Postgres were two
+    // derivations of one word. Tolerant on purpose: a stored spec re-applies
+    // here and must not fail a whole apply over one unreadable word — the
+    // addon's cleaner is where a person gets told, by name.
+    const lang = fnLanguage(f.language);
     // A model-written body may NEVER name an internal table. This is the one
     // sanitisation the body gets, and it is here rather than left to the
     // sandbox argument because the sandbox argument does not cover it:
@@ -1817,7 +1823,14 @@ export async function applySiteSchema(uuid, spec) {
       // hook on every site. The build succeeded, the function existed in
       // Postgres, and the feature was simply unreachable: the exact shape this
       // codebase has recorded five times over.
-      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns, internal: !!f.internal });
+      // `language` RIDES THE STORED DECLARATION (2026-09-19). The four fields
+      // beside it are descriptive — no body is stored, so a later apply never
+      // re-creates the function from this row — and that is exactly why the
+      // language has to be here: it is the only record anywhere of what a live
+      // function IS. Without it a readback describes a plpgsql function as
+      // though it were SQL, and the next designer shown the site's functions is
+      // being told something false about one that already exists.
+      if (fnsMade.includes(f.name)) byName.set(String(f.name).toLowerCase(), { name: f.name, args: f.args, returns: f.returns, internal: !!f.internal, language: fnLanguage(f.language) });
     }
     if (byName.size) metaOut.functions = Array.from(byName.values());
   }
@@ -2273,7 +2286,11 @@ export const TIER_LIST = Object.freeze({ table: "tables", function: "functions",
  */
 export const TOOL_FIELDS = Object.freeze({
   table: TOOL_TABLE_FIELDS,
-  function: new Set(["name", "args", "returns", "body", "internal"]),
+  // `language` joined 2026-09-19, when the tool gained it. The engine has read
+  // `f.language` since it was written; leaving it out of this set would report
+  // a field the tool asks for and the pipeline really carries as one it never
+  // heard of — the audit's own worst answer, about a working capability.
+  function: new Set(["name", "args", "returns", "body", "internal", "language"]),
   // `returns` and `credential` joined 2026-09-19. This set is what `auditTier`
   // calls the OFFERED fields, so a property the tool asks for and this set does
   // not name reads as one the pipeline never heard of — reported to the

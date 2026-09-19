@@ -150,6 +150,9 @@ import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, SITE_KINDS, cleanRequirements, requ
 // number, drifted by a factor of two, so a body in between passed the cleaner
 // whole and was cut on the way into Postgres.
 import { MAX_FN_BODY } from "../site-schema.mjs";
+// The engine's own language list, so this step can never refuse one the
+// emitter would have written, nor accept one it would not.
+import { FN_LANGUAGES } from "../site-rls.mjs";
 // THE ACCESS VOCABULARY IS THE ENGINE'S OWN, never a second list beside it:
 // `appliedFacts` checks a `covered` claim against what Postgres really
 // enforces, and `resolveAccess` is the one reader of that pair (five separate
@@ -1597,7 +1600,19 @@ export function siteNote(site) {
   // function the site has.
   const namesOf = (k) => (Array.isArray(s[k]) ? s[k] : []).filter((x) => typeof x === "string" && x.trim()).slice(0, 24).map(mark(k));
   const fns = namesOf("functions"), apis = namesOf("apis"), jobs = namesOf("jobs"), jobFns = namesOf("jobFns");
-  if (fns.length) lines.push("Its database functions are: " + fns.join(", ") + ".");
+  // A FUNCTION IS RE-DECLARED BY NAME, so one that is not ordinary SQL says so
+  // (2026-09-19). `fnLangs` is non-default only and the marker rides the name
+  // it belongs to, so a site with no such function prints the line it always
+  // printed, character for character. Without it, a designer re-declaring a
+  // plpgsql function writes a plpgsql body, says nothing about the language,
+  // and the engine creates it `LANGUAGE sql` — a syntax error at CREATE.
+  const fnLangs = (s && s.fnLangs && typeof s.fnLangs === "object") ? s.fnLangs : {};
+  const fnLang = (n) => {
+    const raw = String(n).replace(/\s*\(being added by this same change\)$/, "");
+    const l = fnLangs[raw];
+    return typeof l === "string" && l.trim() ? n + " (written in " + l.trim() + ", so re-declaring it needs that language again)" : n;
+  };
+  if (fns.length) lines.push("Its database functions are: " + fns.map(fnLang).join(", ") + ".");
   // THE ONES A JOB MAY RUN, said apart: a job names an internal function
   // (no arguments, returns the messages), and `cleanAdd` refuses any other.
   if (jobFns.length) lines.push("The functions a scheduled job may run are: " + jobFns.join(", ") + ".");
@@ -2181,6 +2196,29 @@ export function cleanAdd(kind, value, site) {
         // about the body from an item that should not be built at all.
         if (v.internal !== undefined && typeof v.internal !== "boolean") return { ok: false, why: "bad-internal" };
         if (v.definer === false) return { ok: false, why: "no-invoker" };
+        // ── THE LANGUAGE IS CARRIED, AND AN UNKNOWN ONE IS REFUSED ──────────
+        //
+        // This branch REBUILDS the item out of the keys it knows, so until
+        // today a declared `language` was binned one hop after it was written
+        // and the function was created `LANGUAGE sql` whatever it asked for —
+        // the engine supporting `plpgsql` perfectly the whole time. It was
+        // reported honestly (`unexpressed`, its own customer clause) and still
+        // lost; carrying it is what closes that.
+        //
+        // REFUSED RATHER THAN DEFAULTED, which is the opposite of what the
+        // ENGINE does two modules over and is deliberate. `normalizeSchema` is
+        // tolerant because a STORED spec passes through it on every later
+        // apply and one unreadable word must not fail the whole thing. Here a
+        // PERSON asked for this in this message and can be told; and the
+        // failure mode of defaulting is the worst available — a body written
+        // for plpgsql, silently created as SQL, failing at CREATE with a
+        // syntax error nobody can trace back to a word that was dropped.
+        // Case-insensitive because Postgres's own language names are, and
+        // `PLpgSQL` is a plausible thing for a model to write.
+        const language = v.language === undefined || v.language === null || v.language === ""
+          ? undefined
+          : String(v.language).trim().toLowerCase();
+        if (language !== undefined && !FN_LANGUAGES.includes(language)) return { ok: false, why: "bad-language" };
         const name = str(v.name, 63).toLowerCase();
         if (!TABLE_NAME.test(name) || ctx.functions.includes(name)) return { ok: false, why: "no-function" };
         // REFUSED, NEVER CUT. `str(v.body, 8000)` sliced here and the engine
@@ -2198,7 +2236,15 @@ export function cleanAdd(kind, value, site) {
           .map((a) => ({ name: str(a.name, 63).toLowerCase(), type: str(a.type, 20) }));
         const exists = (Array.isArray(s.functions) ? s.functions : []).map((x) => str(x, 63).toLowerCase()).includes(name);
         ctx.functions.push(name);
-        return { ok: true, value: { name, args, returns, body, internal: v.internal === true, exists } };
+        // ABSENT STAYS ABSENT — THE KEY ITSELF, not merely its value. A
+        // `language: undefined` would be byte-identical on the WIRE
+        // (`JSON.stringify` omits it) and a different OBJECT, and the objects
+        // are what `auditTier`, `keptItem` and `appliedFacts` read keys off.
+        // So a declaration that said nothing about its language cleans to
+        // exactly the shape it cleaned to before this field existed, and the
+        // default lives in ONE place — `fnLanguage` — rather than a second
+        // copy here that could drift from it.
+        return { ok: true, value: { name, args, returns, body, internal: v.internal === true, ...(language === undefined ? {} : { language }), exists } };
       }
       case "api": {
         const name = str(v.name, 63).toLowerCase();
@@ -2451,6 +2497,10 @@ export function addRefusal(why, kind) {
     // step cannot carry, so it says which step can.
     case "bad-internal": return "I couldn't tell whether that should be private to the site or callable from a page, so I didn't create it — nothing is worse than getting that one wrong. Say who should be able to use it and I'll add it.";
     case "no-invoker": return "That one asked to run with reduced database permissions, which I can't set up from here — so I didn't create it rather than quietly giving it more access than was asked for. Nothing was changed.";
+    // NAMED, because the alternative is the failure this refusal exists to
+    // stop: a body written for one language, created as another, failing at
+    // CREATE with a syntax error nothing connects back to a dropped word.
+    case "bad-language": return "That one asked to be written in a database language this platform doesn't run, so I left it alone rather than quietly building it in a different one. Say it again and I'll write it in plain SQL, or in PL/pgSQL if it needs steps and conditions. Nothing was changed.";
     default: return "I couldn't work out what to add from that" + (kind ? " (" + kind + ")" : "") + " — say what you want on the site and where.";
   }
 }
@@ -2670,7 +2720,26 @@ export function foldAdds(answers, priorLook, site) {
     // THE OTHER THREE TIERS (2026-09-03) fold as name-keyed lists, exactly as
     // `mergeAddonSchema` carries them: only what was named, so the engine
     // replaces those by name and keeps every other one the site has.
-    if (a.kind === "function" && v.name) functions.push({ name: v.name, args: v.args, returns: v.returns, body: v.body, internal: v.internal === true });
+    // ⚠ SUBTRACTIVE, NOT ADDITIVE — and the difference is a whole capability
+    // (2026-09-19). This line named its five fields, so it was a SECOND
+    // rebuild of an item `cleanAdd` had already rebuilt, and anything the
+    // cleaner started carrying was dropped here in silence. MEASURED through
+    // `POST /api/site/<slug>/addon` the hour the language was wired: the tool
+    // offered it, the cleaner kept it, `proposedSpec` kept it, and the DDL
+    // still read `LANGUAGE sql` — every hop correct but this one, which is
+    // this repository's own wiring trap and the reason that case drives the
+    // route rather than the module.
+    //
+    // The `api` tier beside it has been subtractive since it was written
+    // (`const { exists, ...api } = v`), which is why the response sketch, the
+    // parameter metadata and the credential guidance reached the engine with
+    // no change here at all. `job` is still additive and is the remaining
+    // instance of the class: a field added to `JOB_ITEM` and to the cleaner
+    // will be dropped on this line until it is changed with cases beside it.
+    if (a.kind === "function" && v.name) {
+      const { exists, ...fn } = v;
+      functions.push({ ...fn, internal: v.internal === true });
+    }
     if (a.kind === "api" && v.name) {
       const { exists, ...api } = v;
       apis.push(api);

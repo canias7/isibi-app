@@ -30,6 +30,10 @@
 // and it had already drifted — the tool said object-only while the cleaner walked
 // a top-level list. `site-api-shape.mjs` imports nothing, so this stays a leaf.
 import { SHAPE_TOP } from "../site-api-shape.mjs";
+// The languages the schema engine really supports, from the module that emits
+// the `LANGUAGE` clause — so the tool cannot offer one `functionSql` will not
+// write, and a language added there reaches the designer by existing.
+import { FN_LANGUAGES } from "../site-rls.mjs";
 
 export const TABLE_ITEM = {
   type: "object",
@@ -615,6 +619,26 @@ export const FUNCTION_ITEM = {
     },
     returns: { type: "string", description: "'setof <table>' for rows of a table this schema declares, else one of void/text/int/bigint/numeric/boolean/uuid/date/timestamptz/json/jsonb." },
     body: { type: "string", description: "The SQL body only — no CREATE FUNCTION, no $$ wrapper. e.g. SELECT * FROM bookings WHERE claim_token = tok" },
+    // THE ENGINE HAS SUPPORTED `plpgsql` SINCE IT WAS WRITTEN AND THIS TOOL
+    // COULD NOT SAY THE WORD (2026-09-19). `normalizeSchema` reads
+    // `f.language` and `functionSql` emits `LANGUAGE plpgsql`, so the whole
+    // capability was there and unreachable: a designer that needed control
+    // flow wrote a plpgsql body, the field did not exist to declare it, and
+    // the function was created `LANGUAGE sql` — where `DECLARE`, `IF`, a loop
+    // or a `RAISE` is a syntax error, so it fails to CREATE and the site ships
+    // without the feature it was asked for. Measured through the real cleaner
+    // before this shipped: the key was dropped one hop after it was written.
+    //
+    // THE ENUM IS DERIVED FROM THE ENGINE'S OWN LIST, never typed here, so the
+    // tool cannot offer a language the emitter will not write. `sql` is first
+    // and is the default, which is what keeps every function declared before
+    // today identical: absent still means `sql`.
+    language: { type: "string", enum: FN_LANGUAGES.slice(), description:
+      "OPTIONAL. Leave it out for an ordinary function — one SELECT, one INSERT, one expression — which is nearly all of them. " +
+      "Set 'plpgsql' ONLY when the body genuinely needs it: a variable (DECLARE), a condition (IF), a loop, an explicit RETURN, " +
+      "RAISE, or several statements that depend on each other. A plpgsql body must be a complete BEGIN … END block. " +
+      "Declaring 'plpgsql' for a body that is a single SELECT still works but is slower for no reason; declaring 'sql' for a body " +
+      "that needs plpgsql is a syntax error and the function will not be created at all." },
     internal: { type: "boolean", description:
       "Set true when the function is for the PLATFORM to call, never a page — a `confirm: {fn}` message builder, or a `hook_*` inbound webhook handler. " +
       "An internal function gets no EXECUTE grant, so no visitor can call it. That matters: it takes a row id and returns somebody's " +

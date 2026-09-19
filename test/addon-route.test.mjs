@@ -600,56 +600,168 @@ test("a stored connection proves configuration and never behaviour", async () =>
     "a claim naming only behaviour was recorded as checked configuration");
 });
 
-test("a setting the engine supports and this step cannot carry is a different sentence from one the engine refuses", async () => {
-  // Owner: *"Distinguish 'the engine does not support this' from 'the addon
-  // cannot express or preserve this.' `language` is the second case."*
+test("the language the engine supports is carried, and only the setting the engine never heard of is reported", async () => {
+  // ⚠ THIS CASE IS RE-ANCHORED, NOT APPEASED, AND THE EXPECTATION MOVED
+  // RATHER THAN BROKE (2026-09-19). It read `unexpressedProps: ["language"]`
+  // and asserted the two-clause separation with `language` as the product
+  // instance of "the engine supports it and this step cannot carry it". That
+  // was TRUE and is the gap this round closes: `FUNCTION_ITEM` offers the
+  // field, `cleanAdd` carries it, and `unexpressed` for it is now the wrong
+  // answer. Keeping the old expectation would be asserting the defect as
+  // correct, which this repository has done twice and has a name for.
   //
-  // `encryptAtRest` is dropped by the ENGINE, which has never heard of it.
-  // `language` is dropped by the addon's own CLEANER while `normalizeSchema`
-  // reads `f.language` and the DDL says `LANGUAGE plpgsql`. Telling a customer
-  // the database "doesn't offer" the second one is false, and sends them to
-  // argue with the wrong layer.
+  // `encryptAtRest` is untouched and is still the OTHER case: the ENGINE has
+  // never heard of it, so it is `invalidProps` and gets the guarantee clause.
   const r = await addon("fw-unexpressed", "add a reminder sender", {
     kinds: ["function"], answers: { function: { function: [{ ...FN, language: "plpgsql", encryptAtRest: true }] } },
   });
   assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.unexpressedProps, ["language"], "the setting the engine supports is not separated out");
-  assert.deepEqual(r.body.invalidProps, ["encryptAtRest"], "a setting the addon lost is reported as one the database refuses");
-  // TWO CLAUSES, TWO PARTIES — and the second one says to ask again, because
-  // asking again is what can actually work.
+  assert.deepEqual(r.body.invalidProps, ["encryptAtRest"], "a setting the engine never heard of is no longer reported");
+  // THE CLOSURE, ASSERTED AS AN ABSENCE WITH ITS OBSERVER ALIVE. `language` is
+  // gone from the lost list while `encryptAtRest` is still in the refused one,
+  // so this cannot pass by the audit having gone quiet altogether.
+  assert.deepEqual(r.body.unexpressedProps || [], [],
+    "`language` is still reported as a setting this step cannot carry, after it was made carryable");
   assert.match(r.body.coverNote, /a guarantee it doesn't offer/);
-  assert.match(r.body.coverNote, /One setting the design asked for isn't something this kind of change can carry through/);
-  // NEITHER NAMES THE PROPERTY. The count is what a customer can act on, and
-  // naming `language` here would be the "expose hidden settings" the owner
-  // ruled out in the same message.
+  assert.doesNotMatch(r.body.coverNote, /isn't something this kind of change can carry through/,
+    "the customer is still told a setting was lost that really reached the engine");
+  // AND NEITHER CLAUSE NAMES A PROPERTY — the count is what a customer can act
+  // on, and naming one here is the "expose hidden settings" the owner ruled out.
   assert.doesNotMatch(r.body.coverNote, /language|encryptAtRest/);
-  // …AND THE RECORD IS WHERE THE NAMES BELONG. `language` there says the addon
-  // has no property for it, which is a thing to go and build; the same name
-  // under `invalidProps` would say the database never heard of it, which is
-  // false. A sweep survivor emptied this list and nothing noticed.
   const rec = storedAnswer(r, "fw-unexpressed");
-  assert.deepEqual(rec.coverage.unexpressedProps, ["language"],
-    "the developer record does not say which setting this step could not carry");
+  assert.deepEqual(rec.coverage.unexpressedProps || [], []);
   assert.deepEqual(rec.coverage.invalidProps, ["encryptAtRest"]);
 });
 
-test("a setting only this step lost still reaches the customer, with nothing else wrong", async () => {
-  // THE CASE THAT PROVES THE CLAUSE IS REACHABLE ON ITS OWN, and a sweep
-  // survivor is why it exists: `requirementNote` returns "" early when there is
-  // nothing to say, and the case above always had an `encryptAtRest` beside the
-  // `language` — so a mutant dropping `lost` from that early return changed
-  // nothing there and the whole clause could have gone silent for the one shape
-  // it is really for: a design that asked for something the engine supports and
-  // this step could not carry, with no other complaint anywhere in the reply.
-  const r = await addon("fw-unexpressed-only", "add a reminder sender", {
+test("a plpgsql function reaches the database as plpgsql, and an ordinary one is unchanged", async () => {
+  // ⚠ THIS CASE REPLACES "a setting only this step lost still reaches the
+  // customer, with nothing else wrong", whose whole subject was `language` as
+  // the one product instance of the `unexpressed` bucket. MEASURED across all
+  // four tiers after this change, no declared property anywhere is both read
+  // by the engine and dropped by the cleaner — the bucket has no product
+  // instance left, so a route case cannot demonstrate it and one that tried
+  // would be asserting something that is no longer true of the product. The
+  // clause's own reachability is kept where it CAN be driven, on
+  // `requirementNote` in `requirement-coverage.test.mjs`.
+  //
+  // What the route case is spent on instead is the capability: the owner's
+  // "a PL/pgSQL function that actually needs PL/pgSQL reaches the database
+  // with that language".
+  const body = "DECLARE n int; BEGIN SELECT count(*) INTO n FROM bookings; RETURN n; END";
+  const r = await addon("fw-plpgsql", "add a nightly counter", {
+    kinds: ["function"],
+    answers: { function: { function: [{ ...FN, body, language: "plpgsql" }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.functions, ["send_reminder"], "the function was not applied — this case tests nothing");
+  assert.equal(r.body.invalidProps, undefined, "something else was wrong — this case no longer isolates the language");
+  // THE STATEMENT THAT REALLY WENT TO POSTGRES, which is the only place the
+  // language is observable: every hop above it could be perfect and this one
+  // wrong, which is the wiring defect this whole round is about.
+  const create = r.sql.find((s) => /CREATE OR REPLACE FUNCTION "send_reminder"/.test(s));
+  assert.ok(create, "no CREATE went out for the function at all");
+  assert.match(create, /LANGUAGE plpgsql/, "the declared language did not reach the DDL");
+  assert.match(create, /SECURITY DEFINER/, "the language change took the definer clause with it");
+  assert.match(create, /SET search_path = public, pg_temp/, "the language change took the search_path pin with it");
+  // AND THE ORDINARY CASE IS THE CONTROL, byte for byte what it always was.
+  const plain = await addon("fw-sql-fn", "add a reminder sender", {
+    kinds: ["function"], answers: { function: { function: [{ ...FN }] } },
+  });
+  assert.equal(plain.body.ok, true);
+  const plainCreate = plain.sql.find((s) => /CREATE OR REPLACE FUNCTION "send_reminder"/.test(s));
+  assert.match(plainCreate, /LANGUAGE sql/, "a function that said nothing about its language stopped being SQL");
+});
+
+test("a language this platform does not run is refused by name, never converted into another one", async () => {
+  // Owner: *"An unsupported language is refused or reported accurately, never
+  // silently converted into something else."* The ENGINE converts — deliberately
+  // and correctly, because a STORED spec re-applies through `normalizeSchema`
+  // on every later change and one unreadable word must not fail the whole
+  // apply. The ADDON is where a person asked for it in this message and can be
+  // told, so the split is the `cleanShape`/`normalizeApi` precedent: tolerant
+  // reader, refusing cleaner.
+  const r = await addon("fw-badlang", "add a reminder sender in python", {
+    kinds: ["function"], answers: { function: { function: [{ ...FN, language: "plpython3u" }] } },
+  });
+  // NOTHING WAS BUILT AND NOTHING WAS CONVERTED. The second half is what this
+  // case is really about: before the field existed the word was dropped and a
+  // `LANGUAGE sql` function went out with a body written for something else.
+  assert.deepEqual(r.body.functions || [], [], "a function was created for a language we do not run");
+  assert.ok(!r.sql.some((s) => /CREATE OR REPLACE FUNCTION "send_reminder"/.test(s)),
+    "a CREATE went out for a refused function");
+  // AND THE CUSTOMER IS TOLD WHAT HAPPENED AND WHAT WORKS INSTEAD.
+  const said = JSON.stringify(r.body);
+  assert.match(said, /database language this platform doesn't run/, "the refusal never reached the customer");
+  assert.match(said, /plain SQL, or in PL\/pgSQL/, "the refusal does not say what would work");
+  // THE CONTROL: the same site, the same shape, a language we DO run.
+  const ok = await addon("fw-badlang-ok", "add a reminder sender", {
     kinds: ["function"], answers: { function: { function: [{ ...FN, language: "plpgsql" }] } },
   });
+  assert.deepEqual(ok.body.functions, ["send_reminder"], "the control did not build either — the refusal is not about the language");
+});
+
+test("one function refused for its language leaves an unrelated one applied and reported", async () => {
+  // Owner: *"A failed function does not make an unrelated successful function
+  // appear failed."* The refusal is PER ITEM — `cleanAdd` answers one item at a
+  // time and a refused one is named in `skipped` — so the tier is not failed
+  // wholesale, which is the shape the mixed-success work established for a
+  // function the DATABASE refuses and which has to hold for one this step
+  // refuses too.
+  const good = { name: "count_bookings", internal: true, returns: "int", body: "SELECT count(*) FROM bookings" };
+  const r = await addon("fw-mixed-lang", "add two functions", {
+    kinds: ["function"], answers: { function: { function: [{ ...FN, language: "plpython3u" }, good] } },
+  });
+  assert.deepEqual(r.body.functions, ["count_bookings"], "the unrelated function did not survive its neighbour's refusal");
+  const create = r.sql.find((s) => /CREATE OR REPLACE FUNCTION "count_bookings"/.test(s));
+  assert.ok(create, "the good function never reached the database");
+  assert.match(create, /LANGUAGE sql/);
+  assert.ok(!r.sql.some((s) => /"send_reminder"/.test(s)), "the refused one reached the database anyway");
+});
+
+test("the language rides the stored declaration, and the next designer is told", async () => {
+  // Owner: *"Metadata round-trips preserve the relevant language information"*
+  // and *"The page/job designer receives the usable function information."*
+  //
+  // `_meta.functions` stores no BODY, so it is the only record anywhere of what
+  // a live function IS. Without the language a readback describes a plpgsql
+  // function as though it were SQL — and a function is re-declared BY NAME, so
+  // the next designer that re-declares it writes a plpgsql body, says nothing,
+  // and the engine creates it `LANGUAGE sql`: a syntax error at CREATE.
+  const body = "DECLARE n int; BEGIN SELECT count(*) INTO n FROM bookings; RETURN n; END";
+  const r = await addon("fw-lang-meta", "add a nightly counter", {
+    kinds: ["function"], answers: { function: { function: [{ ...FN, body, language: "plpgsql" }] } },
+  });
   assert.equal(r.body.ok, true);
-  assert.deepEqual(r.body.functions, ["send_reminder"], "the function was not applied — this case tests nothing");
-  assert.equal(r.body.invalidProps, undefined, "something else was wrong — this case no longer isolates the clause");
-  assert.deepEqual(r.body.unexpressedProps, ["language"]);
-  assert.match(r.body.coverNote, /One setting the design asked for isn't something this kind of change can carry through/,
-    "the only thing wrong with this change was never said");
+  const stored = r.meta();
+  const fn = (stored.functions || []).find((f) => f.name === "send_reminder");
+  assert.ok(fn, "the function is not in the stored schema at all");
+  assert.equal(fn.language, "plpgsql", "the stored declaration does not say what language the live function is");
+  // NO BODY IS STORED and that is unchanged — the language is descriptive
+  // metadata beside the other four, not a second copy of the function.
+  assert.equal(fn.body, undefined, "a body is being stored now, which this case did not intend");
+  // …AND THE TOOL THE DESIGNER REALLY RECEIVED OFFERS THE FIELD, read one
+  // level in. A case that hands the answer in bypasses the tool entirely, so
+  // without this the whole demonstration could pass against a tool that never
+  // offered a language at all — the wiring trap met inside the round that
+  // closes one.
+  const fnTool = r.prompts.find((p) => p.tool === "add_to_site" && p.kind === "function");
+  assert.ok(fnTool, "the function designer was never called");
+  assert.ok(fnTool.itemProps.includes("language"), "the tool does not offer a language for the designer to declare");
+  assert.deepEqual(fnTool.itemSchema.properties.language.enum, ["sql", "plpgsql"],
+    "the offered languages are not the engine's own list");
+  // A SECOND CHANGE ON THE SAME SITE is where the readback is really read, so
+  // the marker is asserted on a site whose STORED schema already carries one.
+  const next = await addon("fw-lang-next", "add a job that runs it", {
+    kinds: ["job"],
+    stored: { tables: [{ name: "bookings", columns: [{ name: "who", type: "text" }], access: "collect" }],
+      functions: [{ name: "send_reminder", args: [], returns: "void", internal: true, language: "plpgsql" }] },
+    answers: { job: { job: [JOB] } },
+  });
+  const nextNote = next.prompts.map((p) => JSON.stringify(p)).join("\n");
+  assert.match(nextNote, /written in plpgsql/, "the stored language never reached the next designer");
+  assert.match(nextNote, /functions a scheduled job may run are/, "the job designer lost its own list");
+  assert.deepEqual((next.body.jobs || []).map((j) => j && j.name), ["daily_reminder"],
+    "a job on a plpgsql function was not registered");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -371,7 +371,18 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // trap the two body caps above are imported to avoid. It carries
     // VOCABULARY and no path's wording, which is the property this test is
     // really about.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs"].includes(from),
+    // `../site-rls.mjs` (2026-09-19) owns `functionSql`, which EMITS the
+    // `LANGUAGE` clause, so it is the platform's single answer to "which
+    // languages does a generated function really have" — `FN_LANGUAGES`. The
+    // `function` kind's tool offers the field and this step has to refuse a
+    // language the emitter would not write; a list retyped here would be a set
+    // of words the tool offers and the DDL cannot honour, which is the "two
+    // copies of one thing" trap the two body caps above are imported to avoid,
+    // with the failure landing at CREATE time on a customer's database. Its
+    // only import is `site-access.mjs`, which this step already reaches, so it
+    // costs no new dependency; it carries VOCABULARY and no path's wording,
+    // which is the property this test is really about.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }

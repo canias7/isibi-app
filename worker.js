@@ -23402,6 +23402,20 @@ async function handleRequest(request, env, ctx) {
               // lets a job run. The `function` designer's own answers join
               // both lists as they are cleaned, one kind further down.
               functions: ((spec && spec.functions) || []).map((f) => f && f.name).filter(Boolean),
+              // AND WHICH OF THEM IS NOT AN ORDINARY SQL FUNCTION (2026-09-19),
+              // keyed beside the names the way `columns` is keyed beside
+              // `tables`. The hazard it closes is narrow and real: a function
+              // is re-declared BY NAME (`CREATE OR REPLACE`), and a designer
+              // that re-declares an existing plpgsql function without saying
+              // so gets `LANGUAGE sql` — a body with `DECLARE`, `IF` or a loop
+              // in it, created as SQL, which fails at CREATE. The stored
+              // declaration is the only record anywhere of what a live
+              // function IS, so this is the only place that answer can come
+              // from. NON-DEFAULT ONLY, so a site with no plpgsql function
+              // reads byte for byte as it did.
+              fnLangs: Object.fromEntries(((spec && spec.functions) || [])
+                .filter((f) => f && f.name && f.language && f.language !== "sql")
+                .map((f) => [f.name, String(f.language)])),
               jobFns: ((spec && spec.functions) || []).filter((f) => f && f.name && f.internal).map((f) => f.name),
               apis: ((spec && spec.apis) || []).map((a) => a && a.name).filter(Boolean),
               jobs: ((spec && spec.jobs) || []).map((j) => j && j.name).filter(Boolean),
