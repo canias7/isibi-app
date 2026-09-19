@@ -109,6 +109,24 @@ const controls = spec.filter((m) => m.control).length;
 console.log(`spec ${specPath} — ${spec.length - controls} mutants + ${controls} controls, over ${files.join(", ")}`);
 console.log(`tests: ${testFiles.length ? testFiles.join(" ") : "(the whole suite)"}\n`);
 
+// ⚠ …AND IT MUST HAVE BEEN RUN AGAINST THEM. A test path that does not exist
+// is DROPPED — measured 2026-09-19 on this runner's own sweep, whose list named
+// `test/site-schema.test.mjs` (there is no such file; the schema guards are
+// `schema-*.test.mjs` and `site-schema-*.test.mjs`). `node --test` prints
+// `Could not find '<path>'` and carries on with the rest, so the run is green,
+// the tally is clean, and the scope line above names a file nothing executed.
+//
+// That is the line's own claim made false by a typo, in the feature added to
+// make a tally auditable — and it fails in the quiet direction, because a
+// narrower list can only produce a false SURVIVOR. REFUSED rather than warned:
+// a warning above a sweep that then runs for ten minutes is read once and
+// scrolled past, and the cost of stopping is retyping one name.
+const missing = testFiles.filter((f) => !fs.existsSync(f));
+if (missing.length) {
+  console.error(`NO SUCH TEST FILE: ${missing.join(", ")} — node --test would DROP it and the scope line above would be a claim about a file nothing ran.`);
+  process.exit(2);
+}
+
 console.log("baseline…");
 if (!await runTests()) { console.error("BASELINE IS NOT GREEN — a sweep from a red tree proves nothing."); restore(); process.exit(1); }
 console.log("baseline green\n");

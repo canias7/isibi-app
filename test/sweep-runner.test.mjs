@@ -170,6 +170,44 @@ test("DRIVEN: an empty test list is SAID, not left blank", async () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("DRIVEN: a test file that does not exist is REFUSED, not dropped", async () => {
+  // ⚠ THE SCOPE LINE'S OWN CLAIM, MADE FALSE BY A TYPO — measured 2026-09-19 on
+  // this runner's own one-time-jobs sweep, whose list named
+  // `test/site-schema.test.mjs`. There is no such file (the schema guards are
+  // `schema-*.test.mjs` and `site-schema-*.test.mjs`). `node --test` prints
+  // `Could not find '<path>'` and carries on with the rest — so the baseline
+  // was green, the tally read 34/34/0, and the scope line printed seven files
+  // when six had run.
+  //
+  // It fails in the QUIET direction, which is what makes it worth a wall: a
+  // narrower list can only produce a false SURVIVOR, so nothing goes red and
+  // the only symptom is a scope claim nobody can check. That is precisely the
+  // thing the scope line was added to prevent, one layer up.
+  const dir = sandbox();
+  try {
+    const r = await run(dir, null, ["spec.json", "ok.test.mjs", "not-a-real-file.test.mjs"]);
+    assert.notEqual(r.code, 0, "a sweep whose test list names a missing file ran anyway:\n" + r.out);
+    // ⚠ THE NAME IS READ OFF THE REFUSAL'S OWN LINE, not out of the whole log.
+    // A sweep survivor is why: the scope line two lines above ALSO prints the
+    // test list, so `assert.match(r.out, /not-a-real-file/)` was satisfied by
+    // text the refusal did not produce — a mutant that stripped the name from
+    // the message survived with the case green. The recorded vacuous-assertion
+    // trap, in the case written to stop a scope claim being vacuous.
+    const refusal = (r.out.split("\n").find((l) => l.includes("NO SUCH TEST FILE")) || "");
+    assert.ok(refusal, "the refusal does not say what is wrong:\n" + r.out);
+    assert.match(refusal, /not-a-real-file\.test\.mjs/,
+      "the refusal does not NAME the file, which is the one thing it can fix: " + refusal);
+    // REFUSED BEFORE THE BASELINE. A wall that fires after ten minutes of
+    // mutating is read once and scrolled past.
+    assert.doesNotMatch(r.out, /baseline green/, "the sweep reached its baseline before refusing:\n" + r.out);
+    // AND THE CONTROL — the same runner, the same sandbox, a list of real
+    // files — runs. Without it "it exited nonzero" could be true for any
+    // reason at all.
+    const ok = await run(dir);
+    assert.equal(ok.code, 0, "the control run did not finish, so the refusal above proves nothing:\n" + ok.out);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("the header's control count and the tally's are ONE number", () => {
   // TWO `filter`s OF ONE PREDICATE ARE TWO COPIES OF ONE NUMBER, and the copy
   // that drifts is the one nobody reads twice — a header saying "40 mutants + 2
