@@ -9640,4 +9640,8 @@ CREATED or edited from the form at all. The chat can do both today.
 - **Site suite 6,843 → 6,846** (6,844 pass, 2 skipped, 0 fail), and **the arithmetic closes
   exactly**: `agent-automations` 42 → 43, `agent-binding` 111 → 113.
 - **Engine suite 591**, unchanged — the control, since nothing under `agent-builder/src/` moved.
-- **All eleven demonstrations green at their recorded counts**, `FAIL` 0 in each.
+- **All eleven demonstrations green, `FAIL` 0 in each, and the counts are written out rather
+  than pointed at** — three of them moved this round, so a reader who greps a name finds this
+  round's number and the earlier round's beside it, each right at its own date: `conversation`
+  **58** (new) · `tools` 119 → **148** · `send` 90 → **97** · `chat` 126 · `auto` 70 · `wf` 157 ·
+  `triggers` 64 · `connections` 76 · `controls` 71 · `ops` 75 · `integration` 89.
