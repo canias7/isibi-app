@@ -136,7 +136,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -160,7 +160,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -23705,13 +23705,24 @@ async function handleRequest(request, env, ctx) {
             // made every change with no database answer "nobody looked" about
             // a code it had just made. It holds the codes that survived the
             // drop, which is the list the container really bakes.
-            let aApplied = false, aShipped = null, aLookMade = null;
+            // …AND `aPhotoMade` IS THE FOURTH (2026-09-19), on the publish's own
+            // clock like `aShipped`: which ROUTES this change really put a
+            // picture on, which is the identity a photograph has. Null until the
+            // publish, so a claim about a picture reads "nobody looked" rather
+            // than "there is none" while the answer does not exist yet.
+            // …AND `aThreeOn` RIDES WITH IT, on the publish's clock for the same
+            // reason: which ROUTES really carry the canvas. `aLookMade.three`
+            // says the site is configured for a scene; this says a page really
+            // draws one, and the two are decided by different model calls.
+            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [];
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
               pages: aShipped || [],
               qrs: (aLookMade && aLookMade.qrs) || [],
               three: !!(aLookMade && aLookMade.three),
+              threeOn: aThreeOn,
+              photos: aPhotoMade || [],
             });
             // WHICH STEPS THIS CHANGE CAN ANSWER "IT MADE NOTHING" FOR, and the
             // first clause is the one that does most of the work: a kind this
@@ -23751,7 +23762,11 @@ async function handleRequest(request, env, ctx) {
             // cannot die and would read as a guard gap for ever.
             const aReportable = () => {
               const ran = new Set(aKinds || []);
-              const ready = { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade };
+              // `photo` IS ON THE PUBLISH'S CLOCK, like `page` (2026-09-19): a
+              // picture's placement is not known until the merge has settled
+              // and the purchase has run, so before that a claim about one must
+              // read "nobody looked" rather than "there is none".
+              const ready = { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade, photo: !!aPhotoMade };
               return COVERAGE_STEPS.filter((k) => {
                 if (!ran.has(k)) return true;
                 if (!APPLIED_KINDS.includes(k)) return false;
@@ -23777,6 +23792,14 @@ async function handleRequest(request, env, ctx) {
               // than in its schema. `aLook` is the resolved config this step
               // merges into, so it is the same picture every designer was given.
               look: aLook,
+              // …AND THE SOURCE ITSELF, for `photo` (2026-09-19). A photograph
+              // is identified by the PAGE it sits on, and only a page's source
+              // can say whether it has one — which `pages` above, a list of
+              // routes, cannot. `aSrc` is what the route already holds; a read
+              // that FAILED leaves it null, and `existingFacts` then does not
+              // speak for `photo` at all, so "nobody looked" stays `unknown`.
+              sources: aSrc,
+              slug: ownerSlug,
             });
             // ── AND WHICH INDIVIDUAL THINGS FAILED, not which kinds ─────────
             //
@@ -26003,6 +26026,70 @@ async function handleRequest(request, env, ctx) {
               // be covered by a page that is not there.
               aFailedKinds.add("page");
               aMark("pages", "missing", { n: aMissing.length });
+            }
+            // ── WHICH ROUTES THIS CHANGE REALLY PUT A PICTURE ON (2026-09-19) ─
+            //
+            // A photograph's identity is its PLACEMENT, so this is what a
+            // `photo` requirement resolves against. Computed HERE because it is
+            // the first moment both halves exist: `aMerge` is settled, so what
+            // survived is known, and `buySitePhotos` has run, so a bought url
+            // is really in the source.
+            //
+            // READ OFF THE PUBLICATION, never off the writer's answer — the
+            // same correction `newEmptySlots` took. A page the QR dependency
+            // withheld or the merge boundary refused is not a page anything
+            // landed on, and counting it would claim a picture on a file no
+            // visitor will ever see.
+            //
+            // BOUGHT AND REUSED ARE TOLD APART BY WHAT THE SITE ALREADY HAD,
+            // because that is the only thing that can distinguish them: a url
+            // the provider minted in this run cannot be in `aSrc`, and a url
+            // the owner already paid for must be. `imageSources` is the ONE
+            // reader of "the files a photograph can be in", so components count
+            // exactly as pages do.
+            {
+              const had = new Set();
+              for (const p of imageSources(aSrc || [], aPartsRead.parts || [])) {
+                for (const u of imageRefs(p && p.source, ownerSlug)) had.add(u);
+              }
+              const live = imageSources(aMerge.pages || [], aMerge.parts || []);
+              const byRoute = new Map();
+              for (const p of live) {
+                const r = routeOf(p && p.path);
+                if (!r) continue;
+                for (const u of imageRefs(p && p.source, ownerSlug)) {
+                  const at = byRoute.get(r) || { route: r, bought: false, reused: false };
+                  if (had.has(u)) at.reused = true; else at.bought = true;
+                  byRoute.set(r, at);
+                }
+              }
+              // ⚠ ONLY THE ROUTES THIS CHANGE TOUCHED. A page it never wrote
+              // shows whatever it always showed, and naming it here would let a
+              // claim about a picture be answered by one the site has had for
+              // months — which is `existingFacts`' job and not this one's.
+              const touched = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]
+                .map((f) => routeOf(f)).filter(Boolean));
+              aPhotoMade = [...byRoute.values()].filter((x) => touched.has(x.route));
+              // ── AND WHICH ROUTES REALLY DRAW THE SCENE ──────────────────
+              //
+              // The same reading one field over, and for the same reason: a
+              // scene is a STORED LOOK FIELD decided by the design step and a
+              // `<Canvas>` written by the PAGE step, so "configured for one"
+              // and "showing one" are two facts that come apart.
+              //
+              // OFF THE PUBLICATION AND ACROSS BOTH FILE LISTS — `live` is
+              // `imageSources(aMerge.pages, aMerge.parts)`, which is this
+              // path's one reader of "the files a page's markup can be in", so
+              // a canvas in a component counts exactly as one in a page. NOT
+              // filtered by `touched`: unlike a photograph, the scene is
+              // site-wide (`SINGLE_FIELDS` allows one), so a page this change
+              // did not write carrying the canvas is still the scene being on
+              // the site — and the question `three` answers is whether the
+              // artifact exists anywhere, not which page it moved to.
+              aThreeOn = live
+                .filter((p) => sceneOn(p && p.source))
+                .map((p) => routeOf(p && p.path))
+                .filter(Boolean);
             }
             // THE RECORD IS RE-WRITTEN HERE WHETHER OR NOT A PAGE WENT MISSING
             // (2026-09-15), and until a sweep survivor found it this write was

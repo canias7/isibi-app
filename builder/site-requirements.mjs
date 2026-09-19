@@ -63,19 +63,30 @@ export const COVERAGE_STEPS = ["table", "function", "api", "job", "page", "compo
  *                   otherwise nobody looked and the answer is `unknown`.
  *   OPAQUE_KINDS  — the site may hold one and NOTHING can enumerate them. A
  *                   `component` folded into an existing page leaves no item
- *                   anywhere, and a `photo` is a URL inside a file. Absence is
- *                   never establishable, so these are never `absent`.
+ *                   anywhere. Absence is never establishable, so these are
+ *                   never `absent`.
  *   neither       — `edit` alone. It names no artifact a site holds; "they can
  *                   change the wording later" is a real answer and the only
  *                   question about it is whether THIS CHANGE did it, which the
  *                   applied evidence answers on its own.
  *
+ * ⚠ `photo` MOVED FROM OPAQUE TO SITE (2026-09-19), and the reason is the
+ * IDENTITY rather than a change of mind. It sat here because "a photo is a URL
+ * inside a file" — true, and the wrong thing to identify one BY. The `photo`
+ * designer answers `{page, describe}` and cannot know the url, which the
+ * provider mints after it has spoken, so the only thing a requirement about a
+ * picture can name is its PLACEMENT — the owner's own word. By that identity a
+ * photograph IS enumerable: `imageRefs` reads which pages carry one, so "this
+ * site already shows a photograph on /gallery" is a fact this layer can state,
+ * which is exactly the test that separates the two lists. `component` stays
+ * opaque because nothing gives it an identity at all.
+ *
  * `test/requirement-coverage.test.mjs` censuses the three against
  * `COVERAGE_STEPS` in both directions, so a step added next month must be
  * placed deliberately rather than falling into whichever branch it lands in.
  */
-export const SITE_KINDS = ["table", "function", "api", "job", "page", "qr", "three"];
-export const OPAQUE_KINDS = ["component", "photo"];
+export const SITE_KINDS = ["table", "function", "api", "job", "page", "qr", "three", "photo"];
+export const OPAQUE_KINDS = ["component"];
 
 /**
  * THE KINDS A REFERENCE MAY NAME — every step that owns an artifact.

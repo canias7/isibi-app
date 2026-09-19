@@ -137,7 +137,7 @@ import { PART_DIR } from "./site-files.mjs";
 // `buySitePhotos` really enforce, so a constant typed here would be a ceiling
 // this tool promises and the spend path does not keep. `site-images.mjs`
 // imports one budget constant and nothing else, so this costs no dependency.
-import { IMAGE_CAP, MAX_PROMPT_CHARS } from "./site-images.mjs";
+import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs } from "./site-images.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -888,6 +888,34 @@ const ADDS = {
         "NOTHING ELSE ON THE PAGE MOVES. The scene sits where you said; the words, the bands and the look " +
         "around it are the site's own and come back untouched.",
     },
+    // ── AND THIS STEP CAN ANSWER A REQUIREMENT NOW (2026-09-19) ────────────
+    //
+    // Owner: *"QR gained requirements support; three and photo were recorded as
+    // still unable to raise or answer a requirement. Verify that this remains
+    // true before changing anything."* VERIFIED by driving the tools —
+    // `addTool("three").input_schema.properties` was `["three"]` with no
+    // `requirements` beside it — so the gap was real and this is the flag that
+    // closes it.
+    //
+    // NOTHING NEW IS BUILT FOR IT, exactly as the `qr` round found. `three` was
+    // ALREADY in `APPLIED_KINDS` and in `SITE_KINDS`, and `appliedFacts` and
+    // `existingFacts` have both emitted `{kind:"three", name:"three"}` since
+    // they were written — so a reference resolves in both haystacks and the
+    // only thing missing was somewhere for the step to echo the id it is
+    // already handed. `cleanRequirements` stamps `from: "three"`, `referenceOf`
+    // reads `{kind, item}` and `reconcileHandoffs` joins under its four
+    // existing conditions.
+    //
+    // THE ITEM IS ALWAYS `three`, and that is the kind's own identity rather
+    // than a placeholder: a site carries at most one scene (`SINGLE_FIELDS`),
+    // so there is no second scene an item name could distinguish, and both
+    // haystacks already use the kind as the name for that reason.
+    //
+    // THE CAP STANDS: an echo earns the hand-off `configured` and never
+    // `delivered`. `holds` is EMPTY for a scene — existence is the entire
+    // claim, and what a canvas DOES is not something any reader here can speak
+    // to — so `checked` is empty and nothing here says the scene works.
+    requirements: true,
   },
   /* ---- the one whose home depends on who is making the place for it ---- */
   //
@@ -957,6 +985,24 @@ const ADDS = {
         "removes one, and it never re-describes one that is already there. Changing a picture the site has " +
         "is an edit and belongs on another rung; answer nothing for it here.",
     },
+    // ── AND THIS STEP CAN ANSWER A REQUIREMENT NOW (2026-09-19) ────────────
+    //
+    // VERIFIED FIRST, as the owner asked: `addTool("photo")` offered
+    // `["photo"]` and nothing else, so the gap was real.
+    //
+    // WHAT IT TOOK, and it is more than the flag `three` needed. A photograph
+    // had no identity at all — `photo` was in `OPAQUE_KINDS` precisely because
+    // "a photo is a URL inside a file", which is true and is the wrong thing
+    // to identify one BY: this designer answers `{page, describe}` and cannot
+    // know the url, which the provider mints after it has spoken. THE
+    // PLACEMENT is the identity, and by it a photograph is enumerable in both
+    // haystacks — `appliedFacts` names each route this change put a picture on
+    // and `existingFacts` each route that already had one.
+    //
+    // SO THE ITEM A REQUIREMENT NAMES IS A ROUTE, and it is the designer's own
+    // `page` value — which is what makes the reference explicit rather than a
+    // count or a word match.
+    requirements: true,
   },
 };
 
@@ -3664,7 +3710,7 @@ export function addRepairNote(round) {
  * every holdable kind's absence `unknown` — the conservative answer, and the
  * one an unchanged caller keeps.
  */
-export function existingFacts({ spec = null, pages = null, look = null } = {}) {
+export function existingFacts({ spec = null, pages = null, look = null, sources = null, slug = "" } = {}) {
   const items = [];
   const kinds = [];
   const names = (list) => (Array.isArray(list) ? list : [])
@@ -3681,6 +3727,43 @@ export function existingFacts({ spec = null, pages = null, look = null } = {}) {
     for (const p of pages) {
       const r = typeof p === "string" ? p : String((p && p.path) || "");
       if (r.trim()) items.push({ kind: "page", name: r.trim() });
+    }
+    // ── AND WHICH PAGES ALREADY SHOW A PHOTOGRAPH (2026-09-19) ─────────────
+    //
+    // A PHOTOGRAPH'S IDENTITY IS ITS PLACEMENT, not its file. The `photo`
+    // designer answers `{page, describe}` — it cannot know the url, which is
+    // minted by the provider after it has spoken — so the only thing a
+    // requirement about a picture can name is the PAGE it is on, and that is
+    // also the owner's own word for it: *"a requirement must resolve against
+    // the actual item or placement it concerns."*
+    //
+    // SITE-WIDE ENUMERATION IS WHAT PUTS `photo` IN `SITE_KINDS`: `imageRefs`
+    // reads every page's own picture references, so "this site already shows a
+    // photograph on /gallery" is a fact this layer can state — which is the
+    // test that separates `SITE_KINDS` from `OPAQUE_KINDS`, and the reason a
+    // component still cannot be enumerated and a photograph now can.
+    //
+  }
+  // ── AND WHICH PAGES ALREADY SHOW A PHOTOGRAPH (2026-09-19) ──────────────
+  //
+  // A SEPARATE INPUT, because `pages` above is a list of ROUTES and this needs
+  // each page's SOURCE — a route cannot be asked what it draws. `sources` is
+  // the site's stored source as the route already holds it, and the route is
+  // derived here with `routeOf`, the same reader every other page identity on
+  // this path goes through, so the two lists cannot spell one page two ways.
+  //
+  // NEEDS THE SLUG, because `imageRefs` is scoped to this site's own prefix: a
+  // kit illustration and another site's upload are both `src` attributes and
+  // neither is a photograph this owner paid for. With no slug the site's
+  // photographs are not enumerable and `photo` MUST NOT SPEAK — `speaks` is
+  // inside the guard for that reason, so "nobody looked" stays `unknown`
+  // rather than becoming a silent "there are none".
+  if (Array.isArray(sources) && slug) {
+    speaks("photo");
+    for (const p of sources) {
+      if (!p || typeof p.source !== "string") continue;
+      const r = routeOf(p.path);
+      if (r && imageRefs(p.source, slug).length) items.push({ kind: "photo", name: r });
     }
   }
   if (look && typeof look === "object") {
@@ -3787,7 +3870,7 @@ export function shownSchema(site) {
  * route carries that per-kind readiness, so a coverage composed on a refusal
  * path still answers `unknown` for them rather than `absent`.
  */
-export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page", "qr", "three"]);
+export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "page", "qr", "three", "photo"]);
 
 /**
  * WHAT A CHANGE REALLY APPLIED, AND WHAT EACH ITEM REALLY GUARANTEES.
@@ -3887,7 +3970,7 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], photos = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -4033,8 +4116,88 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   // A SCENE, AND A SITE CARRIES AT MOST ONE (`SINGLE_FIELDS`), so it has no
   // name of its own and the kind IS the name — the same identity
   // `existingFacts` gives it, so one reference resolves in both haystacks.
-  // `holds` is EMPTY for `page`'s reason: existence is the entire claim, and
-  // what a scene DOES is not something any reader here can speak to.
-  if (three) out.push({ kind: "three", name: "three", holds: [], fails: [], checked: [] });
+  //
+  // ── DECLARED AND ON-THE-PAGE ARE TWO FACTS (2026-09-19) ──────────────────
+  //
+  // Owner: *"For 3D, distinguish: A scene declared. • The scene actually
+  // included in the relevant page/artifact."* They really can come apart, and
+  // the way they do is this repository's own most expensive shape: `three` is
+  // a STORED LOOK FIELD and the canvas is written by the PAGE step, which is a
+  // different model call reading `sceneDirective`. A page that ignores that
+  // directive leaves the site configured for a scene and showing none — and
+  // `three` was DEAD ON ARRIVAL for exactly that reason once already, with the
+  // field stored and no way for it to reach the page rules.
+  //
+  // BOTH ARE ARTIFACT FACTS AND NEITHER IS BEHAVIOUR, so both belong in
+  // `holds` and `checked` stays empty: nothing here starts a WebGL context,
+  // and a `<Canvas>` in the source is not a scene a visitor can see.
+  //
+  // `fails: ["onpage"]` WHEN IT IS DECLARED AND ON NO PAGE, because `fails` is
+  // asked FIRST: a claim saying the scene shows on the page is then
+  // contradicted rather than quietly reading as configuration that holds. The
+  // routes ride in `holds` so a claim naming one resolves against the page it
+  // really landed on.
+  if (three) {
+    const on = Array.isArray(threeOn) ? threeOn.filter((r) => typeof r === "string" && r) : [];
+    out.push({
+      kind: "three",
+      name: "three",
+      holds: ["declared", ...(on.length ? ["onpage", ...on] : [])],
+      fails: on.length ? [] : ["onpage"],
+      checked: [],
+    });
+  }
+  // ── AND THE PHOTOGRAPHS, BY THE PAGE THEY LANDED ON (2026-09-19) ─────────
+  //
+  // Owner: *"For photographs, distinguish: An existing image reused. • A newly
+  // generated image. • A provider refusal or failure. • An image acquired but
+  // not placed. • An unavailable destination page."*
+  //
+  // THE IDENTITY IS THE PLACEMENT AND IT HAS TO BE. The `photo` designer
+  // answers `{page, describe}`; the url is minted by the provider AFTER it has
+  // spoken, so a requirement about a picture can name nothing but the page it
+  // is on. That is also the only identity both haystacks can share — a
+  // photograph the site already had is enumerable by page and not by intent.
+  //
+  // FIVE OUTCOMES, AND ONLY TWO OF THEM ARE ENTRIES HERE. An entry means a
+  // picture really landed on that route, and its `holds` says which kind:
+  //
+  //   bought   — this change generated it (its url is one the provider minted
+  //              in this run, so no earlier page can have carried it)
+  //   reused   — a photograph the site already owned, now shown here too
+  //
+  // The other three are ABSENCES and are answered by the readers that own
+  // them, which is what keeps this list a statement about what exists:
+  //
+  //   provider refused        — nothing was bought, the step is in `failed`,
+  //                             and the claim reads `blocked`/`failed`
+  //   acquired but not placed — a picture was bought and no route carries it,
+  //                             so no entry names that route and the claim
+  //                             reads `missing` (this layer LOOKED)
+  //   destination unavailable — the page did not survive, so it is in the
+  //                             missing-pages list and the claim reads
+  //                             `missing` for the page's own reason
+  //
+  // `checked` IS EMPTY, as everywhere else here: a url in a `src` is
+  // configuration read back off what was published, and nothing on this path
+  // has loaded the image or looked at what it shows.
+  for (const p of Array.isArray(photos) ? photos : []) {
+    const name = String((p && p.route) || "").trim();
+    if (!name) continue;
+    const holds = [];
+    if (p.bought) holds.push("bought");
+    if (p.reused) holds.push("reused");
+    // …AND THE ROUTE'S OWN WORDS, exactly as a code carries its destination's.
+    // A designer's `by` clause for a picture says *"a photograph of the bench
+    // on the gallery page"* — it names neither `bought` nor `reused`, which are
+    // OUR words for how it got there — so without this the clause could only
+    // ever reach the bare-name reading and a real claim about a picture that
+    // really landed would never read as configuration that holds. The route is
+    // already the item's NAME, so a claim has to have matched it before any of
+    // these is looked at: this widens what counts as evidence about THAT
+    // picture and never which picture a claim can reach.
+    for (const w of name.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);
+    out.push({ kind: "photo", name, holds, fails: [], checked: [] });
+  }
   return out;
 }

@@ -347,27 +347,40 @@ test("every kind that can answer coverage carries the list, and the rest cannot"
   // and it is on it now for the other half: the step is already HANDED the page
   // step's hand-off in its brief, and without the list it has nowhere to echo
   // the id back. So a code that really opens the gallery could never be tied to
-  // the request for one. `three` and `photo` stay off, deliberately — this
-  // round is QR only.
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr"]);
+  // the request for one.
+  //
+  // ⚠ AND AGAIN THE SAME DAY WITH `three` AND `photo`, WHICH IS THE ROUND THIS
+  // LINE USED TO EXCLUDE. The note above ended "`three` and `photo` stay off,
+  // deliberately — this round is QR only", so the expectation MOVED rather
+  // than broke, and the new behaviour is correct for the reason the qr half
+  // already gives, twice over:
+  //   · `three` — the customer asks for a scene and three different things can
+  //     become of it: declared, really included in the page, or refused by the
+  //     one-scene-per-site rule. A step with nowhere to write a requirement can
+  //     report none of them, so the site carries a scene and the reply says it
+  //     could not check.
+  //   · `photo` — the same, plus reuse: an existing picture placed again, one
+  //     bought, a provider refusal, one bought and not placed, a destination
+  //     that never shipped. Its identity is the PLACEMENT (a route), because
+  //     the designer answers `{page, describe}` and cannot know a url the
+  //     provider mints after it has spoken.
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr", "three", "photo"]);
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(addTool(k).input_schema.properties.requirements, k + " designs something and cannot say what it could not cover");
   }
-  // ── RE-ANCHORED 2026-09-17: `photo` HAS A TOOL NOW AND STILL NO COVERAGE ──
+  // ── THE NEGATIVE, AND IT HAS NO MEMBER LEFT ──
   //
-  // This asserted that asking for its tool THROWS, which was true while it
-  // dispatched always. It is designed here when this change writes the page it
-  // lands on, so the tool exists — and the property under test never was "it
-  // has no tool", it is that a kind answering no coverage does not carry the
-  // list. `three` and `photo` have tools and deliberately answer none, and the
-  // census above is what keeps the ones that do.
+  // This loop read `three` and `photo` and is empty now: MEASURED, every one of
+  // the nine kinds has a tool and every one declares the flag, so `addTool`'s
+  // own gate is inert today. The loop stays rather than being deleted — it is
+  // the observer that comes alive by itself the day a tenth kind arrives
+  // without a flag, and deleting it is how that kind ships carrying a list it
+  // never answers.
   for (const k of ADD_KINDS.filter((x) => !REQUIREMENT_ADDS.includes(x))) {
     let tool = null;
     try { tool = addTool(k); } catch { tool = null; }
     if (tool) assert.equal(tool.input_schema.properties.requirements, undefined, k + " answers coverage and is not on the list");
   }
-  assert.equal(addTool("three").input_schema.properties.requirements, undefined);
-  assert.equal(addTool("photo").input_schema.properties.requirements, undefined);
   // …AND THE LIST IS DERIVED FROM THE KINDS' OWN FLAG, never typed twice. A
   // second copy is what drifts, and the census above reads the answer rather
   // than the source it came from.
@@ -708,8 +721,17 @@ test("appliedFacts checks a claim against what Postgres really enforces", () => 
     ...appliedFacts({ pages: ["/gallery"] }),
     ...appliedFacts({ qrs: [{ name: "gallery", points: "https://fw.gofarther.app/gallery", label: "Our gallery" }] }),
     ...appliedFacts({ three: true }),
+    // ⚠ AND `photo` JOINED THEM 2026-09-19, WITH AN IDENTITY THAT IS NOT A
+    // NAME. A photograph has no name anybody asks for — the designer answers
+    // `{page, describe}` and the url is minted by the provider after it has
+    // spoken — so its identity is its PLACEMENT, the route it lands on, which
+    // is the only thing a requirement can name before the picture exists.
+    // `bought` and `reused` are the two configuration facts read back off what
+    // really shipped; `checked` stays empty because nothing here looks at the
+    // picture.
+    ...appliedFacts({ photos: [{ route: "/gallery", bought: true }] }),
   ];
-  assert.ok(everyKind.length >= 8, "the observer is not alive: " + everyKind.length);
+  assert.ok(everyKind.length >= 9, "the observer is not alive: " + everyKind.length);
   // …AND EVERY APPLIED KIND IS REPRESENTED, derived rather than counted, so a
   // kind added to that list next month cannot slip past this census.
   assert.deepEqual([...new Set(everyKind.map((e) => e.kind))].sort(), [...APPLIED_KINDS].sort(),

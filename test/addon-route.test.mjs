@@ -53,7 +53,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
-import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
+import { SITE_KINDS, OPAQUE_KINDS, claimEvidence } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
 // is derived from what the engine really emits rather than typed by hand — a
 // hand-typed permission is a second copy of the emitter and the two drift.
@@ -5844,10 +5844,49 @@ test("a QR code this change made and published is not read as unseeable", async 
   // A PAYLOAD THAT IS NOT A PAGE HAS NO PATH TO SPLIT, and contributes nothing.
   const wifi = appliedFacts({ qrs: [{ name: "wifi", points: "WIFI:S=Fretwork;;", label: "Wi-Fi" }] });
   assert.deepEqual(wifi[0].holds, [], "a non-page payload produced tokens: " + JSON.stringify(wifi[0].holds));
-  // …AND A SCENE IS AN APPLIED RESULT TOO, with an empty vocabulary for
-  // `page`'s reason: existence is the entire claim.
-  assert.deepEqual(appliedFacts({ three: true }), [{ kind: "three", name: "three", holds: [], fails: [], checked: [] }]);
+  // …AND A SCENE IS AN APPLIED RESULT TOO.
+  //
+  // ⚠ RE-ANCHORED 2026-09-19, AND THE EXPECTATION MOVED RATHER THAN BROKE. It
+  // pinned `holds: []` with the note "an empty vocabulary for `page`'s reason:
+  // existence is the entire claim", and existence turned out to be TWO claims.
+  // Owner: *"For 3D, distinguish: A scene declared. • The scene actually
+  // included in the relevant page/artifact."* They come apart structurally —
+  // `three` is a stored look field decided by the DESIGN step and the canvas is
+  // written by the PAGE step, a different model call reading `sceneDirective` —
+  // and `three` shipped in exactly that state once already, stored with no way
+  // to reach the page rules at all.
+  //
+  // BOTH ARE ARTIFACT FACTS, so both are `holds` and `checked` stays empty:
+  // nothing here starts a WebGL context, and a `<Canvas>` in the source is not
+  // a scene a visitor can see.
+  assert.deepEqual(appliedFacts({ three: true, threeOn: ["/gallery"] }),
+    [{ kind: "three", name: "three", holds: ["declared", "onpage", "/gallery"], fails: [], checked: [] }]);
+  // …AND DECLARED-WITH-NO-CANVAS IS A CONTRADICTION, not a silence. `fails` is
+  // asked FIRST, so a claim saying the scene shows on the page reads as denied
+  // rather than as configuration that holds.
+  assert.deepEqual(appliedFacts({ three: true }),
+    [{ kind: "three", name: "three", holds: ["declared"], fails: ["onpage"], checked: [] }]);
+  assert.deepEqual(appliedFacts({ three: false, threeOn: ["/gallery"] }), [],
+    "a scene nobody added was claimed as applied because a page happened to draw one");
   assert.deepEqual(appliedFacts({ three: false }), [], "a scene nobody added was claimed as applied");
+  // AND THE CLAIM READER TELLS THE TWO APART, which is the whole point of the
+  // split: the same sentence about the same applied scene answers differently
+  // depending on whether a page really carries it.
+  //
+  // THE PROSE MUST NAME THE ITEM FIRST — `claimEvidence` locates an applied
+  // item by NAME before it reads a token, and a scene's name is `three`
+  // (`SINGLE_FIELDS`, so the kind is the name). So this is the reader's
+  // narrower door and NOT the main one: an ordinary `by` clause about a scene
+  // says "a slowly turning loaf on the gallery page", which names neither, and
+  // what resolves that is the explicit `{kind, item}` reference. Stated rather
+  // than implied, because a case that only drove the prose path would read as
+  // proof of a door most claims never go through.
+  const [onPage] = appliedFacts({ three: true, threeOn: ["/gallery"] });
+  const [offPage] = appliedFacts({ three: true });
+  assert.equal(claimEvidence("the three scene is onpage", [onPage]).kind, "config");
+  assert.equal(claimEvidence("the three scene is onpage", [offPage]).kind, "contradicted");
+  assert.equal(claimEvidence("a slowly turning loaf on the gallery page", [onPage]), null,
+    "an ordinary clause naming neither the item nor a token bought evidence anyway");
 });
 
 test("a scene this change added answers its hand-off, and one the site already had does not", async () => {
@@ -6242,6 +6281,317 @@ test("the QR step says which request its code answers, and the hand-off is assoc
   assert.equal(d.state, "missing", "an echo naming a DIFFERENT code covered up a code nobody made: " + JSON.stringify(d));
   assert.equal(d.reconciledBy, undefined, "a finding was overwritten by an echo: " + JSON.stringify(d));
   assert.match(dep.body.coverNote || "", /Still to do: A QR code opens the order page/, dep.body.coverNote);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COVERAGE FOR `three` AND `photo` (task #188, 2026-09-19)
+
+   Owner: *"QR gained requirements support; three and photo were recorded as
+   still unable to raise or answer a requirement. Verify that this remains true
+   before changing anything. Extend the existing requirement identity and
+   reconciliation mechanism to these kinds. Do not build a new reporting
+   system… For photographs, distinguish: An existing image reused. • A newly
+   generated image. • A provider refusal or failure. • An image acquired but
+   not placed. • An unavailable destination page. For 3D, distinguish: A scene
+   declared. • The scene actually included in the relevant page/artifact. • A
+   refused addition, including the existing one-scene-per-site restriction.
+   Cover both positive cases and wrong-item controls… Keep checked empty."*
+
+   VERIFIED FIRST, as instructed. Before any of this,
+   `addTool("three").input_schema.properties` was `["three"]` and
+   `addTool("photo")`'s was `["photo"]` — neither step had anywhere to raise a
+   gap or echo an id it had been handed. Both briefs already reached them,
+   because `requirementBrief` is composed for every kind in the route's loop.
+
+   THE IDENTITIES ARE THE KINDS' OWN AND NOTHING IS INVENTED FOR THEM:
+     · `three` — the name IS the kind, because `SINGLE_FIELDS` allows one scene
+       per site, so a requirement handed to that step can be asking about
+       exactly one thing.
+     · `photo` — the name is the ROUTE it lands on. A photograph has no name
+       anybody asks for: the designer answers `{page, describe}` and the url is
+       minted by the provider AFTER it has spoken, so the placement is the only
+       identity that exists before the picture does.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const PHOTO_PAGE = { path: "/gallery", name: "Gallery", purpose: "show our work",
+  sections: ["a grid of photographs"], components: ["card"] };
+
+test("a photograph this change put on a page answers its hand-off, and one for another page does not", async () => {
+  // THE POSITIVE: the page step asks the photo step for a picture on the page
+  // it is adding, and the photo step echoes the id with the placement.
+  const HANDOFF = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const ECHO = { need: HANDOFF.need, status: "covered", by: "a photograph of the bench on /gallery",
+    answers: "page#0", kind: "photo", item: "/gallery" };
+  const r = await photoAsk("fw-photo-echo", {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryToken(BENCH)],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [ECHO] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: a picture was really bought and really landed. Without
+  // it this case is about a step that did nothing.
+  assert.equal(r.shots.length, 1, "no photograph was bought — this case tests nothing: " + JSON.stringify(r.shots));
+  assert.ok(r.shots[0].startsWith(BENCH), "a different picture was bought from the one designed: " + r.shots[0]);
+  assert.equal(r.body.pictures, 1, "no picture reached the page: " + JSON.stringify(r.body));
+
+  // ⚠ THE WIRING HOP, AND IT IS THE ONLY ONE A ROUTE CASE CAN SEE — the same
+  // finding the qr round recorded, one kind over. `cleanRequirements`,
+  // `referenceOf` and `reconcileHandoffs` are kind-agnostic and always were, so
+  // a fixture handing the echo in proves the reconciliation and says NOTHING
+  // about whether a model could have written one. From outside, "the step did
+  // not echo" and "we never offered it anywhere to echo" are one absence.
+  const photoCall = r.prompts.find((p) => p.kind === "photo");
+  assert.ok(photoCall, "the photo designer was never called: " + JSON.stringify(r.prompts.map((p) => p.kind)));
+  assert.ok(photoCall.props.includes("requirements"),
+    "the photo step has nowhere to say which request its picture answers: " + JSON.stringify(photoCall.props));
+  assert.match(photoCall.text, /page#0/, "the photo step was never told the id it is asked to echo");
+
+  const cov = storedAnswer(r, "fw-photo-echo").coverage.requirements;
+  const q = cov.find((x) => x.status === "elsewhere");
+  assert.equal(q.state, "configured", "the hand-off was not associated: " + JSON.stringify(q));
+  assert.equal(q.reconciledItem, "/gallery", "the record does not name the placement that answered: " + JSON.stringify(q));
+  assert.equal(q.reconciledKind, "photo", "the record does not say what kind of thing answered: " + JSON.stringify(q));
+  assert.ok(/^photo#/.test(q.reconciledBy || ""), "the answering entry is not the photo step's: " + JSON.stringify(q));
+  // THE CAP HOLDS. A placement read back off what was published is
+  // configuration; nothing here looks at the picture, so `delivered` is a claim
+  // this platform cannot make about a photograph.
+  for (const e of cov) assert.notEqual(e.state, "delivered", "a claim was delivered with nothing checked: " + JSON.stringify(e));
+  assert.match(r.body.coverNote || "", /I've set that up, but I can't confirm from here that The gallery page shows a photograph/,
+    r.body.coverNote);
+
+  // ── THE WRONG-ITEM CONTROL: the picture really landed, on ANOTHER page. A
+  // placement is an identity precisely so a claim about one page cannot be
+  // answered by a picture on a different one — which is the same request this
+  // change's own `touched` filter refuses to blur.
+  const wrong = await photoAsk("fw-photo-elsewhere", {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryToken(BENCH)],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [{ ...HANDOFF, item: "/prices" }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [{ ...ECHO, item: "/prices" }] },
+    },
+  });
+  assert.equal(wrong.body.ok, true, JSON.stringify(wrong.body));
+  assert.equal(wrong.body.pictures, 1, "no picture was bought — this control tests nothing: " + JSON.stringify(wrong.body));
+  const wcov = storedAnswer(wrong, "fw-photo-elsewhere").coverage.requirements;
+  const w = wcov.find((x) => x.status === "elsewhere");
+  // `missing` RATHER THAN `unknown`, AND THAT IS THE STRONGER ANSWER: `photo`
+  // is a `SITE_KINDS` kind, so this layer really did enumerate every placement
+  // and `/prices` is not among them. It LOOKED and did not find, which is the
+  // actionable line rather than a shrug.
+  assert.equal(w.state, "missing", "a picture on another page settled the hand-off: " + JSON.stringify(w));
+  assert.equal(w.reconciledBy, undefined, "a reconciliation happened over a placement that has no picture: " + JSON.stringify(w));
+  // …AND THIS IS ALSO THE OWNER'S "ACQUIRED BUT NOT PLACED" SHAPE, which is
+  // worth saying because the two collapse here by construction: `applyImages`
+  // writes a bought url back into the file whose token it filled, so a picture
+  // that was paid for and is on no page cannot arise — what CAN, and does
+  // here, is a picture placed somewhere other than the page a requirement
+  // named. The reply's own `pictureNote` carries the reason; the requirement
+  // carries the placement.
+  const wa = wcov.find((x) => x.status === "covered");
+  assert.equal(wa.state, "missing", "the wrong placement is not reported as outstanding: " + JSON.stringify(wa));
+});
+
+test("a provider refusal leaves the photograph still to do, and says so in its own words", async () => {
+  // ⚠ THE OWNER'S THIRD PHOTO DISTINCTION, and the one that most needs its own
+  // sentence: the money was NOT spent, the page shipped, and the picture is a
+  // placeholder. Run 51 is the live instance — 13 credits for a page and a QR
+  // code, with the refused photograph correctly costing nothing.
+  const HANDOFF = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const r = await photoAsk("fw-photo-refused", {
+    kinds: ["page", "photo"], credits: 400, shotFail: true,
+    written: [galleryToken(BENCH)],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: the provider really was asked and really refused.
+  assert.equal(r.shots.length, 1, "the provider was never asked — this case tests nothing: " + JSON.stringify(r.shots));
+  assert.ok(!r.body.pictures, "a picture was bought from a refusing provider: " + JSON.stringify(r.body));
+  const q = storedAnswer(r, "fw-photo-refused").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(q.implementation, "absent", "a picture nobody has was not seen as absent: " + JSON.stringify(q));
+  assert.equal(q.state, "missing", "a refused photograph reads as set up: " + JSON.stringify(q));
+  assert.equal(q.handoff, "delivered", "the step really was told");
+  // TWO SENTENCES, EACH SAYING ITS OWN HALF. The requirement says the work is
+  // outstanding; `pictureNote` says WHY, which is the one thing that can tell
+  // four identical-looking placeholder outcomes apart.
+  assert.match(r.body.coverNote || "", /Still to do: The gallery page shows a photograph/, r.body.coverNote);
+  assert.match(r.body.pictureNote || "", /Couldn't make the photographs this time/, String(r.body.pictureNote));
+});
+
+test("an existing photograph shown again answers the same way, and is not claimed as bought", async () => {
+  // THE OWNER'S FIRST DISTINCTION. Reuse is a real capability — measured on
+  // 2026-09-19: a `/u/` url copied onto a new page passes `keptImages`,
+  // survives `applyImages` byte-identical and costs nothing — and it must
+  // answer a requirement exactly as a purchase does, while the RECORD keeps
+  // the two apart.
+  const HANDOFF = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const OWNED = "/u/fw-photo-reuse/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg";
+  const r = await photoAsk("fw-photo-reuse", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    // THE SITE REALLY OWNS IT: the home page draws it today, so the wall that
+    // empties an invented url (`strayPhotos`) has something to recognise.
+    storedPages: [{ path: "index.tsx", source: "<main><SafeImage src=\"" + OWNED + "\" alt=\"the bench\" /></main>" }],
+    written: [galleryWith('<SafeImage src="' + OWNED + '" alt="the bench" />')],
+    answers: { page: { page: [PHOTO_PAGE], requirements: [HANDOFF] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.shots, [], "a photograph was bought on a reuse — this case tests something else");
+  // THE PRECONDITION, READ OFF THE PUBLICATION: the url really is on the page
+  // this change wrote, which is what makes it a placement at all.
+  const page = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.ok(page && page.source.includes(OWNED), "the reused photograph is not on the published page");
+  const q = storedAnswer(r, "fw-photo-reuse").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(q.implementation, "found", "a photograph really on the page was not found: " + JSON.stringify(q));
+  assert.equal(q.foundIn, "applied", "a picture this change placed was credited to the site's back catalogue: " + JSON.stringify(q));
+  assert.equal(q.state, "unverified");
+});
+
+test("a photograph for a page that never shipped is not claimed, and the page is named", async () => {
+  // THE OWNER'S FIFTH DISTINCTION: an unavailable destination. The writer
+  // returns nothing for `/gallery`, so the page is missing — and a picture on a
+  // page no visitor will see is not a placement.
+  //
+  // READ OFF THE PUBLICATION, WHICH IS WHY THIS CASE EXISTS. `aPhotoMade` is
+  // filtered by what the merge really added or changed, so a page that did not
+  // survive contributes nothing however well the photo step answered.
+  const HANDOFF = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const OTHER = { path: "/prices", name: "Prices", purpose: "what it costs", sections: ["a list"], components: [] };
+  const r = await photoAsk("fw-photo-nopage", {
+    kinds: ["page", "photo"], credits: 400,
+    // ONE OF THE TWO PAGES IS WRITTEN. A writer that returns NOTHING is a
+    // different failure entirely (`nothing-returned`, which escalates and
+    // publishes no change at all), so the shape this case is about needs a
+    // change that really shipped with one page short.
+    written: [writtenPage("/prices")],
+    answers: {
+      page: { page: [PHOTO_PAGE, OTHER], requirements: [HANDOFF] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page survived — this case tests nothing: " + JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-photo-nopage").coverage.requirements;
+  const q = cov.find((x) => x.status === "elsewhere");
+  assert.equal(q.implementation, "absent", "a picture on a page that never shipped was found: " + JSON.stringify(q));
+  assert.equal(q.state, "missing");
+  assert.match(r.body.coverNote || "", /Still to do: The gallery page shows a photograph/, r.body.coverNote);
+});
+
+test("a scene declared and a scene really on the page are two answers, and a claim reads the difference", async () => {
+  // ⚠ THE OWNER'S FIRST TWO 3D DISTINCTIONS, and they come apart structurally:
+  // `three` is a STORED LOOK FIELD decided by the design step and the canvas
+  // is written by the PAGE step — a different model call reading
+  // `sceneDirective`. `three` shipped in exactly that state once already,
+  // stored with no way to reach the page rules at all.
+  const SCENE = "import { Canvas } from '@react-three/fiber'\n<Canvas><mesh /></Canvas>";
+  const HANDOFF = { need: "There is something in 3D on the gallery page.", status: "elsewhere", step: "three", item: "three" };
+  const ECHO = { need: HANDOFF.need, status: "covered", by: "the three scene is onpage",
+    answers: "page#0", kind: "three", item: "three" };
+  const page = { path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] };
+  const on = await addon("fw-three-onpage", "add a gallery page with a 3D scene on it", {
+    kinds: ["page", "three"], publishes: true, sitePages: ["/"],
+    written: [{ ...writtenPage("/gallery"), source: writtenPage("/gallery").source + "\n" + SCENE }],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      three: { three: { scene: "a slowly turning loaf", page: "/gallery" }, requirements: [ECHO] },
+    },
+  });
+  assert.equal(on.body.ok, true, JSON.stringify(on.body));
+  assert.ok((on.body.moved || []).includes("three"), "no scene was stored — this case tests nothing");
+  // THE WIRING HOP, as above: the tool the route really handed the three
+  // designer, and the brief that gave it the id to echo.
+  const threeCall = on.prompts.find((p) => p.kind === "three");
+  assert.ok(threeCall.props.includes("requirements"),
+    "the three step has nowhere to say which request its scene answers: " + JSON.stringify(threeCall.props));
+  assert.match(threeCall.text, /page#0/, "the three step was never told the id it is asked to echo");
+  const onQ = storedAnswer(on, "fw-three-onpage").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(onQ.state, "configured", "the hand-off was not associated: " + JSON.stringify(onQ));
+  assert.equal(onQ.reconciledKind, "three", "the record does not say what kind of thing answered: " + JSON.stringify(onQ));
+  // …AND THE ANSWER'S OWN CLAIM IS CONFIGURATION THAT HOLDS, because a page
+  // really carries the canvas.
+  const onA = storedAnswer(on, "fw-three-onpage").coverage.requirements.find((x) => x.status === "covered");
+  assert.equal(onA.state, "configured", "a scene really on the page did not resolve: " + JSON.stringify(onA));
+  assert.equal(onA.configuredBy, "three: onpage",
+    "the setting that was read back is not recorded, or is not the on-the-page one: " + JSON.stringify(onA));
+
+  // ── THE CONTROL: the SAME request with a page that never draws the canvas.
+  // The scene is stored, so the site is configured for one; no page shows it.
+  // `fails` is asked first, so the claim saying it is onpage is CONTRADICTED
+  // rather than quietly reading as configuration that holds.
+  const off = await addon("fw-three-offpage", "add a gallery page with a 3D scene on it", {
+    kinds: ["page", "three"], publishes: true, sitePages: ["/"],
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [page], requirements: [HANDOFF] },
+      three: { three: { scene: "a slowly turning loaf", page: "/gallery" }, requirements: [ECHO] },
+    },
+  });
+  assert.equal(off.body.ok, true, JSON.stringify(off.body));
+  assert.ok((off.body.moved || []).includes("three"), "no scene was stored — this control tests nothing");
+  const offA = storedAnswer(off, "fw-three-offpage").coverage.requirements.find((x) => x.status === "covered");
+  assert.equal(offA.contradictedBy, "three: onpage",
+    "a scene on no page read as configuration that holds: " + JSON.stringify(offA));
+  assert.equal(offA.configuredBy, undefined, "a contradicted claim bought a configuration verdict: " + JSON.stringify(offA));
+  // THE CUSTOMER IS NOT TOLD IT IS DONE EITHER WAY — a contradiction denies the
+  // guarantee and not the thing, so the state is the same and only the record
+  // separates them. That is deliberate: nothing here is entitled to call a
+  // claim wrong, which is this repository's never-move-towards-`failed` rule.
+  assert.equal(offA.state, "unverified", "a contradicted claim moved towards failed: " + JSON.stringify(offA));
+});
+
+test("a scene the site already has is refused, and nothing is claimed for the refusal", async () => {
+  // THE OWNER'S THIRD 3D DISTINCTION: *"A refused addition, including the
+  // existing one-scene-per-site restriction."* `SINGLE_FIELDS` allows one, so
+  // a second is refused with a sentence rather than a climb — and a
+  // requirement resting on it must read as outstanding rather than as set up.
+  const r = await addon("fw-three-already", "add a 3D scene to the front page", {
+    kinds: ["three"], publishes: true, sitePages: ["/"],
+    look: { three: "a globe that was always there" },
+    answers: { three: { three: { scene: "a second scene", page: "/" } } },
+  });
+  // A SENTENCE, NEVER A CLIMB, AND IT COSTS NOTHING. The refusal is decided
+  // from the STORED LOOK before any model call, so the customer is told and no
+  // credit moves — the whole reason a refusal here can be a refusal rather
+  // than an escalate to the ~25-credit revise.
+  assert.equal(r.body.ok, false, "a second scene was accepted: " + JSON.stringify(r.body));
+  assert.equal(r.body.error, "already");
+  assert.equal(r.body.kind, "three", "the refusal does not name the kind that caused it: " + JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a refused scene was charged for: " + JSON.stringify(r.body));
+  assert.match(String(r.body.msg || ""), /already has a 3D scene/,
+    "the one-per-site refusal was never said: " + JSON.stringify(r.body));
+  // NO DESIGNER RAN. The picker did — it is the one call that decides what was
+  // asked for, and the refusal is decided from its answer — but nothing was
+  // designed, which is what `cost: 0` rests on.
+  assert.deepEqual(r.prompts.filter((p) => p.tool !== "pick_adds").map((p) => p.kind), [],
+    "a designer was paid on a refusal the stored look settles: " + JSON.stringify(r.prompts.map((p) => p.kind)));
+  assert.equal(storedAnswer(r, "fw-three-already"), null,
+    "a refused scene left a record behind: " + JSON.stringify(storedAnswer(r, "fw-three-already")));
+
+  // ⚠ AND THE REFUSAL TAKES THE WHOLE REQUEST WITH IT, WHICH IS RECORDED
+  // RATHER THAN FIXED HERE. Asking for a page AND a second scene refuses BOTH
+  // — the page was perfectly possible and is not built, and the sentence the
+  // customer gets says nothing about it. MEASURED, so the next session reads a
+  // fact rather than an assumption; see the backlog. It is a question about
+  // refusal GRANULARITY rather than a wiring failure, and folding a design
+  // change into a coverage round is what this queue's own discipline forbids.
+  const both = await addon("fw-three-already-page", "add a gallery page with a 3D scene on it", {
+    kinds: ["page", "three"], publishes: true, sitePages: ["/"],
+    look: { three: "a globe that was always there" },
+    written: [writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "Photographs", sections: ["A gallery"], components: [] }] },
+      three: { three: { scene: "a second scene", page: "/gallery" } },
+    },
+  });
+  assert.equal(both.body.ok, false, "the combined request now survives — re-read this observation");
+  assert.equal(both.body.error, "already");
+  assert.deepEqual(both.compiles, [], "the page was built after all — the observation above has moved");
 });
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ import {
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
 } from "../builder/site-requirements.mjs";
-import { addTool, readAddAnswer, runAdd, foldAdds, REQUIREMENT_ADDS, siteNote, tableFacts, ADD_KINDS, addLayer, pickTool, pickRequest } from "../builder/site-add.mjs";
+import { addTool, readAddAnswer, runAdd, foldAdds, REQUIREMENT_ADDS, siteNote, tableFacts, ADD_KINDS, addLayer, OWN_ADDS, PLACING_ADDS, DISPATCHED_ADDS, pickTool, pickRequest } from "../builder/site-add.mjs";
 import { TABLE_ITEM } from "../builder/site-table.mjs";
 import { droppedFields, refusedFields, normalizeSchema } from "../site-schema.mjs";
 
@@ -206,17 +206,36 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // kind is on it so it can RAISE a gap, and equally so it can ECHO a hand-off
   // it was given. The qr step is already handed the page step's requirement in
   // its brief and had nowhere to answer, so a code that really opens the page
-  // asked for could never be tied to the asking. `three` and `photo` stay off.
-  const designing = ADD_KINDS.filter((k) => !addLayer(k));
-  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr"],
+  // asked for could never be tied to the asking.
+  //
+  // ⚠ AND AGAIN, THE SAME DAY, WITH `three` AND `photo` — AND THE PROXY THIS
+  // CENSUS USED HAD EXPIRED. It derived "can answer" as `!addLayer(k)`, on the
+  // reasoning that a kind which DISPATCHES has no tool to answer in. That was
+  // true until `PLACING_ADDS` shipped: `photo` carries a tool AND names a
+  // layer, so the two stopped being the same question and this filter went on
+  // agreeing with the answer by accident. The real property is whether the
+  // kind HAS A TOOL — `ADDS[k].shape`, which is what `PLACING_ADDS` and
+  // `DISPATCHED_ADDS` are themselves split on — so the census asks that, and a
+  // kind with NO tool still cannot be on the list.
+  //
+  // `three` needed one word: it was already in `APPLIED_KINDS` and
+  // `SITE_KINDS`, and both fact readers already emitted `{kind:"three",
+  // name:"three"}`. `photo` needed an IDENTITY as well, which is its
+  // PLACEMENT — see `SITE_KINDS` in `site-requirements.mjs`.
+  const designing = [...OWN_ADDS, ...PLACING_ADDS];
+  assert.deepEqual(REQUIREMENT_ADDS, ["table", "function", "api", "job", "page", "component", "qr", "three", "photo"],
     "the designing kinds that answer coverage changed — say which and why");
   for (const k of REQUIREMENT_ADDS) {
     assert.ok(designing.includes(k), "`" + k + "` answers coverage and has no tool of its own to answer it in");
   }
-  for (const k of ADD_KINDS) {
-    if (addLayer(k)) assert.ok(!REQUIREMENT_ADDS.includes(k), "`" + k + "` dispatches and cannot answer coverage");
+  for (const k of DISPATCHED_ADDS) {
+    assert.ok(!REQUIREMENT_ADDS.includes(k), "`" + k + "` has no tool at all and cannot answer coverage");
   }
   assert.ok(designing.length >= REQUIREMENT_ADDS.length, "the census read nothing");
+  // AND THE TWO GROUPS REALLY ARE "HAS A TOOL", proved rather than assumed —
+  // without this the filter above could be any list at all and the loop would
+  // still pass.
+  for (const k of designing) assert.ok(addTool(k), "`" + k + "` is counted as having a tool and has none");
   // ONE ITEM OBJECT, BY IDENTITY, ACROSS ALL SIX. The prose is kind-neutral
   // rather than per-kind on purpose: six copies of the shape would be six
   // places for the wording to drift, and the only thing that was ever
@@ -231,9 +250,35 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // nothing to name.
   const itemText = JSON.stringify(REQUIREMENT_ITEM);
   assert.ok(!/the tables you designed here/.test(itemText), "the item still addresses the table step alone");
-  // …AND A KIND THAT ANSWERS NONE DOES NOT CARRY IT. `three` has a tool of its
-  // own and answers no coverage, so its tool is byte-identical to what it was.
-  assert.equal(addTool("three").input_schema.properties.requirements, undefined);
+  // …AND THE PROPERTY IS PRESENT EXACTLY WHERE THE KIND DECLARES IT.
+  //
+  // ⚠ THIS EXPECTATION MOVED RATHER THAN BROKE (2026-09-19). It read
+  // `assert.equal(addTool("three").…requirements, undefined)` with the note
+  // "`three` has a tool of its own and answers no coverage" — and that is the
+  // very thing this round changes, so it is the SUBJECT and not a casualty.
+  // Why the new behaviour is correct: the owner's own instruction for a 3D
+  // scene is to distinguish "a scene declared" from "the scene actually
+  // included in the page", and from "a refused addition, including the
+  // one-scene-per-site restriction". Those are three different answers about
+  // one ask, and a step with nowhere to write a requirement can give none of
+  // them — the qr step's own gap, one kind over, for the same reason.
+  //
+  // ⚠ AND THE NEGATIVE HAS NO MEMBER LEFT, which is worth saying out loud
+  // rather than quietly dropping. MEASURED: every one of the nine kinds has a
+  // tool and every one of the nine declares the flag, so `addTool`'s own gate
+  // (`if (add.requirements)`) is INERT TODAY — removing it adds the property to
+  // a set that already has it. The census below is therefore the live half: it
+  // reads the flag off the tool for every kind that has one, and the hardcoded
+  // list above is what goes red if a kind loses its flag. The day a tenth kind
+  // arrives without one, this loop is an observer again with no edit needed.
+  const flagless = designing.filter((k) => !REQUIREMENT_ADDS.includes(k));
+  assert.deepEqual(flagless, [],
+    "a kind now has a tool and no coverage flag — this census's negative direction is live again, so drive it");
+  for (const k of designing) {
+    const has = !!addTool(k).input_schema.properties.requirements;
+    assert.equal(has, REQUIREMENT_ADDS.includes(k),
+      "`" + k + "`'s tool and the derived list disagree about whether it answers coverage");
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

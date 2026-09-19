@@ -2253,6 +2253,39 @@ export function sceneDirective(three) {
 }
 
 /**
+ * IS THE SCENE REALLY IN THIS PAGE'S SOURCE? (2026-09-19)
+ *
+ * Owner, on coverage for `three`: *"distinguish a scene declared from the
+ * scene actually included in the relevant page/artifact."* They come apart for
+ * a structural reason: `three` is a STORED LOOK FIELD decided by the design
+ * step, and the canvas is written by the PAGE step — a different model call,
+ * reading the directive above. A page that ignores it leaves the site
+ * configured for a scene and showing none, which is the exact shape `three`
+ * shipped in once already (stored, with no way to reach the page rules at all).
+ *
+ * IT LIVES BESIDE THE DIRECTIVE ON PURPOSE. This is the reader of what that
+ * directive ORDERS, so the instruction and the check are one edit apart —
+ * `site-qr-list.mjs` owning both the file names and `qrUnplaced` is the same
+ * rule, and two copies in two modules is what drifts.
+ *
+ * BOTH HALVES, WHICH IS THE CONSERVATIVE DIRECTION. The import alone is a
+ * dependency nobody drew with; the element alone could be any component
+ * somebody called `Canvas`. Requiring both can report a half-written page as
+ * not carrying the scene, and that reads as *"I can't confirm"* rather than as
+ * a claim — the safe way round for a reader nothing can check against a
+ * running WebGL context.
+ *
+ * MEASURED: the 100-site corpus (324 page files) contains ZERO `@react-three`
+ * imports and ZERO `<Canvas`, so this fires on nothing that exists today —
+ * a false-alarm rate of zero, and no positive corpus evidence either.
+ */
+export function sceneOn(source) {
+  const s = typeof source === "string" ? source : "";
+  if (!s) return false;
+  return /["'@]react-three\/fiber["']/.test(s) && /<Canvas[\s/>]/.test(s);
+}
+
+/**
  * THE ANIMATED MARK AND THE QR, AS THINGS THE PAGE MAY PUT ON ITSELF.
  *
  * Both are written into `public/` by the container and exposed as bindings on
