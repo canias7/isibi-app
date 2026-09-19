@@ -257,7 +257,9 @@ export const REQUIREMENT_ITEM = {
       type: "string",
       description:
         "ONLY if you can name it exactly: the name of the one thing this rests on — a function name, a table " +
-        "name, a route like \"/booking-check\". For \"elsewhere\" it is what you are asking that step to make; " +
+        "name, a route like \"/booking-check\", the short name you gave a photograph. A requirement about ONE " +
+        "picture names that picture; one about every picture on a page names the page's route. " +
+        "For \"elsewhere\" it is what you are asking that step to make; " +
         "for \"covered\" it is the thing in your own design that does the work, the same name `by` mentions. " +
         "It is what lets us check afterwards whether that thing is really there. LEAVE IT OUT rather than " +
         "inventing one: a guessed name is worse than none, because it reads as something that was asked for " +

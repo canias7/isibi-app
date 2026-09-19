@@ -23795,7 +23795,13 @@ async function handleRequest(request, env, ctx) {
             // refusal in the kinds loop hundreds of lines ABOVE where the
             // photographs are settled. Declare what a closure reads above its
             // first possible call, not above its obvious one.
-            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aPhotoLost = [];
+            // …AND `aPhotoShots` IS WHICH REQUESTED PICTURE LANDED (2026-09-19),
+            // by the name its own designer gave it. `aPhotoMade` above is the
+            // identity of WHERE and cannot separate two pictures on one page —
+            // the reproduced defect — so this is the identity of WHICH, carried
+            // from the request through the purchase to the reconciliation. Its
+            // declaration is here for exactly the reason the one above it is.
+            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aPhotoLost = [], aPhotoShots = [];
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
@@ -23804,6 +23810,7 @@ async function handleRequest(request, env, ctx) {
               three: !!(aLookMade && aLookMade.three),
               threeOn: aThreeOn,
               photos: aPhotoMade || [],
+              shots: aPhotoShots,
             });
             // WHICH STEPS THIS CHANGE CAN ANSWER "IT MADE NOTHING" FOR, and the
             // first clause is the one that does most of the work: a kind this
@@ -26235,12 +26242,23 @@ async function handleRequest(request, env, ctx) {
                 urlsAt.set(r, set);
               }
               const lostAt = new Set();
+              const landed = [];
               for (const s of (aFold && Array.isArray(aFold.photos)) ? aFold.photos : []) {
                 const r = rid(s && s.page);
                 if (!r) continue;
                 const url = boughtAt.get(shotKey(s && s.describe));
                 const at = urlsAt.get(r);
-                if (url && at && at.has(url)) continue;
+                // ⚠ EACH REQUEST ANSWERED ON ITS OWN, BY ITS OWN NAME
+                // (corrected 2026-09-19). This loop already knew, per shot,
+                // whether that shot's url is on that shot's page — and threw
+                // the answer away for the ones that landed, keeping only the
+                // ROUTES of the ones that did not. So two pictures on one page
+                // shared one verdict: the bench generated, the oven refused,
+                // and the requirement naming the bench blocked on the oven's
+                // failure. The request identity is carried out now, and the
+                // route half below is unchanged because it is what a COMBINED
+                // requirement about both pictures is judged on.
+                if (url && at && at.has(url)) { landed.push({ name: String(s.name || ""), route: r }); continue; }
                 // ⚠ THE WALL FIRES ONLY WHERE SOMETHING ELSE WOULD ANSWER FOR
                 // IT, and that is the owner's sentence turned into a condition:
                 // *"another photograph on the same route must not satisfy the
@@ -26258,6 +26276,7 @@ async function handleRequest(request, env, ctx) {
                 // beats both.
                 if (at && at.size) lostAt.add(r);
               }
+              aPhotoShots = landed;
               aPhotoLost = [...lostAt];
               if (aPhotoLost.length) {
                 // THE KIND AS WELL AS THE ITEMS, and the two cover different

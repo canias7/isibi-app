@@ -158,10 +158,17 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   // `{page, describe}` is what the build path's reader already takes, so the
   // shot list crosses to the page writer through that rather than a second
   // shape beside it. Asserted against the tool the model really sees.
+  // ⚠ RE-ANCHORED 2026-09-19: the entry gained a `name`, and it is REQUIRED.
+  // A route was a photograph's whole identity, so two pictures on one page
+  // could not be told apart and one failing blocked the requirement about the
+  // other. `name` is the label a requirement points at; it is not a binding and
+  // no page ever writes it. Required rather than optional because an optional
+  // identity leaves the collapse reachable in the ordinary case — and refusing
+  // costs nothing, running in the kinds loop long before anything is bought.
   const props = addTool("photo").input_schema.properties.photo;
   assert.equal(props.type, "array");
-  assert.deepEqual([...props.items.required].sort(), ["describe", "page"]);
-  assert.deepEqual(Object.keys(props.items.properties).sort(), ["describe", "page"]);
+  assert.deepEqual([...props.items.required].sort(), ["describe", "name", "page"]);
+  assert.deepEqual(Object.keys(props.items.properties).sort(), ["describe", "name", "page"]);
   // THE WORDS ARE THE PROMPT SOMEBODY PAYS FOR, and the description says so —
   // this is the one field in the whole add step whose contents are billed.
   assert.match(props.items.properties.describe.description, /PAID to draw/);
@@ -169,21 +176,47 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   const SITE_P = { ...SITE, planned: [{ path: "/gallery" }] };
   // A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION — `going`, the one
   // list every placing kind resolves through.
-  const ok = cleanAdd("photo", [{ page: "/gallery", describe: "the bench under the window" }], SITE_P);
-  assert.deepEqual(ok.value, [{ page: "/gallery", describe: "the bench under the window" }]);
+  const ok = cleanAdd("photo", [{ page: "/gallery", describe: "the bench under the window", name: "bench" }], SITE_P);
+  assert.deepEqual(ok.value, [{ page: "/gallery", describe: "the bench under the window", name: "bench" }]);
+  // ── THE NAME IS THE ONE THING THAT SEPARATES TWO PICTURES ────────────────
+  //
+  // Lowercase letters, digits and single hyphens, upper case folded. It cannot
+  // be a ROUTE — the other thing a photo requirement may name — because a route
+  // starts with a slash and this refuses one, so the two identities share a
+  // field and can never collide in it.
+  assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "x", name: "SHOP-FRONT" }], SITE_P).value[0].name, "shop-front");
+  for (const bad of [undefined, "", "   ", "/gallery", "2nd", "bench_left", "bench-", "a".repeat(25), 7, ["bench"]])
+    assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "x", name: bad }], SITE_P).why, "no-photo-name",
+      "a picture with an unusable name was accepted: " + JSON.stringify(bad));
+  // AND TWO PICTURES IN ONE ANSWER MAY NOT SHARE ONE, which is the reference
+  // collapse arriving through the designer instead of through the route.
+  const clash = cleanAdd("photo", [
+    { page: "/gallery", describe: "the bench", name: "shot" },
+    { page: "/gallery", describe: "the oven", name: "shot" },
+  ], SITE_P);
+  assert.deepEqual(clash.value.map((p) => p.describe), ["the bench"], "a duplicate name was kept");
+  assert.deepEqual(clash.skipped.map((x) => x.why), ["no-photo-name"], "the duplicate was dropped in silence");
+  // A LIST KIND REFUSES THE ENTRY, NOT THE ANSWER — the other pictures land.
+  const mixed = cleanAdd("photo", [
+    { page: "/gallery", describe: "the bench", name: "bench" },
+    { page: "/gallery", describe: "the oven" },
+  ], SITE_P);
+  assert.deepEqual(mixed.value.map((p) => p.name), ["bench"]);
+  assert.deepEqual(mixed.skipped.map((x) => x.why), ["no-photo-name"]);
+  assert.match(addRefusal("no-photo-name"), /one at a time/);
   // AND A PAGE NOBODY HAS IS REFUSED BY NAME, never moved to the home page:
   // the silent substitution the owner corrected on the component tier, and
   // worse here because a photograph is bought.
-  assert.equal(cleanAdd("photo", [{ page: "/prices", describe: "x" }], SITE_P).why, "no-page");
+  assert.equal(cleanAdd("photo", [{ page: "/prices", describe: "x", name: "x" }], SITE_P).why, "no-page");
   // AN UNDESCRIBED PICTURE IS REFUSED, because `planImages` deliberately never
   // sends a token with nothing inside it — so it would be a slot nothing fills
   // and a customer told a photograph was added.
-  assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "   " }], SITE_P).why, "no-photo");
+  assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "   ", name: "x" }], SITE_P).why, "no-photo");
   assert.match(addRefusal("no-photo"), /what's in it/);
   // A LONG BRIEF IS SLICED AND NOT REFUSED, which is exactly what `imagePrompt`
   // does to it one hop later: refusing here would turn a usable description
   // into no picture at all.
-  const long = cleanAdd("photo", [{ page: "/gallery", describe: "b".repeat(MAX_PROMPT_CHARS + 80) }], SITE_P);
+  const long = cleanAdd("photo", [{ page: "/gallery", describe: "b".repeat(MAX_PROMPT_CHARS + 80), name: "long" }], SITE_P);
   assert.equal(long.value[0].describe.length, MAX_PROMPT_CHARS);
 
   // ── THE FOLD HANDS THE ROUTE A DEDUPED LIST ──────────────────────────────
@@ -191,16 +224,22 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   // ON THE PAIR, never on the page alone: the same picture asked for twice is
   // ONE purchase (`planImages` reuses a token's url wherever it appears), and
   // two different pictures on one page are two.
+  //
+  // …AND THE NAME RIDES WITH EACH ONE, because it is what the reconciliation
+  // points at. The two rules cover different things: the cleaner's duplicate
+  // check stops an ambiguous REFERENCE, this dedupe stops a second PURCHASE —
+  // so the same picture named twice is refused there and the same picture
+  // asked for twice here is one shot.
   const many = foldAdds([{ kind: "photo", value: cleanAdd("photo", [
-    { page: "/gallery", describe: "the bench" },
-    { page: "/gallery", describe: "the bench" },
-    { page: "/gallery", describe: "a finished guitar" },
-    { page: "/", describe: "the bench" },
+    { page: "/gallery", describe: "the bench", name: "bench" },
+    { page: "/gallery", describe: "the bench", name: "bench2" },
+    { page: "/gallery", describe: "a finished guitar", name: "guitar" },
+    { page: "/", describe: "the bench", name: "home" },
   ], SITE_P).value }], {}, SITE_P);
   assert.deepEqual(many.photos, [
-    { page: "/gallery", describe: "the bench" },
-    { page: "/gallery", describe: "a finished guitar" },
-    { page: "/", describe: "the bench" },
+    { page: "/gallery", describe: "the bench", name: "bench" },
+    { page: "/gallery", describe: "a finished guitar", name: "guitar" },
+    { page: "/", describe: "the bench", name: "home" },
   ]);
   // AND IT IS NOT ON `designed`, which is what `mergeLook` folds into the
   // site's STORED look: a photograph is bought once and the site then carries
@@ -211,7 +250,7 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   // NO DIRECTIVE BLOCK, DELIBERATELY: `imageDirective` already names the page
   // and hands over the exact token, and a second block saying the same thing in
   // other words is how one picture becomes two.
-  assert.equal(addDirective("photo", { page: "/gallery", describe: "the bench" }, SITE_P), "");
+  assert.equal(addDirective("photo", { page: "/gallery", describe: "the bench", name: "bench" }, SITE_P), "");
   assert.doesNotMatch(many.directive, /the bench/, "the fold describes the picture twice");
 });
 

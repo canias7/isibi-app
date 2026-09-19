@@ -4174,7 +4174,7 @@ const boughtAsk = (slug, shots, opts) => photoAsk(slug, {
 const BENCH = "the workshop bench under the window, warm afternoon light";
 
 test("THE COMBINED REQUEST: one ask buys the photograph and puts it on the page it added", async () => {
-  const r = await boughtAsk("fw-both", [{ page: "/gallery", describe: BENCH }]);
+  const r = await boughtAsk("fw-both", [{ page: "/gallery", describe: BENCH, name: "bench" }]);
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
 
   // 1. NOTHING IS HANDED OFF. This is the whole of what the owner asked for:
@@ -4230,7 +4230,7 @@ test("a photograph beside a SECTION is designed here too, and lands on the page 
     written: [addedTo("/", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />')],
     answers: {
       component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
-      photo: { photo: [{ page: "/", describe: BENCH }] },
+      photo: { photo: [{ page: "/", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -4265,7 +4265,7 @@ test("a picture is bought for what will be PUBLISHED, never for what the writer 
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
         sections: ["a grid"], components: ["card"] }] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -4296,8 +4296,8 @@ test("a token in a component this change never touched is not bought", async () 
   // half of the case is the picture that IS bought, and the wall is the one
   // that is not.
   const r = await boughtAsk("fw-photo-stored", [
-    { page: "/gallery", describe: BENCH },
-    { page: "/gallery", describe: "the lathe with its belt guard open" },
+    { page: "/gallery", describe: BENCH, name: "bench" },
+    { page: "/gallery", describe: "the lathe with its belt guard open", name: "lathe" },
   ], {
     parts: [{ name: "old-strip", source: 'export default function S(){ return <SafeImage src="@@IMG:a stranger\'s picture@@" alt="x" /> }' }],
   });
@@ -4313,10 +4313,13 @@ test("more pictures than the platform will buy are refused at the cleaner, by th
   // an entry nothing downstream will ever buy — and the customer would be told
   // it was added.
   const SITE_P = { name: "x", kind: "shopfront", pages: ["/"], tables: [], hasDatabase: false, qr: null, three: null, tsx: [] };
-  const many = Array.from({ length: IMAGE_CAP + 1 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
+  const many = Array.from({ length: IMAGE_CAP + 1 }, (_, i) => ({ page: "/", describe: "picture number " + i, name: "shot" + i }));
   const c = cleanAdd("photo", many, SITE_P);
   assert.equal(c.value.length, IMAGE_CAP, "the cleaner kept " + c.value.length + " pictures against a cap of " + IMAGE_CAP);
-  assert.deepEqual(c.skipped, [{ why: "over-cap", name: "" }], "the ones left out were not named");
+  // ⚠ RE-ANCHORED 2026-09-19: a picture carries its own name now, so the drop
+  // says WHICH one — where this read `name: ""`, which is the sentence the
+  // over-cap branch exists to give and could not fill in. Strictly stronger.
+  assert.deepEqual(c.skipped, [{ why: "over-cap", name: "shot" + IMAGE_CAP }], "the one left out was not named");
 });
 
 test("a photograph ALONE is still the picture rung's, and buys nothing here", async () => {
@@ -4354,7 +4357,7 @@ test("a provider that refuses costs nothing, sweeps the token, and says so", asy
   // `applyImages` sweeps the token to the empty src `SafeImage` draws its
   // placeholder from — the one outcome that must never be the literal
   // `@@IMG:…@@`, which is a broken image AND a leak of how the site was made.
-  const r = await boughtAsk("fw-photo-down", [{ page: "/gallery", describe: BENCH }], { shotFail: true });
+  const r = await boughtAsk("fw-photo-down", [{ page: "/gallery", describe: BENCH, name: "bench" }], { shotFail: true });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
   assert.equal(r.shots.length, 1, "the provider was never tried, so this case is not about it refusing");
   const g = compiledPages(r).find((p) => p.path.includes("gallery"));
@@ -4382,7 +4385,7 @@ test("a picture may land on a page this change is adding, and not on one nobody 
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
         sections: ["a grid"], components: ["card"] }] },
-      photo: { photo: [{ page: "/prices", describe: BENCH }] },
+      photo: { photo: [{ page: "/prices", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(bad.status, 422, JSON.stringify(bad.body));
@@ -4393,7 +4396,7 @@ test("a picture may land on a page this change is adding, and not on one nobody 
   // THE CONTROL, one field apart: the page THIS CHANGE IS ADDING is a real
   // destination, which is what makes the refusal above about the route rather
   // than about pictures never being placeable.
-  const ok = await boughtAsk("fw-photo-planned", [{ page: "/gallery", describe: BENCH }]);
+  const ok = await boughtAsk("fw-photo-planned", [{ page: "/gallery", describe: BENCH, name: "bench" }]);
   assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
   assert.equal(ok.shots.length, 1, "a picture on a page this same change adds was not bought");
 });
@@ -4579,7 +4582,7 @@ test("a photograph asked for and not bought still leaves a slot the picture rung
     kinds: ["page", "photo"], written: [galleryWith("")], credits: 1,
     answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
       sections: ["a grid of photographs"], components: ["card"] }] },
-      photo: { photo: [{ page: "/gallery", describe: "a refret on the bench under the window" }] } },
+      photo: { photo: [{ page: "/gallery", describe: "a refret on the bench under the window", name: "refret" }] } },
   });
   assert.deepEqual(r.body.skipped, [], "this case is the hand-off after all, not the unaffordable picture");
   assert.deepEqual(r.shots, [], "a picture was PAID FOR on a balance that cannot afford one");
@@ -4683,7 +4686,7 @@ const keepAsk = (slug, home, opts) => photoAsk(slug, {
   answers: {
     page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
       sections: ["a grid of photographs"], components: ["card"] }] },
-    photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
   },
   ...opts,
 });
@@ -5225,7 +5228,7 @@ test("a photograph MOVED between components is kept, not refused", async () => {
     ],
     answers: {
       component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
-      photo: { photo: [{ page: "/", describe: BENCH }] },
+      photo: { photo: [{ page: "/", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -5260,7 +5263,7 @@ test("a CUSTOM COMPONENT that loses a photograph is refused too", async () => {
     writtenParts: [part(back)],
     answers: {
       component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
-      photo: { photo: [{ page: "/", describe: BENCH }] },
+      photo: { photo: [{ page: "/", describe: BENCH, name: "bench" }] },
     },
   });
 
@@ -5310,7 +5313,7 @@ const twoAsk = (slug, credits) => photoAsk(slug, {
   answers: {
     page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
       sections: ["a grid of photographs"], components: ["card"] }] },
-    photo: { photo: [{ page: "/gallery", describe: BENCH }, { page: "/gallery", describe: LATHE }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }, { page: "/gallery", describe: LATHE, name: "lathe" }] },
   },
 });
 
@@ -5369,7 +5372,7 @@ test("nothing affordable at all: the placeholder is claimed only where one survi
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
         sections: ["a grid of photographs"], components: ["card"] }] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
     },
   });
 
@@ -5456,7 +5459,7 @@ const orderAsk = (slug, home) => addon(slug,
     answers: {
       page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
         sections: ["a grid of photographs"], components: ["card"] }] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
       qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
     },
   });
@@ -6352,7 +6355,7 @@ test("a photograph this change put on a page answers its hand-off, and one for a
     written: [galleryToken(BENCH)],
     answers: {
       page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [ECHO] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [ECHO] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6404,7 +6407,7 @@ test("a photograph this change put on a page answers its hand-off, and one for a
     written: [galleryToken(BENCH)],
     answers: {
       page: { page: [PHOTO_PAGE], requirements: [{ ...HANDOFF, item: "/prices" }] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [{ ...ECHO, item: "/prices" }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [{ ...ECHO, item: "/prices" }] },
     },
   });
   assert.equal(wrong.body.ok, true, JSON.stringify(wrong.body));
@@ -6439,7 +6442,7 @@ test("a provider refusal leaves the photograph still to do, and says so in its o
     written: [galleryToken(BENCH)],
     answers: {
       page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6558,7 +6561,7 @@ test("a photograph for a page that never shipped is not claimed, and the page is
     written: [writtenPage("/prices")],
     answers: {
       page: { page: [PHOTO_PAGE, OTHER], requirements: [HANDOFF] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6706,7 +6709,7 @@ test("a photograph cannot be reported absent before the publish has said anythin
     written: [{ path: "src/routes/index.tsx", source: "<main><h1>Fretwork</h1></main>" }],
     answers: {
       page: { page: [PHOTO_PAGE], requirements: [HANDOFF] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }] },
     },
   });
   assert.equal(r.body.ok, false, "the change was published — this case tests nothing: " + JSON.stringify(r.body));
@@ -6761,7 +6764,7 @@ test("a reused photograph does not answer a request for a new one that was never
       + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
     answers: {
       page: { page: [PHOTO_PAGE] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [CLAIM] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6803,7 +6806,7 @@ test("a reused photograph does not answer a request for a new one that was never
       + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
     answers: {
       page: { page: [PHOTO_PAGE] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }],
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }],
         requirements: [{ need: "The bakery's own photographs are on the site.", status: "covered",
           from: "photo", by: "a new photograph of the bakery on the gallery page" }] },
     },
@@ -6825,7 +6828,7 @@ test("a reused photograph does not answer a request for a new one that was never
       + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />')],
     answers: {
       page: { page: [PHOTO_PAGE] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [CLAIM] },
     },
   });
   assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
@@ -6850,7 +6853,7 @@ test("two photographs asked for on one page: both landing answers, one landing d
       + '<SafeImage src="@@IMG:' + OVEN + '@@" alt="the oven" />')],
     answers: {
       page: { page: [PHOTO_PAGE] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }, { page: "/gallery", describe: OVEN }],
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }, { page: "/gallery", describe: OVEN, name: "oven" }],
         requirements: [CLAIM] },
     },
     ...opts,
@@ -6890,6 +6893,126 @@ test("two photographs asked for on one page: both landing answers, one landing d
   assert.doesNotMatch(part.body.coverNote || "", /I've set that up/, part.body.coverNote);
 });
 
+test("TWO REQUIREMENTS ON ONE PAGE: the picture that landed keeps its answer, the one that did not is named", async () => {
+  // ⚠ THE REVIEWER'S REPRODUCTION, and it is the case above it with the claims
+  // SPLIT. There the pair shared one requirement and "incomplete" was right;
+  // here the bench photograph and the oven photograph are two separate needs,
+  // the bench is generated and reaches the compiled and stored page, and the
+  // oven is refused — and BOTH read as blocked, with the customer told the
+  // bench picture was not there.
+  //
+  // THE CAUSE WAS THAT A ROUTE IS THE IDENTITY OF *WHERE*. `aPhotoLost` held
+  // routes, so `/gallery`'s failure was the only fact either claim could
+  // resolve against and the successful one inherited it. The designer names
+  // each picture now and the reconciliation carries that name from the request
+  // through the purchase to the verdict.
+  const OVEN = "the oven at dawn, flour on the bench";
+  const NEED = (what, item) => ({ need: "A photograph of the " + what + " is on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item,
+    by: "a photograph of the " + what + " on the gallery page" });
+  // THE THIRD CLAIM IS THE COMBINED ONE and it rides in the same reply, because
+  // the owner's two requirements are that the individual need survives AND the
+  // combined need does not: asserting them in separate runs would leave the two
+  // rules free to be the same rule.
+  const BOTH = { need: "Photographs of the bakery are on the gallery page.",
+    status: "covered", from: "photo", kind: "photo", item: "/gallery",
+    by: "photographs of the bakery on the gallery page" };
+  const split = (slug, opts) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryWith('<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />'
+      + '<SafeImage src="@@IMG:' + OVEN + '@@" alt="the oven" />')],
+    answers: {
+      page: { page: [PHOTO_PAGE] },
+      photo: {
+        photo: [{ page: "/gallery", describe: BENCH, name: "bench" }, { page: "/gallery", describe: OVEN, name: "oven" }],
+        requirements: [NEED("bench", "bench"), NEED("oven", "oven"), BOTH],
+      },
+    },
+    ...opts,
+  });
+
+  const r = await split("fw-photo-split", { shotFail: [OVEN] });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS. Both pictures were really asked for, exactly one was
+  // really bought, and the one that was is really on the published page — so
+  // the route carries a photograph and the per-route reading cannot tell the
+  // two claims apart. Without all three this case is about something else.
+  assert.equal(r.shots.length, 2, "both pictures were not asked for: " + JSON.stringify(r.shots));
+  assert.equal(r.body.pictures, 1, "this is not a partial success: " + JSON.stringify(r.body));
+  const page = compiledPages(r).find((x) => x.path.includes("gallery"));
+  assert.ok(page && /\/u\/fw-photo-split\//.test(page.source),
+    "the picture that landed is not on the compiled page: " + (page && page.source));
+  assert.match(storedSource(r, "fw-photo-split", "gallery.tsx"), /\/u\/fw-photo-split\//,
+    "the picture that landed is not in the stored source either");
+
+  const byNeed = Object.fromEntries(storedAnswer(r, "fw-photo-split").coverage.requirements.map((q) => [q.item, q]));
+  // THE ONE THAT LANDED. `found` AND `unverified`: the reconciliation resolved
+  // its own picture, and a url in a `src` is configuration — nothing here has
+  // loaded the image, so it can never be better than "I can't confirm".
+  assert.equal(byNeed.bench.implementation, "found",
+    "the bench picture landed and was not found: " + JSON.stringify(byNeed.bench));
+  // ⚠ RESOLVED AGAINST ITS OWN PICTURE, which is the whole correction and is
+  // the pair of fields to read: `implementedBy` is the shot's own name and
+  // `foundIn` says this change made it, rather than the route answering for
+  // both. THE STATE IS `configured` AND NOT `unverified` because the claim
+  // names `bench` and that applied picture really is on a route whose words the
+  // claim also uses — a setting read back off what was published. Both reach
+  // the customer as the same "I can't confirm" clause; what matters here is
+  // that neither is a failure.
+  assert.equal(byNeed.bench.implementedBy, "bench",
+    "the bench claim resolved against something other than its own picture: " + JSON.stringify(byNeed.bench));
+  assert.equal(byNeed.bench.foundIn, "applied", JSON.stringify(byNeed.bench));
+  assert.equal(byNeed.bench.state, "configured",
+    "the picture that was really made reads as failed — this is the reported defect: " + JSON.stringify(byNeed.bench));
+  // THE ONE THAT DID NOT. `absent` is the reading that matters — this layer
+  // LOOKED for the oven's own picture and did not find it — and the state is
+  // `failed` rather than `blocked` because the photo step really did fail and
+  // this claim's own picture is the thing that is missing. That is the
+  // kind-wide rule being right, not the narrowing: the previous round's
+  // `!depThere` excuses a step's other failures only for a claim whose OWN
+  // thing is there. Either way the customer gets the actionable line.
+  assert.equal(byNeed.oven.implementation, "absent",
+    "the refused picture was not looked for: " + JSON.stringify(byNeed.oven));
+  assert.equal(byNeed.oven.state, "failed",
+    "the refused picture was not reported as outstanding: " + JSON.stringify(byNeed.oven));
+  assert.notEqual(byNeed.oven.state, byNeed.bench.state,
+    "both claims got one verdict, which is the reported defect: " + JSON.stringify(byNeed));
+  // THE COMBINED NEED IS STILL INCOMPLETE, which is the owner's other half.
+  assert.equal(byNeed["/gallery"].state, "blocked",
+    "a need about both pictures was answered by the one that worked: " + JSON.stringify(byNeed["/gallery"]));
+
+  // AND THE CUSTOMER HEARS ALL THREE, each in its own words, in one reply.
+  const note = r.body.coverNote || "";
+  assert.match(note, /Still to do: A photograph of the oven is on the gallery page/, note);
+  assert.match(note, /I've set that up, but I can't confirm[\s\S]*A photograph of the bench/, note);
+  assert.doesNotMatch(note, /I've set that up[\s\S]*A photograph of the oven/, note);
+  assert.match(r.body.pictureNote || "", /Made 1 photograph/, String(r.body.pictureNote));
+
+  // ── THE CONTROL: the same three claims, the same page, and BOTH pictures
+  // bought. Without it "the bench is unverified" could be what this route says
+  // about every photograph, and the split above would prove nothing.
+  const ok = await split("fw-photo-split-ok");
+  assert.equal(ok.body.pictures, 2, "the control bought fewer than two: " + JSON.stringify(ok.body));
+  const all = Object.fromEntries(storedAnswer(ok, "fw-photo-split-ok").coverage.requirements.map((q) => [q.item, q]));
+  // EACH ONE BY NAME rather than a loop over one expectation: the two
+  // individual claims name their own picture and reach `configured`, and the
+  // combined one does not name `/gallery` in its own prose, so nothing is read
+  // back for it and `unverified` is the honest answer. A loop asserting one
+  // value for all three would be asserting a coincidence.
+  assert.equal(all.bench.state, "configured", JSON.stringify(all.bench));
+  assert.equal(all.oven.state, "configured", JSON.stringify(all.oven));
+  assert.equal(all.oven.implementedBy, "oven",
+    "the oven claim resolved against the bench's picture: " + JSON.stringify(all.oven));
+  assert.equal(all["/gallery"].state, "unverified", JSON.stringify(all["/gallery"]));
+  assert.doesNotMatch(ok.body.coverNote || "", /Still to do/, ok.body.coverNote);
+
+  // ── AND `checked` STAYS EMPTY, on every applied kind. A picture's url read
+  // back off what was published is configuration; nothing on this path has
+  // loaded an image or looked at what it shows.
+  for (const m of storedAnswer(ok, "fw-photo-split-ok").coverage.made || [])
+    assert.deepEqual(m.checked || [], [], "a behaviour was claimed as exercised: " + JSON.stringify(m));
+});
+
 test("a photograph bought for one page and written onto another is not on the page that asked", async () => {
   // THE PLACEMENT HALF, which is the second word in *"through generation and
   // placement"*: a picture can be paid for, stored and published and still not
@@ -6926,7 +7049,7 @@ test("a photograph bought for one page and written onto another is not on the pa
     ],
     answers: {
       page: { page: [PHOTO_PAGE, PRESS] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [CLAIM] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
@@ -6969,7 +7092,7 @@ test("a photograph bought for one page and written onto another is not on the pa
     ],
     answers: {
       page: { page: [PHOTO_PAGE, PRESS] },
-      photo: { photo: [{ page: "/gallery", describe: BENCH }], requirements: [CLAIM] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [CLAIM] },
     },
   });
   assert.equal(both.body.ok, true, JSON.stringify(both.body));
@@ -7012,7 +7135,7 @@ test("the request and its token are joined on the words, however the describe wa
     written: [galleryWith('<SafeImage src="@@IMG:' + SPACED.replace(/\s+/g, " ").trim() + '@@" alt="the bench" />')],
     answers: {
       page: { page: [PHOTO_PAGE] },
-      photo: { photo: [{ page: "/gallery", describe: SPACED }], requirements: [CLAIM] },
+      photo: { photo: [{ page: "/gallery", describe: SPACED, name: "bench" }], requirements: [CLAIM] },
     },
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));

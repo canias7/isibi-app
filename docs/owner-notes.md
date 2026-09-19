@@ -14412,3 +14412,43 @@ re-check the path Run 49 already proved, and it wouldn't test one-time
 scheduling, the API response shapes or the photo association at all. Not worth
 the credits as it stands.
 
+## Two more corrections, and the first one is older than it looks (2026-09-19)
+
+**The Run now button in Cloud → Schedule has never worked, and not because of
+anything this week.** I built the real panel in a fake browser, pressed the
+button, and read what it sent: a request to PAUSE a job, with no job named at
+all. What was going on is that the button wears two labels — one of them is the
+same label the Paused/On switch wears, because they look alike — and the code
+was hooking up handlers by label. It hooked up the run handler, then hooked up
+the pause handler to everything wearing that shared label, which quietly
+replaced the first one. So the last thing hooked up wins, and the button that
+says "Run now" was a pause button.
+
+**It has been like that since the button shipped on 3 September.** Every press I
+have on record went through the workflow or the API, never through the panel —
+which is exactly why nobody saw it. And every test we had about that button
+read the code rather than pressing it: the markup was right, the styling was
+right, the address it posts to was right. Four new tests press it now and read
+what really leaves the browser.
+
+**The second one is the photographs.** Ask for two on one page — a photo of the
+bench and a photo of the oven — and if the bench one is made and the oven one
+fails, the reply said **neither** of them was there. The reason is that a
+photograph had no name of its own: all we could say about it was which page it
+was on, so both requests pointed at the same thing and one failing sank both.
+
+Photographs get a short name now ("bench", "oven"), the same way your QR codes
+do. Nobody sees it; it exists so a request can point at one picture. So the
+bench request comes back as done-but-unconfirmed, the oven one as **"Still to
+do: A photograph of the oven is on the gallery page"**, and a request that was
+about *both* pictures correctly stays incomplete while one is missing. Driven
+end to end, with a control where both pictures land and nothing is outstanding.
+
+**One thing worth saying plainly**: if a request is written as being about the
+*page* rather than about one picture, it still reads as being about all of them
+— and it should. What changed is that a request about one picture can now
+actually be about one picture.
+
+Suite 6,967, all green. Sweep 24 of 24 killed, nothing survived. Nothing
+merged, nothing deployed, nothing spent.
+

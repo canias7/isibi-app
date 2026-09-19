@@ -1,0 +1,162 @@
+[
+  {
+    "label": "CONTROL: a comment only in the panel — must survive",
+    "control": true,
+    "files": ["public/chat.js"],
+    "from": "      listEl.querySelectorAll('[data-run]').forEach((b) => b.onclick = async () => {",
+    "to": "      // comment-only control\n      listEl.querySelectorAll('[data-run]').forEach((b) => b.onclick = async () => {"
+  },
+  {
+    "label": "CONTROL: a comment only in the add step — must survive",
+    "control": true,
+    "files": ["builder/site-add.mjs"],
+    "from": "  for (const s of Array.isArray(shots) ? shots : []) {",
+    "to": "  // comment-only control\n  for (const s of Array.isArray(shots) ? shots : []) {"
+  },
+
+  {
+    "label": "C1 — THE REPORTED DEFECT: the pause/resume handler binds by class again, so it overwrites Run now",
+    "files": ["public/chat.js"],
+    "from": "      listEl.querySelectorAll('[data-job]').forEach((b) => b.onclick = async () => {",
+    "to": "      listEl.querySelectorAll('.fn-tgl').forEach((b) => b.onclick = async () => {"
+  },
+  {
+    "label": "C1 — the run handler binds by class, so a look shared with a third button binds it too",
+    "files": ["public/chat.js"],
+    "from": "      listEl.querySelectorAll('[data-run]').forEach((b) => b.onclick = async () => {",
+    "to": "      listEl.querySelectorAll('.fn-tgl').forEach((b) => b.onclick = async () => {"
+  },
+  {
+    "label": "C1 — Run now posts the dataset the OTHER handler reads, so it names no job",
+    "files": ["public/chat.js"],
+    "from": "body: JSON.stringify({ name: b.dataset.run, run: true })",
+    "to": "body: JSON.stringify({ name: b.dataset.job, run: true })"
+  },
+  {
+    "label": "C1 — Run now posts a pause instead of a run",
+    "files": ["public/chat.js"],
+    "from": "body: JSON.stringify({ name: b.dataset.run, run: true })",
+    "to": "body: JSON.stringify({ name: b.dataset.run })"
+  },
+  {
+    "label": "C1 — the pause/resume switch names the wrong job, which is the collision from the other side",
+    "files": ["public/chat.js"],
+    "from": "body: JSON.stringify({ name: b.dataset.job, enabled: next })",
+    "to": "body: JSON.stringify({ name: b.dataset.run, enabled: next })"
+  },
+  {
+    "label": "C1 — a spent one-time job keeps the dataset, so it is bound and can be pressed",
+    "files": ["public/chat.js"],
+    "from": "      ? '<button type=\"button\" class=\"fn-tgl fn-run\" disabled title=\"'",
+    "to": "      ? '<button type=\"button\" class=\"fn-tgl fn-run\" data-run=\"' + esc(j.name) + '\" disabled title=\"'"
+  },
+  {
+    "label": "C1 — a spent one-time job's Run now is live again",
+    "files": ["public/chat.js"],
+    "from": "  const spent = j.onState === 'attempted' || j.onState === 'unreadable';",
+    "to": "  const spent = false;"
+  },
+  {
+    "label": "C1 — the pause/resume switch also carries data-run, so one button matches both selectors",
+    "files": ["public/chat.js"],
+    "from": "      : '<button type=\"button\" class=\"fn-tgl\" data-job=\"' + esc(j.name) + '\" data-on=\"1\"",
+    "to": "      : '<button type=\"button\" class=\"fn-tgl\" data-job=\"' + esc(j.name) + '\" data-run=\"' + esc(j.name) + '\" data-on=\"1\""
+  },
+
+  {
+    "label": "C2 — THE REPORTED DEFECT: no picture is named, so a route is a photograph's whole identity again",
+    "files": ["builder/site-add.mjs"],
+    "from": "  for (const s of Array.isArray(shots) ? shots : []) {",
+    "to": "  for (const s of []) {"
+  },
+  {
+    "label": "C2 — the route stops forwarding which request landed, so the reader has nothing to name",
+    "files": ["worker.js"],
+    "from": "              aPhotoShots = landed;",
+    "to": "              aPhotoShots = [];"
+  },
+  {
+    "label": "C2 — a landed shot is filed under its ROUTE, so two pictures on one page are one entry",
+    "files": ["worker.js"],
+    "from": "if (url && at && at.has(url)) { landed.push({ name: String(s.name || \"\"), route: r }); continue; }",
+    "to": "if (url && at && at.has(url)) { landed.push({ name: r, route: r }); continue; }"
+  },
+  {
+    "label": "C2 — every requested shot counts as landed, so a refused one answers its own claim",
+    "files": ["worker.js"],
+    "from": "if (url && at && at.has(url)) { landed.push({ name: String(s.name || \"\"), route: r }); continue; }",
+    "to": "landed.push({ name: String(s.name || \"\"), route: r });\n                if (url && at && at.has(url)) continue;"
+  },
+  {
+    "label": "C2 — the placement half goes: a picture bought for another page counts as landed here",
+    "files": ["worker.js"],
+    "from": "if (url && at && at.has(url)) { landed.push({ name: String(s.name || \"\"), route: r }); continue; }",
+    "to": "if (url) { landed.push({ name: String(s.name || \"\"), route: r }); continue; }"
+  },
+  {
+    "label": "C2 — the ROUTE entries go, so a combined requirement has nothing to resolve against",
+    "files": ["builder/site-add.mjs"],
+    "from": "  for (const p of Array.isArray(photos) ? photos : []) {\n    const name = String((p && p.route) || \"\").trim();",
+    "to": "  for (const p of []) {\n    const name = String((p && p.route) || \"\").trim();"
+  },
+  {
+    "label": "C2 — the route half of the loss goes, so a combined requirement is answered by the one that worked",
+    "files": ["worker.js"],
+    "from": "                if (at && at.size) lostAt.add(r);",
+    "to": "                if (false) lostAt.add(r);"
+  },
+  {
+    "label": "C2 — a shot entry claims the picture is there whatever landed",
+    "files": ["builder/site-add.mjs"],
+    "from": "    const holds = [\"bought\"];\n    for (const w of route.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);",
+    "to": "    const holds = [\"bought\"];"
+  },
+  {
+    "label": "C2 — a picture needs no name, so two on one page are indistinguishable again",
+    "files": ["builder/site-add.mjs"],
+    "from": "        required: [\"page\", \"describe\", \"name\"],",
+    "to": "        required: [\"page\", \"describe\"],"
+  },
+  {
+    "label": "C2 — an unusable name is accepted rather than refused",
+    "files": ["builder/site-add.mjs"],
+    "from": "        if (name.length > MAX_PHOTO_NAME || !PHOTO_NAME.test(name)) return { ok: false, why: \"no-photo-name\" };",
+    "to": "        if (false) return { ok: false, why: \"no-photo-name\" };"
+  },
+  {
+    "label": "C2 — an over-long name is SLICED, so the requirement echoing it resolves against nothing",
+    "files": ["builder/site-add.mjs"],
+    "from": "        const name = str(v.name, MAX_PHOTO_NAME + 16).toLowerCase();\n        if (name.length > MAX_PHOTO_NAME || !PHOTO_NAME.test(name)) return { ok: false, why: \"no-photo-name\" };",
+    "to": "        const name = str(v.name, MAX_PHOTO_NAME).toLowerCase();\n        if (!PHOTO_NAME.test(name)) return { ok: false, why: \"no-photo-name\" };"
+  },
+  {
+    "label": "C2 — a name may be a route, so the two identities collide in one field",
+    "files": ["builder/site-add.mjs"],
+    "from": "const PHOTO_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;",
+    "to": "const PHOTO_NAME = /^[/a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;"
+  },
+  {
+    "label": "C2 — two pictures in one answer may share a name, which is the collapse through the designer",
+    "files": ["builder/site-add.mjs"],
+    "from": "        if (ctx.photos.includes(name)) return { ok: false, why: \"no-photo-name\" };",
+    "to": "        if (false) return { ok: false, why: \"no-photo-name\" };"
+  },
+  {
+    "label": "C2 — the fold drops the name one hop after the cleaner kept it",
+    "files": ["builder/site-add.mjs"],
+    "from": "      photos.push({ page: v.page, describe: v.describe, name: String(v.name || \"\") });",
+    "to": "      photos.push({ page: v.page, describe: v.describe });"
+  },
+  {
+    "label": "C2 — the shared ctx loses the photo list, so the duplicate check reads a kind's own key",
+    "files": ["builder/site-add.mjs"],
+    "from": "  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [], unknownKit: [] };",
+    "to": "  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [\"bench\"], unknownKit: [] };"
+  },
+  {
+    "label": "C2 — the tool stops telling a designer it may name a picture",
+    "files": ["builder/site-requirements.mjs"],
+    "from": "a route like \\\"/booking-check\\\", the short name you gave a photograph. A requirement about ONE \" +\n        \"picture names that picture; one about every picture on a page names the page's route. \" +",
+    "to": "a route like \\\"/booking-check\\\". \" +"
+  }
+]

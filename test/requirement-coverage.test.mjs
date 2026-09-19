@@ -96,6 +96,18 @@ test("the three statuses are genuinely different answers and the item asks for a
     "the item is offered for one status again, so a covered claim can never name its own thing");
   assert.match(item, /"elsewhere"/, "the item no longer says what it means for a hand-off");
   assert.match(item, /"covered"/, "the item no longer says what it means for a claim");
+  // ⚠ AND IT SAYS A PHOTOGRAPH HAS TWO (2026-09-19) — the picture's own name
+  // for a need about ONE of them, the page's route for a need about all of
+  // them. THE PROSE HALF OF THE WIRING TRAP, and it is asserted here because
+  // nothing else can see it: the reconciliation resolves a named picture
+  // perfectly whether or not any designer is told it may name one, so a sweep
+  // mutant that cut this sentence SURVIVED every behaviour case in the suite.
+  // From outside, "the model did not name the picture" and "we never told it
+  // it could" are the same missing field.
+  assert.match(item, /short name you gave a photograph/i,
+    "a designer is no longer told it may name one picture, so the reconciliation is unreachable for a photo");
+  assert.match(item, /about ONE\s*"?\s*\+?\s*"?\s*picture names that picture/i,
+    "the item no longer says which of a photograph's two identities means what");
 });
 
 test("cleanRequirements refuses what it cannot read and never repairs it to covered", () => {

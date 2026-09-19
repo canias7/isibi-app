@@ -11522,7 +11522,27 @@ async function siteFunctions(site) {
       if (!jobs) { listEl.innerHTML = '<div class="si-empty">Couldn\u2019t load the schedule — try again.</div>'; return; }
       if (!jobs.length) { listEl.innerHTML = '<div class="si-empty">No scheduled jobs. In the builder, say what you want to happen on a timer — e.g. “email people the day before their appointment”.</div>'; return; }
       listEl.innerHTML = jobs.map((j) => jobRowHtml(j, j.lastRun ? when(j.lastRun) : '')).join('');
-      listEl.querySelectorAll('.fn-run').forEach((b) => b.onclick = async () => {
+      // ── BOUND BY WHAT EACH HANDLER READS, NEVER BY THE LOOK ──────────────
+      //
+      // ⚠ REPRODUCED 2026-09-19, and it had been live since Run now shipped
+      // (2026-09-03): both selectors were CLASSES, and Run now carries
+      // `class="fn-tgl fn-run"` because `fn-tgl` is its LOOK — so `.fn-tgl`
+      // matched it too and the second assignment overwrote the first. Clicking
+      // Run now ran the pause/resume handler, which reads `b.dataset.job` (the
+      // Run now button has `data-run`, not `data-job`) and posted
+      // `{"enabled": true}` — no name, no `run: true`, `JSON.stringify`
+      // dropping the undefined key. **Run now has never worked in a browser**;
+      // every guard read the markup, the CSS or the endpoint, and none of them
+      // built the DOM and clicked.
+      //
+      // THE DATASET IS THE DISCRIMINATOR AND IT ALWAYS WAS: these are the two
+      // fields the two handlers read. Binding on them makes "which handler is
+      // this button bound to" and "which field does that handler read" one
+      // fact instead of two that can disagree — a class can be shared for its
+      // appearance and a third button carrying both looks is bound by neither.
+      // The disabled Run now (a spent one-time job) carries neither and so gets
+      // no handler at all, which is the belt beside `disabled`.
+      listEl.querySelectorAll('[data-run]').forEach((b) => b.onclick = async () => {
         b.disabled = true;
         try {
           const r = await apiFetch('/api/site/' + encodeURIComponent(slug) + '/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: b.dataset.run, run: true }) });
@@ -11533,7 +11553,7 @@ async function siteFunctions(site) {
         } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t run it — check your connection.'); }
         finally { b.disabled = false; }
       });
-      listEl.querySelectorAll('.fn-tgl').forEach((b) => b.onclick = async () => {
+      listEl.querySelectorAll('[data-job]').forEach((b) => b.onclick = async () => {
         // The next state is the opposite of what the server last said, read
         // off the button — the notify toggle's idiom, including repainting
         // from the server's stored answer (a reload) rather than optimism.

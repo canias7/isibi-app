@@ -1004,8 +1004,29 @@ const ADDS = {
               "bodies clamped along it, warm afternoon light\", not \"a nice workshop photo\". " +
               "No words on the image, no logos, no text of any kind — it is a photograph.",
           },
+          // ── THE ONE THING THAT TELLS TWO PICTURES APART (2026-09-19) ──────
+          //
+          // ⚠ REPRODUCED: two pictures on one page, one generated and one
+          // refused. The route was a photograph's whole identity, so BOTH
+          // requirements resolved against `/gallery` and both read as blocked —
+          // the customer was told the picture that really landed was not there.
+          // A route cannot separate two pictures on it, and the `describe` is
+          // the prompt rather than a label (240 characters against the 80 an
+          // `item` keeps, so echoing one back is silently truncated).
+          //
+          // A LABEL THE DESIGNER COINS, exactly as a QR code's `name` is. It is
+          // not a binding — no page ever writes `SITE_PHOTOS.bench` — so it
+          // exists for one purpose: to be the name a requirement points at.
+          name: {
+            type: "string",
+            description:
+              "A SHORT NAME FOR THIS PICTURE — lowercase letters, digits and single hyphens, like \"bench\", " +
+              "\"oven\" or \"shop-front\". Nobody sees it; it is how you point at this one picture when a " +
+              "requirement is about it, so two pictures in one answer must not share a name. Describe the " +
+              "SUBJECT, not the position: \"bench\", never \"first\" or \"hero\".",
+          },
         },
-        required: ["page", "describe"],
+        required: ["page", "describe", "name"],
       },
     },
     add: {
@@ -1033,14 +1054,19 @@ const ADDS = {
     // had no identity at all — `photo` was in `OPAQUE_KINDS` precisely because
     // "a photo is a URL inside a file", which is true and is the wrong thing
     // to identify one BY: this designer answers `{page, describe}` and cannot
-    // know the url, which the provider mints after it has spoken. THE
-    // PLACEMENT is the identity, and by it a photograph is enumerable in both
-    // haystacks — `appliedFacts` names each route this change put a picture on
-    // and `existingFacts` each route that already had one.
+    // know the url, which the provider mints after it has spoken.
     //
-    // SO THE ITEM A REQUIREMENT NAMES IS A ROUTE, and it is the designer's own
-    // `page` value — which is what makes the reference explicit rather than a
-    // count or a word match.
+    // ⚠ AND THE PLACEMENT ALONE WAS TOO COARSE (corrected 2026-09-19). A route
+    // is the identity of WHERE, and two pictures can share one — so a page with
+    // one picture generated and one refused had both requirements resolve
+    // against the same name, and the one that really landed read as failed. A
+    // requirement points at a picture by its own `name` now, and at a route
+    // when it is about all of them: a combined need stays incomplete while one
+    // is missing, and the individual need that succeeded keeps its own answer.
+    //
+    // BOTH IDENTITIES ARE THE DESIGNER'S OWN VALUES, which is what keeps the
+    // reference explicit rather than a count or a word match — and they cannot
+    // collide, because a route starts with `/` and `PHOTO_NAME` forbids one.
     requirements: true,
   },
 };
@@ -1991,6 +2017,34 @@ const NAME = /^[a-z][a-z0-9-]*$/;
 /** A table name, as the engine wants it. */
 const TABLE_NAME = /^[a-z][a-z0-9_]{0,62}$/;
 
+/**
+ * A photograph's own name — the label a requirement points at (2026-09-19).
+ *
+ * The same SHAPE as a QR code's `QR_NAME` and deliberately not that constant:
+ * that one names a JavaScript binding the page writes (`SITE_QRS.wifi`), so
+ * widening it is a decision about generated source, and this one names nothing
+ * but itself. Tying them would make a change to either silently change the
+ * other.
+ *
+ * **IT CANNOT COLLIDE WITH A ROUTE**, which is the other thing a photo
+ * requirement may name: a route starts with `/` and this refuses one.
+ */
+const PHOTO_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+/** How long a photograph's name may be — the length half of `PHOTO_NAME`, which a regex bound would hide. */
+const MAX_PHOTO_NAME = 24;
+
+/**
+ * The per-answer scratch every cleaner shares — the names taken so far.
+ *
+ * ONE SHAPE, BOTH CALL SITES: a `function` declaration so it cannot be called
+ * above its own line, and one definition so the list path and the single path
+ * cannot drift into a `TypeError` the day a kind moves between them.
+ */
+function freshCtx() {
+  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [], unknownKit: [] };
+}
+
 const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
 // THE HOME ROUTE IS ONE SLASH AND STAYS ONE: stripping trailing slashes from
 // "/" leaves "", which the first draft read as no route at all — so a section
@@ -2227,7 +2281,29 @@ export function cleanAdd(kind, value, site) {
         if (!page) return { ok: false, why: "no-page" };
         const describe = str(v.describe, MAX_PROMPT_CHARS);
         if (!describe) return { ok: false, why: "no-photo" };
-        return { ok: true, value: { page, describe } };
+        // ── THE NAME, AND WHY IT IS REFUSED RATHER THAN INVENTED ────────────
+        //
+        // A name derived here would be OURS, and the whole point is that the
+        // designer can point a requirement at this picture — a label it never
+        // wrote is one it can never name. Refusing costs one round trip and no
+        // money: this runs in the kinds loop, long before `buySitePhotos`, and
+        // a list kind refuses the ENTRY rather than the answer, so the other
+        // pictures are unaffected and this one is named in `skipped`.
+        //
+        // AND IT IS REFUSED RATHER THAN SLICED, which is the opposite of what
+        // the `describe` above it gets — because they are different kinds of
+        // value. A sliced brief is still the picture somebody asked for; a
+        // sliced NAME is a label the designer never wrote, so the requirement
+        // echoing the name it DID write resolves against nothing and reads as
+        // work that was never done.
+        const name = str(v.name, MAX_PHOTO_NAME + 16).toLowerCase();
+        if (name.length > MAX_PHOTO_NAME || !PHOTO_NAME.test(name)) return { ok: false, why: "no-photo-name" };
+        // TWO PICTURES IN ONE ANSWER MAY NOT SHARE A NAME, or the reference
+        // resolves to whichever the reader met first — which is the route
+        // collapse this name exists to end, one field over.
+        if (ctx.photos.includes(name)) return { ok: false, why: "no-photo-name" };
+        ctx.photos.push(name);
+        return { ok: true, value: { page, describe, name } };
       }
       case "table": {
         const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
@@ -2499,7 +2575,7 @@ export function cleanAdd(kind, value, site) {
     const usable = raw.filter(isObj);
     const items = usable.slice(0, cap);
     if (!items.length) return { ok: false, why: "nothing" };
-    const ctx = { paths: [], tables: [], functions: [], apis: [], jobs: [], unknownKit: [] };
+    const ctx = freshCtx();
     const kept = [], skipped = [];
     const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80);
     for (const v of items) {
@@ -2524,7 +2600,11 @@ export function cleanAdd(kind, value, site) {
   }
   const v = isObj(value) ? value : null;
   if (!v) return { ok: false, why: "nothing" };
-  return one(v, { paths: [], tables: [], unknownKit: [] });
+  // ONE SHAPE, BOTH CALLERS. The two literals had drifted — this one carried
+  // three keys against the list path's six — which is free while every reader
+  // is `ctx.x.includes(...)` on a key its own kind sets, and a `TypeError` the
+  // day a list kind stops being one. `freshCtx` is the one definition.
+  return one(v, freshCtx());
 }
 
 /**
@@ -2602,6 +2682,10 @@ export function addRefusal(why, kind) {
     // prompt an image model is paid to draw, so an empty one is refused rather
     // than sent — and the sentence asks for the one thing that unblocks it.
     case "no-photo": return "I couldn't tell what the photograph should show — say what's in it, like \"the workshop bench under the window\", and I'll make it.";
+    // THE CUSTOMER'S WORDS FOR A LABEL THEY NEVER SEE. It is bookkeeping and
+    // saying so would be no use to them, so this asks for the ONE thing that
+    // fixes it from their side: say which pictures you want, separately.
+    case "no-photo-name": return "I got two pictures muddled up — say which photographs you want one at a time and I'll place each of them.";
     // THE TWO THE ENGINES USED TO DO SILENTLY. A cut body and a dropped entry
     // both used to ship as a success; they are sentences the customer can act
     // on, which is the whole point of refusing rather than slicing.
@@ -2827,9 +2911,15 @@ export function foldAdds(answers, priorLook, site) {
     // one purchase, and `planImages` reuses one token's url wherever it appears
     // — but two different pictures on one page are two, so the page alone is
     // not the key.
+    //
+    // …AND THE NAME RIDES WITH THEM (2026-09-19), because it is what a
+    // requirement points at. The dedupe stays on the pair rather than moving
+    // to the name: the cleaner already refuses two pictures sharing a name
+    // within one answer, so the two rules cover different things — that one
+    // stops an ambiguous REFERENCE, this one stops a second PURCHASE.
     if (a.kind === "photo" && v.page && v.describe &&
         !photos.some((p) => p.page === v.page && p.describe === v.describe)) {
-      photos.push({ page: v.page, describe: v.describe });
+      photos.push({ page: v.page, describe: v.describe, name: String(v.name || "") });
     }
     if (a.kind === "table" && v.table) {
       tables.push(v.table);
@@ -4056,7 +4146,7 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], photos = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], photos = [], shots = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -4267,6 +4357,33 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   // `checked` IS EMPTY, as everywhere else here: a url in a `src` is
   // configuration read back off what was published, and nothing on this path
   // has loaded the image or looked at what it shows.
+  // ⚠ AND EACH REQUESTED PICTURE BY ITS OWN NAME (corrected 2026-09-19).
+  //
+  // REPRODUCED: a bench photograph generated and placed on `/gallery`, an oven
+  // photograph refused on the same page. Both requirements named `/gallery` —
+  // the only identity a photograph had — so the route's failure answered both
+  // and the customer was told the bench picture was not there.
+  //
+  // A ROUTE IS THE IDENTITY OF *WHERE* AND IT CANNOT SEPARATE TWO PICTURES ON
+  // IT. `shots` is the requests that really LANDED, each under the name its
+  // own designer gave it, so an individual requirement resolves against its
+  // own picture; the route entries below stay, and are what keeps a COMBINED
+  // requirement ("both photographs are on the gallery page") incomplete while
+  // one of them is missing.
+  //
+  // `bought` WITHOUT A CONDITION, because a shot IS a request this change
+  // made: a landed one is a picture the provider minted in this run. The
+  // route's words ride along for the same reason they do below — a `by` clause
+  // says *"the bench photograph on the gallery page"*, which names neither
+  // `bought` nor a name we invented.
+  for (const s of Array.isArray(shots) ? shots : []) {
+    const name = String((s && s.name) || "").trim().toLowerCase();
+    const route = String((s && s.route) || "").trim();
+    if (!name) continue;
+    const holds = ["bought"];
+    for (const w of route.toLowerCase().split(/[^a-z0-9]+/)) if (w.length >= 3) holds.push(w);
+    out.push({ kind: "photo", name, holds, fails: [], checked: [] });
+  }
   for (const p of Array.isArray(photos) ? photos : []) {
     const name = String((p && p.route) || "").trim();
     if (!name) continue;

@@ -12409,6 +12409,129 @@ marker**.
 **NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO CUSTOMER-SITE
 REPAIR** — the owner's standing constraint for this round, unchanged.
 
+### …AND TWO BOUNDED CORRECTIONS TO IT, BOTH REPRODUCED FIRST (2026-09-19)
+
+Owner, on `31ff416`: *"Fix the actual Jobs panel click wiring… Keep photo
+failures specific to the requested photograph."*
+
+#### 1. RUN NOW HAS NEVER WORKED IN A BROWSER, AND IT IS NOT THIS BRANCH'S
+
+**REPRODUCED by building the real DOM and pressing the button: clicking Run now
+POSTs `{"enabled":true}`** — no `name`, no `run: true`. `jobRowHtml` draws it
+`class="fn-tgl fn-run"` because `fn-tgl` is its LOOK (`.fn-tgl.fn-run` in the
+sheet), and `siteFunctions` bound `.fn-run` first and `.fn-tgl` second — so the
+second assignment overwrote the first on the one button carrying both. The
+pause/resume handler then read `b.dataset.job`, which is `undefined` on a button
+carrying `data-run`, and `JSON.stringify` dropped the key.
+
+**IT DATES TO `a2aa681c` (2026-09-03), THE COMMIT THAT SHIPPED RUN NOW** — both
+`31fe5b61` and `origin/main` carry it, and the handler order has never differed.
+So every recorded Run now press went through the API or the harness, never the
+panel. **Nothing caught it because every guard was a source read** — the row's
+markup, the CSS rule, the POST body's literal, the endpoint — and not one of
+them bound a handler.
+
+**THE DATASET IS THE DISCRIMINATOR AND IT ALWAYS WAS.** `[data-run]` and
+`[data-job]` are the two fields the two handlers read, so binding on them makes
+*which handler is this bound to* and *which field does that handler read* one
+fact instead of two that can disagree; a class stays free to be shared for its
+appearance. The disabled Run now on a spent one-time job carries neither and so
+gets no handler at all, which is the belt beside `disabled`.
+
+**Guards**: `site-jobs-visible` **12 → 16**, four cases that load the page's own
+scripts, let `siteFunctions` write its rows, PARSE the buttons out of the markup
+it really drew, and press one — asserting the OUTGOING REQUEST. The Run now case
+asserts the button still carries `fn-tgl`, or a row that dropped the shared look
+would make it pass for the wrong reason; the switch case is the CONTROL, because
+"Run now stopped running the pause handler" is satisfied just as well by
+unbinding the pause handler from everything; the census asks that no button
+carries both datasets, over every state a row can be drawn in; and the spent
+one-time job keeps its three layers (disabled, no dataset, no request).
+**Red-checked: the pre-fix binding turns cases 13 and 16 red and leaves the
+control and the census green.**
+
+#### 2. A PHOTOGRAPH IS A NAMED THING NOW, BECAUSE A ROUTE IS THE IDENTITY OF *WHERE*
+
+**REPRODUCED through `POST /api/site/<slug>/addon`**: two requirements on
+`/gallery`, one for a bench photograph and one for an oven photograph; the bench
+generated and its url reached the compiled and stored page, the oven refused.
+Both read `blocked`, and the customer was told the bench picture was not there.
+`aPhotoLost` held ROUTES, so `/gallery`'s failure was the only fact either claim
+could resolve against.
+
+**THE DESCRIBE COULD NOT BE THE IDENTITY, AND THE CAPS SAY SO RATHER THAN A
+PREFERENCE**: `describe` is capped at `MAX_PROMPT_CHARS` (240) and an `item` at
+**80**, so a designer echoing a real brief back would have it silently truncated.
+So the shot gains a `name` — the `qr` precedent exactly, a label the designer
+coins, not a binding, and **`PHOTO_NAME` refuses a leading slash**, which is what
+keeps the picture's identity and the route's from colliding in one field.
+
+- **REQUIRED, NOT OPTIONAL.** An optional identity leaves the collapse reachable
+  in the ordinary case; refusing costs one round trip and **no money**, because
+  the cleaner runs in the kinds loop long before `buySitePhotos` and a list kind
+  refuses the ENTRY rather than the answer.
+- **REFUSED RATHER THAN SLICED**, which is the opposite of what the `describe`
+  above it gets, and for a stated reason: a sliced brief is still the picture
+  somebody asked for, and a sliced NAME is a label the designer never wrote — so
+  the requirement echoing the name it DID write resolves against nothing.
+- **TWO PICTURES IN ONE ANSWER MAY NOT SHARE A NAME**, or the reference resolves
+  to whichever the reader met first, which is the collapse arriving through the
+  designer instead of through the route. The fold's dedupe stays on the
+  page+describe PAIR: that one stops a second purchase, this one stops an
+  ambiguous reference.
+- **THE ROUTE ENTRIES STAY**, and they are what keeps a COMBINED requirement
+  incomplete while one picture is missing — the owner's other half. A designer
+  naming the route is making a claim about every picture there.
+- **`freshCtx` COLLAPSED TWO DRIFTED LITERALS INTO ONE**: the cleaner's
+  per-answer scratch was written twice with different key sets (six against
+  three), free while every reader asks a key its own kind sets and a `TypeError`
+  the day a list kind stops being one.
+
+**MEASURED through the route, in one reply**: the bench claim reads `found` /
+`implementedBy: "bench"` / `foundIn: "applied"` → `configured`; the oven claim
+`absent` → `failed` and *"Still to do: A photograph of the oven is on the gallery
+page"*; the combined claim → `blocked`. **The control — the same three claims
+with both pictures bought — reads `configured` / `configured` / `unverified` and
+no "Still to do" at all.** The combined one is `unverified` rather than
+`configured` because its own prose never names `/gallery`, so nothing is read
+back for it; asserting one value for all three would have been asserting a
+coincidence. **`checked` is empty on every applied item**, asserted.
+
+**⚠ AND THE REVIEWER'S LITERAL INPUT STILL READS AS TWO COMBINED CLAIMS.** Two
+requirements that both name `/gallery` are, under the new tool, two claims about
+every picture on that page — and both stay incomplete, correctly. What the fix
+buys is that a need about ONE picture can now BE about one picture: the identity
+exists, the tool offers it, and the `item` description tells a designer which of
+the two to use.
+
+**Guards**: `addon-route` **172 → 173** (the split reproduction with its
+both-bought control in the same shape), `site-add` **45** and
+`requirement-coverage` **35**, both gaining assertions inside cases that already
+existed. **Each half red-checked ALONE**: cutting the per-shot entries in
+`appliedFacts` turns exactly one case red, and so does cutting the route's
+forwarding of which request landed.
+
+**Seven older guards re-anchored, not appeased** — the photo tool's property
+census (`name` required), the cap case (whose `skipped` entry now says WHICH
+picture was left out, where it read `name: ""` — strictly stronger), and five
+fixtures that gained the name their designer would now have to give.
+
+**Sweep: 24 mutants, 24 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Both reported defects are mutants in it. **Pass 1 read 23/1
+and the survivor was not the product's**: the `item` description's own sentence
+about naming a photograph, which **no behaviour case can see** — the
+reconciliation resolves a named picture whether or not any designer is told it
+may name one, so from outside *"the model did not name it"* and *"we never told
+it it could"* are the same missing field. Closed with a source assertion in the
+guard that owns `REQUIREMENT_ITEM`.
+
+**Suite 6,967** — 6,962 + 4 + 1, and the arithmetic closes exactly against
+baselines measured in a detached worktree at `31ff4161` (12 / 172 / 45) rather
+than subtracted from a paragraph.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO LIVE MESSAGE, NO
+REPORTING REDESIGN** — the owner's standing constraint, unchanged.
+
 ---
 
 ## Data, auth, payments, mail

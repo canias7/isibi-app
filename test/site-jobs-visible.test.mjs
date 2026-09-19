@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import vm from "node:vm";
 import { jobOutcome, MAX_MESSAGES_PER_RUN } from "../site-jobs.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
@@ -243,4 +244,259 @@ test("THE PANEL IS REACHABLE — the card is not forced Off", () => {
   const panel = chat.slice(c, c + 4200);
   for (const gone of ["spec.steps", "stepLabel", "fn-hook-url"])
     assert.equal(panel.includes(gone), false, panel.slice(0, 0) + gone + " is a relic of the deleted runner");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PANEL'S OWN CLICK, DRIVEN — because every guard above this line reads the
+// markup, the CSS or the endpoint, and none of them binds a handler.
+//
+// ⚠ WHAT THAT COST, MEASURED: Run now is drawn `class="fn-tgl fn-run"` —
+// `fn-tgl` is its LOOK (`.fn-tgl.fn-run` in the sheet) — and `siteFunctions`
+// bound `.fn-run` first and `.fn-tgl` second, so the second assignment
+// overwrote the first on the one button that carries both. Clicking Run now ran
+// the pause/resume handler, which reads `b.dataset.job`; the Run now button
+// carries `data-run`, so that is `undefined`, `JSON.stringify` drops the key,
+// and the request that went out was `{"enabled":true}` — no name, no run.
+// **Live since Run now shipped on 2026-09-03**, through `31fe5b61` and
+// `origin/main` alike, with every assertion about this button green the whole
+// time. A class is a LOOK and a dataset is a CONTRACT; the handlers bind on the
+// dataset each one reads.
+
+/**
+ * The page's own script list, derived from `index.html`.
+ *
+ * `chat.js` is a CLASSIC SCRIPT that reads names its siblings define, so a
+ * hand-kept list here would go stale the first time the page gains one —
+ * silently, as a "not defined" that reads like a broken test. `auth.js` is
+ * replaced by a stub because nothing here is about who is signed in.
+ */
+const PANEL_SCRIPTS = [...fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8")
+  .matchAll(/<script src="\/([a-z0-9/.-]+\.js)"><\/script>/g)].map((m) => m[1]);
+
+/**
+ * A DOM small enough to read and real enough to BIND.
+ *
+ * **THE BUTTONS ARE PARSED OUT OF THE MARKUP THE PRODUCT REALLY DREW**, which
+ * is the only thing that makes these cases mean anything: `jobRowHtml` answers
+ * a STRING and `siteFunctions` binds ELEMENTS, so without a parse in between
+ * the two halves never meet and a case would be asserting that a fixture it
+ * typed itself round-trips. A class the row stops drawing disappears here too.
+ *
+ * It is deliberately FLAT — every button lands as a direct child of whatever
+ * had `innerHTML` written to it, rather than inside the `.fn-item` wrapper.
+ * `querySelectorAll` is a DESCENDANT search in a browser, so for every selector
+ * this panel uses the two models answer identically.
+ */
+function panelDom() {
+  const byId = new Map();
+  const mk = (tag) => {
+    const kids = [];
+    return {
+      tag, id: "", className: "", title: "", value: "", textContent: "",
+      disabled: false, dataset: {}, style: {}, children: kids, onclick: null,
+      classList: { add() {}, remove() {}, contains: () => false, toggle() {} },
+      appendChild(c) { kids.push(c); if (c.id) byId.set(c.id, c); return c; },
+      removeChild() {}, remove() {}, addEventListener() {}, removeEventListener() {},
+      focus() {}, blur() {},
+      // A REAL PRESS: whatever handler the panel assigned, called the way a
+      // browser calls it. A button nothing bound answers `null` and does
+      // nothing, which is a real outcome and not a skipped case.
+      click() { return this.onclick ? this.onclick({ target: this }) : null; },
+      setAttribute(k, v) { if (k === "id") { this.id = String(v); byId.set(this.id, this); } },
+      getAttribute: () => null,
+      get innerHTML() { return this._html || ""; },
+      set innerHTML(h) {
+        this._html = String(h);
+        kids.length = 0;
+        for (const m of this._html.matchAll(/<div[^>]*\sid="([a-z0-9]+)"[^>]*>/gi)) {
+          const d = mk("div"); d.id = m[1]; byId.set(d.id, d); kids.push(d);
+        }
+        for (const m of this._html.matchAll(/<button\b([^>]*)>/g)) {
+          const tag2 = m[1];
+          const b = mk("button");
+          const cls = /\sclass="([^"]*)"/.exec(tag2);
+          b.className = cls ? cls[1] : "";
+          b.disabled = /\sdisabled(\s|$|=)/.test(tag2);
+          const t = /\stitle="([^"]*)"/.exec(tag2);
+          if (t) b.title = t[1];
+          for (const a of tag2.matchAll(/\sdata-([a-z-]+)="([^"]*)"/g)) {
+            b.dataset[a[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = a[2];
+          }
+          kids.push(b);
+        }
+      },
+      querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
+      // The three selector shapes this panel uses, and no more: `#id`, `.class`
+      // and `[data-x]`. An unsupported one would answer `[]` and read as "the
+      // panel bound nothing", so each case asserts what it found before using it.
+      querySelectorAll(sel) {
+        const want = String(sel).trim();
+        const attr = /^\[data-([a-z-]+)\]$/.exec(want);
+        const key = attr ? attr[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()) : "";
+        return kids.filter((c) => (attr
+          ? Object.hasOwn(c.dataset, key)
+          : want.startsWith("#") ? c.id === want.slice(1)
+            : want.startsWith(".") ? String(c.className).split(/\s+/).includes(want.slice(1))
+              : c.tag === want));
+      },
+    };
+  };
+  const doc = {
+    // CREATE ON DEMAND, because the page's own boot reaches for ids this
+    // fixture has no reason to know about; the panel's own `#fnList` is found
+    // through `box.querySelector`, so nothing here can stand in for it.
+    getElementById: (id) => {
+      if (!byId.has(id)) { const e = mk("div"); e.id = id; byId.set(id, e); }
+      return byId.get(id);
+    },
+    createElement: mk, querySelector: () => null, querySelectorAll: () => [],
+    addEventListener() {}, body: mk("body"), head: mk("head"),
+    documentElement: mk("html"), title: "", activeElement: null,
+  };
+  return { doc };
+}
+
+/** Load the real page scripts, stub the one door to the network, and hand back the panel's buttons. */
+async function openPanel(jobs, { post } = {}) {
+  const { doc } = panelDom();
+  const calls = [];
+  const toasts = [];
+  const s = {
+    console: { log() {}, warn() {}, error() {} },
+    document: doc,
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    crypto: { randomUUID: () => "id-x" },
+    location: { pathname: "/", search: "", href: "https://gofarther.dev/", origin: "https://gofarther.dev", reload() {} },
+    history: { replaceState() {}, pushState() {} },
+    navigator: { userAgent: "node", language: "en", clipboard: { writeText: async () => {} } },
+    setTimeout, clearTimeout, setInterval, clearInterval,
+    fetch: async () => { throw new Error("no bare fetch"); },
+    Auth: {
+      userId: () => "acct-A", email: () => "you@example.com", accessToken: async () => "tok",
+      isSignedIn: () => true, onChange() {}, signOut: async () => {},
+      signOutEverywhere: async () => {}, session: () => ({ user: { id: "acct-A" } }),
+    },
+    matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
+    requestAnimationFrame: (f) => setTimeout(f, 0),
+    URL, URLSearchParams, TextEncoder, Response, Request, Headers, AbortSignal,
+    Intl, Date, Math, JSON, confirm: () => true, alert() {}, prompt: () => null,
+    getComputedStyle: () => ({ getPropertyValue: () => "", width: "0px", height: "0px" }),
+    IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
+    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+    MutationObserver: class { observe() {} disconnect() {} },
+    Blob, File: globalThis.File, FormData, Image: class {},
+    performance, queueMicrotask, structuredClone, btoa, atob,
+  };
+  s.addEventListener = () => {};
+  s.removeEventListener = () => {};
+  s.dispatchEvent = () => true;
+  s.window = s;
+  s.globalThis = s;
+  vm.createContext(s);
+  for (const src of PANEL_SCRIPTS) {
+    if (src === "auth.js") continue;
+    vm.runInContext(fs.readFileSync(new URL("../public/" + src, import.meta.url), "utf8"), s, { filename: src });
+  }
+  // Replaced AFTER load, so the handlers under test are the real ones.
+  s.apiFetch = async (path, opts = {}) => {
+    const rec = { path, method: (opts && opts.method) || "GET", body: opts && opts.body ? JSON.parse(opts.body) : null };
+    calls.push(rec);
+    if (rec.method !== "POST") return { ok: true, status: 200, json: async () => ({ ok: true, jobs }) };
+    return post ? post(rec) : { ok: true, status: 200, json: async () => ({ ok: true, result: "Ran." }) };
+  };
+  s.sbToast = (m) => { toasts.push(String(m)); };
+  vm.runInContext(`siteFunctions({ slug: "repairbench-1" })`, s, { filename: "case.js" });
+  await new Promise((r) => setTimeout(r, 20));
+  const buttons = doc.getElementById("fnList").children.filter((c) => c.tag === "button");
+  return {
+    buttons, calls, toasts,
+    posts: () => calls.filter((c) => c.method === "POST"),
+    byClass: (c) => buttons.filter((b) => String(b.className).split(/\s+/).includes(c)),
+  };
+}
+
+const RECURRING = {
+  name: "nightly_booking_count", fn: "nightly_booking_count", everyMinutes: 1440,
+  at: "23:00", tz: "Europe/London", enabled: true, lastRun: null, lastResult: null,
+  on: null, onState: null,
+};
+
+test("CLICKING RUN NOW POSTS {name, run:true} — the binding, not the markup", async () => {
+  const p = await openPanel([RECURRING]);
+  const run = p.byClass("fn-run");
+  // THE OBSERVER, PROVED ALIVE FIRST. "no wrong request went out" is a negative
+  // assertion, and a fixture that drew no Run now button satisfies it perfectly.
+  assert.equal(run.length, 1, "the panel drew no Run now button at all — nothing below is being tested");
+  assert.equal(run[0].dataset.run, RECURRING.name, "Run now lost the job name it posts");
+  // …AND IT STILL CARRIES BOTH CLASSES, which is the whole point: the fix is
+  // not "stop sharing the look", it is "stop binding on the look". A row that
+  // dropped `fn-tgl` would make this case pass for the wrong reason.
+  assert.ok(String(run[0].className).split(/\s+/).includes("fn-tgl"),
+    "Run now no longer shares the switch's look, so this case cannot see the collision it exists for");
+  assert.ok(typeof run[0].onclick === "function", "Run now has no handler bound to it");
+
+  await run[0].click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(p.posts().map((c) => c.body), [{ name: RECURRING.name, run: true }],
+    "Run now sent something other than a run of that job — this is the reproduced defect");
+  assert.deepEqual(p.posts().map((c) => c.path), ["/api/site/repairbench-1/jobs"], "Run now posted to the wrong route");
+  assert.ok(p.toasts.includes("Ran."), "the sentence the run came back with was not shown");
+});
+
+test("CLICKING THE ON SWITCH STILL POSTS {name, enabled} — the control that makes the fix a fix", async () => {
+  // Without this, "Run now stopped running the pause handler" is satisfied just
+  // as well by a change that unbinds the pause handler from everything.
+  const p = await openPanel([RECURRING], { post: () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }) });
+  const tgl = p.buttons.filter((b) => Object.hasOwn(b.dataset, "job"));
+  assert.equal(tgl.length, 1, "the panel drew no pause/resume switch");
+  assert.ok(typeof tgl[0].onclick === "function", "the pause/resume switch has no handler bound to it");
+  await tgl[0].click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(p.posts().map((c) => c.body), [{ name: RECURRING.name, enabled: false }],
+    "the switch no longer pauses the job it names");
+});
+
+test("NO BUTTON IS BOUND TWICE — a census over every state a row can be drawn in", async () => {
+  // The defect was one button matched by two selectors, and the shape that let
+  // it happen is a CLASS used for binding. This asks the property directly, over
+  // every row state the panel can draw, so a third button that gains both
+  // datasets is a red run rather than a silent rebinding.
+  const states = [
+    { ...RECURRING },
+    { ...RECURRING, enabled: false },
+    { ...RECURRING, everyMinutes: 44640, at: "09:00", on: "2026-10-03", onState: "scheduled" },
+    { ...RECURRING, everyMinutes: 44640, at: "09:00", on: "2026-10-03", onState: "missed" },
+    { ...RECURRING, everyMinutes: 44640, at: "09:00", on: "2026-10-03", onState: "attempted", lastRun: "2026-10-03T08:00:05Z" },
+    { ...RECURRING, everyMinutes: 44640, at: "09:00", on: "not-a-date", onState: "unreadable" },
+  ];
+  const p = await openPanel(states.map((j, i) => ({ ...j, name: "job_" + i })));
+  assert.equal(p.buttons.length >= states.length, true, "the panel drew fewer buttons than it has rows");
+  for (const b of p.buttons) {
+    const both = Object.hasOwn(b.dataset, "run") && Object.hasOwn(b.dataset, "job");
+    assert.equal(both, false, "a button carries both data-run and data-job, so one handler overwrites the other: " + b.className);
+  }
+  // And every enabled button really got a handler — the other way this can go
+  // wrong is a selector that matches nothing and a panel that does nothing.
+  for (const b of p.buttons.filter((x) => !x.disabled)) {
+    assert.ok(typeof b.onclick === "function", "a live button was left unbound: " + b.className + " " + JSON.stringify(b.dataset));
+  }
+});
+
+test("A SPENT ONE-TIME JOB'S RUN NOW IS DISABLED, CARRIES NOTHING AND SENDS NOTHING", async () => {
+  // RETAINED from the one-time round: `last_run` is the claim's own etag, so a
+  // consumed occurrence can never be claimed again and the press would come back
+  // "Skipped". The button says why instead, and this asserts all three layers —
+  // disabled, no dataset, and no request even if something presses it anyway.
+  const p = await openPanel([{
+    ...RECURRING, name: "remind_once", everyMinutes: 44640, at: "09:00",
+    on: "2026-10-03", onState: "attempted", lastRun: "2026-10-03T08:00:05Z", lastResult: "Sent 1.",
+  }]);
+  const run = p.byClass("fn-run");
+  assert.equal(run.length, 1, "the row drew no Run now button");
+  assert.equal(run[0].disabled, true, "a spent one-time job still offers a live Run now");
+  assert.equal(Object.hasOwn(run[0].dataset, "run"), false, "a spent Run now still carries the job to run");
+  assert.match(run[0].title, /Already used its one run/, "the button does not say why it is dead");
+  await run[0].click();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(p.posts(), [], "pressing a spent Run now sent a request");
 });
