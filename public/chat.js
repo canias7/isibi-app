@@ -1861,6 +1861,19 @@ let agentAutoWatch = null;
  */
 let agentAutoAsk = null;
 
+/**
+ * WHICH PRESS OF "start from the example" IS THE NEWEST.
+ *
+ * ⚠ **THE SEED READS THE ACCOUNT'S OWN CONNECTIONS FIRST, so it is a request and not an
+ * assignment — and a request can land after the screen has moved on.** Two presses in a row
+ * means the LAST one decides what the form holds; an answer from an earlier press writing
+ * itself over a form somebody has since started editing is the defect this counter closes.
+ * It is not a substitute for the account-and-agent binding below it, which asks a different
+ * question: this one says *is this still the press that was made*, and that says *is this
+ * still the person and the agent it was made for*.
+ */
+let agentAutoEgAsk = 0;
+
 // ── connected accounts ───────────────────────────────────────────────────────
 //
 // ⚠ **ITS OWN SCREEN, OPENED OVER THE CONVERSATION, exactly as the automations list is** —
@@ -2477,17 +2490,65 @@ function autoExample() { return (agentAutoCat && agentAutoCat.example) || null; 
  * there is no second editor and nothing is read-only: the person can change a word, swap a
  * step or delete the lot before saving. An example that could not be edited would be a demo.
  *
- * ⚠ **THE SEND STEP'S CONNECTION IS FILLED FROM THE PERSON'S OWN FIRST CONNECTED ACCOUNT, and
- * left EMPTY when they have none.** The example carries no connection deliberately — an id
- * belongs to one account and cannot be invented — and an empty one is what the form's own
- * refusal names (*say which connected account to send from*), which is actionable. Filling it
- * with anything else would be seeding somebody else's account.
+ * ⚠ **THE SEND STEP'S CONNECTION IS FILLED FROM THE FIRST ACCOUNT OF THIS AGENT'S THAT COULD
+ * REALLY CARRY A SEND, and left EMPTY when there is none.** The example carries no connection
+ * deliberately — an id belongs to one account and cannot be invented — and an empty one is what
+ * the form's own refusal names (*say which connected account to send from*), which is
+ * actionable. Filling it with anything else would be seeding somebody else's account.
+ *
+ * ⚠ **AND "COULD REALLY CARRY A SEND" IS TWO CONDITIONS, BOTH READ OFF THE SERVER'S ANSWER.**
+ * The account has to be `active` — a connection whose credential has run out, whose access the
+ * provider withdrew, or which somebody disconnected cannot send, and seeding one is a form that
+ * saves and then fails at its last step. And it has to hold the permission a send needs, which
+ * is the provider's own `sendScope`: an account connected for READING only is active and cannot
+ * send, so status alone would offer it.
  */
-function agentAutoExample() {
+function agentConnSendable(rows, providers) {
+  const cat = Array.isArray(providers) ? providers : [];
+  for (const c of (Array.isArray(rows) ? rows : [])) {
+    // THE ANSWER'S OWN FIELD. `connectionRow` names this `status`; there is no `state` on it.
+    if (!c || c.status !== 'active') continue;
+    const p = cat.find((x) => x && x.name === c.provider);
+    const needs = p && typeof p.sendScope === 'string' ? p.sendScope : '';
+    // ⚠ CANNOT-TELL IS NOT A YES. A provider this answer does not describe, or one that names
+    // no send scope (a Worker older than that field), leaves us unable to say the account may
+    // send — so it is not offered, and the form's own refusal names the box to fill in.
+    if (!needs) continue;
+    if (!Array.isArray(c.scopes) || !c.scopes.includes(needs)) continue;
+    return typeof c.id === 'string' ? c.id : '';
+  }
+  return '';
+}
+
+async function agentAutoExample() {
   const eg = autoExample();
   if (!eg) return;
-  const mine = (agentConnRows || []).filter((c) => c && c.state === 'active');
-  const pick = mine.length ? mine[0].id : '';
+  /**
+   * ⚠ **THE CONNECTIONS ARE READ FOR THIS AGENT, HERE, AND NEVER TAKEN FROM `agentConnRows`.**
+   * That variable belongs to the connected-accounts SCREEN and is scoped to `agentConn`, which
+   * `agentAutomations` sets to `null` on the way in WITHOUT clearing the rows — so reading it
+   * meant seeding from whichever agent's accounts had last been looked at, or from nothing at
+   * all if none had. It is the same route the screen itself reads, so there is one backend
+   * answer to *what has this agent connected* whichever door asks.
+   */
+  const bound = agentBind();
+  const forAgent = agentAuto;
+  const ask = ++agentAutoEgAsk;
+  let rows = null, cat = null;
+  try {
+    const res = await apiFetch('/api/agent/connections?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.ok) { rows = j.connections; cat = j.providers; }
+  } catch { /* a read we could not make seeds no connection — see below */ }
+  // THE PRESS, THE PERSON AND THE AGENT, all three asked once, after the request.
+  if (ask !== agentAutoEgAsk || agentAuto !== forAgent || bound.uid !== agentUid()) return;
+  /**
+   * ⚠ **A FAILED READ SEEDS NO CONNECTION, and it does not refuse to seed the example.** The
+   * workflow is what the button is for and the connection is the one field a person fills in
+   * anyway, so an outage costs them a pick rather than the example; and an account we could
+   * not establish must never be picked, which is what `rows: null` through the filter answers.
+   */
+  const pick = agentConnSendable(rows, cat);
   agentAutoWatchStop();
   agentAutoEditing = '';
   agentAutoActErr = '';

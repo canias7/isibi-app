@@ -155,6 +155,56 @@ try {
   check("...and it is labelled simulated", conn.body.simulated === true);
   const CX = conn.body.id;
 
+  /**
+   * ⚠ **THE HOP THE SCREEN REALLY DEPENDS ON: the connections LIST has to carry both things
+   * the editor filters on, and the id it picks has to be the one a send goes through.**
+   *
+   * The seed in `public/chat.js` offers an account only when it is `active` AND holds the
+   * permission the provider's own `sendScope` names — and neither of those can be proved by a
+   * browser guard, because a browser guard answers with a fixture. Here the answer is the real
+   * route's, so a field renamed on it or a catalog that stopped describing the send scope shows
+   * up as this picking nothing while the send below it still works.
+   */
+  const cxList = await api("/api/agent/connections", { query: { agent: AG } });
+  check("the connected accounts list answers", cxList.status === 200, JSON.stringify(cxList.body).slice(0, 160));
+  const cxCat = cxList.body.providers ?? [];
+  const cxScopeOf = (name) => (cxCat.find((pr) => pr.name === name) ?? {}).sendScope;
+  check("⚠ ...and it describes which permission a send needs, per provider",
+    cxScopeOf(AGENT_PROVIDERS[0].name) === AGENT_PROVIDERS[0].sendScope,
+    JSON.stringify(cxCat).slice(0, 200));
+  // THE EDITOR'S OWN TWO CONDITIONS, asked of the real answer.
+  const cxSendable = (cxList.body.connections ?? []).filter(
+    (c) => c.status === "active" && (c.scopes ?? []).includes(cxScopeOf(c.provider)));
+  check("⚠ ...and the account that can carry a send is the one the send really goes through",
+    cxSendable.length === 1 && cxSendable[0].id === CX,
+    JSON.stringify(cxList.body.connections ?? []).slice(0, 300));
+
+  /**
+   * ⚠ **THE CONTROL, AND IT IS THE SHAPE THE EDITOR HAS TO REFUSE: an account connected for
+   * READING ONLY is perfectly `active`.** Status alone would offer it and the workflow would
+   * save, ask a person, and be refused by the database at its last step. So a second account is
+   * connected with `read` and nothing else, and the filter above has to leave it out while
+   * still finding the first — without which "it found one" is satisfied by a list of one.
+   */
+  const cxRo = await api("/api/agent/connection-connect", {
+    body: { agent: AG, provider: AGENT_PROVIDERS[0].name, account: "inbox@example.test",
+            label: "Reading only", scopes: ["read"] },
+  });
+  check("a second account is connected for reading only", cxRo.status === 200, JSON.stringify(cxRo.body).slice(0, 160));
+  const cxList2 = await api("/api/agent/connections", { query: { agent: AG } });
+  const cxBoth = cxList2.body.connections ?? [];
+  check("...it really is listed, and really is active",
+    cxBoth.length === 2 && cxBoth.every((c) => c.status === "active"),
+    JSON.stringify(cxBoth.map((c) => [c.id, c.status, c.scopes])).slice(0, 300));
+  const cxSendable2 = cxBoth.filter(
+    (c) => c.status === "active" && (c.scopes ?? []).includes(cxScopeOf(c.provider)));
+  check("⚠ ...and it is NOT one the editor may seed a send with, while the first still is",
+    cxSendable2.length === 1 && cxSendable2[0].id === CX,
+    JSON.stringify(cxSendable2.map((c) => c.id)));
+  // AND IT IS TAKEN BACK OUT, so every later section sees the account it expects.
+  const cxRoOff = await api("/api/agent/connection-disconnect", { body: { agent: AG, id: cxRo.body.id } });
+  check("...and the reading-only account is disconnected again", cxRoOff.status === 200, String(cxRoOff.status));
+
   // ⚠ THE WORKFLOW A CUSTOMER WOULD BUILD IN THE EXISTING EDITOR: something arrives (an
   // input), a reference source is searched, a scripted reply is prepared from a template,
   // and it is sent — with the approval bound to what the send step really resolved.

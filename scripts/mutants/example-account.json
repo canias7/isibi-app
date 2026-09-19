@@ -1,0 +1,115 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the account picker",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function agentConnSendable(rows, providers) {",
+  "to": "/* control: a comment only */\nfunction agentConnSendable(rows, providers) {"
+ },
+ {
+  "label": "example: the account's state is read off a field the answer has never carried",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "if (!c || c.status !== 'active') continue;",
+  "to": "if (!c || c.state !== 'active') continue;"
+ },
+ {
+  "label": "example: an account that may only read is offered as a place to send from",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!Array.isArray(c.scopes) || !c.scopes.includes(needs)) continue;\n",
+  "to": ""
+ },
+ {
+  "label": "example: a provider that names no send permission is guessed at",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    const needs = p && typeof p.sendScope === 'string' ? p.sendScope : '';",
+  "to": "    const needs = p && typeof p.sendScope === 'string' ? p.sendScope : 'send';"
+ },
+ {
+  "label": "example: an unusable account is offered as long as SOMETHING is connected",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!needs) continue;\n",
+  "to": ""
+ },
+ {
+  "label": "example: seeded from whichever connections screen was last opened",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (res.ok && j.ok) { rows = j.connections; cat = j.providers; }",
+  "to": "    if (res.ok && j.ok) { rows = agentConnRows; cat = j.providers; }"
+ },
+ {
+  "label": "example: a read we could not make refuses to seed the example at all",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  } catch { /* a read we could not make seeds no connection — see below */ }",
+  "to": "  } catch { return; }"
+ },
+ {
+  "label": "example: the agent is not re-asked after the request",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (ask !== agentAutoEgAsk || agentAuto !== forAgent || bound.uid !== agentUid()) return;",
+  "to": "  if (ask !== agentAutoEgAsk || bound.uid !== agentUid()) return;"
+ },
+ {
+  "label": "example: the account is not re-asked after the request",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (ask !== agentAutoEgAsk || agentAuto !== forAgent || bound.uid !== agentUid()) return;",
+  "to": "  if (ask !== agentAutoEgAsk || agentAuto !== forAgent) return;"
+ },
+ {
+  "label": "example: an earlier press's answer is allowed to win",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (ask !== agentAutoEgAsk || agentAuto !== forAgent || bound.uid !== agentUid()) return;",
+  "to": "  if (agentAuto !== forAgent || bound.uid !== agentUid()) return;"
+ },
+ {
+  "label": "example: every press is the same press, so the counter cannot tell them apart",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const ask = ++agentAutoEgAsk;",
+  "to": "  const ask = agentAutoEgAsk;"
+ },
+ {
+  "label": "providers: the site says a send needs the READ permission",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  sendScope: \"send\",",
+  "to": "  sendScope: \"read\","
+ },
+ {
+  "label": "providers: the site says nothing about which permission a send needs",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  sendScope: \"send\",\n",
+  "to": ""
+ },
+ {
+  "label": "engine: the send step asks its adapter for a different action",
+  "files": [
+   "agent-builder/src/automations.mjs"
+  ],
+  "from": "export const SEND_ACTION = \"send_message\";",
+  "to": "export const SEND_ACTION = \"read_messages\";"
+ }
+]

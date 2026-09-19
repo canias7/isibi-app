@@ -65,7 +65,7 @@ import {
   MAX_STEP_RETRIES as ENGINE_MAX_STEP_RETRIES,
   STEP_KINDS as ENGINE_STEP_KINDS, FIELD_KINDS as ENGINE_FIELD_KINDS,
   MAX_SUBWORKFLOW_DEPTH as ENGINE_MAX_SUB_DEPTH, MAX_FLAT_STEPS as ENGINE_MAX_FLAT,
-  expandWorkflow as engineExpandWorkflow,
+  expandWorkflow as engineExpandWorkflow, SEND_ACTION as ENGINE_SEND_ACTION,
 } from "../agent-builder/src/automations.mjs";
 import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
@@ -2069,6 +2069,35 @@ test("⚠ WHAT MAY BE CONNECTED IS THE SAME ON BOTH SIDES, BOTH WAYS", () => {
   // THE WRITES ARE A SUBSET OF THE ACTIONS — the engine's own claim, checked here because
   // this is where both halves are loaded.
   for (const w of FAKE_WRITES) assert.ok(FAKE_ACTIONS.includes(w), `${w} is a write and not an action`);
+
+  /**
+   * ⚠ **WHICH PERMISSION A `send` STEP NEEDS IS ONE FACT IN TWO LANGUAGES, and the site's copy
+   * is what a SCREEN reads to decide whether an account could carry a send at all.**
+   *
+   * A browser cannot ask the adapter, so `AGENT_PROVIDERS[].sendScope` is a declared copy of
+   * `adapter.scopes[SEND_ACTION]`. Let them drift and the screen offers an account connected
+   * for reading only: the form saves, the approval is asked, and `perform` is refused by the
+   * database at the last step — a control that answers, which is the defect this repository
+   * records most. **Compared against the engine's OWN action name**, so renaming the action
+   * moves both sides or fails here.
+   */
+  assert.ok(FAKE_ACTIONS.includes(ENGINE_SEND_ACTION),
+    `the send step asks for ${ENGINE_SEND_ACTION}, which this provider does not offer`);
+  assert.equal(fake.sendScope, FAKE_SCOPES[ENGINE_SEND_ACTION],
+    "the site's send scope is not the one the adapter asks the database for");
+  // AND A SEND IS A WRITE, which is what makes it approval-gated and reconciled rather than
+  // repeated — asserted here because the two lists are only both in scope in this file.
+  assert.ok(FAKE_WRITES.includes(ENGINE_SEND_ACTION), "a send that is not a write");
+
+  // ⚠ AND EVERY PROVIDER NAMES A SCOPE SOMEBODY CAN REALLY GRANT IT. A `sendScope` outside a
+  // provider's own list is a permission no connection can hold, so the screen would offer
+  // nothing for ever — the silent direction, and a fifth provider added next month is covered
+  // by this being a census rather than one assertion about `fakemail`.
+  for (const pr of AGENT_PROVIDERS) {
+    assert.equal(typeof pr.sendScope, "string", `${pr.name} does not say which scope a send needs`);
+    assert.ok(pr.scopes.some((sc) => sc.name === pr.sendScope),
+      `${pr.name} needs ${pr.sendScope} to send and does not offer it`);
+  }
 
   // ⚠ **THE LABEL SAYS IT IS SIMULATED AND SO DOES THE FLAG, and the flag is what a reader
   // acts on.** The word in a label is what a later edit tidies away; the field is not.

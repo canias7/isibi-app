@@ -1154,7 +1154,17 @@ const noteFrom = (verdict, d) =>
  * no `ctx.resume.decision` at all; asking IS reading.
  */
 const SEND_TOOL = "send_message";
-const SEND_ACTION = "send_message";
+/**
+ * WHICH ACTION A SEND STEP ASKS ITS ADAPTER FOR, and it is EXPORTED so a reader outside this
+ * module can ask which permission a send needs rather than holding a second copy of the word.
+ *
+ * ⚠ **THE SITE BUILDER'S SCREEN IS THAT READER.** It has to know which scope to look for on a
+ * connection before offering it as one a send could go through, and `adapter.scopes[<action>]`
+ * is the only place that mapping lives. Neither product may import the other, so the site's
+ * provider catalog carries a declared copy — and the cross-product census reads THIS name and
+ * the adapter's own map, so the copy cannot drift into offering an account that cannot send.
+ */
+export const SEND_ACTION = "send_message";
 /** How long a recipient and a message may be. The provider's own payload, bounded here. */
 export const MAX_RECIPIENT = 200;
 export const MAX_MESSAGE = 4000;

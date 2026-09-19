@@ -1690,6 +1690,22 @@ export const AGENT_PROVIDERS = Object.freeze([Object.freeze({
     Object.freeze({ name: "read", label: "Read messages", does: "Let the agent read what is in this mailbox." }),
     Object.freeze({ name: "send", label: "Send messages", does: "Let the agent send from this account. A person still approves every message before it goes." }),
   ]),
+  /**
+   * ⚠ **WHICH OF THOSE PERMISSIONS A `send` WORKFLOW STEP NEEDS — a DECLARED COPY of the
+   * engine's `adapter.scopes[SEND_ACTION]`, and it exists so no screen holds the word `send`
+   * as a literal of its own.**
+   *
+   * A screen has to be able to tell an account that could carry a send from one that is
+   * connected for reading only, and the answer is per PROVIDER: the mapping from an action to
+   * the permission it needs lives on the adapter, so a second provider may well spell its own
+   * differently. Reading the FIRST scope, or matching the word "send" in a label, would each be
+   * a guess about a provider rather than a fact about it.
+   *
+   * `test/agent-send.test.mjs` — the one file that may load both products — compares this
+   * against the engine's own `SEND_ACTION` and `FAKE_SCOPES`, so a provider whose send scope
+   * moved would fail a test rather than leave a screen offering an account that cannot send.
+   */
+  sendScope: "send",
 })]);
 
 /** By name, for the one lookup every route does. */

@@ -341,7 +341,8 @@ function hydrateAuto(w) {
  * puts on the wire, so a step added next month arrives here by existing. `JSON` round-trips
  * it because that is what a real answer is: frozen objects with no prototype from this realm.
  */
-const { AUTOMATION_STEPS, AUTOMATION_DAYS, EXAMPLE_AUTOMATION, MAX_AUTOMATION_INPUTS } = await import("../agent-store.mjs");
+const { AUTOMATION_STEPS, AUTOMATION_DAYS, EXAMPLE_AUTOMATION, MAX_AUTOMATION_INPUTS,
+  AGENT_PROVIDERS, MAX_CONNECTIONS, connectionRow } = await import("../agent-store.mjs");
 const STEP_CATALOG = JSON.parse(JSON.stringify(AUTOMATION_STEPS));
 assert.ok(STEP_CATALOG.length >= 9, `the catalog read as ${STEP_CATALOG.length} steps`);
 const DAY_LIST = [...AUTOMATION_DAYS];
@@ -353,10 +354,44 @@ const DAY_LIST = [...AUTOMATION_DAYS];
 const EXAMPLE = JSON.parse(JSON.stringify(EXAMPLE_AUTOMATION));
 
 /** One agent with one automation, and the screen opened on it. */
+/**
+ * ⚠ **A CONNECTION AS THE ROUTE REALLY ANSWERS ONE — built by the PRODUCER, never typed here.**
+ *
+ * The case below used to set `agentConnRows` by hand with a `state` field, and
+ * `connectionRow()` answers `status` and has no `state` at all: so the browser's filter was
+ * `undefined === 'active'` for every real row, the fixture agreed with it, and both halves
+ * shared one defect. Passing a database-shaped row through the real reader is what makes that
+ * impossible — a field renamed on the answer moves here too, or this stops compiling.
+ */
+const connAnswer = (r) => connectionRow({
+  id: r.id, agent_id: "A", provider: r.provider ?? "fakemail",
+  label: r.label ?? "", account: r.account ?? "someone@example.test",
+  scopes: r.scopes ?? ["read", "send"], status: r.status ?? "active",
+  refreshable: false, expires_at: null, stopped_why: null, created_at: "2026-09-19T00:00:00Z",
+});
+
 function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, history = [],
-  fail = {}, noExample = false, halfExample = false, onPost = () => {} } = {}) {
+  fail = {}, noExample = false, halfExample = false, connections = [], connFails = false,
+  noSendScope = false, onPost = () => {} } = {}) {
   return (path, init) => {
     const body = init?.body ? JSON.parse(init.body) : {};
+    /**
+     * ⚠ **THE CONNECTED ACCOUNTS COME FROM THE ROUTE, because that is where the browser now
+     * reads them.** It is a GET, so it must be answered ABOVE the catch-all — which records a
+     * post and would make every example press look like one.
+     */
+    if (path.startsWith("/api/agent/connections")) {
+      if (connFails) return { ok: false, body: { error: "the store is away" } };
+      // AND THE CATALOG RIDES ON IT, as the real route sends it. `noSendScope` is the older
+      // Worker: a provider described with no send scope at all, which nothing may read as
+      // permission to send.
+      const providers = JSON.parse(JSON.stringify(AGENT_PROVIDERS)).map((pr) => {
+        if (noSendScope) delete pr.sendScope;
+        return pr;
+      });
+      return { ok: true, body: { ok: true, connections: connections.map(connAnswer),
+        providers, max: MAX_CONNECTIONS } };
+    }
     if (path.startsWith("/api/agent/list")) {
       return { ok: true, body: { ok: true, agents: [{ id: "A", name: "Shop", instructions: "help", created: 1, updated: 1, preview: "", status: "active", tools: [] }], tools: [] } };
     }
@@ -1844,6 +1879,18 @@ async function withAutomations(opts = {}) {
   const answer = autoAnswer({ ...opts, onPost: (p, b) => posts.push({ path: p, body: b }) });
   const w = loadScreen({
     answer: (p, init) => {
+      /**
+       * ⚠ **THE CONNECTIONS READ CAN BE HELD OPEN, because the example's seed is a REQUEST and
+       * a request can land after the screen has moved on.** Without a gate the answer arrives
+       * inside the same press and the three walls above it — the press, the agent and the
+       * account — are all trivially satisfied, which is a wall nobody can drive.
+       */
+      if (opts.connGates && p.startsWith("/api/agent/connections")) {
+        // ONE GATE PER REQUEST, IN ORDER — two presses have to be able to answer DIFFERENTLY,
+        // or "the earlier answer did not win" is satisfied by the two being the same value.
+        const g = opts.connGates.shift();
+        if (g) return g.p;
+      }
       const a = answer(p, init);
       return a.ok ? okRes(a.body) : badRes(a.body.error);
     },
@@ -2925,24 +2972,174 @@ test("⚠ THE EXAMPLE SEEDS THE SAME FORM AND IS EDITABLE THE INSTANT IT IS DRAW
     "the catalog's own copy was never edited");
 });
 
+const sendStepOf = (w) => (w.val("agentAutoDraft").steps.find((s) => s.type === "send") || {});
+
 test("⚠ the example's send step is filled from the person's OWN account, and left empty when they have none", async () => {
   // ⚠ **A CONNECTION ID BELONGS TO ONE ACCOUNT AND CANNOT BE INVENTED.** So the example
-  // carries none, the browser fills it from the person's own first ACTIVE connection, and
-  // with none it stays empty — where the form's own refusal names the field, which is
-  // actionable. Seeding it with anything else would be seeding somebody else's account.
+  // carries none, the browser fills it from the person's own first account that could really
+  // carry a send, and with none it stays empty — where the form's own refusal names the field,
+  // which is actionable. Seeding it with anything else would be seeding somebody else's.
   const { w } = await withAutomations({ automations: [] });
   await w.ev('agentAutoExample()');
-  const send = () => (w.val("agentAutoDraft").steps.find((s) => s.type === "send") || {});
-  assert.equal(send().connection, "", "nothing connected yet, so nothing is guessed");
+  assert.equal(sendStepOf(w).connection, "", "nothing connected yet, so nothing is guessed");
 
-  // NOW THE PERSON HAS TWO, one of them no longer usable. The FIRST ACTIVE one is taken.
-  await w.ev(`agentConnRows = [
-    { id: "CXOFF", state: "disconnected", provider: "fakemail", account: "old@example.test" },
-    { id: "CXMINE", state: "active", provider: "fakemail", account: "shop@example.test" },
-  ];`);
-  await w.ev('agentAutoCancel()');
+  // NOW THE PERSON HAS TWO, one of them no longer usable. The first USABLE one is taken.
+  const { w: two } = await withAutomations({ automations: [], connections: [
+    { id: "CXOFF", status: "disconnected", account: "old@example.test" },
+    { id: "CXMINE", status: "active", account: "shop@example.test" },
+  ] });
+  await two.ev('agentAutoExample()');
+  assert.equal(sendStepOf(two).connection, "CXMINE",
+    "a disconnected account is not a place to send from");
+});
+
+test("⚠ AN ACCOUNT CONNECTED FOR READING ONLY IS NOT A PLACE TO SEND FROM", async () => {
+  /**
+   * ⚠ **STATUS ALONE WOULD OFFER IT, and it would save and then fail at its last step.** An
+   * account granted `read` and not `send` is perfectly `active`: the credential works, the
+   * provider has not withdrawn anything, nobody disconnected it. What it cannot do is the one
+   * thing this step is for — `perform` asks the database for the action's own scope and is
+   * refused — so a form seeded with it is a workflow that looks configured and does not run.
+   *
+   * WHICH PERMISSION IS READ FROM THE PROVIDER'S OWN `sendScope`, never from the word "send"
+   * written here: the mapping from an action to the scope it needs lives on the adapter, and a
+   * second provider may spell its own differently.
+   */
+  const { w } = await withAutomations({ automations: [], connections: [
+    { id: "CXREAD", status: "active", scopes: ["read"], account: "inbox@example.test" },
+  ] });
   await w.ev('agentAutoExample()');
-  assert.equal(send().connection, "CXMINE", "a disconnected account is not a place to send from");
+  assert.equal(sendStepOf(w).connection, "", "an account that may only read was offered");
+
+  // THE CONTROL: the very same account, granted the send permission, IS taken — so this case
+  // is about the PERMISSION and not about anything else refusing every row.
+  const { w: may } = await withAutomations({ automations: [], connections: [
+    { id: "CXREAD", status: "active", scopes: ["read", "send"], account: "inbox@example.test" },
+  ] });
+  await may.ev('agentAutoExample()');
+  assert.equal(sendStepOf(may).connection, "CXREAD");
+});
+
+test("⚠ THE ACCOUNTS ARE THIS AGENT'S, READ NOW — never whichever connections screen was last opened", async () => {
+  /**
+   * ⚠ **MEASURED DEFECT: the seed read `agentConnRows`, which belongs to the connected-accounts
+   * SCREEN.** `agentAutomations` sets `agentConn = null` on the way in and does NOT clear those
+   * rows, so they sit there holding whichever agent's accounts were last looked at — and an id
+   * from another agent's list is one this agent cannot send through at all. With none ever
+   * looked at, the variable is `null` and the example could never be seeded.
+   *
+   * So the rows are read from `/api/agent/connections?agent=<this one>` at the press: the same
+   * route the screen itself reads, which is what makes it one answer to one question.
+   */
+  const { w } = await withAutomations({ automations: [], connections: [] });
+  // A LEFTOVER SCREEN'S ROWS, in the shape the route really answers, naming another agent —
+  // so nothing about the shape can be why they are ignored.
+  await w.ev(`agentConnRows = ${JSON.stringify([connAnswer({ id: "CXOTHER", status: "active" })])};`);
+  await w.ev('agentAutoExample()');
+  assert.equal(sendStepOf(w).connection, "",
+    "the seed took an account off a screen belonging to another agent");
+
+  // THE CONTROL: with THIS agent's route answering one, it is taken — so the case is about
+  // WHERE the rows come from rather than about the filter refusing everything.
+  const { w: mine } = await withAutomations({ automations: [], connections: [
+    { id: "CXMINE", status: "active" },
+  ] });
+  await mine.ev(`agentConnRows = ${JSON.stringify([connAnswer({ id: "CXOTHER", status: "active" })])};`);
+  await mine.ev('agentAutoExample()');
+  assert.equal(sendStepOf(mine).connection, "CXMINE", "and this agent's own account is used");
+});
+
+test("⚠ A READ WE COULD NOT MAKE SEEDS NO ACCOUNT, and still seeds the example", async () => {
+  /**
+   * ⚠ **CANNOT-TELL MUST NEVER READ AS A VALUE, and here the value would be somebody's
+   * account.** An outage leaves us unable to say what this agent has connected, so nothing is
+   * picked — and the example itself is still what the button is for, so the workflow is seeded
+   * and the one field a person fills in is the one that stayed empty.
+   */
+  const { w } = await withAutomations({ automations: [], connFails: true,
+    connections: [{ id: "CXMINE", status: "active" }] });
+  await w.ev('agentAutoExample()');
+  const draft = w.val("agentAutoDraft");
+  assert.ok(draft, "the example was not seeded at all");
+  assert.equal(draft.steps.length, EXAMPLE.steps.length, "the whole workflow is still there");
+  assert.equal(sendStepOf(w).connection, "", "an account we could not establish was picked");
+});
+
+/** ONE CONNECTIONS ANSWER, AS THE ROUTE SENDS IT, for a case that has to hold one open. */
+const connBody = (rows) => ({
+  ok: true, connections: rows.map(connAnswer),
+  providers: JSON.parse(JSON.stringify(AGENT_PROVIDERS)), max: MAX_CONNECTIONS,
+});
+
+test("⚠ A SEED THAT LANDS AFTER THE SCREEN HAS MOVED ON WRITES NOTHING", async () => {
+  /**
+   * ⚠ **THE SEED IS A REQUEST NOW, so it can land late — and what it would write is a whole
+   * form.** Seeded into another agent's screen it is that agent's editor holding a workflow
+   * naming an account it cannot send through; the form saves and the send is refused. So the
+   * answer is admitted only while the agent it was asked for is still the one on screen.
+   */
+  const gate = held(okRes(connBody([{ id: "CXA", status: "active" }])));
+  const { w } = await withAutomations({ automations: [], connGates: [gate] });
+  const seeding = w.ev('agentAutoExample()');
+  // THE SCREEN MOVES TO ANOTHER AGENT'S AUTOMATIONS while the read is in flight.
+  await w.ev('agentAutomations("B")'); await settle();
+  gate.release();
+  await seeding;
+  assert.equal(w.val("agentAutoDraft"), null, "A's example was seeded into B's screen");
+  assert.equal(w.val("agentAutoEditing"), null, "and it opened a form there");
+});
+
+test("⚠ A SEED THAT LANDS AFTER SOMEBODY ELSE SIGNED IN WRITES NOTHING", async () => {
+  // THE OTHER HALF OF THE SAME BINDING, and it is a different question: the agent id can be
+  // unchanged while the person at the keyboard is not, and an id from the account that has
+  // gone is one this one cannot use.
+  const gate = held(okRes(connBody([{ id: "CXA", status: "active" }])));
+  const { w } = await withAutomations({ automations: [], connGates: [gate] });
+  const seeding = w.ev('agentAutoExample()');
+  w.signIn("someone-else");
+  gate.release();
+  await seeding;
+  assert.equal(w.val("agentAutoDraft"), null, "the previous account's account was seeded");
+});
+
+test("⚠ TWO PRESSES: THE LAST ONE DECIDES, and the earlier answer does not overwrite it", async () => {
+  /**
+   * ⚠ **AN EARLIER PRESS'S ANSWER LANDING SECOND WOULD PUT A STALE ACCOUNT INTO A FORM
+   * SOMEBODY IS ALREADY LOOKING AT** — and by then they may have started editing it. The two
+   * answers name DIFFERENT accounts, or "the last one decided" is satisfied by them agreeing.
+   */
+  const first = held(okRes(connBody([{ id: "CXFIRST", status: "active" }])));
+  const second = held(okRes(connBody([{ id: "CXSECOND", status: "active" }])));
+  const { w } = await withAutomations({ automations: [], connGates: [first, second] });
+  const one = w.ev('agentAutoExample()');
+  const two = w.ev('agentAutoExample()');
+  // THE SECOND ANSWERS FIRST, which is the ordinary shape of two requests in flight.
+  second.release();
+  await two;
+  assert.equal(sendStepOf(w).connection, "CXSECOND", "the newest press did not decide");
+  first.release();
+  await one;
+  assert.equal(sendStepOf(w).connection, "CXSECOND",
+    "the earlier press's answer overwrote the form that was already on screen");
+});
+
+test("⚠ A PROVIDER THAT NAMES NO SEND PERMISSION IS NOT ONE WE CAN SAY MAY SEND", async () => {
+  /**
+   * AN OLDER WORKER DESCRIBES ITS PROVIDERS WITHOUT `sendScope`, so there is nothing to look
+   * for on the connection — and reading that silence as "any active account will do" is the
+   * same defect through a different door. It fails closed, exactly as an unknown provider does.
+   */
+  const { w } = await withAutomations({ automations: [], noSendScope: true,
+    connections: [{ id: "CXMINE", status: "active" }] });
+  await w.ev('agentAutoExample()');
+  assert.equal(sendStepOf(w).connection, "", "a provider we know nothing about was trusted");
+
+  // AND A ROW NAMING A PROVIDER THE ANSWER DOES NOT DESCRIBE AT ALL is the same refusal.
+  const { w: alien } = await withAutomations({ automations: [], connections: [
+    { id: "CXALIEN", status: "active", provider: "nobodys-mail" },
+  ] });
+  await alien.ev('agentAutoExample()');
+  assert.equal(sendStepOf(alien).connection, "");
 });
 
 test("⚠ a Worker that sends no example offers no button, rather than one that seeds nothing", async () => {
