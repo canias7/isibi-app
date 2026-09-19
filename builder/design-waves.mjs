@@ -3,7 +3,7 @@
 //
 // ── WHAT THE DESIGN STEP IS TODAY ──────────────────────────────────────────
 //
-// ONE model call carrying a 64,076-character tool (a first build; 96,130 with
+// ONE model call carrying a 64,076-character tool (a first build; 97,142 with
 // the backend) and answering 22 properties in order. Property order IS
 // generation order — a field can see every field answered before it and none
 // after — so the whole thing is one long sequential write, measured at ~170 s.

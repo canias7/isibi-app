@@ -1,7 +1,7 @@
 // THE ADD STEP IS ITS OWN PATH — asserted, and driven.
 //
 // Owner, 2026-09-02: "lets start building the addon part". The addon route
-// called the BUILD's designer (`designSiteSchema`, the 96,130-character tool)
+// called the BUILD's designer (`designSiteSchema`, the 97,142-character tool)
 // anchored on the stored look to add one page or one code, and read four
 // fields off the answer. `builder/site-add.mjs` is the split the edit path got
 // on 2026-08-29: its own picker, one small tool per kind of thing a site can

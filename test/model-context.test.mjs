@@ -336,7 +336,7 @@ test("the route answers both shapes, every model, and marks itself estimated", a
 test("the route ships no prompt text — a weight, never the tool itself", async () => {
   const { body } = await ask();
   const wire = JSON.stringify(body);
-  // The design tool is 96,130 characters. Shipping it to draw a bar would be the
+  // The design tool is 97,142 characters. Shipping it to draw a bar would be the
   // mistake `/api/site/source` already taught: the panel needs a few numbers.
   assert.ok(wire.length < 4000, "the answer is " + wire.length + " bytes — it is carrying content, not counts");
   assert.doesNotMatch(wire, /input_schema|design_schema/, "the tool reached the wire");

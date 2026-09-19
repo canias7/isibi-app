@@ -439,7 +439,7 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **96,130 characters**, in the cached block. Property
+`design_schema` is one tool, **97,142 characters**, in the cached block. Property
 order IS generation order. **23 properties, 15 required**; a first build sends 22
 of them (14 required, **64,076 characters**), and the system text is 1,962.
 **RE-MEASURED 2026-09-10** by evaluating the tool through `readSchemaTool()` and
@@ -464,6 +464,23 @@ out, so a first build sends exactly what it sent before. A record that stamps
 the whole tool's size next to a sentence about a first build is the confusion
 this milestone actually produced — `docs/owner-notes.md` has an instance
 corrected in place.
+
+**⚠ AND IT DRIFTED AGAIN THE SAME DAY, BY TWO COMMITS ON THIS SAME BRANCH — the
+paragraph above is a DATED measurement and is left exactly as it was written;
+this one carries the current number.** `96,130` was measured at `fe79130a`, and
+`52f55e0b` (the function `language`) and `a45c4433` (a job's one-time `on`) each
+grew the backend tier after it. **Re-measured on this tree through
+`readSchemaTool()`: whole 97,142 · first build 64,076 · backend 33,045 (34.0%) ·
+components 32,603 · 23/15 and 22/14 · system 1,962**, and **the arithmetic
+closes exactly: 96,130 + 625 (`FUNCTION_ITEM` 1,857 → 2,482) + 387 (`JOB_ITEM`
+687 → 1,074) = 97,142**, with `TABLE_ITEM` unmoved at 18,002 and `API_ITEM`
+1,228 → 3,760 already inside the 96,130. All sixteen places are corrected again
+and the swap is length-preserving for the third time (six characters for six).
+**AND THE FIRST BUILD'S NUMBER HAS STILL NEVER MOVED**: `64,076`, byte-identical
+at `origin/main`, at `fe79130a` and here, because `FRONTEND_SCHEMA_TOOL`
+destructures `backend` out — measured at all three rather than reasoned about.
+*A number nobody re-measured is a claim ahead of its evidence, and a stamp taken
+mid-branch goes stale before the branch ends.*
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
@@ -640,7 +657,7 @@ Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **32,033 of the 96,130 — 33.3%** off the wire on every first build.
+  **33,045 of the 97,142 — 34.0%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -3034,7 +3051,7 @@ many as they asked for, and not one more".
 - **The browser hops SIDEWAYS** on an escalate naming an edit layer, instead of
   falling to the ~25-credit revise.
 - **On the wire**: 1,936 picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
-  (`table`) / ~35,000 (`page`, `section`) against 96,130. Every prompt is a
+  (`table`) / ~35,000 (`page`, `section`) against 97,142. Every prompt is a
   PLACEHOLDER and marked so.
 
 **THE BACKEND IS THE ADDON'S** (owner: *"the build step doesnt have backend so
@@ -3113,7 +3130,7 @@ instruction: verify through the real application path first.
   (`covered` | `elsewhere` | `unsupported`) · `by` | `step` | `why` — as a
   SIBLING of the kind on the add tool. Inside `TABLE_ITEM` it would reach
   `design_schema` (which binds that item by identity), enlarge the build's
-  96,130-character tool, and become a promise the schema ENGINE must keep.
+  97,142-character tool, and become a promise the schema ENGINE must keep.
 - **`readAddAnswer` HAD TO CHANGE SHAPE.** It returned `use.input[kind]`, so any
   sibling the model wrote was dropped **one hop after it was written** — the
   tool correct, the model correct, every later step correct, the value gone. It

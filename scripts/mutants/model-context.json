@@ -72,7 +72,7 @@
     "to": "        { name: \"first build\", req: designRequest(cBrief, modelsFor().design, cLook, [], false) },"
   },
   {
-    "label": "the route ships the request it weighed, putting 96,130 characters of tool on the wire",
+    "label": "the route ships the request it weighed, putting 97,142 characters of tool on the wire",
     "files": ["worker.js"],
     "from": "          parts: contextReport({ name: s.name, req: s.req }).parts,",
     "to": "          parts: contextReport({ name: s.name, req: s.req }).parts, req: s.req,"
