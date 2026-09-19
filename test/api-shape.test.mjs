@@ -9,6 +9,14 @@
 // claims and the second is closed by a real call to a real service, which is
 // the owner's decision and happens nowhere in this repository.
 //
+// AND THE CONNECTED RENDER'S SCOPE, STATED SO IT IS NOT QUOTED WIDER. It uses
+// SUPPLIED MODEL OUTPUT and MOCKED EXTERNAL DEPENDENCIES: the page source is a
+// fixture-supplied model answer that has been through the real addon route and
+// read back out of the store, the hook is the kit's real `useApi` and the route
+// is `worker.js`'s own `/api/db/<slug>/api/<name>` — while the SERVICE, Supabase,
+// Neon and the router's `createFileRoute` are stubs. So a green run is evidence
+// about OUR wiring, never that a real model independently writes that page.
+//
 // A TYPE ANNOTATION IS NOT RENDERING PROOF, which is why this file renders.
 // Measured with the template's own esbuild before any of it was written: two
 // pages differing only in `useApi<Rates>(…)` against `useApi(…)` emit

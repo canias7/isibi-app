@@ -23269,7 +23269,7 @@ async function handleRequest(request, env, ctx) {
             // ── THE ADD STEP, ITS OWN PATH (2026-09-02) ──────────────────
             //
             // This called `designSiteSchema` — the BUILD's designer, the
-            // 93,852-character tool anchored on the stored look — to add one
+            // 96,130-character tool anchored on the stored look — to add one
             // page or one code, and read only `tables`, `qr`, `three` and
             // `tsx` off the answer: the plan it designed for the addition was
             // thrown away and the page call got the customer's sentence and

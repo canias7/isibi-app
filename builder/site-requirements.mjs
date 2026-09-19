@@ -8,7 +8,7 @@
 // WHY A SEPARATE MODULE, AND WHY NOT INSIDE `TABLE_ITEM`. This is metadata
 // ABOUT a design, not part of one. `TABLE_ITEM` is bound by identity into
 // `design_schema` as well as into the add step's tool, so anything added there
-// also enlarges the build's 93,598-character tool and becomes a promise
+// also enlarges the build's 96,130-character tool and becomes a promise
 // `test/declarable-enforced.test.mjs` requires the engine to keep. A coverage
 // note is neither: no DDL is emitted from it, nothing is stored in `_meta` for
 // it, and the schema engine must never see it. Keeping it a SIBLING of the

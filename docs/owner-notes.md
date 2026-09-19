@@ -10894,7 +10894,7 @@ every check that doesn't need a deploy, and stopped at the ones that do.
   check can tell. This is the failure that would otherwise show up as "our build
   service was restarting" on a customer's screen.
 - **The build step is untouched, to the byte.** The design tool a first build
-  sends is 93,598 characters — exactly what it was before. None of the new
+  sends is 64,076 characters — exactly what it was before. None of the new
   coverage wording is in it. That was the thing most likely to go wrong quietly.
 - **All 6,221 tests green, and 43 out of 43 deliberate sabotages caught.**
 

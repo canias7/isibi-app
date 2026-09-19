@@ -439,7 +439,7 @@ refunds if it refuses.
 
 ## What the design call decides
 
-`design_schema` is one tool, **93,598 characters**, in the cached block. Property
+`design_schema` is one tool, **96,130 characters**, in the cached block. Property
 order IS generation order. **23 properties, 15 required**; a first build sends 22
 of them (14 required, **64,076 characters**), and the system text is 1,962.
 **RE-MEASURED 2026-09-10** by evaluating the tool through `readSchemaTool()` and
@@ -447,6 +447,23 @@ taking `JSON.stringify(...).length`: this line said 93,852 / 24 / 23 and the two
 property counts were each one high — the order below has 23 names, which is what
 the count has to match. **`components` alone is 32,603 of a first build's 64,076
 — half of it** — because it carries the kit's component menu.
+
+**⚠ RE-MEASURED AGAIN 2026-09-19, AND THE WHOLE TOOL HAD DRIFTED IN SIXTEEN
+PLACES WHILE THE FIRST BUILD'S NUMBER HAD NOT MOVED AT ALL.** The api tier
+gained three properties across this milestone (`returns`, `params` as items,
+`credential`) and nothing re-measured the total, so `93,598` was stamped in
+sixteen files — five documents, four source comments, three test comments, a
+mutant label and two architecture passages. Measured on this tree through
+`readSchemaTool()`: **whole 96,130 · first build 64,076 · backend 32,033
+(33.3%) · components 32,603 · 23/15 and 22/14 · system 1,962**. Every one of
+those sixteen is corrected, and the swap was **length-preserving by
+construction** (six characters for six), so no source-read byte window could
+shift. **THE TWO NUMBERS ARE TWO NUMBERS AND ONLY ONE MOVED**: everything the
+api tier added lives under `backend`, which `FRONTEND_SCHEMA_TOOL` destructures
+out, so a first build sends exactly what it sent before. A record that stamps
+the whole tool's size next to a sentence about a first build is the confusion
+this milestone actually produced — `docs/owner-notes.md` has an instance
+corrected in place.
 
 **The order, measured by evaluating the tool rather than reading it** — the list
 below drifted twice before, so re-derive it, don't trust this line:
@@ -623,7 +640,7 @@ Only `tsx`, `qr`, `css`, `lang`, `langs`, `three`, `needsWeb` and
 - **`backend`** (tables, functions, apis, jobs) — the ONLY property dropped from
   a first build. `FRONTEND_SCHEMA_TOOL` derives itself by destructuring `backend`
   out and filtering it from `required`, so the two can never disagree. It is
-  **29,189 of the 93,852 — 31.1%** off the wire on every first build.
+  **32,033 of the 96,130 — 33.3%** off the wire on every first build.
 
 **Every design decision is anchored on a revise.** `EDIT_FIELDS` + `mergeLook`:
 absent means unchanged, so a colour change cannot re-roll the theme.
@@ -3017,7 +3034,7 @@ many as they asked for, and not one more".
 - **The browser hops SIDEWAYS** on an escalate naming an edit layer, instead of
   falling to the ~25-credit revise.
 - **On the wire**: 1,936 picker + 1,299 (`three`) / 1,570 (`qr`) / 20,045
-  (`table`) / ~35,000 (`page`, `section`) against 93,852. Every prompt is a
+  (`table`) / ~35,000 (`page`, `section`) against 96,130. Every prompt is a
   PLACEHOLDER and marked so.
 
 **THE BACKEND IS THE ADDON'S** (owner: *"the build step doesnt have backend so
@@ -3096,7 +3113,7 @@ instruction: verify through the real application path first.
   (`covered` | `elsewhere` | `unsupported`) · `by` | `step` | `why` — as a
   SIBLING of the kind on the add tool. Inside `TABLE_ITEM` it would reach
   `design_schema` (which binds that item by identity), enlarge the build's
-  93,598-character tool, and become a promise the schema ENGINE must keep.
+  96,130-character tool, and become a promise the schema ENGINE must keep.
 - **`readAddAnswer` HAD TO CHANGE SHAPE.** It returned `use.input[kind]`, so any
   sibling the model wrote was dropped **one hop after it was written** — the
   tool correct, the model correct, every later step correct, the value gone. It
@@ -11369,9 +11386,15 @@ describe a list answer at all.
   (`const properties = { [kind]: … }`), so only the **`api` kind's** tool
   carries `API_ITEM` and the other three are untouched. What it missed is the
   other door: `design_schema` carries `backend.apis.items = API_ITEM` **by
-  identity**, so a refusal takes the DESIGN call — every build, first or
-  revise — not one addon kind. Worth reading that log line rather than
-  assuming, and now worth reading it for the right reason.
+  identity**, so a refusal also takes a DESIGN call that carries `backend`.
+  **⚠ AND THE CORRECTION OVERSHOT — "every build, first or revise" is FALSE and
+  is corrected 2026-09-19 by measurement.** `FRONTEND_SCHEMA_TOOL` destructures
+  `backend` OUT, so a first build's tool does not contain `API_ITEM` at all:
+  measured, the whole tool is 23 properties and the first build's 22, and
+  `backend` is the one that goes. **The reach is the `api` ADDON kind and a
+  design call that carries `backend` — a revise — and no first build**, which is
+  most of the platform's traffic untouched. Worth reading that log line rather
+  than assuming, three readings running.
 - **THE LIST RESPONSE IS FOLLOWED TO ALL FOUR PLACES** in one route case — the
   TOOL the designer really received, the store, the readback through `apiFor`,
   and the page prompt's `useApi<{ time: string; height: number }[]>("tides", …)`.
@@ -11460,8 +11483,10 @@ cache), and the addon's credential refusal gained a route case — an http sign-
 link is refused 422, stores nothing and costs 0, where the engine merely drops
 it.
 
-**Sweep: 45 product mutants, 43 killed, 2 survived, 0 never applied, 2
-comment-only controls survived**
+**Sweep (that round's pass): 45 product mutants, 43 killed, 2 survived, 0 never
+applied, 2 comment-only controls survived** — and **the tally that stands is the
+clean 48/48/0 below**, which was run against this code with the two survivors
+closed.
 (`scripts/mutants/api-shape.json`, over `site-api-shape.mjs`, `site-apis.mjs`,
 `builder/site-table.mjs`, `builder/site-add.mjs`, `worker.js`, `public/chat.js`,
 `site-schema.mjs` and the kit's own `rows.ts`, against 13 test files — a narrow
@@ -11560,11 +11585,35 @@ schema that already carries the repository's first type union, with the same
 caveat and the same blast radius — **which is bigger than that flag said, and
 the correction is beside it**: `addTool(kind)` builds one property per kind, so
 only the `api` kind's addon tool carries `API_ITEM`, while `design_schema`
-carries it BY IDENTITY as `backend.apis.items`, so a refusal takes **every
-build** rather than one addon kind. It is in ONE place for the reason
-`toXaiRequest`'s own header gives about the nested tool form: **a live 400 is a
-one-line flip rather than a hunt.** A first paid call after this merges reads
-both the union and the permission, because they are one line.
+carries it BY IDENTITY as `backend.apis.items`. **THE REACH IS THE `api` ADDON
+KIND AND A DESIGN CALL THAT CARRIES `backend` — A REVISE — AND NO FIRST BUILD**,
+because `FRONTEND_SCHEMA_TOOL` destructures `backend` out (measured: 23
+properties whole against 22 for a first build, and `backend` is the one that
+goes). It is in ONE place for the reason `toXaiRequest`'s own header gives about
+the nested tool form: **a live 400 is a one-line flip rather than a hunt.** A
+first paid `api` addon or revise after this merges reads both the union and the
+permission, because they are one line.
+
+**Sweep: 48 mutants, 48 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/api-shape.json`, over `site-api-shape.mjs`,
+`worker.js`, `site-apis.mjs`, `builder/site-add.mjs`, `builder/page-gen.mjs`,
+`public/chat.js`, `site-schema.mjs`, `builder/site-table.mjs` and the kit's own
+`rows.ts`, against 13 test files — a narrow list can only produce a false
+SURVIVOR, never a false kill, and the runner prints its own scope line). Run
+against the code as committed, with the previous pass's two survivors closed;
+the tree was verified clean of mutants afterwards. Both reported defects are
+mutants in it: **the permission removed** (the reported defect) and **the
+permission set `false`**.
+
+**THE SCOPE OF THE CONNECTED RENDER, STATED SO IT IS NOT QUOTED WIDER.** It
+proves LOCAL WIRING: the page source comes out of the store having been written
+by a fixture-supplied model answer, the hook is the kit's real `useApi`, and the
+route is `worker.js`'s own `/api/db/<slug>/api/<name>` — and the SERVICE is
+stubbed, as are Supabase, Neon and the router's `createFileRoute`. It does not
+establish that a real model independently writes that page, and it does not
+establish that the named service sends that shape. **Local validation and
+documented compatibility are not provider acceptance**, and no paid probe is
+authorized.
 
 #### …AND THE TWO SWEEP SURVIVORS, one a real gap and one mine
 

@@ -180,7 +180,7 @@ test("unresolved is everything but covered, and the counts separate the three", 
 
 test("the coverage list is a sibling of the kind and never a field inside TABLE_ITEM", () => {
   // INSIDE `TABLE_ITEM` IT WOULD REACH `design_schema`, which binds that item by
-  // identity — so it would enlarge the build's tool (93,598 characters, of
+  // identity — so it would enlarge the build's tool (96,130 characters, of
   // which `components` alone is 32,603) and become a promise
   // `declarable-enforced.test.mjs` requires the schema ENGINE to keep. It is
   // neither: no DDL is emitted from it and nothing is stored in `_meta`.

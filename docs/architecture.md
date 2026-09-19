@@ -45,7 +45,7 @@
 ```
 
 **The one number in the drawing, measured rather than remembered
-(2026-09-06).** `design_schema` is **23 properties, 15 required, 93,598
+(2026-09-06).** `design_schema` is **23 properties, 15 required, 96,130
 characters** of tool on the wire — evaluated out of `worker.js` through
 `test/integration/schema-tool.mjs`, not read off a comment. A FIRST BUILD sends
 22 of them (14 required, 64,076 chars): `FRONTEND_SCHEMA_TOOL` destructures
@@ -784,7 +784,7 @@ part by name, or one written for this site — and where on which page, and the
 page call puts it in the tsx. An answer naming no component is refused.
 
 **What was mixed, and what it cost.** The route called `designSiteSchema` —
-the build's 93,852-character tool anchored on the stored look — and read four
+the build's 96,130-character tool anchored on the stored look — and read four
 fields off the answer (`tables`, `qr`, `three`, `tsx`). The plan it designed
 for the addition (purpose, sections, components) was thrown away; the page
 call got the customer's sentence and no plan. Now the fold (`foldAdds`) hands
@@ -793,7 +793,7 @@ the page call a directive for the addition and the union of kit parts through
 own design→page shape at an addition's size. On the wire: **1,936 characters
 of picker + one small tool (1,299 for a scene, 1,570 for a code, 20,045 for a
 table, ~35,000 for a page or a section, most of which is the kit's menu)**
-against 93,852.
+against 96,130.
 
 **Two rules from the owner (2026-09-02).** Universal: *whatever is added
 keeps the site's design system* — theme, stylesheet, typefaces, colours,
