@@ -13174,3 +13174,39 @@ nothing** — it is not meant to, and its own 591 tests passed.
 **So this round is finished and still sitting on its own branch.** Nothing is on the live site and
 nothing is deployed; when you want it live that is a merge, and it will roll the container, so the
 usual fifteen-to-twenty minute wait afterwards applies before anything paid is run against it.
+
+## Two things the review caught after I'd already reported (2026-09-19)
+
+**An automation that listens for something kept listening — until you renamed it.** An
+automation can start two ways at once: on a schedule, and whenever something happens (a payment
+landing, say). The schedule is on the form; the event is not. So the form was sending back
+everything it knows about and nothing about the event — and because saving replaces the whole
+thing, the event binding was simply wiped. Rename an automation and it quietly stopped listening.
+Nothing failed, nothing said anything, and the next payment went by without it.
+
+I reproduced that first, then fixed it: the form now carries the event through untouched, and says
+on the panel that the automation also listens for it and that you can ask the agent in the chat to
+change that. It refuses nothing, because refusing would make an automation that listens
+un-editable, which is worse than what I was fixing.
+
+**And I proved the event really still starts it** rather than just checking the value was stored —
+saved an unrelated edit through the real route, then sent a real payment through and watched the
+run finish. With the old code beside it as the control: the binding goes, and the payment reaches
+nothing.
+
+**The conversation demonstration was missing the sequence it was supposed to show.** It had the
+agent propose something incomplete, you approve it, and the platform refuse it — which is worth
+keeping, but it is not a clarification: nothing was asked and nothing answered. So I added the
+real thing: the agent asks a question and proposes nothing, the process RESTARTS (a whole new
+process, with no memory of anything), you answer, it proposes a complete configuration, you
+approve it, and it saves.
+
+The part I care about there is that it now checks **what the agent was actually shown after the
+restart** — your first message, its own question, and your answer, in that order. That is the bit
+that can only have come out of the database. The answers are still scripted, and the file says so
+in as many words: it is proof the platform carried the conversation, not proof that anything
+understood it.
+
+**Nothing is applied, deployed or merged.** Site tests 6,846 → 6,847; the agent engine's own 591,
+unchanged, which is the control. The conversation run went 58 → 79 checks and the triggers run 64
+→ 74, both with nothing failing.

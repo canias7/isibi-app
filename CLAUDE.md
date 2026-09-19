@@ -9668,3 +9668,90 @@ CREATED or edited from the form at all. The chat can do both today.
   `site build`** — `unit.yml` carries no `paths` filter and `site-build.yml` does, with
   `CLAUDE.md` outside it. So 1212's green covers the newer head by the ancestor rule, **checked
   per path rather than assumed**.
+
+### ⚠ AN EVENT BINDING SURVIVED THE SCHEDULE WALL AND NOT THE SAVE (2026-09-19)
+
+Owner, after the review of `ef74ad3`: *"your weekly/one-off save guard does not protect manual
+or daily automations with an event binding. The form drops onEvent, and saving clears it.
+Preserve it through unrelated edits and prove the event still triggers the automation
+afterward."*
+
+**RIGHT, AND IT IS THE SAME DEFECT THROUGH A DOOR THE WALL DOES NOT COVER.** `agentAutoUnshowable`
+asks about the SCHEDULE, and an event is not one: `cleanSchedule` answers `onEvent` for every
+schedule deliberately — *"every morning AND whenever a payment lands"* is a thing somebody wants,
+and folding the two into one field would make it unsayable. So a `manual` or `daily` automation
+can carry one, the wall correctly says nothing, and the save went through.
+
+    the form's draft   : name · enabled · schedule · at · zone · steps · inputs   (no event)
+    the body it sent   : the same seven
+    `update_automation`: `on_event = p_on_event`, a straight assignment
+
+**MEASURED BEFORE ANYTHING WAS TOUCHED: it saved, and `on_event` arrived `undefined`.** So
+renaming an automation that listens stopped it listening, and the run that would have fired on
+the next `order.paid` never came.
+
+**PRESERVING IS THE ANSWER HERE AND REFUSING IS THE ANSWER THERE, and the difference is which way
+the form is wrong.** A stored `weekly` makes the `<select>` answer `manual` — a WRONG value, which
+carrying other fields forward cannot repair, and `cleanSchedule` drops `days` for a manual
+schedule anyway. An event has no control to answer wrongly; it is simply ABSENT, and absent is
+repaired by carrying what is stored.
+
+- **`AGENT_FORM_KEEPS` IS THE ROW'S NAME TO THE WIRE'S NAME, IN ONE DECLARATION** (`{ onEvent:
+  'on_event' }`). Two constants would be the same two-lists trap the `&select=` fix just closed,
+  and the wire spelling is load-bearing: `cleanSchedule` asks `b?.on_event` and nothing anywhere
+  reads a camel-cased one, so `onEvent` on the wire is a field the server ignores — this defect
+  wearing a spelling, which is its own mutant.
+- **`days` AND `onDate` ARE DELIBERATELY NOT ON THAT LIST.** The refusal above stops those saves
+  before this is reached, so an entry for either would be unreachable by construction. Said in the
+  code, because a sweep cannot say it and the next session adds what looks missing.
+- **READ OFF THE STORED ROW, SYNCHRONOUSLY, BEFORE ANYTHING AWAITS**, so a list that reloads
+  mid-save cannot change what is being preserved. **Only on the EDIT branch**: a create has no
+  stored automation and `agentAutoRow()` is `null` there by construction, so spreading it on both
+  would be a provably empty object beside a real one.
+- **AND THE FORM SAYS IT, on its own line rather than folded into the schedule's either/or**,
+  because an event is independent of the schedule and both can be true at once. Without it the
+  panel reads as a complete account of what starts the automation and is not one. No new class —
+  `ag-hint` already exists.
+- **THE CENSUS IS WHAT STOPS THIS BECOMING A DEAD CONTROL**: every preserved name must be one the
+  form really has no control for, so a field that gains one cannot stay on the list.
+
+**AND THE SECOND HALF OF THE FINDING IS ITS OWN CLAIM: the event still TRIGGERS it.** A stored
+column is not a trigger, so `verify:triggers` section 4b saves the unrelated edit through the real
+site route, reads the column back, and then **delivers a second signed payload and watches the
+execution to the end** — `64 → 74 checks, 0 FAIL` on a real PostgreSQL. **The control is the
+PRE-FIX BODY, byte for byte**: it saves, it clears the binding, and the next payment reaches
+nothing. Without it, "the event fired" is satisfied by an event that would have fired whatever the
+save did.
+
+**Guards**: `test/agent-binding.test.mjs` **113 → 114** — one case, driven through the real form
+and proved RED first (`on_event: undefined`), with three controls: an automation with no binding
+must not gain the key, a create must not carry one, and both readers must fail closed on a
+non-string. **Sweep (`scripts/mutants/event-binding-kept.json`): 13 entries.**
+
+**Sweep (`scripts/mutants/event-binding-kept.json`, 13 entries): 12 mutants, 12 killed, 0 survived,
+0 never applied, 1 comment-only control survived — CLEAN ON THE FIRST PASS.** The two numbers never
+need reconciling because the spec is those 12 plus the control. Killed among them: the defect
+itself, the camel-cased wire name, an empty keeps list, a field that HAS a control preserved too
+(so the census is load-bearing rather than decorative), the keeps read off the FORM rather than the
+stored row, a CREATE carrying the first listed row's binding, both readers' type guards, the
+absent-versus-empty collapse, the sentence not drawn, the sentence drawn over an automation with no
+binding, and the sentence not naming where the event CAN be changed. **The tree was proved restored
+THREE ways afterwards** — a clean `git status`, all 13 anchors present exactly once (which cannot be
+true while a mutant is applied), and the guard file green again.
+
+**⚠ AND THE STOP HOOK ASKED FOR A COMMIT MID-SWEEP, which is the live mutant and not work.** The
+rule this file already carries — *never commit while a sweep is running; no reading of the tree
+means anything while one is* — met from the direction of an instrument asking for one. The work was
+committed BEFORE the sweep started, which is what made refusing cost nothing.
+
+### Measured
+
+- **Site suite 6,846 → 6,847** (6,845 pass, 2 skipped, 0 fail), and the arithmetic closes exactly:
+  `agent-binding` 113 → **114**, one case. **Engine suite 591, unchanged — the control**, since
+  nothing under `agent-builder/src/` moved.
+- **`verify:triggers` 64 → 74** and **`verify:conversation` 58 → 79**, both 0 FAIL on a real
+  PostgreSQL. The other nine demonstrations are unchanged at their recorded counts: `tools` 148 ·
+  `send` 97 · `chat` 126 · `auto` 70 · `wf` 157 · `connections` 76 · `controls` 71 ·
+  `integration` 89 · `ops` 75.
+- **NOT MERGED AND NOT DEPLOYED**, by instruction. This round adds no SQL at all, and `public/` is
+  not a container image input — so whenever it does go, the image is reused and no hold applies.

@@ -7571,3 +7571,60 @@ it believes it edited.
   read the finished head**: `unit tests` 2781 and `site build` 1212 both green on `c47704e`,
   and `agent deploy` **106** green with its deploying steps `skipped` — **nothing was
   deployed**, which is what this round intends.
+
+### ⚠ THE CLARIFICATION RECOVERY THE DEMONSTRATION DID NOT HAVE (2026-09-19)
+
+Owner, after the review of `ef74ad3`: *"the 58-check demonstration approves an incomplete proposal,
+rejects it for missing time, then supplies the complete configuration directly from the test. Add
+the requested clarify → reload/restart → answer → complete proposal → approve sequence. Assert that
+the actual model context after restart contains the earlier request, clarification question, and new
+answer."*
+
+**RIGHT ABOUT WHAT SECTION 2 IS, AND SECTION 2 IS KEPT BECAUSE IT PROVES SOMETHING ELSE.** There the
+agent PROPOSES an incomplete configuration, a person approves it, and the platform refuses it —
+which is the milestone's *"missing information must not create a partially configured automation"*,
+and it is the only place that is shown. What it is NOT is a clarification: nothing was asked,
+nothing was answered, and the run that eventually carried the time was a new message the customer
+volunteered.
+
+**SECTION 3b IS THE SEQUENCE ITSELF — ask, RESTART, answer, propose, approve — on a FRESH agent**, so
+the conversation under test is the only one in it.
+
+- **THE AGENT ASKS AND PROPOSES NOTHING.** No tool call at all, so there is nothing waiting for a
+  person and nothing created. **Counted, not matched against a sentinel**: `toolOf` coalesces a tool
+  entry's missing NAME to `"(none)"`, and a run with NO tool entry has no row to coalesce, so the
+  query answers `""`. Two different facts, and the first draft asked for the wrong one — *a sentinel
+  that never appears is an assertion nobody is making.*
+- **THE RESTART IS A BRAND-NEW DISPATCHER *AND* A BRAND-NEW SCRIPTED SENDER, and the second half is
+  what makes the assertion mean anything.** Reusing the old sender leaves its record in scope and
+  the context could have come from anywhere; a fresh one has seen nothing, so whatever reaches it
+  came out of the database. The doorbell is asserted empty first — nothing is held open across it.
+- **`context` IS THE NEW EVIDENCE AND `prompt`/`turns` COULD NOT HAVE SERVED.** A clarification
+  question is an ASSISTANT turn: a count of user turns is satisfied by a context that dropped every
+  assistant turn, and the last user message is satisfied by a context with nothing before it. The
+  scripted sender records the message list verbatim with its roles, which is `journal.mjs` rebuilding
+  it from the snapshot `agent.send_to_agent` wrote inside its own transaction — the conversation as
+  the database holds it, not as a process remembers it.
+- **THREE THINGS AND THEIR ORDER**: the earlier request as a user turn, the agent's own question as an
+  assistant turn, the new answer as a user turn, `request < question < answer`, and the last turn is
+  the new message (which is what makes it the prompt rather than history).
+- **AND THE COMPLETE ARGUMENTS ARE STILL THE TEST'S, armed by position, which is said out loud.** A
+  scripted sender understands nothing and must never be read as evidence that it did. The causal
+  claim is made by the CONTEXT assertion, because carrying the conversation is the part the platform
+  is responsible for — *a run that merely finishes proves the queue worked and says nothing about the
+  turns.*
+- **THE CONTROL HAD TO MOVE TO BE ONE.** "Proposes nothing" is a zero, so the counter is proved alive
+  on the run that really does call the tool — and asked straight after the answer it read zero and
+  FAILED, correctly, because at that moment the call was HELD and a journal entry is written when a
+  tool RUNS. It sits past the approval now.
+
+**Measured: `verify:conversation` 58 → 79 checks, 0 FAIL** on a real PostgreSQL. Engine suite **591**,
+unchanged — nothing under `src/` moved, which is the control for a change that is all demonstration.
+
+**AND THE SITE'S HALF OF THE SAME REVIEW IS IN THE ROOT `CLAUDE.md`** — an event binding that
+survived the schedule wall and not the save. `verify:triggers` carries its end-to-end proof
+(**64 → 74 checks, 0 FAIL**) because that is where the dispatcher is, even though the defect and the
+fix are both in `public/chat.js`.
+
+**NOT MERGED AND NOT DEPLOYED**, by instruction. Nothing under `src/` or `supabase/` moved, so there
+is no migration and no deployment order to get right this time.
