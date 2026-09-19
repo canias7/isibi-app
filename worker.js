@@ -25503,7 +25503,16 @@ async function handleRequest(request, env, ctx) {
               // DOWN: a run that swept nothing because the bucket was
               // unreadable and a run with nothing to sweep are the same log
               // line otherwise.
-              aMark("pics", "unknown", { urls: aPicCheck.unknown.length });
+              //
+              // ⚠ THE FACT IS IN THE DETAIL'S KEY, NOT IN THE STATUS.
+              // `edit-trace.mjs` keeps a CLOSED status vocabulary — `ok`,
+              // `fail`, `start`, and `?` for everything else — so the word
+              // "unknown" would arrive as `?`, which is exactly what the
+              // `stray` mark below already becomes. Two different facts wearing
+              // one status, told apart only by which keys the detail happens to
+              // carry, is a wrong number wearing a right one's name; `unknown`
+              // as its own key is what separates them.
+              aMark("pics", "unknown", { unknown: aPicCheck.unknown.length });
             }
             if (aStray.length) {
               // EACH LIST GETS ITS OWN FILES BACK, never the union sliced apart

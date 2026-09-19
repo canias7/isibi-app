@@ -148,8 +148,16 @@
     "files": [
       "worker.js"
     ],
-    "from": "              aMark(\"pics\", \"unknown\", { urls: aPicCheck.unknown.length });",
+    "from": "              aMark(\"pics\", \"unknown\", { unknown: aPicCheck.unknown.length });",
     "to": "              void aPicCheck;"
+  },
+  {
+    "label": "the unknown mark reuses the stray mark's key, so two facts wear one name",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aMark(\"pics\", \"unknown\", { unknown: aPicCheck.unknown.length });",
+    "to": "              aMark(\"pics\", \"unknown\", { urls: aPicCheck.unknown.length });"
   },
   {
     "label": "CONTROL: a comment in the module",

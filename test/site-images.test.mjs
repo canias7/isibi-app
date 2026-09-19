@@ -1427,6 +1427,15 @@ test("only an image reference is a candidate, and only an image reference is cor
   assert.match(after, /<SafeImage src="" alt="an attribute"/, "the attribute form did not survive: " + after);
   assert.match(after, /"src": ""/, "a quoted object key was rewritten into something else: " + after);
   assert.ok(after.includes('src: "/u/fw/key.jpg"'), "a src nobody named was emptied: " + after);
+
+  // 4. AND THE QUOTE HAS TO MATCH ITSELF. `src="…'` is broken JSX either way;
+  //    reading it as a value would let the sweep rewrite it into DIFFERENT
+  //    broken JSX, and the conservative answer is to leave source we cannot
+  //    parse alone. A sweep survivor: nothing drove a mismatched pair.
+  const odd = '<SafeImage src="/u/fw/half.jpg\' alt="x" />';
+  assert.deepEqual([...imageRefs(odd, "fw")], [], "a mismatched quote pair was read as a value: " + odd);
+  assert.equal(dropStrayPhotos([{ path: "g.tsx", source: odd }], ["/u/fw/half.jpg"]).dropped.length, 0,
+    "the sweep rewrote source it could not parse");
 });
 
 test("existence comes from the upload store, and an unreadable check stays unknown", async () => {
@@ -1466,6 +1475,13 @@ test("existence comes from the upload store, and an unreadable check stays unkno
   assert.deepEqual(seen.stray, ["/u/fw/gone.jpg"], "something other than a demonstrated absence was swept");
   assert.deepEqual(seen.unknown, ["/u/fw/mumbled.jpg", "/u/fw/threw.jpg"],
     "a throw or a silence did not read as unknown: " + JSON.stringify(seen.unknown));
+  // …AND A TRUTHY ANSWER THAT IS NOT `true` IS UNKNOWN, NOT PRESENT. A sweep
+  // survivor: every arm above answers `true`, `false` or falsy, so `if (answer)`
+  // passed everything this case could show it — and a reader handing back the
+  // R2 object itself, or a key, is the shape that separates them.
+  const loose = await strayImages(["/u/fw/objecty.jpg"], async () => ({ key: "uploads/fw/objecty.jpg" }));
+  assert.deepEqual(loose, { stray: [], unknown: ["/u/fw/objecty.jpg"] },
+    "a truthy non-`true` answer was read as a yes: " + JSON.stringify(loose));
 
   // 3. AND A READER THAT IS NOT THERE AT ALL IS UNKNOWN TOO, never a sweep —
   //    the shape a Worker with no bucket binding really has.

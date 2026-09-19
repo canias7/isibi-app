@@ -4726,6 +4726,38 @@ test("an upload the site owns survives the stray wall, whether or not a page has
   assert.equal(blind.body.ok, true, JSON.stringify(blind.body));
   assert.ok(compiledPages(blind).find((f) => /gallery/.test(f.path)).source.includes(GONE),
     "an unreadable check swept a src — cannot-tell was read as not-there");
+  // …AND IT SAYS SO. A run that swept nothing because the store was unreadable
+  // and a run with nothing to sweep are the same reply otherwise, so the mark is
+  // the only signal that the wall stood down. A sweep survivor: nothing read it.
+  // BY THE DETAIL'S KEY, NOT BY THE STATUS: `edit-trace.mjs` keeps a closed
+  // vocabulary (`ok`/`fail`/`start`, everything else `?`), so the `stray` mark
+  // and this one arrive wearing the same `?` and only the key tells them apart.
+  const picMark = (r) => (r.traces || []).filter((t) => t && t.phase === "pics");
+  const blindMark = picMark(blind).find((t) => t.detail && typeof t.detail.unknown === "number");
+  assert.ok(blindMark, "an unreadable store left no trace: " + JSON.stringify(picMark(blind)));
+  assert.equal(blindMark.detail.unknown, 1, "the unknown count is wrong: " + JSON.stringify(blindMark.detail));
+  // THE CONTROL: the same ask with a readable store leaves no such mark, so the
+  // assertion above is about the store and not about a mark the route always
+  // writes — and it really swept, so the run is not simply quiet.
+  assert.equal(picMark(missing).some((t) => t.detail && typeof t.detail.unknown === "number"), false,
+    "a readable store still reported an unknown: " + JSON.stringify(picMark(missing)));
+  assert.ok(picMark(missing).some((t) => t.detail && t.detail.files >= 1),
+    "the control swept nothing, so its silence about unknowns says nothing: " + JSON.stringify(picMark(missing)));
+
+  // ── 5. A BUCKET WITH NO `head` AT ALL IS CANNOT-TELL, NOT ABSENT ────────
+  //
+  // A Worker whose binding cannot answer the question has not answered it.
+  // A sweep survivor, and a wall nobody could drive until the fixture could
+  // take its own method away.
+  const mute = await photoAsk("fw-missing", {
+    kinds: ["page"], storedPages: [photoHome("fw-missing")], noHead: true,
+    written: [
+      galleryWith('<SafeImage src="' + GONE + '" alt="a picture nobody uploaded" />'),
+      linkHome("fw-missing", '<SafeImage src="/u/fw-missing/a1b2c3d4.jpg" alt="the workshop bench" />'),
+    ],
+  });
+  assert.ok(compiledPages(mute).find((f) => /gallery/.test(f.path)).source.includes(GONE),
+    "a bucket that cannot be asked swept a src");
 });
 
 test("the same request that keeps them buys the photograph and publishes — the control", async () => {

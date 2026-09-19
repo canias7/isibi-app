@@ -145,7 +145,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, uploadsFail) {
+function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, uploadsFail, noHead) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -226,10 +226,12 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
     // `uploadsFail` THROWS, because that is what R2 does when it cannot read —
     // and `null` would be a key that is honestly absent, which is the opposite
     // answer. The two are what this round is about.
-    async head(k) {
-      if (uploadsFail && k.startsWith("uploads/")) throw new Error("R2 HeadObject: connection reset");
-      return store.has(k) ? { key: k } : null;
-    },
+    ...(noHead ? {} : {
+      async head(k) {
+        if (uploadsFail && k.startsWith("uploads/")) throw new Error("R2 HeadObject: connection reset");
+        return store.has(k) ? { key: k } : null;
+      },
+    }),
   };
 }
 
@@ -268,7 +270,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -312,8 +314,29 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       return new Response(JSON.stringify({ auth: { jwks_url: "https://x/jwks" }, data_api: { url: "https://x/data" } }),
         { status: 200, headers: { "content-type": "application/json" } });
     }
-    // `site_project` FIRST: both URLs carry `/rest/v1/` and this is the more
-    // specific match — the ordering an earlier fixture of this shape got wrong.
+    // ── THE ROUTE'S OWN BLACK BOX (2026-09-19) ──────────────────────────────
+    // `flushEditTrace` POSTs the marks here. Captured because a mark is the
+    // ONLY signal that a wall stood down rather than finding nothing to do —
+    // a run that swept nothing because the store was unreadable and a run with
+    // nothing to sweep are the same reply otherwise.
+    if (url.includes("/rest/v1/edit_traces")) {
+      // ONE ROW CARRYING `events`, which is `traceRow`'s own shape — not a list
+      // of marks. Normalised to the words `aMark` is called with, so a case
+      // reads `{phase, status, detail}` rather than `{p, s, d}`.
+      // ⚠ NO try/catch AROUND THE PUSH. The first cut wrapped the whole block,
+      // and `traces` was not one of `stub`'s parameters — so every push threw a
+      // ReferenceError the catch swallowed and the list was silently empty,
+      // which reads exactly like a route that never marked anything. A catch
+      // here can only hide a wiring mistake in this fixture; the PARSE is the
+      // only part that can legitimately fail, so only the parse is guarded.
+      let row = null;
+      try { row = JSON.parse(String(init.body || "{}")); } catch { row = null; }
+      for (const e of (row && row.events) || []) traces.push({ phase: e.p, status: e.s, ms: e.ms, detail: e.d });
+      return new Response("[]", { status: 201, headers: { "content-type": "application/json" } });
+    }
+    // `site_project` FIRST of the two below: both URLs carry `/rest/v1/` and
+    // this is the more specific match — the ordering an earlier fixture of this
+    // shape got wrong.
     if (url.includes("/rest/v1/site_project")) {
       // A `none` site has no project row — that ABSENCE is what separates it
       // from `incomplete`, so the fixture has to be able to withhold it.
@@ -556,7 +579,7 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
  * serve every later one.
  */
 export async function addon(slug, instruction, opts) {
-  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [];
+  const sql = [], prompts = [], registered = [], patched = [], neonCalls = [], traces = [];
   // EVERY PROMPT THE IMAGE PROVIDER WAS REALLY PAID FOR. Collected here rather
   // than inside the stub so it comes back on the result — a case about buying
   // photographs is about WHICH pictures were bought, and the reply's count
@@ -571,7 +594,7 @@ export async function addon(slug, instruction, opts) {
   // apart needs a site that already has something. `stored` replaces the whole
   // schema rather than merging, so a case says exactly what the site is.
   const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots, traces });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -597,7 +620,7 @@ export async function addon(slug, instruction, opts) {
     const store = bucket(slug,
       (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(storedPage) : null),
       opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail,
-      opts && opts.configFail, opts && opts.uploads, opts && opts.uploadsFail);
+      opts && opts.configFail, opts && opts.uploads, opts && opts.uploadsFail, opts && opts.noHead);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },
@@ -608,9 +631,15 @@ export async function addon(slug, instruction, opts) {
     // never registers a job at all and every assertion about which jobs the
     // platform will run is vacuous.
     const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", ...(c ? dispatchEnv() : {}) };
-    const res = await worker.fetch(req, env, makeCtx());
+    // THE TRACE IS FLUSHED ON `waitUntil`, so it has not been written when the
+    // response returns. Awaiting the ctx's own pending list is what makes the
+    // route's black box readable at all — without it `traces` is always empty,
+    // which reads exactly like a route that never marked anything.
+    const ctx = makeCtx();
+    const res = await worker.fetch(req, env, ctx);
+    await Promise.allSettled(ctx.pending);
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, shots, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, traces, shots, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 
