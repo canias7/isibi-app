@@ -6558,5 +6558,41 @@ the fifth instance in this product.
    answered `repeat` and the case passed with the mismatch wall deleted. *A negative assertion is
    only worth what its observer is worth.*
 
+### CI HAS READ IT, BOTH WORKFLOWS, ON THE ONE COMMIT `cf83f5a`
+
+- **`unit tests` run 2738 — green**, the suite step 109.5 s:
+  `# tests 6814 / # pass 6810 / # fail 0 / # skipped 4`, against local `6814 / 6812 / 0 / 2`.
+  The TOTAL is what matches and the skips are what differ, which is why the total is the number
+  carried.
+- **`agent deploy` run 84 — green**, the `agent checks` step **8.7 s** against a 45-minute
+  timeout: `# tests 577 / # pass 576 / # fail 0 / # skipped 1`, against local
+  `577 / 577 / 0 / 0`. **The one skip is the one predicted before the run** — the
+  privilege-drop case needs to BE root in order to stop being root, and a runner is the user
+  `runner` — which is what makes a skip count evidence rather than an observation. Steps 6
+  through 13 all read `skipped`: the deploy gate is not armed, so **NOTHING WAS DEPLOYED.**
+- **NINE demonstrations green at their recorded counts**, which is the control that this round
+  broke nothing: `tools` 119 · `chat` 126 · `auto` 70 · `wf` 157 · `triggers` 64 ·
+  `connections` 76 · `controls` 71 · `integration` 89 · **`ops` 53 → 75**.
+  **⚠ `verify:local` IS THE TENTH AND IS STILL RUNNING**, so it is NOT counted above — an
+  earlier draft of this line listed it at its recorded 69, which is a number from a previous
+  round wearing this round's evidence. *Stamp measured numbers only AFTER the run*, and a
+  demonstration nobody has re-run is exactly the case that rule is about.
+  **⚠ AND MY FIRST READING OF THAT TABLE WAS THE INSTRUMENT'S FAULT, worth one line**: I read
+  each one with `tail -3 | grep "all checks passed"` and five came back blank — they use three
+  different final wordings (`all checks passed`, `PASSED — 0 failed`, `ALL CHECKS PASSED`). *A
+  verdict read by one spelling of it is a verdict that can go quiet about a green run.* Counting
+  the `FAIL` lines is the property, and that is what the table above rests on.
+
 **NO MIGRATION, NOTHING APPLIED, NOTHING DEPLOYED, NOTHING MERGED.** The fix is entirely above
 the database, and the unapplied migrations this round would otherwise have needed are untouched.
+
+**⚠ AND ONE THING IS OUTSTANDING AND IS NOT BEING ROUNDED INTO A PASS: the full SQL sweep.** It
+is running in a detached worktree at `e7a5502` over 278 mutants (12 controls), every mutant
+creating a database and applying every migration at ~75 seconds each. **Its tally is deliberately
+not stamped here until it ends** — a count nobody re-measured is a claim ahead of its evidence,
+this directory's own first rule. **What IS established about its coverage**: this round touches
+no file that sweep reads — `git diff` over `supabase/migrations/`, `sql-sweep.mjs`,
+`sql-sweep-spec.mjs`, `scripts/mutate.mjs` and both files in its own `CHECKS` list
+(`test/integration/pg-schema.mjs`, `test/authored-run.test.mjs`) is EMPTY between `e7a5502` and
+this head — so whatever it answers is an answer about this tree, by the same reasoning the site
+records for a green container harness on an ancestor.

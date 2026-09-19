@@ -12672,5 +12672,21 @@ test now asks whether the column is really empty rather than whether it is unusa
 - **Your site's suite: 6,814, 0 failed — unchanged**, which is the control that this touched
   nothing on that side.
 
+- **CI has read it, both checks, on the one commit `cf83f5a`.** Your site's suite reads
+  **6,814** with nothing failed; the engine's reads **577**, and the one test it skips there is
+  the one I predicted before the run — which is what makes a skip count worth reporting at all.
+  The deploy gate is not armed, so **nothing was deployed.**
+- **Nine of the ten end-to-end demonstrations green** at their recorded counts, which is the
+  control that says this touched nothing else. The tenth is still running and I have not counted
+  it — writing down a number from a previous run as though it were this one's is the mistake I
+  keep a rule against.
+
+**⚠ One thing is still running and I am not calling it done: the full breakage sweep over the
+database migrations.** 278 breakages, each one building a database from scratch, about 75
+seconds apiece — so a few hours. **Nothing of this round touches anything that sweep reads**
+(checked, not assumed: the migrations and both of its own check files are byte-identical to
+where it started), so whatever it answers is an answer about this code. Its number goes in when
+it lands rather than now.
+
 **Nothing merged, nothing deployed, nothing applied to the live database, no external message
 and no real model.**
