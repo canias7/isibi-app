@@ -13262,3 +13262,8 @@ was supposed to close it. All three are closed and each one is proved to catch i
 unchanged, which is the control. The triggers run went 74 → 98 checks, and all eleven end-to-end
 demonstrations are green at their recorded numbers with nothing failing. The sweep is 28 breakages,
 28 caught, nothing surviving.
+
+**CI has read it, all three green** on `1d6d528`: the site tests at 6,861, the agent engine's own at
+591, and the long container harness (`site build` 1219) green on all twenty steps with its 382 site
+checks passing. Nothing deployed — the agent workflow's deploying steps are all skipped, as they
+should be.

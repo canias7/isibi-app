@@ -7633,3 +7633,34 @@ fix are both in `public/chat.js`.
 
 **NOT MERGED AND NOT DEPLOYED**, by instruction. Nothing under `src/` or `supabase/` moved, so there
 is no migration and no deployment order to get right this time.
+
+### ⚠ `verify:triggers` IS 98 NOW, and one comment here said the site sent a whole automation (2026-09-19)
+
+**Nothing under `src/` or `supabase/` moved**, so this is the engine's half of a site-builder round
+rather than a change to this product — and what belongs here is the count and one corrected claim.
+The round itself (a stale form reverting another browser's trigger, and the patch that replaced it)
+is the last section of the root `CLAUDE.md`.
+
+- **`verify:triggers` 74 → 98 checks, 0 FAIL** on a real PostgreSQL. Section 4c is the review's own
+  A/B scenario driven end to end — two browsers, one changing the event, the other saving a name-only
+  edit — and it sends the OLD event and proves it reaches nothing, then the NEW one and proves it
+  starts the automation. **Both halves, because either alone is satisfied by an automation that
+  listens for nothing at all.** Plus B removing the event and A's save not restoring it, an
+  unchanged form asserted byte-identical as `md5(row(...)::text)`, and the cross-account 404.
+  **AND THE NUMBER IS WRITTEN HERE because the newest record above carried 64 → 74**, which was
+  right at its own date and is what a reader grepping this file would otherwise find as current.
+  Both stay; this is the drift rule (*a number stamped in two places drifts when only one is
+  corrected*) handled by dating each rather than by repointing one.
+- **Engine suite 591, unchanged — the control**, and `npm run test:pg` is untouched and deliberately
+  not re-run as evidence: `test/integration/` and `supabase/` are both unmodified, so its number is
+  HEAD's.
+- **⚠ AND TWO CLAIMS IN THIS TREE SAID THE SCREEN SENDS A WHOLE AUTOMATION, which stopped being
+  true.** `src/capabilities.mjs` justified `updateAutomation` being a whole replace on the grounds
+  that *"a person's form shows every field and sends every field"* — and
+  `test/capabilities.test.mjs` called it *"the whole-replace THE SCREEN USES"*. The site's edit is a
+  patch now, for the same reason a tool's is. **What the census asserts is unchanged and never
+  rested on that**: it is that NO TOOL reaches that write, asked from `touched` rather than from a
+  claim about who else calls it. The operation stays, because it is this product's own function.
+  `scripts/verify-automation-send.mjs` and `scripts/verify-conversation.mjs` each carried the same
+  claim about a body they send; both now say the whole shape is KEPT deliberately — a body that
+  names what it means cannot be read as an accidental clear whichever way an omission resolves.

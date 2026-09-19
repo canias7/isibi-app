@@ -9976,6 +9976,29 @@ a bad date says *"2027-02-30 isn't a day in the calendar"*, which `/date/i` does
 case failed about a refusal that was working. The sentences are read off the reader now rather than
 guessed a second time.
 
+### CI has read the pushed head `1d6d528`, all three workflows green
+
+- **`unit tests` run 2801** — the suite step 23:16:03→23:17:55Z — `# tests 6861 / # pass 6857 /
+  # fail 0 / # skipped 4`, against local `6861 / 6859 / 0 / 2`. **The TOTAL is what matches and the
+  skips are what differ**, the two extra being the recorded environment skips, which is why the
+  total is the number carried.
+- **`agent deploy` run 110** — the `agent checks` step **8.7 s** against a 45-minute timeout —
+  `# tests 591 / # pass 590 / # fail 0 / # skipped 1`, against local `591 / 591 / 0 / 0`. **The one
+  skip is the predicted one**: the privilege-drop case needs to BE root in order to stop being root,
+  and a runner is the user `runner`. Steps 6 through 13 all read `skipped` and the log says *"Not
+  armed. The checks above are all this push does."* — **NOTHING WAS DEPLOYED.**
+- **`site build` run 1219 — GREEN, all twenty steps, and `site-build.mjs` `382 passed / 0
+  failed`** (23:15:53→23:35:00Z; the harness step 13m47s), with kit-typecheck 4, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it — **each count bounded
+  to its own `##[group]`**, because a forward search from a step marker picks up the NEXT step's
+  number and mis-attributes it in silence. **It was DUE rather than incidental**: `agent-store.mjs`
+  is a root `*.mjs`, which that workflow's `paths` names, so this is a run of its own rather than an
+  ancestor's green carried forward. **The API reports 23 steps and the job has twenty** — three are
+  GitHub's automatic post-steps, which is this file's own recorded correction.
+- **NO ORDINAL IS WRITTEN for the 382 run**, by this file's own rule two sections up: the scan it
+  prescribes over-counts, because the paragraphs here are long enough to put 1065/1066 (which read
+  **373**) and 1115 (recorded UNREAD) beside a 382 claim. The hand-checked list is what to consult.
+
 ### NOT MERGED, NOT DEPLOYED — and the order is MANDATORY this time
 
 **⚠ `agent.patch_automation` IS IN AN UNAPPLIED MIGRATION** (`20260918120000`, whose round-number
