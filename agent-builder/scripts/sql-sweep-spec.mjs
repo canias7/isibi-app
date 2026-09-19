@@ -287,6 +287,13 @@ const AUTOS = lastDefining("create table if not exists agent.automations");
  * defines rather than by position, as everything here is.
  */
 const OPS = lastDefining("create table if not exists agent.operations");
+// ⚠ THIS FILE CARRIED ZERO MUTANTS UNTIL 2026-09-19, and the instrument that found it is a
+// count of the spec PER FILE rather than a survivor — a clean tally is the same sentence
+// whether a migration is covered or missing from the denominator entirely. Its four functions
+// ARE superseded by the approval-controls migration; its TABLE, its RLS, its grant and its
+// policy are defined only here, so the wall between two customers' approvals was unswept.
+const APPROVALS = lastDefining("create table if not exists agent.tool_approvals");
+const mApprovals = (label, from, to, control = false) => ({ label, files: [APPROVALS], from, to, control });
 const mOps = (label, from, to, control = false) => ({ label, files: [OPS], from, to, control });
 const mAuto = (label, from, to, control = false) => ({ label, files: [AUTOS], from, to, control });
 /**
@@ -1255,6 +1262,13 @@ const spec = [
     "grant select on agent.tool_revocations to authenticated;",
     "grant select, insert, delete on agent.tool_revocations to authenticated;"),
   mCtrl("SQL/revocation: every account can read every revocation",
+    "  for select to authenticated using (tenant_id = agent.tenant_id());",
+    "  for select to authenticated using (true);"),
+  // ⚠ THE SAME WALL ON THE TABLE HOLDING WHAT A PERSON APPROVED, and it was unswept for
+  // longer: a client reads `agent.tool_approvals` DIRECTLY (both reader functions are
+  // `security definer` and granted to the backend alone), so this policy is the whole of
+  // what separates two customers' approvals.
+  mApprovals("SQL/approvals: every account can read every approval request",
     "  for select to authenticated using (tenant_id = agent.tenant_id());",
     "  for select to authenticated using (true);"),
   mCtrl("SQL/revocation: row level security is not forced, so the owner is exempt",

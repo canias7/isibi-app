@@ -7002,3 +7002,46 @@ cannot touch it, so a check that had gone red there would have been red about so
 Hand-written coverage only ever tests what somebody thought of; this table had six checks over
 its grants, its UPDATE revocation and its RLS flags, and none over the one line that separates
 two customers.
+
+### ⚠ …AND THE SAME WALL WAS UNSWEPT ON THE APPROVALS TABLE, WHICH HAD *NO* MUTANTS AT ALL
+
+Having found the class, the obvious next question is where else it is — and the instrument is the
+one this file already records: **a count of the SQL spec PER FILE, not a survivor.** *A clean
+tally is the same sentence whether a migration is covered or missing from the denominator
+entirely*, so the tally cannot see this and a per-file count can.
+
+**MEASURED: FIVE MIGRATIONS CARRIED ZERO SQL MUTANTS**, and they are not one finding but three,
+separated by asking which of their objects a later migration supersedes:
+
+| migration | what it still holds | reading |
+|---|---|---|
+| `20260915181610` (the overview view) | nothing — redefined twice since, last by `20260918120000` | zero mutants is **CORRECT**; one there is inert by construction |
+| `20260915182049` (the first `import_agent`) | nothing — redefined by `20260915193124` | **CORRECT** |
+| `20260915193124` | `import_agent` and `agents_one_import_per_tenant` | **genuinely unswept — OPEN** |
+| `20260915180525` | `agent.agents` and `agent.agent_messages`, their RLS, BOTH policies, the grants, two indexes, two trigger functions | **genuinely unswept — OPEN.** Its isolation IS checked (`claimT1`, from the beginning), so what is missing is the mutants proving those checks can fail |
+| `20260918010000` | `agent.tool_approvals`, its RLS, its policy, its grant, its index — its four functions ARE superseded by `20260918030000` | **CLOSED HERE** |
+
+**THE ONE CLOSED IS THE MOST LOAD-BEARING OF THE THREE, and it is the revocations gap exactly.**
+A client reads `agent.tool_approvals` **directly** — `pending_approvals` and `run_approvals` are
+`security definer` and granted to the backend alone — so `tool_approvals_own_tenant` is the whole
+of what separates two customers' approvals, **on the table holding what a person said yes to**.
+And the checks over it were the same three shapes: the grants by `has_table_privilege`, the
+function grants, and the RLS FLAGS. *Asking whether row security is ON is not asking what the
+policy MATCHES* — a third way to answer beside the question, and the question stayed unasked.
+
+**FOUR CHECKS, AND THE COUNTS ARE ASSERTED AS A RELATION RATHER THAN AS NUMBERS.** Each account's
+own count is read from the OWNER and compared with what that account really sees, so the check
+cannot go stale when the section gains a fixture — and **both being non-zero AND different is the
+observer**, because under `using (true)` each would read the SUM, which is neither. Plus: neither
+account can name the other's row even by naming its tenant, and a token with no claims and one
+whose claims will not parse read none.
+
+**PROVED GREEN: `npm run test:pg` 1,098 → 1,102, 0 failed**, the arithmetic closing exactly at
+four. **And the mutant now exists**: the SQL spec goes **279 → 280 entries (268 product + 12
+controls)**, and `20260918010000` carries its first one — its red proof is the narrow pass below.
+
+**⚠ THE PRE-CHECK CAUGHT MY OWN ANCHOR, which is the pre-check working.** I wrote the policy as
+two lines because that is how the revocations one reads in my head; in this file it is one, so
+the generator refused `ANCHOR NOT FOUND` rather than writing a spec whose mutant would have come
+back NOT APPLIED after a five-hour run. *Reading "never applied" afterwards is the same
+information arriving too late.*

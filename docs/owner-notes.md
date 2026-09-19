@@ -12874,3 +12874,23 @@ suite, same ten demonstrations.
 went out.
 
 **Still nothing applied, nothing deployed, nothing merged.**
+
+### …and the same hole was open on the approvals table, which nothing was breaking at all
+
+Having found one, I went looking for the rest of the class, and the way to look is not the sweep's
+score — a clean score reads the same whether a file is covered or left out of the count entirely.
+So I counted the breakages per file, and **five of the fifteen database migrations had none.**
+
+Two of those five are fine: everything they define has been replaced by a later migration, so a
+breakage there would change nothing. Three are real, and I closed the one that matters most:
+**the table holding what you have approved could have been read across accounts, and nothing was
+checking that either.** Same shape as yesterday's — the checks ask *who is allowed to read this
+table* and *is the rule switched on*, and neither of those asks *what the rule matches*.
+
+The two I have not closed are recorded rather than quietly left: the agents-and-messages tables
+(their protection IS checked, what is missing is the breakage that proves the check works) and
+the one-import-per-account index. Neither is a hole today; both are places where a future edit
+would not be caught.
+
+**The real-database check is 1,098 → 1,102 and still green**, and I added the missing breakage to
+the sweep so this cannot come back unnoticed.

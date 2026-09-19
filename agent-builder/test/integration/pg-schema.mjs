@@ -3163,6 +3163,40 @@ try {
   check("⚠ and RLS is FORCED, so even the table's owner is filtered",
     jget(`select relrowsecurity::text || '|' || relforcerowsecurity::text
             from pg_class where oid = 'agent.tool_approvals'::regclass;`, asOwner) === "true|true");
+
+  // ⚠ AND THE POLICY IS ITS OWN QUESTION — THE SAME GAP AS `tool_revocations`, ONE TABLE OVER,
+  // ON THE TABLE HOLDING WHAT A PERSON APPROVED. The three checks above ask
+  // `has_table_privilege` and the RLS FLAGS, which is right about the grant and about whether
+  // row security is on, and says nothing about what the policy MATCHES. A client reads this
+  // table DIRECTLY — `pending_approvals` and `run_approvals` are `security definer` and are
+  // granted to nobody but the backend — so `tool_approvals_own_tenant` is the whole of what
+  // separates two customers' approvals, and nothing drove it until a SQL mutant on its
+  // neighbour made the class obvious. Found by counting the spec PER FILE, which is also how
+  // `20260918010000` was found to carry ZERO mutants at all.
+  allowed("a request of the OTHER account's, so neither read is about an empty table",
+    `select agent.request_tool_approval('t2','${AP_T2}','${AG_T2}',1,0,
+       'run_automation','{"id":"theirs"}'::jsonb,'hash-theirs');`, asOwner);
+  {
+    const mineN = jget(`select count(*) from agent.tool_approvals where tenant_id='t1';`, asOwner);
+    const theirsN = jget(`select count(*) from agent.tool_approvals where tenant_id='t2';`, asOwner);
+    // ASSERTED AS A RELATION rather than as numbers: each account's own count is read from the
+    // owner, so the check cannot go stale when this section gains a fixture. Both being
+    // non-zero AND different is the observer — with `using (true)` each would read the SUM,
+    // which is neither.
+    check("⚠ each account reads exactly its OWN approvals, and the counts really differ",
+      mineN !== "0" && theirsN !== "0" && mineN !== theirsN
+      && psql(`select count(*) from agent.tool_approvals;`, claimT1).out === mineN
+      && psql(`select count(*) from agent.tool_approvals;`, claimT2).out === theirsN,
+      `t1=${mineN} t2=${theirsN}`);
+    check("⚠ ...and neither can name the other's row by its id",
+      psql(`select count(*) from agent.tool_approvals where tenant_id='t2';`, claimT1).out === "0"
+      && psql(`select count(*) from agent.tool_approvals where tenant_id='t1';`, claimT2).out === "0");
+    check("a token with no claims, and one whose claims will not parse, read none",
+      psql(`select count(*) from agent.tool_approvals;`,
+        { role: "authenticated", claims: "" }).out === "0"
+      && psql(`select count(*) from agent.tool_approvals;`,
+        { role: "authenticated", claims: "not json" }).out === "0");
+  }
   check("⚠ every one of the four pins an empty search_path and runs as its owner",
     jget(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
             where n.nspname='agent'
