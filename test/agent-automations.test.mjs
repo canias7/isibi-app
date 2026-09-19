@@ -541,6 +541,58 @@ test("⚠ AN EDIT SENDS ONLY THE FIELDS IT NAMES, and the transaction keeps the 
   assert.ok(!h.calls.some((c) => c.name === "patchAutomation"), "an empty edit still wrote");
 });
 
+test("⚠ EVERY PATCHED FIELD IS REFUSED RATHER THAN COERCED, and nothing is written", async () => {
+  /**
+   * ⚠ **A SWEEP SURVIVOR IS WHY THIS EXISTS, and the one it names is the dangerous direction.**
+   * Nothing drove a junk value at this door — the census above sends only values a form really
+   * produces — so `enabled`'s type check could be deleted and `"false"` would reach the patch as
+   * a STRING. Postgres reads a non-null jsonb string into a boolean column as an error, and a
+   * shape that DID coerce would turn "off" into "on": work nobody asked for, started by a form.
+   *
+   * **`Boolean("false")` IS `true`** and `String(["daily"])` is `"daily"` — this repository's two
+   * most-recorded value traps, both reachable here, so the census drives both shapes at every
+   * field rather than one example.
+   *
+   * **AND NOTHING MAY BE WRITTEN ON A REFUSAL**, which is the half a status code cannot carry: a
+   * 400 with a `patchAutomation` behind it has already taken the row's lock and moved its
+   * `updated_at` over a change it then refused.
+   */
+  for (const [body, why] of [
+    [{ enabled: "false" }, /on or off/i],
+    [{ enabled: 1 }, /on or off/i],
+    [{ enabled: null }, /on or off/i],
+    [{ schedule: ["daily"] }, /as a word/i],
+    [{ schedule: "yearly" }, /by hand|chosen days/i],
+    [{ schedule: 7 }, /as a word/i],
+    [{ name: "" }, /name/i],
+    [{ name: "   " }, /name/i],
+    [{ at: "25:00" }, /time/i],
+    [{ at: ["09:00"] }, /time/i],
+    [{ zone: "Mars/Olympus" }, /zone|somewhere/i],
+    [{ days: ["someday"] }, /day/i],
+    [{ on_date: "2027-02-30" }, /day in the calendar/i],
+    [{ on_event: "Order Paid!" }, /event|name/i],
+  ]) {
+    const f = fakeStore();
+    const r = await call("/api/agent/automation-update", { store: f.store, body: { id: C1, ...body } });
+    assert.equal(r.status, 400, `${JSON.stringify(body)} was accepted: ${JSON.stringify(r.body)}`);
+    assert.match(r.body.error, why, `${JSON.stringify(body)} said "${r.body.error}"`);
+    assert.ok(!f.calls.some((c) => c.name === "patchAutomation"),
+      `${JSON.stringify(body)} was refused and still wrote`);
+  }
+
+  // THE CONTROL, without which "every junk value is refused" is satisfied by a door that refuses
+  // everything — the real value of each field, at the same door, reaching the patch.
+  for (const body of [{ enabled: false }, { schedule: "daily", at: "09:00", zone: "Europe/London" },
+                      { name: "ok" }, { at: "09:00" }, { zone: "Europe/London" },
+                      { days: ["mon"] }, { on_date: "2027-03-04" }, { on_event: "order.paid" }]) {
+    const g = fakeStore();
+    const rr = await call("/api/agent/automation-update", { store: g.store, body: { id: C1, ...body } });
+    assert.equal(rr.status, 200, `${JSON.stringify(body)} → ${JSON.stringify(rr.body)}`);
+    assert.ok(g.calls.some((c) => c.name === "patchAutomation"), `${JSON.stringify(body)} wrote nothing`);
+  }
+});
+
 test("⚠ A STEPS EDIT IS VALIDATED AGAINST THE DECLARATIONS THE AUTOMATION REALLY HAS", async () => {
   /**
    * A `{{reference}}` needs something that produces it, and a declared input is half of what can.

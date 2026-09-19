@@ -2086,6 +2086,95 @@ test("⚠ AN EDIT SENDS ONLY WHAT CHANGED, SO A NEWER CHANGE UNDERNEATH IT SURVI
   assert.equal(sent[1].enabled, false, "the box says OFF, so the value must");
 });
 
+test("⚠ A SECOND PRESS SENDS ONLY THE SECOND EDIT — the baseline moves with the save", async () => {
+  /**
+   * ⚠ **A SWEEP SURVIVOR IS WHY THIS EXISTS: nothing pressed Save TWICE.** Every other case in
+   * this file re-opens the form between presses, and re-opening is what captures a baseline — so
+   * `agentAutoWas = null` on the success path could be deleted with nothing red, and the stale
+   * baseline would survive into the next press.
+   *
+   * **AND THE SECOND PRESS IS WHERE THAT BITES.** With the pre-save baseline still held, the diff
+   * still holds the FIRST edit, so the second press re-sends a field that is already stored — on a
+   * row somebody else may have touched in between, which is the revert this whole round removes,
+   * returning through the door that was supposed to close it.
+   *
+   * The form is NOT re-opened here, deliberately: that is the sequence a person performs when
+   * they save, look at it, and change one more thing.
+   */
+  const MINE = { ...ONE, id: "AU6", name: "Nightly", at: "09:00", zone: "Europe/London" };
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU6" }); }
+      return okRes({ agents: ROWS, automations: [MINE], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(MINE)}]; agentAutoCat = { steps: [], days: [] };`);
+  await openAutoForm(w, "AU6");
+
+  w.s.document.getElementById("agAutoName").value = "Nightly (one)";
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["id", "name"], w.ev("agentAutoActErr"));
+
+  // THE SECOND PRESS, with the form never re-opened and one more field moved.
+  w.s.document.getElementById("agAutoAt").value = "06:15";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[1]).sort(), ["at", "id"],
+    "the second press re-sent a field the first press already stored");
+  assert.equal(sent[1].at, "06:15");
+  assert.ok(!Object.hasOwn(sent[1], "name"), "the name went out twice, so the baseline never moved");
+
+  // ⚠ **THE CONTROL: a THIRD press with nothing moved sends nothing at all.** Without it "only
+  // the second edit" is satisfied by a save that has stopped sending anything after the first.
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, "a press with nothing changed still made a request");
+});
+
+test("⚠ THE DIFF ITSELF IS STRUCTURAL — `agentAutoChanges`, not just `autoSame`", async () => {
+  /**
+   * ⚠ **A SWEEP SURVIVOR, AND IT IS THE RECORDED "a guard proves the branch it drives, and no
+   * other".** The case above this drives `autoSame` directly and proves it perfectly — and the
+   * mutant does not touch `autoSame`: it changes which reader `agentAutoChanges` USES. So
+   * `autoSame` stayed correct, every assertion about it stayed green, and the diff had swapped to
+   * `JSON.stringify`.
+   *
+   * **MEASURED over sixteen value shapes the form can really build: the two readers diverge on
+   * exactly two, and both are a key ORDER difference** — `{type,text}` against `{text,type}` in a
+   * step, and the same in an input declaration. Under stringify each reads as a change, so every
+   * save carries `steps`, and the lost update is back for the one field most worth protecting.
+   *
+   * It is driven here rather than through the form because today both sides of a real diff are
+   * built by one reader and therefore agree on order; this is the contract `agentAutoChanges` has
+   * to keep for the day a control moves in the markup, which is when it would otherwise break
+   * silently.
+   */
+  const w = loadScreen({ answer: () => okRes({ agents: ROWS }) });
+  const F = (o) => JSON.stringify({ name: "n", enabled: true, schedule: "manual", at: "09:00",
+                                    zone: "Europe/London", steps: [], inputs: [], ...o });
+  const diff = (was, now) => w.ev(`JSON.stringify(agentAutoChanges(${was}, ${now}))`);
+
+  // THE KEYS IN THE OTHER ORDER IS NOT A CHANGE SOMEBODY MADE.
+  assert.equal(diff(F({ steps: [{ type: "note", text: "a" }] }), F({ steps: [{ text: "a", type: "note" }] })), "{}",
+    "a step list whose keys only moved read as changed, so every save would carry `steps`");
+  assert.equal(diff(F({ inputs: [{ name: "a", type: "text" }] }), F({ inputs: [{ type: "text", name: "a" }] })), "{}",
+    "an input declaration whose keys only moved read as changed");
+
+  // ⚠ THE CONTROLS — a real change IS reported, or "{}" is satisfied by a diff that answers
+  // nothing at all, and every one of these is a shape `JSON.stringify` and `autoSame` agree on.
+  assert.deepEqual(JSON.parse(diff(F({}), F({ name: "other" }))), { name: "other" });
+  assert.deepEqual(JSON.parse(diff(F({ steps: [{ type: "note", text: "a" }] }), F({ steps: [{ type: "note", text: "b" }] }))),
+    { steps: [{ type: "note", text: "b" }] }, "an edited step is a change");
+  assert.deepEqual(JSON.parse(diff(F({ steps: [{ type: "note", text: "a" }] }), F({ steps: [] }))),
+    { steps: [] }, "a deleted step is a change, and `[]` is a real answer");
+  // A LIST'S OWN ORDER IS ITS VALUE, unlike an object's keys — the distinction this rests on.
+  assert.deepEqual(
+    JSON.parse(diff(F({ steps: [{ type: "note", text: "a" }, { type: "note", text: "b" }] }),
+                    F({ steps: [{ type: "note", text: "b" }, { type: "note", text: "a" }] }))).steps.map((s) => s.text),
+    ["b", "a"], "two steps swapped is a change the person made");
+});
+
 test("⚠ AN UNCHANGED FORM CHANGES NOTHING — no request at all", async () => {
   // **A save that had nothing to save must not take the row's lock and move its `updated_at`**,
   // which is what an empty patch resolved from the row would do. And "Saved" is the honest thing
