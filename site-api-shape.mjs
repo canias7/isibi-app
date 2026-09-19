@@ -163,11 +163,27 @@ export function typeFromShape(shape) {
  * second copy of `names` and would put a key on the wire for every connection
  * that ever existed; present-iff-any is what keeps the negative control exact.
  */
-export function cleanParams(raw) {
+export function cleanParams(raw, stored) {
   const names = [];
   const info = [];
   let said = false;
-  for (const p of (Array.isArray(raw) ? raw : [])) {
+  // ⚠ A STORED DECLARATION SPLITS THE TWO, AND RE-READING IT MUST PUT THEM BACK
+  // TOGETHER. `params` is the list of NAMES once a connection is in
+  // `_meta.schema`, so a second pass over it alone answers `info: null` and
+  // every type, required flag and sentence is gone one hop after being stored.
+  // MEASURED end to end before this argument existed: a connection reached the
+  // store with its `returns` and its `credential` intact and its `paramInfo`
+  // absent, and the page prompt named no parameter at all — the value computed
+  // and never forwarded, in the field whose whole job is to say what a blank
+  // is. Paired BY NAME, never by position: `normalizeApi` drops a malformed
+  // name, which shifts every index behind it.
+  const by = new Map();
+  for (const s of (Array.isArray(stored) ? stored : [])) {
+    if (s && typeof s === "object" && typeof s.name === "string") by.set(s.name.toLowerCase(), s);
+  }
+  for (const p0 of (Array.isArray(raw) ? raw : [])) {
+    const key = String((p0 && typeof p0 === "object" && !Array.isArray(p0) ? p0.name : p0) || "").toLowerCase();
+    const p = (typeof p0 === "string" && by.has(key)) ? by.get(key) : p0;
     // NOT TRIMMED, deliberately. `normalizeApi` has lowercased and matched
     // without trimming since it was written, so every connection stored before
     // today normalises to exactly the list it normalised to yesterday — which

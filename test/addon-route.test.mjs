@@ -52,6 +52,12 @@ import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // hand-typed permission is a second copy of the emitter and the two drift.
 import { grantsFor, policiesFor } from "../site-rls.mjs";
 import { splitPrivileges, readParens } from "../site-schema-recover.mjs";
+// THE READER THE SERVING ROUTE USES, so "the stored declaration is read back
+// whole" is asked of the product rather than of the object the case just wrote:
+// `apiFor` runs a stored connection back through `normalizeApi`, which is where
+// a field that survives storage and not the readback would be lost.
+import { apiFor } from "../site-apis.mjs";
+import { missingRequired } from "../site-api-shape.mjs";
 // THE CUSTOMER'S SCREEN, COMPOSED BY THE BROWSER ITSELF. `browserReply` loads
 // `public/chat.js` and runs the real `addonAnswer` — selection and composition
 // both — so a case about what somebody reads is not a second copy of the
@@ -6016,4 +6022,128 @@ test("the QR step says which request its code answers, and the hand-off is assoc
   assert.equal(d.state, "missing", "an echo naming a DIFFERENT code covered up a code nobody made: " + JSON.stringify(d));
   assert.equal(d.reconciledBy, undefined, "a finding was overwritten by an echo: " + JSON.stringify(d));
   assert.match(dep.body.coverNote || "", /Still to do: A QR code opens the order page/, dep.body.coverNote);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// AN OUTSIDE CONNECTION A PAGE CAN ACTUALLY RENDER (task #185, 2026-09-19).
+//
+// The whole local path, through `POST /api/site/<slug>/addon`: the TOOL the
+// route really sent, the cleaning, `_meta.schema`, the readback through the
+// product's own reader, the PAGE PROMPT, and the sentence the customer reads.
+// The rendering half is `test/api-shape.test.mjs` — a page written against a
+// declared shape draws the values and the same page against an invented one
+// draws a blank — because a type annotation is not rendering proof.
+
+const SHAPE = { current: { temp_c: "number", condition: { text: "string" } }, forecast: [{ day: "string", high: "number" }] };
+const RICH_API = {
+  name: "weather", url: "https://api.test/v1/forecast?c={{param.city}}&key={{W_KEY}}", method: "GET",
+  params: [{ name: "city", type: "string", required: true, description: "the town or postcode to look up" },
+    { name: "days", type: "number", description: "how many days ahead" }],
+  returns: SHAPE,
+  credential: { service: "WeatherAPI", url: "https://weatherapi.test/signup", note: "the free tier covers 1,000 calls a month" },
+  cacheSeconds: 300,
+};
+
+test("a connection carries what it answers all the way to the page writer, and the owner is told where the key comes from", async () => {
+  const r = await addon("fw-api-shape", "show the forecast on the home page", {
+    kinds: ["api"], publishes: true, answers: { api: { api: [RICH_API] } },
+  });
+  assert.equal(r.body.ok, true, r.text || JSON.stringify(r.body));
+
+  // 1. THE TOOL THE DESIGNER REALLY RECEIVED. Read off the request rather than
+  // the source, and one level IN: a case that asserted the shape reached the
+  // store would otherwise pass against a tool that never offered it, because
+  // the fixture hands the answer in.
+  const tool = promptFor(r, "api");
+  for (const p of ["returns", "credential", "params"]) {
+    assert.ok(tool.itemProps.includes(p), "the api tool does not offer " + p + ": " + JSON.stringify(tool.itemProps));
+  }
+
+  // 2. STORED. `_meta.schema` is where a connection lives — `r.meta()` is that
+  // stored spec — and the engine's allow-list drops anything it does not copy
+  // out explicitly.
+  const stored = r.meta();
+  const saved = (stored.apis || []).find((a) => a.name === "weather");
+  assert.deepEqual(saved.returns, SHAPE, "the sketch did not survive to the store: " + JSON.stringify(saved));
+  assert.deepEqual(saved.paramInfo, [
+    { name: "city", type: "string", required: true, note: "the town or postcode to look up" },
+    { name: "days", type: "number", note: "how many days ahead" },
+  ], JSON.stringify(saved.paramInfo));
+  assert.deepEqual(saved.credential, { service: "WeatherAPI", url: "https://weatherapi.test/signup", note: "the free tier covers 1,000 calls a month" });
+  assert.deepEqual(saved.params, ["city", "days"], "the stored names are still a plain list every reader iterates");
+
+  // 3. REREAD, through the reader the SERVING route uses — not by looking at
+  // the object we just wrote. `apiFor` runs the stored declaration back through
+  // `normalizeApi`, which is where a field that survives storage and not the
+  // readback would be lost.
+  const back = apiFor(stored, "weather");
+  assert.deepEqual(back.returns, SHAPE);
+  assert.equal(back.paramInfo[0].required, true);
+  assert.deepEqual(missingRequired(back, {}), ["city"], "the reread declaration lost the required flag");
+
+  // 4. THE PAGE PROMPT. The writer is handed the field names and the exact
+  // annotation, so neither is a guess.
+  const page = pagePrompt(r);
+  assert.match(page.text, /it answers \{\\"current\\":\{\\"temp_c\\":\\"number\\"/, "the shape is not in the page prompt");
+  assert.match(page.text, /city: string, REQUIRED — the town or postcode to look up/, "the parameter is not described to the writer");
+  assert.match(page.text, /days: number, optional/);
+  assert.match(page.text, /useApi<\{ current: \{ temp_c: number; condition: \{ text: string \} \}; forecast: \{ day: string; high: number \}\[\] \}>/,
+    "the writer has to invent the annotation");
+  assert.match(page.text, /HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE/, "nothing tells the page to draw loading and error");
+
+  // 5. THE CUSTOMER'S OWN SENTENCE, composed by the browser's real formatter.
+  // The destination was always there; the provenance is what was missing.
+  const said = browserText(r.body);
+  assert.match(said, /add W_KEY under Cloud → Secrets/, said);
+  assert.match(said, /The key for weather comes from WeatherAPI at https:\/\/weatherapi\.test\/signup \(the free tier covers 1,000 calls a month\)/, said);
+});
+
+test("a connection needing no key is told so, and one that declares nothing is byte for byte what it was", async () => {
+  // ⚠ "SUPPORT CONNECTIONS NEEDING NO KEY" IS DERIVED FROM THE DECLARATION.
+  // This one carries NO `{{SECRET}}` anywhere, so `secretsNeeded` is empty and
+  // the owner is told there is nothing to do — and the credential guidance
+  // declared beside it cannot turn that into a go-and-sign-up instruction.
+  const free = await addon("fw-api-free", "show the forecast", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [{ ...RICH_API, url: "https://api.test/v1/public?c={{param.city}}" }] } },
+  });
+  const freeSaid = browserText(free.body);
+  assert.match(freeSaid, /needs no key, so it is answering already/, freeSaid);
+  assert.doesNotMatch(freeSaid, /Cloud → Secrets/, "a keyless connection was told to paste a key: " + freeSaid);
+  assert.doesNotMatch(freeSaid, /comes from WeatherAPI/, "a keyless connection was sent to sign up: " + freeSaid);
+
+  // THE NEGATIVE CONTROL, and it is the compatibility claim: every connection
+  // on the platform today declares none of the three.
+  const plain = await addon("fw-api-plain", "show the forecast", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [{ name: "weather", url: "https://api.test/v1?c={{param.city}}&key={{W_KEY}}", params: ["city"], cacheSeconds: 300 }] } },
+  });
+  const old = ((plain.meta() || {}).apis || []).find((a) => a.name === "weather");
+  assert.deepEqual(Object.keys(old), ["name", "url", "method", "headers", "params", "body", "ttl"],
+    "a connection declaring none of the three gained a key in the store: " + JSON.stringify(old));
+  const oldPage = pagePrompt(plain);
+  assert.match(oldPage.text, /weather\(city\) — the platform holds the key and does the call/, "the old per-connection line moved");
+  assert.doesNotMatch(oldPage.text, /it answers/, "a connection that described nothing described something");
+  assert.match(browserText(plain.body), /add W_KEY under Cloud → Secrets/, "the destination sentence moved");
+  assert.doesNotMatch(browserText(plain.body), /comes from/, "a connection with no credential guidance invented some");
+});
+
+test("a sketch that cannot be read refuses the connection by name, and stores nothing", async () => {
+  // A SAMPLE INSTEAD OF A SKETCH is the mistake this refusal is for: a real
+  // value where a type name belongs. Refused rather than dropped, because the
+  // alternative is a page written blind against a service nobody described —
+  // which is the defect the field exists to close.
+  const r = await addon("fw-api-bad", "show the forecast", {
+    kinds: ["api"], publishes: true,
+    answers: { api: { api: [{ ...RICH_API, returns: { current: { temp_c: 18.5 } } }] } },
+  });
+  assert.equal(r.body.ok, false, "a connection with an unreadable sketch was published: " + JSON.stringify(r.body));
+  assert.match(r.body.msg || "", /couldn't read the description of what that service sends back/, r.body.msg);
+  // THE PROPERTY, not the shape of an empty key: the site's stored spec holds
+  // no connection by that name. `apis` may legitimately be `[]` here — that is
+  // the fixture's own starting spec — so asserting on the key rather than on
+  // the connection would pass for a store that really did gain one.
+  assert.equal(((r.meta() || {}).apis || []).find((a) => a && a.name === "weather"), undefined,
+    "a refused connection reached the store: " + JSON.stringify((r.meta() || {}).apis));
+  assert.equal(r.body.cost, 0, "a refusal charged for something");
 });

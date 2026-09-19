@@ -119,7 +119,7 @@ export function normalizeApi(raw) {
   // was really said about a parameter. Two lists of one thing is this
   // repository's most-repeated defect, so they are derived rather than
   // maintained, and a guard asserts the names of one equal the other.
-  const p = cleanParams(raw.params);
+  const p = cleanParams(raw.params, raw.paramInfo);
   const params = p.names;
   const body = method === "POST" && typeof raw.body === "string" ? raw.body.slice(0, MAX_API_BODY) : "";
   let ttl = parseInt(raw.cacheSeconds != null ? raw.cacheSeconds : raw.ttl, 10);

@@ -1,0 +1,292 @@
+[
+  {
+    "label": "CONTROL: a comment in site-api-shape changes nothing",
+    "control": true,
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "/** Deeper than any answer a page should be reading a field out of. */",
+    "to": "/** Deeper than any answer a page should be reading a field out of. (control) */"
+  },
+  {
+    "label": "CONTROL: a comment in worker.js changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "        // A REQUIRED BLANK THE CALLER DID NOT FILL IS REFUSED BEFORE THE CALL",
+    "to": "        // A REQUIRED BLANK THE CALLER DID NOT FILL IS REFUSED (control) BEFORE THE CALL"
+  },
+  {
+    "label": "a sample is accepted as a sketch",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "      return SHAPE_LEAVES.includes(t) ? { ok: true, shape: t } : { ok: false, why: \"shape-leaf\" };",
+    "to": "      return { ok: true, shape: SHAPE_LEAVES.includes(t) ? t : \"unknown\" };"
+  },
+  {
+    "label": "a two-element sketch array takes the first instead of refusing",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "      if (v.length > 1) return { ok: false, why: \"shape-array\" };",
+    "to": "      if (v.length > 99) return { ok: false, why: \"shape-array\" };"
+  },
+  {
+    "label": "an object sketch with no keys is accepted",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "      if (!keys.length) return { ok: false, why: \"shape-empty\" };",
+    "to": "      if (!keys.length) return { ok: true, shape: {} };"
+  },
+  {
+    "label": "the derived type never quotes a key that is not an identifier",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "      const key = PLAIN_ID.test(k) ? k : JSON.stringify(k);",
+    "to": "      const key = k;"
+  },
+  {
+    "label": "a required flag is read as truthy",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "      if (p.required === true) { row.required = true; said = true; }",
+    "to": "      if (p.required) { row.required = true; said = true; }"
+  },
+  {
+    "label": "a parameter name is trimmed, re-keying every cached answer",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "    const name = String((p && typeof p === \"object\" && !Array.isArray(p) ? p.name : p) || \"\").toLowerCase();",
+    "to": "    const name = String((p && typeof p === \"object\" && !Array.isArray(p) ? p.name : p) || \"\").toLowerCase().trim();"
+  },
+  {
+    "label": "a stored declaration loses its parameter metadata on the way back in",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "    const p = (typeof p0 === \"string\" && by.has(key)) ? by.get(key) : p0;",
+    "to": "    const p = p0;"
+  },
+  {
+    "label": "the stored metadata is paired by POSITION",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  const by = new Map();\n  for (const s of (Array.isArray(stored) ? stored : [])) {\n    if (s && typeof s === \"object\" && typeof s.name === \"string\") by.set(s.name.toLowerCase(), s);\n  }",
+    "to": "  const by = new Map();\n  for (const [i, s] of (Array.isArray(stored) ? stored : []).entries()) {\n    if (s && typeof s === \"object\") by.set(String(i), s);\n  }"
+  },
+  {
+    "label": "the parameter metadata rides even when nothing was said",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  return { names, info: said ? info : null };",
+    "to": "  return { names, info };"
+  },
+  {
+    "label": "an http sign-up page is accepted",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  if (url && !/^https:\\/\\/[^\\s/]+/i.test(url)) return { ok: false, why: \"credential-url\" };",
+    "to": "  if (false) return { ok: false, why: \"credential-url\" };"
+  },
+  {
+    "label": "the shared facts are empty for every connection",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "export function apiDetailLines(api) {\n  const out = [];\n  if (!api) return out;",
+    "to": "export function apiDetailLines(api) {\n  const out = [];\n  if (api) return out;"
+  },
+  {
+    "label": "a required blank filled with an empty string counts as filled",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "    if (v === undefined || v === null || String(v) === \"\") out.push(row.name);",
+    "to": "    if (v === undefined || v === null) out.push(row.name);"
+  },
+  {
+    "label": "the no-key sentence is said whatever the declaration needs",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  const need = Array.isArray(secrets) ? secrets : [];\n  if (!need.length) {",
+    "to": "  const need = Array.isArray(secrets) ? secrets : [];\n  if (need.length >= 0) {"
+  },
+  {
+    "label": "the credential sentence is composed from the model's claim, not the declaration",
+    "files": [
+      "site-api-shape.mjs"
+    ],
+    "from": "  if (!need.length) {\n    return \"That connection needs no key, so it is answering already.\";\n  }",
+    "to": "  if (!list.some((a) => a && a.credential)) {\n    return \"That connection needs no key, so it is answering already.\";\n  }"
+  },
+  {
+    "label": "the engine drops the response sketch",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "    ...(shape && shape.ok ? { returns: shape.shape } : {}),",
+    "to": "    ...(false ? { returns: shape.shape } : {}),"
+  },
+  {
+    "label": "the engine drops the parameter metadata",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "    ...(p.info ? { paramInfo: p.info } : {}),",
+    "to": "    ...(false ? { paramInfo: p.info } : {}),"
+  },
+  {
+    "label": "the engine drops the credential guidance",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "    ...(cred && cred.ok ? { credential: cred.credential } : {}),",
+    "to": "    ...(false ? { credential: cred.credential } : {}),"
+  },
+  {
+    "label": "the engine never re-reads a stored declaration's parameter metadata",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "  const p = cleanParams(raw.params, raw.paramInfo);",
+    "to": "  const p = cleanParams(raw.params);"
+  },
+  {
+    "label": "the cache fingerprint carries what a connection SAYS, so a documentation fix flushes it",
+    "files": [
+      "site-apis.mjs"
+    ],
+    "from": "  return JSON.stringify([api.method, api.url, h, api.body || \"\", [...(api.params || [])].sort(), api.ttl]);",
+    "to": "  return JSON.stringify([api.method, api.url, h, api.body || \"\", [...(api.params || [])].sort(), api.ttl, api.returns || null, api.paramInfo || null, api.credential || null]);"
+  },
+  {
+    "label": "the addon's cleaner drops the unreadable-sketch refusal",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (shape && !shape.ok) return { ok: false, why: shape.why };",
+    "to": "        if (false) return { ok: false, why: shape.why };"
+  },
+  {
+    "label": "the addon's cleaner drops the credential refusal",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        if (cred && !cred.ok) return { ok: false, why: cred.why };",
+    "to": "        if (false) return { ok: false, why: cred.why };"
+  },
+  {
+    "label": "the cleaner reads parameters as bare strings again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const pinfo = cleanParams(v.params, v.paramInfo);\n        const params = pinfo.names;",
+    "to": "        const pinfo = { names: (Array.isArray(v.params) ? v.params : []).filter((p) => typeof p === \"string\" && TABLE_NAME.test(p)).slice(0, 12), info: null };\n        const params = pinfo.names;"
+  },
+  {
+    "label": "the addon directive says nothing about what the service answers",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      for (const line of apiDetailLines(v)) out.push(\"  - \" + line);",
+    "to": "      for (const line of []) out.push(\"  - \" + line);"
+  },
+  {
+    "label": "the addon directive drops the three-states instruction",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      out.push(\"  - It crosses the internet, so draw all three states: waiting, unreachable-or-not-configured-yet, and the answer.\");",
+    "to": "      out.push(\"  - It is served by the platform.\");"
+  },
+  {
+    "label": "the page catalogue says nothing about what a connection answers",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "        const detail = apiDetailLines(a).map((l) => \"\\n      \" + l).join(\"\");",
+    "to": "        const detail = \"\";"
+  },
+  {
+    "label": "the page catalogue drops the three-states instruction",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "      \"\\n  EVERY ONE OF THESE HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE: `isLoading` while it waits, \"",
+    "to": "      \"\\n  \" +"
+  },
+  {
+    "label": "the serving route drops the required-blank refusal",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        if (amiss.length) {",
+    "to": "        if (false && amiss.length) {"
+  },
+  {
+    "label": "the required-blank refusal runs AFTER the service has been called",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        const amiss = missingRequired(api, params);",
+    "to": "        const amiss = [];"
+  },
+  {
+    "label": "the reply drops where the key comes from",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              credentialNote: aApis.length",
+    "to": "              credentialNote: false && aApis.length"
+  },
+  {
+    "label": "the browser stops printing where the key comes from",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (a.credentialNote) out += ' ' + a.credentialNote;",
+    "to": "  if (false) out += ' ' + a.credentialNote;"
+  },
+  {
+    "label": "the audit does not know the tool offers a sketch or a credential",
+    "files": [
+      "site-schema.mjs"
+    ],
+    "from": "  api: new Set([\"name\", \"url\", \"method\", \"headers\", \"body\", \"params\", \"returns\", \"credential\", \"cacheSeconds\"]),",
+    "to": "  api: new Set([\"name\", \"url\", \"method\", \"headers\", \"body\", \"params\", \"cacheSeconds\"]),"
+  },
+  {
+    "label": "the tool stops offering a response sketch",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    returns: { type: \"object\", description:",
+    "to": "    returnsGone: { type: \"object\", description:"
+  },
+  {
+    "label": "the tool stops offering credential guidance",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    credential: { type: \"object\", description:",
+    "to": "    credentialGone: { type: \"object\", description:"
+  },
+  {
+    "label": "the tool's parameters go back to bare strings",
+    "files": [
+      "builder/site-table.mjs"
+    ],
+    "from": "    params: {\n      type: \"array\",\n      description: \"Every blank a page may fill in",
+    "to": "    params: {\n      type: \"array\",\n      items: { type: \"string\" },\n      description: \"Every blank a page may fill in"
+  }
+]

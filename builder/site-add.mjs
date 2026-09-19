@@ -2214,7 +2214,7 @@ export function cleanAdd(kind, value, site) {
         // described rather than named — the metadata arriving and being binned
         // one hop after it was written, which is this repository's own
         // `readAddAnswer` finding in the tier below it.
-        const pinfo = cleanParams(v.params);
+        const pinfo = cleanParams(v.params, v.paramInfo);
         const params = pinfo.names;
         // A SKETCH THAT CANNOT BE READ REFUSES THE CONNECTION, where the engine
         // merely drops it. The difference is who is listening: here a person

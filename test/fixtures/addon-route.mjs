@@ -525,19 +525,31 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       // property besides `requirements` is named by the kind.
       const b = (() => { try { return JSON.parse(String(init && init.body) || "{}"); } catch { return {}; } })();
       const asked = (b.tool_choice && (b.tool_choice.name || (b.tool_choice.function && b.tool_choice.function.name))) || "";
-      const props = (() => {
+      const schemaOf = (() => {
         const t = (b.tools || []).find((x) => (x.name || (x.function && x.function.name)) === asked);
-        const schema = t && (t.input_schema || (t.function && t.function.parameters));
-        return Object.keys((schema && schema.properties) || {});
+        return t && (t.input_schema || (t.function && t.function.parameters));
       })();
+      const props = Object.keys((schemaOf && schemaOf.properties) || {});
       const kind = props.find((x) => x !== "requirements") || "";
+      // ⚠ AND THE ITEM'S OWN PROPERTIES, one level in (2026-09-19). `props` is
+      // the tool's top level — `["api","requirements"]` — which says nothing
+      // about what a designer may declare ABOUT one connection. A case
+      // asserting that a `returns` sketch or a typed parameter reached the
+      // store would otherwise pass against a tool that never offered either,
+      // because the fixture hands the answer in: the same bypass the comment
+      // above records, one level deeper.
+      const itemProps = (() => {
+        const p = schemaOf && schemaOf.properties && schemaOf.properties[kind];
+        const item = p && (p.items || p);
+        return Object.keys((item && item.properties) || {});
+      })();
       // ⚠ AND THE PROPERTY SET ITSELF IS KEPT (2026-09-19). Whether a designer
       // MAY answer coverage is a fact about the tool the route hands it, and a
       // fixture that supplies the answer directly bypasses the tool entirely —
       // so without this, a case driving a `requirements` echo passes whether or
       // not the model could ever have written one. Measured: the QR echo case
       // was green against a product whose qr tool had no such property.
-      prompts.push({ tool: asked, kind, props, text: JSON.stringify(b.messages || b.system || b) });
+      prompts.push({ tool: asked, kind, props, itemProps, text: JSON.stringify(b.messages || b.system || b) });
       // THE PAGE CALL, for a case that is not pageless. A connection or a
       // PUBLIC function exists to be read by a page, so `pageless` is false and
       // the route writes one — which is right, and is why those two kinds
