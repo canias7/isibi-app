@@ -1268,20 +1268,42 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return answerOf(r, "create automation");
     },
 
-    /** Change one. A replace of its settings, and the form always sends all of them. */
-    async updateAutomation(tenant, { id, name, enabled, schedule, at, zone, steps, inputs, days, onDate, onEvent }) {
-      const r = await req("POST", "rpc/update_automation", {
-        body: {
-          p_tenant: tenant, p_id: id, p_name: name, p_enabled: enabled,
-          p_schedule: schedule, p_at_local: at, p_zone: zone, p_steps: steps,
-          p_inputs: inputs ?? [],
-          // `null` RATHER THAN OMITTED — see the create, and it matters more here: this is
-          // the path that turns one schedule into another.
-          p_days: days ?? [], p_on_date: onDate ?? null, p_on_event: onEvent ?? null,
-        },
+    /**
+     * Change only the fields an edit really NAMED.
+     *
+     * ⚠ **IT REPLACED A WHOLE-ROW WRITE, AND THE DIFFERENCE IS A LOST UPDATE.**
+     * `agent.update_automation` takes every column and writes every column, so a form built
+     * from a row a browser read minutes ago overwrote whatever anybody else had changed
+     * since — including a trigger this form has no control for, which is how an event
+     * binding came to be copied out of a cached row in the first place.
+     * `agent.patch_automation` takes the row lock FIRST and resolves every key the patch does
+     * not carry from the LOCKED row, so an omitted field keeps what the database holds rather
+     * than what a browser remembers, and ownership and wholeness are both decided inside that
+     * same transaction.
+     *
+     * **THE REPLACE DOOR IS GONE RATHER THAN LEFT BESIDE THIS ONE.** A caller that can still
+     * send a whole row is a caller that can still lose an update, and this engine dropped its
+     * own token-less `beat_run` overloads for exactly that reason: an unused bypass is the
+     * defect waiting to be re-wired. `agent.update_automation` is still the one WRITER —
+     * `patch_automation` delegates to it — and nothing above the database reaches it now.
+     *
+     * **THE PLAIN FUNCTION, NOT `patch_automation_once`.** A person pressing Save twice is not
+     * a redelivery: nothing retries this request, and the same patch applied twice writes the
+     * same values. The `_once` wrapper is the AGENT's door, where a queue really can deliver
+     * one call again, and it is the one place an operation record is worth keeping.
+     *
+     * **NO VERSION FENCE FROM THIS DOOR, and that is deliberate rather than missing.**
+     * `version` moves on a change of STEPS and on nothing else, so it cannot see a concurrent
+     * rename at all; what protects every other field is that this patch only writes what it
+     * names, atomically, under that lock. A fence would refuse a name change because somebody
+     * else had edited the steps — a refusal with nothing for the person to do about it.
+     */
+    async patchAutomation(tenant, { id, patch }) {
+      const r = await req("POST", "rpc/patch_automation", {
+        body: { p_tenant: tenant, p_id: id, p_patch: patch, p_expect_version: null },
       });
-      if (!r.ok) throw storeFail("update automation", r);
-      return answerOf(r, "update automation");
+      if (!r.ok) throw storeFail("patch automation", r);
+      return answerOf(r, "patch automation");
     },
 
     /**
@@ -2816,6 +2838,101 @@ export function validTimeZone(v) {
  * one too: a weekday condition asks which day it is somewhere, and without this it would
  * mean the day in UTC for every manual automation, silently.
  */
+/**
+ * ⚠ **ONE READER PER TRIGGER VALUE, BECAUSE THERE ARE TWO DOORS AND THEY MUST NOT DRIFT.**
+ *
+ * `cleanSchedule` reads a WHOLE trigger — every field at once, with the wholeness rules a
+ * create needs — and `cleanPatch` reads only the fields an edit NAMED, leaving wholeness to
+ * the transaction. What a value may be, and the sentence a bad one earns, is the same question
+ * either way: two copies of "which strings are days, in which order" is how one door comes to
+ * refuse what the other stores, and this repository has the same shape recorded a dozen times
+ * over. So the shapes live here and the two doors differ only in WHICH of them they ask.
+ *
+ * Each answers `{error}` or the field under its own name, so a caller reads one property and
+ * cannot mistake "no answer" for a value.
+ */
+const blankish = (v) => v === undefined || v === null || v === "";
+
+/**
+ * The time of day, as somebody typed it — `HH:MM`.
+ *
+ * ⚠ **THE TWO DOORS WANT TWO SHAPES OF ONE VALUE, and that is the two FUNCTIONS' contracts
+ * rather than a normalisation this reader gets to choose.** `agent.create_automation` and
+ * `agent.update_automation` take a `time`, so the store sends the column's own `HH:MM:SS`;
+ * `agent.patch_automation` reads `atLocal` against `^([01][0-9]|2[0-3]):[0-5][0-9]$` — which is
+ * also the shape the engine's own `change_automation` sends it. **MEASURED: seconds there are
+ * answered `bad-time`**, which is how this was found, by a demonstration rather than by reading.
+ *
+ * So this answers the SHAPE it was given and each door adds what its own function wants.
+ */
+export function trigAt(v) {
+  const at = typeof v === "string" ? v.trim() : "";
+  if (!AT_SHAPE.test(at)) return { error: "say what time of day it should run, as HH:MM" };
+  return { at };
+}
+
+/** A time zone the SERVER can really use, asked of `Intl` rather than of a list. */
+export function trigZone(v) {
+  const zone = validTimeZone(v);
+  if (!zone) return { error: "that isn't a time zone this can use" };
+  return { zone };
+}
+
+/**
+ * The days of the week, in the WEEK's own order.
+ *
+ * ⚠ **`AUTOMATION_DAYS`' OWN ORDER, which is the ENGINE's `WEEKDAYS` — Sunday first, because
+ * `Date.getDay()` is.** Two saves of one selection are byte-identical because the order is this
+ * list's rather than the ticking order, which is what makes a stored value comparable at all.
+ *
+ * **REFUSED BY NAME, NEVER SHORTENED**: a selection quietly missing the day it could not read is
+ * a schedule that looks saved and runs on other days. `[]` comes back as `[]` — whether an empty
+ * list is allowed is the CALLER's question, because it is a refusal on a weekly schedule and a
+ * real clear on an edit that stops being one.
+ */
+export function trigDays(raw) {
+  if (!Array.isArray(raw)) return { error: "pick at least one day of the week" };
+  const bad = raw.find((d) => typeof d !== "string" || !AUTOMATION_DAYS.includes(d.trim().toLowerCase()));
+  if (bad !== undefined) return { error: `"${String(bad)}" isn't a day of the week` };
+  const picked = new Set(raw.map((d) => d.trim().toLowerCase()));
+  return { days: AUTOMATION_DAYS.filter((d) => picked.has(d)) };
+}
+
+/**
+ * The one day a one-off runs on.
+ *
+ * ⚠ **CHECKED AS A REAL CALENDAR DAY, not just as a shape** — `2026-02-30` matches
+ * `ON_DATE_SHAPE` and is not a day, and Postgres would refuse the insert with its own message
+ * about a date somebody typed. The arithmetic is done rather than handed to `Date`, because
+ * `new Date("2026-02-30")` rolls forward to March and would store a day nobody chose.
+ *
+ * A DATE IN THE PAST IS DELIBERATELY NOT REFUSED. `tick_automations` answers a one-off whose day
+ * has gone as MISSED and records it, which is a fact somebody can read; refusing it at the door
+ * would instead depend on which side of midnight the save landed.
+ */
+export function trigOnDate(v) {
+  const on = typeof v === "string" ? v.trim() : "";
+  if (!ON_DATE_SHAPE.test(on)) return { error: "say which day it should run, as YYYY-MM-DD" };
+  const [y, mo, d] = on.split("-").map(Number);
+  const days = [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (mo < 1 || mo > 12 || d < 1 || d > days[mo - 1]) return { error: `${on} isn't a day in the calendar` };
+  return { onDate: on };
+}
+
+/**
+ * The event that starts it.
+ *
+ * **THE CASE IS FOLDED**, here and in the endpoint and in the engine's own reader, so
+ * `Order.Paid` stores `order.paid` everywhere and a trigger really matches.
+ */
+export function trigOnEvent(v) {
+  const name = typeof v === "string" ? v.trim().toLowerCase() : "";
+  if (!name || !AGENT_EVENT_RE.test(name)) {
+    return { error: "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter" };
+  }
+  return { onEvent: name };
+}
+
 export function cleanSchedule(b) {
   /**
    * ⚠ **ABSENT AND WRONG-KIND ARE TWO ANSWERS, AND THIS READ COLLAPSED THEM.** A non-string
@@ -2836,10 +2953,12 @@ export function cleanSchedule(b) {
   if (!AUTOMATION_SCHEDULES.includes(schedule)) {
     return { error: "an automation runs by hand, every day, on chosen days of the week, or once on a date" };
   }
-  const zone = b?.zone === undefined || b?.zone === null || b?.zone === ""
-    ? null
-    : validTimeZone(b.zone);
-  if (b?.zone && !zone) return { error: "that isn't a time zone this can use" };
+  let zone = null;
+  if (!blankish(b?.zone)) {
+    const z = trigZone(b.zone);
+    if (z.error) return z;
+    zone = z.zone;
+  }
 
   /**
    * WHICH EVENT STARTS IT, and it is answered for EVERY schedule rather than being a fifth
@@ -2850,11 +2969,11 @@ export function cleanSchedule(b) {
    * would make it unsayable; a manual automation that also listens is the ordinary shape of
    * "I can run this myself, and it runs itself when something happens".
    */
-  const onEvent = b?.on_event === undefined || b?.on_event === null || b?.on_event === ""
-    ? null
-    : (typeof b.on_event === "string" ? b.on_event.trim().toLowerCase() : null);
-  if (b?.on_event && (!onEvent || !AGENT_EVENT_RE.test(onEvent))) {
-    return { error: "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter" };
+  let onEvent = null;
+  if (!blankish(b?.on_event)) {
+    const ev = trigOnEvent(b.on_event);
+    if (ev.error) return ev;
+    onEvent = ev.onEvent;
   }
 
   if (schedule === "manual") {
@@ -2863,8 +2982,8 @@ export function cleanSchedule(b) {
     return { schedule, at: null, zone, days: [], onDate: null, onEvent };
   }
 
-  const at = typeof b?.at === "string" ? b.at.trim() : "";
-  if (!AT_SHAPE.test(at)) return { error: "say what time of day it should run, as HH:MM" };
+  const at = trigAt(b?.at);
+  if (at.error) return at;
   // EVERY TIMED SCHEDULE NEEDS A ZONE, and the sentence names the schedule that was asked
   // for: "a daily schedule needs a time zone" about a weekly one sends somebody to the wrong
   // control. One reader, one sentence per schedule.
@@ -2876,46 +2995,26 @@ export function cleanSchedule(b) {
    * empty IS "not applicable" here, and the first draft of this reader answered `null`, which
    * the column refused outright. One shape leaves this reader, and it is the store's.
    */
-  const when = { schedule, at: `${at}:00`, zone, days: [], onDate: null, onEvent };
+  // THE COLUMN'S OWN SHAPE, because `create_automation` and `update_automation` take a `time`.
+  const when = { schedule, at: `${at.at}:00`, zone, days: [], onDate: null, onEvent };
 
   if (schedule === "weekly") {
-    const raw = Array.isArray(b?.days) ? b.days : null;
-    if (!raw || !raw.length) return { error: "pick at least one day of the week" };
-    // REFUSED BY NAME, NEVER SHORTENED: a selection quietly missing the day it could not read
-    // is a schedule that looks saved and runs on other days.
-    const bad = raw.find((d) => typeof d !== "string" || !AUTOMATION_DAYS.includes(d.trim().toLowerCase()));
-    if (bad !== undefined) return { error: `"${String(bad)}" isn't a day of the week` };
-    const picked = new Set(raw.map((d) => d.trim().toLowerCase()));
-    /**
-     * ⚠ **`AUTOMATION_DAYS`' OWN ORDER, which is the ENGINE's `WEEKDAYS` — Sunday first,
-     * because `Date.getDay()` is.** Two saves of one selection are byte-identical because the
-     * order is this list's rather than the ticking order, which is what makes a stored value
-     * comparable at all.
-     *
-     * AND IT IS THE LIST THAT WAS ALREADY HERE. My first draft declared a Monday-first one
-     * beside it and the module refused to load — *a re-anchor lands in a scope it did not
-     * write*, and the collision is what said the ordering question already had an answer.
-     */
-    return { ...when, days: AUTOMATION_DAYS.filter((d) => picked.has(d)) };
+    const picked = trigDays(b?.days);
+    if (picked.error) return picked;
+    // A WEEKLY SCHEDULE WITH NO DAYS WOULD NEVER COME DUE, and the emptiness rule is the
+    // CALLER's rather than the reader's: an edit that moves a weekly schedule to a daily one
+    // has to CLEAR the days, so `[]` is a real answer at the patch door and is not one here.
+    if (!picked.days.length) return { error: "pick at least one day of the week" };
+    return { ...when, days: picked.days };
   }
 
   if (schedule === "once") {
-    const on = typeof b?.on_date === "string" ? b.on_date.trim() : "";
-    if (!ON_DATE_SHAPE.test(on)) return { error: "say which day it should run, as YYYY-MM-DD" };
-    /**
-     * ⚠ **THE DATE IS CHECKED AS A REAL CALENDAR DAY, not just as a shape** — `2026-02-30`
-     * matches `ON_DATE_SHAPE` and is not a day, and Postgres would refuse the insert with its
-     * own message about a date somebody typed. The arithmetic is done rather than handed to
-     * `Date`, because `new Date("2026-02-30")` rolls forward to March and would store a day
-     * nobody chose.
-     */
-    const [y, mo, d] = on.split("-").map(Number);
-    const days = [31, (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    if (mo < 1 || mo > 12 || d < 1 || d > days[mo - 1]) return { error: `${on} isn't a day in the calendar` };
+    const on = trigOnDate(b?.on_date);
+    if (on.error) return on;
     // A DATE IN THE PAST IS DELIBERATELY NOT REFUSED HERE. `tick_automations` answers a
     // one-off whose day has gone as MISSED and records it, which is a fact somebody can read;
     // refusing it at the door would instead depend on which side of midnight the save landed.
-    return { ...when, onDate: on };
+    return { ...when, onDate: on.onDate };
   }
   // SECONDS ARE OURS, NOT THE CALLER'S. The screen offers a time, not a stopwatch.
   return when;
@@ -2937,6 +3036,195 @@ export function cleanSchedule(b) {
  * from `automationRow` ITSELF — driving it through a recording proxy, never a scan of its
  * source — so a field added to that function next month fails by existing.
  */
+/**
+ * ⚠ **WHAT AN EDIT REALLY ASKED FOR — AND PRESENCE IS THE INTERFACE.**
+ *
+ * `cleanSchedule` above reads a WHOLE trigger, which is what a create needs: there is no stored
+ * row to fall back on, so every field has to be answered and the wholeness rules can be applied
+ * here. An EDIT is the opposite question. It names the fields somebody changed, and everything it
+ * does not name has to keep what the DATABASE holds — resolved under the row lock inside
+ * `agent.patch_automation`, never reconstructed here and never reconstructed from a browser's
+ * cached copy of the row.
+ *
+ * **SO THIS READER VALIDATES SHAPES AND DELIBERATELY NOT WHOLENESS.** A patch of `{"days": []}`
+ * on a weekly automation is a schedule with no days, and whether that is whole depends on the
+ * SCHEDULE the row will end up with — which is knowable only after the absent keys are resolved,
+ * which is inside the transaction. Checking it here would mean reading the row first and deciding
+ * from an unlocked answer, which is the stale read this whole change removes.
+ *
+ * **AN ABSENT KEY AND AN EXPLICIT `null` ARE DIFFERENT THINGS, and that distinction is the
+ * requirement.** Absent means leave it alone. `null` (and `""`, which is what an emptied box
+ * sends) means CLEAR it, which is what moving a daily schedule to a manual one needs. A reader
+ * that collapsed the two would make a form with no control for a field able to delete that field
+ * by saying nothing about it — which is exactly how an event binding was lost.
+ */
+export const AUTOMATION_PATCH_FIELDS = Object.freeze({
+  name: "name", enabled: "enabled", schedule: "schedule", at: "atLocal", zone: "zone",
+  steps: "steps", inputs: "inputs", days: "days", on_date: "onDate", on_event: "onEvent",
+});
+
+/**
+ * Whether a body really NAMES a field.
+ *
+ * `Object.hasOwn` rather than truthiness, because `enabled: false`, `steps: []` and `zone: ""`
+ * are each a value somebody meant — and the two of those that are falsy are the edits a person
+ * most needs to be able to make. An explicit `undefined` reads as absent: a parsed JSON body
+ * cannot carry one, so the only caller that can is a JavaScript one, and there `undefined` means
+ * "I have nothing to say about this".
+ */
+export const fieldNamed = (b, f) =>
+  !!b && typeof b === "object" && Object.hasOwn(b, f) && b[f] !== undefined;
+
+/**
+ * ⚠ **WHETHER AN EDIT HAS TO BE VALIDATED AGAINST THE STORED DECLARATIONS.**
+ *
+ * A `{{reference}}` in a step is refused unless something produces it, and a declared input is
+ * half of what can — so new steps have to be checked against the declarations the automation
+ * will really have. If the patch names both, they check against each other; if it names only the
+ * steps, the declarations are the stored ones and the route has to read them.
+ *
+ * ONE READER, so the route and `cleanPatch` cannot disagree about when that read is needed. A
+ * caller that forgot to ask this passes no declarations, and every reference to an input is then
+ * REFUSED — a wrong answer in the fail-closed direction, which is the right way round for a hop
+ * somebody can forget.
+ */
+export const patchNeedsStored = (b) => fieldNamed(b, "steps") && !fieldNamed(b, "inputs");
+
+/**
+ * Read an edit into the patch `agent.patch_automation` takes.
+ *
+ * `storedInputs` is what the automation declares NOW, and it is read ONLY to validate the steps
+ * against. It is never put into the patch, so the declarations the transaction preserves are the
+ * ones it resolves from the locked row rather than the ones this process read a moment ago.
+ */
+export function cleanPatch(b, storedInputs) {
+  const patch = {};
+
+  if (fieldNamed(b, "name")) {
+    const name = cleanText(b.name, AUTOMATION_NAME_MAX);
+    if (!name) return { error: "give it a name first" };
+    patch.name = name;
+  }
+
+  // **REFUSED RATHER THAN COERCED.** `Boolean("false")` is `true`, so a string out of a form
+  // would turn "off" into "on" — the one direction that starts work nobody asked for.
+  if (fieldNamed(b, "enabled")) {
+    if (typeof b.enabled !== "boolean") return { error: "an automation is either on or off" };
+    patch.enabled = b.enabled;
+  }
+
+  // A SCHEDULE CANNOT BE CLEARED, because `manual` is what "no schedule" is called. So there is
+  // no `null` reading here: a blank is a caller that meant something it has not said.
+  if (fieldNamed(b, "schedule")) {
+    if (typeof b.schedule !== "string") {
+      return { error: "say when it runs as a word: by hand, every day, on chosen days, or once on a date" };
+    }
+    const when = b.schedule.trim();
+    if (!AUTOMATION_SCHEDULES.includes(when)) {
+      return { error: "an automation runs by hand, every day, on chosen days of the week, or once on a date" };
+    }
+    patch.schedule = when;
+  }
+
+  if (fieldNamed(b, "at")) {
+    if (blankish(b.at)) patch.atLocal = null;
+    else { const r = trigAt(b.at); if (r.error) return r; patch.atLocal = r.at; }
+  }
+
+  if (fieldNamed(b, "zone")) {
+    if (blankish(b.zone)) patch.zone = null;
+    else { const r = trigZone(b.zone); if (r.error) return r; patch.zone = r.zone; }
+  }
+
+  // `[]` IS A REAL ANSWER HERE and is not one on a weekly schedule: an edit that stops being
+  // weekly has to clear the days, or the combination it leaves cannot be a row at all.
+  if (fieldNamed(b, "days")) {
+    const r = trigDays(b.days);
+    if (r.error) return r;
+    patch.days = r.days;
+  }
+
+  if (fieldNamed(b, "on_date")) {
+    if (blankish(b.on_date)) patch.onDate = null;
+    else { const r = trigOnDate(b.on_date); if (r.error) return r; patch.onDate = r.onDate; }
+  }
+
+  if (fieldNamed(b, "on_event")) {
+    if (blankish(b.on_event)) patch.onEvent = null;
+    else { const r = trigOnEvent(b.on_event); if (r.error) return r; patch.onEvent = r.onEvent; }
+  }
+
+  // ⚠ THE DECLARATIONS ARE READ BEFORE THE STEPS, because the steps are checked against them.
+  let declared = Array.isArray(storedInputs) ? storedInputs : [];
+  if (fieldNamed(b, "inputs")) {
+    const asked = cleanInputs(b.inputs);
+    if (asked.error) return asked;
+    patch.inputs = asked.inputs;
+    declared = asked.inputs;
+  }
+
+  if (fieldNamed(b, "steps")) {
+    const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, declared);
+    if (flow.error) return flow;
+    patch.steps = flow.steps;
+  }
+
+  return { patch };
+}
+
+/**
+ * One sentence per refusal `agent.patch_automation` can make.
+ *
+ * ⚠ **THE WHOLENESS REFUSALS ARE THE REACHABLE ONES, and they are the reason this exists.**
+ * Every shape is checked by `cleanPatch` before anything is sent, so `bad-name` and its siblings
+ * are walls rather than paths from this door — but the COMBINATION a patch resolves to is decided
+ * in the transaction, against the locked row, so `bad-time`, `bad-zone`, `bad-days`, `bad-date`
+ * and `bad-schedule` are answers a person can really get and each one names something different
+ * to do about it.
+ *
+ * **THE FUNCTION CARRIES THE RESOLVED SCHEDULE on exactly those five**, which is what lets the
+ * sentence say which schedule is short of what — *"a daily schedule needs a time zone"* about a
+ * weekly one sends somebody to the wrong control. Where it is absent the sentence is the shape
+ * one, which is the honest reading of a refusal about the value rather than the combination.
+ *
+ * `null` for a code this does not know, so the route can answer 500 rather than blame the caller
+ * for something nobody here can name — the rule `sayMemory` already follows.
+ */
+export function sayPatch(a) {
+  const when = typeof a?.schedule === "string" && a.schedule !== "manual" ? a.schedule : "";
+  switch (a?.error) {
+    case "bad-patch": return "say which fields to change";
+    case "bad-field": return `there is nothing called "${String(a?.field ?? "")}" to change`;
+    case "bad-name": return "give it a name first";
+    case "bad-enabled": return "an automation is either on or off";
+    case "bad-schedule":
+      return "that combination isn't a schedule: one that runs by hand can't also carry a time, "
+        + "a day list or a date — clear those as well";
+    case "bad-time":
+      return when ? `a ${when} schedule needs a time of day — say what time it should run`
+                  : "say what time of day it should run, as HH:MM";
+    case "bad-zone":
+      return when ? `a ${when} schedule needs a time zone, so the time means somewhere`
+                  : "that isn't a time zone this can use";
+    case "bad-days":
+      if (when === "weekly") return "pick at least one day of the week";
+      return when ? `a ${when} schedule doesn't run on chosen days — clear the day list as well`
+                  : "pick the days of the week as a list";
+    case "bad-date":
+      if (when === "once") return "say which day it should run, as YYYY-MM-DD";
+      return when ? `a ${when} schedule doesn't run on one date — clear the date as well`
+                  : "say which day it should run, as YYYY-MM-DD";
+    case "bad-event":
+      return "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter";
+    case "bad-steps": return "send the steps as a list";
+    case "bad-inputs": return "send what it asks for as a list";
+    // UNREACHABLE FROM THIS DOOR and named anyway: nothing here sends a version to be fenced on,
+    // because `version` moves on a change of steps alone and so cannot see a concurrent rename.
+    case "stale": return "somebody else changed this while you had it open — open it again";
+    default: return null;
+  }
+}
+
 export const AUTOMATION_COLUMNS = Object.freeze([
   "id", "agent_id", "name", "enabled", "schedule", "at_local", "zone",
   "days", "on_date", "on_event", "steps", "inputs", "next_run_at", "updated_at",
@@ -3719,6 +4007,91 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
     if (path === "/api/agent/automation-create" || path === "/api/agent/automation-update") {
       const editing = path.endsWith("update");
+
+      /**
+       * ⚠ **WHAT A `workflow` STEP MAY NAME IS THE TRANSACTION'S ANSWER, and it needs its own
+       * sentences.** Both refusals used to fall through to "that agent isn't here any more",
+       * which is false and sends somebody to look at the wrong thing — measured, on the run
+       * that introduced them.
+       *
+       * `no-child` is 400 rather than 404 **because the workflow is what is wrong**, not the
+       * thing being saved, and because it is ONE answer for "not there" and "another agent's":
+       * naming the difference would tell a caller that an automation they cannot see exists.
+       * ONE reader, so the create and the edit cannot say it differently.
+       */
+      const callRefusal = (e) => {
+        if (e === "no-child") {
+          return no(400, "one of the automations this runs isn't one of this agent's — pick another");
+        }
+        if (e === "runs-itself") return no(400, "an automation can't run itself");
+        return null;
+      };
+
+      /**
+       * ⚠ **AN EDIT CHANGES ONLY WHAT IT NAMES, AND THIS WAS A WHOLE-ROW REPLACE.**
+       *
+       * Everything below the create's own readers answers the question a create asks — what
+       * should this automation BE — and an edit asks a different one: what did somebody
+       * CHANGE. Read the edit through those readers and every field the caller said nothing
+       * about arrives as a default (`cleanSchedule({})` is `manual`), which is why a form with
+       * no control for a field had to send that field from a row it had cached, and why doing
+       * so overwrote whatever anybody else had changed since.
+       *
+       * So the two branches are two branches. `cleanPatch` reads only what the body names and
+       * `agent.patch_automation` resolves the rest from the LOCKED row, which is the only place
+       * "what it is now" can be read without a window between reading it and writing.
+       */
+      if (editing) {
+        const id = cleanId(b.id);
+        if (!id) return no(400, "which automation?");
+
+        /**
+         * ⚠ **THE STORED DECLARATIONS ARE READ TO VALIDATE AGAINST AND ARE NEVER WRITTEN
+         * BACK.** A `{{reference}}` needs something that produces it, and a declared input is
+         * half of what can — so a patch that carries new steps and says nothing about the
+         * declarations has to be checked against the ones the automation really has. What is
+         * PRESERVED is still the transaction's own resolution from the locked row; this read
+         * decides a refusal and never a value, so a declaration that moved between the two
+         * costs a validation decided a moment stale and can never cost somebody their inputs.
+         *
+         * **AND IT IS NOT THE OWNERSHIP CHECK.** It is tenant-scoped, so a stranger gets the
+         * missing-automation 404 here as well — but the wall is the patch's own locked lookup,
+         * which has no window between deciding and writing.
+         */
+        let stored = [];
+        if (patchNeedsStored(b)) {
+          const one = await store.readAutomation(who, id);
+          if (!one) return NO_AUTOMATION();
+          stored = one.inputs;
+        }
+
+        const asked = cleanPatch(b, stored);
+        if (asked.error) return no(400, asked.error);
+        /**
+         * **AN EDIT THAT NAMES NOTHING IS REFUSED RATHER THAN WRITTEN.** Sending `{}` would
+         * resolve every field from the row and write them all back — a no-op that still moves
+         * `updated_at` and still takes the lock. The screen never sends one (it skips the
+         * request when nothing changed), so this is a wall for a caller rather than a path, and
+         * it is the answer the agent's own `change_automation` gives for the same body.
+         */
+        if (!Object.keys(asked.patch).length) return no(400, "say which fields to change");
+
+        const a = await store.patchAutomation(who, { id, patch: asked.patch });
+        { const r = callRefusal(a.error); if (r) return r; }
+        if (a.error === "no-automation") return NO_AUTOMATION();
+        if (a.ok !== true) {
+          const said = sayPatch(a);
+          // A REFUSAL THIS DOOR DID NOT ANTICIPATE IS OURS, not the caller's: a 400 naming
+          // nothing they can act on would send somebody to look at their own request.
+          return said ? no(400, said) : no(500, "couldn't save that change");
+        }
+        // ⚠ AN EDIT REACHES THE NEXT EXECUTION AND CAN NEVER REACH AN ACCEPTED ONE. What a
+        // run executes was copied into its own record when it was accepted, so this statement
+        // cannot change what is already running or already ran — which is the property
+        // `steps` being a snapshot exists for.
+        return ok({ id: a.id, nextRunAt: a.next_run_at ?? null });
+      }
+
       const name = cleanText(b.name, AUTOMATION_NAME_MAX);
       if (!name) return no(400, "give it a name first");
 
@@ -3757,58 +4130,29 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
 
       const shape = {
         name, enabled, schedule: trigger.schedule, at: trigger.at, zone: trigger.zone,
-        // ⚠ THE THREE NEW TRIGGER FIELDS GO IN THE SHARED SHAPE, so the create and the edit
-        // cannot carry different ones — which is the wiring defect this object exists to
-        // prevent and which a screen saving a weekly schedule that stores no days would be.
+        // ⚠ **THIS SHAPE IS THE CREATE'S ALONE NOW, and the comment that said otherwise had
+        // to go with the replace.** It read "the create and the edit cannot carry different
+        // ones", which was the reason for one object while both branches sent a whole row; an
+        // edit sends a PATCH, and what keeps the two doors in step is that both read the same
+        // value readers (`trigAt`, `trigZone`, `trigDays`, `trigOnDate`, `trigOnEvent`) and
+        // `AUTOMATION_PATCH_FIELDS` names every field an edit may carry.
         days: trigger.days, onDate: trigger.onDate, onEvent: trigger.onEvent,
         steps: flow.steps, inputs: declared.inputs,
       };
 
-      /**
-       * ⚠ **WHAT A `workflow` STEP MAY NAME IS THE TRANSACTION'S ANSWER, and it needs its own
-       * sentences.** Both refusals used to fall through to "that agent isn't here any more",
-       * which is false and sends somebody to look at the wrong thing — measured, on the run
-       * that introduced them.
-       *
-       * `no-child` is 400 rather than 404 **because the workflow is what is wrong**, not the
-       * thing being saved, and because it is ONE answer for "not there" and "another agent's":
-       * naming the difference would tell a caller that an automation they cannot see exists.
-       * ONE reader, so the create and the edit cannot say it differently.
-       */
-      const callRefusal = (e) => {
-        if (e === "no-child") {
-          return no(400, "one of the automations this runs isn't one of this agent's — pick another");
-        }
-        if (e === "runs-itself") return no(400, "an automation can't run itself");
-        return null;
-      };
-
-      if (!editing) {
-        const agentId = cleanId(b.agent);
-        if (!agentId) return no(400, "which agent?");
-        // NO OWNERSHIP CHECK OUT HERE, and that is deliberate rather than missing: the
-        // check is INSIDE the transaction, against the tenant this process verified, so
-        // an agent deleted between a check and an insert cannot leave an automation
-        // pointing at nothing.
-        const a = await store.createAutomation(who, { agentId, id: mint(), ...shape });
-        if (a.error === "no-agent") return NO_AGENT();
-        { const r = callRefusal(a.error); if (r) return r; }
-        if (a.error === "too-many") {
-          return no(409, `that's as many automations as one agent can hold (${MAX_AUTOMATIONS}) — delete one first`);
-        }
-        if (a.ok !== true) return NO_AGENT();
-        return ok({ id: a.id, nextRunAt: a.next_run_at ?? null });
-      }
-
-      const id = cleanId(b.id);
-      if (!id) return no(400, "which automation?");
-      const a = await store.updateAutomation(who, { id, ...shape });
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      // NO OWNERSHIP CHECK OUT HERE, and that is deliberate rather than missing: the
+      // check is INSIDE the transaction, against the tenant this process verified, so
+      // an agent deleted between a check and an insert cannot leave an automation
+      // pointing at nothing.
+      const a = await store.createAutomation(who, { agentId, id: mint(), ...shape });
+      if (a.error === "no-agent") return NO_AGENT();
       { const r = callRefusal(a.error); if (r) return r; }
-      if (a.ok !== true) return NO_AUTOMATION();
-      // ⚠ AN EDIT REACHES THE NEXT EXECUTION AND CAN NEVER REACH AN ACCEPTED ONE. What a
-      // run executes was copied into its own record when it was accepted, so this
-      // statement cannot change what is already running or already ran — which is the
-      // property `steps` being a snapshot exists for.
+      if (a.error === "too-many") {
+        return no(409, `that's as many automations as one agent can hold (${MAX_AUTOMATIONS}) — delete one first`);
+      }
+      if (a.ok !== true) return NO_AGENT();
       return ok({ id: a.id, nextRunAt: a.next_run_at ?? null });
     }
 

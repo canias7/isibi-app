@@ -470,13 +470,13 @@ try {
   });
   const CX2 = reconn.body.id;
   /**
-   * ⚠ **`automation-update` IS A FULL REPLACE AND DEMANDS THE WHOLE SHAPE**, which is the
-   * route being right rather than strict: it reads the same `cleanSchedule` + `cleanInputs` +
-   * `cleanWorkflow` the create does, so a body carrying only `{id, steps}` is refused
-   * *"give it a name first"* — 400, and the edit never lands. The PATCH shape is
-   * `change_automation`, the AGENT's own tool, and conflating the two is what the first draft
-   * of this did: it read a refusal as an edit and the next run failed on a connection this
-   * section thought it had re-pointed.
+   * ⚠ **`automation-update` IS A PATCH SINCE 2026-09-19, and this body deliberately still names
+   * every field it means to set.** It used to be a full replace that refused `{id, steps}`
+   * *"give it a name first"*, and the first draft of this section read that refusal as an edit —
+   * so the next run failed on a connection it thought it had re-pointed. Naming them is now
+   * belt rather than obligation, and it is KEPT: what this section is about is a re-pointed
+   * connection, and a body that says what it means cannot be read as an accidental clear
+   * whichever way the route resolves an omission.
    */
   const SAVE = (steps) => ({
     id: AU, name: EXAMPLE_AUTOMATION.name, enabled: true, schedule: EXAMPLE_AUTOMATION.schedule,

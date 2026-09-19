@@ -494,12 +494,13 @@ try {
    */
   const edited = STEPS.map((s) => s.type === "note" ? { ...s, text: "something else entirely" } : { ...s });
   const upd = await api("/api/agent/automation-update", {
-    // ⚠ THE WHOLE SHAPE, because this route is a full REPLACE and not a patch. A body of
-    // `{id, steps}` is refused "give it a name first", and one with no `zone` is refused
-    // "a weekly schedule needs a time zone, so the time means somewhere" — which is the
-    // route being right rather than strict. The PATCH shape is `change_automation`, the
-    // agent's own tool, and conflating the two is how a section ends up running against an
-    // automation it believes it edited.
+    // ⚠ THE WHOLE SHAPE, KEPT DELIBERATELY NOW THAT THE ROUTE IS A PATCH. It used to be a
+    // full replace that refused `{id, steps}` "give it a name first" and a body with no
+    // `zone` "a weekly schedule needs a time zone, so the time means somewhere" — and
+    // conflating it with `change_automation`, the agent's own PATCH tool, is how a section
+    // ends up running against an automation it believes it edited. A body that names what it
+    // means cannot be read as an accidental clear whichever way an omission resolves, and
+    // what this section is about is the EDIT landing while an execution holds.
     body: { id: AU, name: "Weekday follow-up", enabled: true, schedule: "weekly", at: "09:00",
             zone: ZONE, days: WEEKDAYS, inputs: INPUTS, steps: edited },
   });

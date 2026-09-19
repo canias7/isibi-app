@@ -1923,6 +1923,24 @@ let agentAutoEditing = null;   // an automation id, '' for a new one, null for t
  * FIRST, through the same one door the message composer goes through.
  */
 let agentAutoDraft = null;
+/**
+ * ⚠ **THE VALUES THIS FORM WAS DRAWN WITH, so a save can send what really changed.**
+ *
+ * Captured ONCE per drawing, by reading the form the instant after it is drawn — so the baseline
+ * and the save's own read come out of the SAME reader and are structurally identical by
+ * construction. Reading it at save time instead would capture whatever has been typed, and every
+ * edit would read as no change at all.
+ *
+ * **IT MUST NOT FOLLOW THE ROW.** The list reloads while a form is open, so a baseline recomputed
+ * from `agentAutoRow()` would move to whatever somebody else has just saved — and a person who
+ * changed nothing would then be told they had changed it back. It is cleared with the draft and
+ * recaptured on the next drawing, which is exactly when the form is showing something new.
+ *
+ * It carries the automation it is about: a reset this file forgot would otherwise diff one
+ * automation's form against another's values, which is every field "changed" and the whole-row
+ * replace back again. Here that is a refusal instead.
+ */
+let agentAutoWas = null;
 let agentAutoBusy = false;
 let agentAutoActErr = '';
 let agentAutoSaved = false;
@@ -2549,7 +2567,7 @@ function agentAutomations(id) {
   // cannot both be open, and each clearing the other is what says so.
   agentConn = null; agentConnNew = false; agentConnDraft = null;
   agentAuto = String(id || '');
-  agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false;
+  agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false;
   agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
   agentAutoLoad();
 }
@@ -2561,7 +2579,7 @@ function agentAutoBack() {
   // BACK TO THE CONVERSATION IT BELONGS TO, which is where this was opened from.
   if (back) agentOpen(back); else renderAgents();
 }
-function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
 
 /** The worked example the server offers, or `null` when it sent none. */
 function autoExample() { return (agentAutoCat && agentAutoCat.example) || null; }
@@ -2660,8 +2678,8 @@ async function agentAutoExample() {
   };
   renderAgents();
 }
-function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
-function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
 function agentAutoReload() { agentAutoLoad(); }
 function agentAutoHistory(id) {
   agentAutoWatchStop();
@@ -2783,10 +2801,21 @@ async function agentAutoSave() {
   agentAutoSaved = false;
   const say = (m) => { agentAutoActErr = m; renderAgents(); };
   if (!values.name) { say('Give it a name first.'); return; }
-  // ⚠ **A SCHEDULE THIS FORM CANNOT SHOW MUST NOT BE REPLACED BY WHAT IT CAN.** The route is
-  // a full REPLACE and the select answers `manual` for a stored `weekly`, so without this a
-  // save of the NAME alone dropped the schedule and its days. Refusing is the only honest
-  // answer while the controls do not exist: it says what it cannot do and where to do it.
+  // ⚠ **A SCHEDULE THIS FORM CANNOT SHOW MUST NOT BE ANSWERED BY WHAT IT CAN.** The select
+  // answers `manual` for a stored `weekly`, which is a WRONG value rather than a missing one —
+  // so if somebody touched that control the save would ask for a schedule they never chose.
+  // Refusing is the only honest answer while the controls do not exist: it says what it cannot
+  // do and where to do it.
+  //
+  // **AND THE CLAUSE THAT USED TO CLOSE THIS PARAGRAPH IS NO LONGER TRUE, so it is gone.** It
+  // read "the route is a full REPLACE, so without this a save of the NAME alone dropped the
+  // schedule and its days" — which was the whole reason for the wall and stopped being a fact
+  // the moment an edit became a patch: a name-only save now carries no schedule field at all.
+  // **The refusal is KEPT because the form still has no control for those schedules** and
+  // picking "Every day" on a weekly one would ask the transaction for `daily` while the stored
+  // days stay, which it refuses by name. Narrowing it to "only when the schedule control was
+  // really touched" is now possible and is a design decision, so it is offered rather than
+  // taken.
   // ⚠ **A CREATE IS NEVER LOCKED, AND `agentAutoRow()` IS THE WHOLE OF WHY** — it is
   // `find(a => a.id === agentAutoEditing) || null`, so with nothing being edited there is no
   // stored schedule to lose and `locked` is `''`. A first draft said `&& !!agentAutoEditing`
@@ -2797,21 +2826,39 @@ async function agentAutoSave() {
   // mutant in `scripts/mutants/form-locked-schedule.json`.
   const locked = agentAutoUnshowable(agentAutoRow());
   if (locked) {
-    say('This one runs ' + agentSchedWord(locked) + ', and this form can’t change that yet — ' +
-        'saving from here would turn it into a manual one. Ask the agent in the chat to change it instead.');
+    say('This one runs ' + agentSchedWord(locked) + ', and this form has no control for that yet — ' +
+        'so it can’t save changes to this one. Ask the agent in the chat to change it instead.');
     return;
   }
 
   const { gen, ...sent } = values;
   void gen;
-  // ⚠ **WHAT THIS FORM HAS NO CONTROL FOR, CARRIED FORWARD FROM THE STORED ROW — read here,
-  // synchronously, before anything awaits**, so a list that reloads mid-save cannot change what
-  // is being preserved. Only on the EDIT branch: a create has no stored automation, so there is
-  // no binding to preserve and `agentAutoRow()` is `null` there by construction — spreading it
-  // on both would be a provably empty object beside a real one.
-  const keeps = agentAutoKeeps(agentAutoRow());
   const bound = agentBind();
   const editing = agentAutoEditing;
+  /**
+   * ⚠ **AN EDIT SENDS WHAT CHANGED AND A CREATE SENDS EVERYTHING, and the difference is that a
+   * create has nothing to compare against.**
+   *
+   * Computed here, synchronously, before anything awaits — so a list that reloads mid-save
+   * cannot move either side of the comparison.
+   *
+   * **A BASELINE THAT IS NOT THIS AUTOMATION'S IS A REFUSAL, never a fallback to sending
+   * everything.** Falling back would be the whole-row replace returning through a door nobody
+   * is watching; it cannot happen (the form must have been drawn for Save to be pressed, and
+   * the drawing is what captures it), which is what makes it a wall rather than a path.
+   */
+  let changed = null;
+  if (editing) {
+    if (!agentAutoWas || agentAutoWas.of !== editing) {
+      say('Something moved while that was open — open it again and make the change once more.');
+      return;
+    }
+    changed = agentAutoChanges(agentAutoWas, values);
+    // **NOTHING CHANGED IS NOTHING TO SEND.** What is on screen is what is stored, so there is
+    // no request to make — and making one anyway would take the row's lock and move its
+    // `updated_at` to say that somebody had changed something.
+    if (!Object.keys(changed).length) { agentAutoSaved = true; renderAgents(); return; }
+  }
   const forAgent = agentAuto;
   agentAutoBusy = true; agentAutoActErr = ''; renderAgents();
   let failed = '';
@@ -2825,7 +2872,7 @@ async function agentAutoSave() {
       // should say what it means, and a server reading a field nobody meant to send is
       // how a field ends up load-bearing by accident.
       body: JSON.stringify(editing
-        ? { id: editing, ...sent, ...keeps }
+        ? { id: editing, ...changed }
         : { agent: forAgent, ...sent }),
     });
     const j = await res.json().catch(() => ({}));
@@ -2840,6 +2887,11 @@ async function agentAutoSave() {
   agentAutoBusy = false;
   if (failed) { say(failed); return; }   // the draft stays, so pressing Save again sends the same thing
   agentAutoDraft = null;
+  // AND THE BASELINE GOES WITH IT, so the next drawing — of the row this save just produced —
+  // is what the next press compares against. Keeping it would make a second press re-send
+  // fields that are already stored, which on a row somebody else has since touched is the
+  // revert this change removes.
+  agentAutoWas = null;
   agentAutoSaved = true;
   // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same
   // automation rather than making a second one.
@@ -3635,38 +3687,98 @@ function agentAutoUnshowable(row) {
 }
 
 /**
- * ⚠ **THE TRIGGER FIELDS THIS FORM HAS NO CONTROL FOR AND THEREFORE MUST NOT DROP — the row's
- * name to the WIRE's name, in one declaration, so the two cannot become two lists.**
+ * ⚠ **AN EDIT SENDS WHAT CHANGED, AND THAT IS WHY NOTHING IS CARRIED FORWARD ANY MORE.**
  *
- * An event is not a schedule: `cleanSchedule` answers `onEvent` for EVERY schedule, on purpose,
- * because "every morning AND whenever a payment lands" is a thing somebody wants. So a `manual`
- * or `daily` automation can carry one, the schedule wall above correctly says nothing about it
- * (that schedule really is showable), and the save went through with no such field in the body —
- * into `update_automation`, whose `on_event = p_on_event` is a straight assignment. **Renaming an
- * automation that listens stopped it listening.**
+ * This used to be `AGENT_FORM_KEEPS` — a list of trigger fields the form has no control for,
+ * copied out of the stored row into the body so a save could not drop them. It worked for an
+ * ordinary edit and it was the wrong shape: copying a value out of a row this browser read
+ * minutes ago and sending it in a whole-row replace means **whatever anybody else changed since
+ * is overwritten with what we remembered** — and the field it protected is exactly the one
+ * nobody here can see changing.
  *
- * **PRESERVING IS THE ANSWER HERE AND REFUSING IS THE ANSWER ABOVE, and the difference is which
- * way the form is wrong.** A stored `weekly` makes the `<select>` answer `manual` — a WRONG value,
- * which no amount of carrying other fields forward repairs, and `cleanSchedule` drops `days` for a
- * manual schedule anyway. An event has no control to answer wrongly; it is simply absent, and
- * absent is repaired by carrying what is stored.
+ * So the save sends only the fields that really differ from what the form was DRAWN with, and
+ * `agent.patch_automation` resolves every other one from the row under its own lock. A field this
+ * form has no control for is therefore absent from every body it sends, which is stronger than
+ * carrying it: absent cannot be stale.
  *
- * **`days` AND `onDate` ARE DELIBERATELY NOT ON THIS LIST.** The refusal above stops those saves
- * before this is reached, so an entry for either would be unreachable by construction — and the
- * census in `test/agent-binding.test.mjs` requires every name here to be one the form really has
- * no control for, so a field that gains one cannot stay and become a dead control.
+ * **THE FIELDS ARE THE ONES THIS FORM DRAWS**, listed once, so a control added next month is one
+ * line here and `test/agent-binding.test.mjs` censuses the list against what `agentAutoValues`
+ * really answers — a field it reads and this omits would be a control somebody sets that no save
+ * ever sends.
  */
-const AGENT_FORM_KEEPS = { onEvent: 'on_event' };
+const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];
 
-/** What a save must carry forward from the stored row, already under the names the server reads. */
-function agentAutoKeeps(row) {
+/**
+ * The fields a SCHEDULE owns, which a change of schedule has to carry with it.
+ *
+ * Every one must be a field this form really draws — censused in `test/agent-binding.test.mjs`,
+ * because a name here that the form does not read would put `undefined` on the wire.
+ */
+const AGENT_SCHED_OWNS = ['at', 'zone'];
+
+/**
+ * Whether two answers to one field are the same answer.
+ *
+ * ⚠ **A DEEP COMPARISON RATHER THAN `JSON.stringify`, and the difference decides whether a
+ * name-only save reverts somebody else's steps.** Both sides come from `agentAutoValues`, so
+ * their keys are built in the same order today — and a comparison that depends on that is one
+ * that starts reporting every step list as changed the day a control moves in the markup, after
+ * which every save carries `steps` and the lost update is back for the one field most worth
+ * protecting.
+ *
+ * `Object.hasOwn` rather than `in`, so a key on a prototype cannot make two objects match.
+ */
+function autoSame(a, b) {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => autoSame(v, b[i]));
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object') {
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    return ka.every((k) => Object.hasOwn(b, k) && autoSame(a[k], b[k]));
+  }
+  return false;
+}
+
+/**
+ * What an edit really changed, against the values the form was drawn with.
+ *
+ * **THE BASELINE IS THE FORM'S OWN, NOT THE STORED ROW'S, and that is not a shortcut.** The form
+ * normalises as it seeds — a manual automation with no time draws `09:00` in a hidden box, one
+ * with no zone draws this browser's guess — so diffing against the row would report two fields as
+ * changed on a form nobody touched, and send them. What the person changed is the difference from
+ * what they were SHOWN.
+ */
+function agentAutoChanges(was, now) {
   const out = {};
-  for (const field in AGENT_FORM_KEEPS) {
-    // ⚠ CANNOT-TELL IS NOT A VALUE. `automationRow` already fails a binding it cannot read
-    // closed to `null`; a non-string reaching the wire would be refused by the server with a
-    // sentence about an event name nobody typed.
-    const v = row && typeof row[field] === 'string' ? row[field] : '';
-    if (v) out[AGENT_FORM_KEEPS[field]] = v;
+  for (const f of AGENT_FORM_FIELDS) {
+    if (!autoSame(was ? was[f] : undefined, now[f])) out[f] = now[f];
+  }
+  /**
+   * ⚠ **A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS — and MEASURED, both directions
+   * were broken without this.** The time and the zone belong to the schedule rather than to
+   * themselves, and the database makes a half-whole combination unstorable
+   * (`automations_schedule_is_whole`), so an edit that names one without the others is refused
+   * with nothing the person can do about it:
+   *
+   *   daily → manual : the time box is hidden and its VALUE is unchanged, so nothing carried it
+   *                    — the transaction resolved the stored time and refused `bad-schedule`,
+   *                    *"one that runs by hand can't also carry a time"*, over a control that is
+   *                    not on the screen.
+   *   manual → daily : the stored time is NULL and the form's `09:00` is what it was drawn with,
+   *                    so nothing carried it either — refused `bad-time`.
+   *
+   * **THIS IS NOT THE ROUTE INVENTING A REMOVAL.** The customer named the schedule, and these are
+   * what that choice entails; a form that hides a control while choosing "by hand" has really
+   * cleared it. Which fields a schedule owns is declared once, so a third one is a line here.
+   */
+  if (Object.hasOwn(out, 'schedule')) {
+    for (const f of AGENT_SCHED_OWNS) out[f] = now[f];
+    // AND "BY HAND" HAS NO TIME AT ALL — `null` is the clear, which is a different thing from
+    // saying nothing about it.
+    if (out.schedule === 'manual') out.at = null;
   }
   return out;
 }
@@ -3719,9 +3831,10 @@ function automationFormHtml(agent) {
     // ⚠ **A SECOND WAY IN, SAID OUT LOUD — because without it this panel reads as a
     // complete account of what starts the automation and it is not one.** Its own line rather
     // than folded into the either/or above, since an event is independent of the schedule: both
-    // can be true at once. The save PRESERVES it (see `AGENT_FORM_KEEPS`); this sentence is what
-    // stops the preservation being invisible, and it names the chat because that is where
-    // `change_automation` can really change it.
+    // can be true at once. A save never MENTIONS it — an edit carries only the fields that
+    // changed, and this form has no control for this one — so the transaction keeps whatever
+    // the row holds. This sentence is what stops that being invisible, and it names the chat
+    // because that is where `change_automation` can really change it.
     (agentAutoListensFor(cur)
       ? '<div class="ag-hint">It also listens for ' + esc(agentAutoListensFor(cur)) +
           ' — that starts it as well, whatever the box above says. This form can’t change ' +
@@ -4151,6 +4264,28 @@ function renderAgents() {
   agentMemFormRead();
   renderAgentsNow();
   agentComposerRestore(held);
+  // ⚠ AND THE AUTOMATION FORM'S BASELINE IS TAKEN AFTER THE DRAW, not before it: what a save
+  // compares against is what the person was SHOWN, and the only moment that is readable is the
+  // one right after the form is written. See `agentAutoWas`.
+  agentAutoWasRead();
+}
+
+/**
+ * Remember what the automation form was drawn with, once per drawing.
+ *
+ * **THE SAME READER THE SAVE USES**, so the two sides of the comparison cannot differ in shape —
+ * which is what makes "nothing changed" mean nothing rather than mean "the two readers build
+ * their objects differently".
+ *
+ * It captures only when nothing is held: a form being typed into is a drawing of the DRAFT, and
+ * recapturing there would move the baseline to whatever has just been typed.
+ */
+function agentAutoWasRead() {
+  if (agentAuto === null || agentAutoEditing === null) return;
+  if (agentAutoWas !== null) return;                    // this drawing is already accounted for
+  const form = document.getElementById('agAutoForm');
+  if (!form) return;                                    // the form is not drawn
+  agentAutoWas = { ...agentAutoValues(), of: agentAutoEditing };
 }
 
 /**

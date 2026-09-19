@@ -281,6 +281,42 @@ function hydrate(w) {
  * `[data-day]`, so a fake whose rows answered nothing would make the whole read
  * unobservable and report the generation gate as working with the gate deleted.
  */
+/**
+ * Open the automation form the way a person does, and let the ONE door capture its baseline.
+ *
+ * ⚠ **THE DRAW AND THE HYDRATION ARE TWO STEPS HERE AND ONE IN A BROWSER, which is why this
+ * renders twice.** `renderAgentsNow` writes `innerHTML`, and a real browser's inputs then hold
+ * their drawn values immediately — so `agentAutoWasRead`, which runs at the end of the same
+ * `renderAgents`, reads the form as it was drawn. This fixture's elements are stubs that
+ * `hydrateAuto` fills in afterwards, so the FIRST draw is read before they hold anything. The
+ * second draw is the honest one: the stubs now reflect the markup, and the baseline is captured
+ * by the real door rather than by this helper, which is what keeps the wiring under test.
+ */
+async function openAutoForm(w, id) {
+  /**
+   * ⚠ **THE PREVIOUS DRAWING'S INPUTS ARE GONE IN A BROWSER and persist here, so they are
+   * cleared.** `renderAgentsNow` writes `innerHTML`, which destroys the elements it drew last
+   * time; this fixture has one set of stubs that outlive every draw. Without clearing them the
+   * read-first door does exactly the right thing — it carries whatever the boxes hold into the
+   * new drawing — and a case that means to open a form fresh captures a baseline holding the
+   * previous case's typing. Blanking `data-gen` is how "nothing has drawn it yet" reads.
+   */
+  const doc = w.s.document;
+  const form = doc.getElementById("agAutoForm");
+  if (form && form.setAttribute) form.setAttribute("data-gen", "");
+  for (const id2 of ["agAutoName", "agAutoAt", "agAutoZone"]) {
+    const el = doc.getElementById(id2);
+    if (el) el.value = "";
+  }
+  const off = doc.getElementById("agAutoOff");
+  if (off) off.checked = false;
+  w.ev(`agentAutoEditing = ${JSON.stringify(id)}; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = "";`);
+  await w.ev("renderAgents()");
+  hydrateAuto(w);
+  w.ev("agentAutoWas = null; agentAutoDraft = null;");
+  await w.ev("renderAgents()");
+}
+
 function hydrateAuto(w) {
   const doc = w.s.document;
   const html = doc.getElementById("viewAgents").innerHTML;
@@ -1808,9 +1844,12 @@ test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", asyn
   //   a stored `weekly`   : NO option carries `selected`, so a browser picks the FIRST — manual
   //   what a save sends   : 'daily' when the box says daily, otherwise 'manual', never anything else
   //
-  // and `automation-update` REPLACES the whole automation. So editing the NAME of a weekly
-  // automation turned it into a manual one and dropped its days and its next run — silently.
-  // Reachable today, because the agent's own `make_automation` really does create weekly ones.
+  // and `automation-update` REPLACED the whole automation, so editing the NAME of a weekly one
+  // turned it into a manual one and dropped its days and its next run — silently. **An edit is a
+  // PATCH now, so that half is closed by construction** (a name-only save names no schedule) and
+  // the wall stays for the half that is still true: the form has no control for these schedules,
+  // and the select answers a WRONG value rather than a missing one. Reachable today either way,
+  // because the agent's own `make_automation` really does create weekly ones.
   const WEEKLY = {
     ...ONE, id: "AU9", name: "Weekday follow-up", schedule: "weekly", at: "09:00",
     zone: "Europe/London", days: ["mon", "tue", "wed", "thu", "fri"],
@@ -1838,16 +1877,34 @@ test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", asyn
   await w.ev("agentAutoSave()");
   assert.deepEqual(sent, [], "a weekly automation was replaced by what the form can express");
   assert.match(w.ev("agentAutoActErr"), /chosen days of the week/, "the refusal does not say why");
-  assert.match(w.ev("agentAutoActErr"), /turn it into a manual one/, "it does not say what would be lost");
+  assert.match(w.ev("agentAutoActErr"), /ask the agent in the chat/i, "it does not say where it CAN be changed");
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED: this demanded `/turn it into a manual one/` and that clause
+   * became FALSE.** It was the reason for the wall while an edit replaced the whole row — a
+   * name-only save now carries no schedule field at all, so nothing would be turned into
+   * anything. A refusal that states what the platform WOULD do, wrongly, is the dead-control
+   * finding in its worst shape, so the clause went and this asserts it is gone.
+   *
+   * **The refusal itself is KEPT**, for the reason it has now: this form has no control for a
+   * weekly or a one-off schedule, so somebody picking "Every day" on one would ask the
+   * transaction for `daily` while the stored days stay — which it refuses by name.
+   */
+  assert.ok(!/turn it into a manual one/.test(w.ev("agentAutoActErr")),
+    "it still claims a replace that an edit can no longer do");
 
   // ⚠ THE CONTROLS, three of them, because a wall that refuses everything is not a wall.
   // A DAILY one saves.
   const daily = { ...ONE, id: "AU8", schedule: "daily", at: "09:00", zone: "Europe/London" };
-  w.ev(`agentAutoRows = [${JSON.stringify(daily)}]; agentAutoEditing = "AU8"; agentAutoDraft = null; agentAutoActErr = "";`);
-  w.ev('agentAutoFormRead = function () {};');
+  w.ev(`agentAutoRows = [${JSON.stringify(daily)}];`);
+  // ⚠ OPENED THE WAY A PERSON OPENS IT, because an edit now compares against what the form was
+  // DRAWN with — and a control that changes nothing would send nothing, which is a pass for the
+  // wrong reason. So it really renames it.
+  await openAutoForm(w, "AU8");
+  w.s.document.getElementById("agAutoName").value = "Renamed";
   await w.ev("agentAutoSave()");
   assert.equal(sent.length, 1, "a daily automation could not be saved either");
   assert.equal(sent[0].id, "AU8");
+  assert.equal(sent[0].name, "Renamed");
   // A CREATE is never locked, whatever is in the list — there is no stored schedule to lose,
   // and reading it the other way round would make the button dead for everybody the first
   // time somebody made a weekly automation in the chat.
@@ -1883,18 +1940,22 @@ test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", asyn
 });
 
 test("⚠ AN EVENT BINDING SURVIVES AN EDIT THAT IS NOT ABOUT IT", async () => {
-  // ⚠ **MEASURED BEFORE THE FIX, and it is the weekly wall's defect through a door that wall
-  // does not cover.** An event is NOT a schedule — `cleanSchedule` answers `onEvent` for every
-  // schedule, deliberately, because "every morning AND whenever a payment lands" is a thing
-  // somebody wants. So a `manual` or `daily` automation can carry one, `agentAutoUnshowable`
-  // correctly says nothing (its schedule really is showable), and the save went through:
-  //
-  //   the form's draft   : name · enabled · schedule · at · zone · steps · inputs   (no event)
-  //   the body it sent   : the same seven
-  //   `update_automation`: `on_event = p_on_event`, a straight assignment
-  //
-  // **So renaming an automation that listens for an event stopped it listening**, silently,
-  // and the run that would have fired on the next `order.paid` never came.
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED — the property is the same and the MECHANISM is inverted.**
+   *
+   * This case was written for a save that CARRIED the binding forward out of the stored row,
+   * because the route replaced the whole automation and a field the form has no control for would
+   * otherwise have been cleared by `on_event = p_on_event`. It asserted `sent[0].on_event ===
+   * "order.paid"`.
+   *
+   * That fix worked for an ordinary edit and was the wrong shape: a value copied out of a row this
+   * browser read minutes ago, sent in a whole-row write, **overwrites whatever anybody else
+   * changed since** — and this is the field nobody here can see changing. So the save now says
+   * NOTHING about it and `agent.patch_automation` resolves it from the locked row.
+   *
+   * **The new assertion is the stronger one**: absent cannot be stale, and a key nobody sends
+   * cannot be wrong.
+   */
   const LISTENS = {
     ...ONE, id: "AU7", name: "Payment follow-up", schedule: "manual", onEvent: "order.paid",
   };
@@ -1907,70 +1968,312 @@ test("⚠ AN EVENT BINDING SURVIVES AN EDIT THAT IS NOT ABOUT IT", async () => {
   });
   setRows(w);
   w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(LISTENS)}]; agentAutoCat = { steps: [], days: [] };`);
-  w.ev('agentAutoEditing = "AU7"; agentAutoDraft = null; agentAutoActErr = "";');
 
-  // ⚠ IT SAVES — this is not the weekly wall's case and must not become it. Refusing here
-  // would make an automation that listens uneditable, which is a worse answer than the one
-  // being fixed: the event is a field with no control, not a schedule the select lies about.
-  w.ev('agentAutoFormRead = function () {};');
+  // ⚠ IT SAVES — this is not the weekly wall's case and must not become it. Refusing here would
+  // make an automation that listens uneditable, which is a worse answer than the one being fixed:
+  // the event is a field with no control, not a schedule the select answers wrongly.
+  await openAutoForm(w, "AU7");
+  w.s.document.getElementById("agAutoName").value = "Payment follow-up (renamed)";
   await w.ev("agentAutoSave()");
   assert.equal(sent.length, 1, "an edit of an automation that listens was refused outright");
 
-  // ⚠ AND THE BINDING IS ON THE WIRE, UNDER THE NAME THE SERVER READS. `cleanSchedule` asks
-  // `b?.on_event` and nothing anywhere reads a camel-cased one, so `onEvent` here is a field
-  // the server ignores — which is this defect wearing a spelling.
-  assert.equal(sent[0].on_event, "order.paid",
-    "the save dropped the event binding, so `on_event = p_on_event` cleared it");
+  // ⚠ **AND THE BINDING IS NOT ON THE WIRE AT ALL, which is what preserves it now.** An absent
+  // key is what the transaction resolves from its own locked row; a key carrying what this
+  // browser last read is what overwrites a newer one.
+  assert.ok(!Object.hasOwn(sent[0], "on_event"),
+    "the save still carries the event binding out of a cached row");
+  assert.ok(!Object.hasOwn(sent[0], "onEvent"), "it carries it under the camel-cased name instead");
+  // AND IT SENT EXACTLY THE ONE THING THAT CHANGED, which is the control on the assertion above:
+  // "no `on_event`" is otherwise satisfied by a body that carries nothing at all.
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["id", "name"]);
   assert.equal(sent[0].id, "AU7");
-  assert.equal(sent[0].name, "Payment follow-up");
+  assert.equal(sent[0].name, "Payment follow-up (renamed)");
 
-  // AND THE FORM SAYS SO, where the controls it does have are — otherwise the panel reads as
-  // a complete account of what starts this automation, and it is not one.
+  // AND THE FORM SAYS SO, where the controls it does have are — otherwise the panel reads as a
+  // complete account of what starts this automation, and it is not one.
   const html = w.ev("automationFormHtml()");
   assert.match(html, /order\.paid/, "the form does not say the automation listens for an event");
   assert.match(html, /ask the agent in the chat/, "it does not say where the event CAN be changed");
 
-  // ⚠ THE CONTROL, and without it "the field was carried" is satisfied by carrying it always:
-  // an automation with NO binding must not gain an `on_event` key, because `null` and absent
-  // are both "no event" and a key nobody meant to send is how one becomes load-bearing.
-  const quiet = { ...ONE, id: "AU6", schedule: "daily", at: "09:00", zone: "Europe/London" };
-  w.ev(`agentAutoRows = [${JSON.stringify(quiet)}]; agentAutoEditing = "AU6"; agentAutoDraft = null; agentAutoActErr = "";`);
-  await w.ev("agentAutoSave()");
-  assert.equal(sent.length, 2);
-  assert.ok(!Object.hasOwn(sent[1], "on_event"),
-    "an automation with no event binding invented one on the wire");
-  const quietHtml = w.ev("automationFormHtml()");
-  assert.ok(!/listens for/.test(quietHtml), "it claims an event on an automation that has none");
-
-  // ⚠ AND A CREATE CARRIES NOTHING, for `agentAutoRow()`'s own reason: there is no stored
-  // automation, so there is no binding to preserve and nothing to read one off.
-  w.ev('agentAutoEditing = null; agentAutoActErr = "";');
+  // ⚠ AND A CREATE CARRIES NOTHING EITHER, for its own reason: there is no stored automation, so
+  // there is nothing to compare against and a create answers every field it has.
+  w.ev('agentAutoEditing = null; agentAutoWas = null; agentAutoActErr = "";');
   w.ev('agentAutoDraft = { name: "New one", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", steps: [], inputs: [], gen: 0 };');
   await w.ev("agentAutoSave()");
-  assert.equal(sent.length, 3);
-  assert.ok(!Object.hasOwn(sent[2], "on_event"), "a create invented an event binding");
+  assert.equal(sent.length, 2);
+  assert.ok(!Object.hasOwn(sent[1], "on_event"), "a create invented an event binding");
+  assert.equal(sent[1].agent, "A");
 
-  // ⚠ AND A BINDING THAT CANNOT BE READ IS NOT CARRIED. `automationRow` already fails it
-  // closed to `null`; a non-string reaching the wire would be refused by the server with a
-  // sentence about a name nobody typed.
-  assert.deepEqual(JSON.parse(w.ev("JSON.stringify(agentAutoKeeps({ onEvent: 7 }))")), {});
-  assert.deepEqual(JSON.parse(w.ev("JSON.stringify(agentAutoKeeps(null))")), {});
-  assert.deepEqual(JSON.parse(w.ev('JSON.stringify(agentAutoKeeps({ onEvent: "order.paid" }))')),
-    { on_event: "order.paid" });
-  // AND THE SENTENCE FAILS CLOSED THE SAME WAY, so a binding nobody can read is not drawn as
-  // one: `esc(7)` would put "It also listens for 7" on the panel.
+  // AND THE SENTENCE FAILS CLOSED, so a binding nobody can read is not drawn as one: `esc(7)`
+  // would put "It also listens for 7" on the panel.
   assert.equal(w.ev("agentAutoListensFor({ onEvent: 7 })"), "");
   assert.equal(w.ev("agentAutoListensFor(null)"), "");
   assert.equal(w.ev('agentAutoListensFor({ onEvent: "order.paid" })'), "order.paid");
 
-  // ⚠ AND EVERY PRESERVED FIELD IS ONE THIS FORM REALLY HAS NO CONTROL FOR — the census, so a
-  // field gaining a control cannot stay on this list and become a dead control.
-  const keeps = JSON.parse(w.ev("JSON.stringify(Object.keys(AGENT_FORM_KEEPS))"));
-  assert.ok(keeps.length >= 1, "nothing is preserved at all");
-  for (const k of keeps) {
-    assert.ok(!new RegExp(`data-field="${k}"|id="agAuto${k[0].toUpperCase()}${k.slice(1)}"`).test(html),
-      `${k} is preserved AND has a control, so the control is dead`);
+  /**
+   * ⚠ **THE CENSUS THE OLD ONE BECAME.** It required every name in `AGENT_FORM_KEEPS` to be a
+   * field this form really has no control for, so one gaining a control could not stay on the
+   * list and become a dead control. There is no such list any more — and the mirror of that
+   * question is now worth asking: every field the diff compares must be one the form really
+   * READS, because a field it ignores is one that can never be saved, and a field the form reads
+   * and this list omits is a control somebody sets that no save ever sends.
+   */
+  const fields = JSON.parse(w.ev("JSON.stringify(AGENT_FORM_FIELDS)"));
+  const answered = JSON.parse(w.ev("JSON.stringify(Object.keys(agentAutoValues()))"));
+  assert.ok(fields.length >= 5, `the field list holds ${fields.length} — it is not the form's`);
+  assert.deepEqual(fields.slice().sort(), answered.slice().sort(),
+    "the fields a save compares and the fields the form reads have come apart");
+});
+
+test("⚠ AN EDIT SENDS ONLY WHAT CHANGED, SO A NEWER CHANGE UNDERNEATH IT SURVIVES", async () => {
+  /**
+   * ⚠ **THE LOST UPDATE, AT THE BROWSER'S OWN LEVEL.** Browser A opens an automation; browser B
+   * changes it; A changes only the NAME and saves. While a save built the whole row from what A
+   * had cached, B's schedule, B's steps and B's event binding were all overwritten with what A
+   * remembered — and A had no way of knowing.
+   *
+   * What the body says is the whole of the fix: the fields A really changed, and nothing else.
+   * Everything B moved is absent, so `agent.patch_automation` resolves it from the locked row.
+   *
+   * **THE LIST RELOAD IS HOW B ARRIVES.** `agentAutoLoad` replaces `agentAutoRows` while a form
+   * is open, which is exactly what a person sees when somebody else saves — and the baseline must
+   * NOT follow it, or A would be told they had changed back what B had just done.
+   */
+  const MINE = {
+    ...ONE, id: "AU5", name: "Follow up", schedule: "daily", at: "09:00", zone: "Europe/London",
+    onEvent: "order.paid", steps: [{ id: "s1", type: "note", text: "mine" }],
+  };
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU5" }); }
+      return okRes({ agents: ROWS, automations: [MINE], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(MINE)}]; agentAutoCat = { steps: [], days: [] };`);
+  await openAutoForm(w, "AU5");
+
+  // ⚠ BROWSER B MOVES EVERYTHING THIS FORM CAN SEE, plus the one it cannot.
+  const THEIRS = {
+    ...MINE, name: "Follow up", schedule: "daily", at: "17:00", zone: "Europe/Lisbon",
+    onEvent: "order.shipped", steps: [{ id: "s1", type: "note", text: "theirs" }],
+  };
+  w.ev(`agentAutoRows = [${JSON.stringify(THEIRS)}];`);
+
+  // A CHANGES ONLY THE NAME.
+  w.s.document.getElementById("agAutoName").value = "Follow up (mine)";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["id", "name"],
+    "a name-only edit carried fields nobody changed, so B's values were overwritten");
+  assert.equal(sent[0].name, "Follow up (mine)");
+  // NAMED ONE BY ONE AS WELL, because a key-set assertion that drifted would stop being about
+  // these four and they are the four the requirement names.
+  for (const k of ["schedule", "at", "zone", "steps", "on_event", "inputs", "enabled"]) {
+    assert.ok(!Object.hasOwn(sent[0], k), `${k} was sent on a name-only edit`);
   }
+
+  // ⚠ **THE CONTROL: a field A REALLY CHANGED IS SENT.** Without it "only the name" is satisfied
+  // by a save that sends the name whatever else somebody touches — and by one that sends nothing.
+  await openAutoForm(w, "AU5");
+  w.s.document.getElementById("agAutoAt").value = "07:30";
+  w.s.document.getElementById("agAutoOff").checked = true;
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[1]).sort(), ["at", "enabled", "id"]);
+  assert.equal(sent[1].at, "07:30");
+  assert.equal(sent[1].enabled, false, "the box says OFF, so the value must");
+});
+
+test("⚠ AN UNCHANGED FORM CHANGES NOTHING — no request at all", async () => {
+  // **A save that had nothing to save must not take the row's lock and move its `updated_at`**,
+  // which is what an empty patch resolved from the row would do. And "Saved" is the honest thing
+  // to say: what is on screen is what is stored.
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU1" }); }
+      return okRes({ agents: ROWS, automations: [ONE], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ONE)}]; agentAutoCat = { steps: [], days: [] };`);
+  await openAutoForm(w, "AU1");
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(sent, [], "a form nobody touched still sent a request");
+  assert.equal(w.ev("agentAutoSaved"), true, "it does not say the configuration is saved");
+  assert.equal(w.ev("agentAutoActErr"), "", "it reported an error over a form that is simply unchanged");
+  // THE OBSERVER: the same form, with one character changed, really does send — without which
+  // "no request" is satisfied by a save that is broken.
+  w.s.document.getElementById("agAutoName").value = "Opening checks";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["id", "name"]);
+});
+
+test("⚠ A BASELINE THAT IS NOT THIS AUTOMATION'S REFUSES, rather than sending everything", async () => {
+  /**
+   * The wall, not a path: the form must have been drawn for Save to be pressed, and the drawing is
+   * what captures the baseline. **Falling back to sending every field would be the whole-row
+   * replace returning through a door nobody is watching**, so a baseline that is missing or is
+   * another automation's is a refusal with something to do about it.
+   */
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU1" }); }
+      return okRes({ agents: ROWS, automations: [ONE], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ONE)}]; agentAutoCat = { steps: [], days: [] };`);
+  await openAutoForm(w, "AU1");
+  w.s.document.getElementById("agAutoName").value = "Changed";
+
+  // ANOTHER AUTOMATION'S BASELINE.
+  w.ev('agentAutoWas = { ...agentAutoWas, of: "SOMETHING-ELSE" };');
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(sent, [], "it sent a body diffed against another automation's values");
+  assert.match(w.ev("agentAutoActErr"), /open it again/i, "the refusal does not say what to do");
+
+  // AND NO BASELINE AT ALL.
+  w.ev('agentAutoWas = null; agentAutoActErr = "";');
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(sent, [], "with nothing to compare against it sent everything");
+  assert.match(w.ev("agentAutoActErr"), /open it again/i);
+
+  // THE OBSERVER: with the form's own baseline back, the same change goes.
+  await openAutoForm(w, "AU1");
+  w.s.document.getElementById("agAutoName").value = "Changed";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, w.ev("agentAutoActErr"));
+  assert.equal(sent[0].name, "Changed");
+});
+
+test("⚠ THE COMPARISON IS STRUCTURAL, so a step list that only MOVED its keys is unchanged", async () => {
+  /**
+   * ⚠ **THIS IS WHAT STOPS EVERY SAVE CARRYING `steps`.** `JSON.stringify` compares key ORDER,
+   * and the two sides of this diff are built by one reader today — so a stringify comparison works
+   * until a control moves in the markup, after which every step list reads as changed, every save
+   * carries `steps`, and the lost update is back for the one field most worth protecting.
+   */
+  const w = loadScreen({ answer: () => okRes({ agents: ROWS }) });
+  const same = (a, b) => w.ev(`autoSame(${JSON.stringify(a)}, ${JSON.stringify(b)})`);
+  assert.equal(same([{ type: "note", text: "x" }], [{ type: "note", text: "x" }]), true);
+  // THE KEYS IN THE OTHER ORDER — the same answer, which `JSON.stringify` would call a change.
+  assert.equal(w.ev('autoSame([{ type: "note", text: "x" }], [{ text: "x", type: "note" }])'), true);
+  assert.equal(same([{ type: "note", text: "x" }], [{ type: "note", text: "y" }]), false);
+  assert.equal(same([{ type: "note" }], [{ type: "note", text: "" }]), false,
+    "an added key with a falsy value is still an added key");
+  assert.equal(same([1, 2], [2, 1]), false, "a list's own order IS its value");
+  assert.equal(same([], []), true);
+  assert.equal(same("", ""), true);
+  assert.equal(same(false, false), true);
+  assert.equal(same(false, ""), false, "two falsy values are not one value");
+  assert.equal(same(null, undefined), false, "cleared and never-set are two answers");
+  assert.equal(same([{ a: 1 }], [{}]), false);
+  // ⚠ EXPRESSED AS A LITERAL IN THE VM, because `JSON.stringify` DROPS a key whose value is
+  // `undefined` — so carried through the helper above both sides are `{}` and the case would have
+  // asserted that two empty objects differ. My own fixture could not say what it meant.
+  assert.equal(w.ev("autoSame({}, { a: undefined })"), false, "a key that is present is present");
+  // AND A PROTOTYPE'S KEY CANNOT MAKE TWO OBJECTS MATCH — `Object.hasOwn`, not `in`.
+  assert.equal(w.ev('autoSame({ constructor: 1 }, {})'), false);
+});
+
+test("⚠ THE BASELINE IS CAPTURED AFTER THE DRAW, through the one door", async () => {
+  /**
+   * ⚠ **DRIVEN AS AN ORDER, because this fixture cannot separate the two readings any other
+   * way.** In a browser `renderAgentsNow` writes `innerHTML` and the new inputs immediately hold
+   * their drawn values, so reading them afterwards reads what was drawn and reading them BEFORE
+   * reads the previous drawing — which on a form that has never been drawn is nothing at all, and
+   * the save then refuses a change somebody really made. Here the inputs are stubs that outlive
+   * every draw and do not follow `innerHTML`, so both orders answer the same values: the
+   * difference is real and invisible to a value assertion.
+   *
+   * So the two calls are instrumented and their ORDER is asserted. Both are proved to have run,
+   * without which an empty list satisfies any order at all.
+   */
+  const w = loadScreen({ answer: () => okRes({ agents: ROWS, automations: [ONE], steps: [], days: [], max: 20, maxInputs: 8 }) });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ONE)}]; agentAutoCat = { steps: [], days: [] };`);
+  w.ev('agentAutoEditing = "AU1"; agentAutoDraft = null; agentAutoWas = null;');
+  w.ev('globalThis.__order = [];');
+  w.ev('const __draw = renderAgentsNow; renderAgentsNow = function () { globalThis.__order.push("draw"); return __draw.apply(null, arguments); };');
+  w.ev('const __was = agentAutoWasRead; agentAutoWasRead = function () { globalThis.__order.push("capture"); return __was.apply(null, arguments); };');
+  await w.ev("renderAgents()");
+  const order = JSON.parse(w.ev("JSON.stringify(globalThis.__order)"));
+  assert.ok(order.includes("draw"), "nothing drew, so the order says nothing");
+  assert.ok(order.includes("capture"), "the baseline is never captured by the one door at all");
+  assert.deepEqual(order, ["draw", "capture"],
+    "the baseline is read before the form is drawn, so it holds the PREVIOUS drawing's values");
+  // AND IT REALLY CAPTURED SOMETHING, so "after" is not satisfied by a call that bails.
+  assert.equal(w.ev("agentAutoWas === null"), false, "the capture ran and stored nothing");
+  assert.equal(w.ev("agentAutoWas.of"), "AU1", "it did not record which automation it is about");
+});
+
+test("⚠ A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS, both directions", async () => {
+  /**
+   * ⚠ **MEASURED, AND BOTH DIRECTIONS WERE BROKEN BEFORE THIS.** The time and the zone belong to
+   * the schedule, and `automations_schedule_is_whole` makes a half-whole combination unstorable —
+   * so an edit naming the schedule alone is refused over a control that is not on the screen:
+   *
+   *   daily → manual : the time box is hidden, its VALUE is unchanged, nothing carried it, and the
+   *                    transaction resolved the stored time → `bad-schedule`.
+   *   manual → daily : the stored time is NULL and the form's `09:00` is what it was drawn with →
+   *                    `bad-time`.
+   *
+   * Found by `agent-builder`'s own `verify:triggers` against a real PostgreSQL, not by reading.
+   */
+  const DAILY = { ...ONE, id: "AU4", schedule: "daily", at: "09:00", zone: "Europe/London" };
+  const MANUAL = { ...ONE, id: "AU3", schedule: "manual", at: null, zone: null };
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, o) => {
+      if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU4" }); }
+      return okRes({ agents: ROWS, automations: [DAILY, MANUAL], steps: [], days: [], max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = ${JSON.stringify([DAILY, MANUAL])}; agentAutoCat = { steps: [], days: [] };`);
+
+  // DAILY → MANUAL: the time is CLEARED, explicitly, because "by hand" has no time at all.
+  await openAutoForm(w, "AU4");
+  w.s.document.getElementById("agAutoSched").value = "manual";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, w.ev("agentAutoActErr"));
+  assert.equal(sent[0].schedule, "manual");
+  assert.equal(sent[0].at, null, "it left the stored time behind, which is not a schedule at all");
+  assert.ok(Object.hasOwn(sent[0], "zone"), "the zone the schedule owns was not carried");
+  // AND NOTHING ELSE — a schedule change is not a licence to send the steps.
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["at", "id", "schedule", "zone"]);
+
+  // MANUAL → DAILY: the time and the zone go WITH it, because the row has neither.
+  await openAutoForm(w, "AU3");
+  w.s.document.getElementById("agAutoSched").value = "daily";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, w.ev("agentAutoActErr"));
+  assert.equal(sent[1].schedule, "daily");
+  assert.equal(sent[1].at, "09:00", "a daily schedule was asked for with no time");
+  assert.ok(sent[1].zone, "a daily schedule was asked for with no zone");
+  assert.deepEqual(Object.keys(sent[1]).sort(), ["at", "id", "schedule", "zone"]);
+
+  // ⚠ **THE CONTROL: with the schedule UNTOUCHED, neither is sent** — without which "the
+  // schedule carries them" is satisfied by a save that carries them always, which is the
+  // whole-row replace for three fields.
+  await openAutoForm(w, "AU4");
+  w.s.document.getElementById("agAutoName").value = "Just a rename";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 3, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[2]).sort(), ["id", "name"],
+    "a rename carried the time and the zone, so a newer one of either is overwritten");
+
+  // AND EVERY FIELD A SCHEDULE OWNS IS ONE THE FORM REALLY DRAWS, or it would put `undefined` on
+  // the wire under a name the server reads.
+  const owns = JSON.parse(w.ev("JSON.stringify(AGENT_SCHED_OWNS)"));
+  const fields = JSON.parse(w.ev("JSON.stringify(AGENT_FORM_FIELDS)"));
+  assert.ok(owns.length >= 1, "a schedule owns nothing at all");
+  for (const f of owns) assert.ok(fields.includes(f), `${f} is owned by the schedule and never read`);
 });
 
 test("⚠ THE TIME ZONE IS DRAWN FROM THE ROW, EDITED, AND SENT", async () => {

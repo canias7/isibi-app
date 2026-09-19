@@ -6769,6 +6769,11 @@ Each is the route or the schema being right, and each is worth a line:
    create does, so a body of `{id, steps}` is refused *"give it a name first"*. The PATCH shape is
    `change_automation`, the AGENT's own tool, and conflating the two made a section run against a
    connection it thought it had re-pointed.
+   **⚠ SUPERSEDED 2026-09-19: THAT ROUTE IS A PATCH NOW** — a full replace built from a browser's
+   cached row is a lost update, and the round that fixed it is the last section of the root
+   `CLAUDE.md`. The finding above is kept as written because it is dated and because the mistake it
+   records (reading a refusal as an edit) is the same one either way; what is no longer true is the
+   route's shape.
 4. **FORBIDDING THE WORD `undone` IS NOT THE CHECK.** The honest sentence says the completed work
    was **not** undone, so a needle over the bare word went red about the one thing it was written to
    demand. Asserted POSITIVELY now — the answer must SAY the completed work stands — plus the

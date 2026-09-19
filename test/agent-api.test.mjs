@@ -102,8 +102,12 @@ function fakeStore(over = {}) {
       calls.push({ name: "createAutomation", args: a });
       return { ok: true, id: A1, next_run_at: null };
     },
-    updateAutomation: async (...a) => {
-      calls.push({ name: "updateAutomation", args: a });
+    // ⚠ `patchAutomation` WHERE THE REPLACE USED TO BE. `agent.patch_automation` answers
+    // `agent.update_automation`'s own answer — it delegates the write to it — so the shape is
+    // unchanged; what changed is that a fake still offering the replace would be one more
+    // capable than the store, in the file whose census reads a 502 for a missing operation.
+    patchAutomation: async (...a) => {
+      calls.push({ name: "patchAutomation", args: a });
       return { ok: true, id: A1, next_run_at: null };
     },
     setAutomationEnabled: async (...a) => {

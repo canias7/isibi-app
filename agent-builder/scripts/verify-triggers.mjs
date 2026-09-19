@@ -275,22 +275,35 @@ try {
 
   // ── 4b. AN UNRELATED EDIT DOES NOT STOP IT LISTENING ───────────────────────
   /**
-   * ⚠ **THE BROWSER'S SAVE IS A FULL REPLACE, AND IT CARRIED NO EVENT.** The form has no
+   * ⚠ **THE BROWSER'S SAVE USED TO BE A FULL REPLACE, AND IT CARRIED NO EVENT.** The form has no
    * control for one, so its body was `name · enabled · schedule · at · zone · steps · inputs`
    * and `update_automation` assigns `on_event = p_on_event` — so **renaming an automation that
-   * listens stopped it listening**, with nothing anywhere saying so. The browser now carries the
-   * stored binding forward (`AGENT_FORM_KEEPS` in `public/chat.js`); this is the same body
-   * arriving at the real route, and then the event really being sent again.
+   * listens stopped it listening**, with nothing anywhere saying so.
+   *
+   * **THE FIRST FIX CARRIED THE STORED BINDING FORWARD OUT OF THE BROWSER'S CACHED ROW, and this
+   * section was written against it.** That worked for an ordinary edit and was the wrong shape: a
+   * value copied out of a row a browser read minutes ago, sent in a whole-row write, overwrites
+   * whatever anybody else changed since. **An edit is a PATCH now** — `agent.patch_automation`
+   * resolves every key the body does not name from its own locked row — so the form says nothing
+   * about the binding at all, which is stronger than carrying it: absent cannot be stale.
    *
    * THE STORED COLUMN IS NOT THE CLAIM. "It still listens" is a claim about what an event DOES,
    * so the column is read and then an event is delivered and the execution is watched to the end.
    */
-  const editBody = {
-    id: evAuto, name: "On a payment, renamed", enabled: true,
-    schedule: "manual", at: "09:00", zone: "UTC", inputs: [],
-    steps: [{ type: "note", text: "a payment landed" }],
-  };
-  const kept = await api("/api/agent/automation-update", { body: { ...editBody, on_event: "order.paid" } });
+  /**
+   * ⚠ **THIS IS WHAT THE BROWSER REALLY SENDS NOW, and the old body is a body the patch door
+   * correctly REFUSES.** It used to carry all seven fields — `name · enabled · schedule · at ·
+   * zone · steps · inputs` — because that is what a whole-row replace needs, and `cleanSchedule`
+   * quietly dropped the `at` for a manual schedule. Sent as a PATCH the same body asks for
+   * `manual` WITH a time, which `automations_schedule_is_whole` forbids, and
+   * `agent.patch_automation` answers `bad-schedule` by name. **MEASURED here, which is how the
+   * browser's own two missing clears were found** (`AGENT_SCHED_OWNS` in `public/chat.js`).
+   *
+   * A rename is `{id, name}`, and the PRODUCTION of that body is proved in the site's own
+   * `test/agent-binding.test.mjs`, which drives the real form and asserts that exact key set.
+   */
+  const editBody = { id: evAuto, name: "On a payment, renamed" };
+  const kept = await api("/api/agent/automation-update", { body: editBody });
   check("an unrelated edit saves", kept.status === 200, JSON.stringify(kept.body));
   check("...the name really changed, so the edit was not a no-op",
     q(`select name from agent.automations where id='${evAuto}';`) === "On a payment, renamed");
@@ -306,15 +319,25 @@ try {
     ran.length === 2 && ran[1].trigger === "event" && ran[1].finished === true, JSON.stringify(ran));
 
   /**
-   * ⚠ **THE CONTROL, AND WITHOUT IT THE CHECK ABOVE IS SATISFIED BY AN EVENT THAT WOULD FIRE
-   * WHATEVER THE SAVE DID.** This is the PRE-FIX body — byte for byte what the form sent before
-   * `AGENT_FORM_KEEPS` existed — so it measures the defect rather than describing it: the
-   * binding goes, and the next payment reaches nothing.
+   * ⚠ **THE CONTROL, AND IT HAD TO CHANGE WITH THE ROUTE — which is the more interesting half.**
+   *
+   * It used to send the PRE-FIX body (the seven fields, no event) and measure the defect: the
+   * binding went and the next payment reached nothing. **That body is now HARMLESS**, because an
+   * omitted key is what the transaction resolves from its own row — so the defect is not a thing
+   * a body can still do and a control built on it would assert that nothing happens.
+   *
+   * **THE CONTROL IS AN INTENTIONAL REMOVAL INSTEAD**, which is a supported operation and must
+   * still work: an explicit `null` CLEARS the binding, and then the next payment reaches nothing.
+   * That is what proves the observer alive — without it "the event still triggers it" is satisfied
+   * by an event that would fire whatever the save did — and it is the distinction the whole round
+   * is about: **an absent key preserves and an explicit `null` removes.**
    */
-  const dropped = await api("/api/agent/automation-update", { body: editBody });
-  check("the pre-fix body saves too, which is why this was silent", dropped.status === 200, JSON.stringify(dropped.body));
-  check("⚠ ...and it CLEARS the binding — the defect, measured",
+  const removed = await api("/api/agent/automation-update", { body: { id: evAuto, on_event: null } });
+  check("an explicit removal is accepted", removed.status === 200, JSON.stringify(removed.body));
+  check("⚠ ...and it really CLEARS the binding, where saying nothing preserved it",
     q(`select coalesce(on_event,'(none)') from agent.automations where id='${evAuto}';`) === "(none)");
+  check("...and it changed nothing else, so a removal is not a replace either",
+    q(`select name from agent.automations where id='${evAuto}';`) === "On a payment, renamed");
   const orphan = await deliver({ amount: 44 }, { delivery: "dlv-after-drop" });
   check("a third payment is still accepted by the endpoint", orphan.status === 202, JSON.stringify(orphan.body));
   await tick();
@@ -323,10 +346,112 @@ try {
     execsOf(evAuto).length === 2, JSON.stringify(execsOf(evAuto)));
 
   // PUT IT BACK, so the sections below read the automation this one found rather than the one
-  // the control broke.
-  await api("/api/agent/automation-update", { body: { ...editBody, on_event: "order.paid" } });
+  // the control broke — and through the patch door, naming only the field being changed.
+  await api("/api/agent/automation-update", { body: { id: evAuto, on_event: "order.paid" } });
   check("the binding is restored for the sections below",
     q(`select coalesce(on_event,'(none)') from agent.automations where id='${evAuto}';`) === "order.paid");
+
+  // ── 4c. TWO BROWSERS, ONE AUTOMATION — THE LOST UPDATE, END TO END ──────────
+  /**
+   * ⚠ **THE SCENARIO THE ROUND EXISTS FOR, through the real route and a real dispatcher.**
+   *
+   *   1. browser A opens an automation that listens for `order.paid`
+   *   2. browser B changes the event to `order.shipped` — and the schedule, and the steps
+   *   3. browser A changes ONLY the name and saves
+   *   4. the new name is stored AND everything B moved is still B's
+   *   5. both events are dispatched, and only the CURRENT binding starts anything
+   *
+   * **WHAT THE BROWSER SENDS IS `{id, name}`, and its PRODUCTION is proved in the site's own
+   * `test/agent-binding.test.mjs`** — which drives the real form, changes one control and asserts
+   * that exact key set. This file drives what that body then DOES. The two halves meet at an
+   * asserted shape rather than at a description of one: if the browser ever carried more, that
+   * case goes red.
+   */
+  const ab = await api("/api/agent/automation-create", {
+    body: {
+      agent: AG, name: "Two browsers", enabled: true, schedule: "daily", at: "09:00", zone: "UTC",
+      on_event: "order.paid", steps: [{ type: "note", text: "A wrote this" }],
+    },
+  });
+  check("an automation A and B will both edit is saved", ab.status === 200, JSON.stringify(ab.body));
+  const abId = ab.body.id;
+  const abRow = () => JSON.parse(q(`select json_build_object(
+    'name', name, 'event', coalesce(on_event,'(none)'), 'at', coalesce(at_local::text,'(none)'),
+    'step', steps->0->>'text', 'enabled', enabled)::text from agent.automations where id='${abId}';`));
+  check("...listening for order.paid, on a daily schedule", abRow().event === "order.paid" && abRow().at === "09:00:00",
+    JSON.stringify(abRow()));
+
+  // 2. BROWSER B MOVES THE EVENT, THE TIME AND THE STEPS. Three separate presses, because a person
+  // makes one change at a time — and each is a patch naming only what it changed.
+  for (const body of [
+    { id: abId, on_event: "order.shipped" },
+    { id: abId, at: "17:00" },
+    { id: abId, steps: [{ type: "note", text: "B wrote this" }] },
+  ]) {
+    const r = await api("/api/agent/automation-update", { body });
+    check(`B's edit lands (${Object.keys(body).filter((k) => k !== "id").join(", ")})`, r.status === 200,
+      JSON.stringify(r.body));
+  }
+  check("B's three changes are all stored",
+    abRow().event === "order.shipped" && abRow().at === "17:00:00" && abRow().step === "B wrote this",
+    JSON.stringify(abRow()));
+
+  // 3. BROWSER A — WHOSE FORM WAS DRAWN BEFORE ANY OF THAT — CHANGES ONLY THE NAME.
+  const aSave = await api("/api/agent/automation-update", { body: { id: abId, name: "Two browsers (A renamed it)" } });
+  check("A's name-only save is accepted", aSave.status === 200, JSON.stringify(aSave.body));
+
+  // 4. BOTH ARE TRUE AT ONCE, which is the whole point.
+  check("⚠ A's new name IS stored", abRow().name === "Two browsers (A renamed it)", JSON.stringify(abRow()));
+  check("⚠ ...AND B's event survived A's save", abRow().event === "order.shipped", JSON.stringify(abRow()));
+  check("⚠ ...AND B's time survived it", abRow().at === "17:00:00", JSON.stringify(abRow()));
+  check("⚠ ...AND B's steps survived it", abRow().step === "B wrote this", JSON.stringify(abRow()));
+
+  // 5. THE EVENTS DECIDE IT, because a stored column is not a trigger. The OLD binding must
+  // reach nothing and the CURRENT one must start an execution.
+  const before5 = execsOf(abId).length;
+  const oldEvent = await deliver({ amount: 45 }, { delivery: "dlv-ab-paid" });
+  check("a payment is accepted by the endpoint", oldEvent.status === 202, JSON.stringify(oldEvent.body));
+  await tick();
+  await drain();
+  check("⚠ ...and reaches NOTHING, because that is not what it listens for any more",
+    execsOf(abId).length === before5, JSON.stringify(execsOf(abId)));
+
+  // AND THE CURRENT ONE DOES. A second endpoint, because the event a delivery raises is fixed at
+  // creation — which is what stops an endpoint being a way to run any automation.
+  const wh2 = await api("/api/agent/webhook-create", { body: { agent: AG, name: "shipped", event: "order.shipped" } });
+  check("a second endpoint is made for the event B chose", wh2.status === 200, JSON.stringify(wh2.body));
+  const newEvent = await deliver({ amount: 46 }, { id: wh2.body.id, secret: wh2.body.secret, delivery: "dlv-ab-shipped" });
+  check("a shipping notice is accepted", newEvent.status === 202, JSON.stringify(newEvent.body));
+  await tick();
+  await drain();
+  const abRan = execsOf(abId);
+  check("⚠ ...AND THE CURRENT BINDING REALLY STARTS IT",
+    abRan.length === before5 + 1 && abRan[abRan.length - 1].trigger === "event" &&
+    abRan[abRan.length - 1].finished === true, JSON.stringify(abRan));
+
+  // ── AND THE OTHER THREE THE REQUIREMENT NAMES ─────────────────────────────
+  // B REMOVES THE EVENT, AND A'S SAVE MUST NOT PUT IT BACK. This is the direction a
+  // carry-it-forward fix gets wrong: A's cached row still holds the binding.
+  await api("/api/agent/automation-update", { body: { id: abId, on_event: null } });
+  check("B removes the binding", abRow().event === "(none)");
+  const aAgain = await api("/api/agent/automation-update", { body: { id: abId, name: "Renamed once more" } });
+  check("A's name-only save is accepted again", aAgain.status === 200, JSON.stringify(aAgain.body));
+  check("⚠ ...AND IT DID NOT RESTORE THE BINDING A'S FORM STILL REMEMBERED",
+    abRow().event === "(none)" && abRow().name === "Renamed once more", JSON.stringify(abRow()));
+
+  // AN UNCHANGED FORM CHANGES NOTHING — and at the route an edit that names nothing is refused
+  // rather than written, because `{}` would resolve every field from the row and write it back.
+  const beforeNothing = q(`select md5(row(name, enabled, schedule, at_local, zone, days, on_date, on_event, steps, inputs, version)::text) from agent.automations where id='${abId}';`);
+  const nothing = await api("/api/agent/automation-update", { body: { id: abId } });
+  check("an edit that names nothing is refused", nothing.status === 400, JSON.stringify(nothing.body));
+  check("⚠ ...and the row is byte-identical afterwards",
+    q(`select md5(row(name, enabled, schedule, at_local, zone, days, on_date, on_event, steps, inputs, version)::text) from agent.automations where id='${abId}';`) === beforeNothing);
+
+  // ANOTHER ACCOUNT CANNOT EDIT IT — the missing-automation 404, so a stranger cannot even
+  // confirm the id is real. Ownership is the transaction's own locked lookup.
+  const theirs = await api("/api/agent/automation-update", { tenant: B, body: { id: abId, name: "Mine now" } });
+  check("the account next door cannot edit it", theirs.status === 404, `${theirs.status} ${JSON.stringify(theirs.body)}`);
+  check("⚠ ...and nothing of A's moved", abRow().name === "Renamed once more", JSON.stringify(abRow()));
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n5. AN EVENT WAIT, AND THE ARRIVAL RACE BOTH WAYS ROUND");

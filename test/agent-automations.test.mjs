@@ -20,6 +20,9 @@ import {
   AUTOMATION_COLUMNS,
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
+  // ── an edit changes only what it names ───────────────────────────────────────
+  AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
+  trigAt, trigZone, trigDays, trigOnDate, trigOnEvent,
   // ── the workflow half: references, branches and what a run is asked for ────
   refsInText, branchShape, cleanInputs, cleanRunInput,
   MAX_AUTOMATION_INPUTS, INPUT_VALUE_MAX, MAX_APPROVAL_HOURS, MAX_WAIT_MINUTES,
@@ -48,7 +51,11 @@ function fakeStore(over = {}) {
     ownsAutomation: of("ownsAutomation", true),
     listAutomations: of("listAutomations", []),
     createAutomation: of("createAutomation", { ok: true, id: C1, next_run_at: null }),
-    updateAutomation: of("updateAutomation", { ok: true, id: C1, next_run_at: null }),
+    // ⚠ `patchAutomation` WHERE THE REPLACE WAS. `agent.patch_automation` delegates its write
+    // to `agent.update_automation`, so the ANSWER shape is the same one; what is gone is a fake
+    // offering an operation the store has not got, which would be a fake more capable than the
+    // thing it stands in for in the file whose census reads a 502 for a missing one.
+    patchAutomation: of("patchAutomation", { ok: true, id: C1, next_run_at: null }),
     // ⚠ `agent.set_automation_enabled`'S OWN ANSWER, not a row — see the store's note: the
     // toggle is the function the agent's `pause_automation` calls, and it RECOMPUTES the
     // next run when a scheduled automation is turned back on.
@@ -84,6 +91,24 @@ function fakeStore(over = {}) {
 }
 
 const WORKFLOW = [{ type: "weekday", days: ["mon"] }, { type: "note", text: "morning" }];
+/**
+ * What `readAutomation` answers, so a case can say what an automation DECLARES.
+ *
+ * Built from `automationRow`'s own key set rather than typed, because a row in a different shape
+ * from the real reader's is a fixture that hides exactly the field it is about — this file has
+ * paid for that twice.
+ */
+const ROW = automationRow({
+  id: C1, agent_id: A1, name: "n", enabled: true, schedule: "manual", at_local: null, zone: null,
+  days: [], on_date: null, on_event: null, steps: [], inputs: [], next_run_at: null, updated_at: null,
+});
+
+/** One acceptable value per field an edit may name, for the census over `AUTOMATION_PATCH_FIELDS`. */
+const SAMPLE = Object.freeze({
+  name: "A name", enabled: false, schedule: "manual", at: null, zone: "Europe/London",
+  steps: [{ type: "note", text: "x" }], inputs: [], days: [], on_date: null, on_event: null,
+});
+
 const call = (path, opts = {}) => handleAgentApi({
   path, method: AGENT_ROUTES[path], tenant: T1, newId: () => C1, ...opts,
 });
@@ -129,7 +154,7 @@ test("an account that does not own the agent, or the automation, gets the same 4
   // And the three the database answers for: a refusal from the transaction reads the same.
   const gone = fakeStore({
     createAutomation: async () => ({ ok: false, error: "no-agent" }),
-    updateAutomation: async () => ({ ok: false, error: "no-automation" }),
+    patchAutomation: async () => ({ ok: false, error: "no-automation" }),
     runAutomation: async () => ({ ok: false, error: "no-automation" }),
     removeAutomation: async () => false,
   });
@@ -273,7 +298,7 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   // now, asserted against the store's own key set, so an operation added next month
   // fails by existing rather than by being forgotten.
   await store.createAutomation(T1, { agentId: A1, id: C1, name: "N", enabled: true, schedule: "manual", at: null, zone: null, steps: [] });
-  await store.updateAutomation(T1, { id: C1, name: "N", enabled: true, schedule: "manual", at: null, zone: null, steps: [] });
+  await store.patchAutomation(T1, { id: C1, patch: { name: "N" } });
   await store.listAutomations(T1, A1);
   await store.ownsAutomation(T1, C1);
   await store.setAutomationEnabled(T1, C1, false);
@@ -285,7 +310,7 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   // what an automation wants, so it was the one operation of the nine nothing here drove.
   await store.readAutomation(T1, C1);
   const AUTOMATION_OPS = ["listAutomations", "readAutomation", "ownsAutomation", "createAutomation",
-    "updateAutomation", "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
+    "patchAutomation", "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
   for (const op of AUTOMATION_OPS) {
     assert.equal(typeof store[op], "function", `the store has no ${op}`);
   }
@@ -432,11 +457,287 @@ test("a create and an edit send the same configuration, normalised the same way"
     store: g.store,
     body: { id: C1, name: "Morning", schedule: "daily", at: "09:00", zone: "Europe/London", steps: WORKFLOW },
   });
-  const edited = g.calls.find((c) => c.name === "updateAutomation").args[1];
-  const { agentId, id, ...same } = made;
-  void agentId; void id;
-  assert.deepEqual({ ...edited, id: undefined }, { ...same, id: undefined },
-    "a create and an edit must not normalise differently");
+  const patched = g.calls.find((c) => c.name === "patchAutomation").args[1].patch;
+  /**
+   * ⚠ **RE-ANCHORED ONTO THE PROPERTY, because the two bodies stopped being the same shape and
+   * the property never was that they were.** A create answers every field (there is no row to
+   * fall back on) and an edit answers the ones somebody changed. What must still agree is the
+   * VALUE each door gives a field they BOTH name, normalised by the same readers — `09:00:00`
+   * out of `trigAt` either way, the ids minted from the position either way.
+   *
+   * Every key is checked to be one `AUTOMATION_PATCH_FIELDS` really names, so a field added to
+   * one door and not the other fails here rather than arriving at a function that refuses it by
+   * name; the two key sets differ in exactly ONE spelling and that one is named once.
+   */
+  /**
+   * ⚠ **ONE VALUE, TWO WIRE SHAPES, and that is the two FUNCTIONS' own contracts rather than a
+   * difference in normalisation.** `create_automation` takes a `time`, so the store sends the
+   * column's `HH:MM:SS`; `agent.patch_automation` reads `atLocal` against `^HH:MM$`, which is also
+   * what the engine's `change_automation` sends it. MEASURED, by `verify:triggers` rather than by
+   * reading: seconds there are answered `bad-time`. So the seconds are added at the door that
+   * needs them, and this compares the clock time.
+   */
+  const SAME_AS = { atLocal: ["at", (v) => `${v}:00`] };
+  for (const [key, value] of Object.entries(patched)) {
+    assert.ok(Object.values(AUTOMATION_PATCH_FIELDS).includes(key),
+      `the patch carries ${key}, which is not a field an edit may name`);
+    const [as, shape] = SAME_AS[key] ?? [key, (v) => v];
+    assert.deepEqual(shape(value), made[as], `a create and an edit normalise ${key} differently`);
+  }
+  // **AND THE EDIT SENT EXACTLY WHAT THE BODY NAMED, which is the whole of this round.** Without
+  // this the loop above is satisfied by a patch carrying every field, agreeing with the create
+  // on all of them — which is the whole-row replace passing a test about normalisation.
+  assert.deepEqual(Object.keys(patched).sort(), ["atLocal", "name", "schedule", "steps", "zone"]);
+});
+
+test("⚠ AN EDIT SENDS ONLY THE FIELDS IT NAMES, and the transaction keeps the rest", async () => {
+  /**
+   * ⚠ **THE LOST UPDATE THIS ROUND REMOVES, at the route.** Every field the body says nothing
+   * about must be ABSENT from the patch, because that is what makes `agent.patch_automation`
+   * resolve it from its own locked row instead of from whatever a caller remembered.
+   */
+  const f = fakeStore();
+  const r = await call("/api/agent/automation-update", { store: f.store, body: { id: C1, name: "Just the name" } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const p1 = f.calls.find((c) => c.name === "patchAutomation").args[1];
+  assert.equal(p1.id, C1);
+  assert.deepEqual(p1.patch, { name: "Just the name" });
+  // ⚠ AND IT READ NOTHING TO GET THERE: no `readAutomation`, because nothing needed the stored
+  // declarations. A read on every edit would be a window between what was validated and what is
+  // written, and it would cost a round trip on a rename.
+  assert.ok(!f.calls.some((c) => c.name === "readAutomation"), "it read the row to rename an automation");
+
+  // EVERY FIELD, ONE AT A TIME — a census, so a field that stopped reaching the patch fails here.
+  for (const [body, expect] of [
+    [{ enabled: false }, { enabled: false }],
+    [{ schedule: "manual" }, { schedule: "manual" }],
+    // `HH:MM`, NOT THE COLUMN'S `HH:MM:SS` — the patch function's own shape; see the note above.
+    [{ at: "07:05" }, { atLocal: "07:05" }],
+    [{ at: null }, { atLocal: null }],
+    [{ at: "" }, { atLocal: null }],
+    [{ zone: "Europe/Lisbon" }, { zone: "Europe/Lisbon" }],
+    [{ zone: null }, { zone: null }],
+    [{ days: ["fri", "mon"] }, { days: ["mon", "fri"] }],
+    [{ days: [] }, { days: [] }],
+    [{ on_date: "2027-03-04" }, { onDate: "2027-03-04" }],
+    [{ on_date: null }, { onDate: null }],
+    [{ on_event: "Order.Paid" }, { onEvent: "order.paid" }],
+    [{ on_event: null }, { onEvent: null }],
+    [{ inputs: [] }, { inputs: [] }],
+  ]) {
+    const g = fakeStore();
+    const rr = await call("/api/agent/automation-update", { store: g.store, body: { id: C1, ...body } });
+    assert.equal(rr.status, 200, `${JSON.stringify(body)} → ${JSON.stringify(rr.body)}`);
+    assert.deepEqual(g.calls.find((c) => c.name === "patchAutomation").args[1].patch, expect,
+      `${JSON.stringify(body)} did not reach the patch as ${JSON.stringify(expect)}`);
+  }
+
+  // **AN EDIT THAT NAMES NOTHING IS REFUSED RATHER THAN WRITTEN**, because `{}` would resolve
+  // every field from the row and write them all back — a no-op that still takes the lock.
+  const h = fakeStore();
+  const empty = await call("/api/agent/automation-update", { store: h.store, body: { id: C1 } });
+  assert.equal(empty.status, 400);
+  assert.match(empty.body.error, /which fields/i);
+  assert.ok(!h.calls.some((c) => c.name === "patchAutomation"), "an empty edit still wrote");
+});
+
+test("⚠ A STEPS EDIT IS VALIDATED AGAINST THE DECLARATIONS THE AUTOMATION REALLY HAS", async () => {
+  /**
+   * A `{{reference}}` needs something that produces it, and a declared input is half of what can.
+   * So an edit carrying new steps and saying nothing about the declarations has to be checked
+   * against the stored ones — and that read decides a REFUSAL and never a value: the declarations
+   * the row keeps are the transaction's own resolution, not what this process read.
+   */
+  const declaring = { ...ROW, inputs: [{ name: "who", label: "Who", type: "text", required: true, default: "" }] };
+  // ⚠ THE OVERRIDE RECORDS FOR ITSELF, because `fakeStore`'s own recorder is the function being
+  // replaced — so a case that overrides one and then asks `calls` is asking about a call that
+  // cannot be there. A negative assertion with a dead observer, in the check about a read.
+  const reads = [];
+  const f = fakeStore({ readAutomation: async (...a) => { reads.push(a); return declaring; } });
+  const ok1 = await call("/api/agent/automation-update", {
+    store: f.store, body: { id: C1, steps: [{ type: "note", text: "for {{who}}" }] },
+  });
+  assert.equal(ok1.status, 200, JSON.stringify(ok1.body));
+  assert.equal(reads.length, 1, "it never read the declarations");
+  assert.equal(reads[0][0], T1, "the read is not scoped to this account");
+  const sent = f.calls.find((c) => c.name === "patchAutomation").args[1].patch;
+  // ⚠ THE PATCH CARRIES THE STEPS AND NOT THE DECLARATIONS, which is the whole point: they were
+  // read to validate against, and writing them back would be this browser's copy of them.
+  assert.deepEqual(Object.keys(sent), ["steps"]);
+
+  // THE CONTROL: the same steps against an automation that declares nothing are REFUSED, so the
+  // stored declarations are really what the check consulted.
+  const g = fakeStore({ readAutomation: async () => ({ ...ROW, inputs: [] }) });
+  const bad = await call("/api/agent/automation-update", {
+    store: g.store, body: { id: C1, steps: [{ type: "note", text: "for {{who}}" }] },
+  });
+  assert.equal(bad.status, 400, JSON.stringify(bad.body));
+  assert.match(bad.body.error, /who/);
+  assert.ok(!g.calls.some((c) => c.name === "patchAutomation"), "a refused edit still wrote");
+
+  // AND WHEN THE EDIT NAMES BOTH, THE TWO CHECK AGAINST EACH OTHER and nothing is read.
+  const readsB = [];
+  const h = fakeStore({ readAutomation: async (...a) => { readsB.push(a); return { ...ROW, inputs: [] }; } });
+  const both = await call("/api/agent/automation-update", {
+    store: h.store,
+    body: { id: C1, inputs: [{ name: "who", label: "Who" }], steps: [{ type: "note", text: "for {{who}}" }] },
+  });
+  assert.equal(both.status, 200, JSON.stringify(both.body));
+  assert.equal(readsB.length, 0, "it read declarations the edit had already given it");
+
+  // AND AN AUTOMATION THAT IS NOT THIS ACCOUNT'S IS THE MISSING-AUTOMATION 404 on that read too
+  // — the same answer the transaction's own locked lookup gives, so the two cannot be told apart.
+  const n = fakeStore({ readAutomation: async () => null });
+  const gone = await call("/api/agent/automation-update", {
+    store: n.store, body: { id: C1, steps: [{ type: "note", text: "x" }] },
+  });
+  assert.equal(gone.status, 404);
+  assert.ok(!n.calls.some((c) => c.name === "patchAutomation"));
+  // AND THE TRANSACTION'S OWN `no-automation` IS THE SAME 404 — driven, because the sentence
+  // census above EXEMPTS that code on the strength of this being true.
+  const t = fakeStore({ patchAutomation: async () => ({ ok: false, error: "no-automation" }) });
+  const tgone = await call("/api/agent/automation-update", { store: t.store, body: { id: C1, name: "x" } });
+  assert.equal(tgone.status, 404, JSON.stringify(tgone.body));
+  assert.match(tgone.body.error, /isn't here any more/);
+
+  // `patchNeedsStored` IS THE ONE READER OF WHEN THAT READ IS NEEDED, so the route and
+  // `cleanPatch` cannot disagree about it.
+  assert.equal(patchNeedsStored({ steps: [] }), true);
+  assert.equal(patchNeedsStored({ steps: [], inputs: [] }), false);
+  assert.equal(patchNeedsStored({ name: "x" }), false);
+  assert.equal(patchNeedsStored({}), false);
+  assert.equal(patchNeedsStored({ steps: undefined }), false, "an undefined step list names nothing");
+});
+
+test("⚠ EVERY REFUSAL THE TRANSACTION CAN MAKE HAS A SENTENCE — read out of the migration", () => {
+  /**
+   * ⚠ **A CENSUS AGAINST `agent.patch_automation`'S OWN BODY, not a list somebody kept.** The
+   * shape refusals are walls from this door (`cleanPatch` checks every field first), but the
+   * WHOLENESS ones are decided in the transaction against the locked row and are answers a person
+   * really gets — so a code added to that function with no sentence here would arrive as a 500.
+   */
+  const sql = fs.readFileSync(path.join(import.meta.dirname,
+    "../agent-builder/supabase/migrations/20260918120000_agent_authoring_zone_and_patch.sql"), "utf8");
+  const start = sql.indexOf("create or replace function agent.patch_automation(");
+  assert.ok(start > 0, "the migration no longer declares patch_automation");
+  /**
+   * ⚠ **THE WINDOW ENDS AT THE FUNCTION'S OWN `$$`, and my first reader's did not.** It looked
+   * for `"\n$$;"`, which these bodies never carry (they end `end; $$;` on ONE line), so `indexOf`
+   * answered -1, `slice(start, -1)` took the whole rest of the file, and the census read the
+   * `_once` WRAPPER's refusals as this function's — demanding a sentence for `operation-lost`,
+   * which is not a refusal this door can ever answer. A byte window with no proved end, in a file
+   * that records that trap a dozen times over.
+   */
+  const opens = sql.indexOf("as $$", start);
+  assert.ok(opens > start, "the function's body does not open where this reader looks");
+  const ends = sql.indexOf("$$", opens + 5);
+  assert.ok(ends > opens, "the function's body has no end");
+  const body = sql.slice(opens, ends);
+  // AND THE WINDOW IS THIS FUNCTION'S, not most of the file — the observer, without which a
+  // runaway slice reads as a thorough census.
+  assert.ok(body.length < sql.length / 3, `the window is ${body.length} of ${sql.length} bytes`);
+  const codes = [...new Set([...body.matchAll(/'error',\s*'([a-z-]+)'/g)].map((m) => m[1]))];
+  assert.ok(codes.length >= 10, `the reader found ${codes.length} refusals — it is not reading the body`);
+  /**
+   * ⚠ **ONE CODE IS ANSWERED SOMEWHERE ELSE AND DELIBERATELY HAS NO SENTENCE**: `no-automation`
+   * is the missing-automation 404, because an automation that is not this account's and one that
+   * does not exist must be the same answer — a sentence here would make this door a 400 and tell a
+   * stranger the id they guessed is real. It is NAMED so a second code cannot join it by accident,
+   * and the route's own answer for it is DRIVEN below rather than taken on trust.
+   */
+  const ANSWERED_ELSEWHERE = new Set(["no-automation"]);
+  for (const code of codes) {
+    if (ANSWERED_ELSEWHERE.has(code)) {
+      assert.equal(sayPatch({ error: code }), null, `\`${code}\` is answered twice, in two voices`);
+      continue;
+    }
+    const said = sayPatch({ error: code });
+    assert.equal(typeof said, "string", `\`${code}\` has no sentence, so the route answers 500`);
+    assert.ok(said.length > 10, `\`${code}\`'s sentence is "${said}"`);
+  }
+  // AND A CODE IT HAS NEVER HEARD OF IS `null`, so the route can say the failure is OURS rather
+  // than blaming a caller for something nobody here can name.
+  assert.equal(sayPatch({ error: "something-new" }), null);
+  assert.equal(sayPatch({}), null);
+  assert.equal(sayPatch(null), null);
+
+  /**
+   * ⚠ **THE WHOLENESS SENTENCES NAME THE SCHEDULE, which is what makes them actionable.** The
+   * function carries the resolved schedule on exactly those five, and "a daily schedule needs a
+   * time zone" about a weekly one sends somebody to the wrong control.
+   */
+  assert.match(sayPatch({ error: "bad-zone", schedule: "weekly" }), /a weekly schedule needs a time zone/);
+  assert.match(sayPatch({ error: "bad-time", schedule: "daily" }), /a daily schedule needs a time of day/);
+  assert.match(sayPatch({ error: "bad-days", schedule: "weekly" }), /at least one day/);
+  assert.match(sayPatch({ error: "bad-days", schedule: "daily" }), /clear the day list/);
+  assert.match(sayPatch({ error: "bad-date", schedule: "once" }), /YYYY-MM-DD/);
+  assert.match(sayPatch({ error: "bad-date", schedule: "weekly" }), /clear the date/);
+  assert.match(sayPatch({ error: "bad-schedule", schedule: "manual" }), /by hand/);
+  assert.match(sayPatch({ error: "bad-field", field: "colour" }), /"colour"/);
+  // AND WITHOUT ONE IT IS THE SHAPE SENTENCE, which is the honest reading of a refusal about a
+  // value rather than about the combination.
+  assert.match(sayPatch({ error: "bad-zone" }), /isn't a time zone/);
+  assert.match(sayPatch({ error: "bad-time" }), /HH:MM/);
+});
+
+test("⚠ THE TWO DOORS REFUSE THE SAME VALUE IN THE SAME WORDS", () => {
+  /**
+   * ⚠ **A CREATE AND AN EDIT ARE TWO READERS OF ONE QUESTION, and this is what stops them
+   * drifting.** `cleanSchedule` reads a whole trigger and `cleanPatch` reads the fields an edit
+   * named; both ask the same value readers, and the sentence a bad value earns has to be the same
+   * either way — two copies of "which strings are days" is how one door comes to refuse what the
+   * other stores.
+   */
+  const pairs = [
+    [{ schedule: "daily", at: "25:00", zone: "UTC" }, { at: "25:00" }],
+    [{ schedule: "daily", at: "9:00", zone: "UTC" }, { at: "9:00" }],
+    [{ schedule: "daily", at: "09:00", zone: "Nowhere/Here" }, { zone: "Nowhere/Here" }],
+    [{ schedule: "weekly", at: "09:00", zone: "UTC", days: ["moonday"] }, { days: ["moonday"] }],
+    [{ schedule: "once", at: "09:00", zone: "UTC", on_date: "2027-02-29" }, { on_date: "2027-02-29" }],
+    [{ schedule: "once", at: "09:00", zone: "UTC", on_date: "nonsense" }, { on_date: "nonsense" }],
+    [{ on_event: "9bad" }, { on_event: "9bad" }],
+    [{ schedule: "nonsense" }, { schedule: "nonsense" }],
+    [{ schedule: ["daily"] }, { schedule: ["daily"] }],
+  ];
+  let seen = 0;
+  for (const [whole, part] of pairs) {
+    const a = cleanSchedule(whole);
+    const b = cleanPatch(part, []);
+    assert.ok(a.error, `the create accepted ${JSON.stringify(whole)}`);
+    assert.ok(b.error, `the edit accepted ${JSON.stringify(part)}`);
+    assert.equal(b.error, a.error, `the two doors say different things about ${JSON.stringify(part)}`);
+    seen++;
+  }
+  assert.equal(seen, pairs.length);
+  // THE OBSERVER: a value BOTH doors accept, so "they agree" is not satisfied by two readers that
+  // refuse everything.
+  assert.ok(!cleanSchedule({ schedule: "daily", at: "09:00", zone: "UTC" }).error);
+  assert.ok(!cleanPatch({ at: "09:00" }, []).error);
+});
+
+test("⚠ `fieldNamed` READS PRESENCE AND NEVER TRUTH", () => {
+  // `enabled: false`, `steps: []` and `zone: ""` are each a value somebody meant, and two of them
+  // are falsy — they are the edits a person most needs to be able to make.
+  assert.equal(fieldNamed({ enabled: false }, "enabled"), true);
+  assert.equal(fieldNamed({ steps: [] }, "steps"), true);
+  assert.equal(fieldNamed({ zone: "" }, "zone"), true);
+  assert.equal(fieldNamed({ at: null }, "at"), true, "a null is a clear, which is an answer");
+  assert.equal(fieldNamed({}, "name"), false);
+  assert.equal(fieldNamed({ name: undefined }, "name"), false, "an explicit undefined says nothing");
+  assert.equal(fieldNamed(null, "name"), false);
+  assert.equal(fieldNamed("nonsense", "name"), false);
+  // AND A PROTOTYPE'S KEY IS NOT A FIELD — `Object.hasOwn`, so `constructor` cannot be named.
+  assert.equal(fieldNamed({}, "constructor"), false);
+  // AND `AUTOMATION_PATCH_FIELDS` IS WHAT AN EDIT MAY NAME, both ways: every wire name is read by
+  // `cleanPatch` and every patch key is one the transaction accepts.
+  const PATCHABLE = ["name", "enabled", "schedule", "atLocal", "zone", "steps", "inputs", "days", "onDate", "onEvent"];
+  assert.deepEqual(Object.values(AUTOMATION_PATCH_FIELDS).slice().sort(), PATCHABLE.slice().sort());
+  for (const f of Object.keys(AUTOMATION_PATCH_FIELDS)) {
+    const got = cleanPatch({ [f]: SAMPLE[f] }, []);
+    assert.ok(!got.error, `${f} is named as patchable and ${JSON.stringify(got.error)}`);
+    assert.ok(Object.hasOwn(got.patch, AUTOMATION_PATCH_FIELDS[f]),
+      `${f} is named as patchable and never reaches the patch`);
+  }
 });
 
 // ── the validators ──────────────────────────────────────────────────────────

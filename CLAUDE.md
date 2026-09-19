@@ -9297,6 +9297,13 @@ wrote before doing the audit and which is wrong in both halves:**
 | `saveMemory` · `deleteMemory` · `setAutomationEnabled` | **no — the three this round fixed** |
 | `patchAutomation` | **no site door at all**: the screen's edit is a full replace, and the PATCH shape is the agent's own tool. Not two implementations of one thing |
 
+**⚠ THE LAST ROW IS SUPERSEDED 2026-09-19 AND THE TABLE IS STRICTLY MORE TRUE FOR IT.** The
+screen's edit is a PATCH now — a full replace built from a browser's cached row is a lost update —
+so `patchAutomation` is the eighth write with BOTH doors on one function and `updateAutomation` is
+gone from this side entirely. The round is the last section of this file. The row is kept as written
+because it is dated and because its reasoning still holds: what made it "nothing to compare" was
+that the two doors did different things, which is exactly what stopped being true.
+
 So four were already right, **three were not**, and one has nothing to compare. *A count written
 from an impression of the code is not a measurement of it.*
 

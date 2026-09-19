@@ -295,8 +295,12 @@ export function makeCapabilities(opts = {}) {
              * ⚠ **CHANGE ONLY WHAT THE CALL NAMES, and the difference from `updateAutomation`
              * is the whole point rather than a variation on it.**
              *
-             * That one is a WHOLE REPLACE and is right to be: a person's form shows every
-             * field and sends every field, so what it saves is what it shows. A TOOL is the
+             * That one is a WHOLE REPLACE. **⚠ ITS STATED REASON — that a person's form shows
+             * every field and sends every field — WAS FALSIFIED 2026-09-19 and the site's edit
+             * is a PATCH now**, because a replace built from a browser's cached row reverts
+             * whatever another browser changed underneath it. So nothing on either side sends a
+             * whole automation any more; this operation is kept because it is the engine's own
+             * function and the census below proves no tool reaches it. A TOOL is the
              * opposite — a model names the one thing it was asked to change — and running an
              * edit like that through the replace is what reactivated a disabled automation
              * and deleted its schedule, its zone and its input declarations on a call that

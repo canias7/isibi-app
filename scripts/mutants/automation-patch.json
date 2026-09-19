@@ -1,0 +1,186 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the table of what an edit may carry",
+  "control": true,
+  "files": ["agent-store.mjs"],
+  "from": "export const AUTOMATION_PATCH_FIELDS = Object.freeze({",
+  "to": "// the body's own name to the transaction's\nexport const AUTOMATION_PATCH_FIELDS = Object.freeze({"
+ },
+ {
+  "label": "CONTROL: a comment only, above the form's field list",
+  "control": true,
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];",
+  "to": "// every field the form really has a control for\nconst AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];"
+ },
+
+ {
+  "label": "⚠ THE DEFECT: an edit sends the whole form again, so a newer change underneath it is reverted",
+  "files": ["public/chat.js"],
+  "from": "        ? { id: editing, ...changed }",
+  "to": "        ? { id: editing, ...sent }"
+ },
+ {
+  "label": "⚠ the diff is taken against the STORED row rather than what the person was shown",
+  "files": ["public/chat.js"],
+  "from": "    changed = agentAutoChanges(agentAutoWas, values);",
+  "to": "    changed = agentAutoChanges(agentAutoRow(), values);"
+ },
+ {
+  "label": "an unchanged form saves anyway, taking the row's lock and moving its updated_at",
+  "files": ["public/chat.js"],
+  "from": "    if (!Object.keys(changed).length) { agentAutoSaved = true; renderAgents(); return; }",
+  "to": "    if (false) { agentAutoSaved = true; renderAgents(); return; }"
+ },
+ {
+  "label": "⚠ a baseline belonging to another automation is used rather than refused",
+  "files": ["public/chat.js"],
+  "from": "    if (!agentAutoWas || agentAutoWas.of !== editing) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "⚠ the baseline is captured BEFORE the draw, so it is the previous drawing's",
+  "files": ["public/chat.js"],
+  "from": "  renderAgentsNow();\n  agentComposerRestore(held);",
+  "to": "  agentAutoWasRead();\n  renderAgentsNow();\n  agentComposerRestore(held);"
+ },
+ {
+  "label": "the baseline is recaptured on every draw, so it follows whatever was last typed",
+  "files": ["public/chat.js"],
+  "from": "  if (agentAutoWas !== null) return;                    // this drawing is already accounted for",
+  "to": "  /* recapture */"
+ },
+ {
+  "label": "the baseline survives a save, so a second press re-sends fields already stored",
+  "files": ["public/chat.js"],
+  "from": "  agentAutoWas = null;\n  agentAutoSaved = true;",
+  "to": "  agentAutoSaved = true;"
+ },
+ {
+  "label": "⚠ the comparison is JSON.stringify, so key order decides whether a step changed",
+  "files": ["public/chat.js"],
+  "from": "    if (!autoSame(was ? was[f] : undefined, now[f])) out[f] = now[f];",
+  "to": "    if (JSON.stringify(was ? was[f] : undefined) !== JSON.stringify(now[f])) out[f] = now[f];"
+ },
+ {
+  "label": "⚠ a change of schedule carries neither the time nor the zone it needs",
+  "files": ["public/chat.js"],
+  "from": "    for (const f of AGENT_SCHED_OWNS) out[f] = now[f];",
+  "to": "    /* the schedule carries nothing */"
+ },
+ {
+  "label": "⚠ becoming manual keeps the form's hidden time rather than clearing it",
+  "files": ["public/chat.js"],
+  "from": "    if (out.schedule === 'manual') out.at = null;",
+  "to": "    /* by hand keeps the time */"
+ },
+ {
+  "label": "a field the form has a control for is left out of the diff, so it can never be edited",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];",
+  "to": "const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps'];"
+ },
+ {
+  "label": "⚠ a field the form has NO control for is diffed, so saying nothing about it clears it",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];",
+  "to": "const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs', 'onEvent'];"
+ },
+ {
+  "label": "the schedule owns nothing, so the declaration is decorative",
+  "files": ["public/chat.js"],
+  "from": "const AGENT_SCHED_OWNS = ['at', 'zone'];",
+  "to": "const AGENT_SCHED_OWNS = [];"
+ },
+
+ {
+  "label": "⚠ the patch carries every field the body names, so an omission is a clear",
+  "files": ["agent-store.mjs"],
+  "from": "export const fieldNamed = (b, f) =>\n  !!b && typeof b === \"object\" && Object.hasOwn(b, f) && b[f] !== undefined;",
+  "to": "export const fieldNamed = (b, f) =>\n  !!b && typeof b === \"object\";"
+ },
+ {
+  "label": "⚠ presence is read as TRUTH, so enabled:false and steps:[] are dropped",
+  "files": ["agent-store.mjs"],
+  "from": "  !!b && typeof b === \"object\" && Object.hasOwn(b, f) && b[f] !== undefined;",
+  "to": "  !!b && typeof b === \"object\" && !!b[f];"
+ },
+ {
+  "label": "a prototype key reads as a field the caller named",
+  "files": ["agent-store.mjs"],
+  "from": "  !!b && typeof b === \"object\" && Object.hasOwn(b, f) && b[f] !== undefined;",
+  "to": "  !!b && typeof b === \"object\" && f in b && b[f] !== undefined;"
+ },
+ {
+  "label": "⚠ an empty patch is written rather than refused, moving updated_at over the whole row",
+  "files": ["agent-store.mjs"],
+  "from": "        if (!Object.keys(asked.patch).length) return no(400, \"say which fields to change\");",
+  "to": "        if (false) return no(400, \"say which fields to change\");"
+ },
+ {
+  "label": "⚠ new steps are validated against NO declarations, so a live reference is refused",
+  "files": ["agent-store.mjs"],
+  "from": "        if (patchNeedsStored(b)) {",
+  "to": "        if (false) {"
+ },
+ {
+  "label": "the stored declarations are read even when the patch supplies its own",
+  "files": ["agent-store.mjs"],
+  "from": "export const patchNeedsStored = (b) => fieldNamed(b, \"steps\") && !fieldNamed(b, \"inputs\");",
+  "to": "export const patchNeedsStored = (b) => fieldNamed(b, \"steps\");"
+ },
+ {
+  "label": "⚠ the declarations are read for a patch that names no steps at all",
+  "files": ["agent-store.mjs"],
+  "from": "export const patchNeedsStored = (b) => fieldNamed(b, \"steps\") && !fieldNamed(b, \"inputs\");",
+  "to": "export const patchNeedsStored = (b) => !fieldNamed(b, \"inputs\");"
+ },
+ {
+  "label": "⚠ the patch's own declarations are ignored, so the steps check against the stored ones",
+  "files": ["agent-store.mjs"],
+  "from": "    patch.inputs = asked.inputs;\n    declared = asked.inputs;",
+  "to": "    patch.inputs = asked.inputs;"
+ },
+ {
+  "label": "⚠ an emptied time box says nothing rather than clearing the time",
+  "files": ["agent-store.mjs"],
+  "from": "    if (blankish(b.at)) patch.atLocal = null;",
+  "to": "    if (blankish(b.at)) { /* say nothing */ }"
+ },
+ {
+  "label": "an emptied zone box says nothing rather than clearing the zone",
+  "files": ["agent-store.mjs"],
+  "from": "    if (blankish(b.zone)) patch.zone = null;",
+  "to": "    if (blankish(b.zone)) { /* say nothing */ }"
+ },
+ {
+  "label": "⚠ an emptied event box says nothing rather than removing the binding",
+  "files": ["agent-store.mjs"],
+  "from": "    if (blankish(b.on_event)) patch.onEvent = null;",
+  "to": "    if (blankish(b.on_event)) { /* say nothing */ }"
+ },
+ {
+  "label": "⚠ the time goes out as HH:MM:SS, which the transaction refuses as a bad time",
+  "files": ["agent-store.mjs"],
+  "from": "    else { const r = trigAt(b.at); if (r.error) return r; patch.atLocal = r.at; }",
+  "to": "    else { const r = trigAt(b.at); if (r.error) return r; patch.atLocal = `${r.at}:00`; }"
+ },
+ {
+  "label": "a junk schedule is coerced rather than refused",
+  "files": ["agent-store.mjs"],
+  "from": "    if (typeof b.schedule !== \"string\") {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "a junk enabled is coerced, so \"false\" turns an automation on",
+  "files": ["agent-store.mjs"],
+  "from": "    if (typeof b.enabled !== \"boolean\") return { error: \"an automation is either on or off\" };",
+  "to": "    if (false) return { error: \"an automation is either on or off\" };"
+ },
+ {
+  "label": "⚠ a wholeness refusal has no sentence, so a person is told nothing they can act on",
+  "files": ["agent-store.mjs"],
+  "from": "    case \"bad-patch\": return \"say which fields to change\";",
+  "to": "    case \"bad-patch\": return null;"
+ }
+]

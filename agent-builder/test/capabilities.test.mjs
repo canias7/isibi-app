@@ -569,9 +569,12 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
    */
   const reachedByATool = new Set([...touched.values()].flat());
   assert.ok(reachedByATool.size > 0, "the driving above reached nothing, so this proves nothing");
-  // `updateAutomation` IS THE WHOLE-REPLACE THE SCREEN USES AND NO TOOL DOES. A tool editing
-  // an automation goes through `patchAutomation`, because a model names the one thing it was
-  // asked to change — so this write is one only the site reaches.
+  // `updateAutomation` IS THE WHOLE-REPLACE NO TOOL REACHES. A tool editing an automation goes
+  // through `patchAutomation`, because a model names the one thing it was asked to change.
+  // ⚠ IT USED TO READ "the whole-replace THE SCREEN USES", which was true until 2026-09-19 and
+  // is not now: the site's edit is a patch too, for the same reason a tool's is. What the census
+  // asserts is unchanged and does not rest on that — it is that NO TOOL reaches this write, and
+  // it is asked from `touched` rather than from a claim about who else calls it.
   for (const unreached of ["updateAutomation"]) {
     assert.ok(CAPABILITY_WRITES.includes(unreached), `${unreached} is no longer named a write`);
     assert.equal(reachedByATool.has(unreached), false,
