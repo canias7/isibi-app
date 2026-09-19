@@ -7565,4 +7565,9 @@ it believes it edited.
   **THE VERDICT IS COUNTED, NOT GREPPED FOR ONE SPELLING** (these end in three different wordings
   and one exits silently), and it is read on the LEADING token — `grep -c FAIL` matches check
   LABELS containing the word and has reported three green runs as failing here twice.
-- **Engine suite 591**, 0 failed. **Site suite 6,845** (6,843 pass, 2 skipped, 0 fail).
+- **Engine suite 591**, 0 failed. **Site suite 6,845** (6,843 pass, 2 skipped, 0 fail) — at
+  THIS point in the round; the site's own round went on to **6,846** when a later fix over
+  there added a case, and this line is right at its own date rather than current. **CI has
+  read the finished head**: `unit tests` 2781 and `site build` 1212 both green on `c47704e`,
+  and `agent deploy` **106** green with its deploying steps `skipped` — **nothing was
+  deployed**, which is what this round intends.

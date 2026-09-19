@@ -13140,9 +13140,11 @@ test fixture had been answering the wrong request all along for the "what is wai
 banner, which meant no test in that file could see the banner at all — fixed, and it is why the
 reload case is worth having.
 
-**Nothing is applied, deployed or merged.** Site tests 6,843 → 6,845; the agent engine's own 591;
-and all eleven end-to-end runs green at their recorded counts, which is how I know this broke
-nothing.
+**Nothing is applied, deployed or merged.** Site tests 6,843 → 6,845 at this point in the round
+(**6,846** once the form fix further down added its own check — I had left the earlier number
+standing in this paragraph, which is the small drift I keep warning myself about); the agent
+engine's own 591; and all eleven end-to-end runs green at their recorded counts, which is how I
+know this broke nothing.
 
 **And one more, found by pulling the same thread.** Having fixed the list that was dropping which
 days an automation runs on, I asked what else reads those days — and found that **the automations
@@ -13161,3 +13163,14 @@ where the agent really can change it. Nothing was restyled and no new look was i
 
 **Still open, and it is your call**: weekly and one-off automations cannot be created or edited
 from the form at all. The chat can do both today.
+
+**And the automatic checks have now read all of it.** Everything above is pushed, and the two
+checks that run on a push both came back green on it: the **6,846** site tests, and the longer
+twenty-step run that compiles and serves a real site, which read its usual **382 passed, 0
+failed**. That second one takes eighteen minutes and only runs when something it actually builds
+from changes, which this round did. The agent engine's deploy check ran too and **deployed
+nothing** — it is not meant to, and its own 591 tests passed.
+
+**So this round is finished and still sitting on its own branch.** Nothing is on the live site and
+nothing is deployed; when you want it live that is a merge, and it will roll the container, so the
+usual fifteen-to-twenty minute wait afterwards applies before anything paid is run against it.

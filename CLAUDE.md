@@ -9645,3 +9645,26 @@ CREATED or edited from the form at all. The chat can do both today.
   round's number and the earlier round's beside it, each right at its own date: `conversation`
   **58** (new) · `tools` 119 → **148** · `send` 90 → **97** · `chat` 126 · `auto` 70 · `wf` 157 ·
   `triggers` 64 · `connections` 76 · `controls` 71 · `ops` 75 · `integration` 89.
+- **CI HAS READ THE HEAD, BOTH WORKFLOWS GREEN ON `c47704e`.** `unit tests` run **2781**
+  (11:08:19→11:10:26Z, the suite step 112 s) — `# tests 6846 / # pass 6842 / # fail 0 /
+  # skipped 4`, against local `6846 / 6844 / 0 / 2`: **the TOTAL is what matches**, the two extra
+  being the recorded environment skips, and the higher skip count was predicted before the run
+  rather than observed after it. `agent deploy` run **106** green with steps 6–13 `skipped`, so
+  **nothing was deployed** — its own suite read `591 / 590 / 0 / 1` against local `591 / 591 /
+  0 / 0`.
+- **`site build` run 1212 — GREEN, all twenty steps, and `site-build.mjs` `382 passed / 0
+  failed`** (11:08:19→11:32:55Z; the harness step 18m00s), with kit-typecheck 4, contrast-cases
+  16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it — **each count
+  bounded to its own `##[group]`**, because a forward search from a step marker picks up the NEXT
+  step's number and mis-attributes it in silence. **It was DUE rather than incidental**:
+  `agent-store.mjs` is a root `*.mjs`, which that workflow's `paths` names.
+  **⚠ AND NO ORDINAL IS WRITTEN, by this file's own rule two sections down** — the chain had
+  already drifted once. **The paragraph scan it prescribes over-counts and that is worth saying**:
+  run naively it answers 19, because this file's paragraphs are long enough to put 1065/1066
+  (which read **373**) and 1115 (recorded UNREAD) beside a 382 claim. The recorded, hand-checked
+  list is 16; with 1212 it is **17**, and the way to check that is the list rather than the next
+  number in a sentence.
+- **The docs-only push that followed (`ec1a6f0`) fires `unit tests` and correctly does NOT fire
+  `site build`** — `unit.yml` carries no `paths` filter and `site-build.yml` does, with
+  `CLAUDE.md` outside it. So 1212's green covers the newer head by the ancestor rule, **checked
+  per path rather than assumed**.
