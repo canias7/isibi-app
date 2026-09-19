@@ -261,6 +261,24 @@ export const ERROR_PATHS = Object.freeze(["stop", "continue", "retry"]);
 export const MAX_STEP_RETRIES = 3;
 
 /**
+ * WHAT A STEP MAY PUT ON ITS OWN OUTCOME BESIDE THE OUTCOME ITSELF — a POSITIVE list.
+ *
+ * ⚠ **A LIST RATHER THAN A SPREAD OF THE ANSWER, because a step's answer is its author's
+ * object and an outcome is read by a screen.** Spreading it would let a field nobody has
+ * written reach a customer, and would make every future field of every step's internal
+ * answer part of this product's wire shape by accident.
+ *
+ * Each one is here for a reason a reader can check: `result` is what the step produced (and
+ * the last one wins the execution's own result), `prepared` is what it was going to do,
+ * `sent`/`message` are what really happened at the far end, `unresolved` is the one field
+ * that separates "it did not happen" from "nobody can say", `simulated` says the far end was
+ * a stand-in, and `repeat` says this delivery found the work already done.
+ */
+export const PAUSE_MARKS = Object.freeze([
+  "result", "prepared", "sent", "message", "unresolved", "simulated", "repeat",
+]);
+
+/**
  * ⚠ **WHICH KINDS OF STEP MAY DECLARE AN ERROR PATH, AND THE TWO THAT MAY NOT ARE THE
  * INTERESTING HALF.**
  *
@@ -1094,6 +1112,271 @@ const noteFrom = (verdict, d) =>
   isText(d?.note) ? `${verdict}: ${d.note}` : `${verdict}`;
 
 /**
+ * SEND SOMETHING THROUGH A CONNECTED ACCOUNT — and it is ONE step, not two.
+ *
+ * Milestone 12: *let scheduled and event-triggered workflows invoke supported actions
+ * through the same backend operations used by chat tools … show the customer the selected
+ * connection, recipient, and exact message before approval. The approved action must
+ * execute with those values.* And, in as many words: ***a generic approval step followed by
+ * an independently constructed send is insufficient.***
+ *
+ * ⚠ **SO THE APPROVAL AND THE SEND ARE THE SAME STEP, AND THAT IS THE WHOLE DESIGN.** Two
+ * steps — `approval` then `send` — is the shape the requirement forbids, and forbids for a
+ * reason that is easy to miss: the second step re-resolves its own `{{references}}` at its
+ * own moment, so a value that moved between the two (a later-arriving lookup, an edited
+ * template, a memory somebody corrected) is approved in one shape and sent in another, with
+ * every step reading correctly and nothing anywhere to compare. Here the payload is resolved
+ * ONCE, hashed, shown, approved against that hash, and performed from the same object.
+ *
+ * ── ⚠ IT IS A `pause`, AND ITS ANSWER IS STILL THE EXECUTION'S RESULT ────────
+ *
+ * Only a `pause` can suspend an execution, so that is the kind. What it costs is that the
+ * pause tail, not the action tail, writes its outcome — so `result` is carried through
+ * there deliberately (see the executor), because what this step did is exactly the sort of
+ * thing a customer's history is FOR.
+ *
+ * ── ⚠ NOTHING HERE IS A SECOND IMPLEMENTATION OF ANYTHING ───────────────────
+ *
+ * The approval is `makeApprovals(...).forRun(...).ask(...)` — the same function, the same
+ * table and the same site routes a chat tool's approval uses, so expiry, revocation,
+ * first-decision-stands, duplicate presses and `stale` are REUSED rather than rebuilt. The
+ * action is `connections.perform(...)` — the same function `send_message` calls, so the
+ * connection's scopes, the credential's one door, the operation record and the
+ * reconciliation of an uncertain write are reused too. **This step contributes no wall of
+ * its own to either.**
+ *
+ * ── ⚠ AND IT MAY GO IN A LOOP, WHICH THE `approval` STEP MAY NOT ────────────
+ *
+ * That step is `decided: true` because its resume is `decisions[<step id>]` and the first
+ * decision at a key stands — so round two would take round one's answer with nobody asked.
+ * This one is keyed `(run, position, iteration)`: every round asks its own question and
+ * carries its own operation identity, so the hazard is absent rather than guarded. It reads
+ * no `ctx.resume.decision` at all; asking IS reading.
+ */
+const SEND_TOOL = "send_message";
+const SEND_ACTION = "send_message";
+/** How long a recipient and a message may be. The provider's own payload, bounded here. */
+export const MAX_RECIPIENT = 200;
+export const MAX_MESSAGE = 4000;
+
+/**
+ * WHEN TO WAKE AN EXECUTION THAT IS WAITING TO BE APPROVED, in whole hours.
+ *
+ * ⚠ **IT IS DERIVED FROM THE WINDOW THE DATABASE REPORTED AND IS NEVER A SECOND COPY OF
+ * IT.** `agent.tool_approvals.expires_at` is the one authority on whether a request can
+ * still be answered — `decide_tool_approval` refuses past it — so this is only a wake-up,
+ * and it is ROUNDED UP so the execution is never woken BEFORE the window closes. Woken
+ * early it would re-ask, find the request still pending, and re-pause on a deadline the
+ * database keeps, which is a row the scheduler offers every minute for ever.
+ */
+export const wakeHours = (expiresAt, now) => {
+  const at = typeof expiresAt === "string" ? Date.parse(expiresAt) : NaN;
+  if (!Number.isFinite(at) || !Number.isFinite(now)) return 1;
+  return Math.max(1, Math.min(MAX_APPROVAL_HOURS, Math.ceil((at - now) / 3600000)));
+};
+
+/**
+ * WHAT A CONNECTION THAT CANNOT BE USED SAYS, and each of the three is a different act with
+ * a different remedy — which is the requirement in as many words (*understand why an
+ * expired or revoked connection cannot be used*). A single "that connection does not work"
+ * would send somebody to reconnect when a refresh is what is wanted, or to refresh what
+ * only the provider can put back.
+ */
+const CONNECTION_TROUBLE = Object.freeze({
+  expired: "the credential for that connection has run out — refresh it and run this again",
+  revoked: "the provider withdrew access to that connection — it has to be connected again",
+  disconnected: "that connection was disconnected, so nothing can be sent through it",
+});
+
+const sendStep = defineStep({
+  type: "send",
+  kind: "pause",
+  label: "Send a message",
+  does:
+    "Send a message from one of this agent's connected accounts. A person is shown the " +
+    "account, who it is for and the exact words, and has to approve it before it goes. " +
+    "Put {{a name}} anywhere in the recipient or the message to use an input or an " +
+    "earlier step's answer.",
+  fields: [
+    { name: "connection", kind: "id", required: true, says: "which connected account to send from",
+      empty: "say which connected account to send from" },
+    { name: "to", kind: "text", required: true, max: MAX_RECIPIENT, refs: true,
+      says: "who it is for", empty: "say who it is for" },
+    { name: "body", kind: "text", required: true, max: MAX_MESSAGE, refs: true,
+      says: "what it says", empty: "say what it should say" },
+    OUT_FIELD,
+  ],
+  // ⚠ REFUSED, NEVER COERCED, and the connection is read exactly as `subworkflow` reads
+  // its own id — absent and wrong-kind are two refusals because they need two different
+  // things done about them.
+  read: (raw, say) => {
+    const given = raw?.connection;
+    if (given === undefined || given === null || given === "") return { error: say.blank("connection") };
+    if (typeof given !== "string") return { error: "which connected account to send from didn't arrive as a connection" };
+    const id = given.trim().toLowerCase();
+    if (!id) return { error: say.blank("connection") };
+    if (!UUID.test(id)) return { error: "which connected account to send from didn't arrive as a connection" };
+    const to = readTextField(raw?.to, { what: say("to"), max: MAX_RECIPIENT });
+    if (to.error) return { error: to.error };
+    if (to.empty) return { error: say.blank("to") };
+    const body = readTextField(raw?.body, { what: say("body"), max: MAX_MESSAGE });
+    if (body.error) return { error: body.error };
+    if (body.empty) return { error: say.blank("body") };
+    const o = readOut(raw, say("out"));
+    if (o.error) return { error: o.error };
+    return { config: { connection: id, to: to.text, body: body.text, out: o.out } };
+  },
+  run: async (config, ctx) => {
+    if (typeof ctx.connections?.perform !== "function" || typeof ctx.connections?.list !== "function") {
+      // ⚠ TWO CAUSES, ONE SENTENCE TO THE CUSTOMER AND TWO IN THE LOG. A deployment with no
+      // connection store and an execution whose agent could not be scoped are different
+      // problems for an operator and the same fact for somebody reading their history: this
+      // one could not send. The runner logs which; this says what it means.
+      return { failed: "this execution cannot reach any connected account, so nothing was sent" };
+    }
+    if (typeof ctx.approve !== "function") {
+      return { failed: "there is nowhere to ask for this to be approved, so nothing was sent" };
+    }
+    if (!ctx.at || !isText(ctx.at.run)) {
+      return { failed: "this execution has no identity recorded, so a send could not be made safe to retry" };
+    }
+
+    /**
+     * ⚠ **THE CONNECTION IS RESOLVED BEFORE THE APPROVAL, because the approval has to SHOW
+     * which account it is.** A request that said only "connection 8f3c…" is one nobody can
+     * answer honestly. And the row is read through `list`, which selects no credential —
+     * the lease is `perform`'s business and happens after somebody has said yes.
+     */
+    let rows;
+    try { rows = await ctx.connections.list(); }
+    catch (e) { return { failed: `the connected accounts could not be read: ${String(e?.message ?? e)}` }; }
+    const row = (Array.isArray(rows?.connections) ? rows.connections : []).find((c) => c?.id === config.connection);
+    if (!row) return { failed: "that connected account is not one of this agent's" };
+    if (row.status !== "active") {
+      return { failed: CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used" };
+    }
+
+    /**
+     * ⚠ **WHAT IS APPROVED IS WHAT IS SENT, AND THIS OBJECT IS BOTH.** It is built once,
+     * hashed by `ask`, stored on the request a person reads, and handed to `perform`
+     * unchanged. Editing the workflow changes `to` or `body`, which changes the hash, which
+     * the database answers `stale` — *editing them requires fresh approval*, enforced by
+     * arithmetic rather than by anybody remembering.
+     *
+     * The provider and the account ride in it deliberately: they are what a person needs to
+     * see, and including them means a connection swapped for another account's is a
+     * different payload rather than the same one wearing a new id.
+     */
+    const payload = {
+      connection: config.connection, provider: row.provider, account: row.account,
+      to: config.to, body: config.body,
+    };
+
+    let asked;
+    try { asked = await ctx.approve({ step: ctx.at.step, index: ctx.at.index, tool: SEND_TOOL, args: payload }); }
+    catch (e) {
+      // ⚠ **AN ASK THAT FAILED IS NOT A VERDICT.** Read as "not approved" an outage stops
+      // every automation; read as approved it is an outage authorising a send. It is a
+      // failure of ours, and the step's own error path decides what happens next.
+      return { failed: `this could not be put to anybody for approval: ${String(e?.message ?? e)}` };
+    }
+
+    const said = `send to ${payload.to} from ${payload.account}`;
+    if (asked.state === "pending") {
+      /**
+       * ⚠ **THE PAUSE'S DEADLINE IS THE APPROVAL'S OWN WINDOW, read back from the database
+       * rather than chosen here.** Two clocks for one wait is two copies of the window, and
+       * the copies disagree the moment either drifts — so `hours` is derived from
+       * `expiresAt` and the only thing that decides whether the window closed is the
+       * database, which is also what refuses a late decision.
+       */
+      return {
+        waiting: { kind: "approval", ask: said, hours: wakeHours(asked.expiresAt, ctx.now), on_timeout: "fail" },
+        why: `waiting to be approved: ${said}`,
+      };
+    }
+    if (asked.state === "rejected") {
+      return { stop: { reason: "rejected", why: isText(asked.note) ? `not approved: ${asked.note}` : "not approved" } };
+    }
+    // ⚠ FOUR REFUSALS, NEVER ONE. Somebody said no; the window closed with nobody
+    // answering; the permission was withdrawn; and the payload no longer matches what was
+    // shown. They want opposite things done about them, and a customer reading one wants
+    // to know which it was.
+    if (asked.state === "expired") {
+      return { failed: "nobody approved this in time, so nothing was sent" };
+    }
+    if (asked.state === "revoked") {
+      return { failed: "permission to send was withdrawn, so nothing was sent" };
+    }
+    if (asked.state === "stale") {
+      return { failed: "this was changed after it was put up for approval, so it needs approving again and nothing was sent" };
+    }
+    if (asked.state !== "approved") {
+      // A STATE THIS DEPLOYMENT DOES NOT KNOW IS NOT AN APPROVAL. Cannot-tell must never
+      // read as a value, and here the value would be somebody's permission.
+      return { failed: `this could not be told whether it was approved (${String(asked.state)}), so nothing was sent` };
+    }
+
+    /**
+     * APPROVED — so the action runs, through the same operation a chat tool uses, with the
+     * identity that makes a redelivery reconcile instead of sending again.
+     */
+    /**
+     * ⚠ **FROM `payload`, AND THAT IS MEASURED INERT AGAINST `config` — WHICH IS THE POINT.**
+     *
+     * `fillConfig` fills every `refs: true` field before `run` is called, so `config.to` and
+     * `payload.to` are the same string and a mutant swapping them changes nothing. Written
+     * down because the conclusion is the design: **the "approve one thing, send another"
+     * hazard is not reachable inside one step** — it needs TWO, each resolving its own
+     * references at its own moment, which is exactly the shape the requirement rules out and
+     * exactly why this is one step. What `payload` carries that `config` cannot is the
+     * PROVIDER and the ACCOUNT, which is what a person has to be shown, and a mutant that
+     * drops either of those is observable and dies.
+     */
+    const done = await ctx.connections.perform({
+      connection: payload.connection, action: SEND_ACTION,
+      args: { to: payload.to, body: payload.body },
+      operation: `${ctx.at.run}:${ctx.at.step}:${ctx.at.index}:${asked.hash ?? ""}`,
+    });
+
+    if (done?.ok === true) {
+      const msg = isText(done.result?.message) ? done.result.message : null;
+      return {
+        result: `sent to ${payload.to} from ${payload.account}${msg ? ` (${msg})` : ""}`,
+        bind: msg ?? "",
+        sent: true, message: msg, prepared: payload.body,
+        // ⚠ THE PROVIDER'S OWN ANSWER SAYS IT IS SIMULATED, AND IT IS CARRIED RATHER THAN
+        // RE-STATED HERE. Connecting a real provider stops the label with no change to any
+        // reader, which is what makes it a fact about the run rather than a constant.
+        simulated: done.result?.simulated === true,
+        repeat: done.repeat === true,
+        why: `sent to ${payload.to} from ${payload.account}${done.repeat === true ? " (already sent — this delivery did not send it again)" : ""}`,
+      };
+    }
+
+    /**
+     * ⚠ **AN UNCERTAIN SEND IS NOT A FAILURE AND MUST NOT READ AS ONE.** `perform` has
+     * already asked the provider what it holds; `unresolved` is what is left when nobody can
+     * say. So the step FAILS — the workflow must not carry on as though a message went — and
+     * the outcome says which of the two it is, because a failure invites doing it again and
+     * an unknown invites checking first. **Nothing here retries**: a step declaring
+     * `retry` on its error path would re-enter this step, and the operation record is what
+     * makes that safe rather than a second message.
+     */
+    if (done?.error === "unresolved") {
+      return {
+        failed: isText(done.say) ? done.say : "nobody can say whether that was sent",
+        unresolved: true, prepared: payload.body,
+      };
+    }
+    return {
+      failed: isText(done?.say) ? done.say : `that could not be sent (${String(done?.error ?? "unknown")})`,
+      prepared: payload.body,
+    };
+  },
+});
+
+/**
  * FIND REFERENCE MATERIAL — a search over what this agent has been given to read.
  *
  * **A `lookup`, NOT AN `action`, AND THE DIFFERENCE IS WHAT THE EXECUTION'S RESULT IS.**
@@ -1315,7 +1598,7 @@ const subworkflow = defineStep({
 
 export const AUTOMATION_STEPS = Object.freeze([
   weekday, branchIf, branchOtherwise, branchEnd, repeat, repeatEnd,
-  wait, EVENT_WAIT, approval, knowledge, memory, note, subworkflow,
+  wait, EVENT_WAIT, approval, knowledge, memory, note, sendStep, subworkflow,
 ]);
 
 /** The catalog's type names, DERIVED, so nothing holds a second copy of the list. */
@@ -1861,6 +2144,27 @@ export async function runWorkflow(opts = {}) {
   const decisions = plain(opts.decisions);
   const memory = plain(opts.memory);
   const retrieve = typeof opts.retrieve === "function" ? opts.retrieve : null;
+  /**
+   * ⚠ **THE TWO SEAMS AN ACTION THAT REACHES OUTSIDE NEEDS, AND THEY ARE TWO.**
+   *
+   * `connections` performs the action and `approve` asks a person about it — different
+   * stores, different tables, different refusals, and a deployment can honestly have one
+   * without the other. One seam covering both would make "this deployment cannot reach
+   * anything outside" and "there is nowhere to ask" the same sentence, and they send a
+   * reader to different places.
+   *
+   * **NEITHER IS BUILT HERE.** What is behind them is the runner's business, which is what
+   * keeps this module a pure executor and every branch drivable with no network.
+   */
+  const connections = opts.connections && typeof opts.connections === "object" ? opts.connections : null;
+  const approve = typeof opts.approve === "function" ? opts.approve : null;
+  /**
+   * ⚠ **THE EXECUTION'S OWN RUN ID, and it is REQUIRED for an action rather than defaulted.**
+   * It is the seed of every operation identity and of every approval's key, so a made-up one
+   * is two runs sharing an identity — which is one customer's approval answering another's
+   * send. A step that needs it and does not have it refuses BY NAME.
+   */
+  const runId = isText(opts.runId) ? opts.runId : null;
   const record = typeof opts.record === "function" ? opts.record : null;
   const values = { ...plain(opts.values) };
   const pausedOn = plain(opts.waiting);
@@ -1925,14 +2229,40 @@ export async function runWorkflow(opts = {}) {
    * **A STEP IN NO LOOP KEEPS ITS BARE POSITION AND ITS BARE `sN` ID**, so every outcome
    * this product has ever written reads back exactly as it did.
    */
-  const trail = () => {
+  /**
+   * WHICH ROUND OF EVERY ENCLOSING LOOP THIS STEP IS ON, outermost first.
+   *
+   * ⚠ **ONE DEFINITION, TWO READERS, and they answer different questions from it.** The
+   * outcome key needs a STRING that tells one round's record from another's; an action's
+   * operation identity needs an INTEGER, because `splitOperation` requires digits. Deriving
+   * the second by parsing the first would be a second reading of the same fact, and the
+   * copy that drifts is the one deciding whether two rounds share an approval.
+   */
+  const rounds = () => {
     const parts = [];
     for (const [openId, st] of loops) {
       const openAt = indexOfId(openId);
       const b = openAt >= 0 ? struct.map?.get(openAt) : null;
-      if (b && Number.isInteger(b.endAt) && openAt < i && i <= b.endAt) parts.push(`${openAt + 1}.${st.at}`);
+      if (b && Number.isInteger(b.endAt) && openAt < i && i <= b.endAt) parts.push({ at: openAt, round: st.at });
     }
+    return parts;
+  };
+  const trail = () => {
+    const parts = rounds().map((r) => `${r.at + 1}.${r.round}`);
     return parts.length ? `#${parts.join(".")}` : "";
+  };
+  /**
+   * ⚠ **THE SAME ROUNDS AS ONE NUMBER, so an action inside a loop has its own identity and
+   * its own approval every time round.** Positional notation in base `MAX_LOOP_ITERATIONS`,
+   * which is injective exactly because every round is below that bound and `MAX_LOOP_DEPTH`
+   * caps how many there can be. **A step outside every loop is 0, and it cannot collide with
+   * round 0 of a loop**, because one POSITION is either inside a given loop or it is not —
+   * the number of parts is a property of where the step sits, not of the execution.
+   */
+  const roundIndex = () => {
+    let n = 0;
+    for (const r of rounds()) n = n * MAX_LOOP_ITERATIONS + r.round;
+    return n;
   };
   const keyAt = (at, suffix) => `${at}${suffix}`;
   const idAt = (at, suffix) => `${steps[at]?.id ?? `s${at + 1}`}${suffix}`;
@@ -1990,6 +2320,15 @@ export async function runWorkflow(opts = {}) {
   const ctxFor = (resume) => Object.freeze({
     date: day.date, weekday: day.weekday, zone: day.zone, dayFrom: day.from, now,
     values: Object.freeze({ ...values }), memory, retrieve, resume,
+    connections, approve,
+    /**
+     * ⚠ **WHERE THIS STEP IS, WHICH IS WHAT MAKES AN ACTION'S IDENTITY STABLE ACROSS A
+     * RESTART.** Both numbers come off the execution's own row — the position and the loop
+     * state — so a redelivery computes the same identity and finds its own earlier work
+     * rather than starting a second lot. `index` distinguishes rounds of a loop, and a
+     * subworkflow's steps are distinguished because flattening re-mints every position.
+     */
+    at: Object.freeze({ run: runId, step: i, index: roundIndex() }),
   });
 
   let i = Number.isInteger(opts.position) && opts.position > 0 ? opts.position : 0;
@@ -2066,7 +2405,7 @@ export async function runWorkflow(opts = {}) {
    * It records the outcome and either arms a retry or ends the run; the CALLER moves the
    * position and checkpoints, which is the idiom every other branch of the loop follows.
    */
-  const failStep = (at, id, error, path, retries) => {
+  const failStep = (at, id, error, path, retries, marks = {}) => {
     const key = keyAt(at, trail());
     const already = tried.get(key) ?? 0;
     // ⚠ **`path === "retry"` IS A DECLARED SECOND WALL, MEASURED INERT AND KEPT.** Over 252
@@ -2088,7 +2427,7 @@ export async function runWorkflow(opts = {}) {
       : `it didn't work after ${retries + 1} attempts`;
     // RECORDED BEFORE THE COUNT MOVES, so the row says which attempt failed rather than
     // which one is about to start.
-    put(at, { outcome: "failed", error, ...(why ? { why } : {}) });
+    put(at, { outcome: "failed", error, ...(why ? { why } : {}), ...marks });
     if (wantsRetry && room) {
       tried.set(key, already + 1);
       return "retry";
@@ -2421,7 +2760,16 @@ export async function runWorkflow(opts = {}) {
     // apply to one and not the other.
     const failure = threw !== null ? threw : (isText(answer?.failed) ? answer.failed : null);
     if (failure !== null) {
-      const verdict = failStep(i, id, failure, onError, retries);
+      /**
+       * ⚠ **A FAILURE MAY SAY MORE THAN THAT IT FAILED, AND `unresolved` IS WHY THIS EXISTS.**
+       * "It did not happen" and "nobody can say whether it happened" are both failures of the
+       * step and they want opposite things done about them — one invites doing it again, the
+       * other invites CHECKING first. Collapsing them into the error sentence would leave a
+       * screen parsing prose to tell them apart.
+       */
+      const marks = {};
+      for (const k of PAUSE_MARKS) if (answer?.[k] !== undefined) marks[k] = answer[k];
+      const verdict = failStep(i, id, failure, onError, retries, marks);
       if (verdict === "retry") {
         // THE POSITION DOES NOT MOVE: the next attempt re-enters this step, and the
         // checkpoint is what makes the attempt count durable rather than this process's.
@@ -2478,7 +2826,19 @@ export async function runWorkflow(opts = {}) {
        * pause that binds nothing is byte for byte what it was.
        */
       if (isText(config.out) && typeof answer?.bind === "string") values[config.out] = answer.bind;
-      put(i, { outcome: "ran", why: isText(answer?.why) ? answer.why : "carried on" });
+      /**
+       * ⚠ **A PAUSE THAT DID SOMETHING RECORDS WHAT IT DID, and `result` is carried here for
+       * the same reason an action's is.** Only a `pause` can suspend an execution, so a step
+       * that waits for a person and THEN acts has to be one — and without this line the whole
+       * of what it did would be a sentence. `stop.result` is the last outcome carrying a
+       * string `result`, so this is also what puts a send in the execution's own result.
+       *
+       * `PAUSE_MARKS` rather than a spread of the answer: a pause's answer is the step
+       * author's object, and spreading it would let a field nobody has written reach a screen.
+       */
+      const marks = {};
+      for (const k of PAUSE_MARKS) if (answer?.[k] !== undefined) marks[k] = answer[k];
+      put(i, { outcome: "ran", why: isText(answer?.why) ? answer.why : "carried on", ...marks });
       i += 1;
       if (!(await checkpoint(i, null))) break;
       continue;

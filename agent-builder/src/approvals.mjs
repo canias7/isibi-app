@@ -449,19 +449,39 @@ export function makeApprovals(opts = {}) {
               // ⚠ THE HASH IS COMPARED BY THE DATABASE, INSIDE THE STATEMENT THAT READ THE
               // ROW. Comparing here would be a second copy of the test over a value that
               // travelled, and the row it has to agree with is the one a person was shown.
-              if (answer.matches !== true) return { state: "stale", id: answer.id ?? null, tool };
-              if (answer.verdict === "approved") return { state: "approved", id: answer.id ?? null, tool };
+              /**
+               * ⚠ **THE ROW'S OWN HASH AND ITS OWN WINDOW COME BACK, and both are the
+               * DATABASE'S rather than ours.**
+               *
+               * `hash` is the fingerprint of the request A PERSON WAS SHOWN, so a caller that
+               * performs the approved action can use it as that action's identity and be using
+               * the same value the approval was bound to. On the `approved` path it equals the
+               * hash computed above — `matches` is exactly that statement — so returning the
+               * row's rather than ours costs nothing and says something stronger.
+               *
+               * `expiresAt` is the window, for a caller that has to decide when to come back
+               * and look. **It is NOT a second copy of the rule**: nothing outside may compare
+               * it to decide whether the request expired, because the verdict above already
+               * is that comparison, made where the row was read.
+               */
+              const whole = (state, extra = {}) => ({
+                state, id: answer.id ?? null, tool,
+                hash: isText(answer.args_hash) ? answer.args_hash : null,
+                expiresAt: isText(answer.expiresAt) ? answer.expiresAt : null,
+                ...extra,
+              });
+              if (answer.matches !== true) return whole("stale");
+              if (answer.verdict === "approved") return whole("approved");
               // ⚠ **THE DATABASE NAMES THE STATE AND THIS DOES NOT RE-DERIVE IT.** `expired`
               // is the clock's answer and `revoked` is somebody's act; comparing a timestamp
               // here would be a second copy of the window's rule over a value that travelled,
               // and the two copies would disagree the moment either clock drifted.
               for (const state of ["rejected", "revoked", "expired"]) {
                 if (answer.verdict === state) {
-                  return { state, id: answer.id ?? null, tool,
-                           note: isText(answer.note) ? answer.note : null };
+                  return whole(state, { note: isText(answer.note) ? answer.note : null });
                 }
               }
-              return { state: "pending", id: answer.id ?? null, tool };
+              return whole("pending");
             },
           });
         },

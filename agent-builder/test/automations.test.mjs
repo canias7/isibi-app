@@ -18,6 +18,7 @@ import {
   VALUE_TYPES, TYPE_ACCEPTS, BLOCK_SHAPES, MAX_LOOP_ITERATIONS, MAX_LOOP_DEPTH, MAX_STEP_RUNS,
   ERROR_PATHS, FAILABLE_KINDS, MAX_STEP_RETRIES, readErrorPath,
   expandWorkflow, MAX_SUBWORKFLOW_DEPTH, MAX_FLAT_STEPS, FIELD_KINDS, MAX_EXCERPTS,
+  wakeHours, MAX_APPROVAL_HOURS, PAUSE_MARKS, MAX_RECIPIENT, MAX_MESSAGE,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -3159,4 +3160,258 @@ test("⚠ HOW MUCH A SEARCH BRINGS BACK IS THE PLATFORM'S, and no workflow can m
     assert.equal(typeof u.title, "string", JSON.stringify(u));
     assert.ok(Number.isInteger(u.version), JSON.stringify(u));
   }
+});
+
+// ── sending something through a connected account ────────────────────────────
+//
+// ⚠ **EVERY CASE HERE DRIVES THE STEP, NOT A HELPER, and that is deliberate.** The whole
+// point of this step is the ORDER of three things — resolve, get approved, perform — and a
+// helper test proves each of them and none of the order. What a fake stands in for is the
+// two SEAMS, and they RECORD what they were handed, because "what was approved is what was
+// sent" is a statement about two calls agreeing and cannot be read off either one.
+
+const CONN = "8f3c1e20-0000-4000-8000-00000000c001";
+const SRUN = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+
+/**
+ * A connection store and an approval seam that remember every call.
+ *
+ * `verdict` is a function of how many times it has been asked, so a case can make one press
+ * pending and the next approved — which is what a person answering really is.
+ */
+function sendBench({
+  verdict = () => "approved",
+  rows = [{ id: CONN, provider: "fakemail", account: "shop@example.test", status: "active" }],
+  did = () => ({ ok: true, action: "send_message", provider: "fakemail",
+                 result: { simulated: true, sent: true, message: "fake-msg-1" } }),
+  hash = "beef1234",
+  expiresAt = null,
+  listThrows = null,
+  approveThrows = null,
+} = {}) {
+  const asked = [];
+  const performed = [];
+  const connections = {
+    list: async () => { if (listThrows) throw new Error(listThrows); return { ok: true, connections: rows }; },
+    perform: async (p) => { performed.push(p); return did(p, performed.length); },
+  };
+  const approve = async (a) => {
+    if (approveThrows) throw new Error(approveThrows);
+    asked.push(a);
+    return { state: verdict(asked.length), id: "ap-1", tool: a.tool, hash, expiresAt, note: "no thanks" };
+  };
+  return { connections, approve, asked, performed };
+}
+
+const SEND = (over = {}) => ({ type: "send", connection: CONN, to: "{{who}}", body: "Hello {{who}}", ...over });
+
+/**
+ * ⚠ `{{who}}` IS A DECLARED INPUT, because `readWorkflow` REFUSES a reference nothing
+ * produces — which is the validator being right and was the first thing this fixture got
+ * wrong. `flow()` answers `undefined` for a refused workflow, so the run was an empty one
+ * reporting `done` and every assertion here failed about the step rather than about the
+ * fixture. **A fixture that cannot be saved cannot test what happens when it runs.**
+ */
+const WHO = Object.freeze([{ name: "who", type: "text" }]);
+const sendFlow = (raw, inputs = WHO) => {
+  const read = readWorkflow(raw, { inputs });
+  assert.equal(read.error, undefined, `the fixture workflow is not valid: ${read.error}`);
+  return read.steps;
+};
+
+const sent = (b, over = {}) => runWorkflow({
+  steps: sendFlow([SEND(over.step ?? {})]), occurrence: WED, runId: SRUN,
+  values: { who: "Ada" }, connections: b.connections, approve: b.approve, ...over.opts,
+});
+
+test("⚠ WHAT IS APPROVED IS WHAT IS SENT — one payload, resolved once, and both calls agree", async () => {
+  const b = sendBench();
+  const r = await sent(b);
+
+  // THE APPROVAL WAS ASKED ABOUT THE WHOLE PAYLOAD, with its references already filled —
+  // so a person is shown the account, the recipient and the exact words, which is the
+  // requirement in as many words.
+  assert.equal(b.asked.length, 1);
+  assert.equal(b.asked[0].tool, "send_message");
+  assert.deepEqual(b.asked[0].args, {
+    connection: CONN, provider: "fakemail", account: "shop@example.test",
+    to: "Ada", body: "Hello Ada",
+  });
+
+  // AND THE ACTION RAN WITH THOSE VALUES. Not "the same fields" — the same STRINGS, which
+  // is what a generic approval followed by an independent send could not promise.
+  assert.equal(b.performed.length, 1);
+  assert.equal(b.performed[0].connection, CONN);
+  assert.equal(b.performed[0].action, "send_message");
+  assert.deepEqual(b.performed[0].args, { to: "Ada", body: "Hello Ada" });
+
+  // ⚠ THE IDENTITY IS THE RUN, THE POSITION, THE ROUND AND THE APPROVAL'S OWN HASH — so a
+  // redelivery reconciles instead of sending again, and it is bound to what was approved.
+  assert.equal(b.performed[0].operation, `${SRUN}:0:0:beef1234`);
+
+  assert.equal(r.stop.reason, "done");
+  assert.match(r.stop.result, /^sent to Ada from shop@example\.test \(fake-msg-1\)$/);
+  const o = r.outcomes[0];
+  assert.equal(o.outcome, "ran");
+  assert.equal(o.sent, true);
+  assert.equal(o.message, "fake-msg-1");
+  assert.equal(o.simulated, true);
+  // WHAT IT WAS GOING TO SAY IS ON THE RECORD TOO, so a history can show the message.
+  assert.equal(o.prepared, "Hello Ada");
+});
+
+test("⚠ NOBODY HAS ANSWERED YET: it waits, and its deadline is the APPROVAL'S OWN WINDOW", async () => {
+  const later = new Date(Date.now() + 5.5 * 3600_000).toISOString();
+  const b = sendBench({ verdict: () => "pending", expiresAt: later });
+  const r = await sent(b);
+  assert.equal(b.performed.length, 0, "nothing may be sent before somebody says yes");
+  assert.equal(r.stop, null);
+  assert.equal(r.waiting.kind, "approval");
+  assert.equal(r.waiting.step, "s1");
+  assert.match(r.waiting.ask, /send to Ada from shop@example\.test/);
+  // ⚠ ROUNDED UP — 5.5 hours of window is 6, never 5. Woken early it would re-ask, find the
+  // request still pending, and re-pause on a deadline the database keeps: a row the
+  // scheduler offers every minute for ever.
+  assert.equal(r.waiting.hours, 6);
+  assert.equal(r.position, 0, "the position stays AT the step, which is what a resume re-enters");
+});
+
+test("⚠ EACH REFUSAL IS ITS OWN, because they want opposite things done about them", async () => {
+  const shapes = [
+    ["rejected", /not approved/, "rejected"],
+    ["expired", /nobody approved this in time/, "failed"],
+    ["revoked", /permission to send was withdrawn/, "failed"],
+    ["stale", /changed after it was put up for approval/, "failed"],
+    ["something-else", /could not be told whether it was approved/, "failed"],
+  ];
+  const said = new Set();
+  for (const [state, words, reason] of shapes) {
+    const b = sendBench({ verdict: () => state });
+    const r = await sent(b);
+    assert.equal(b.performed.length, 0, `${state}: nothing may be sent`);
+    assert.equal(r.stop.reason, reason, state);
+    const text = r.stop.why ?? r.stop.error ?? "";
+    assert.match(text, words, state);
+    said.add(text);
+  }
+  // FIVE DIFFERENT SENTENCES. A customer told only "that did not send" cannot tell a
+  // person's no from a window that closed from a permission somebody took away.
+  assert.equal(said.size, shapes.length, "two of these refusals say the same thing");
+});
+
+test("⚠ AN ASK THAT FAILED IS NOT A VERDICT — an outage neither approves nor rejects", async () => {
+  const b = sendBench({ approveThrows: "the approvals store is down" });
+  const r = await sent(b);
+  assert.equal(b.performed.length, 0);
+  assert.equal(r.stop.reason, "failed");
+  assert.match(r.stop.error, /could not be put to anybody for approval/);
+  assert.match(r.stop.error, /the approvals store is down/);
+});
+
+test("⚠ A CONNECTION THAT CANNOT BE USED SAYS WHY, and the three reasons are three", async () => {
+  const seen = new Set();
+  for (const status of ["expired", "revoked", "disconnected"]) {
+    const b = sendBench({ rows: [{ id: CONN, provider: "fakemail", account: "a@b.test", status }] });
+    const r = await sent(b);
+    assert.equal(b.asked.length, 0, `${status}: nobody is asked to approve a send that cannot happen`);
+    assert.equal(b.performed.length, 0);
+    assert.equal(r.stop.reason, "failed");
+    seen.add(r.stop.error);
+  }
+  assert.equal(seen.size, 3, "an expired credential, a withdrawn one and a disconnected account need different remedies");
+  assert.ok([...seen].some((s) => /refresh/.test(s)), "an expired credential is the one a refresh fixes");
+  assert.ok([...seen].some((s) => /connected again/.test(s)), "a revoked one has to be connected again");
+});
+
+test("a connection that is not this agent's is refused, and nothing is asked or sent", async () => {
+  const b = sendBench({ rows: [{ id: "0000c002-0000-4000-8000-00000000c002", provider: "fakemail", account: "x@y.test", status: "active" }] });
+  const r = await sent(b);
+  assert.equal(b.asked.length, 0);
+  assert.equal(b.performed.length, 0);
+  assert.match(r.stop.error, /not one of this agent's/);
+});
+
+test("⚠ AN UNCERTAIN SEND IS A FAILURE THAT SAYS SO, never one that reads as either", async () => {
+  const b = sendBench({
+    did: () => ({ ok: false, error: "unresolved", uncertain: true,
+                  say: "it may have gone out and nobody can say" }),
+  });
+  const r = await sent(b);
+  assert.equal(r.stop.reason, "failed", "the workflow must not carry on as though a message went");
+  assert.match(r.stop.error, /may have gone out/);
+  // ⚠ THE FIELD IS WHAT SEPARATES "it did not happen" FROM "nobody can say", and a screen
+  // must not have to read prose to tell them apart.
+  assert.equal(r.outcomes[0].unresolved, true);
+  assert.equal(r.outcomes[0].prepared, "Hello Ada");
+  // AND THE CONTROL: an ordinary refusal is a failure with NO such field.
+  const plain = sendBench({ did: () => ({ ok: false, error: "action-failed", say: "the provider refused it" }) });
+  const p = await sent(plain);
+  assert.equal(p.stop.reason, "failed");
+  assert.equal(p.outcomes[0].unresolved, undefined);
+});
+
+test("⚠ A REDELIVERY THAT FINDS THE WORK DONE SAYS IT DID NOT SEND IT AGAIN", async () => {
+  const b = sendBench({
+    did: () => ({ ok: true, repeat: true, action: "send_message",
+                  result: { simulated: true, sent: true, message: "fake-msg-1" } }),
+  });
+  const r = await sent(b);
+  assert.equal(r.stop.reason, "done");
+  assert.equal(r.outcomes[0].repeat, true);
+  assert.match(r.outcomes[0].why, /already sent — this delivery did not send it again/);
+});
+
+test("⚠ NO IDENTITY AND NO SEAM ARE THREE DIFFERENT REFUSALS, each by name", async () => {
+  const b = sendBench();
+  const noRun = await runWorkflow({ steps: sendFlow([SEND()]), occurrence: WED, values: { who: "Ada" },
+    connections: b.connections, approve: b.approve });
+  assert.match(noRun.stop.error, /no identity recorded/);
+
+  const noConn = await runWorkflow({ steps: sendFlow([SEND()]), occurrence: WED, runId: SRUN,
+    values: { who: "Ada" }, approve: b.approve });
+  assert.match(noConn.stop.error, /cannot reach any connected account/);
+
+  const noApprove = await runWorkflow({ steps: sendFlow([SEND()]), occurrence: WED, runId: SRUN,
+    values: { who: "Ada" }, connections: b.connections });
+  assert.match(noApprove.stop.error, /nowhere to ask for this to be approved/);
+
+  // THREE SENTENCES, because they send an operator to three different places.
+  assert.equal(new Set([noRun.stop.error, noConn.stop.error, noApprove.stop.error]).size, 3);
+  assert.equal(b.asked.length, 0);
+  assert.equal(b.performed.length, 0);
+});
+
+test("⚠ INSIDE A LOOP EVERY ROUND ASKS ITS OWN QUESTION AND CARRIES ITS OWN IDENTITY", async () => {
+  // This is the case the `approval` step CANNOT have: its resume is a decision stored under
+  // its step id, so round two would take round one's answer with nobody asked. Here the
+  // approval's key and the operation's identity both carry the round.
+  const b = sendBench();
+  const r = await runWorkflow({
+    steps: sendFlow([
+      { type: "repeat", mode: "each", each: "{{names}}", as: "who" },
+      SEND(),
+      { type: "endrepeat" },
+    ], LIST_INPUT),
+    occurrence: WED, runId: SRUN, values: { names: ["Ada", "Bea"] },
+    connections: b.connections, approve: b.approve,
+  });
+  assert.equal(r.stop.reason, "done");
+  assert.equal(b.asked.length, 2, "two rounds are two questions");
+  assert.deepEqual(b.asked.map((a) => a.index), [0, 1], "and they are asked at different indexes");
+  assert.deepEqual(b.asked.map((a) => a.args.to), ["Ada", "Bea"]);
+  assert.deepEqual(b.performed.map((p) => p.operation),
+    [`${SRUN}:1:0:beef1234`, `${SRUN}:1:1:beef1234`]);
+});
+
+test("⚠ wakeHours ROUNDS UP, FLOORS AT ONE AND IS BOUNDED, so a wake is never before the window", () => {
+  const now = 1_700_000_000_000;
+  assert.equal(wakeHours(new Date(now + 60_000).toISOString(), now), 1, "a minute of window is still an hour");
+  assert.equal(wakeHours(new Date(now + 3600_000).toISOString(), now), 1);
+  assert.equal(wakeHours(new Date(now + 3600_001).toISOString(), now), 2, "one millisecond over is the next hour");
+  assert.equal(wakeHours(new Date(now - 3600_000).toISOString(), now), 1, "a window already closed still wakes");
+  // CANNOT-TELL IS AN HOUR, NEVER FOR EVER. A window we could not read must still be looked
+  // at again, and the database is what decides whether it has really closed.
+  assert.equal(wakeHours(null, now), 1);
+  assert.equal(wakeHours("not a date", now), 1);
+  assert.equal(wakeHours(new Date(now + 3600_000 * 10_000).toISOString(), now), MAX_APPROVAL_HOURS);
 });

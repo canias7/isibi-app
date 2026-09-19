@@ -1421,6 +1421,9 @@ export const MAX_STEP_NOTE = 2000;
 export const MAX_STEP_TEST = 400;
 export const MAX_STEP_QUERY = 200;
 export const MAX_STEP_ASK = 400;
+/** A recipient and a message, for the send step. The provider's own payload, bounded. */
+export const MAX_STEP_RECIPIENT = 200;
+export const MAX_STEP_MESSAGE = 4000;
 export const MAX_WAIT_MINUTES = 60 * 24 * 14;
 export const MAX_APPROVAL_HOURS = 24 * 14;
 
@@ -1843,13 +1846,46 @@ export const AUTOMATION_STEPS = Object.freeze([
     ]),
   }),
   F({
+    /**
+     * SEND SOMETHING THROUGH A CONNECTED ACCOUNT — a `pause`, because a person approves it.
+     *
+     * ⚠ **THE APPROVAL AND THE SEND ARE ONE STEP, which is why this is not two entries.** An
+     * approval step followed by a send step would re-resolve its own `{{references}}` at its
+     * own moment, so a value that moved between the two is approved in one shape and sent in
+     * another. The engine resolves the payload once, hashes it, shows it, and performs the
+     * action from the same object — and a change to `to` or `body` changes the hash, which is
+     * what makes editing them require fresh approval.
+     *
+     * **The words here are a PERSON'S** — the engine's `does` is the same sentence because
+     * both halves of this catalog are read by a person choosing a step, unlike a tool's
+     * description, which is written for a model.
+     */
+    type: "send",
+    kind: "pause",
+    label: "Send a message",
+    does:
+      "Send a message from one of this agent's connected accounts. A person is shown the " +
+      "account, who it is for and the exact words, and has to approve it before it goes. " +
+      "Put {{a name}} anywhere in the recipient or the message to use an input or an " +
+      "earlier step's answer.",
+    fields: Object.freeze([
+      F({ name: "connection", kind: "id", required: true, says: "which connected account to send from",
+          names: "a connection", empty: "say which connected account to send from" }),
+      F({ name: "to", kind: "text", required: true, max: MAX_STEP_RECIPIENT, refs: true,
+          says: "who it is for", empty: "say who it is for" }),
+      F({ name: "body", kind: "text", required: true, max: MAX_STEP_MESSAGE, refs: true,
+          says: "what it says", empty: "say what it should say" }),
+      OUT,
+    ]),
+  }),
+  F({
     type: "workflow",
     kind: "call",
     label: "Run another automation",
     does: "Run the steps of another of this agent's automations here, as part of this one. Its steps are copied in as they are when this execution starts, so editing it afterwards does not change a run already going.",
     fields: Object.freeze([
       F({ name: "runs", kind: "id", required: true, says: "which automation to run",
-          empty: "say which automation to run" }),
+          names: "an automation", empty: "say which automation to run" }),
     ]),
   }),
 ].map(withErrorPath));
@@ -2359,10 +2395,20 @@ function readStepField(raw, f) {
     if (raw === undefined || raw === null || raw === "") {
       return f.required ? { error: blank } : { value: undefined };
     }
-    if (typeof raw !== "string") return { error: `${said} didn't arrive as an automation` };
+    /**
+     * ⚠ **WHAT KIND OF THING AN ID NAMES IS THE FIELD'S, NOT THIS READER'S — and until the
+     * send step there was only one, so this said "automation" about every id there could
+     * be.** Found by the cross-product census the hour a second one existed: the site said
+     * *which connected account to send from didn't arrive as an automation*, which names the
+     * wrong kind of thing and sends somebody to look at their automations. `names` is
+     * declared on the field beside `says` and `empty`, for the same reason those are, and it
+     * defaults to `automation` so every field written before this says exactly what it said.
+     */
+    const kind = typeof f.names === "string" && f.names.trim() !== "" ? f.names : "an automation";
+    if (typeof raw !== "string") return { error: `${said} didn't arrive as ${kind}` };
     const id = raw.trim().toLowerCase();
     if (!id) return f.required ? { error: blank } : { value: undefined };
-    if (!AUTOMATION_ID.test(id)) return { error: `${said} didn't arrive as an automation` };
+    if (!AUTOMATION_ID.test(id)) return { error: `${said} didn't arrive as ${kind}` };
     return { value: id };
   }
   /**

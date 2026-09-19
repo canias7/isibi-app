@@ -492,6 +492,52 @@ export function makeRunner(opts = {}) {
       };
 
       /**
+       * ⚠ **WHAT A WORKFLOW'S ACTION MAY REACH, AND WHO MAY APPROVE IT — scoped HERE, from the
+       * claim and the execution's own recorded agent, exactly as the agent loop scopes its own.**
+       *
+       * The tenant comes from `claim_run`, in the statement that took the row, and the agent from
+       * the execution's record — never from a step's configuration, which is a customer's data.
+       * So a workflow cannot name somebody else's connection or put a request in front of another
+       * account however its steps are written: there is nowhere in a step for either to go.
+       *
+       * **AN EXECUTION WITH NO AGENT RECORDED GETS NEITHER**, and the step refuses by name. That
+       * is every execution accepted before connections existed, and the refusal is the honest
+       * answer: a send with no agent behind it has no connections to choose from.
+       */
+      /**
+       * ⚠ **A SEAM THAT CANNOT BE SCOPED IS ABSENT, NEVER A THROWN DELIVERY — and the first
+       * draft of this got it wrong in a way the suite caught at once.** Both stores refuse to
+       * be scoped to something that is not an account and a uuid, which is right; building
+       * them eagerly made that refusal the DELIVERY'S, so an execution whose workflow has no
+       * action in it at all — every automation this product has ever run — died on a seam it
+       * never asked for. MEASURED: twelve cases red, `forAgent: agent must be a uuid`.
+       *
+       * So the refusal is caught, the seam is `null`, the reason is LOGGED rather than
+       * swallowed, and the step that needs one refuses BY NAME. A filter is a silent drop; a
+       * check is a sentence — and here there are two readers who need different sentences.
+       */
+      const scoped = (what, build) => {
+        try { return build(); }
+        catch (e) { onError({ at: `automation-${what}`, runId, error: String(e?.message ?? e) }); return null; }
+      };
+      const canReachOut = connections && exec.agentId
+        ? scoped("connections", () => connections.forTenant(claim.tenant).forAgent(exec.agentId))
+        : null;
+      /**
+       * ⚠ **ONE FUNCTION, AND IT IS THE SAME `ask` A CHAT TOOL'S APPROVAL GOES THROUGH** — the
+       * same table, the same window, the same first-decision-stands, the same site routes. So
+       * expiry, revocation, a duplicate press and a payload that changed are REUSED rather than
+       * rebuilt for workflows, and `agent.decide_tool_approval` putting the run back on the queue
+       * is what wakes this execution.
+       *
+       * The run and the agent are closed over; a step supplies the position, the round and the
+       * payload and nothing else.
+       */
+      const askApproval = approvals && exec.agentId
+        ? scoped("approvals", () => approvals.forTenant(claim.tenant).forRun({ runId, agentId: exec.agentId }).ask)
+        : null;
+
+      /**
        * ⚠ THE CHECKPOINT — one step's progress, fenced, before the next step starts.
        *
        * It is what makes "resuming cannot repeat completed actions" a property rather than a
@@ -579,6 +625,13 @@ export function makeRunner(opts = {}) {
         memory: exec.memory,
         retrieve,
         record,
+        // ⚠ **THE RUN ID IS THE SEED OF EVERY ACTION'S IDENTITY AND OF EVERY APPROVAL'S KEY.**
+        // Forwarded, because a value computed and never forwarded is this repository's
+        // most-recorded defect — and here the executor refuses an action without it rather
+        // than inventing one, which would be two runs sharing one identity.
+        runId,
+        connections: canReachOut,
+        approve: askApproval,
       });
       const { outcomes, stop, waiting, halted, values, position } = walked;
 
