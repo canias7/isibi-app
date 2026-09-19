@@ -9955,6 +9955,16 @@ repo-root run does not — `render-sandbox`'s privilege-drop case is about writi
 outside the repository root, which is the recorded environment case — so the
 TOTAL is what carries across.
 
+**CI HAS READ IT: `unit tests` run 2736 on `0b21bab1`, green (2026-09-19
+02:09:49→02:11:41Z, the suite step 111.7 s) — `# tests 6866 / # pass 6862 /
+# fail 0 / # skipped 4`**, against local `6866 / 6866 / 0 / 0`, and **the TOTAL
+is what matches**. **The four are NAMED out of the log rather than recalled** —
+the privilege-drop case (*"needs root and an unprivileged user"*), the two RTL
+cases (*"template deps not installed"*) and `site-searchpath`'s baseline-commit
+case (*"a shallow checkout holds one commit"*): the three recorded environment
+skips plus the one this branch's neighbour added, which is the standing
+expectation met rather than a new one.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN.** The photograph test is parked awaiting
 fal funding, at the owner's word.
 
