@@ -10484,3 +10484,10 @@ into the draft, and a save from the example carried `on_event: "undefined"`, **w
   it has already turned away the only input that separates the two forms** — MEASURED over the
   three that can reach that line. Declared in the code, and the mutant is now `= editing` (a
   create that never becomes an edit of what it made), which is observable and dies.
+- **CI HAS READ THE HEAD `466b8cc`, both workflows green.** `unit tests` run **2831** — the suite
+  step 09:05:55→09:07:46Z (110.2 s) — `# tests 6889 / # pass 6885 / # fail 0 / # skipped 4`,
+  against local `6889 / 6887 / 0 / 2`: the TOTAL is what matches and the two extra are the
+  recorded environment skips. `agent deploy` run **121** green with nothing under
+  `agent-builder/` moved. **`site build` was NOT due and did not run**, checked per path: the
+  changed files are two documents, `public/chat.js`, one guard and one mutant spec, and not one
+  matches that workflow's `paths`.
