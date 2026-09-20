@@ -14802,3 +14802,45 @@ through the platform's own `/api/db/<slug>/api/<name>` route.
 **WHAT IT WOULD NOT**: anything about a KEYED connection, the `{{SECRET}}` path,
 the credential sentence, or a service that answers a different shape than it
 documented. Those stay unproven.
+
+### THE PARKED PHOTO BLOCKER HAS A FREE READER, AND NO DOCUMENT NAMED IT (2026-09-20)
+
+`GET /api/fal-balance` is live, owner-gated to the two owner addresses, and
+answers the exact precondition every parked photograph entry asks for:
+
+    usd > 0    -> "funded — a build can buy photographs"
+    usd <= 0   -> "empty — a build's photographs will all come back as placeholders"
+    usd = null -> "balance unreadable (endpoint down or key not admin-scoped)"
+
+It busts its own 60-second cache so the read is always fresh, and its own
+comment gives the call: `await (await apiFetch('/api/fal-balance')).json()` from
+the app console. Measured live: **401 to an unauthenticated GET**, which is the
+gate rather than the route.
+
+**MEASURED: the string `fal-balance` occurs ZERO times in `CLAUDE.md` and ZERO
+times in `docs/owner-notes.md`.** Five separate entries say the fal balance is
+*"the owner's read"* or that photograph verification is *"parked until fal is
+funded"*, and not one of them says HOW to read it. **An instrument nobody who
+needs it can find is this repository's own wiring defect in prose** — the value
+computed and never forwarded, one layer up from the code.
+
+**IT IS THE PRECONDITION AND NOT A GATE, and the route's own comment is
+emphatic about that**: the `$0.50` pre-flight it was written to diagnose lived
+on the media side and went with it on 2026-09-12, so the builder's photographs
+are bought straight off `fal.run` with no balance check. **A run against an
+empty fal is therefore GRACEFUL and expensive**: `imageNote` answers *"Couldn't
+make the photographs this time, so the pictures are placeholders"*, the addon's
+own credits are spent, the page publishes, and the result is complete, plausible
+and proves nothing about placement. **Run 51 is exactly that outcome** — 12
+credits, the provider refused, and the one thing the run was bought for
+unproven.
+
+**So the order for any photograph run is: read this route first, and only press
+if it says funded.** That is one free console line against ~13 credits and a
+result that cannot be read.
+
+**AND IT DOES NOT CLOSE THE OTHER HALF.** The recorded open item — *a refused
+photograph cannot name itself to anyone who can act on it* — is untouched: the
+provider's own reason still reaches `images.error`, which no reply renders, and
+`console.error("photo failed:", …)` inside the container. This route says
+whether fal has money; it says nothing about why a particular generation failed.

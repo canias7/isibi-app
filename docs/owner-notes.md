@@ -14734,3 +14734,29 @@ one day, which costs nothing.
 I have also corrected my own note from earlier tonight, which said the page was
 creeping upward. It wasn't — I had read the list of past readings in the order
 they appear in the file rather than the order they were taken.
+
+### Before you ever buy a photograph run, there is a free check
+
+I found a route tonight that has been sitting there unused in the notes:
+**`/api/fal-balance`**. It is yours only (it refuses everyone else), it costs
+nothing, and it answers the one question that decides whether a photograph run
+is worth pressing:
+
+- **"funded — a build can buy photographs"**
+- **"empty — a build's photographs will all come back as placeholders"**
+- or "unreadable", if fal's own endpoint is down.
+
+From the app's console: `await (await apiFetch('/api/fal-balance')).json()`
+
+**Why it matters more than it sounds.** If fal is empty, a photograph run does
+not fail — it succeeds. It builds the page, spends your credits, puts grey
+placeholder boxes where the pictures should be, and tells you politely that it
+could not make them. That is exactly what run 51 did: 12 credits, and the one
+thing it was bought to prove still unproven.
+
+So: read that line first, press second. One free check against about 13 credits
+and an answer you cannot use.
+
+I have written it into the notes because five separate entries say "check the
+fal balance first" and not one of them said how — the check existed and nothing
+pointed at it.
