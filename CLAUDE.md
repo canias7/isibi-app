@@ -14887,3 +14887,132 @@ afterwards, verified.
 **THE RULE, WIDENED: before committing, ask whether a sweep is running, whoever
 is asking.** An automated request to commit is not evidence that there is
 anything to commit.
+
+### THE RELEASE REVIEW — FOUR DEFECTS, EACH REPRODUCED BEFORE IT WAS BELIEVED (2026-09-20)
+
+Owner's handoff §4/§5: a nine-kind acceptance checklist and a connection review of
+the addon path, from existing evidence, **classifying rather than re-proving**, with
+"implemented" never turned into "verified live". Seventeen readers in parallel — one
+per kind, one per hop — then a synthesis. **Nothing in it is a source read taken on
+trust: every finding below was DRIVEN here, with a control, before it was written
+down.** Two of the readers' findings were corrected by measurement and are recorded
+as corrected rather than quietly dropped.
+
+**D-1. THE POST-PUBLISH PHOTO AND SCENE READERS ARE PAGES-ONLY, so a photograph in a
+component is bought, published, billed — and reported "Still to do".**
+`worker.js:26187` reads `imageSources(aMerge.pages || [], aMerge.parts || [])`, and
+**`mergeAddonPages` returns `{ok, pages, added, changed, removed, kept, reverted}`
+and no `parts`** (`builder/site-addon.mjs:313`, its one `return { ok: true, pages:`).
+`aMerge` is assigned five times — 25229, 25469 (`aHeld`, also a `mergeAddonPages`
+answer), 25705, 25811, 25832 — and not one carries `parts`; every OTHER reader on the
+path uses `aParts || aPartsRead.parts` (25639, 25808, 25917). So the second argument
+is `undefined` on every run.
+
+MEASURED end to end through the real route, the same request, differing only in where
+the writer put the token:
+
+| the token is in | bill | the customer's own screen |
+|---|---|---|
+| the **page** | 1 picture, 1 real prompt paid | *"✅ Done — updated /. Made 1 photograph for the site. I've set that up, but I can't confirm from here that…"* — requirement `unverified`/`found`/`applied` |
+| the **component** | 1 picture, 1 real prompt paid, **and the url really is in the published component** (`/u/<slug>/4c4e6e71….jpg` in `parts.json`) | *"✅ Done — updated /. Made 1 photograph for the site. **Still to do:** The home page shows a photograph of the workshop."* — requirement `missing`/`absent`, `counts.missing: 1` |
+
+**Two contradictory sentences in one reply, and ~18.75 credits billed for the
+photograph the same reply calls outstanding.** And it is the ordinary shape rather
+than an exotic one: since the band split **a section IS a component**, so
+`component` + `photo` — "add a photo wall with a picture in it" — lands there.
+
+**THE SAME LINE MAKES `aThreeOn` BLIND THE SAME WAY**: a `<Canvas>` written into a
+component publishes and `appliedFacts` emits `three` with `fails: ["onpage"]` — a
+true claim recorded as **contradicted**. Not customer-visible today only because the
+contradiction and the silence share a sentence (`builder/site-add.mjs:4311`), which
+is the deliberate rule that a contradiction denies the guarantee and not the thing.
+**And the comment at `worker.js:26314` asserts the opposite of the code it sits
+under** — *"`live` is `imageSources(aMerge.pages, aMerge.parts)` … so a canvas in a
+component counts exactly as one in a page"* — this file's own recorded shape, a
+comment that is a claim nobody tested.
+
+**D-2. `qr` AND `three` PUT AN UNRESOLVABLE DESTINATION ON THE HOME PAGE** — the
+exact substitution the owner corrected for `component` on 2026-09-14, whose fix
+comment sits **four lines above** the two branches that still do it. `onPage`
+answers `""` when the named route is not in `going` and the site has more than one
+page; `component` (`:2251`) and `photo` (`:2280`) refuse `no-page` on that, and
+`qr` (`:2545`) and `three` (`:2548`) keep it. MEASURED on a three-page site, the
+same `page: "/nowhere"` to each of the four:
+
+```
+component  ok=false  why=no-page
+photo      ok=false  why=no-page
+qr         ok=true   page=""   → "- `SITE_QRS.about` … on the home page (index.tsx), in the contact or closing"
+three      ok=true   page=""   → "- On the home page (index.tsx) — the 3D block above says w…"
+```
+
+**And `page` is REQUIRED on the component and photo tools and OPTIONAL on the qr and
+three tools**, so simply omitting it is the ordinary way in — driven, both answer
+`page: ""` with no `page` key at all. On a multi-page site the printed code or the
+scene is built on the front page and the customer is told it was added.
+
+**D-3. A BARE-STRING COLUMN IS DROPPED FROM A TABLE AND NAMED BY NOBODY.**
+`t.columns.filter((c) => c && typeof c === "object" && str(c.name, 63))`
+(`builder/site-add.mjs:2313`). Declared `["who","email","note"]` → kept
+`["who","note"]`, `skipped: []`, and `auditTier` answers
+`{scanned:1, reached:[], refused:[], changed:[], unexpressed:[]}` — **all four
+buckets empty**, with the control (every column an object) keeping both. It is
+structurally invisible: `columns` is still truthy so not `unexpressed`, and it is an
+array so `scalar()` can never call it `changed`. The table is created short a column,
+reported as added, and the proposed spec handed to every later designer **in the same
+message** says the site stores less than it was asked for.
+
+**THE SAME MECHANISM IS IN FOUR PLACES AND ONLY ONE OF THEM HAS EVER BEEN CLOSED** —
+a bare `continue`/`filter` with no `skipped` row and no audit reader behind it: the
+column above; a kit component name failing `NAME` discarded inside `names()` **before
+`kitNames` can record it**, so `Hero Section` and `not_in_kit` reach none of the three
+lists (`:2063`); a `tsx` entry missing `does`/`props` binned, silently closing the
+escape hatch the 2,112-component kit exists to have (`:2087`); and
+`cleanRequirements` capping with `slice(0, 12)` **above** the loop that fills
+`skipped` (`builder/site-requirements.mjs:323`) — which is the exact shape `cleanAdd`
+fixed for itself at `:2592`, *"THE CAP WAS A SILENT DROP AND IT SAT ONE LINE ABOVE THE
+LIST THAT EXISTS TO NAME DROPS"*. **Two readers of one lesson and only one of them
+applied it.**
+
+**D-4. A FULL-URL QR TO A ROUTE THE SITE HAS NOT GOT PASSES BOTH GATES.**
+`cleanAdd("qr")` checks a destination against `going` **only when it
+`startsWith("/")`** (`:2525`). The identical destination, two spellings:
+
+```
+"/nope"                           ok=false  why=no-such-page
+"https://fw.gofarther.app/nope"   ok=true   → drawn, baked, published
+"/about"                (control) ok=true
+"https://elsewhere.example/nope"  (control) ok=true  — a foreign origin is not ours to check
+```
+
+and `deadQrs` drops nothing (driven: `[]`), because it only considers routes this
+change PLANNED and lost. **The unchecked spelling is the one the tool offers FIRST**
+— *"The exact string the code carries: a full URL, `tel:` …"* — and `siteNote` hands
+the designer the site's own address, so the full URL is the encouraged path rather
+than an unusual one. **The result is a printed artefact that opens a 404.**
+
+**AND TWO OF THE REVIEW'S OWN FINDINGS WERE WRONG, corrected here by measurement
+rather than dropped.** It reported the run-52 reporting fix as *"on main and NOT
+deployed"* — true of the tree it read and false now:
+`git merge-base --is-ancestor 8cb03489 ddd3faf5…` answers **yes**, so deploy 2136
+shipped it. *A review reads a tree, and a tree moves under it.* And its C-3 did not
+reproduce on the first attempt because my fixture passed the inner table object where
+the tool's shape is the `{table: {…}}` WRAPPER, and `table` is a LIST kind so
+`cleanAdd` answers an array — **the finding was real and my first reproduction was
+testing something else**, which is why a reproduction that fails is a question about
+the fixture before it is a question about the claim.
+
+**WHAT IS NOT IN THIS LIST, DELIBERATELY.** The review also raised thirteen GAPS and
+seven OBSERVATIONS — instruments that go quiet rather than lying (the coverage trace
+mark's seven state counters exceeding `MAX_DETAIL_KEYS`, computed before the apply
+anyway), receipts that omit the field their tier turns on (`shownSchema` records
+`functions` and not `jobFns`; nothing records `planned`), a dead second composer eight
+route assertions run through (`addonReply` has no production caller and has already
+diverged from the browser's at `'` vs `’`), and `afterActivate` dropping every state
+write's boolean answer. **None of those was driven here** and none is claimed as more
+than the reader found it; they are recorded in the tasks rather than stamped as
+measurements.
+
+**Suite unchanged, tree unchanged: this round wrote no product code.** Every
+reproduction ran out of the scratchpad against the committed tree, and the tree was
+verified clean afterwards.

@@ -14738,3 +14738,51 @@ published version, which the site already sends back on every request and which
 does not move unless the site was genuinely republished. That is what the check
 should lean on. I have not changed it — that is tooling work, not this release —
 but it is written down now instead of being rediscovered every few days.
+
+## The release review found four real defects — 2026-09-20
+
+I ran the nine-kind checklist and the connection review you asked for, seventeen
+readers in parallel over the addon path. **Everything below I reproduced myself
+before believing it**, each with a control, and none of it needed a paid run.
+
+**1. A photograph that lands in a section is charged for and then called "still to
+do".** This is the one I'd fix first. The code that checks "did the picture arrive"
+looks only at pages, never at sections — and since the band split, a section is its
+own file. So on *"add a photo wall with a picture in it"* the picture is bought, is
+really on the published site, and the reply says:
+
+> ✅ Done — updated /. Made 1 photograph for the site. **Still to do:** The home page
+> shows a photograph of the workshop.
+
+Two opposite sentences in one message, and about 18¾ credits charged for the thing it
+says is outstanding. The identical request with the picture on a page reads correctly.
+One line to fix — the right list is already computed two hundred lines above it.
+
+**2. A QR code or a 3D scene aimed at a page that doesn't exist is silently built on
+the front page instead.** You corrected exactly this for sections on 14 September;
+the fix comment is four lines above the two places that still do it. Sections and
+photographs refuse; codes and scenes don't. And because naming the page is optional
+on those two, just leaving it out is the ordinary way in.
+
+**3. A column can go missing from a new table with nobody told.** If the model writes
+one column in a slightly different shape from the others, it's dropped — not in the
+"here's what I left out" list, not in the reply, not in the record. The table is made
+short a column and every later step in the same message is told that's what the site
+stores. The same silent-drop happens in three other places; one of them is the escape
+hatch for custom components.
+
+**4. A QR code pointing at a missing page gets published if it's written as a full
+web address.** Written as `/nope` it's refused; written as
+`https://yoursite.gofarther.app/nope` it sails through both checks and gets printed
+on a code. And the full address is the form the instructions offer first. Of the four
+this is the one that reaches a customer's hands on paper.
+
+**Two things the review itself got wrong, which I corrected rather than passed on.**
+It said run 52's reporting fix wasn't deployed — it was, by this morning's deploy,
+and I checked rather than took its word. And my own first attempt to reproduce #3
+failed because I'd built the test input in the wrong shape; the defect was real and I
+was testing something else. Worth saying because a failed reproduction is a question
+about the test before it's a question about the claim.
+
+**Nothing was changed.** No product code, no site, no spend — all four are written up
+with their reproductions and are yours to schedule.
