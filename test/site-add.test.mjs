@@ -38,7 +38,7 @@ import {
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
-  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote, routedSources, qrSiteRoute,
+  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote, routedSources, qrSiteRoute, droppedNote,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -2308,6 +2308,39 @@ test("routedSources: a component's routes are the pages that render it, by impor
   assert.deepEqual(routedSources(null, null), []);
   assert.deepEqual(routedSources(undefined, [{ name: "", source: "x" }]), []);
   assert.ok(routedSources([page("index.tsx", "x")], "not a list").length >= 1);
+});
+
+test("droppedNote says what was lost in the customer's own words, and never its name", () => {
+  // Owner: *"Carry this partial outcome into a plain customer sentence and
+  // preserve the dropped-item diagnostic in the stored outcome."* The NAME is
+  // developer-facing (`droppedFields` on the record); what reaches the customer
+  // is a count and a word they can act on.
+  assert.equal(droppedNote([]), "", "a change that dropped nothing got a sentence");
+  assert.equal(droppedNote(null), "", "a junk argument threw or spoke");
+  assert.equal(droppedNote("nope"), "", "a non-list argument threw or spoke");
+  assert.equal(droppedNote([null, 7, "x"]), "", "junk entries were counted as drops");
+
+  const one = droppedNote([{ what: "component", name: "tide-chart" }]);
+  assert.match(one, /1 section/, "a dropped component was not said as a section: " + one);
+  assert.doesNotMatch(one, /tide-chart/, "the item's NAME reached the customer: " + one);
+  assert.match(one, /it isn't there/, "the singular reads as a plural: " + one);
+
+  const two = droppedNote([{ what: "component", name: "a" }, { what: "component", name: "b" }]);
+  assert.match(two, /2 sections/, "two drops were not counted: " + two);
+  assert.match(two, /they aren't there/, "the plural reads as a singular: " + two);
+
+  // TWO KINDS IN ONE CHANGE ARE TWO CLAUSES, because "2 things" tells a
+  // customer nothing about which half of their request is short.
+  const mix = droppedNote([{ what: "component", name: "a" }, { what: "column", name: "email" }]);
+  assert.match(mix, /1 section/, mix);
+  assert.match(mix, /1 field/, mix);
+
+  // ⚠ AND A KIND THIS DOES NOT RECOGNISE STILL GETS A SENTENCE. The word is
+  // the only part that can go missing, and dropping the whole clause over it
+  // would put the round back where it started: a partial outcome, silent.
+  const odd = droppedNote([{ what: "gizmo", name: "x" }]);
+  assert.match(odd, /1 thing/, "an unrecognised kind lost the sentence: " + JSON.stringify(odd));
+  assert.match(odd, /didn't get built/, "an unrecognised kind lost the sentence: " + JSON.stringify(odd));
 });
 
 test("qrSiteRoute: ours by origin, and the route normalised the way a bare one is", () => {

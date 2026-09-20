@@ -255,6 +255,22 @@ test("an import specifier is a string in an import POSITION, in code", () => {
     "a page's relative import of a sibling page was read as a component import");
   assert.equal(importsPart("import { C } from './card'", "card", true), true,
     "a component's sibling import stopped resolving");
+  // ⚠ A TEMPLATE IS NOT A SPECIFIER, AND THE TRADE IS STATED RATHER THAN
+  // ASSUMED. `import(\`…\`)` and `require(\`…\`)` are valid JavaScript, so the
+  // text between the backticks CAN be the module — and it can equally be
+  // `${dir}/x`, where no reader of the source knows what was imported. Reading
+  // it as a specifier would let an interpolation name any component at all;
+  // refusing it means a dynamic import of a component is missed, which the
+  // withholding cascade reads as "this page does not import it". Refusing is
+  // the direction that cannot be wrong about which module is named, and no
+  // prompt here teaches a template specifier — every one teaches
+  // `@/routes/-parts/<name>`.
+  for (const src of [
+    "const L = lazy(() => import(`" + SPEC + "`))",
+    "const B = require(`" + SPEC + "`)",
+    "const t = `import { B } from '" + SPEC + "'`",
+  ]) assert.deepEqual(spec(src), [], "a template literal was admitted as a specifier: " + src);
+
   // THE JUNK SHAPES, since these are exported and take what they are handed.
   for (const bad of [null, undefined, 42, {}, []]) {
     assert.equal(importsPart(bad, "card", true), false, "threw or matched on " + JSON.stringify(bad));
@@ -285,6 +301,28 @@ test("partUse tells a rendered import from a dead one, and says so when it canno
   assert.equal(of("import '" + SPEC + "'", "<main/>"), "unsure", "a side-effect import binds nothing to test");
   assert.equal(of("const L = lazy(() => import('" + SPEC + "'))", "<L/>"), "unsure", "a dynamic import");
   assert.equal(of("export { Band } from '" + SPEC + "'", "<main/>"), "unsure", "a re-export binds no local name");
+  // …AND A CLAUSE THIS CANNOT PARSE IS UNCERTAINTY, NOT AN ABSENCE. A piece
+  // that is not an identifier means the clause was not understood, so what it
+  // binds is unknown — reading the pieces it DID recognise as the whole would
+  // turn "we could not read it" into the one definite negative. These are the
+  // four shapes MEASURED to separate the two readings, and every one of them
+  // is source a model really can write.
+  for (const bad of ["1bad", "...rest", "a.b", "a-b"]) {
+    assert.equal(of("import { Band, " + bad + " } from '" + SPEC + "'", "<main/>"), "unsure",
+      "an unparseable clause (" + bad + ") was read as binding only what it recognised");
+  }
+  // THE CONTROLS, so the arm above is about the piece it could not read and
+  // not about the shape of the clause: a clause it CAN read is still the
+  // definite negative, and `default as X` really does bind `X`.
+  assert.equal(of("import { Band, Other } from '" + SPEC + "'", "<main/>"), "unused");
+  assert.equal(of("import { default as D } from '" + SPEC + "'", "<main/>"), "unused");
+  // ⚠ AND ONE SHAPE IS NOT SEEN AS AN IMPORT AT ALL, which is recorded rather
+  // than claimed as uncertainty: an arbitrary module export name is valid
+  // ES2022 and its QUOTE ends the clause the head pattern is matching, so the
+  // specifier is never reached. `none`, not `unsure` — so the withholding
+  // cascade would not see that import either. Nothing here writes one.
+  assert.equal(of('import { Band, "other-name" as Other } from \'' + SPEC + "'", "<Other/>"), "none",
+    "the quoted-export-name limit moved — check `importsPart`'s cascade, not just this answer");
 
   // NOT IMPORTED AT ALL IS ITS OWN ANSWER, distinct from all three.
   assert.equal(of("// " + LIVE, "<Band/>"), "none", "a commented import was read as an import");

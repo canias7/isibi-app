@@ -241,6 +241,17 @@ const esc = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * those establishes placement and none of them refutes it either, so they are
  * kept apart from the one shape that really is a definite negative: a clause
  * that binds names, none of which the file ever mentions again.
+ *
+ * ⚠ `null` AND `[]` ARE THE SAME ANSWER TO THE ONE CALLER, MEASURED RATHER
+ * THAN REASONED ABOUT: `partUses` reads `bound === null || !bound.length` as
+ * one condition, so swapping either `null` below for `[]` changes no verdict —
+ * driven over a re-export, a dynamic import, a side-effect import and a
+ * namespace import, all four `unsure` either way. The distinction is kept
+ * because the two say different things to a reader (*nothing to go on* against
+ * *a clause that really binds nothing*), and because a later caller that wants
+ * to tell them apart must not have to re-derive one; the sweep mutates the
+ * OBSERVABLE half — a non-import kind handed a name it never bound, which
+ * turns every one of those four into a definite `unused`.
  */
 function bindingsOf(clause, kind) {
   if (kind !== "import") return null;

@@ -8522,6 +8522,81 @@ test("a placement nobody could establish is uncertainty, not an absence", async 
   assert.match(said, /can't see from here whether/, "the uncertainty had no sentence: " + said);
 });
 
+test("a picture that certainly landed and one nobody could place are two answers in one reply", async () => {
+  // ⚠ THE UNCERTAIN ARM HAS TO BE ITS OWN, AND ONLY A PAGE CARRYING BOTH CAN
+  // SAY SO. Folding `maybeRoutes` into the certain map answers the second
+  // request with a picture nobody can show is on that page; dropping the arm
+  // altogether sends it to the LOST branch — and that branch fires off the
+  // route, so the first shot's url is what makes the second read as missing.
+  // One shot alone cannot separate either from the truth.
+  const OVEN = "the bread oven at first light";
+  const need = (n, item) => ({ need: "A photograph of the " + n + " is on the gallery page.",
+    status: "elsewhere", step: "photo", item });
+  const echo = (n, item) => ({ need: need(n, item).need, status: "covered",
+    by: "a photograph of the " + n, answers: "page#" + (item === "bench" ? 0 : 1), kind: "photo", item });
+  const r = await photoAsk("fw-use-mixed", {
+    kinds: ["page", "photo"], credits: 900,
+    // THE PAGE DRAWS THE BENCH ITSELF and holds the band only as a value.
+    written: [galleryHead("import { Band } from '@/routes/-parts/photo-wall'\nconst bands = [Band]",
+      TOKEN(BENCH) + "{bands.map((B, i) => <B key={i} />)}")],
+    writtenParts: [bandWith("photo-wall", TOKEN(OVEN))],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [need("bench", "bench"), need("oven", "oven")] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" },
+        { page: "/gallery", describe: OVEN, name: "oven" }],
+        requirements: [echo("bench", "bench"), echo("oven", "oven")] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.pictures, 2, "both pictures were not bought, so the case proves nothing: " + JSON.stringify(r.body));
+  const want = (n) => storedAnswer(r, "fw-use-mixed").coverage.requirements
+    .find((x) => x.status === "elsewhere" && x.item === n);
+  // THE PROPERTY IS WHICH REQUEST RESOLVED, not which label it earned: the
+  // state is decided by what the claim's own prose can be checked against, and
+  // that is a different question from whether the picture is on the page.
+  assert.equal(want("bench").implementation, "found",
+    "a picture the page really draws stopped answering its request: " + JSON.stringify(want("bench")));
+  assert.equal(want("bench").implementedBy, "bench",
+    "the bench request was answered by something else: " + JSON.stringify(want("bench")));
+  assert.equal(want("oven").state, "unknown",
+    "a picture nobody could place was answered or called missing: " + JSON.stringify(want("oven")));
+  assert.equal(want("oven").implementation, "unknown",
+    "an unfollowable placement was resolved either way: " + JSON.stringify(want("oven")));
+  const said = browserText(r.body);
+  assert.doesNotMatch(said, /Still to do/,
+    "a published picture on an unfollowable path was reported missing: " + said);
+});
+
+test("a component nobody could place and holding no picture leaves the inventory complete", async () => {
+  // THE OTHER HALF OF THE SAME RULE. `aPhotoUnsure` licenses the word ABSENT
+  // to be withheld — so it must fire on an unreadable placement that could be
+  // HIDING a photograph, and on nothing else. A component with an unfollowable
+  // placement and no picture in it hides nothing, so a claim about a
+  // photograph this change never made is still *"Still to do"* and not
+  // *"I can't see from here"*.
+  const NEED = { need: "A photograph of the oven is on the gallery page.", status: "elsewhere",
+    step: "photo", item: "oven" };
+  const r = await photoAsk("fw-use-empty", {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryHead("import { Band } from '@/routes/-parts/plain-band'\nconst bands = [Band]",
+      TOKEN(BENCH) + "{bands.map((B, i) => <B key={i} />)}")],
+    writtenParts: [{ name: "plain-band", source: "export function Band(){ return <section><p>Hello</p></section> }\n" }],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [NEED] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.pictures, 1, "the picture was not bought, so the inventory is empty for the wrong reason: " + JSON.stringify(r.body));
+  assert.doesNotMatch(storedParts(r, "fw-use-empty")["plain-band"] || "", /\/u\//,
+    "the component holds a picture, so it really could be hiding one");
+  const h = storedAnswer(r, "fw-use-empty").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(h.state, "missing",
+    "a complete inventory was read as incomplete: " + JSON.stringify(h));
+  assert.match(browserText(r.body), /Still to do/,
+    "the customer was not told about a photograph nobody made: " + browserText(r.body));
+});
+
 test("a scene whose placement could not be established is not contradicted", async () => {
   // THE SAME THIRD ANSWER ONE FIELD OVER, and here the old reading was the
   // worst-shaped one available: `appliedFacts` has two words for a scene, so a

@@ -3699,6 +3699,17 @@ export function routedSources(pages, parts) {
       routes: [...sure],
       // NEVER IN BOTH: a route that certainly renders it is settled, whatever
       // some other path through the graph could not establish.
+      //
+      // ⚠ AND THE FILTER IS ABSORBED TODAY, MEASURED AND DECLARED. `best`
+      // keeps ONE strength per (page, part) — the max across paths — so a part
+      // is filed under a route in exactly one of the two maps and no route can
+      // appear in both: driven over every probe shape, including a part reached
+      // certainly one way and unfollowably another, the overlap is 0. It stays
+      // because the deadness is a property of `best` and not of this line, and
+      // a later change that let a route be recorded twice would put an already
+      // settled placement back into `maybeRoutes` and blind the inventory. The
+      // sweep mutates the OBSERVABLE half of the same line — the certain
+      // routes copied into `maybeRoutes`, which does exactly that.
       maybeRoutes: [...(maybeOf.get(p.name) || [])].filter((r) => !sure.has(r)),
     });
   }
