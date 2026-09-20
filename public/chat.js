@@ -3407,21 +3407,49 @@ async function agentAutoRun(id, input) {
  * **A SECOND PRESS IS ABSORBED BY THE SERVER, and it says so**: the first decision stands,
  * because by then the execution may already have carried on.
  */
+/**
+ * ⚠ **WHICH DOOR ANSWERS THIS PAUSE, and pressing the wrong one answers `ok` and does
+ * nothing.**
+ *
+ * The history draws ONE Approve button for two mechanisms that look identical from the row.
+ * A `Wait for approval` STEP is answered by the automation's own decision, keyed by the run
+ * and the step. A `send` step is gated by a TOOL approval bound to the payload's hash and
+ * answered by the request's id — which the engine names on the pause, because nothing else
+ * could tell them apart (the pause's step is `"s3"` and the request's is the index `2`).
+ *
+ * MEASURED before this existed: pressing Approve on a send sent the step's decision, the
+ * database answered `ok`, the run was requeued, the send step found its request still pending
+ * and it paused at the same step again — for ever, nothing sent, and the decision recorded
+ * where nothing reads it. *A dead control that ANSWERS, which is this repository's own worst
+ * shape of that finding.*
+ *
+ * **A pause with no `request` takes the automation's door**, which is right for every approval
+ * step and is exactly what a pause written before the engine carried the field already did.
+ */
+function agentAutoDoor(runId) {
+  const w = ((agentAutoRuns || []).find((r) => r.id === runId) || {}).waiting || {};
+  if (typeof w.request === 'string' && w.request) {
+    return { path: '/api/agent/tool-approve', body: { id: w.request } };
+  }
+  const step = String(w.step || '');
+  return step ? { path: '/api/agent/automation-approve', body: { run: runId, step } } : null;
+}
+
 async function agentAutoDecide(runId, verdict) {
   const target = String(runId || '');
   if (!target || agentAutoDeciding) return;
-  const step = String((((agentAutoRuns || []).find((r) => r.id === target) || {}).waiting || {}).step || '');
-  if (!step) { agentAutoActErr = 'That run isn’t waiting to be approved any more.'; renderAgents(); return; }
+  const door = agentAutoDoor(target);
+  if (!door) { agentAutoActErr = 'That run isn’t waiting to be approved any more.'; renderAgents(); return; }
   const note = String(agentAutoNotes.get(target) || '').trim();
   const bound = agentBind();
   agentAutoDeciding = target; agentAutoActErr = ''; renderAgents();
   let failed = '';
   let said = '';
   try {
-    const res = await apiFetch('/api/agent/automation-approve', {
+    const res = await apiFetch(door.path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ run: target, step, verdict, note: note || null }),
+      body: JSON.stringify({ ...door.body, verdict, note: note || null }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t send that.';

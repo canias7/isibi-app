@@ -3798,6 +3798,18 @@ export function executionRow(r) {
       // is a screen that says a run is stuck.
       event: typeof waiting.name === "string" && waiting.kind === "event" ? waiting.name : null,
       step: typeof waiting.step === "string" ? waiting.step : "",
+      /**
+       * ⚠ **WHICH DOOR ANSWERS IT, and the two are not interchangeable.**
+       *
+       * A `Wait for approval` STEP is answered by `agent.decide_automation_approval`, keyed by
+       * the run and this step's id. A `send` step is gated by a TOOL approval bound to the
+       * payload's own hash and answered by `agent.decide_tool_approval`, keyed by the REQUEST's
+       * id — which the engine puts here because the two pauses are otherwise identical in
+       * shape and the screen has one Approve button for both. Absent means the automation's
+       * own door, which is right for every approval step and is what every pause written before
+       * the engine carried this reads as.
+       */
+      request: typeof waiting.request === "string" && waiting.request ? waiting.request : null,
       ask: typeof waiting.ask === "string" ? waiting.ask : null,
       onTimeout: AUTOMATION_TIMEOUTS.includes(waiting.on_timeout) ? waiting.on_timeout : null,
       until: typeof r?.wait_until === "string" ? r.wait_until : null,

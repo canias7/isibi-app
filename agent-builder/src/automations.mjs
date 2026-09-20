@@ -1414,7 +1414,30 @@ const sendStep = defineStep({
        * database, which is also what refuses a late decision.
        */
       return {
-        waiting: { kind: "approval", ask: said, hours: wakeHours(asked.expiresAt, ctx.now), on_timeout: "fail" },
+        waiting: {
+          kind: "approval", ask: said, hours: wakeHours(asked.expiresAt, ctx.now), on_timeout: "fail",
+          /**
+           * ⚠ **WHICH REQUEST ANSWERS THIS PAUSE, and without it the screen presses the wrong
+           * door.**
+           *
+           * An `approval` STEP's pause and this one are byte-identical in shape — both
+           * `{kind: "approval", ask, hours, on_timeout}` — and they are answered by two
+           * DIFFERENT functions: a step's decision goes to `agent.decide_automation_approval`,
+           * keyed by run and step, while a send is gated by a TOOL approval bound to its
+           * payload's hash and answered by `agent.decide_tool_approval`, keyed by the
+           * request's own id. MEASURED before this line existed: the execution history's
+           * Approve button sent the step's decision, the database answered `ok`, the run was
+           * requeued, `ctx.approve` found its request still pending and the workflow paused at
+           * the same step again — for ever, with nothing sent and a decision recorded where
+           * nothing reads it. **A dead control that ANSWERS, and answers `ok`.**
+           *
+           * It is the request's id rather than a flag, because the tool door needs exactly
+           * that value: the two mechanisms do not even number their steps the same way (this
+           * pause's `step` is `"s3"` and the request's is the index `2`), so nothing could
+           * match them without a mapping. Naming the request is the direct answer.
+           */
+          request: isText(asked.id) ? asked.id : null,
+        },
         why: `waiting to be approved: ${said}`,
       };
     }

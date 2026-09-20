@@ -52,8 +52,31 @@ const DB = `agent_browser_${process.pid}`;
 const A = { uid: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", email: "shop@example.test", token: "tok-a" };
 const B = { uid: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb", email: "next-door@example.test", token: "tok-b" };
 const ZONE = "Europe/London";
+/** The account a person connects, and who the example's workflow writes to. */
+const ACCOUNT = "shop@example.test";
+const RECIPIENT = "ada@example.test";
+/** The two arms of journey 2's branch — one of them must be nowhere near the message. */
+const FORMAL = "Dear {{who}}, regarding {{topic}}: {{facts}} (scripted, not written by a model)";
+const CASUAL = "Hi {{who}} — about {{topic}}: {{facts}} (scripted, not written by a model)";
 const ONLY = process.argv.slice(2).filter((s) => /^[1-6]$/.test(s)).map(Number);
 const want = (n) => !ONLY.length || ONLY.includes(n);
+/**
+ * ⚠ **THE JOURNEYS ARE A SEQUENCE, AND A SELECTION THAT LEAVES OUT WHAT ONE RESTS ON IS
+ * REFUSED BY NAME rather than crashing on a control that is not there.** Journey 1 creates the
+ * agent, its reference material and its memory; 2–5 are that customer carrying on. Running `2`
+ * on its own is a selection nobody can satisfy, and saying so beats a timeout on
+ * `[data-id="null"]`.
+ */
+const RESTS_ON = { 2: [1], 3: [1, 2], 4: [1, 2], 5: [1] };
+for (const [n, on] of Object.entries(RESTS_ON)) {
+  if (!want(Number(n))) continue;
+  const missing = on.filter((m) => !want(m));
+  if (missing.length) {
+    console.log(`Journey ${n} continues journey ${missing.join(" and ")}, which this selection leaves out.`);
+    console.log(`  run them together:  node scripts/verify-browser.mjs ${[...on, Number(n)].join(" ")}`);
+    process.exit(2);
+  }
+}
 
 let failed = 0;
 const fails = [];
@@ -219,13 +242,63 @@ const type = async (page, id, value) => {
   await page.fill(s, "");
   if (value) await page.type(s, value, { delay: 1 });
 };
+/**
+ * Fill the fields of one step in the form, by the names the step catalog gives them —
+ * never by position inside the row, and `<select>` through `selectOption` because a choice
+ * field is a real select and typing into one does nothing.
+ */
+async function setStep(page, at, fields) {
+  for (const [name, value] of Object.entries(fields)) {
+    // ⚠ A LOCATOR RATHER THAN AN ELEMENT HANDLE, and the reason is the form being right.
+    // `renderAgents` rebuilds from `innerHTML`, and choosing a value in a gated `<select>` is
+    // a STRUCTURAL change — so a handle taken before a fill is detached by the redraw after
+    // it. A locator resolves at the moment it is used. The first draft used handles and died
+    // with "Element is not attached to the DOM" on the second field of the second step.
+    const el = page.locator(".ag-step").nth(at).locator(`[data-field="${name}"]`);
+    await el.waitFor({ timeout: 10_000 });
+    const tag = await el.evaluate((e) => e.tagName.toLowerCase());
+    if (tag === "select") await el.selectOption(String(value));
+    else await el.fill(String(value));
+  }
+}
+
+/** Add a step of one type, and answer for it. Appended, which is what the form does. */
+async function addStep(page, type, fields = {}) {
+  const before = (await page.$$(".ag-step")).length;
+  await press(page, "agent-auto-step-add", "type", type);
+  await page.waitForFunction((n) => document.querySelectorAll(".ag-step").length === n + 1, before, { timeout: 10_000 });
+  if (Object.keys(fields).length) await setStep(page, before, fields);
+}
+
 /** A remembered fact's own row, found by the name the markup puts in `data-key`. */
 const memRow = (name) => `.ag-auto:has([data-act="agent-mem-delete"][data-key="${name}"])`;
 const memValue = (page, name) =>
   page.$eval(`${memRow(name)} .ag-auto-s`, (el) => el.textContent || "").catch(() => null);
 const memHas = async (page, name, value) => (await memValue(page, name)) === value;
 
+/** The account's first agent, asked of the SERVER — so a journey can be run on its own. */
+const firstAgent = (page) => page.evaluate(async () => {
+  const r = await fetch("/api/agent/list", { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+  return (await r.json())?.agents?.[0]?.id ?? null;
+});
+
 const text = (page, s = "#viewAgents") => page.$eval(s, (el) => el.textContent || "").catch(() => "");
+
+/**
+ * Wait for the panel to say something, and **on a timeout say what it DOES say.**
+ * `waitForFunction`'s own message is "Timeout 30000ms exceeded" and a line number, which is a
+ * failure that cannot name itself — this repository's own most-recorded instrument fault.
+ */
+async function waitText(page, pattern, what, ms = 20_000) {
+  try {
+    await page.waitForFunction(
+      (src) => new RegExp(src).test(document.getElementById("viewAgents")?.textContent || ""),
+      pattern.source, { timeout: ms });
+  } catch {
+    const said = (await text(page)).replace(/\s+/g, " ").slice(0, 600);
+    throw new Error(`waiting for ${what} (${pattern}) — the screen says: ${said}`);
+  }
+}
 const has = async (page, s) => !!(await page.$(s));
 const shot = async (page, name) => {
   const el = await page.$("#viewAgents");
@@ -330,15 +403,220 @@ try {
   }
 
   // ════════════════════════════════════════════════════════════════════════════
+  // JOURNEY 2 — connect an account, build the worked example, run it, approve the
+  //             exact message, and read the fake provider's own mailbox
+  // ════════════════════════════════════════════════════════════════════════════
+  let connId = null;
+  if (want(2)) {
+    head("JOURNEY 2 — a useful workflow, from the example, through the fake provider");
+    const { page } = await openApp(A, "J2");
+    agentId = agentId ?? (await firstAgent(page));
+    check("2-pre. there is an agent to work on", !!agentId, String(agentId));
+    await openAgent(page, agentId);
+
+    // ── CONNECT AN ACCOUNT, on the screen, with the permissions a person grants ──
+    await press(page, "agent-connections", "id", agentId);
+    await page.waitForSelector("[data-act=\"agent-conn-new\"]", { timeout: 10_000 });
+    await press(page, "agent-conn-new");
+    await page.waitForSelector("#agConnForm", { timeout: 10_000 });
+    await page.fill('#agConnForm [data-field="account"]', ACCOUNT);
+    await page.fill('#agConnForm [data-field="label"]', "The shop");
+    await page.check('#agConnForm input[data-scope="read"]');
+    await page.check('#agConnForm input[data-scope="send"]');
+    await press(page, "agent-conn-save");
+    await page.waitForSelector('[data-act="agent-conn-off"]', { timeout: 10_000 });
+    connId = await page.getAttribute('[data-act="agent-conn-off"]', "data-id");
+    const connPanel = await text(page);
+    check("2a. the account is connected, with the two permissions the person ticked",
+      connPanel.includes(ACCOUNT) && /Can: read · send/.test(connPanel),
+      (connPanel.match(/Can: [^\n]{0,30}/) || [""])[0]);
+    // ⚠ NOTHING THAT LOOKS LIKE A CREDENTIAL IS ANYWHERE ON THE SCREEN. The platform mints
+    // it, keeps it and never answers it, so a long hex run in this panel would be one having
+    // escaped — which is the one thing this whole surface is built to make impossible.
+    check("2b. ...and no credential is on the screen", !/[0-9a-f]{32,}/i.test(connPanel),
+      (connPanel.match(/[0-9a-f]{32,}/i) || [""])[0]);
+
+    // ── THE WORKED EXAMPLE, seeded into the form a person edits ──────────────
+    await press(page, "agent-conn-back");
+    await page.waitForSelector("#agMsg", { timeout: 10_000 });
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-example"]', { timeout: 10_000 });
+    await press(page, "agent-auto-example");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    const seeded = await page.evaluate(() => ({
+      name: document.getElementById("agAutoName")?.value,
+      steps: [...document.querySelectorAll(".ag-step")].map((e) => e.dataset.stepType),
+      asks: [...document.querySelectorAll('[data-field="input-name"], [data-input-name]')].length,
+      conn: document.querySelector('.ag-step [data-field="connection"]')?.value ?? null,
+    }));
+    check("2c. the example seeded the form with its own steps", seeded.steps.join(",") === "knowledge,note,send",
+      seeded.steps.join(","));
+    check("2d. ⚠ ...and the connection is the account this person just connected",
+      seeded.conn === connId, `${seeded.conn} vs ${connId}`);
+    await press(page, "agent-auto-save");
+    await page.waitForFunction(() => /Saved\./.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    check("2e. it saved from the form unedited", /Saved\./.test(await text(page)));
+
+    // ── RUN IT, answering the inputs it declares ─────────────────────────────
+    // ⚠ `agent-auto-cancel` IS THE FORM'S OWN Back and `agent-auto-back` IS THE SCREEN'S —
+    // read off `chat.js`, after a first draft pressed the second and landed in the thread.
+    await press(page, "agent-auto-cancel");
+    await page.waitForSelector('[data-act="agent-auto-run"]', { timeout: 10_000 });
+    const autoId = await page.getAttribute('[data-act="agent-auto-run"]', "data-id");
+    await press(page, "agent-auto-run", "id", autoId);
+    await page.waitForSelector('[data-ask="who"]', { timeout: 10_000 });
+    check("2f. Run now asked for the inputs the example declares",
+      (await has(page, '[data-ask="who"]')) && (await has(page, '[data-ask="topic"]')));
+    await page.fill('[data-ask="who"]', RECIPIENT);
+    await page.fill('[data-ask="topic"]', "service");
+    await press(page, "agent-auto-ask-go");
+
+    // The site route rang the queue; nothing here runs a consumer, so this is the engine.
+    await waitText(page, /Queued|Running|Waiting/, "the run to appear in the history", 10_000);
+    await disp.drain();
+    await waitText(page, /Waiting/, "the execution to hold for a person");
+    const waitingPanel = await text(page);
+    check("2g. ⚠ it is WAITING for a person rather than reading as working",
+      /Waiting/.test(waitingPanel) && !/^Done/.test(waitingPanel));
+    check("2h. ...and nothing is in the provider's mailbox while it waits",
+      mailbox(ACCOUNT).length === 0, String(mailbox(ACCOUNT).length));
+
+    // ⚠ WHAT THE PERSON IS SHOWN, read off the screen rather than composed here.
+    const shownAsk = await page.$eval(".ag-run-wait .ag-run-why", (el) => el.textContent || "").catch(() => "");
+    check("2i. ⚠ the screen names the recipient and the account it would send from",
+      shownAsk.includes(RECIPIENT) && shownAsk.includes(ACCOUNT), JSON.stringify(shownAsk.slice(0, 90)));
+    await shot(page, "j2-waiting");
+
+    // ── APPROVE IT, and only then does anything go ───────────────────────────
+    const runId = await page.getAttribute('[data-act="agent-auto-approve"]', "data-run");
+    await page.fill(`[data-note="${runId}"]`, "looks right");
+    await press(page, "agent-auto-approve", "run", runId);
+    await page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    await disp.drain();
+    await waitText(page, /Done/, "the execution to finish");
+
+    const box = mailbox(ACCOUNT);
+    check("2j. ⚠ EXACTLY ONE message reached the fake provider's mailbox", box.length === 1, String(box.length));
+    check("2k. ⚠ ...and its RECIPIENT is the one the screen showed before the approval",
+      box[0]?.to === RECIPIENT, JSON.stringify(box[0]?.to));
+    // The prepared body is on the send step's own outcome, which is where a person reads it.
+    const prepared = await page.$eval(".ag-step-msg", (el) => el.textContent || "").catch(() => "");
+    check("2l. ⚠ ...and its BODY is character for character what the screen shows as prepared",
+      !!box[0]?.body && prepared.includes(box[0].body), JSON.stringify((prepared || "").slice(0, 80)));
+    check("2m. ...and the message really used the reference material this person saved",
+      /95/.test(box[0]?.body || ""), JSON.stringify((box[0]?.body || "").slice(0, 90)));
+    const donePanel = await text(page);
+    check("2n. the history says which steps ran and that the send is simulated",
+      /knowledge|Look something up|Use what it knows/i.test(donePanel) && /simulated/i.test(donePanel));
+    // ⚠ **THE OUTCOME IS WHAT THE HISTORY SHOWS, AND THE NOTE IS NOT — recorded rather than
+    // asserted away.** A send's approval is a TOOL approval, so the words a person typed here
+    // are stored on the REQUEST (`agent.tool_approvals.decided_note`) and the execution's own
+    // `decisions` map — which is what this screen draws — never holds them. So a person's note
+    // on a send is written and shown back nowhere. The first draft of this check demanded it
+    // and was red about a screen doing what it was built to do.
+    check("2o. ...and the send step's own outcome says what went where",
+      /sent to ada@example\.test/.test(donePanel), (donePanel.match(/sent to [^\n]{0,50}/) || [""])[0]);
+    await shot(page, "j2-sent");
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // AND THE FULLER WORKFLOW THE MILESTONE NAMES — inputs → reference material →
+    // memory → branch → approval → send — built step by step on the real form.
+    // ══════════════════════════════════════════════════════════════════════════
+    await press(page, "agent-auto-new");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    await type(page, "agAutoName", "Reply in the shop's own voice");
+    const asks = [["who", "Who it is for"], ["topic", "What they asked about"]];
+    for (let i = 0; i < asks.length; i++) {
+      await press(page, "agent-auto-input-add");
+      await page.waitForFunction((n) => document.querySelectorAll(".ag-auto-in").length === n, i + 1, { timeout: 10_000 });
+      const row = `[data-input-row="${i}"]`;
+      await page.fill(`${row} [data-in="name"]`, asks[i][0]);
+      await page.fill(`${row} [data-in="label"]`, asks[i][1]);
+      await page.check(`${row} [data-in="required"]`);
+    }
+    // ⚠ BOTH ARMS BIND `reply`, because only what both produce survives the rejoin — so a
+    // workflow whose `send` reads `{{reply}}` after the `end` is one the validator accepts.
+    await addStep(page, "memory", { key: "tone", out: "tone" });
+    await addStep(page, "knowledge", { query: "{{topic}}", out: "facts" });
+    await addStep(page, "if", { left: "{{tone}}", op: "is", right: "formal" });
+    await addStep(page, "note", { text: FORMAL, out: "reply" });
+    await addStep(page, "otherwise");
+    await addStep(page, "note", { text: CASUAL, out: "reply" });
+    await addStep(page, "end");
+    await addStep(page, "send", { connection: connId, to: "{{who}}", body: "{{reply}}" });
+    check("2r. eight steps are on the form, in the order they were added",
+      (await page.$$eval(".ag-step", (els) => els.map((e) => e.dataset.stepType).join(","))) ===
+        "memory,knowledge,if,note,otherwise,note,end,send",
+      await page.$$eval(".ag-step", (els) => els.map((e) => e.dataset.stepType).join(",")));
+
+    // ── READ IT THROUGH BEFORE SAVING, which is the Check button's whole job ──
+    await press(page, "agent-auto-check");
+    await page.waitForFunction(() => /Nothing is missing|has to be in place|couldn|needs a change/i.test(
+      document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    const checked = await text(page);
+    check("2s. ⚠ Check read the branch through and found nothing wrong with it",
+      !/needs a change/i.test(checked), (checked.match(/Step \d+ needs a change/i) || [""])[0]);
+
+    await press(page, "agent-auto-save");
+    await page.waitForFunction(() => /Saved\./.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    check("2t. ...and the validator accepted a branch built on the screen", /Saved\./.test(await text(page)));
+
+    await press(page, "agent-auto-cancel");
+    await page.waitForSelector('[data-act="agent-auto-run"]', { timeout: 10_000 });
+    // ⚠ BY NAME, NOT BY POSITION — there are two automations now and nothing here decides
+    // which order the list draws them in.
+    const voiceId = await page.evaluate(async (agent) => {
+      const r = await fetch("/api/agent/automations?agent=" + agent, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      const rows = (await r.json()).automations || [];
+      return (rows.find((a) => a.name === "Reply in the shop's own voice") || {}).id ?? null;
+    }, agentId);
+    check("2t2. the automation just built is on the account, found by its name", !!voiceId, String(voiceId));
+    await press(page, "agent-auto-run", "id", voiceId);
+    await page.waitForSelector('[data-ask="who"]', { timeout: 10_000 });
+    await page.fill('[data-ask="who"]', RECIPIENT);
+    await page.fill('[data-ask="topic"]', "puncture");
+    await press(page, "agent-auto-ask-go");
+    // ⚠ WAIT FOR THE RUN TO BE THERE BEFORE DRAINING. `press` returns when the click is
+    // dispatched, not when the request has landed — so a drain straight after it finds an
+    // empty doorbell and the execution sits on `Queued` for ever. Measured: that is exactly
+    // what the first draft did, and the screen said `Queued` while the wait timed out.
+    await waitText(page, /Queued|Running|Waiting/, "the branch run to appear in the history", 10_000);
+    await disp.drain();
+    await waitText(page, /Waiting/, "the branch workflow to hold for a person");
+    const runId2 = await page.getAttribute('[data-act="agent-auto-approve"]', "data-run");
+    await press(page, "agent-auto-approve", "run", runId2);
+    await page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    await disp.drain();
+    await waitText(page, /Done/, "the branch workflow to finish");
+
+    const box2 = mailbox(ACCOUNT);
+    check("2u. ⚠ a second message went, and only one more", box2.length === 2, String(box2.length));
+    // ⚠ WHICH ARM RAN IS READ OFF THE MESSAGE, not off the history's word for it — the memory
+    // this person saved in journey 1 says `formal`, so the formal arm is the one that must have
+    // bound `reply`, and the OTHER arm's words must be nowhere near it.
+    check("2v. ⚠ ...and the branch took the arm the remembered fact chose",
+      (box2[1]?.body || "").startsWith("Dear ") && !/^Hi /.test(box2[1]?.body || ""),
+      JSON.stringify((box2[1]?.body || "").slice(0, 60)));
+    check("2w. ...and it quoted the reference material for what was really asked about",
+      /puncture/.test(box2[1]?.body || "") && /12/.test(box2[1]?.body || ""),
+      JSON.stringify((box2[1]?.body || "").slice(0, 110)));
+    const voicePanel = await text(page);
+    check("2x. ...and the history says which arm it took and that the other was skipped",
+      /first arm/.test(voicePanel) && /skipped/.test(voicePanel),
+      (voicePanel.match(/(first arm|other arm)/) || [""])[0]);
+    await shot(page, "j2-branch-sent");
+    check("2p. no page error anywhere in journey 2", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
+    check("2q. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
+      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
   // JOURNEY 6 — the two fixes from the last round, in a browser this time
   // ════════════════════════════════════════════════════════════════════════════
   if (want(6)) {
     head("JOURNEY 6 — typing while Save is pending, and correcting while Check is pending");
     const { page } = await openApp(A, "J6");
-    if (!agentId) {
-      const l = await page.evaluate(async () => (await fetch("/api/agent/list", { headers: { authorization: "Bearer " + (await Auth.accessToken()) } })).json());
-      agentId = l?.agents?.[0]?.id ?? null;
-    }
+    agentId = agentId ?? (await firstAgent(page));
     check("6-pre. there is an agent to work on", !!agentId, String(agentId));
 
     await openAgent(page, agentId);
