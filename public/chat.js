@@ -9933,6 +9933,93 @@ function problemNote(list) {
 //
 // NAMES WHAT MOVED. A customer who asks for one thing and gets four changed
 // cannot see that from the site, and "done" tells them nothing they can check.
+/**
+ * WHAT A CHANGE DID BESIDE WHAT WAS ASKED FOR — one writer, every layer.
+ *
+ * ⚠ THESE CLAUSES LIVED INSIDE THE `page` BRANCH AND VANISHED ON EVERY
+ * MULTI-RUNG MESSAGE. `components` and `tsx` both dispatch to the page rung,
+ * so one sentence runs it twice — and the merged reply's `layer` is then
+ * `"look"`, because two rungs ran and no single one of them is the answer.
+ * MEASURED: a reply carrying `photosRemoved: 1` came back on screen as
+ * "✅ Updated the look." and nothing else. The facts were on the wire the
+ * whole way and the composer that reads them was never reached — a value
+ * computed and never forwarded, one hop from the screen.
+ *
+ * SO THE LAYER DOES NOT DECIDE WHETHER THEY ARE SAID. Every field here is
+ * absent on an ordinary edit, so calling this from a branch that never has
+ * them appends "" and the sentence is byte-identical to what it was.
+ *
+ * ONE FUNCTION RATHER THAN TWO COPIES, for this file's own recorded reason:
+ * `escalatedEdit` and `applyEditResult` were each duplicated once and both
+ * copies had silently drifted before anybody looked.
+ */
+function editOutcomes(e) {
+  var out = '';
+  // ── A COMPONENT THE CHANGE DID NOT TOUCH, AND WHY ──────────────────────
+  //
+  // Two fields because they are two sentences, and collapsing them would
+  // tell somebody to try again over a component that is simply too big to
+  // show a model. `keptParts` is "I would not rewrite it without seeing it";
+  // `unseenParts` is "I could not read this site's sections at all".
+  //
+  // NAMED, because a component the customer asked to change and did not get
+  // changed is the one thing they must hear — the server's own rule, and a
+  // field the screen never renders is a value computed and never forwarded.
+  const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];
+  if (kept.length) {
+    out += ' I left ' + kept.join(' and ') + ' alone — ' + (kept.length === 1 ? 'it is' : 'they are') +
+      ' too long to show the builder in one go, and rewriting ' + (kept.length === 1 ? 'it' : 'them') +
+      ' unseen would risk losing what ' + (kept.length === 1 ? 'it does' : 'they do') + '.';
+  }
+  const unseen = Array.isArray(e.unseenParts) ? e.unseenParts.filter(Boolean) : [];
+  if (unseen.length) {
+    out += ' I could not read this site’s sections just then, so I left ' + unseen.join(' and ') +
+      ' exactly as ' + (unseen.length === 1 ? 'it was' : 'they were') + '. Ask again and I’ll try once more.';
+  }
+  // ── A PHOTOGRAPH THE CHANGE WOULD HAVE TAKEN OFF, AND DIDN'T ───────────
+  //
+  // The protection's own receipt. The builder emptied a picture this message
+  // never mentioned and the attribute was put back from the page's own
+  // previous source — so the customer's site is unchanged in that respect,
+  // which is only obvious to somebody who knows it nearly wasn't.
+  const heldPix = Number(e.photosKept) || 0;
+  if (heldPix > 0) {
+    out += ' ' + (heldPix === 1 ? 'The photograph' : 'The ' + heldPix + ' photographs') +
+      ' already on ' + (heldPix === 1 ? 'that page is' : 'those pages are') +
+      ' still there — I only changed what you asked about.';
+  }
+  // ── AND ONE THAT REALLY DID COME OFF ───────────────────────────────────
+  //
+  // REPORTED, NEVER REFUSED, which is what separates this rung from the
+  // addon's: there a lost photograph is a 422 at cost 0, right for a step
+  // whose contract is "an addition is always a new thing"; here "take the
+  // window photo off the front page" is an ordinary request. So the change
+  // ships and the customer is told, the way `reordered` is told — reported,
+  // never rewritten.
+  //
+  // SAID WHEN A REMOVAL WAS AUTHORISED TOO, deliberately. This side does not
+  // know which it was; the field is a fact about the publication and the
+  // intent lives in a sentence nobody parsed here. An unasked-for loss with
+  // no sentence is the failure this closes; a sentence on an asked-for one
+  // costs a line that reads as confirmation.
+  //
+  // THE COUNT, NEVER THE URLS. A storage key tells somebody nothing —
+  // `lostPhotosMsg`'s own rule, one path over.
+  //
+  // ⚠ `photosRemoved` IS THE EDIT PATH'S OWN FIELD, and the addon's
+  // `lostPhotos` is a LIST of urls on a refusal that published nothing.
+  // `Number([…])` is NaN, so reading that one here would answer 0 and this
+  // clause would never fire — one name over two shapes, which is why they
+  // are two names.
+  const lostPix = Number(e.photosRemoved) || 0;
+  if (lostPix > 0) {
+    out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') +
+      ' no longer on the site. If that was not what you wanted, say “put the ' +
+      (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
+  }
+  return out;
+}
+
 function editReply(e) {
   // THE SWEEP'S REPLY, BEFORE ANY LAYER (stage 2a, 2026-09-05). A job that
   // committed and died before storing its reply is finalized by the sweep
@@ -10084,57 +10171,7 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
-    // ── A COMPONENT THE CHANGE DID NOT TOUCH, AND WHY ────────────────────
-    //
-    // Two fields because they are two sentences, and collapsing them would
-    // tell somebody to try again over a component that is simply too big to
-    // show a model. `keptParts` is "I would not rewrite it without seeing it";
-    // `unseenParts` is "I could not read this site's sections at all".
-    //
-    // NAMED, because a component the customer asked to change and did not get
-    // changed is the one thing they must hear — the server's own rule, and a
-    // field the screen never renders is a value computed and never forwarded.
-    const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];
-    if (kept.length) {
-      out += ' I left ' + kept.join(' and ') + ' alone — ' + (kept.length === 1 ? 'it is' : 'they are') +
-        ' too long to show the builder in one go, and rewriting ' + (kept.length === 1 ? 'it' : 'them') +
-        ' unseen would risk losing what ' + (kept.length === 1 ? 'it does' : 'they do') + '.';
-    }
-    const unseen = Array.isArray(e.unseenParts) ? e.unseenParts.filter(Boolean) : [];
-    if (unseen.length) {
-      out += ' I could not read this site’s sections just then, so I left ' + unseen.join(' and ') +
-        ' exactly as ' + (unseen.length === 1 ? 'it was' : 'they were') + '. Ask again and I’ll try once more.';
-    }
-    // ── A PHOTOGRAPH THIS CHANGE TOOK OFF THE PAGE ────────────────────────
-    //
-    // REPORTED, NEVER REFUSED, which is what separates this rung from the
-    // addon's: there a lost photograph is a 422 at cost 0, right for a step
-    // whose contract is "an addition is always a new thing"; here "take the
-    // window photo off the front page" is an ordinary request. So the change
-    // ships and the customer is told, the way `reordered` above is told —
-    // reported, never rewritten.
-    //
-    // SAID WHEN A REMOVAL WAS AUTHORISED TOO, deliberately. Nothing on this
-    // side knows which it was: the field is a fact about the publication and
-    // the intent lives in a sentence nobody parsed. An unasked-for loss with
-    // no sentence is the failure this closes; a sentence on an asked-for one
-    // costs a line that reads as confirmation.
-    //
-    // THE COUNT, NEVER THE URLS. A storage key tells somebody nothing —
-    // `lostPhotosMsg`'s own rule, one path over.
-    //
-    // ⚠ `photosRemoved` IS THE EDIT PATH'S OWN FIELD, and the addon's
-    // `lostPhotos` is a LIST of urls on a refusal that published nothing.
-    // `Number([…])` is NaN, so reading that one here would answer 0 and this
-    // clause would never fire — one name over two shapes, which is why they
-    // are two names.
-    const lostPix = Number(e.photosRemoved) || 0;
-    if (lostPix > 0) {
-      out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') +
-        ' no longer on that page. If that was not what you wanted, say “put the ' +
-        (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
-    }
-    return out + photoNote(e.photos) + problemNote(e.problems);
+    return out + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
   }
   if (e.layer === 'logo') {
     // THE SERVER'S OWN SENTENCE. It is the only side that knows whether the
@@ -10199,7 +10236,14 @@ function editReply(e) {
     for (const n of [e.styleNote, e.tokenNote, e.cssNote]) {
       if (typeof n === 'string' && n.trim()) out += ' ' + n.trim();
     }
-    return out + problemNote(e.problems);
+    // ── AND THIS IS WHERE A MULTI-RUNG MESSAGE LANDS ─────────────────────
+    //
+    // `layer` is `"look"` whenever more than one rung ran — the merge says so
+    // in as many words — so this branch composes for page edits, component
+    // edits and everything else that shares a sentence with them. Without
+    // these the withheld component, the protected photograph and the empty
+    // frame were all on the wire and none of them on the screen.
+    return out + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
   }
   return '✅ Done.';
 }

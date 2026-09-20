@@ -160,7 +160,13 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
+// `countImageSlots` IS NOT IMPORTED ANY MORE, and its absence is the record of
+// why: it counts `@@IMG:` TOKENS, which both the edit page rung and the addon
+// forbid in their own directives, so on every obedient answer it was zero. Both
+// callers ask `newEmptySlots` over the publication instead — a reader that sees
+// a swept token AND an empty frame the model simply wrote. Two comments below
+// still name it because they explain that move; neither is a consumer.
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -20484,8 +20490,41 @@ async function handleRequest(request, env, ctx) {
             // beliefs about what the site has, which is the state this whole
             // block exists to make impossible.
             let ePartsRead = null;
+            // ── AND WHAT THE SITE HELD BEFORE ANY RUNG RAN ────────────────
+            //
+            // The pages one is free: `eSrc` is reassigned by `publishStep`, so
+            // holding the array it arrived with costs a reference. The
+            // components one is taken at the FIRST read, because the read
+            // itself is lazy and `publishStep` advances `ePartsRead` exactly
+            // as it advances `eSrc`.
+            //
+            // WHY A MESSAGE-WIDE PAIR EXISTS AT ALL: every outcome this route
+            // reports about the site's PICTURES is a comparison, and a
+            // comparison taken per rung answers about a version that may
+            // never ship. Two page rungs run for one sentence
+            // (`components` and `tsx` both dispatch here), so rung 2's
+            // "before" was rung 1's output — and a photograph rung 1 took off
+            // and rung 2 put back was REPORTED LOST on a publication that
+            // shows it. The customer hears about the intermediate state.
+            //
+            // So the question is asked ONCE, below the loop, of the two things
+            // that are really comparable: what the message arrived to, and
+            // what the one publish is about to ship.
+            const eSrcAt0 = eSrc;
+            let ePartsAt0 = null;
             const editParts = async () => {
-              if (!ePartsRead) ePartsRead = await readSiteParts(env, ownerSlug);
+              if (!ePartsRead) {
+                ePartsRead = await readSiteParts(env, ownerSlug);
+                // ⚠ `[]` FOR A READ THAT FAILED, NOT `null`, and the two are
+                // not interchangeable here. This is one half of a COMPARISON;
+                // a `null` would reach `imageSources` as "no components" on
+                // the before side while the after side carries the store's
+                // own copy, and every photograph in a component would read as
+                // one this change ADDED. An unreadable store publishes no
+                // components at all (the merge refuses), so both sides being
+                // empty is the reading that answers "nothing moved".
+                ePartsAt0 = ePartsRead.ok ? ePartsRead.parts : [];
+              }
               return ePartsRead;
             };
 
@@ -21142,6 +21181,30 @@ async function handleRequest(request, env, ctx) {
               // whole message in front of it. One step, exactly as before.
               steps.push({ layer: eLayer, page: ePage, fields: [] });
             }
+
+            // ── DID THIS MESSAGE ASK ABOUT THE PICTURES AT ALL? ───────────
+            //
+            // The one thing that separates *"lay the front page out in two
+            // columns"* — where a photograph coming off is a loss nobody
+            // asked for — from *"take the window photo off"*, where it is the
+            // work. The page rung protects what it finds on the first and
+            // must not on the second.
+            //
+            // READ OUT OF THE PICKER'S OWN ANSWER, NEVER OUT OF THE SENTENCE.
+            // A keyword scan over the customer's words would be a second
+            // opinion about what they asked for, sitting beside the model
+            // call whose whole job is to answer that — and it would be wrong
+            // in the expensive direction on *"keep the photo of the window
+            // and redo the columns"*, which names a photograph and asks for
+            // no change to one.
+            //
+            // THE LAYER, NOT THE FIELD. `laneLayer("images")` is `picture`, so
+            // asking for the layer is asking the resolver rather than keeping
+            // a list of which fields are about photographs — and it is
+            // already true of the router's own `picture` decision, which
+            // carries no fields at all. A field that dispatches there next
+            // month is covered by existing.
+            const ePhotoAsk = steps.some((s) => s && s.layer === "picture");
 
             // THE DISPATCH CHAIN, AS A CALLABLE. Its parameters are named
             // exactly as the variables the branches already read, so the eight
@@ -22920,22 +22983,14 @@ async function handleRequest(request, env, ctx) {
               // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
               // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
               // `builder/site-images.mjs`'s `imageSources` has the account.
-              // ⚠ AND THE COUNT IT PRODUCES IS THE WRONG NUMBER — the
-              // backlog's own open item, closed below rather than here.
-              // `countImageSlots` counts `@@IMG:` TOKENS, and this rung's
-              // directive forbids tokens, so on every OBEDIENT answer it is
-              // zero and `photoNote` says nothing. What it really measures is
-              // how many tokens a model wrote against an instruction not to.
-              // Kept for the sweep it drives one line down — a token that did
-              // get written must still be swept — and replaced as the
-              // CUSTOMER'S number by `newEmptySlots` below.
-              const pSlots = countImageSlots(imageSources(pValid.pages, pValid.parts));
-              // WHAT THE SITE DREW BEFORE THIS CHANGE, captured before the
-              // sweep rewrites anything. Read across the pages AND the
-              // components, because since the band split a photograph can be
-              // in either — `imageSources` is the one reader of that union and
-              // `photoInventory` is the same pair the prompt was built from.
-              const pPicsBefore = imageSources(eSrc, pPartsRead.ok ? pPartsRead.parts : []);
+              // ⚠ AND IT PRODUCES NO NUMBER ANY MORE. `countImageSlots` counts
+              // `@@IMG:` TOKENS, and this rung's directive forbids them, so on
+              // every obedient answer it was zero — and where a token WAS
+              // written the sweep one line down turns it into `src=""`, which
+              // is an empty frame the message-wide reader below the loop sees
+              // on the after side. Two readers of one fact, one of which is
+              // silent in the ordinary case; the sweep is the part that was
+              // ever load-bearing and it is what stays.
               pValid.pages = applyImages(pValid.pages, {});
               pValid.parts = applyImages(pValid.parts, {});
               // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
@@ -22956,6 +23011,42 @@ async function handleRequest(request, env, ctx) {
               // in a hand-written component takes the build down exactly as one
               // in a page does.
               pValid.parts = repairImports(pValid.parts).pages;
+              // ── AND THE PHOTOGRAPHS NOBODY ASKED ABOUT GO BACK ───────────
+              //
+              // Owner: *"Photo preservation is not fixed by publishing the
+              // loss and reporting it afterward."* It was not: the rung read
+              // the loss off the publication, shipped it, and named it in the
+              // reply. A customer whose sentence said *"keep the window
+              // photograph"* got an empty frame and a note about it.
+              //
+              // AFTER THE SWEEP, WHICH IS THE POSITION THAT MATTERS.
+              // `applyImages` is what turns an unbought `@@IMG:` token into
+              // `src=""`, so a restoration above it would meet a token and a
+              // restoration below it meets the empty attribute the customer
+              // would really have seen. Both shapes reach here as one.
+              //
+              // NOT WHEN THE PICTURES ARE THE SUBJECT. `ePhotoAsk` is the
+              // message's own picker answering; with it true this is a
+              // no-op and the picture rung's removal and replacement work
+              // exactly as they did.
+              //
+              // TWICE, ONE LIST EACH, because `keepPhotos` writes each file
+              // back into the list it came from — the union `imageSources`
+              // answers is for READING, and slicing it apart by length is
+              // `applyImages`' own recorded way of breaking this again.
+              // Components pair on `name`, pages on `path`.
+              //
+              // ⚠ THE COMPONENT SIDE IS EMPTY ON AN UNREADABLE STORE, never
+              // the store's own copy: `pPartsRead.ok` false means we never
+              // learned a name, and pairing against a list we could not read
+              // is pairing against nothing. The merge refuses to publish any
+              // component in that state anyway, so there is nothing a
+              // restoration there could reach.
+              const pGuard = ePhotoAsk ? null : keepPhotos(eSrc, pValid.pages, ownerSlug);
+              const pGuardParts = ePhotoAsk ? null : keepPhotos(pPartsRead.ok ? pPartsRead.parts : [], pValid.parts, ownerSlug);
+              if (pGuard) pValid.pages = pGuard.files;
+              if (pGuardParts) pValid.parts = pGuardParts.files;
+              const pRestored = [...((pGuard && pGuard.restored) || []), ...((pGuardParts && pGuardParts.restored) || [])];
               const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
@@ -23031,6 +23122,59 @@ async function handleRequest(request, env, ctx) {
                 return !s || s.source !== pt.source;
               });
               if (!wrote || (wrote.source === target.source && !partMoved)) {
+                // ── A CHANGE A PROTECTION WITHHELD IS NOT A NO-CHANGE ──────
+                //
+                // Owner: *"A component-only refusal falls into the full-rewrite
+                // fallback … the browser initiates a full rewrite with no
+                // refusal explanation."* REPRODUCED: an oversized stored
+                // component, an unchanged page back, and a replacement for the
+                // component the wall had withheld — the wall refuses it (which
+                // is the point of the wall), nothing is left that differs, and
+                // this line then reported the site as already that way.
+                //
+                // `escalate` IS WHAT THE BROWSER ACTS ON, not a word in a log.
+                // `escalatedEdit` reads it and runs the ~25-credit rewrite of
+                // every page — so a guard that exists to avoid rewriting ONE
+                // component unseen bought a rewrite of the whole site, and the
+                // sentence explaining why never reached the screen at all.
+                //
+                // THE DISCRIMINATOR IS WHETHER A PROTECTION REALLY ACTED, and
+                // all three are the same kind of fact: a component too large
+                // to show, a store we could not read, and a photograph put
+                // back. Each is US declining to write something, which is the
+                // one reason "nothing changed" is not a statement about the
+                // customer's request.
+                //
+                // ⚠ A GENUINE NO-CHANGE STILL ESCALATES, and that is the half
+                // worth saying out loud: a model that hands back the page it
+                // was given, with nothing withheld anywhere, is answering
+                // *"the site already does that"* — and the ladder is right to
+                // climb. The condition is a positive test on this route's own
+                // three lists, never a blanket refusal to escalate.
+                //
+                // NOT AN `escalate`, NOT A 422 COMPILE FAILURE, AND COST 0.
+                // Its own error name, its own sentence, and the browser's
+                // refusal branch — which starts nothing, which is the whole
+                // fix. `keptParts`/`unseenParts` ride along so the screen can
+                // name the component rather than describing a category.
+                if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length)) {
+                  return Response.json({
+                    ok: false, error: "withheld", cost: 0,
+                    msg: pKeptParts.length
+                      ? "I couldn't make that change without rewriting " + pKeptParts.slice(0, 3).join(" and ") +
+                        " unseen — " + (pKeptParts.length === 1 ? "it is" : "they are") +
+                        " too long to show the builder in one go, so I left your site exactly as it was. " +
+                        "Ask for a smaller part of it and I'll do that."
+                      : pUnseenParts.length
+                        ? "I couldn't read this site's sections just now, so I left your site exactly as it was. " +
+                          "Nothing was changed and you haven't been charged — try again in a moment."
+                        : "The only thing that change would have done is take a photograph off your page, so I left " +
+                          "your site exactly as it was. Say “take the photo off” if that is what you wanted.",
+                    keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,
+                    unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,
+                    problems: pProblems.slice(0, 4),
+                  }, { status: 409 });
+                }
                 return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
               }
               const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
@@ -23055,34 +23199,26 @@ async function handleRequest(request, env, ctx) {
 
               // ── WHAT THIS CHANGE DID TO THE SITE'S PICTURES ──────────────
               //
-              // Read off the PUBLICATION rather than the writer's answer, so
-              // the sweep and the parts wall are both already applied — the
-              // addon's rule, and it matters here for the same reason: a
-              // component the wall refused is not part of what ships, so
-              // counting its pictures would report a change nobody made.
+              // ⚠ NOT ANSWERED HERE ANY MORE, AND THAT IS THE FIX. It was:
+              // this rung compared `eSrc` with its own output and put the
+              // answer on its own reply. `components` and `tsx` both dispatch
+              // to this rung, so one sentence runs it TWICE — and rung 2's
+              // "before" is rung 1's output, because `publishStep` advances
+              // `eSrc`. A photograph rung 1 moved and rung 2 put back was
+              // reported LOST on a publication that shows it, and the merge's
+              // first-writer-wins rule then carried exactly that number to
+              // the customer.
               //
-              // ⚠ DETECTED AND REPORTED, NEVER REFUSED — and that line is the
-              // whole of what separates this rung from the addon's. There a
-              // lost photograph is a 422 `lost-photos` at cost 0, which is
-              // right for a step whose contract is *"an addition is always a
-              // new thing"*. Here *"take the window photo off the front page"*
-              // is an ordinary request, and a rung that refuses it cannot do
-              // its job. So the reply NAMES the loss and the customer decides:
-              // the `orderingMoved` / `reordered` precedent, one field over in
-              // this same response — *reported, never rewritten*.
+              // THE COMPARISON THAT IS REALLY AVAILABLE is between what the
+              // message arrived to and what the ONE publish ships, and both
+              // of those exist only below the loop. `eSrcAt0`/`ePartsAt0`
+              // and `pendingPublish` are the two ends; the merge asks it once.
               //
-              // THE COUNT AND NOT THE URLS. A storage key tells a customer
-              // nothing (`lostPhotosMsg`'s own rule), and the number is what
-              // they can act on.
-              const pPicsAfter = imageSources(pPages, pParts || (pPartsRead.ok ? pPartsRead.parts : []));
-              const pKept = keptImages(pPicsBefore, pPicsAfter, ownerSlug);
-              // AND HOW MANY EMPTY PICTURE FRAMES THIS CHANGE ADDED. Per page
-              // and only the increase, so a page that already had one is not
-              // reported as this change's doing; computed over the same two
-              // publications, so a page the parts wall changed is counted as
-              // it really ships.
-              const pNewSlots = newEmptySlots(pPicsBefore, pPicsAfter);
-
+              // NOTHING IS LOST BY MOVING IT: the same two readers
+              // (`keptImages`, `newEmptySlots`) over the same union
+              // (`imageSources`), read off the PUBLICATION rather than the
+              // writer's answer exactly as the addon's rule requires, so a
+              // component the wall refused is still not counted.
               const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pPages,
                 parts: pParts || undefined,
@@ -23111,31 +23247,19 @@ async function handleRequest(request, env, ctx) {
               const alsoOn = orderingMoved(target.source, wrote.source, eSrc, target.path);
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
-                // ── THE PICTURE SPACES THIS CHANGE LEFT ──────────────────
+                // ⚠ `photos` AND `photosRemoved` ARE THE MERGE'S, NOT THIS
+                // RUNG'S — see the note above `publishStep`. Both are
+                // comparisons against the one publication and a rung cannot
+                // see it, so answering them here answered about an
+                // intermediate state a later rung may reverse.
                 //
-                // `pSlots` counted `@@IMG:` TOKENS on a rung whose directive
-                // forbids them, so it was zero on every obedient answer and
-                // `photoNote` never fired: a customer looking at a new empty
-                // frame had no way to know it was theirs to fill. Summed with
-                // it rather than replacing it, because the two count
-                // different things and a token that really was written still
-                // produces a frame — `applyImages` sweeps it to `src=""`,
-                // which `newEmptySlots` then sees on the after side, so the
-                // sum is the honest total either way.
-                photos: pNewSlots || pSlots,
-                // AND A PHOTOGRAPH THE CHANGE TOOK OFF, NAMED. Omitted when
-                // empty, so an ordinary page edit's reply is byte-identical
-                // and the field's PRESENCE is the signal. The COUNT, never the
-                // urls: a storage key tells a customer nothing.
-                //
-                // ⚠ `photosRemoved`, NOT `lostPhotos` — and the two names are
-                // two facts rather than a preference. The addon's field is a
-                // LIST of urls on a 422 that published NOTHING, and its own
-                // harness reads it with `Array.isArray`; this is a COUNT on a
-                // change that SHIPPED. One name over two shapes is this
-                // repository's own recorded trap, and the reader that would
-                // meet it first is the one doing `Number(...)` on an array.
-                photosRemoved: pKept.ok ? undefined : pKept.lost.length,
+                // AND A PHOTOGRAPH THIS RUNG PUT BACK IS SAID, because that
+                // is a fact about what the rung DID rather than a comparison:
+                // the writer emptied a `src` nobody asked about and the
+                // attribute was restored from the file's own previous source.
+                // Omitted when empty, so an ordinary page edit's reply is
+                // byte-identical to what it was.
+                photosKept: pRestored.length || undefined,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is
@@ -23430,6 +23554,40 @@ async function handleRequest(request, env, ctx) {
 
             const flat = (k) => ranOk.flatMap((d) => (Array.isArray(d.body[k]) ? d.body[k] : []));
             const last = ranOk[ranOk.length - 1];
+            // ── WHAT THE MESSAGE DID TO THE SITE'S PICTURES, ASKED ONCE ────
+            //
+            // Owner: *"avoid reporting intermediate changes that the final
+            // publication reverses."* Every rung used to answer this about
+            // its own output, and two page rungs run for one sentence — so
+            // the number that reached the customer was rung 1's opinion of a
+            // version rung 2 had already replaced.
+            //
+            // THE TWO ENDS ARE THE ONLY COMPARABLE PAIR: what the message
+            // arrived to, and what the ONE publish is about to ship.
+            // `pendingPublish` IS that publication — `publishStep` keeps
+            // `pages` as `eSrc` and carries an earlier rung's components
+            // forward — so this is the site as it will really stand.
+            //
+            // ONLY WHEN SOMETHING REALLY PUBLISHED. With no `finalPub` the
+            // live site is untouched, so there is no change to report and
+            // both fields stay absent rather than answering 0 about work
+            // that did not happen.
+            //
+            // ⚠ `ePartsAt0` FALLS BACK TO `[]` AND NOT TO THE STORE. A rung
+            // that handed no components over means they did not move, so the
+            // honest after side is whatever the before side was; a rung that
+            // never read them at all leaves both sides empty, which says the
+            // same thing. Reading the store here would be a THIRD read of it
+            // in one message, against the rule the snapshot exists for.
+            let picsRemoved, picsFrames;
+            if (finalPub && finalPub.ok && pendingPublish) {
+              const at0 = ePartsAt0 || [];
+              const was = imageSources(eSrcAt0, at0);
+              const now = imageSources(pendingPublish.pages, pendingPublish.parts || at0);
+              const kept = keptImages(was, now, ownerSlug);
+              picsRemoved = kept.ok ? undefined : kept.lost.length;
+              picsFrames = newEmptySlots(was, now);
+            }
             const merged = {
               ok: ranOk.length > 0,
               // THE LAYER THAT DID THE WORK, for a client that still reads one.
@@ -23487,6 +23645,34 @@ async function handleRequest(request, env, ctx) {
               partial: failures.length
                 ? failures.map((d) => ({ layer: d.step.layer, lanes: d.step.fields, error: d.body && d.body.error, msg: d.body && d.body.msg }))
                 : undefined,
+              // ── AND EVERY OUTCOME A RUNG REPORTS THAT THE CUSTOMER NEEDS ──
+              //
+              // ⚠ THE CATCH-ALL BELOW IS NOT ENOUGH FOR THESE, and that is
+              // the defect this closes. It copies a key from the FIRST rung
+              // that has one and skips every later rung (`Object.hasOwn`), so
+              // a second page rung's withheld component was silently dropped
+              // — and the fields it does copy then land on a reply whose
+              // `layer` is `"look"`, which the browser's `page` branch never
+              // reads. Named here so the aggregation is a UNION and the
+              // composer can find them wherever the work happened.
+              //
+              // DE-DUPLICATED, because `components` and `tsx` both dispatch
+              // to the page rung and both meet the same oversized component:
+              // one sentence naming it twice reads as two problems.
+              keptParts: [...new Set(flat("keptParts"))].slice(0, 6).length
+                ? [...new Set(flat("keptParts"))].slice(0, 6) : undefined,
+              unseenParts: [...new Set(flat("unseenParts"))].slice(0, 6).length
+                ? [...new Set(flat("unseenParts"))].slice(0, 6) : undefined,
+              // A SUM, because each rung restored its own and the customer's
+              // question is how many photographs stayed put.
+              photosKept: ranOk.reduce((n, d) => n + (Number(d.body.photosKept) || 0), 0) || undefined,
+              // AND THE TWO COMPARISONS, from the ONE publication above.
+              // Declared here rather than left to the catch-all so no rung's
+              // own idea of either can overwrite them: `Object.hasOwn` is
+              // true of a key whose value is `undefined`, which is exactly
+              // what "the message-wide reader says there was no loss" means.
+              photosRemoved: picsRemoved,
+              photos: picsFrames,
             };
             // ── AND ANYTHING A RUNG REPORTS THAT THIS MERGE DOES NOT MODEL ──
             //

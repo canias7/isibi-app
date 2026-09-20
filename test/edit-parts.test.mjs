@@ -86,9 +86,32 @@ test("a changed component is a change, even when the page came back byte-identic
   const moved = rung.indexOf("const partMoved = pPartsRead.ok && pFreshParts.some(");
   const decide = rung.indexOf('return escalate(wrote ? "no-change" : "no-page-back"');
   assert.ok(moved > 0 && decide > moved, "the no-change decision is made before the parts are compared");
-  const cond = rung.slice(rung.lastIndexOf("if (", decide), decide);
+  // ⚠ RE-ANCHORED 2026-09-20, AND THE OLD ANCHOR WAS THIS REPOSITORY'S OWN
+  // RECORDED TRAP. It read the condition as `lastIndexOf("if (", decide)` —
+  // a BACKWARDS search from a named neighbour — so the moment a sibling `if`
+  // was inserted between the branch's own head and its escalate, the window
+  // silently became the sibling's condition and this reported the feature as
+  // gone. It is now a FORWARD anchor on the head itself, which no later
+  // insertion can move.
+  const open = rung.indexOf("if (!wrote || (");
+  assert.ok(open > 0 && open < decide, "the no-change branch's own head is gone");
+  const cond = rung.slice(open, rung.indexOf("{", open));
   assert.match(cond, /wrote\.source === target\.source && !partMoved/, "an unchanged page with a changed part still reads as no-change");
   assert.match(cond, /!wrote \|\|/, "a page that did not come back at all must still be no-page-back");
+  // ── AND A CHANGE WE WITHHELD IS NOT A NO-CHANGE (2026-09-20) ────────────
+  //
+  // Inside the branch and ABOVE the escalate: an oversized component the
+  // wall refused, a components store we could not read, and a photograph put
+  // back are all US declining to write something. `escalate` is what the
+  // browser turns into the ~25-credit rewrite, so answering it there bought
+  // a whole-site rewrite to avoid rewriting one component unseen.
+  const held = rung.indexOf("if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length))", open);
+  assert.ok(held > open && held < decide,
+    "a withheld change escalates again, so the browser buys the full rewrite with no sentence saying why");
+  const refusal = rung.slice(held, decide);
+  assert.match(refusal, /error: "withheld"/, "the refusal cannot name itself");
+  assert.match(refusal, /cost: 0/, "a refusal is charged for");
+  assert.ok(!/escalate\(/.test(refusal), "the refusal still escalates: " + refusal.slice(0, 200));
   // The comparison is by name against the STORED source: a new part, or one
   // whose source differs, is a move; an identical re-send is not.
   const cmp = rung.slice(moved, rung.indexOf("});", moved));
@@ -177,8 +200,23 @@ test("a rung's parts survive a later rung's publish in the same message, and rea
     "publishStep does not advance the components snapshot, so a second page rung merges against the original");
   assert.match(ps, /ePartsRead && ePartsRead\.ok/,
     "the snapshot is advanced without checking the read succeeded, which manufactures an `ok` out of a failure");
-  assert.match(CODE, /if \(!ePartsRead\) ePartsRead = await readSiteParts\(env, ownerSlug\);/,
+  // ⚠ RE-ANCHORED 2026-09-20 — ASSERT THE PROPERTY, NOT THE SPELLING. This
+  // was pinned to the reader as a ONE-LINE body, so the honest arrival of a
+  // second line inside it (the message's own BEFORE, taken at the same read)
+  // reported the snapshot as gone. The property is: one lazy read, through
+  // the three-state reader, remembered.
+  const snap = CODE.slice(at(CODE, "const editParts = async () => {", "editParts"), at(CODE, "let pendingPublish = null;", "editParts end"));
+  assert.match(snap, /if \(!ePartsRead\)/, "the components read is no longer remembered, so two rungs can disagree about the site");
+  assert.match(snap, /ePartsRead = await readSiteParts\(env, ownerSlug\)/,
     "the message-wide components snapshot is gone, or no longer reads the three-state reader");
+  // AND THE MESSAGE'S OWN BEFORE IS TAKEN AT THAT SAME READ (2026-09-20).
+  // Every outcome the reply reports about the site's pictures is a
+  // comparison, and a comparison taken per rung answers about a version a
+  // later rung may replace — `publishStep` advances both `eSrc` and
+  // `ePartsRead`, so the only stable end is the one captured here.
+  assert.match(snap, /ePartsAt0 = ePartsRead\.ok \? ePartsRead\.parts : \[\]/,
+    "the message's own component BEFORE is gone, so the picture outcomes are per-rung again");
+  assert.match(CODE, /const eSrcAt0 = eSrc;/, "the message's own page BEFORE is gone");
   // AND THE ONE PUBLISH BELOW THE LOOP SPREADS IT, so the spine receives them:
   // the first spine call after the final-publish landmark spreads `pendingPublish`.
   const fin = at(CODE, "let finalPub = null;", "final publish");

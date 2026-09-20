@@ -86,6 +86,27 @@ const strippedBoth = (slug) => homeWith(slug)
   .replace('src="' + PIC_A(slug) + '"', 'src=""')
   .replace('src="' + PIC_B(slug) + '"', 'src=""');
 
+/**
+ * THE SAME STRIPPING, WITH THE DESCRIPTIONS REWRITTEN TOO.
+ *
+ * ⚠ THIS IS WHAT THE REPORTING HALF IS FOR, SINCE 2026-09-20. The page rung
+ * PROTECTS a photograph an unrelated message emptied: the `src` is put back
+ * from the page's own previous source, matched on the `alt` — the picture
+ * rung's own identity rule (`PICTURE_TOOL`: *"copied EXACTLY from the list
+ * below — this is how the slot is identified"*). So a plain
+ * `src="…"` → `src=""` no longer loses anything, and the two cases below,
+ * which were written against that shape, would have been asserting the defect
+ * as correct.
+ *
+ * A REWRITTEN DESCRIPTION IS THE RESIDUE. There is nothing to match on, so
+ * nothing can honestly be put back — and reporting is the only thing left to
+ * do. That is a real limit of the protection rather than a contrivance, and
+ * pinning it here is what keeps the reporting path exercised.
+ */
+const strippedAndRenamed = (slug) => strippedBoth(slug)
+  .replace('alt="the bench"', 'alt="a bench in the yard"')
+  .replace('alt="the window"', 'alt="the front window"');
+
 /** One picture deliberately taken off, the other kept — an authorised removal. */
 const removedOne = (slug) => homeWith(slug)
   .replace('<SafeImage src="' + PIC_B(slug) + '" alt="the window" />', "");
@@ -300,7 +321,13 @@ test("a wording edit that loses the photographs NAMES the loss on the reply", as
   try {
     await withWire({
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
-      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
+      // ⚠ THE DESCRIPTIONS ARE REWRITTEN TOO, SINCE 2026-09-20. A plain
+      //   emptied `src` is PUT BACK by the protection, matched on the `alt`
+      //   — so this case, written against that shape, would now be asserting
+      //   a loss the route no longer allows. A rewritten description leaves
+      //   nothing to match, which is the residue this reporting path exists
+      //   for. `edit-page-protect.test.mjs` drives the protected shape.
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedAndRenamed(slug) }], parts: [] },
     }, async () => {
       const { status, body, said } = await edit(slug, "change the opening hours to six, and keep the photographs exactly as they are", { store });
 
@@ -335,7 +362,7 @@ test("a wording edit that loses the photographs NAMES the loss on the reply", as
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       assert.ok(said.text.startsWith("\u2705 Updated /."),
         "the customer's sentence does not name the page it changed: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("2 photographs are no longer on that page"),
+      assert.ok(said.text.includes("2 photographs are no longer on the site"),
         "the loss never reached the screen: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("put the photos back"),
         "the customer is told what was lost and not what to do about it: " + JSON.stringify(said.text));
@@ -416,7 +443,12 @@ test("a photograph stripped out of a COMPONENT is detected too", async () => {
   // holds one, the after holds the same one, and nothing is reported.
   const slug = "pix-part-lost";
   const partWith = 'export default function Hero(){return <SafeImage src="' + PIC_B(slug) + '" alt="the window" />}';
-  const partBare = 'export default function Hero(){return <SafeImage src="" alt="the window" />}';
+  // ⚠ THE DESCRIPTION IS REWRITTEN TOO, SINCE 2026-09-20 — see
+  //   `strippedAndRenamed` above. A plain emptied `src` is PUT BACK now,
+  //   matched on the `alt`, and that applies inside a component exactly as
+  //   it does on a page. What this case is about is unchanged: only a
+  //   BEFORE that reads the components can see this loss at all.
+  const partBare = 'export default function Hero(){return <SafeImage src="" alt="the front window" />}';
   const pagePic = ROUTE_HEAD
     + 'import Hero from "./-parts/hero"\n'
     + "function Home(){return <main><h1>Ravenscroft</h1>"
@@ -445,7 +477,7 @@ test("a photograph stripped out of a COMPONENT is detected too", async () => {
       assert.equal(body.photos, 1, "the empty frame left in the component was not counted: " + body.photos);
       // AND THE SCREEN SAYS BOTH.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.includes("One photograph is no longer on that page"),
+      assert.ok(said.text.includes("One photograph is no longer on the site"),
         "the component's loss never reached the screen: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }

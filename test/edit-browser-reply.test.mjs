@@ -40,27 +40,47 @@ test("the function list is the whole scope, and a sentence outside it throws rat
   // whose composer is not listed is a `ReferenceError` at the first reply that
   // reaches it — and the harness then reports NO customer screen rather than a
   // wrong one. Derived from `editReply`'s own body so the next one fails here.
-  const at = CHAT.indexOf("function editReply(");
-  assert.ok(at > 0, "editReply is gone from chat.js");
-  // CLOSED THE WAY `browserSource` CUTS IT — `\n}` — so the census reads
-  // exactly the text the reader will run. A different closing landmark here
-  // would be a second opinion about where this function ends, and the two can
-  // disagree the moment a nested block is indented differently.
-  const end = CHAT.indexOf("\n}", at);
-  assert.ok(end > at, "editReply's end is not where this scan expects it — re-derive the landmark");
-  const body = CHAT.slice(at, end + 2);
-  assert.ok(body.length > 2000 && body.length < 40000, "re-derive this window: " + body.length + " bytes");
-  // EVERY `name(` IN IT that is a function declared in chat.js must be cut.
+  // EVERY `name(` that is a function declared in chat.js must be cut.
   // Built from the FILE's own declarations rather than a list typed here, so a
   // helper renamed next month is caught by its absence and not by a stale name.
   const declared = new Set([...CHAT.matchAll(/^function ([A-Za-z_$][\w$]*)\(/gm)].map((m) => m[1]));
   assert.ok(declared.size > 20, "the declaration scan found almost nothing: " + declared.size);
-  const called = new Set([...body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]));
-  const need = [...called].filter((n) => declared.has(n) && n !== "editReply");
-  assert.ok(need.length, "editReply calls no chat.js helper at all, so this census proves nothing");
+  // ONE FUNCTION'S BODY, closed the way `browserSource` CUTS IT — `\n}` — so
+  // the census reads exactly the text the reader will run. A different closing
+  // landmark would be a second opinion about where a function ends, and the
+  // two can disagree the moment a nested block is indented differently.
+  const bodyOf = (name) => {
+    const at = CHAT.indexOf("function " + name + "(");
+    assert.ok(at > 0, name + " is gone from chat.js");
+    const end = CHAT.indexOf("\n}", at);
+    assert.ok(end > at, name + "'s end is not where this scan expects it — re-derive the landmark");
+    return CHAT.slice(at, end + 2);
+  };
+  // ⚠ TRANSITIVE, AND THAT IS NEW (2026-09-20). It walked `editReply` alone,
+  // so the hour a clause moved into a helper of its own — `editOutcomes`, so
+  // the look branch could say the same things — every function THAT reaches
+  // for became invisible to this census. A second-level `ReferenceError` is
+  // the same failure as a first-level one: the harness reports NO customer
+  // screen rather than a wrong one.
+  const seen = new Set();
+  const need = new Set();
+  const walk = (name) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const body = bodyOf(name);
+    assert.ok(body.length > 200 && body.length < 40000, "re-derive " + name + "'s window: " + body.length + " bytes");
+    for (const m of body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (!declared.has(m[1]) || m[1] === name) continue;
+      need.add(m[1]);
+      walk(m[1]);
+    }
+  };
+  walk("editReply");
+  assert.ok(need.size, "editReply reaches no chat.js helper at all, so this census proves nothing");
+  assert.ok(seen.size > 1, "the walk never left editReply, so the transitive half proves nothing");
   for (const n of need) {
     assert.ok(EDIT_BROWSER_FNS.includes(n),
-      "`" + n + "` is called by editReply and is not in EDIT_BROWSER_FNS — the reader will throw on the first reply that reaches that clause");
+      "`" + n + "` is reachable from editReply and is not in EDIT_BROWSER_FNS — the reader will throw on the first reply that gets there");
   }
 });
 

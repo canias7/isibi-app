@@ -18,6 +18,9 @@ import { CORPUS_URL } from "./fixtures/corpus.mjs";
 import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { readCss } from "../builder/site-freecss.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
+// THE HARNESS'S OWN CUT LIST, so this file and `scripts/addon-sweep.mjs` cannot
+// hold two ideas of which chat.js functions `editReply` needs in scope.
+import { EDIT_BROWSER_FNS } from "../scripts/addon-sweep.mjs";
 
 const HOME = {
   path: "src/routes/index.tsx",
@@ -1305,8 +1308,33 @@ test("the replies are DRIVEN, not grepped", async () => {
   // `EditPoll.isRecovered` before any layer, so the evaluated function needs
   // the browser's global — the real module, so the branch is driven here too.
   const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
-  const editReply = new Function("EditPoll", [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") +
-    "\nreturn editReply;")(EditPoll);
+  // ⚠ THE CUT LIST IS WALKED, NOT TYPED — re-derived 2026-09-20, and the old
+  // form was this repository's own two-lists trap. It spelled
+  // `[problemNote, photoNote, sitePathOf, editReply]`, a second copy of
+  // `EDIT_BROWSER_FNS` maintained by hand — so the hour `editReply` moved its
+  // outcome clauses into `editOutcomes`, this file threw
+  // `editOutcomes is not defined` and reported the composer as broken on a
+  // change that never touched it.
+  //
+  // THE FILE'S OWN DECLARATIONS ARE THE LIST. Everything `editReply` reaches,
+  // transitively, that chat.js declares — so a helper added, renamed or split
+  // next month is cut by existing.
+  const declared = new Set([...chat.matchAll(/^function ([A-Za-z_$][\w$]*)\(/gm)].map((m) => m[1]));
+  const reach = new Set(["editReply"]);
+  for (const name of reach) {
+    for (const m of cut(name).matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (declared.has(m[1])) reach.add(m[1]);
+    }
+  }
+  assert.ok(reach.size > 1, "the walk never left editReply, so nothing but the entry point is cut");
+  // AND THE TWO LISTS AGREE. `scripts/addon-sweep.mjs` cuts the same function
+  // for the harness; a name reachable here and missing there is a
+  // `ReferenceError` the moment a real reply takes that clause.
+  for (const n of reach) {
+    assert.ok(EDIT_BROWSER_FNS.includes(n),
+      "`" + n + "` is reachable from editReply and is not in EDIT_BROWSER_FNS");
+  }
+  const editReply = new Function("EditPoll", [...reach].map(cut).join("\n") + "\nreturn editReply;")(EditPoll);
   // THE SWEEP'S REPLY: a success whose details were lost, never '✅ Done.'
   assert.match(editReply({ ok: true, recovered: true, job: "e_1" }), /published/, "a recovered reply is not said as published");
   assert.doesNotMatch(editReply({ ok: true, recovered: true, job: "e_1" }), /Done\./, "a recovered reply reads as an ordinary success");
@@ -1529,17 +1557,39 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // it. Both anchors are asserted, because `indexOf` answering -1 is less than
   // anything and would pass this silently.
   //
-  // ⚠ AND THE EDIT PATH IS THE ONLY ONE LEFT ON IT — RE-ANCHORED 2026-09-17,
-  // because the ADDON path's property MOVED rather than broke. It counted
-  // tokens too, on a step whose own directive FORBIDS a token, so it answered
-  // zero on every obedient run and `photoNote` never once fired there. The
-  // addon half is asserted below on what it became; this loop is now about the
-  // one rung that really is a token counter.
-  for (const [c, a] of [["const pSlots = countImageSlots(", "pValid.pages = applyImages"]]) {
-    assert.ok(w.indexOf(c) > 0, "no slot count before " + a);
-    assert.ok(w.indexOf(a) > 0, "no sweep after " + c + " — rescope this guard");
-    assert.ok(w.indexOf(c) < w.indexOf(a), "the count runs after the sweep, so it is always zero");
-  }
+  // ⚠ AND NOW NEITHER PATH COUNTS TOKENS — RE-ANCHORED TWICE, 2026-09-17 and
+  // 2026-09-20, both times because the property MOVED rather than broke.
+  //
+  // The addon went first: it counted tokens on a step whose own directive
+  // FORBIDS one, so it answered zero on every obedient run and `photoNote`
+  // never fired there. The edit path's page rung followed today, for the same
+  // reason and one more — its count also had to become MESSAGE-WIDE, because
+  // two page rungs run for one sentence and a per-rung answer describes a
+  // version a later rung may replace.
+  //
+  // SO `countImageSlots` HAS NO CALLER IN `worker.js` AT ALL, and asserting
+  // that is what stops this guard rotting into a claim about a reader nobody
+  // asks. The function itself is still exercised above — the build path is
+  // where a token really is written — and the two comments that name it are
+  // the record of the move, not consumers.
+  //
+  // ⚠ THE SCAN MUST NOT READ THOSE COMMENTS AS CALLS: *prose contains the
+  // thing it forbids* is this repository's most repeated own-goal, and the
+  // note above the import says `countImageSlots` in as many words.
+  const code = w.replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length));
+  assert.ok(code.includes("newEmptySlots("), "the blanking ate the file — re-derive this scan");
+  assert.equal((code.match(/\bcountImageSlots\s*\(/g) || []).length, 0,
+    "worker.js counts `@@IMG:` tokens again, on a rung whose directive forbids them");
+  // AND THE EDIT PATH'S REPLACEMENT IS THE MESSAGE-WIDE FRAME READER, asked
+  // below the loop over the two ends that are really comparable: what the
+  // message arrived to, and what the ONE publish ships.
+  const at0 = code.indexOf("const was = imageSources(eSrcAt0, at0);");
+  assert.ok(at0 > 0, "the edit path's message-wide picture BEFORE is gone");
+  const win = code.slice(at0, code.indexOf("const merged = {", at0));
+  assert.ok(win.length > 0 && win.length < 900, "re-derive this window: " + win.length + " bytes");
+  assert.match(win, /picsFrames = newEmptySlots\(was, now\)/, "the edit path no longer counts the frames it left");
+  assert.match(win, /keptImages\(was, now, ownerSlug\)/, "the edit path no longer reads what it lost");
+  assert.match(win, /pendingPublish\.pages/, "the AFTER is not the one publication, so it can describe a version nobody ships");
 
   // ── AND THE ADDON'S HALF, WHICH IS THE OPPOSITE ORDER FOR THE OPPOSITE
   // REASON (2026-09-17) ──
@@ -1611,22 +1661,61 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // different things, and a token that really WAS written survives into the
   // after side as `src=""` — `applyImages` sweeps it — so the frame counter
   // sees it and the token counter is the fallback for nothing else.
-  assert.match(w, /photos: pNewSlots \|\| pSlots/,
-    "the page edit's picture count is not the frame reader with the token counter behind it");
-  assert.match(w, /const pNewSlots = newEmptySlots\(pPicsBefore, pPicsAfter\)/,
-    "the page edit's frame count took its own reading of the site");
+  // ⚠ RE-ANCHORED 2026-09-20. This pinned `photos: pNewSlots || pSlots` — a
+  // SPELLING, and of an expression that has gone: the rung no longer answers
+  // its own picture count at all, because two page rungs run for one sentence
+  // and each one's comparison describes a version the next may replace. The
+  // property is asserted above, on the message-wide pair; what belongs here is
+  // that the rung does NOT answer it, so a per-rung reader cannot come back
+  // and quietly win the merge's `Object.hasOwn` race.
+  // ⚠ AND THE OPENING LANDMARK IS THE UNIQUE ONE. A first draft of this
+  // anchored on `ok: true, layer: "page", page: wantRoute`, which occurs FOUR
+  // times — the removal, the move, the tweak and the page write all answer at
+  // that layer — so the window opened at the first and swallowed 39,919 bytes
+  // of four other branches. Measured, not guessed: `orderingMoved` is called
+  // once in the file and sits immediately above the reply this is about.
+  const open = code.indexOf("const alsoOn = orderingMoved(");
+  const close = code.indexOf('return escalate("layer")', open);
+  assert.ok(open > 0 && close > open, "the page rung's own reply is gone — re-derive these landmarks");
+  const rung = code.slice(open, close);
+  assert.ok(rung.length > 500 && rung.length < 4000, "re-derive this window: " + rung.length + " bytes");
+  assert.match(rung, /photosKept: pRestored\.length/,
+    "the page rung stopped saying what it put back, so the protection is invisible to the customer");
+  assert.ok(!/\bphotos:/.test(rung), "the page rung answers its own frame count again: " + rung.slice(0, 300));
+  assert.ok(!/\bphotosRemoved:/.test(rung), "the page rung answers its own loss count again");
+  // ⚠ AND THE PAIR IT IS MADE OVER IS NOW THE MESSAGE'S, asserted above on
+  // `was`/`now` rather than on this rung's own `pPicsBefore`/`pPicsAfter`,
+  // which are gone. Two readers over ONE pair is the property; where the pair
+  // is computed moved, and pinning the old names would report the property as
+  // gone on the change that made it true for the whole message.
+  assert.ok(!/\bpPicsBefore\b/.test(code), "a per-rung picture BEFORE is back, so the two rungs disagree again");
   // AND BOTH SIDES ARE `imageSources`, so a component the site already has has
   // a BEFORE — two ideas of before-and-after is how an unchanged component
-  // reads as a new frame to one reader and not the other.
-  assert.match(w, /const pPicsBefore = imageSources\(eSrc, /,
-    "the page edit's BEFORE is not read through imageSources");
-  assert.match(w, /const pPicsAfter = imageSources\(pPages, /,
-    "the page edit's AFTER is not read through imageSources");
+  // reads as a new frame to one reader and not the other. Asserted on the
+  // message-wide pair, which is where this question is asked from today.
+  assert.match(win, /imageSources\(eSrcAt0, at0\)/, "the page edit's BEFORE is not read through imageSources");
+  assert.match(win, /imageSources\(pendingPublish\.pages, pendingPublish\.parts \|\| at0\)/,
+    "the page edit's AFTER is not read through imageSources, so the components have no side");
+  // ⚠ AND ITS TWIN IS GONE WITH IT. A third assertion here read
+  // `const pPicsAfter = imageSources(pPages, …)` and carried the SAME message
+  // string as the one above, so when it fired the failure named the wrong
+  // line — *a failure that cannot name itself*, in a guard file. One
+  // assertion per property, and one message per assertion.
+  assert.ok(!/\bpPicsAfter\b/.test(code), "a per-rung picture AFTER is back, so the two rungs disagree again");
   // ⚠ AND THE AFTER IS THE **PUBLICATION**, never the writer's answer: a
   // component the parts wall refused is not part of what ships, so counting
   // its frames would report a change nobody made.
-  assert.ok(w.indexOf("const pFreshParts") < w.indexOf("const pPicsAfter"),
-    "the page edit counts frames before the parts wall decides what publishes");
+  //
+  // RE-ANCHORED 2026-09-20, AND THE OLD FORM WAS VACUOUS THE MOMENT IT BROKE.
+  // It read `indexOf("const pFreshParts") < indexOf("const pPicsAfter")` —
+  // and `indexOf` answers **-1** for a name that is gone, so the comparison
+  // became `<  -1`, false, which is the LUCKY direction this once: the same
+  // shape with the operands the other way round passes silently for ever.
+  // Prove both anchors exist, then compare.
+  const loop = code.indexOf("for (const step of steps) {");
+  assert.ok(loop > 0 && at0 > 0, "one of these landmarks is gone — re-derive them before comparing");
+  assert.ok(loop < at0,
+    "the picture outcomes are computed before the rungs have run, so they describe a site nobody published");
 
   // ── AND A PHOTOGRAPH THE EDIT LOST IS REPORTED, NEVER REFUSED ───────────
   //
@@ -1639,15 +1728,19 @@ test("a photo slot nobody can fill is said out loud", async () => {
   //
   // BOTH HALVES, because either alone is the failure: without the reader
   // nobody detects it, and without the reply nobody hears it.
-  assert.match(w, /const pKept = keptImages\(pPicsBefore, pPicsAfter, ownerSlug\)/,
-    "the page edit does not detect a photograph it lost");
-  assert.match(w, /photosRemoved: pKept\.ok \? undefined : pKept\.lost\.length/,
+  // RE-ANCHORED 2026-09-20 ONTO THE MESSAGE-WIDE PAIR. Both halves are the
+  // same properties over the same readers; what moved is WHERE they are asked
+  // from, and the reason is in the comment at the top of `win`.
+  assert.match(win, /keptImages\(was, now, ownerSlug\)/, "the page edit does not detect a photograph it lost");
+  assert.match(win, /picsRemoved = kept\.ok \? undefined : kept\.lost\.length/,
+    "the loss is not reduced to a count, or it never leaves the comparison");
+  assert.match(code, /photosRemoved: picsRemoved/,
     "the page edit's loss never reaches the reply, or it carries the urls rather than the count");
   // ⚠ AND IT IS **NOT** `lostPhotos`. That name is the addon's and carries a
   // LIST of urls on a 422 that published nothing — `scripts/addon-sweep.mjs`
   // reads it with `Array.isArray`. `Number([…])` is NaN, so one name over two
   // shapes would make the browser's clause silently never fire.
-  assert.ok(!/lostPhotos: pKept/.test(w), "the edit rung reuses the addon's field name for a different shape");
+  assert.ok(!/lostPhotos: picsRemoved/.test(code), "the edit rung reuses the addon's field name for a different shape");
   // AND IT DOES NOT REFUSE. The addon's 422 must not appear on this rung —
   // asserted against the addon's own error name, so a copy-paste of that
   // refusal into this branch fails here rather than in front of a customer.
@@ -1772,8 +1865,19 @@ test("the look reply shows a lint problem and reports how far a rename got", () 
   };
   // The poll module handed in, as the driver above: `editReply` asks
   // `EditPoll.isRecovered` before any layer (stage 2a, 2026-09-05).
+  // ⚠ WALKED, NOT TYPED — the second copy of the same hand-typed list, and it
+  // went red the same hour the first one did. `EDIT_BROWSER_FNS` is the
+  // harness's answer to which functions `editReply` needs in scope; the walk
+  // below is the file's own, and asserting they agree is what keeps a third
+  // copy from appearing here next month.
+  const declared2 = new Set([...chat.matchAll(/^function ([A-Za-z_$][\w$]*)\(/gm)].map((m) => m[1]));
+  const reach2 = new Set(["editReply"]);
+  for (const name of reach2) {
+    for (const m of cut(name).matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) if (declared2.has(m[1])) reach2.add(m[1]);
+  }
+  for (const n of reach2) assert.ok(EDIT_BROWSER_FNS.includes(n), "`" + n + "` is reachable from editReply and is not in EDIT_BROWSER_FNS");
   const editReply = new Function("EditPoll",
-    [cut("problemNote"), cut("photoNote"), cut("sitePathOf"), cut("editReply")].join("\n") + "\nreturn editReply;")(
+    [...reach2].map(cut).join("\n") + "\nreturn editReply;")(
     createRequire(import.meta.url)("../public/edit-poll.js"));
   assert.match(editReply({ layer: "look", moved: ["theme"], problems: ["index.tsx: names a colour"] }),
     /names a colour/, "the look reply hides what the lint found");

@@ -780,7 +780,7 @@ export function browserReply(reply, httpOk) {
  * requirement from `editReply`'s own body so the next one fails at a guard.
  */
 export const EDIT_BROWSER_FNS = Object.freeze([
-  "problemNote", "photoNote", "listPhotoNote", "sitePathOf",
+  "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "editOutcomes",
   "renderTail", "alsoTail", "editReply", "applyEditResult", "escalatedEdit", "editAnswer",
 ]);
 
