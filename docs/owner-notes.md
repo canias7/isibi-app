@@ -13428,3 +13428,78 @@ half-broken could be left behind, and both copies were checked clean afterwards.
 6,876 → 6,878; the agent engine's own 600 → 601; the end-to-end approval demonstration against
 a real database 71 → 80 checks, and the other ten unchanged and green, which is what says this
 round broke nothing.
+
+---
+
+## 2026-09-20 — an automation that says "on" and will never run now says so
+
+**What I was asked to check:** what happens to a schedule when somebody changes something
+*else* — a rename, turning it off and on, editing it while an occurrence is due, daylight
+saving, a week of downtime. The worry, in your words, is that an unrelated edit must not
+quietly move, skip or double up a scheduled run.
+
+**Seven of the eight things on that list were already built and already tested.** I read each
+one rather than assuming, and the big one — a rename postponing a run that was due — was found
+and fixed two rounds ago, with the reasoning written into the database itself: the next run
+time is recalculated only when you change something the calculation actually reads (the
+schedule, the time, the zone, the days, the date). Change the name and the run stays exactly
+where it was waiting.
+
+**The one thing that was not right is a one-off report whose day has gone by.**
+
+Picture it: you set something up to run once, on the 17th. You switch it off while you are
+away. You come back on the 20th and switch it on again. The screen says it is on. It will never
+run — its day has passed — and until this round **nothing told you that anywhere except the
+list**, where the wording already existed.
+
+And there was a second half that was worse. When you turn something on, the system answers
+"done, it's on, next run: none". **An automation with no schedule at all answers exactly the
+same thing** — "next run: none", because it only runs when you press the button. So two
+opposite situations gave one identical answer: *your one-off is used up* and *you have no
+schedule, as you asked for*. Your screen can tell them apart, because it has the schedule
+sitting next to the answer. **Your agent cannot** — it only sees the answer — so an agent
+asked to turn that back on would have told you it was on and running.
+
+**What I changed is one small thing in four places.** The database now says, in the answer
+itself, "this is scheduled and has no moment left". That is computed once, in one place, and
+every door that can produce the situation asks it — making one, editing one, and switching one
+on. Your agent now says: *its one-off date has already gone, so it is saved and will never run
+— give it a date still to come, or a repeating schedule, if it should.*
+
+**Nothing is refused.** Saving a one-off for a day already past is a perfectly reasonable thing
+to do — it might be a record of something that happened — so it saves, and now it tells you.
+
+**And your screen needed no change at all**, which I checked rather than assumed. It already
+says *"that date has passed, so it won't run"* in the list, and turning the switch reloads the
+list, so you see it straight away.
+
+**The other half of the question — "what about a change that would put a run in the past?"** —
+turns out to be safe by construction for everything that repeats: the calculation always
+answers a moment strictly *after* now, so moving a daily job to a time already gone today
+schedules it for tomorrow, never for this morning. I tested both ends of the day, because those
+take different paths through the code.
+
+**Eight mistakes of my own on the way, and every single one was the code being right and my
+test being wrong.** A boolean prints one way in one place and another way in another; a "repeat"
+is counted per request rather than per automation, so reusing an id was correctly rejected; and
+one of my checks read an empty answer from a failed statement as though it were a real answer —
+which is exactly the class of bug this whole round is about, in my own test harness. I have made
+that reader refuse and say what went wrong instead.
+
+**Nothing is applied, deployed or merged.** No new database file — I edited three that have not
+been applied yet. Database tests against a real PostgreSQL 1,121 → 1,158; the engine's own 601 →
+602; the schedules demonstration 98 → 111 checks; and **all eleven other demonstrations green at
+exactly the numbers they had before**, which is what says this round broke nothing. Fifteen
+deliberate breakages driven one at a time, every one caught — plus the two machine-run
+breakage checks, one over the code (8 of 8 caught) and one over the database (5 of 5 caught),
+each run on a throwaway copy of the tree so nothing broken could be left behind, and each
+proved to have left the copy exactly as it found it.
+
+**And counting those checks found one from two rounds ago that had never been run.** I compare
+the number of breakage checks against what I wrote down last time, and the database total was
+one higher than my own note — so something had been added and nothing had said so. It was mine,
+from the round about Forget: a check that the wording *"forgetting removes it from future runs"*
+cannot quietly become *"it is erased everywhere"*. That matters more than the bookkeeping,
+because your agent relays that exact sentence — so it would have told somebody their information
+was erased from work it is still part of, which is the one thing that round was built to
+prevent. I have run it, it catches the problem, and it is closed.

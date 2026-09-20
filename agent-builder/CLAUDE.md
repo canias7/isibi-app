@@ -8106,3 +8106,229 @@ beside an empty diff"*). What is new is the door: a HAND red-proof loop is the s
 no runner's `finally` to blame, and it is worse, because the tally it prints looks like
 evidence. **The rule generalises: commit before proving anything red, or restore from a copy
 rather than from git.** Everything after that was proved red against a commit.
+
+---
+
+## M14-6: a schedule with no moment left, told apart from one that was never set (2026-09-20)
+
+Owner: *"Check triggers and scheduling under configuration changes: duplicate delivery,
+disabling or pausing before acceptance, re-enabling after downtime, timezones and DST, the
+missed-occurrence policy without a catch-up burst, changing or removing an event binding
+with an older form open, editing a workflow after acceptance, renaming or editing unrelated
+content near a scheduled occurrence… Pay particular attention to schedule calculations: an
+unrelated edit must not silently postpone, skip, or duplicate a scheduled occurrence.
+Recompute timing when the requested change requires it, with explicit behavior for changes
+that move an occurrence into the past."*
+
+**THE INSPECTION CAME FIRST AND IT MOVED THE WORK, because seven of the eight named cases
+were already built and driven.** Read one by one rather than assumed:
+
+| the case | where it is already proved |
+|---|---|
+| duplicate delivery | `pg-schema` (the once-per-occurrence index, the claim) · `verify:triggers` §3 |
+| disabling or pausing before acceptance | `pg-schema` · `verify:auto` §5 · `verify:conversation` §5 |
+| **re-enabling after downtime** | `pg-schema` · `verify:edits` · `verify:tools` · `verify:integration` |
+| timezones and DST | `pg-schema` (summer, winter, BOTH branches of the day, the spring-forward gap) · `verify:triggers` §1 |
+| missed occurrences, no burst | `pg-schema` · `verify:triggers` §8 |
+| an event binding with an older form open | `verify:triggers` §4c (the round before this one) |
+| editing a workflow after acceptance | `verify:auto` §7 · `verify:wf` |
+| **an unrelated edit near a scheduled occurrence** | `verify:edits` — the M14-2 round, where it was the defect |
+
+**AND THE HEADLINE CONCERN IS FIXED AND DOCUMENTED IN THE MIGRATION ITSELF.**
+`agent.update_automation` recomputes `next_run_at` **only when a field the arithmetic reads
+has moved** — the schedule, the local time, the zone, the day list, the date — *"which is not
+a list somebody has to keep in step with the arithmetic: it is the arithmetic's argument
+list."* A rename keeps the instant the scheduler is waiting for, including a due one, which
+belongs to the tick. Its sibling `set_automation_enabled` re-arms only on a real off→on
+transition. Both were reproduced and fixed in earlier rounds and both are driven.
+
+**SO THE ROUND IS THE ONE CASE THAT WAS NOT: *explicit behavior for changes that move an
+occurrence into the past*.** Measured, and it splits in two.
+
+### ⚠ HALF OF IT IS TRUE BY CONSTRUCTION, and half of it was silent
+
+`agent.automation_next_run` answers an instant **STRICTLY AFTER** the one it is given, so for
+`daily` and `weekly` a change can never leave an occurrence in the past — driven at both ends
+of the day, because a local time already gone today and one still to come take different
+branches of `automation_next_at`.
+
+**`once` IS THE EXCEPTION AND ITS ANSWER IS NULL. AND SO IS `manual`'s.** MEASURED on a real
+PostgreSQL before anything was touched:
+
+```
+create  a one-off for a day already gone     {"ok": true, "next_run_at": null}
+update  a schedule change onto such a day    {"ok": true, "next_run_at": null}
+patch   the same, through the patch door     {"ok": true, "next_run_at": null}
+enable  a one-off whose day passed while off {"ok": true, "enabled": true, "next_run_at": null}
+enable  an automation with NO schedule       {"ok": true, "enabled": true, "next_run_at": null}
+```
+
+**The last two are opposite facts and nothing separated them** — *your schedule is used up*
+against *you have no schedule, as you asked*. The BEHAVIOUR was right throughout (its moment
+has gone, so not running is correct); what was missing is the requirement's own word.
+
+**AND THE ENABLE DOOR IS THE QUIETEST OF THE FOUR, which is what makes this worth fixing
+rather than recording.** `tick_automations` selects only `enabled` rows, so a one-off whose
+day passed while it was OFF gets **no `missed` record either** — proved, not assumed: after
+the enable the tick cannot see the row, no execution exists and `agent.automation_history` is
+empty. The answer is the only place it can be said.
+
+### `agent.schedule_spent(schedule, next)` — one rule, asked by four doors
+
+- **EXACT BY CONSTRUCTION RATHER THAN A GUESS ABOUT TODAY'S SCHEDULES.** `daily` and `weekly`
+  always answer an instant (weekly RAISES rather than answering null), `manual` is null on
+  `automation_next_run`'s first line, and `once` is null only once its day has gone. So *not
+  manual AND no instant* can only be a spent one-off — and a fifth schedule that could answer
+  null is covered by existing, because the question is about the ANSWER and not about the
+  word `once`.
+- **ONE FUNCTION, NOT THREE CONDITIONS.** `create_automation`, `update_automation` (and
+  therefore `patch_automation`, which returns its answer whole — the one-writer design paying
+  for itself again) and `set_automation_enabled` each reach the state.
+- **IT REPORTS AND REFUSES NOTHING.** A one-off for a day already gone is a thing somebody may
+  legitimately save — a record of something that has happened — so the write stands.
+
+### The reader is the ENGINE's, because the screen already had it
+
+⚠ **`public/chat.js` ALREADY SAYS IT** — *"Once on 2026-09-17 at 09:00 (UTC) — that date has
+passed, so it won't run"* — drawn from `schedule === 'once'` and a missing `nextRunAt`, which
+is the `once` case of this rule in that screen's own words, and the enable toggle re-loads the
+list, so a person sees it immediately. **So the site needed NOTHING, and adding `spent` to its
+three write answers would have been a value computed and never forwarded** — the opposite
+trap. Stated rather than left for a reader to wonder about.
+
+**The caller that cannot derive it is a MODEL**, which reads an answer and nothing else. So:
+
+- **`alsoSay(answer, repeatSay)` composes both facts** for `pause_automation`,
+  `make_automation` and `change_automation`. A repeat and a spent schedule are independent and
+  **both are reachable at once** — the recorded outcome a repeat is answered from carries
+  `spent` too — so two spread objects would hand a model whichever came last and silently
+  delete the other. The sentences are JOINED.
+- **`=== true`, and the direction is the whole point.** A database predating this carries no
+  such key and `Boolean("false")` is `true`; read either as spent and every working daily
+  automation would be reported as one that will never run, which is far worse than the silence
+  this replaces. Cannot-tell reads as nothing-to-say, which is the old behaviour rather than a
+  new false alarm.
+- **`SPENT_SAY` NAMES THE REMEDY.** *"it will never run"* with nothing to do about it is a dead
+  end for a model composing prose for somebody.
+
+### ⚠ AND THE HOP NO MODULE TEST CAN SEE: the `_once` wrappers
+
+The capability store never calls a plain function — `mutate` calls `<fn>_once` — so a wrapper
+that reshaped its inner answer instead of returning it whole would leave the fact **computed
+and never forwarded**, with the migration, the store and the tools all correct and every tool
+silent again. Measured through all three wrappers on a real database, plus the retry path
+(whose recorded outcome has to carry it too), plus a contrast.
+
+### Measured
+
+- **Real PostgreSQL (`npm run test:pg`): 1,121 → 1,158 checks, 0 failed**, and the arithmetic
+  closes exactly at 37. **The before was measured in a detached worktree at `1588910`** rather
+  than read off a note. The truth table over every schedule the platform has plus a null one,
+  the observer that the two answers are two, the volatility and the pinned search path, both
+  grants as PRIVILEGES, all four doors with their contrasts, the three wrappers, and the state
+  proved unreachable by the tick.
+- **Engine suite 601 → 602**, 0 failed: one case, driving the three tools against the real
+  `makeCapabilities` — each with TWO controls (an instant really armed, and an automation with
+  NO schedule), ten junk shapes reading as nothing-to-say, and both facts surviving together.
+  **⚠ IT EXISTS BECAUSE `npm run sweep` RUNS NO DEMONSTRATION** — *a property proven only by an
+  instrument the sweep cannot run is a property no mutant can be caught by*, the **eighth**
+  recorded instance in this directory.
+- **`verify:triggers` 98 → 111 checks, 0 FAIL.** Section 8b through the customer's own routes,
+  with the FUTURE one-off made due in the same tick as the observer — because a negative
+  assertion about a scheduler that did nothing would be satisfied by one that is broken.
+- **ALL ELEVEN OTHER DEMONSTRATIONS GREEN AT THEIR RECORDED COUNTS**, which is the control that
+  this round broke nothing: `tools` 154 · `chat` 126 · `auto` 70 · `wf` 159 · `connections` 76
+  · `controls` 89 · `ops` 75 · `integration` 89 · `send` 97 · `conversation` 79 · `edits` 107.
+  **`FAIL` counted on the LEADING token**, because `grep -c FAIL` matches check LABELS
+  containing the word and has reported green runs as failing here twice.
+- **EIGHT BREAKAGES DRIVEN ONE AT A TIME against the engine case**, all caught: truthiness
+  instead of `=== true`, the flag dropped, the sentence dropped, two spreads so one `say`
+  deletes the other, the remedy clause gone, and each of the three tools ceasing to compose.
+  **SEVEN MORE against the SQL**, all red: the rule inverted, the rule ignoring the schedule,
+  each of the three doors dropping it, the function made volatile, and its grant withdrawn.
+- **Sweep specs: JS 729 → 736, SQL 281 → 286**, every anchor unique by the generator's own
+  pre-check — **and both ends of the SQL pair are one higher than the last stamp in this file,
+  which is a drift of my own rather than a miscount here.** Measured by generating both specs
+  from clean checkouts at `1588910` and at this head rather than read off a note: M14-4 added
+  **one** SQL mutant (`⚠ SQL/memory: the note claims forgetting erases it everywhere`) and its
+  own Measured block names the JS spec alone, so the number moved and nothing said so. Found by
+  comparing the generator's own count against the note — *a count of the spec, not a survivor*,
+  which is the instrument this file already records for a migration with no mutants and is the
+  only one that can see an entry added silently. **That mutant was therefore never swept
+  either**, and it is closed below.
+- **Narrow JS pass at `baba685`: 8 mutants, 8 killed, 0 survived, 0 never applied, 1
+  comment-only control survived — clean on the first pass**, in a detached worktree with the
+  spec generated from it so no mutant could land in the main tree. **The control had to be
+  WRITTEN**: the committed spec has NONE on `capability-tools.mjs`, and a pass whose control
+  has not been reached is a pass with no control. *A narrow list can only produce a false
+  SURVIVOR, never a false kill*, so the next full run still decides.
+- **Narrow SQL pass at `baba685`: 5 mutants, 5 killed, 0 survived, 0 never applied, 1
+  comment-only control survived** — this round's own five, against the two checks `sweep:sql`
+  drives (`test/integration/pg-schema.mjs` and `test/authored-run.test.mjs`) on a real
+  PostgreSQL, in the same detached worktree. **Both passes left the worktree holding no
+  modified tracked file, proved TWO WAYS**: `git status` clean against the commit, and the
+  generator's own anchor census green over every entry — which it cannot be while a mutant is
+  applied.
+- **AND M14-4'S OWN UNSWEPT SQL MUTANT IS CLOSED: 1 mutant, 1 killed, 0 survived, 0 never
+  applied, 1 comment-only control survived** — `⚠ SQL/memory: the note claims forgetting erases
+  it everywhere`, the entry the count above found. Its own narrow pass at this head, against the
+  two checks `sweep:sql` drives, on a real PostgreSQL, in a detached worktree with the spec
+  generated from it. **The control had to be WRITTEN**: the committed spec has NONE on
+  `20260918000000`, and a pass whose control has not been reached is a pass with no control —
+  the runner's `CONTROL WAS KILLED` branch is armed only for an entry DECLARED `control: true`
+  rather than merely labelled one. The worktree is proved to hold no mutant afterwards two ways:
+  no tracked file differs from the commit, and the anchor census is green over all 286 entries.
+  **Which matters more than the tally**: the mutant it kills replaces the sentence a delete
+  answers with *"it is erased everywhere"*, and `capability-tools.mjs` reads that sentence — so
+  an agent's own `forget` would have told a customer their fact was erased from the runs it is
+  still in, which is the one claim the M14-4 round exists to prevent.
+- **Nothing outside `agent-builder/` moved** — `git diff --name-only` over the site's tree is
+  empty, so its 6,845 stands on its own CI read.
+
+### ⚠ Eight instrument faults of my own, every one the product being right
+
+Worth the list, because they are all the same shape — a fixture or a reader written from a
+guess about a producer rather than from the producer:
+
+1. **A tool's public signature is `(args, ctx)`** with the surface on `ctx.capabilities`;
+   `pureTool` maps it onto its own third slot. Written `(args, can, ctx)`, every case answered
+   `no-backend`.
+2. **`mine()` answers `null` for a row with no owner** — a sibling's automation and one that
+   does not exist are one answer — so a fixture without `agent` read `no-automation` about a
+   row it had itself provided.
+3. **`::text` on a boolean gives `true`/`false`.** A BARE boolean prints `t`/`f`, which this
+   file records one section over, and I wrote the bare form's letters against the cast form's
+   query.
+4. **`provolatile` is `"char"`**, so `|| text` is an ambiguous operator — and Postgres stores
+   the search path **with its quotes** (`search_path=""`), which this file has already paid a
+   round for.
+5. **`automations_schedule_is_whole` refuses a daily automation still carrying a date**, so a
+   patch of the schedule ALONE is correctly `bad-date`.
+6. **`tick()` runs `worker.scheduled` and returns nothing**, so a check written against its
+   return value is a check against `undefined`.
+7. **A repeat is keyed on the OPERATION, not the automation**, so reusing an existing id under
+   a FRESH key correctly met `automations_pkey`. The same key twice is the repeat.
+8. **`jget` answers the EMPTY STRING for a failed statement** — cannot-tell wearing a value's
+   clothes in the harness's own reader, so a wrapper call that errored arrived as
+   `JSON.parse("")`: a crash about the fixture wearing a crash about the product. This block
+   has `spJson`, which refuses and names the statement's own error.
+
+Plus **`asRowOwner` is block-scoped to the connections section** and `asOwner` at the top means
+"no `set role` at all", so this block has its own handle named apart rather than a third
+spelling that shadows one of them silently.
+
+### What is NOT closed, stated rather than rounded away
+
+- **A one-off for a past date is not refused at the door**, and that was recorded as a
+  deliberate limitation in M14-2. It is now SAID by every door instead, which is the
+  requirement's *explicit behavior* rather than a wall the brief did not ask for.
+- **`list_automations` and `read_automation` do not carry `spent`**, deliberately: they already
+  hand a reader the schedule AND the instant, so a model reading either can tell — unlike the
+  write answers, which carried the instant alone. That difference is why the fact is on the
+  writes and nowhere else.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** All three migrations edited are unapplied (the
+round-number naming is this folder's tell), edited in place. When they go the order is the
+recorded one — **migration → engine → site** — and here the engine's dependency is real and
+narrow: `alsoSay` reads a key only the new functions set, and reads its absence as
+nothing-to-say, so an engine shipped first is silent rather than wrong.
