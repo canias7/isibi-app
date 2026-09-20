@@ -13365,3 +13365,60 @@ they did; nothing new was added — no second store, no new service, no model ca
 6,870 → 6,876; the agent engine's own 595 → 600; the real-database checks 1,114 → 1,121. The
 end-to-end demonstrations went 157 → 159 and 148 → 154, and the other ten are unchanged and green,
 which is what says this round broke nothing.
+
+## 2026-09-20 — Approving a thing you were never shown
+
+The next piece of the agent milestone is the approval side: when your agent wants to do
+something that reaches outside — send a message, start an automation — it stops and asks you
+first. Most of that was already built and I checked it point by point rather than assuming.
+What was not built is the one thing the rest of it rests on.
+
+**Your approval was tied to arguments the screen could be hiding from you.** When the agent
+asks, the platform takes a fingerprint of exactly what it wants to do, and that fingerprint is
+what your Approve is bound to — so nothing can change under you between asking and doing. That
+part worked. What did not: if the agent worded its request in an unexpected shape, the
+fingerprint was taken of the real thing and the screen was shown *nothing at all*. You would
+have seen "it wants to send a message" with no recipient and no text, pressed Approve believing
+there was nothing in it, and the message would have gone out with whatever was really there.
+Measured, not reasoned about.
+
+It refuses to ask now. If the platform cannot put the actual details in front of you, it does
+not put the question either — it tells the agent to ask properly and the agent can try again.
+Nothing is stored, so nothing sits on your screen waiting for a decision you could not make.
+And a request with genuinely nothing in it still says so, because a tool that takes no details
+is a real thing and that sentence is now true rather than a cover-up.
+
+**Two smaller ones on the same screen, both about what you can see.**
+
+A pending approval has a deadline — 24 hours — and the database has been answering it all
+along, and the screen was throwing it away. So a request just vanished from your screen when
+the time ran out, with nothing having warned you, and the run then reads as needing attention.
+It says "Runs out …" now. A request from before deadlines existed shows none rather than
+pretending.
+
+And pressing Approve too late told you *"that request isn't waiting any more"*, which is what
+you get for an id that does not exist. Three different things were saying that one sentence:
+the request is gone, the time ran out, or you had taken that permission away from the agent in
+the meantime. The last two are still there and are fixable, and the fixes are opposite — ask
+again, or give the permission back. Each says which it is now, and offers the thing that helps.
+
+**And my own mistake, which is worth writing down because it nearly cost the work.** Proving a
+test really fails when the code is broken means breaking the code on purpose and putting it
+back. I put it back with git — which restores to the last *commit*, and I had not committed. So
+three files went back to before the fix, silently, in the middle of a loop whose output looked
+like evidence. Recovered from what I still had, and everything after that was done against a
+commit. The same trap is already written down here for a different tool; this is a new door
+into it.
+
+**And one gap in the testing rather than in the code.** A request waiting for your approval is
+kept in the database, so a deploy or a restart in the middle should not lose it — and nothing
+anywhere actually checked that for this kind of request. It does now, the hard way: a completely
+fresh process, which has never seen any of it, reads the same request with the same details and
+the same deadline out of the database, you approve it there, and the thing runs once. (My first
+version of that check was worthless — it called a function that does not exist, so it passed no
+matter what. Fixed, and the real one goes red when I break the code on purpose.)
+
+**Nothing is applied, deployed or merged.** No new database file at all this round. Site tests
+6,876 → 6,878; the agent engine's own 600 → 601; the end-to-end approval demonstration against
+a real database 71 → 80 checks, and the other ten unchanged and green, which is what says this
+round broke nothing.

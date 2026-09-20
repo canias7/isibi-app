@@ -10186,3 +10186,109 @@ reading that misleads.
 when it goes is the recorded one — **migration → engine → site** — with the site last for its
 usual reason and one sharper than usual: this screen now SHOWS the function's sentence, and a
 site shipped first would draw nothing where a person expects an explanation.
+
+---
+
+## M14-5: the window never reached the person, and two refusals could not name themselves (2026-09-20)
+
+Owner: *"Complete approval, cancellation, and recovery flows… Show the exact action and the
+material arguments before approval… Rejection, expiry, withdrawal and provider disconnection
+must produce clear outcomes."* **The engine's half — an approval bound to arguments nobody was
+shown — is in `agent-builder/CLAUDE.md`**; these three are the site's, and all three are about
+what a person is SHOWN before they decide.
+
+### ⚠ THE DEADLINE WAS ANSWERED BY THE DATABASE AND DROPPED ONE HOP LATER
+
+`agent.pending_approvals` has carried `expiresAt` since the approval-controls round, and
+`toolApprovalRow` did not name it. So **a decision's window never reached the person making
+it**: the request simply vanished from the banner when it closed, with nothing having said it
+would — and the run then reads `unresolved`, which is a worse surprise than a deadline. *A
+value computed and never forwarded*, in the field that decides whether somebody knows they
+have to answer today. MEASURED: nine keys out of the function, eight out of the reader.
+
+The banner draws it in the execution history's own words (`Runs out …`), because it is the
+same fact one screen over. **A row with no window draws none rather than "never"** — one from
+before the window existed has no deadline, and inventing one would be this screen promising
+something the database did not say.
+
+### ⚠ AND `{}` MEANT TWO OPPOSITE THINGS, WITH THE SCREEN STATING THE WRONG ONE
+
+An unreadable argument set folded to `{}` — the same value a call that really takes no
+arguments answers — and the banner drew both as *"with nothing filled in"*: **a positive claim
+about a value it had failed to read**, in the one place a person is deciding. `null` is *we
+could not read them* now and `{}` is *there are none*, so there are three states rather than
+two: the list, the sentence, and a row that says so and **does not offer Approve at all**.
+
+**"DON’T" STAYS, deliberately.** Refusing a call you cannot see is a reasonable thing to do
+and it is what gets the run moving again; withholding both buttons would leave it stuck.
+
+### ⚠ AND THE ROUTE COLLAPSED THREE REFUSALS INTO ONE 404
+
+`agent.decide_tool_approval` answers `no-request`, `expired` and `revoked-permission`, and
+every one came back as *"that request isn't waiting any more"* — **false of an expired one**
+(it is still there; the window closed) and **false of a revoked one** (the permission went,
+not the request). Their remedies are opposite: ask the agent again, or restore the permission.
+*A failure that cannot name itself*, in the door a person presses on the money path.
+
+- **NOT FOUND, NEVER FORBIDDEN, AND ONLY FOR THE ONE CODE THAT MEANS IT.** The function puts
+  the tenant in its own locked lookup, so another account's request and one that does not
+  exist are BOTH `no-request` and both answer 404. Every other code is only ever about a
+  request this account owns, so naming it leaks nothing — and naming it is the whole point.
+- **EACH CARRIES ITS OWN FLAG BESIDE THE SENTENCE** (`expired`, `revoked` and the tool), so
+  the screen offers the one thing that helps rather than parsing our prose for it — the idiom
+  the paused agent and the disabled automation already use. **A 409 rather than a 404**: the
+  request was well formed, the thing is theirs, and nothing is broken.
+- **A CODE `sayVerdict` DOES NOT KNOW IS A 502 AND NEVER A 400.** `bad-verdict` and
+  `no-decider` refuse things this route decides for itself — the verdict against
+  `TOOL_VERDICTS`, the decider from the verified session — so one arriving is our own fault,
+  and blaming the caller for it sends them to fix something they did not send.
+
+### Measured
+
+- **Site suite 6,876 → 6,878** (6,876 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-send` 74 → **75** (a census over the function's own error codes, windowed on
+  its own dollar quotes rather than at the next semicolon) and `agent-binding` 132 → **133**
+  (three argument states, with the window and its no-window control added to the reload case).
+- **`verify:controls` 71 → 89, 0 FAIL** on a real PostgreSQL: the three refusals through the
+  real route, with a guessed id still 404 as the control — and **`revoked-permission` reached
+  by the RACE it is a wall for**, since `revoke_agent_tool` withdraws the pending request and
+  the repeat check is asked first. The revocation row goes in as the owner, which is what the
+  race leaves behind; that is the one thing simulated there, and it is the STATE rather than
+  the decision.
+### ⚠ AND A PENDING APPROVAL SURVIVING A RESTART WAS DEMONSTRATED NOWHERE
+
+The milestone names it, and a workflow STEP's approval had it (`verify:wf`'s interruption
+matrix walks every boundary) and a clarification had it (`verify:conversation`) — **the one a
+person meets most, the banner above the message box, did not.** It is a row, so it ought to be
+free; *ought to be* is what section 6 of `verify:controls` replaces with a measurement.
+
+**A BRAND-NEW DISPATCHER AND A BRAND-NEW STORE, which is what makes it mean anything.** Reusing
+either leaves its memory in scope and the answer could have come from anywhere; a fresh pair has
+seen nothing, so what the person is shown came out of the database. The old doorbell is asserted
+EMPTY first, so nothing is held open across the restart. Then: the same request, the same
+arguments, **the same deadline** — which is the `expiresAt` fix proved end to end rather than at
+a reader — a person approves in the new process, and the call runs **exactly once**, read off the
+journal rather than off a sentence. **Red-proofed**: with the window dropped from the reader,
+that check fails with `undefined`.
+
+**⚠ AND ITS FIRST DRAFT CONTAINED A CHECK THAT ASSERTED NOTHING.** `!stack.rungHas?.(R_BOOT)` —
+a method nothing has, so `!undefined` was `true` whatever the state was. It reads the old
+doorbell's own queue now. *A negative assertion is only worth what its observer is worth*, in the
+check written to say that nothing was carried across.
+
+- **TWO OLDER CASES RE-ANCHORED, NOT APPEASED, AND BOTH ASSERTED THE DEFECT**: `agent-send`
+  demanded every unreadable argument set read as `{}`, and `verify:controls` demanded the late
+  press be a 404. The property was never the spelling — it is *a person must never be shown a
+  blank where the subject should be*, and *it cannot be approved and it says which of the
+  three it was*. A key census pinned to eight fields was re-anchored to nine.
+- **NINE BREAKAGES DRIVEN ONE AT A TIME, every one caught by the case written for it**, plus a
+  tenth measured INERT and declared (recorded in the engine's notes). And **five checks in
+  `verify:controls` go red with the collapsed 404 put back**, on a real database, naming the
+  wrong sentence in their own output.
+- **`scripts/mutants/approval-shown.json`: 16 entries (2 controls)**, every anchor proved
+  present exactly once by a pre-check BEFORE the run rather than read as NOT APPLIED
+  afterwards.
+- **`.ag-ap-when` SHARES `.ag-ap-none`'S RULE rather than getting one of its own**: identical
+  declarations are not a design decision, and a second block would be one nobody made. The
+  source reads correctly either way, which a deadline drawn on `.ag-ap-none` would not.
+  `css-reachable` is still at zero unreachable rules.

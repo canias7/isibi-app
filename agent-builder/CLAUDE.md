@@ -7992,3 +7992,105 @@ every link has its own reason: the migration first because the engine's `readSea
 bare array but the SITE's `memory-delete` route answers a `note` only the new function sets;
 the engine before the site because the site's screen now SHOWS that sentence, and a screen
 showing nothing where a person expects an explanation is the gap this round closed.
+
+---
+
+## M14-5: an approval bound to arguments nobody was shown (2026-09-20)
+
+Owner: *"Complete approval, cancellation, and recovery flows… Show the exact action and the
+material arguments before approval. Bind the approval to that proposal. Changed
+approval-relevant arguments require new approval… Reuse the existing mechanisms without
+introducing a parallel approval or recovery system."* **The site builder's half — the window
+on the banner, the three argument states and the route's three refusals — is in the root
+`CLAUDE.md`**; what belongs here is the engine's, and it is one wall.
+
+**NINE OF THE ELEVEN POINTS WERE ALREADY BUILT AND WERE CHECKED ONE BY ONE RATHER THAN
+ASSUMED** — the argument hash binds a decision (M4), `stale` refuses a changed one, the first
+decision stands, `cancel_run` reports what already ran and never claims a rollback, a lost
+answer is reconciled rather than re-sent (M8/M12), a reload is an ordinary read, and four
+arms prove that neither an instruction, a tool's own answer, a retrieved document nor a
+request body can grant a permission. **What was NOT built is the one thing every other point
+rests on: that the arguments a person is shown are the arguments the approval binds.**
+
+### ⚠ THE DEFECT, MEASURED THROUGH THE REAL `ask` BEFORE ANYTHING WAS CHANGED
+
+`ask` hashed the arguments A MODEL REALLY WROTE and stored `p_args` COALESCED to `{}`:
+
+| `args` | stored on the row | hash it was bound to | hash of `{}` |
+|---|---|---|---|
+| `"hello"` | **`{}`** | `b7a901e5…` | `6cfb17de…` |
+| `42` | **`{}`** | `5342b2cb…` | `6cfb17de…` |
+| `["a","b"]` | **`{}`** | `3480a569…` | `6cfb17de…` |
+
+So a person is shown a call **with no arguments at all**, approves it, `matches` is satisfied
+(it compares the real value on both sides), and the call runs with `"hello"`. **An approval
+bound to arguments nobody was ever shown** — and the coalescing sat one line under the hash
+that did not do it, which is why reading the function does not find it.
+
+**IT IS REACHABLE BECAUSE `args` IS THE ONE VALUE A MODEL WRITES.** `run.mjs` dispatches
+`calls[i]?.args` unnormalised, and a tool's `input_schema` is an author's declaration rather
+than a wall a provider enforces.
+
+### `showableArgs` IS THE WALL, AND WHAT IT LETS THROUGH IS THE INTERESTING HALF
+
+- **ABSENT IS A REAL ANSWER AND IS `{}`** — `undefined` and `null` are how a model calls a
+  tool that takes no arguments. **It is not a coercion, because `argsHash`'s own `?? {}`
+  already hashes both as `{}`**, so the row and the hash agree BY CONSTRUCTION rather than by
+  care. Asserted, not assumed, because the whole invariant rests on it — and those two shapes
+  are byte for byte what they were.
+- **EVERYTHING ELSE IS REFUSED** — a string, a number, a boolean, an array. None is a shape
+  any `input_schema` declares, and inventing a key for one (`{value: args}`) would label a
+  person's decision with a field the tool does not have. *Refuse, never coerce.*
+- **NOTHING IS WRITTEN ON THE REFUSING PATH.** A row for a call nobody can be shown would sit
+  on somebody's screen for ever offering a decision they cannot make.
+- **A ROW WRITTEN BEFORE THIS IS LEFT TO EXPIRE, and that is the honest outcome rather than
+  an oversight.** It holds `{}` with a hash over the real value, so it can never be matched
+  again; the run is answered and carries on, and the request closes with its own window.
+  Nothing is stranded and nothing is migrated.
+
+**`APPROVAL_STATES` IS 6 → 7 AND `unshowable` IS NOT A REFUSAL BY ANYBODY** — it is this
+platform declining to ASK, and it is the only one of the seven that never reaches the
+database. The model is told that nothing was asked and what to send instead: read as a
+rejection it tells a customer a person declined their work, read as `no-approver` it sends
+somebody to look at a deployment. **`run.mjs` needed no change**, because it tests `approved`
+and `pending` positively and everything else falls to `approvalRefusal` — the gate-once shape
+paying for itself.
+
+**AND A STALE FOUR-STATE DOCBLOCK SAT ABOVE THE SIX-STATE ONE**, describing a world with no
+`revoked` and no `expired` in it. Deleted: a comment that states a falsehood is worse than
+none.
+
+### Measured
+
+- **Engine suite 600 → 601**, 0 failed: one case for the invariant over every shape (the
+  hash equals the hash of the STORED value, with the two absent shapes asserted equal by
+  construction), the refusal with nothing sent, and `showableArgs` on its own. The state
+  census went red on its own and was extended, which is the census being right.
+- **`verify:controls` 71 → 89, 0 FAIL** on a real PostgreSQL — the site's three refusals
+  through its own route, and a pending approval surviving a RESTART (both recorded in the
+  root notes).
+- **`verify:tools` 154 · `wf` 159 · `chat` 126 · `auto` 70 · `triggers` 98 · `connections` 76
+  · `ops` 75 · `integration` 89 · `send` 97 · `conversation` 79 — every one green at its
+  recorded count**, which is the control that this round broke nothing. `FAIL` counted on the
+  LEADING token, because `grep -c FAIL` matches check LABELS containing the word.
+- **Sweep spec 722 → 729 entries (11 controls → 718 product mutants)**, every anchor unique by
+  the generator's own pre-check.
+- **⚠ AND `p_args: show.args` HAS NO MUTANT, MEASURED INERT rather than overlooked.** Reverting
+  it to the old coalesce changes nothing once the wall exists: every shape that reaches it is
+  either absent (→ `{}` both ways) or a plain object (→ itself). Driven and green, so it is
+  declared in the spec with the OBSERVABLE half beside it — the mutant that removes the wall
+  and the hash together, which is the defect.
+
+### ⚠ AND MY OWN RED-PROOF HARNESS DESTROYED MY WORK — the recorded trap, through a new door
+
+The first pass at proving these red used `git checkout -- <the three source files>` to undo
+each mutation. **`git checkout` restores to HEAD, and none of the work was committed**, so
+after three proofs all three product files were back at HEAD with the fix gone; only the test
+files survived, because those were never checked out. Recovered from the edits themselves and
+re-applied.
+
+**This directory already records it for a SWEEP's `trap … EXIT`** (*"the tell is a clean tally
+beside an empty diff"*). What is new is the door: a HAND red-proof loop is the same hazard with
+no runner's `finally` to blame, and it is worse, because the tally it prints looks like
+evidence. **The rule generalises: commit before proving anything red, or restore from a copy
+rather than from git.** Everything after that was proved red against a commit.

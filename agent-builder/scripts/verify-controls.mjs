@@ -74,7 +74,8 @@ try {
     newId: () => `00000000-0000-4000-8000-${String(++minted).padStart(12, "0")}`,
     log: () => {},
   });
-  const { drain, ring, tick } = dispatcher({ worker, rest });
+  const first = dispatcher({ worker, rest });
+  const { drain, ring, tick } = first;
 
   let press = 0;
   /** Send one message and let the consumer run it, the way a person pressing send does. */
@@ -484,7 +485,61 @@ try {
     `${wEntries} entries`);
 
   // ═════════════════════════════════════════════════════════════════════════
-  console.log("\n6. WHAT ALL OF THAT LEFT BEHIND");
+  console.log("\n6. ⚠ A RESTART KEEPS A PENDING APPROVAL, AND SOMEBODY ELSE'S PROCESS ANSWERS IT");
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚠ **THE MILESTONE NAMES THIS AND NOTHING DEMONSTRATED IT FOR A TOOL CALL.** A workflow
+  // step's approval survives a restart (`verify:wf`'s interruption matrix walks every
+  // boundary) and a clarification does (`verify:conversation`), and the one a person meets
+  // most — the banner above the message box — did not. It is a ROW, so it ought to be free;
+  // *ought to be* is what this section replaces with a measurement.
+  const surv = await ask(AG, `use pause_automation id=${AUTO} enabled=false`);
+  const R_BOOT = surv.body.runId;
+  const beforeBoot = await waitingOn(R_BOOT);
+  check("a gated call is waiting for a person", beforeBoot !== null);
+  check("...and nothing has run", ranTool(R_BOOT) === "0");
+
+  // ⚠ **A BRAND-NEW DISPATCHER AND A BRAND-NEW STORE, which is what makes the assertion mean
+  // anything.** Reusing the old ones leaves their memory in scope and the answer could have
+  // come from anywhere; a fresh pair has seen nothing, so whatever the person is shown came
+  // out of the database. The old doorbell is asserted EMPTY first — nothing is held open
+  // across the restart, which is the property a deploy really has.
+  // ⚠ **THIS CHECK ASSERTED NOTHING IN ITS FIRST DRAFT** — it read `stack.rungHas?.(…)`, a
+  // method nothing has, so `!undefined` was `true` whatever the state was. *A negative
+  // assertion is only worth what its observer is worth.* It reads the old doorbell's own
+  // queue now, and the drain in `ask` above is what emptied it.
+  check("⚠ the old process is holding nothing for this run — nothing is carried across the restart",
+    Array.isArray(first.rung) && !first.rung.includes(R_BOOT), JSON.stringify(first.rung));
+  const boot = dispatcher({ worker, rest });
+  const apiAfter = (path, { tenant = A, body = {}, query = null, ring: r } = {}) => handleAgentApi({
+    path, method: query ? "GET" : "POST",
+    tenant, body, query: new URLSearchParams(query || {}),
+    store: makeAgentStore({ fetch: (u, o) => fetch(u, o), url: rest.url, key: "local-service-role" }),
+    ring: r, newId: () => `00000000-0000-4000-8000-${String(++minted).padStart(12, "0")}`, log: () => {},
+  });
+  const afterBoot = ((await apiAfter("/api/agent/tool-approvals", { query: {} })).body.approvals || [])
+    .find((x) => x.run === R_BOOT) || null;
+  check("⚠ the new process reads the SAME request waiting, out of the database",
+    afterBoot !== null && afterBoot.id === beforeBoot.id, JSON.stringify(afterBoot));
+  check("⚠ ...with the same arguments, so what is approved is what was proposed before the restart",
+    JSON.stringify(afterBoot.args) === JSON.stringify(beforeBoot.args), JSON.stringify(afterBoot.args));
+  check("⚠ ...and with its deadline, which is the field a person needs and the reader used to drop",
+    typeof afterBoot.expiresAt === "string" && afterBoot.expiresAt === beforeBoot.expiresAt,
+    String(afterBoot.expiresAt));
+
+  const pressedAfter = await apiAfter("/api/agent/tool-approve",
+    { body: { id: afterBoot.id, verdict: "approved" }, ring: boot.ring });
+  check("a person approves it in the new process", pressedAfter.status === 200 &&
+    pressedAfter.body.repeat === false, JSON.stringify(pressedAfter.body).slice(0, 160));
+  await boot.drain();
+  check("⚠ ...and the call runs, from the log alone — nothing was lost to the restart",
+    ranTool(R_BOOT) === "1" && stopOf(R_BOOT)?.reason === "answered",
+    `${ranTool(R_BOOT)} ${JSON.stringify(stopOf(R_BOOT))}`);
+  check("⚠ ...exactly once, which is what `attempts` can say and a sentence cannot",
+    q(`select count(*) from agent.run_entries where run_id = '${R_BOOT}'
+         and body ->> 'kind' = 'tool';`) === "1");
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n7. WHAT ALL OF THAT LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   check("⚠ no run is left claimed by a worker that has gone",
     q(`select count(*) from agent.run_work where claimed_by is not null and done_at is null;`) === "0");
