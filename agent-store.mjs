@@ -1292,15 +1292,27 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
      * same values. The `_once` wrapper is the AGENT's door, where a queue really can deliver
      * one call again, and it is the one place an operation record is worth keeping.
      *
-     * **NO VERSION FENCE FROM THIS DOOR, and that is deliberate rather than missing.**
-     * `version` moves on a change of STEPS and on nothing else, so it cannot see a concurrent
-     * rename at all; what protects every other field is that this patch only writes what it
-     * names, atomically, under that lock. A fence would refuse a name change because somebody
-     * else had edited the steps — a refusal with nothing for the person to do about it.
+     * ⚠ **THE FENCE IS SENT WHERE — AND ONLY WHERE — THE EDIT WAS VALIDATED AGAINST SOMETHING
+     * STORED, and this paragraph used to say the fence was deliberately unused.**
+     *
+     * That reasoning was right about the case it considered and wrong as a general rule. It read:
+     * *"`version` moves on a change of STEPS and on nothing else, so it cannot see a concurrent
+     * rename; a fence would refuse a name change because somebody else had edited the steps."*
+     * True — and irrelevant to an edit whose own VERDICT came from the stored steps or the stored
+     * declarations. There the counter is not an unrelated field that might have moved; it is the
+     * identity of the thing that was checked.
+     *
+     * So the fence is `cleanPatch`'s answer, sent verbatim and never computed here: it is offered
+     * only for an edit that named exactly one half of the validated surface, and the counter now
+     * moves on the steps OR on what the automation asks for. A rename still fences on nothing and
+     * still cannot be refused for somebody else's edit.
+     *
+     * `undefined` READS AS NO FENCE, so every existing caller behaves byte for byte as it did.
      */
-    async patchAutomation(tenant, { id, patch }) {
+    async patchAutomation(tenant, { id, patch, expectVersion = null }) {
       const r = await req("POST", "rpc/patch_automation", {
-        body: { p_tenant: tenant, p_id: id, p_patch: patch, p_expect_version: null },
+        body: { p_tenant: tenant, p_id: id, p_patch: patch,
+                p_expect_version: Number.isInteger(expectVersion) ? expectVersion : null },
       });
       if (!r.ok) throw storeFail("patch automation", r);
       return answerOf(r, "patch automation");
@@ -3076,28 +3088,85 @@ export const fieldNamed = (b, f) =>
   !!b && typeof b === "object" && Object.hasOwn(b, f) && b[f] !== undefined;
 
 /**
- * ⚠ **WHETHER AN EDIT HAS TO BE VALIDATED AGAINST THE STORED DECLARATIONS.**
+ * ⚠ **WHETHER AN EDIT HAS TO BE VALIDATED AGAINST THE STORED CONFIGURATION.**
  *
  * A `{{reference}}` in a step is refused unless something produces it, and a declared input is
- * half of what can — so new steps have to be checked against the declarations the automation
- * will really have. If the patch names both, they check against each other; if it names only the
- * steps, the declarations are the stored ones and the route has to read them.
+ * half of what can — so **the steps and the declarations are one thing to validate, and an edit
+ * that names either half has to be checked against whatever the automation will really have.**
+ *
+ * ⚠ **THE RULE WAS `steps && !inputs`, AND THAT MISSED THE OTHER HALF ENTIRELY — reproduced
+ * before this was touched.** An inputs-only patch named no steps, so nothing here asked for the
+ * stored ones and `cleanWorkflow` was never called at all:
+ *
+ *     stored: inputs [{name:"customer"}]  steps [{type:"note", text:"Hello {{customer}}"}]
+ *     patch : {inputs: []}
+ *     cleanPatch answered {"patch":{"inputs":[]}} — accepted, written, nothing said
+ *
+ * ...and the next execution failed at step 1 for a value nothing produced. The validator could
+ * see it perfectly — the SAME steps against an empty declaration set answer *step 1: nothing
+ * here produces a value called "customer"* — so this was never a missing rule. It was a rule
+ * one door never reached. **A rename of the input is the same shape and is the commoner one.**
+ *
+ * **THE ENGINE'S OWN `change_automation` HAD IT RIGHT ALREADY** (`capability-tools.mjs`, the
+ * *validated together* block), down to naming this exact failure in its own comment — so the two
+ * doors onto one operation disagreed, and the one a person uses was the weaker one.
+ *
+ * So: TRUE when the patch names exactly one of the two, because then the other half comes from
+ * the stored row. Both named is self-contained and needs no read; neither named touches nothing
+ * `cleanWorkflow` looks at.
  *
  * ONE READER, so the route and `cleanPatch` cannot disagree about when that read is needed. A
- * caller that forgot to ask this passes no declarations, and every reference to an input is then
- * REFUSED — a wrong answer in the fail-closed direction, which is the right way round for a hop
- * somebody can forget.
+ * caller that forgot to ask this passes no configuration, and `cleanPatch` then REFUSES rather
+ * than validating against emptiness — see its own note, which is where that direction is
+ * decided.
  */
-export const patchNeedsStored = (b) => fieldNamed(b, "steps") && !fieldNamed(b, "inputs");
+export const patchNeedsStored = (b) => fieldNamed(b, "steps") !== fieldNamed(b, "inputs");
 
 /**
  * Read an edit into the patch `agent.patch_automation` takes.
  *
- * `storedInputs` is what the automation declares NOW, and it is read ONLY to validate the steps
- * against. It is never put into the patch, so the declarations the transaction preserves are the
- * ones it resolves from the locked row rather than the ones this process read a moment ago.
+ * `held` is the automation as it stands — `{steps, inputs, version}`, an `automationRow`. It is
+ * read ONLY to validate against and is never put into the patch, so what the transaction
+ * preserves is still what it resolves from the LOCKED row rather than what this process read a
+ * moment ago.
+ *
+ * ⚠ **IT USED TO TAKE THE DECLARATIONS ALONE, and that shape is what made the defect above
+ * unreachable-by-construction in one direction only.** With only the inputs in hand there was
+ * nothing to check a stored STEP list against, so an inputs-only edit had no validation to fail.
+ * The argument is the row now, which is the smallest thing that can answer both halves.
+ *
+ * ⚠ **AND IT ANSWERS THE VERSION TO FENCE ON, rather than leaving the caller to decide.** When
+ * the verdict drew on a stored half, the combination that was validated is only the combination
+ * that gets written if nothing moved that half in between — so the number to compare comes back
+ * beside the patch, from the same read the verdict came from. A caller cannot fence on a
+ * different read than the one that was validated, because there is only one.
  */
-export function cleanPatch(b, storedInputs) {
+export function cleanPatch(b, held) {
+  /**
+   * ⚠ **A `held` THAT IS NOT A ROW IS A CALL SITE'S BUG AND IT THROWS, because every other
+   * reading of it is silently wrong about a customer's configuration.**
+   *
+   * The old signature took the DECLARATIONS ALONE, so a call site left behind hands an ARRAY.
+   * Measured against the reads below: `held?.inputs` is `undefined`, `held?.steps` is `undefined`
+   * and `held?.version` is `undefined` — while `!held` is FALSE, because an array is truthy. So
+   * the fail-closed refusal does not fire and the whole combination is validated against
+   * EMPTINESS: a stored step list refused for every reference in it (*"your steps are broken"*
+   * about steps that are fine), proposed steps refused for every reference to an input the
+   * automation really has, and no fence sent for an edit that needed one.
+   *
+   * **A RETURNED ERROR WOULD BE THE WRONG SENTENCE**, because it reads as a fact about the
+   * request when it is a fact about our own hop — and this argument can only ever come from code
+   * in this file (the route passes `automationRow`'s answer or `null`), never from a body. So the
+   * one moment it can be wrong is an edit to a call site, which is exactly when a throw is cheap
+   * and a silent misreading is not.
+   *
+   * `null` and an absent argument stay a real answer: *nothing was read*, which the refusal
+   * below names.
+   */
+  if (held != null && (typeof held !== "object" || Array.isArray(held))) {
+    throw new TypeError("cleanPatch takes the automation as it stands (an automationRow) or null");
+  }
+
   const patch = {};
 
   if (fieldNamed(b, "name")) {
@@ -3154,8 +3223,28 @@ export function cleanPatch(b, storedInputs) {
     else { const r = trigOnEvent(b.on_event); if (r.error) return r; patch.onEvent = r.onEvent; }
   }
 
-  // ⚠ THE DECLARATIONS ARE READ BEFORE THE STEPS, because the steps are checked against them.
-  let declared = Array.isArray(storedInputs) ? storedInputs : [];
+  /**
+   * ⚠ **THE STEPS AND THE DECLARATIONS ARE VALIDATED AS ONE COMBINATION, and every half the
+   * patch does not name comes from the stored row — which is what the automation will still have
+   * when this is done.**
+   *
+   * The three cases and why they are one rule:
+   *   - **inputs only** — the STORED steps are checked against the proposed declarations, so
+   *     removing or renaming an input that a stored step refers to is refused here rather than
+   *     at the step, days later, on a run that has already done the steps above it.
+   *   - **steps only** — the proposed steps are checked against the STORED declarations, which
+   *     is what this door already did.
+   *   - **both** — the proposed combination is checked against itself, and nothing stored is
+   *     read or fenced on, because the answer cannot depend on a value that is not in the call.
+   *
+   * ⚠ **ONLY WHAT THE CALL NAMED GOES ON THE PATCH.** `cleanWorkflow` answers a canonical step
+   * list even when it was handed the stored one, and putting that on the patch would turn "I
+   * renamed an input" into an edit of the steps — which moves the version, invalidates a
+   * parent's snapshot, and makes the approval a person gave cover more than what they saw. The
+   * engine's own tool states this rule about the same patch; it is the same rule here.
+   */
+  const sameSurface = fieldNamed(b, "steps") === fieldNamed(b, "inputs");
+  let declared = Array.isArray(held?.inputs) ? held.inputs : [];
   if (fieldNamed(b, "inputs")) {
     const asked = cleanInputs(b.inputs);
     if (asked.error) return asked;
@@ -3163,13 +3252,47 @@ export function cleanPatch(b, storedInputs) {
     declared = asked.inputs;
   }
 
-  if (fieldNamed(b, "steps")) {
-    const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, declared);
+  if (fieldNamed(b, "steps") || fieldNamed(b, "inputs")) {
+    /**
+     * ⚠ **A PATCH THAT NEEDS THE STORED CONFIGURATION AND WAS HANDED NONE IS REFUSED, not
+     * validated against emptiness.**
+     *
+     * Validating a stored step list against `[]` would refuse every reference in it and read as
+     * "your steps are broken" about steps that are fine; validating proposed steps against `[]`
+     * would refuse every reference to an input the automation really has. Both are a wrong
+     * sentence about correct configuration, which is worse than a refusal that names the cause —
+     * and the route always reads the row (`patchNeedsStored`), so this is a wall for a caller
+     * that skipped that hop rather than a path anybody reaches from the screen.
+     */
+    if (!sameSurface && !held) {
+      return { error: "couldn't read what this automation has now, so this change wasn't checked — try again" };
+    }
+    const steps = fieldNamed(b, "steps") ? b.steps
+      : (Array.isArray(held?.steps) ? held.steps : []);
+    const flow = cleanWorkflow(steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, declared);
     if (flow.error) return flow;
-    patch.steps = flow.steps;
+    if (fieldNamed(b, "steps")) patch.steps = flow.steps;
   }
 
-  return { patch };
+  /**
+   * ⚠ **THE FENCE, AND IT IS ONLY OFFERED WHERE IT IS REALLY NEEDED.**
+   *
+   * A verdict that drew on a stored half is only a verdict about what gets written if nothing
+   * moved that half between the read and the write. `agent.patch_automation` has taken
+   * `p_expect_version` since it was written and no door had ever sent one; `version` now moves
+   * on a change of the steps OR of what the automation asks for, which is exactly this surface.
+   *
+   * **A CONCURRENT RENAME STILL DOES NOT REFUSE ANYTHING**, which is what made the old "no fence
+   * from this door" reasoning right about the case it was considering: the counter does not move
+   * for a name, a time, a zone, a day list, a date or an event. So this cannot produce a refusal
+   * with nothing for the person to do about it — it refuses exactly when somebody else changed
+   * the thing this edit was checked against.
+   *
+   * `null` WHERE THE VERSION COULD NOT BE READ, and `expectVersion` is then absent: a fence on a
+   * number nobody read is a fence that passes because two unknowns happened to match.
+   */
+  const expectVersion = !sameSurface && Number.isInteger(held?.version) ? held.version : null;
+  return expectVersion === null ? { patch } : { patch, expectVersion };
 }
 
 /**
@@ -3218,9 +3341,20 @@ export function sayPatch(a) {
       return "an event's name is lower-case letters, digits, dots, dashes and underscores, starting with a letter";
     case "bad-steps": return "send the steps as a list";
     case "bad-inputs": return "send what it asks for as a list";
-    // UNREACHABLE FROM THIS DOOR and named anyway: nothing here sends a version to be fenced on,
-    // because `version` moves on a change of steps alone and so cannot see a concurrent rename.
-    case "stale": return "somebody else changed this while you had it open — open it again";
+    /**
+     * ⚠ **REACHABLE FROM THIS DOOR NOW, and this comment used to say it was not.** An edit that
+     * named one half of the steps-and-declarations surface is validated against the stored other
+     * half and fences on the version of it, so `stale` is the answer when somebody else changed
+     * that half in between — and the sentence has to send a person to re-open rather than retry,
+     * because the combination they were shown is not the combination that is stored now.
+     *
+     * **IT NAMES WHAT MOVED**, since "somebody changed this" about a form with a dozen controls
+     * is not something to act on: the two fields the counter covers are the steps and what the
+     * automation asks for, and those are the two the person has to look at again.
+     */
+    case "stale":
+      return "somebody else changed this automation's steps or what it asks for while you had it "
+        + "open — open it again so you're editing what's there now";
     default: return null;
   }
 }
@@ -3228,6 +3362,12 @@ export function sayPatch(a) {
 export const AUTOMATION_COLUMNS = Object.freeze([
   "id", "agent_id", "name", "enabled", "schedule", "at_local", "zone",
   "days", "on_date", "on_event", "steps", "inputs", "next_run_at", "updated_at",
+  // ⚠ `version` IS WHAT A GUARDED EDIT NEEDS, and it was missing from this list while the
+  // migration's own comment said the read "carries its version, which is what a guarded edit
+  // needs". So the fence `agent.patch_automation` has always offered could not be used from
+  // this door at all: the number to send was never on the wire. A reader that cannot see the
+  // thing it is meant to compare is the wiring layer, one field wide.
+  "version",
 ]);
 
 /**
@@ -3261,6 +3401,20 @@ export function automationRow(r) {
     inputs: Array.isArray(r?.inputs) ? r.inputs : [],
     nextRunAt: typeof r?.next_run_at === "string" ? r.next_run_at : null,
     updatedAt: typeof r?.updated_at === "string" ? r.updated_at : null,
+    /**
+     * ⚠ **THE VERSION OF THE CONFIGURATION A GUARDED EDIT FENCES ON — `null` for a row whose
+     * version cannot be read, never a number.**
+     *
+     * It moves on a change of the STEPS or of what the automation ASKS FOR: together those are
+     * the whole surface `cleanWorkflow` reads, so a counter over them is exactly what says
+     * "the combination you validated is still the combination you are writing into".
+     *
+     * `null` is "we do not know", the rule `knowledgeRow` already follows for the same field
+     * name — and it is load-bearing here rather than tidy: `cleanPatch` refuses to fence on a
+     * version it could not read rather than sending one it guessed, because a guessed number
+     * that happens to match is a fence that passes over a change it never saw.
+     */
+    version: Number.isInteger(r?.version) ? r.version : null,
   };
 }
 
@@ -4046,23 +4200,30 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         if (!id) return no(400, "which automation?");
 
         /**
-         * ⚠ **THE STORED DECLARATIONS ARE READ TO VALIDATE AGAINST AND ARE NEVER WRITTEN
-         * BACK.** A `{{reference}}` needs something that produces it, and a declared input is
-         * half of what can — so a patch that carries new steps and says nothing about the
-         * declarations has to be checked against the ones the automation really has. What is
+         * ⚠ **THE STORED CONFIGURATION IS READ TO VALIDATE AGAINST AND IS NEVER WRITTEN BACK.**
+         * A `{{reference}}` needs something that produces it, and a declared input is half of
+         * what can — so **the steps and the declarations are one combination**, and an edit that
+         * names either half has to be checked against the other half as it really stands. What is
          * PRESERVED is still the transaction's own resolution from the locked row; this read
-         * decides a refusal and never a value, so a declaration that moved between the two
-         * costs a validation decided a moment stale and can never cost somebody their inputs.
+         * decides a refusal and never a value, so it can never cost somebody their steps or their
+         * inputs.
+         *
+         * ⚠ **AND WHAT A STALE READ COSTS IS NO LONGER "a validation decided a moment stale",
+         * which is what this paragraph used to say and is what the fence below closes.** Between
+         * this read and the write another browser can change the half that was read, and then the
+         * combination written is not the combination checked. `cleanPatch` answers the version of
+         * the surface it validated and the patch fences on it, so the write happens against the
+         * configuration the verdict was about or not at all.
          *
          * **AND IT IS NOT THE OWNERSHIP CHECK.** It is tenant-scoped, so a stranger gets the
          * missing-automation 404 here as well — but the wall is the patch's own locked lookup,
          * which has no window between deciding and writing.
          */
-        let stored = [];
+        let stored = null;
         if (patchNeedsStored(b)) {
           const one = await store.readAutomation(who, id);
           if (!one) return NO_AUTOMATION();
-          stored = one.inputs;
+          stored = one;
         }
 
         const asked = cleanPatch(b, stored);
@@ -4076,7 +4237,11 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
          */
         if (!Object.keys(asked.patch).length) return no(400, "say which fields to change");
 
-        const a = await store.patchAutomation(who, { id, patch: asked.patch });
+        // THE FENCE IS `cleanPatch`'s ANSWER, PASSED THROUGH — never a version this route read
+        // for itself. One read decided the verdict and one number fences it, so the two cannot
+        // be about different moments.
+        const a = await store.patchAutomation(who,
+          { id, patch: asked.patch, expectVersion: asked.expectVersion ?? null });
         { const r = callRefusal(a.error); if (r) return r; }
         if (a.error === "no-automation") return NO_AUTOMATION();
         if (a.ok !== true) {

@@ -367,7 +367,7 @@ test("⚠ EVERY COLUMN `automationRow` READS IS NAMED ON THE WIRE, derived from 
   automationRow(new Proxy({}, {
     get(_t, k) { if (typeof k === "string") touched.add(k); return undefined; },
   }));
-  assert.ok(touched.size >= 14, `the proxy recorded only ${touched.size} columns — it is not reading the row`);
+  assert.ok(touched.size >= 15, `the proxy recorded only ${touched.size} columns — it is not reading the row`);
 
   const seen = [];
   const store = makeAgentStore({
@@ -401,9 +401,16 @@ test("⚠ EVERY COLUMN `automationRow` READS IS NAMED ON THE WIRE, derived from 
     "the column list and what automationRow reads have come apart");
   // AND THE CONTROL: a select list that had stopped naming these would not satisfy the
   // check above. Proved against the spelling the list really carried before the fix.
+  //
+  // ⚠ RE-ANCHORED, NOT APPEASED: `version` joined the list, so the pre-fix ten are now
+  // missing FIVE rather than four. The property is unchanged — that historical list reads as
+  // short and this census discriminates — and the number moved because the census caught a
+  // real addition, which is the census working. **AND `version` IS ITS OWN STORY**: the read
+  // could not carry the number a guarded edit fences on, so `agent.patch_automation`'s
+  // `p_expect_version` was unreachable from this door for want of one column.
   const short = new Set("id,agent_id,name,enabled,schedule,at_local,zone,steps,next_run_at,updated_at".split(","));
   assert.deepEqual([...touched].filter((c) => !short.has(c)).sort(),
-    ["days", "inputs", "on_date", "on_event"],
+    ["days", "inputs", "on_date", "on_event", "version"],
     "the pre-fix select list no longer reads as short — this check has stopped discriminating");
 });
 
@@ -659,6 +666,24 @@ test("⚠ A STEPS EDIT IS VALIDATED AGAINST THE DECLARATIONS THE AUTOMATION REAL
   assert.equal(patchNeedsStored({ name: "x" }), false);
   assert.equal(patchNeedsStored({}), false);
   assert.equal(patchNeedsStored({ steps: undefined }), false, "an undefined step list names nothing");
+
+  /**
+   * ⚠ **AND `cleanPatch` REFUSES A `held` THAT IS NOT A ROW, LOUDLY.** The argument used to be
+   * the DECLARATIONS ALONE, so a call site left behind hands an ARRAY — which is TRUTHY, so the
+   * fail-closed refusal below does not fire, and every read of it (`held?.steps`, `held?.inputs`,
+   * `held?.version`) answers `undefined`. Measured: the whole combination would be validated
+   * against EMPTINESS and no fence sent, so a stored step list reads as *"your steps are broken"*
+   * about steps that are fine. It cannot arrive from a body — the route passes `automationRow`'s
+   * answer or `null` — so the one moment it can be wrong is an edit to a call site, and that is
+   * when a throw is cheap.
+   */
+  assert.throws(() => cleanPatch({ steps: [] }, []), TypeError, "the legacy array shape is tolerated");
+  assert.throws(() => cleanPatch({ steps: [] }, "nonsense"), TypeError);
+  // AND THE TWO REAL ANSWERS STAY ANSWERS: a row validates, and nothing-read is the SENTENCE
+  // below rather than a throw, because "I could not read it" is a state the route really has.
+  assert.ok(!cleanPatch({ steps: [] }, ROW).error);
+  assert.match(cleanPatch({ steps: [] }, null).error, /wasn't checked/);
+  assert.match(cleanPatch({ steps: [] }).error, /wasn't checked/);
 });
 
 test("⚠ EVERY REFUSAL THE TRANSACTION CAN MAKE HAS A SENTENCE — read out of the migration", () => {
@@ -754,7 +779,7 @@ test("⚠ THE TWO DOORS REFUSE THE SAME VALUE IN THE SAME WORDS", () => {
   let seen = 0;
   for (const [whole, part] of pairs) {
     const a = cleanSchedule(whole);
-    const b = cleanPatch(part, []);
+    const b = cleanPatch(part, ROW);
     assert.ok(a.error, `the create accepted ${JSON.stringify(whole)}`);
     assert.ok(b.error, `the edit accepted ${JSON.stringify(part)}`);
     assert.equal(b.error, a.error, `the two doors say different things about ${JSON.stringify(part)}`);
@@ -764,7 +789,7 @@ test("⚠ THE TWO DOORS REFUSE THE SAME VALUE IN THE SAME WORDS", () => {
   // THE OBSERVER: a value BOTH doors accept, so "they agree" is not satisfied by two readers that
   // refuse everything.
   assert.ok(!cleanSchedule({ schedule: "daily", at: "09:00", zone: "UTC" }).error);
-  assert.ok(!cleanPatch({ at: "09:00" }, []).error);
+  assert.ok(!cleanPatch({ at: "09:00" }, ROW).error);
 });
 
 test("⚠ `fieldNamed` READS PRESENCE AND NEVER TRUTH", () => {
@@ -785,7 +810,7 @@ test("⚠ `fieldNamed` READS PRESENCE AND NEVER TRUTH", () => {
   const PATCHABLE = ["name", "enabled", "schedule", "atLocal", "zone", "steps", "inputs", "days", "onDate", "onEvent"];
   assert.deepEqual(Object.values(AUTOMATION_PATCH_FIELDS).slice().sort(), PATCHABLE.slice().sort());
   for (const f of Object.keys(AUTOMATION_PATCH_FIELDS)) {
-    const got = cleanPatch({ [f]: SAMPLE[f] }, []);
+    const got = cleanPatch({ [f]: SAMPLE[f] }, ROW);
     assert.ok(!got.error, `${f} is named as patchable and ${JSON.stringify(got.error)}`);
     assert.ok(Object.hasOwn(got.patch, AUTOMATION_PATCH_FIELDS[f]),
       `${f} is named as patchable and never reaches the patch`);
