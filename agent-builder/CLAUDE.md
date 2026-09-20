@@ -7930,6 +7930,22 @@ of it was built.
   word and has reported green runs as failing here twice.
 - **Sweep spec 708 → 722 entries (11 controls → 711 product mutants)**, every anchor unique by
   the generator's own pre-check.
+- **Engine sweep (this round's own 15 entries): 15 mutants, 15 killed, 0 survived, 0 never
+  applied, 2 comment-only controls survived** — taken after the run, at `c9aaf8f`, in a detached
+  worktree so the main tree held no mutant while it ran, against the four files that can see
+  them. The worktree is proved restored TWO WAYS afterwards: a clean `git status` with an empty
+  diff against that commit, and the generator's own anchor census green over all 722 entries,
+  which it cannot be while a mutant is applied. **Two controls, because a pass whose control has
+  not been reached is a pass with no control**, and the runner's `CONTROL WAS KILLED` branch is
+  armed only for an entry DECLARED `control: true`. *A narrow list can only produce a false
+  SURVIVOR, never a false kill*, so the next full run still decides.
+- **⚠ PASS 1 LEFT ONE SURVIVOR AND IT WAS A FIXTURE MORE CAPABLE THAN THE THING UNDER TEST.**
+  *the tool trusts an injected surface's shape instead of reading it* survived because
+  `recorder` builds the REAL `makeCapabilities`, which applies `readSearch` on its way out — so
+  every shape handed to that tool was already folded and the tool's own reading was the
+  identity. Closed with a RAW injected surface (`capabilities: { searchKnowledge: async () =>
+  answer }`), which is the only shape that can tell a tool that reads from one that trusts;
+  proved red against the defect (1 failure) before being believed, then 15/15.
 - **SEVENTEEN BREAKAGES DRIVEN ONE AT A TIME**, each caught by the case written for it: the
   note ignored, the tool collapsing the three, the step collapsing them, a coerced flag, the
   legacy fold dropped, the source count asked first, a flag outranking real passages,

@@ -13353,6 +13353,13 @@ wrong and the code was right: a helper that doesn't exist in the file I used it 
 bounded at the next semicolon in a sentence that contains one, and two test needles loose enough to
 match something else on the page.
 
+**The two breakage sweeps have finished and both are clean.** The site side caught 12 of 12 on the
+first pass. The engine side caught 14 of 15 first time, and the one that survived was my own test
+being too helpful rather than a hole in the code — it built the real reader and handed the tool an
+already-tidied answer, so the tool couldn't be caught trusting what it was given. Fixed, and it
+catches it now. Both ran in a throwaway copy of the code so nothing half-broken could ever be left
+behind, and both copies were checked clean afterwards two different ways.
+
 **Nothing is applied, deployed or merged.** Two existing (unapplied) database files answer more than
 they did; nothing new was added — no second store, no new service, no model calls. Site tests
 6,870 → 6,876; the agent engine's own 595 → 600; the real-database checks 1,114 → 1,121. The

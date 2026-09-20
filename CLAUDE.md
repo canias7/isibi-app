@@ -10165,8 +10165,12 @@ reading that misleads.
   exactly: `agent-binding` 127 → **132** (five cases) and `agent-send` 73 → **74** (one).
   **6,870 is HEAD's own number, measured in a clean worktree at `41a7ce5`** rather than read
   off a note.
-- **`scripts/mutants/forget-reach.json`**: 13 entries, 1 comment-only control, every anchor
-  present exactly once by a pre-check before the run.
+- **Site sweep (`scripts/mutants/forget-reach.json`, 13 entries): 12 mutants, 12 killed, 0
+  survived, 0 never applied, 1 comment-only control survived — CLEAN ON THE FIRST PASS**, taken
+  after the run, at `f32f010`, in a detached worktree so the main tree held no mutant while it
+  ran. The spec's 13 entries are those 12 plus the control, which is why the two numbers never
+  have to be reconciled by arithmetic, and every anchor was proved present exactly once by the
+  pre-check BEFORE the run rather than read as NOT APPLIED afterwards.
 - **SEVEN BREAKAGES DRIVEN ON THIS SIDE**, each caught by the case written for it: the note
   dropped again, the sentence outliving its screen, a sentence of our own when the answer had
   none, a success drawn as a failure, a late answer writing anyway, the route composing the
