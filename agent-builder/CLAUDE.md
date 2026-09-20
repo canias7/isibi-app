@@ -8477,3 +8477,11 @@ it.**
   1588910..b679738` filtered on neither prefix is EMPTY), and that workflow's `paths` names
   `builder/**`, `worker.js` and ROOT `*.mjs` — under which `agent-builder/**` does not fall.
   So run 1224's green on `1588910` still covers this tip by the recorded ancestor rule.
+
+**AND THE FINAL HEAD `c6631d3` IS GREEN TOO — exactly two runs for that sha and both
+succeeded**: `unit tests` run **2823** and `agent deploy` run **117**. It is a documents-only
+commit, so `site build` was again not due and did not run, and nothing was deployed.
+**⚠ AND THE API'S SNAPSHOT READ STALE WHILE 2823 WAS RUNNING**, which is the recorded tell —
+`updated_at` sitting behind the run's own progress. `date -u` settled it in one command: 106
+seconds into a run whose suite step alone takes ~110, so it was genuinely still going rather
+than stale. *The cheap check before calling an instrument stale is the clock.*
