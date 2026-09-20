@@ -3589,6 +3589,32 @@ test("⚠ A CREATE'S ANSWER LANDING ON A DIFFERENT OPENING OF THE FORM ADVANCES 
   assert.ok(!sent.some((r) => r.body.id === "AUX"), "the automation the first press created was written over");
 });
 
+test("⚠ OPENING ANOTHER FORM DOES NOT CARRY THE LAST ONE'S “Saved.” ONTO IT", async () => {
+  /**
+   * ⚠ **A DEAD CONTROL THAT ANSWERS, and the two drawn answers being DERIVED is what made it
+   * reachable.** `agentAutoSaved` says a save succeeded and the baseline says which automation it
+   * was about — and three doors that change which one is open left both behind. A baseline whose
+   * `of` does not match the form is correctly ignored, so nothing reads as outstanding, so
+   * "Saved." is drawn over an automation nobody has saved. `agentAutoOpenForm` is the one writer
+   * of which form is open, so every door resets both by construction.
+   *
+   * The DELETE's success path is the door driven here — it closes the form and stays on the list,
+   * which is where the next one is opened from. `agentAutoCancel` is not: it reset both all along.
+   */
+  const TWO = { ...ONE, id: "AU2", name: "Evening check" };
+  const { w } = await withAutomations({ automations: [ONE, TWO] });
+  await openAutoForm(w, "AU1");
+  w.s.document.getElementById("agAutoName").value = "Renamed";
+  await w.ev("agentAutoSave()"); await settle();
+  assert.ok(saysSaved(w), "the save this case is about did not succeed");
+  await w.ev('agentAutoDelete("AU1")'); await settle();
+  assert.equal(w.val("agentAutoEditing"), null, "the delete left the form open");
+  // AND THE NEXT FORM IS OPENED THE WAY A BROWSER OPENS ONE — the previous drawing's boxes are
+  // gone, which is what `openAutoForm` models and this fixture's persistent stubs do not.
+  await openAutoForm(w, "AU2");
+  assert.ok(!saysSaved(w), "the new form claims the last one's save as its own");
+});
+
 test("⚠ A STEP'S TIME BOX IS A FIXED POINT, so clearing it does not discard the answers", async () => {
   /**
    * ⚠ **THE READER KEEPS `''` AND THE MARKUP USED TO REDRAW IT AS `'09:00'`**, and the draft is
@@ -3657,21 +3683,12 @@ test("⚠ A CREATE WHOSE ANSWER NAMES NO AUTOMATION SAYS SO, rather than becomin
 });
 
 test("⚠ THE WORKED EXAMPLE SEEDS EVERY TRIGGER FIELD, so no box is drawn holding `undefined`", async () => {
-  const eg = { name: "Reply to an enquiry", schedule: "manual", steps: [{ type: "note", text: "hi" }], inputs: [] };
-  const w = loadScreen({
-    answer: (p, init) => {
-      if (/\/agent\/connections/.test(p)) return okRes({ ok: true, connections: [], providers: [] });
-      const a = autoAnswer({ automations: [] })(p, init);
-      return a.ok ? okRes(a.body) : badRes(a.body.error);
-    },
-  });
-  setRows(w);
-  w.ev(`agentAuto = "A"; agentAutoRows = [];`
-    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8,`
-    + ` example: ${JSON.stringify(eg)} };`);
+  const { w } = await withAutomations({ automations: [] });
   await w.ev("agentAutoExample()"); await settle();
   const html = w.s.document.getElementById("viewAgents").innerHTML;
-  assert.match(html, /Reply to an enquiry/, "the example did not seed the form");
+  hydrateAuto(w);
+  assert.equal(w.s.document.getElementById("agAutoName").value, EXAMPLE_AUTOMATION.name,
+    "the example did not seed the form");
   assert.ok(!/value="undefined"/.test(html), "a box was drawn holding the word undefined");
   // AND THE DRAFT HOLDS REAL EMPTIES rather than the string, so a save cannot carry one.
   const d = w.val("agentAutoDraft");
