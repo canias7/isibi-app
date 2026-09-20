@@ -15003,3 +15003,122 @@ four whose fix I cannot show you without spending. Check the fal balance first.
 
 Nothing is merged, nothing is deployed, nothing is dispatched, and no job has
 been touched.
+
+---
+
+## The two gaps you found in those four fixes (2026-09-20)
+
+Both reproduced before I touched anything, both through the real addon route.
+
+### 1. A page that only *mentions* a component was being credited with showing it
+
+You were right on both halves, and they turned out to need two different fixes.
+
+**The comment half.** The reader looked for the component's path anywhere in the
+file's text. So a line somebody had commented out, a block comment quoting an
+old import, and a string containing an example all counted as imports. I drove
+all three plus the live case, and every one came back identical to the page that
+really renders the band: *"I've set that up"*, the placement recorded as
+`/gallery`, a photograph bought and billed.
+
+The fix is that the scan now runs on the code with comments blanked, and a
+specifier has to sit in an **import position** — after `from`, after `import`,
+or inside `import(`/`require(`. A quoted example sits after an `=`, so it is not
+one. The old substring test could not express that distinction at all.
+
+**The unused half.** Importing a component and never rendering it is not placing
+it, and that was the case I had not separated. There are three answers now, not
+two:
+
+- **rendered** — the imported name really appears as `<Name`. That is placement.
+- **unused** — the import binds a name and the file never mentions it again.
+  That is a real absence, and it is the only definite "no" I claim.
+- **can't tell** — everything else: the name handed to something else, a
+  namespace member, a lazy import. Those can genuinely reach the page by a route
+  I cannot follow from the source.
+
+You asked me to preserve uncertainty where placement cannot be established, and
+that third answer is where it lives. The customer hears *"I can't see from here
+whether…"* rather than either claim.
+
+**One thing that caught me out, and it is worth knowing.** My first version of
+this fixed the over-claim and immediately created the under-claim: the uncertain
+case started reading as **"Still to do"** — telling you a photograph that was
+bought, published and on your site was missing. The reason is that "absent"
+means *I enumerated that kind and it is not among them*, and an inventory with
+an unreadable placement in it is not an enumeration. One unreadable placement
+now makes the whole kind unreportable, which is the honest answer.
+
+**And one of my own tests was asserting the defect.** The case called "two pages
+showing one component" had neither page render it — both only imported it — so
+it passed for the wrong reason. Its comment was right and its fixture was not.
+
+### 2. A change that built one of two things said "Done" and nothing else
+
+Exactly as you described. The welcome-card was built, the tide-chart was dropped
+for having no description, `droppedFields` named it on the reply, and the screen
+said **"✅ Done — updated /."** The stored record did not carry it either.
+
+The screen now reads:
+
+> ✅ Done — updated /. Part of that didn't get built — 1 section the design asked
+> for, so it isn't there. Ask me for it again on its own and I'll have another go.
+
+It still opens with Done, because it is: one of the two was built, the page
+changed and the run was charged. A partial outcome is not a failure.
+
+**Counts and kinds, not names.** `tide-chart` is a file name the designer made
+up, not anything you said, so it is no use to you — the same rule I already
+follow for kit component names. The name is kept on the reply and in the stored
+record, which is where I look.
+
+### The correction to what I told you about jobs
+
+I said *"no job has ever fired on its own."* That claims more than I can see:
+the row records a time and a result and nothing about what invoked it, so a
+press and a tick leave exactly the same two fields. The accurate sentence is
+**automatic execution remains unverified** — I lack proof of the invocation
+source, not proof that it never happened. What I can say about my own conduct is
+that this session pressed nothing.
+
+### Where this leaves things
+
+Both halves are red-checked on their own: the comment fix turns three tests red
+when reverted, the unused-import fix four, and the partial-outcome fix exactly
+one. Nothing overlaps, which is how I know each test is about the thing it
+names.
+
+### The sweep, and the three things it caught in my own work
+
+The sweep deliberately breaks the fix in every way I can think of and checks a
+test goes red for each. Nine of them survived — **none of them a hole in the
+product**, but three were mistakes in how I was checking:
+
+1. **The mutant meant to restore the reported bug restored nothing.** It
+   changed the wrong half of the reader, so the "does a commented-out import
+   still count" check was never really asked. Corrected, and measured: it now
+   really does put the bug back.
+2. **My first replacement for it HUNG** rather than answering wrongly — it left
+   the scanner unable to move forward, so it spun. A test runner cannot tell
+   that from a wedged machine, so it is worse than useless. Repointed.
+3. **And clearing it up left a mutant in the tree.** I killed the probe and
+   restored the file in one command, and the kill matched the command's own
+   process — so the shell died at the kill and the restore never ran. The file
+   sat there looking like ordinary work. One check of the anchor found it. It
+   is written into the traps list, because that is the third door that trap has
+   come through and this one leaves something behind.
+
+Six more were genuine gaps in my own new tests — a template-literal import, a
+clause the reader cannot parse, and four shapes only a page carrying two
+pictures at once can tell apart — and all six are now driven.
+
+**The re-run is clean: 39 ways of breaking it, 39 caught, none missed, and the
+two do-nothing controls correctly left alone.** Every anchor was then checked
+to sit in exactly one place with nothing applied (41 of 41), so no mutant
+landed somewhere I was not aiming it. The number of ways grew from 38 to 39
+because three of them were repointed in place and one is genuinely new — worth
+saying, because a list that gets longer while its failures disappear is exactly
+what a list quietly losing entries looks like.
+
+Nothing is merged, nothing is deployed, nothing is dispatched, and no job has
+been touched.

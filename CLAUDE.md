@@ -13764,6 +13764,19 @@ rule and the measurement.
   commit. **Ask `ps --forest` or `pgrep -af` and READ the lines**; a bare
   `pgrep -f` answering about a commit-blocking condition is answering about
   itself.
+  **⚠ AND THE THIRD DOOR IS THE EXPENSIVE ONE: `pkill -f` KILLS THE SHELL THAT
+  WOULD HAVE CLEANED UP (2026-09-20, and it left a mutant in the tree).**
+  `pkill -f 'scratchpad/rc/p1b.mjs' ; git checkout -- <the swept file>` matched
+  the compound command's OWN `/bin/bash -c` line, so the shell died AT the
+  `pkill` and the restore on the same line never ran — the probe's mutation
+  stayed in `builder/site-files.mjs` and `git status` reported it as ordinary
+  work. **The two halves compound**: a killer that kills the restorer is
+  silent, and what it leaves behind looks exactly like an edit somebody meant
+  to make. Nothing announced it; one `grep -c` of the anchor did. **Put the
+  restore in a SEPARATE call, before the kill** — or kill by PID, which has no
+  pattern to match — and read the exit code: a compound command that dies at
+  its own `pkill` exits non-zero and every later step in it is a step that did
+  not happen.
 
 ### Loading, parsing, scope
 
@@ -15352,3 +15365,205 @@ compute both image ids before the merge, read the roll out of the deploy's own
 diff, then hold 15–20 minutes before any container work. The dispatch is the
 owner's press either way — a session has no `actions: write`, re-tested and
 still **403**.
+
+### …AND TWO BOUNDED GAPS IN THOSE FOUR, BOTH REPRODUCED FIRST (2026-09-20)
+
+Owner, on the tip: *"The original cases now pass, but two bounded gaps remain."*
+Both were driven through `POST /api/site/<slug>/addon` before anything moved,
+and each fix was red-checked ALONE afterwards.
+
+**1. AN IMPORT IS NOT A PLACEMENT, AND A COMMENT IS NOT AN IMPORT.** Owner:
+*"`importsPart` matches commented-out imports, and `routedSources` treats an
+unused import as placement… the photograph exists in the component file, the
+gallery never renders it, yet coverage becomes configured."* REPRODUCED on four
+shapes — a line comment, a block comment, a quoted example and a live-but-unused
+import — and **every one answered `state: configured`, `implementation: found`,
+`reconciledItem: "/gallery"` and *"I've set that up"*, byte for byte what the
+RENDERED control answered.**
+
+- **A COMMENT IS NOT CODE AND A QUOTED EXAMPLE IS NOT AN IMPORT, and those take
+  two different mechanisms.** The comment half is the lexer: `importSpecs` scans
+  `codeOnly`, so a `//` or `/* */` region is blank before anything looks for a
+  path. The quoted half is **POSITION** — a specifier is a string literal
+  sitting immediately after `from`, after `import`, or inside
+  `import(`/`require(`, and `const hint = "import … from '…/-parts/x'"` sits
+  after an `=`. **A substring test cannot express that at all**, which is why the
+  old form could only ever be wrong about one of the two.
+- **THE BOUNDARIES COME FROM THE MASKED COPY AND THE VALUE FROM THE PLAIN ONE**
+  — `site-picture.mjs`' recorded two-views pattern — because a quote inside a
+  string is not a boundary, which is exactly how the quoted example hides a
+  second, inner pair.
+- **`codeOnly` MOVED TO `site-files.mjs` RATHER THAN FORKING, AND IS
+  RE-EXPORTED.** It is a fact about a source file's LEXICAL structure, which is
+  that module's subject and not the picture reader's; a second copy is how a
+  frame counter and an import reader come to disagree about what a comment is.
+  The `secretsNeeded` precedent, and **the guard asserts the two names are one
+  function by identity** rather than that they behave alike today.
+- **THE COMPILE QUESTION AND THE PLACEMENT QUESTION ARE TWO, AND BOTH ARE
+  WANTED.** A dangling import breaks `vite` whether or not anything renders it,
+  so the withholding cascade keeps `importsPart`; `partUses` is the new one,
+  with **three answers**: `rendered` (a bound name appears as `<Name`), `unused`
+  (the clause binds names and the file mentions none of them again — **the one
+  definite negative claimed here**) and `unsure` for everything else, because a
+  binding used as a value, a namespace member, a dynamic import and a clause
+  shape this cannot parse can all really reach the page by a path no reader of
+  the source can follow.
+- **THE DIRECTION IS DELIBERATE AND ASYMMETRIC.** Reading a placed component as
+  `unused` costs the customer a *"Still to do"* about something on their site;
+  reading an unplaced one as `unsure` costs a sentence inviting them to look. So
+  `unused` is claimed only when the evidence is airtight.
+- **`routedSources` CARRIES BOTH** — `routes` is established placement,
+  `maybeRoutes` is what could not be — and a chain is **`min` along each path
+  and `max` across them**, so a page that renders the outer band and an outer
+  band that merely holds a reference to the inner one places the first certainly
+  and the second only maybe. A route in `routes` is never also in `maybeRoutes`.
+- **THE THREE READERS TAKE `routes` FOR POSITIVE EVIDENCE AND NEITHER ANSWER FOR
+  UNCERTAINTY**: the photo inventory; the request-to-photograph identity, where
+  an uncertain url is neither `landed` nor `lost` (both are claims); and the
+  scene, where `appliedFacts` has exactly two words, so an unestablished
+  placement was being recorded as **`fails: ["onpage"]` — a CONTRADICTION, the
+  strongest negative this vocabulary has, over evidence that establishes
+  nothing.**
+- **⚠ AND `aReportable` HAD TO STOP LICENSING "ABSENT" FOR `photo` WHILE THE
+  INVENTORY IS INCOMPLETE.** MEASURED: without that, the uncertain arm read
+  `missing` and told the customer a published, billed photograph was *"Still to
+  do"* — **the reported defect answered in the opposite direction**. One
+  unreadable placement makes the whole kind unreportable, because which routes
+  it would have named is exactly what could not be established.
+
+**2. A PARTIAL OUTCOME IS SAID.** Owner: *"a component answer containing a valid
+welcome-card and a tide-chart with empty `does` returns `droppedFields` naming
+tide-chart, but the actual browser reply is only 'Done — updated /.'"*
+REPRODUCED on exactly that answer: `droppedFields:
+[{what:"component",name:"tide-chart"}]`, **`coverNote: ""`**, no such field on
+the stored record, and the browser's own composer drawing **"✅ Done — updated
+/."** about a change that built one of the two things asked for.
+
+- **`droppedNote` IS JOINED INTO `coverNote` BESIDE `missingPagesNote`**, for
+  the reason that one is: a thing the design asked for and this step could not
+  build is a fact about the change whether or not a requirement named it.
+- **A PARTIAL OUTCOME IS NOT A FAILURE AND IT IS NOT A SUCCESS.** `skipped`
+  covers a whole ITEM this step refused; these are losses INSIDE an item that
+  really was built, so `ok`, `changed` and the cost are all honest and the only
+  thing missing was that anybody said so. The screen still opens `✅ Done`.
+- **COUNTS AND KINDS, NEVER THE IDENTIFIERS** — the division `unknownKit` and
+  `invalidProps` already make: `tide-chart` is a file name the DESIGNER coined,
+  not the customer's words. **The kind is said in the customer's vocabulary** (a
+  component is a *section*, a column a *field*), and an unrecognised `what` is a
+  *thing*, which fails open rather than dropping the sentence.
+- **AND THE NAMES SURVIVE INTO THE STORED OUTCOME** (`requirementRecord`'s
+  `droppedFields`), which is the owner's other half and the place a developer
+  comes back to.
+
+**THE CUSTOMER'S SCREEN, composed by the browser's own `addonAnswer` and not by
+a guard**: *"✅ Done — updated /. Part of that didn't get built — 1 section the
+design asked for, so it isn't there. Ask me for it again on its own and I'll
+have another go."*
+
+**Guards**: `addon-route` **182 → 186** (the four shapes with the rendered
+control in the same run, the uncertainty case, the scene's uncertainty, and the
+partial outcome with its whole-answer control), `site-files` **5 → 8** (the
+lexer's identity, the import POSITIONS both ways, and `partUse`'s three states
+over the shapes the route cannot reach). **One older guard re-anchored, not
+appeased, AND IT ASSERTED THE DEFECT**: `site-add`'s two-pages case had neither
+page RENDER the component its own comment calls them *"showing"*, and passed
+because an unused import established placement.
+
+**EACH HALF RED-CHECKED ALONE, SURGICALLY** — the comment/quoted-example half
+turns **3** cases red, the unused-import half **4** (the uncertainty case is
+only reachable through it) and the partial-outcome half exactly **1**, with no
+overlap, and the tree restores clean.
+
+**Suite 6,988** — 6,981 + 4 + 3, **against baselines measured in a detached
+worktree** (182 / 5 / 48) rather than subtracted from a paragraph; `site-add`
+stays 48, its change being assertions inside a case that already existed. A
+worktree run reads one extra failure a repo-root run does not — `lucide-react`
+not resolving through a symlinked `node_modules`, the recorded environment case
+— so the TOTAL is what carries across.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN.** `checked` stays empty and no reporting
+machinery was added beyond the one clause and the one record field.
+
+#### …AND THE NINE SWEEP SURVIVORS, THREE DECLARED AND SIX GUARDED
+
+Pass 1 read **38 mutants, 29 killed, 9 survived, 0 never applied, 2
+comment-only controls survived**, and **not one survivor was the product's**.
+
+**THREE WERE MEASURED INERT AND ARE DECLARED IN THE CODE**, each with an
+observable mutant of the same line in its place rather than a paragraph:
+
+- **`bindingsOf` answering `null` rather than `[]` for a non-import kind.**
+  `partUses` reads `bound === null || !bound.length` as ONE condition, so the
+  two are the same answer to its one caller — driven over a re-export, a
+  dynamic import, a side-effect import and a namespace import, all four
+  `unsure` either way. The observable half is a non-import kind handed a name
+  it never bound, which turns every one of those into a definite `unused`, and
+  the four assertions that already existed kill it.
+- **`maybeRoutes`' `!sure.has(r)` filter.** `best` keeps ONE strength per
+  (page, part) — the max across paths — so a part is filed under a route in
+  exactly one of the two maps: **the overlap is 0 over every probe shape**,
+  including a part reached certainly one way and unfollowably another. The
+  observable half copies the CERTAIN routes into `maybeRoutes`, which puts a
+  settled placement back into the uncertain list and blinds the inventory.
+- **⚠ AND THE REPORTED-DEFECT MUTANT ITSELF WAS BADLY WRITTEN.** It swapped
+  `sc.mask` for the raw source — and `scanSource` blanks comments BEFORE it
+  finds quotes, so `sc.strings` already excludes a comment's literal and the
+  swap restored nothing. It targets the comment branches now, measured: a
+  line-commented import goes back to counting. *Read what a mutant really
+  does, not what it was meant to do* — the second instance this milestone.
+
+**⚠ AND A MUTANT THAT HANGS IS WORSE THAN AN INERT ONE.** The first
+block-comment twin was `const stop = i`, which leaves the lexer's index unable
+to advance: the probe spun until it was killed. A sweep runner cannot tell that
+from a wedged test, and the same mutant inside a sweep costs the whole run.
+Repointed at the branch condition, which answers wrongly in 40 ms.
+
+**SIX WERE GUARD GAPS, every one now driven, and three of them are worth
+keeping as rules:**
+
+- **A TEMPLATE LITERAL IS NOT A SPECIFIER, AND THE TRADE IS STATED.**
+  `import(\`…\`)` and `require(\`…\`)` are valid JavaScript, so the text
+  between backticks CAN be the module — and can equally be `${dir}/x`, which
+  names nothing a reader can know. Admitting it would let an interpolation name
+  any component at all; refusing it misses a dynamic import of a component,
+  which no prompt here teaches (every one teaches `@/routes/-parts/<name>`).
+- **A CLAUSE THIS CANNOT PARSE IS UNCERTAINTY, AND THE SHAPES THAT SEPARATE THE
+  TWO READINGS ARE MEASURED, NOT GUESSED** — `1bad`, `...rest`, `a.b`, `a-b`,
+  every one source a model can really write, with two controls that a clause it
+  CAN read is still the definite negative. **And one shape is recorded rather
+  than claimed**: an arbitrary module export name (`{ Band, "x" as Other }`) is
+  valid ES2022 and its QUOTE ends the clause the head pattern is matching, so
+  the import is never seen at all — `none`, not `unsure`, which means the
+  withholding cascade would not see it either.
+- **ONLY A PAGE CARRYING BOTH SEPARATES THE UNCERTAIN ARM FROM ITS TWO
+  NEIGHBOURS.** Folding `maybeRoutes` into the certain map answers a request
+  with a picture nobody can show is on that page; dropping the arm sends it to
+  the LOST branch — and that branch fires off the ROUTE, so it needs a second,
+  certain photograph on the same page to fire at all. One shot cannot
+  discriminate either.
+
+The other three: `droppedNote` driven at the module (the count and the word,
+never the item's name; singular against plural; two kinds as two clauses; and
+an unrecognised kind still getting a sentence, because dropping the clause over
+a missing word puts this round back where it started), and a component nobody
+could place that holds NO picture — which hides nothing, so it must leave the
+word ABSENT available.
+
+**Each of the three `worker.js` survivors red-checked ALONE**: the two photo
+ones turn the mixed case red, the inventory one turns the empty-component case
+red, and nothing else moves.
+
+**Pass 2: 39 mutants, 39 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — against the eleven test files the scope line names, and
+**the anchor census at rest reads 41 of 41 exactly once** (39 product + 2
+controls), so no mutant silently landed somewhere it was not aimed.
+**The COUNT moved between the two passes and the arithmetic is written down
+rather than left to be noticed**: 38 → 39, because the three inert ones were
+REPOINTED in place (net 0) and the `maybeRoutes` pair mutant is genuinely NEW —
+a count that grows while nine survivors disappear is exactly the shape that
+reads as a spec quietly losing entries, and saying which one arrived is what
+tells the two apart.
+
+**Guards**: `addon-route` **186 → 188**, `site-add` **48 → 49**; `site-files`
+stays **8**, its two additions being assertions inside cases that already
+existed. **Suite 6,991** — 6,988 + 2 + 1, and the arithmetic closes exactly.
