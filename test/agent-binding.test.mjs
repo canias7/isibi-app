@@ -3538,6 +3538,148 @@ test("⚠ ORDINARY TYPING TAKES A CHECK RESULT OFF THE SCREEN", async () => {
     "typing that redrew nothing was not kept either");
 });
 
+test("⚠ A CREATE'S ANSWER LANDING ON A DIFFERENT OPENING OF THE FORM ADVANCES NOTHING", async () => {
+  /**
+   * ⚠ **`''` IS NOT AN IDENTITY, which is why the staleness wall could not see this.** It
+   * compares `agentAutoEditing`, and on a create that is `''` on EVERY opening — so a create's
+   * answer landing after the form was closed and reopened as another create passed the wall and
+   * wrote the created id and its baseline onto the second form. Keeping the draft is what turned
+   * that from a silent no-op into a destructive one: the next press sent an UPDATE of the
+   * automation the first press had just made, carrying the other configuration.
+   */
+  const sent = [];
+  const gate = held(okRes({ id: "AUX" }));
+  let holding = true;
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/automation-(create|update)$/.test(p)) {
+        sent.push({ path: p, body: JSON.parse(init.body) });
+        if (holding) { holding = false; return gate.p; }
+        return okRes({ id: "AUX" });
+      }
+      const a = autoAnswer({ automations: [] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [];`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8 };`);
+  await openAutoForm(w, "");
+  w.s.document.getElementById("agAutoName").value = "Morning check";
+  const saving = w.ev("agentAutoSave()");
+  // THE TWO BUTTONS A BROWSER REALLY OFFERS WHILE A SAVE IS PENDING — neither carries the busy
+  // disable, and both leave `agentAutoEditing` at `''`.
+  await w.ev("agentAutoCancel()");
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Something else";
+  gate.release(); await saving; await settle();
+
+  assert.equal(w.val("agentAutoEditing"), "", "the answer turned another opening into an edit of what it made");
+  // THE BASELINE ON SCREEN IS THIS OPENING'S, captured by its own drawing — what must not have
+  // happened is the refused answer writing the created automation's onto it.
+  assert.notEqual(w.val("agentAutoWas").of, "AUX", "one opening's baseline was written onto another's form");
+  assert.equal(sent.length, 1, "the answer sent something of its own");
+  // AND THE PRESS AFTER IT IS STILL A CREATE, carrying what is on screen.
+  await w.ev("agentAutoSave()"); await settle();
+  assert.equal(sent.length, 2);
+  assert.match(sent[1].path, /\/automation-create$/, "it patched the automation the first press made");
+  assert.equal(sent[1].body.name, "Something else");
+  assert.equal(sent[1].body.id, undefined, "a create carried an id");
+  assert.ok(!sent.some((r) => r.body.id === "AUX"), "the automation the first press created was written over");
+});
+
+test("⚠ A STEP'S TIME BOX IS A FIXED POINT, so clearing it does not discard the answers", async () => {
+  /**
+   * ⚠ **THE READER KEEPS `''` AND THE MARKUP USED TO REDRAW IT AS `'09:00'`**, and the draft is
+   * rebuilt from the markup at every render — so the one value where the two disagreed reached
+   * both of the answers this form derives. The platform has exactly one such field: the `wait`
+   * step's time when it waits UNTIL one.
+   */
+  const waiting = {
+    ...ONE,
+    steps: [{ id: "s1", type: "wait", mode: "until", at: "09:00" }],
+  };
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/automation-check$/.test(p)) return okRes({ steps: 1, needs: [], unchecked: [] });
+      if (/\/automation-update$/.test(p)) return okRes({ id: "AU1" });
+      const a = autoAnswer({ automations: [waiting] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = ${JSON.stringify([waiting])};`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8 };`);
+  await openAutoForm(w, "AU1");
+  const f = hydrateAuto(w);
+  const timeBox = f.rows[0].fields.find((x) => x.getAttribute("data-field") === "at");
+  assert.ok(timeBox, "the wait step drew no time box");
+  assert.equal(timeBox.value, "09:00", "and it was not drawn with the stored time");
+  // THE PERSON CLEARS IT.
+  timeBox.value = "";
+  await w.ev("renderAgents()");
+  hydrateAuto(w);
+  await w.ev("renderAgents()");
+  assert.equal(w.val("agentAutoForm()").steps[0].at, "",
+    "a cleared time box came back as a time nobody typed");
+
+  // CONSEQUENCE ONE: a check's answer is about the workflow on screen, so the panel is drawn.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /Read it through/,
+    "the check answered and nothing was drawn");
+  // CONSEQUENCE TWO: a save of it can be called saved, and the press after it sends nothing.
+  await w.ev("agentAutoSave()"); await settle();
+  assert.ok(saysSaved(w), "a save that succeeded could not be called saved");
+});
+
+test("⚠ A CREATE WHOSE ANSWER NAMES NO AUTOMATION SAYS SO, rather than becoming a second one", async () => {
+  let posts = 0;
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/automation-create$/.test(p)) { posts++; return okRes({}); }   // ok, and no id
+      const a = autoAnswer({ automations: [] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [];`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8 };`);
+  await openAutoForm(w, "");
+  w.s.document.getElementById("agAutoName").value = "Nameless";
+  await w.ev("agentAutoSave()"); await settle();
+  assert.equal(posts, 1);
+  assert.equal(w.val("agentAutoEditing"), "", "it advanced to an id the answer did not carry");
+  // (The baseline is this opening's either way — a create's `of` is `''` whether the answer was
+  // placed or not — so what discriminates is what is DRAWN, below.)
+  assert.ok(!saysSaved(w), "it claimed Saved over an answer it could not place");
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /didn’t say which automation/);
+});
+
+test("⚠ THE WORKED EXAMPLE SEEDS EVERY TRIGGER FIELD, so no box is drawn holding `undefined`", async () => {
+  const eg = { name: "Reply to an enquiry", schedule: "manual", steps: [{ type: "note", text: "hi" }], inputs: [] };
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/agent\/connections/.test(p)) return okRes({ ok: true, connections: [], providers: [] });
+      const a = autoAnswer({ automations: [] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [];`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8,`
+    + ` example: ${JSON.stringify(eg)} };`);
+  await w.ev("agentAutoExample()"); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Reply to an enquiry/, "the example did not seed the form");
+  assert.ok(!/value="undefined"/.test(html), "a box was drawn holding the word undefined");
+  // AND THE DRAFT HOLDS REAL EMPTIES rather than the string, so a save cannot carry one.
+  const d = w.val("agentAutoDraft");
+  assert.equal(d.on_event, "");
+  assert.equal(d.on_date, "");
+  assert.deepEqual([...d.days], []);
+});
+
 test("a failed list read is NOT an empty agent", async () => {
   const { w } = await withAutomations({ automations: [ONE] });
   assert.equal(w.val("agentAutoRows").length, 1);

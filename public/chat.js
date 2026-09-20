@@ -2028,6 +2028,22 @@ let agentAutoErr = '';
 let agentAutoCat = null;
 let agentAutoEditing = null;   // an automation id, '' for a new one, null for the list
 /**
+ * ⚠ **WHICH OPENING OF THE FORM THIS IS — because `''` is not an identity.**
+ *
+ * Every in-flight answer is walled against the screen having moved, and that wall compares
+ * `agentAutoEditing`. For an EDIT that is an id and the comparison means something; for a
+ * CREATE it is `''`, and `'' !== ''` is false — so a create's answer landing after the form
+ * was closed and reopened as another create passed the wall and wrote one configuration's
+ * id and baseline onto the other's form. MEASURED: name a new automation, press Save, press
+ * Cancel, press "Start from an example", let the answer land — and the NEXT press sent
+ * `automation-update {id: <the one just created>, ...the example}`, overwriting it.
+ *
+ * A monotonic count of openings is the identity `''` cannot be. It is bumped in exactly one
+ * place, `agentAutoOpenForm`, which every opener and every exit goes through — so a door
+ * added next month carries this by construction rather than by being added to a list.
+ */
+let agentAutoOpen = 0;
+/**
  * The form's values, kept across a failed save AND across every re-render.
  *
  * The panel is rebuilt from `innerHTML` whenever anything changes — adding a step,
@@ -2777,19 +2793,39 @@ function agentAutomations(id) {
   // cannot both be open, and each clearing the other is what says so.
   agentConn = null; agentConnNew = false; agentConnDraft = null;
   agentAuto = String(id || '');
-  agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null;
+  agentAutoOpenForm(null);
   agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
   agentAutoLoad();
 }
+/**
+ * OPEN THE FORM ON ONE AUTOMATION, OR CLOSE IT — the single writer of which one is open.
+ *
+ * ⚠ **IT NULLS THE BASELINE AND THE CHECK, and three doors used not to.** `agentAutoBack`, the
+ * success path of `agentAutoDelete` and `agentAutoExample` each changed which automation the form
+ * was about and left `agentAutoWas` (and, in the example's case, `agentAutoCheck`) from whatever
+ * was open before — harmless while a create ignored the baseline, and load-bearing now that both
+ * drawn answers are DERIVED from it. `agentAutoSaved` is reset here for the same reason: it is
+ * not about the form being opened, and "Saved." drawn over one nobody has saved is the dead
+ * control that ANSWERS.
+ *
+ * `null` closes it; `''` is a new one; anything else is that automation's id.
+ */
+function agentAutoOpenForm(editing) {
+  agentAutoOpen++;
+  agentAutoEditing = editing === null ? null : String(editing);
+  agentAutoDraft = null; agentAutoWas = null; agentAutoCheck = null;
+  agentAutoActErr = ''; agentAutoSaved = false;
+}
+
 function agentAutoBack() {
   agentAutoWatchStop();
   const back = agentAuto;
-  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoCheck = null;
+  agentAuto = null; agentAutoOpenForm(null);
   agentAutoRunsFor = null; agentAutoRuns = null;
   // BACK TO THE CONVERSATION IT BELONGS TO, which is where this was opened from.
   if (back) agentOpen(back); else renderAgents();
 }
-function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
+function agentAutoNew() { agentAutoWatchStop(); agentAutoOpenForm(''); renderAgents(); }
 
 /** The worked example the server offers, or `null` when it sent none. */
 function autoExample() { return (agentAutoCat && agentAutoCat.example) || null; }
@@ -2861,14 +2897,23 @@ async function agentAutoExample() {
    */
   const pick = agentConnSendable(rows, cat);
   agentAutoWatchStop();
-  agentAutoEditing = '';
-  agentAutoActErr = '';
-  agentAutoSaved = false;
+  agentAutoOpenForm('');
   agentAutoDraft = {
     name: typeof eg.name === 'string' ? eg.name : '',
     enabled: true,
     schedule: typeof eg.schedule === 'string' ? eg.schedule : 'manual',
     at: '09:00', zone: autoGuessZone(),
+    /**
+     * ⚠ **EVERY TRIGGER FIELD THE FORM DRAWS, BECAUSE THE MARKUP ECHOES WHAT IS NOT THERE.**
+     * These three were absent, so the boxes were drawn `value="undefined"` — MEASURED on the
+     * real example: `id="agAutoDate"` and `id="agAutoEvent"` both held the literal string,
+     * the next form read put it into the draft, and a save from the example carried
+     * `on_event: "undefined"` — which `cleanSchedule` ACCEPTS, binding the automation to an
+     * event named `undefined`. Pre-existing, and found while fixing the baseline beside it.
+     */
+    days: Array.isArray(eg.days) ? eg.days.slice() : [],
+    on_date: typeof eg.onDate === 'string' ? eg.onDate : '',
+    on_event: typeof eg.onEvent === 'string' ? eg.onEvent : '',
     // COPIED, not referenced: the server's answer must not be edited in place, or a second
     // press of the button would offer whatever the last one was changed into.
     steps: (Array.isArray(eg.steps) ? eg.steps : []).map((st) => {
@@ -2888,8 +2933,8 @@ async function agentAutoExample() {
   };
   renderAgents();
 }
-function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
-function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
+function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoOpenForm(id || ''); renderAgents(); }
+function agentAutoCancel() { agentAutoOpenForm(null); renderAgents(); }
 function agentAutoReload() { agentAutoLoad(); }
 function agentAutoHistory(id) {
   agentAutoWatchStop();
@@ -3121,6 +3166,9 @@ async function agentAutoSave() {
   const submitted = autoSnap(values);
   const bound = agentBind();
   const editing = agentAutoEditing;
+  // WHICH OPENING OF THE FORM THIS PRESS BELONGS TO — see `agentAutoOpen`. `editing` alone
+  // cannot say, because a create's is `''` on every opening.
+  const opened = agentAutoOpen;
   /**
    * ⚠ **AN EDIT SENDS WHAT CHANGED AND A CREATE SENDS EVERYTHING, and the difference is that a
    * create has nothing to compare against.**
@@ -3168,7 +3216,9 @@ async function agentAutoSave() {
 
   // THE SCREEN MAY HAVE MOVED ON. Closing a form, clearing a draft or writing an error
   // into one somebody has since opened would all be acting on another screen.
-  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) { agentAutoBusy = false; renderAgents(); return; }
+  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing || agentAutoOpen !== opened) {
+    agentAutoBusy = false; renderAgents(); return;
+  }
 
   agentAutoBusy = false;
   if (failed) { say(failed); return; }   // the draft stays, so pressing Save again sends the same thing
@@ -3184,17 +3234,37 @@ async function agentAutoSave() {
    * draft made the generation gate refuse the read-back and the form was redrawn from the stored
    * row, discarding the step and the words typed into it.
    *
-   * `submitted` IS what the server holds, as far as this browser can know: `changed` is the
-   * difference from the old baseline, so old + changed is exactly it, and a create sent the whole
-   * shape. **And it has to be that rather than the row the reload brings back**, because the other
-   * side of every diff is a reading of the FORM — so a row-derived baseline would report whatever
-   * the server normalised as a change on a form nobody touched, and send it back.
+   * `submitted` is WHAT WAS SENT, and that is deliberately a weaker claim than what the server
+   * STORED: `changed` is the difference from the old baseline, so old + changed is exactly what went
+   * out, and a create sent the whole shape. **It has to be that rather than the row the reload
+   * brings back**, because the other side of every diff is a reading of the FORM — so a row-derived
+   * baseline would report whatever the server normalised as a change on a form nobody touched, and
+   * send it back.
+   *
+   * ⚠ **THE COST IS STATED RATHER THAN GLOSSED: a value the server normalises goes on being shown
+   * as it was sent, under a "Saved." line, until the form is next opened.** MEASURED:
+   * `readStepField` trims, so a step whose text was sent `'Hello  '` is stored `'Hello'` while the
+   * box keeps the spaces; `cleanWorkflow` adds an `id` to every step and `cleanInputs` a `type`.
+   * The alternative is the defect above — nulling both and letting the next drawing recapture them
+   * from the DOM — so this is the lesser of two, and it is BOUNDED rather than permanent:
+   * `agentAutoOpenForm` nulls the draft, so reopening the form shows the stored row.
    *
    * **AND THE DRAFT IS KEPT**, so everything done since the press is still on screen and still
    * eligible for the next one. Whether the panel may call any of it saved is asked of the
    * configuration rather than remembered — see `agentAutoSavedShown`.
    */
-  const savedAs = (!editing && made) ? made : editing;
+  /**
+   * ⚠ **A CREATE WHOSE ANSWER NAMES NO AUTOMATION ADVANCES NOTHING.** This used to fall back
+   * to `editing`, which on a create is `''` — so the form stayed a create, "Saved." was drawn,
+   * and the next press made a SECOND identical automation. There is nothing to tie what was
+   * sent to, so the honest answer is to say so rather than to guess an id or to go quiet.
+   * `/api/agent/automation-create` always answers one, so this is a belt rather than a path.
+   */
+  if (!editing && !made) {
+    say('Saved, but the server didn’t say which automation it made — open it from the list to carry on.');
+    return;
+  }
+  const savedAs = editing || made;
   // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same automation
   // rather than making a second one — and the baseline is about that same id, or the next press
   // meets the "something moved while that was open" refusal over its own save.
@@ -3361,7 +3431,7 @@ async function agentAutoDelete(id) {
   if (agentSame(bound)) {
     if (failed) agentAutoActErr = failed;
     else {
-      agentAutoEditing = null; agentAutoDraft = null;
+      agentAutoOpenForm(null);
       if (agentAutoRunsFor === target) { agentAutoRunsFor = null; agentAutoRuns = null; }
     }
   }
@@ -3387,7 +3457,7 @@ function agentConnections(id) {
   agentPollStop();
   // ⚠ THE TWO SCREENS CLEAR EACH OTHER, so they cannot both be open — and the view switch
   // reads this one first, which is what makes that a property rather than a convention.
-  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null;
+  agentAuto = null; agentAutoOpenForm(null);
   agentConn = String(id || '');
   agentConnRows = null; agentConnCat = null; agentConnNew = false;
   agentConnDraft = null; agentConnActErr = '';
@@ -4383,9 +4453,13 @@ function automationFormHtml(agent) {
      * ⚠ **A SAVE THAT LANDED AND COULD NOT BE READ BACK SAYS BOTH HALVES.** The save is
      * confirmed by the server's own answer, so "Saved" is true — but the re-read right after it
      * is what replaces the form with the STORED row, and when that fails the form is still
-     * showing what was typed. Those two agree today for every field, and the day the server
-     * normalises one (a day list's order, a time's seconds) they would not, and the screen
-     * would be quietly showing the pre-save shape of a row somebody had just changed.
+     * showing what was typed.
+     *
+     * ⚠ **AND SINCE THE DRAFT IS KEPT, THE RE-READ NO LONGER REPLACES THE OPEN FORM AT ALL**, so
+     * a field the server normalises is shown as it was sent whether the re-read worked or not.
+     * That cost is stated where the draft is kept (`agentAutoSave`); this line stays for what it
+     * is really about, which is the one case the server's answer and our reading of it disagree
+     * about whether anything is there to read.
      *
      * It is plain text on the line that is already there rather than a second line in a class
      * of its own: a new class is a design decision nobody made, and "Saved, but" is one fact.
@@ -4604,8 +4678,24 @@ function automationStepHtml(st, i, total, cat, days, depth) {
             ' value="' + esc(st[fd.name] === undefined || st[fd.name] === null ? '' : String(st[fd.name])) + '">' + hint;
         }
         if (fd.kind === 'time') {
+          /**
+           * ⚠ **ABSENT SEEDS `09:00`; CLEARED STAYS CLEARED — the number field's own shape, and
+           * it has to be, because `draft → markup → read` must be a FIXED POINT.**
+           *
+           * The reader keeps `''` for a cleared box (`st[name] = f.value`, with no default), so
+           * `|| '09:00'` here made the two disagree about one value — and the draft is rebuilt
+           * from this markup at every render, so the disagreement reached both of the answers
+           * this form derives. MEASURED on the platform's one such field, the `wait` step's time
+           * when it waits UNTIL one: clear the box and press Check, and `asked` held `''` while
+           * the redrawn form read back `'09:00'`, so `agentAutoCheckShown()` was false and the
+           * panel was NEVER DRAWN — the customer waits and gets nothing, which is the exact
+           * failure this round was written to remove. After a save it was worse and permanent:
+           * the baseline held `''` against a draft re-read as `'09:00'`, so `steps` read as
+           * changed for ever, "Saved." could never be drawn, and the next press re-sent the whole
+           * step list — the lost update the patch-only edit exists to prevent.
+           */
           return lbl + '<input class="ag-in ag-in-time ag-step-in" type="time" data-kind="time" data-field="' + esc(fd.name) + '"' +
-            ' value="' + esc(st[fd.name] || '09:00') + '">' + hint;
+            ' value="' + esc(st[fd.name] === undefined || st[fd.name] === null ? '09:00' : String(st[fd.name])) + '">' + hint;
         }
         if (fd.kind === 'name') {
           return lbl + '<input class="ag-in ag-step-in" data-field="' + esc(fd.name) + '" maxlength="40"' +
