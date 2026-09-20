@@ -224,6 +224,43 @@ end; $$;
 comment on function agent.automation_next_run(text, time, text, text[], date, timestamptz) is
   'The next instant any schedule falls, strictly after a given instant, or NULL when nothing more is due. One function for all four, over the single time-zone arithmetic in automation_next_at.';
 
+/**
+ * Is this a SCHEDULED automation with no moment left — spent rather than unscheduled?
+ *
+ * ⚠ **`next_run_at is null` MEANS TWO OPPOSITE THINGS AND NOTHING SEPARATED THEM.** A
+ * `manual` automation has no next instant because it has no schedule, which is what its owner
+ * asked for; a `once` automation whose day has gone has none because its moment is SPENT, and
+ * turning it on, saving it, or setting it for a date already past achieves nothing at all.
+ * **MEASURED on a real PostgreSQL before this existed: all three writing doors answered
+ * `{"ok": true, …, "next_run_at": null}` for both, byte for byte** — so a caller reading the
+ * answer, which is every caller that is not a screen holding the schedule beside it, could not
+ * tell "you have no schedule" from "your schedule is used up".
+ *
+ * **IT IS EXACT BY CONSTRUCTION RATHER THAN A GUESS ABOUT TODAY'S SCHEDULES.**
+ * `automation_next_run` answers an instant for `daily` and for `weekly` always (it raises
+ * rather than answering null), null for `manual` on its first line, and null for `once` only
+ * once that instant has passed. So "not manual AND no instant" can only be a spent one-off —
+ * and a fifth schedule that could answer null is covered by existing, because the question
+ * asked is about the ANSWER rather than about the word `once`.
+ *
+ * **ONE FUNCTION, ASKED BY THREE.** `create_automation`, `update_automation` (and therefore
+ * `patch_automation`, which returns its answer whole) and `set_automation_enabled` each reach
+ * this state, and three copies of the condition would drift in the direction where one door
+ * goes quiet again.
+ *
+ * **IT REPORTS AND REFUSES NOTHING.** A one-off for a day already gone is a thing somebody may
+ * legitimately save — a record of something that has happened — so the write stands and what
+ * changes is only that the answer says so.
+ */
+create or replace function agent.schedule_spent(p_schedule text, p_next timestamptz)
+  returns boolean
+  language sql immutable set search_path = '' as $$
+  select coalesce(p_schedule, 'manual') <> 'manual' and p_next is null;
+$$;
+
+comment on function agent.schedule_spent(text, timestamptz) is
+  'True when an automation is scheduled and has no moment left — a one-off whose day has gone — which is what tells that state apart from an automation with no schedule at all. Both answer next_run_at null.';
+
 -- ── 2. A DURABLE EVENT ─────────────────────────────────────────────────────
 --
 -- ⚠ **AN EVENT IS A ROW BEFORE IT IS ANYTHING ELSE**, exactly as a run's work is. The
@@ -1067,6 +1104,7 @@ comment on function agent.tick_automations(integer, integer) is
 -- ── 9. THE GRANTS ─────────────────────────────────────────────────────────
 
 revoke all on function agent.automation_next_run(text, time, text, text[], date, timestamptz) from public;
+revoke all on function agent.schedule_spent(text, timestamptz) from public;
 revoke all on function agent.webhook_for_delivery(uuid) from public;
 revoke all on function agent.list_webhooks(text, uuid) from public;
 revoke all on function agent.create_webhook(text, uuid, uuid, text, text, text, integer) from public;
@@ -1078,6 +1116,7 @@ revoke all on function agent.hear_pending_event(uuid, text) from public;
 revoke all on function agent.accept_automation_run(text, uuid, uuid, text, date, jsonb, uuid, integer) from public;
 
 grant execute on function agent.automation_next_run(text, time, text, text[], date, timestamptz) to service_role;
+grant execute on function agent.schedule_spent(text, timestamptz) to service_role;
 grant execute on function agent.webhook_for_delivery(uuid) to service_role;
 grant execute on function agent.list_webhooks(text, uuid) to service_role;
 grant execute on function agent.create_webhook(text, uuid, uuid, text, text, text, integer) to service_role;
@@ -1182,8 +1221,11 @@ begin
      coalesce(p_days, '{}'::text[]), p_on_date, p_on_event, v_next)
   returning * into v_row;
 
+  -- ⚠ `spent` SAYS A ONE-OFF WAS MADE FOR A DAY ALREADY GONE, which nothing here refuses and
+  -- which will never run. See `agent.schedule_spent` for why the bare null could not say it.
   return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
-                            'next_run_at', v_row.next_run_at);
+                            'next_run_at', v_row.next_run_at,
+                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));
 end; $$;
 
 create or replace function agent.update_automation(

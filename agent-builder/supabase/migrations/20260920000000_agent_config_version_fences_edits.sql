@@ -162,8 +162,16 @@ begin
    where id = p_id
   returning * into v_row;
 
+  -- ⚠ **`spent` IS THE OTHER HALF OF THE RECOMPUTE RULE, and it is the half that had no
+  -- words.** A change that really moves an occurrence can never leave one in the PAST — every
+  -- schedule but `once` answers an instant strictly after `now()`, so this is always the next
+  -- real one. `once` is the exception: past its day there is no next one, and this answered
+  -- `{"ok": true, "next_run_at": null}` — which is byte for byte what a `manual` automation
+  -- answers. So a caller was told the edit landed and could not tell that it had made the
+  -- automation unrunnable. See `agent.schedule_spent`.
   return jsonb_build_object('ok', true, 'id', v_row.id, 'version', v_row.version,
-                            'next_run_at', v_row.next_run_at);
+                            'next_run_at', v_row.next_run_at,
+                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));
 end; $$;
 
 comment on function agent.update_automation(text, uuid, text, boolean, text, time, text, jsonb, jsonb, text[], date, text) is

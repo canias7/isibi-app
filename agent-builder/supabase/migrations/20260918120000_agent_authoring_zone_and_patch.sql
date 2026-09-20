@@ -653,8 +653,18 @@ begin
   if not found then
     return jsonb_build_object('ok', false, 'error', 'no-automation');
   end if;
+  /**
+   * ⚠ **AND `spent` IS WHAT A RE-ARM THAT ARMED NOTHING HAS TO SAY.** MEASURED on a real
+   * PostgreSQL: a one-off disabled before its day and turned back on after it answered
+   * `{"ok": true, "enabled": true, "next_run_at": null}` — **the same answer a `manual`
+   * automation gives** — so "turning it on achieved nothing, its moment has gone" and "it has
+   * no schedule, as you asked" were one answer. And it is the quietest of the three doors:
+   * `tick_automations` selects only enabled rows, so a one-off whose day passed while it was
+   * OFF gets no `missed` record either. Nothing anywhere said so.
+   */
   return jsonb_build_object('ok', true, 'id', v_row.id, 'enabled', v_row.enabled,
-                            'next_run_at', v_row.next_run_at);
+                            'next_run_at', v_row.next_run_at,
+                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));
 end; $$;
 
 comment on function agent.set_automation_enabled(text, uuid, boolean) is

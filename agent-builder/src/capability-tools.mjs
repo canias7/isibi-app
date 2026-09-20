@@ -285,6 +285,57 @@ export const FORGET_REACH =
   "later runs will not see it; a run already under way keeps what it started with,"
   + " and the history keeps whatever it quoted";
 
+/**
+ * ⚠ **WHAT A SCHEDULE WITH NO MOMENT LEFT HAS TO SAY, in one place for the four tools that
+ * can produce one.**
+ *
+ * `agent.schedule_spent` is the fact and this is the sentence. **MEASURED before either
+ * existed: every writing door answered `{"ok": true, …, "next_run_at": null}` for a one-off
+ * whose day had gone AND for an automation with no schedule at all** — so a model was told the
+ * work landed and had no way to tell that it had made, edited or re-enabled something that
+ * will never run. A screen can tell them apart because it holds the schedule beside the
+ * answer; a model reads the answer and nothing else.
+ *
+ * **IT IS A SENTENCE AND NOT A REFUSAL.** Saving a one-off for a day already gone is a thing
+ * somebody may legitimately want — a record of something that has happened — so the write
+ * stands and what changes is that the answer says so.
+ */
+export const SPENT_SAY =
+  "its one-off date has already gone, so it is saved and will never run"
+  + " — give it a date still to come, or a repeating schedule, if it should";
+
+/**
+ * `spent` off an answer, and `=== true` because cannot-tell must read as nothing-to-say.
+ *
+ * ⚠ **A DEPLOYMENT WHOSE DATABASE PREDATES `agent.schedule_spent` CARRIES NO SUCH KEY**, and
+ * `"false"` is truthy. Read either as spent and every working daily automation would be
+ * reported as one that will never run, which is far worse than the silence this replaces —
+ * so the absent reading is the old behaviour rather than a new false alarm.
+ */
+const isSpent = (answer) => answer?.spent === true;
+
+/**
+ * The two facts a write can earn beside its own answer: it was absorbed as a repeat, and the
+ * schedule it leaves has no moment in it. Flags AND one sentence.
+ *
+ * ⚠ **BOTH ARE REACHABLE AT ONCE AND SPREADING TWO `say`s WOULD DELETE ONE.** The recorded
+ * outcome a repeat is answered from carries `spent` too, so `{…repeat, …spent}` would hand a
+ * model whichever object came last and silently drop the other — which is why the sentences
+ * are JOINED here rather than composed at three call sites.
+ *
+ * The repeat's words are the caller's, because each write says something different about having
+ * already happened; `SPENT_SAY` is one sentence because the fact is one fact.
+ */
+const alsoSay = (answer, repeatSay) => {
+  const said = [answer?.repeat === true ? repeatSay : null, isSpent(answer) ? SPENT_SAY : null]
+    .filter((s) => typeof s === "string" && s !== "");
+  return {
+    ...(answer?.repeat === true ? { repeat: true } : {}),
+    ...(isSpent(answer) ? { spent: true } : {}),
+    ...(said.length ? { say: said.join("; ") } : {}),
+  };
+};
+
 const forget = tool({
   name: "forget",
   description: "Forget one remembered fact, by its name.",
@@ -408,8 +459,11 @@ const pauseAutomation = tool({
     // ⚠ A REPEAT IS THIS SAME CALL, ABSORBED — and `enabled` is what it set at the time,
     // which is not necessarily what the automation is now. Somebody may have switched it
     // back, and the record deliberately does not overwrite them.
+    // ⚠ AND A RE-ARM THAT ARMED NOTHING SAYS SO. Turning a one-off back on after its day has
+    // gone answers exactly what a `manual` automation answers, and this is the only reader that
+    // can tell a model the difference. See `SPENT_SAY`.
     return { ok: true, enabled: answer.enabled, nextRunAt: answer.next_run_at ?? null,
-      ...(answer.repeat === true ? { repeat: true, say: "that was already done by this same request; it may have been changed since" } : {}) };
+      ...alsoSay(answer, "that was already done by this same request; it may have been changed since") };
   },
 });
 
@@ -1345,7 +1399,7 @@ const makeAutomation = tool({
       // ⚠ WHEN IT WILL REALLY RUN, from the database's own arithmetic. A model that asked for a
       // weekly schedule has no other way to check it got the one it meant.
       ...(answer.next_run_at ? { nextRunAt: answer.next_run_at } : {}),
-      ...(answer.repeat === true ? { repeat: true, say: "that was already created by this same request" } : {}) };
+      ...alsoSay(answer, "that was already created by this same request") };
   },
 });
 
@@ -1531,7 +1585,7 @@ const changeAutomation = tool({
       // ...AND WHEN IT WILL NEXT RUN, which is the one thing a schedule edit is really about.
       ...(answer.next_run_at !== undefined ? { nextRunAt: answer.next_run_at } : {}),
       ...(answer.version !== undefined ? { version: answer.version } : {}),
-      ...(answer.repeat === true ? { repeat: true, say: "that was already changed by this same request" } : {}) };
+      ...alsoSay(answer, "that was already changed by this same request") };
   },
 });
 
