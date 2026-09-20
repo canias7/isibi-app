@@ -13751,6 +13751,19 @@ rule and the measurement.
   and nothing is learned. **Wait on the PID** — `while kill -0 <pid>; do sleep
   15; done` has no pattern to match — and `pgrep -af` prints the command lines,
   which is what shows the waiter standing in its own list.
+  **⚠ AND THIS ENTRY WAS IN CONTEXT WHEN THE SAME WAITER WAS WRITTEN TWICE MORE
+  (2026-09-20).** Both spun from before a compaction until `ps --forest` was
+  asked — hours, silently, while their sweeps had long since finished and their
+  tallies were read out of the log by hand. **The entry names the broken form
+  first and the fix last, which is the wrong way round for a shape that reads as
+  correct while you are typing it**: `while pgrep -f "<the command>"` is the
+  obvious thing to write and the `bash -c … eval` wrapper makes it false at the
+  moment of writing. It also cost a false alarm in the other direction — a
+  routine `pgrep -f "node scripts/mutate.mjs"` inside a compound command
+  answered **YES, a sweep is running** about its own shell, one step before a
+  commit. **Ask `ps --forest` or `pgrep -af` and READ the lines**; a bare
+  `pgrep -f` answering about a commit-blocking condition is answering about
+  itself.
 
 ### Loading, parsing, scope
 
@@ -15162,6 +15175,14 @@ round's own guards and one was measured INERT. Four are worth keeping as rules:
 closes exactly against counts read out of git at HEAD rather than subtracted from
 a paragraph.
 
+**CI HAS READ IT: `unit tests` run 2812 on `2e5d464c`, green (2026-09-20
+02:22:21→02:24:31Z, the suite step 130 s) — `# tests 6981 / # pass 6977 /
+# fail 0 / # skipped 4`**, against local `6981 / 6981 / 0 / 0`, and **the TOTAL
+is what matches**; the four are the standing environment skips (the
+privilege-drop case, the two RTL cases, and `site-searchpath`'s baseline-commit
+case). `site build` fired on the same sha because `worker.js` and `builder/**`
+moved.
+
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN, NO JOB CHANGE** — the owner's standing
 constraint for this round.
 
@@ -15206,3 +15227,107 @@ carries no formal terms document** and points at each data provider's terms (the
 ECB's), which is worth knowing before it goes into a customer site rather than a
 test. The `ask` and the eleven form boxes are rewritten in
 `docs/owner-notes.md`; nothing is dispatched.
+
+### THE NINE-KIND ACCEPTANCE CHECKLIST, AND THE RELEASE VERDICT (2026-09-20)
+
+Owner: *"Push focused, reviewable corrections, then return the nine-kind
+acceptance checklist and release verdict."* The corrections are pushed
+(`2e5d464c`); this is the checklist and the verdict.
+
+**EVERY SET, CAP AND TOOL SHAPE BELOW WAS RE-DERIVED FROM THE PRODUCT TODAY**,
+by evaluating `addTool(k)` and printing the constants, not read off a
+description — this file's own lists have gone stale twice. `ADD_KINDS` is nine;
+`DISPATCHED_ADDS` is **empty**; `PLACING_ADDS` is `["photo"]`; `REQUIREMENT_ADDS`
+and `ITEM_KINDS` are **all nine**; `APPLIED_KINDS` and `SITE_KINDS` are eight
+(everything but `component`); `OPAQUE_KINDS` is `["component"]`;
+`REQUIREMENT_STATES` is the seven.
+
+| kind | makes | cap | tool's own properties |
+|---|---|---|---|
+| `table` | a Postgres table; the first backend kind PROVISIONS the database | 6 | `table · seed · shows · because` |
+| `function` | a Postgres function, public or internal | 6 | `name · args · returns · body · language · internal` |
+| `api` | a stored outside connection served through `/api/db/<slug>/api/<name>` | 4 | `name · url · method · headers · body · params · returns · credential · cacheSeconds` |
+| `job` | a scheduled or one-time run of an internal function | 4 | `name · fn · everyMinutes · at · on` |
+| `page` | a route, in `sitemap.xml`, linked from the nav | 6 | `path · name · purpose · sections · components · tsx · link` |
+| `component` | a band on a page — a kit part by name or a `tsx` part written for this site | 12 | `page · where · does · components · tsx` |
+| `qr` | a code drawn by us from the stored string, baked as `/qr-<name>.svg` | 6 per site | `name · points · label · page · where` |
+| `three` | a WebGL element | 1 per site | `scene · page` |
+| `photo` | a photograph bought from fal and placed in the same request | 6 | `page · describe · name` |
+
+**EVIDENCE PER KIND, IN THREE COLUMNS, AND THE THIRD IS THE ONE THAT MATTERS.**
+
+| kind | live proof | not established |
+|---|---|---|
+| `table` | runs 30–34 (fretwork-1); **46** made `bookings` on repairbench-1 and **47** made `repairs` | a table with no writer is REPORTED and not refused — `repairs` is still empty by construction |
+| `function` | runs 30–34; **47** `count_booked_repairs`, **49** `workshop_load`, **50** `nightly_booking_count`, **52** reuse of a stored internal one | `language` is declared and the cleaner carries it; **no live run has exercised a `plpgsql` body** |
+| `api` | runs 30–34 — **designed, applied and SERVED only** | **NO page has ever read one live.** The `returns`/`params`/`credential` work of 2026-09-19 is written, swept and **undispatched**; the endpoint choice is the owner's |
+| `job` | runs 30–34; **50** registered a recurring job and Run now answered `3`; **52** registered a one-time job reusing a stored function | **automatic execution on a real tick**, and **any message actually delivered** — every sender is stubbed, and the last hop anyone has seen is the payload |
+| `page` | runs **47** `/status`, **48** `/booking-check`, **49** `/workshop-load`, **51** `/gallery` | — |
+| `component` | runs 21–23; **35** through the repair round, **36** "add a second one", **37** "copies the first's design" | it is the ONE kind off `APPLIED_KINDS`, so absence is never reportable — a working section and a missing one look identical |
+| `qr` | runs 21–23; the second-code proof; **51** published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one — `checked` is empty, so the ceiling is `configured` |
+| `three` | **MEASURED LIVE TODAY**: `fretwork-1` serves a `@react-three/fiber` canvas at 420px with "Drag to turn", and `ashgrove-1` serves one too — a measurement, not a task title | **WHICH PATH MADE IT.** `three` is a DISPATCHED lane on the EDIT path as well as an addon kind (driven: `DISPATCHED_LANES` carries it), so a probe of the served document cannot say which one created that scene; the addon's own run is a task record (run 23) and not a measurement in this file. And the scene ignores the theme's oklch colours (a standing open item) |
+| `photo` | **NONE.** Run 51 reached the provider and was **refused**; the addon's own credits were spent, the page published placeholders, and the one thing the run was bought for is unproven | **the whole kind.** Parked on fal funding, which `GET /api/fal-balance` answers free |
+
+**SO: EIGHT OF NINE KINDS HAVE LANDED THEIR OWN WORK ON A REAL SITE. THE NINTH
+HAS NOT, AND ITS BLOCKER IS A BALANCE RATHER THAN CODE.**
+
+#### The verdict
+
+**THE BRANCH IS READY AND THE LIVE PLATFORM IS NOT THE REVIEWED CODE, and those
+are the two halves of the answer.** Deploy 2136 is `ddd3faf5`; the four
+review defects are fixed at `2e5d464c` and **nothing of this round is merged**.
+So every one of them is live on gofarther.dev right now:
+
+| live today | what it costs a customer |
+|---|---|
+| D-1 | a photograph in a COMPONENT is bought, billed ~18.75 credits, published — and the same reply says *"Still to do"*. Two contradictory sentences, and since the band split a section IS a component, so `component` + `photo` is the ordinary way in |
+| D-2 | `qr`/`three` naming a route the site has not got is built on the HOME page and reported as done — the substitution corrected for `component` on 2026-09-14, four lines above the two branches that still do it |
+| D-3 | a bare-string column is dropped from a table, named by nobody, and the shortened spec is what every later designer reads |
+| D-4 | a full-URL QR to a route the site has not got is drawn, baked and published — a printed artefact that opens a 404, and the full URL is the spelling the tool offers FIRST |
+
+**THE READINESS EVIDENCE, and what each piece can and cannot say.** Suite
+**6,981 / 6,981 / 0 fail / 0 skipped**, arithmetic closing exactly against
+`^test(` counts read from git; CI `unit tests` **2812** green on the exact sha;
+the sweep **32 mutants / 32 killed / 0 survived / 2 comment-only controls
+survived** on pass 2, with **not one survivor at any point being the product's**;
+every fix red-checked ALONE, and every passing control retained. What none of
+that says is that a real customer message produced any of it — every one of the
+four is driven through `POST /api/site/<slug>/addon` against stubbed seams, and
+**no paid run has been bought since run 52.**
+
+**THREE THINGS THE RELEASE DOES NOT CLAIM, stated rather than glossed:**
+
+1. **`checked` IS EMPTY ON EVERY APPLIED KIND AND THAT IS THE DESIGN.** Nothing
+   on this path exercises a behaviour, so `configured` is the ceiling for a
+   claim about a real setting. **The platform cannot confirm its own feature
+   works** — run 49's three-reader comparison and run 51's re-encoded QR file
+   were both done from OUTSIDE. That is a stated limit, not a defect, and
+   filling `checked` from configuration or from one passing run is the thing
+   the owner ruled out in as many words.
+2. **AUTOMATIC CRON EXECUTION IS UNVERIFIED.** Run now drops the dueness clause
+   by construction, `dueJobs` is driven on a fixed clock, and a real tick is the
+   only thing that settles it. `count_bookings_once` is stored for **3 October**
+   and untouched.
+3. **THE WORKER HALF OF A DEPLOY IS NOT SESSION-READABLE.** Both routes carrying
+   `DEPLOY_ID` are owner-gated, and deploy 2136 changed no served asset — so its
+   Worker half rests on **Wrangler's own report and nothing further**. The
+   container half is strong (the image id is a pure function of the git objects
+   the Dockerfile COPYs, and the deploy's diff shows the reference moving to the
+   id computed from this tree). The next paid run's pre-flight is what reads
+   both halves from the platform.
+
+**RECOMMENDATION: merge and deploy these four, then buy ONE paid run.** The
+corrections are the cheapest kind of release — they refuse or report where the
+platform previously invented, and every one of them has a retained control
+proving the legitimate path is byte-identical. The run worth buying is
+**`component` + `photo` on a site that already has photographs**, which is D-1's
+own shape and the only one of the four whose fix cannot be read from outside
+without spending; and **`GET /api/fal-balance` must say "funded" first**, or the
+run is run 51 again — graceful, complete, plausible, and proving nothing.
+
+**AND THE ORDER IS THE RECORDED ONE**: read the Actions list for a RUNNING paid
+job before pushing (main's history arrives at the commit, minutes too late),
+compute both image ids before the merge, read the roll out of the deploy's own
+diff, then hold 15–20 minutes before any container work. The dispatch is the
+owner's press either way — a session has no `actions: write`, re-tested and
+still **403**.

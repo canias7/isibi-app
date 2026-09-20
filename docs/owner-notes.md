@@ -390,6 +390,17 @@ kind of deletion — that is the edit path's job. Also: QR codes, 3D scenes and
 photographs are the three kinds that structurally cannot report a coverage gap,
 so they can neither raise a need nor answer one.
 
+> **⚠ SUPERSEDED THE SAME NIGHT — five of those six are closed, and the entry is
+> left as it was written because it is dated (2026-09-20).** Placing a
+> photograph the site already owns: the page writer is handed the actual URLs
+> now, with permission and a wall. Where an API key comes from: the `credential`
+> field. A job that runs once: `spec.on`, a date and a time in the site's own
+> zone. Choosing a function's language: carried through the tool, the cleaner,
+> the fold and the DDL. And the last sentence is simply **wrong now** — I
+> re-derived it today by evaluating every kind's tool, and **all nine offer
+> `requirements`**, so any of them can raise a need and echo one. **Deletion is
+> the one still standing**, and it is the edit path's, not this one's.
+
 **Cost, from runs really bought**: a job-only change **3**, function + page
 **12**, table + function + page **13**, page + code + a refused photograph
 **13**. A photograph alone is about **18.75 credits**, so it is most of any bill
@@ -14894,3 +14905,91 @@ credits** on the evidence of runs 47 and 49.
 **Also**: these boxes are only valid while `main` is at that deploy. **This
 round's four fixes are NOT merged**, so if you merge them first, both `expect_`
 values change and I'll compute the new pair.
+
+## The nine-kind checklist, and my verdict — 2026-09-20
+
+You asked for the corrections pushed, then the checklist and the verdict. The
+corrections are pushed. Here is the rest.
+
+**I re-derived every number below from the code today rather than trusting these
+notes** — the lists in here have gone stale twice, and one of them was stale
+again when I looked (see the correction I added above: five of the six things I
+called unsupported on the 19th were closed the same night).
+
+### What a customer can add, and whether it has ever really worked
+
+Nine things. One message may ask for all of them, and the order is fixed — a
+table before the function that reads it, both before the job that runs them, all
+before the page that shows them.
+
+| what | how many | has it landed on a real site? |
+|---|---|---|
+| **tables** | 6 | **Yes** — `bookings` and `repairs` on repairbench-1 |
+| **functions** | 6 | **Yes** — four different ones, and run 52 reused a stored one |
+| **API connections** | 4 | **Made and saved and served — yes. A page reading one — never.** That is the gap I described on the 19th and the fix for it is written and unsent |
+| **scheduled jobs** | 4 | **Registered — yes**, recurring and one-time both. **Fired by its own timer — never. Delivered a message — never** |
+| **pages** | 6 | **Yes** — four of them, each live and linked |
+| **sections** | 12 | **Yes** — including a second one that copied the first's design |
+| **QR codes** | 6 per site | **Yes** — run 51's code is served, and I read the file back and confirmed it opens the right page |
+| **3D scene** | 1 per site | **A scene is live** — I checked today: fretwork-1 and ashgrove-1 are each serving one, 420px tall with "Drag to turn" under it. **What I can't tell from outside is which path built it**, because the edit path can make one too |
+| **photographs** | 6 | **No.** Run 51 asked fal for one and fal said no. Everything around it worked; the picture never arrived |
+
+**Eight of the nine have done their own job on a real customer site. The ninth
+is waiting on money in the fal account, not on code** — and there is a free way
+to check that before spending anything, which I only found yesterday and which
+none of my notes had ever mentioned: the app can ask `/api/fal-balance` and it
+answers *funded* or *empty* in one line. Ask it before buying a photo run, or
+you get run 51 again: a complete, plausible, green-looking result that proves
+nothing and costs ~13 credits.
+
+### The verdict
+
+**The branch is ready. What is live on your site right now is not the branch.**
+
+Those are two different things and it matters which one you are asking about.
+The last deploy was 2136, and the four defects I found in the review are fixed
+here and **not merged**. So all four are live today:
+
+- a photograph inside a **section** gets bought, billed about 19 credits,
+  published — and the same reply says *"Still to do"* about it. Since a section
+  is a component under the hood, *"add a photo wall with a picture in it"* is
+  the ordinary way to hit this;
+- asking for a QR code or a 3D scene **on a page that doesn't exist** builds it
+  on your home page instead and tells you it's done;
+- a column written the short way gets **dropped from the table** and nobody says
+  so;
+- a QR code pointing at a page you don't have, written as a full web address
+  rather than a slash, gets **drawn, printed-ready, and published** — and it
+  opens a 404.
+
+All four are fixed, swept, and signed off by the automated checks on exactly the
+commit I pushed. None of them has been through a real customer message, because
+you told me not to spend and I haven't.
+
+**Three things I am not claiming, and I want them said plainly:**
+
+1. **The platform still cannot confirm its own work.** It can say *"I've set
+   that up, but I can't confirm from here"* and it can say *"Still to do"* — and
+   the difference between those is now reliable. What it cannot do is check that
+   the thing actually works. Run 49's count and run 51's QR code were both
+   verified by me from outside, not by the platform. That is deliberate — you
+   told me not to let configuration masquerade as verification — but it is a
+   limit, not a feature.
+2. **No job has ever fired on its own.** Pressing Run now proves the runner; it
+   does not prove the timer, by construction. `count_bookings_once` is sitting
+   there for **3 October** and I have not touched it.
+3. **I cannot read the Worker's own version from here.** The two routes that
+   would tell me are locked to you. For the container half I have hard evidence
+   (the image ID is computed from the files themselves and the deploy log shows
+   it moving); for the Worker half I have Wrangler's word in the log and nothing
+   more.
+
+**What I would do: merge and deploy these four, then buy one run.** The
+corrections only ever refuse or report where the platform used to invent, and
+each one has a test proving the normal path is unchanged to the byte. The run
+worth the money is **a section plus a photograph, on a site that already has
+photographs** — that is the first defect's own shape, and the only one of the
+four whose fix I cannot show you without spending. Check the fal balance first.
+
+Nothing is merged, nothing is deployed, nothing is dispatched, and no job has
+been touched.
