@@ -225,6 +225,59 @@ and Data/auth/payments/mail.
 for CLAUDE.md. It is the bigger job of the two, because parts of it are read by
 real tests, so say the word and I will do it carefully.
 
+### The API test is armed, with the identifiers the merge moved
+
+The table I left you on the 19th is **stale and I have marked it so** — it said
+so itself: *"these boxes are only valid while main is at that deploy."* Both
+`expect_` values moved with the merge. This is the live pair.
+
+| box | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `lanes` | `all` — an `ask` replaces the case list entirely, so this is ignored |
+| `site` | `repairbench-1` |
+| `dbsite` | leave as it is (gap harness only) |
+| `ask` | the sentence below |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | `d304120e252223788d2538b4febd2037426f0ed0` |
+| `expect_image` | `94a380843efd95e1` |
+| `run_job` | **blank** — the workflow's own words are *"BLANK = do not press"*, so `count_bookings_once` is not touched |
+
+The sentence, for the `ask` box and nowhere else:
+
+> Add a page at /rates showing what one pound is worth in euros and dollars
+> right now, read live from the Frankfurter exchange-rate API at
+> https://api.frankfurter.dev/v1/latest?base=GBP&symbols=EUR,USD — it's free and
+> needs no key. Show the date the rates are from as well.
+
+**The last clause is deliberate.** `date` sits at the top level and `EUR` sits
+inside `rates`, so the page has to read two different depths. Without it, a page
+that happened to guess right about one level would look like a page that used
+the declared shape.
+
+**I called the service today and it answers**
+`{"amount":1.0,"base":"GBP","date":"2026-09-18","rates":{"EUR":1.1644,"USD":1.3344}}`
+— keyless, and the 18th is right because the ECB publishes on working days and
+today is Sunday. **A page that reads `data.EUR` instead of `data.rates.EUR`
+renders blank**, which is the exact failure the declared shape exists to stop.
+
+**What the run itself cannot see, stated rather than glossed:** the harness
+fetches the home page's HTML and does not render `/rates`, and a raw fetch of a
+`useApi` page shows the loading state, never the numbers. **A 200 is an
+availability check and never a health check.** So *real data renders* is a free
+follow-up I do after the run — read `/rates`'s own route chunk for the field
+path it uses, call the site's own connection route, and compare against the
+service directly. No harness change, no credits, and nothing for you to press.
+
+**Cost: expect 12–13 credits** — the same shape as run 49 (`function`+`page`,
+12) and run 47 (13). **Nothing here buys a photograph**, which would be 18.75 on
+top. **Balance was 119 at run 52's end and I cannot read the ledger from this
+session** — there are no Supabase credentials here, so that figure is history,
+not a reading. Worth refreshing before you press. And `budget` binds nothing on
+a single ask: it is checked between cases and an ask has one.
+
 ---
 
 ## 2026-09-19 — The two that finished them: the frame number, and the QR echo
@@ -14948,6 +15001,11 @@ service a customer's site depends on is your call, not mine. The form boxes are
 below; nothing is dispatched.
 
 ### The API test's form boxes, rewritten
+
+> **⚠ SUPERSEDED 2026-09-20 — do not press from this table.** Both `expect_`
+> values below expired the moment the branch merged, exactly as the last
+> paragraph of this section says they would. The live pair is in the
+> 2026-09-20 entry at the top of this file.
 
 `lane sweep`, dispatch-only, **your press**. Nothing else changed from the
 earlier plan — the ten other boxes are the same values.
