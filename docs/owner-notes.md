@@ -15475,3 +15475,123 @@ run.
 
 Nothing merged, nothing deployed, no paid run, and the render-check correction
 is untouched.
+
+## Merged and deployed — and what the addon path can honestly claim (2026-09-20)
+
+Both fixes are on main and live. **Merged `28fd02a1`, deployed by run 2138, the
+container rolled.** Your Run 53 results commit is kept: this was a real merge
+with two parents, not a fast-forward, so `7ee5226b` is still in main's history
+and its file is still there.
+
+### What went out
+
+Two fixes, and I am keeping the claims exactly as narrow as the evidence:
+
+1. **The checker now tells "I can't reach this" from "this page is broken."**
+   A request to an outside service, a database function, a checkout or an
+   upload gets a clearly marked *not available while checking*; a request for
+   the site's own rows still gets the empty list, because an empty table is a
+   real answer. Anything we do not recognise is treated as unreachable, so a
+   new kind of call fails safe. The page draws its "could not load" state and
+   we say so — we no longer call it a page error, which is the wording that
+   made it eligible for a paid repair of working code.
+2. **"Pages this change published" is now read off what was actually
+   published**, not off the plan. Existence comes from the publication,
+   absence still comes from the plan. The best it can ever say is *"I've set
+   that up, but I can't confirm it from here"* — publishing a page proves the
+   page is there and nothing else.
+
+3. **Run 53's exact missing references are still not recovered, and I am not
+   claiming they are.** Its reporting outcome is *consistent with* these fixes;
+   it is not exactly reproduced. The stored designer answer has no reader, so
+   getting the real bytes would need a new reader shipped, merged and pressed.
+   I did not buy a run to find out.
+
+### The deployment, checked rather than assumed
+
+- **Merged sha `28fd02a1`.** Deploy run 2138 succeeded, all steps green.
+- **The Worker really is running that commit**: the deploy set
+  `DEPLOY_ID:28fd02a1…`, read off the log.
+- **The container really rolled**, read out of the log's own before/after
+  lines: the image moved `94a380843efd95e1` → `c371e27cf3060255`, then
+  `SUCCESS Modified application` and `Applied changes`. I had computed
+  `c371e27cf3060255` from the merge commit *before* pushing, so the prediction
+  and the live container agree.
+- **Timings**: image 2m06s, Wrangler 19s, whole run 2m55s.
+- **Nothing was running when I pushed** — I checked for in-flight work first,
+  which is the near-miss this project has had before.
+- **The rollback is prepared and verified, not described**: reverting the merge
+  produces a tree byte-identical to what main had before it.
+
+### What I could NOT check, said plainly
+
+The two readers that would confirm the running code from the outside both need
+a signed-in session, and this session holds no login for the building account.
+So I read what is readable without one: the Worker answers 401 on all three
+gated routes and 404 on a route that does not exist, before and after the
+deploy — which proves it is up and routing, and says nothing about which code
+version is answering. For that, the evidence is Wrangler's own report and the
+log lines above.
+
+One correction to my own notes while I was there: I had written that both of
+those routes are owner-gated. Only one is. The health reader asks merely that
+you are signed in — any account can read the deployed sha and the container
+image from it. The runtime reader is the owner-scoped one. Same practical
+answer for me, but it names the wrong person to ask.
+
+### Addon status — what is verified, what is not, what is unsupported
+
+**Verified live, with its own work landed on a real site: eight of the nine
+kinds.** Tables, functions, outside connections, scheduled jobs, pages,
+sections, QR codes and 3D scenes have each been designed, applied and shipped
+on a real site by a real paid run.
+
+**Not verified, and each for a different reason:**
+
+- **Photographs — the whole kind.** The one attempt reached the provider and
+  was refused. The blocker is the image balance, not the code.
+- **No page has ever read an outside connection live.** The connection is
+  designed, stored and served; a page rendering one against the real service
+  is still unproven.
+- **A scheduled job has never been seen to fire on its own tick**, and no
+  message has been confirmed delivered. Pressing Run now works; the calendar
+  firing by itself is unproven, and the records it leaves cannot tell a press
+  from a tick.
+- **A `plpgsql` function body has never run live** (it is proven on a real
+  PostgreSQL locally).
+- **Sections are the one kind whose absence can never be reported**, by design
+  — a section folded into an existing page leaves no entry in any list.
+- **We cannot confirm our own features work.** Nothing on this path exercises a
+  behaviour; the strongest thing it says is "a real setting reads back the way
+  it was asked for". The two confirmations we have came from outside — a
+  browser, and re-reading a published QR file.
+
+**Unsupported, each for an honest reason:**
+
+- **Nothing deletes a table, a saved function, an outside connection or a
+  scheduled job.** Fifteen of the twenty-one edit lanes can take something off;
+  the backend is not one of them.
+- **An outside connection tells you where to put the key but not which service
+  to sign up with**, or whether it is free.
+
+### Video and audio — a separate thing, and the answer is no hosting
+
+Kept apart because it is a different question. **You cannot upload a video or
+an audio file at all** — I drove both upload paths over real file signatures
+today: MP4, MP3 and WebM are refused by both. What an owner can upload beyond
+pictures is a PDF or a zip, up to 10 MB; a visitor can upload pictures only, up
+to 2 MB. The video and audio components on the site are **embeds** — they wrap
+a URL you supply and make no network call of their own. So "put our promo video
+on the site" works only if the video already lives somewhere else.
+
+### The edit path — also separate, and still open
+
+Two known defects there, both written down and neither fixed: it can delete
+every section a request never mentioned when its store read fails, and it never
+tells you about an empty picture frame it leaves behind. Both have a working
+fix on the addon path to copy. Not touched today.
+
+### Nothing else moved
+
+No paid run, no Run now, no change to any existing job, no repair pressed, no
+new capability. The balance is untouched.
