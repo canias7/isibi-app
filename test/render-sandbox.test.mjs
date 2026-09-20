@@ -442,6 +442,9 @@ test("the classifier separates what we can stand in for from what we cannot", ()
   // derived from `src/lib/rows.ts` rather than invented.
   const want = [
     ["/api/db/s1/data/bookings", "rows", true, 200],
+    // ⚠ UNDER THE DATA PREFIX AND NOT A TABLE LIST. `useRpc` POSTs here, and a
+    // `/data/` test reaches it first unless `rpc` is asked BEFORE it.
+    ["/api/db/s1/data/rpc/workshop_load", "rpc", false, 424],
     ["/api/db/s1/auth/session", "auth", true, 401],
     ["/api/db/s1/turnstile", "turnstile", true, 200],
     ["/api/db/s1/error", "error", true, 200],
@@ -464,6 +467,14 @@ test("the classifier separates what we can stand in for from what we cannot", ()
   assert.equal(apiAnswer("/api/db/s1/data/bookings").body, "[]");
   assert.notEqual(apiAnswer("/api/db/s1/api/rates").body, "[]",
     "an outside connection is still answered as a table list — this is the run 53 defect");
+  assert.notEqual(apiAnswer("/api/db/s1/data/rpc/total").body, "[]",
+    "a database function is still answered as a table list — run 53's defect one endpoint over");
+  // THE ORDER IS THE RULE, so it is asserted as an order: the RPC path is a
+  // STRICT SUFFIX case of the table path, and swapping the two tests is the
+  // whole defect. A function returns an object or a scalar; no value is
+  // honestly true of one nobody has run.
+  assert.equal(apiAnswer("/api/db/s1/data/rpc/x").what, "rpc",
+    "the data test matched the RPC path first — the two tests are in the wrong order");
   // `{}` is what the LIVE turnstile route answers for a site with no key,
   // measured against `repairbench-1` rather than assumed.
   assert.equal(apiAnswer("/api/db/s1/turnstile").body, "{}");
@@ -497,6 +508,21 @@ test("run 53's page, driven on the wire: the real answer renders, the unavailabl
     assert.equal(rows.status, 200);
     assert.equal(await rows.text(), "[]");
     assert.equal(rows.headers.get(DEP_HEADER), null, "a supported fixture is marked as an unavailable dependency");
+
+    // THE DATABASE FUNCTION, POSTed the way `useRpc` really posts it. Driven
+    // through the server, because the ordering bug lives in the dispatch and a
+    // classifier assertion alone would not have caught a `/data/` branch that
+    // ran first.
+    const rpc = await fetch("http://127.0.0.1:" + port + "/api/db/s1/data/rpc/workshop_load",
+      { method: "POST", body: "{}", headers: { "content-type": "application/json" } });
+    assert.equal(rpc.status, 424, "a database function is still answered 200 — an invented successful output");
+    assert.equal(rpc.headers.get(DEP_HEADER), "rpc", "the stub does not say it could not run this function");
+    assert.equal(rpc.ok, false, "the hook's error branch is never reached, so the page renders against a non-answer");
+    // AND NOTHING IS OFFERED TO READ. The hook's `send` throws on a non-ok
+    // response, which is what puts the query into the error state every
+    // generated page is required to draw — so there is no truthy body for a
+    // nested read to fall one level into.
+    assert.doesNotMatch(await rpc.text(), /^\[\]$/, "the refusal still carries a table list as its body");
 
     // THE OUTSIDE CONNECTION. 424 and marked.
     const api = await get("/api/db/s1/api/exchange_rates");
@@ -558,6 +584,18 @@ test("an unreachable dependency is reported, is not serious, and does not hide a
   // connection produces a byte-identical report to the one it produced before
   // this existed.
   assert.deepEqual(readPage(page({ route: "/", unmet: [] })).filter((f) => f.kind === "unmet"), []);
+
+  // A DATABASE FUNCTION NAMES ITSELF AS ONE. Two unavailable kinds on one page
+  // are two nouns, not a count — the customer can act on "a database function"
+  // and can do nothing with "2 dependencies".
+  const fn = readPage(page({ unmet: [{ what: "rpc" }] })).filter((f) => f.kind === "unmet");
+  assert.equal(fn.length, 1);
+  assert.match(fn[0].detail, /database function/, "an unreachable function is not named: " + fn[0].detail);
+  assert.equal(isSerious(readPage(page({ unmet: [{ what: "rpc" }] }))), false,
+    "an unreachable database function is SERIOUS, so the repair round will buy a fix for a page that never failed");
+  const two = readPage(page({ unmet: [{ what: "rpc" }, { what: "api" }] })).filter((f) => f.kind === "unmet");
+  assert.match(two[0].detail, /database function.*outside connection|outside connection.*database function/,
+    "two different unavailable kinds collapsed into one noun: " + two[0].detail);
 });
 
 test("the customer is told the page was not fully checked, not that it threw", () => {

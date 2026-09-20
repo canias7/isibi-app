@@ -429,10 +429,20 @@ export const DEP_HEADER = "x-render-dep";
  *  noun, because it is what `unmetNote` prints. */
 const UNAVAILABLE = {
   api: "an outside connection",
+  rpc: "a database function",
   checkout: "card payment",
   uploads: "file upload",
   hook: "an incoming webhook",
 };
+
+/** The one refusal shape, so a second unavailable kind cannot answer a
+ *  different body or forget the marker. */
+const unavailable = (what) => ({
+  supported: false,
+  what,
+  status: 424,
+  body: JSON.stringify({ error: "not available while the site is being checked", dependency: what }),
+});
 
 /**
  * What to answer for one path, or `null` when it is not a site data-API call.
@@ -445,6 +455,19 @@ export function apiAnswer(pathname) {
   if (!p.startsWith("/api/")) return null;
   // Signed out, because a visitor arriving at a published site IS signed out.
   if (/\/auth\//.test(p)) return { supported: true, what: "auth", status: 401, body: '{"error":"signed out"}' };
+  // ⚠ RPC IS TESTED BEFORE `data`, AND THE ORDER IS THE WHOLE RULE. `useRpc`
+  // POSTs to `/api/db/<slug>/data/rpc/<fn>` — UNDER the data prefix — so a
+  // `/data/` test reached it first and answered `200 []`, which is this file's
+  // own run 53 defect one endpoint over: a function returns an object or a
+  // scalar, `[]` is truthy, and a nested read throws. `readPage` then calls it
+  // `threw`, which IS serious, so the false warning and the paid repair both
+  // came back.
+  //
+  // A FUNCTION HAS NO HONEST STAND-IN. An empty table list is true of a fresh
+  // `collect` table; there is no value that is true of an arbitrary function
+  // nobody has run. Inventing a successful one is precisely the fixture
+  // claiming to be live behaviour that this whole round exists to stop.
+  if (/\/data\/rpc\//.test(p)) return unavailable("rpc");
   if (/\/data\//.test(p)) return { supported: true, what: "rows", status: 200, body: "[]" };
   if (/\/turnstile$/.test(p)) return { supported: true, what: "turnstile", status: 200, body: "{}" };
   if (/\/error$/.test(p)) return { supported: true, what: "error", status: 200, body: "{}" };
@@ -461,15 +484,7 @@ export function apiAnswer(pathname) {
       : tail === "/uploads" ? "uploads"
         : /^\/hook\//.test(tail) ? "hook"
           : "unknown";
-  return {
-    supported: false,
-    what,
-    status: 424,
-    body: JSON.stringify({
-      error: "not available while the site is being checked",
-      dependency: what,
-    }),
-  };
+  return unavailable(what);
 }
 
 /** The distinct dependencies a page could not reach, in first-seen order. */
