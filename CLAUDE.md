@@ -2129,6 +2129,15 @@ summary is that **the connection, the declared shape and the page were all
 correct**: `/rates` is live and renders `1.1644 / 1.3344 / Rates from
 2026-09-18` with zero console errors. Everything wrong was ours.
 
+**AND THAT SENTENCE IS A CAPABILITY PROOF, NOT ONLY AN EXONERATION — READ IT AS
+BOTH.** Those three values are the REAL keyless rates service's own answer,
+fetched through the platform's own `/api/db/<slug>/api/<name>` and read at two
+depths, so **run 53 is the live proof that a published page reads an outside
+connection and renders its data** — the `api` row's "not established" for a
+year. It went a day unrecorded because this section is a STORY about two
+defects, and nobody edits a capability table while writing up a bug. **The row
+is updated; when a run proves something, edit the SUMMARY first.**
+
 **A SYNTHETIC RESPONSE MUST NOT STAND IN FOR A DEPENDENCY WE CANNOT REACH.**
 `serveDist` answered **`200 []`** to every `/api/…` path that was not auth — so
 the render check handed a page reading `data.rates.EUR` an empty ARRAY, which is
@@ -2625,9 +2634,23 @@ problem and never of blank rendering.
   `worker.js`'s own `/api/db/<slug>/api/<name>`. **This proves LOCAL WIRING
   only**: the service is stubbed, and neither documented compatibility nor local
   validation is provider acceptance.
-- **KEPT RECORDED, NOT FIXED**: a discarded `language` on the api tier's
-  neighbour (reported honestly as `unexpressed`), and native one-time scheduling
-  for a job, which shipped 2026-09-19.
+  **⚠ AND THAT LAST SENTENCE IS NO LONGER THE WHOLE STORY — RUN 53 SUPPLIED THE
+  MISSING HALF.** The acceptance test stubs the service because it must; run 53
+  did not. A published page on `repairbench-1` called the REAL keyless rates
+  service through this exact chain and rendered its answer — `1.1644 / 1.3344 /
+  Rates from 2026-09-18`, read at TWO depths (`date` at the top level, `EUR`
+  inside `rates`), with zero console errors. **So provider acceptance IS
+  established for one keyless connection**, and what the stub sentence still
+  correctly guards is the general claim: one service answering is not every
+  service answering, and a KEYED connection remains unproven.
+  **THE TRAP THIS ENTRY WAS CAUGHT BY**: the run that proved it is written up
+  three hundred lines above, and the capability table went on saying *"NO page
+  has ever read one live"* for a day — **the file falsified itself and neither
+  half noticed**, exactly as the `language` entry did. When a run proves
+  something, the CAPABILITY SUMMARY is the thing to edit; the narrative is
+  where nobody checks a claim.
+- **KEPT RECORDED, NOT FIXED**: native one-time scheduling for a job, which
+  shipped 2026-09-19.
 
 ### THE FOUR STATES "NO DATABASE" MEANT (2026-09-15)
 
@@ -3662,7 +3685,7 @@ and its next step is a CHANGE.
 |---|---|---|
 | `table` | runs 30–34, 46, 47 | a table with no writer is REPORTED, not refused |
 | `function` | runs 30–34, 47, 49, 50, 52 (a stored internal one reused) | no live run has exercised a `plpgsql` body |
-| `api` | designed, applied and SERVED only | **NO page has ever read one live** |
+| `api` | **RUN 53 — a published page READ THE REAL SERVICE AND RENDERED ITS DATA**: `/rates` on `repairbench-1` serves `1.1644 / 1.3344 / Rates from 2026-09-18`, which is the keyless rates service's own answer (`{"base":"GBP","date":"2026-09-18","rates":{"EUR":1.1644,"USD":1.3344}}`), read at two depths, zero console errors | a page reading a **keyed** connection, and whether a wrong key surfaces usefully |
 | `job` | 50 registered a recurring one and Run now answered `3`; 52 a one-time one | **automatic execution on a real tick**, and **any message actually delivered** |
 | `page` | 47 `/status`, 48 `/booking-check`, 49 `/workshop-load`, 51 `/gallery` | — |
 | `component` | runs 21–23, 35, 36, 37 | the ONE kind off `APPLIED_KINDS`, so absence is never reportable |
@@ -3709,6 +3732,24 @@ measurements this file leans on (the kit closure's 9–53 files, the 322-against
   be one a model invented, and the stray wall empties it correctly. **The
   reachable half of that wall is the PDF**, which really can be uploaded.
 - **`pageless` is job + INTERNAL function only** — driven.
+- **CREDENTIAL-SOURCE GUIDANCE EXISTS, CONDITIONAL ON THE METADATA BEING
+  SUPPLIED** (moved here 2026-09-20; it had been filed as *"names no sign-up
+  page"*). `cleanCredential` (`site-api-shape.mjs`) stores
+  **`{service, url|signup, note}`** — WHICH service, its SIGN-UP PAGE, and a
+  free-text note, which is where *"the free tier is enough"* belongs. The url
+  is **https-validated** and refused as `credential-url` otherwise
+  (*"The sign-up page for that service has to be an https address"*), and an
+  unreadable object is `credential-shape`, whose sentence asks the customer to
+  NAME THE SERVICE. `credentialNote` reads it **PER CONNECTION**, so a mixed
+  request cannot tell the owner to sign up for a key nothing will use.
+  **THE CONDITION IS THE WHOLE OF IT, AND IT IS A REAL LIMIT**: every part is
+  optional, `cleanCredential` answers `null` when all three are absent, and
+  **nothing compels the designer to fill them** — so the guidance is present
+  when the declaration carries it and silent when it does not. That is
+  different from *"no sign-up page exists"*, which is what the old entry said.
+  What stays true: **misleading metadata on a KEYLESS connection is ignored
+  rather than believed**, and the note never claims a service *"is answering
+  already"* — this platform has not called it and has no business saying so.
 - **A FUNCTION CHOOSES ITS OWN `language`, AND THIS SAT IN THE UNSUPPORTED LIST
   FOR A DAY AFTER IT SHIPPED** (closed 2026-09-19, moved here 2026-09-20).
   `FN_LANGUAGES` is `["sql", "plpgsql"]` beside the emitter, `fnLanguage` is the
@@ -3733,9 +3774,8 @@ measurements this file leans on (the kit closure's 9–53 files, the 322-against
   — `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`. **SIXTEEN**
   lanes ARE removable (`components` and `tsx` among them) and `PAGE_VERBS` is
   `add · remove · move`, so "nothing deletes" is only true of the backend.
-- **The api tier's `credential` names no sign-up page** — the owner IS told
-  where to PUT the key (`needsSecrets` → *"add RATES_KEY under Cloud →
-  Secrets"*) and nothing says which service or whether it is free.
+*(The api tier's `credential` used to sit here as "names no sign-up page". It
+does name one — moved up to the supported list on 2026-09-20.)*
 
 ---
 
