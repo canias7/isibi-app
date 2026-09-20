@@ -14855,3 +14855,35 @@ photograph cannot name itself to anyone who can act on it* — is untouched: the
 provider's own reason still reaches `images.error`, which no reply renders, and
 `console.error("photo failed:", …)` inside the container. This route says
 whether fal has money; it says nothing about why a particular generation failed.
+
+#### …AND THE SWEEP WAS RE-RUN ON THE DEPLOYED TREE, WHICH CAUGHT A HOOK ABOUT TO COMMIT A MUTANT
+
+**13 mutants, 13 killed, 0 survived, 0 never applied, 2 comment-only controls
+survived** — the same tally as the pre-merge run, now against the tree that is
+actually deployed rather than the one that was reviewed. The reported defect is
+among the thirteen, as are the repair given to every tier, the apply
+re-attaching everything or nothing, a PUBLIC or nameless declaration given a
+stand-in body, and the case fold.
+
+**⚠ AND THE STOP HOOK ASKED FOR THE MUTANT TO BE COMMITTED.** Mid-sweep, a
+repository hook reported *"There are uncommitted changes… Please commit and push
+these changes"*. The one modified file was `site-schema.mjs`, one line, and it
+was the sweep's own **comment-only CONTROL** — applied at that instant because
+the runner was testing it.
+
+**THE CHECK THAT SETTLED IT IS THE SPEC, NOT A JUDGEMENT CALL.** `git diff`'s
+added line was matched against every `to` in `scripts/mutants/job-stored-fn.json`
+and came back `MATCHES SPEC MUTANT … control? true`. A hook cannot tell a
+deliberate temporary edit from real work; the spec can, in one command.
+
+**THIS IS THE RECORDED TRAP ARRIVING THROUGH A NEW DOOR.** *"Never commit while
+a mutation sweep is running"* was written about a KILLED sweep skipping its
+`finally`; here the sweep was perfectly healthy and something else asked for the
+commit. Same outcome if obeyed: a defect on main, wearing a green tally.
+`pgrep -f "node scripts/mutate.mjs"` answers whether a sweep is live, and the
+sweep's own `finally` restored the file — `git status --porcelain` is empty
+afterwards, verified.
+
+**THE RULE, WIDENED: before committing, ask whether a sweep is running, whoever
+is asking.** An automated request to commit is not evidence that there is
+anything to commit.
