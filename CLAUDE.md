@@ -14649,60 +14649,71 @@ the deploy run, read off that run rather than derived from the merge strategy.
 nothing about `count_bookings_once` or the recurring job was touched: no paid
 dispatch, no Run now, no reschedule. **AUTOMATIC EXECUTION REMAINS UNVERIFIED.**
 
-#### `fretwork-1`'s BYTES ARE ITS CALENDAR, AND THE OBSERVATION IS CLOSED
+#### `fretwork-1`'s PAGE IS DIFFERENT ON EVERY REQUEST, AND THE BYTE CHECK IS THE FINDING
 
-Recorded three times as *"unexplained but not ours"* and once, an hour ago in
-this same entry, as *"it CREEPS"*. **Both readings were wrong and the second was
-mine.** What it is: **the page renders today's date.**
+Recorded three times as *"unexplained but not ours"*, once tonight by me as
+*"it CREEPS"*, and once tonight by me as *"the bytes are its calendar"*.
+**All three readings were wrong, and two of them were mine within the hour.**
+What is measured, in order of how well it is established:
 
-**THE PAGE'S OWN SOURCE SAYS SO** — read out of the served document rather than
-guessed: `<h3>September 2026</h3>` above a month grid with Previous/Next month
-buttons, a `week-strip` reading `Mon 14`, and `data-slot` values
-`availability-calendar`, `availability-grid`, `week-strip`, `opening-hours` and
-`date-enquiry`. The document is rendered PER REQUEST from `__root.tsx`, so every
-one of those is computed at request time from the clock. **A document that
-renders the date has a byte count that is a function of the date.**
+**1. THE DOCUMENT IS DIFFERENT ON EVERY SINGLE REQUEST — MEASURED, not
+inferred.** Six copies fetched two minutes apart were diffed byte for byte.
+**Exactly one region differs, at byte 58328**: `…,u:1789862713564}` against
+`…,u:1789863320657}` inside `$R[13]={i:"\u0000\u0000",u:<ms>}`, the hydration
+payload. Decoded, `1789863320657` is **2026-09-20T00:15:20.657Z — the sixth
+fetch's own instant**. The page embeds `Date.now()`.
 
-**FOUR PROPERTIES, AND THE DATE EXPLAINS ALL FOUR WHERE NOTHING ELSE DID.**
-Stable within minutes (four samples over six minutes, 58,670 exactly, with
-`ashgrove-1` at 31,120 as the control). Different across days. **NOT monotonic**
-— chronologically by deploy it is 58,404 (2128) · 58,404 (2130) · 58,523 (2133)
-· 58,642 (2134) · **58,551 (2135)** · 58,670 (2136), which goes UP, UP, **DOWN
-by 91**, UP. And the version never moves, because a calendar is computed at
-render and not at publish.
+**2. THAT IS WHY THE COUNT LOOKED STABLE, and it is a trap in itself.** A
+millisecond timestamp is thirteen digits and stays thirteen digits until 2286,
+so **the content changes every request and the LENGTH does not**. All six
+samples read 58,670 while none of them was the same document. A byte count that
+is stable is not a document that is unchanged.
 
-**⚠ AND MY OWN "IT CREEPS" CAME FROM READING FILE ORDER AS CHRONOLOGY.** The
-`58,404` readings sit at three separate lines and two of the values appear in
-EARLY sections of this file, so a top-to-bottom scan produces a rising sequence
-that the deploy numbers falsify. *A file's line order is not a timeline, and a
-sequence assembled from one is not evidence.*
+**3. THE PAGE IS ALSO DATE-DERIVED, which is what lets the COUNT move.** Read
+out of the served document: `<h3>September 2026</h3>` over a month grid with
+Previous/Next buttons, a `week-strip` reading `Mon 14`, and `data-slot` values
+`availability-calendar`, `availability-grid`, `week-strip`, `opening-hours`,
+`date-enquiry`. The document is rendered PER REQUEST from `__root.tsx`, so all
+of that is computed from the clock.
 
-**THE CONTROLLED PAIR NOBODY SET UP, and it is what turns this from consistent
-into demonstrated.** A published site's script runs in a Worker, where
-`new Date()` is **UTC**. Deploy 2136's readings were 23:59:55Z and 00:03:34Z —
-**straddling the UTC date change**, 58,551 → 58,670. Deploy 2135's were
-21:59:41Z and 22:04:03Z, **the same UTC date**, and its own entry records
-fretwork-1 at 58,551 on both sides, **byte-identical**. Same site, same
-instrument, four minutes apart in both cases; the one that crossed midnight
-moved and the one that did not, did not. (In London both of 2136's readings are
-the 20th — so the UTC reading is the one that predicts the observation, which is
-what says the render clock is UTC.)
+**4. AND THE PAIRS SEPARATE A DATE CHANGE FROM A DEPLOY.** A published site's
+script runs in a Worker, where `new Date()` is UTC. Deploy 2136's readings were
+23:59:55Z and 00:03:34Z — **straddling the UTC date** — and moved 58,551 →
+58,670. Deploy 2135's were 21:59:41Z and 22:04:03Z, **the same UTC date**, and
+its entry records fretwork-1 at 58,551 on both sides, byte-identical. Same site,
+same instrument, four minutes apart in both.
 
-**THE EXACT 119 BYTES ARE NOT NAMED and are deliberately not claimed.** That
-needs yesterday's copy of the document, which nobody kept. What is established
-is the KIND: the page is date-derived by construction, and the two pairs above
-separate a date change from a deploy.
+**⚠ WHAT IS NOT ESTABLISHED, AND I CLAIMED IT AN HOUR AGO: WHICH bytes make up
+the +119.** "The bytes are its calendar" is a hypothesis that fits, and the
+calendar is the visible date-derived content — but 19 September and 20 September
+are the same week of the same month, so only a `today` marker moves, and that is
+a thin explanation for 119 bytes. The site also has a database, so rows are
+another candidate. **Naming them needs yesterday's copy of the document, which
+nobody kept.** It is recorded as unnamed rather than given the tidier story.
 
-**THE FINDING IS ABOUT THE INSTRUMENT, NOT ABOUT ONE DEMO SITE, AND THAT IS THE
-REUSABLE PART.** The post-deploy regression check compares a site's byte count
-before and after, and **that comparison is only valid while both readings fall
-on the same rendered date**. Any site with a calendar, a "today", an "open now"
-or a relative time breaks it, and it breaks in the direction that looks like a
-regression. Two cheap fixes, neither done here: take both readings inside one
-date, or compare a date-independent slice. Until then, **a byte difference on
-such a site across midnight is the clock and not the deploy** — and the three
-earlier "unexplained" entries are explained by this and are superseded rather
-than left standing.
+**⚠ AND "IT CREEPS" CAME FROM READING FILE ORDER AS CHRONOLOGY.** Two of the
+`58,404` readings sit in EARLY sections of this file, so a top-to-bottom scan
+gives a rising sequence the deploy numbers falsify: chronologically it is 58,404
+(2128) · 58,404 (2130) · 58,523 (2133) · 58,642 (2134) · **58,551 (2135)** ·
+58,670 (2136) — up, up, **down by 91**, up. *A file's line order is not a
+timeline.*
+
+**THE FINDING IS THE INSTRUMENT, AND IT IS WORSE THAN "COMPARE WITHIN ONE
+DATE".** The post-deploy regression check compares each site's byte count before
+and after. On a page like this:
+
+- **the byte COUNT is only comparable within one rendered date**, so any site
+  with a calendar, a "today", an "open now" or a relative time reports a false
+  regression across midnight;
+- **and a content HASH is strictly worse** — it differs on every request by
+  construction, so it would report a regression on every deploy, every time.
+
+So the fix is neither of the obvious two. What would work is comparing a
+date-independent, timestamp-stripped slice, or comparing the site's published
+VERSION (`x-site-version`), which is what actually identifies what is being
+served and does not move when nothing was republished. **None of that is done
+here** — demo-site and instrument work are both outside this release's scope —
+and the three earlier "unexplained" entries are superseded by this one.
 
 ### PREPARED, NOT DISPATCHED: ONE LIVE TEST OF AN OUTSIDE CONNECTION (2026-09-20)
 

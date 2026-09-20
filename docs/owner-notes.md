@@ -14703,60 +14703,38 @@ consistent with the schedule working and is not proof by itself — same as your
 nightly job's 22:04Z stamp. It is still worth having: nothing firing at all
 would be a clear answer in the other direction.
 
-### The fretwork-1 mystery is solved, and it was our measuring stick
+### The fretwork-1 mystery: it's our measuring stick, not the site
 
-That site's home page has come back a different size after several deploys now,
-and it kept getting written down as unexplained. It isn't a fault. **The page
-shows a calendar.**
+That site's home page has come back a different size after several deploys and
+kept getting written down as unexplained. It is not a fault, and tonight I found
+something better than a theory — I fetched the page six times ten minutes apart
+and compared them character by character.
 
-Its home page renders "September 2026" with a month grid and a week strip — and
-those are worked out fresh every time somebody loads the page, not baked in when
-the site was published. So the size of the page depends on **what day it is**.
+**Every single request returns a different page.** Exactly one thing differs: a
+timestamp the page embeds of the moment it was built. The sixth copy carried
+00:15:20.657 — the instant I fetched it.
 
-Everything odd about it falls out of that: identical if you check twice in the
-same minute, different a day later, and it goes DOWN as often as up — 58,404,
-58,523, 58,642, then **58,551**, then 58,670. Nothing that is quietly growing
-behaves like that.
+**And that is why the size looked steady**: a timestamp like that is always the
+same number of digits, so the page changes and the size does not. Six identical
+sizes, six different pages.
 
-**What clinched it**: my two readings tonight were four minutes apart and landed
-either side of midnight UTC, and the size changed. Last night's two readings
-were also four minutes apart, on the same side of midnight, and the size was
-identical. Same site, same check.
+The size *does* move across days, because the page also draws a calendar —
+"September 2026", a month grid, this week's dates — worked out fresh on every
+load rather than baked in when the site was published. What I cannot tell you is
+exactly which bytes made up tonight's 119; I said earlier it was the calendar
+and I should not have — that fits, but the site also has a database, and naming
+it would need yesterday's copy of the page, which nobody kept.
 
-**The part worth keeping is about the check, not the site.** After each deploy I
-compare each site's page size before and after to make sure nothing broke. That
-comparison only means anything while both readings are on the same day — any
-site showing a calendar, a "today", or opening hours will differ across midnight
-and it looks exactly like a regression. I have written that down so the next
-one is not investigated from scratch; the fix is to take both readings inside
-one day, which costs nothing.
+**The useful part is about my check, not the site.** After each deploy I compare
+every site's page size before and after to catch breakage. On a page like this:
 
-I have also corrected my own note from earlier tonight, which said the page was
-creeping upward. It wasn't — I had read the list of past readings in the order
-they appear in the file rather than the order they were taken.
+- comparing the **size** only works if both readings land on the same day —
+  otherwise it looks like a regression that isn't one;
+- and comparing a **fingerprint** of the page would be worse, not better: it
+  would differ on every single request and cry wolf on every deploy.
 
-### Before you ever buy a photograph run, there is a free check
-
-I found a route tonight that has been sitting there unused in the notes:
-**`/api/fal-balance`**. It is yours only (it refuses everyone else), it costs
-nothing, and it answers the one question that decides whether a photograph run
-is worth pressing:
-
-- **"funded — a build can buy photographs"**
-- **"empty — a build's photographs will all come back as placeholders"**
-- or "unreadable", if fal's own endpoint is down.
-
-From the app's console: `await (await apiFetch('/api/fal-balance')).json()`
-
-**Why it matters more than it sounds.** If fal is empty, a photograph run does
-not fail — it succeeds. It builds the page, spends your credits, puts grey
-placeholder boxes where the pictures should be, and tells you politely that it
-could not make them. That is exactly what run 51 did: 12 credits, and the one
-thing it was bought to prove still unproven.
-
-So: read that line first, press second. One free check against about 13 credits
-and an answer you cannot use.
-
-I have written it into the notes because five separate entries say "check the
-fal balance first" and not one of them said how — the check existed and nothing
-pointed at it.
+The thing that really identifies what a visitor is being served is the site's
+published version, which the site already sends back on every request and which
+does not move unless the site was genuinely republished. That is what the check
+should lean on. I have not changed it — that is tooling work, not this release —
+but it is written down now instead of being rediscovered every few days.
