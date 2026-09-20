@@ -14646,3 +14646,72 @@ settles that one, and nothing here touched `count_bookings_once` or pressed Run
 now.
 
 Suite 6,972, all green. Sweep 13/13. Not merged, not deployed — waiting on you.
+
+---
+
+## Merged and live — deploy 2136 (2026-09-20)
+
+Both checks read on the reviewed code before anything moved: **unit tests 2802
+green** (6,972 tests, 0 failed) and **site build 1220 green** — all twenty
+steps, the container harness **382 passed / 0 failed**. Then merged and
+deployed: **2136, green in 2m50s**, the container rolled at 00:02:58Z, so the
+usual 15–20 minute settling ran to about 00:23Z.
+
+**Your run-52 results file is still on main.** It had landed there while I was
+working, so I merged it into the branch first rather than fast-forwarding over
+it — the record of that run is intact.
+
+**The container half is checked properly.** The image id is worked out from the
+files the container is built from, so I could compute it before pushing and
+compare it with what the deploy actually did: `1bb277000510b055` →
+`3cfbfded71cf9607`, and the deploy's own log shows exactly that swap. That is
+the half this fix lives in.
+
+**The Worker half I can only take Wrangler's word for, and I want to be plain
+about it.** Nothing in `public/` changed, so there is no served file to compare;
+and the two routes that would tell me which version is answering are owner-only,
+so a session gets a 401 whatever is deployed. A 401 is not proof of anything. The
+next paid addon run checks both halves properly before it spends a credit — that
+is what the `expect_deploy` and `expect_image` boxes are for.
+
+**Nothing was touched.** No paid run, no Run now, no change to either job.
+
+### What is still waiting: 3 October
+
+`count_bookings_once` is scheduled for **3 October 2026 at 09:00 Europe/London**
+and has never run. I read that back out of the panel route rather than trusting
+my notes:
+
+- `count_bookings_once` — runs `nightly_booking_count()`, **once** on
+  2026-10-03 at 09:00 Europe/London, `lastRun` never, `lastResult` none.
+  (It also stores `everyMinutes 44640`, the monthly ceiling, but the date is
+  what governs — that is the shape a one-time job has.)
+- `nightly_booking_count` — your existing nightly one, 23:00 Europe/London,
+  last ran 2026-09-19 22:04:24Z with *"Done — counted 3 bookings."*
+
+**How to read it on the day**: Cloud → Schedule on repairbench-1. If it fired,
+the row will show a `lastRun` on 3 October and a result sentence. If it did not,
+`lastRun` stays "never".
+
+**Please don't press Run now on it.** A one-time job has exactly one run in it,
+and pressing the button uses that run up — after which the 3 October question
+can never be answered.
+
+**And a caution about what the answer will mean.** The row records *when* and
+*what*, and nothing about *what fired it*. So a timestamp on 3 October is
+consistent with the schedule working and is not proof by itself — same as your
+nightly job's 22:04Z stamp. It is still worth having: nothing firing at all
+would be a clear answer in the other direction.
+
+### One loose end on fretwork-1, not urgent
+
+That site's home page keeps growing by a few dozen bytes: 58,404 → 58,523 →
+58,551 → 58,642 → 58,670 over four days, while its published version has not
+moved at all. It is not the deploys — I took readings either side of this one,
+three minutes apart, and it moved across a window where nothing republished. It
+is not random either; five reads in a row give the same number.
+
+Nothing is broken — the site serves fine — and it is one of the old demo sites,
+so I have left it alone and written down what I measured. If it matters later,
+the way to settle it is to save the page twice a few minutes apart and diff
+them, which names the bytes instead of guessing.

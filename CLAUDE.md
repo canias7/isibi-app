@@ -14548,3 +14548,125 @@ arithmetic closes exactly.
 instruction. **AUTOMATIC EXECUTION REMAINS UNVERIFIED**: run 52 establishes
 registration and stored-function reuse, and a real scheduled tick is the only
 thing that settles the rest.
+
+### MERGED AND LIVE — deploy 2136 (2026-09-20)
+
+Owner: *"Once site build 1220 passes on the reviewed code, merge and deploy this
+correction. Verify the deployed SHA and container image, then close this
+reporting defect."*
+
+**BOTH REQUIRED CHECKS READ ON THE REVIEWED SHA `6277f5d1` BEFORE THE MERGE.**
+`unit tests` **2802** green — `# tests 6972 / # pass 6968 / # fail 0 /
+# skipped 4`, against local `6972 / 6972 / 0 / 0`, and **the TOTAL is what
+matches**; the four are the standing environment skips. And `site build`
+**1220** (id `35476464919`, 23:33:56→23:57:20Z), **all twenty steps green** —
+the API answers 23 and three are GitHub's own: `site-build.mjs` **382 passed /
+0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` — the three result SHAPES
+a census has to ask for. **Every count read out of the run's PER-STEP log
+files**, which attribute by construction rather than by a window somebody drew.
+The unit step reads `# tests 397 / # pass 397 / # fail 0 / # skipped 0`,
+unchanged from 1216–1218 — correct, because that step's glob is `page-gen` +
+`publish-pages` and this round touches neither.
+**⚠ AND THE RUN ID WAS RE-READ RATHER THAN CARRIED FORWARD.** An earlier turn
+GUESSED `35476465031` by extrapolating from `unit tests`' own id, and the real
+one is `35476464919` — a fabricated identifier makes a watcher silently blind,
+which is this file's own recorded trap met for the second time in two days. The
+id here is the one the API answered; the branch-matched waiter and a direct read
+by that id agree.
+
+**MAIN'S NEWER WORK WAS PRESERVED, and it is what made the merge a merge.**
+`origin/main` had moved to `367d777b` — run 52's own
+`docs/edits/addon-sweep-results.json`, pushed by the paid runner. It was merged
+INTO the branch (one file, no conflicts) and main then fast-forwarded to
+**`ddd3faf5`**, so that record is still on main rather than replaced.
+
+**THE MERGED TREE HASHES TO THE TESTED TREE'S IMAGE ID, which is a stronger
+statement than reading a `paths` list.** `6277f5d1` → `3cfbfded71cf9607` and the
+merge → **`3cfbfded71cf9607`** (184 inputs each), so **nothing an image is built
+from moved across the merge** and 1220's green carries to the merged tree by the
+id not moving. And `docs/edits/` is **written by the paid harness and read by no
+guard** (measured: its only readers are `addon-sweep.mjs`, `gap-sweep.mjs` and
+`lane-sweep.yml`, all writers), so the suite 2802 ran is the suite this tree has.
+
+**Deploy 2136, 00:00:15→00:03:05Z, green in 2m50s**, on `main` `367d777b` →
+`ddd3faf5`. **`expect_deploy` is
+`ddd3faf585ff77931d9e15e71540b0ab60366277`** — `DEPLOY_ID` is `github.sha` of
+the deploy run, read off that run rather than derived from the merge strategy.
+
+- **THE IMAGE ID WAS COMPUTED BEFORE THE PUSH AND THE DEPLOY AGREED ON BOTH
+  ENDS — the tenth cross-check of that technique, in its strongest form.**
+  `origin/main` → **`1bb277000510b055`**, which is **the id deploy 2135's log
+  records rolling to**, so the arithmetic is checked against the live container
+  and not only against itself; the candidate → **`3cfbfded71cf9607`**. The log's
+  own diff then reads `- "image": …bb2770005***0b055` / `+ "image":
+  …3cfbfded7***cf9607`, and the step's line `IMAGE SiteBuildContainer: built
+  isibi-app-sitebuildcontainer:3cfbfded7***cf9607 (registry answered 404; ***84
+  inputs off ./Dockerfile)` — **184 inputs, as computed**. (GitHub masks digit
+  runs, hence the `***`; every unmasked character matches.)
+- **THE CONTAINER ROLLED**, read out of the log's own diff and never inferred
+  from a duration: `IMAGE` at **00:02:45.87Z**, `Uploaded isibi-app (3.57 sec)`
+  at 00:02:56.48Z, `├ EDIT isibi-app-sitebuildcontainer` at **00:02:56.87Z**,
+  `╰ Applied changes` at **00:02:58.59Z**. **So the 15–20 minute hold ran to
+  ~00:18–00:23Z.**
+- **WORKER**: `Uploaded isibi-app (3.57 sec)`, `Worker Startup Time: 26 ms`,
+  `Total Upload: 3633.45 KiB / gzip: 983.77 KiB`, `Current Version ID:
+  0d58d3be-9e26-4fc2-a9da-…`.
+- **⚠ THERE IS NO SERVED-FILE CHECK FOR THIS DEPLOY AND NO SESSION-READABLE
+  DEPLOY SHA, and that is said rather than papered over.** `No updated asset
+  files to upload` — `public/` is untouched by this correction, so the
+  `/chat.js` comparison cannot discriminate 2136 from 2135; and both routes
+  carrying `DEPLOY_ID` are owner-gated, so a session cannot read the Worker's
+  own answer at all. **An unchanged `chat.js` and a 401 are not evidence of the
+  backend version.** What the Worker half rests on is Wrangler's own report in
+  the deploy log and nothing further. The gate discriminator was measured after
+  and is a liveness reading only: `/api/site/build-health` **401**,
+  `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
+  `/api/nope-not-a-route` **404**.
+- **THE CONTAINER HALF IS THE STRONG ONE**, and it is the half this correction
+  lives in: the image id is a pure function of the git objects the Dockerfile
+  COPYs, `worker.js` and `site-schema.mjs` are both in that closure, and the
+  deploy's own diff shows the reference moving to the id computed from this
+  tree. **The next paid addon run's pre-flight is what reads both halves from
+  the platform** (`expect_deploy` + `expect_image`), and until one is pressed
+  the Worker half is Wrangler's report alone.
+- **REGRESSION: the baseline was taken 20 seconds BEFORE the push (23:59:55Z)
+  and compared at 00:03:34Z**, the recorded practice. Six of seven sites
+  byte-identical — repairbench-1 46,357 · ashgrove-1 31,120 · northgroup-5
+  1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060 · fold-lane-bakery
+  12,098 — and the interactive half, because a 200 is an availability check and
+  never a health check: `/status` **200/6,272** and `/booking-check`
+  **200/6,390** on the same `x-site-version 01789551373761-47doj7`, with
+  `count_booked_repairs` and `count_existing_bookings` both **200 answering 3**.
+- **The merge started exactly one workflow** — deploy 2136 and nothing else,
+  asked of the API by branch, which is the merge-trigger census holding in the
+  live. **And the in-flight check asked GitHub what was RUNNING, not what had
+  LANDED**: zero `in_progress` and zero `queued` runs across the whole
+  repository before the push.
+
+**THE REPORTING DEFECT IS CLOSED.** Run 52's record stands exactly as it ran and
+nothing about `count_bookings_once` or the recurring job was touched: no paid
+dispatch, no Run now, no reschedule. **AUTOMATIC EXECUTION REMAINS UNVERIFIED.**
+
+#### ⚠ AND `fretwork-1` DRIFTED AGAIN, ON THE TIGHTEST WINDOW YET
+
+58,551 at 23:59:55Z → **58,670** at 00:03:34Z, across the deploy. **It is not
+per-request variance** — five consecutive reads answer 58,670 exactly, with
+`ashgrove-1` stable at 31,120 as the control — **and the site has not
+republished**: `x-site-version 01788755899622-6w90uf` and `x-site-build
+mtqr2tnz-yqyqvv`, both days old and unmoved. **Nor is it language
+negotiation**: six `Accept-Language` values (none, `en-GB`, `cy`, `es`, `fr`,
+`de`) all answer 58,670 and `lang="cy"`.
+
+**THE HISTORY IS THE NEW PART, and it changes what this is: 58,404 → 58,523 →
+58,551 → 58,642 → 58,670, five readings over four days.** Earlier entries each
+recorded one step and called it *not caused by a deploy in this window*, which
+was true each time and hid the shape. **It CREEPS — +119, +28, +91, +28 — on a
+site whose version has not moved**, so a step-function explanation (a republish,
+a deploy) cannot be right for all of them. The document is rendered per request
+from `__root.tsx`, so the bytes are free to vary with anything the render reads.
+**Recorded as an open observation on a demo site, deliberately not chased**:
+demo-site repair is out of this release's scope, and the honest next step is a
+diff of two bodies far enough apart to name the bytes rather than another
+sighting.
