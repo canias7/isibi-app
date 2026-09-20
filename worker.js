@@ -245,7 +245,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -23660,6 +23660,15 @@ async function handleRequest(request, env, ctx) {
             // tool's own description promises that naming a component which
             // does not exist is refused and costs nothing.
             const aUnknownKit = new Set();
+            // …AND WHAT A DESIGNER DECLARED INSIDE AN ITEM THAT THIS STEP COULD
+            // NOT USE (2026-09-20): a bare-string column it could not read, a
+            // hand-written component missing what a page writer builds it from.
+            // `clean.skipped` is one entry per ITEM refused and these are losses
+            // inside items that were BUILT, so they had no channel at all — the
+            // answer came back `ok` and the table was created short a column.
+            // A Map keyed on what+name, so one drop is reported once however
+            // many answers repeat it.
+            const aDropped = new Map();
             // …AND THE PAGES THIS CHANGE SET OUT TO ADD AND DID NOT. Filled
             // after the publish, from the requested page files against what
             // really survived, so a planned file is never mistaken for a
@@ -23993,6 +24002,10 @@ async function handleRequest(request, env, ctx) {
                 // the two above. The customer's own clause is the missing-page
                 // one below; a component name is not something they can act on.
                 unknownComponents: aUnknownKit.size ? [...aUnknownKit].slice(0, 12) : undefined,
+                // AND THE FIELDS BINNED INSIDE AN ITEM THAT WAS BUILT —
+                // developer-facing for the same reason: a column name the
+                // designer wrote is not something the customer chose.
+                droppedFields: aDropped.size ? [...aDropped.values()].slice(0, 12) : undefined,
                 // AND THE PAGES THAT WERE ASKED FOR AND ARE NOT THERE, NAMED —
                 // a route is the one thing about a missing page a customer can
                 // do something with.
@@ -24217,6 +24230,9 @@ async function handleRequest(request, env, ctx) {
               // component that does not exist is refused, and until today it
               // was written into the directive instead.
               for (const n of Array.isArray(clean.unknownKit) ? clean.unknownKit : []) aUnknownKit.add(n);
+              for (const d of Array.isArray(clean.dropped) ? clean.dropped : []) {
+                if (d && typeof d === "object") aDropped.set(String(d.what) + ":" + String(d.name), d);
+              }
               for (const sk of Array.isArray(clean.skipped) ? clean.skipped : []) aNotAdded.push({ kind: k, ...sk, msg: addRefusal(sk.why, k) });
               aAnswers.push({ kind: k, value: clean.value, requirements: ran.requirements });
               // WHAT EACH DESIGNER DECLARED IS TOLD TO THE DESIGNERS AFTER IT.
@@ -26184,15 +26200,38 @@ async function handleRequest(request, env, ctx) {
               for (const p of imageSources(aSrc || [], aPartsRead.parts || [])) {
                 for (const u of imageRefs(p && p.source, ownerSlug)) had.add(u);
               }
-              const live = imageSources(aMerge.pages || [], aMerge.parts || []);
+              // ⚠ TWO DEFECTS IN ONE LINE, AND FIXING EITHER ALONE IS NOT A FIX
+              // (2026-09-20).
+              //
+              // (1) `aMerge.parts` DOES NOT EXIST. `mergeAddonPages` answers
+              // `{ok, pages, added, changed, removed, kept, reverted}` — read
+              // its one success return — so this argument was `undefined` on
+              // every run and the component half of the site was invisible to
+              // everything below. Every OTHER reader on this path already used
+              // `aParts || aPartsRead.parts`, which is what this uses now.
+              //
+              // (2) AND A COMPONENT'S FILE PATH IS NOT A ROUTE. `imageSources`
+              // gives a component its real path so `lintPages` can name files;
+              // run through `routeOf` that is `/-parts/photo-wall`, an address
+              // no visitor can open and no requirement can name. MEASURED after
+              // fixing (1) alone: the photograph was still reported missing,
+              // now filed under a pseudo-route instead of nowhere.
+              //
+              // `routedSources` IS BOTH HALVES. A component's routes are the
+              // routes of the pages that import it, transitively, so a picture
+              // in a nested component is on the page that shows it and one in a
+              // component nobody imports is on no route at all — which is what
+              // stops a requirement about `/gallery` being answered by an image
+              // sitting in a file the site never renders.
+              const live = routedSources(aMerge.pages || [], aParts || aPartsRead.parts || []);
               const byRoute = new Map();
               for (const p of live) {
-                const r = routeOf(p && p.path);
-                if (!r) continue;
                 for (const u of imageRefs(p && p.source, ownerSlug)) {
-                  const at = byRoute.get(r) || { route: r, bought: false, reused: false };
-                  if (had.has(u)) at.reused = true; else at.bought = true;
-                  byRoute.set(r, at);
+                  for (const r of (p && p.routes) || []) {
+                    const at = byRoute.get(r) || { route: r, bought: false, reused: false };
+                    if (had.has(u)) at.reused = true; else at.bought = true;
+                    byRoute.set(r, at);
+                  }
                 }
               }
               // ⚠ ONLY THE ROUTES THIS CHANGE TOUCHED. A page it never wrote
@@ -26250,13 +26289,20 @@ async function handleRequest(request, env, ctx) {
               // WHERE EACH URL REALLY IS, off the same `live` the inventory
               // reads — so "it was bought" and "it is on that page" are two
               // readings of one publication and cannot come apart.
+              // AND THROUGH THE SAME ASSOCIATION, so a picture requested for
+              // `/gallery` and written into a component `/gallery` renders
+              // counts as landed, while the same picture in a component only
+              // `/about` uses does not. Finding an image SOMEWHERE is never the
+              // question this loop asks.
               const urlsAt = new Map();
               for (const p of live) {
-                const r = rid(p && p.path);
-                if (!r) continue;
-                const set = urlsAt.get(r) || new Set();
-                for (const u of imageRefs(p && p.source, ownerSlug)) set.add(u);
-                urlsAt.set(r, set);
+                for (const r0 of (p && p.routes) || []) {
+                  const r = rid(r0);
+                  if (!r) continue;
+                  const set = urlsAt.get(r) || new Set();
+                  for (const u of imageRefs(p && p.source, ownerSlug)) set.add(u);
+                  urlsAt.set(r, set);
+                }
               }
               const lostAt = new Set();
               const landed = [];
@@ -26310,19 +26356,25 @@ async function handleRequest(request, env, ctx) {
               // `<Canvas>` written by the PAGE step, so "configured for one"
               // and "showing one" are two facts that come apart.
               //
-              // OFF THE PUBLICATION AND ACROSS BOTH FILE LISTS — `live` is
-              // `imageSources(aMerge.pages, aMerge.parts)`, which is this
-              // path's one reader of "the files a page's markup can be in", so
-              // a canvas in a component counts exactly as one in a page. NOT
-              // filtered by `touched`: unlike a photograph, the scene is
+              // ⚠ OFF THE PUBLICATION AND ACROSS BOTH FILE LISTS — AND UNTIL
+              // 2026-09-20 THIS COMMENT ASSERTED THE OPPOSITE OF ITS OWN CODE.
+              // It read *"`live` is `imageSources(aMerge.pages, aMerge.parts)`
+              // … so a canvas in a component counts exactly as one in a page"*,
+              // and that was false twice: the parts argument did not exist, and
+              // a component's path is not a route. MEASURED: a `<Canvas>`
+              // written into a component published, and `appliedFacts` emitted
+              // `three` with `fails: ["onpage"]` — a TRUE claim recorded as
+              // contradicted. It is true now because `routedSources` makes it
+              // true, which is the difference between a comment and a wall.
+              //
+              // NOT FILTERED BY `touched`, unlike a photograph: the scene is
               // site-wide (`SINGLE_FIELDS` allows one), so a page this change
               // did not write carrying the canvas is still the scene being on
-              // the site — and the question `three` answers is whether the
-              // artifact exists anywhere, not which page it moved to.
-              aThreeOn = live
+              // the site — the question `three` answers is whether the artifact
+              // exists anywhere, not which page it moved to.
+              aThreeOn = [...new Set(live
                 .filter((p) => sceneOn(p && p.source))
-                .map((p) => routeOf(p && p.path))
-                .filter(Boolean);
+                .flatMap((p) => (p && p.routes) || []))].filter(Boolean);
             }
             // THE RECORD IS RE-WRITTEN HERE WHETHER OR NOT A PAGE WENT MISSING
             // (2026-09-15), and until a sweep survivor found it this write was

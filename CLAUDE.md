@@ -14769,7 +14769,7 @@ moment rather than a promise. Neither is a claim this repository is making.
 | `lanes` | `all` — an `ask` replaces the case list entirely, so this is ignored |
 | `site` | `repairbench-1` |
 | `dbsite` | (leave as it is — gap harness only) |
-| `ask` | *Add a page at /weather that shows the current temperature in Sheffield, read live from the Open-Meteo forecast API at https://api.open-meteo.com/v1/forecast — it needs no key.* |
+| `ask` | ⚠ **WITHDRAWN 2026-09-20 — Open-Meteo's free tier forbids it.** The replacement is in the entry at the end of this file; the other ten boxes stand as they are. |
 | `picker` | `grok` |
 | `budget` | `40` |
 | `expect_deploy` | `ddd3faf585ff77931d9e15e71540b0ab60366277` |
@@ -15016,3 +15016,193 @@ measurements.
 **Suite unchanged, tree unchanged: this round wrote no product code.** Every
 reproduction ran out of the scratchpad against the committed tree, and the tree was
 verified clean afterwards.
+
+### …AND ALL FOUR ARE FIXED, WITH THE OWNER'S CORRECTION TO D-1 (2026-09-20)
+
+Owner: *"The four new findings are concrete defects within the supported addon
+scope… Continue with those fixes; do not stop at recording them as 'yours to
+schedule.'"* And the correction that reshaped the largest of them: ***"replacing
+`aMerge.parts` with the actual parts list is insufficient. Independently driven
+through the route, that change still reports the component's photograph missing.
+`imageSources` gives it `src/routes/-parts/photo-wall.tsx`, which the reporting
+code interprets as `/-parts/photo-wall` rather than the `/gallery` route using
+it. Fix the file-to-page association as well as the missing component input."***
+
+**THE CORRECTION WAS REPRODUCED BEFORE ANY OF THIS WAS WRITTEN** —
+`routeOf("src/routes/-parts/photo-wall.tsx")` → **`/-parts/photo-wall`** — and it
+is the half that matters: the missing input is one argument, and *a component's
+file path is not a route* is a different fact that no argument supplies.
+
+**1. `routedSources(pages, parts)` IS BOTH HALVES, AND A COMPONENT'S ROUTES ARE
+THE PAGES THAT RENDER IT.** It answers `imageSources`' own list with a `routes`
+array on every entry: a page's is its own route, a component's is every page
+that imports it — **transitively**, so a band inside a band is on the page that
+draws the outer one. Three readers in `worker.js` take it (`byRoute` for the
+purchase, `urlsAt` for the request-to-photograph identity, `aThreeOn` for the
+scene), and each now iterates `p.routes` instead of re-deriving a route from a
+path.
+
+- **BUILT FROM `imageSources` IN TWO CALLS**, so the path convention has one
+  definition and no index arithmetic ties the answer back to its input — the trap
+  `imageSources`' own header records about slicing the union apart by length.
+- **`importsPart` IS LIFTED INTO `builder/site-files.mjs`**, where `PART_DIR`
+  already lives, because it now has two callers: the withholding cascade and this
+  association. A second copy is a component the cascade withholds and the
+  reporting still credits to a page, or the reverse.
+- **⚠ A PAGE'S RELATIVE `./x` IS ANOTHER PAGE AND A COMPONENT'S IS A SIBLING
+  COMPONENT**, which is what `inPart` discriminates. From inside `-parts/` a
+  `./x` can resolve to nothing but `-parts/x.tsx`, so admitting it there has a
+  false-alarm rate of zero by construction; from a PAGE the same three characters
+  mean `src/routes/x.tsx`, and reading it as a component import credits a picture
+  to a page that does not render it — **the owner's *"finding an image somewhere
+  in the site must not satisfy a requirement about another page"*, arriving
+  through the other door.** A sweep survivor, now driven both ways.
+- **A PAGE WHOSE PATH IS NOT A ROUTE CONTRIBUTES NONE** — falling back to `/`
+  would put every component such a file imports on the home page.
+- **AND THE COMMENT THAT ASSERTED THE OPPOSITE OF ITS OWN CODE IS CORRECTED.** It
+  read *"`live` is `imageSources(aMerge.pages, aMerge.parts)` … so a canvas in a
+  component counts exactly as one in a page"*, and that was false twice: the
+  parts argument did not exist (`mergeAddonPages` returns no `parts` key —
+  measured) and a component's path is not a route. *The difference between a
+  comment and a wall.*
+
+**MEASURED END TO END, the same request differing only in where the writer put
+the token**: before, the page form read `unverified`/*"I've set that up"* and the
+component form read `missing`/**"Still to do"** with ~18.75 credits billed and the
+url really in the published `parts.json`. After, both read `configured`, the
+customer hears one sentence, and the four controls hold — an unused component is
+on no page, a component only `/about` renders does not answer a claim about
+`/gallery`, and the scene's `fails: ["onpage"]` contradiction is gone.
+
+**2. A NAMED DESTINATION THAT CANNOT RESOLVE IS REFUSED, NOT MOVED TO THE FRONT
+PAGE.** `onPage` answers `{page}` or `{bad: true}` — three states where there
+were two — and `qr` and `three` refuse `no-page` on `bad`, as `component` and
+`photo` already did. **The owner's own correction of this for `component` on
+2026-09-14 sits four lines above the two branches that still did it.**
+
+- **AN OMITTED OPTIONAL PLACEMENT IS UNTOUCHED**, which is the owner's *"keep
+  omitted optional placement separate from an invalid explicit route"*: absent
+  still answers `""`, the page call still decides, and the capability stays.
+- **⚠ PROSE IS A NAMED DESTINATION TOO — a sweep survivor, and the likelier
+  shape.** `route("the gallery page")` is `""` (the space fails `ROUTE`), so a
+  designer writing a page's NAME rather than its route took the no-answer branch
+  and landed on the front page exactly as `/nowhere` did. **Whitespace alone is
+  an omission and not a name.**
+
+**3. NOTHING REQUESTED IS DISCARDED IN SILENCE — preserved where the engine
+supports it, named where it does not** (the owner's *"do not silently invent
+replacements or discard requested work"*).
+
+| what | before | now |
+|---|---|---|
+| a bare-string column | dropped; `skipped: []`; all four audit buckets EMPTY | **kept as `{name}`** — `normalizeSchema` gives a column with a name and no type `text`, driven |
+| a column that really cannot be read | dropped, silent | named on `droppedFields` |
+| a kit name failing `NAME` (`"Hero Section"`) | binned by `names()` before the kit check could see it | on `unknownComponents`, the pre-pass over the RAW list |
+| a `tsx` entry missing `does`/`props` | binned, silent | named — **not repaired**: `does` and `props` ARE the component |
+| requirements past `MAX_REQUIREMENTS` | `slice` ABOVE the loop that fills `skipped` | `over-cap`, BY NAME, its own token |
+
+**THE REQUIREMENT OVERFLOW IS `cleanAdd`'s OWN CORRECTION ONE MODULE OVER** — it
+moved its list cap below its loop for exactly this reason on 2026-09-14 and gave
+the loss its own token. **Two readers of one lesson and only one of them had it.**
+
+**4. THE SAME DESTINATION, SPELLED TWO WAYS, GETS ONE ANSWER.** `qrSiteRoute` is
+the one reader of *"which route of ours does this payload open"*, shared with
+`deadQrs`, and `cleanAdd` asks it for a non-relative destination: **ours** and
+naming a route the site has not got — and is not adding — is refused
+`no-such-page`, against the same `going` the relative branch uses, so a planned
+page counts in both spellings. An external URL, a `tel:`, a `WIFI:` and a
+`mailto:` are none of our business and ship untouched.
+
+**Guards**: `addon-route` **174 → 180** (six route cases: the photograph in a
+component with its direct/nested/unused/wrong-page arms and the shot-name
+identity, the scene in a component, the placement refusals with both controls,
+the full URL with its normalisation and planned-page controls, and the two silent
+drops), `site-add` **45 → 48** (`routedSources` and `qrSiteRoute` driven directly,
+plus the partition census below), `requirement-coverage` **35** with its bound
+case re-anchored onto the overflow report. **Every fix red-checked ALONE**, and
+two older assertions were **re-anchored, not appeased — they asserted the defect
+as correct**, pinning `value.page === ""` under a message saying the substitution
+was the bug.
+
+**Sweep: 32 mutants, 32 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/release-review-four.json`, over
+`builder/site-add.mjs`, `builder/site-files.mjs`, `builder/site-requirements.mjs`
+and `worker.js`, against 19 test files — a narrow list can only produce a false
+SURVIVOR, never a false kill, and the runner prints its own scope line). **Pass 1
+read 25/7 and NOT ONE SURVIVOR WAS THE PRODUCT'S** — six were gaps in this
+round's own guards and one was measured INERT. Four are worth keeping as rules:
+
+- **⚠ TWO OF MY OWN CASES WERE VACUOUS BECAUSE THEY ASSERTED A COLOUR AND NOT A
+  REASON.** Both refusal cases already answered `ok: false` against the
+  pre-change product — the fixture's default `write_pages` answer loses the
+  stored page's words and `keptProse` refuses `rewrote` further down — and the
+  customer-was-told needle `/page/i` matched *"the home page"* inside THAT
+  sentence. They assert `status 422` and `reason` now, plus that the page writer
+  was never asked, which is where the refusal really happens.
+- **⚠ AND A SAME-ORIGIN CASE WHOSE ORIGIN IS NOT THE SITE'S PROVES NOTHING ABOUT
+  SAME-ORIGIN.** `mine()` hardcoded one slug while the loop ran three, so two of
+  three arms pointed at another site's origin, `ours` was false, and both
+  "controls" were silently testing the external-URL case a third control already
+  covers. The slug is a parameter now, and a capital-and-trailing-slash arm
+  closes the normalisation survivor beside it.
+- **TWO IDENTITIES, TWO READERS.** A requirement naming the ROUTE (`item:
+  "/gallery"`) resolves through the purchase reader and one naming the SHOT
+  (`item: "bench"`) through the request-to-photograph reader — so with the second
+  taking a file path back, every route-named assertion still passed and *this
+  particular picture landed on the page it was asked for* was unguarded.
+- **⚠ AND ONE WAS DEAD BY A NEIGHBOUR'S RULE — MEASURED, DECLARED, AND GIVEN A
+  READER RATHER THAN HUNTED.** `cleanAdd`'s SINGLE path carries the drop report
+  and nothing can fill it: the single kinds are exactly `qr` and `three`
+  (`ADD_KINDS` less `LIST_ADDS`) and every writer of `ctx.dropped` is inside a
+  LIST kind. It stays, because the deadness is a fact about WHICH KINDS ARE LISTS
+  and not about the expression; the guard pins that partition, so the day a
+  single kind gains a droppable field it is a red run rather than a drift.
+
+**Suite 6,981** — 6,972 + 6 (`addon-route`) + 3 (`site-add`), and the arithmetic
+closes exactly against counts read out of git at HEAD rather than subtracted from
+a paragraph.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID RUN, NO JOB CHANGE** — the owner's standing
+constraint for this round.
+
+#### ⚠ AND THE OPEN-METEO TEST MAY NOT BE RUN AT ALL — its free tier forbids it
+
+Owner: *"Check Open-Meteo's actual free-use eligibility or select a suitable
+keyless endpoint; do not equate 'no key' with unrestricted use."* **Read, and the
+planned test is not permissible.** Its terms page states the free API is for
+**non-commercial purposes** — *"private or non-profit websites or apps that do
+not have subscriptions or advertising"* — and explicitly forbids *"websites or
+apps that have subscriptions or display advertisements"* and **"integrating our
+service into commercial products."**
+
+**BOTH HALVES OF THIS PLATFORM ARE THE FORBIDDEN CASE.** `gofarther.dev` sells
+memberships (Plus/Pro/Max) and the builder's whole job is to put the connection
+into a CUSTOMER'S commercial site. The limits it does grant a permitted user are
+**10,000 calls a day, 5,000 an hour, 600 a minute**, under **CC-BY 4.0**, which
+requires attribution the generated page would also have to carry.
+
+**THE EARLIER ENTRY WAS HONEST AND INCOMPLETE, and the difference is the
+instruction.** It recorded *"'Only required to commercial use'"* from the DOCS
+page and said in as many words that the TERMS page had not been read. One 200
+and a docs sentence are not eligibility.
+
+**THE REPLACEMENT, VERIFIED THE SAME WAY: `api.frankfurter.dev`** — no key
+(*"It requires no API key"*), no quotas (*"Requests are rate-limited to prevent
+abuse, but there are no monthly or daily caps"*), and commercial use permitted in
+as many words (*"Yes, absolutely"*). Measured live: `GET
+https://api.frankfurter.dev/v1/latest?base=GBP&symbols=EUR,USD` → **HTTP 200, 83
+bytes, `application/json`**, answering
+
+    {"amount":1.0,"base":"GBP","date":"2026-09-18","rates":{"EUR":1.1644,"USD":1.3344}}
+
+**`rates.GBP` IS THE NESTED READ THE WHOLE TEST IS FOR** — an invented
+`{rate: number}` reading `q.data?.rate` typechecks clean and renders `""`, which
+is the measured failure this tier exists to close. A flat endpoint could be
+guessed right by accident.
+
+**WHAT IS STILL THE OWNER'S**: which third-party service a customer's site is
+built against is a licensing decision, not a session's. **Frankfurter's own page
+carries no formal terms document** and points at each data provider's terms (the
+ECB's), which is worth knowing before it goes into a customer site rather than a
+test. The `ask` and the eleven form boxes are rewritten in
+`docs/owner-notes.md`; nothing is dispatched.

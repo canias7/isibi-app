@@ -59,6 +59,59 @@ export function partNameOf(path) {
 }
 
 /**
+ * DOES THIS SOURCE IMPORT THAT COMPONENT — the ONE definition, and it lives
+ * here because it is a fact about the path convention `PART_DIR` above states
+ * and about nothing else.
+ *
+ * IT WAS A CLOSURE INSIDE `deadQrs` UNTIL 2026-09-20, which was right while it
+ * had one caller. It has two now — the withholding cascade, and the file→route
+ * association `routedSources` needs to say which PAGE a component's photograph
+ * is on — and this repository's most-repeated defect is two lists of one thing
+ * drifting apart. A second copy here would be a component the cascade withholds
+ * and the reporting still credits to a page, or the reverse.
+ *
+ * WHICH SPELLINGS COUNT DEPENDS ON WHERE THE SOURCE ITSELF LIVES. From a PAGE
+ * (`src/routes/<x>.tsx`) it is the `-parts/` form: both the `@/routes/-parts/x`
+ * every prompt teaches and the relative `./-parts/x` TypeScript also resolves.
+ * The leading `(^|["'/])` is what keeps a PAGE called `my-parts/x.tsx` from
+ * reading as an import of `x` — the trap `partNameOf` above records.
+ *
+ * ⚠ FROM A COMPONENT A SIBLING IS ALSO `./x`, WITH NO `-parts/` IN IT AT ALL.
+ * MEASURED before admitting it: the only spelling ANY prompt teaches is
+ * `@/routes/-parts/<name>`, and the 100-site corpus contains ZERO `-parts/`
+ * files at all — it predates components — so there is no evidence either way
+ * about what a model writes between two siblings. What decides it is the
+ * asymmetry rather than a guess: a relative `./x` from inside `-parts/` can
+ * resolve to NOTHING BUT `-parts/x.tsx`, so admitting it has a false-alarm rate
+ * of zero BY CONSTRUCTION, while missing it hands the compiler a dangling
+ * import — and, here, silently detaches a nested component from its page.
+ *
+ * AND `inPart` IS THE DISCRIMINATOR THAT KEEPS IT SAFE: from a PAGE, `./x`
+ * means `src/routes/x.tsx` — another page — so the sibling form is asked of
+ * component sources and of nothing else.
+ *
+ * THE QUOTE AND THE DOT ARE BOTH WALLS, measured against the shapes a real
+ * component carries: without the quote a COMMENT saying "the card is in
+ * ./qr-card" reads as an import, and without the `./` any path ending in
+ * `/qr-card` does — a link, a kit module of the same name, a sentence about a
+ * print file.
+ *
+ * THE NAME IS ESCAPED BECAUSE THIS FUNCTION IS EXPORTED AND TAKES WHAT IT IS
+ * HANDED. `validatePages` refuses any component name that is not
+ * `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`, so no name reaching it through the product
+ * can hold a regex metacharacter — but an unescaped name arriving from anywhere
+ * else would become a PATTERN, and `qr.card` would match `qrxcard`.
+ */
+export function importsPart(src, name, inPart) {
+  const s = typeof src === "string" ? src : "";
+  const n = typeof name === "string" ? name : "";
+  if (!s || !n) return false;
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(n) + "(?![\\w-])").test(s)) return true;
+  return inPart === true && new RegExp("[\"']\\./" + esc(n) + "(?![\\w-])").test(s);
+}
+
+/**
  * The pages and the parts as ONE list of `{path, source}`.
  *
  * PAGES FIRST, PARTS AFTER, and the order is load-bearing for the text lane:

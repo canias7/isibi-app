@@ -320,6 +320,22 @@ export function cleanRequirements(raw, from = "") {
   const items = Array.isArray(raw) ? raw : (raw && typeof raw === "object" ? [raw] : []);
   const list = [];
   const skipped = [];
+  // ⚠ AND THE CAP WAS A SILENT DROP ONE LINE ABOVE THE LIST THAT NAMES DROPS
+  // (2026-09-20). `items.slice(0, MAX_REQUIREMENTS)` ran BEFORE this loop, so
+  // a step that raised more needs than the cap had the rest discarded with no
+  // `skipped` row and no count — the customer told the change was made, and
+  // the record silent about the gaps the whole shape exists to surface.
+  //
+  // THIS IS `cleanAdd`'s OWN CORRECTION, RE-APPLIED ONE MODULE OVER: it moved
+  // its list cap below the loop for exactly this reason and gave the loss its
+  // own token. Two readers of one lesson, and only one of them had it.
+  //
+  // `over-cap` IS ITS OWN WHY, never `not-an-entry`: the entry was perfectly
+  // readable and we chose not to carry it, which is a different thing to tell
+  // a developer and needs a different fix.
+  for (const r of items.slice(MAX_REQUIREMENTS)) {
+    skipped.push({ need: str(r && r.need, MAX_NEED), why: "over-cap" });
+  }
   for (const r of items.slice(0, MAX_REQUIREMENTS)) {
     if (!r || typeof r !== "object" || Array.isArray(r)) { skipped.push({ need: "", why: "not-an-entry" }); continue; }
     const need = str(r.need, MAX_NEED);

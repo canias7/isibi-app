@@ -38,7 +38,7 @@ import {
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
-  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote,
+  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote, routedSources, qrSiteRoute,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -892,11 +892,43 @@ test("cleanAdd: a code needs both halves and a name the site does not use; a sce
   // which this line now is; a named route the site lacks is asserted beside it.
   const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", where: "contact" }, SITE);
   assert.deepEqual(qr, { ok: true, value: { name: "ring", points: "tel:0114", label: "Ring", page: "/", where: "contact" } });
-  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/x" }, SITE).value.page, "",
-    "a named route the ONE-page site does not have silently became its home page");
+  // ⚠ RE-ANCHORED AGAIN 2026-09-20, BECAUSE IT ASSERTED THE DEFECT AS CORRECT.
+  // It pinned `value.page === ""` under the message *"a named route the
+  // ONE-page site does not have silently became its home page"* — and `""` IS
+  // that substitution: `at()` renders it as *"the home page (index.tsx)"*, so
+  // the code was stored and the directive put it on the front page anyway. The
+  // guard asserted the halfway state its own message forbids. An explicitly
+  // named destination that cannot resolve is REFUSED now.
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/x" }, SITE).why, "no-page",
+    "a named route the ONE-page site does not have is substituted rather than refused");
   assert.equal(cleanAdd("qr", { label: "Ring" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114" }, SITE).why, "no-destination");
-  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/nope" }, MULTI).value.page, "", "a page it cannot name is left for the page call to decide");
+  // SAME MOVE ON A MULTI-PAGE SITE. The old reasoning — *"left for the page
+  // call to decide"* — is what the owner overruled: the page call decides it is
+  // the home page, which is the invention. The CONTROL beside it is what keeps
+  // this about a NAMED route rather than about placement being refused at all:
+  // omitting the optional field still answers `""`, and a real page resolves.
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/nope" }, MULTI).why, "no-page", "a named page the site does not have is still substituted");
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring" }, MULTI).value.page, "", "an OMITTED optional placement is a refusal, not an unplaced code");
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/about" }, MULTI).value.page, "/about", "a named page the site HAS stopped resolving");
+  // ⚠ AND PROSE IS A NAMED DESTINATION TOO — a sweep survivor, and the LIKELIER
+  // shape: a designer writing "the gallery page" rather than "/nowhere". It is
+  // not a route at all (`ROUTE` refuses the space), so the old reading was the
+  // no-answer branch and it landed on the front page exactly as a wrong route
+  // did. Both one-page and multi-page, because the one-page shortcut is what
+  // would otherwise swallow it.
+  for (const said of ["the gallery page", "Our Gallery", "page 2", "  "]) {
+    const m = cleanAdd("qr", { points: "tel:0114", label: "Ring", page: said }, MULTI);
+    const o = cleanAdd("qr", { points: "tel:0114", label: "Ring", page: said }, SITE);
+    if (said.trim()) {
+      assert.equal(m.why, "no-page", "prose was read as a placement on a multi-page site: " + JSON.stringify([said, m]));
+      assert.equal(o.why, "no-page", "prose was read as the home page on a one-page site: " + JSON.stringify([said, o]));
+    } else {
+      // WHITESPACE IS AN OMISSION, not a name — a model writing `page: " "` has
+      // said nothing, and refusing it would refuse the optional field.
+      assert.equal(m.value.page, "", "blank space was read as a named destination: " + JSON.stringify(m));
+    }
+  }
   // ── A SITE CARRIES SEVERAL (owner, 2026-09-03) ──────────────────────────
   // The name is an identifier the page writes after a dot, derived from the
   // caption when the answer gave none; what is refused is not "a second
@@ -2125,4 +2157,128 @@ test("deadQrNote says the two outcomes apart, and says nothing when there is not
   const two = deadQrNote({ dropped: [{ name: "a" }, { name: "b" }], withheld: [{ path: "menu.tsx" }, { path: "about.tsx" }] });
   assert.match(two, /QR codes a, b/, two);
   assert.match(two, /I've left \/menu, \/about as they were/, two);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WHICH PAGE A COMPONENT'S PICTURE IS ON (2026-09-20)
+
+   Owner: *"imageSources gives it src/routes/-parts/photo-wall.tsx, which the
+   reporting code interprets as /-parts/photo-wall rather than the /gallery
+   route using it. Fix the file-to-page association as well as the missing
+   component input… Finding an image somewhere in the site must not satisfy a
+   requirement about another page."*
+
+   DRIVEN AT THE MODULE BECAUSE THE ROUTE CANNOT REACH THESE SHAPES. Everything
+   `aMerge.pages` holds has been through `validatePages`, so a page with an
+   unusable path or a page importing a SIBLING PAGE relatively never arrives
+   there — and `routedSources` is exported and takes what it is handed. Both
+   were sweep survivors: a wall nobody can drive is a wall nobody is guarding.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("routedSources: a component's routes are the pages that render it, by import", () => {
+  const page = (path, body) => ({ path, source:
+    "import { createFileRoute } from '@tanstack/react-router'\n" + body });
+  const part = (name, body) => ({ name, source: body });
+  const at = (out, key) => (out.find((x) => x.name === key || x.path === key) || {}).routes;
+
+  // ── DIRECT, NESTED, AND THE TWO CONTROLS, in one graph ──────────────────
+  const out = routedSources([
+    page("gallery.tsx", "import { Wall } from '@/routes/-parts/photo-wall'\n<Wall/>"),
+    page("about.tsx", "nothing here"),
+  ], [
+    part("photo-wall", "import { Frame } from './photo-frame'\n<Frame/>"),
+    part("photo-frame", "<img src='/u/s/a.jpg'/>"),
+    part("orphan", "<img src='/u/s/b.jpg'/>"),
+  ]);
+  assert.deepEqual(at(out, "photo-wall"), ["/gallery"], "a directly imported component lost its page");
+  assert.deepEqual(at(out, "photo-frame"), ["/gallery"], "a component one hop deeper lost its page");
+  assert.deepEqual(at(out, "orphan"), [], "a component nothing renders was credited to a page");
+  assert.deepEqual(at(out, "gallery.tsx"), ["/gallery"], "a page lost its own route");
+  // A PAGE'S PATH IS ITS ROUTE AND A COMPONENT'S NEVER IS — the reported
+  // defect stated as the property: `/-parts/photo-wall` must appear nowhere.
+  assert.ok(!out.some((x) => (x.routes || []).some((r) => r.includes("-parts"))),
+    "a component's own file path stood in for a route: " + JSON.stringify(out.map((x) => x.routes)));
+
+  // ── TWO PAGES RENDERING ONE COMPONENT get both routes, because the
+  // question is which pages show it and a band is reused on purpose.
+  const shared = routedSources([
+    page("gallery.tsx", "import { W } from '@/routes/-parts/w'"),
+    page("about.tsx", "import { W } from '@/routes/-parts/w'"),
+  ], [part("w", "<img src='/u/s/a.jpg'/>")]);
+  assert.deepEqual([...(at(shared, "w") || [])].sort(), ["/about", "/gallery"]);
+
+  // ── ⚠ A PAGE'S RELATIVE `./x` IS ANOTHER PAGE, NOT A COMPONENT. From inside
+  // `-parts/` a sibling `./x` can resolve to nothing but `-parts/x.tsx`, which
+  // is why that spelling is admitted there; from a PAGE the same three
+  // characters mean `src/routes/x.tsx`. Reading it as a component import would
+  // credit a picture to a page that does not render it — the exact class the
+  // owner's correction is about, arriving through the other door.
+  const sibling = routedSources([
+    page("index.tsx", "import { Card } from './card'\n<Card/>"),
+  ], [part("card", "<img src='/u/s/a.jpg'/>")]);
+  assert.deepEqual(at(sibling, "card"), [],
+    "a page's relative import of a sibling PAGE was read as a component import");
+  // …AND THE CONTROL, so this is about `inPart` and not about the walk being
+  // broken: the same graph with the spelling every prompt teaches.
+  const taught = routedSources([
+    page("index.tsx", "import { Card } from '@/routes/-parts/card'\n<Card/>"),
+  ], [part("card", "<img src='/u/s/a.jpg'/>")]);
+  assert.deepEqual(at(taught, "card"), ["/"], "the taught import spelling stopped resolving");
+
+  // ── ⚠ A PAGE WHOSE PATH IS NOT A ROUTE CONTRIBUTES NONE. `routeOf` answers
+  // "" for anything but a `.tsx`, and a page with no route cannot be the
+  // answer to "which page is this picture on" — falling back to "/" would put
+  // every component such a file imports on the home page.
+  const junk = routedSources([
+    { path: "notes.md", source: "import { W } from '@/routes/-parts/w'" },
+  ], [part("w", "<img src='/u/s/a.jpg'/>")]);
+  assert.deepEqual(at(junk, "w"), [], "a page with no route handed out one anyway");
+
+  // ── THE JUNK SHAPES, since this is exported and takes what it is handed.
+  assert.deepEqual(routedSources(null, null), []);
+  assert.deepEqual(routedSources(undefined, [{ name: "", source: "x" }]), []);
+  assert.ok(routedSources([page("index.tsx", "x")], "not a list").length >= 1);
+});
+
+test("qrSiteRoute: ours by origin, and the route normalised the way a bare one is", () => {
+  const base = "https://fw.gofarther.app";
+  // NORMALISED — a capital and a trailing slash are the same destination, so
+  // the full-URL spelling is checked against `going` exactly as `/about` is.
+  for (const p of ["/about", "/About", "/about/", "/About/"]) {
+    assert.deepEqual(qrSiteRoute(base + p, base), { ours: true, route: "/about" }, p);
+  }
+  // NOT OURS IS NOT OURS TO VALIDATE.
+  for (const p of ["https://elsewhere.example/about", "tel:+441142700000",
+                   "WIFI:S=Shop;T=WPA;P=secret;;", "mailto:hi@fw.test", "not a url"]) {
+    assert.deepEqual(qrSiteRoute(p, base), { ours: false, route: "" }, p);
+  }
+  // WITH NO ADDRESS NOTHING IS OURS, which is the fail-closed direction: a
+  // site whose public address could not be read must not have a stranger's
+  // URL read as its own.
+  assert.deepEqual(qrSiteRoute(base + "/about", ""), { ours: false, route: "" });
+  assert.deepEqual(qrSiteRoute(base + "/about", "not a url"), { ours: false, route: "" });
+  // A PAYLOAD THAT IS NOT A STRING IS NOT A DESTINATION.
+  for (const p of [null, undefined, 42, ["/about"], {}]) assert.equal(qrSiteRoute(p, base).ours, false);
+});
+
+test("the drop report's single-path belt is dead by the LIST partition, and that is asserted", () => {
+  // ⚠ A SWEEP SURVIVOR IS WHY THIS EXISTS. `cleanAdd`'s single path carries
+  // `dropped` and nothing can fill it, so a mutant cutting it changes no
+  // answer. Measured over every input this path can take: the single kinds are
+  // exactly `qr` and `three`, and neither has a sub-field to bin.
+  //
+  // THE ANSWER IS A READER FOR WHAT MAKES IT DEAD, not a hunt for a case that
+  // cannot exist: the belt is dead because every writer of the drop list lives
+  // inside a LIST kind, so THAT is what is pinned. The day a single kind gains
+  // a droppable field the line stops being documentation, and this goes red so
+  // somebody looks rather than deleting it.
+  const single = ADD_KINDS.filter((k) => !LIST_ADDS.includes(k));
+  assert.deepEqual(single, ["qr", "three"],
+    "a kind moved between the list and single paths — re-read `cleanAdd`'s single-path drop belt: " + JSON.stringify(single));
+  // AND THE THREE THAT REALLY DROP ARE ALL LISTS. Derived from the product's
+  // own reports rather than from a list typed here: a kind that answers
+  // `dropped` is one whose cleaner bins a sub-field.
+  const drops = ["table", "page", "component"];
+  for (const k of drops) assert.ok(LIST_ADDS.includes(k), k + " bins a sub-field and is no longer a list kind");
+  for (const k of single) assert.ok(!drops.includes(k), k + " is single AND drops — the belt is live now, and needs a case");
 });

@@ -165,9 +165,25 @@ test("an unsupported answer with no reason says so rather than reading as reason
   assert.equal(list[0].why, "no reason was given");
 });
 
-test("the list is bounded, and a bare object is a list of one", () => {
+test("the list is bounded, the overflow is NAMED, and a bare object is a list of one", () => {
   const many = Array.from({ length: MAX_REQUIREMENTS + 8 }, (_, i) => ({ need: "need " + i, status: "covered" }));
-  assert.equal(cleanRequirements(many).list.length, MAX_REQUIREMENTS);
+  const cut = cleanRequirements(many);
+  assert.equal(cut.list.length, MAX_REQUIREMENTS);
+  // ⚠ RE-ANCHORED 2026-09-20, NOT APPEASED. This asserted the bound and was
+  // silent about the loss — which is the defect, not the property: the slice
+  // ran ABOVE the loop that fills `skipped`, so eight needs a step really
+  // raised were discarded with no row, no count and no sentence. `cleanAdd`
+  // moved its own list cap below its loop for exactly this reason and gave
+  // the loss its own token; this is that lesson's second reader.
+  const over = cut.skipped.filter((s) => s.why === "over-cap");
+  assert.equal(over.length, 8, "the overflow was discarded in silence: " + JSON.stringify(cut.skipped));
+  // BY NAME, so a developer can see WHICH needs went — a count alone says
+  // work was lost and not which work.
+  assert.deepEqual(over.map((s) => s.need), many.slice(MAX_REQUIREMENTS).map((r) => r.need));
+  // AND `over-cap` IS ITS OWN WHY: the entry was perfectly readable and we
+  // chose not to carry it, which is a different thing to tell a developer —
+  // and a different fix — from one we could not read.
+  assert.ok(!cut.skipped.some((s) => s.why === "not-an-entry"), "a readable entry was reported as unreadable");
   assert.equal(cleanRequirements({ need: "one", status: "covered" }).list.length, 1);
   assert.deepEqual(cleanRequirements(null).list, []);
   assert.deepEqual(cleanRequirements(undefined).skipped, []);

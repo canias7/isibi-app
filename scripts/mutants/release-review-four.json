@@ -1,0 +1,276 @@
+[
+  {
+    "label": "CONTROL: routedSources' heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": " * BUILT FROM `imageSources`, IN TWO CALLS, so the path convention has exactly",
+    "to": " * BUILT FROM `imageSources`, IN TWO CALLS (control), so the path convention has"
+  },
+  {
+    "label": "CONTROL: the requirement overflow's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  // ⚠ AND THE CAP WAS A SILENT DROP ONE LINE ABOVE THE LIST THAT NAMES DROPS",
+    "to": "  // ⚠ AND THE CAP WAS A SILENT DROP (control) ONE LINE ABOVE THE NAMING LIST"
+  },
+  {
+    "label": "D-1 THE REPORTED DEFECT: the post-publish readers are handed no components at all",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const live = routedSources(aMerge.pages || [], aParts || aPartsRead.parts || []);",
+    "to": "const live = routedSources(aMerge.pages || [], aMerge.parts || []);"
+  },
+  {
+    "label": "D-1 THE OWNER'S CORRECTION: a component's own file path stands in for the page that renders it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (const p of imageSources([], bs)) out.push({ ...p, routes: [...(routesOf.get(p.name) || [])] });",
+    "to": "  for (const p of imageSources([], bs)) out.push({ ...p, routes: [routeOf(p.path)].filter(Boolean) });"
+  },
+  {
+    "label": "D-1: a component nobody renders is credited to every page",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (const p of imageSources([], bs)) out.push({ ...p, routes: [...(routesOf.get(p.name) || [])] });",
+    "to": "  for (const p of imageSources([], bs)) out.push({ ...p, routes: ps.map((x) => routeOf(x && x.path)).filter(Boolean) });"
+  },
+  {
+    "label": "D-1: the nested hop is dropped, so a component reached through another has no page",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      for (const m of partDirect.get(n) || []) if (!seen.has(m)) stack.push(m);",
+    "to": "      if (false) for (const m of partDirect.get(n) || []) if (!seen.has(m)) stack.push(m);"
+  },
+  {
+    "label": "D-1: a component's own scan is told it is a page, so a sibling ./x import is missed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const partDirect = new Map(bs.map((b) => [b.name, directOf(src(b), true)]));",
+    "to": "  const partDirect = new Map(bs.map((b) => [b.name, directOf(src(b), false)]));"
+  },
+  {
+    "label": "D-1: a page's own scan is told it is a component, so ./x reads as a component import",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const stack = directOf(src(p), false);",
+    "to": "    const stack = directOf(src(p), true);"
+  },
+  {
+    "label": "D-1: a page whose path has no route still contributes one",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const r = routeOf(p && p.path);\n    if (!r) continue;\n    const seen = new Set();",
+    "to": "    const r = routeOf(p && p.path) || \"/\";\n    const seen = new Set();"
+  },
+  {
+    "label": "D-1: the purchase reader takes the file path back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  for (const r of (p && p.routes) || []) {",
+    "to": "                  for (const r of [routeOf(p && p.path)].filter(Boolean)) {"
+  },
+  {
+    "label": "D-1: the request-to-photograph reader takes the file path back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                for (const r0 of (p && p.routes) || []) {",
+    "to": "                for (const r0 of [routeOf(p && p.path)].filter(Boolean)) {"
+  },
+  {
+    "label": "D-1: the scene reader takes the file path back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aThreeOn = [...new Set(live\n                .filter((p) => sceneOn(p && p.source))\n                .flatMap((p) => (p && p.routes) || []))].filter(Boolean);",
+    "to": "              aThreeOn = [...new Set(live\n                .filter((p) => sceneOn(p && p.source))\n                .flatMap((p) => [routeOf(p && p.path)]))].filter(Boolean);"
+  },
+  {
+    "label": "D-1: importsPart loses its sibling arm, so a component-to-component import is invisible",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  return inPart === true && new RegExp(\"[\\\"']\\\\./\" + esc(n) + \"(?![\\\\w-])\").test(s);",
+    "to": "  return false;"
+  },
+  {
+    "label": "D-2 THE REPORTED DEFECT: a named route the site has not got falls back to the home page",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (r) return going.includes(r) ? { page: r } : { bad: true };",
+    "to": "    if (r) return { page: going.includes(r) ? r : \"\" };"
+  },
+  {
+    "label": "D-2: a QR code stops asking whether its named destination resolved",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const at = onPage(v.page);\n        if (at.bad) return { ok: false, why: \"no-page\" };\n        return { ok: true, value: { name, points, label, page: at.page, where: str(v.where, 200) } };",
+    "to": "        const at = onPage(v.page);\n        return { ok: true, value: { name, points, label, page: at.page, where: str(v.where, 200) } };"
+  },
+  {
+    "label": "D-2: a scene stops asking whether its named destination resolved",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const at = onPage(v.page);\n        if (at.bad) return { ok: false, why: \"no-page\" };\n        return { ok: true, value: { scene, page: at.page } };",
+    "to": "        const at = onPage(v.page);\n        return { ok: true, value: { scene, page: at.page } };"
+  },
+  {
+    "label": "D-2: a named string that is not a route is read as an omitted placement",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (typeof named === \"string\" && named.trim()) return { bad: true };",
+    "to": "    if (false) return { bad: true };"
+  },
+  {
+    "label": "D-3 THE REPORTED DEFECT: a bare-string column is binned again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "          const bare = typeof c === \"string\" ? str(c, 63) : \"\";\n          if (bare) { columns.push({ name: bare }); continue; }",
+    "to": "          const bare = \"\";\n          if (bare) { columns.push({ name: bare }); continue; }"
+  },
+  {
+    "label": "D-3: a column that really cannot be read is discarded in silence",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "          ctx.dropped.push({ what: \"column\", name: shown });",
+    "to": "          if (false) ctx.dropped.push({ what: \"column\", name: shown });"
+  },
+  {
+    "label": "D-3: a kit name that is not even a name is binned before the report can see it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    for (const x of Array.isArray(v) ? v : []) {\n      const n = str(x, 60).toLowerCase();\n      if (n && !NAME.test(n)) note(n);\n    }",
+    "to": "    for (const x of []) {\n      const n = str(x, 60).toLowerCase();\n      if (n && !NAME.test(n)) note(n);\n    }"
+  },
+  {
+    "label": "D-3: a hand-written component this step cannot use is binned in silence",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (ctx && Array.isArray(ctx.dropped)) ctx.dropped.push({ what: \"component\", name });",
+    "to": "    if (false) ctx.dropped.push({ what: \"component\", name });"
+  },
+  {
+    "label": "D-3: the drop list never leaves the list path",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const extra = { ...(unknownKit.length ? { unknownKit } : {}), ...(dropped.length ? { dropped } : {}) };",
+    "to": "    const extra = { ...(unknownKit.length ? { unknownKit } : {}) };"
+  },
+  {
+    "label": "D-3: the partition the single-path drop belt rests on stops being asserted",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export const LIST_ADDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"component\", \"photo\"];",
+    "to": "export const LIST_ADDS = [\"table\", \"function\", \"api\", \"job\", \"page\", \"component\", \"photo\", \"qr\"];"
+  },
+  {
+    "label": "D-3: the route collects no drops, so nothing reaches the reply",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                if (d && typeof d === \"object\") aDropped.set(String(d.what) + \":\" + String(d.name), d);",
+    "to": "                if (false) aDropped.set(String(d.what) + \":\" + String(d.name), d);"
+  },
+  {
+    "label": "D-3: the drops are collected and never put on the wire",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                droppedFields: aDropped.size ? [...aDropped.values()].slice(0, 12) : undefined,",
+    "to": "                droppedFields: undefined,"
+  },
+  {
+    "label": "D-3: the requirement overflow is discarded in silence again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  for (const r of items.slice(MAX_REQUIREMENTS)) {\n    skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\" });\n  }",
+    "to": "  for (const r of []) {\n    skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\" });\n  }"
+  },
+  {
+    "label": "D-3: a readable requirement left out for room is reported as unreadable",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\" });",
+    "to": "    skipped.push({ need: str(r && r.need, MAX_NEED), why: \"not-an-entry\" });"
+  },
+  {
+    "label": "D-3: the overflow is reported with no name, so nobody can say which work went",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    skipped.push({ need: str(r && r.need, MAX_NEED), why: \"over-cap\" });",
+    "to": "    skipped.push({ need: \"\", why: \"over-cap\" });"
+  },
+  {
+    "label": "D-4 THE REPORTED DEFECT: a full URL at our own origin is never checked",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "          const mine = qrSiteRoute(points, base);\n          if (mine.ours && !going.includes(mine.route)) return { ok: false, why: \"no-such-page\" };",
+    "to": "          const mine = qrSiteRoute(points, base);\n          if (false) return { ok: false, why: \"no-such-page\" };"
+  },
+  {
+    "label": "D-4: another site's URL is validated as though it were ours",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "          if (mine.ours && !going.includes(mine.route)) return { ok: false, why: \"no-such-page\" };",
+    "to": "          if (!going.includes(mine.route)) return { ok: false, why: \"no-such-page\" };"
+  },
+  {
+    "label": "D-4: qrSiteRoute stops comparing the origin, so every URL is ours",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (u.origin !== new URL(base).origin) return miss;",
+    "to": "    if (false) return miss;"
+  },
+  {
+    "label": "D-4: qrSiteRoute answers a raw pathname instead of a route",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    return { ours: true, route: route(u.pathname) };",
+    "to": "    return { ours: true, route: u.pathname };"
+  },
+  {
+    "label": "D-4: a planned page is not admitted in the full-URL spelling",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "          if (mine.ours && !going.includes(mine.route)) return { ok: false, why: \"no-such-page\" };",
+    "to": "          if (mine.ours && !have.includes(mine.route)) return { ok: false, why: \"no-such-page\" };"
+  },
+  {
+    "label": "D-4: deadQrs grows its own second reader of what a payload opens",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const opens = (points) => qrSiteRoute(points, base).route;",
+    "to": "  const opens = (points) => { try { return route(new URL(points).pathname); } catch { return \"\"; } };"
+  }
+]

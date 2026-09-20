@@ -14786,3 +14786,111 @@ about the test before it's a question about the claim.
 
 **Nothing was changed.** No product code, no site, no spend — all four are written up
 with their reproductions and are yours to schedule.
+
+## All four are fixed — 2026-09-20
+
+You said to get on with them rather than leaving them on a list, and you sent one
+correction that turned out to be the important half of the biggest one. All four
+are done, driven end to end through the real add-on route, and **nothing is
+merged, deployed, or spent**.
+
+**Your correction was right and it was the harder half.** I'd have shipped the
+obvious fix — hand the reporting code the list of sections it was missing — and
+it would still have said "still to do". The reason is that a section lives in a
+file called `src/routes/-parts/photo-wall.tsx`, and the reporting code was
+reading that filename as if it were a page address. So it went looking for a page
+called `/-parts/photo-wall`, which no site has. **What was needed is a thing that
+says which PAGE a section appears on**, which it does by reading the imports:
+the gallery page pulls in the photo wall, so a picture in the photo wall is on
+the gallery page. It follows the chain, so a section inside a section works too.
+
+Now: the same request with the picture in a section and the same request with it
+on a page read identically, and it will not credit a picture to a page that
+doesn't show it. A section nothing imports is on no page; a section only `/about`
+renders doesn't answer a question about `/gallery`. I wrote both of those as
+controls precisely because "found it somewhere" is the failure mode you named.
+
+**The other three, briefly.**
+
+- **A QR code or a scene aimed at a page that doesn't exist is now refused**,
+  with a sentence, rather than quietly built on the front page. Leaving the page
+  out is still fine and still means "wherever it fits" — that's the distinction
+  you asked me to keep. One extra thing came out of testing: a model writing
+  *"the gallery page"* instead of `/gallery` was hitting the same silent
+  substitution, and that's the likelier mistake of the two.
+- **Nothing asked for is dropped in silence any more.** A column written in a
+  slightly different shape is now KEPT — the database engine fills in the missing
+  detail itself, so there was never a reason to bin it. The ones that genuinely
+  can't be used get named. Same for a component name that isn't a valid name, a
+  hand-written component missing its description, and a requirement list longer
+  than the cap.
+- **A QR code written as a full web address is checked exactly as `/nope` is.**
+  Same page, same answer, whichever way it's spelled. Other people's addresses
+  and phone/wifi/email codes are none of our business and go through untouched.
+
+**And two of my own tests were passing for the wrong reason, which the mutation
+sweep caught.** Both "prove it refuses" cases were green against the OLD code —
+the refusal was happening for an unrelated reason further down, and my check for
+"the customer was told about a page" was matching the phrase *"the home page"*
+inside that other message. And in the QR case I'd hardcoded one site's address
+while testing three sites, so two of the three were pointing at somebody else's
+domain and testing nothing. Both fixed, both now go red against the old code for
+the right reason.
+
+### ⚠ The weather API test can't be run — I read the terms
+
+You asked me to check Open-Meteo's actual free-use eligibility rather than assume
+"no key" means "go ahead". **It does not, and the test as planned would breach
+their terms.** Their free tier is for non-commercial use and explicitly forbids
+*"integrating our service into commercial products"* and *"websites or apps that
+have subscriptions"*. Go Farther sells memberships, and the whole point is to put
+the connection into a customer's commercial site — so both halves of what we'd be
+doing are the forbidden case.
+
+My earlier note quoted their DOCS page saying a key is *"Only required to
+commercial use"* and said plainly that I hadn't read the terms. I've read them
+now, and the terms are stricter than the docs sentence implies.
+
+**The replacement is `api.frankfurter.dev`** — exchange rates from the European
+Central Bank. No key, no daily cap, and commercial use permitted in as many
+words. I called it once: it answers
+`{"base":"GBP","rates":{"EUR":1.1644,"USD":1.3344}}`, which is the nested shape
+the test needs — a page that guesses the field name renders a blank panel, which
+is exactly the failure we're trying to prove is fixed.
+
+**One thing I'd flag before you press anything**: Frankfurter has no formal terms
+document of its own; it points at the data provider's (the ECB's). That's fine
+for a test and is worth a look before it goes into a real customer's site. Which
+service a customer's site depends on is your call, not mine. The form boxes are
+below; nothing is dispatched.
+
+### The API test's form boxes, rewritten
+
+`lane sweep`, dispatch-only, **your press**. Nothing else changed from the
+earlier plan — the ten other boxes are the same values.
+
+| box | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `lanes` | `all` — an `ask` replaces the case list entirely, so this is ignored |
+| `site` | `repairbench-1` |
+| `dbsite` | (leave as it is) |
+| `ask` | *Add a page at /rates that shows what one pound is worth in euros and dollars right now, read live from the Frankfurter exchange-rate API at https://api.frankfurter.dev/v1/latest — it needs no key.* |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | `ddd3faf585ff77931d9e15e71540b0ab60366277` |
+| `expect_image` | `3cfbfded71cf9607` |
+| `run_job` | **blank** |
+
+**Two reminders that have cost runs before.** The sentence goes in `ask` (box 6),
+never in `run_job` (box 11) — a misplaced sentence buys nine paid builds instead
+of one. And `budget` is not an enforced cap on a single request: the credits go
+inside one add-on call and nothing outside it can stop it mid-flight. What
+actually binds is the account balance, which was **119** at run 52 and which I
+can't read from here — worth refreshing before you press. Expect **12–13
+credits** on the evidence of runs 47 and 49.
+
+**Also**: these boxes are only valid while `main` is at that deploy. **This
+round's four fixes are NOT merged**, so if you merge them first, both `expect_`
+values change and I'll compute the new pair.

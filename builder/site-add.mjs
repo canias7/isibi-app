@@ -130,14 +130,20 @@ import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.
 // place this repository says what a component's path looks like — the same
 // constant `partNameOf` reads, whose own guard records the `my-parts/x.tsx`
 // trap a bare substring test falls into.
-import { PART_DIR } from "./site-files.mjs";
+//
+// `importsPart` MOVED THERE ON 2026-09-20, when it gained a second caller.
+// `deadQrs` withholds a component whose code is dead; `routedSources` says
+// which PAGE a component's photograph is on. Two readers of one convention, so
+// one definition — a second copy is a component the cascade withholds and the
+// reporting still credits to a page.
+import { PART_DIR, importsPart } from "./site-files.mjs";
 // THE PLATFORM'S OWN BOUNDS ON A PHOTOGRAPH, never a second copy of either.
 // `IMAGE_CAP` is how many one change may buy and `MAX_PROMPT_CHARS` is how much
 // of a description reaches the image model — both are what `planImages` and
 // `buySitePhotos` really enforce, so a constant typed here would be a ceiling
 // this tool promises and the spend path does not keep. `site-images.mjs`
 // imports one budget constant and nothing else, so this costs no dependency.
-import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs } from "./site-images.mjs";
+import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources } from "./site-images.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -2042,7 +2048,18 @@ const MAX_PHOTO_NAME = 24;
  * cannot drift into a `TypeError` the day a kind moves between them.
  */
 function freshCtx() {
-  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [], unknownKit: [] };
+  // `dropped` IS WHAT AN ANSWER DECLARED AND THIS STEP COULD NOT USE, NAMED —
+  // `{what, name}`, developer-facing, added 2026-09-20.
+  //
+  // WHY IT EXISTS: three filters inside an item binned a declared thing and
+  // wrote nothing anywhere. A column, a hand-written component, a kit name.
+  // `skipped` is per-ITEM on a list kind and these are per-FIELD inside one, so
+  // there was no channel at all — the answer came back `ok`, the table was
+  // created short a column, and the proposed spec handed to every later
+  // designer IN THE SAME MESSAGE said the site stores less than was asked for.
+  // `unknownKit` was the one field of this shape that already existed; this is
+  // its generalisation rather than a fourth key beside it.
+  return { paths: [], tables: [], functions: [], apis: [], jobs: [], photos: [], unknownKit: [], dropped: [] };
 }
 
 const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -2076,15 +2093,32 @@ const lines = (v, max, cap) => {
   }
   return out;
 };
-/** The hand-written parts an answer declares, in the shared item's shape. */
-const parts = (v) => {
+/**
+ * The hand-written parts an answer declares, in the shared item's shape.
+ *
+ * ⚠ AND A BINNED ONE IS NAMED NOW (2026-09-20). An entry missing `does` or
+ * `props` was dropped with nothing written anywhere — silently closing the
+ * escape hatch the 2,112-component kit exists to have, on the one kind whose
+ * whole purpose is a component the kit cannot supply. `no-component` still
+ * fires when nothing usable is left, so the SILENT case is exactly the one
+ * where some other part or kit name carried the item through.
+ *
+ * NOT REPAIRED, and that is the owner's rule rather than a shortcut: `does`
+ * and `props` are what the page writer builds the component FROM, so inventing
+ * either is inventing the component. A named drop is the honest answer.
+ */
+const parts = (v, ctx) => {
   const out = [];
+  const drop = (name) => {
+    if (ctx && Array.isArray(ctx.dropped)) ctx.dropped.push({ what: "component", name });
+  };
   for (const x of Array.isArray(v) ? v : []) {
-    if (!x || typeof x !== "object") continue;
+    if (!x || typeof x !== "object") { drop(""); continue; }
     const name = str(x.name, 60).toLowerCase();
     const does = str(x.does, 600);
     const props = str(x.props, 400);
-    if (!NAME.test(name) || !does || !props || out.some((p) => p.name === name)) continue;
+    if (out.some((p) => p.name === name)) continue;
+    if (!NAME.test(name) || !does || !props) { drop(name); continue; }
     out.push({ name, does, props });
     if (out.length >= MAX_TSX) break;
   }
@@ -2193,11 +2227,36 @@ export function cleanAdd(kind, value, site) {
   // through to the shortcut, so a component the designer deliberately placed
   // on a page the site does not have was moved to the home page rather than
   // refused — the same substitution one branch over.
+  //
+  // ── AND ONE ANSWER COULD NOT CARRY THREE FACTS (2026-09-20) ──────────────
+  //
+  // It answered a string, so "resolved to nowhere" and "nothing was named"
+  // were both `""` — and `component`/`photo` read that as a refusal while
+  // `qr`/`three`, whose placement is OPTIONAL, read it as "unplaced" and
+  // `at()` rendered it as *"the home page (index.tsx)"*. MEASURED on a
+  // three-page site, `page: "/nowhere"`: component and photo refused
+  // `no-page`; qr and three stored `page: ""` and the directive put both on
+  // the front page. The owner's correction of exactly this for `component`
+  // sits four lines above, and the two optional kinds were never brought with
+  // it.
+  //
+  // THE TWO CASES ARE SEPARATE NOW BECAUSE THEY NEED OPPOSITE ANSWERS: an
+  // omitted optional placement is a real answer that means "wherever it fits",
+  // and a NAMED destination that cannot resolve is the model asking for
+  // something this site has not got. Substituting the home page for the second
+  // is the invention the whole never-invent rule exists for — a printed code
+  // or a 3D scene appearing on a page nobody chose.
+  //
+  // A STRING THAT PARSES AS NO ROUTE AT ALL IS ALSO "NAMED AND UNRESOLVABLE".
+  // `route()` answers "" for `"the gallery page"` exactly as it does for a
+  // shape it refuses, and both are the designer having named a destination.
+  // Only a genuinely ABSENT field reaches the shortcut.
   const onPage = (named) => {
     const r = route(named);
-    if (r) return going.includes(r) ? r : "";
-    if (going.length === 1) return going[0];
-    return "";
+    if (r) return going.includes(r) ? { page: r } : { bad: true };
+    if (typeof named === "string" && named.trim()) return { bad: true };
+    if (going.length === 1) return { page: going[0] };
+    return { page: "" };
   };
   // ── A KIT NAME IS CHECKED AGAINST THE KIT (owner, 2026-09-14) ───────────
   //
@@ -2221,9 +2280,24 @@ export function cleanAdd(kind, value, site) {
   // have.
   const kitNames = (v, max, ctx) => {
     const out = [];
+    const note = (n) => {
+      if (n && ctx && Array.isArray(ctx.unknownKit) && !ctx.unknownKit.includes(n)) ctx.unknownKit.push(n);
+    };
+    // ⚠ A NAME THAT IS NOT EVEN A NAME NEVER REACHED THIS LOOP (2026-09-20).
+    // `names()` bins anything failing `NAME` — `"Hero Section"`, `"not_in_kit"`
+    // — BEFORE the kit check below could record it, so those two reached none
+    // of the three lists and the customer was told the section was added. The
+    // consequence is identical to an unknown kit name (the component is not
+    // built), so it is reported through the same field rather than a fourth
+    // one; the pre-pass is over the RAW list, which is the only place they
+    // still exist.
+    for (const x of Array.isArray(v) ? v : []) {
+      const n = str(x, 60).toLowerCase();
+      if (n && !NAME.test(n)) note(n);
+    }
     for (const n of names(v, max)) {
       if (KIT_COMPONENTS.has(n)) { out.push(n); continue; }
-      if (ctx && Array.isArray(ctx.unknownKit) && !ctx.unknownKit.includes(n)) ctx.unknownKit.push(n);
+      note(n);
     }
     return out;
   };
@@ -2245,15 +2319,21 @@ export function cleanAdd(kind, value, site) {
         const components = kitNames(v.components, MAX_COMPONENTS, ctx);
         if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
         ctx.paths.push(path);
-        return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx), link: str(v.link, 200) } };
+        return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx, ctx), link: str(v.link, 200) } };
       }
       case "component": {
-        const page = onPage(v.page);
-        if (!page) return { ok: false, why: "no-page" };
+        // `page` IS REQUIRED ON THIS TOOL, so both of `onPage`'s refusing
+        // answers are one refusal here: a named route that does not resolve,
+        // and nothing named on a site with more than one page. Unchanged in
+        // outcome from before the three-state — stated rather than implied,
+        // because the OPTIONAL kinds below now part company on exactly this.
+        const at = onPage(v.page);
+        if (at.bad || !at.page) return { ok: false, why: "no-page" };
+        const page = at.page;
         const does = str(v.does, 300);
         if (!does) return { ok: false, why: "no-plan" };
         const components = kitNames(v.components, MAX_COMPONENTS, ctx);
-        const tsx = parts(v.tsx);
+        const tsx = parts(v.tsx, ctx);
         // THE COMPONENT IS THE ADDITION: an answer that names none — no kit
         // part and nothing written for this site — is a band the page writer
         // would have to invent, which is the old "section" reading the owner
@@ -2277,8 +2357,11 @@ export function cleanAdd(kind, value, site) {
       // with nothing inside it, so an undescribed picture is a slot nothing
       // fills and a customer told a photograph was added.
       case "photo": {
-        const page = onPage(v.page);
-        if (!page) return { ok: false, why: "no-page" };
+        // REQUIRED HERE TOO — a photograph's identity is its placement, so a
+        // picture with nowhere to go is a picture nothing can report on.
+        const at = onPage(v.page);
+        if (at.bad || !at.page) return { ok: false, why: "no-page" };
+        const page = at.page;
         const describe = str(v.describe, MAX_PROMPT_CHARS);
         if (!describe) return { ok: false, why: "no-photo" };
         // ── THE NAME, AND WHY IT IS REFUSED RATHER THAN INVENTED ────────────
@@ -2310,7 +2393,33 @@ export function cleanAdd(kind, value, site) {
         const name = t ? str(t.name, 63).toLowerCase() : "";
         if (!t || !TABLE_NAME.test(name)) return { ok: false, why: "no-table" };
         if (ctx.tables.includes(name)) return { ok: false, why: "no-table" };
-        const columns = Array.isArray(t.columns) ? t.columns.filter((c) => c && typeof c === "object" && str(c.name, 63)) : [];
+        // ⚠ A BARE-STRING COLUMN IS A COLUMN (2026-09-20). This filter kept
+        // only objects, so `["who","email","note"]` became `[]` — the table
+        // created with nothing in it, or, mixed with objects, created SHORT.
+        // MEASURED before the fix: `["who", {name:"email"}, "note"]` kept one
+        // column, `skipped` was `[]`, and `auditTier` answered all four buckets
+        // empty — `columns` is truthy so it is not `unexpressed`, and it is an
+        // array so `scalar()` can never call it `changed`. Structurally
+        // invisible, in the step that exists to say what it could not do.
+        //
+        // PRESERVED THROUGH THE ENGINE'S OWN NORMALISATION, NOT REPORTED AWAY.
+        // `normalizeSchema` defaults a column with a name and no type to
+        // `text` — driven, not read — so `"email"` → `{name:"email"}` is the
+        // requested work arriving intact rather than a replacement invented
+        // here. Reporting it instead would be honest and would still cost the
+        // customer the column they asked for.
+        //
+        // AND WHAT IS GENUINELY UNREADABLE IS NAMED. A number, a null, an
+        // object with no usable name: there is nothing to normalise and a
+        // silent drop is what this whole correction is about.
+        const columns = [];
+        for (const c of Array.isArray(t.columns) ? t.columns : []) {
+          const bare = typeof c === "string" ? str(c, 63) : "";
+          if (bare) { columns.push({ name: bare }); continue; }
+          if (c && typeof c === "object" && !Array.isArray(c) && str(c.name, 63)) { columns.push(c); continue; }
+          const shown = typeof c === "string" || typeof c === "number" ? String(c).slice(0, 63) : "";
+          ctx.dropped.push({ what: "column", name: shown });
+        }
         // A TABLE WITH NOTHING IN IT IS NOTHING — unless it names one the site
         // has, to give it payment or a public view; `mergeAddonSchema` keeps
         // exactly those on an existing table and the engine refuses the rest.
@@ -2522,12 +2631,31 @@ export function cleanAdd(kind, value, site) {
         // The route is real by the time either is published, and the ONE
         // publish is what makes that true rather than a hope: the page and the
         // code go out together or neither does.
+        // ⚠ AND THE SAME CLAIM SPELLED WHOLE IS THE SAME CLAIM (2026-09-20).
+        // Only a destination starting with `/` was ever checked, so the two
+        // spellings of one address got opposite answers: `/nope` refused
+        // `no-such-page`, and `https://<site>/nope` drawn, baked and published
+        // pointing at a 404. The unchecked spelling is the one the tool offers
+        // FIRST (*"a full URL, `tel:` …"*) and `siteNote` hands the designer
+        // this site's own address, so it is the encouraged path rather than an
+        // unusual one — and a QR is the one thing here somebody PRINTS.
+        //
+        // `qrSiteRoute` IS THE ONE READER, shared with `deadQrs`, and `ours` is
+        // what makes this safe to tighten: an external URL, a `tel:`, a `WIFI:`
+        // and a `mailto:` are destinations we have no business validating and
+        // are PRESERVED untouched. Only our own origin naming a route the site
+        // has not got — and is not adding — is refused, against the same
+        // `going` the relative branch uses, so a planned page counts in both
+        // spellings.
+        const base = siteAddress(s.url);
         if (points.startsWith("/")) {
           const own = route(points);
           if (!own || !going.includes(own)) return { ok: false, why: "no-such-page" };
-          const base = siteAddress(s.url);
           if (!base) return { ok: false, why: "no-address" };
           points = new URL(own, base).href;
+        } else {
+          const mine = qrSiteRoute(points, base);
+          if (mine.ours && !going.includes(mine.route)) return { ok: false, why: "no-such-page" };
         }
         // THE SAME READER THE DRAWING USES, asked here so a code that cannot be
         // drawn is refused by name rather than silently missing from the site.
@@ -2542,12 +2670,26 @@ export function cleanAdd(kind, value, site) {
         if (codes.length >= MAX_QRS) return { ok: false, why: "too-many" };
         if (codes.some((c) => c.name === name)) return { ok: false, why: "same-name" };
         if (codes.some((c) => c.points.toLowerCase() === points.toLowerCase())) return { ok: false, why: "same-code" };
-        return { ok: true, value: { name, points, label, page: onPage(v.page), where: str(v.where, 200) } };
+        // ⚠ WHERE THE CODE IS SHOWN IS OPTIONAL, AND A NAMED PAGE IS NOT.
+        // `page` here is placement, not destination, so an ABSENT one is a real
+        // answer — "wherever it fits" — and `""` travels on as it always has.
+        // A route the designer NAMED and the site has not got is refused
+        // instead of being rendered as the home page by `at()`. Two different
+        // facts that shared one empty string until 2026-09-20.
+        const at = onPage(v.page);
+        if (at.bad) return { ok: false, why: "no-page" };
+        return { ok: true, value: { name, points, label, page: at.page, where: str(v.where, 200) } };
       }
       case "three": {
         const scene = str(v.scene, 600);
         if (!scene) return { ok: false, why: "no-scene" };
-        return { ok: true, value: { scene, page: onPage(v.page) } };
+        // OPTIONAL PLACEMENT, NAMED PAGE REFUSED — the `qr` rule above, for the
+        // same reason: `sceneDirective` renders `""` as the home page, so a
+        // scene the designer placed on a route this site has not got was built
+        // on the front page and reported as done.
+        const at = onPage(v.page);
+        if (at.bad) return { ok: false, why: "no-page" };
+        return { ok: true, value: { scene, page: at.page } };
       }
       default:
         return { ok: false, why: "no-kind" };
@@ -2595,8 +2737,13 @@ export function cleanAdd(kind, value, site) {
     // of items that were otherwise built. Reported either way — a silent drop
     // is the defect this whole round is about.
     const unknownKit = ctx.unknownKit.slice(0, 12);
-    if (!kept.length) return { ok: false, why: skipped[0].why, skipped, ...(unknownKit.length ? { unknownKit } : {}) };
-    return { ok: true, value: kept, skipped, ...(unknownKit.length ? { unknownKit } : {}) };
+    // AND THE SAME RULE FOR A FIELD BINNED INSIDE AN ITEM (2026-09-20) — a
+    // column, a hand-written component. Same argument as the line above: one
+    // `skipped` entry per ITEM cannot carry a loss inside one that was built.
+    const dropped = ctx.dropped.slice(0, 12);
+    const extra = { ...(unknownKit.length ? { unknownKit } : {}), ...(dropped.length ? { dropped } : {}) };
+    if (!kept.length) return { ok: false, why: skipped[0].why, skipped, ...extra };
+    return { ok: true, value: kept, skipped, ...extra };
   }
   const v = isObj(value) ? value : null;
   if (!v) return { ok: false, why: "nothing" };
@@ -2604,7 +2751,24 @@ export function cleanAdd(kind, value, site) {
   // three keys against the list path's six — which is free while every reader
   // is `ctx.x.includes(...)` on a key its own kind sets, and a `TypeError` the
   // day a list kind stops being one. `freshCtx` is the one definition.
-  return one(v, freshCtx());
+  //
+  // ⚠ THE DROP REPORT RIDES HERE TOO, AND IT IS DEAD BY A NEIGHBOUR'S RULE
+  // RATHER THAN BY ITS OWN — MEASURED 2026-09-20, after a sweep mutant cutting
+  // it survived. The single kinds are exactly `qr` and `three` (`ADD_KINDS`
+  // less `LIST_ADDS`), and neither has a sub-field to bin: every writer of
+  // `ctx.dropped` is inside a LIST kind — the column loop in `table`, and
+  // `parts()` in `page` and `component` — so `dropped.length` is 0 on every
+  // input this path can take.
+  //
+  // IT STAYS, because the deadness is a fact about WHICH KINDS ARE LISTS and
+  // not about this expression: the day `qr` or `three` gains a droppable field,
+  // or a list kind moves across, this is the difference between the drop
+  // keeping its channel and going quiet. `test/site-add.test.mjs` asserts the
+  // partition that makes it dead, so that day is a red run rather than a drift.
+  const ctx = freshCtx();
+  const out = one(v, ctx);
+  const dropped = ctx.dropped.slice(0, 12);
+  return dropped.length ? { ...out, dropped } : out;
 }
 
 /**
@@ -3376,6 +3540,123 @@ export function missingPagesNote(routes) {
 }
 
 /**
+ * WHICH ROUTES A VISITOR REALLY SEES EACH FILE ON (2026-09-20).
+ *
+ * ⚠ WHY A FILE PATH IS NOT AN ANSWER. `imageSources` is the one definition of
+ * the files the image steps operate on, and it gives a component its real path
+ * (`src/routes/-parts/photo-wall.tsx`) because `lintPages` names files in its
+ * findings. Run that through `routeOf` — which every post-publish reader did —
+ * and you get **`/-parts/photo-wall`**, a route no visitor can open and no
+ * requirement can name. MEASURED before this existed: a photograph bought into
+ * a component was published, billed, and reported `missing`, because the
+ * reporting was looking for it on `/gallery` and the inventory had filed it
+ * under a pseudo-route.
+ *
+ * SO THE TWO HALVES OF THAT DEFECT ARE TWO. Handing the readers the parts list
+ * they were missing is necessary and NOT sufficient: a component has no address
+ * of its own, and the honest answer is the address of every page that USES it.
+ *
+ * A COMPONENT'S ROUTES ARE ITS IMPORTERS', TRANSITIVELY. A page imports
+ * `photo-wall`, which imports `photo-frame`: a picture in `photo-frame` is on
+ * that page, and a reader that walked one level would report the nested one
+ * lost. The walk is a DFS from each page over `importsPart`, which is
+ * `site-files.mjs`' one definition of the convention — the same test `deadQrs`
+ * withholds on, so a component the cascade calls used and a component this
+ * calls placed can never disagree.
+ *
+ * A COMPONENT NOBODY IMPORTS GETS NO ROUTES, and that is the point rather than
+ * an edge case: its file ships, and a picture in it is on no page a visitor can
+ * reach. Answering `[]` is what stops a requirement about `/gallery` being
+ * satisfied by an image sitting in a component the site never renders.
+ *
+ * A PAGE WITH NO ROUTE GETS NONE EITHER — `routeOf` answers "" for a pathless
+ * layout (`_layout.tsx`, `__root.tsx`), which genuinely has no address.
+ *
+ * CYCLES TERMINATE on the visited set. Two components importing each other is
+ * not valid TypeScript, but this function is exported and takes what it is
+ * handed, and a hang here is a publish that never returns.
+ *
+ * BUILT FROM `imageSources`, IN TWO CALLS, so the path convention has exactly
+ * one definition and no index arithmetic ties the answer back to its input —
+ * the trap `imageSources`' own header records about slicing the union apart by
+ * length. Pages first then parts, which is the order it already guarantees.
+ */
+export function routedSources(pages, parts) {
+  const ps = Array.isArray(pages) ? pages : [];
+  const bs = (Array.isArray(parts) ? parts : []).filter(
+    (p) => p && typeof p === "object" && typeof p.name === "string" && p.name,
+  );
+  const src = (p) => String((p && p.source) || "");
+  // DIRECT IMPORTS, COMPUTED ONCE PER FILE rather than per page-part pair: the
+  // walk below is then pure graph, so a site with many pages and many
+  // components costs one regex pass each instead of their product.
+  const directOf = (text, inPart) => bs.map((b) => b.name).filter((n) => importsPart(text, n, inPart));
+  const partDirect = new Map(bs.map((b) => [b.name, directOf(src(b), true)]));
+  const routesOf = new Map();
+  for (const p of ps) {
+    const r = routeOf(p && p.path);
+    if (!r) continue;
+    const seen = new Set();
+    const stack = directOf(src(p), false);
+    while (stack.length) {
+      const n = stack.pop();
+      if (seen.has(n)) continue;
+      seen.add(n);
+      for (const m of partDirect.get(n) || []) if (!seen.has(m)) stack.push(m);
+    }
+    for (const n of seen) {
+      const set = routesOf.get(n) || new Set();
+      set.add(r);
+      routesOf.set(n, set);
+    }
+  }
+  const out = [];
+  for (const p of imageSources(ps, [])) {
+    const r = routeOf(p && p.path);
+    out.push({ ...p, routes: r ? [r] : [] });
+  }
+  for (const p of imageSources([], bs)) out.push({ ...p, routes: [...(routesOf.get(p.name) || [])] });
+  return out;
+}
+
+/**
+ * WHICH ROUTE OF OURS A QR PAYLOAD OPENS — `{ ours, route }`.
+ *
+ * ONE DEFINITION FOR TWO READERS, and it was two until 2026-09-20. `cleanAdd`
+ * resolved a bare `/prices` against the site's address and checked it was a
+ * page the site has or is adding; `deadQrs` did the exact inverse to find a
+ * code whose page did not survive. A full URL at our OWN origin — the spelling
+ * the tool offers FIRST — went through neither, so `https://<site>/nope` was
+ * drawn, baked and published pointing at a 404. MEASURED: `/nope` refused,
+ * the same destination spelled whole accepted.
+ *
+ * `ours` IS THE FIELD THAT MATTERS, because "not ours" and "ours but not a
+ * page" need opposite answers. A `tel:`, a `WIFI:`, a `mailto:` and another
+ * company's URL are all destinations we have no business validating — they are
+ * preserved. Our own origin naming a route the site has not got is the defect.
+ * Collapsing the two to one empty string is what let the second hide behind the
+ * first.
+ *
+ * THREE THINGS MAKE IT "not ours", each with its own job: `new URL` throws on
+ * anything unparseable; the ORIGIN comparison refuses another site's address;
+ * and with no address of our own we compare nothing — a code removed or refused
+ * on a guess is worse than one we left alone.
+ *
+ * `route` IS EMPTY FOR A PATHNAME THAT IS NOT A ROUTE SHAPE, which is how a
+ * `tel:` reaching here (it parses, and its pathname is a phone number) is told
+ * from a real page.
+ */
+export function qrSiteRoute(points, base) {
+  const miss = { ours: false, route: "" };
+  if (!base || typeof points !== "string" || !points) return miss;
+  try {
+    const u = new URL(points);
+    if (u.origin !== new URL(base).origin) return miss;
+    return { ours: true, route: route(u.pathname) };
+  } catch { return miss; }
+}
+
+/**
  * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE.
  *
  * Owner, 2026-09-17: *"Check the QR's planned destination against the actual
@@ -3456,30 +3737,17 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
   if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [], withheldParts: [] };
   const base = siteAddress(url);
   const had = new Set(qrList(prior).map((c) => c.name));
-  // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
-  // inverse of `cleanAdd`'s `new URL(own, base).href`, and deliberately no
-  // wider. THREE THINGS REFUSE, each with its own job: `new URL` throws on
-  // anything unparseable; the ORIGIN comparison refuses another site's address;
-  // and `route` refuses a pathname that is not one of ours — which is what
-  // turns a `tel:` or `WIFI:` payload away, since those parse and their
-  // pathname is not a route.
+  // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else — and since
+  // 2026-09-20 it is `qrSiteRoute` above, which `cleanAdd` now asks too. This
+  // was the inverse of a check `cleanAdd` only ever ran on a bare route, which
+  // is how a full URL at our own origin passed both. The three refusals, and
+  // the `!base` belt measured inert, are documented there.
   //
-  // ⚠ `!base` IS A DECLARED BELT AND IS MEASURED INERT: with no address,
-  // `new URL("")` throws inside the try and the answer is "" anyway — 45 probes
-  // over every payload shape and four address shapes, zero differences with the
-  // check and without it. It stays because it STATES the rule (with no address
-  // we compare nothing, so nothing is dropped) where the throw states it only
-  // by accident, and because a code removed on a guess cannot be put back by
-  // the customer. The sweep mutates it as a PAIR with the origin comparison it
-  // belts.
-  const opens = (points) => {
-    if (!base || typeof points !== "string" || !points) return "";
-    try {
-      const u = new URL(points);
-      if (u.origin !== new URL(base).origin) return "";
-      return route(u.pathname);
-    } catch { return ""; }
-  };
+  // IT DROPS `ours` DELIBERATELY. Here the two readings really are one answer:
+  // a code this change did not break is left alone whether it points somewhere
+  // else or at nothing, because withholding rests on the route being one this
+  // change PLANNED AND LOST, and "" is in no such set.
+  const opens = (points) => qrSiteRoute(points, base).route;
   // THE PAGES THIS CHANGE WROTE, and only those. A page the change did not
   // touch cannot render a code the change just invented — it would not have
   // compiled — and it is not ours to withhold in any case.
@@ -3493,49 +3761,10 @@ export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
     const off = new Set(qrUnplaced(codes, [p]));
     return codes.map((c) => c.name).filter((n) => n && !off.has(n));
   };
-  // DOES THIS SOURCE IMPORT THAT COMPONENT — and WHICH spellings count depends
-  // on where the source itself lives.
-  //
-  // FROM A PAGE (`src/routes/<x>.tsx`) it is the `-parts/` form. `PART_DIR` is
-  // the one definition of where a component lives, and the leading `(^|["'/])`
-  // is what keeps a PAGE called `my-parts/x.tsx` from reading as an import of
-  // `x` — the trap `partNameOf`'s own guard records. It matches both spellings
-  // that reach a compiler: the `@/routes/-parts/x` every prompt teaches, and
-  // the relative `./-parts/x` TypeScript also resolves.
-  //
-  // ⚠ FROM A COMPONENT A SIBLING IS ALSO `./x`, WITH NO `-parts/` IN IT AT ALL,
-  // and that is the natural spelling for the one edge this test was widened to
-  // cover. MEASURED before deciding: the only spelling ANY prompt teaches is
-  // `@/routes/-parts/<name>` (`page-gen.mjs`, twice), and the 100-site corpus
-  // contains ZERO `-parts/` files at all — it predates components — so there is
-  // no evidence either way about what a model really writes between two
-  // siblings. What decides it is the asymmetry, not a guess: a relative `./x`
-  // from inside `-parts/` can resolve to NOTHING BUT `-parts/x.tsx`, so
-  // admitting it has a false-alarm rate of zero BY CONSTRUCTION, while missing
-  // it hands the compiler a component importing a module that will not exist.
-  //
-  // AND `inPart` IS THE DISCRIMINATOR THAT KEEPS IT SAFE: from a PAGE, `./x`
-  // means `src/routes/x.tsx` — another page — so the sibling form is asked of
-  // component sources and of nothing else.
-  //
-  // THE QUOTE AND THE DOT ARE BOTH WALLS, measured against the shapes a real
-  // component carries: without the quote a COMMENT saying "the card is in
-  // ./qr-card" reads as an import, and without the `./` any path ending in
-  // `/qr-card` does — a link, a kit module of the same name, a sentence about a
-  // print file. All four ship with them and are withheld without them.
-  //
-  // `esc` CANNOT FIRE THROUGH THE ROUTE and is kept anyway: `validatePages`
-  // refuses any component name that is not `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`,
-  // so no name reaching this call can hold a regex metacharacter. This function
-  // is exported and takes whatever it is handed, and a name arriving unvalidated
-  // would become a PATTERN — `qr.card` matching `qrxcard` — so the guard drives
-  // it rather than leaving it a wall nobody can.
-  const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const importsPart = (src, name, inPart) => {
-    const s = String(src || "");
-    if (new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(name) + "(?![\\w-])").test(s)) return true;
-    return inPart === true && new RegExp("[\"']\\./" + esc(name) + "(?![\\w-])").test(s);
-  };
+  // DOES THIS SOURCE IMPORT THAT COMPONENT — `importsPart`, in `site-files.mjs`
+  // beside the `PART_DIR` it is a fact about. It was a closure here until it
+  // gained a second caller in `routedSources`; the spellings it admits, the
+  // `inPart` discriminator and the escaping are all documented there.
   const dead = new Set(), held = new Map(), heldParts = new Map(), goneParts = new Set();
   const dropped = [], withheld = [], withheldParts = [];
   // THE BOUND IS ONE ROUND PER CODE AND PER COMPONENT, plus the round that

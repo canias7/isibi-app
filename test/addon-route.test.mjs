@@ -8221,3 +8221,407 @@ test("COMPLETE REQUEST 4 — a page, a component on it, and a QR code pointing a
   assert.ok(tour, "the QR code was not stored: " + JSON.stringify(codes));
   assert.match(tour.points, /\/tour$/, "the stored code does not open the page this change added: " + tour.points);
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A COMPONENT IS WHERE A PAGE PUTS IT (2026-09-20)
+
+   Owner: *"replacing aMerge.parts with the actual parts list is insufficient.
+   Independently driven through the route, that change still reports the
+   component's photograph missing. imageSources gives it
+   src/routes/-parts/photo-wall.tsx, which the reporting code interprets as
+   /-parts/photo-wall rather than the /gallery route using it. Fix the
+   file-to-page association as well as the missing component input."*
+
+   REPRODUCED BEFORE EITHER HALF: `mergeAddonPages` answers no `parts` key at
+   all, so the post-publish readers saw the page half of the site and nothing
+   else; and with that handed in, `routeOf` on a component's path answers a
+   pseudo-route no visitor can open. Both are measured in the module guard.
+
+   `routedSources` IS THE ONE ANSWER TO BOTH, and the cases below are what stop
+   "somewhere on the site" standing in for "on the page that was asked about".
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The gallery page as a writer returns it when the picture lives in a band. */
+const galleryUsing = (part) => ({
+  path: "src/routes/gallery.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { Band } from '@/routes/-parts/" + part + "'\n"
+    + "export const Route = createFileRoute('/gallery')({ component: P })\n"
+    + "function P(){ return <main><h1>Gallery</h1><Band /></main> }\n",
+});
+/** A component holding a picture token, optionally importing a sibling. */
+const bandWith = (name, body, imports) => ({
+  name,
+  source: "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + (imports ? "import { Inner } from './" + imports + "'\n" : "")
+    + "export function Band(){ return <section>" + body
+    + (imports ? "<Inner />" : "") + "</section> }\n",
+});
+const TOKEN = (d) => '<SafeImage src="@@IMG:' + d + '@@" alt="the workshop bench" />';
+
+test("a photograph in a COMPONENT is on the page that renders it — direct, nested, and the two controls", async () => {
+  const NEED = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const ECHO = { need: NEED.need, status: "covered", by: "a photograph of the bench on /gallery",
+    answers: "page#0", kind: "photo", item: "/gallery" };
+  const shot = [{ page: "/gallery", describe: BENCH, name: "bench" }];
+  const run = (slug, written, writtenParts, need = NEED, echo = ECHO) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 400, written, writtenParts,
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [need] },
+      photo: { photo: shot, requirements: [echo] },
+    },
+  });
+
+  // ── (1) DIRECT: the page imports the band, the band holds the picture ────
+  const direct = await run("fw-part-direct", [galleryUsing("photo-wall")],
+    [bandWith("photo-wall", TOKEN(BENCH))]);
+  assert.equal(direct.body.ok, true, JSON.stringify(direct.body));
+  // THE PRECONDITIONS, or this case is about a step that did nothing: the
+  // picture was really paid for, and it really reached the COMPONENT's file.
+  assert.equal(direct.shots.length, 1, "no photograph was bought: " + JSON.stringify(direct.shots));
+  assert.equal(direct.body.pictures, 1, "no picture reached the site: " + JSON.stringify(direct.body));
+  const wall = storedParts(direct, "fw-part-direct")["photo-wall"] || "";
+  assert.match(wall, /src="\/u\/fw-part-direct\/[0-9a-f]{32}\.[a-z]+"/,
+    "the bought url is not in the published component: " + wall);
+  assert.ok(!/@@IMG:/.test(wall), "the token shipped unswept: " + wall);
+  // …AND THE REPORTING FOLLOWED IT THERE. This is the defect: before the fix
+  // the same run answered `missing` and told the customer it was still to do.
+  const dcov = storedAnswer(direct, "fw-part-direct").coverage.requirements;
+  const dh = dcov.find((x) => x.status === "elsewhere");
+  assert.equal(dh.state, "configured", "a picture in a component did not answer its request: " + JSON.stringify(dh));
+  assert.equal(dh.reconciledItem, "/gallery", "the placement recorded is not the page that renders it: " + JSON.stringify(dh));
+  assert.ok(!/Still to do/.test(direct.body.coverNote || ""),
+    "the customer was told a published, billed photograph is outstanding: " + direct.body.coverNote);
+  for (const e of dcov) assert.notEqual(e.state, "delivered", "a claim was delivered with nothing checked: " + JSON.stringify(e));
+
+  // ── (1b) THE SAME PICTURE, NAMED AS THE REQUEST RATHER THAN THE ROUTE ────
+  //
+  // ⚠ A SWEEP SURVIVOR IS WHY THIS EXISTS, and the two identities go through
+  // two different readers. `item: "/gallery"` above resolves against the ROUTE
+  // list, which the purchase reader fills; `item: "bench"` resolves against
+  // the per-SHOT list, which only the request-to-photograph reader fills — so
+  // with that one taking a component's file path back, everything above still
+  // passed and *"this particular picture landed on the page it was asked
+  // for"* was unguarded. That is the claim the owner's "retain
+  // request-to-photograph identity" is about.
+  const named = await run("fw-part-named", [galleryUsing("photo-wall")],
+    [bandWith("photo-wall", TOKEN(BENCH))],
+    { ...NEED, item: "bench" }, { ...ECHO, item: "bench" });
+  assert.equal(named.body.pictures, 1, "the picture was not bought: " + JSON.stringify(named.body));
+  const nmh = storedAnswer(named, "fw-part-named").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(nmh.state, "configured", "the shot's own name did not answer its request: " + JSON.stringify(nmh));
+  assert.equal(nmh.reconciledItem, "bench", "the request was settled by something other than its own picture: " + JSON.stringify(nmh));
+
+  // ── (2) NESTED: page → band → inner band, and the picture is in the inner
+  // one. A reader that walked a single level reports this lost.
+  const nested = await run("fw-part-nested", [galleryUsing("photo-wall")],
+    [bandWith("photo-wall", "", "photo-frame"), bandWith("photo-frame", TOKEN(BENCH))]);
+  assert.equal(nested.body.ok, true, JSON.stringify(nested.body));
+  assert.equal(nested.body.pictures, 1, "no picture reached the site: " + JSON.stringify(nested.body));
+  const inner = storedParts(nested, "fw-part-nested")["photo-frame"] || "";
+  assert.match(inner, /src="\/u\/fw-part-nested\//, "the url is not in the nested component: " + inner);
+  const nh = storedAnswer(nested, "fw-part-nested").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(nh.state, "configured", "a picture one component deeper was not associated: " + JSON.stringify(nh));
+
+  // ── (3) CONTROL — AN UNUSED COMPONENT IS ON NO PAGE. Same picture, same
+  // request; the band ships but the page never imports it, so a visitor sees
+  // nothing. "Somewhere in the site" must not settle a claim about /gallery.
+  const unused = await run("fw-part-unused", [galleryWith("<p>no pictures here</p>")],
+    [bandWith("photo-wall", TOKEN(BENCH))]);
+  assert.equal(unused.body.ok, true, JSON.stringify(unused.body));
+  assert.equal(unused.body.pictures, 1,
+    "the picture was not bought, so this control proves nothing: " + JSON.stringify(unused.body));
+  assert.match(storedParts(unused, "fw-part-unused")["photo-wall"] || "", /src="\/u\/fw-part-unused\//,
+    "the control needs the url really in the orphan component");
+  const uh = storedAnswer(unused, "fw-part-unused").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.notEqual(uh.state, "configured",
+    "a picture in a component nothing imports settled a claim about a page: " + JSON.stringify(uh));
+
+  // ── (4) CONTROL — THE WRONG PAGE. The band is rendered, by /about. A claim
+  // about /gallery may not be answered by a picture on another route.
+  const elsewhere = await photoAsk("fw-part-wrong", {
+    kinds: ["page", "photo"], credits: 400,
+    sitePages: ["/", "/about"],
+    written: [galleryWith("<p>no pictures here</p>"), { path: "src/routes/about.tsx",
+      source: "import { createFileRoute } from '@tanstack/react-router'\n"
+        + "import { Band } from '@/routes/-parts/photo-wall'\n"
+        + "export const Route = createFileRoute('/about')({ component: P })\n"
+        + "function P(){ return <main><h1>About</h1><Band /></main> }\n" }],
+    writtenParts: [bandWith("photo-wall", TOKEN(BENCH))],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [NEED] },
+      photo: { photo: shot, requirements: [ECHO] },
+    },
+  });
+  assert.equal(elsewhere.body.pictures, 1,
+    "the picture was not bought, so this control proves nothing: " + JSON.stringify(elsewhere.body));
+  const eh = storedAnswer(elsewhere, "fw-part-wrong").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.notEqual(eh.state, "configured",
+    "a picture rendered only by /about settled a claim about /gallery: " + JSON.stringify(eh));
+});
+
+test("a scene inside a component is on the page that renders it, so a true claim is not contradicted", async () => {
+  // THE SAME ASSOCIATION ONE FIELD OVER. `aThreeOn` mapped a component's path
+  // through `routeOf` too, so a `<Canvas>` in a band published and
+  // `appliedFacts` emitted `three` with `fails: ["onpage"]` — a TRUE claim
+  // recorded as contradicted, which is the worst-shaped answer available.
+  const CANVAS = "import { Canvas } from '@react-three/fiber'\n";
+  const scene = { name: "scene-band", source: CANVAS + "export function Band(){ return <Canvas><mesh /></Canvas> }\n" };
+  const r = await addon("fw-three-part", "put a 3d scene in a band on the gallery page", {
+    publishes: true, kinds: ["three"],
+    written: [galleryUsing("scene-band")],
+    writtenParts: [scene],
+    answers: { three: { three: { scene: "a slowly turning cube" },
+      // THE CLAIM CARRIES THE ITEM'S NAME AND THE ENGINE'S OWN TOKEN, and both
+      // halves are load-bearing. `claimEvidence` reads no token at all until
+      // the item's own NAME is in the text — which is why the photo cases
+      // above work (a photograph's name IS its route, and their `by` names it)
+      // and why the first draft of this one resolved against nothing whatever
+      // the code did. `appliedFacts` then puts
+      // `onpage` in a scene's `holds` when a page really draws the canvas and
+      // in its `fails` when nothing does — so the SAME word flips sides with
+      // the association, and `claimEvidence` asks `fails` FIRST. A claim worded
+      // "on the gallery page" in prose matches neither list and would pass with
+      // the fix deleted; measured, and that is what the first draft of this
+      // case did.
+      //
+      // TWO CLAIMS, BECAUSE THE TWO HALVES OF THE DEFECT SHOW UP DIFFERENTLY.
+      // The first carries `onpage`, which flips sides when the parts list is
+      // missing — `holds` with the association, `fails` without it, and
+      // `claimEvidence` asks `fails` FIRST, so a TRUE claim is recorded as
+      // CONTRADICTED. The second carries the ROUTE and nothing else, which is
+      // what catches the file-path half: with a component's path used as its
+      // route, `holds` carries `/-parts/scene-band` and a claim about
+      // `/gallery` resolves against nothing. Each half red-checked on its own.
+      requirements: [
+        { need: "The gallery page shows the 3D scene.", status: "covered", kind: "three", item: "three", by: "the three scene is declared and onpage" },
+        { need: "The scene is on the gallery page.", status: "covered", kind: "three", item: "three", by: "three is drawn on /gallery" },
+      ] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const cov = storedAnswer(r, "fw-three-part").coverage.requirements;
+  const c = cov[0];
+  assert.notEqual(c.state, "failed", "a scene really on the page was contradicted: " + JSON.stringify(c));
+  assert.equal(c.contradictedBy, undefined,
+    "a canvas in a component read as a scene that is not on any page: " + JSON.stringify(c));
+  assert.equal(c.state, "configured", "a canvas in a component did not read as the scene being on the page: " + JSON.stringify(c));
+  // MEASURED BOTH WAYS at the module: with the association the same claim
+  // answers `{token:"declared", kind:"config"}` and without it
+  // `{token:"onpage", kind:"contradicted"}` — so this pair of assertions is the
+  // defect and its fix, not a restatement of one answer.
+  assert.ok(String(c.configuredBy || ""), "nothing was read back for a scene really on the page: " + JSON.stringify(c));
+  // …AND THE SECOND CLAIM, WHICH ONLY THE ROUTE CAN ANSWER.
+  const c2 = cov[1];
+  assert.equal(c2.state, "configured",
+    "the route the scene is really drawn on was not among its applied facts: " + JSON.stringify(c2));
+  assert.match(String(c2.configuredBy || ""), /\/gallery/,
+    "a component's own file path stood in for the page that renders it: " + JSON.stringify(c2));
+  for (const e of cov) assert.notEqual(e.state, "delivered", "a claim was delivered with nothing checked: " + JSON.stringify(e));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A NAMED DESTINATION THAT CANNOT RESOLVE IS REFUSED (2026-09-20)
+
+   Owner: *"For QR/three placement, reject explicitly named destinations that
+   cannot resolve instead of substituting the homepage. Keep omitted optional
+   placement separate from an invalid explicit route."*
+
+   REPRODUCED ON A THREE-PAGE SITE: `component` and `photo` refused `no-page`
+   and `qr` and `three` stored `page: ""`, which `at()` renders as *"the home
+   page (index.tsx)"* — so a printed code and a 3D scene were built on the front
+   page and reported as done. The owner's own correction of exactly this for
+   `component` sits four lines above the two branches that still did it.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("a QR code and a scene named for a page the site has not got are refused, not moved to the home page", async () => {
+  const SITE3 = ["/", "/about", "/prices"];
+  for (const [kind, answer] of [
+    ["qr", { qr: { name: "gallery", points: "/about", label: "Our gallery", page: "/nowhere" } }],
+    ["three", { three: { scene: "a slowly turning loaf", page: "/nowhere" } }],
+  ]) {
+    const r = await addon("fw-place-" + kind, "put it on the nowhere page", {
+      kinds: [kind], sitePages: SITE3, answers: { [kind]: answer },
+    });
+    // ⚠ THE REASON, NOT THE COLOUR — and this case was VACUOUS until it said
+    // so. Against the pre-change product both of these already answered
+    // `ok: false`, because the fixture's default page loses the stored words
+    // and `keptProse` refuses `rewrote` further down; "the customer was told
+    // about a page" then matched *"the home page"* inside THAT sentence. A
+    // negative outcome is only evidence when the case names its mechanism.
+    assert.equal(r.status, 422, kind + " was accepted for a page the site has not got: " + JSON.stringify(r.body));
+    assert.equal(r.body.reason, "no-page", kind + " refused for the wrong reason: " + JSON.stringify(r.body));
+    assert.equal(r.body.cost, 0, kind + " charged for a refusal: " + JSON.stringify(r.body));
+    assert.match(String(r.body.msg || ""), /which page/, "the customer was not told which half was wrong: " + r.body.msg);
+    // AND IT IS REFUSED AT THE CLEANER, one hop before anything is composed:
+    // the page writer is never asked, so no directive naming the home page can
+    // exist to be acted on.
+    assert.equal(pagePrompt(r), undefined, "the page writer was asked about a destination that cannot resolve");
+    // NOTHING IS STORED. A refusal that left the code or the scene in the look
+    // would be the substitution arriving one write later.
+    const look = storedLook(r, "fw-place-" + kind) || {};
+    assert.ok(!(look.qr || []).length, "a refused code was stored: " + JSON.stringify(look.qr));
+    assert.equal(look.three, undefined, "a refused scene was stored: " + JSON.stringify(look.three));
+  }
+
+  // ── CONTROL 1 — AN OMITTED OPTIONAL PLACEMENT IS A REAL ANSWER and stays
+  // one. This is the half that must NOT move: "wherever it fits" is what the
+  // page call is for, and refusing it would take a working capability away.
+  //
+  // ⚠ `written` IS NOT DECORATION ON A PUBLISHING CASE. The fixture's default
+  // `write_pages` answer is the home page rewritten in ITS words, so against a
+  // real stored page it loses "Words for index." and `keptProse` refuses the
+  // whole change `rewrote` — a case that never reaches the thing it is about.
+  const open = await addon("fw-place-open", "add a QR code for the about page", {
+    kinds: ["qr"], sitePages: SITE3, publishes: true,
+    written: [addedTo("/", "<p>Scan for our gallery.</p>")],
+    answers: { qr: { qr: { name: "gallery", points: "/about", label: "Our gallery" } } },
+  });
+  assert.equal(open.body.ok, true, "an unplaced code was refused: " + JSON.stringify(open.body));
+  const code = (storedLook(open, "fw-place-open").qr || []).find((c) => c && c.name === "gallery");
+  assert.ok(code, "the code was not stored: " + JSON.stringify(storedLook(open, "fw-place-open").qr));
+
+  // ── CONTROL 2 — A PAGE THE SITE REALLY HAS still resolves, so this is about
+  // the route being unresolvable and not about placement being refused at all.
+  //
+  // ⚠ ASSERTED ON THE DIRECTIVE, NOT ON THE STORED LOOK, because `page` is
+  // never stored: the addon's own writer rebuilds a code as `{name, points,
+  // label}` (`site-add.mjs`'s `designed.qr`), and that is right — a placement
+  // is an instruction to the page writer, and once the page is written the
+  // binding is IN the page. So the observable is the directive, which is also
+  // exactly where the defect showed: `at("")` renders "the home page".
+  const named = await addon("fw-place-named", "add a QR code on the prices page", {
+    kinds: ["qr"], sitePages: SITE3, publishes: true,
+    written: [addedTo("/prices", "<p>Scan for our gallery.</p>")],
+    answers: { qr: { qr: { name: "gallery", points: "/about", label: "Our gallery", page: "/prices" } } },
+  });
+  assert.equal(named.body.ok, true, "a code named for a real page was refused: " + JSON.stringify(named.body));
+  const placed = (storedLook(named, "fw-place-named").qr || []).find((c) => c && c.name === "gallery");
+  assert.ok(placed, "a code named for a real page was not stored: " + JSON.stringify(storedLook(named, "fw-place-named").qr));
+  const toldNamed = String((pagePrompt(named) || {}).text || "");
+  assert.match(toldNamed, /SITE_QRS\.gallery[^\n]*on \/prices \(prices\.tsx\)/,
+    "a named page the site HAS stopped reaching the page writer: " + toldNamed.slice(0, 600));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE SAME DESTINATION, SPELLED TWO WAYS, GETS ONE ANSWER (2026-09-20)
+
+   Owner: *"For QR destinations, validate same-origin full URLs consistently
+   with relative routes, including planned pages. Preserve valid external URLs
+   and non-page payloads."*
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("a full URL at this site's own origin is checked exactly as a bare route is", async () => {
+  const SITE3 = ["/", "/about", "/prices"];
+  // ⚠ THE SLUG IS A PARAMETER, and a sweep is how that was found. This was
+  // `(p) => "https://fw-url.gofarther.app" + p` with the loop below running
+  // three DIFFERENT slugs, so two of the three arms were pointing at another
+  // site's origin — `ours` false, the whole same-origin branch skipped, and
+  // both "controls" silently testing the external-URL case a third control
+  // already covers. A same-origin case whose origin is not the site's proves
+  // nothing about same-origin.
+  const mine = (slug, p) => "https://" + slug + ".gofarther.app" + p;
+  // ⚠ THE REFUSAL: the spelling the tool offers FIRST was never checked.
+  const dead = await addon("fw-url", "add a QR code for the gallery", {
+    kinds: ["qr"], sitePages: SITE3,
+    answers: { qr: { qr: { name: "gallery", points: mine("fw-url", "/nope"), label: "Our gallery" } } },
+  });
+  // ⚠ THE REASON, NOT THE COLOUR. Against the pre-change product this already
+  // answered `ok: false` — the fixture's default page loses the stored words
+  // and `keptProse` refuses `rewrote` further down — so asserting the refusal
+  // alone proved nothing whatever about the destination.
+  assert.equal(dead.status, 422, "a printed code pointing at a 404 on our own site was published: " + JSON.stringify(dead.body));
+  assert.equal(dead.body.reason, "no-such-page", "refused for the wrong reason: " + JSON.stringify(dead.body));
+  assert.equal(dead.body.cost, 0, "a refusal was charged: " + JSON.stringify(dead.body));
+  assert.match(String(dead.body.msg || ""), /a page this site doesn't have/, "the customer was not told: " + dead.body.msg);
+  // AND IT IS REFUSED AT THE CLEANER: no page is composed, so no drawing and
+  // no bake can follow.
+  assert.equal(pagePrompt(dead), undefined, "the page writer was asked about a code that opens a 404");
+  assert.ok(!((storedLook(dead, "fw-url") || {}).qr || []).length, "the dead code was stored anyway");
+
+  // ── CONTROL — THE SAME ADDRESS THAT DOES RESOLVE, and a page THIS CHANGE is
+  // adding counts in both spellings, which is what `going` buys.
+  // …AND THE SPELLING IS NORMALISED THE WAY THE RELATIVE BRANCH NORMALISES IT,
+  // so a capital or a trailing slash is the same destination rather than one
+  // the site has not got.
+  for (const [slug, points, extra] of [
+    ["fw-url-ok", mine("fw-url-ok", "/about"), { written: [addedTo("/", "<p>Scan for our gallery.</p>")] }],
+    ["fw-url-caps", mine("fw-url-caps", "/About/"), { written: [addedTo("/", "<p>Scan for our gallery.</p>")] }],
+    ["fw-url-planned", mine("fw-url-planned", "/gallery"), { kinds: ["page", "qr"], written: [writtenPage("/gallery")] }],
+  ]) {
+    const r = await addon(slug, "add a QR code", {
+      kinds: ["qr"], sitePages: SITE3, publishes: true,
+      answers: {
+        page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work", sections: ["a grid"], components: ["card"] }] },
+        qr: { qr: { name: "gallery", points, label: "Our gallery" } },
+      },
+      ...extra,
+    });
+    assert.equal(r.body.ok, true, points + " was refused: " + JSON.stringify(r.body));
+    const c = (storedLook(r, slug).qr || []).find((x) => x && x.name === "gallery");
+    assert.equal(c.points, points, "a valid same-origin URL was rewritten: " + JSON.stringify(c));
+  }
+
+  // ── CONTROL — WHAT IS NOT OURS IS NOT OURS TO VALIDATE. An external site's
+  // URL and the non-page payloads all ship exactly as written.
+  for (const [n, points] of [["ext", "https://elsewhere.example/nope"], ["ring", "tel:+441142700000"],
+                             ["wifi", "WIFI:S=Shop;T=WPA;P=secret;;"], ["mail", "mailto:hi@fw.test"]]) {
+    const r = await addon("fw-url-" + n, "add a QR code", {
+      kinds: ["qr"], sitePages: SITE3, publishes: true,
+      written: [addedTo("/", "<p>Scan me.</p>")],
+      answers: { qr: { qr: { name: n, points, label: "Scan me" } } },
+    });
+    assert.equal(r.body.ok, true, points + " was refused: " + JSON.stringify(r.body));
+    const c = (storedLook(r, "fw-url-" + n).qr || []).find((x) => x && x.name === n);
+    assert.equal(c.points, points, "a payload that is none of our business was altered: " + JSON.stringify(c));
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NOTHING REQUESTED IS DISCARDED IN SILENCE (2026-09-20)
+
+   Owner: *"For silent drops, ensure the identified columns, component
+   declarations and requirement overflow are either preserved through supported
+   normalization or explicitly reported. Do not silently invent replacements or
+   discard requested work."*
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("a bare-string column is kept, and what is genuinely unreadable is named", async () => {
+  // PRESERVED THROUGH THE ENGINE'S OWN NORMALISATION: `normalizeSchema` gives a
+  // column with a name and no type `text` — driven, not read — so the customer
+  // gets the column they asked for rather than a report about losing it.
+  const r = await addon("fw-cols", "add a table for enquiries", {
+    kinds: ["table"], publishes: true, backend: "ready",
+    answers: { table: { table: [{ table: { name: "leads", columns: ["who", { name: "email" }, "note", 42] } }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const ddl = (r.sql || []).join("\n");
+  for (const col of ["who", "email", "note"]) {
+    assert.match(ddl, new RegExp('"' + col + '"'), "a requested column never reached the database: " + col);
+  }
+  // …AND THE ONE THAT COULD NOT BE READ IS NAMED, developer-facing.
+  const dropped = r.body.droppedFields || [];
+  assert.ok(dropped.some((d) => d && d.what === "column"),
+    "a column that could not be read was discarded in silence: " + JSON.stringify(r.body.droppedFields));
+});
+
+test("a component declaration this step cannot use is named rather than binned", async () => {
+  const r = await addon("fw-decl", "add a section to the home page", {
+    kinds: ["component"], publishes: true,
+    answers: { component: { component: [{ page: "/", does: "a tide panel",
+      components: ["Hero Section", "not_in_kit", "card"],
+      tsx: [{ name: "tide-chart", does: "", props: "none" }] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // A KIT NAME THAT IS NOT EVEN A NAME reached none of the three lists before
+  // this: `names()` bins anything failing `NAME` before the kit check can see
+  // it, so `Hero Section` was as silent as a typo that IS a name.
+  const unknown = r.body.unknownComponents || [];
+  assert.ok(unknown.includes("hero section"), "a malformed component name was binned in silence: " + JSON.stringify(unknown));
+  assert.ok(unknown.includes("not_in_kit"), "the pre-existing unknown-kit report stopped working: " + JSON.stringify(unknown));
+  // AND A HAND-WRITTEN COMPONENT MISSING WHAT A PAGE WRITER BUILDS IT FROM.
+  // NOT repaired: `does` and `props` are the component, so inventing either is
+  // inventing the component.
+  const dropped = r.body.droppedFields || [];
+  assert.ok(dropped.some((d) => d && d.what === "component" && d.name === "tide-chart"),
+    "a binned hand-written component was not named: " + JSON.stringify(dropped));
+});
