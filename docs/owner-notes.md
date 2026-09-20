@@ -13598,3 +13598,55 @@ is **6,884 tests, 0 failures**.
 breakage recipes in one older file point at code that has since moved, so those properties are
 not currently being checked. Found by counting them per file rather than by running them — which
 is the only way to see a recipe aimed at text that is gone.
+
+---
+
+## And a review of that fix found a worse bug in it (2026-09-20)
+
+I had the fix reviewed adversarially by agents that drove the shipped code rather than reading
+it, and it found three more things. **One of them was destructive and my own fix is what made it
+destructive**, so it is worth being plain about.
+
+**The bad one: a new automation has no identity until the server gives it one.** Every answer
+coming back from the server is checked against "is this still the form the person pressed Save
+on?" — and for a NEW automation there is nothing to check against, because "new" looks the same
+whichever new one it is. So: name a new automation, press Save, press Cancel, press "Start from
+an example", and when the first answer arrives the screen quietly decides the example IS the
+automation it just created. **The next press then overwrites the one you made with the example.**
+
+Before my fix that same confusion happened and did nothing — the form was wiped, so the next
+press sent nothing. **Keeping what you typed is what turned a harmless muddle into an
+overwrite.** Fixed by counting openings of the form, so "new" is distinguishable from "new
+again"; and because the counting goes through one place, three other doors that had the same
+sort of leftover state are fixed with it — including one where "Saved." was shown on an
+automation nobody had saved.
+
+**The second: clearing the time on a "wait until" step broke both of the things this round
+added.** The box was read as empty and redrawn as 09:00, and the form rebuilds itself from what
+it drew — so Check came back and **drew nothing at all** (the customer waits and gets nothing,
+which is exactly what the round was for), and after a save "Saved." could never appear while the
+next press re-sent the whole workflow. One line.
+
+**The third is a belt**: if the server ever says "saved" without saying WHICH automation it made,
+the screen now says so instead of quietly staying on "new", where pressing Save again would make
+a second copy. Today's server always says which.
+
+**And one older bug found in passing**, in the code I was already editing: "Start from an
+example" left three of its fields unset, so the boxes were drawn with the word `undefined` in
+them and saving carried that through — one automation could end up waiting for an event
+literally named `undefined`. Three lines.
+
+**What I have recorded and NOT changed**, so it is written down rather than discovered later: if
+the server tidies something you typed (trimming spaces off the end, for instance), the screen
+goes on showing what you sent until you close and reopen that automation. That is the price of
+keeping your typing, and the alternative is the bug this round fixed. And the first keystroke
+after "Saved." or a Check result appears redraws the form once, which for the couple of boxes
+that tidy as you type moves the cursor to the end. Both are annoyances rather than losses; the
+fixes for them are a bigger change than this round should make.
+
+**Five breakages driven one at a time, from committed code** — four went red immediately and the
+fifth did not, which found a gap and bought another test. A focused mutation run over the eight
+recipes for this change: **7 of 7 caught, 0 survived.** The whole suite is **6,889 tests, 0
+failures**.
+
+**Nothing is applied, deployed or merged**, and this round adds no database change at all.

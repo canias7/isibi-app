@@ -1,0 +1,67 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the count of openings",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "let agentAutoOpen = 0;",
+  "to": "// which opening of the form this is\nlet agentAutoOpen = 0;"
+ },
+ {
+  "label": "⚠ the save's wall ignores which opening the press belongs to, so a create's answer lands on another form",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": " || agentAutoOpen !== opened",
+  "to": ""
+ },
+ {
+  "label": "⚠ the count of openings never moves, so every opening is the same one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoOpen++;\n",
+  "to": ""
+ },
+ {
+  "label": "⚠ opening a form keeps the previous one's baseline and its Saved",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoDraft = null; agentAutoWas = null; agentAutoCheck = null;\n  agentAutoActErr = ''; agentAutoSaved = false;",
+  "to": "  agentAutoDraft = null; agentAutoCheck = null;\n  agentAutoActErr = '';"
+ },
+ {
+  "label": "⚠ a cleared time box springs back to the default, so the draft is not a fixed point",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "esc(st[fd.name] === undefined || st[fd.name] === null ? '09:00' : String(st[fd.name]))",
+  "to": "esc(st[fd.name] || '09:00')"
+ },
+ {
+  "label": "⚠ a create whose answer names no automation stays a create under a Saved line",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!editing && !made) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "⚠ a create never becomes an edit of what it just made, so the next press makes a second one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const savedAs = editing || made;",
+  "to": "  const savedAs = editing;"
+ },
+ {
+  "label": "⚠ the worked example seeds no trigger fields, so the boxes are drawn holding `undefined`",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    days: Array.isArray(eg.days) ? eg.days.slice() : [],\n    on_date: typeof eg.onDate === 'string' ? eg.onDate : '',\n    on_event: typeof eg.onEvent === 'string' ? eg.onEvent : '',\n",
+  "to": ""
+ }
+]

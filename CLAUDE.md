@@ -10386,3 +10386,101 @@ answer no name can reach, and it is silent in exactly the same way.*
   workflow's `paths` — `*.mjs` there is a ROOT glob, so a nested guard is outside it, and
   `public/` is not an image input at all. So run 1224's green still covers this tip by the
   recorded ancestor rule.
+
+### ⚠ …AND AN ADVERSARIAL REVIEW OF THAT FIX FOUND THREE MORE, ONE DESTRUCTIVE (2026-09-20)
+
+The fix above was reviewed adversarially after it shipped, by agents driving the committed
+`public/chat.js` in a real page scope rather than reading it. **Verdict: sound-with-changes —
+the two reproduced bugs really are fixed, and keeping the draft turned a latent non-identity
+into a measured destructive patch.** Every one below was reproduced before it was touched, and
+every new case was proved RED against its own defect from a committed tree.
+
+**1. `''` IS NOT AN IDENTITY, AND KEEPING THE DRAFT MADE THAT DESTRUCTIVE.** Every in-flight
+answer is walled against the screen having moved, and that wall compares `agentAutoEditing` —
+which is `''` on **every** opening of a create, so `'' !== ''` is false. MEASURED, all of it by
+pressing buttons that carry no busy disable: name a new automation, press Save, press Cancel,
+press "Start from an example", let the answer land — the wall passed, `agentAutoEditing` became
+the created id and `agentAutoWas` the first press's snapshot, **on a form showing the example**,
+and the next press sent `automation-update {id: <the automation just created>, …the example}`.
+**Pre-fix the same wall passed and the nulled draft made it a silent no-op; keeping the draft is
+what turned it into an overwrite of the automation the first press had made.**
+
+- **THE IDENTITY IS A MONOTONIC COUNT OF OPENINGS** (`agentAutoOpen`), captured beside `editing`
+  and compared in the wall. **Bumped in exactly one place** — `agentAutoOpenForm`, which every
+  opener and every exit now goes through — so a door added next month carries it by construction
+  rather than by being added to a list.
+- **AND THAT ONE WRITER FIXED A SECOND THING BY CONSTRUCTION.** `agentAutoBack`, the success path
+  of `agentAutoDelete`, `agentAutoExample` and `agentConnections` each changed which automation
+  the form was about and left `agentAutoWas` — and, in the example's case, `agentAutoCheck` —
+  from whatever was open before. Harmless while a create ignored the baseline, and load-bearing
+  now that both drawn answers are DERIVED from it: **a baseline whose `of` does not match is
+  correctly ignored, so nothing reads as outstanding, so "Saved." is drawn over an automation
+  nobody has saved.** `agentAutoSaved` is reset there for the same reason.
+
+**2. A STEP'S TIME BOX WAS NOT A FIXED POINT, and both of the new predicates broke on it.** The
+reader keeps `''` for a cleared box and the markup redrew `''` as `'09:00'` — and **the draft is
+rebuilt from the markup at every render**, so the one value where the two disagreed reached both
+answers. The platform has exactly one such field, the `wait` step's time when it waits UNTIL one.
+MEASURED: clear it and press Check, and `asked` held `''` while the redrawn form read back
+`'09:00'`, so `agentAutoCheckShown()` was false and **the panel was never drawn — the customer
+waits and gets nothing, which is the exact failure this round was written to remove**. After a
+save it was worse and permanent: the baseline held `''` against a draft re-read as `'09:00'`, so
+`steps` read as changed for ever, **"Saved." could never be drawn and the next press re-sent the
+whole step list** — the lost update the patch-only edit exists to prevent. It has the number
+field's own shape now: absent seeds the default, cleared stays cleared.
+**⚠ AND MY OWN COMMENT ABOVE THE CHECK WAS WRONG ABOUT WHY THIS DID NOT MATTER** — it said going
+through the read-first door makes both sides of the comparison the draft, which is true and
+irrelevant, because the draft is itself rebuilt from the markup.
+
+**3. A CREATE WHOSE ANSWER NAMES NO AUTOMATION ADVANCED NOTHING AND SAID "Saved."** `savedAs`
+fell back to `editing`, which on a create is `''`, so the form stayed a create and the next press
+would make a SECOND identical automation. It says so instead. Unreachable today —
+`/api/agent/automation-create` always answers an id — so a belt rather than a path.
+
+**AND ONE PRE-EXISTING DEFECT FOUND IN PASSING, in the function being edited for (1).** The
+worked example's draft omitted `days`, `on_date` and `on_event`, so the markup echoed
+`value="undefined"` — MEASURED on the real example — the next form read put the literal string
+into the draft, and a save from the example carried `on_event: "undefined"`, **which
+`cleanSchedule` ACCEPTS, binding the automation to an event named `undefined`.** Three keys.
+
+### What is RECORDED rather than fixed, with its measurement
+
+- **A VALUE THE SERVER NORMALISES IS SHOWN AS IT WAS SENT, under a "Saved." line, until the form
+  is next opened.** That is the price of keeping the draft: `readStepField` trims, so a step whose
+  text was sent `'Hello  '` is stored `'Hello'` while the box keeps the spaces, and a second press
+  sends nothing. **The alternative is the defect this round fixed** — nulling both and letting the
+  next drawing recapture them from the DOM — so it is the lesser of two, and it is stated in the
+  code where the draft is kept. **⚠ THE REVIEW CALLED IT PERMANENT AND IT IS NOT**:
+  `agentAutoOpenForm` nulls the draft, so reopening the form shows the stored row.
+- **THE TYPING HOOK REWRITES ONE KEYSTROKE, and my change is what made that reachable.** The
+  review's own framing — *"none of this is reachable today, because nothing in this form has an
+  input hook"* — stopped being true when the hook was added. The redraw happens on the keystroke
+  that flips `agentAutoSays()`, so it is **one per answer shown**, which the existing case that a
+  keystroke changing nothing redraws nothing is what bounds. What it costs is a value a reader
+  normalises being rewritten as it is typed and the caret going to the end — a declaration's name
+  box lowercasing live is the instance. **Not redesigned in this round**: the alternatives are a
+  second rendering path in the hook or a wrapper element around the answers region, and the second
+  is a layout change nobody asked for.
+- **`agentAutoUnshowable(cur)` AND `agentAutoLoad(true)` NOW READ A ROW THE OPEN FORM IS NOT
+  SHOWING.** Both are the same fact as the cost above; neither is reachable today, because all
+  four `AUTOMATION_SCHEDULES` are offered by `AGENT_FORM_SCHEDULES`.
+
+### Measured
+
+- **Site suite 6,884 → 6,889** (6,887 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-binding` 139 → **144** and nothing else.
+- **FIVE BREAKAGES DRIVEN ONE AT A TIME from the committed tree, four red on the first pass** —
+  the wall ignoring the opening, the time box springing back, the create with no id, and the
+  example's trigger keys. **The fifth came back GREEN**: nothing drove a door that leaves the
+  previous form's `agentAutoSaved` behind. Closed with a case through the DELETE's own success
+  path — which closes the form and stays on the list, where the next one is opened from — and
+  then red.
+- **Sweep (`scripts/mutants/auto-form-identity.json`, 8 entries): 7 mutants, 7 killed, 0
+  survived, 0 never applied, 1 comment-only control survived.** Taken after the run, with every
+  anchor proved present exactly once by a pre-check BEFORE it, and the tree proved restored
+  afterwards.
+- **⚠ ONE SPEC ENTRY WAS INERT BY CONSTRUCTION AND WAS REPLACED RATHER THAN HUNTED.** Restoring
+  the old `(!editing && made) ? made : editing` fallback survived, because **the new refusal above
+  it has already turned away the only input that separates the two forms** — MEASURED over the
+  three that can reach that line. Declared in the code, and the mutant is now `= editing` (a
+  create that never becomes an edit of what it made), which is observable and dies.

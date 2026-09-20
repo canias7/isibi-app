@@ -3264,6 +3264,13 @@ async function agentAutoSave() {
     say('Saved, but the server didn’t say which automation it made — open it from the list to carry on.');
     return;
   }
+  // ⚠ **`editing || made` IS SAFE ONLY BECAUSE OF THE REFUSAL ABOVE IT**, and that is worth
+  // saying where somebody might tidy one of the two away: MEASURED over the three inputs that
+  // can reach this line — an edit, an edit whose answer carried no id, and a create — it is
+  // byte-identical to the longer `(!editing && made) ? made : editing`, because the only input
+  // that separates them is the one the refusal has already turned away. Which is why the
+  // sweep's mutant here is `= editing` (a create that never becomes an edit of what it made)
+  // rather than the old fallback, which is inert by construction.
   const savedAs = editing || made;
   // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same automation
   // rather than making a second one — and the baseline is about that same id, or the next press
