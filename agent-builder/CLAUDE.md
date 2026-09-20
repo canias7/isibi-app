@@ -8075,11 +8075,23 @@ none.
   LEADING token, because `grep -c FAIL` matches check LABELS containing the word.
 - **Sweep spec 722 → 729 entries (11 controls → 718 product mutants)**, every anchor unique by
   the generator's own pre-check.
-- **⚠ AND `p_args: show.args` HAS NO MUTANT, MEASURED INERT rather than overlooked.** Reverting
-  it to the old coalesce changes nothing once the wall exists: every shape that reaches it is
-  either absent (→ `{}` both ways) or a plain object (→ itself). Driven and green, so it is
-  declared in the spec with the OBSERVABLE half beside it — the mutant that removes the wall
-  and the hash together, which is the defect.
+- **Sweep (this round's 7 entries plus a control written for the pass): 7 mutants, 7 killed,
+  0 survived, 0 never applied, 1 comment-only control survived** — taken after the run, at
+  `79165ef`, in a detached worktree so the main tree held no mutant while it ran, against the
+  three files that can see them. **The control had to be WRITTEN**, because the committed spec
+  has none on `approvals.mjs` and *a pass whose control has not been reached is a pass with no
+  control*. The worktree is proved clean afterwards, and the generator's own anchor census is
+  green over all 729 entries — which it cannot be while a mutant is applied. *A narrow list can
+  only produce a false SURVIVOR, never a false kill*, so the next full run still decides.
+- **⚠ PASS 1 LEFT ONE SURVIVOR AND IT WAS MINE TWICE OVER.** `argsHash(args)` against
+  `argsHash(show.args)` cannot differ once the wall exists — the only shapes reaching that line
+  are absent (→ `{}` both ways) or a plain object (→ itself) — **and my replacement was
+  `args && typeof args === "object" ? args : args`, the same expression in both branches.** *A
+  mutant that changes nothing reads exactly like a test gap*, and one wearing a plausible
+  ternary is worse, because nobody re-derives it. Replaced by one that attacks the property — a
+  CONSTANT hash, which is the binding gone — and killed. **Both inert expressions are declared
+  in the spec with the observable half named**: the first mutant there, which removes the wall
+  and the hash together, and is the defect.
 
 ### ⚠ AND MY OWN RED-PROOF HARNESS DESTROYED MY WORK — the recorded trap, through a new door
 

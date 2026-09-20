@@ -10285,9 +10285,13 @@ check written to say that nothing was carried across.
   tenth measured INERT and declared (recorded in the engine's notes). And **five checks in
   `verify:controls` go red with the collapsed 404 put back**, on a real database, naming the
   wrong sentence in their own output.
-- **`scripts/mutants/approval-shown.json`: 16 entries (2 controls)**, every anchor proved
-  present exactly once by a pre-check BEFORE the run rather than read as NOT APPLIED
-  afterwards.
+- **Site sweep (`scripts/mutants/approval-shown.json`, 16 entries): 14 mutants, 14 killed, 0
+  survived, 0 never applied, 2 comment-only controls survived — CLEAN ON THE FIRST PASS.**
+  Taken after the run, at `6adea89`, in a detached worktree so the main tree held no mutant
+  while it ran, against `agent-send`, `agent-binding` and `agent-api`. The spec's 16 entries are
+  those 14 plus the two controls, which is why the two numbers never have to be reconciled by
+  arithmetic, and every anchor was proved present exactly once by a pre-check BEFORE the run
+  rather than read as NOT APPLIED afterwards. The worktree is proved clean afterwards.
 - **`.ag-ap-when` SHARES `.ag-ap-none`'S RULE rather than getting one of its own**: identical
   declarations are not a design decision, and a second block would be one nobody made. The
   source reads correctly either way, which a deadline drawn on `.ag-ap-none` would not.

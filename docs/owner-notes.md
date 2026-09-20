@@ -13418,6 +13418,12 @@ the same deadline out of the database, you approve it there, and the thing runs 
 version of that check was worthless — it called a function that does not exist, so it passed no
 matter what. Fixed, and the real one goes red when I break the code on purpose.)
 
+**Both breakage sweeps are clean.** The site side caught 14 of 14 first time. The engine side
+caught 6 of 7, and the one that survived was a breakage I had written badly — it looked like a
+change and was the same code twice over, so it proved nothing either way. Replaced with one that
+really breaks the thing, and it is caught. Both ran in a throwaway copy of the code so nothing
+half-broken could be left behind, and both copies were checked clean afterwards.
+
 **Nothing is applied, deployed or merged.** No new database file at all this round. Site tests
 6,876 → 6,878; the agent engine's own 600 → 601; the end-to-end approval demonstration against
 a real database 71 → 80 checks, and the other ten unchanged and green, which is what says this
