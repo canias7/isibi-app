@@ -8996,14 +8996,21 @@ test("a component declaration this step cannot use is named rather than binned",
    page in the same run, the planned-and-never-shipped page and the
    unrelated-page-published-alone case all pass either way.
 
-   ⚠ AND THE TWO NEEDS ABOVE ARE NOT RUN 53'S — THEY ARE A SIMPLIFICATION OF
-   THEM, AND THAT IS THE WHOLE OF WHY RUN 53 LOOKED UNREPRODUCIBLE. An earlier
-   note here said its `missing: 2` had "another, unidentified cause". It does
-   not. The capture is TRUNCATED at `…right now","statu` — it never showed
-   whether those entries carried an `item`, and dropping one to write these
-   fixtures changed which branch of `implementationOf` answers.
+   ⚠ THE TWO NEEDS ABOVE ARE NOT RUN 53'S — THEY ARE A SIMPLIFICATION OF THEM,
+   AND THAT IS WHY RUN 53 LOOKED UNREPRODUCIBLE. An earlier note here said its
+   `missing: 2` had "another, unidentified cause"; a second said it was
+   REPRODUCED. Both overstate. The capture is TRUNCATED at `…right now","statu`
+   — it never showed whether those entries carried an `item` — and dropping one
+   to write these fixtures changed which branch of `implementationOf` answers.
 
-   THE DEDUCTION, from the deployed code (`d304120e`, byte-identical to this
+   ⚠ WHAT FOLLOWS IS AN INFERENCE, NOT A REPRODUCTION, and the difference is
+   the point. The stored record (`source/repairbench-1/addon-answer.json`) is
+   WRITE-ONLY from outside: `ADDON_ANSWER_KEY` has no reader route,
+   `/api/site/answer` serves `answer.json` alone, and the `answer read`
+   workflow checks out `ref: main` and defaults to another slug. So the actual
+   field values are NOT RECOVERABLE here, and nothing below invents them.
+
+   THE INFERENCE, from the deployed code (`d304120e`, byte-identical to this
    tree in `site-requirements.mjs` and `site-add.mjs`) and the capture:
 
      · `missing` is reachable from ONE line — `impl.state === "absent"`. The
@@ -9023,13 +9030,25 @@ test("a component declaration this step cannot use is named rather than binned",
 
        no item,   aShipped []              → unknown  (by kind)   ← the fixture
        no item,   aShipped ["/rates","/"]  → unknown  (by kind)
-       item /rates, aShipped []            → absent   (by item)   ← run 53
+       item /rates, aShipped []            → absent   (by item)
        item /rates, aShipped ["/rates","/"]→ found    (by item)
 
-   So this fix DOES close run 53's reading, and the case that demonstrates it
-   is the NAMED one below. The two item-less needs stay as a PROPERTY case —
-   a need that names nothing has nothing to look up — and are no longer
-   described as run 53's own.
+   WHAT THAT ESTABLISHES, EXACTLY — and this is the whole claim, no wider:
+
+     ✓ an item-less reading is INCONSISTENT with run 53's output on that site;
+     ✓ a reading whose references name a page THIS CHANGE PUBLISHED (`/rates`
+       or `/`) is CONSISTENT with it, and is corrected by the inventory fix;
+     ✗ the field values themselves are NOT established, and are not
+       recoverable from here;
+     ✗ **and a third reading survives**: a reference naming something else
+       absent — a page nobody published — is ALSO consistent with `missing`,
+       and that one the inventory fix does not change, correctly, because it
+       would be a true "still to do".
+
+   So: *consistent with the inferred `/rates` references*, NOT reproduced. The
+   case that demonstrates the correction is the NAMED one below. The two
+   item-less needs stay as a PROPERTY case — a need that names nothing has
+   nothing to look up — and are no longer described as run 53's own.
 
    ⚠ A PLAIN HOME PAGE, NOT `photoHome`. The first draft reused the photograph
    fixture and returned it through `linkHome(slug, "")`, which strips one of
@@ -9188,8 +9207,9 @@ test("run 53: a need that NAMES the page resolves `unverified`, never `covered`"
 });
 
 test("…and an item-less need on a site WITH routes cannot answer `missing` at all", () => {
-  // THE MEASUREMENT THAT SETTLES WHAT RUN 53'S TWO ENTRIES DECLARED, made a
-  // guard so the deduction in the header cannot rot into a story.
+  // THE MEASUREMENT THE HEADER'S INFERENCE RESTS ON, made a guard so it cannot
+  // rot into a story. It rules a reading OUT; it does not establish what run
+  // 53's entries declared, which is not recoverable from here.
   //
   // `missing` is `impl.state === "absent"` and nothing else. With no item that
   // comes from the kind branch, which is gated on `mine.length || theirs.length`
@@ -9197,8 +9217,8 @@ test("…and an item-less need on a site WITH routes cannot answer `missing` at 
   // the applied inventory says. repairbench-1 had four routes before run 53
   // (its live sitemap answers five, `/rates` being the one that run added), and
   // the reply's own "updated /" says the same thing a second way. So run 53's
-  // two must have NAMED something, and the only page in neither inventory was
-  // the one being added.
+  // two must have NAMED something — which page they named is an inference the
+  // header states and this case does not make.
   const SPEC = { tables: [{ name: "bookings" }], functions: [], apis: [{ name: "exchange_rates" }], jobs: [] };
   const REPORTABLE = [...SITE_KINDS, "component", "edit"];
   const ex = existingFacts({ spec: SPEC, pages: ["/", "/status", "/booking-check", "/workshop-load"],
@@ -9217,14 +9237,14 @@ test("…and an item-less need on a site WITH routes cannot answer `missing` at 
     const s = implementationOf(NEED, made(pages), REPORTABLE, ex).state;
     assert.equal(s, "unknown",
       "an item-less need answered " + s + " with applied pages " + JSON.stringify(pages)
-      + " — if this can reach `absent`, the header's deduction is wrong");
+      + " — if this can reach `absent`, the header's inference is wrong");
   }
 
   // …AND THE NAMED ONE IS THE PAIR THAT REALLY MOVES, which is run 53's
   // reading and its correction, measured on the same two inventories.
   const NAMED_NEED = { ...NEED, kind: "page", item: "/rates" };
   assert.equal(implementationOf(NAMED_NEED, made([]), REPORTABLE, ex).state, "absent",
-    "the named page was not read as absent before the fix — run 53's `missing` is then unexplained");
+    "the named page was not read as absent before the fix — the inferred reading then explains nothing");
   assert.equal(implementationOf(NAMED_NEED, made(["/rates", "/"]), REPORTABLE, ex).state, "found",
     "the published page is still not found after the fix");
 });

@@ -2158,27 +2158,35 @@ the PAGE CALL writes the page. `aWanted` is the kind designer's answer, so
   is `unverified`; `checked` stays `[]` for `page` as for every kind, so
   `delivered` is unreachable from a publication. Publishing ANY page still
   satisfies NO page requirement that does not name one.
-- **⚠ AND RUN 53'S OWN `missing: 2` IS REPRODUCED AFTER ALL — THE ENTRIES WERE
-  NOT UNNAMED. CLOSED, correcting an earlier note that called it "another,
-  unidentified cause".** The capture truncates at `…right now","statu`, so it
-  never said whether those two carried an `item`; simplifying them away is what
-  made the fixture answer `unknown` in both arms. **The deduction is forced by
-  the deployed code** (`d304120e`, byte-identical here in
-  `site-requirements.mjs` and `site-add.mjs`): `missing` is reachable from ONE
-  line, `impl.state === "absent"`; the only other "Still to do" state is
-  `failed`, which needs `status: "covered"` (both are `elsewhere`, and the
-  capture records `0 unsupported`); and with NO item `absent` comes from the
-  kind branch, gated on `mine.length || theirs.length`, where `theirs` is the
-  site's own routes. **repairbench-1 HAD routes** — its live sitemap answers
+- **⚠ RUN 53'S OWN `missing: 2` IS CONSISTENT WITH THE INFERRED `/rates`
+  REFERENCES — NOT REPRODUCED, AND NOT "ANOTHER, UNIDENTIFIED CAUSE".** Two
+  earlier notes overstated it in opposite directions; this is the standing
+  reading. **THE EVIDENCE LIMIT IS EXPLICIT AND STAYS**: the capture truncates
+  at `…right now","statu`, so what those two entries declared past `status` is
+  unknown, and **the stored record is not readable from a session** —
+  `ADDON_ANSWER_KEY` (`source/<slug>/addon-answer.json`) has **no reader
+  route**, `GET /api/site/answer` serves `answer.json` ALONE, and the free
+  `answer read` workflow checks out `ref: main` and defaults to another slug.
+  Recovering it needs a reader, a merge and a press. **Nothing invents those
+  fields.**
+  What the deployed code (`d304120e`, byte-identical here in
+  `site-requirements.mjs` and `site-add.mjs`) does settle: `missing` is
+  reachable from ONE line, `impl.state === "absent"`; the only other "Still to
+  do" state is `failed`, which needs `status: "covered"` (both are `elsewhere`,
+  and the capture records `0 unsupported`); and with NO item `absent` comes from
+  the kind branch, gated on `mine.length || theirs.length`, where `theirs` is
+  the site's own routes. **repairbench-1 HAD routes** — its live sitemap answers
   `/`, `/booking-check`, `/rates`, `/status`, `/workshop-load`, `/rates` being
   the one that run added — and the reply's own *"updated /"* says so a second
-  way. So an item-less need there could never answer `missing`. **Measured on
-  the real readers with those routes present**: no item → `unknown` on BOTH
-  inventories; `item: "/rates"` → **`absent` before, `found` after**. The
-  header's guard drives exactly that, so the deduction cannot rot.
-  **THE ONE THING STILL NOT ATTRIBUTABLE TO THIS FIX is the *"I can't see from
-  here whether…"* clause**, which run 53 never printed at all — it belongs to
-  the item-less fixtures, not to the live run.
+  way. **Measured on the real readers with those routes present**: no item →
+  `unknown` on BOTH inventories; `item: "/rates"` → **`absent` before, `found`
+  after**. So an item-less reading is RULED OUT, a `/rates`-or-`/` reading is
+  consistent and is corrected by this fix — **and a third reading survives**: a
+  reference naming a page NOBODY published is equally consistent with `missing`
+  and is NOT changed by the fix, correctly, being a true "still to do". The
+  guard drives the measurement so the inference cannot rot into a story.
+  **AND THE *"I can't see from here whether…"* CLAUSE IS NOT THIS FIX'S EITHER**
+  — run 53 never printed it at all; it belongs to the item-less fixtures.
 
 ### THE ADDON KNOWS WHAT THE SITE IS
 
@@ -3002,6 +3010,14 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   directions**: 382 was once stamped from a LOCAL run and the next CI read of it
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
+  **AND THIS BRANCH HAS ITS OWN READ, NAMED RATHER THAN COUNTED**: run
+  `35503280850` on `ecd3184d` (2026-09-20), the product commit, **all twenty
+  steps green and every figure above matching** — TAP 397, kit-typecheck 4,
+  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
+  kit-paint `all passed`. **The sixteen is deliberately NOT incremented**: that
+  number is a scan's answer, and the rule two lines up is exactly about taking
+  the next ordinal instead of re-deriving it.
 - **READ THE COUNTS OUT OF THE RUN'S PER-STEP LOG FILES**, which attribute by
   construction rather than by a window somebody drew. The flat-log alternative
   is landmark-to-landmark (`##[group]Run …` to the NEXT one, because GitHub
@@ -3012,10 +3028,14 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 6,992** (6,992 pass, 0 fail, 0 skipped locally; CI reads
-  `6,988 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
+- **Unit suite: 7,005** (7,005 pass, 0 fail, 0 skipped locally; CI reads
+  `7,001 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
   `site-searchpath`'s baseline-commit case). **THE TOTAL IS WHAT MATCHES** — a
-  `pass` count alone drifts between the two machines.
+  `pass` count alone drifts between the two machines. Both halves measured on
+  `2c596bc5` (2026-09-20): locally, and CI run `35504473370`. It was 6,992 at
+  `26f52f95`; **the +13 is this branch's own new cases and is stated as the
+  difference between two MEASURED readings, never as arithmetic off a
+  paragraph.**
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".

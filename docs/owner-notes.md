@@ -15410,11 +15410,11 @@ joined that list.
 Nothing is merged, nothing is deployed, nothing is dispatched, and no paid run
 was bought for any of this.
 
-## Run 53 is explained after all — and I had it wrong twice (2026-09-20)
+## Run 53's two outstanding needs — what the code rules out, and what I can't prove (2026-09-20)
 
 You told me to hold the merge and replay Run 53's own captured data against the
 code that was actually deployed when it ran, and not to simplify the captured
-fields. That is what found it, and it overturns what I told you this morning.
+fields. That is what moved it on, and it overturns what I told you this morning.
 
 **What I said:** that Run 53's *"Still to do"* about two of its three
 requirements had "another, unidentified cause" I could not reproduce.
@@ -15425,7 +15425,7 @@ shows their wording and then stops — so it never said what else they declared.
 I filled the gap with the simplest thing, a requirement that names nothing in
 particular, and that is a different question for the code to answer.
 
-**How the code settles it without needing the missing bytes.** There is exactly
+**What the code rules out without needing the missing bytes.** There is exactly
 one route to *"Still to do"* for a requirement like these, and it only fires
 when the thing the requirement NAMES is nowhere to be found. If a requirement
 names nothing, the code instead asks a broader question — *does this site have
@@ -15436,19 +15436,30 @@ Repairbench-1 plainly had pages. Its own sitemap lists five today —
 the one Run 53 added, so four were already there. Run 53's own reply says
 *"updated /"*, which is a second, independent proof that it found the home page.
 
-So those two requirements **named the rates page**. And that is precisely what
-the published-page list was getting wrong: before the fix, the list of pages the
-change had published was empty, so *"is `/rates` there?"* answered **no** — about
-a page that was live. Measured on the real code, with the site's own pages
-present:
+So those two requirements **named a page** — the reading where they name nothing
+is ruled out. Measured on the real code, with the site's own pages present:
 
 | the requirement | before the fix | after |
 |---|---|---|
 | names nothing | I can't tell | I can't tell |
 | names `/rates` | **Still to do** | **there, but I can't confirm it** |
+| names a page nobody published | **Still to do** | **Still to do** |
 
-**So the inventory fix closes Run 53's reporting defect.** It is not a separate
-open question any more, and I have corrected the notes that said it was.
+**Which page they named is where the evidence stops.** If they named `/rates`,
+this fix is the whole cause and it is corrected. If they named some other page
+that never shipped, *"Still to do"* was the right answer and this fix changes
+nothing about it. Both readings survive the capture, so the honest statement is
+that **Run 53's two outstanding needs are CONSISTENT with the `/rates` reading
+this fix corrects — not reproduced.**
+
+**And I cannot close that gap from here.** The full designer's answer is stored
+for every run, but nothing serves it back: the only mention of that file in the
+platform is the line that writes it, and the free *answer read* tool reads a
+different file, off the main branch, for a different site by default. Getting
+the missing bytes would need either a press I am not able to make or another
+paid run, and you have ruled both out for this — rightly, because the fix is
+independently verified without them. **So I am leaving the gap stated rather
+than filling it in with a guess.**
 
 **A second correction, smaller.** I also told you a line in the new code stops
 components being mistaken for pages, and that a test "bought" that case.
