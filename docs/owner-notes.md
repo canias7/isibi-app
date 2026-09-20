@@ -15595,3 +15595,59 @@ fix on the addon path to copy. Not touched today.
 
 No paid run, no Run now, no change to any existing job, no repair pressed, no
 new capability. The balance is untouched.
+
+## Two capability claims I had wrong, and one line that needed saying (2026-09-20)
+
+Documentation only — no code moved, nothing was run that costs money.
+
+### 1. A function CAN choose its language. I listed it as something we can't do.
+
+We shipped this on the 19th: a function can be declared `sql` or `plpgsql` and
+the engine honours it. It was still sitting in my "unsupported" list, under a
+heading that read *"a function cannot choose its language"* — and the entry's
+own body said, four lines down, that it had been closed. **The heading is what
+anybody skimming a list of limitations actually reads**, so for a day the notes
+said we couldn't do something we had just built. It has moved to the supported
+side with the evidence beside it.
+
+The lesson I've written down: **when something stops being a limitation it has
+to MOVE, not gain a sentence.** A closed limitation left in a limitations list
+is a false report about our own product, and it survived a whole session in
+which I read that list back to you out loud.
+
+### 2. Sixteen things can be deleted, not fifteen.
+
+I told you "fifteen of twenty-one" can be taken off a site. The real answer is
+**sixteen of twenty-one** — I checked by asking the code about every one of the
+twenty-one in turn rather than trusting the number written down. Five are
+refused (the database, the site's language, its web address, what kind of site
+it is, and what a page is for); everything else can go.
+
+The number was written in two places in my notes and both were stale, which is
+exactly the failure my own notes warn about — correct one copy and the other
+goes on being wrong.
+
+### 3. A successful deploy is not the same as checking what's running
+
+I want this stated plainly because the two sit next to each other and read like
+one thing. When I told you the deploy succeeded, the sha was right and the
+container rolled — **all of that is the deploy describing itself.** It is what
+we told Cloudflare to install and what Cloudflare said it installed. None of it
+is the live site answering a question.
+
+Actually checking what's running needs a signed-in reader, and I don't have a
+login for your building account. The check I *can* run without one proves only
+that the site is up and answering — it gives the identical result before and
+after any deploy, so it can never tell you which version is live.
+
+So the honest phrasing, which I'll use from now on: **deployed, not
+runtime-confirmed.** If you want the confirmation, the health reader will give
+it to you from any signed-in account — that is the other thing I got wrong
+yesterday and fixed: I had it recorded as owner-only.
+
+### And Run 53 stands where it was
+
+Unchanged and deliberately so: its exact missing references are still not
+recovered, and its reporting outcome is *consistent with* the fix rather than
+reproduced. Nothing in today's corrections touches that, and I did not go
+looking for a way to upgrade the claim.
