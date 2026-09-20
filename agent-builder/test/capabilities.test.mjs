@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
 import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS,
-         MAX_TOOL_INPUTS, FORGET_REACH } from "../src/capability-tools.mjs";
+         MAX_TOOL_INPUTS, FORGET_REACH, SPENT_SAY } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
@@ -2328,4 +2328,113 @@ test("⚠ A CHECK ANSWERS STRUCTURE, DEPENDENCIES AND WHAT IT COULD NOT ASK, and
     `a check reached a write: ${ckAll.asked.join(", ")}`);
   // `defineTool` NORMALISES the flag, so the honest assertion is `false` rather than absent.
   assert.equal(ckTool.writes, false, "a check that declares itself a write claims an identity and a record");
+});
+
+
+/**
+ * ⚠ **A SCHEDULE WITH NO MOMENT LEFT, AND WHY THIS IS A CASE RATHER THAN A DEMONSTRATION
+ * CHECK.** `verify:triggers` proves it end to end against a real PostgreSQL, and
+ * `npm run sweep` runs no demonstration — *a property proven only by an instrument the sweep
+ * cannot run is a property no mutant can be caught by*, which this directory has recorded
+ * seven times. What a mutant can see is here.
+ *
+ * **THE DEFECT, MEASURED on a real PostgreSQL before `agent.schedule_spent` existed**: all
+ * four writing doors answered `{"ok": true, …, "next_run_at": null}` for a one-off whose day
+ * had gone AND for an automation with no schedule at all. A screen tells them apart because it
+ * holds the schedule beside the answer; a model reads the answer and nothing else, so it was
+ * told the work landed with no way to know the automation can never run.
+ */
+test("⚠ A SPENT SCHEDULE IS SAID, and `next_run_at: null` alone could not say it", async () => {
+  const spTools = (name) => CAPABILITY_TOOLS.find((t) => t.name === name);
+  // EVERY WRITING DOOR THAT CAN PRODUCE ONE, and the list is DERIVED from the tools rather
+  // than typed, so a fifth one cannot be added and go unasked.
+  const spDoors = [
+    ["pause_automation", { id: AUTO, enabled: true }, "set_automation_enabled"],
+    ["change_automation", { id: AUTO, schedule: "once", onDate: "2020-01-01", atLocal: "09:00" }, "patch_automation"],
+    ["make_automation", { name: "A one-off", schedule: "once", onDate: "2020-01-01", atLocal: "09:00",
+                         steps: [{ type: "note", text: "x" }] }, "create_automation"],
+  ];
+  assert.equal(spDoors.length, 3, "a writing door was added and is not asked about here");
+
+  for (const [spName, spArgs, spRpc] of spDoors) {
+    const spTool = spTools(spName);
+    assert.ok(spTool, `${spName} is not a tool`);
+    // A BACKEND THAT ANSWERS WHAT THE DATABASE REALLY ANSWERS FOR A SPENT ONE-OFF.
+    const spSpent = recorder((rpc) => rpc.startsWith("read_automation")
+      ? { id: AUTO, agent: AG, name: "A one-off", schedule: "once", enabled: true }
+      : rpc.startsWith("read_agent_settings") ? { ok: true, zone: "Europe/London" }
+      : { ok: true, id: AUTO, automation: AUTO, version: 1, enabled: true, next_run_at: null, spent: true });
+    const spGone = await spTool.run(spArgs, { capabilities: spSpent.can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(spGone.ok, true, `${spName}: ${JSON.stringify(spGone)}`);
+    assert.equal(spGone.spent, true, `${spName} dropped the fact`);
+    assert.equal(spGone.say, SPENT_SAY, `${spName} did not say it: ${spGone.say}`);
+    assert.ok(spSpent.sent.some((s) => s.rpc.startsWith(spRpc)), `${spName} never reached ${spRpc}`);
+
+    /**
+     * ⚠ **THE CONTROL, and without it "it says so" is satisfied by a tool that always does.**
+     * The SAME call against a database that armed a real instant must say nothing extra — and
+     * a `manual` automation, whose `next_run_at` really is null, is the shape the bare null
+     * could not be told apart from.
+     */
+    for (const [spWhat, spAnswer] of [
+      ["an instant was armed", { ok: true, id: AUTO, automation: AUTO, version: 1, enabled: true,
+                                 next_run_at: "2099-01-01T09:00:00+00:00", spent: false }],
+      ["no schedule at all", { ok: true, id: AUTO, automation: AUTO, version: 1, enabled: true,
+                               next_run_at: null, spent: false }],
+    ]) {
+      const spOk = recorder((rpc) => rpc.startsWith("read_automation")
+        ? { id: AUTO, agent: AG, name: "A one-off", schedule: "once", enabled: true }
+        : rpc.startsWith("read_agent_settings") ? { ok: true, zone: "Europe/London" } : spAnswer);
+      const spFine = await spTool.run(spArgs, { capabilities: spOk.can.forTenant(T).forAgent(AG), operation: OP() });
+      assert.equal(spFine.ok, true, `${spName}/${spWhat}: ${JSON.stringify(spFine)}`);
+      assert.equal(spFine.spent, undefined, `${spName}/${spWhat} claimed a spent schedule`);
+      assert.equal(spFine.say, undefined, `${spName}/${spWhat} said ${spFine.say}`);
+    }
+  }
+
+  /**
+   * ⚠ **CANNOT-TELL READS AS NOTHING TO SAY, and the direction is the whole point.** A
+   * database predating `agent.schedule_spent` carries no such key, and `Boolean("false")` is
+   * `true`. Read either as spent and every working daily automation would be reported as one
+   * that will never run — far worse than the silence this replaces.
+   */
+  const spPause = spTools("pause_automation");
+  for (const spJunk of [undefined, null, "true", "false", "", 0, 1, {}, [], "spent"]) {
+    const spOdd = recorder((rpc) => rpc.startsWith("read_automation")
+      ? { id: AUTO, agent: AG, name: "x", schedule: "once", enabled: true }
+      : { ok: true, id: AUTO, enabled: true, next_run_at: null, spent: spJunk });
+    const spSaid = await spPause.run({ id: AUTO, enabled: true }, { capabilities: spOdd.can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.equal(spSaid.ok, true, `spent=${JSON.stringify(spJunk)}: ${JSON.stringify(spSaid)}`);
+    assert.equal(spSaid.spent, undefined, `spent=${JSON.stringify(spJunk)} was read as spent`);
+    assert.equal(spSaid.say, undefined, `spent=${JSON.stringify(spJunk)} earned a sentence`);
+  }
+
+  /**
+   * ⚠ **AND BOTH FACTS SURVIVE TOGETHER.** A repeat and a spent schedule are independent and
+   * both are reachable at once — the recorded outcome a repeat is answered from carries `spent`
+   * too — so composing them as two spread objects would hand a model whichever came last and
+   * silently delete the other. Asserted as BOTH sentences in one `say`.
+   */
+  const spBoth = recorder((rpc) => rpc.startsWith("read_automation")
+    ? { id: AUTO, agent: AG, name: "x", schedule: "once", enabled: true }
+    : { ok: true, id: AUTO, enabled: true, next_run_at: null, spent: true, repeat: true });
+  const spPair = await spPause.run({ id: AUTO, enabled: true }, { capabilities: spBoth.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(spPair.repeat, true, "the repeat was lost");
+  assert.equal(spPair.spent, true, "the spent schedule was lost");
+  assert.ok(spPair.say.includes("already done by this same request"), `the repeat's words went: ${spPair.say}`);
+  assert.ok(spPair.say.includes(SPENT_SAY), `the spent sentence went: ${spPair.say}`);
+  // ...AND A REPEAT ALONE STILL CARRIES ITS OWN WORDS AND NOTHING ELSE — the other half, so
+  // "both are there" is not satisfied by a reader that always says both.
+  const spRep = recorder((rpc) => rpc.startsWith("read_automation")
+    ? { id: AUTO, agent: AG, name: "x", schedule: "daily", enabled: true }
+    : { ok: true, id: AUTO, enabled: true, next_run_at: "2099-01-01T09:00:00+00:00", spent: false, repeat: true });
+  const spOnly = await spPause.run({ id: AUTO, enabled: true }, { capabilities: spRep.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.equal(spOnly.repeat, true);
+  assert.equal(spOnly.spent, undefined);
+  assert.equal(spOnly.say.includes(SPENT_SAY), false, `a working schedule was called spent: ${spOnly.say}`);
+
+  // THE SENTENCE NAMES WHAT TO DO ABOUT IT, because "it will never run" with no remedy is a
+  // dead end for a model composing prose for somebody.
+  assert.ok(/date/.test(SPENT_SAY) && /never run/.test(SPENT_SAY), SPENT_SAY);
+  assert.ok(/still to come|repeating/.test(SPENT_SAY), `it does not say what would fix it: ${SPENT_SAY}`);
 });

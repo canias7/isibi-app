@@ -5432,6 +5432,177 @@ try {
     })(), "the patch resolves a field before it holds the row");
 }
 
+// ── A SCHEDULE WITH NO MOMENT LEFT IS NOT A SCHEDULE THAT WAS NEVER SET ───────
+//
+// ⚠ **`next_run_at is null` MEANT TWO OPPOSITE THINGS AND EVERY WRITING DOOR ANSWERED THE
+// SAME WAY. MEASURED HERE, on this database, before `agent.schedule_spent` existed:**
+//
+//   create  a one-off for a day already gone   {"ok": true, "next_run_at": null}
+//   update  a schedule change to such a day    {"ok": true, "next_run_at": null}
+//   patch   the same, through the patch door   {"ok": true, "next_run_at": null}
+//   enable  a one-off whose day passed while off  {"ok": true, "enabled": true, "next_run_at": null}
+//   enable  an automation with NO schedule        {"ok": true, "enabled": true, "next_run_at": null}
+//
+// The last two are opposite facts — *your schedule is used up* against *you have no schedule,
+// as you asked* — and nothing separated them. A screen can tell, because it holds the schedule
+// beside the answer; a model reads the answer and nothing else.
+//
+// **AND THE ENABLE DOOR IS THE QUIETEST OF THE FOUR**: `tick_automations` selects only enabled
+// rows, so a one-off whose day passed while it was OFF gets no `missed` record either.
+{
+  console.log("\n── A SPENT SCHEDULE, TOLD APART FROM ONE THAT WAS NEVER SET ──");
+  // ⚠ ITS OWN IDS, AND A CENSUS THAT THEY ARE FREE BEFORE ANYTHING IS WRITTEN. This file is one
+  // long body whose fixtures share a database, and a collision with a block five hundred lines
+  // up has reported correct behaviour as broken here twice.
+  // ⚠ ITS OWN OWNER HANDLE. `spOwner` is declared inside the connections block and
+  // `asOwner` at the top means "no `set role` at all"; a third spelling of either in a nested
+  // scope would SHADOW it silently, which this file records having cost a round.
+  const spOwner = { role: "postgres" };
+  const SP_T = "sp-tenant";
+  const SP_AG = "ef000000-0000-4000-8000-0000000000a1";
+  const SP = (n) => `ef000000-0000-4000-8000-0000000000b${n}`;
+  const spIds = [SP_AG, SP(1), SP(2), SP(3), SP(4), SP(5)];
+  check("set up: none of this block's ids is already in use",
+    jget(`select count(*) from agent.agents where id in (${spIds.map((i) => `'${i}'`).join(",")})
+          union all select count(*) from agent.automations
+          where id in (${spIds.map((i) => `'${i}'`).join(",")});`).split("\n").every((n) => n.trim() === "0"),
+    "an id in this block is already somebody else's");
+
+  /**
+   * 1. THE RULE ITSELF, over its whole truth table.
+   *
+   * ⚠ **IT IS EXACT BY CONSTRUCTION RATHER THAN A GUESS ABOUT TODAY'S SCHEDULES**, so the table
+   * is asked for every schedule the platform has AND for a null one: `daily` and `weekly` always
+   * answer an instant (weekly raises rather than answering null), `manual` is null on
+   * `automation_next_run`'s first line, and only `once` past its day is both scheduled and
+   * instantless.
+   */
+  for (const [spSched, spNext, spWant] of [
+    ["manual", "null", "false"],
+    ["manual", "now()", "false"],
+    ["daily", "now()", "false"],
+    ["daily", "null", "true"],
+    ["weekly", "now()", "false"],
+    ["weekly", "null", "true"],
+    ["once", "now()", "false"],
+    ["once", "null", "true"],
+    ["null", "null", "false"],
+    ["null", "now()", "false"],
+  ]) {
+    const spSql = spSched === "null" ? "null::text" : `'${spSched}'`;
+    check(`schedule_spent(${spSched}, ${spNext === "null" ? "no instant" : "an instant"}) is ${spWant}`,
+      jget(`select agent.schedule_spent(${spSql}, ${spNext}::timestamptz)::text;`) === spWant);
+  }
+  // ...AND THE OBSERVER: the two answers really are different, so a function hardwired either
+  // way could not satisfy the table above.
+  check("...so the two answers are two", new Set([
+    jget(`select agent.schedule_spent('once', null::timestamptz)::text;`),
+    jget(`select agent.schedule_spent('manual', null::timestamptz)::text;`),
+  ]).size === 2);
+  check("...and it is immutable with its search path pinned, like every other function here",
+    jget(`select provolatile::text || '/' || coalesce(array_to_string(proconfig,','),'(none)')
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname='agent' and p.proname='schedule_spent';`) === 'i/search_path=""');
+
+  // 2. THE GRANTS, asked as PRIVILEGES rather than as refusals — `authenticated` holds no
+  // USAGE on this schema, so a refusal would say nothing about the function grant.
+  check("service_role may ask it", jget(`select has_function_privilege('service_role',
+    'agent.schedule_spent(text,timestamptz)', 'execute')::text;`) === "true");
+  check("...and PUBLIC may not", jget(`select has_function_privilege('public',
+    'agent.schedule_spent(text,timestamptz)', 'execute')::text;`) === "false");
+
+  /**
+   * 3. THE FOUR DOORS, each with its own contrast. A one-off for a day already gone is MADE,
+   * EDITED and ENABLED — nothing here refuses it, because a record of something that has
+   * already happened is a thing somebody may legitimately save — and every answer says so.
+   */
+  allowed("set up: an agent of its own",
+    `insert into agent.agents (id, tenant_id, name, instructions, zone)
+       values ('${SP_AG}','${SP_T}','Spent','be brief','UTC');`, spOwner);
+
+  const spGone = JSON.parse(jget(`select agent.create_automation('${SP_T}','${SP_AG}'::uuid,'${SP(1)}'::uuid,
+    'A one-off', true,'once','09:00'::time,'UTC','[]'::jsonb, 20, '[]'::jsonb, null, (current_date - 3), null)::text;`));
+  check("⚠ CREATE: a one-off for a day already gone is saved and says it is spent",
+    spGone.ok === true && spGone.spent === true && spGone.next_run_at === null, JSON.stringify(spGone));
+  const spSoon = JSON.parse(jget(`select agent.create_automation('${SP_T}','${SP_AG}'::uuid,'${SP(2)}'::uuid,
+    'Still to come', true,'once','09:00'::time,'UTC','[]'::jsonb, 20, '[]'::jsonb, null, (current_date + 3), null)::text;`));
+  check("...and one still to come is NOT — the contrast, without which this proves nothing",
+    spSoon.ok === true && spSoon.spent === false && typeof spSoon.next_run_at === "string", JSON.stringify(spSoon));
+
+  const spUp = JSON.parse(jget(`select agent.update_automation('${SP_T}','${SP(2)}'::uuid,'Moved back', true,
+    'once','09:00'::time,'UTC','[]'::jsonb,'[]'::jsonb,null,(current_date - 3),null)::text;`));
+  check("⚠ UPDATE: a schedule change onto a day already gone says it is spent",
+    spUp.ok === true && spUp.spent === true && spUp.next_run_at === null, JSON.stringify(spUp));
+  /**
+   * ⚠ **AND THE PATCH DOOR ANSWERS IT, because it returns `update_automation`'s answer whole**
+   * — the one-writer design paying for itself, so this needed no second reader.
+   *
+   * ⚠ **THE DATE HAS TO BE CLEARED ALONGSIDE A MOVE TO `daily`, and that is the schema being
+   * right rather than strict.** `automations_schedule_is_whole` refuses a daily automation still
+   * carrying a date, so a patch of the schedule ALONE is `bad-date` — which my first draft of
+   * this check sent, and which the refusal correctly reported.
+   */
+  const spPatchGone = JSON.parse(jget(`select agent.patch_automation('${SP_T}','${SP(2)}'::uuid,
+    jsonb_build_object('onDate', (current_date - 5)::text))::text;`));
+  check("...and PATCH answers it too, because it returns update_automation's answer whole",
+    spPatchGone.ok === true && spPatchGone.spent === true && spPatchGone.next_run_at === null,
+    JSON.stringify(spPatchGone));
+  const spPatchBack = JSON.parse(jget(`select agent.patch_automation('${SP_T}','${SP(2)}'::uuid,
+    jsonb_build_object('schedule','daily','atLocal','09:00','onDate', null))::text;`));
+  check("...and patching it onto a real schedule stops saying it — the contrast",
+    spPatchBack.ok === true && spPatchBack.spent === false && typeof spPatchBack.next_run_at === "string",
+    JSON.stringify(spPatchBack));
+
+  /**
+   * ⚠ **THE ENABLE DOOR, WHICH IS THE ONE THAT REACHES A CUSTOMER MOST QUIETLY.** A one-off
+   * disabled before its day and turned back on after it: the moment has gone, so NOT running is
+   * right, and being told `ok, enabled: true` with nothing else is not.
+   */
+  allowed("set up: a one-off switched off, whose day then passes",
+    `update agent.automations set enabled = false, on_date = current_date - 3,
+       schedule = 'once', next_run_at = null where id = '${SP(1)}';`, spOwner);
+  const spOn = JSON.parse(jget(`select agent.set_automation_enabled('${SP_T}','${SP(1)}'::uuid,true)::text;`));
+  check("⚠ ENABLE: turning a spent one-off back on says the re-arm armed nothing",
+    spOn.ok === true && spOn.enabled === true && spOn.spent === true && spOn.next_run_at === null,
+    JSON.stringify(spOn));
+  // ...AND THE TWO CONTRASTS THAT MAKE IT MEAN SOMETHING. A daily one really is re-armed
+  // forward, and a MANUAL one answers `next_run_at: null` too — which is the shape the bare
+  // null could not be told apart from.
+  allowed("set up: a daily one a week behind, switched off",
+    `insert into agent.automations (id, tenant_id, agent_id, name, enabled, schedule, at_local, zone, next_run_at)
+       values ('${SP(3)}','${SP_T}','${SP_AG}','Daily', false,'daily','09:00'::time,'UTC', now() - interval '7 days');`,
+    spOwner);
+  const spDaily = JSON.parse(jget(`select agent.set_automation_enabled('${SP_T}','${SP(3)}'::uuid,true)::text;`));
+  check("...a daily one is re-armed forward and is NOT spent",
+    spDaily.spent === false && typeof spDaily.next_run_at === "string" &&
+    jget(`select (next_run_at > now())::text from agent.automations where id='${SP(3)}';`) === "true",
+    JSON.stringify(spDaily));
+  allowed("set up: one with no schedule at all, switched off",
+    `insert into agent.automations (id, tenant_id, agent_id, name, enabled, schedule, zone)
+       values ('${SP(4)}','${SP_T}','${SP_AG}','By hand', false,'manual','UTC');`, spOwner);
+  const spManual = JSON.parse(jget(`select agent.set_automation_enabled('${SP_T}','${SP(4)}'::uuid,true)::text;`));
+  check("⚠ ...and one with NO schedule answers the same null and is NOT spent — the pair this exists for",
+    spManual.next_run_at === null && spManual.spent === false, JSON.stringify(spManual));
+
+  /**
+   * 4. ⚠ **AND THE STATE REALLY IS UNREACHABLE BY THE SCHEDULER**, which is why saying so is
+   * the whole of the fix: the row is enabled and scheduled, the tick never selects it, and no
+   * `missed` record is ever written — so the answer is the only place it can be said.
+   */
+  check("a spent one-off is left enabled, as its owner asked", 
+    jget(`select enabled::text from agent.automations where id='${SP(1)}';`) === "true");
+  check("...and the tick cannot see it, so nothing anywhere else will ever say so",
+    jget(`select count(*) from agent.tick_automations(3600, 25) t
+          where (t->>'automation_id') = '${SP(1)}';`) === "0");
+  check("...and no execution and no history row exist for it",
+    jget(`select count(*) from agent.automation_runs where automation_id='${SP(1)}';`) === "0");
+
+  // LEAVE THE DATABASE AS THIS BLOCK FOUND IT, so a later section cannot meet these rows.
+  allowed("this block cleans up after itself",
+    `delete from agent.automations where tenant_id = '${SP_T}';
+     delete from agent.agents where id = '${SP_AG}';`, spOwner);
+}
+
 // ── EVERY `_once` WRAPPER TAKES ITS INNER FUNCTION'S PARAMETERS ───────────────
 //
 // ⚠ **THE RULE, AND IT COST THREE DEMONSTRATIONS AT ONCE.** A wrapper's parameter list is
