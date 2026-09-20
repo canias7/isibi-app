@@ -34,6 +34,29 @@ export function haveCluster() {
 }
 
 /**
+ * THE MIGRATIONS, IN THE ORDER POSTGRES WILL SEE THEM — sorted filenames, read once here so
+ * nothing else in the tree has a second copy of "read the folder and sort it".
+ */
+export const MIGRATIONS = Object.freeze(
+  fs.readdirSync(path.join(DIR, "supabase", "migrations")).filter((x) => x.endsWith(".sql")).sort(),
+);
+
+/**
+ * Apply ONE migration file.
+ *
+ * ⚠ **IT IS COPIED TO A READABLE PLACE FIRST.** `su postgres` cannot read this session's
+ * directory, and `psql -f` on an unreadable file fails in a way that reads like a broken
+ * migration rather than like a permission.
+ */
+export function applyMigration(su, db, file) {
+  const tmp = path.join("/tmp", `local-stack-${process.pid}-${file}`);
+  fs.copyFileSync(path.join(DIR, "supabase", "migrations", file), tmp);
+  fs.chmodSync(tmp, 0o644);
+  try { su(`psql -X -q -v ON_ERROR_STOP=1 -d ${db} -f ${tmp}`); }
+  finally { fs.rmSync(tmp, { force: true }); }
+}
+
+/**
  * Stand the whole thing up.
  *
  * `roles` are created the way the PLATFORM has them, not the way a fresh cluster does —
@@ -41,7 +64,7 @@ export function haveCluster() {
  * this repository created it without, so the writer was refused by the very policies it is
  * exempt from and forty checks failed for a reason that does not exist in production.
  */
-export async function standUp({ db, quiet = false } = {}) {
+export async function standUp({ db, quiet = false, upTo = null } = {}) {
   if (!db) throw new TypeError("standUp: db is required");
   const su = (cmd) => execFileSync("su", ["postgres", "-c", cmd], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const q = (sql) => su(`psql -X -q -t -A -v ON_ERROR_STOP=1 -d ${db} -c ${shq(sql)}`).trim();
@@ -58,25 +81,30 @@ alter role authenticated nologin nobypassrls;
 alter role service_role  nologin bypassrls;
 alter role anon          nologin nobypassrls;`)}`);
 
-  const migs = path.join(DIR, "supabase", "migrations");
-  for (const f of fs.readdirSync(migs).filter((x) => x.endsWith(".sql")).sort()) {
-    // COPIED TO A READABLE PLACE FIRST. `su postgres` cannot read this session's
-    // directory, and `psql -f` on an unreadable file fails in a way that reads like a
-    // broken migration.
-    const tmp = path.join("/tmp", `local-stack-${process.pid}-${f}`);
-    fs.copyFileSync(path.join(migs, f), tmp);
-    fs.chmodSync(tmp, 0o644);
-    su(`psql -X -q -v ON_ERROR_STOP=1 -d ${db} -f ${tmp}`);
-    fs.rmSync(tmp, { force: true });
+  // ⚠ `upTo` STOPS AFTER THE NAMED MIGRATION, and it is REFUSED rather than ignored when
+  // it names none. A caller asking for a schema this tree has not got wants that state
+  // exactly; applying every file instead would report the check it is about as green
+  // having stood up the wrong database. Default `null` is every file, so every other
+  // caller is byte for byte what it was.
+  if (upTo !== null && !MIGRATIONS.some((f) => f.startsWith(upTo))) {
+    throw new Error(`standUp: upTo ${JSON.stringify(upTo)} names no migration in this tree`);
   }
-  say("  migrations applied");
+  const applied = [];
+  for (const f of MIGRATIONS) {
+    applyMigration(su, db, f);
+    applied.push(f);
+    if (upTo !== null && f.startsWith(upTo)) break;
+  }
+  say(`  ${applied.length} migration(s) applied`);
 
   const { startLocalRest } = await import("../local-rest.mjs");
   const rest = await startLocalRest({ db });
   say(`  local rest on ${rest.url}`);
 
   return {
-    su, q, rest,
+    su, q, rest, applied,
+    /** Apply one more migration onto this database, the way a rollout does. */
+    apply: (file) => applyMigration(su, db, file),
     /** Drop the database and stop the shim. Always in a `finally`. */
     async tearDown() {
       await rest.close?.();
