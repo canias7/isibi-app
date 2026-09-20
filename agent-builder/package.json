@@ -23,6 +23,7 @@
     "verify:integration": "node scripts/verify-integration.mjs",
     "verify:conversation": "node scripts/verify-conversation.mjs",
     "verify:edits": "node scripts/verify-edits.mjs",
-    "verify:journeys": "node scripts/verify-journeys.mjs"
+    "verify:journeys": "node scripts/verify-journeys.mjs",
+    "verify:browser": "node scripts/verify-browser.mjs"
   }
 }
