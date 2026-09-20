@@ -43,6 +43,9 @@
 
 import { profileFor } from "./rest-profile.mjs";
 import { splitOperation } from "./approvals.mjs";
+// ⚠ THE ACTION NAME IS THE ENGINE'S OWN, so "which permission a send needs" cannot be asked
+// about a different action than the one `perform` really runs.
+import { SEND_ACTION } from "./automations.mjs";
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,7 +57,7 @@ const isId = (v) => typeof v === "string" && UUID.test(v);
  * without a name here is not reachable at all.
  */
 export const CONNECTION_OPS = Object.freeze([
-  "list", "connect", "disconnect", "revoke", "refresh", "perform",
+  "list", "connect", "disconnect", "revoke", "refresh", "perform", "sendScopes",
 ]);
 
 /** The database function each one calls, declared so a census can read it. */
@@ -473,8 +476,33 @@ export function makeConnections(opts = {}) {
               say: "that did not go out — ask again if you still want it" }, missed);
           }
 
+          /**
+           * WHICH PERMISSION A SEND NEEDS, PER PROVIDER — read off the adapters and never
+           * out of the database.
+           *
+           * ⚠ **IT EXISTS SO A CHECK CAN BE MADE BEFORE ANYTHING IS SENT.** `lease` refuses a
+           * send through an account that was granted reading and not sending, so a connection
+           * can be perfectly `active` and still unable to do the one thing a `send` step is
+           * for — and without this, the only way to find that out is to run the automation and
+           * read the failure. Answering it needs no row, so it costs nothing and cannot fail.
+           *
+           * **PER PROVIDER, from the ADAPTER's own `scopes` map**, because a second provider
+           * may spell its own differently; reading the first scope of a list, or matching the
+           * word "send", would each be a guess about a provider rather than a fact about it. A
+           * provider whose adapter names none is simply absent here, which the reader above
+           * reads as "could not tell" rather than as "no permission is needed".
+           */
+          function sendScopes() {
+            const out = {};
+            for (const [name, a] of Object.entries(adapters)) {
+              const want = a && typeof a.scopes === "object" && a.scopes ? a.scopes[SEND_ACTION] : undefined;
+              if (typeof want === "string" && want) out[name] = want;
+            }
+            return out;
+          }
+
           return Object.freeze({
-            list,
+            list, sendScopes,
             /**
              * ⚠ THE ID IS THE CALLER'S, NOT MINTED HERE, so a retried press is absorbed by
              * the database rather than making a second connection. The connect path is a

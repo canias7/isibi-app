@@ -39,6 +39,10 @@
 import { handleAgentApi, makeAgentStore, cleanWorkflow, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS }
   from "../../agent-store.mjs";
 import { readWorkflow } from "../src/automations.mjs";
+import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
+import { makeCapabilities } from "../src/capabilities.mjs";
+import { makeConnections } from "../src/connections.mjs";
+import { makeFakeProvider, FAKE_PROVIDER } from "../src/fake-provider.mjs";
 import { haveCluster, standUp } from "./lib/local-stack.mjs";
 
 const DB = `agent_ed_${process.pid}`;
@@ -541,6 +545,182 @@ try {
   const strangerSteps = await edit({ id: one, steps: [{ type: "note", text: "mine now" }] }, B);
   check("...and so is a steps-only edit of it", strangerSteps.status === 404, JSON.stringify(strangerSteps.body));
   check("...and still nothing was written", mark(one) === beforeStranger);
+
+
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n8. CHECKING BEFORE ANYTHING RUNS — the same answer through both doors");
+  // ═════════════════════════════════════════════════════════════════════════
+  /**
+   * ⚠ **EVERY REFUSAL ABOVE WAS REACHABLE ONLY BY PRESSING SAVE, and a dependency that is not
+   * about the steps at all could only be found by RUNNING the automation and reading the
+   * failure.** So this drives the check through BOTH doors against one database — the person's
+   * route and the model's own `check_workflow` tool — and requires the same verdict of each.
+   *
+   * ⚠ **THREE ANSWERS, NEVER ONE.** `error` is something in the steps and nothing outside them
+   * can fix it. `needs` is something about the ACCOUNT that can be true tomorrow with the steps
+   * unchanged. `unchecked` is a question nobody could put. Folding them either tells somebody
+   * their workflow is wrong when their account is not ready, or says "fine" about a check that
+   * was never made.
+   */
+  const tool = CAPABILITY_TOOLS.find((t) => t.name === "check_workflow");
+  check("set up: the platform offers a check tool at all", !!tool);
+
+  /** The real capability surface, scoped exactly as a run's would be. */
+  const cans = makeCapabilities({ fetch: (u, o) => fetch(u, o), url: rest.url, key: "local-service-role" })
+    .forTenant(A).forAgent(AG);
+  const conns = makeConnections({ fetch: (u, o) => fetch(u, o), url: rest.url, key: "local-service-role",
+    adapters: { [FAKE_PROVIDER]: makeFakeProvider() } }).forTenant(A).forAgent(AG);
+  const ctx = { capabilities: cans, connections: conns };
+  /**
+   * ⚠ **IT TAKES THE CONTEXT, because the last arm of this section is about NOT having one.**
+   * Written `(args) => tool.run(args, ctx)` it closed over the seams and ignored whatever it was
+   * handed — so the no-store arm ran against the real store and reported "nothing is missing"
+   * where the property is "it could not ask". *A value handed over and never forwarded*, in the
+   * helper for the check that is about forwarding.
+   */
+  const viaTool = (args, seams = ctx) => tool.run(args, seams);
+  const viaRoute = (body) => api("/api/agent/automation-check", { body: { agent: AG, name: "n", ...body } });
+
+  /**
+   * ⚠ **THE SIX CLASSES, EACH THROUGH BOTH DOORS.** The two readers are separate code in
+   * separate products — neither may import the other — so agreeing is a measurement rather than
+   * a consequence, and it is the whole of "one validation result rather than two independent
+   * interpretations".
+   */
+  const CX = "cccccccc-1111-4111-8111-cccccccccccc";
+  const NOPE = "cccccccc-9999-4999-8999-cccccccccccc";
+  const classes = [
+    ["a missing input the steps refer to",
+      { steps: [{ type: "note", text: "Hi {{customer}}" }], inputs: [] }, "error"],
+    // ⚠ `as` IS WHAT A LOOP CALLS EACH ONE, and the first draft of this wrote `out` — a field
+    // the step has not got. Both doors then refused for that instead, each naming a different
+    // missing thing, which read as an ORDER divergence and was a fixture naming nothing.
+    ["an input declared as the wrong kind of thing",
+      { steps: [{ type: "repeat", mode: "each", each: "{{lines}}", as: "line" }, { type: "endrepeat" }],
+        inputs: [{ name: "lines", label: "Lines", type: "text" }] }, "error"],
+    ["a reference to a value produced only on one arm of a branch",
+      { steps: [{ type: "if", left: "1", op: "is", right: "1" }, { type: "note", out: "a", text: "x" },
+                { type: "otherwise" }, { type: "note", text: "y" }, { type: "end" },
+                { type: "note", text: "{{a}}" }], inputs: [] }, "error"],
+    ["a branch that does not balance",
+      { steps: [{ type: "if", left: "1", op: "is", right: "1" }, { type: "note", text: "x" }], inputs: [] }, "error"],
+    ["an action this platform has not got",
+      { steps: [{ type: "sned", to: "a@b.test" }], inputs: [] }, "error"],
+    ["a subworkflow nobody has",
+      { steps: [{ type: "workflow", runs: NOPE }], inputs: [] }, "needs"],
+    ["an account that is not connected",
+      { steps: [{ type: "send", connection: NOPE, to: "a@b.test", body: "hi" }], inputs: [] }, "needs"],
+    ["a schedule that is not a whole one",
+      { steps: [{ type: "note", text: "x" }], inputs: [], schedule: "weekly" }, "error"],
+    ["a workflow with nothing wrong with it",
+      { steps: [{ type: "note", text: "x" }], inputs: [] }, "ok"],
+  ];
+  /**
+   * ⚠ **THE TWO DOORS SPELL THE TRIGGER'S FIELDS DIFFERENTLY, and that is each matching its own
+   * reader rather than a drift.** A person's form sends `at`, a model sends `atLocal`; both go
+   * through their own side's one reader, which is what the cross-product census compares. So the
+   * body is translated here and the ANSWER is what is required to agree.
+   */
+  const forTool = (b) => ({ steps: b.steps, inputs: b.inputs,
+    ...(b.schedule ? { schedule: b.schedule } : {}) });
+  for (const [what, body, expect] of classes) {
+    const r = await viaRoute(body);
+    const t = await viaTool(forTool(body));
+    const routeKind = r.body.error ? "error" : (r.body.needs ?? []).length ? "needs"
+      : (r.body.unchecked ?? []).length ? "unchecked" : "ok";
+    const toolKind = t.ok === false ? "error" : (t.needs ?? []).length ? "needs"
+      : (t.unchecked ?? []).length ? "unchecked" : "ok";
+    check(`${what}: the route says ${routeKind}`, routeKind === expect,
+      JSON.stringify(r.body.error ?? r.body.needs ?? r.body.unchecked ?? "ok"));
+    check(`  …and the tool agrees`, toolKind === routeKind,
+      `route ${routeKind} / tool ${toolKind}: ${JSON.stringify(t.say ?? t.error)}`);
+    /**
+     * ⚠ **AND THE SAME SENTENCE WHEREVER THE RULE IS SHARED, which is every class but the
+     * SCHEDULE — and that one is two readers addressed to two readers, deliberately.** A
+     * person's form is refused by `cleanSchedule` ("say what time of day it should run") and a
+     * model's argument by `authorableSchedule` ("a weekly schedule needs a time of day as
+     * HH:MM"): one names a control on a screen and the other names a field in a call, and
+     * forcing them together would make one of the two wrong for its reader. What must agree —
+     * and is censused in `test/agent-send.test.mjs` — is WHAT MAY BE STORED.
+     */
+    if (expect === "error" && !body.schedule) {
+      check(`  …and in the same words, because the rule is one rule`,
+        String(r.body.error) === String(t.say), `route ${r.body.error} / tool ${t.say}`);
+    }
+  }
+  /**
+   * ⚠ THE OBSERVER, IN BOTH DIRECTIONS: a pair of doors that refused everything would agree
+   * perfectly and say nothing, and so would a pair that accepted everything.
+   */
+  const kinds = new Set(classes.map(([, , k]) => k));
+  check("⚠ the classes above really do cover more than one verdict", kinds.size >= 3,
+    [...kinds].join(", "));
+
+  /**
+   * ⚠ **A PERMISSION IS NOT A CONNECTION, and this is the pair that separates them.** An
+   * account connected for READING is perfectly `active` and still cannot do the one thing a
+   * send step is for — which without this reads to somebody as the step being broken.
+   */
+  const READ_ONLY = "cccccccc-2222-4222-8222-cccccccccccc";
+  const CAN_SEND = "cccccccc-3333-4333-8333-cccccccccccc";
+  await conns.connect({ id: READ_ONLY, provider: FAKE_PROVIDER, label: "Reading", account: "r@example.test",
+    scopes: ["read"], secret: "x".repeat(40) });
+  await conns.connect({ id: CAN_SEND, provider: FAKE_PROVIDER, label: "Sending", account: "s@example.test",
+    scopes: ["read", "send"], secret: "y".repeat(40) });
+  const readOnly = await viaRoute({ steps: [{ type: "send", connection: READ_ONLY, to: "a@b.test", body: "hi" }], inputs: [] });
+  check("⚠ an account connected for reading only is a PERMISSION it needs, not a broken step",
+    readOnly.body.error === null && readOnly.body.needs.length === 1
+      && readOnly.body.needs[0].kind === "permission", JSON.stringify(readOnly.body.needs));
+  check("  …and the tool says the same", await (async () => {
+    const t = await viaTool({ steps: [{ type: "send", connection: READ_ONLY, to: "a@b.test", body: "hi" }], inputs: [] });
+    return t.ok === true && t.needs.length === 1 && t.needs[0].kind === "permission";
+  })());
+  const canSend = await viaRoute({ steps: [{ type: "send", connection: CAN_SEND, to: "a@b.test", body: "hi" }], inputs: [] });
+  check("  …THE CONTROL: the account that really can send needs nothing",
+    canSend.body.error === null && canSend.body.needs.length === 0, JSON.stringify(canSend.body.needs));
+
+  /**
+   * ⚠ **A CHECK IS NOT AUTHORISATION, and the structural half is that there is nothing to
+   * read.** Nothing is recorded by a check, so no later save or run can find "this was
+   * checked" — asserted as the tables a check could have touched, and as the fact that the
+   * NEXT save of the very workflow just checked is still read from scratch and still refused.
+   */
+  const beforeCheck = JSON.parse(q(`select json_build_object(
+    'operations', (select count(*) from agent.operations),
+    'automations', (select count(*) from agent.automations),
+    'runs', (select count(*) from agent.runs))::text;`));
+  await viaRoute({ steps: [{ type: "note", text: "x" }], inputs: [] });
+  await viaTool({ steps: [{ type: "note", text: "x" }], inputs: [] });
+  const afterCheck = JSON.parse(q(`select json_build_object(
+    'operations', (select count(*) from agent.operations),
+    'automations', (select count(*) from agent.automations),
+    'runs', (select count(*) from agent.runs))::text;`));
+  check("⚠ CHECKING WRITES NOTHING AT ALL — no operation record, no automation, no run",
+    JSON.stringify(beforeCheck) === JSON.stringify(afterCheck),
+    `${JSON.stringify(beforeCheck)} -> ${JSON.stringify(afterCheck)}`);
+  // AND A CHECK CANNOT BUY A SAVE. The same steps that were checked and refused are refused
+  // again by the save, which reads every field for itself.
+  const checkedBad = { steps: [{ type: "note", text: "Hi {{customer}}" }], inputs: [] };
+  await viaRoute(checkedBad);
+  const stillNo = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Checked", schedule: "manual", ...checkedBad },
+  });
+  check("⚠ ...and a workflow that was CHECKED is still refused by the save", stillNo.status === 400,
+    JSON.stringify(stillNo.body));
+
+  /**
+   * ⚠ **COULD-NOT-ASK IS A THIRD ANSWER, driven by taking the seams away.** A deployment with no
+   * connection store must still be able to check a step list — the structure is answered out of
+   * this repository's own code — and it must say it could not ask about the account rather than
+   * answering "nothing is missing". *A check that cannot be made is not a check that passed.*
+   */
+  const blind = await viaTool({ steps: [{ type: "send", connection: CAN_SEND, to: "a@b.test", body: "hi" }], inputs: [] }, {});
+  check("⚠ with no store behind it the structure still reads", blind.ok === true, JSON.stringify(blind));
+  check("  …and the account question comes back UNCHECKED rather than satisfied",
+    blind.needs.length === 0 && blind.unchecked.some((u) => u.kind === "connection"),
+    JSON.stringify(blind.unchecked));
+  check("  …and it is NOT a no-backend refusal, because the structure never needed one",
+    blind.error === undefined, JSON.stringify(blind.error));
 
   const tally = JSON.parse(q(`select json_build_object(
     'automations', (select count(*) from agent.automations),

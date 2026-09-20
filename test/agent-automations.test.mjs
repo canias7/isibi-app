@@ -70,6 +70,14 @@ function fakeStore(over = {}) {
     // fixture less capable than the thing it stands in for manufactures a defect.
     readAutomation: of("readAutomation", { id: C1, agentId: A1, name: "n", inputs: [], steps: [] }),
     decideApproval: of("decideApproval", { ok: true, repeat: false, verdict: "approved", step: "s1", queued: "queued" }),
+    /**
+     * ⚠ THE FAKE HAS TO BE AS CAPABLE AS THE REAL STORE, for the fourth recorded time in this
+     * file. `automation-check` reads the connected accounts, the agent's own automations and the
+     * agent row (for its time zone), so a fake without any of the three makes the route throw
+     * and the tenant census reads a 502 about a route that is correct.
+     */
+    listConnections: of("listConnections", []),
+    list: of("list", [{ id: A1, name: "n", zone: "Europe/London", status: "active", tools: [] }]),
     listKnowledge: of("listKnowledge", []),
     // ⚠ AS CAPABLE AS THE REAL STORE, AGAIN. `readKnowledge` is what a `source=` read asks
     // for — the one read that carries a document's material — and a fake without it throws
@@ -2142,4 +2150,151 @@ test("⚠ THE WORKED EXAMPLE IS A REAL WORKFLOW, through the door a save really 
   // mutable step would let one request's reader change what the next one is offered.
   assert.ok(Object.isFrozen(eg) && Object.isFrozen(eg.steps) && eg.steps.every(Object.isFrozen));
   assert.ok(Object.isFrozen(eg.inputs) && eg.inputs.every(Object.isFrozen));
+});
+
+// ── CHECKING A WORKFLOW BEFORE IT RUNS ──────────────────────────────────────
+
+const CX = "dddddddd-0000-4000-8000-00000000cc01";
+const SUB = "dddddddd-0000-4000-8000-00000000cc02";
+const SEND_STEP = { type: "send", connection: CX, to: "a@b.test", body: "hi" };
+
+test("⚠ A CHECK ANSWERS STRUCTURE, DEPENDENCIES AND WHAT IT COULD NOT ASK — three answers, never one", async () => {
+  /**
+   * THE DEFECT: every refusal these validators can make was reachable only by pressing Save, so
+   * a person with a twenty-step workflow found out one at a time — and a dependency that is not
+   * about the steps at all (an account not connected, a permission withheld, a time zone nobody
+   * set) could only be found by RUNNING the automation and reading the failure afterwards.
+   *
+   * ⚠ **AND THE THREE MUST NOT COLLAPSE.** A structural problem is in the steps and nothing
+   * outside them can fix it; a dependency can be true tomorrow with the steps unchanged; a
+   * question nobody could put is neither. Folding them either tells somebody their workflow is
+   * wrong when their account is not ready, or says "fine" about a check nobody could make.
+   */
+  // 1. STRUCTURE — an action nobody has. The same sentence a save gives, so the step it is
+  // about is marked by the code that already marks one.
+  const f = fakeStore();
+  const bad = await call("/api/agent/automation-check", {
+    store: f.store, body: { agent: A1, name: "n", steps: [{ type: "lsit" }] },
+  });
+  const badBody = bad.body;
+  assert.equal(bad.status, 200, "a workflow with a problem is not a bad REQUEST");
+  assert.equal(badBody.ok, true);
+  assert.equal(badBody.error, "step 1: this platform has no step called lsit");
+  assert.deepEqual([badBody.needs, badBody.unchecked], [[], []]);
+  // AND NOTHING WAS WRITTEN. A check that could create, patch or start anything would be a
+  // second door onto the thing it is supposed to be a preview of.
+  const wrote = f.calls.filter((c) => /^(create|patch|update|remove|run|setAutomation)/.test(c.name));
+  assert.deepEqual(wrote, [], "the check reached a write");
+
+  // 2. STRUCTURE — an invalid schedule combination, which is the class only the trigger can see.
+  const g = fakeStore();
+  const sched = (await call("/api/agent/automation-check", {
+    store: g.store, body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }], schedule: "weekly" },
+  })).body;
+  assert.equal(sched.ok, true);
+  assert.match(String(sched.error), /day/i, `a weekly schedule with no days was accepted: ${sched.error}`);
+
+  // 3. DEPENDENCIES — read, and not satisfied. Every one of these can be put right without
+  // touching a step, which is why they are `needs` rather than `error`.
+  const h = fakeStore({
+    listConnections: async () => [{ id: CX, provider: "fakemail", status: "active", scopes: ["read"] }],
+    listAutomations: async () => [],
+  });
+  const dep = (await call("/api/agent/automation-check", {
+    store: h.store, body: { agent: A1, name: "n", steps: [SEND_STEP, { type: "workflow", runs: SUB }] },
+  })).body;
+  assert.equal(dep.error, null, "a dependency was reported as a problem with the steps");
+  assert.deepEqual(dep.needs.map((n) => n.kind).sort(), ["permission", "subworkflow"]);
+  assert.match(dep.needs.find((n) => n.kind === "permission").say, /allow sending/);
+  assert.deepEqual(dep.unchecked, []);
+
+  // 4. AND THE CONTROL: with the account able to send and the automation there, nothing is
+  // missing — without which "it reports needs" is satisfied by a route that reports everything.
+  const i = fakeStore({
+    listConnections: async () => [{ id: CX, provider: "fakemail", status: "active", scopes: ["send"] }],
+    listAutomations: async () => [{ id: SUB }],
+  });
+  const fine = (await call("/api/agent/automation-check", {
+    store: i.store, body: { agent: A1, name: "n", steps: [SEND_STEP, { type: "workflow", runs: SUB }] },
+  })).body;
+  assert.deepEqual([fine.error, fine.needs, fine.unchecked], [null, [], []]);
+  assert.equal(fine.steps, 2);
+
+  // 5. COULD NOT ASK — a read that threw. Cannot-tell must never read as satisfied, and this is
+  // the one direction that produces a confident check about a workflow nobody looked at.
+  const j = fakeStore({
+    listConnections: async () => { throw new Error("down"); },
+    listAutomations: async () => { throw new Error("down"); },
+  });
+  const out = (await call("/api/agent/automation-check", {
+    store: j.store, body: { agent: A1, name: "n", steps: [SEND_STEP, { type: "workflow", runs: SUB }] },
+  })).body;
+  assert.deepEqual(out.needs, [], "an outage was reported as something to go and fix");
+  assert.deepEqual(out.unchecked.map((u) => u.kind).sort(), ["connection", "subworkflow"]);
+
+  // 6. AND THE ZONE, which is a dependency of the SCHEDULE rather than of any step.
+  const k = fakeStore({ list: async () => [{ id: A1, name: "n", zone: null }] });
+  const noZone = (await call("/api/agent/automation-check", {
+    store: k.store,
+    body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }], schedule: "daily", at: "09:00", zone: "Europe/London" },
+  })).body;
+  assert.equal(noZone.error, null);
+  assert.deepEqual(noZone.needs.map((n) => n.kind), ["zone"]);
+  // ITS CONTROL: a manual automation is never asked for one, so a route that always asked
+  // would be caught here rather than reading as correct.
+  const manual = (await call("/api/agent/automation-check", {
+    store: k.store, body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }] },
+  })).body;
+  assert.deepEqual(manual.needs, [], "a manual automation was asked for a time zone");
+
+  /**
+   * 7. ⚠ **AND A ZONE THIS COULD NOT ASK ABOUT IS `unchecked`, NEVER "no zone".** The other
+   * two dependencies come back `null` from `workflowNeeds` itself when their read failed; a
+   * zone's absence is indistinguishable from a zone nobody set, so the sentence has to be
+   * composed at the route — which is what `extra` is for, and a reader that dropped it would
+   * name a dependency nobody has.
+   *
+   * **TWO WAYS THAT READ FAILS AND BOTH ARE DRIVEN**: it threw, and it came back WITHOUT this
+   * agent — the second is a list that arrived short rather than a stranger, because
+   * `ownsAgent` has already passed.
+   */
+  const threw = fakeStore({ list: async () => { throw new Error("down"); } });
+  const blind = (await call("/api/agent/automation-check", {
+    store: threw.store,
+    body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }], schedule: "daily", at: "09:00", zone: "Europe/London" },
+  })).body;
+  assert.deepEqual(blind.needs, [], "a zone nobody could ask about was reported as one to set");
+  assert.deepEqual(blind.unchecked.map((u) => u.kind), ["zone"]);
+  const short = fakeStore({ list: async () => [{ id: "00000000-0000-4000-8000-0000000000ff", name: "other" }] });
+  const gap = (await call("/api/agent/automation-check", {
+    store: short.store,
+    body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }], schedule: "daily", at: "09:00", zone: "Europe/London" },
+  })).body;
+  assert.deepEqual(gap.needs, [], "an agent missing from its own owner's list read as having no zone");
+  assert.deepEqual(gap.unchecked.map((u) => u.kind), ["zone"]);
+});
+
+test("a check is scoped to its own agent, and another account's is the missing-agent answer", async () => {
+  const f = fakeStore({ ownsAgent: async () => false });
+  const res = await call("/api/agent/automation-check", {
+    store: f.store, body: { agent: A1, name: "n", steps: [{ type: "note", text: "x" }] },
+  });
+  assert.equal(res.status, 404, "a stranger learned whether that agent exists");
+  /**
+   * AND NOTHING WAS READ ABOUT IT, so the refusal is not an oracle for what that agent holds.
+   * `ownsAgent` is overridden here and therefore records nothing, which is why this asks about
+   * the READS rather than counting calls — the property is that none of them happened.
+   */
+  assert.deepEqual(f.calls.map((c) => c.name).filter((n) => n !== "ownsAgent"), [],
+    "a refused check still read the agent's connections, automations or settings");
+  // ITS OBSERVER: the same body on an agent that IS theirs really does reach those reads,
+  // without which "nothing was read" is satisfied by a route that reads nothing ever.
+  const mine = fakeStore();
+  await call("/api/agent/automation-check", {
+    store: mine.store,
+    body: { agent: A1, name: "n", steps: [SEND_STEP, { type: "workflow", runs: SUB }],
+            schedule: "daily", at: "09:00", zone: "Europe/London" },
+  });
+  assert.deepEqual(mine.calls.map((c) => c.name).filter((n) => n !== "ownsAgent").sort(),
+    ["list", "listAutomations", "listConnections"]);
 });

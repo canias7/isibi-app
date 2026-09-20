@@ -13267,3 +13267,54 @@ demonstrations are green at their recorded numbers with nothing failing. The swe
 591, and the long container harness (`site build` 1219) green on all twenty steps with its 382 site
 checks passing. Nothing deployed — the agent workflow's deploying steps are all skipped, as they
 should be.
+
+---
+
+## 2026-09-20 — you can now read a workflow through before you save it
+
+**The thing that was wrong:** everything the platform knows about whether a workflow is any good
+was only reachable by pressing Save. So on a long workflow you found out one problem at a time —
+and a whole class of problem wasn't about the workflow at all. If the account it sends from isn't
+connected yet, or the provider only granted permission to READ and not to send, or nobody has set a
+time zone, there was no way to find that out except to run the automation and read the failure
+afterwards.
+
+**There's a Check button next to Save now.** It writes nothing, so you can press it as often as you
+like while you're building. It tells you three different things, and keeping them apart is most of
+the work:
+
+- something wrong in the steps — drawn on the step it's about, exactly where a failed save draws it;
+- something that has to be in place before it can run — an account to connect, a permission to
+  allow, a time zone to set. **These aren't your workflow being wrong.** They can all be true
+  tomorrow without you changing a single step, so they read differently on purpose;
+- something it couldn't check from here. If the connected-accounts list doesn't load, it says so
+  rather than saying nothing is missing — which would be a confident tick over a question nobody
+  asked.
+
+**And it says out loud that checking isn't permission.** A green panel is exactly the thing that
+makes somebody assume the next step is allowed, so the panel says saving still asks you and running
+still checks everything again. That's not only wording: nothing anywhere records that a check
+happened, so there's no way for a save or a run to skip anything on the strength of one.
+
+**The agent gets the same answer through its own tool**, from the same readers — that was the point
+of the round rather than a nicety. The two were compared side by side over every shape I could
+think of, and **exactly one sentence differed**: an unknown step type. The screen said
+*"step 1: this platform has no step called X"* and the agent's tool said *"there is no step called
+X"* with no position at all. They say the same thing now, and the check that compares them gained
+the shape it had been missing — no test in it had ever used an unknown step type, so the one case
+where they could disagree was the one nothing compared.
+
+**The mutation sweep found nothing wrong with the product and one thing wrong with my testing**, and
+that one is worth knowing: every engine-side property of this round was proved only by the big
+end-to-end demonstration, which the sweep doesn't run. So the sweep couldn't have caught any of it
+breaking. Four new tests fixed that, and each one is proved to go red against the bug it's for.
+
+**Three of my own assumptions were wrong and the code was right** (a calling convention, a flag, and
+which field carries the sentence). **One was mine and really was a bug**: the answer read
+*"1 thing HAVE to be in place"* — I'd made the noun plural and forgotten the verb, in a sentence the
+agent quotes back to somebody. Fixed.
+
+**Nothing is applied, deployed or merged, and this round adds no database change at all.** Site
+tests 6,865 → 6,870; the agent engine's own 591 → 595. The end-to-end check that drives both doors
+against a real database went 74 → 107 checks, all passing. Two mutation sweeps: 17 breakages caught
+on this side and 16 on the engine's, nothing surviving either.

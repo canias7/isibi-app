@@ -7664,3 +7664,146 @@ is the last section of the root `CLAUDE.md`.
   `scripts/verify-automation-send.mjs` and `scripts/verify-conversation.mjs` each carried the same
   claim about a body they send; both now say the whole shape is KEPT deliberately — a body that
   names what it means cannot be read as an accidental clear whichever way an omission resolves.
+
+---
+
+## M14-3: a workflow can be read through before it runs, and the answer is the same one twice (2026-09-20)
+
+Owner: *"Make workflow validation available before execution. Reuse the existing validator and
+`check_workflow`… Distinguish structural errors from dependencies that can change later. A
+successful check is not authorization and must not bypass execution-time ownership, permissions,
+approval, or limits. Validation itself must not perform actions. Use the same validation result
+through chat tools and the existing editor rather than maintaining two independent
+interpretations."* **The site builder's half — the route and the Check button — is in the root
+`CLAUDE.md`**; what belongs here is the engine's.
+
+### THREE ANSWERS, AND THE THIRD IS WHAT MAKES THE OTHER TWO WORTH ANYTHING
+
+`workflowNeeds(steps, {connections, automations, zone, sendScopes})` — pure, exported, and
+handed what its caller read.
+
+| answer | means | who can fix it |
+|---|---|---|
+| `error` | the steps are not a workflow: an unknown action, an unbalanced branch, a `{{reference}}` nothing produces | nobody, without editing the list |
+| `needs` | an account not connected, a permission the provider withheld, an automation nobody has made, a time zone nobody set | **the account, with the steps unchanged** |
+| `unchecked` | a question this could not put at all | nobody yet — it is not an answer about their workflow |
+
+- **⚠ COLLAPSING ANY TWO OF THEM MISLEADS IN A DIFFERENT DIRECTION.** A dependency reported as a
+  refusal tells somebody their workflow is wrong when it is their account that is not ready; a
+  dependency reported as nothing is the check saying "fine" about a workflow whose first send
+  fails; and a question nobody could put reported as satisfied is *a confident check about a
+  workflow nobody looked at.* **`null` means not read and `[]` means read and there are none** —
+  the latter is a real answer and a real dependency.
+- **IT IS PURE AND TAKES THE ANSWERS, which is what lets ONE rule serve both doors.** A tool reads
+  the rows through the capability surface and a person's screen reads them through its own route;
+  handing the lists in is what makes that one function rather than two readings that agree until
+  one is edited.
+- **A PROVIDER NOBODY HERE HAS A SEND SCOPE FOR IS `unchecked`, NEVER "not granted".** We do not
+  know what that provider calls sending, so naming it would send somebody to a setting that may
+  not exist. `connections.mjs` gained `sendScopes()` for it — **read off the ADAPTER's own
+  `scopes[SEND_ACTION]`, per provider**, because a second provider may spell its own differently
+  and reading the first scope of a list is a guess about a provider rather than a fact about it.
+  It asks nobody, so it cannot fail and cannot be an outage.
+- **`workflowNeeds` REPORTS AND REFUSES NOTHING**, junk included: a check that threw where a run
+  would merely report is a check nobody can rely on.
+
+### THE CHECK ITSELF, and the two things it must never become
+
+`check_workflow` now takes the SCHEDULE FIELDS as well as the steps and the declarations, and
+answers `{ok, steps, produces, inputs, trigger, needs, unchecked, say}`.
+
+- **⚠ THE SCHEDULE IS PART OF THE WORKFLOW FOR THIS PURPOSE.**
+  `automations_schedule_is_whole` refuses a weekly one with no days and a manual one carrying a
+  time, so a check that read only the steps would pass a configuration the save then refuses —
+  which is the one thing a pre-flight check must not do. It goes through `readTrigger`, the SAME
+  reader both authoring tools use.
+- **⚠ A CHECK IS NOT AUTHORISATION, and that is structural before it is a sentence.** Nothing is
+  recorded by the call, so there is no state for a save or a run to read as "it was checked" — and
+  it is not `writes`, so it claims no operation identity and no record. The sentence
+  (*"Checking is not permission: saving it still needs a person, and running it checks everything
+  again"*) is the half a model reads, and it is on **every** answer.
+- **EACH DEPENDENCY READ IS IN ITS OWN `try`** (`askAround`), because three behind one `catch`
+  would let one outage silence the other two. The ZONE is asked only for a schedule that has a
+  local time to be in — reading the settings for a manual automation is a round trip that can
+  only answer a question nobody put.
+- **⚠ AND A SEAM THAT IS NOT THERE AND A READ THAT FAILED ARE ONE ABSENCE TO `workflowNeeds`.**
+  It is handed `null` for both, so the sentence for a zone nobody could ask about can only be
+  composed in `askAround` — which is why it is, and why a mutant cutting it is in the spec.
+- **IT REFUSES NOTHING FOR WANT OF A BACKEND.** The structure comes out of this repository's own
+  code, so `check_workflow` stays a `pureTool` and a deployment with no store still reads a step
+  list. *A check that cannot be made is not a check that passed*, so the seams' absence is
+  `unchecked` rather than `no-backend`.
+
+### ⚠ ONE REAL DIVERGENCE BETWEEN THE TWO DOORS, and it was the only one
+
+The point of the round is that a model and a screen get the SAME answer, so the two readers were
+driven side by side over every shape. **Exactly one sentence differed**: an unknown step type.
+`readWorkflow` said `there is no step called X` where every neighbour in its own loop opens
+`step N:` — and the SITE's reader said `step 1: this platform has no step called X`. It says the
+site's sentence now, and the cross-product census gained the shape, **which it had never had**:
+no fixture in it carried an unknown type, so the one class where the two could disagree was the
+one nothing compared.
+
+### Measured
+
+- **Engine suite 591 → 595**, 0 failed, and the arithmetic closes exactly: `automations.test.mjs`
+  +2 (`workflowNeeds`' three answers over nine shapes, and the `WORKFLOW_NEEDS` census both ways),
+  `capabilities.test.mjs` +1 (the check's seven properties), `connections.test.mjs` +1
+  (`sendScopes` off the adapter, with the fixture proved able to tell the two readings apart).
+  **⚠ AND THIS LINE READ 594 BEFORE THE RUN ANSWERED** — written from four additions done in my
+  head rather than from a measurement, which is this directory's own first rule broken in the entry
+  that quotes it. *Stamp measured numbers only AFTER the run.*
+- **`npm run verify:edits`: 74 → 107 checks, 0 failed.** A new section drives nine classes
+  through BOTH doors on one PostgreSQL — the tool and the site's route — comparing the verdict
+  KIND always and the SENTENCE for every non-schedule refusal, plus the read-only-versus-can-send
+  permission pair with its control, plus *checking writes nothing at all* (operations, automations
+  and runs counted before and after) and *a workflow that was CHECKED is still refused by the
+  save*.
+- **⚠ THE SAME-SENTENCE ASSERTION IS SCOPED TO NON-SCHEDULE CLASSES, and the reason is written
+  where it is made**: `cleanSchedule` addresses a FORM CONTROL and `authorableSchedule` addresses
+  a CALL ARGUMENT, so their words legitimately differ. Demanding one sentence there would be
+  demanding the two doors stop speaking to the people in front of them.
+- **⚠ AND THESE ENGINE CASES EXIST BECAUSE `npm run sweep` RUNS NO DEMONSTRATION.** Everything
+  above was proved only by `verify:edits` when it was written — *a property proven only by an
+  instrument the sweep cannot run is a property no mutant can be caught by*, the SEVENTH recorded
+  instance in this directory, and the sweep is what would have said so.
+- **Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 1 comment-only control survived —
+  CLEAN ON THE FIRST PASS**, over this round's own 16 entries against the four engine files that
+  can see them, taken after the run. The spec goes to **708 entries (11 controls)**, every anchor
+  unique by the generator's own pre-check, and the tree is proved to hold no mutant afterwards by
+  that same census. *A narrow list can only produce a false SURVIVOR, never a false kill*, so the
+  next full run still decides.
+- **EIGHT BREAKAGES DRIVEN ONE AT A TIME BEFORE ANY OF IT WAS BELIEVED**: an outage read as
+  empty, an unknown provider's permission read as ungranted, the zone need dropped, the three
+  reads behind one `catch`, nothing asked about the account at all, the not-permission sentence
+  dropped, the zone asked for every schedule, and the send scope read as any-old-scope.
+  **⚠ AND THE FIRST ATTEMPT AT THE ONE-CATCH PROOF CAME BACK GREEN, which is worth the line**: it
+  added a read inside the first `try` and left the original block standing to overwrite it — *a
+  mutant that changes nothing reads exactly like a test gap*, so it was replaced by one that
+  really shares the catch, and that is what the spec carries.
+- **Six older spec entries were RE-ANCHORED, NOT APPEASED**, every property unchanged: three
+  `make_automation` mutants and the send-status one became ambiguous because `check_workflow` and
+  `workflowNeeds` now open with the same lines their neighbours do — **which is the point**, since
+  the two really do read a step list and a connection identically. Each is pinned by the line that
+  follows it rather than by the shared condition.
+
+### ⚠ Four of this directory's own recorded traps, met again in one round
+
+1. **A NAME COLLISION IN ONE LONG TEST FILE** (`SEND`), for the fifth-plus time. Every local the
+   new block declares is prefixed (`wnSend`, `ckTool`, `scMap`).
+2. **AND THE RENAME THAT FIXED IT HAD TO BE SCOPED TO THE BLOCK AND CHECKED AGAINST PROSE** — a
+   blanket regex over identifiers reaches inside comments and string literals, which has cost this
+   directory two rounds running.
+3. **MY OWN VERIFICATION NEEDLE GAVE A FALSE ALL-CLEAR.** Correcting a call convention I checked
+   for `, null, ` with a trailing space and a lazy match; one call WRAPPED across a newline, so the
+   needle read zero left and two were. *A needle that cannot match the shape it is looking for
+   proves nothing about its absence* — asked across the newline, it found them.
+4. **THREE OF MY OWN ASSERTIONS WERE WRONG AND THE PRODUCT WAS RIGHT**: `pureTool` maps `(args,
+   ctx)` onto its own third slot, so the public call is TWO arguments; `defineTool` normalises
+   `writes` to `false` rather than leaving it absent; and `checkSteps` answers a stable
+   `bad-workflow` code with the sentence in `say`, which is the field that has to agree with the
+   site word for word. **One was mine and really was a defect**: the answer read *"1 thing HAVE to
+   be in place"* — the pluralisation covered the noun and not the verb, in a sentence a model
+   quotes to somebody. Fixed in the product.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED, and this round adds no SQL at all.**

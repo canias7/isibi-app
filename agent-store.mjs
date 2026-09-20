@@ -1786,6 +1786,7 @@ export const AGENT_PROVIDERS = Object.freeze([Object.freeze({
   sendScope: "send",
 })]);
 
+
 /** By name, for the one lookup every route does. */
 export const providerByName = (name) =>
   AGENT_PROVIDERS.find((p) => p.name === name) ?? null;
@@ -1844,6 +1845,94 @@ export const CONNECTION_TROUBLE = Object.freeze({
   revoked: "the provider withdrew access to that connection — it has to be connected again",
   disconnected: "that connection was disconnected, so nothing can be sent through it",
 });
+
+/**
+ * WHAT A WORKFLOW NEEDS THAT IS NOT IN THE WORKFLOW — a declared COPY of the engine's
+ * `workflowNeeds`, censused both ways in `test/agent-send.test.mjs`.
+ *
+ * ⚠ **STRUCTURE AND DEPENDENCIES ARE TWO ANSWERS.** `cleanWorkflow` says whether the steps are
+ * a workflow at all — an unknown action, a branch that does not balance, a `{{reference}}`
+ * nothing produces — and nothing outside the list can fix any of those, so they are a REFUSAL.
+ * What is here is different in kind: an account not connected yet, a permission the provider
+ * has not granted, an automation somebody is about to make, a time zone nobody has set. **Every
+ * one can be true tomorrow without the workflow changing a character**, so reporting them as
+ * refusals tells somebody their steps are wrong when it is their account that is not ready.
+ *
+ * ⚠ **AND "COULD NOT ASK" IS A THIRD ANSWER, never a satisfied one.** These are questions about
+ * rows, so a read that failed leaves them unanswered — and reading that as "nothing is missing"
+ * is a confident check about a workflow nobody looked at.
+ *
+ * **IT IS A COPY BECAUSE NEITHER PRODUCT MAY IMPORT THE OTHER**, and pure for the same reason
+ * `cleanWorkflow` is: the caller hands in what it read, so one rule decides for the screen and
+ * for a model's own `check_workflow` rather than two readings that agree until one is edited.
+ * `null` means not read; `[]` means read and there are none, which is a real answer.
+ */
+export const WORKFLOW_NEEDS = Object.freeze(["connection", "permission", "subworkflow", "zone"]);
+
+export function workflowNeeds(steps, {
+  connections = null, automations = null, zone = null, sendScopes = null,
+} = {}) {
+  const needs = [];
+  const unchecked = [];
+  const list = Array.isArray(steps) ? steps : [];
+  const want = (kind, what, say) => needs.push({ kind, what, say });
+  const cannot = (kind, what, why) => unchecked.push({ kind, what, why });
+
+  for (const st of list) {
+    if (st?.type === "send") {
+      const id = typeof st.connection === "string" ? st.connection : "";
+      if (connections === null) {
+        cannot("connection", id, "the connected accounts could not be read");
+        continue;
+      }
+      const row = connections.find((c) => c?.id === id) ?? null;
+      if (!row) {
+        want("connection", id, "that connected account is not one of this agent's — connect it, "
+          + "or point the step at one that is");
+        continue;
+      }
+      if (row.status !== "active") {
+        want("connection", id, CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used");
+        continue;
+      }
+      // ⚠ THE PERMISSION IS THE CONNECTION'S OWN SCOPE, per PROVIDER, off `sendScope` — a
+      // second provider may spell its own differently, and an account granted reading and not
+      // sending is perfectly `active` and still cannot do the one thing the step is for.
+      const need = sendScopes && typeof sendScopes === "object" ? sendScopes[row.provider] : undefined;
+      if (typeof need !== "string" || !need) {
+        cannot("permission", id, `nothing here says which permission a send through ${
+          typeof row.provider === "string" && row.provider ? row.provider : "that provider"} needs`);
+        continue;
+      }
+      const has = Array.isArray(row.scopes) ? row.scopes : [];
+      if (!has.includes(need)) {
+        want("permission", id, `that connected account was not granted permission to send `
+          + `(${need}) — connect it again and allow sending`);
+      }
+      continue;
+    }
+    if (st?.type === "workflow") {
+      const id = typeof st.runs === "string" ? st.runs : "";
+      if (automations === null) { cannot("subworkflow", id, "this agent's automations could not be read"); continue; }
+      if (!automations.some((a) => a?.id === id)) {
+        want("subworkflow", id, "this agent has no automation with that id, so there is nothing to run");
+      }
+      continue;
+    }
+  }
+  if (zone !== null) {
+    if (zone.needed && !zone.have) {
+      want("zone", zone.schedule ?? "", "nobody has set a time zone for this agent yet, so a "
+        + "timed schedule has no local time to run at — set one in its settings");
+    }
+  }
+  return { needs, unchecked };
+}
+
+/** Which send scopes this side knows, by provider — derived from the catalog, never typed. */
+export const sendScopesByProvider = () => Object.fromEntries(
+  AGENT_PROVIDERS.filter((p) => typeof p.sendScope === "string" && p.sendScope)
+    .map((p) => [p.name, p.sendScope]));
 
 /**
  * What a screen is told about one connection. **Never a credential**, because the view it
@@ -2961,6 +3050,30 @@ export function trigOnEvent(v) {
   return { onEvent: name };
 }
 
+/**
+ * ⚠ **WHAT EACH SCHEDULE NEEDS — a declared copy of the engine's `SCHEDULE_NEEDS`, and of
+ * `automations_schedule_is_whole` behind it, censused both ways in `test/agent-send.test.mjs`.**
+ *
+ * `cleanSchedule` decides the same thing per branch and will go on doing so — its refusals are
+ * per field and per schedule, which a table cannot express. What this is for is the questions
+ * ABOUT a schedule rather than the reading of one: which of them is local to somewhere, and
+ * therefore needs a time zone somebody has to have set. The engine derives exactly that from
+ * its own copy, and a third derivation on this side would be a third answer.
+ */
+export const AUTOMATION_SCHEDULE_NEEDS = Object.freeze({
+  manual: Object.freeze([]),
+  daily: Object.freeze(["at"]),
+  weekly: Object.freeze(["at", "days"]),
+  once: Object.freeze(["at", "onDate"]),
+});
+
+/**
+ * WHICH SCHEDULES ARE LOCAL TO SOMEWHERE — DERIVED, never listed. A hand-kept list is what
+ * let a weekly schedule through with no zone on the engine's side once already.
+ */
+export const SCHEDULE_NEEDS_ZONE = Object.freeze(
+  Object.keys(AUTOMATION_SCHEDULE_NEEDS).filter((k) => AUTOMATION_SCHEDULE_NEEDS[k].includes("at")));
+
 export function cleanSchedule(b) {
   /**
    * ⚠ **ABSENT AND WRONG-KIND ARE TWO ANSWERS, AND THIS READ COLLAPSED THEM.** A non-string
@@ -3713,6 +3826,10 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/automation-delete": "POST",
   "/api/agent/automation-run": "POST",
   "/api/agent/automation-history": "GET",
+  // ⚠ A READ THAT WRITES NOTHING, and a POST because a whole workflow does not fit in a
+  // query string. `AGENT_ROUTES`' verb is about the SHAPE of the request, not about whether
+  // it changes anything — this one changes nothing at all, which the handler says out loud.
+  "/api/agent/automation-check": "POST",
   // ── inbound endpoints ─────────────────────────────────────────────────────
   // ⚠ NO `webhook-rotate`, DELIBERATELY. A rotate has to hand back the new secret, which
   // is a SECOND door that gives one out — and the whole design is that there is exactly
@@ -4361,6 +4478,107 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // automation back on moves its next run to the next real occurrence, and a caller told
       // only `ok` would have to ask for the one fact that changed besides the flag.
       return ok({ id: a.id, enabled: a.enabled, nextRunAt: a.next_run_at ?? null });
+    }
+
+    /**
+     * ⚠ **CHECK A WORKFLOW WITHOUT SAVING IT — the SAME answer a model's own `check_workflow`
+     * gets, from the same readers.**
+     *
+     * It exists because every refusal these validators can make was reachable only by pressing
+     * Save: a person with a twenty-step workflow found out what was wrong one refusal at a time,
+     * and a dependency that is not about the steps at all — an account not connected, a
+     * permission the provider withheld, a time zone nobody set — could only be discovered by
+     * running the automation and reading the failure afterwards.
+     *
+     * **STRUCTURE REFUSES AND DEPENDENCIES ARE REPORTED**, which is the distinction this whole
+     * answer is built around: `error` is something in the steps, `needs` is something about the
+     * account that can be true tomorrow without the steps changing, and `unchecked` is a
+     * question this could not put. A reader that folded the three would either tell somebody
+     * their workflow is wrong when their account is not ready, or say "fine" about a check
+     * nobody could make.
+     *
+     * ⚠ **IT WRITES NOTHING AND IS NOT AUTHORISATION.** There is no record of a check anywhere,
+     * so nothing downstream can read "this was checked" — a save still reads every field again
+     * and a run still checks ownership, permissions, approval and limits. Said on the answer as
+     * well, because a screen that shows a green tick invites a reader to believe the next step
+     * is permitted.
+     */
+    if (path === "/api/agent/automation-check") {
+      const agentId = cleanId(b.agent);
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+
+      // THE SAME ORDER THE SAVE READS IN, and for the same reason: the steps are checked
+      // AGAINST the declarations, so a reference to an input has to be resolvable on the one
+      // check that introduces it.
+      const trigger = cleanSchedule(b);
+      if (trigger.error) return ok({ checked: true, error: trigger.error, needs: [], unchecked: [] });
+      const declared = cleanInputs(b.inputs);
+      if (declared.error) return ok({ checked: true, error: declared.error, needs: [], unchecked: [] });
+      const flow = cleanWorkflow(b.steps, AUTOMATION_STEPS, MAX_AUTOMATION_STEPS, declared.inputs);
+      if (flow.error) return ok({ checked: true, error: flow.error, needs: [], unchecked: [] });
+
+      /**
+       * ⚠ **A STRUCTURAL REFUSAL IS A 200 CARRYING `error`, NOT A 400.** The REQUEST was
+       * well formed — somebody asked a question and got an answer — and answering 400 would
+       * make "your workflow has a problem" indistinguishable from "this call was wrong", which
+       * on this screen is the difference between a sentence to read and a bug to report.
+       *
+       * Every read is in its own `try`, because three dependencies behind one `catch` would let
+       * one outage silence the other two — and a question that could not be put is `unchecked`
+       * rather than satisfied.
+       */
+      const wantsConnection = flow.steps.some((st) => st.type === "send");
+      const wantsSub = flow.steps.some((st) => st.type === "workflow");
+      let connections = null;
+      let automations = null;
+      let zone = null;
+      const extra = [];
+      if (wantsConnection) {
+        try { connections = await store.listConnections(who, agentId); }
+        catch { connections = null; }
+      }
+      if (wantsSub) {
+        try { automations = await store.listAutomations(who, agentId); }
+        catch { automations = null; }
+      }
+      if (SCHEDULE_NEEDS_ZONE.includes(trigger.schedule)) {
+        try {
+          const mine = await store.list(who);
+          const row = mine.find((a) => a.id === agentId) ?? null;
+          /**
+           * AN AGENT THAT IS NOT IN ITS OWNER'S OWN LIST IS NOT A ZONE ANSWER. `ownsAgent` has
+           * already passed, so this is a list that came back short rather than a stranger — and
+           * reading it as "no zone" would name a dependency nobody has.
+           *
+           * ⚠ **MEASURED INERT TODAY, AND KEPT AS A DECLARED SECOND WALL.** With the guard
+           * gone, `row.zone` on a missing row throws a TypeError straight into the `catch`
+           * below, which answers the same `unchecked` — so the two cannot be told apart from
+           * outside and no single mutant kills either. It stays because the guard says the
+           * intent, where the catch only happens to be right: the day `find` answers `{}`
+           * instead of nothing, or the read moves, a throw stops arriving and the catch's luck
+           * runs out. The sweep mutates the PAIR (the guard plus the catch's own answer),
+           * which IS observable and dies.
+           */
+          if (row) zone = { needed: true, have: !!(row.zone && String(row.zone).trim()), schedule: trigger.schedule };
+        } catch { zone = null; }
+        if (zone === null) {
+          extra.push({ kind: "zone", what: trigger.schedule,
+            why: "this agent's own settings could not be read, so whether it has a time zone is unknown" });
+        }
+      }
+      const around = workflowNeeds(flow.steps, {
+        connections, automations, zone, sendScopes: sendScopesByProvider(),
+      });
+      return ok({
+        checked: true, error: null, steps: flow.steps.length, produces: flow.produces,
+        inputs: declared.inputs.map((i) => i.name),
+        trigger: {
+          schedule: trigger.schedule, at: trigger.at, days: trigger.days,
+          onDate: trigger.onDate, onEvent: trigger.onEvent,
+        },
+        needs: around.needs, unchecked: [...around.unchecked, ...extra],
+      });
     }
 
     // ── CONNECTED ACCOUNTS ────────────────────────────────────────────────────

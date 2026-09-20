@@ -1,0 +1,147 @@
+[
+ {
+  "label": "CONTROL: a comment only, above what a workflow needs from the account",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const WORKFLOW_NEEDS = Object.freeze([\"connection\", \"permission\", \"subworkflow\", \"zone\"]);",
+  "to": "// four kinds, and each can be true tomorrow with the steps unchanged\nexport const WORKFLOW_NEEDS = Object.freeze([\"connection\", \"permission\", \"subworkflow\", \"zone\"]);"
+ },
+ {
+  "label": "⚠ a workflow with a problem is answered as a BAD REQUEST, so a sentence to read reads as a bug to report",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (flow.error) return ok({ checked: true, error: flow.error, needs: [], unchecked: [] });",
+  "to": "      if (flow.error) return no(400, flow.error);"
+ },
+ {
+  "label": "⚠ the check does not ask whose agent it is, so a stranger learns one exists",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();\n\n      // THE SAME ORDER THE SAVE READS IN",
+  "to": "      // THE SAME ORDER THE SAVE READS IN"
+ },
+ {
+  "label": "⚠ a read that FAILED is read as \"there are none\", so an outage says nothing is missing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        catch { connections = null; }",
+  "to": "        catch { connections = []; }"
+ },
+ {
+  "label": "⚠ the send scopes are not handed in, so a permission nobody granted reads as unchecked",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        connections, automations, zone, sendScopes: sendScopesByProvider(),",
+  "to": "        connections, automations, zone, sendScopes: null,"
+ },
+ {
+  "label": "⚠ which schedules are local to somewhere is a hand-kept list again",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const SCHEDULE_NEEDS_ZONE = Object.freeze(\n  Object.keys(AUTOMATION_SCHEDULE_NEEDS).filter((k) => AUTOMATION_SCHEDULE_NEEDS[k].includes(\"at\")));",
+  "to": "export const SCHEDULE_NEEDS_ZONE = Object.freeze([\"daily\"]);"
+ },
+ {
+  "label": "⚠ a zone nobody could ask about is dropped, so cannot-tell reads as satisfied",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        needs: around.needs, unchecked: [...around.unchecked, ...extra],",
+  "to": "        needs: around.needs, unchecked: around.unchecked,"
+ },
+ {
+  "label": "⚠ THE DECLARED PAIR: the short-list guard AND the catch's own answer, so an unreadable zone becomes a NEED",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "          if (row) zone = { needed: true, have: !!(row.zone && String(row.zone).trim()), schedule: trigger.schedule };\n        } catch { zone = null; }",
+  "to": "          zone = { needed: true, have: !!(row && row.zone && String(row.zone).trim()), schedule: trigger.schedule };\n        } catch { zone = { needed: true, have: false, schedule: trigger.schedule }; }"
+ },
+ {
+  "label": "⚠ a connection that cannot be used reads as usable (the site's copy)",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (row.status !== \"active\") {\n        want(\"connection\", id, CONNECTION_TROUBLE[row.status] ?? \"that connected account cannot be used\");",
+  "to": "      if (false) {\n        want(\"connection\", id, CONNECTION_TROUBLE[row.status] ?? \"that connected account cannot be used\");"
+ },
+ {
+  "label": "⚠ a list nobody read is searched anyway, so an outage answers \"not connected\" (the site's copy)",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (connections === null) {\n        cannot(\"connection\", id, \"the connected accounts could not be read\");\n        continue;\n      }",
+  "to": "      if (connections === null) connections = [];"
+ },
+ {
+  "label": "⚠ a permission the provider never granted reads as granted (the site's copy)",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!has.includes(need)) {\n        want(\"permission\", id,",
+  "to": "      if (false) {\n        want(\"permission\", id,"
+ },
+ {
+  "label": "⚠ a stale check answer survives a step being added, so it answers about a workflow nobody has",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoCheck = null;\n  renderAgents();\n}\n",
+  "to": "  renderAgents();\n}\n"
+ },
+ {
+  "label": "⚠ a check answered late writes into whatever form is open now",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) {\n    agentAutoBusy = false; renderAgents(); return;\n  }",
+  "to": "  if (false) {\n    agentAutoBusy = false; renderAgents(); return;\n  }"
+ },
+ {
+  "label": "⚠ a structural refusal is drawn as a check panel instead of on the step it is about",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (answer && answer.error) { agentAutoActErr = String(answer.error); renderAgents(); return; }",
+  "to": "  if (false) { agentAutoActErr = String(answer.error); renderAgents(); return; }"
+ },
+ {
+  "label": "⚠ a thing to go and do is drawn in the voice of a question nobody could put",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          '<div class=\"ag-err\">Before it can run: '",
+  "to": "          '<div class=\"ag-hint\">Before it can run: '"
+ },
+ {
+  "label": "⚠ the panel stops saying a check is not permission",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          ' Checking doesn’t save it or give it permission — saving still asks you, and ' +\n          'running it checks everything again.</div>'",
+  "to": "          '</div>'"
+ },
+ {
+  "label": "⚠ \"nothing is missing\" is drawn beside the things that are",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          (agentAutoCheck.needs.length || agentAutoCheck.unchecked.length ? '.' :\n            ', and nothing is missing.') +",
+  "to": "          ', and nothing is missing.' +"
+ },
+ {
+  "label": "⚠ the Check button is drawn and nothing is bound to it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  'agent-auto-check': () => agentAutoCheckNow(),\n",
+  "to": ""
+ }
+]

@@ -2097,3 +2097,120 @@ test("⚠ THE RECORD READER ASKS ABOUT ONE WRITE, BY ITS OWN NAME, AND NOTHING E
   const mm = recorder(() => ({ state: "mismatch", action: "create_automation" })).can.forTenant(T).forAgent(AG);
   assert.equal((await mm.checkOperation({ op: "patchAutomation", operation: OPID })).action, "create_automation");
 });
+
+/**
+ * ⚠ **CHECKING A WORKFLOW BEFORE IT RUNS — three answers, and none of them is permission.**
+ *
+ * THE DEFECT: everything these validators know was reachable only by SAVING, and a dependency
+ * that is not about the steps at all — an account not connected, a permission the provider
+ * withheld, another automation nobody has made, a time zone nobody set — could only be found by
+ * running the automation and reading the failure afterwards.
+ *
+ * ⚠ **AND THESE CASES EXIST BECAUSE `npm run sweep` DOES NOT RUN `verify:edits`.** Every
+ * property below is proved end to end there, against a real PostgreSQL through both doors — and
+ * a property proven only by an instrument the sweep cannot run is a property no mutant can be
+ * caught by, which this directory has recorded six times.
+ */
+const ckTool = CAPABILITY_TOOLS.find((t) => t.name === "check_workflow");
+const ckNote = { type: "note", text: "x" };
+const ckSend = { type: "send", connection: AG, to: "a@b.test", body: "hi" };
+const ckLive = { id: AG, provider: "fakemail", status: "active", scopes: ["send"] };
+/** A ctx whose every seam is a recorder, so what a check really ASKED is readable. */
+function ckCtx(over = {}) {
+  const asked = [];
+  const ctx = {
+    connections: {
+      list: async () => { asked.push("list"); return over.connections ?? [ckLive]; },
+      sendScopes: () => { asked.push("sendScopes"); return { fakemail: "send" }; },
+      ...(over.conn ?? {}),
+    },
+    capabilities: {
+      listAutomations: async () => { asked.push("listAutomations"); return over.automations ?? []; },
+      readAgentSettings: async () => { asked.push("readAgentSettings"); return over.settings ?? { zone: "Europe/London" }; },
+      ...(over.can ?? {}),
+    },
+  };
+  return { ctx, asked };
+}
+
+test("⚠ A CHECK ANSWERS STRUCTURE, DEPENDENCIES AND WHAT IT COULD NOT ASK, and says it is not permission", async () => {
+  // 1. A STRUCTURAL PROBLEM IS A REFUSAL, because nothing outside the list can fix it — and it
+  // names the POSITION, which is what the site's own reader says word for word.
+  const ckBad = await ckTool.run({ steps: [{ type: "lsit" }] }, ckCtx().ctx);
+  assert.equal(ckBad.ok, false);
+  // ⚠ THE CODE IS STABLE AND THE SENTENCE IS THE READER'S OWN, which is the product being
+  // right: `error` is what a caller branches on, `say` is what a person is shown — and it is the
+  // sentence that has to agree with the site's reader word for word, so it is the one asserted.
+  assert.equal(ckBad.error, "bad-workflow");
+  assert.match(String(ckBad.say), /^step 1: this platform has no step called lsit/);
+
+  // 2. AND SO IS A SCHEDULE THE DATABASE WOULD REFUSE. A check that read only the steps would
+  // pass a configuration the save then rejects, which is the one thing a pre-flight must not do.
+  const ckSched = await ckTool.run({ steps: [ckNote], schedule: "weekly", atLocal: "09:00" }, ckCtx().ctx);
+  assert.equal(ckSched.ok, false);
+  assert.match(String(ckSched.say ?? ckSched.error), /day/i,
+    `a weekly schedule with no days passed: ${JSON.stringify(ckSched)}`);
+
+  // 3. A DEPENDENCY IS REPORTED, NEVER REFUSED — and the sentence carries both.
+  const ckDep = await ckTool.run({ steps: [ckSend] }, ckCtx({ connections: [] }).ctx);
+  assert.equal(ckDep.ok, true, "a dependency was reported as a problem with the steps");
+  assert.deepEqual(ckDep.needs.map((n) => n.kind), ["connection"]);
+  assert.deepEqual(ckDep.unchecked, []);
+  assert.match(ckDep.say, /1 thing has to be in place/);
+  assert.match(ckDep.say, /Checking is not permission/);
+  // ITS CONTROL: the same step against the account it names is nothing to report at all.
+  const ckFine = await ckTool.run({ steps: [ckSend] }, ckCtx().ctx);
+  assert.deepEqual([ckFine.needs, ckFine.unchecked], [[], []]);
+  assert.match(ckFine.say, /that reads as 1 step\. Checking is not permission/);
+
+  /**
+   * 4. ⚠ **WITH NO SEAMS AT ALL IT STILL CHECKS THE STRUCTURE.** The steps are answered out of
+   * this repository's own code, so a deployment with no store must not refuse the question —
+   * `no-backend` here would make a check impossible exactly where it is cheapest.
+   */
+  for (const ckNo of [undefined, {}, { capabilities: null, connections: null }]) {
+    const ckOut = await ckTool.run({ steps: [ckSend, { type: "workflow", runs: AUTO }] }, ckNo);
+    assert.equal(ckOut.ok, true, `a check refused for want of a seam: ${JSON.stringify(ckOut)}`);
+    assert.notEqual(ckOut.error, "no-backend");
+    assert.deepEqual(ckOut.needs, [], "an unasked question was reported as something to fix");
+    assert.deepEqual(ckOut.unchecked.map((u) => u.kind).sort(), ["connection", "subworkflow"]);
+  }
+
+  /**
+   * 5. ⚠ **ONE OUTAGE MAY NOT SILENCE THE OTHERS**, which is why each read is in its own `try`.
+   * The connections read falls over and the subworkflow is still answered — a need, not a
+   * shrug — so a single `catch` around the three would be a red run.
+   */
+  const ckOne = await ckTool.run({ steps: [ckSend, { type: "workflow", runs: AUTO }] }, ckCtx({ conn: { list: async () => { throw new Error("down"); } } }).ctx);
+  assert.deepEqual(ckOne.unchecked.map((u) => u.kind), ["connection"]);
+  assert.deepEqual(ckOne.needs.map((n) => n.kind), ["subworkflow"],
+    "one read failing silenced a question that was answered");
+
+  // 6. THE ZONE IS ASKED ONLY WHERE THERE IS A LOCAL TIME TO BE IN, asserted as the reads the
+  // check really made rather than as the answer it gave.
+  const ckManual = ckCtx();
+  await ckTool.run({ steps: [ckNote] }, ckManual.ctx);
+  assert.equal(ckManual.asked.includes("readAgentSettings"), false, "a manual check read the settings");
+  const ckDaily = ckCtx({ settings: { zone: "" } });
+  const ckZone = await ckTool.run({ steps: [ckNote], schedule: "daily", atLocal: "09:00" }, ckDaily.ctx);
+  assert.equal(ckDaily.asked.includes("readAgentSettings"), true);
+  assert.deepEqual(ckZone.needs.map((n) => n.kind), ["zone"]);
+  // AND A SETTINGS READ THAT FAILED IS `unchecked` — a sentence only this layer can compose,
+  // because `workflowNeeds` is handed `null` for a read that failed and for a seam that is not
+  // there and cannot tell them apart.
+  const ckBlind = await ckTool.run({ steps: [ckNote], schedule: "daily", atLocal: "09:00" }, ckCtx({ can: { readAgentSettings: async () => { throw new Error("down"); } } }).ctx);
+  assert.deepEqual(ckBlind.needs, [], "a zone nobody could ask about was reported as one to set");
+  assert.deepEqual(ckBlind.unchecked.map((u) => u.kind), ["zone"]);
+
+  /**
+   * 7. ⚠ **AND IT WRITES NOTHING, which is the half a sentence cannot carry.** Asserted as the
+   * operations it really touched: only reads, and none of `CAPABILITY_WRITES`.
+   */
+  const ckAll = ckCtx();
+  await ckTool.run({ steps: [ckSend, { type: "workflow", runs: AUTO }], schedule: "daily", atLocal: "09:00" }, ckAll.ctx);
+  assert.equal(ckAll.asked.length > 0, true, "the check reached no seam, so this proves nothing");
+  assert.deepEqual(ckAll.asked.filter((op) => CAPABILITY_WRITES.includes(op)), [],
+    `a check reached a write: ${ckAll.asked.join(", ")}`);
+  // `defineTool` NORMALISES the flag, so the honest assertion is `false` rather than absent.
+  assert.equal(ckTool.writes, false, "a check that declares itself a write claims an identity and a record");
+});

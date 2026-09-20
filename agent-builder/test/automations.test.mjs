@@ -19,6 +19,7 @@ import {
   ERROR_PATHS, FAILABLE_KINDS, MAX_STEP_RETRIES, readErrorPath,
   expandWorkflow, MAX_SUBWORKFLOW_DEPTH, MAX_FLAT_STEPS, FIELD_KINDS, MAX_EXCERPTS,
   wakeHours, MAX_APPROVAL_HOURS, PAUSE_MARKS, MAX_RECIPIENT, MAX_MESSAGE,
+  workflowNeeds, WORKFLOW_NEEDS,
 } from "../src/automations.mjs";
 import { refsIn, fillRefs, valueText } from "../src/workflow-refs.mjs";
 import { makeRunner, OUTCOMES } from "../src/runner.mjs";
@@ -3426,4 +3427,103 @@ test("⚠ wakeHours ROUNDS UP, FLOORS AT ONE AND IS BOUNDED, so a wake is never 
   assert.equal(wakeHours(null, now), 1);
   assert.equal(wakeHours("not a date", now), 1);
   assert.equal(wakeHours(new Date(now + 3600_000 * 10_000).toISOString(), now), MAX_APPROVAL_HOURS);
+});
+
+/**
+ * ⚠ **WHAT A WORKFLOW NEEDS FROM THE ACCOUNT — three answers, and the third is what makes the
+ * other two worth anything.**
+ *
+ * THE DEFECT THIS IS ABOUT: every one of these was reachable only by RUNNING the automation and
+ * reading the failure afterwards. And reporting them as `readWorkflow` refusals would be worse
+ * than saying nothing, because an account that is not connected yet is not a workflow that is
+ * wrong — it can be put right without changing a character of the steps.
+ *
+ * ⚠ **AND IT IS DRIVEN HERE RATHER THAN ONLY IN `verify:edits`, which is the reason these cases
+ * exist at all.** `npm run sweep` runs `test/*.test.mjs` and no demonstration, so a property
+ * proven only by one is a property no mutant can be caught by — recorded six times in this
+ * directory before this round.
+ */
+const wnSend = (id) => ({ id: "s1", type: "send", connection: id, to: "a@b.test", message: "hi" });
+const wnSub = (id) => ({ id: "s1", type: "workflow", runs: id });
+const wnScopes = { fakemail: "send" };
+
+test("⚠ WHAT A WORKFLOW NEEDS IS THREE ANSWERS, and a question nobody could put is never a satisfied one", () => {
+  const active = { id: "C1", provider: "fakemail", status: "active", scopes: ["send", "read"] };
+
+  // 1. NOTHING TO ASK ABOUT. A workflow of notes needs nothing of the account.
+  assert.deepEqual(workflowNeeds([{ id: "s1", type: "note", text: "x" }], { connections: [], sendScopes: wnScopes }),
+    { needs: [], unchecked: [] });
+
+  // 2. AN ACCOUNT THIS AGENT HAS NOT GOT. Its CONTROL is the same step against the same list
+  // with the account in it — without which "it reported a need" is satisfied by a reader that
+  // always does.
+  const missing = workflowNeeds([wnSend("C1")], { connections: [], sendScopes: wnScopes });
+  assert.deepEqual(missing.needs.map((n) => n.kind), ["connection"]);
+  assert.deepEqual(missing.unchecked, []);
+  assert.deepEqual(workflowNeeds([wnSend("C1")], { connections: [active], sendScopes: wnScopes }),
+    { needs: [], unchecked: [] }, "a connected, permitted account was reported as a need");
+
+  // 3. AN ACCOUNT THAT CANNOT BE USED, and the sentence is the provider's trouble rather than
+  // ours — four statuses, because each wants something different done about it.
+  for (const st of ["expired", "revoked", "disconnected"]) {
+    const bad = workflowNeeds([wnSend("C1")], { connections: [{ ...active, status: st }], sendScopes: wnScopes });
+    assert.deepEqual(bad.needs.map((n) => n.kind), ["connection"], st);
+    assert.notEqual(bad.needs[0].say, "", st);
+  }
+
+  // 4. A PERMISSION THE PROVIDER NEVER GRANTED. `active` and unable to do the one thing the
+  // step is for, which reads to somebody as the step being broken.
+  const noScope = workflowNeeds([wnSend("C1")], { connections: [{ ...active, scopes: ["read"] }], sendScopes: wnScopes });
+  assert.deepEqual(noScope.needs.map((n) => n.kind), ["permission"]);
+  assert.match(noScope.needs[0].say, /allow sending/);
+  assert.deepEqual(noScope.unchecked, []);
+
+  // 5. ⚠ AND A PROVIDER NOBODY HERE HAS A SCOPE FOR IS `unchecked`, NEVER "not granted". We do
+  // not know what that provider calls sending, so naming it as a permission to go and grant
+  // would send somebody to a setting that may not exist.
+  const unknown = workflowNeeds([wnSend("C1")], { connections: [{ ...active, provider: "other" }], sendScopes: wnScopes });
+  assert.deepEqual(unknown.needs, [], "a provider we have no scope for was reported as ungranted");
+  assert.deepEqual(unknown.unchecked.map((u) => u.kind), ["permission"]);
+  // AND SO IS A CALLER THAT HANDED IN NO MAP AT ALL.
+  assert.deepEqual(workflowNeeds([wnSend("C1")], { connections: [active] }).unchecked.map((u) => u.kind),
+    ["permission"]);
+
+  // 6. A SUBWORKFLOW THAT IS NOT THIS AGENT'S, with its own control.
+  const noSub = workflowNeeds([wnSub("A9")], { automations: [] });
+  assert.deepEqual(noSub.needs.map((n) => n.kind), ["subworkflow"]);
+  assert.deepEqual(workflowNeeds([wnSub("A9")], { automations: [{ id: "A9" }] }),
+    { needs: [], unchecked: [] });
+
+  /**
+   * 7. ⚠ **`null` IS "NOT READ" AND `[]` IS "READ, AND THERE ARE NONE", and collapsing them is
+   * the one direction that produces a confident check about a workflow nobody looked at.**
+   */
+  const blind = workflowNeeds([wnSend("C1"), wnSub("A9")], { connections: null, automations: null, sendScopes: wnScopes });
+  assert.deepEqual(blind.needs, [], "an outage was reported as something to go and fix");
+  assert.deepEqual(blind.unchecked.map((u) => u.kind).sort(), ["connection", "subworkflow"]);
+
+  // 8. THE ZONE IS THE SCHEDULE'S DEPENDENCY, and `null` means nobody asked.
+  assert.deepEqual(workflowNeeds([], { zone: { needed: true, have: false, schedule: "daily" } }).needs
+    .map((n) => n.kind), ["zone"]);
+  assert.deepEqual(workflowNeeds([], { zone: { needed: true, have: true, schedule: "daily" } }).needs, []);
+  assert.deepEqual(workflowNeeds([], { zone: null }), { needs: [], unchecked: [] });
+
+  // 9. AND IT REFUSES NOTHING AND THROWS AT NOTHING — it is a reporter, so junk is answered
+  // rather than raised, or a check would fail where a run would merely report.
+  for (const junk of [null, undefined, "steps", 7, {}]) {
+    assert.deepEqual(workflowNeeds(junk), { needs: [], unchecked: [] }, String(junk));
+  }
+});
+
+test("every kind of need is on WORKFLOW_NEEDS, and every name on it is one this reader can answer", () => {
+  const active = { id: "C1", provider: "fakemail", status: "active", scopes: ["read"] };
+  const seen = new Set();
+  const take = (o) => { for (const x of [...o.needs, ...o.unchecked]) seen.add(x.kind); };
+  take(workflowNeeds([wnSend("C1")], { connections: [] }));                       // connection
+  take(workflowNeeds([wnSend("C1")], { connections: [active], sendScopes: wnScopes })); // permission
+  take(workflowNeeds([wnSub("A9")], { automations: [] }));                    // subworkflow
+  take(workflowNeeds([], { zone: { needed: true, have: false, schedule: "daily" } })); // zone
+  // BOTH WAYS: a kind this reader answers and the list does not carry is one nothing can
+  // group or draw; a name on the list nothing can answer is a kind of need that does not exist.
+  assert.deepEqual([...seen].sort(), [...WORKFLOW_NEEDS].sort());
 });

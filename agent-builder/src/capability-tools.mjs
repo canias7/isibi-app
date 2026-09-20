@@ -75,7 +75,8 @@ import { uuidFrom } from "./approvals.mjs";
 // described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
 // through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
 // how a tool comes to offer a step no executor can run.
-import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, WEEKDAYS, MAX_WORKFLOW_STEPS, VALUE_TYPES, readWorkflow } from "./automations.mjs";
+import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, WEEKDAYS, MAX_WORKFLOW_STEPS, VALUE_TYPES, readWorkflow,
+  workflowNeeds } from "./automations.mjs";
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
@@ -933,13 +934,83 @@ const listActions = pureTool({
   }),
 });
 
+/**
+ * ⚠ **WHAT A WORKFLOW NEEDS FROM THE ACCOUNT, asked through whatever seams this run has and
+ * NEVER refused for want of them.** The structure is answered out of this repository's own
+ * code, so a deployment with no store must still be able to check a step list — which is why
+ * this is a `pureTool` and why the absence of a seam is `unchecked` rather than `no-backend`.
+ * *A check that cannot be made is not a check that passed*, and the two have to be told apart
+ * on the answer or a model reads "nothing is missing" about a question nobody asked.
+ *
+ * Every read is in its own `try`: three dependencies with one `catch` between them would make
+ * one outage silence the other two.
+ */
+async function askAround(steps, schedule, ctx) {
+  const conn = ctx?.connections;
+  const can = ctx?.capabilities;
+  let connections = null;
+  let sendScopes = null;
+  let automations = null;
+  let zone = null;
+  const wantsConnection = steps.some((st) => st?.type === "send");
+  const wantsSub = steps.some((st) => st?.type === "workflow");
+  if (wantsConnection && conn && typeof conn.list === "function") {
+    try {
+      const rows = await conn.list();
+      connections = Array.isArray(rows) ? rows : [];
+    } catch { connections = null; }
+    // THE SCOPE MAP NEEDS NO ROW, so it is asked separately: an outage reading the
+    // connections must not also lose which permission a send needs.
+    if (typeof conn.sendScopes === "function") {
+      try { sendScopes = conn.sendScopes(); } catch { sendScopes = null; }
+    }
+  }
+  if (wantsSub && can && typeof can.listAutomations === "function") {
+    try {
+      const rows = await can.listAutomations();
+      automations = Array.isArray(rows) ? rows : (Array.isArray(rows?.automations) ? rows.automations : null);
+    } catch { automations = null; }
+  }
+  /**
+   * ⚠ **THE ZONE IS ASKED ONLY FOR A SCHEDULE THAT NEEDS ONE, and `null` means not asked.**
+   * A manual automation has no local time to be in, so reading the settings for one would be
+   * a round trip that can only answer a question nobody put — and reporting "no zone" against
+   * it would be a dependency that is not one.
+   */
+  if (NEEDS_A_ZONE.includes(schedule)) {
+    if (can && typeof can.readAgentSettings === "function") {
+      try {
+        const settings = await can.readAgentSettings();
+        const z = settings && typeof settings.zone === "string" ? settings.zone.trim() : "";
+        zone = { needed: true, have: !!z, schedule };
+      } catch { zone = null; }
+    }
+  }
+  const out = workflowNeeds(steps, { connections, automations, zone, sendScopes });
+  // ⚠ WHAT WAS NOT ASKED AT ALL IS ALSO UNCHECKED, and `workflowNeeds` cannot know it: it is
+  // handed `null` for a list nobody read and for a seam that is not there, and those are the
+  // same absence to it. The difference is only visible here, so the sentence is composed here.
+  if (NEEDS_A_ZONE.includes(schedule) && zone === null) {
+    out.unchecked.push({ kind: "zone", what: schedule,
+      why: "this agent's own settings could not be read, so whether it has a time zone is unknown" });
+  }
+  return out;
+}
+
 const checkWorkflow = pureTool({
   name: "check_workflow",
   description:
     "Check a workflow without saving it: whether every action is real, every field readable, " +
-    "every branch balanced and every {{reference}} produced by a step that has already run. " +
-    "Answers what is wrong, or what the workflow would produce.",
-  input: { type: "object", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: ["steps"] },
+    "every branch balanced, every {{reference}} produced by a step that has already run, and " +
+    "whether the schedule is a whole one. It also reports what the workflow NEEDS that is not " +
+    "in it — an account to send from, a permission, another automation, a time zone — and what " +
+    "it could not check. Those can be put right without changing a step. A check is not " +
+    "permission: a save still asks a person, and a run still checks everything again.",
+  input: {
+    type: "object",
+    properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD, ...SCHEDULE_FIELDS },
+    required: ["steps"],
+  },
   repeatable: true,
   // ⚠ IT WRITES NOTHING, so it is not `writes` and needs no operation identity — which is
   // what makes it usable as many times as a model needs to get a workflow right.
@@ -948,14 +1019,48 @@ const checkWorkflow = pureTool({
   // them a step using `{{customer}}` is refused here and accepted by the save, or the other
   // way round — and a check that disagrees with the thing it is checking is worse than none,
   // because a model believes it.
-  run: async (args) => {
+  //
+  // ⚠ **AND THE SCHEDULE IS PART OF THE WORKFLOW FOR THIS PURPOSE.** `automations_schedule_is_whole`
+  // refuses a weekly one with no days and a manual one carrying a time, so a check that read
+  // only the steps would pass a configuration the save then refuses — which is the one thing a
+  // pre-flight check must not do. It goes through `readTrigger`, the SAME reader both authoring
+  // tools use, so there is one answer about what a whole schedule is rather than two.
+  run: async (args, _can, ctx) => {
     const asked = readInputs(args.inputs);
     if (!asked.ok) return asked;
     const read = checkSteps(args.steps, asked.inputs ?? []);
     if (!read.ok) return read;
-    return { ok: true, steps: read.steps.length, produces: read.produces,
+    const when = readTrigger(args);
+    if (when.error) return { ok: false, error: when.error, say: when.say };
+    const around = await askAround(read.steps, when.schedule, ctx);
+    const n = read.steps.length;
+    const parts = [`that reads as ${n} step${n === 1 ? "" : "s"}`];
+    if (around.needs.length) {
+      // THE VERB AGREES TOO, not only the noun — "1 thing have to be in place" is a sentence a
+      // model quotes back to somebody.
+      parts.push(`${around.needs.length} thing${around.needs.length === 1 ? " has" : "s have"} `
+        + "to be in place before it can run");
+    }
+    if (around.unchecked.length) {
+      parts.push(`${around.unchecked.length} thing${around.unchecked.length === 1 ? "" : "s"} `
+        + "I could not check from here");
+    }
+    return {
+      ok: true, steps: n, produces: read.produces,
       inputs: (asked.inputs ?? []).map((i) => i.name),
-      say: `that reads as ${read.steps.length} step${read.steps.length === 1 ? "" : "s"}` };
+      trigger: { schedule: when.schedule, atLocal: when.atLocal, days: when.days,
+                 onDate: when.onDate, onEvent: when.onEvent },
+      needs: around.needs, unchecked: around.unchecked,
+      /**
+       * ⚠ **A CHECK IS NOT AUTHORISATION, AND IT SAYS SO ON EVERY ANSWER.** Nothing is
+       * recorded by this call, so there is no state for a later save or run to read as "it was
+       * checked" — which is the structural half. This sentence is the half a model reads, and
+       * it is here because a tool that answers "that is fine" invites one that believes the
+       * next step is permitted.
+       */
+      say: `${parts.join(", and ")}. Checking is not permission: saving it still needs a person, `
+        + "and running it checks everything again.",
+    };
   },
 });
 

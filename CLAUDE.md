@@ -10006,3 +10006,105 @@ name is that folder's own tell), so this route calls a function the live databas
 Against it, PostgREST answers `PGRST202` and **every** automation edit from the screen fails — not
 the retry, not a stale form, all of them. So the recorded order is not a preference here:
 **migration → engine → site**, and the site is last for a reason sharper than usual.
+
+### ⚠ A WORKFLOW CAN BE READ THROUGH BEFORE IT IS SAVED, AND THE ANSWER IS THE MODEL'S OWN (2026-09-20)
+
+Owner: *"Make workflow validation available before execution… Distinguish structural errors from
+dependencies that can change later. A successful check is not authorization and must not bypass
+execution-time ownership, permissions, approval, or limits. Validation itself must not perform
+actions. Use the same validation result through chat tools and the existing editor rather than
+maintaining two independent interpretations."* **The engine's half — `workflowNeeds`, `askAround`
+and `check_workflow` — is in `agent-builder/CLAUDE.md`**; what belongs here is the site's.
+
+**EVERY REFUSAL THESE VALIDATORS CAN MAKE WAS REACHABLE ONLY BY PRESSING SAVE.** So a person with
+a twenty-step workflow found out what was wrong one refusal at a time — and a dependency that is
+not about the steps at all could only be discovered by RUNNING the automation and reading the
+failure afterwards. `POST /api/agent/automation-check` is the **38th** `/api/agent/*` route and
+`worker.js` needed no change again: the block dispatches on `Object.hasOwn(AGENT_ROUTES, …)` and
+hands every handler what it needs, so this is one entry on one object, behind the gate every other
+one is behind. **That is the gate-once design paying for itself a sixth time.**
+
+- **⚠ A STRUCTURAL REFUSAL IS A 200 CARRYING `error`, NEVER A 400.** The REQUEST was well formed —
+  somebody asked a question and got an answer — and a 400 makes *"your workflow has a problem"*
+  indistinguishable from *"this call was wrong"*, which on this screen is the difference between a
+  sentence to read and a bug to report.
+- **THREE ANSWERS, KEPT APART**: `error` is in the steps, `needs` is about the account and can be
+  true tomorrow with the steps unchanged, `unchecked` is a question this could not put. Every read
+  is in its own `try`, so one outage cannot silence the other two.
+- **IT WRITES NOTHING AND IS NOT AUTHORISATION**, which is structural before it is a sentence:
+  nothing records that a check happened, so no save and no run can read "it was checked" — a save
+  reads every field again and a run checks ownership, permissions, approval and limits after that.
+  Asserted as the ROUTES the browser really reached: one check, and not a create, a patch, a run
+  or a delete.
+- **`ownsAgent` IS ASKED FIRST**, so another account's agent is the same 404 a missing one gets and
+  a stranger cannot learn that one exists. Asserted as the reads that happened: for a stranger,
+  NONE, with the observer that an owned agent really does reach them.
+- **`workflowNeeds` AND `SCHEDULE_NEEDS_ZONE` ARE DECLARED COPIES, CENSUSED BOTH WAYS** in
+  `test/agent-send.test.mjs` — the one file that may load both products — over 22 shapes, because
+  `worker.js`'s module graph is a container image input and neither product may import the other.
+  `SCHEDULE_NEEDS_ZONE` is **DERIVED** from `AUTOMATION_SCHEDULE_NEEDS` rather than listed: a
+  hand-kept list is what let a weekly schedule through with no zone on the engine's side once
+  already.
+- **AND THE SEND SCOPE IS THE CATALOG'S OWN** (`sendScopesByProvider`, off `AGENT_PROVIDERS[].sendScope`),
+  so an account granted reading and not sending is a NEED with a sentence rather than a step that
+  looks broken.
+
+**THE SCREEN**: a **Check** button beside Save, on the form's own classes — a new class is a
+design decision nobody made — and a panel saying how many steps it read, what has to be in place
+first (`ag-err`, a thing to go and do) and what could not be checked (`ag-hint`, which is not a
+fault of theirs at all). **A STRUCTURAL REFUSAL GOES WHERE A SAVE'S GOES** (`agentAutoActErr`), so
+the step it is about is marked by the code that already marks one; a second place for the same kind
+of sentence would be two accounts of one fact. **The answer is discarded on every structural
+change**, because left on screen it would say "nothing is missing" about a list somebody has since
+added a step to — *a control that ANSWERS, wrongly*, which is the worst shape of the dead-control
+finding recorded here. **And the panel says a check is not permission**, because one reading
+"nothing is missing" is exactly what invites somebody to take the next step as allowed.
+
+**⚠ AND IT SENDS THE WHOLE SHAPE WHERE THE SAVE SENDS A PATCH, which is not an inconsistency.** A
+save sends what CHANGED because writing a field this browser read minutes ago is how another
+browser's edit gets reverted; a check writes nothing, so there is nothing to revert — and asking
+about a patch would be asking about a workflow nobody has, since the answer depends on the steps
+and the declarations TOGETHER.
+
+### Measured
+
+- **Site suite 6,865 → 6,870** (6,868 pass, 2 skipped, 0 fail), and **the arithmetic closes
+  exactly**: `agent-binding` 126 → **127**, `agent-automations` 49 → **51**, `agent-send` 71 → **73**,
+  measured per file at HEAD in a detached worktree and again here. **⚠ THAT WORKTREE'S FIRST WHOLE-SUITE
+  RUN WAS VOID and is recorded rather than quoted**: it read `5,577 tests / 370 fail`, which is this
+  repository's own recorded environment failure (a fresh checkout has no `node_modules`, so ~361
+  cases fail on missing modules). Symlinking them in, HEAD reads **6,865** — so the delta is a
+  measurement on one machine in one environment rather than a subtraction.
+- **Engine suite 591 → 595**, 0 failed — the four cases the sweep asked for, in
+  `agent-builder/`'s own files.
+- **`npm run verify:edits`: 74 → 107 checks, 0 failed** — nine classes of refusal driven through
+  BOTH doors on one real PostgreSQL, the verdict kind compared always and the sentence compared for
+  every non-schedule class.
+- **Site sweep (`scripts/mutants/workflow-check.json`, 18 entries): 17 mutants, 17 killed, 0
+  survived, 0 never applied, 1 comment-only control survived — ONE CLEAN RUN**, over the five guard
+  files that can see them, taken after the run. The tree is proved to hold no mutant afterwards by
+  the spec's own anchor census, which cannot pass while one is applied.
+- **⚠ PASS 1 READ 16/1 AND THE SURVIVOR WAS MY OWN BADLY-WRITTEN MUTANT.** It inserted
+  `if (false) agentAutoCheck = null;` ABOVE the comment and left the real assignment standing below
+  it — so it applied, moved the checksum, and changed nothing. *A mutant that changes nothing reads
+  exactly like a test gap.* Re-anchored onto the real assignment, killed, and the tally above is the
+  single run that carries both.
+- **THREE BREAKAGES DRIVEN ONE AT A TIME on this side**, each against the case written for it: the
+  zone's could-not-ask sentence dropped (RED), the browser's binding wall removed (RED), and the
+  short-list guard (**GREEN — measured INERT**, see below).
+- **⚠ AND `if (row)` IS A DECLARED SECOND WALL, MEASURED RATHER THAN ASSUMED.** With it gone,
+  `row.zone` on a missing row throws a TypeError straight into the `catch` below, which answers the
+  same `unchecked` — so the two cannot be told apart from outside and no single mutant kills either.
+  It stays because the guard states the intent where the catch only happens to be right, and the
+  sweep mutates the **PAIR** (the guard plus the catch's own answer), which is observable and dies.
+- **AND TWO GAPS IN MY OWN COVERAGE WERE CLOSED BEFORE THE SWEEP RATHER THAN BY IT**: nothing drove
+  a zone read that FAILED (two shapes now — it threw, and it came back without this agent), and
+  nothing drove a check answering LATE into another automation's form. The second needed a gate in
+  the fixture, and **⚠ its first draft deadlocked**: the held press was `await`ed, so the release
+  below it was unreachable — which `node --test` reports as a CANCELLED test rather than a failure,
+  so it reads as an infrastructure problem instead of the case's own mistake.
+
+**NOT MERGED AND NOT DEPLOYED, and this round adds no SQL at all.** When it goes the order is the
+recorded one — **migration → engine → site** — and here the site is last for its usual reason: it is
+the only half a person touches, and a Check button whose answer the live engine composes differently
+would be two interpretations of one question, which is the thing this round exists to prevent.

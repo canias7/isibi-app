@@ -49,7 +49,10 @@ import {
   readInputs as engineReadInputs, MAX_TOOL_INPUTS as ENGINE_MAX_INPUTS,
   INPUT_LABEL_MAX as ENGINE_INPUT_LABEL_MAX, INPUT_DEFAULT_MAX as ENGINE_INPUT_DEFAULT_MAX,
 } from "../agent-builder/src/capability-tools.mjs";
-import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS } from "../agent-builder/src/automations.mjs";
+import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS,
+  WORKFLOW_NEEDS as ENGINE_WORKFLOW_NEEDS, workflowNeeds as engineWorkflowNeeds,
+} from "../agent-builder/src/automations.mjs";
+import { SCHEDULE_NEEDS as ENGINE_SCHEDULE_NEEDS } from "../agent-builder/src/capability-tools.mjs";
 import {
   FAKE_PROVIDER, FAKE_SCOPES, FAKE_ACTIONS, FAKE_WRITES,
 } from "../agent-builder/src/fake-provider.mjs";
@@ -72,6 +75,8 @@ import {
   AUTOMATION_STEPS as SITE_STEPS, AUTOMATION_STEP_TYPES as SITE_STEP_TYPES,
   AUTOMATION_DAYS as SITE_DAYS, MAX_AUTOMATION_STEPS as SITE_MAX_STEPS,
   MAX_STEP_NOTE as SITE_MAX_NOTE, cleanWorkflow as siteCleanWorkflow,
+  WORKFLOW_NEEDS as SITE_WORKFLOW_NEEDS, workflowNeeds as siteWorkflowNeeds,
+  AUTOMATION_SCHEDULE_NEEDS as SITE_SCHEDULE_NEEDS, SCHEDULE_NEEDS_ZONE as SITE_NEEDS_ZONE,
   AUTOMATION_SCHEDULES as SITE_SCHEDULES,
   AUTOMATION_VALUE_TYPES as SITE_VALUE_TYPES, AUTOMATION_TYPE_ACCEPTS as SITE_TYPE_ACCEPTS,
   AUTOMATION_BLOCK_SHAPES as SITE_BLOCK_SHAPES, AUTOMATION_LOOP_MODES as SITE_LOOP_MODES,
@@ -1545,6 +1550,19 @@ test("⚠ BOTH VALIDATORS ANSWER THE SAME WORKFLOW THE SAME WAY, driven rather t
     ["a bad list AND a stray error path", [{ type: "repeat", mode: "each", each: "", on_error: "continue" },
       { type: "endrepeat" }], []],
   );
+  /**
+   * ⚠ **AN UNKNOWN ACTION — THE ONE SHAPE THIS CENSUS DID NOT HAVE, and the one where the two
+   * sentences really differed.** MEASURED before it was fixed: the site said `step 1: this
+   * platform has no step called lsit` and the engine said `there is no step called lsit`, with
+   * no position and no mention of the platform. Thirty shapes and not one of them a step type
+   * nobody has — so the shape a model most easily produces was the shape nobody compared.
+   */
+  shapes.push(
+    ["an action nobody has", [{ type: "lsit" }], []],
+    ["an action named by a number", [{ type: 7 }], []],
+    ["an action named by nothing at all", [{}], []],
+    ["a real action after an unknown one, so the position is what says which", [N("hi"), { type: "lsit" }], []],
+  );
   // ── SUBWORKFLOWS ──────────────────────────────────────────────────────────────
   // Only the SHAPE is checked at save time, on both sides: whether the automation named
   // exists, whose it is, how deep the chain goes and whether it runs itself are questions
@@ -2226,4 +2244,103 @@ test("⚠ WHY A CONNECTION CANNOT BE USED IS ONE SENTENCE PER CAUSE, whichever d
   }
   // AND THE THREE ARE THREE.
   assert.equal(new Set(Object.values(CONNECTION_TROUBLE)).size, Object.keys(CONNECTION_TROUBLE).length);
+});
+
+test("⚠ WHAT A WORKFLOW NEEDS FROM THE ACCOUNT IS ONE RULE IN TWO LANGUAGES, censused both ways", () => {
+  /**
+   * ⚠ **STRUCTURE AND DEPENDENCIES ARE TWO ANSWERS, and a drift here is one door saying a
+   * workflow is ready and the other saying it is not.** `cleanWorkflow`/`readWorkflow` decide
+   * whether the steps are a workflow at all; this decides what the ACCOUNT still has to have —
+   * an account connected, a permission granted, another automation made, a time zone set. Every
+   * one can be true tomorrow without the steps changing a character, so they are reported
+   * rather than refused. Neither product may import the other, so it is a declared COPY, and a
+   * copy that is not censused is a copy that drifts.
+   */
+  assert.deepEqual([...SITE_WORKFLOW_NEEDS], [...ENGINE_WORKFLOW_NEEDS], "the kinds of dependency drifted");
+
+  const CX = "aaaaaaaa-0000-4000-8000-000000000001";
+  const SUB = "bbbbbbbb-0000-4000-8000-000000000002";
+  const send = [{ type: "send", connection: CX, to: "a@b.test", body: "hi" }];
+  const runs = [{ type: "workflow", runs: SUB }];
+  const both = [...send, ...runs];
+  const active = (scopes) => [{ id: CX, provider: "p", status: "active", scopes }];
+  const SCOPES = { p: "mail.send" };
+
+  /**
+   * Every shape, through BOTH readers, with the same answer demanded of each — the kind, what
+   * it is about and the SENTENCE, because the sentence is what a person reads and the two have
+   * no other way to stay in step about which of these it is.
+   */
+  const shapes = [
+    ["nothing to depend on", [{ type: "note", text: "hi" }], {}],
+    ["an account nobody read", send, {}],
+    ["an account that is not this agent's", send, { connections: [] }],
+    ["an account whose credential ran out", send, { connections: [{ id: CX, provider: "p", status: "expired", scopes: ["mail.send"] }] }],
+    ["an account the provider withdrew", send, { connections: [{ id: CX, provider: "p", status: "revoked", scopes: ["mail.send"] }] }],
+    ["an account somebody disconnected", send, { connections: [{ id: CX, provider: "p", status: "disconnected", scopes: [] }] }],
+    ["an account in a state nobody named", send, { connections: [{ id: CX, provider: "p", status: "sideways", scopes: [] }] }],
+    ["an account connected for reading only", send, { connections: active(["mail.read"]), sendScopes: SCOPES }],
+    ["an account with no scopes at all", send, { connections: active([]), sendScopes: SCOPES }],
+    ["an account whose scopes are not a list", send, { connections: [{ id: CX, provider: "p", status: "active", scopes: "mail.send" }], sendScopes: SCOPES }],
+    ["an account that really can send", send, { connections: active(["mail.send"]), sendScopes: SCOPES }],
+    ["a provider nothing says the permission for", send, { connections: active(["mail.send"]) }],
+    ["a provider with no name at all", send, { connections: [{ id: CX, status: "active", scopes: [] }], sendScopes: SCOPES }],
+    ["an automation nobody read", runs, {}],
+    ["an automation this agent has not got", runs, { automations: [] }],
+    ["an automation it really has", runs, { automations: [{ id: SUB }] }],
+    ["both, both missing", both, { connections: [], automations: [] }],
+    ["a timed schedule with no zone set", send, { connections: active(["mail.send"]), sendScopes: SCOPES, zone: { needed: true, have: false, schedule: "daily" } }],
+    ["a timed schedule with one", send, { connections: active(["mail.send"]), sendScopes: SCOPES, zone: { needed: true, have: true, schedule: "daily" } }],
+    ["a schedule that needs none", send, { connections: active(["mail.send"]), sendScopes: SCOPES, zone: { needed: false, have: false, schedule: "manual" } }],
+    // ⚠ **NOT A LIST, WHICH IS WHAT A FAILED READ MUST NEVER LOOK LIKE.** `null` is "not read"
+    // and `[]` is "read, and there are none"; a junk value is neither, and a reader that
+    // treated it as a list would answer "nothing is missing" about a question nobody put.
+    ["steps that are not a list at all", "nope", { connections: [], automations: [] }],
+  ];
+  let wanted = 0;
+  let could = 0;
+  for (const [what, steps, opts] of shapes) {
+    const site = siteWorkflowNeeds(steps, opts);
+    const engine = engineWorkflowNeeds(steps, opts);
+    assert.deepEqual(site.needs, engine.needs, `${what}: the two disagree about what it needs`);
+    assert.deepEqual(site.unchecked, engine.unchecked, `${what}: the two disagree about what could not be checked`);
+    // AND EVERY KIND EITHER SIDE NAMES IS A DECLARED ONE, or the lists above are decoration.
+    for (const n of [...site.needs, ...site.unchecked]) {
+      assert.ok(SITE_WORKFLOW_NEEDS.includes(n.kind), `${what}: ${n.kind} is a kind nobody declared`);
+    }
+    wanted += site.needs.length;
+    could += site.unchecked.length;
+  }
+  // ⚠ THE OBSERVER, IN BOTH DIRECTIONS: two readers that answered nothing at all would agree
+  // perfectly and say nothing, and so would two that reported everything as missing.
+  assert.ok(wanted >= 10, `only ${wanted} dependencies were named across ${shapes.length} shapes`);
+  assert.ok(could >= 4, `only ${could} questions came back unanswered, so "could not check" is unexercised`);
+  const clean = siteWorkflowNeeds(send, { connections: active(["mail.send"]), sendScopes: SCOPES });
+  assert.deepEqual([clean.needs, clean.unchecked], [[], []], "a workflow with everything in place still reported something");
+});
+
+test("⚠ WHICH SCHEDULES ARE LOCAL TO SOMEWHERE IS ONE TABLE IN TWO LANGUAGES", () => {
+  /**
+   * ⚠ **A DRIFT HERE IS A TIME ZONE ASKED FOR ON ONE DOOR AND NOT THE OTHER**, which the
+   * engine's own notes record shipping once: a hand-kept list let a weekly schedule through
+   * with no zone and met the column's own refusal instead of a sentence.
+   *
+   * The FIELD NAMES differ by design — the engine calls the time `atLocal` and this side calls
+   * it `at`, because each matches its own reader — so what is compared is the SHAPE: the same
+   * schedules, and for each one the same number of things it needs.
+   */
+  assert.deepEqual(Object.keys(SITE_SCHEDULE_NEEDS).sort(), Object.keys(ENGINE_SCHEDULE_NEEDS).sort(),
+    "the schedules drifted");
+  for (const k of Object.keys(SITE_SCHEDULE_NEEDS)) {
+    assert.equal(SITE_SCHEDULE_NEEDS[k].length, ENGINE_SCHEDULE_NEEDS[k].length,
+      `${k}: the two sides disagree about how many things it needs`);
+  }
+  // AND THE DERIVATION, on this side, against the engine's own — a schedule with a local time
+  // is a schedule that is local to somewhere.
+  const engineNeedsZone = Object.keys(ENGINE_SCHEDULE_NEEDS)
+    .filter((k) => ENGINE_SCHEDULE_NEEDS[k].includes("atLocal")).sort();
+  assert.deepEqual([...SITE_NEEDS_ZONE].sort(), engineNeedsZone, "which schedules need a zone drifted");
+  // THE OBSERVER: `manual` must not be on it, and something must be.
+  assert.ok(SITE_NEEDS_ZONE.length >= 1, "no schedule needs a zone, so the derivation found nothing");
+  assert.equal(SITE_NEEDS_ZONE.includes("manual"), false, "a manual automation was asked for a time zone");
 });

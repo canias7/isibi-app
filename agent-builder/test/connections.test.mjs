@@ -20,7 +20,9 @@ import {
 } from "../src/connections.mjs";
 import {
   makeFakeProvider, FAKE_ACTIONS, FAKE_WRITES, FAKE_PROVIDER, FAKE_OUTCOMES, FakeProviderError,
+  FAKE_SCOPES,
 } from "../src/fake-provider.mjs";
+import { SEND_ACTION } from "../src/automations.mjs";
 import { argsHash } from "../src/approvals.mjs";
 
 const SRC = path.join(import.meta.dirname, "..", "src");
@@ -923,4 +925,39 @@ test("⚠ AND NOTHING THIS MODULE LOGS CARRIES ONE — asked of the source, blan
   assert.ok(!JSON.stringify(provider.describe()).includes(SENTINEL));
   // THE OBSERVER: it really was handed one, so the absence is about what it keeps.
   assert.equal(provider.calls(), 1);
+});
+
+/**
+ * ⚠ **WHICH PERMISSION A SEND NEEDS, PER PROVIDER — read off the adapter and never guessed.**
+ *
+ * It exists so a check can be made BEFORE anything is sent: `lease` refuses a send through an
+ * account granted reading and not sending, so a connection can be perfectly `active` and still
+ * unable to do the one thing a `send` step is for — and without this the only way to find that
+ * out is to run the automation and read the failure.
+ *
+ * ⚠ **AND IT IS DRIVEN HERE BECAUSE `npm run sweep` RUNS NO DEMONSTRATION.** The value is
+ * proved end to end in `verify:edits`; a property proven only by an instrument the sweep cannot
+ * run is a property no mutant can be caught by.
+ */
+test("⚠ sendScopes IS THE ADAPTER'S OWN WORD FOR SENDING, per provider, and costs no request", () => {
+  const scQuiet = build([], { [FAKE_PROVIDER]: makeFakeProvider() });
+  const scMap = scQuiet.via.sendScopes();
+  assert.deepEqual(scMap, { [FAKE_PROVIDER]: FAKE_SCOPES[SEND_ACTION] });
+  // IT ASKS NOBODY: answering it needs no row, so it cannot fail and cannot be an outage.
+  assert.deepEqual(scQuiet.sent, []);
+
+  /**
+   * ⚠ **IT IS THE SEND ACTION'S SCOPE AND NOT "THE FIRST ONE THE ADAPTER LISTS".** The fake's
+   * own map puts `read` first, so a reader taking any-old-scope answers `read` — which would
+   * report an account granted reading as permitted to send, the exact confusion this is for.
+   */
+  assert.notEqual(FAKE_SCOPES[SEND_ACTION], Object.values(FAKE_SCOPES)[0],
+    "the fixture cannot tell the two readings apart any more");
+
+  // A PROVIDER WHOSE ADAPTER NAMES NONE IS ABSENT rather than present-and-empty, so the reader
+  // above it answers "could not tell" instead of "no permission is needed".
+  const scNone = build([], { [FAKE_PROVIDER]: { ...makeFakeProvider(), scopes: {} } });
+  assert.deepEqual(scNone.via.sendScopes(), {});
+  const scJunk = build([], { [FAKE_PROVIDER]: { ...makeFakeProvider(), scopes: { [SEND_ACTION]: 7 } } });
+  assert.deepEqual(scJunk.via.sendScopes(), {}, "a scope that is not a name was passed on");
 });

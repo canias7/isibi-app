@@ -1245,20 +1245,23 @@ const spec = [
   // call, so the three-line anchor no longer matched. The property is unchanged — a workflow
   // that does not read must not be saved — and it is pinned on the check plus its own refusal,
   // which is the shortest window that is still unique.
+  // ⚠ RE-ANCHORED, NOT APPEASED: `check_workflow` now opens with these same three lines,
+  // which is the point — the two really do read a step list identically — so each of these is
+  // pinned through the blank line and comment that only the CREATE has after its trigger read.
   m("tools: a workflow that does not read is saved anyway", CT,
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    const when = readTrigger(args);"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**",
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**"),
   // ⚠ AND THE DECLARATIONS MUST REACH THE READER, or a step using `{{an_input}}` is refused on
   // the one save that introduces it — the defect this round fixed. Two mutants, because the
   // hop can be cut at either end: the reader not told, or the declarations not validated.
   m("tools: the steps are checked against no declarations", CT,
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
-    "    const read = checkSteps(args.steps, []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**",
+    "    const read = checkSteps(args.steps, []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**"),
   // ⚠ ANCHORED THROUGH `authorableSchedule`, because `check_workflow` opens with the same three
   // lines — the two tools really do read their declarations identically, which is the point.
   m("tools: a create's declarations are stored without being read", CT,
-    "    const asked = readInputs(args.inputs);\n    if (!asked.ok) return asked;\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);",
-    "    const asked = { ok: true, inputs: Array.isArray(args.inputs) ? args.inputs : null };\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);"),
+    "    const asked = readInputs(args.inputs);\n    if (!asked.ok) return asked;\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**",
+    "    const asked = { ok: true, inputs: Array.isArray(args.inputs) ? args.inputs : null };\n    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n\n    /**"),
   // ⚠ AND THE WALL ITSELF: a description is not a wall, so a model may write a schedule this
   // tool has no fields for and the DATABASE's wholeness check would refuse it as an exception.
   m("tools: a schedule this tool cannot describe is passed on anyway", CT,
@@ -1446,14 +1449,18 @@ const spec = [
     "    actions: AUTOMATION_STEPS.map((d) => ({", "    actions: AUTOMATION_STEPS.slice(1).map((d) => ({"),
   m("tools: the step ceiling a model is told is not the platform's", CT,
     "    max: MAX_WORKFLOW_STEPS,", "    max: 999,"),
+  // ⚠ RE-ANCHORED, NOT APPEASED: the check takes the schedule fields now, so its own input
+  // shape moved. The property is unchanged and is the important one on this tool — a check
+  // that declares itself a write claims an operation identity and a record, which is exactly
+  // what "validation itself must not perform actions" forbids.
   m("tools: checking a workflow secretly writes one", CT,
-    "  input: { type: \"object\", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: [\"steps\"] },\n  repeatable: true,",
-    "  input: { type: \"object\", properties: { steps: STEPS_FIELD, inputs: INPUTS_FIELD }, required: [\"steps\"] },\n  writes: true,\n  repeatable: true,"),
+    "  },\n  repeatable: true,\n  // ⚠ IT WRITES NOTHING",
+    "  },\n  writes: true,\n  repeatable: true,\n  // ⚠ IT WRITES NOTHING"),
   // ⚠ AND A CHECK THAT IGNORES THE DECLARATIONS IS CHECKING A DIFFERENT WORKFLOW FROM THE ONE
   // THE SAVE WILL — the shape that made `{{customer}}` unusable through every authoring tool.
   m("tools: the check ignores the declarations it was given", CT,
-    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    return { ok: true, steps: read.steps.length",
-    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    return { ok: true, steps: read.steps.length"),
+    "    const read = checkSteps(args.steps, asked.inputs ?? []);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const around",
+    "    const read = checkSteps(args.steps);\n    if (!read.ok) return read;\n    const when = readTrigger(args);\n    if (when.error) return { ok: false, error: when.error, say: when.say };\n    const around"),
 
   // ── rest-profile.mjs: THE ONE RULE ────────────────────────────────────────
   // Five stores ask this, so it is the one place a wrong answer reaches all of them —
@@ -2097,8 +2104,18 @@ const spec = [
     '    if (asked.state !== "approved") {', "    if (false) {"),
   m("⚠ send: an uncertain send is reported as an ordinary failure", AU,
     '    if (done?.error === "unresolved") {', "    if (false) {"),
+  /**
+   * ⚠ RE-ANCHORED, NOT APPEASED: `workflowNeeds` asks the same question one function up, so
+   * the bare condition became ambiguous. It is pinned by the line that follows it — the
+   * step's own `failed`, which only the executing half has — rather than by the condition,
+   * which both halves share BY DESIGN so the check and the run cannot disagree about which
+   * connections are usable.
+   */
   m("⚠ send: a connection that cannot be used is used anyway", AU,
-    '    if (row.status !== "active") {', "    if (false) {"),
+    `    if (row.status !== "active") {
+      return { failed: CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used" };`,
+    `    if (false) {
+      return { failed: CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used" };`),
   m("send: a connection that is not this agent's is sent from", AU,
     '    if (!row) return { failed: "that connected account is not one of this agent\'s" };', ""),
   m("send: an ask that FAILED is read as a verdict", AU,
@@ -2500,6 +2517,93 @@ const spec = [
   m("connections/CONTROL (comment only)", CN,
     " * ── ⚠ THE CREDENTIAL NEVER COMES BACK OUT OF THIS MODULE ",
     " * ── The credential never comes back out of this module   ", true),
+
+  // ── automations.mjs: WHAT A WORKFLOW NEEDS FROM THE ACCOUNT ────────────────
+  //
+  // ⚠ STRUCTURE AND DEPENDENCIES ARE TWO ANSWERS, AND CANNOT-TELL IS A THIRD. Every one of
+  // these can be true tomorrow with the steps unchanged, so reporting one as a refusal tells
+  // somebody their workflow is wrong when it is their account that is not ready — and reporting
+  // it as nothing at all is the check saying "fine" about a workflow whose first send fails.
+  m("needs: a read that FAILED is searched as though it were empty", AU,
+    `      if (connections === null) {
+        cannot("connection", id, "the connected accounts could not be read");
+        continue;
+      }`,
+    "      if (connections === null) connections = [];"),
+  m("needs: an account this agent has not got reads as connected", AU,
+    `      if (!row) {
+        want("connection", id, "that connected account is not one of this agent's — connect it, "`,
+    `      if (false) {
+        want("connection", id, "that connected account is not one of this agent's — connect it, "`),
+  m("needs: an account that cannot be used reads as usable", AU,
+    `      if (row.status !== "active") {
+        want("connection", id, CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used");`,
+    `      if (false) {
+        want("connection", id, CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used");`),
+  // ⚠ AND A PROVIDER NOBODY HERE HAS A SCOPE FOR MUST BE `unchecked`, NEVER "not granted": we
+  // do not know what that provider calls sending, so naming it would send somebody to a
+  // setting that may not exist.
+  m("needs: a provider we have no send scope for is reported as ungranted", AU,
+    `      if (typeof need !== "string" || !need) {`, "      if (false) {"),
+  m("needs: a permission the provider never granted reads as granted", AU,
+    `      if (!has.includes(need)) {
+        want("permission", id, `, `      if (false) {
+        want("permission", id, `),
+  m("needs: the subworkflow list nobody read is searched anyway", AU,
+    `      if (automations === null) { cannot("subworkflow", id, "this agent's automations could not be read"); continue; }`,
+    "      if (automations === null) automations = [];"),
+  m("needs: a subworkflow this agent has not got reads as present", AU,
+    `      if (!automations.some((a) => a?.id === id)) {`, "      if (false) {"),
+  m("needs: a timed schedule with no zone is not reported", AU,
+    "    if (zone.needed && !zone.have) {", "    if (false) {"),
+
+  // ── capability-tools.mjs: check_workflow's dependency reads ────────────────
+  // ⚠ ONE OUTAGE MAY NOT SILENCE THE OTHERS, which is the whole reason each read has its own
+  // `try`. The mutant is the plausible tidy-up: one try round all three.
+  m("check: three dependency reads behind ONE catch", CT,
+    `  if (wantsConnection && conn && typeof conn.list === "function") {
+    try {
+      const rows = await conn.list();
+      connections = Array.isArray(rows) ? rows : [];
+    } catch { connections = null; }`,
+    `  try {
+    if (wantsConnection && conn && typeof conn.list === "function") {
+      const rows = await conn.list();
+      connections = Array.isArray(rows) ? rows : [];
+    }`),
+  m("check: nothing is asked about the account at all", CT,
+    "    const around = await askAround(read.steps, when.schedule, ctx);",
+    "    const around = { needs: [], unchecked: [] };"),
+  m("check: the zone is read for every schedule, including a manual one", CT,
+    `  if (NEEDS_A_ZONE.includes(schedule)) {
+    if (can && typeof can.readAgentSettings === "function") {`,
+    `  if (true) {
+    if (can && typeof can.readAgentSettings === "function") {`),
+  // ⚠ A SEAM THAT IS NOT THERE AND A READ THAT FAILED ARE ONE ABSENCE TO `workflowNeeds`, so
+  // the sentence for it can only be composed here — and without it a check with no store at
+  // all says nothing about the zone it could not ask about.
+  m("check: a zone nobody could ask about is not reported as unchecked", CT,
+    "  if (NEEDS_A_ZONE.includes(schedule) && zone === null) {", "  if (false) {"),
+  m("check: the schedule is not read, so one the database refuses passes", CT,
+    `    const when = readTrigger(args);
+    if (when.error) return { ok: false, error: when.error, say: when.say };
+    const around`,
+    `    const when = readTrigger(args);
+    const around`),
+  // ⚠ A CHECK THAT DOES NOT SAY IT IS NOT PERMISSION is what invites a model to read the next
+  // step as allowed. The structural half is that nothing is recorded; this is the half read.
+  m("check: the answer stops saying a check is not permission", CT,
+    `      say: \`\${parts.join(", and ")}. Checking is not permission: saving it still needs a person, \`
+        + "and running it checks everything again.",`,
+    "      say: `${parts.join(\", and \")}.`,"),
+
+  // ── connections.mjs: which permission a send needs ────────────────────────
+  m("scopes: any scope the adapter lists is read as the send one", CN,
+    `              const want = a && typeof a.scopes === "object" && a.scopes ? a.scopes[SEND_ACTION] : undefined;`,
+    `              const want = a && typeof a.scopes === "object" && a.scopes ? Object.values(a.scopes)[0] : undefined;`),
+  m("scopes: a scope that is not a name is passed on", CN,
+    "              if (typeof want === \"string\" && want) out[name] = want;",
+    "              out[name] = want;"),
 
 ];
 

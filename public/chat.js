@@ -2034,6 +2034,20 @@ let agentAutoWas = null;
 let agentAutoBusy = false;
 let agentAutoActErr = '';
 let agentAutoSaved = false;
+/**
+ * ⚠ **WHAT A CHECK ANSWERED, WHICH IS NOT THE SAME THING AS A SAVE'S REFUSAL.**
+ *
+ * Every refusal these validators can make was reachable only by pressing Save, so a person
+ * with a twenty-step workflow found out one refusal at a time — and a dependency that is not
+ * about the steps at all (an account not connected, a permission withheld, a time zone nobody
+ * set) could only be found by running the automation and reading the failure afterwards.
+ *
+ * `null` is "not asked". A structural refusal goes into `agentAutoActErr`, the SAME place a
+ * save's does, so the step it is about is marked on that step by the code that already does
+ * it — two places for one kind of sentence would be two accounts of it. What lives here is
+ * only what a save does not answer: what the workflow NEEDS, and what could not be checked.
+ */
+let agentAutoCheck = null;
 let agentAutoRuns = null;      // the open automation's executions
 let agentAutoRunsFor = null;
 let agentAutoRunsErr = '';
@@ -2451,6 +2465,11 @@ function agentAutoStructural(mutate) {
   if (!next) return;
   agentAutoDraft = { ...next, gen: autoGen(draft) + 1 };
   agentAutoSaved = false;
+  // ⚠ **A CHECK'S ANSWER IS ABOUT THE WORKFLOW IT WAS ASKED ABOUT, so a structural change
+  // throws it away.** Left on screen it would say "nothing is missing" about a list somebody
+  // has since added a step to — a control that ANSWERS, wrongly, which is the worst shape of
+  // the dead-control finding this repository records.
+  agentAutoCheck = null;
   renderAgents();
 }
 
@@ -2711,19 +2730,19 @@ function agentAutomations(id) {
   // cannot both be open, and each clearing the other is what says so.
   agentConn = null; agentConnNew = false; agentConnDraft = null;
   agentAuto = String(id || '');
-  agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false;
+  agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null;
   agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
   agentAutoLoad();
 }
 function agentAutoBack() {
   agentAutoWatchStop();
   const back = agentAuto;
-  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = '';
+  agentAuto = null; agentAutoEditing = null; agentAutoDraft = null; agentAutoActErr = ''; agentAutoCheck = null;
   agentAutoRunsFor = null; agentAutoRuns = null;
   // BACK TO THE CONVERSATION IT BELONGS TO, which is where this was opened from.
   if (back) agentOpen(back); else renderAgents();
 }
-function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoNew() { agentAutoWatchStop(); agentAutoEditing = ''; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
 
 /** The worked example the server offers, or `null` when it sent none. */
 function autoExample() { return (agentAutoCat && agentAutoCat.example) || null; }
@@ -2822,8 +2841,8 @@ async function agentAutoExample() {
   };
   renderAgents();
 }
-function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
-function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; renderAgents(); }
+function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoEditing = String(id || ''); agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
+function agentAutoCancel() { agentAutoEditing = null; agentAutoDraft = null; agentAutoWas = null; agentAutoActErr = ''; agentAutoSaved = false; agentAutoCheck = null; renderAgents(); }
 function agentAutoReload() { agentAutoLoad(); }
 function agentAutoHistory(id) {
   agentAutoWatchStop();
@@ -2927,6 +2946,64 @@ function agentAutoInputDrop(at) {
     if (!(i >= 0 && i < ins.length)) return null;
     return { ...draft, inputs: ins.filter((_, n) => n !== i) };
   });
+}
+
+/**
+ * Check what is on the form without saving it.
+ *
+ * ⚠ **IT SENDS THE WHOLE SHAPE, unlike the save, and that is not an inconsistency.** A save
+ * sends what CHANGED because writing a field this browser read minutes ago is how another
+ * browser's edit gets reverted. A check writes nothing at all, so there is nothing to revert —
+ * and asking about a patch would be asking about a workflow nobody has, since the answer
+ * depends on the steps and the declarations TOGETHER. So it asks about exactly what is on
+ * screen, which is what the person wants to know about.
+ *
+ * ⚠ **A STRUCTURAL REFUSAL GOES WHERE A SAVE'S GOES.** `agentAutoActErr` is what draws a
+ * refusal on the step it is about; a second place for the same kind of sentence would be two
+ * accounts of one fact, and the step marking would only work through one of them.
+ *
+ * ⚠ **AND IT IS NOT PERMISSION.** Nothing is recorded anywhere, so a save cannot read "this
+ * was checked" — it reads every field again, and a run checks ownership, permissions, approval
+ * and limits again after that. The answer says so, and so does the panel.
+ */
+async function agentAutoCheckNow() {
+  if (agentAuto === null) return;
+  const values = agentAutoValues();
+  const { gen, ...sent } = values;
+  void gen;
+  const bound = agentBind();
+  const forAgent = agentAuto;
+  const editing = agentAutoEditing;
+  agentAutoBusy = true; agentAutoActErr = ''; agentAutoCheck = null; renderAgents();
+  let failed = '';
+  let answer = null;
+  try {
+    const res = await apiFetch('/api/agent/automation-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: forAgent, ...sent }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t check that.';
+    else answer = j;
+  } catch { failed = 'Couldn’t reach the server.'; }
+
+  // THE SCREEN MAY HAVE MOVED ON, exactly as on a save: writing an answer into a form
+  // somebody has since opened, or into another account's, is acting on another screen.
+  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) {
+    agentAutoBusy = false; renderAgents(); return;
+  }
+  agentAutoBusy = false;
+  if (failed) { agentAutoActErr = failed; renderAgents(); return; }
+  // ⚠ A STRUCTURAL PROBLEM IS THE SAVE'S OWN SENTENCE AND NOT A "CHECK RESULT", so it is
+  // written where a save writes one — which is what marks the step it is about.
+  if (answer && answer.error) { agentAutoActErr = String(answer.error); renderAgents(); return; }
+  agentAutoCheck = {
+    steps: Number.isInteger(answer && answer.steps) ? answer.steps : 0,
+    needs: Array.isArray(answer && answer.needs) ? answer.needs : [],
+    unchecked: Array.isArray(answer && answer.unchecked) ? answer.unchecked : [],
+  };
+  renderAgents();
 }
 
 /**
@@ -4126,6 +4203,13 @@ function automationFormHtml(agent) {
     '<div class="ag-actions">' +
       '<button class="ag-save" data-act="agent-auto-save"' + (agentAutoBusy ? ' disabled' : '') + '>' +
         (agentAutoBusy ? 'Saving…' : 'Save') + '</button>' +
+      /**
+       * ⚠ **CHECK, BESIDE SAVE, because everything these validators know was reachable only by
+       * pressing Save.** It writes nothing, so it can be pressed as often as somebody likes
+       * while they are building — which is the whole point of having it.
+       */
+      '<button class="ag-cancel" data-act="agent-auto-check"' + (agentAutoBusy ? ' disabled' : '') +
+        ' title="Read it through without saving it">Check</button>' +
       '<button class="ag-cancel" data-act="agent-auto-cancel">' + (cur ? 'Back' : 'Cancel') + '</button>' +
       (cur ? '<button class="ag-del" data-act="agent-auto-delete" data-id="' + esc(cur.id) + '">Delete</button>' : '') +
     '</div>' +
@@ -4140,6 +4224,33 @@ function automationFormHtml(agent) {
      * It is plain text on the line that is already there rather than a second line in a class
      * of its own: a new class is a design decision nobody made, and "Saved, but" is one fact.
      */
+    /**
+     * ⚠ **WHAT A CHECK FOUND, AND THE THREE ANSWERS ARE KEPT APART.** A structural problem is
+     * already drawn where a save's refusal is drawn, on the step it is about — so what is here
+     * is only what a save does not answer: what the workflow NEEDS from the account, and what
+     * could not be checked from here.
+     *
+     * **NEEDS AND COULD-NOT-CHECK READ DIFFERENTLY ON PURPOSE.** A need is something to go and
+     * do; a question nobody could put is not a fault of theirs at all, and drawing it in the
+     * same voice would send somebody looking for a setting to change. No new class either way —
+     * `ag-err` and `ag-hint` already exist, and a class with no rule is a design decision
+     * nobody made.
+     *
+     * ⚠ **AND IT SAYS A CHECK IS NOT PERMISSION**, because a panel that says "nothing is
+     * missing" is exactly what invites somebody to read the next step as allowed.
+     */
+    (agentAutoCheck
+      ? '<div class="ag-hint">Read it through: ' + agentAutoCheck.steps + ' step' +
+          (agentAutoCheck.steps === 1 ? '' : 's') +
+          (agentAutoCheck.needs.length || agentAutoCheck.unchecked.length ? '.' :
+            ', and nothing is missing.') +
+          ' Checking doesn’t save it or give it permission — saving still asks you, and ' +
+          'running it checks everything again.</div>' +
+        agentAutoCheck.needs.map((n) =>
+          '<div class="ag-err">Before it can run: ' + esc(String(n && n.say || '')) + '</div>').join('') +
+        agentAutoCheck.unchecked.map((u) =>
+          '<div class="ag-hint">Couldn’t check: ' + esc(String(u && u.why || '')) + '</div>').join('')
+      : '') +
     (agentAutoSaved && !agentAutoActErr
       ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.' +
         (agentAutoState === 'error' && agentAutoErr
@@ -13931,6 +14042,7 @@ const CLICK_ACTIONS = {
   'agent-auto-edit': (e, el) => agentAutoEdit(el.dataset.id),
   'agent-auto-cancel': () => agentAutoCancel(),
   'agent-auto-save': () => agentAutoSave(),
+  'agent-auto-check': () => agentAutoCheckNow(),
   'agent-auto-delete': (e, el) => agentAutoDelete(el.dataset.id),
   'agent-auto-toggle': (e, el) => agentAutoToggle(el.dataset.id, el.dataset.on),
   'agent-auto-run': (e, el) => agentAutoRunPress(el.dataset.id),

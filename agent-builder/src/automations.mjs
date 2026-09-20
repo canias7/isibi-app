@@ -1198,6 +1198,108 @@ const CONNECTION_TROUBLE = Object.freeze({
   disconnected: "that connection was disconnected, so nothing can be sent through it",
 });
 
+
+/**
+ * WHAT A WORKFLOW NEEDS THAT IS NOT IN THE WORKFLOW — checked before it runs, and kept
+ * strictly apart from whether it READS.
+ *
+ * ⚠ **STRUCTURE AND DEPENDENCIES ARE TWO ANSWERS AND COLLAPSING THEM MISLEADS BOTH WAYS.**
+ * `readWorkflow` says whether the steps are a workflow at all: an unknown action, a branch
+ * that does not balance, a `{{reference}}` nothing produces. Those cannot be fixed by
+ * anything outside the list, so they are a REFUSAL. What is here is different in kind — an
+ * account not connected yet, a permission the provider has not granted, a subworkflow
+ * somebody is about to make, a time zone nobody has set. **Every one of them can be true
+ * tomorrow without the workflow changing a character**, so reporting them as refusals would
+ * tell somebody their workflow is wrong when it is their account that is not ready; and
+ * reporting them as nothing at all is the check saying "fine" about a workflow whose first
+ * send will fail.
+ *
+ * ⚠ **AND "COULD NOT ASK" IS A THIRD ANSWER, never a satisfied one.** These questions are
+ * about rows, so a store that is absent or unreachable leaves them unanswered — and reading
+ * that as "nothing is missing" is the one direction that produces a confident check about a
+ * workflow nobody looked at. *Cannot-tell must never read as a value.*
+ *
+ * ⚠ **IT IS PURE AND TAKES THE ANSWERS, so the same rule serves both doors.** A tool reads
+ * the rows through the capability surface and a person's screen reads them through its own
+ * route; handing the lists in is what lets one function decide, rather than two readings that
+ * agree until one is edited. `null` means "not read"; `[]` means "read, and there are none",
+ * which is a real answer and a real dependency.
+ */
+export const WORKFLOW_NEEDS = Object.freeze(["connection", "permission", "subworkflow", "zone"]);
+
+export function workflowNeeds(steps, {
+  connections = null, automations = null, zone = null, sendScopes = null,
+} = {}) {
+  const needs = [];
+  const unchecked = [];
+  const list = Array.isArray(steps) ? steps : [];
+  const want = (kind, what, say) => needs.push({ kind, what, say });
+  const cannot = (kind, what, why) => unchecked.push({ kind, what, why });
+
+  for (const st of list) {
+    if (st?.type === "send") {
+      const id = typeof st.connection === "string" ? st.connection : "";
+      if (connections === null) {
+        cannot("connection", id, "the connected accounts could not be read");
+        continue;
+      }
+      const row = connections.find((c) => c?.id === id) ?? null;
+      if (!row) {
+        want("connection", id, "that connected account is not one of this agent's — connect it, "
+          + "or point the step at one that is");
+        continue;
+      }
+      if (row.status !== "active") {
+        want("connection", id, CONNECTION_TROUBLE[row.status] ?? "that connected account cannot be used");
+        continue;
+      }
+      /**
+       * ⚠ **THE PERMISSION IS THE CONNECTION'S OWN SCOPE, and it is the provider's word for
+       * it rather than ours.** `lease` refuses a send through an account granted reading and
+       * not sending, so an account that is perfectly `active` can still be unable to do the
+       * one thing this step is for — which reads to somebody as the step being broken. The
+       * scope a send needs comes from the adapter, per PROVIDER, because a second provider
+       * may spell its own differently; a caller that hands in no map cannot ask.
+       */
+      const need = sendScopes && typeof sendScopes === "object"
+        ? sendScopes[row.provider] : undefined;
+      if (typeof need !== "string" || !need) {
+        cannot("permission", id, `nothing here says which permission a send through ${
+          typeof row.provider === "string" && row.provider ? row.provider : "that provider"} needs`);
+        continue;
+      }
+      const has = Array.isArray(row.scopes) ? row.scopes : [];
+      if (!has.includes(need)) {
+        want("permission", id, `that connected account was not granted permission to send `
+          + `(${need}) — connect it again and allow sending`);
+      }
+      continue;
+    }
+    if (st?.type === "workflow") {
+      const id = typeof st.runs === "string" ? st.runs : "";
+      if (automations === null) { cannot("subworkflow", id, "this agent's automations could not be read"); continue; }
+      if (!automations.some((a) => a?.id === id)) {
+        want("subworkflow", id, "this agent has no automation with that id, so there is nothing to run");
+      }
+      continue;
+    }
+  }
+
+  /**
+   * ⚠ **A TIMED SCHEDULE NEEDS A TIME ZONE AND IT IS THE ACCOUNT'S, so it is a dependency
+   * rather than a field of the workflow.** Nothing in the steps can supply one — a model may
+   * not choose one at all — so a create refuses `no-zone` until somebody sets it on the
+   * settings form. Reporting that as a structural error would send them to edit their steps.
+   */
+  if (zone !== null) {
+    if (zone.needed && !zone.have) {
+      want("zone", zone.schedule ?? "", "nobody has set a time zone for this agent yet, so a "
+        + "timed schedule has no local time to run at — set one in its settings");
+    }
+  }
+  return { needs, unchecked };
+}
+
 const sendStep = defineStep({
   type: "send",
   kind: "pause",
@@ -1889,7 +1991,18 @@ export function readWorkflow(raw, { registry = stepRegistry(), max = MAX_WORKFLO
       return { error: `step ${at} didn't arrive as a step`, at };
     }
     const def = registry.get(typeof one.type === "string" ? one.type : "");
-    if (!def) return { error: `there is no step called ${String(one.type ?? "(nothing)")}`, at };
+    /**
+     * ⚠ **IT NAMES THE POSITION AND THE PLATFORM, and it said neither.** Every neighbour in
+     * this loop opens `step ${at}:` and this one did not, so a twenty-step workflow with one
+     * unknown action said only which word it did not know — and the SITE's own reader, which
+     * has to agree with this one word for word, said `step 1: this platform has no step called
+     * X`. MEASURED side by side: the only shape of the thirty the cross-product census drives
+     * where the two sentences differed, and it differed because no shape in it had an unknown
+     * type. Both doors read alike now, and the census has the shape.
+     */
+    if (!def) {
+      return { error: `step ${at}: this platform has no step called ${String(one.type ?? "(nothing)")}`, at };
+    }
     /**
      * ⚠ **A STEP WHOSE RESUME IS A STORED DECISION MAY NOT GO IN A LOOP.**
      *

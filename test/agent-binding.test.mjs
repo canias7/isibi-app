@@ -476,6 +476,12 @@ const connAnswer = (r) => connectionRow({
 function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false, history = [],
   fail = {}, noExample = false, halfExample = false, connections = [], connFails = false,
   connThrows = false,
+  /**
+   * ⚠ WHAT A CHECK ANSWERED, because the catch-all's `{ok: true}` carries no `needs` and no
+   * `error` — so without this every check case would be about a route that reported nothing,
+   * which is exactly the one answer the panel must not be satisfied by.
+   */
+  check = null,
   noSendScope = false, onPost = () => {} } = {}) {
   return (path, init) => {
     const body = init?.body ? JSON.parse(init.body) : {};
@@ -523,6 +529,10 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
       return { ok: true, body: { ok: true, id: body.id, executions: history } };
     }
     onPost(path, body);
+    if (path.startsWith("/api/agent/automation-check")) {
+      return { ok: true, body: { ok: true, checked: true, error: null, steps: 1, produces: [],
+        inputs: [], trigger: { schedule: "manual" }, needs: [], unchecked: [], ...(check ?? {}) } };
+    }
     // ONE ROUTE MADE TO FAIL, BY PATH. A refusal is a first-class outcome on this screen —
     // two of the approval route's three refusals are 409s that are not failures — so a
     // fixture that can only succeed cannot ask what the screen does with one.
@@ -2973,6 +2983,16 @@ async function withAutomations(opts = {}) {
        * inside the same press and the three walls above it — the press, the agent and the
        * account — are all trivially satisfied, which is a wall nobody can drive.
        */
+      /**
+       * ⚠ **AND THE CHECK CAN BE HELD OPEN FOR THE SAME REASON.** A check is a REQUEST, so
+       * its answer can land after the person has opened another automation — and without a gate
+       * it arrives inside the same press, which makes the binding wall above it a wall nobody
+       * can drive.
+       */
+      if (opts.checkGates && p === "/api/agent/automation-check") {
+        const g = opts.checkGates.shift();
+        if (g) return g.p;
+      }
       if (opts.connGates && p.startsWith("/api/agent/connections")) {
         // ONE GATE PER REQUEST, IN ORDER — two presses have to be able to answer DIFFERENTLY,
         // or "the earlier answer did not win" is satisfied by the two being the same value.
@@ -4492,4 +4512,112 @@ test("⚠ THE CURSOR SURVIVES A REDRAW ANYWHERE ON THE FORM, not only in the mes
   doc.activeElement = msg;
   const spot = await w.ev("agentFocusRead()");
   assert.equal(spot, null, "the general reader claimed the message box");
+});
+
+test("⚠ CHECK READS IT THROUGH WITHOUT SAVING IT, and the three answers read differently", async () => {
+  /**
+   * THE DEFECT: everything these validators know was reachable only by pressing Save — so a
+   * person with a twenty-step workflow found out one refusal at a time, and a dependency that is
+   * not about the steps at all (an account not connected, a permission withheld, a time zone
+   * nobody set) could only be found by RUNNING the automation and reading the failure.
+   *
+   * ⚠ **AND A CHECK WRITES NOTHING, which is the half a sentence cannot carry.** Asserted as the
+   * requests it really makes: one check, and not a create, a patch or a run.
+   */
+  /**
+   * ⚠ **THE PANEL'S OWN NEEDLE CARRIES ITS COLON, because the BUTTON's title is "Read it through
+   * without saving it" — so the bare phrase matches the control as well as the answer, and the
+   * two negative assertions below were satisfied by a form with no panel on it at all.** A
+   * needle that can match a longer string cannot prove a class, met on a tooltip.
+   */
+  const PANEL = /Read it through: /;
+  const { w, posts } = await withAutomations({
+    automations: [],
+    check: { steps: 3, needs: [], unchecked: [] },
+  });
+  await w.ev("agentAutoNew()");
+  await w.ev("agentAutoCheckNow()"); await settle();
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Read it through: 3 steps, and nothing is missing\./);
+  // ⚠ AND IT SAYS A CHECK IS NOT PERMISSION, because a panel reading "nothing is missing" is
+  // exactly what invites somebody to take the next step as allowed.
+  assert.match(html, /Checking doesn’t save it or give it permission/);
+  /**
+   * ⚠ ASKED AS THE AGENT ROUTES IT REACHED, because the boot makes its own unrelated reads and
+   * an exact list would be an assertion about those. The property is that none of the writing
+   * doors was touched — a check that could create, patch, start or delete anything would be a
+   * second door onto the thing it is supposed to be a preview of.
+   */
+  const agentPosts = posts.map((p) => p.path).filter((x) => x.startsWith("/api/agent/"));
+  assert.deepEqual(agentPosts, ["/api/agent/automation-check"],
+    "a check reached a route that changes something");
+
+  // A DEPENDENCY AND A COULD-NOT-CHECK READ DIFFERENTLY. One is something to go and do; the
+  // other is not a fault of theirs at all, and one voice for both sends somebody hunting a
+  // setting that is not the problem.
+  const two = await withAutomations({
+    automations: [],
+    check: { steps: 2, needs: [{ kind: "permission", what: "c1", say: "allow sending" }],
+             unchecked: [{ kind: "subworkflow", what: "s1", why: "the store is away" }] },
+  });
+  await two.w.ev("agentAutoNew()");
+  await two.w.ev("agentAutoCheckNow()"); await settle();
+  html = two.w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /class="ag-err">Before it can run: allow sending/);
+  assert.match(html, /class="ag-hint">Couldn’t check: the store is away/);
+  assert.equal(/nothing is missing/.test(html), false, "it said nothing is missing beside two findings");
+
+  // ⚠ A STRUCTURAL PROBLEM GOES WHERE A SAVE'S REFUSAL GOES, so the step it is about is marked
+  // by the code that already marks one — a second place for the same kind of sentence would be
+  // two accounts of one fact, and only one of them would mark the step.
+  const bad = await withAutomations({
+    automations: [], check: { error: "step 2: this platform has no step called lsit" },
+  });
+  await bad.w.ev("agentAutoNew()");
+  await bad.w.ev('agentAutoStepAdd("note")');
+  await bad.w.ev('agentAutoStepAdd("note")');
+  await bad.w.ev("agentAutoCheckNow()"); await settle();
+  html = bad.w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Step 2 needs a change/, "a structural refusal did not reach the step marking");
+  assert.equal(PANEL.test(html), false, "a structural refusal also drew a check panel");
+
+  /**
+   * ⚠ **AND AN ANSWER IS ABOUT THE WORKFLOW IT WAS ASKED ABOUT.** Left on screen after a step
+   * is added it would say "nothing is missing" about a list that has since changed — a control
+   * that ANSWERS, wrongly, which is the worst shape of the dead-control finding recorded here.
+   */
+  await w.ev('agentAutoStepAdd("note")');
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(PANEL.test(html), false, "a stale check answer survived a step being added");
+  // ITS OBSERVER: the answer really was on screen a moment ago, or this assertion is vacuous.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, PANEL);
+
+  /**
+   * ⚠ **AND AN ANSWER THAT LANDS LATE MAY NOT WRITE INTO ANOTHER AUTOMATION'S FORM.** A check
+   * is a request, so between the press and the answer somebody can open a different one — and a
+   * panel saying "nothing is missing" under a workflow nobody asked about is the same
+   * wrongly-answering control as a stale one, arriving through a different door.
+   */
+  const gate = held(okRes({ ok: true, checked: true, error: null, steps: 9, needs: [], unchecked: [] }));
+  const late = await withAutomations({
+    automations: [ONE, { ...ONE, id: "AU2", name: "Second" }],
+    checkGates: [gate],
+    check: { steps: 1, needs: [], unchecked: [] },
+  });
+  await late.w.ev('agentAutoEdit("AU1")');
+  // ⚠ THE PRESS IS NOT AWAITED, or the release below can never be reached — which is a
+  // deadlock the runner reports as a CANCELLED test rather than as a failure, so it reads as
+  // an infrastructure problem instead of as this case's own mistake.
+  const checking = late.w.ev("agentAutoCheckNow()");
+  await late.w.ev('agentAutoEdit("AU2")');
+  gate.release(); await checking; await settle();
+  html = late.w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(PANEL.test(html), false, "a check answered for one automation painted another's form");
+  /**
+   * ITS CONTROL: the very next press, on the form it was pressed from, IS written — without
+   * which "it wrote nothing" is satisfied by a check that never writes anything at all.
+   */
+  await late.w.ev("agentAutoCheckNow()"); await settle();
+  assert.match(late.w.s.document.getElementById("viewAgents").innerHTML, /Read it through: 1 step,/);
 });
