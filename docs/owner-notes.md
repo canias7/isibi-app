@@ -15546,13 +15546,25 @@ kinds.** Tables, functions, outside connections, scheduled jobs, pages,
 sections, QR codes and 3D scenes have each been designed, applied and shipped
 on a real site by a real paid run.
 
+**And one of those is stronger than I told you — an outside connection has
+been read LIVE, by a published page, with the real service's real data.**
+Run 53's `/rates` on repairbench-1 shows `1.1644`, `1.3344` and *"Rates from
+2026-09-18"*, and those are the rates service's own numbers, fetched through
+our platform and read out of two different levels of its answer, with no
+errors in the browser. **I had this filed under "not verified" and it was
+sitting in the same notes as the write-up proving otherwise** — the run was
+recorded as a story about two bugs of ours, and nobody updates a capability
+list while writing up a bug. Corrected 2026-09-20.
+
 **Not verified, and each for a different reason:**
 
 - **Photographs — the whole kind.** The one attempt reached the provider and
   was refused. The blocker is the image balance, not the code.
-- **No page has ever read an outside connection live.** The connection is
-  designed, stored and served; a page rendering one against the real service
-  is still unproven.
+- **A page reading a connection that needs a KEY.** *(Corrected 2026-09-20 —
+  I had this filed as "no page has ever read an outside connection live",
+  which Run 53 had already disproved.)* The keyless case is **proven**: see
+  the verified list above. What is still unproven is a connection with a
+  credential in it, and whether a wrong key produces something useful to read.
 - **A scheduled job has never been seen to fire on its own tick**, and no
   message has been confirmed delivered. Pressing Run now works; the calendar
   firing by itself is unproven, and the records it leaves cannot tell a press
@@ -15569,10 +15581,16 @@ on a real site by a real paid run.
 **Unsupported, each for an honest reason:**
 
 - **Nothing deletes a table, a saved function, an outside connection or a
-  scheduled job.** Fifteen of the twenty-one edit lanes can take something off;
+  scheduled job.** Sixteen of the twenty-one edit lanes can take something off;
   the backend is not one of them.
-- **An outside connection tells you where to put the key but not which service
-  to sign up with**, or whether it is free.
+
+*(Removed from this list on 2026-09-20: "an outside connection tells you where
+to put the key but not which service to sign up with". **It does tell you**,
+when the designer fills it in — a connection can carry the service's name, its
+sign-up page and a free-text note, which is where "the free tier is enough"
+goes. The real limit is narrower and I have written it as such: none of those
+three is compulsory, so the guidance is there when the declaration carries it
+and silent when it does not.)*
 
 ### Video and audio — a separate thing, and the answer is no hosting
 
@@ -15651,3 +15669,55 @@ Unchanged and deliberately so: its exact missing references are still not
 recovered, and its reporting outcome is *consistent with* the fix rather than
 reproduced. Nothing in today's corrections touches that, and I did not go
 looking for a way to upgrade the claim.
+
+## The two corrections I should have made the first time (2026-09-20)
+
+You told me two capability claims were stale. I went looking and corrected two
+different ones — real drifts, but not these — so here are the ones you meant,
+both now fixed in my notes and in the project's own record.
+
+### An outside connection has been read live, with real data
+
+**Run 53 proved this and I had it filed as unproven.** A published page on
+repairbench-1 calls the real rates service through our platform and renders
+its answer: `1.1644`, `1.3344`, *"Rates from 2026-09-18"* — the service's own
+numbers, read out of two different depths of its reply, no browser errors.
+
+The reason this went unnoticed is worth more than the fix. **The run was
+written up as a story about two bugs of ours**, three hundred lines above the
+capability table, and the table went on saying *"no page has ever read one
+live"*. The notes contained their own contradiction and neither half looked at
+the other. The rule I have written down: **when a run proves something, the
+capability summary is the thing to edit** — the narrative is where nobody goes
+to check a claim.
+
+What honestly remains open is narrower: a connection that needs a **key** has
+still never been read by a page, and I do not know whether a wrong key produces
+anything useful to read.
+
+### A connection does say which service and where to sign up
+
+I had this as *"tells you where to put the key but not which service"*. It
+does. A connection can carry the service's **name**, its **sign-up page** (we
+refuse one that isn't a secure address) and a **free-text note** — which is
+exactly where *"the free tier is enough"* belongs. If the designer writes
+something unreadable there, the reply asks the customer to name the service.
+
+**The real limit is conditional, not absent**, and that is how it now reads:
+none of those three parts is compulsory, so the guidance is present when the
+declaration carries it and silent when it doesn't. That is a different
+statement from "there is no sign-up page", which is what I had written.
+
+### Two things deliberately unchanged
+
+**Run 53's evidence limit stands exactly as it was.** Its two missing
+references are still unrecovered, the stored designer answer still has no
+reader, and the reporting outcome is still *consistent with* the fix rather
+than reproduced. Nothing here touches that — and note it is not in tension
+with the paragraph above: the page rendering real data and the report's two
+unexplained entries were always separate facts about the same run.
+
+**A successful deploy still is not a runtime confirmation**, which I wrote down
+earlier today and am not softening.
+
+Documentation only: no code, no tests, no sweep, no paid run.
