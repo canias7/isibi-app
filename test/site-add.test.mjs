@@ -2201,11 +2201,81 @@ test("routedSources: a component's routes are the pages that render it, by impor
 
   // ── TWO PAGES RENDERING ONE COMPONENT get both routes, because the
   // question is which pages show it and a band is reused on purpose.
+  //
+  // ⚠ RE-ANCHORED 2026-09-20, AND THIS FIXTURE ASSERTED THE DEFECT. Neither
+  // page RENDERED `<W/>` — both only imported it — so the case its own comment
+  // calls "two pages SHOWING one component" was two pages showing none, and it
+  // passed because an unused import used to establish placement. The property
+  // is unchanged; the fixture now expresses it.
   const shared = routedSources([
-    page("gallery.tsx", "import { W } from '@/routes/-parts/w'"),
-    page("about.tsx", "import { W } from '@/routes/-parts/w'"),
+    page("gallery.tsx", "import { W } from '@/routes/-parts/w'\n<W/>"),
+    page("about.tsx", "import { W } from '@/routes/-parts/w'\n<W/>"),
   ], [part("w", "<img src='/u/s/a.jpg'/>")]);
   assert.deepEqual([...(at(shared, "w") || [])].sort(), ["/about", "/gallery"]);
+
+  // ── ⚠ AN IMPORT IS NOT A PLACEMENT, AND THERE ARE THREE ANSWERS ──────────
+  //
+  // Owner: *"An unused import must not establish placement… Where placement
+  // cannot be established, preserve uncertainty."* The three arms are driven
+  // on ONE graph so the only thing that differs between them is how the page
+  // uses the binding it imported.
+  const use = (body) => routedSources(
+    [page("gallery.tsx", "import { W } from '@/routes/-parts/w'\n" + body)],
+    [part("w", "<img src='/u/s/a.jpg'/>")],
+  ).find((x) => x.name === "w");
+  const drawn = use("function P(){ return <main><W/></main> }");
+  assert.deepEqual(drawn.routes, ["/gallery"], "a rendered component lost its page");
+  assert.deepEqual(drawn.maybeRoutes, [], "a certain placement was also reported as uncertain");
+  // UNUSED IS THE ONE DEFINITE NEGATIVE: the clause binds a name and the file
+  // never mentions it again, so a visitor on that page sees nothing of it.
+  const dead = use("function P(){ return <main/> }");
+  assert.deepEqual(dead.routes, [], "an import nothing renders established placement");
+  assert.deepEqual(dead.maybeRoutes, [], "a provably unused import was reported as uncertain");
+  // …AND A BINDING USED AS A VALUE REALLY CAN REACH THE PAGE, by a route no
+  // reader of the source can follow. Neither claimed nor denied.
+  const held = use("const all = [W]\nfunction P(){ return <main>{all.map((C, i) => <C key={i}/>)}</main> }");
+  assert.deepEqual(held.routes, [], "a placement nobody could establish was claimed");
+  assert.deepEqual(held.maybeRoutes, ["/gallery"], "an unfollowable use was read as a definite absence");
+  // A NAMESPACE MEMBER IS THE SAME ANSWER FOR ITS OWN REASON — `<N.Band/>` is
+  // a real element and the clause binds no component name to test.
+  const star = use("").maybeRoutes;
+  assert.deepEqual(star, [], "the empty-body control stopped being one");
+  const ns = routedSources(
+    [page("gallery.tsx", "import * as N from '@/routes/-parts/w'\nfunction P(){ return <N.W/> }")],
+    [part("w", "<img src='/u/s/a.jpg'/>")],
+  ).find((x) => x.name === "w");
+  assert.deepEqual(ns.routes, [], "a namespace import was read as a placement");
+  assert.deepEqual(ns.maybeRoutes, ["/gallery"], "a namespace import was read as a definite absence");
+  // ── A CHAIN IS ONLY AS CERTAIN AS ITS WEAKEST LINK. The page renders the
+  // outer band; the outer band merely holds a reference to the inner one.
+  const chain = routedSources([
+    page("gallery.tsx", "import { A } from '@/routes/-parts/a'\nfunction P(){ return <A/> }"),
+  ], [
+    part("a", "import { B } from './b'\nconst kids = [B]\nexport function A(){ return <>{kids.map((K, i) => <K key={i}/>)}</> }"),
+    part("b", "<img src='/u/s/a.jpg'/>"),
+  ]);
+  assert.deepEqual(at(chain, "a"), ["/gallery"], "the rendered outer band lost its page");
+  assert.deepEqual(at(chain, "b"), [], "an uncertain link was carried as certain through the chain");
+  assert.deepEqual((chain.find((x) => x.name === "b") || {}).maybeRoutes, ["/gallery"],
+    "the uncertain link lost the route it may be on");
+
+  // ── ⚠ A COMMENT IS NOT CODE AND A QUOTED EXAMPLE IS NOT AN IMPORT ────────
+  //
+  // Owner: *"importsPart matches commented-out imports… Exclude comments and
+  // quoted examples from import evidence."* All three shapes MEASURED against
+  // the rendered control above, which is the same graph with the import live.
+  for (const [what, head] of [
+    ["a line comment", "// import { W } from '@/routes/-parts/w'"],
+    ["a block comment", "/* import { W } from '@/routes/-parts/w' */"],
+    ["a quoted example", "const hint = \"import { W } from '@/routes/-parts/w'\""],
+  ]) {
+    const off = routedSources(
+      [page("gallery.tsx", head + "\nfunction P(){ return <main><W/></main> }")],
+      [part("w", "<img src='/u/s/a.jpg'/>")],
+    ).find((x) => x.name === "w");
+    assert.deepEqual(off.routes, [], what + " was read as an import: " + JSON.stringify(off));
+    assert.deepEqual(off.maybeRoutes, [], what + " was read as a possible import: " + JSON.stringify(off));
+  }
 
   // ── ⚠ A PAGE'S RELATIVE `./x` IS ANOTHER PAGE, NOT A COMPONENT. From inside
   // `-parts/` a sibling `./x` can resolve to nothing but `-parts/x.tsx`, which

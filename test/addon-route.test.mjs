@@ -8420,6 +8420,195 @@ test("a scene inside a component is on the page that renders it, so a true claim
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   AN IMPORT IS NOT A PLACEMENT (2026-09-20)
+
+   Owner: *"importsPart matches commented-out imports, and routedSources treats
+   an unused import as placement. Both reproduce through the addon route: the
+   photograph exists in the component file, the gallery never renders it, yet
+   coverage becomes configured. Exclude comments and quoted examples from import
+   evidence. An unused import must not establish placement. Where placement
+   cannot be established, preserve uncertainty."*
+
+   REPRODUCED THROUGH THIS ROUTE ON ALL FOUR SHAPES BEFORE ANYTHING MOVED —
+   each one answered `state: configured`, `implementation: found`,
+   `reconciledItem: "/gallery"` and *"I've set that up"*, byte for byte what
+   the RENDERED control answered.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The gallery page with a head of its own and a body that may or may not draw the band. */
+const galleryHead = (head, draws) => ({
+  path: "src/routes/gallery.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n" + head + "\n"
+    + "export const Route = createFileRoute('/gallery')({ component: P })\n"
+    + "function P(){ return <main><h1>Gallery</h1>" + (draws || "") + "</main> }\n",
+});
+
+test("a commented-out, quoted or unused import does not put a component's photograph on the page", async () => {
+  const NEED = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const ECHO = { need: NEED.need, status: "covered", by: "a photograph of the bench on /gallery",
+    answers: "page#0", kind: "photo", item: "/gallery" };
+  const LIVE = "import { Band } from '@/routes/-parts/photo-wall'";
+  const run = (slug, head, draws) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryHead(head, draws)],
+    writtenParts: [bandWith("photo-wall", TOKEN(BENCH))],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [NEED] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [ECHO] },
+    },
+  });
+  const held = (r, slug) => storedAnswer(r, slug).coverage.requirements.find((x) => x.status === "elsewhere");
+
+  // ── THE CONTROL FIRST, so every arm below is measured against a run that
+  // differs from it in ONE way. It must go on answering exactly as it did.
+  const ok = await run("fw-use-live", LIVE, "<Band />");
+  assert.equal(ok.body.pictures, 1, "the control bought no picture, so it proves nothing: " + JSON.stringify(ok.body));
+  assert.equal(held(ok, "fw-use-live").state, "configured",
+    "a rendered component stopped answering its request: " + JSON.stringify(held(ok, "fw-use-live")));
+
+  // ── THE FOUR SHAPES. Each publishes the picture into the component's file —
+  // asserted, or the case is about a step that bought nothing — and each must
+  // fail to answer a claim about the page that does not draw it.
+  for (const [what, head, draws] of [
+    ["a line-commented import", "// " + LIVE, ""],
+    ["a block-commented import", "/* " + LIVE + " */", ""],
+    ["a quoted example", "const hint = \"" + LIVE.replace(/'/g, "\\'") + "\"", "{hint}"],
+    ["an import nothing renders", LIVE, ""],
+  ]) {
+    const slug = "fw-use-" + what.replace(/[^a-z]+/gi, "").toLowerCase().slice(0, 12);
+    const r = await run(slug, head, draws);
+    assert.equal(r.body.ok, true, what + ": " + JSON.stringify(r.body));
+    assert.equal(r.body.pictures, 1, what + " bought no picture, so the case proves nothing: " + JSON.stringify(r.body));
+    assert.match(storedParts(r, slug)["photo-wall"] || "", new RegExp('src="/u/' + slug + '/'),
+      what + ": the url is not in the component, so there is nothing to mis-place");
+    const h = held(r, slug);
+    assert.notEqual(h.state, "configured", what + " established a placement: " + JSON.stringify(h));
+    assert.notEqual(h.implementation, "found", what + " answered the request: " + JSON.stringify(h));
+    assert.doesNotMatch(r.body.coverNote || "", /I've set that up/,
+      what + " told the customer the picture is on the page: " + r.body.coverNote);
+    // …AND THE BROWSER'S OWN SCREEN SAYS THE SAME, composed by `addonAnswer`
+    // rather than by this file: the reply is what a person reads.
+    assert.doesNotMatch(browserText(r.body), /I've set that up/,
+      what + ": the customer's screen claimed the picture is placed");
+  }
+});
+
+test("a placement nobody could establish is uncertainty, not an absence", async () => {
+  // Owner: *"Where placement cannot be established, preserve uncertainty."*
+  // The page imports the band and hands the BINDING to something else — which
+  // really can reach the page by a route no reader of the source can follow.
+  // Neither `configured` (a claim) nor `missing` ("Still to do", a claim the
+  // other way): `unknown` is the one honest answer, and its own sentence
+  // invites the look rather than the re-ask.
+  const NEED = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const ECHO = { need: NEED.need, status: "covered", by: "a photograph of the bench on /gallery",
+    answers: "page#0", kind: "photo", item: "/gallery" };
+  const r = await photoAsk("fw-use-maybe", {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryHead("import { Band } from '@/routes/-parts/photo-wall'\nconst bands = [Band]",
+      "{bands.map((B, i) => <B key={i} />)}")],
+    writtenParts: [bandWith("photo-wall", TOKEN(BENCH))],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [NEED] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [ECHO] },
+    },
+  });
+  assert.equal(r.body.pictures, 1, "no picture was bought: " + JSON.stringify(r.body));
+  const h = storedAnswer(r, "fw-use-maybe").coverage.requirements.find((x) => x.status === "elsewhere");
+  assert.equal(h.state, "unknown", "an unfollowable use was answered rather than left open: " + JSON.stringify(h));
+  const said = browserText(r.body);
+  assert.doesNotMatch(said, /I've set that up/, "the customer was told a placement nobody established: " + said);
+  assert.doesNotMatch(said, /Still to do/, "the customer was told a published picture is missing: " + said);
+  assert.match(said, /can't see from here whether/, "the uncertainty had no sentence: " + said);
+});
+
+test("a scene whose placement could not be established is not contradicted", async () => {
+  // THE SAME THIRD ANSWER ONE FIELD OVER, and here the old reading was the
+  // worst-shaped one available: `appliedFacts` has two words for a scene, so a
+  // canvas in a component the page merely holds a reference to was recorded as
+  // `fails: ["onpage"]` — a CONTRADICTION over evidence that establishes
+  // nothing. The CONTROL is the rendered case above, which stays `configured`.
+  const CANVAS = "import { Canvas } from '@react-three/fiber'\n";
+  const r = await addon("fw-three-maybe", "put a 3d scene in a band on the gallery page", {
+    publishes: true, kinds: ["three"],
+    written: [galleryHead("import { Band } from '@/routes/-parts/scene-band'\nconst bands = [Band]",
+      "{bands.map((B, i) => <B key={i} />)}")],
+    writtenParts: [{ name: "scene-band", source: CANVAS + "export function Band(){ return <Canvas><mesh /></Canvas> }\n" }],
+    answers: { three: { three: { scene: "a slowly turning cube" }, requirements: [
+      { need: "The gallery page shows the 3D scene.", status: "covered", kind: "three", item: "three", by: "the three scene is declared and onpage" },
+    ] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const c = storedAnswer(r, "fw-three-maybe").coverage.requirements[0];
+  assert.equal(c.contradictedBy, undefined,
+    "a scene nobody could place was recorded as contradicted: " + JSON.stringify(c));
+  assert.notEqual(c.state, "failed", "an unestablished placement was read as a failure: " + JSON.stringify(c));
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A PARTIAL OUTCOME IS SAID (2026-09-20)
+
+   Owner: *"a component answer containing a valid welcome-card and a tide-chart
+   with empty does returns droppedFields naming tide-chart, but the actual
+   browser reply is only 'Done — updated /.' Carry this partial outcome into a
+   plain customer sentence and preserve the dropped-item diagnostic in the
+   stored outcome."*
+
+   REPRODUCED ON EXACTLY THAT ANSWER: `droppedFields:
+   [{what:"component",name:"tide-chart"}]`, `coverNote: ""`, the stored record
+   carrying no such field at all, and the browser's own composer drawing
+   **"✅ Done — updated /."**
+   ═════════════════════════════════════════════════════════════════════════ */
+
+test("a component answer whose second part was dropped says so, and the record keeps its name", async () => {
+  const two = (second) => ({ component: { component: [{
+    page: "/", does: "a welcome card and a tide chart",
+    tsx: [
+      { name: "welcome-card", does: "greets the visitor", props: "name: string" },
+      second,
+    ],
+  }] } });
+  const r = await addon("fw-part-drop", "add a welcome card and a tide chart", {
+    kinds: ["component"], publishes: true,
+    answers: two({ name: "tide-chart", does: "", props: "rows: number[]" }),
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION: the step really did build one of the two and lose the
+  // other, or this case is about a run where nothing was dropped.
+  assert.deepEqual(r.body.droppedFields, [{ what: "component", name: "tide-chart" }],
+    "the drop is not on the reply, so there is nothing to carry: " + JSON.stringify(r.body.droppedFields));
+  assert.deepEqual(r.body.changed, ["index.tsx"], "the change did not land: " + JSON.stringify(r.body));
+
+  // 1. THE CUSTOMER'S OWN SCREEN, composed by the browser and not by this file.
+  const said = browserText(r.body);
+  assert.match(said, /Part of that didn't get built/, "the partial outcome is not on the screen: " + said);
+  assert.match(said, /1 section/, "the screen does not say how much was lost: " + said);
+  assert.doesNotMatch(said, /tide-chart/,
+    "a file name the DESIGNER coined reached the customer: " + said);
+  // …AND IT IS STILL A SUCCESS, because it is: one of the two was built, the
+  // page changed and the run was charged. A partial outcome is not a failure.
+  assert.match(said, /✅ Done/, "a partial outcome was reported as a failed change: " + said);
+
+  // 2. THE STORED OUTCOME KEEPS THE NAME, which is what a developer comes back
+  // to and is exactly what the customer's sentence deliberately omits.
+  const rec = storedAnswer(r, "fw-part-drop").coverage;
+  assert.deepEqual(rec.droppedFields, [{ what: "component", name: "tide-chart" }],
+    "the diagnostic did not survive into the record: " + JSON.stringify(rec.droppedFields));
+
+  // 3. THE CONTROL — the same ask with both parts whole. No clause, no record
+  // entry, and the reply byte for byte what it has always been.
+  const ok = await addon("fw-part-whole", "add a welcome card and a tide chart", {
+    kinds: ["component"], publishes: true,
+    answers: two({ name: "tide-chart", does: "draws the day's tides", props: "rows: number[]" }),
+  });
+  assert.equal(ok.body.droppedFields, undefined, "nothing was dropped and something was reported");
+  assert.doesNotMatch(browserText(ok.body), /didn't get built/,
+    "a complete change told the customer part of it was lost: " + browserText(ok.body));
+  assert.deepEqual(storedAnswer(ok, "fw-part-whole").coverage.droppedFields, [],
+    "a complete change left a drop on the record");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
    A NAMED DESTINATION THAT CANNOT RESOLVE IS REFUSED (2026-09-20)
 
    Owner: *"For QR/three placement, reject explicitly named destinations that

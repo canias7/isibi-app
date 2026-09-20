@@ -22,7 +22,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "../builder/site-files.mjs";
+import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR, codeOnly, importSpecs, importsPart, partUse, partUses } from "../builder/site-files.mjs";
+import { codeOnly as pictureCodeOnly } from "../builder/site-picture.mjs";
 import { runTextEdit, textItems } from "../builder/site-apply.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -176,4 +177,126 @@ test("`loadSiteSourceForEdit` answers the PAGES, and every rung that needs the c
   // somewhere, or "not in this body" is true of a name nothing has.
   assert.match(WORKER, /async function loadSiteParts\(/, "the components reader is gone — this absence check is vacuous");
   assert.ok(!WORKER.includes("loadEditableFiles"), "the callerless whole-source reader is back; it was deleted with the dead set");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IMPORT EVIDENCE, AND THE PLACEMENT QUESTION UNDER IT (2026-09-20)
+
+   Owner: *"importsPart matches commented-out imports… Exclude comments and
+   quoted examples from import evidence. An unused import must not establish
+   placement. Where placement cannot be established, preserve uncertainty."*
+
+   DRIVEN AT THE MODULE BECAUSE THE ROUTE CANNOT REACH EVERY SHAPE. A namespace
+   import, a dynamic one, a `require`, a clause spread over four lines and an
+   identifier holding a regex metacharacter are all things these functions are
+   exported and handed; `validatePages` stops most of them ever arriving through
+   the product, which is exactly why they need a guard where they live.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const SPEC = "@/routes/-parts/photo-wall";
+
+test("codeOnly is one function, shared with the picture reader", () => {
+  // ⚠ IDENTITY, NOT BEHAVIOUR. Two copies of a lexer that agreed today is
+  // exactly how a frame counter and an import reader come to disagree about
+  // what a comment is next month — the `secretsNeeded` precedent, and the
+  // reason this moved rather than forked.
+  assert.equal(codeOnly, pictureCodeOnly, "the picture reader has its own copy of the lexer again");
+  // …AND THE TWO COPIES IT PRODUCES ARE THE SAME LENGTH, which is what lets an
+  // offset found in one be read in the other. Load-bearing here: a specifier's
+  // BOUNDARIES come from the masked copy and its VALUE from the plain one.
+  const src = "const a = 'x' // '\nconst b = `t${1}`\n/* ' */ const c = \"y\"";
+  assert.equal(codeOnly(src).length, src.length, "the plain copy changed length");
+  assert.equal(codeOnly(src, true).length, src.length, "the masked copy changed length");
+  assert.equal(codeOnly(src, true).includes("x"), false, "a string's contents survived the masking");
+  assert.equal(codeOnly(src).includes("x"), true, "the plain copy lost a value the import reader needs");
+});
+
+test("an import specifier is a string in an import POSITION, in code", () => {
+  const spec = (src) => importSpecs(src).specs.map((m) => m.spec);
+  // ── THE POSITIONS THAT ARE IMPORTS ───────────────────────────────────────
+  for (const [what, src] of [
+    ["from", "import { Band } from '" + SPEC + "'"],
+    ["a side-effect import", "import '" + SPEC + "'"],
+    ["a dynamic import", "const L = lazy(() => import('" + SPEC + "'))"],
+    ["require", "const B = require('" + SPEC + "')"],
+    ["an export-from", "export { Band } from '" + SPEC + "'"],
+    ["a clause over four lines", "import {\n  Band,\n  Other,\n} from '" + SPEC + "'"],
+    ["a double-quoted specifier", 'import { Band } from "' + SPEC + '"'],
+  ]) assert.deepEqual(spec(src), [SPEC], what + " was not read as an import: " + src);
+
+  // ── AND THE POSITIONS THAT ARE NOT ───────────────────────────────────────
+  for (const [what, src] of [
+    ["a line comment", "// import { Band } from '" + SPEC + "'"],
+    ["a block comment", "/* import { Band } from '" + SPEC + "' */"],
+    ["a jsdoc line", "/**\n * import { Band } from '" + SPEC + "'\n */"],
+    ["an assignment", "const hint = \"import { Band } from '" + SPEC + "'\""],
+    ["a prop", "<Doc path=\"" + SPEC + "\" />"],
+    ["a link", "<a href='" + SPEC + "'>docs</a>"],
+    ["a template literal", "const t = `import '" + SPEC + "'`"],
+  ]) assert.deepEqual(spec(src), [], what + " was read as an import: " + src);
+
+  // ⚠ THE LINE COMMENT AND THE STRING ARE ONE PASS, in both directions — this
+  // repository's recorded trap is a `/*` inside a LINE comment, and its mirror
+  // is the `//` in every `href="https://…"` on every page.
+  assert.deepEqual(spec("const u = 'https://x/y' // /* \nimport { B } from '" + SPEC + "'"), [SPEC],
+    "a url's slashes or a comment's opener swallowed a real import");
+
+  // A SPECIFIER IS COMPARED WHOLE, which is what the substring form could not
+  // do: a longer name cannot satisfy a shorter one and no name is a pattern.
+  assert.equal(importsPart("import { B } from '" + SPEC + "-2'", "photo-wall", false), false,
+    "a longer component name satisfied a shorter one");
+  assert.equal(importsPart("import { B } from '@/routes/-parts/qrxcard'", "qr.card", false), false,
+    "a name with a regex metacharacter was used as a pattern");
+  // …AND AN EXTENSION IS THE SAME MODULE.
+  assert.equal(importsPart("import { B } from '" + SPEC + ".tsx'", "photo-wall", false), true,
+    "an explicit .tsx stopped resolving");
+  // `inPart` IS THE DISCRIMINATOR: from a PAGE, `./x` is another PAGE.
+  assert.equal(importsPart("import { C } from './card'", "card", false), false,
+    "a page's relative import of a sibling page was read as a component import");
+  assert.equal(importsPart("import { C } from './card'", "card", true), true,
+    "a component's sibling import stopped resolving");
+  // THE JUNK SHAPES, since these are exported and take what they are handed.
+  for (const bad of [null, undefined, 42, {}, []]) {
+    assert.equal(importsPart(bad, "card", true), false, "threw or matched on " + JSON.stringify(bad));
+    assert.equal(importsPart("import { C } from './card'", bad, true), false, "threw or matched on name " + JSON.stringify(bad));
+  }
+});
+
+test("partUse tells a rendered import from a dead one, and says so when it cannot tell", () => {
+  const page = (head, body) => "import { createFileRoute } from '@tanstack/react-router'\n" + head + "\n" + body;
+  const of = (head, body) => partUse(page(head, body), "photo-wall", false);
+  const LIVE = "import { Band } from '" + SPEC + "'";
+
+  assert.equal(of(LIVE, "function P(){ return <Band /> }"), "rendered");
+  assert.equal(of(LIVE, "function P(){ return <Band/> }"), "rendered", "a self-closing tag with no space");
+  assert.equal(of("import Band from '" + SPEC + "'", "function P(){ return <Band /> }"), "rendered", "a default import");
+  assert.equal(of("import { Band as Wall } from '" + SPEC + "'", "function P(){ return <Wall /> }"), "rendered", "an alias");
+
+  // THE ONE DEFINITE NEGATIVE: the clause binds a name and the file never
+  // mentions it again. The import statements are blanked before the test, or a
+  // binding would always be "mentioned" by its own clause.
+  assert.equal(of(LIVE, "function P(){ return <main/> }"), "unused");
+  assert.equal(of("import { Band, Other } from '" + SPEC + "'", "<Other/>"), "rendered",
+    "one bound name rendering is enough — the module IS on the page");
+
+  // EVERYTHING ELSE IS UNCERTAINTY, and each of these can really reach the page.
+  assert.equal(of(LIVE, "const all = [Band]\n{all.map((C) => <C/>)}"), "unsure", "a binding used as a value");
+  assert.equal(of("import * as N from '" + SPEC + "'", "<N.Band/>"), "unsure", "a namespace member");
+  assert.equal(of("import '" + SPEC + "'", "<main/>"), "unsure", "a side-effect import binds nothing to test");
+  assert.equal(of("const L = lazy(() => import('" + SPEC + "'))", "<L/>"), "unsure", "a dynamic import");
+  assert.equal(of("export { Band } from '" + SPEC + "'", "<main/>"), "unsure", "a re-export binds no local name");
+
+  // NOT IMPORTED AT ALL IS ITS OWN ANSWER, distinct from all three.
+  assert.equal(of("// " + LIVE, "<Band/>"), "none", "a commented import was read as an import");
+  assert.equal(partUse("", "photo-wall", false), "none");
+  assert.equal(partUse("import { B } from '" + SPEC + "'", "", false), "none", "an empty name matched something");
+
+  // ONE SCAN ANSWERS FOR EVERY CANDIDATE, which is what the walk in
+  // `routedSources` calls once per file rather than once per pair.
+  const many = partUses(page("import { A } from '@/routes/-parts/a'\nimport { B } from '@/routes/-parts/b'",
+    "function P(){ return <A/> }"), ["a", "b", "c"], false);
+  assert.equal(many.get("a"), "rendered");
+  assert.equal(many.get("b"), "unused");
+  assert.equal(many.has("c"), false, "a component nothing imports got an entry");
+  assert.deepEqual([...partUses("x", null, false).keys()], [], "junk names threw or answered");
 });

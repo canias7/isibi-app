@@ -136,7 +136,7 @@ import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.
 // which PAGE a component's photograph is on. Two readers of one convention, so
 // one definition — a second copy is a component the cascade withholds and the
 // reporting still credits to a page.
-import { PART_DIR, importsPart } from "./site-files.mjs";
+import { PART_DIR, importsPart, partUses } from "./site-files.mjs";
 // THE PLATFORM'S OWN BOUNDS ON A PHOTOGRAPH, never a second copy of either.
 // `IMAGE_CAP` is how many one change may buy and `MAX_PROMPT_CHARS` is how much
 // of a description reaches the image model — both are what `planImages` and
@@ -3540,6 +3540,54 @@ export function missingPagesNote(routes) {
 }
 
 /**
+ * WHAT THE DESIGN ASKED FOR AND THIS STEP COULD NOT BUILD, AS ONE PLAIN
+ * SENTENCE (2026-09-20).
+ *
+ * Owner: *"a component answer containing a valid welcome-card and a tide-chart
+ * with empty `does` returns droppedFields naming tide-chart, but the actual
+ * browser reply is only 'Done — updated /.' Carry this partial outcome into a
+ * plain customer sentence."* MEASURED on exactly that answer: `droppedFields:
+ * [{what: "component", name: "tide-chart"}]`, `coverNote: ""`, and the
+ * browser's own composer drawing **"✅ Done — updated /."** — a change that
+ * built one of the two things asked for, reported as a change that worked.
+ *
+ * A PARTIAL OUTCOME IS NOT A FAILURE AND IT IS NOT A SUCCESS. `skipped` covers
+ * a whole ITEM this step refused and has its own sentence; these are losses
+ * INSIDE an item that really was built, so the reply's `ok`, its `changed` and
+ * its cost are all honest and the only thing missing was that anybody said so.
+ *
+ * COUNTS AND KINDS, NEVER THE IDENTIFIERS — the same division `unknownKit` and
+ * `invalidProps` already make, and for the same reason: `tide-chart` is a file
+ * name the DESIGNER coined, not the customer's own words, so it tells them
+ * nothing they can act on. The names are kept whole on the reply and in the
+ * stored record, which is where a developer looks.
+ *
+ * THE KIND IS SAID IN THE CUSTOMER'S VOCABULARY. A `component` is a *section*
+ * — what they would call the thing on the page — and a `column` is a *field*.
+ * A `what` this does not recognise is a *thing*, which fails open rather than
+ * dropping the whole sentence the day a fourth kind is added.
+ */
+const DROPPED_WORDS = Object.freeze({
+  component: ["section", "sections"],
+  column: ["field", "fields"],
+});
+export function droppedNote(dropped) {
+  const list = (Array.isArray(dropped) ? dropped : []).filter((d) => d && typeof d === "object");
+  if (!list.length) return "";
+  const counts = new Map();
+  for (const d of list) counts.set(String(d.what || ""), (counts.get(String(d.what || "")) || 0) + 1);
+  const said = [...counts.entries()].map(([what, n]) => {
+    const w = DROPPED_WORDS[what] || ["thing", "things"];
+    return n + " " + (n === 1 ? w[0] : w[1]);
+  });
+  const one = list.length === 1;
+  return "Part of that didn't get built — " + said.join(" and ") + " the design asked for, so "
+    + (one ? "it isn't" : "they aren't") + " there. Ask me for "
+    + (one ? "it" : "them") + " again on "
+    + (one ? "its" : "their") + " own and I'll have another go.";
+}
+
+/**
  * WHICH ROUTES A VISITOR REALLY SEES EACH FILE ON (2026-09-20).
  *
  * ⚠ WHY A FILE PATH IS NOT AN ANSWER. `imageSources` is the one definition of
@@ -3581,41 +3629,79 @@ export function missingPagesNote(routes) {
  * the trap `imageSources`' own header records about slicing the union apart by
  * length. Pages first then parts, which is the order it already guarantees.
  */
+/**
+ * HOW MUCH AN IMPORT EDGE ESTABLISHES — and `unused` is deliberately absent,
+ * because it establishes nothing and `EDGE[u] || 0` is what says so.
+ *
+ * TWO STRENGTHS RATHER THAN A BOOLEAN, so `min` along a path and `max` across
+ * paths mean what they say: a chain is only as certain as its weakest link, and
+ * one certain route does not become uncertain because another path could not be
+ * read.
+ */
+const EDGE = Object.freeze({ rendered: 2, unsure: 1 });
+
 export function routedSources(pages, parts) {
   const ps = Array.isArray(pages) ? pages : [];
   const bs = (Array.isArray(parts) ? parts : []).filter(
     (p) => p && typeof p === "object" && typeof p.name === "string" && p.name,
   );
   const src = (p) => String((p && p.source) || "");
-  // DIRECT IMPORTS, COMPUTED ONCE PER FILE rather than per page-part pair: the
-  // walk below is then pure graph, so a site with many pages and many
-  // components costs one regex pass each instead of their product.
-  const directOf = (text, inPart) => bs.map((b) => b.name).filter((n) => importsPart(text, n, inPart));
-  const partDirect = new Map(bs.map((b) => [b.name, directOf(src(b), true)]));
+  const all = bs.map((b) => b.name);
+  // USES, COMPUTED ONCE PER FILE rather than per page-part pair: the walk below
+  // is then pure graph, so a site with many pages and many components costs one
+  // lexical pass each instead of their product.
+  const usesOf = (text, inPart) => partUses(text, all, inPart);
+  const partUse = new Map(bs.map((b) => [b.name, usesOf(src(b), true)]));
   const routesOf = new Map();
+  const maybeOf = new Map();
   for (const p of ps) {
     const r = routeOf(p && p.path);
     if (!r) continue;
-    const seen = new Set();
-    const stack = directOf(src(p), false);
+    // THE STRENGTH OF AN EDGE, AND A PATH IS ONLY AS STRONG AS ITS WEAKEST ONE.
+    // A page that renders `photo-wall`, which merely holds a reference to
+    // `photo-frame`, places the outer band certainly and the inner one only
+    // maybe — so the walk carries `min` along each path and keeps the `max`
+    // across them, which is the honest reading of "some route reaches it".
+    const best = new Map();
+    const stack = [];
+    const push = (n, w) => {
+      if (w > 0 && (best.get(n) || 0) < w) { best.set(n, w); stack.push(n); }
+    };
+    for (const [n, u] of usesOf(src(p), false)) push(n, EDGE[u] || 0);
+    // TERMINATES ON A CYCLE BECAUSE A NODE IS ONLY RE-VISITED WHEN ITS STRENGTH
+    // IMPROVES, and there are two strengths — so at most two visits each. Two
+    // components importing each other is not valid TypeScript, but this
+    // function is exported and takes what it is handed, and a hang here is a
+    // publish that never returns.
     while (stack.length) {
       const n = stack.pop();
-      if (seen.has(n)) continue;
-      seen.add(n);
-      for (const m of partDirect.get(n) || []) if (!seen.has(m)) stack.push(m);
+      const w = best.get(n) || 0;
+      for (const [m, u] of partUse.get(n) || []) push(m, Math.min(w, EDGE[u] || 0));
     }
-    for (const n of seen) {
-      const set = routesOf.get(n) || new Set();
+    for (const [n, w] of best) {
+      const into = w >= EDGE.rendered ? routesOf : maybeOf;
+      const set = into.get(n) || new Set();
       set.add(r);
-      routesOf.set(n, set);
+      into.set(n, set);
     }
   }
   const out = [];
   for (const p of imageSources(ps, [])) {
     const r = routeOf(p && p.path);
-    out.push({ ...p, routes: r ? [r] : [] });
+    // A PAGE IS ON ITS OWN ROUTE, CERTAINLY. There is no placement question to
+    // ask about a file a visitor opens by its own address.
+    out.push({ ...p, routes: r ? [r] : [], maybeRoutes: [] });
   }
-  for (const p of imageSources([], bs)) out.push({ ...p, routes: [...(routesOf.get(p.name) || [])] });
+  for (const p of imageSources([], bs)) {
+    const sure = routesOf.get(p.name) || new Set();
+    out.push({
+      ...p,
+      routes: [...sure],
+      // NEVER IN BOTH: a route that certainly renders it is settled, whatever
+      // some other path through the graph could not establish.
+      maybeRoutes: [...(maybeOf.get(p.name) || [])].filter((r) => !sure.has(r)),
+    });
+  }
   return out;
 }
 
@@ -4375,7 +4461,7 @@ export const APPLIED_KINDS = Object.freeze(["table", "function", "api", "job", "
  * answered with a syntax error, the job registered against it all the same, and
  * a claim naming the job's real 09:00 schedule read `delivered`.
  */
-export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], photos = [], shots = [] } = {}) {
+export function appliedFacts({ spec = null, tables = [], altered = [], functions = [], apis = [], jobs = [], pages = [], fnErrors = [], qrs = [], three = false, threeOn = [], threeUnsure = false, photos = [], shots = [] } = {}) {
   const levels = [...new Set([...Object.keys(ACCESS_PRESETS), ...READ_LEVELS, ...WRITE_LEVELS])];
   const list = (spec && Array.isArray(spec.tables)) ? spec.tables : [];
   const factsFor = (name) => {
@@ -4542,13 +4628,21 @@ export function appliedFacts({ spec = null, tables = [], altered = [], functions
   // contradicted rather than quietly reading as configuration that holds. The
   // routes ride in `holds` so a claim naming one resolves against the page it
   // really landed on.
+  //
+  // ⚠ AND `threeUnsure` IS THE THIRD ANSWER (2026-09-20). A canvas written into
+  // a component that a page IMPORTS and may or may not render is neither on the
+  // page nor provably off it — and with only two words available, the reader
+  // recorded it as `fails: ["onpage"]`, which is a CONTRADICTION: the strongest
+  // negative this vocabulary has, over evidence that establishes nothing. It
+  // says neither now, so a claim about the scene showing on the page reads
+  // `unknown` — *"nothing I can check says either way"* — instead.
   if (three) {
     const on = Array.isArray(threeOn) ? threeOn.filter((r) => typeof r === "string" && r) : [];
     out.push({
       kind: "three",
       name: "three",
       holds: ["declared", ...(on.length ? ["onpage", ...on] : [])],
-      fails: on.length ? [] : ["onpage"],
+      fails: on.length || threeUnsure === true ? [] : ["onpage"],
       checked: [],
     });
   }

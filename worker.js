@@ -245,7 +245,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -23810,7 +23810,14 @@ async function handleRequest(request, env, ctx) {
             // the reproduced defect — so this is the identity of WHICH, carried
             // from the request through the purchase to the reconciliation. Its
             // declaration is here for exactly the reason the one above it is.
-            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aPhotoLost = [], aPhotoShots = [];
+            // …AND `aThreeUnsure` IS THE THIRD ANSWER THE SCENE READER NEEDS
+            // (2026-09-20). A canvas in a component a page IMPORTS and may not
+            // render is neither on the page nor provably off it, and
+            // `appliedFacts` has exactly two words for a scene (`onpage` in
+            // `holds`, or in `fails`) — so without this a placement nobody could
+            // establish would be recorded as a CONTRADICTION, which is the
+            // strongest negative this vocabulary has.
+            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [];
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
@@ -23818,6 +23825,7 @@ async function handleRequest(request, env, ctx) {
               qrs: (aLookMade && aLookMade.qrs) || [],
               three: !!(aLookMade && aLookMade.three),
               threeOn: aThreeOn,
+              threeUnsure: aThreeUnsure,
               photos: aPhotoMade || [],
               shots: aPhotoShots,
             });
@@ -23863,7 +23871,22 @@ async function handleRequest(request, env, ctx) {
               // picture's placement is not known until the merge has settled
               // and the purchase has run, so before that a claim about one must
               // read "nobody looked" rather than "there is none".
-              const ready = { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade, photo: !!aPhotoMade };
+              //
+              // ⚠ AND AN INVENTORY WITH AN UNESTABLISHED PLACEMENT IN IT IS NOT
+              // AN INVENTORY (2026-09-20). `reportable` is what licenses the
+              // word ABSENT — *"this layer enumerated that kind and the thing is
+              // not among them"* — and a picture in a component the page might
+              // reach through a value is precisely the case where the
+              // enumeration is incomplete. MEASURED: without this the uncertain
+              // arm read `missing` and told the customer a published, billed
+              // photograph was *"Still to do"*, which is the reported defect
+              // answered in the opposite direction. One unreadable placement
+              // makes the whole kind unreportable, because which routes it
+              // would have named is exactly what could not be established.
+              const ready = {
+                page: !!aShipped, qr: !!aLookMade, three: !!aLookMade,
+                photo: !!aPhotoMade && !aPhotoUnsure,
+              };
               return COVERAGE_STEPS.filter((k) => {
                 if (!ran.has(k)) return true;
                 if (!APPLIED_KINDS.includes(k)) return false;
@@ -23965,6 +23988,13 @@ async function handleRequest(request, env, ctx) {
                   // writer is a fact about this change whether or not anybody
                   // wrote a requirement for it.
                   missingPagesNote(aMissing),
+                  // …AND THE PARTIAL OUTCOME'S OWN SENTENCE, joined here for
+                  // exactly the reason the missing pages' is: a thing the
+                  // design asked for and this step could not build is a fact
+                  // about this change whether or not a requirement named it.
+                  // Without it a change that built one of two things read as
+                  // "✅ Done — updated /." and nothing else.
+                  droppedNote([...aDropped.values()]),
                   // …AND WHAT WENT WITH THEM. Beside the sentence above,
                   // never instead of it: one says the page is not there, this
                   // says a code that was going to open it was not added — or,
@@ -24313,6 +24343,11 @@ async function handleRequest(request, env, ctx) {
               made: aMade(), reportable: aReportable(), existing: aExisting(),
               unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
+              // AND THE FIELDS BINNED INSIDE AN ITEM THAT WAS BUILT, by name.
+              // On the reply since they existed and never on the record until
+              // 2026-09-20 — so the count the customer heard had nothing
+              // behind it that anybody could come back to.
+              dropped: [...aDropped.values()],
               // AND WHICH OF THE SITE'S PAGES THE PROMPT WINDOW COULD NOT
               // CARRY. On the STORED record as well as the reply, because the
               // reply is read once and the record is what anybody comes back
@@ -26241,6 +26276,13 @@ async function handleRequest(request, env, ctx) {
               const touched = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]
                 .map((f) => routeOf(f)).filter(Boolean));
               aPhotoMade = [...byRoute.values()].filter((x) => touched.has(x.route));
+              // ⚠ AND WHETHER THIS INVENTORY IS ONE. A component whose placement
+              // could not be established carries its pictures to a route this
+              // cannot name, so the enumeration above is short by an unknown
+              // amount — which is what `aReportable` reads to stop `absent`
+              // being said about a kind nobody finished counting.
+              aPhotoUnsure = live.some((p) => ((p && p.maybeRoutes) || []).length
+                && imageRefs(p && p.source, ownerSlug).size > 0);
               // ── AND WHICH REQUESTED PHOTOGRAPH IS REALLY THERE (2026-09-19) ─
               //
               // Owner: *"Preserve explicit request-to-result association
@@ -26294,14 +26336,27 @@ async function handleRequest(request, env, ctx) {
               // counts as landed, while the same picture in a component only
               // `/about` uses does not. Finding an image SOMEWHERE is never the
               // question this loop asks.
+              // ⚠ AND A PLACEMENT NOBODY COULD ESTABLISH IS ITS OWN MAP
+              // (2026-09-20). Owner: *"An unused import must not establish
+              // placement. Where placement cannot be established, preserve
+              // uncertainty."* `routes` is what a visitor on that page really
+              // sees; `maybeRoutes` is a component the page imports and may
+              // reach some way no reader of the source can follow. Folding the
+              // second into the first is the reported defect; folding it into
+              // NEITHER map would make it a definite absence, which is the same
+              // overclaim pointing the other way.
               const urlsAt = new Map();
+              const maybeAt = new Map();
               for (const p of live) {
-                for (const r0 of (p && p.routes) || []) {
-                  const r = rid(r0);
-                  if (!r) continue;
-                  const set = urlsAt.get(r) || new Set();
-                  for (const u of imageRefs(p && p.source, ownerSlug)) set.add(u);
-                  urlsAt.set(r, set);
+                const urls = imageRefs(p && p.source, ownerSlug);
+                for (const [key, into] of [["routes", urlsAt], ["maybeRoutes", maybeAt]]) {
+                  for (const r0 of (p && p[key]) || []) {
+                    const r = rid(r0);
+                    if (!r) continue;
+                    const set = into.get(r) || new Set();
+                    for (const u of urls) set.add(u);
+                    into.set(r, set);
+                  }
                 }
               }
               const lostAt = new Set();
@@ -26322,6 +26377,15 @@ async function handleRequest(request, env, ctx) {
                 // route half below is unchanged because it is what a COMBINED
                 // requirement about both pictures is judged on.
                 if (url && at && at.has(url)) { landed.push({ name: String(s.name || ""), route: r }); continue; }
+                // ⚠ UNCERTAIN IS NEITHER LANDED NOR LOST, and it has to be its
+                // own arm because the two below are both CLAIMS. Saying landed
+                // would answer a request with a picture nobody can show is on
+                // that page; saying lost would tell the customer a picture that
+                // may well be there is missing. Falling through to neither
+                // leaves the requirement `unknown` — *"nothing I can check says
+                // either way"* — which is the true sentence.
+                const maybe = maybeAt.get(r);
+                if (url && maybe && maybe.has(url)) continue;
                 // ⚠ THE WALL FIRES ONLY WHERE SOMETHING ELSE WOULD ANSWER FOR
                 // IT, and that is the owner's sentence turned into a condition:
                 // *"another photograph on the same route must not satisfy the
@@ -26372,9 +26436,16 @@ async function handleRequest(request, env, ctx) {
               // did not write carrying the canvas is still the scene being on
               // the site — the question `three` answers is whether the artifact
               // exists anywhere, not which page it moved to.
-              aThreeOn = [...new Set(live
-                .filter((p) => sceneOn(p && p.source))
-                .flatMap((p) => (p && p.routes) || []))].filter(Boolean);
+              //
+              // …AND A CANVAS WHOSE PLACEMENT COULD NOT BE ESTABLISHED SETS
+              // `aThreeUnsure` INSTEAD (2026-09-20), so `appliedFacts` says
+              // neither `onpage` nor `fails: ["onpage"]`. A component a page
+              // imports and might reach through a value is not a scene on the
+              // page and is not a contradiction of one either.
+              const drawn = live.filter((p) => sceneOn(p && p.source));
+              aThreeOn = [...new Set(drawn.flatMap((p) => (p && p.routes) || []))].filter(Boolean);
+              aThreeUnsure = !aThreeOn.length
+                && drawn.some((p) => ((p && p.maybeRoutes) || []).some(Boolean));
             }
             // THE RECORD IS RE-WRITTEN HERE WHETHER OR NOT A PAGE WENT MISSING
             // (2026-09-15), and until a sweep survivor found it this write was

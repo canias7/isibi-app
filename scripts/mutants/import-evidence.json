@@ -1,0 +1,249 @@
+[
+  {
+    "label": "CONTROL: partUses' heading comment changes nothing",
+    "control": true,
+    "files": ["builder/site-files.mjs"],
+    "from": " * ⚠ AN IMPORT IS NOT A PLACEMENT (2026-09-20). Owner: *\"routedSources treats an",
+    "to": " * ⚠ AN IMPORT IS NOT A PLACEMENT (control). Owner: *\"routedSources treats an"
+  },
+  {
+    "label": "CONTROL: droppedNote's heading comment changes nothing",
+    "control": true,
+    "files": ["builder/site-add.mjs"],
+    "from": " * A PARTIAL OUTCOME IS NOT A FAILURE AND IT IS NOT A SUCCESS. `skipped` covers",
+    "to": " * A PARTIAL OUTCOME IS NOT A FAILURE (control). `skipped` covers"
+  },
+
+  {
+    "label": "REPORTED DEFECT 1a: import evidence is read off the RAW source, so a comment counts",
+    "files": ["builder/site-files.mjs"],
+    "from": "  const sc = scanSource(src);\n  const out = [];\n  for (const { at, end } of sc.strings) {",
+    "to": "  const sc = { ...scanSource(src), mask: typeof src === \"string\" ? src : \"\" };\n  const out = [];\n  for (const { at, end } of sc.strings) {"
+  },
+  {
+    "label": "the import POSITION test is dropped, so a quoted example counts",
+    "files": ["builder/site-files.mjs"],
+    "from": "    const m = IMPORT_HEAD.exec(head);\n    if (!m) continue;",
+    "to": "    const m = IMPORT_HEAD.exec(head) || [\"\", \"import\", \"\", \"\"];\n    if (!m) continue;"
+  },
+  {
+    "label": "`from` stops being an import position",
+    "files": ["builder/site-files.mjs"],
+    "from": "const IMPORT_HEAD = /(?:(?:^|[\\s;{}()=,])(import|export)\\s+([^'\"`;]*?)\\s+from\\s*$)|",
+    "to": "const IMPORT_HEAD = /(?:(?:^|[\\s;{}()=,])(import|export)\\s+([^'\"`;]*?)\\s+fromX\\s*$)|"
+  },
+  {
+    "label": "the clause may cross a quote, so it swallows the statement above it",
+    "files": ["builder/site-files.mjs"],
+    "from": "(import|export)\\s+([^'\"`;]*?)\\s+from\\s*$",
+    "to": "(import|export)\\s+([\\s\\S]*?)\\s+from\\s*$"
+  },
+  {
+    "label": "a template literal is admitted as a specifier",
+    "files": ["builder/site-files.mjs"],
+    "from": "    if (sc.code[at] === \"`\") continue;",
+    "to": "    if (false) continue;"
+  },
+
+  {
+    "label": "REPORTED DEFECT 1b: an unused import establishes placement",
+    "files": ["builder/site-files.mjs"],
+    "from": "    const seen = bound.some((b) => new RegExp(\"(^|[^\\\\w$])\" + esc(b) + \"([^\\\\w$]|$)\").test(rest));\n    out.set(n, seen ? \"unsure\" : \"unused\");",
+    "to": "    out.set(n, \"rendered\");"
+  },
+  {
+    "label": "an unused import is uncertainty rather than the definite negative it is",
+    "files": ["builder/site-files.mjs"],
+    "from": "    out.set(n, seen ? \"unsure\" : \"unused\");",
+    "to": "    out.set(n, \"unsure\");"
+  },
+  {
+    "label": "a binding used as a VALUE is called a definite absence",
+    "files": ["builder/site-files.mjs"],
+    "from": "    out.set(n, seen ? \"unsure\" : \"unused\");",
+    "to": "    out.set(n, \"unused\");"
+  },
+  {
+    "label": "a namespace import is read as a placement instead of uncertainty",
+    "files": ["builder/site-files.mjs"],
+    "from": "  if (/\\*\\s*as\\s/.test(c)) return null;",
+    "to": "  if (/\\*\\s*as\\s/.test(c)) return [\"*\"];"
+  },
+  {
+    "label": "a dynamic import and a re-export bind names, so they read as definite",
+    "files": ["builder/site-files.mjs"],
+    "from": "  if (kind !== \"import\") return null;",
+    "to": "  if (kind !== \"import\") return [];"
+  },
+  {
+    "label": "a clause shape this cannot parse is read as binding nothing at all",
+    "files": ["builder/site-files.mjs"],
+    "from": "      if (!m) return null;\n      out.push(m[2] || m[1]);",
+    "to": "      if (!m) continue;\n      out.push(m[2] || m[1]);"
+  },
+  {
+    "label": "an alias binds its ORIGINAL name, so a renamed component reads as unused",
+    "files": ["builder/site-files.mjs"],
+    "from": "      out.push(m[2] || m[1]);",
+    "to": "      out.push(m[1]);"
+  },
+  {
+    "label": "the import statements are not blanked, so a binding is always 'used' by its own clause",
+    "files": ["builder/site-files.mjs"],
+    "from": "  for (const m of specs) rest = rest.slice(0, m.start) + \" \".repeat(m.end + 1 - m.start) + rest.slice(m.end + 1);",
+    "to": "  for (const m of []) rest = rest.slice(0, m.start) + \" \".repeat(m.end + 1 - m.start) + rest.slice(m.end + 1);"
+  },
+  {
+    "label": "a specifier matches as a PREFIX again, so photo-wall-2 satisfies photo-wall",
+    "files": ["builder/site-files.mjs"],
+    "from": "  if (s === tail || s.endsWith(\"/\" + tail)) return true;",
+    "to": "  if (s.includes(tail)) return true;"
+  },
+  {
+    "label": "a PAGE's relative ./x is read as a component import",
+    "files": ["builder/site-files.mjs"],
+    "from": "  return inPart === true && s === \"./\" + name;",
+    "to": "  return s === \"./\" + name;"
+  },
+  {
+    "label": "a quote straight after a word opens a string, so JSX prose swallows the file",
+    "files": ["builder/site-files.mjs"],
+    "from": "    if ((c === '\"' || c === \"'\") && !AFTER_WORD.test(code)) { quote = c; qAt = i; code += c; mask += c; i++; continue; }",
+    "to": "    if (c === '\"' || c === \"'\") { quote = c; qAt = i; code += c; mask += c; i++; continue; }"
+  },
+  {
+    "label": "the masked copy loses a character per escape, so the two views drift apart",
+    "files": ["builder/site-files.mjs"],
+    "from": "      if (c === \"\\\\\" && s[i + 1] !== undefined) { code += c + s[i + 1]; mask += \"  \"; i += 2; continue; }",
+    "to": "      if (c === \"\\\\\" && s[i + 1] !== undefined) { code += c + s[i + 1]; mask += \" \"; i += 2; continue; }"
+  },
+  {
+    "label": "the picture reader gets its own copy of the lexer back",
+    "files": ["builder/site-picture.mjs"],
+    "from": "export { codeOnly };",
+    "to": "export function codeOnly(src, maskStrings = false) { return String(src == null ? \"\" : src); }"
+  },
+
+  {
+    "label": "a chain carries the MAX rather than the MIN, so an uncertain link reads as certain",
+    "files": ["builder/site-add.mjs"],
+    "from": "      for (const [m, u] of partUse.get(n) || []) push(m, Math.min(w, EDGE[u] || 0));",
+    "to": "      for (const [m, u] of partUse.get(n) || []) push(m, Math.max(w, EDGE[u] || 0));"
+  },
+  {
+    "label": "an uncertain route is filed as a certain one",
+    "files": ["builder/site-add.mjs"],
+    "from": "      const into = w >= EDGE.rendered ? routesOf : maybeOf;",
+    "to": "      const into = w >= 1 ? routesOf : maybeOf;"
+  },
+  {
+    "label": "uncertainty is thrown away rather than carried",
+    "files": ["builder/site-add.mjs"],
+    "from": "      maybeRoutes: [...(maybeOf.get(p.name) || [])].filter((r) => !sure.has(r)),",
+    "to": "      maybeRoutes: [],"
+  },
+  {
+    "label": "a route in both lists is reported twice, so a settled placement reads as unsettled",
+    "files": ["builder/site-add.mjs"],
+    "from": "      maybeRoutes: [...(maybeOf.get(p.name) || [])].filter((r) => !sure.has(r)),",
+    "to": "      maybeRoutes: [...(maybeOf.get(p.name) || [])],"
+  },
+  {
+    "label": "a page's own route is reported as uncertain",
+    "files": ["builder/site-add.mjs"],
+    "from": "    out.push({ ...p, routes: r ? [r] : [], maybeRoutes: [] });",
+    "to": "    out.push({ ...p, routes: [], maybeRoutes: r ? [r] : [] });"
+  },
+  {
+    "label": "a scene nobody could place is contradicted again",
+    "files": ["builder/site-add.mjs"],
+    "from": "      fails: on.length || threeUnsure === true ? [] : [\"onpage\"],",
+    "to": "      fails: on.length ? [] : [\"onpage\"],"
+  },
+  {
+    "label": "a scene really on the page stops holding `onpage`",
+    "files": ["builder/site-add.mjs"],
+    "from": "      holds: [\"declared\", ...(on.length ? [\"onpage\", ...on] : [])],",
+    "to": "      holds: [\"declared\"],"
+  },
+
+  {
+    "label": "the photo inventory reads uncertain placements as real ones",
+    "files": ["worker.js"],
+    "from": "                for (const [key, into] of [[\"routes\", urlsAt], [\"maybeRoutes\", maybeAt]]) {",
+    "to": "                for (const [key, into] of [[\"routes\", urlsAt], [\"maybeRoutes\", urlsAt]]) {"
+  },
+  {
+    "label": "an uncertain placement is read as the request having been LOST",
+    "files": ["worker.js"],
+    "from": "                const maybe = maybeAt.get(r);\n                if (url && maybe && maybe.has(url)) continue;",
+    "to": "                const maybe = null;\n                if (url && maybe && maybe.has(url)) continue;"
+  },
+  {
+    "label": "an incomplete inventory still licenses the word ABSENT",
+    "files": ["worker.js"],
+    "from": "                photo: !!aPhotoMade && !aPhotoUnsure,",
+    "to": "                photo: !!aPhotoMade,"
+  },
+  {
+    "label": "an unreadable placement never marks the inventory incomplete",
+    "files": ["worker.js"],
+    "from": "              aPhotoUnsure = live.some((p) => ((p && p.maybeRoutes) || []).length",
+    "to": "              aPhotoUnsure = false && live.some((p) => ((p && p.maybeRoutes) || []).length"
+  },
+  {
+    "label": "a component with an uncertain placement and no picture in it still blinds the inventory",
+    "files": ["worker.js"],
+    "from": "                && imageRefs(p && p.source, ownerSlug).size > 0);",
+    "to": "                && true);"
+  },
+  {
+    "label": "the scene reader stops noticing an unestablished placement",
+    "files": ["worker.js"],
+    "from": "              aThreeUnsure = !aThreeOn.length\n                && drawn.some((p) => ((p && p.maybeRoutes) || []).some(Boolean));",
+    "to": "              aThreeUnsure = false;"
+  },
+
+  {
+    "label": "REPORTED DEFECT 2: the partial outcome is silent again",
+    "files": ["builder/site-add.mjs"],
+    "from": "  const list = (Array.isArray(dropped) ? dropped : []).filter((d) => d && typeof d === \"object\");\n  if (!list.length) return \"\";",
+    "to": "  const list = [];\n  if (!list.length) return \"\";"
+  },
+  {
+    "label": "the clause fires on a change that dropped nothing",
+    "files": ["builder/site-add.mjs"],
+    "from": "  if (!list.length) return \"\";\n  const counts = new Map();",
+    "to": "  const counts = new Map();"
+  },
+  {
+    "label": "the dropped item's NAME reaches the customer",
+    "files": ["builder/site-add.mjs"],
+    "from": "    return n + \" \" + (n === 1 ? w[0] : w[1]);",
+    "to": "    return n + \" \" + (n === 1 ? w[0] : w[1]) + \" (\" + list.map((d) => d.name).join(\", \") + \")\";"
+  },
+  {
+    "label": "a `what` this does not recognise drops the whole sentence",
+    "files": ["builder/site-add.mjs"],
+    "from": "    const w = DROPPED_WORDS[what] || [\"thing\", \"things\"];",
+    "to": "    const w = DROPPED_WORDS[what] || [\"\", \"\"];"
+  },
+  {
+    "label": "the clause is composed and never joined into what the customer reads",
+    "files": ["worker.js"],
+    "from": "                  droppedNote([...aDropped.values()]),",
+    "to": "                  \"\","
+  },
+  {
+    "label": "the diagnostic is dropped from the stored outcome again",
+    "files": ["builder/site-requirements.mjs"],
+    "from": "    droppedFields: (Array.isArray(dropped) ? dropped : [])\n      .filter((d) => d && typeof d === \"object\").slice(0, MAX_REQUIREMENTS),",
+    "to": "    droppedFields: [],"
+  },
+  {
+    "label": "the record is handed no drops, so the field is there and always empty",
+    "files": ["worker.js"],
+    "from": "              dropped: [...aDropped.values()],",
+    "to": "              dropped: [],"
+  }
+]

@@ -31,6 +31,8 @@
 // lanes. `readNeedsPlace` compares a route the model named against the pages
 // this site has, and those arrive as file paths.
 import { routeOf } from "./site-addon.mjs";
+// THE LEXER IS `site-files.mjs`' AND IS RE-EXPORTED BELOW — see `codeOnly`.
+import { codeOnly } from "./site-files.mjs";
 import { modelsFor } from "./build-models.mjs";
 
 /** A small call: matching a sentence to a list of sentences is not a design task. */
@@ -429,61 +431,21 @@ const OBJ_START = /\{\s*(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s*:/;
  * the direction of the risk is a MISSED frame rather than an invented one,
  * which is the safe side for a number offered to a customer.
  */
-export function codeOnly(src, maskStrings = false) {
-  let out = "", quote = "", i = 0;
-  while (i < src.length) {
-    const c = src[i], d = src[i + 1];
-    if (quote) {
-      // AN ESCAPE AND ITS VICTIM MOVE TOGETHER, or a `\"` ends the string and
-      // the rest of the line reads as code. Two characters in, two out.
-      if (c === "\\" && src[i + 1] !== undefined) { out += maskStrings ? "  " : c + src[i + 1]; i += 2; continue; }
-      if (c === quote) { out += c; quote = ""; i++; continue; }
-      // A NEWLINE SURVIVES EVEN INSIDE A MASKED TEMPLATE, so a line count is
-      // the file's own whichever copy is being read.
-      out += maskStrings ? (c === "\n" ? "\n" : " ") : c;
-      i++;
-      continue;
-    }
-    if ((c === '"' || c === "'") && !AFTER_WORD.test(out)) { quote = c; out += c; i++; continue; }
-    if (c === "`") { quote = c; out += c; i++; continue; }
-    if (c === "/" && d === "/") {
-      while (i < src.length && src[i] !== "\n") { out += " "; i++; }
-      continue;
-    }
-    if (c === "/" && d === "*") {
-      const end = src.indexOf("*/", i + 2);
-      const stop = end === -1 ? src.length : end + 2;
-      for (; i < stop; i++) out += src[i] === "\n" ? "\n" : " ";
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
-
-/**
- * ⚠ A QUOTE STRAIGHT AFTER A WORD CHARACTER IS PROSE, NOT A STRING — and this
- * is the one thing that made masking safe at all (measured 2026-09-19).
- *
- * A `.tsx` page is JSX, and JSX TEXT is full of apostrophes: *"somebody else's"*,
- * *"Heeley's studio"*, *"We've played"*. Read as string openers they swallow
- * everything to the next one — and the first attempt at this cost **29 real
- * picture frames across 6 of the 100 corpus sites**, an entire `<Gallery
- * items={[…]}/>` vanishing because a contraction two hundred characters above
- * it opened a string nobody wrote. A false all-clear, which this repository
- * rates worse than a false alarm.
- *
- * In JavaScript a string NEVER opens directly after a letter or a digit —
- * there is no implicit concatenation — so the test costs nothing real. A
- * BACKTICK is exempt because `css\`…\`` is a tagged template, where a word
- * character before it is exactly the ordinary case.
- *
- * THE LIMIT IT LEAVES, stated rather than hidden: a quote opening after `>` in
- * JSX prose (*"'Tis the season"*) still reads as a string. It is rare, and the
- * direction is a MISSED frame rather than an invented one.
- */
-const AFTER_WORD = /[A-Za-z0-9]$/;
+// THE BODY MOVED TO `site-files.mjs` ON 2026-09-20 AND IS RE-EXPORTED HERE,
+// so every caller and every guard keeps the name it has always imported.
+//
+// WHY IT MOVED RATHER THAN FORKED: it gained a second caller — the import
+// reader that decides whether a page really imports a component, which has to
+// tell a commented-out import from a live one — and what it knows is a source
+// file's LEXICAL structure, which is that module's subject and not this one's.
+// A second copy is how a frame counter and an import reader come to disagree
+// about what a comment is; the guard asserts the two names are one function.
+//
+// THE DOC COMMENT ABOVE IS THE CONTRACT AND STAYS HERE, because the rules it
+// records — one pass for strings and comments together, length-preserving, the
+// masked copy keeping its quotes, no regex-literal state — are what
+// `listFrames` below rests on and where a reader of this file will look.
+export { codeOnly };
 
 /**
  * How far back a frame looks for the prop it is written into.

@@ -14977,9 +14977,17 @@ told me not to spend and I haven't.
    verified by me from outside, not by the platform. That is deliberate — you
    told me not to let configuration masquerade as verification — but it is a
    limit, not a feature.
-2. **No job has ever fired on its own.** Pressing Run now proves the runner; it
-   does not prove the timer, by construction. `count_bookings_once` is sitting
-   there for **3 October** and I have not touched it.
+2. **Automatic execution remains unverified.** Pressing Run now proves the
+   runner; it does not prove the timer, by construction.
+   `count_bookings_once` is sitting there for **3 October** and I have not
+   touched it. ⚠ **And the wording here was corrected on 2026-09-20, because
+   the first version claimed more than I can see.** It read *"no job has ever
+   fired on its own"*, which is a statement about what HAS HAPPENED — and the
+   row records only a time and a result, never what invoked it. A press and a
+   tick leave the same two fields. So what I lack is proof of the invocation
+   source, not proof that it never happened; the honest sentence is that the
+   timer is unverified, and the one thing I can say about my own conduct is
+   that this session pressed nothing.
 3. **I cannot read the Worker's own version from here.** The two routes that
    would tell me are locked to you. For the container half I have hard evidence
    (the image ID is computed from the files themselves and the deploy log shows

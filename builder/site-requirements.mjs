@@ -1599,7 +1599,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
@@ -1690,5 +1690,18 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     missingPages: (Array.isArray(missingPages) ? missingPages : []).slice(0, MAX_REQUIREMENTS),
     unknownComponents: (Array.isArray(unknownKit) ? unknownKit : []).slice(0, MAX_REQUIREMENTS),
     unseenPages: (Array.isArray(unseenPages) ? unseenPages : []).slice(0, MAX_REQUIREMENTS),
+    // ── AND A FOURTH, FOR THE SAME REASON THE FIRST TWO ARE HERE ───────────
+    //
+    // Owner, 2026-09-20: *"preserve the dropped-item diagnostic in the stored
+    // outcome."* `droppedFields` has ridden the REPLY since it was written and
+    // never the record — so the one place that says WHICH thing the design
+    // asked for and this step could not build was the message read once, and
+    // the file anybody comes back to had only the customer's count.
+    //
+    // THE NAMES LIVE HERE AND NOT IN THE SENTENCE, which is the split
+    // `unknownComponents` above already makes: `{what, name}` is what a
+    // developer needs and `tide-chart` is not something a customer can act on.
+    droppedFields: (Array.isArray(dropped) ? dropped : [])
+      .filter((d) => d && typeof d === "object").slice(0, MAX_REQUIREMENTS),
   };
 }
