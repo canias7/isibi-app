@@ -337,7 +337,11 @@ function hydrateAuto(w) {
   // THE FORM'S OWN GENERATION, as an attribute, because that is how the read-back tells
   // "the screen shows what I hold" from "the screen is older than what I hold".
   const form = doc.getElementById("agAutoForm");
-  const gen = /id="agAutoForm" data-gen="(\d+)"/.exec(html);
+  // ⚠ **NOT PINNED TO WHAT COMES NEXT.** This read `id="agAutoForm" data-gen="…"`, so the form
+  // gaining one more attribute made it answer nothing — the stub kept no generation, the
+  // read-first door refused every read-back, and THIRTY cases failed about diffs and drafts
+  // rather than about the attribute. The property is that the form declares its generation.
+  const gen = /id="agAutoForm"[^>]*\sdata-gen="(\d+)"/.exec(html);
   if (gen) form.setAttribute("data-gen", gen[1]);
   for (const id of AUTO_FORM_BOXES) {
     const v = val(id);
@@ -3276,6 +3280,262 @@ test("⚠ a save that lands after the screen moved on touches nothing", async ()
   const stayed = await open(async () => {});
   assert.equal(stayed.val("agentAutoEditing"), "AU9", "a create did not become an edit of what it made");
   assert.equal(stayed.val("agentAutoSaved"), true);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// EDITS MADE WHILE SAVE IS PENDING
+//
+// ⚠ **THE DEFECT: A SAVE SUBMITTED ONE CONFIGURATION AND THEN CALLED WHATEVER WAS ON SCREEN
+// WHEN ITS ANSWER LANDED "SAVED".** On success `agentAutoSave` cleared the draft AND the
+// baseline, so the next drawing's read-first door put the live form — holding whatever had been
+// typed since — into a fresh draft, and `agentAutoWasRead` then captured the BASELINE from that.
+// A name typed while the request was in the air therefore became part of what this browser
+// believed the server held: the panel said "Saved.", and the next press diffed the newer name
+// against itself and sent nothing at all.
+//
+// In the second variant the draft's generation had been bumped by adding a step, so clearing the
+// draft made the generation gate refuse the read-back and the form was redrawn from the STORED
+// row — discarding the step and the words typed into it.
+//
+// **A SAVE HAS TWO CONFIGURATIONS AND THEY ARE NOT THE SAME THING**: the one it SUBMITTED and
+// the one on screen NOW. The baseline may only ever advance to the first, and everything the
+// person has done since stays theirs and stays eligible for the next press.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A form open on one stored automation, with the FIRST save held open.
+ *
+ * ⚠ **THE PRESS IS NOT AWAITED, or the release below can never be reached** — a deadlock
+ * `node --test` reports as a CANCELLED test rather than as a failure, so it reads as an
+ * infrastructure problem instead of as this case's own mistake. Every later save answers at
+ * once, which is what lets a case press again and read what that press really sent.
+ */
+async function heldSave({ automations = [ONE] } = {}) {
+  const sent = [];
+  const gate = held(okRes({ id: "AU1" }));
+  let holding = true;
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/automation-(create|update)$/.test(p)) {
+        sent.push(JSON.parse(init.body));
+        if (holding) { holding = false; return gate.p; }
+        return okRes({ id: "AU1" });
+      }
+      const a = autoAnswer({ automations })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = ${JSON.stringify(automations)};`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8 };`);
+  await openAutoForm(w, "AU1");
+  return { w, sent, gate };
+}
+
+/** Whether the form is claiming, on screen, that what it shows is saved. */
+const saysSaved = (w) => /class="ag-saved"/.test(w.s.document.getElementById("viewAgents").innerHTML);
+
+test("⚠ A NAME TYPED WHILE SAVE IS PENDING IS NOT CALLED SAVED, and the next press sends it", async () => {
+  const { w, sent, gate } = await heldSave();
+  // ONE FIELD CHANGED AND ITS ANSWER HELD OPEN.
+  w.s.document.getElementById("agAutoName").value = "First";
+  const saving = w.ev("agentAutoSave()");
+  // ⚠ AND A NEWER NAME TYPED WHILE IT IS IN THE AIR. Nothing reads the box until the next
+  // drawing, which is exactly what made this invisible from the state alone.
+  w.s.document.getElementById("agAutoName").value = "Second";
+  gate.release(); await saving; await settle();
+
+  assert.deepEqual(sent, [{ id: "AU1", name: "First" }],
+    "the press sent something other than the configuration it was pressed on");
+  // THE NEWER NAME IS STILL THERE — on the screen, not only in a variable.
+  assert.equal(w.val("agentAutoDraft").name, "Second");
+  assert.match(hydrateAuto(w).html, /id="agAutoName"[^>]*value="Second"/);
+  // AND IT IS NOT CALLED SAVED, because it was never submitted.
+  assert.equal(saysSaved(w), false, "it said Saved about a name that was never sent");
+  // AND IT IS STILL ELIGIBLE FOR THE NEXT PRESS, which is the half the person can act on.
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, "pressing Save again sent nothing at all");
+  assert.deepEqual(sent[1], { id: "AU1", name: "Second" });
+  // AND NOW THAT IT REALLY IS SAVED, IT SAYS SO — the observer, without which "it does not
+  // say Saved" is satisfied by a form that can never say it.
+  assert.equal(saysSaved(w), true, "a form whose every edit is stored does not say so");
+});
+
+test("⚠ A STEP ADDED WHILE SAVE IS PENDING SURVIVES ITS ANSWER", async () => {
+  const { w, sent, gate } = await heldSave();
+  w.s.document.getElementById("agAutoName").value = "First";
+  const saving = w.ev("agentAutoSave()");
+  // ⚠ THE SHAPE OF THE WORKFLOW CHANGES WHILE THE REQUEST IS IN THE AIR, which bumps the
+  // drawing's generation — and that is the half the old code could not survive at all.
+  await w.ev('agentAutoStepAdd("note")');
+  const f = hydrateAuto(w);
+  f.rows[2].fields[0].value = "what was typed while it saved";
+  gate.release(); await saving; await settle();
+
+  // THE PRESS DID NOT CARRY THE STEP — it did not exist yet. Without this the assertions
+  // below would be about the press rather than about its answer.
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].steps, undefined, "the press carried a step that had not been added");
+
+  const draft = w.val("agentAutoDraft");
+  assert.equal(draft.steps.length, 3, "the answer discarded the step added while it was in the air");
+  assert.equal(draft.steps[2].text, "what was typed while it saved", "it discarded what was typed into it");
+  // AND THE REDRAW SHOWS IT — the half a state assertion alone cannot see.
+  assert.match(hydrateAuto(w).html, /what was typed while it saved/);
+  assert.equal(saysSaved(w), false, "it said Saved over a step that was never sent");
+  // AND THE NEXT PRESS SENDS IT.
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, "pressing Save again sent nothing");
+  assert.equal(sent[1].steps.length, 3, "the step added while it saved never reached the wire");
+  assert.equal(sent[1].steps[2].text, "what was typed while it saved");
+});
+
+test("a FAILED save after the same typing keeps every word and advances nothing", async () => {
+  // NOT A RED PROOF AND SAID SO: the refusing path already kept the draft. What it is here for
+  // is that the fix must not reach it — a baseline advanced on a save the server refused would
+  // make the next press send nothing about a change that was never stored.
+  const sent = [];
+  const gate = held(badRes("couldn’t save that"));
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (/\/automation-update$/.test(p)) { sent.push(JSON.parse(init.body)); return gate.p; }
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ONE)}];`
+    + `agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(DAY_LIST)}, max: 20, maxInputs: 8 };`);
+  await openAutoForm(w, "AU1");
+  const was = w.val("agentAutoWas");
+  w.s.document.getElementById("agAutoName").value = "First";
+  const saving = w.ev("agentAutoSave()");
+  w.s.document.getElementById("agAutoName").value = "Second";
+  gate.release(); await saving; await settle();
+
+  assert.match(w.ev("agentAutoActErr"), /save/i, "a refused save said nothing");
+  assert.equal(w.val("agentAutoDraft").name, "Second", "a refused save ate what was typed while it ran");
+  assert.equal(saysSaved(w), false, "a refused save said Saved");
+  assert.equal(w.val("agentAutoWas").name, was.name, "a refused save advanced the baseline anyway");
+  // AND THE WHOLE OF IT IS STILL ELIGIBLE: the next press sends the newer name.
+  w.ev('agentAutoActErr = "";');
+  await w.ev("agentAutoSave()");
+  assert.deepEqual(sent[1], { id: "AU1", name: "Second" });
+});
+
+test("⚠ A SAVE THAT LANDS ON ANOTHER ACCOUNT OR ANOTHER AUTOMATION ADVANCES NO BASELINE", async () => {
+  /**
+   * The baseline is this browser's belief about what the server holds, so writing it from an
+   * answer that arrived on somebody else's screen would make the next press diff against a save
+   * nobody on this screen made. Both walls were already there; what is new is that there is now
+   * something behind them worth writing.
+   */
+  const TWO = { ...ONE, id: "AU2", name: "Second automation" };
+  const open = async (move) => {
+    const r = await heldSave({ automations: [ONE, TWO] });
+    r.w.s.document.getElementById("agAutoName").value = "First";
+    const saving = r.w.ev("agentAutoSave()");
+    await move(r.w);
+    r.gate.release(); await saving; await settle();
+    return r;
+  };
+
+  // ⚠ **OPENED THE WAY A BROWSER OPENS IT.** `renderAgentsNow` writes `innerHTML`, so a real
+  // browser's inputs are replaced by the new form's; these stubs outlive every draw, and
+  // `agentAutoEdit` alone would leave AU1's typing in AU2's name box — a fixture artefact that
+  // reads exactly like the defect. `openAutoForm` is the door that clears them.
+  const other = await open((w) => openAutoForm(w, "AU2"));
+  assert.equal(other.w.val("agentAutoWas").of, "AU2",
+    "one automation's save wrote its own baseline onto the form that was open instead");
+  assert.equal(other.w.val("agentAutoSaved"), false, "it said Saved on a form nobody saved");
+
+  const away = await open(async (w) => { w.signIn("acct-B"); });
+  assert.equal(away.w.val("agentAutoSaved"), false, "another account's screen was told the save landed");
+  assert.notEqual((away.w.val("agentAutoWas") || {}).name, "First",
+    "another account's screen took this save's baseline");
+
+  // THE CONTROL: the same save, landing where it was pressed, DOES advance the baseline —
+  // without which "it advanced nothing" is satisfied by a save that never advances one.
+  const stayed = await open(async () => {});
+  assert.equal(stayed.w.val("agentAutoWas").name, "First", "the baseline never advances at all");
+  assert.equal(stayed.w.val("agentAutoSaved"), true);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// A CHECK'S ANSWER IS ABOUT THE CONFIGURATION IT ASKED ABOUT
+//
+// ⚠ **THE DEFECT: `agentAutoCheckNow` recorded nothing about WHICH workflow it had asked
+// about.** Its walls asked whether the account, the agent and the open automation were still
+// the same — and none of them is a question about the steps. So a success held open while a
+// step was added landed on a workflow nobody had checked and said "nothing is missing" about
+// it, undoing the very clear `agentAutoStructural` had just made. And no control in this form
+// invalidated a DISPLAYED result by ordinary typing: a text box has no change hook and no input
+// hook, so `Hello {{missing}}` could be typed into a step under a panel still saying the
+// workflow was fine.
+// ────────────────────────────────────────────────────────────────────────────
+
+test("⚠ A CHECK ANSWERED LATE CANNOT BLESS A WORKFLOW THAT CHANGED UNDER IT", async () => {
+  const gate = held(okRes({ checked: true, error: null, steps: 1, needs: [], unchecked: [] }));
+  const { w } = await withAutomations({
+    automations: [], checkGates: [gate], check: { steps: 2, needs: [], unchecked: [] },
+  });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  hydrateAuto(w);
+  // THE PRESS, HELD OPEN — a check of the one-step workflow as it stands.
+  const checking = w.ev("agentAutoCheckNow()");
+  // ...AND THE WORKFLOW CHANGES WHILE THE ANSWER IS IN THE AIR.
+  await w.ev('agentAutoStepAdd("note")');
+  const f = hydrateAuto(w);
+  f.rows[1].fields[0].value = "Hello {{missing}}";
+  gate.release(); await checking; await settle();
+
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/Read it through: /.test(html), false,
+    "a success answered about a workflow nobody has was drawn anyway");
+  assert.equal(/nothing is missing/.test(html), false,
+    "it said nothing is missing about a step it had never seen");
+  // ITS CONTROL: the very next press, about the workflow as it now stands, IS drawn — without
+  // which "it drew nothing" is satisfied by a check that never draws anything.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Read it through: 2 steps/, "a check about the workflow on screen was discarded too");
+});
+
+test("⚠ ORDINARY TYPING TAKES A CHECK RESULT OFF THE SCREEN", async () => {
+  const { w } = await withAutomations({
+    automations: [], check: { steps: 1, needs: [], unchecked: [] },
+  });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  hydrateAuto(w);
+  await w.ev("agentAutoCheckNow()"); await settle();
+  // IT REALLY IS ON SCREEN, or everything below is vacuous.
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /nothing is missing/);
+
+  // ⚠ ORDINARY TYPING, WHICH REDRAWS NOTHING ON ITS OWN. The form's own hook is what puts the
+  // words into the draft and takes an answer that is no longer about them off the screen.
+  const f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/nothing is missing/.test(html), false,
+    "a result about the words before they changed stayed on screen");
+  // AND THE TYPING IS THE DRAFT, so the redraw did not eat it.
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "Hello {{missing}}");
+  // AND A KEYSTROKE THAT CHANGES NOTHING THE SCREEN SAYS REDRAWS NOTHING — the twitch this
+  // form's read-first door exists to remove.
+  const drawn = w.s.document.getElementById("viewAgents").innerHTML;
+  f.rows[0].fields[0].value = "Hello {{missing}}!";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  assert.equal(w.s.document.getElementById("viewAgents").innerHTML, drawn,
+    "every keystroke redraws the whole panel");
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "Hello {{missing}}!",
+    "typing that redrew nothing was not kept either");
 });
 
 test("a failed list read is NOT an empty agent", async () => {

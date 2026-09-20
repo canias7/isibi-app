@@ -143,5 +143,29 @@
   ],
   "from": "  'agent-auto-check': () => agentAutoCheckNow(),\n",
   "to": ""
+ },
+ {
+  "label": "⚠ a check's answer is drawn over whatever workflow is on screen now",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return !!agentAutoCheck && autoSameConfig(agentAutoCheck.of, agentAutoForm());",
+  "to": "  return !!agentAutoCheck;"
+ },
+ {
+  "label": "⚠ typing leaves a check result on screen that is no longer about it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    const said = agentAutoSays();\n    agentAutoFormRead();\n    if (agentAutoSays() !== said) renderAgents();",
+  "to": "    agentAutoFormRead();"
+ },
+ {
+  "label": "every keystroke in the automation form redraws the whole panel",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (agentAutoSays() !== said) renderAgents();",
+  "to": "    renderAgents();"
  }
 ]

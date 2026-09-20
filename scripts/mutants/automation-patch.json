@@ -51,10 +51,22 @@
   "to": "  /* recapture */"
  },
  {
-  "label": "the baseline survives a save, so a second press re-sends fields already stored",
+  "label": "⚠ the baseline advances to whatever is on screen when the answer lands, not to what was sent",
   "files": ["public/chat.js"],
-  "from": "  agentAutoWas = null;\n  agentAutoSaved = true;",
-  "to": "  agentAutoSaved = true;"
+  "from": "  agentAutoWas = { ...submitted, of: savedAs };",
+  "to": "  agentAutoWas = null;"
+ },
+ {
+  "label": "⚠ a save's answer discards the step added while it was in the air",
+  "files": ["public/chat.js"],
+  "from": "  const savedAs = (!editing && made) ? made : editing;",
+  "to": "  agentAutoDraft = null;\n  const savedAs = (!editing && made) ? made : editing;"
+ },
+ {
+  "label": "⚠ the form says Saved over edits that were never sent",
+  "files": ["public/chat.js"],
+  "from": "  return agentAutoSaved && !agentAutoActErr && !agentAutoOutstanding();",
+  "to": "  return agentAutoSaved && !agentAutoActErr;"
  },
  {
   "label": "⚠ the comparison is JSON.stringify, so key order decides whether a step changed",

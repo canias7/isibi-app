@@ -3015,9 +3015,22 @@ function agentAutoInputDrop(at) {
  */
 async function agentAutoCheckNow() {
   if (agentAuto === null) return;
-  const values = agentAutoValues();
-  const { gen, ...sent } = values;
-  void gen;
+  /**
+   * ⚠ **THE CONFIGURATION THIS CHECK IS ABOUT, TAKEN BEFORE ANYTHING AWAITS.** An answer is only
+   * ever about the workflow it was asked about, and nothing in the walls below is a question
+   * about the steps: the account, the agent and the open automation can all be unchanged while
+   * the workflow itself has changed under it. So the answer carries this, and the panel is drawn
+   * only where it still applies.
+   */
+  /**
+   * ⚠ **THROUGH THE SAME READ-FIRST DOOR THE SAVE GOES THROUGH, and that is what makes the
+   * binding above robust rather than merely correct.** Reading the DOM directly would make the
+   * panel's own visibility depend on a draft → markup → read round trip being structurally
+   * identical in every browser; through the door, both sides of the comparison are the DRAFT, and
+   * a read the generation gate legitimately refuses compares it with itself.
+   */
+  agentAutoFormRead();
+  const asked = autoSnap(agentAutoForm());
   const bound = agentBind();
   const forAgent = agentAuto;
   const editing = agentAutoEditing;
@@ -3028,7 +3041,7 @@ async function agentAutoCheckNow() {
     const res = await apiFetch('/api/agent/automation-check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent: forAgent, ...sent }),
+      body: JSON.stringify({ agent: forAgent, ...asked }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t check that.';
@@ -3049,6 +3062,9 @@ async function agentAutoCheckNow() {
     steps: Number.isInteger(answer && answer.steps) ? answer.steps : 0,
     needs: Array.isArray(answer && answer.needs) ? answer.needs : [],
     unchecked: Array.isArray(answer && answer.unchecked) ? answer.unchecked : [],
+    // ⚠ WHAT IT IS AN ANSWER ABOUT. A result with no configuration on it is one that can be
+    // drawn over any workflow, which is what it was.
+    of: asked,
   };
   renderAgents();
 }
@@ -3096,8 +3112,13 @@ async function agentAutoSave() {
     return;
   }
 
-  const { gen, ...sent } = values;
-  void gen;
+  /**
+   * ⚠ **WHAT THIS PRESS IS SUBMITTING — and it is not the same thing as the draft.** The draft is
+   * what is on screen and goes on changing while the request is in the air; this is the
+   * configuration the answer below will be an answer about. Snapshotted, so a step added or a
+   * word typed in the meantime cannot move it.
+   */
+  const submitted = autoSnap(values);
   const bound = agentBind();
   const editing = agentAutoEditing;
   /**
@@ -3138,7 +3159,7 @@ async function agentAutoSave() {
       // how a field ends up load-bearing by accident.
       body: JSON.stringify(editing
         ? { id: editing, ...changed }
-        : { agent: forAgent, ...sent }),
+        : { agent: forAgent, ...submitted }),
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t save that.';
@@ -3151,16 +3172,35 @@ async function agentAutoSave() {
 
   agentAutoBusy = false;
   if (failed) { say(failed); return; }   // the draft stays, so pressing Save again sends the same thing
-  agentAutoDraft = null;
-  // AND THE BASELINE GOES WITH IT, so the next drawing — of the row this save just produced —
-  // is what the next press compares against. Keeping it would make a second press re-send
-  // fields that are already stored, which on a row somebody else has since touched is the
-  // revert this change removes.
-  agentAutoWas = null;
+  /**
+   * ⚠ **THE BASELINE ADVANCES TO WHAT THE SERVER ACCEPTED, never to what is on screen now.**
+   *
+   * This was `agentAutoDraft = null; agentAutoWas = null;`, on the reasoning that the next drawing
+   * would recapture both from the row this save had just produced. It recaptured them from the
+   * DOM instead — which by then held whatever had been typed while the request was in the air —
+   * so a name nobody had sent became part of what this browser believed the server held: the
+   * panel said Saved, and the next press diffed the newer name against itself and sent nothing at
+   * all. With the draft's generation bumped by an added step it was worse, because clearing the
+   * draft made the generation gate refuse the read-back and the form was redrawn from the stored
+   * row, discarding the step and the words typed into it.
+   *
+   * `submitted` IS what the server holds, as far as this browser can know: `changed` is the
+   * difference from the old baseline, so old + changed is exactly it, and a create sent the whole
+   * shape. **And it has to be that rather than the row the reload brings back**, because the other
+   * side of every diff is a reading of the FORM — so a row-derived baseline would report whatever
+   * the server normalised as a change on a form nobody touched, and send it back.
+   *
+   * **AND THE DRAFT IS KEPT**, so everything done since the press is still on screen and still
+   * eligible for the next one. Whether the panel may call any of it saved is asked of the
+   * configuration rather than remembered — see `agentAutoSavedShown`.
+   */
+  const savedAs = (!editing && made) ? made : editing;
+  // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same automation
+  // rather than making a second one — and the baseline is about that same id, or the next press
+  // meets the "something moved while that was open" refusal over its own save.
+  agentAutoEditing = savedAs;
+  agentAutoWas = { ...submitted, of: savedAs };
   agentAutoSaved = true;
-  // A CREATE BECOMES AN EDIT OF WHAT IT JUST MADE, so the next press adjusts the same
-  // automation rather than making a second one.
-  if (!editing && made) agentAutoEditing = made;
   await agentAutoLoad(true);
 }
 
@@ -3983,6 +4023,79 @@ function agentAutoUnshowable(row) {
 const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'days', 'on_date', 'on_event', 'steps', 'inputs'];
 
 /**
+ * ⚠ **A CONFIGURATION SNAPSHOT THAT A LATER EDIT CANNOT MOVE.**
+ *
+ * Two things in this form take a copy of what is on screen and then await an answer about it — a
+ * save and a check — and both need the copy to still mean what it meant when it was taken. The
+ * draft's own arrays are rebuilt wholesale by `agentAutoFormRead` today, so a shallow copy
+ * happens to be safe; that is a property of code one screen away, and this repository has the
+ * expiry of exactly that kind of reasoning recorded several times over.
+ *
+ * **IT IS DERIVED FROM `AGENT_FORM_FIELDS`, which buys two things at once**: nothing this form
+ * has no control for can be in a snapshot, and the screen's own `gen` bookkeeping cannot reach
+ * the wire — absent by construction rather than destructured out at each of the two call sites.
+ */
+function autoSnap(v) {
+  const out = {};
+  for (const f of AGENT_FORM_FIELDS) out[f] = autoCopy(v ? v[f] : undefined);
+  return out;
+}
+function autoCopy(x) {
+  if (Array.isArray(x)) return x.map(autoCopy);
+  if (x && typeof x === 'object') {
+    const out = {};
+    for (const k of Object.keys(x)) out[k] = autoCopy(x[k]);
+    return out;
+  }
+  return x;
+}
+
+/**
+ * Is this the same configuration, field for field?
+ *
+ * **THE SAME TEN FIELDS AND THE SAME COMPARATOR THE SAVE'S OWN DIFF USES**, so "the workflow
+ * changed" and "the next Save would send something" cannot disagree about what a change is — and
+ * a key ORDER difference is not one, which is what stops a step list that was only rebuilt from
+ * reading as a different workflow.
+ */
+function autoSameConfig(a, b) {
+  return AGENT_FORM_FIELDS.every((f) => autoSame(a ? a[f] : undefined, b ? b[f] : undefined));
+}
+
+/**
+ * ⚠ **WHAT THE FORM'S ANSWERS SAY, DERIVED AT EVERY DRAWING RATHER THAN REMEMBERED.**
+ *
+ * Both of this form's answers — what a Check found, and that a Save landed — are statements about
+ * a CONFIGURATION, and both used to be booleans about a moment. So a success held open while a
+ * step was added said "nothing is missing" about a workflow nobody had checked, and a name typed
+ * while a save was in the air was called Saved. Asked of the configuration on screen instead,
+ * neither can be shown for anything but the configuration it is really about — at every drawing,
+ * including ones this screen does not cause — and both come BACK if the person undoes the edit,
+ * which a cleared flag could not.
+ */
+function agentAutoOutstanding() {
+  if (!agentAutoWas || agentAutoWas.of !== agentAutoEditing) return false;
+  return Object.keys(agentAutoChanges(agentAutoWas, agentAutoForm())).length > 0;
+}
+function agentAutoCheckShown() {
+  return !!agentAutoCheck && autoSameConfig(agentAutoCheck.of, agentAutoForm());
+}
+function agentAutoSavedShown() {
+  return agentAutoSaved && !agentAutoActErr && !agentAutoOutstanding();
+}
+/**
+ * The two, as one value a keystroke can compare against itself.
+ *
+ * **IT EXISTS SO THAT TYPING REDRAWS THE PANEL ONCE AND NOT PER KEYSTROKE.** A redraw per
+ * keystroke is the twitch the read-first door exists to remove; a redraw only when what the
+ * screen SAYS has stopped being true is one redraw per answer, and none at all while there is
+ * nothing on screen to invalidate.
+ */
+function agentAutoSays() {
+  return (agentAutoCheckShown() ? 'c' : '') + (agentAutoSavedShown() ? 's' : '');
+}
+
+/**
  * ⚠ **WHAT EACH SCHEDULE ENTAILS — a declared copy of `automations_schedule_is_whole`.**
  *
  * The database makes a half-whole combination unstorable, and the rules are per schedule rather
@@ -4138,7 +4251,13 @@ function automationFormHtml(agent) {
   const cur = agentAutoRow();
   const cat = (agentAutoCat && agentAutoCat.steps) || [];
   const days = (agentAutoCat && agentAutoCat.days) || [];
-  return '<div class="ag-form" id="agAutoForm" data-gen="' + autoGen(agentAutoDraft) + '">' +
+  /**
+   * ⚠ **ONE HOOK ON THE FORM RATHER THAN ONE PER CONTROL, because `input` events BUBBLE.** Every
+   * box in here is one somebody types in, and a per-control attribute is a list to keep in step
+   * with the markup — a control added next month arriving without it is a keystroke nobody reads.
+   * On the container there is nothing to forget.
+   */
+  return '<div class="ag-form" id="agAutoForm" data-gen="' + autoGen(agentAutoDraft) + '" data-input="agent-auto-form">' +
     '<label class="ag-lbl" for="agAutoName">Name</label>' +
     '<input class="ag-in" id="agAutoName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Morning check" value="' + esc(f.name) + '">' +
 
@@ -4286,7 +4405,7 @@ function automationFormHtml(agent) {
      * ⚠ **AND IT SAYS A CHECK IS NOT PERMISSION**, because a panel that says "nothing is
      * missing" is exactly what invites somebody to read the next step as allowed.
      */
-    (agentAutoCheck
+    (agentAutoCheckShown()
       ? '<div class="ag-hint">Read it through: ' + agentAutoCheck.steps + ' step' +
           (agentAutoCheck.steps === 1 ? '' : 's') +
           (agentAutoCheck.needs.length || agentAutoCheck.unchecked.length ? '.' :
@@ -4298,7 +4417,7 @@ function automationFormHtml(agent) {
         agentAutoCheck.unchecked.map((u) =>
           '<div class="ag-hint">Couldn’t check: ' + esc(String(u && u.why || '')) + '</div>').join('')
       : '') +
-    (agentAutoSaved && !agentAutoActErr
+    (agentAutoSavedShown()
       ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.' +
         (agentAutoState === 'error' && agentAutoErr
           ? ' Couldn’t read it back just now, so what’s shown here may be older than what was saved.' : '') +
@@ -14183,6 +14302,25 @@ const INPUT_ACTIONS = {
   // THE CONNECT FORM'S OWN BOXES. Read back into the draft as they are typed, so a redraw
   // from anywhere else cannot eat them — and NO RE-RENDER, for the same reason as above.
   'agent-conn': () => agentConnFormRead(),
+  /**
+   * ⚠ **THE AUTOMATION FORM, AND THE REDRAW IS CONDITIONAL — that is the whole of this entry.**
+   *
+   * Typing here used to reach nothing at all: no box in this form carries a change hook, so a
+   * step's text could be edited under a panel still saying the workflow was fine. Clearing the
+   * answer without redrawing would leave the stale sentence on screen; redrawing on every
+   * keystroke is the twitch the read-first door exists to remove. So the words go into the draft
+   * immediately, and the panel is rewritten ONLY when what it says has stopped being true — which
+   * is once per answer, and never while there is no answer on screen to invalidate.
+   *
+   * `renderAgents` is safe to call from a keystroke because it already puts the cursor back
+   * (`agentFocusRead`/`agentFocusRestore`); without that this would take somebody's caret away
+   * mid-word, which is worse than the sentence it removes.
+   */
+  'agent-auto-form': () => {
+    const said = agentAutoSays();
+    agentAutoFormRead();
+    if (agentAutoSays() !== said) renderAgents();
+  },
 };
 const KEYDOWN_ACTIONS = {
   'agent-send-key': (e) => {

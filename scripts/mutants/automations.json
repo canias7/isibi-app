@@ -334,8 +334,16 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-gen=\"' + autoGen(agentAutoDraft) + '\">' +",
-  "to": "  return '<div class=\"ag-form\" id=\"agAutoForm\">' +"
+  "from": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-gen=\"' + autoGen(agentAutoDraft) + '\" data-input=\"agent-auto-form\">' +",
+  "to": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-input=\"agent-auto-form\">' +"
+ },
+ {
+  "label": "the automation form declares no input hook, so typing reaches nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-gen=\"' + autoGen(agentAutoDraft) + '\" data-input=\"agent-auto-form\">' +",
+  "to": "  return '<div class=\"ag-form\" id=\"agAutoForm\" data-gen=\"' + autoGen(agentAutoDraft) + '\">' +"
  },
  {
   "label": "the toggle sends the opposite of what the row says",
@@ -350,8 +358,8 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "  const { gen, ...sent } = values;",
-  "to": "  const sent = values; const gen = 0;"
+  "from": "  const out = {};\n  for (const f of AGENT_FORM_FIELDS) out[f] = autoCopy(v ? v[f] : undefined);",
+  "to": "  const out = { ...(v || {}) };\n  for (const f of AGENT_FORM_FIELDS) out[f] = autoCopy(v ? v[f] : undefined);"
  },
  {
   "label": "a save that lands on another screen still clears its draft",
