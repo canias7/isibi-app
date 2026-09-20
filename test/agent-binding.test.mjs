@@ -14,6 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import vm from "node:vm";
 
 /**
@@ -292,6 +293,15 @@ function hydrate(w) {
  * second draw is the honest one: the stubs now reflect the markup, and the baseline is captured
  * by the real door rather than by this helper, which is what keeps the wiring under test.
  */
+/**
+ * Every text-ish box the automation form draws, in one list.
+ *
+ * ⚠ **IT WAS WRITTEN OUT TWICE — in `openAutoForm`'s clear and in `hydrateAuto`'s fill — and
+ * a box added to one and not the other is a fixture that carries the PREVIOUS drawing's value
+ * into a form a case means to open fresh.** One list, so the two cannot come apart.
+ */
+const AUTO_FORM_BOXES = ["agAutoName", "agAutoAt", "agAutoZone", "agAutoDate", "agAutoEvent"];
+
 async function openAutoForm(w, id) {
   /**
    * ⚠ **THE PREVIOUS DRAWING'S INPUTS ARE GONE IN A BROWSER and persist here, so they are
@@ -304,7 +314,7 @@ async function openAutoForm(w, id) {
   const doc = w.s.document;
   const form = doc.getElementById("agAutoForm");
   if (form && form.setAttribute) form.setAttribute("data-gen", "");
-  for (const id2 of ["agAutoName", "agAutoAt", "agAutoZone"]) {
+  for (const id2 of AUTO_FORM_BOXES) {
     const el = doc.getElementById(id2);
     if (el) el.value = "";
   }
@@ -329,12 +339,32 @@ function hydrateAuto(w) {
   const form = doc.getElementById("agAutoForm");
   const gen = /id="agAutoForm" data-gen="(\d+)"/.exec(html);
   if (gen) form.setAttribute("data-gen", gen[1]);
-  for (const id of ["agAutoName", "agAutoAt", "agAutoZone"]) {
+  for (const id of AUTO_FORM_BOXES) {
     const v = val(id);
     if (v !== null) doc.getElementById(id).value = v;
   }
-  const sched = /<option value="(manual|daily)" selected>/.exec(html);
+  /**
+   * ⚠ **THE SELECTED SCHEDULE, OVER EVERY OPTION THE FORM OFFERS — and this needle read
+   * `(manual|daily)` until the form could show four.** A stored `weekly` then hydrated as
+   * `manual`, so a case about the two schedules this round added would have driven a form
+   * showing something else while looking correct. **It is DERIVED from the option values the
+   * markup really carries** rather than listed, so an option added next month arrives here by
+   * existing; `manual` is the fallback because that is what a browser answers for a select with
+   * nothing selected and `manual` is its first option.
+   */
+  const sched = /<option value="([a-z_]+)" selected>[^<]*<\/option>/.exec(
+    (/id="agAutoSched"[\s\S]*?<\/select>/.exec(html) || [""])[0]);
   doc.getElementById("agAutoSched").value = sched ? sched[1] : "manual";
+  /**
+   * THE DAYS A SCHEDULE RUNS ON, read off the form's own checkboxes.
+   *
+   * `data-sched-day` and not `data-day`: the weekday STEP uses the second, and one attribute for
+   * both would make a fixture unable to tell a schedule's day from a step's.
+   */
+  const schedDays = [...html.matchAll(/data-sched-day="([^"]+)"([^>]*)>/g)].map((m) => ({
+    checked: / checked/.test(m[2]),
+    getAttribute: (k) => (k === "data-sched-day" ? m[1] : null),
+  }));
   const offBox = doc.getElementById("agAutoOff");
   const drawnOff = /<input type="checkbox" id="agAutoOff"([^>]*)>/.exec(html);
   offBox.checked = !!(drawnOff && / checked/.test(drawnOff[1]));
@@ -382,8 +412,9 @@ function hydrateAuto(w) {
       fields, days,
     };
   });
-  doc.querySelectorAll = (sel) => (sel === "[data-step-type]" ? rows : []);
-  return { html, rows, form, offBox, gen: gen ? Number(gen[1]) : null };
+  doc.querySelectorAll = (sel) => (sel === "[data-step-type]" ? rows
+    : sel === "[data-sched-day]" ? schedDays : []);
+  return { html, rows, form, offBox, schedDays, gen: gen ? Number(gen[1]) : null };
 }
 
 /** The step catalog as the server sends it, derived from what the engine really has. */
@@ -1834,96 +1865,126 @@ test("A SAVE SENDS THE TICKS, THE PAUSE AND THE WORDS — read out of the form",
                                 status: "paused", tools: ["echo"], zone: "Europe/London" });
 });
 
-test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", async () => {
-  // ⚠ **MEASURED BEFORE THE WALL EXISTED, with the observer proved alive** (my first needle
-  // looked for `value='x'` where the markup writes `value="x"` and answered "the form offers
-  // nothing", which is a false alarm of my own making):
-  //
-  //   the platform stores : manual · daily · weekly · once
-  //   the form offers     : manual · daily
-  //   a stored `weekly`   : NO option carries `selected`, so a browser picks the FIRST — manual
-  //   what a save sends   : 'daily' when the box says daily, otherwise 'manual', never anything else
-  //
-  // and `automation-update` REPLACED the whole automation, so editing the NAME of a weekly one
-  // turned it into a manual one and dropped its days and its next run — silently. **An edit is a
-  // PATCH now, so that half is closed by construction** (a name-only save names no schedule) and
-  // the wall stays for the half that is still true: the form has no control for these schedules,
-  // and the select answers a WRONG value rather than a missing one. Reachable today either way,
-  // because the agent's own `make_automation` really does create weekly ones.
-  const WEEKLY = {
-    ...ONE, id: "AU9", name: "Weekday follow-up", schedule: "weekly", at: "09:00",
-    zone: "Europe/London", days: ["mon", "tue", "wed", "thu", "fri"],
-  };
+test("⚠ EVERY SCHEDULE THE PLATFORM STORES IS OFFERED OR LOCKED, and the four it has are offered", async () => {
+  /**
+   * ⚠ **RE-ANCHORED ONTO THE PROPERTY, because the schedule this case drove is now SHOWABLE.**
+   *
+   * It was written for a form that offered `manual` and `daily` while the platform stored four:
+   *
+   *   the platform stores : manual · daily · weekly · once
+   *   the form offered    : manual · daily
+   *   a stored `weekly`   : NO option carried `selected`, so a browser picked the FIRST — manual
+   *   what a save sent    : 'daily' when the box said daily, otherwise 'manual', never anything else
+   *
+   * so it asserted the save was REFUSED and the form SAID why. The form has controls for all four
+   * now, so that refusal is unreachable from any stored row and asserting it would be asserting
+   * the absence of this round's own work.
+   *
+   * **THE WALL IS KEPT AND IS STILL LOAD-BEARING, for the transition that really happens: the
+   * platform gaining a schedule before this form does** — which is exactly how the original
+   * defect arrived. `AUTOMATION_SCHEDULES` is the server's list, so the census below is what
+   * makes a new one either offered here or refused here, never silently neither.
+   */
+  const ONE4 = { ...ONE, id: "AU9", name: "Weekday follow-up", schedule: "weekly", at: "09:00",
+    zone: "Europe/London", days: ["mon", "fri"] };
+  const WEEK = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const sent = [];
   const w = loadScreen({
     answer: (p, o) => {
       if (/automation-(update|create)$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU9" }); }
-      return okRes({ agents: ROWS, automations: [WEEKLY], steps: [], days: [], max: 20, maxInputs: 8 });
+      return okRes({ agents: ROWS, automations: [ONE4], steps: [], days: WEEK, max: 20, maxInputs: 8 });
     },
   });
   setRows(w);
-  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(WEEKLY)}]; agentAutoCat = { steps: [], days: [] };`);
-  w.ev('agentAutoEditing = "AU9"; agentAutoDraft = null; agentAutoActErr = "";');
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ONE4)}]; agentAutoCat = { steps: [], days: ${JSON.stringify(WEEK)} };`);
 
-  // ⚠ THE FORM SAYS SO, where the control that would lie about it is.
-  const html = w.ev("automationFormHtml()");
-  assert.match(html, /runs on chosen days of the week/, "the form does not say what it cannot change");
-  assert.match(html, /can’t be saved from here/, "it does not say that saving is refused");
-  assert.match(html, /ask the agent in the chat/, "it does not say where it CAN be changed");
-  // AND IT DOES NOT ALSO CLAIM THE ORDINARY THING, which would be two accounts of one fact.
-  assert.ok(!/Either way it runs the same steps/.test(html), "it says both sentences at once");
-
-  // AND THE SAVE REFUSES, WRITING NOTHING — the wall, not the sentence.
-  await w.ev("agentAutoSave()");
-  assert.deepEqual(sent, [], "a weekly automation was replaced by what the form can express");
-  assert.match(w.ev("agentAutoActErr"), /chosen days of the week/, "the refusal does not say why");
-  assert.match(w.ev("agentAutoActErr"), /ask the agent in the chat/i, "it does not say where it CAN be changed");
   /**
-   * ⚠ **RE-ANCHORED, NOT APPEASED: this demanded `/turn it into a manual one/` and that clause
-   * became FALSE.** It was the reason for the wall while an edit replaced the whole row — a
-   * name-only save now carries no schedule field at all, so nothing would be turned into
-   * anything. A refusal that states what the platform WOULD do, wrongly, is the dead-control
-   * finding in its worst shape, so the clause went and this asserts it is gone.
-   *
-   * **The refusal itself is KEPT**, for the reason it has now: this form has no control for a
-   * weekly or a one-off schedule, so somebody picking "Every day" on one would ask the
-   * transaction for `daily` while the stored days stay — which it refuses by name.
+   * ⚠ **THE FOUR ARE OFFERED, AND EACH IS DRAWN WITH THE CONTROLS ITS SCHEDULE NEEDS.** A
+   * control shown for a schedule whose body does not carry the field, or hidden for one that
+   * does, is every one of this form's own recorded defects — so which block is live is asked
+   * against `AGENT_SCHED_SHAPE`, the same table the save reads.
    */
-  assert.ok(!/turn it into a manual one/.test(w.ev("agentAutoActErr")),
-    "it still claims a replace that an edit can no longer do");
+  const shape = JSON.parse(w.ev("JSON.stringify(AGENT_SCHED_SHAPE)"));
+  let drawn = 0;
+  for (const sched of Object.keys(shape)) {
+    w.ev(`agentAutoEditing = "AU9"; agentAutoWas = null; agentAutoActErr = "";
+          agentAutoDraft = { name: "N", enabled: true, schedule: ${JSON.stringify(sched)},
+            at: "09:00", zone: "Europe/London", days: ["mon"], on_date: "2027-03-04",
+            on_event: "", steps: [], inputs: [], gen: 0 };`);
+    const html = w.ev("automationFormHtml()");
+    assert.match(html, new RegExp(`<option value="${sched}" selected>`), `${sched} is not offered`);
+    // AND NO "this form can't change it" SENTENCE, which would be false about all four.
+    assert.ok(!/can’t be saved from here/.test(html), `${sched} reads as unsavable`);
+    // THE BLOCKS: live exactly where the schedule entails the field. The needle is the block's
+    // own opening plus the control's id, because `ag-auto-when-off` is what hides it.
+    const block = (id) => {
+      const at = html.indexOf(id);
+      assert.ok(at > 0, `${sched} draws no ${id}`);
+      const open = html.lastIndexOf('<div class="ag-auto-when', at);
+      return !/ag-auto-when-off/.test(html.slice(open, at));
+    };
+    assert.equal(block('id="agAutoAt"'), shape[sched].at, `${sched}: the time control is wrong`);
+    assert.equal(block('id="agAutoDate"'), shape[sched].on_date, `${sched}: the date control is wrong`);
+    assert.equal(block('data-sched-day='), shape[sched].days, `${sched}: the day controls are wrong`);
+    drawn++;
+  }
+  assert.equal(drawn, 4, `the census drew ${drawn} schedules`);
 
-  // ⚠ THE CONTROLS, three of them, because a wall that refuses everything is not a wall.
-  // A DAILY one saves.
-  const daily = { ...ONE, id: "AU8", schedule: "daily", at: "09:00", zone: "Europe/London" };
-  w.ev(`agentAutoRows = [${JSON.stringify(daily)}];`);
-  // ⚠ OPENED THE WAY A PERSON OPENS IT, because an edit now compares against what the form was
-  // DRAWN with — and a control that changes nothing would send nothing, which is a pass for the
-  // wrong reason. So it really renames it.
-  await openAutoForm(w, "AU8");
+  /**
+   * ⚠ **AND ALL FOUR REALLY SAVE — the capability, without which every assertion above is about
+   * markup nobody can use.** Opened the way a person opens it, so the edit is a real diff
+   * against what the form was DRAWN with.
+   */
+  await openAutoForm(w, "AU9");
   w.s.document.getElementById("agAutoName").value = "Renamed";
   await w.ev("agentAutoSave()");
-  assert.equal(sent.length, 1, "a daily automation could not be saved either");
-  assert.equal(sent[0].id, "AU8");
-  assert.equal(sent[0].name, "Renamed");
-  // A CREATE is never locked, whatever is in the list — there is no stored schedule to lose,
-  // and reading it the other way round would make the button dead for everybody the first
-  // time somebody made a weekly automation in the chat.
-  w.ev(`agentAutoRows = [${JSON.stringify(WEEKLY)}]; agentAutoEditing = null; agentAutoActErr = "";`);
-  w.ev('agentAutoDraft = { name: "New one", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", steps: [], inputs: [], gen: 0 };');
-  await w.ev("agentAutoSave()");
-  assert.equal(sent.length, 2, "a NEW automation was refused because another one is weekly");
-  assert.equal(sent[1].agent, "A");
-  // AND A ROW WHOSE SCHEDULE CANNOT BE READ IS NOT LOCKED — it is not one of the two this
-  // form cannot show; `automationRow` has already failed it closed to `manual`.
-  assert.equal(w.ev('agentAutoUnshowable({ schedule: 7 })'), "");
-  assert.equal(w.ev("agentAutoUnshowable(null)"), "");
-  assert.equal(w.ev('agentAutoUnshowable({ schedule: "once" })'), "once");
+  assert.equal(sent.length, 1, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[0]).sort(), ["id", "name"],
+    "a rename of a WEEKLY automation sent more than the name");
 
-  // ⚠ AND THE LIST IS THE MARKUP'S, BOTH WAYS. `AGENT_FORM_SCHEDULES` is what the refusal
-  // reads and the `<option>` values are what a person can pick; the two disagreeing is either
-  // a control nobody can use or a refusal that fires over one they can.
-  const offered = [...String(html).matchAll(/<option value="([a-z_]+)"/g)].map((m) => m[1]);
-  assert.ok(offered.length >= 2, `the option needle matched ${offered.length} — it is not reading the select`);
+  /**
+   * ⚠ **THE WALL, DRIVEN OVER A SCHEDULE THIS DEPLOYMENT'S FORM DOES NOT OFFER.** Unreachable
+   * from a stored row today — `automationRow` fails an unreadable schedule closed to `manual` and
+   * every schedule the server has is in the list — which is precisely why it is driven at the
+   * unit rather than left to a fixture nobody can build. It is the mechanism that catches the
+   * platform gaining a fifth schedule before this screen does.
+   */
+  assert.equal(w.ev('agentAutoUnshowable({ schedule: "fortnightly" })'), "fortnightly");
+  assert.equal(w.ev('agentSchedWord("fortnightly")'), "fortnightly", "a word it has none for is said as itself");
+  // AND THE CONTROLS: a listed schedule is not locked, and neither is a row it cannot read.
+  for (const sched of Object.keys(shape)) {
+    assert.equal(w.ev(`agentAutoUnshowable({ schedule: ${JSON.stringify(sched)} })`), "",
+      `${sched} is offered AND locked`);
+  }
+  assert.equal(w.ev("agentAutoUnshowable({ schedule: 7 })"), "");
+  assert.equal(w.ev("agentAutoUnshowable(null)"), "");
+  // AND THE SAVE REFUSES FOR SUCH A ROW, writing nothing — the wall, not the sentence.
+  w.ev(`agentAutoRows = [{ ...${JSON.stringify(ONE4)}, schedule: "fortnightly" }];`);
+  w.ev('agentAutoEditing = "AU9"; agentAutoWas = null; agentAutoActErr = "";');
+  w.ev('agentAutoDraft = { name: "N", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", days: [], on_date: "", on_event: "", steps: [], inputs: [], gen: 0 };');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 1, "a schedule this form cannot show was replaced by one it can");
+  assert.match(w.ev("agentAutoActErr"), /fortnightly/, "the refusal does not say which schedule");
+  assert.match(w.ev("agentAutoActErr"), /ask the agent in the chat/i, "it does not say where it CAN be changed");
+  // AND IT DOES NOT CLAIM A REPLACE AN EDIT CAN NO LONGER DO.
+  assert.ok(!/turn it into a manual one/.test(w.ev("agentAutoActErr")));
+  // A CREATE is never locked, whatever is in the list — there is no stored schedule to lose.
+  w.ev('agentAutoEditing = null; agentAutoActErr = "";');
+  w.ev('agentAutoDraft = { name: "New one", enabled: true, schedule: "manual", at: "09:00", zone: "UTC", days: [], on_date: "", on_event: "", steps: [], inputs: [], gen: 0 };');
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 2, "a NEW automation was refused because a stored one is unshowable");
+  assert.equal(sent[1].agent, "A");
+
+  /**
+   * ⚠ AND THE LIST IS THE MARKUP'S, BOTH WAYS. `AGENT_FORM_SCHEDULES` is what the refusal reads
+   * and the `<option>` values are what a person can pick; the two disagreeing is either a control
+   * nobody can use or a refusal that fires over one they can.
+   */
+  w.ev('agentAutoDraft = null; agentAutoEditing = "AU9";');
+  const html = w.ev("automationFormHtml()");
+  const offered = [...String(/id="agAutoSched"[\s\S]*?<\/select>/.exec(html)[0])
+    .matchAll(/<option value="([a-z_]+)"/g)].map((m) => m[1]);
+  assert.ok(offered.length >= 4, `the option needle matched ${offered.length} — it is not reading the select`);
   // ⚠ CARRIED OUT AS JSON, because an array built inside the vm has THAT realm's
   // `Array.prototype` and `assert.deepEqual` rejects it — this file's own recorded trap, whose
   // failure message shows two identical-looking lists.
@@ -1932,10 +1993,187 @@ test("⚠ A SCHEDULE THIS FORM CANNOT SHOW IS NOT REPLACED BY WHAT IT CAN", asyn
     "the form's own options and the list the refusal reads have come apart");
   // AND EVERY SCHEDULE THE PLATFORM STORES IS EITHER OFFERED OR LOCKED — derived, so one added
   // to `AUTOMATION_SCHEDULES` next month cannot be silently neither.
-  for (const s of AUTOMATION_SCHEDULES) {
-    const shown = offered.includes(s);
-    const lockedBy = w.ev(`agentAutoUnshowable({ schedule: ${JSON.stringify(s)} })`);
-    assert.equal(shown, lockedBy === "", `${s} is ${shown ? "offered AND locked" : "neither offered nor locked"}`);
+  for (const sched of AUTOMATION_SCHEDULES) {
+    const shown = offered.includes(sched);
+    const lockedBy = w.ev(`agentAutoUnshowable({ schedule: ${JSON.stringify(sched)} })`);
+    assert.equal(shown, lockedBy === "", `${sched} is ${shown ? "offered AND locked" : "neither offered nor locked"}`);
+  }
+  // AND TODAY ALL FOUR ARE OFFERED, which is what this round delivers — stated as a measurement
+  // beside the disjunction above rather than instead of it.
+  assert.deepEqual(listed.slice().sort(), AUTOMATION_SCHEDULES.slice().sort(),
+    "the form no longer offers every schedule the platform stores");
+});
+
+test("⚠ A REFUSAL ABOUT A STEP IS DRAWN ON THAT STEP, and the bottom line says which", async () => {
+  /**
+   * ⚠ **THE FORM HAD ONE ERROR LINE, AT THE BOTTOM, for a workflow of up to twenty steps.**
+   * Every validator on this path names its step by POSITION — `step 3: …`, because a step has no
+   * name a person gave it — so the message a save comes back with already says where to look, and
+   * drawing it only under the buttons made the person count the rows themselves.
+   *
+   * **NO NEW VOCABULARY AND NO CODE ON THE WIRE**: `agentAutoFault` reads the sentence the server
+   * already sends, and `ag-err` is the class this form already uses for a refusal — a new one
+   * would be a design decision nobody made.
+   */
+  const steps = [{ type: "note", text: "one" }, { type: "note", text: "{{nobody}}" }, { type: "note", text: "three" }];
+  const ROW3 = { ...ONE, id: "AU7", schedule: "manual", at: null, zone: null, steps };
+  let refuse = "step 2: nothing here produces a value called \"nobody\"";
+  const w = loadScreen({
+    answer: (p) => {
+      if (/automation-update$/.test(p)) return badRes(refuse, 400);
+      return okRes({ agents: ROWS, automations: [ROW3], steps: STEP_CATALOG, days: AUTOMATION_DAYS, max: 20, maxInputs: 8 });
+    },
+  });
+  setRows(w);
+  w.ev(`agentAuto = "A"; agentAutoRows = [${JSON.stringify(ROW3)}];
+        agentAutoCat = { steps: ${JSON.stringify(STEP_CATALOG)}, days: ${JSON.stringify(AUTOMATION_DAYS)} };`);
+
+  // A REAL SAVE, so the sentence on screen is the one the route really answered.
+  await openAutoForm(w, "AU7");
+  w.s.document.getElementById("agAutoName").value = "Renamed";
+  await w.ev("agentAutoSave()");
+  assert.equal(w.ev("agentAutoActErr"), refuse, "the refusal did not reach the screen");
+
+  const html = w.ev("automationFormHtml()");
+  /**
+   * THE SENTENCE IS ON STEP 2 AND NOWHERE ELSE. Asked by slicing the markup at the step rows, so
+   * "it is drawn" cannot be satisfied by the bottom line — which is the whole point of the change.
+   */
+  const rows = html.split('class="ag-step" data-step-type=').slice(1);
+  assert.equal(rows.length, 3, `the form drew ${rows.length} steps`);
+  /**
+   * ⚠ **`split` ALREADY BOUNDS EACH ROW, and my first attempt to bound them again broke it.** It
+   * cut each chunk at the NEXT one's first twenty characters — and three `note` steps begin with
+   * the same twenty (`"note" style="--ag-s`), so `indexOf` found each chunk's OWN prefix at 0 and
+   * two rows came back EMPTY. The case then read `[false,false,false]` about a form that was
+   * drawing the sentence correctly. The delimiter is removed by the split, so the chunk ends where
+   * the next row begins by construction — and the assertion below proves it rather than assuming
+   * it, because a chunk that swallowed its neighbours would read as marked everywhere.
+   */
+  for (const [i, r] of rows.entries()) {
+    assert.ok(!r.includes('class="ag-step" data-step-type='), `row ${i} contains the next row`);
+  }
+  const marked = rows.map((r) => /produces a value called/.test(r));
+  assert.deepEqual(marked, [false, true, false],
+    `the sentence is on ${JSON.stringify(marked)} rather than on step 2 alone`);
+  // AND THE BOTTOM LINE SAYS WHICH, rather than saying the same thing twice.
+  assert.match(html, /Step 2 needs a change/, "the bottom line does not say which step");
+  assert.ok(!/<div class="ag-err">step 2: nothing here/.test(html),
+    "the bottom line repeats the sentence the step already carries");
+
+  /**
+   * ⚠ **THE CONTROL: a refusal this cannot attribute stays at the bottom WHOLE.** Without it,
+   * "a step's refusal is drawn on the step" is satisfied by a form that has stopped showing the
+   * refusals about the name, the schedule, the days, the date and the event — which is most of
+   * them.
+   */
+  refuse = "give it a name first";
+  await openAutoForm(w, "AU7");
+  w.s.document.getElementById("agAutoName").value = "Renamed twice";
+  await w.ev("agentAutoSave()");
+  const plain = w.ev("automationFormHtml()");
+  assert.match(plain, /<div class="ag-err">give it a name first<\/div>/, "an unattributable refusal was lost");
+  assert.ok(!/needs a change/.test(plain), "it invented a step for a refusal that names none");
+
+  /**
+   * AND A POSITION PAST THE END OF THE LIST ON SCREEN keeps the sentence whole — a stored workflow
+   * longer than the drawn one, or a step removed since the save. Marking nothing AND saying
+   * "marked above" would be a pointer at nothing.
+   */
+  refuse = "step 9: nothing here produces a value called \"gone\"";
+  await openAutoForm(w, "AU7");
+  w.s.document.getElementById("agAutoName").value = "Renamed thrice";
+  await w.ev("agentAutoSave()");
+  const past = w.ev("automationFormHtml()");
+  assert.match(past, /<div class="ag-err">step 9: nothing here/, "a refusal about a step nobody can see was lost");
+  assert.ok(!/needs a change/.test(past), "it pointed at a step that is not drawn");
+
+  // AND THE READER ITSELF, over the shapes a sentence can really be.
+  assert.deepEqual(JSON.parse(w.ev('JSON.stringify(agentAutoFault("step 3: no"))')), { at: 2, said: "no" });
+  assert.equal(w.ev('agentAutoFault("step 0: no")'), null, "step 0 marked index -1");
+  assert.equal(w.ev('agentAutoFault("nothing about a step")'), null);
+  assert.equal(w.ev("agentAutoFault(null)"), null);
+  assert.equal(w.ev("agentAutoFault(7)"), null);
+  assert.equal(w.ev('agentAutoFault("")'), null);
+  // A MULTI-LINE SENTENCE SURVIVES WHOLE, because `.` does not cross a newline and the refusals
+  // this reads are somebody's own words.
+  assert.equal(JSON.parse(w.ev('JSON.stringify(agentAutoFault("step 1: a\\nb"))')).said, "a\nb");
+});
+
+test("⚠ WHAT EACH SCHEDULE ENTAILS IS THE DATABASE'S OWN RULE — read out of the migration", () => {
+  /**
+   * ⚠ **`AGENT_SCHED_SHAPE` IS A DECLARED COPY OF `automations_schedule_is_whole`, so it is
+   * censused against the constraint rather than against a list somebody kept.**
+   *
+   * The database makes a half-whole combination unstorable, and the two ways of being wrong are
+   * different failures over controls a person can see: a field the schedule needs and the form
+   * does not send is refused `bad-time`/`bad-days`/`bad-date`; a field it forbids and the form
+   * sends anyway is refused `bad-schedule`. Both name something the person did not do.
+   *
+   * **DERIVED PER ARM, from the constraint's own text**, so a fifth schedule added there cannot be
+   * offered here without this going red — and the observer is proved alive first, because a reader
+   * that found no arms would satisfy every assertion under it.
+   */
+  const sql = fs.readFileSync(path.join(import.meta.dirname,
+    "../agent-builder/supabase/migrations/20260918050000_agent_triggers.sql"), "utf8");
+  const at = sql.indexOf("add constraint automations_schedule_is_whole check (");
+  assert.ok(at > 0, "the migration no longer declares that constraint");
+  const body = sql.slice(at, sql.indexOf("\n);", at));
+  assert.ok(body.length > 200 && body.length < sql.length / 4,
+    `the window is ${body.length} of ${sql.length} bytes`);
+  // EACH ARM RUNS FROM ITS OWN `when` TO THE NEXT ONE (or to the `end`), so a rule cannot be read
+  // as a neighbour's.
+  const arms = {};
+  // ⚠ **`\\s+`, NEVER ONE SPACE — the arms are COLUMN-ALIGNED.** `when 'daily'  then` carries two
+  // and `when 'once'   then` three, so a single-space needle read only `manual` and `weekly` and
+  // the census reported the two it could see as the whole case.
+  const marks = [...body.matchAll(/when '([a-z_]+)'\s+then/g)];
+  assert.ok(marks.length >= 4, `the reader found ${marks.length} arms — it is not reading the case`);
+  marks.forEach((m, i) => {
+    const from = m.index + m[0].length;
+    const to = i + 1 < marks.length ? marks[i + 1].index : body.length;
+    arms[m[1]] = body.slice(from, to);
+  });
+  /**
+   * WHAT THE SQL SAYS ABOUT EACH FIELD, as the three-way answer this table holds:
+   * `is not null` / `cardinality(...) between` is REQUIRED, `is null` / `= '{}'` is FORBIDDEN.
+   * A clause the reader cannot classify is a refusal rather than a guess, because a silently
+   * missed rule is the one this census exists to catch.
+   */
+  const need = (arm, name) => {
+    if (name === "days") {
+      if (/cardinality\(days\)\s+between/.test(arm)) return true;
+      if (/days\s*=\s*'\{\}'/.test(arm)) return false;
+      return null;
+    }
+    const col = name === "at" ? "at_local" : "on_date";
+    if (new RegExp(col + "\\s+is not null").test(arm)) return true;
+    if (new RegExp(col + "\\s+is null").test(arm)) return false;
+    return null;
+  };
+
+  const w = loadScreen({});
+  const shape = JSON.parse(w.ev("JSON.stringify(AGENT_SCHED_SHAPE)"));
+  // BOTH WAYS: every schedule the constraint knows has a shape here, and every shape here is a
+  // schedule the constraint knows.
+  assert.deepEqual(Object.keys(shape).slice().sort(), Object.keys(arms).slice().sort(),
+    "the form's schedule shapes and the constraint's arms have come apart");
+  let asked = 0;
+  for (const [sched, arm] of Object.entries(arms)) {
+    for (const f of ["at", "days", "on_date"]) {
+      const sqlSays = need(arm, f);
+      assert.notEqual(sqlSays, null, `the reader could not classify ${f} for ${sched}`);
+      assert.equal(shape[sched][f], sqlSays,
+        `${sched}: the form ${shape[sched][f] ? "sends" : "clears"} ${f} and the database ${sqlSays ? "requires" : "forbids"} it`);
+      asked++;
+    }
+  }
+  assert.equal(asked, 12, `the census asked ${asked} questions`);
+  // AND THE OBSERVER, so "they agree" is not satisfied by a reader that answered `false` to
+  // everything: the four arms really do differ, and every field is required somewhere.
+  for (const f of ["at", "days", "on_date"]) {
+    assert.ok(Object.values(shape).some((n) => n[f]), `no schedule requires ${f}`);
+    assert.ok(Object.values(shape).some((n) => !n[f]), `every schedule requires ${f}`);
   }
 });
 
@@ -2314,17 +2552,33 @@ test("⚠ A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS, both directions"
    *
    * Found by `agent-builder`'s own `verify:triggers` against a real PostgreSQL, not by reading.
    */
+  const WEEK = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const DAILY = { ...ONE, id: "AU4", schedule: "daily", at: "09:00", zone: "Europe/London" };
   const MANUAL = { ...ONE, id: "AU3", schedule: "manual", at: null, zone: null };
   const sent = [];
   const w = loadScreen({
     answer: (p, o) => {
       if (/automation-update$/.test(p)) { sent.push(JSON.parse(o.body)); return okRes({ ok: true, id: "AU4" }); }
-      return okRes({ agents: ROWS, automations: [DAILY, MANUAL], steps: [], days: [], max: 20, maxInputs: 8 });
+      return okRes({ agents: ROWS, automations: [DAILY, MANUAL], steps: [], days: WEEK, max: 20, maxInputs: 8 });
     },
   });
   setRows(w);
-  w.ev(`agentAuto = "A"; agentAutoRows = ${JSON.stringify([DAILY, MANUAL])}; agentAutoCat = { steps: [], days: [] };`);
+  // ⚠ **THE CATALOG CARRIES THE WEEK, because the day controls are DRAWN FROM IT.** With `days:
+  // []` the form draws its "the days aren't listed yet" branch instead — and the first draft of
+  // this case had exactly that and still "found" a checkbox, because the fake `querySelector`
+  // creates an element on demand. So the observer was dead and the case reported the feature as
+  // broken. Every assertion about a control is made on the MARKUP now.
+  w.ev(`agentAuto = "A"; agentAutoRows = ${JSON.stringify([DAILY, MANUAL])}; agentAutoCat = { steps: [], days: ${JSON.stringify(WEEK)} };`);
+
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED: `AGENT_SCHED_OWNS` was a FLAT LIST and the form can show four
+   * schedules now, so "which fields" is no longer the whole question — "which VALUE each must
+   * take" is.** `automations_schedule_is_whole` demands a day list for `weekly` and forbids one
+   * for the other three, and a date for `once` and none for the others, so a change of schedule
+   * has to CLEAR the fields its new schedule forbids as well as carry the ones it needs. The key
+   * set below grew by two for exactly that reason; the property is unchanged.
+   */
+  const KEYS = ["at", "days", "id", "on_date", "schedule", "zone"];
 
   // DAILY → MANUAL: the time is CLEARED, explicitly, because "by hand" has no time at all.
   await openAutoForm(w, "AU4");
@@ -2334,8 +2588,10 @@ test("⚠ A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS, both directions"
   assert.equal(sent[0].schedule, "manual");
   assert.equal(sent[0].at, null, "it left the stored time behind, which is not a schedule at all");
   assert.ok(Object.hasOwn(sent[0], "zone"), "the zone the schedule owns was not carried");
+  assert.deepEqual(sent[0].days, [], "a manual schedule was asked for with days it may not have");
+  assert.equal(sent[0].on_date, null, "a manual schedule was asked for with a date it may not have");
   // AND NOTHING ELSE — a schedule change is not a licence to send the steps.
-  assert.deepEqual(Object.keys(sent[0]).sort(), ["at", "id", "schedule", "zone"]);
+  assert.deepEqual(Object.keys(sent[0]).sort(), KEYS);
 
   // MANUAL → DAILY: the time and the zone go WITH it, because the row has neither.
   await openAutoForm(w, "AU3");
@@ -2345,7 +2601,51 @@ test("⚠ A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS, both directions"
   assert.equal(sent[1].schedule, "daily");
   assert.equal(sent[1].at, "09:00", "a daily schedule was asked for with no time");
   assert.ok(sent[1].zone, "a daily schedule was asked for with no zone");
-  assert.deepEqual(Object.keys(sent[1]).sort(), ["at", "id", "schedule", "zone"]);
+  assert.deepEqual(Object.keys(sent[1]).sort(), KEYS);
+
+  /**
+   * ⚠ **AND THE TWO SCHEDULES THIS ROUND ADDED, which is where the value per field stops being
+   * the same for all of them.** A weekly one has to carry the days somebody ticked AND no date; a
+   * one-off has to carry the date AND no days. Either sent the other's field is a row the
+   * database refuses, over a control the form really draws.
+   */
+  await openAutoForm(w, "AU4");
+  w.s.document.getElementById("agAutoSched").value = "weekly";
+  // THE CONTROLS ARE REAL ONES, so this ticks a box rather than writing a value into a draft —
+  // and the OBSERVER is the markup, never `querySelector`, which this fake answers for anything.
+  const weeklyHtml = w.ev("automationFormHtml()");
+  for (const d of ["mon", "thu"]) {
+    assert.match(weeklyHtml, new RegExp(`data-sched-day="${d}"`), `the form draws no ${d} control`);
+  }
+  /**
+   * ⚠ **TICKED IN THE COLLECTION THE READER REALLY WALKS, not through `querySelector`.** This
+   * fake answers `querySelector` with a fresh stub every time, so setting `.checked` on one of
+   * those changed nothing the form could see and the case reported the feature as broken. A
+   * browser hands back the same element either way; here only `querySelectorAll` does.
+   */
+  const boxes = w.s.document.querySelectorAll("[data-sched-day]");
+  assert.ok(boxes.length === 7, `the form drew ${boxes.length} day controls`);
+  for (const b of boxes) {
+    const d = b.getAttribute("data-sched-day");
+    if (d === "mon" || d === "thu") b.checked = true;
+  }
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 3, w.ev("agentAutoActErr"));
+  assert.equal(sent[2].schedule, "weekly");
+  assert.deepEqual(sent[2].days, ["mon", "thu"], "the days the person ticked did not reach the wire");
+  assert.equal(sent[2].on_date, null, "a weekly schedule was asked for with a date it may not have");
+  assert.deepEqual(Object.keys(sent[2]).sort(), KEYS);
+
+  await openAutoForm(w, "AU4");
+  w.s.document.getElementById("agAutoSched").value = "once";
+  assert.match(w.ev("automationFormHtml()"), /id="agAutoDate" type="date"/, "the form draws no date control");
+  w.s.document.getElementById("agAutoDate").value = "2027-03-04";
+  await w.ev("agentAutoSave()");
+  assert.equal(sent.length, 4, w.ev("agentAutoActErr"));
+  assert.equal(sent[3].schedule, "once");
+  assert.equal(sent[3].on_date, "2027-03-04", "the date the person chose did not reach the wire");
+  assert.deepEqual(sent[3].days, [], "a one-off schedule was asked for with days it may not have");
+  assert.deepEqual(Object.keys(sent[3]).sort(), KEYS);
 
   // ⚠ **THE CONTROL: with the schedule UNTOUCHED, neither is sent** — without which "the
   // schedule carries them" is satisfied by a save that carries them always, which is the
@@ -2353,16 +2653,34 @@ test("⚠ A CHANGE OF SCHEDULE CARRIES WHAT THE SCHEDULE NEEDS, both directions"
   await openAutoForm(w, "AU4");
   w.s.document.getElementById("agAutoName").value = "Just a rename";
   await w.ev("agentAutoSave()");
-  assert.equal(sent.length, 3, w.ev("agentAutoActErr"));
-  assert.deepEqual(Object.keys(sent[2]).sort(), ["id", "name"],
+  assert.equal(sent.length, 5, w.ev("agentAutoActErr"));
+  assert.deepEqual(Object.keys(sent[4]).sort(), ["id", "name"],
     "a rename carried the time and the zone, so a newer one of either is overwritten");
 
-  // AND EVERY FIELD A SCHEDULE OWNS IS ONE THE FORM REALLY DRAWS, or it would put `undefined` on
-  // the wire under a name the server reads.
-  const owns = JSON.parse(w.ev("JSON.stringify(AGENT_SCHED_OWNS)"));
+  /**
+   * AND EVERY FIELD A SCHEDULE ENTAILS IS ONE THE FORM REALLY DRAWS, or it would put `undefined`
+   * on the wire under a name the server reads — censused over EVERY schedule in the table rather
+   * than over one, and with the schedules themselves compared against what the form offers, so a
+   * fifth cannot be added to one and not the other.
+   */
+  const shape = JSON.parse(w.ev("JSON.stringify(AGENT_SCHED_SHAPE)"));
   const fields = JSON.parse(w.ev("JSON.stringify(AGENT_FORM_FIELDS)"));
-  assert.ok(owns.length >= 1, "a schedule owns nothing at all");
-  for (const f of owns) assert.ok(fields.includes(f), `${f} is owned by the schedule and never read`);
+  const listed = JSON.parse(w.ev("JSON.stringify(AGENT_FORM_SCHEDULES)"));
+  assert.deepEqual(Object.keys(shape).slice().sort(), listed.slice().sort(),
+    "the schedules the form offers and the shapes it saves them with have come apart");
+  let entailed = 0;
+  for (const [sched, needs] of Object.entries(shape)) {
+    for (const f of Object.keys(needs)) {
+      assert.ok(fields.includes(f), `${sched} entails ${f}, which no control draws`);
+      assert.equal(typeof needs[f], "boolean", `${sched}.${f} is not an answer`);
+      entailed++;
+    }
+  }
+  assert.ok(entailed >= 12, `the census looked at ${entailed} fields — it is not reading the table`);
+  // AND `autoNeeds` FAILS CLOSED, so a schedule nobody can name draws no control and clears
+  // everything — the direction that cannot ask the database for a row it refuses.
+  assert.deepEqual(JSON.parse(w.ev('JSON.stringify(autoNeeds("fortnightly"))')), shape.manual);
+  assert.deepEqual(JSON.parse(w.ev("JSON.stringify(autoNeeds(null))")), shape.manual);
 });
 
 test("⚠ THE TIME ZONE IS DRAWN FROM THE ROW, EDITED, AND SENT", async () => {

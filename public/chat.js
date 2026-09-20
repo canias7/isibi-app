@@ -2046,8 +2046,22 @@ function autoWhen(iso) {
 
 /** How an automation starts, in one line. */
 function autoTrigger(a) {
-  if (!a || a.schedule !== 'daily') return 'Run now only';
-  return 'Every day at ' + (a.at || '—') + (a.zone ? ' (' + a.zone + ')' : '');
+  /**
+   * ⚠ **IT SAID "Run now only" FOR EVERY SCHEDULE BUT `daily`, which was true of what the
+   * form could make and false of the platform.** A weekly automation created in the chat read as
+   * manual in the one place a person looks at the list — so the row and the row's own Edit form
+   * disagreed about what starts it. Four schedules, four sentences, and the fifth (a schedule
+   * this deployment does not know) says so rather than claiming it runs by hand.
+   */
+  if (!a || typeof a.schedule !== 'string' || a.schedule === 'manual') return 'Run now only';
+  const when = (a.at || '—') + (a.zone ? ' (' + a.zone + ')' : '');
+  if (a.schedule === 'daily') return 'Every day at ' + when;
+  if (a.schedule === 'weekly') {
+    const days = Array.isArray(a.days) ? a.days : [];
+    return (days.length ? days.map(autoDayName).join(', ') : 'Chosen days') + ' at ' + when;
+  }
+  if (a.schedule === 'once') return 'Once on ' + (a.onDate || 'a date') + ' at ' + when;
+  return 'On a schedule this screen can\u2019t describe yet';
 }
 
 /** What the platform calls each step type, out of the catalog the server sent. */
@@ -2177,7 +2191,8 @@ function agentAutoWatchSoon(id, left) {
 // ── automations: the form's own values ──────────────────────────────────────
 
 /** A blank automation, and the shape every draft has. */
-const autoBlank = () => ({ name: '', enabled: true, schedule: 'manual', at: '09:00', zone: autoGuessZone(), steps: [], inputs: [], gen: 0 });
+const autoBlank = () => ({ name: '', enabled: true, schedule: 'manual', at: '09:00', zone: autoGuessZone(),
+  days: [], on_date: '', on_event: '', steps: [], inputs: [], gen: 0 });
 
 /**
  * The browser's own zone, offered as the default.
@@ -2254,13 +2269,34 @@ function agentAutoValues() {
       required: !!(rq && rq.checked),
     };
   }).filter((d) => d.name !== '');
+  /**
+   * ⚠ **THE DAYS A SCHEDULE RUNS ON ARE READ FROM `data-sched-day` AND NOT FROM `data-day`.**
+   * The weekday STEP already uses `data-day`, and its reader is scoped to that step's own row —
+   * so the two would not collide today. A distinct attribute is what keeps that true if either
+   * scan is ever widened, and it says which of the two a checkbox belongs to at the markup.
+   */
+  const schedDays = typeof document.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-sched-day]')] : [];
   return {
     name: val('agAutoName').trim().slice(0, AGENT_NAME_MAX),
     // OFF is what the box says, so the control and the value cannot disagree.
     enabled: !checked('agAutoOff'),
-    schedule: val('agAutoSched') === 'daily' ? 'daily' : 'manual',
+    // ⚠ **A SCHEDULE THE FORM DOES NOT OFFER READS AS `manual`, and that is the wall rather
+    // than a coercion.** A `<select>` always answers one of its own options, so the only way a
+    // value outside the list arrives is a markup change — and `agentAutoUnshowable` refuses the
+    // save before this is reached for any stored schedule the list does not carry.
+    schedule: AGENT_FORM_SCHEDULES.indexOf(val('agAutoSched')) >= 0 ? val('agAutoSched') : 'manual',
     at: val('agAutoAt') || '09:00',
     zone: val('agAutoZone').trim(),
+    // THE WEEK'S OWN ORDER, never the ticking order, so two savings of one selection are the
+    // same body — which is what lets `autoSame` read an untouched day list as unchanged.
+    days: schedDays.filter((d) => d.checked)
+                   .map((d) => (d.getAttribute && d.getAttribute('data-sched-day')) || '')
+                   .filter(Boolean),
+    on_date: val('agAutoDate').trim(),
+    // AN EMPTY BOX IS THE REMOVAL, which is what makes this control able to take a binding OFF
+    // as well as put one on. `cleanPatch` reads a blank as `null`, so the two doors agree.
+    on_event: val('agAutoEvent').trim(),
     steps, inputs,
   };
 }
@@ -2323,9 +2359,17 @@ function agentAutoForm() {
   if (agentAutoDraft) return agentAutoDraft;
   const cur = agentAutoRow();
   if (!cur) return autoBlank();
+  /**
+   * ⚠ **THE ROW ANSWERS `onDate`/`onEvent` AND THE WIRE WANTS `on_date`/`on_event`, so the
+   * translation happens HERE, once.** `automationRow` is the reader and `cleanPatch`/`cleanSchedule`
+   * are the writers, and they spell these two differently — a camel-cased key on the wire is a
+   * field the server ignores, which this repository has already shipped once and measured.
+   */
   return {
     name: cur.name, enabled: cur.enabled, schedule: cur.schedule,
     at: cur.at || '09:00', zone: cur.zone || autoGuessZone(),
+    days: Array.isArray(cur.days) ? cur.days.slice() : [],
+    on_date: cur.onDate || '', on_event: cur.onEvent || '',
     steps: (cur.steps || []).map((st) => ({ ...st })),
     inputs: (cur.inputs || []).map((d) => ({ ...d })),
     gen: 0,
@@ -2802,20 +2846,17 @@ async function agentAutoSave() {
   const say = (m) => { agentAutoActErr = m; renderAgents(); };
   if (!values.name) { say('Give it a name first.'); return; }
   // ⚠ **A SCHEDULE THIS FORM CANNOT SHOW MUST NOT BE ANSWERED BY WHAT IT CAN.** The select
-  // answers `manual` for a stored `weekly`, which is a WRONG value rather than a missing one —
-  // so if somebody touched that control the save would ask for a schedule they never chose.
-  // Refusing is the only honest answer while the controls do not exist: it says what it cannot
-  // do and where to do it.
+  // answers its FIRST option for a stored schedule it does not offer, which is a WRONG value
+  // rather than a missing one — so the save would ask for a schedule nobody chose.
   //
-  // **AND THE CLAUSE THAT USED TO CLOSE THIS PARAGRAPH IS NO LONGER TRUE, so it is gone.** It
+  // **TWO CLAUSES THAT USED TO CLOSE THIS PARAGRAPH ARE NO LONGER TRUE, so they are gone.** One
   // read "the route is a full REPLACE, so without this a save of the NAME alone dropped the
-  // schedule and its days" — which was the whole reason for the wall and stopped being a fact
-  // the moment an edit became a patch: a name-only save now carries no schedule field at all.
-  // **The refusal is KEPT because the form still has no control for those schedules** and
-  // picking "Every day" on a weekly one would ask the transaction for `daily` while the stored
-  // days stay, which it refuses by name. Narrowing it to "only when the schedule control was
-  // really touched" is now possible and is a design decision, so it is offered rather than
-  // taken.
+  // schedule and its days", which stopped being a fact when an edit became a patch; the other
+  // read "the form still has no control for those schedules", which stopped being a fact when
+  // the day and date controls landed. **The refusal is KEPT for the case it is really about: a
+  // schedule the PLATFORM has and this list does not** — how the original defect arrived, and
+  // reachable again the day `AUTOMATION_SCHEDULES` gains a fifth. `agentAutoUnshowable` reads
+  // that list, so the refusal lifts by adding the option rather than by editing this.
   // ⚠ **A CREATE IS NEVER LOCKED, AND `agentAutoRow()` IS THE WHOLE OF WHY** — it is
   // `find(a => a.id === agentAutoEditing) || null`, so with nothing being edited there is no
   // stored schedule to lose and `locked` is `''`. A first draft said `&& !!agentAutoEditing`
@@ -3431,10 +3472,14 @@ function automationRowHtml(a) {
           (a.enabled ? '' : '<span class="ag-chip ag-chip-off">Off</span>') +
         '</div>' +
         '<div class="ag-auto-s">' + esc(autoTrigger(a)) +
-          // THE NEXT SCHEDULED RUN, which is the one thing a schedule has to be able to
-          // say. A manual automation has none and says nothing rather than "—".
-          (a.schedule === 'daily' && a.nextRunAt
-            ? ' · next ' + esc(autoWhen(a.nextRunAt)) : '') +
+          // THE NEXT SCHEDULED RUN, which is the one thing a schedule has to be able to say.
+          // ⚠ GATED ON THERE BEING ONE rather than on the schedule being `daily`: a weekly one
+          // has a next instant too, and a `once` one has none left after it has run — which is
+          // the honest reading of an absent value rather than a fifth branch.
+          (a.nextRunAt ? ' · next ' + esc(autoWhen(a.nextRunAt)) : '') +
+          // AND THE OTHER WAY IN, on the row, because a person scanning the list has to be able
+          // to see that something else starts it. The form is where it can be changed.
+          (agentAutoListensFor(a) ? ' · also on ' + esc(agentAutoListensFor(a)) : '') +
         '</div>' +
         '<div class="ag-auto-steps">' +
           ((a.steps || []).length
@@ -3658,27 +3703,32 @@ function automationRunsHtml() {
 
 /** The form: a name, whether it is on, how it starts, and the ordered steps. */
 /**
- * ⚠ **WHICH SCHEDULES THIS FORM CAN SHOW — and the platform stores more than that.**
+ * ⚠ **WHICH SCHEDULES THIS FORM CAN SHOW — and it is ALL FOUR the platform stores now.**
  *
- * MEASURED: `AUTOMATION_SCHEDULES` is `manual · daily · weekly · once` and this form's own
- * `<select>` offers the first two. A `<select>` with no option marked `selected` answers its
- * FIRST option, so a stored `weekly` drew as *"Only when I press Run now"* — and
- * `agentAutoValues` reads that box and sends `manual`, into a route that REPLACES the whole
- * automation. **So editing the NAME of a weekly automation silently turned it into a manual
- * one and dropped its days**, `next_run_at` with them. Reachable today: the agent's own
- * `make_automation` really does create weekly ones.
+ * **IT OFFERED TWO, AND THAT WAS A MEASURED DEFECT.** `AUTOMATION_SCHEDULES` is
+ * `manual · daily · weekly · once` and this `<select>` offered the first two; a `<select>` with
+ * no option marked `selected` answers its FIRST option, so a stored `weekly` drew as *"Only when
+ * I press Run now"*, `agentAutoValues` read that box and sent `manual`, and while the route
+ * REPLACED the whole automation **editing the NAME of a weekly automation silently turned it into
+ * a manual one and dropped its days**, `next_run_at` with them. Reachable throughout, because the
+ * agent's own `make_automation` really does create weekly ones.
  *
- * The wall is here rather than a new control, because **not destroying somebody's
- * configuration is not a design decision and the controls are**: day pickers and a date box
- * are the owner's call, and until they exist this form says what it cannot edit and refuses
- * rather than answering wrongly. The chat can still change it — `change_automation` is a
- * PATCH and touches only what it is given.
+ * The first fix was a WALL — refuse the save and say where it can be changed — on the reasoning
+ * that *not destroying somebody's configuration is not a design decision and the controls are*.
+ * **The controls are here now** (day checkboxes and a date box, in the form's own style), so the
+ * platform and this screen agree about what a person can configure.
+ *
+ * ⚠ **AND THE WALL IS KEPT, which is not tidiness.** It fires for a schedule this list does not
+ * carry — and *the platform gaining one before this form does* is precisely how the original
+ * defect arrived. Unreachable from a stored row today (`automationRow` fails an unreadable
+ * schedule closed to `manual`, and every schedule the server has is listed), so it is driven at
+ * the unit in `test/agent-binding.test.mjs` rather than left to a fixture nobody can build.
  *
  * DERIVED FROM THE MARKUP IT IS ABOUT: one list, named beside the select, so an option added
  * there has to be added here for the refusal to lift — and `test/agent-binding.test.mjs`
  * censuses it against the option values the form really emits, both ways.
  */
-const AGENT_FORM_SCHEDULES = ['manual', 'daily'];
+const AGENT_FORM_SCHEDULES = ['manual', 'daily', 'weekly', 'once'];
 
 /** The schedule this form cannot express, or `''` when it can. */
 function agentAutoUnshowable(row) {
@@ -3706,15 +3756,29 @@ function agentAutoUnshowable(row) {
  * really answers — a field it reads and this omits would be a control somebody sets that no save
  * ever sends.
  */
-const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'steps', 'inputs'];
+const AGENT_FORM_FIELDS = ['name', 'enabled', 'schedule', 'at', 'zone', 'days', 'on_date', 'on_event', 'steps', 'inputs'];
 
 /**
- * The fields a SCHEDULE owns, which a change of schedule has to carry with it.
+ * ⚠ **WHAT EACH SCHEDULE ENTAILS — a declared copy of `automations_schedule_is_whole`.**
  *
- * Every one must be a field this form really draws — censused in `test/agent-binding.test.mjs`,
- * because a name here that the form does not read would put `undefined` on the wire.
+ * The database makes a half-whole combination unstorable, and the rules are per schedule rather
+ * than one list: `manual` may carry no time, no days and no date; `daily` needs a time and a zone
+ * and may carry no days and no date; `weekly` needs a time, a zone and one to seven days; `once`
+ * needs a time, a zone and a date. So a change of schedule has to carry the fields that choice
+ * ENTAILS — including clearing the ones it forbids — or the transaction refuses it by name over
+ * controls that are not on the screen.
+ *
+ * **IT REPLACED A FLAT `AGENT_SCHED_OWNS` LIST**, which was right while the form could show two
+ * schedules and says nothing about which VALUE each field must take. `test/agent-binding.test.mjs`
+ * censuses this table against the constraint read out of the migration, both ways and per arm, so a
+ * fifth schedule cannot be offered here and refused there.
  */
-const AGENT_SCHED_OWNS = ['at', 'zone'];
+const AGENT_SCHED_SHAPE = Object.freeze({
+  manual: { at: false, days: false, on_date: false },
+  daily: { at: true, days: false, on_date: false },
+  weekly: { at: true, days: true, on_date: false },
+  once: { at: true, days: false, on_date: true },
+});
 
 /**
  * Whether two answers to one field are the same answer.
@@ -3775,15 +3839,64 @@ function agentAutoChanges(was, now) {
    * cleared it. Which fields a schedule owns is declared once, so a third one is a line here.
    */
   if (Object.hasOwn(out, 'schedule')) {
-    for (const f of AGENT_SCHED_OWNS) out[f] = now[f];
-    // AND "BY HAND" HAS NO TIME AT ALL — `null` is the clear, which is a different thing from
-    // saying nothing about it.
-    if (out.schedule === 'manual') out.at = null;
+    const needs = AGENT_SCHED_SHAPE[out.schedule] || AGENT_SCHED_SHAPE.manual;
+    // THE ZONE RIDES ON EVERY CHANGE, because three of the four schedules require one and the
+    // fourth does not forbid it — so there is no clearing case and no branch to get wrong.
+    out.zone = now.zone;
+    // AND EACH OF THE THREE IS EITHER THE ANSWER ON SCREEN OR THE CLEAR ITS SCHEDULE DEMANDS.
+    // `null` and `[]` are the clears; saying NOTHING about them would leave the transaction
+    // resolving a stored day list onto a schedule that may not have one.
+    out.at = needs.at ? now.at : null;
+    out.days = needs.days ? now.days : [];
+    out.on_date = needs.on_date ? now.on_date : null;
   }
   return out;
 }
 
-/** How an event binding this form cannot change reads to a person, or `''` when there is none. */
+/**
+ * ⚠ **WHAT A SCHEDULE NEEDS, READ THROUGH ONE FUNCTION so the markup and the save cannot
+ * disagree about it.** Both ask this: the form shows a control exactly where a change of schedule
+ * would send its field, so a hidden control whose value still reaches the wire — which is every
+ * one of this form's own recorded defects — is not expressible.
+ *
+ * An unknown schedule answers `manual`'s shape, which needs nothing: the fail-closed direction,
+ * because showing a control for a schedule nobody can name would be a control that answers.
+ */
+function autoNeeds(schedule) {
+  return AGENT_SCHED_SHAPE[schedule] || AGENT_SCHED_SHAPE.manual;
+}
+
+/**
+ * ⚠ **WHICH STEP A REFUSAL IS ABOUT, so it can be shown beside that step.**
+ *
+ * Every validator on this path — `cleanWorkflow` here and `readWorkflow` in the engine — names
+ * its step by POSITION, one-based, as `step 3: …`, because a step has no name a person gave it.
+ * So the message a save comes back with already says where to look; drawing it only at the bottom
+ * of a form with twenty steps in it makes the person count.
+ *
+ * **IT READS THE SENTENCE AND CHANGES NOTHING ELSE.** No second refusal vocabulary, no code on
+ * the wire, and a message it cannot attribute answers `null` — which is the ordinary case for
+ * *"give it a name first"* and for every refusal about the schedule.
+ *
+ * ONE-BASED THERE AND ZERO-BASED HERE, converted once, because the step list is an array and an
+ * off-by-one would mark the wrong step — which is worse than marking none.
+ */
+function agentAutoFault(msg) {
+  const m = /^step (\d+): ([\s\S]+)$/.exec(typeof msg === 'string' ? msg : '');
+  if (!m) return null;
+  const at = Number(m[1]) - 1;
+  // A POSITION THAT IS NOT A POSITION IS NOT AN ATTRIBUTION. `Number('0')` is 0, so `step 0:`
+  // would mark index -1 and read as no step at all; refusing is the honest answer.
+  if (!Number.isInteger(at) || at < 0) return null;
+  return { at, said: m[2] };
+}
+
+/** How an event binding reads to a person, or `''` when there is none.
+ *
+ * **IT IS NOT THE FORM'S SEED ANY MORE — the form has its own control and seeds from
+ * `agentAutoForm`.** This is the LIST's reader: a row's own line says what starts it, and a
+ * reader that failed closed on a non-string is what keeps a junk column out of the markup.
+ */
 function agentAutoListensFor(row) {
   return row && typeof row.onEvent === 'string' ? row.onEvent : '';
 }
@@ -3818,28 +3931,58 @@ function automationFormHtml(agent) {
     '<select class="ag-in" id="agAutoSched" data-change="agent-auto-sched">' +
       '<option value="manual"' + (f.schedule === 'manual' ? ' selected' : '') + '>Only when I press Run now</option>' +
       '<option value="daily"' + (f.schedule === 'daily' ? ' selected' : '') + '>Every day, at a time I choose</option>' +
+      '<option value="weekly"' + (f.schedule === 'weekly' ? ' selected' : '') + '>On days of the week I choose</option>' +
+      '<option value="once"' + (f.schedule === 'once' ? ' selected' : '') + '>Once, on one date</option>' +
     '</select>' +
-    '<div class="ag-auto-when' + (f.schedule === 'daily' ? '' : ' ag-auto-when-off') + '">' +
+    // ⚠ **THE TIME AND THE ZONE BELONG TO THREE OF THE FOUR, so the block is shown for
+    // whichever needs one rather than for `daily` alone.** Which schedule needs what is
+    // `AGENT_SCHED_SHAPE`, the same table the save reads, so a control cannot be hidden for a
+    // schedule whose body still carries the field — which is the shape of every one of this
+    // form's own recorded defects.
+    '<div class="ag-auto-when' + (autoNeeds(f.schedule).at ? '' : ' ag-auto-when-off') + '">' +
       '<label class="ag-lbl" for="agAutoAt">At</label>' +
       '<input class="ag-in ag-in-time" id="agAutoAt" type="time" value="' + esc(f.at) + '">' +
       '<label class="ag-lbl" for="agAutoZone">In this time zone</label>' +
       '<input class="ag-in" id="agAutoZone" maxlength="200" placeholder="Europe/London" value="' + esc(f.zone) + '">' +
-      // SAID OUT LOUD, because it is the one thing about a daily schedule that surprises
+      // SAID OUT LOUD, because it is the one thing about a timed schedule that surprises
       // people, and it is what the arithmetic really does.
       '<div class="ag-hint">The time is local to that zone, so it stays at the same clock time when the clocks change.</div>' +
     '</div>' +
-    // ⚠ **A SECOND WAY IN, SAID OUT LOUD — because without it this panel reads as a
-    // complete account of what starts the automation and it is not one.** Its own line rather
-    // than folded into the either/or above, since an event is independent of the schedule: both
-    // can be true at once. A save never MENTIONS it — an edit carries only the fields that
-    // changed, and this form has no control for this one — so the transaction keeps whatever
-    // the row holds. This sentence is what stops that being invisible, and it names the chat
-    // because that is where `change_automation` can really change it.
-    (agentAutoListensFor(cur)
-      ? '<div class="ag-hint">It also listens for ' + esc(agentAutoListensFor(cur)) +
-          ' — that starts it as well, whatever the box above says. This form can’t change ' +
-          'that yet, and saving from here leaves it exactly as it is; ask the agent in the chat to change it.</div>'
-      : '') +
+    // THE DAYS, drawn from the catalog's own list so the week's order is the server's.
+    '<div class="ag-auto-when' + (autoNeeds(f.schedule).days ? '' : ' ag-auto-when-off') + '">' +
+      '<label class="ag-lbl">On these days</label>' +
+      (days.length
+        ? '<div class="ag-step-days">' + days.map((d) =>
+            '<label class="ag-day">' +
+              '<input type="checkbox" data-sched-day="' + esc(d) + '"' +
+                ((f.days || []).indexOf(d) >= 0 ? ' checked' : '') + '>' +
+              '<span>' + esc(autoDayName(d)) + '</span>' +
+            '</label>').join('') + '</div>'
+        // A REAL BRANCH: a Worker that predates the catalog answers no `days`, and a row of
+        // nothing somebody could tick would be a control that answers.
+        : '<div class="ag-nothing">The days aren\u2019t listed yet — ask the agent in the chat to set them.</div>') +
+      '<div class="ag-hint">Pick at least one. It runs at the time above, on each day you pick.</div>' +
+    '</div>' +
+    '<div class="ag-auto-when' + (autoNeeds(f.schedule).on_date ? '' : ' ag-auto-when-off') + '">' +
+      '<label class="ag-lbl" for="agAutoDate">On this date</label>' +
+      '<input class="ag-in ag-in-time" id="agAutoDate" type="date" value="' + esc(f.on_date) + '">' +
+      '<div class="ag-hint">It runs once, then never again — it doesn\u2019t turn itself off, so it just has nothing left to do.</div>' +
+    '</div>' +
+    /**
+     * ⚠ **A SECOND WAY IN, AND IT IS A CONTROL NOW RATHER THAN A SENTENCE.**
+     *
+     * Its own field rather than folded into the either/or above, because an event is independent
+     * of the schedule: both can be true at once, and *"every morning AND whenever a payment
+     * lands"* is a thing somebody wants. **AN EMPTY BOX IS THE REMOVAL** — which is what makes
+     * this able to take a binding off as well as put one on, and is why the sentence beside it
+     * says so: a person who clears a box and presses Save has to be able to predict what that
+     * did. Before this the form carried no control at all, and a save left the binding exactly
+     * as it was; that was correct and it made the binding unreachable from the only screen a
+     * person has.
+     */
+    '<label class="ag-lbl" for="agAutoEvent">It also starts when this happens</label>' +
+    '<div class="ag-hint">Optional. The name of something one of your endpoints reports, like order.paid — that starts it as well, whatever the box above says. Clear the box to stop it listening.</div>' +
+    '<input class="ag-in" id="agAutoEvent" maxlength="120" placeholder="order.paid" value="' + esc(f.on_event) + '">' +
 
     '<label class="ag-lbl">What it asks for</label>' +
     '<div class="ag-hint">Optional. Anything you name here is filled in when you press Run now, and a step can use it by putting {{the name}} in its own text.</div>' +
@@ -3888,7 +4031,24 @@ function automationFormHtml(agent) {
     '</div>' +
     (agentAutoSaved && !agentAutoActErr
       ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.</div>' : '') +
-    '<div class="ag-err">' + esc(agentAutoActErr) + '</div>' +
+    /**
+     * ⚠ **A REFUSAL ABOUT A STEP IS SAID ON THAT STEP, and this line then says WHERE rather
+     * than repeating WHAT.** Two accounts of one fact is what this form is not allowed to draw —
+     * but "which step" and "what is wrong with it" are two different things a person needs, and
+     * without the pointer a save of a twenty-step workflow changes nothing they can see.
+     *
+     * Everything this cannot attribute stays here whole, which is every refusal about the name,
+     * the schedule, the days, the date or the event.
+     */
+    ((() => {
+      const fault = agentAutoFault(agentAutoActErr);
+      if (!fault) return '<div class="ag-err">' + esc(agentAutoActErr) + '</div>';
+      // AND ONLY WHEN THE STEP IS REALLY DRAWN. A position past the end of the list — a stored
+      // workflow longer than the one on screen, or a step removed since the save — would mark
+      // nothing, so the sentence stays here whole rather than disappearing.
+      if (fault.at >= f.steps.length) return '<div class="ag-err">' + esc(agentAutoActErr) + '</div>';
+      return '<div class="ag-err">Step ' + (fault.at + 1) + ' needs a change — it’s marked above.</div>';
+    })()) +
   '</div>';
 }
 
@@ -3984,8 +4144,14 @@ function autoDepths(steps) {
 function automationStepHtml(st, i, total, cat, days, depth) {
   const def = cat.find((d) => d.type === st.type) || null;
   const fields = (def && def.fields) || [];
+  // ⚠ **THE REFUSAL THIS STEP EARNED, DRAWN ON IT.** `ag-err` is the class the form already
+  // uses for a refusal, deliberately: a new one would be a design decision nobody made, and this
+  // is the same kind of thing said in the same voice somewhere more useful.
+  const fault = agentAutoFault(agentAutoActErr);
+  const said = fault && fault.at === i ? '<div class="ag-err">' + esc(fault.said) + '</div>' : '';
   return '<div class="ag-step" data-step-type="' + esc(st.type) + '"' +
       ' style="--ag-step-d:' + (Number.isFinite(depth) ? depth : 0) + '">' +
+    said +
     '<div class="ag-step-head">' +
       '<span class="ag-step-n">' + (i + 1) + '</span>' +
       '<span class="ag-step-w">' + esc((def && def.label) || st.type) + '</span>' +
