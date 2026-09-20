@@ -10376,3 +10376,13 @@ answer no name can reach, and it is silent in exactly the same way.*
   that can see a mutant pointed at text that is gone. **One was closed on the way through**:
   `automations.json`'s `gen`-on-the-wire anchor had become AMBIGUOUS (the check route added a
   second copy of the line), so `mutate.mjs` would have refused it; re-anchored onto `autoSnap`.
+- **CI HAS READ THE HEAD `3cb55e6`, both workflows green.** `unit tests` run **2827** — the
+  suite step 08:29:09→08:30:42Z (92.0 s) — `# tests 6884 / # pass 6880 / # fail 0 /
+  # skipped 4`, against local `6884 / 6882 / 0 / 2`: **the TOTAL is what matches** and the two
+  extra are the recorded environment skips, which is why the total is the number carried.
+  `agent deploy` run **119** green, and nothing under `agent-builder/` moved. **`site build` was
+  NOT due and did not run, checked per path rather than assumed**: the seven changed files are
+  two documents, `public/chat.js`, three mutant specs and one guard, and not one matches that
+  workflow's `paths` — `*.mjs` there is a ROOT glob, so a nested guard is outside it, and
+  `public/` is not an image input at all. So run 1224's green still covers this tip by the
+  recorded ancestor rule.
