@@ -257,6 +257,10 @@ const mSettings = (label, from, to, control = false) => ({ label, files: [SETTIN
 const mAuthored = mFn("authored_run");
 const mForget = mFn("delete_memory");
 const mSnap = mFn("agent_memory_snapshot");
+const mSpent = mFn("schedule_spent");
+const mCreateAuto = mFn("create_automation");
+const mUpdateAuto = mFn("update_automation");
+const mEnable = mFn("set_automation_enabled");
 const mThread = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("create or replace view agent.agent_thread")], from, to, control });
 /**
@@ -1426,6 +1430,26 @@ const spec = [
    * drift from what a delete does — and a reach this function composes wrongly is a claim
    * two products then repeat.
    */
+  // ── A SPENT SCHEDULE IS NOT AN UNSCHEDULED ONE ───────────────────────────────
+  //
+  // ⚠ Every writing door used to answer `next_run_at: null` for a one-off whose day had gone AND
+  // for an automation with no schedule at all. The rule that separates them is ONE function; a
+  // door that stops asking it goes quiet again on its own, which is why each door has a mutant.
+  mSpent("⚠ SQL/spent: the rule is inverted, so an unscheduled automation reads as spent",
+    "  select coalesce(p_schedule, 'manual') <> 'manual' and p_next is null;",
+    "  select coalesce(p_schedule, 'manual') = 'manual' and p_next is null;"),
+  mSpent("⚠ SQL/spent: the rule ignores the schedule, so having none reads as spent",
+    "  select coalesce(p_schedule, 'manual') <> 'manual' and p_next is null;",
+    '  select p_next is null;'),
+  mCreateAuto("⚠ SQL/spent: a one-off MADE for a day already gone says nothing",
+    "                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));",
+    "                            'spent', false);"),
+  mUpdateAuto("⚠ SQL/spent: an EDIT onto a day already gone says nothing",
+    "                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));",
+    "                            'spent', false);"),
+  mEnable("⚠ SQL/spent: a re-arm that armed nothing says nothing — the quietest of the four",
+    "                            'spent', agent.schedule_spent(v_row.schedule, v_row.next_run_at));",
+    "                            'spent', false);"),
   mForget("⚠ SQL/memory: a delete claims it reaches an execution already accepted",
     "      'acceptedRuns',    false,    -- each holds the snapshot it was accepted with",
     "      'acceptedRuns',    true,"),

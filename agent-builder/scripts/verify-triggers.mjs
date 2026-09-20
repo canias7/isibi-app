@@ -659,6 +659,116 @@ try {
   void ticked;
 
   // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n8b. A SCHEDULE WHOSE MOMENT HAS GONE, THROUGH THE CUSTOMER'S OWN ROUTES");
+  // ═════════════════════════════════════════════════════════════════════════
+  /**
+   * ⚠ **WHAT WAS WRONG, MEASURED on this database before `agent.schedule_spent` existed.**
+   * Every writing door answered `{"ok": true, …, "next_run_at": null}` for a one-off whose day
+   * had gone AND for an automation with no schedule at all — two opposite facts, one answer.
+   *
+   * The behaviour was right throughout: nothing runs, because its moment has passed. What was
+   * missing is the requirement's own word — it was not EXPLICIT. And the ENABLE door is the
+   * quietest of them: `tick_automations` selects only enabled rows, so a one-off whose day
+   * passed while it was OFF never gets a `missed` record either.
+   */
+  const spGoneDay = q(`select (current_date - 3)::text;`);
+  const spSoonDay = q(`select (current_date + 30)::text;`);
+  const spMade = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Last week's report", enabled: true, schedule: "once",
+            at: "09:00", zone: "UTC", on_date: spGoneDay, steps: [{ type: "note", text: "too late" }] },
+  });
+  check("a one-off for a day already gone is SAVED — nothing refuses it", spMade.status === 200,
+    JSON.stringify(spMade.body));
+  const spId = spMade.body.id;
+  /**
+   * ⚠ **AND THE LIST CARRIES WHAT THE SCREEN NEEDS TO SAY SO.** `public/chat.js` already draws
+   * *"— that date has passed, so it won't run"* from `schedule === 'once'` and a missing
+   * `nextRunAt`, which is the `once` case of this rule in that screen's own words. So the
+   * assertion here is that BOTH facts really reach it — and `nextRunAt` alone is not enough,
+   * because a `manual` automation's is null too.
+   */
+  const spList = () => JSON.parse(JSON.stringify((spListed.body.automations || []).find((a) => a.id === spId) || {}));
+  let spListed = await api("/api/agent/automations", { query: { agent: AG } });
+  check("...and the list hands the screen its schedule AND its missing instant",
+    spList().schedule === "once" && spList().nextRunAt === null && spList().onDate === spGoneDay,
+    JSON.stringify(spList()));
+
+  // THE CONTRAST, without which "the list says null" is satisfied by a list that always does.
+  const spFuture = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "Next month's report", enabled: true, schedule: "once",
+            at: "09:00", zone: "UTC", on_date: spSoonDay, steps: [{ type: "note", text: "in time" }] },
+  });
+  check("...while one still to come really has an instant", spFuture.status === 200
+    && typeof spFuture.body.nextRunAt === "string", JSON.stringify(spFuture.body));
+
+  /**
+   * THE ENABLE DOOR: switched off before its day, turned back on after it. The row is ON, as
+   * its owner asked, and it will never run — and nothing but the answer can say so, which the
+   * three checks under this one establish rather than assume.
+   */
+  q(`update agent.automations set enabled = false where id='${spId}';`);
+  const spBack = await api("/api/agent/automation-enable", { body: { id: spId, enabled: true } });
+  check("turning a spent one-off back on is accepted", spBack.status === 200, JSON.stringify(spBack.body));
+  check("...and it really is on, with no instant at all",
+    q(`select enabled || '/' || coalesce(next_run_at::text,'(none)') from agent.automations where id='${spId}';`)
+      === "true/(none)");
+  /**
+   * ⚠ **THE TICK CANNOT SEE IT AT ALL, read from the DATABASE rather than from the tick's own
+   * answer** — `tick()` runs `worker.scheduled` and returns nothing, so a check written against
+   * its return value is a check against `undefined`, which my first draft of this was.
+   *
+   * **AND THE OBSERVER IS THE FUTURE ONE-OFF, made due in the same tick.** A negative assertion
+   * about a tick that did nothing at all would be satisfied by a scheduler that is broken, so
+   * this one has to file something while it ignores the spent row.
+   */
+  due(spFuture.body.id);
+  await tick();
+  await drain();
+  check("⚠ ...and the tick cannot see it, so no `missed` record is ever written for it",
+    execsOf(spId).length === 0
+    && q(`select count(*) from agent.automation_history where automation_id='${spId}';`) === "0",
+    JSON.stringify(execsOf(spId)));
+  check("...while the same tick DID file the one that has an instant — the observer, alive",
+    execsOf(spFuture.body.id).length === 1, JSON.stringify(execsOf(spFuture.body.id)));
+
+  /**
+   * ⚠ **AND THE DATABASE SAYS IT ON EVERY WRITING DOOR, with `manual` as the pair it could not
+   * be told apart from.** The site's routes do not forward `spent` and deliberately need not:
+   * the screen re-loads the list after every save and the list already carries both facts. The
+   * caller that CANNOT derive it is a model, which reads an answer and nothing else — so the
+   * fact is on the functions, where both doors reach it. `verify:tools` drives that half.
+   */
+  const spEnable = JSON.parse(q(`select agent.set_automation_enabled('${A}','${spId}'::uuid,true)::text;`));
+  check("⚠ ENABLE says the re-arm armed nothing", spEnable.spent === true, JSON.stringify(spEnable));
+  const spMoved = JSON.parse(q(`select agent.patch_automation('${A}','${spFuture.body.id}'::uuid,
+    jsonb_build_object('onDate','${spGoneDay}'))::text;`));
+  check("⚠ ...and an EDIT onto a day already gone says it too", spMoved.spent === true, JSON.stringify(spMoved));
+  // ITS OWN manual automation for the contrast rather than one an earlier section has been
+  // disabling and cancelling — a fixture reused across sections is a fixture in whatever state
+  // that section left it.
+  const spByHand = await api("/api/agent/automation-create", {
+    body: { agent: AG, name: "By hand", enabled: false, schedule: "manual", zone: "UTC",
+            steps: [{ type: "note", text: "when I say" }] },
+  });
+  check("set up: one with no schedule at all", spByHand.status === 200, JSON.stringify(spByHand.body));
+  const spManualRow = JSON.parse(q(`select agent.set_automation_enabled('${A}','${spByHand.body.id}'::uuid,true)::text;`));
+  check("⚠ ...while an automation with NO schedule answers the same null and is NOT spent",
+    spManualRow.next_run_at === null && spManualRow.spent === false, JSON.stringify(spManualRow));
+
+  /**
+   * ⚠ **AND A SCHEDULE CHANGE CAN NEVER LEAVE AN OCCURRENCE IN THE PAST**, which is the other
+   * half of the requirement and is true by construction for every repeating schedule:
+   * `automation_next_run` answers an instant STRICTLY AFTER the one it is given. Driven at both
+   * ends of the day, because a time already gone today and one still to come take different
+   * branches of `automation_next_at`.
+   */
+  for (const spAt of ["00:01", "23:59"]) {
+    check(`a daily schedule moved to ${spAt} lands strictly in the future, never in the past`,
+      q(`select (agent.automation_next_run('daily','${spAt}'::time,'Europe/London',null,null,now()) > now())::text;`)
+        === "true");
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
   console.log("\n9. WHAT IT ALL LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   const tally = JSON.parse(q(`select json_build_object(

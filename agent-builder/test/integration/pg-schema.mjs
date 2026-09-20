@@ -5597,6 +5597,59 @@ try {
   check("...and no execution and no history row exist for it",
     jget(`select count(*) from agent.automation_runs where automation_id='${SP(1)}';`) === "0");
 
+  /**
+   * 5. ⚠ **AND THE `_once` WRAPPERS FORWARD IT — the hop no module test can see.** The
+   * capability store never calls a plain function: `mutate` calls `<fn>_once`, so if a wrapper
+   * reshaped its inner answer instead of returning it whole, the fact would be computed and
+   * never forwarded — this repository's most-recorded defect — and every tool would be silent
+   * again with the migration, the store and the tools all correct. Measured through each
+   * wrapper rather than read off the text.
+   */
+  const spKey = (n) => `${SP(5)}:${n}:0:beef`;
+  /**
+   * ⚠ **A READER THAT REFUSES, because `jget` answers the EMPTY STRING for a statement that
+   * failed** — cannot-tell wearing a value's clothes, in the harness's own reader. A wrapper
+   * call that errored then arrives as `JSON.parse("")`, which is a crash about the fixture
+   * wearing a crash about the product; this names the statement's own error instead.
+   */
+  const spJson = (sql) => {
+    const r = psql(sql, asWriter);
+    if (!r.ok || !r.out) throw new Error(`the statement failed: ${(r.err || "(no output)").split("\n")[0]}`);
+    return JSON.parse(r.out);
+  };
+  allowed("set up: a one-off switched off whose day has gone, for the wrappers",
+    `insert into agent.automations (id, tenant_id, agent_id, name, enabled, schedule, at_local, zone, on_date, next_run_at)
+       values ('${SP(5)}','${SP_T}','${SP_AG}','For the wrappers', false,'once','09:00'::time,'UTC',
+               current_date - 3, null);`, spOwner);
+  const spWrapEnable = spJson(`select agent.set_automation_enabled_once('${SP_T}','${spKey(1)}','beef',
+    '${SP(5)}'::uuid, '${SP(5)}'::uuid, true)::text;`);
+  check("⚠ set_automation_enabled_once forwards it", spWrapEnable.spent === true, JSON.stringify(spWrapEnable));
+  const spWrapPatch = spJson(`select agent.patch_automation_once('${SP_T}','${spKey(2)}','beef',
+    '${SP(5)}'::uuid, '${SP(5)}'::uuid, jsonb_build_object('onDate',(current_date - 9)::text), null)::text;`);
+  check("⚠ patch_automation_once forwards it", spWrapPatch.spent === true, JSON.stringify(spWrapPatch));
+  const SP_MADE = "ef000000-0000-4000-8000-0000000000b6";
+  const spMakeSql = `select agent.create_automation_once('${SP_T}','${spKey(3)}','beef',
+    '${SP(5)}'::uuid, '${SP_AG}'::uuid, '${SP_MADE}'::uuid,'Made through the wrapper', true,'once',
+    '09:00'::time,'UTC','[]'::jsonb, 20, '[]'::jsonb, null, (current_date - 3), null)::text;`;
+  const spWrapMake = spJson(spMakeSql);
+  check("⚠ create_automation_once forwards it", spWrapMake.spent === true, JSON.stringify(spWrapMake));
+  /**
+   * ⚠ **AND THE RECORDED OUTCOME CARRIES IT TOO, which is the retry half.** A repeat is keyed
+   * on the OPERATION and not on the automation — my first draft of this reused an existing
+   * automation id under a FRESH key and met `automations_pkey`, which is the wrapper being right
+   * about what a new operation is. The same key twice is the repeat.
+   */
+  const spWrapAgain = spJson(spMakeSql);
+  check("...so a retry of the same operation answers the record, spent and all",
+    spWrapAgain.repeat === true && spWrapAgain.spent === true, JSON.stringify(spWrapAgain));
+  // ...AND THE CONTRAST THROUGH A WRAPPER, so "a wrapper says spent" is not satisfied by one
+  // that always does.
+  const spWrapFine = spJson(`select agent.patch_automation_once('${SP_T}','${spKey(4)}','beef',
+    '${SP(5)}'::uuid, '${SP(5)}'::uuid, jsonb_build_object('schedule','daily','atLocal','09:00','onDate',null), null)::text;`);
+  check("...and a wrapper onto a real schedule says it is NOT spent",
+    spWrapFine.ok === true && spWrapFine.spent === false && typeof spWrapFine.next_run_at === "string",
+    JSON.stringify(spWrapFine));
+
   // LEAVE THE DATABASE AS THIS BLOCK FOUND IT, so a later section cannot meet these rows.
   allowed("this block cleans up after itself",
     `delete from agent.automations where tenant_id = '${SP_T}';

@@ -1625,6 +1625,29 @@ const spec = [
   m("tools: an absorbed remember is reported as new work", CT,
     "      ...(answer.repeat === true ? { repeat: true, say: \"that was already saved by this same request; check it if you need what is remembered now\" } : {}) };",
     "      };"),
+  // ── A SPENT SCHEDULE, AND THE READER THAT TELLS IT FROM ONE THAT WAS NEVER SET ─────
+  //
+  // ⚠ `next_run_at: null` answers for a one-off whose day has gone AND for an automation with no
+  // schedule at all, so `spent` is the only thing a MODEL can tell them apart by — a screen has
+  // the schedule beside the answer and a model has the answer alone.
+  m("tools: cannot-tell about a spent schedule is read as SPENT", CT,
+    "const isSpent = (answer) => answer?.spent === true;",
+    "const isSpent = (answer) => !!answer?.spent;"),
+  m("tools: a spent schedule is not flagged, so only the prose carries it", CT,
+    "    ...(isSpent(answer) ? { spent: true } : {}),",
+    "    ...(false ? { spent: true } : {}),"),
+  m("tools: a spent schedule earns no sentence, so a model is told it was saved and nothing else", CT,
+    "isSpent(answer) ? SPENT_SAY : null]",
+    "false ? SPENT_SAY : null]"),
+  m("tools: the two sentences are spread instead of joined, so one deletes the other", CT,
+    '    ...(said.length ? { say: said.join("; ") } : {}),',
+    '    ...(answer?.repeat === true ? { say: repeatSay } : {}), ...(isSpent(answer) ? { say: SPENT_SAY } : {}),'),
+  m("tools: the sentence says it will never run and not what would fix it", CT,
+    '  + " — give it a date still to come, or a repeating schedule, if it should";', '  + "";'),
+  m("tools: `make_automation` says nothing about the schedule it left", CT,
+    '      ...alsoSay(answer, "that was already created by this same request") };', "      };"),
+  m("tools: `change_automation` says nothing about the schedule it left", CT,
+    '      ...alsoSay(answer, "that was already changed by this same request") };', "      };"),
   m("tools: an absorbed pause claims the automation is as this call left it", CT,
     '      ...alsoSay(answer, "that was already done by this same request; it may have been changed since") };',
     "      ...alsoSay(answer, null) };"),
