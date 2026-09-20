@@ -2136,9 +2136,16 @@ the PAGE CALL writes the page. `aWanted` is the kind designer's answer, so
 - **A COMPONENT IS NOT A ROUTE AND `routeOf` CANNOT SAY SO** — it answers
   `/-parts/tide-chart`, measured. Since the band split the publication carries
   components too, so the `PART_DIR` filter is what stops every section this
-  change wrote arriving as a page a visitor can open. **A mutation sweep bought
-  that case**: cutting the filter SURVIVED everything until a guard published a
-  component and read the inventory.
+  change wrote arriving as a page a visitor can open. **⚠ IT IS A BELT AND
+  CANNOT FIRE TODAY, and a sweep called the comment that said otherwise.**
+  Cutting the filter SURVIVED every guard, so it was measured rather than
+  argued: `aFilesOut` is `mergeAddonPages` over the PAGES alone and components
+  merge separately into `aParts`, so no entry can contain `-parts/` — driven
+  through the route, a change writing `tide-chart` answers
+  `changed: ["index.tsx"]` with the component in the container's own `parts`
+  list. **KEPT deliberately and said so in the code**, because the day
+  components join that list is one edit to `aFilesOut`; the PAIR is swept
+  (parts added AND the filter cut) and dies.
 - **THE DISCRIMINATOR IS AN EXPLICIT ITEM REFERENCE.** A need naming NO item has
   nothing to look up and reads `unknown` on BOTH sides of this fix — so a case
   built only out of run 53's two unnamed needs cannot tell the versions apart.
@@ -2151,11 +2158,27 @@ the PAGE CALL writes the page. `aWanted` is the kind designer's answer, so
   is `unverified`; `checked` stays `[]` for `page` as for every kind, so
   `delivered` is unreachable from a publication. Publishing ANY page still
   satisfies NO page requirement that does not name one.
-- **⚠ RUN 53'S OWN `missing: 2` ON ITS TWO UNNAMED NEEDS IS NOT REPRODUCED.**
-  They read `unknown` in both arms of the reproduction. Whatever produced that
-  live reading has another, unidentified cause — and **the *"I can't see from
-  here whether…"* clause is present BEFORE and AFTER**, so it is not
-  attributable to this fix. **Open.**
+- **⚠ AND RUN 53'S OWN `missing: 2` IS REPRODUCED AFTER ALL — THE ENTRIES WERE
+  NOT UNNAMED. CLOSED, correcting an earlier note that called it "another,
+  unidentified cause".** The capture truncates at `…right now","statu`, so it
+  never said whether those two carried an `item`; simplifying them away is what
+  made the fixture answer `unknown` in both arms. **The deduction is forced by
+  the deployed code** (`d304120e`, byte-identical here in
+  `site-requirements.mjs` and `site-add.mjs`): `missing` is reachable from ONE
+  line, `impl.state === "absent"`; the only other "Still to do" state is
+  `failed`, which needs `status: "covered"` (both are `elsewhere`, and the
+  capture records `0 unsupported`); and with NO item `absent` comes from the
+  kind branch, gated on `mine.length || theirs.length`, where `theirs` is the
+  site's own routes. **repairbench-1 HAD routes** — its live sitemap answers
+  `/`, `/booking-check`, `/rates`, `/status`, `/workshop-load`, `/rates` being
+  the one that run added — and the reply's own *"updated /"* says so a second
+  way. So an item-less need there could never answer `missing`. **Measured on
+  the real readers with those routes present**: no item → `unknown` on BOTH
+  inventories; `item: "/rates"` → **`absent` before, `found` after**. The
+  header's guard drives exactly that, so the deduction cannot rot.
+  **THE ONE THING STILL NOT ATTRIBUTABLE TO THIS FIX is the *"I can't see from
+  here whether…"* clause**, which run 53 never printed at all — it belongs to
+  the item-less fixtures, not to the live run.
 
 ### THE ADDON KNOWS WHAT THE SITE IS
 

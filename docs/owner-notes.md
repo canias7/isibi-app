@@ -15409,3 +15409,58 @@ joined that list.
 
 Nothing is merged, nothing is deployed, nothing is dispatched, and no paid run
 was bought for any of this.
+
+## Run 53 is explained after all — and I had it wrong twice (2026-09-20)
+
+You told me to hold the merge and replay Run 53's own captured data against the
+code that was actually deployed when it ran, and not to simplify the captured
+fields. That is what found it, and it overturns what I told you this morning.
+
+**What I said:** that Run 53's *"Still to do"* about two of its three
+requirements had "another, unidentified cause" I could not reproduce.
+
+**What is true:** I could not reproduce it because I had rewritten those two
+requirements before testing them. The captured log cuts off mid-record — it
+shows their wording and then stops — so it never said what else they declared.
+I filled the gap with the simplest thing, a requirement that names nothing in
+particular, and that is a different question for the code to answer.
+
+**How the code settles it without needing the missing bytes.** There is exactly
+one route to *"Still to do"* for a requirement like these, and it only fires
+when the thing the requirement NAMES is nowhere to be found. If a requirement
+names nothing, the code instead asks a broader question — *does this site have
+any pages at all?* — and answers *"I can't tell"*, never *"Still to do"*.
+
+Repairbench-1 plainly had pages. Its own sitemap lists five today —
+`/`, `/booking-check`, `/rates`, `/status`, `/workshop-load` — and `/rates` is
+the one Run 53 added, so four were already there. Run 53's own reply says
+*"updated /"*, which is a second, independent proof that it found the home page.
+
+So those two requirements **named the rates page**. And that is precisely what
+the published-page list was getting wrong: before the fix, the list of pages the
+change had published was empty, so *"is `/rates` there?"* answered **no** — about
+a page that was live. Measured on the real code, with the site's own pages
+present:
+
+| the requirement | before the fix | after |
+|---|---|---|
+| names nothing | I can't tell | I can't tell |
+| names `/rates` | **Still to do** | **there, but I can't confirm it** |
+
+**So the inventory fix closes Run 53's reporting defect.** It is not a separate
+open question any more, and I have corrected the notes that said it was.
+
+**A second correction, smaller.** I also told you a line in the new code stops
+components being mistaken for pages, and that a test "bought" that case.
+Breaking the line deliberately changed nothing, so I measured instead of
+arguing: components travel separately from pages, so that line cannot fire
+today. I have kept it as a deliberate guard — the day they travel together it
+would matter — and the code now says so plainly.
+
+**One thing genuinely stays unattributed**, and it is the opposite of what I
+claimed: the *"I can't see from here whether…"* sentence was never in Run 53's
+reply at all. It comes from my simplified test requirements, not from the live
+run.
+
+Nothing merged, nothing deployed, no paid run, and the render-check correction
+is untouched.

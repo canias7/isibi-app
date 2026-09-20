@@ -53,7 +53,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
-import { SITE_KINDS, OPAQUE_KINDS, claimEvidence } from "../builder/site-requirements.mjs";
+import { SITE_KINDS, OPAQUE_KINDS, claimEvidence, implementationOf } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
 // is derived from what the engine really emits rather than typed by hand — a
 // hand-typed permission is a second copy of the emitter and the two drift.
@@ -8996,12 +8996,40 @@ test("a component declaration this step cannot use is named rather than binned",
    page in the same run, the planned-and-never-shipped page and the
    unrelated-page-published-alone case all pass either way.
 
-   ⚠ AND RUN 53'S OWN `missing: 2` ON ITS TWO UNNAMED NEEDS IS NOT REPRODUCED
-   HERE — they read `unknown` in BOTH arms. Whatever produced that reading in
-   the live run has another cause, unidentified. What this fixture reproduces
-   and this fix corrects is the applied-page inventory and the resolution of a
-   need that names a page; the live run's unnamed pair is not evidence for
-   either, and saying so is the point.
+   ⚠ AND THE TWO NEEDS ABOVE ARE NOT RUN 53'S — THEY ARE A SIMPLIFICATION OF
+   THEM, AND THAT IS THE WHOLE OF WHY RUN 53 LOOKED UNREPRODUCIBLE. An earlier
+   note here said its `missing: 2` had "another, unidentified cause". It does
+   not. The capture is TRUNCATED at `…right now","statu` — it never showed
+   whether those entries carried an `item`, and dropping one to write these
+   fixtures changed which branch of `implementationOf` answers.
+
+   THE DEDUCTION, from the deployed code (`d304120e`, byte-identical to this
+   tree in `site-requirements.mjs` and `site-add.mjs`) and the capture:
+
+     · `missing` is reachable from ONE line — `impl.state === "absent"`. The
+       only other thing in the "Still to do" bucket is `failed`, which for a
+       non-`unsupported` need needs `status: "covered"`; both of run 53's are
+       `elsewhere` and the capture records `0 unsupported`. So: `absent`.
+     · With NO item, `absent` comes from the kind branch, which is gated on
+       `mine.length || theirs.length`. `theirs` is the site's own routes.
+     · repairbench-1 HAD routes. Its live sitemap answers `/`, `/booking-check`,
+       `/rates`, `/status`, `/workshop-load`, and `/rates` is the one run 53
+       added — so four were there. The reply's own *"updated /"* proves it
+       independently: `mergeAddonPages` matched a stored home page.
+     · ∴ `theirs` was non-empty, ∴ the kind branch answers `unknown`, ∴ both
+       entries NAMED an item — and it was in neither inventory.
+
+   MEASURED on the real readers with those routes present:
+
+       no item,   aShipped []              → unknown  (by kind)   ← the fixture
+       no item,   aShipped ["/rates","/"]  → unknown  (by kind)
+       item /rates, aShipped []            → absent   (by item)   ← run 53
+       item /rates, aShipped ["/rates","/"]→ found    (by item)
+
+   So this fix DOES close run 53's reading, and the case that demonstrates it
+   is the NAMED one below. The two item-less needs stay as a PROPERTY case —
+   a need that names nothing has nothing to look up — and are no longer
+   described as run 53's own.
 
    ⚠ A PLAIN HOME PAGE, NOT `photoHome`. The first draft reused the photograph
    fixture and returned it through `linkHome(slug, "")`, which strips one of
@@ -9028,7 +9056,15 @@ const RATES_API = {
   returns: { amount: "number", base: "string", date: "string", rates: { EUR: "number", USD: "number" } },
   cacheSeconds: 3600,
 };
-/** RUN 53'S OWN TWO, verbatim: handed to `page`, neither naming an item. */
+/**
+ * RUN 53'S TWO NEED TEXTS, handed to `page` — with the `item` DROPPED.
+ *
+ * ⚠ THE WORDS ARE THE RUN'S AND THE SHAPE IS NOT. The capture truncates at
+ * `…right now","statu`, so what these entries declared past `status` is not
+ * recoverable from it; the header above derives that they named an item, since
+ * nothing else can answer `missing` on a site with routes. Kept item-less
+ * deliberately, because that is the PROPERTY this pair is here for.
+ */
 const HANDED = [
   { need: "A visitor can see what one pound is worth in euros and dollars right now", status: "elsewhere", step: "page" },
   { need: "The date the rates are from is shown", status: "elsewhere", step: "page" },
@@ -9151,7 +9187,49 @@ test("run 53: a need that NAMES the page resolves `unverified`, never `covered`"
   assert.equal(rec.counts.missing, 1, "the tally still names the published page as outstanding: " + JSON.stringify(rec.counts));
 });
 
-test("run 53: the two needs that name NO page stay `unknown`", async () => {
+test("…and an item-less need on a site WITH routes cannot answer `missing` at all", () => {
+  // THE MEASUREMENT THAT SETTLES WHAT RUN 53'S TWO ENTRIES DECLARED, made a
+  // guard so the deduction in the header cannot rot into a story.
+  //
+  // `missing` is `impl.state === "absent"` and nothing else. With no item that
+  // comes from the kind branch, which is gated on `mine.length || theirs.length`
+  // — so on a site whose own routes are non-empty it is UNREACHABLE, whatever
+  // the applied inventory says. repairbench-1 had four routes before run 53
+  // (its live sitemap answers five, `/rates` being the one that run added), and
+  // the reply's own "updated /" says the same thing a second way. So run 53's
+  // two must have NAMED something, and the only page in neither inventory was
+  // the one being added.
+  const SPEC = { tables: [{ name: "bookings" }], functions: [], apis: [{ name: "exchange_rates" }], jobs: [] };
+  const REPORTABLE = [...SITE_KINDS, "component", "edit"];
+  const ex = existingFacts({ spec: SPEC, pages: ["/", "/status", "/booking-check", "/workshop-load"],
+    look: {}, sources: null, slug: "repairbench-1" });
+  const made = (pages) => appliedFacts({ spec: SPEC, tables: [], altered: [], functions: [],
+    apis: ["exchange_rates"], jobs: [], fnErrors: {}, pages, qrs: [], three: false,
+    threeOn: [], threeUnsure: false, photos: [], shots: [] });
+
+  // THE OBSERVER IS ALIVE: the site really does carry routes, or every line
+  // below is true about an empty list and says nothing.
+  assert.ok(ex.items.filter((i) => i.kind === "page").length >= 4,
+    "the existing-routes fixture is empty, so this case proves nothing: " + JSON.stringify(ex.items));
+
+  const NEED = { need: "A visitor can see what one pound is worth", status: "elsewhere", step: "page" };
+  for (const pages of [[], ["/rates", "/"]]) {
+    const s = implementationOf(NEED, made(pages), REPORTABLE, ex).state;
+    assert.equal(s, "unknown",
+      "an item-less need answered " + s + " with applied pages " + JSON.stringify(pages)
+      + " — if this can reach `absent`, the header's deduction is wrong");
+  }
+
+  // …AND THE NAMED ONE IS THE PAIR THAT REALLY MOVES, which is run 53's
+  // reading and its correction, measured on the same two inventories.
+  const NAMED_NEED = { ...NEED, kind: "page", item: "/rates" };
+  assert.equal(implementationOf(NAMED_NEED, made([]), REPORTABLE, ex).state, "absent",
+    "the named page was not read as absent before the fix — run 53's `missing` is then unexplained");
+  assert.equal(implementationOf(NAMED_NEED, made(["/rates", "/"]), REPORTABLE, ex).state, "found",
+    "the published page is still not found after the fix");
+});
+
+test("run 53's need TEXTS, with no item: they name nothing, so they stay `unknown`", async () => {
   const rec = storedAnswer(await run53(), "fw-run53").coverage;
   for (const h of HANDED) {
     const q = (rec.requirements || []).find((x) => x && x.need === h.need);
