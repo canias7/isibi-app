@@ -4138,8 +4138,28 @@ test("⚠ EVERY HOOK THE MARKUP DECLARES IS BOUND TO SOMETHING — the census th
       checked++;
     }
   }
+  // ⚠ **AND THE MIRROR DIRECTION, WHICH THE FORWARD ONE CANNOT SEE: an entry in a table
+  // that no markup declares.** The loop above walks what the markup DECLARES, so a hook
+  // whose attribute is deleted from the markup simply stops being looked at — the handler
+  // stays in its table, reachable from nothing, and the census goes quiet about it. That is
+  // the dead control's own sibling: not a name that answers nothing, but an answer no name
+  // can reach, and it is silent in exactly the same way.
+  //
+  // MEASURED before it was asserted: every `agent-` key in all four tables is declared in
+  // the markup today — 55 · 3 · 3 · 1, zero orphans — so this is a census rather than a
+  // list, and a handler added next month with no attribute fails by existing. It is NOT
+  // behind the `continue` above, deliberately: an attribute whose LAST declaration went is
+  // the loudest case of this and is exactly the one that skip would hide.
+  for (const [attr, table] of Object.entries(tables)) {
+    const declared = new Set([...CHAT.matchAll(new RegExp(`${attr}="(agent-[a-z0-9-]+)"`, "g"))].map((m) => m[1]));
+    const mine = [...keysOf(table)].filter((k) => k.startsWith("agent-"));
+    for (const name of mine) {
+      assert.ok(declared.has(name), `${table} answers ${name} and no markup declares ${attr}="${name}"`);
+      checked++;
+    }
+  }
   // THE OBSERVER, PROVED ALIVE: it really read the hooks, including the one this is about.
-  assert.ok(checked >= 30, `the census only looked at ${checked} hooks`);
+  assert.ok(checked >= 60, `the census only looked at ${checked} hooks`);
   assert.ok(CHAT.includes('data-change="agent-auto-step-field"'), "the hook this census exists for is gone");
 });
 
