@@ -155,6 +155,78 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-20 — Merged and deployed, then CLAUDE.md cut by three quarters
+
+**Both CI runs were green on the exact sha before I merged anything**, which is
+what you asked for last: `unit tests` 2819 read `6,992 / 6,988 / 0 fail / 4
+skipped` (the four are the standing environment ones — I read their reasons out
+of the log rather than assuming them) and `site build` 1225 was green on all
+twenty steps, `site-build.mjs` **382 passed / 0 failed**.
+
+**Merged as a fast-forward, `3079d0ff` → `d304120e`, and deploy 2137 went green
+in 2m46s.** The pre-flight was the recorded one: I asked GitHub what was
+RUNNING (nothing, so no paid run to collide with), computed both image ids
+before the push, and took the regression baseline 45 seconds before it.
+
+- **The image ids agreed on both ends** — `origin/main` hashed to
+  `3cfbfded71cf9607`, **which is what deploy 2136's own log recorded rolling
+  to**, so the arithmetic was checked against the live container and not only
+  against itself; the candidate hashed to `94a380843efd95e1`, and that is what
+  the deploy built and what its own diff shows the container moving to at
+  06:02:20.97Z. **So the container rolled and the 15–20 minute hold ran to
+  ~06:17–06:22Z.**
+- **`public/` did not change, so there is NO served-file check for this
+  deploy** — I am saying that rather than glossing it. The Worker half rests on
+  Wrangler's own report plus the gate discriminator (401/401/401/404).
+- **Regression: byte-identical.** Seven sites at the same sizes and the same
+  versions, `/status` · `/booking-check` · `/workshop-load` all 200 at the same
+  bytes, and both RPCs still answering 3.
+- **The merge started exactly one workflow**, which is the merge-trigger census
+  holding in the live.
+
+### Then the prune you asked for
+
+You said it had 13,000 lines. It had **15,657**. It is **3,721 now — 11,936
+lines deleted, 76.2%**, which is the band the previous four prunes landed in.
+
+**What went, and the rule that decided it.** The file's own rule is *a fact that
+is true today belongs here; a story about how it got true belongs in git*. One
+section — "Editing a site — the ladder" — was **10,326 lines, 66% of the whole
+file, across 74 dated milestone narratives**, every one of them the account of a
+change that has already shipped. It is a few hundred lines now, with **every
+rule and every measured number carried across** and only the narrative gone.
+
+**I checked before cutting rather than assuming: nothing reads CLAUDE.md from
+disk.** Every hit in the tree is a comment referring to it. The control that
+proves that check is alive is this file — `docs/owner-notes.md` **is** parsed,
+by two real guards, for its "Names that must not be renamed" table. So
+CLAUDE.md could be pruned freely and this one could not.
+
+**Kept verbatim**, because they were already law and re-typing them is pure
+risk: THE TRAPS (541 lines), Working rules, Structure, How a site gets built,
+and Data/auth/payments/mail.
+
+**Two things I found while pruning and fixed rather than copied across:**
+
+1. **The `Structure` section still described the media side's routes as live** —
+   `/api/video|image|audio`, `/api/direct`, `/api/save`, `/api/import/fetch` —
+   eight days after they were deleted. Checked: every one occurs **zero** times
+   in `worker.js` outside prose.
+2. **I re-derived the design tool's numbers rather than carrying them**, because
+   the file warns that they have drifted three times. **All eight matched
+   exactly** — 97,142 whole, 64,076 for a first build, 1,962 system, 23/15 and
+   22/14, backend 33,045 (34.0%), components 32,603 — and so did the property
+   order and the optional list. The warning is now an instruction with a date on
+   it rather than a hedge.
+
+**The full old file is in git: `git show d304120e:CLAUDE.md`.** Nothing is lost.
+
+**`docs/owner-notes.md` is 15,189 lines and I have NOT touched it** — you asked
+for CLAUDE.md. It is the bigger job of the two, because parts of it are read by
+real tests, so say the word and I will do it carefully.
+
+---
+
 ## 2026-09-19 — The two that finished them: the frame number, and the QR echo
 
 Both reproduced before anything was touched. **No paid run, nothing merged,
