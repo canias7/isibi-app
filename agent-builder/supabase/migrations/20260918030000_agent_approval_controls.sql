@@ -590,10 +590,36 @@ begin
   -- whatever happens next.** *Don't claim completed effects were undone*: a cancellation is
   -- the work stopping, not the work coming back, and the one honest thing to say about a
   -- cancelled run is how far it got.
+  --
+  -- ⚠ **AND AN AUTOMATION EXECUTION'S STEPS ARE NOT MODEL CALLS — this counted only the agent
+  -- loop's vocabulary and reported ZERO for every automation, however far it had really got.**
+  -- An automation execution's journal holds `started`, `step` entries and `stopped` and NO
+  -- `model` entry at all (`agent.runs.model` reads `none` for every one of them), so the answer
+  -- said `completedSteps: 0` about a run that had recorded outcomes — a false statement about
+  -- what had completed, in the one answer built to be honest about exactly that. Measured in a
+  -- browser: an execution whose first note had run and whose approval was waiting.
+  --
+  -- ⚠ **IT IS COUNTED OFF THE EXECUTION'S OWN OUTCOMES, AND A PAUSED STEP IS NOT ONE THAT
+  -- COMPLETED.** The journal's newest `step` entry carries `done` — how many outcomes had been
+  -- recorded at that checkpoint — which is one MORE than finished whenever the execution is
+  -- holding for a person, because the `approval` step's own outcome is recorded as `waiting`.
+  -- MEASURED: a two-note workflow paused at its approval reads `done: 2` with one note really
+  -- finished. Over-claiming is the wrong direction for the one field built to be honest about
+  -- what happened, so the outcomes are counted with the paused one left out.
+  --
+  -- **THE TWO ARE ADDED because they are disjoint BY CONSTRUCTION**: a run is either an agent
+  -- loop, which writes `model` entries and has no execution row, or an automation execution,
+  -- which writes the reverse. So one word means one thing — how many steps finished — whichever
+  -- kind of run it is, and no run can double count.
   select count(*) filter (where e.kind = 'model'), count(*) filter (where e.kind = 'tool'),
          coalesce(max(e.seq), -1) + 1
     into v_steps, v_tools, v_seq
     from agent.run_entries e where e.run_id = p_run_id;
+  v_steps := v_steps + coalesce((
+    select count(*) from agent.automation_runs ar,
+           lateral jsonb_array_elements(ar.outcomes) o
+     where ar.id = p_run_id and jsonb_typeof(ar.outcomes) = 'array'
+       and (o ->> 'outcome') is distinct from 'waiting'), 0);
 
   -- A RUN THAT HAS ALREADY STOPPED IS NOT CANCELLED AGAIN. Its stop is what it ended as, and
   -- overwriting it would lose that — so this answers what really happened.

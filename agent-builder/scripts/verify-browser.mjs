@@ -46,7 +46,7 @@ import { startLocalSite, SITE_ROOT } from "./lib/local-site.mjs";
 import { makeScriptedModel, SIMULATED } from "./lib/scripted-model.mjs";
 import { FAKE_PROVIDER } from "../src/fake-provider.mjs";
 import { signDelivery, SIG_HEADER, TS_HEADER, ID_HEADER } from "../src/webhooks.mjs";
-import { handleAgentApi, makeAgentStore } from "../../agent-store.mjs";
+import { handleAgentApi, makeAgentStore, AGENT_ROUTES } from "../../agent-store.mjs";
 
 const CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const DB = `agent_browser_${process.pid}`;
@@ -133,21 +133,54 @@ window.Auth = {
 
 const stack = await standUp({ db: DB });
 const model = makeScriptedModel();
-const disp = dispatcher({ worker, rest: stack.rest, model });
+/**
+ * ⚠ **THE ENGINE IS A HOLDER, BECAUSE JOURNEY 4 RESTARTS IT — and a restart is the whole
+ * claim.** `dispatcher()` is a brand-new env with a brand-new doorbell and no memory of
+ * anything, which is the same state a deploy leaves behind. The SITE is long-lived, so binding
+ * its `ring` to the first one would leave every press after the restart ringing a queue nobody
+ * consumes — the work would sit until a tick found it, and the journey would be measuring the
+ * sweeper rather than the doorbell.
+ */
+let disp = dispatcher({ worker, rest: stack.rest, model });
+/** Throw the engine away and stand a new one up. Nothing is carried across. */
+const restartEngine = () => { disp = dispatcher({ worker, rest: stack.rest, model }); return disp; };
 const site = await startLocalSite({
   rest: stack.rest,
-  ring: disp.ring,
+  ring: (runId) => disp.ring(runId),
   tokens: new Map([[A.token, A.uid], [B.token, B.uid]]),
 });
 const mailbox = (account) => ADAPTERS[FAKE_PROVIDER].mailbox(account);
 /**
- * ⚠ **THE SITE'S OWN ROUTE, FOR THE FOUR THAT HAVE NO SCREEN — declared, not a shortcut.**
- * `webhooks`, `webhook-create`, `webhook-enable` and `webhook-delete` are on this
- * repository's `NO_SCREEN_YET` list: a person cannot make an inbound endpoint or read its
- * secret from the app at all. **Nothing else in this file may use this** — every other check
- * goes through the browser, which is the whole point of the file.
+ * ⚠ **THE ROUTES THAT HAVE NO SCREEN, NAMED — a declared copy of the site's own
+ * `NO_SCREEN_YET`,** which `test/agent-builder-view.test.mjs` is the authority on. A person is
+ * exactly who makes an inbound endpoint, copies its secret, takes a tool away or stops a run;
+ * the backend landed first on the standing instruction that the frontend stays as it is. So
+ * these are the only things this file may reach past the browser, and the list shrinks as the
+ * screen arrives rather than being forgotten.
+ */
+const NO_SCREEN_YET = [
+  "/api/agent/webhooks", "/api/agent/webhook-create",
+  "/api/agent/webhook-enable", "/api/agent/webhook-delete",
+  "/api/agent/run-cancel",
+  "/api/agent/tool-withdraw", "/api/agent/tool-revoke",
+  "/api/agent/tool-restore", "/api/agent/revoked-tools",
+];
+// ⚠ EVERY NAME HAS TO BE A REAL ROUTE, so a typo cannot quietly exempt one that does exist.
+for (const p of NO_SCREEN_YET) {
+  if (!Object.hasOwn(AGENT_ROUTES, p)) throw new Error(`NO_SCREEN_YET names ${p}, which is not a route`);
+}
+
+/**
+ * ⚠ **THE SITE'S OWN ROUTE, FOR THE ONES WITH NO SCREEN — declared, walled, not a shortcut.**
+ * It REFUSES any other path, because *a wall nobody can drive is a wall nobody is guarding* and
+ * the wall here is on my own instrument: without it this door is one line away from becoming
+ * how an awkward check skips the browser, which is the whole point of the file. What it
+ * verifies is ROUTE-level and says so — every other check presses something a person presses.
  */
 const siteApi = async (path, body = null, query = {}) => {
+  if (!NO_SCREEN_YET.includes(path)) {
+    throw new Error(`${path} has a screen — press it in the browser rather than calling it here`);
+  }
   const answer = await handleAgentApi({
     path, method: body ? "POST" : "GET", query: new URLSearchParams(query), body: body ?? {},
     // ⚠ **THE STORE'S OWN REASON IS PRINTED, NEVER SWALLOWED.** A `log: () => {}` here cost a
@@ -351,6 +384,32 @@ const autoRow = (id) => `.ag-auto:has([data-act="agent-auto-history"][data-id="$
  * journey that has made more than one automation would otherwise read a neighbour's panel
  * as this one's and press nothing.
  */
+/**
+ * Wait for the SITE's ring to reach the engine, which is the press having really landed.
+ *
+ * ⚠ **A DECISION DOES NOT CHANGE THE EXECUTION'S STATE BY ITSELF, and a first draft waited for
+ * one as though it did.** `agent.decide_automation_approval` records the verdict and calls
+ * `requeue_run`; the row still reads `waiting` until a DELIVERY picks it up and the workflow
+ * moves past the step. So the honest signal after pressing Approve is the doorbell — which also
+ * asserts the route really rang rather than leaving the work for the next cron tick.
+ */
+const waitRung = async (n = 1, ms = 20_000) => {
+  const until = Date.now() + ms;
+  while (disp.rung.length < n) {
+    if (Date.now() > until) throw new Error(`the doorbell never rang (${disp.rung.length} of ${n})`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+};
+
+/** Close and re-open one automation's history, which is how a person re-reads it. */
+async function refreshHistory(page, id) {
+  if (await has(page, `${autoRow(id)} .ag-auto-runs`)) {
+    await press(page, "agent-auto-history", "id", id);
+    await page.waitForFunction((s) => !document.querySelector(s), `${autoRow(id)} .ag-auto-runs`, { timeout: 10_000 });
+  }
+  await openHistory(page, id);
+}
+
 async function openHistory(page, id) {
   await closeAutoForm(page);
   if (!(await has(page, `${autoRow(id)} .ag-auto-runs`))) await press(page, "agent-auto-history", "id", id);
@@ -876,6 +935,229 @@ try {
     await shot(page, "j3-triggers");
     check("3q. no page error anywhere in journey 3", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
     check("3r. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
+      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // JOURNEY 4 — reload while it waits, restart the engine, then decide
+  // ════════════════════════════════════════════════════════════════════════════
+  if (want(4)) {
+    head("JOURNEY 4 — reload while waiting, restart the engine, then approve or reject");
+    const { page } = await openApp(A, "J4");
+    agentId = agentId ?? (await firstAgent(page));
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-new"]', { timeout: 10_000 });
+
+    /**
+     * ⚠ **AN APPROVAL **STEP**, WHICH IS THE OTHER MECHANISM — and the two are not one.**
+     * Journey 2 approved a `send`, whose request is bound to the exact payload a person was
+     * shown and is answered through `agent.decide_tool_approval`. This is the step a workflow
+     * AUTHOR configures, answered through `agent.decide_automation_approval`, keyed by the run
+     * and the step. A screen that sent one where the other was meant would answer somebody
+     * else's question, which is why `chat.js` keeps them as four separate controls.
+     *
+     * A note either side of it, so there is work BEFORE (which must not run twice) and work
+     * AFTER (which must not run at all until somebody says yes).
+     */
+    await press(page, "agent-auto-new");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    await type(page, "agAutoName", "Before we send");
+    await addStep(page, "note", { text: "the price list was read", out: "checked" });
+    await addStep(page, "approval", { ask: "May I write to {{checked}}?", hours: "24", on_timeout: "fail" });
+    await addStep(page, "note", { text: "acted on: {{checked}}", out: "acted" });
+    await press(page, "agent-auto-save");
+    await waitText(page, /Saved\./, "the approval workflow to save", 10_000);
+    const AU4 = await page.evaluate(async (agent) => {
+      const r = await fetch("/api/agent/automations?agent=" + agent, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return ((await r.json()).automations || []).find((a) => a.name === "Before we send")?.id ?? null;
+    }, agentId);
+    check("4a. a workflow with an approval step in the middle of it saved from the form",
+      typeof AU4 === "string" && AU4.length > 0, String(AU4));
+
+    // ── IT HOLDS, HALF WAY, WITH THE FIRST STEP DONE AND THE LAST ONE UNTOUCHED ───
+    await closeAutoForm(page);
+    await press(page, "agent-auto-run", "id", AU4);
+    await waitRung(1);
+    await disp.drain();
+    await openHistory(page, AU4);
+    await waitText(page, /Waiting/, "the execution to hold for a person", 20_000);
+    const hist4 = () => page.evaluate(async (id) => {
+      const r = await fetch("/api/agent/automation-history?id=" + id, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return (await r.json()).executions || [];
+    }, AU4);
+    let held = (await hist4())[0];
+    check("4b. ⚠ it is WAITING for a person rather than reading as working or queued",
+      held?.state === "waiting", JSON.stringify({ state: held?.state, waiting: held?.waiting?.kind }));
+    const outcomeOf = (ex, id) => (ex?.outcomes || []).find((o) => o.id === id) ?? null;
+    check("4c. ...the step BEFORE it has already run, and the one AFTER it has not",
+      outcomeOf(held, "s1")?.outcome === "ran" && outcomeOf(held, "s3") === null,
+      JSON.stringify((held?.outcomes || []).map((o) => [o.id, o.outcome])));
+    check("4d. ⚠ ...and the question on screen is the one the workflow asks, with its value filled in",
+      /May I write to the price list was read\?/.test(await text(page)),
+      (await text(page)).replace(/\s+/g, " ").slice(0, 200));
+    // ⚠ NOTHING IS ON THE QUEUE WHILE IT WAITS. The work row is DONE — there is nothing to
+    // redeliver until somebody answers — so a tick must not find it either.
+    await disp.tick();
+    check("4e. ⚠ ...and neither the doorbell nor the cron has anything to deliver while it waits",
+      disp.rung.length === 0 && (await hist4())[0].state === "waiting",
+      JSON.stringify({ rung: disp.rung.length }));
+
+    // ── A RELOAD WHILE IT WAITS: the browser remembers nothing about it ──────
+    const before = JSON.stringify(outcomeOf(held, "s1"));
+    await page.reload({ waitUntil: "load" });
+    await enterAgents(page);
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await openHistory(page, AU4);
+    await waitText(page, /Waiting/, "the wait to still be on screen after a reload", 20_000);
+    check("4f. ⚠ A RELOAD MID-WAIT NEEDS NO RECOVERY — the question is on screen again",
+      /May I write to the price list was read\?/.test(await text(page)) &&
+        (await hist4())[0].state === "waiting",
+      (await text(page)).replace(/\s+/g, " ").slice(0, 160));
+    check("4g. ...and both buttons are there, so it can be answered",
+      (await has(page, `[data-act="agent-auto-approve"][data-run="${held.id}"]`)) &&
+        (await has(page, `[data-act="agent-auto-reject"][data-run="${held.id}"]`)));
+
+    /**
+     * ⚠ **THE ENGINE IS RESTARTED, AND A BRAND-NEW DISPATCHER IS THE WHOLE CLAIM.** It has a
+     * brand-new doorbell, a brand-new env and no memory of anything — the same state a deploy
+     * leaves behind — so whatever finishes this execution came out of the DATABASE rather than
+     * out of the process that started it. The old doorbell is asserted EMPTY first, so nothing
+     * is being carried across.
+     */
+    check("4h. ⚠ nothing was held open across the restart — the old doorbell is empty",
+      disp.rung.length === 0, JSON.stringify(disp.rung));
+    restartEngine();
+    check("4i. ...and the new engine has delivered nothing and has nothing to deliver",
+      disp.rung.length === 0 && disp.delivered.length === 0,
+      JSON.stringify({ rung: disp.rung.length, delivered: disp.delivered.length }));
+
+    // ── APPROVED, ON THE SCREEN, AFTER THE RESTART ──────────────────────────
+    await press(page, "agent-auto-approve", "run", held.id);
+    // ⚠ THE PRESS PUT IT BACK ON THE QUEUE, which is the doorbell ringing on the NEW engine —
+    // so this also says the decision route rang rather than leaving the work for a cron tick.
+    await waitRung(1);
+    check("4i2. ⚠ ...and the approval rang the NEW engine's doorbell, not the one that started it",
+      disp.rung.length === 1 && disp.rung[0] === held.id, JSON.stringify(disp.rung));
+    await disp.drain();
+    await refreshHistory(page, AU4);
+    let done4 = (await hist4()).find((e) => e.id === held.id);
+    check("4j. ⚠ APPROVED AFTER A RESTART, and it finished — on the new engine",
+      done4?.state === "done", JSON.stringify({ state: done4?.state, by: disp.delivered.length }));
+    check("4k. ...and the step after the approval ran, quoting what the first step produced",
+      outcomeOf(done4, "s3")?.outcome === "ran" &&
+        /acted on: the price list was read/.test(JSON.stringify(outcomeOf(done4, "s3"))),
+      JSON.stringify(outcomeOf(done4, "s3")));
+    /**
+     * ⚠ **NOTHING RAN TWICE, AND THE EVIDENCE IS THE RECORDED OUTCOME ITSELF.** The step before
+     * the approval finished before the restart, so its outcome is a fact the resumed delivery
+     * must not touch: identical bytes, and exactly ONE outcome per step. A count of attempts
+     * would not do — `requeue_run` sets `attempts = 0` deliberately, because a person asking is
+     * new information rather than a retry, so that column reads 1 however many times it paused.
+     */
+    check("4l. ⚠ ...and the work BEFORE the approval was not repeated — its outcome is untouched",
+      JSON.stringify(outcomeOf(done4, "s1")) === before,
+      `${before} → ${JSON.stringify(outcomeOf(done4, "s1"))}`);
+    check("4m. ...one outcome per step, so nothing was recorded twice",
+      (done4?.outcomes || []).length === new Set((done4?.outcomes || []).map((o) => o.id)).size &&
+        (done4?.outcomes || []).length === 3,
+      JSON.stringify((done4?.outcomes || []).map((o) => o.id)));
+    check("4n. ⚠ ...and there is still exactly ONE execution, not a second one from the resume",
+      (await hist4()).length === 1, String((await hist4()).length));
+
+    // ── REJECTED: a second run, and a rejection is NOT a failure ─────────────
+    await press(page, "agent-auto-run", "id", AU4);
+    await waitRung(1);
+    await disp.drain();
+    await refreshHistory(page, AU4);
+    await waitText(page, /Waiting/, "the second run to hold", 20_000);
+    const second = (await hist4()).find((e) => e.state === "waiting");
+    await press(page, "agent-auto-reject", "run", second.id);
+    await waitRung(1);
+    await disp.drain();
+    await refreshHistory(page, AU4);
+    await waitText(page, /Rejected/, "the rejection to be on screen", 20_000);
+    const rejected = (await hist4()).find((e) => e.id === second.id);
+    check("4o. ⚠ SOMEBODY SAID NO, and that is `rejected` rather than `failed`",
+      rejected?.state === "rejected", JSON.stringify({ state: rejected?.state, why: rejected?.why }));
+    check("4p. ...the step after it was SKIPPED rather than run, and its own note says why",
+      outcomeOf(rejected, "s3")?.outcome === "skipped" &&
+        typeof outcomeOf(rejected, "s3")?.why === "string",
+      JSON.stringify(outcomeOf(rejected, "s3")));
+    // ⚠ AND THE SCREEN DOES NOT CALL IT A FAILURE, which is the requirement as a screen: the
+    // automation did exactly what it was asked, and somebody's own decision is not a fault.
+    const rejHtml = await page.evaluate(() => document.getElementById("viewAgents").innerHTML);
+    check("4q. ⚠ ...and nothing on screen calls a rejection a failure",
+      /ag-chip-rejected/.test(rejHtml) && !/ag-chip-failed/.test(rejHtml),
+      (rejHtml.match(/ag-chip-[a-z]+/g) || []).join(" "));
+
+    /**
+     * ⚠ **CANCELLATION HAS NO SCREEN, AND THAT IS ROUTE-LEVEL VERIFICATION — said out loud.**
+     * `/api/agent/run-cancel` is on this repository's own `NO_SCREEN_YET` list: a person is
+     * exactly who stops a run, the backend landed first, and no control anywhere in `chat.js`
+     * reaches it. So this half is driven through the route and the RESULT is read in the
+     * browser, which is the honest split rather than a check that pretends to be a press.
+     */
+    await press(page, "agent-auto-run", "id", AU4);
+    await waitRung(1);
+    await disp.drain();
+    await refreshHistory(page, AU4);
+    await waitText(page, /Waiting/, "the third run to hold", 20_000);
+    const third = (await hist4()).find((e) => e.state === "waiting");
+    const cancelled = await siteApi("/api/agent/run-cancel", { run: third.id, reason: "we handled it by phone" });
+    /**
+     * ⚠ **THE COUNT IS EXACT, AND `>= 1` WAS NOT ENOUGH TO CATCH WHAT WAS WRONG.** This read
+     * **0** before the fix — `cancel_run` counted `model` entries as completed steps, which is
+     * the agent loop's vocabulary, and an automation execution's journal holds none of them.
+     * Then it read **2**, because the executor's `done` counts the PAUSED step's own outcome.
+     * The truth is ONE: the note before the approval ran, and the approval itself did not.
+     * A floor would have passed both wrong answers.
+     */
+    check("4r. ⚠ CANCELLED (route-level: this has no screen) — and it counts what had ALREADY run",
+      cancelled.status === 200 && cancelled.body?.completedSteps === 1 &&
+        cancelled.body?.completedCalls === 0 && cancelled.body?.releasedWait === true,
+      `${cancelled.status} ${JSON.stringify(cancelled.body)}`);
+    /**
+     * ⚠ **AND IT SAYS THE COMPLETED WORK STANDS — asserted POSITIVELY, which is the whole
+     * point.** "It does not say undone" is satisfied by an answer that says nothing at all — and
+     * worse: the honest sentence is *"what had already run has already run and was not
+     * undone"*, so a needle over the bare word `undone` goes RED about the one thing it was
+     * written to demand. **This repository records that exact mistake in `verify:send` and I
+     * made it again here**, and it cost a run.
+     *
+     * So the claim is the PHRASE a reversal would be stated as, never a word a denial contains.
+     */
+    const said = String(cancelled.body?.say || "");
+    check("4s. ⚠ ...and it SAYS the completed work stands, rather than claiming a rollback",
+      /already run/i.test(said) && /not undone/i.test(said) &&
+        !/(was|were|has been|have been) (undone|rolled back|reversed)/i.test(said),
+      said);
+    // ⚠ LATER STEPS DO NOT RUN, and neither a delivery nor a tick changes that.
+    await disp.ring(third.id);
+    await disp.drain();
+    await disp.tick();
+    await disp.drain();
+    const stopped = (await hist4()).find((e) => e.id === third.id);
+    check("4t. ⚠ ...the step after the approval never ran, and a delivery and a tick did not start it",
+      outcomeOf(stopped, "s3") === null || outcomeOf(stopped, "s3")?.outcome !== "ran",
+      JSON.stringify((stopped?.outcomes || []).map((o) => [o.id, o.outcome])));
+    check("4u. ...and the step BEFORE it still says it ran — a cancellation undoes nothing",
+      outcomeOf(stopped, "s1")?.outcome === "ran", JSON.stringify(outcomeOf(stopped, "s1")));
+    await page.reload({ waitUntil: "load" });
+    await enterAgents(page);
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await openHistory(page, AU4);
+    await waitText(page, /Stopped/, "the cancellation to be on screen", 20_000);
+    check("4v. ⚠ ...and the SCREEN says somebody stopped it, in their own words, not that it broke",
+      /we handled it by phone/.test(await text(page)) &&
+        !/ag-chip-failed/.test(await page.evaluate(() => document.getElementById("viewAgents").innerHTML)),
+      (await text(page)).replace(/\s+/g, " ").slice(0, 240));
+
+    await shot(page, "j4-approval");
+    check("4w. no page error anywhere in journey 4", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
+    check("4x. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
       agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 

@@ -3753,6 +3753,61 @@ try {
       jget(`select (waiting is null and wait_until is null and finished_at is not null)::text
               from agent.automation_runs where id='${C2}';`) === "true", stoppedWait);
 
+    /**
+     * ⚠ **AN AUTOMATION EXECUTION'S COMPLETED STEPS ARE NOT MODEL CALLS — and this counted only
+     * the agent loop's vocabulary, so it answered ZERO for every one of them.**
+     *
+     * An automation execution's journal holds `started`, `step` entries and `stopped`, and NO
+     * `model` entry at all: `agent.runs.model` reads `none` for every one. So `completedSteps`
+     * was 0 however far the execution had really got — a false statement about what had
+     * completed, in the one answer built to be honest about exactly that. Found in a browser:
+     * a two-note workflow whose first note had run, cancelled at its approval, answered
+     * `completedSteps: 0`.
+     *
+     * ⚠ **AND THE OBVIOUS FIX OVER-COUNTED.** The journal's newest `step` entry carries
+     * `done` — how many outcomes had been RECORDED at that checkpoint — which includes the
+     * paused step's own `waiting` outcome, so the same execution then read **2** with one note
+     * really finished. Over-claiming is the wrong direction for this field, so the outcomes are
+     * counted with the paused one left out.
+     *
+     * The two sources are ADDED because they are disjoint by construction, and this case is the
+     * automation half; `C1` above is the agent-loop half, and both must hold.
+     */
+    const C3 = "ff000000-0000-0000-0000-0000000000c3";
+    allowed("an automation execution holding for a person, one step done and one waiting", `
+      insert into agent.automations (id, tenant_id, agent_id, name, steps, zone)
+        values ('${C3}', '${XT}', '${XA}', 'w3',
+                '[{"id":"s1","type":"note","text":"x","out":"a"},{"id":"s2","type":"approval","ask":"ok?","hours":24,"on_timeout":"fail"}]'::jsonb, 'UTC');
+      insert into agent.runs (id, tenant_id, status) values ('${C3}','${XT}','running');
+      insert into agent.run_entries (run_id, seq, body) values
+        ('${C3}', 0, '{"kind":"started","at":1}'::jsonb),
+        ('${C3}', 1, '{"kind":"step","at":2,"step":1,"mark":"progress","done":1}'::jsonb),
+        ('${C3}', 2, '{"kind":"step","at":3,"step":1,"mark":"waiting","done":2}'::jsonb);
+      insert into agent.automation_runs (id, automation_id, tenant_id, trigger, steps, zone, position, outcomes, waiting, wait_until)
+        values ('${C3}', '${C3}', '${XT}', 'manual',
+                '[{"id":"s1","type":"note","text":"x","out":"a"},{"id":"s2","type":"approval","ask":"ok?","hours":24,"on_timeout":"fail"}]'::jsonb,
+                'UTC', 1,
+                '[{"id":"s1","type":"note","outcome":"ran","result":"x"},{"id":"s2","type":"approval","outcome":"waiting"}]'::jsonb,
+                '{"step":"s2","kind":"approval","ask":"ok?","on_timeout":"fail"}'::jsonb, now() + interval '1 day');`, asOwner);
+    // THE OBSERVER: the execution really does hold two outcomes, so "1" below is one of two
+    // rather than a count that has simply gone quiet.
+    check("⚠ ...and it really holds two recorded outcomes, one of them waiting",
+      jget(`select jsonb_array_length(outcomes)::text || '/' ||
+                   (select count(*) from jsonb_array_elements(outcomes) o where o->>'outcome' = 'waiting')::text
+              from agent.automation_runs where id='${C3}';`, asOwner) === "2/1");
+    const C3out = jget(`select agent.cancel_run('${XT}','${C3}','person-1','we did it by hand')::text;`);
+    check("⚠ AN AUTOMATION EXECUTION'S COMPLETED STEPS ARE COUNTED, and a PAUSED step is not one",
+      /"ok"\s*:\s*true/.test(C3out) && /"completedSteps"\s*:\s*1/.test(C3out) &&
+      /"completedCalls"\s*:\s*0/.test(C3out), C3out);
+    // AND THE PROJECTION CARRIES THE SAME NUMBER, which is what any reader gets.
+    check("⚠ ...and the run's own projection says the same, so no reader has to recount it",
+      jget(`select (stop->>'reason') || '/' || (stop->>'completedSteps')
+              from agent.runs where id='${C3}';`, asOwner) === "cancelled/1");
+    // AND THE WORK BEFORE IT IS UNTOUCHED: a cancellation stops the work, it does not undo it.
+    check("⚠ ...and the finished step's own outcome is exactly as it was — nothing was undone",
+      jget(`select outcomes->0->>'outcome' from agent.automation_runs where id='${C3}';`, asOwner) === "ran"
+      && /was not undone/.test(C3out));
+
     // ── 7b. A RUN NOBODY ANSWERED IS PUT BACK, OR IT IS STRANDED FOR EVER ──
     // ⚠ BOTH OF THESE WERE FOUND BY DRIVING THE FEATURE AND NEITHER WAS OBVIOUS. A run waiting
     // for a person has its work row marked DONE, and `decide_tool_approval` is what puts it
