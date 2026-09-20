@@ -765,19 +765,36 @@ test("⚠ `search_reference` SAYS WHICH NOTHING IT FOUND — one sentence covere
 
   /**
    * ⚠ **AND A SURFACE THAT ANSWERS SOMETHING ELSE ENTIRELY SAYS IT COULD NOT TELL, rather than
-   * throwing a `TypeError` at a model.** `can` is INJECTED, so a deployment supplying its own
-   * capability surface is what makes reading through the shared reader here worth doing — and a
-   * BARE LIST is the shape that predates the object, which is folded rather than dropped.
+   * throwing a `TypeError` at a model.**
+   *
+   * ⚠ **THIS IS THE ONE BLOCK `recorder` CANNOT DRIVE, AND A SWEEP SURVIVOR IS WHAT SAID SO.**
+   * `recorder` builds the REAL `makeCapabilities`, which applies `readSearch` on its way out —
+   * so every shape handed to it is already folded and the tool's own reading is the identity.
+   * `can` is INJECTED, so what separates the two readings is a deployment supplying its OWN
+   * surface, and that is what these hand over raw. **A BARE LIST is the shape that predates the
+   * object**, folded rather than dropped, so a database older than the migration keeps its
+   * passages instead of answering nothing found in silence.
    */
-  for (const odd of [undefined, null, [], "nope", 7]) {
-    const r = await say(odd);
+  const raw = async (answer) => await tool.run({ query: "boiler" },
+    { capabilities: { searchKnowledge: async () => answer } });
+  for (const odd of [undefined, null, [], "nope", 7, { excerpts: "no" }]) {
+    const r = await raw(odd);
     assert.equal(r.ok, true, `${JSON.stringify(odd)} made the tool fail instead of saying so`);
     assert.equal(r.found, 0);
+    assert.deepEqual(r.passages, [], `${JSON.stringify(odd)} answered passages`);
+    assert.equal(r.searched, null, `${JSON.stringify(odd)} invented a fact it does not carry`);
     assert.doesNotMatch(r.say, /matched that|no reference material/, `${JSON.stringify(odd)} blamed the documents`);
   }
-  const legacy = await say([{ title: "Prices", text: "£95" }]);
+  const legacy = await raw([{ title: "Prices", text: "£95" }]);
   assert.equal(legacy.found, 1, "a database older than the object shape lost its passages");
+  assert.deepEqual(legacy.passages, [{ title: "Prices", text: "£95" }]);
   assert.equal(legacy.searched, null, "an old answer invented the two facts it does not carry");
+  assert.match(legacy.say, /1 passage\(s\) matched/);
+  // THE CONTROL, so "it folded it" is not satisfied by a tool that answers the same thing
+  // whatever it is handed: a WHOLE answer through the same raw surface comes through whole.
+  const whole = await raw({ ok: true, searched: true, sources: 4, excerpts: [{ title: "A" }] });
+  assert.deepEqual({ found: whole.found, searched: whole.searched, sources: whole.sources },
+    { found: 1, searched: true, sources: 4 });
 });
 
 test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
