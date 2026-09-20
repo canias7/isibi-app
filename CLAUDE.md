@@ -14670,3 +14670,102 @@ from `__root.tsx`, so the bytes are free to vary with anything the render reads.
 demo-site repair is out of this release's scope, and the honest next step is a
 diff of two bodies far enough apart to name the bytes rather than another
 sighting.
+
+### PREPARED, NOT DISPATCHED: ONE LIVE TEST OF AN OUTSIDE CONNECTION (2026-09-20)
+
+The `api` tier is the one kind whose customer-visible end-to-end behaviour has
+never run live. Everything below is prepared so the owner can press once; **no
+dispatch has been made and none is authorized by this entry.**
+
+**THE SUBJECT IS THE ONE THING ONLY A LIVE RUN CAN SETTLE**: whether a real
+model, handed the `returns` sketch, writes a page that reads the RIGHT FIELD
+NAMES. The local work established that a page written against a declared shape
+renders and one written against an invented type renders an empty panel —
+driven, with the provider stubbed. It did not establish that a model volunteers
+the sketch, nor that xAI accepts the tool schema carrying it (the type union and
+the `additionalProperties` permission are both first-of-their-kind here and are
+in ONE place precisely so a live 400 is a one-line flip).
+
+**THE ENDPOINT IS VERIFIED, NOT RECALLED — one GET, read-only, nothing
+disrupted.** `https://api.open-meteo.com/v1/forecast` answered **HTTP 200, 384
+bytes, `application/json; charset=utf-8`** to
+`?latitude=53.3811&longitude=-1.4701&current=temperature_2m,weather_code&timezone=Europe%2FLondon`,
+and its real answer's SHAPE (types, never values) is
+
+    {latitude:number, longitude:number, generationtime_ms:number,
+     utc_offset_seconds:number, timezone:string, timezone_abbreviation:string,
+     elevation:number,
+     current_units:{time:string, interval:string, temperature_2m:string, weather_code:string},
+     current:{time:string, interval:number, temperature_2m:number, weather_code:number}}
+
+**WHY THIS ONE AND NOT A FLATTER ENDPOINT: the field a page wants is NESTED.**
+`current.temperature_2m` is exactly the read an invented type gets wrong
+silently — the measured failure is a page that typechecks clean and renders
+`""`. A flat `{rate: number}` endpoint could be guessed right by accident.
+
+**AND IT NEEDS NO KEY, which exercises the other half.** The tool says to LEAVE
+`credential` OUT ENTIRELY for a keyless service, and `credentialNote` derives
+what the owner is told from `secretsNeeded` — the declaration's own `{{SECRET}}`
+placeholders — so a connection needing no key can never be told to go and get
+one. A live run is what shows a model really omits the field.
+
+**WHAT IS DOCUMENTED AND WHAT IS NOT, kept apart.** Open-Meteo's own docs page
+states an API key is *"Only required to commercial use"*, gives that base URL,
+and documents `current` with both `temperature_2m` and `weather_code`. **The
+TERMS page was not read**, so "free for non-commercial use" is what the docs
+page says rather than a terms reading, and availability is one 200 at one
+moment rather than a promise. Neither is a claim this repository is making.
+
+**THE ELEVEN BOXES, in the form's own order** (`lane-sweep.yml`):
+
+| box | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `lanes` | `all` — an `ask` replaces the case list entirely, so this is ignored |
+| `site` | `repairbench-1` |
+| `dbsite` | (leave as it is — gap harness only) |
+| `ask` | *Add a page at /weather that shows the current temperature in Sheffield, read live from the Open-Meteo forecast API at https://api.open-meteo.com/v1/forecast — it needs no key.* |
+| `picker` | `grok` |
+| `budget` | `40` |
+| `expect_deploy` | `ddd3faf585ff77931d9e15e71540b0ab60366277` |
+| `expect_image` | `3cfbfded71cf9607` |
+| `run_job` | **blank** — this ask registers no job and `auto` refuses when a run adds none |
+
+**⚠ THE `ask` BOX IS THE ONE THAT MATTERS AND IT HAS BEEN GOT WRONG BEFORE.**
+Put the sentence in `ask` (box 6), never in `run_job` (box 11): `casesFor(ask)`
+returns `[askCase(said)]` when an ask is given and **the whole nine-case table**
+when it is blank, so a misplaced sentence buys nine paid builds instead of one.
+
+**⚠ AND THE BUDGET IS NOT AN ENFORCED CAP ON ONE ADDON REQUEST. Stated plainly
+because it reads like one.** `if (spent > BUDGET) break` is checked **before
+each case** in the loop, and an `ask` collapses the list to exactly one — so at
+the only check `spent` is 0 and the gate can never fire. More fundamentally the
+credits go INSIDE the single addon request and nothing outside it can stop it
+mid-flight. **What does bind**: the ledger refuses a bill above the balance, and
+`edit_reserve` raises only above 100,000, which no balance reaches. The field is
+set to 40 because it costs nothing and is correct the day a run has two cases.
+
+**THE EXPECTED COST IS AN ESTIMATE FROM COMPARABLE RUNS, never a bound.** A
+connection cannot be pageless — it exists to be read by a page — so this buys a
+page call and a compile: run 47's `table · function · page` was **13** and run
+49's `function · page` was **12**. Expect that band. **The balance reading of
+119 is HISTORICAL** (run 52's own results file, `start: 121 / end: 119`) and
+this session cannot read the ledger — no `SUPABASE_*` name exists in this
+environment — so **refresh it before pressing**.
+
+**THE PRE-FLIGHT REFUSES BEFORE SPENDING, and it asks three things, one of them
+unconditionally.** `codeRefusals` checks `expect_deploy` and `expect_image` only
+when given, and **always** checks that queued work is on for the site — a
+cannot-tell on any of the three is a refusal, because a run against the previous
+build produces a complete, plausible, green-looking result about code that is
+not under test.
+
+**WHAT ONE GREEN RUN WOULD ESTABLISH**: that the tool schema is accepted by the
+provider; that a model volunteers a `returns` sketch for a real service and
+omits `credential` for a keyless one; that the page is written against the
+declared field names; and that `/weather` really renders a number fetched
+through the platform's own `/api/db/<slug>/api/<name>` route.
+**WHAT IT WOULD NOT**: anything about a KEYED connection, the `{{SECRET}}` path,
+the credential sentence, or a service that answers a different shape than it
+documented. Those stay unproven.
