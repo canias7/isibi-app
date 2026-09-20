@@ -356,12 +356,27 @@ function hydrateAuto(w) {
     (/id="agAutoSched"[\s\S]*?<\/select>/.exec(html) || [""])[0]);
   doc.getElementById("agAutoSched").value = sched ? sched[1] : "manual";
   /**
+   * ⚠ **A CONTROL CAN BE FOCUSED AND CAN HOLD A CARET, and these stubs could do neither.**
+   * Every box the automation form draws is one somebody types in, so a fixture whose fields
+   * answer nothing to `focus()` makes "where the cursor was" unobservable for the whole form
+   * — which is the fake-less-capable trap this file has already paid for twice, on the
+   * conversation box's `data-agent` and on a `<select>`'s own value. Mixed in rather than
+   * repeated, so a fourth control shape cannot arrive without it.
+   */
+  const canFocus = (o) => Object.assign(o, {
+    focusCount: 0,
+    focus() { this.focusCount++; doc.activeElement = this; },
+    rangeSet: null,
+    selectionStart: 0, selectionEnd: 0,
+    setSelectionRange(x, y) { this.rangeSet = [x, y]; this.selectionStart = x; this.selectionEnd = y; },
+  });
+  /**
    * THE DAYS A SCHEDULE RUNS ON, read off the form's own checkboxes.
    *
    * `data-sched-day` and not `data-day`: the weekday STEP uses the second, and one attribute for
    * both would make a fixture unable to tell a schedule's day from a step's.
    */
-  const schedDays = [...html.matchAll(/data-sched-day="([^"]+)"([^>]*)>/g)].map((m) => ({
+  const schedDays = [...html.matchAll(/data-sched-day="([^"]+)"([^>]*)>/g)].map((m) => canFocus({
     checked: / checked/.test(m[2]),
     getAttribute: (k) => (k === "data-sched-day" ? m[1] : null),
   }));
@@ -375,7 +390,7 @@ function hydrateAuto(w) {
   const rows = chunks.map((chunk) => {
     const type = chunk.slice(0, chunk.indexOf('"'));
     const body = chunk.slice(0, chunk.indexOf('class="ag-step"') === -1 ? chunk.length : chunk.indexOf('class="ag-step"'));
-    const fields = [...body.matchAll(/data-field="([^"]+)"[^>]*value="([^"]*)"/g)].map((m) => ({
+    const fields = [...body.matchAll(/data-field="([^"]+)"[^>]*value="([^"]*)"/g)].map((m) => canFocus({
       value: m[2].replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, "&"),
       getAttribute: (k) => (k === "data-field" ? m[1] : null),
     }));
@@ -396,13 +411,13 @@ function hydrateAuto(w) {
       // real browser would have read back the first option and stored a default nobody
       // chose, and this fixture read back nothing at all and called it correct.
       const firstOpt = /<option value="([^"]*)"/.exec(m[2]);
-      const el = {
+      const el = canFocus({
         value: picked ? picked[1] : firstOpt ? firstOpt[1] : "",
         getAttribute: (k) => (k === "data-field" ? m[1] : k === "data-kind" ? "choice" : null),
-      };
+      });
       fields.push(el);
     }
-    const days = [...body.matchAll(/data-day="([^"]+)"([^>]*)>/g)].map((m) => ({
+    const days = [...body.matchAll(/data-day="([^"]+)"([^>]*)>/g)].map((m) => canFocus({
       checked: / checked/.test(m[2]),
       getAttribute: (k) => (k === "data-day" ? m[1] : null),
     }));
@@ -2002,6 +2017,48 @@ test("⚠ EVERY SCHEDULE THE PLATFORM STORES IS OFFERED OR LOCKED, and the four 
   // beside the disjunction above rather than instead of it.
   assert.deepEqual(listed.slice().sort(), AUTOMATION_SCHEDULES.slice().sort(),
     "the form no longer offers every schedule the platform stores");
+});
+
+test("⚠ THE LIST SAYS WHAT REALLY STARTS EACH AUTOMATION, and that a one-off has gone", () => {
+  /**
+   * ⚠ **`autoTrigger` READ "Run now only" FOR EVERY SCHEDULE BUT `daily`, which was true of what
+   * the form could make and false of the platform.** A weekly automation — which the agent's own
+   * `make_automation` really creates, and which the scripted demonstration creates — read as manual
+   * in the one place a person looks at the list, so the row and its own Edit form said opposite
+   * things one press apart.
+   */
+  const w = loadScreen({});
+  const trig = (a) => w.ev(`autoTrigger(${JSON.stringify(a)})`);
+  assert.equal(trig({ schedule: "manual" }), "Run now only");
+  assert.equal(trig({ schedule: "daily", at: "09:00", zone: "Europe/London" }),
+    "Every day at 09:00 (Europe/London)");
+  assert.equal(trig({ schedule: "weekly", at: "09:00", zone: "Europe/London", days: ["mon", "fri"], nextRunAt: "2027-01-01T09:00:00Z" }),
+    "Mon, Fri at 09:00 (Europe/London)");
+  // A WEEKLY ONE WITH NO DAYS READABLE still says it is not manual, rather than claiming a day.
+  assert.equal(trig({ schedule: "weekly", at: "09:00", zone: "UTC" }), "Chosen days at 09:00 (UTC)");
+  assert.equal(trig({ schedule: "once", at: "09:00", zone: "UTC", onDate: "2027-03-04", nextRunAt: "2027-03-04T09:00:00Z" }),
+    "Once on 2027-03-04 at 09:00 (UTC)");
+  /**
+   * ⚠ **AND A ONE-OFF WHOSE DAY HAS GONE SAYS SO — the one thing a person cannot work out from the
+   * row, and a corrected claim rather than a new feature.** `trigOnDate`'s own comment said a past
+   * date was accepted *"because `tick_automations` answers it as MISSED and records it"*. MEASURED
+   * on a real PostgreSQL, a `once` created for `2020-01-01`: `automation_next_run` answers NULL,
+   * `next_run_at` stores NULL, the tick answers **no rows**, and there are 0 history rows and 0
+   * executions. Nothing is recorded missed and nothing ever runs.
+   *
+   * The ABSENT instant is the evidence, not a date comparison of this screen's own — a browser's
+   * clock and zone are not the automation's.
+   */
+  assert.equal(trig({ schedule: "once", at: "09:00", zone: "UTC", onDate: "2020-01-01" }),
+    "Once on 2020-01-01 at 09:00 (UTC) — that date has passed, so it won’t run");
+  // AND THE CONTROL: a one-off that is still to come does NOT carry that clause.
+  assert.ok(!/passed/.test(trig({ schedule: "once", at: "09:00", zone: "UTC", onDate: "2027-03-04", nextRunAt: "2027-03-04T09:00:00Z" })));
+  // A SCHEDULE THIS SCREEN CANNOT DESCRIBE SAYS SO rather than claiming it runs by hand.
+  assert.match(trig({ schedule: "fortnightly" }), /can’t describe yet/);
+  // AND A ROW IT CANNOT READ AT ALL is the manual sentence, which is the fail-closed direction:
+  // "you have to press Run" is the only claim that cannot be wrong about work nobody scheduled.
+  assert.equal(trig({ schedule: 7 }), "Run now only");
+  assert.equal(w.ev("autoTrigger(null)"), "Run now only");
 });
 
 test("⚠ A REFUSAL ABOUT A STEP IS DRAWN ON THAT STEP, and the bottom line says which", async () => {
@@ -4328,4 +4385,111 @@ test("⚠ THE MESSAGE A PERSON APPROVED IS ON THE HISTORY, and it says it is sim
   const html3 = w3.s.document.getElementById("viewAgents").innerHTML;
   assert.doesNotMatch(html3, /ag-step-msg/);
   assert.doesNotMatch(html3, /undefined/);
+});
+
+test("⚠ THE CURSOR SURVIVES A REDRAW ANYWHERE ON THE FORM, not only in the message box", async () => {
+  /**
+   * THE DEFECT: `renderAgents` read and restored focus for exactly ONE element, `#agMsg`.
+   * Every other control on this screen — the automation form's own boxes, a step's fields,
+   * an approval note, a reference document — was replaced by `renderAgentsNow`'s `innerHTML`
+   * and the caret dropped to the body. The VALUES were kept all along (five readers put them
+   * in the draft first), so what was lost was where you were: the executions watch poll
+   * redraws every 1.5 s after a Run now, so typing a step's note while watching one lost the
+   * cursor six times.
+   *
+   * ⚠ **A CONTROL IS FOUND BY THE SAME WALK ITS VALUE IS READ BY** — a step field's row
+   * position plus its own `data-field` — so there is no second identity to drift. A reorder
+   * would move the key with the row, and that is right rather than lucky: no press that
+   * reorders steps can have focus in a field, because every one of them is a BUTTON, and a
+   * focused button is restored by nothing at all (asserted below).
+   */
+  const { w } = await withAutomations({ automations: [] });
+  const doc = w.s.document;
+  await w.ev("agentAutoNew()");
+  await w.ev('agentAutoStepAdd("note")');
+  let f = hydrateAuto(w);
+  assert.equal(f.rows.length, 1, "the step was added");
+
+  // TYPING IN THE STEP'S OWN BOX, with the cursor in the middle of it.
+  const box = f.rows[0].fields[0];
+  box.value = "half a sentence";
+  box.focus();
+  box.selectionStart = 4; box.selectionEnd = 4;
+  assert.equal(doc.activeElement, box, "the fixture can hold focus in a step field");
+  const before = box.focusCount;
+
+  // THE WATCH POLL'S OWN SHAPE: a redraw with nothing structural about it.
+  await w.ev("renderAgents()");
+  assert.ok(box.focusCount > before, "the step field lost its focus across the redraw");
+  assert.deepEqual(box.rangeSet, [4, 4], "the caret was not put back where it was");
+
+  // AND THE FORM'S OWN BOXES, which are keyed on their id rather than on a walk.
+  const nameBox = doc.getElementById("agAutoName");
+  nameBox.value = "Morning"; nameBox.focus();
+  nameBox.selectionStart = 3; nameBox.selectionEnd = 7;
+  const nameBefore = nameBox.focusCount;
+  await w.ev("renderAgents()");
+  assert.ok(nameBox.focusCount > nameBefore, "the name box lost its focus");
+  assert.deepEqual(nameBox.rangeSet, [3, 7], "the name box's selection was not put back");
+
+  /**
+   * ⚠ **A FOCUSED BUTTON IS RESTORED BY NOTHING, and that is the wall rather than a gap.**
+   * Add, move and remove are buttons, and they are exactly the presses that can renumber or
+   * delete the row a caret was in — so a scheme that put focus back "wherever that position
+   * is now" would land it in somebody else's box. A control this walk does not know is not
+   * one it will guess at.
+   */
+  const btn = { focusCount: 0, focus() { this.focusCount++; }, getAttribute: () => null };
+  doc.activeElement = btn;
+  await w.ev("renderAgents()");
+  assert.equal(btn.focusCount, 0, "a control the walk does not know was focused anyway");
+
+  /**
+   * AND A KEY WHOSE CONTROL IS NO LONGER DRAWN RESTORES NOTHING EITHER — the second wall,
+   * driven directly because the read above refuses first and would hide it. A step removed, a
+   * choice hiding the field below it, another screen opened: each leaves a key nothing answers,
+   * and putting the caret in "whatever is at that position now" is somebody else's box.
+   */
+  const gone = await w.ev(`(() => {
+    const spots = agentFocusSpots();
+    const before = spots.map(([, e]) => e.focusCount);
+    agentFocusRestore({ key: "s9.text", was: "x", start: 0, end: 0 });
+    const after = agentFocusSpots().map(([, e]) => e.focusCount);
+    return { moved: after.some((n, i) => n !== before[i]), n: spots.length };
+  })()`);
+  assert.ok(gone.n > 0, "the walk found no control at all, so the assertion under it is vacuous");
+  assert.equal(gone.moved, false, "a key nothing answers moved the caret into another control");
+  // ITS OBSERVER: a key that DOES answer really does focus, so the refusal above is about the key.
+  const hit = await w.ev(`(() => {
+    const [[k, e]] = agentFocusSpots();
+    const before = e.focusCount;
+    agentFocusRestore({ key: k, was: e.value, start: 0, end: 0 });
+    return e.focusCount > before;
+  })()`);
+  assert.equal(hit, true, "a key that names a drawn control was not focused");
+
+  /**
+   * AND THE CARET GOES BACK ONLY INTO THE SAME TEXT. A redraw that CHANGED the value — a
+   * save landing, a choice hiding the field — must not put a cursor from the old string into
+   * the new one, which is the composer's own measured rule one function up.
+   */
+  box.rangeSet = null;
+  box.value = "half a sentence"; box.focus(); box.selectionStart = 4; box.selectionEnd = 4;
+  w.ev(`(() => {
+    const rows = document.querySelectorAll("[data-step-type]");
+    const f = rows[0].querySelectorAll("[data-field]")[0];
+    const was = f.focus; f.focus = function () { was.call(this); this.value = "something else"; };
+  })()`);
+  await w.ev("renderAgents()");
+  assert.equal(box.rangeSet, null, "a caret was put into text the box no longer holds");
+
+  /**
+   * ⚠ AND THE CONVERSATION BOX IS NOT THIS PAIR'S, which is why it is asked for by name.
+   * It has its own reader — the one that also puts the words in the draft — and two writers
+   * on one control is how a value is restored twice from two rules that can disagree.
+   */
+  const msg = doc.getElementById("agMsg");
+  doc.activeElement = msg;
+  const spot = await w.ev("agentFocusRead()");
+  assert.equal(spot, null, "the general reader claimed the message box");
 });

@@ -615,10 +615,37 @@ begin
   if p_enabled is null then
     return jsonb_build_object('ok', false, 'error', 'bad-enabled');
   end if;
+  /**
+   * ⚠ **RE-ARMED ONLY WHERE THE FLAG REALLY MOVED FROM OFF TO ON — and the version without
+   * `a.enabled is not true` silently deleted a due occurrence, reproduced before this was
+   * touched.**
+   *
+   * The condition was `p_enabled and a.schedule <> 'manual'`, which is true of a NO-OP enable:
+   * `enabled: true` on an automation that is already on. MEASURED on a real PostgreSQL, a daily
+   * automation with an occurrence due three minutes ago: `next_run_at` went
+   * `01:06:18` → `08:00:00` — 6h54m forward — `still_due` t → f, and **0 executions and 0
+   * history rows**, so the occurrence was neither filed nor recorded missed. It simply never
+   * happened, and nothing anywhere says so.
+   *
+   * Reachable from the agent's own `pause_automation` tool and from `/api/agent/automation-enable`,
+   * both of which take the flag from their caller rather than from what the row holds.
+   *
+   * **THE BACKLOG ARGUMENT IS UNCHANGED AND IS WHY THIS IS A TRANSITION TEST RATHER THAN A
+   * REMOVAL.** An automation disabled for a week has an instant a week behind, and enabling it
+   * without recomputing would hand the next tick an occurrence days old. That is exactly the
+   * off→on case, which still recomputes; what stops is recomputing when nothing was off.
+   *
+   * `is not true` rather than `not a.enabled`, so a NULL flag counts as off — cannot-tell must
+   * not read as "it was already on", which is the reading that skips the re-arm and leaves the
+   * backlog this exists to prevent.
+   *
+   * **THIS IS `update_automation`'S OWN DEFECT IN ITS SIBLING**, one function over: there an
+   * unrelated edit recomputed the instant, here an unrelated toggle does.
+   */
   update agent.automations a
      set enabled = p_enabled,
          next_run_at = case
-           when p_enabled and a.schedule <> 'manual'
+           when p_enabled and a.enabled is not true and a.schedule <> 'manual'
              then agent.automation_next_run(a.schedule, a.at_local, a.zone, a.days, a.on_date, now())
            else a.next_run_at end
    where a.id = p_id and a.tenant_id = p_tenant
@@ -631,7 +658,7 @@ begin
 end; $$;
 
 comment on function agent.set_automation_enabled(text, uuid, boolean) is
-  'Turn one on or off. Turning it ON re-arms its next instant forward through agent.automation_next_run — for every schedule, not only a daily one — so a long-disabled automation does not come back with a backlog. Turning it off leaves the instant alone, because a scheduled row is whole only with one and the enabled flag is the gate.';
+  'Turn one on or off. Turning it ON from OFF re-arms its next instant forward through agent.automation_next_run — for every schedule, not only a daily one — so a long-disabled automation does not come back with a backlog. A no-op enable of an automation that is already on changes nothing, because recomputing there deletes a due occurrence without filing it or recording it missed. Turning it off leaves the instant alone, because a scheduled row is whole only with one and the enabled flag is the gate.';
 
 -- ── 7. STOPPING ONE EXECUTION, UNDER AN OPERATION IDENTITY ──────────────────
 --

@@ -481,6 +481,49 @@ try {
     moved.status === 200 && q(`select next_run_at > now() from agent.automations where id='${kept}';`) === "t",
     JSON.stringify(moved.body));
 
+  /**
+   * ⚠ **AND THE SAME DEFECT LIVED IN THE SIBLING — a NO-OP ENABLE deleted a due occurrence.**
+   *
+   * `agent.set_automation_enabled` re-arms `next_run_at` when it is asked to turn an automation
+   * ON, which is right for the case it was written for: one disabled for a week has an instant a
+   * week behind, and enabling it without recomputing hands the next tick an occurrence days old.
+   * Its condition was `p_enabled and a.schedule <> 'manual'` — true of `enabled: true` on an
+   * automation that is ALREADY on. **MEASURED before it was touched: `01:06:18` → `08:00:00`,
+   * 6h54m forward, `still_due` t → f, and 0 executions and 0 history rows** — neither filed nor
+   * recorded missed.
+   *
+   * Reachable from the agent's own `pause_automation` tool and from this route, both of which take
+   * the flag from their caller rather than from what the row holds.
+   */
+  const dueAgain = q(`update agent.automations set next_run_at = now() - interval '2 minutes'
+    where id='${kept}' returning next_run_at::text;`);
+  const stillOn = q(`select enabled from agent.automations where id='${kept}';`);
+  check("set up: it is on, with an occurrence due and unfiled", stillOn === "t" && /\d/.test(dueAgain), dueAgain);
+  const noop = await api("/api/agent/automation-enable", { body: { id: kept, enabled: true } });
+  check("a no-op enable is accepted", noop.status === 200, JSON.stringify(noop.body));
+  check("⚠ ...and the occurrence is STILL DUE — nothing was off, so nothing is re-armed",
+    q(`select next_run_at = '${dueAgain}'::timestamptz and next_run_at <= now()
+       from agent.automations where id='${kept}';`) === "t",
+    q(`select next_run_at::text from agent.automations where id='${kept}';`));
+  check("...and no execution was filed and none recorded missed either",
+    q(`select count(*) from agent.automation_runs where automation_id='${kept}';`) === "0"
+    && q(`select count(*) from agent.automation_history where automation_id='${kept}';`) === "0");
+  /**
+   * ⚠ **THE CONTROL, and it is the whole reason this is a transition test rather than a
+   * removal**: a REAL off→on still re-arms forward, so a long-disabled automation cannot come back
+   * with a backlog. Without it, "a no-op does not move it" is satisfied by a function that has
+   * stopped re-arming at all.
+   */
+  const offThenOn = await api("/api/agent/automation-enable", { body: { id: kept, enabled: false } });
+  check("turning it off is accepted", offThenOn.status === 200, JSON.stringify(offThenOn.body));
+  check("...and turning it off leaves the instant alone, because a scheduled row is whole only with one",
+    q(`select next_run_at = '${dueAgain}'::timestamptz from agent.automations where id='${kept}';`) === "t");
+  const backOn = await api("/api/agent/automation-enable", { body: { id: kept, enabled: true } });
+  check("turning it back on is accepted", backOn.status === 200, JSON.stringify(backOn.body));
+  check("⚠ ...and NOW it is re-armed into the future — the backlog argument, intact",
+    q(`select next_run_at > now() from agent.automations where id='${kept}';`) === "t",
+    q(`select next_run_at::text from agent.automations where id='${kept}';`));
+
   // AN EDIT THAT NAMES NOTHING IS REFUSED RATHER THAN WRITTEN, so a no-op cannot take the lock.
   const beforeEmpty = mark(kept);
   const empty = await edit({ id: kept });

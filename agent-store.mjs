@@ -2918,9 +2918,25 @@ export function trigDays(raw) {
  * about a date somebody typed. The arithmetic is done rather than handed to `Date`, because
  * `new Date("2026-02-30")` rolls forward to March and would store a day nobody chose.
  *
- * A DATE IN THE PAST IS DELIBERATELY NOT REFUSED. `tick_automations` answers a one-off whose day
- * has gone as MISSED and records it, which is a fact somebody can read; refusing it at the door
- * would instead depend on which side of midnight the save landed.
+ * ⚠ **A DATE IN THE PAST IS NOT REFUSED, AND THE REASON THIS COMMENT USED TO GIVE WAS FALSE.**
+ *
+ * It read: *"`tick_automations` answers a one-off whose day has gone as MISSED and records it,
+ * which is a fact somebody can read"*. **MEASURED on a real PostgreSQL, a `once` schedule created
+ * for `2020-01-01`:** `agent.automation_next_run` answers **NULL**, so `next_run_at` is stored
+ * NULL, the tick's own `where next_run_at <= now()` matches nothing, and it answers **no rows at
+ * all** — 0 history rows, 0 executions, nothing recorded missed. So the automation is accepted,
+ * looks scheduled, and is silently inert for ever.
+ *
+ * **WHAT IS TRUE is that this reader cannot decide it, and that IS about midnight**: it is handed
+ * the date alone, and whether a day has gone depends on the automation's own ZONE, which lives
+ * two fields away. `cleanSchedule` and `cleanPatch` both have the zone in hand and could refuse
+ * it; that is a DESIGN DECISION and it is recorded as one rather than taken here, because a
+ * refusal at the site's two doors and not at the agent's `make_automation` would be a wall one
+ * door has — this repository's own recorded class.
+ *
+ * **WHAT IS DONE INSTEAD IS FEEDBACK**: the automations list says the date has passed and that it
+ * will not run (`autoTrigger` in `public/chat.js`), so the one thing a person cannot see from a
+ * stored row is the thing the screen now says.
  */
 export function trigOnDate(v) {
   const on = typeof v === "string" ? v.trim() : "";

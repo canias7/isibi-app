@@ -1212,6 +1212,96 @@ function agentComposerRestore(prev) {
 }
 
 /**
+ * WHERE THE CURSOR IS ANYWHERE ELSE ON THIS SCREEN — and `#agMsg` is deliberately NOT
+ * among them, because it has its own pair three functions up.
+ *
+ * ⚠ **THE CONVERSATION BOX WAS THE ONLY CONTROL THAT KEPT ITS FOCUS, and every other form
+ * on this screen lost it on every redraw.** `renderAgentsNow` writes `innerHTML`, so a
+ * press that adds a step, a `data-change` select, a save landing and the executions watch
+ * poll (`AUTO_WATCH_MS`, 1.5 s, six reads after a Run now) each replaced the control that
+ * had focus and dropped the caret to the body. The VALUES were already kept — five readers
+ * put them in the draft before anything moves — so what was lost was where you were.
+ *
+ * **A CONTROL IS IDENTIFIED BY THE SAME WALK ITS VALUE IS READ BY, never by a second
+ * attribute.** `agentAutoValues` says a step field's identity is its row's position plus
+ * its own `data-field`; this composes exactly that, so there is ONE statement of which
+ * control is which and a redraw that reorders the rows moves the caret with them. An
+ * element carrying an `id` is keyed on the id, which needs no walk and no list to keep.
+ *
+ * ⚠ **AND THE CARET GOES BACK ONLY INTO THE SAME TEXT**, which is the composer's own rule
+ * one function up and is here for the same measured reason: a redraw that changed a value
+ * (a save landing, a step's choice changing which controls exist) would otherwise put a
+ * cursor from the old string into the new one, mid-word.
+ */
+function agentFocusSpots() {
+  const out = [];
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return out;
+  const all = (sel) => [...document.querySelectorAll(sel)];
+  const rows = all('[data-step-type]');
+  rows.forEach((row, i) => {
+    const one = typeof row.querySelectorAll === 'function' ? row.querySelectorAll.bind(row) : null;
+    if (!one) return;
+    for (const f of [...one('[data-field]')]) {
+      const n = (f.getAttribute && f.getAttribute('data-field')) || '';
+      if (n) out.push(['s' + i + '.' + n, f]);
+    }
+    for (const d of [...one('[data-day]')]) {
+      const n = (d.getAttribute && d.getAttribute('data-day')) || '';
+      if (n) out.push(['s' + i + '.day.' + n, d]);
+    }
+  });
+  for (const row of all('[data-input-row]')) {
+    const at = (row.getAttribute && row.getAttribute('data-input-row')) || '';
+    const one = typeof row.querySelectorAll === 'function' ? row.querySelectorAll.bind(row) : null;
+    if (at === '' || !one) continue;
+    for (const f of [...one('[data-in]')]) {
+      const n = (f.getAttribute && f.getAttribute('data-in')) || '';
+      if (n) out.push(['i' + at + '.' + n, f]);
+    }
+  }
+  for (const el of all('[data-note]')) {
+    const id = (el.getAttribute && el.getAttribute('data-note')) || '';
+    if (id) out.push(['n' + id, el]);
+  }
+  for (const el of all('[data-sched-day]')) {
+    const d = (el.getAttribute && el.getAttribute('data-sched-day')) || '';
+    if (d) out.push(['w' + d, el]);
+  }
+  return out;
+}
+function agentFocusRead() {
+  if (typeof document === 'undefined') return null;
+  const el = document.activeElement;
+  // NOT THE CONVERSATION BOX. It has its own reader, which also puts the words in the
+  // draft; two writers on one control is how a value gets restored twice from two rules.
+  if (!el || el === document.body || el.id === 'agMsg') return null;
+  let key = el.id ? '#' + el.id : '';
+  if (!key) for (const [k, cand] of agentFocusSpots()) if (cand === el) { key = k; break; }
+  if (!key) return null;
+  return {
+    key,
+    was: typeof el.value === 'string' ? el.value : null,
+    start: typeof el.selectionStart === 'number' ? el.selectionStart : null,
+    end: typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+  };
+}
+function agentFocusRestore(prev) {
+  if (!prev || !prev.key || typeof document === 'undefined') return;
+  let el = null;
+  if (prev.key.charAt(0) === '#') el = document.getElementById(prev.key.slice(1));
+  else for (const [k, cand] of agentFocusSpots()) if (k === prev.key) { el = cand; break; }
+  // THE CONTROL IS NOT DRAWN ANY MORE — the step was removed, the choice above it hid this
+  // field, or another screen is open. Forcing focus somewhere else would be worse than
+  // leaving it where the redraw put it.
+  if (!el || typeof el.focus !== 'function') return;
+  try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch { /* no focus here */ } }
+  if (prev.start !== null && prev.was !== null && el.value === prev.was
+      && typeof el.setSelectionRange === 'function') {
+    try { el.setSelectionRange(prev.start, prev.end); } catch { /* not a text field */ }
+  }
+}
+
+/**
  * ONE KEY PER PRESS, NOT PER REQUEST — and that distinction is the whole of retry
  * safety on this screen.
  *
@@ -2060,7 +2150,17 @@ function autoTrigger(a) {
     const days = Array.isArray(a.days) ? a.days : [];
     return (days.length ? days.map(autoDayName).join(', ') : 'Chosen days') + ' at ' + when;
   }
-  if (a.schedule === 'once') return 'Once on ' + (a.onDate || 'a date') + ' at ' + when;
+  /**
+   * ⚠ **A ONE-OFF WHOSE DAY HAS GONE SAYS SO, and the fact comes from the DATABASE rather than
+   * from comparing the date here.** `automation_next_run` answers `null` for a `once` schedule
+   * once its instant is past, so a missing `nextRunAt` on such a row IS "it will not run" — and
+   * asking the browser's own clock would be a second answer that can disagree with the one the
+   * scheduler acts on, across a time zone this screen does not hold.
+   */
+  if (a.schedule === 'once') {
+    const gone = !a.nextRunAt ? ' \u2014 that date has passed, so it won\u2019t run' : '';
+    return 'Once on ' + (a.onDate || 'a date') + ' at ' + when + gone;
+  }
   return 'On a schedule this screen can\u2019t describe yet';
 }
 
@@ -4029,8 +4129,22 @@ function automationFormHtml(agent) {
       '<button class="ag-cancel" data-act="agent-auto-cancel">' + (cur ? 'Back' : 'Cancel') + '</button>' +
       (cur ? '<button class="ag-del" data-act="agent-auto-delete" data-id="' + esc(cur.id) + '">Delete</button>' : '') +
     '</div>' +
+    /**
+     * ⚠ **A SAVE THAT LANDED AND COULD NOT BE READ BACK SAYS BOTH HALVES.** The save is
+     * confirmed by the server's own answer, so "Saved" is true — but the re-read right after it
+     * is what replaces the form with the STORED row, and when that fails the form is still
+     * showing what was typed. Those two agree today for every field, and the day the server
+     * normalises one (a day list's order, a time's seconds) they would not, and the screen
+     * would be quietly showing the pre-save shape of a row somebody had just changed.
+     *
+     * It is plain text on the line that is already there rather than a second line in a class
+     * of its own: a new class is a design decision nobody made, and "Saved, but" is one fact.
+     */
     (agentAutoSaved && !agentAutoActErr
-      ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.</div>' : '') +
+      ? '<div class="ag-saved">Saved. It’s on your account, so it’s the same wherever you sign in.' +
+        (agentAutoState === 'error' && agentAutoErr
+          ? ' Couldn’t read it back just now, so what’s shown here may be older than what was saved.' : '') +
+        '</div>' : '') +
     /**
      * ⚠ **A REFUSAL ABOUT A STEP IS SAID ON THAT STEP, and this line then says WHERE rather
      * than repeating WHAT.** Two accounts of one fact is what this form is not allowed to draw —
@@ -4414,6 +4528,10 @@ const agentOpenRow = () => (agentRows || []).find((a) => a.id === agentThread) |
  */
 function renderAgents() {
   const held = agentComposerRead();
+  // ⚠ AND WHERE THE CURSOR IS, for every OTHER control on this screen — the same two points,
+  // because the reason is the same: `renderAgentsNow` replaces the element it had. Read after
+  // the composer's own read, so `#agMsg` is already accounted for and this one skips it.
+  const spot = agentFocusRead();
   // ⚠ THE AUTOMATION FORM GOES THROUGH THE SAME DOOR, for the same reason: a redraw
   // replaces every input it drew, so anything typed since the last state change would be
   // gone. Reading it into the draft first is what makes "add a step" keep the note you
@@ -4430,6 +4548,7 @@ function renderAgents() {
   agentMemFormRead();
   renderAgentsNow();
   agentComposerRestore(held);
+  agentFocusRestore(spot);
   // ⚠ AND THE AUTOMATION FORM'S BASELINE IS TAKEN AFTER THE DRAW, not before it: what a save
   // compares against is what the person was SHOWN, and the only moment that is readable is the
   // one right after the form is written. See `agentAutoWas`.
