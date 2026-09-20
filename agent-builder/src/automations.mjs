@@ -166,6 +166,7 @@ export const TIMEOUT_OUTCOMES = Object.freeze(["approve", "reject", "fail"]);
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 import { REF_NAME, refsIn, fillRefs } from "./workflow-refs.mjs";
+import { readSearch, searchOutcome } from "./knowledge-search.mjs";
 export { REF_NAME, refsIn, fillRefs, valueText } from "./workflow-refs.mjs";
 
 // ── the bounds, all in one place ─────────────────────────────────────────────
@@ -1571,10 +1572,34 @@ const knowledge = defineStep({
      * documents, so it is not something for them to act on. What they read is the number that
      * really reached the workflow.
      */
-    const answered = Array.isArray(found?.excerpts) ? found.excerpts : [];
+    const read = readSearch(found);
+    const answered = read.excerpts;
     const excerpts = answered.length > MAX_EXCERPTS ? answered.slice(0, MAX_EXCERPTS) : answered;
     if (!excerpts.length) {
-      return { value: "", note: `searched for "${config.query}" and found nothing`, sources: [] };
+      /**
+       * ⚠ **THREE DIFFERENT NOTHINGS, THREE DIFFERENT SENTENCES — and until this line they
+       * were one.** `searched for "X" and found nothing` was said whether the ask held nothing
+       * searchable, whether this agent has no reference material at all, or whether it has
+       * some and none of it matched. MEASURED before the change: a stopword-only query and a
+       * genuine miss produced BYTE-IDENTICAL outcomes.
+       *
+       * Only the last of the three is a fact about somebody's documents, and it is the only
+       * one worded as one. `searchOutcome` makes the choice so this step and the agent's own
+       * `search_reference` tool cannot decide it differently; the WORDS are separate on
+       * purpose, because this one is read by a person in an execution's history and that one
+       * by a model deciding what to do next.
+       *
+       * **`unknown` BLAMES NOTHING.** It is what an older database, a reading this cannot
+       * parse, or an execution with no agent behind it produces, and saying "your documents do
+       * not mention that" about any of them is a claim nothing here is entitled to make.
+       */
+      const note = {
+        "not-searched": `there was nothing to search for in "${config.query}"`,
+        "no-sources": `searched for "${config.query}" — this agent has no reference material yet`,
+        "no-match": `searched for "${config.query}" and nothing in the reference material matched`,
+        "unknown": `searched for "${config.query}" and got no passages back; whether there was anything to match is not something this can say`,
+      }[searchOutcome(read)];
+      return { value: "", note, sources: [] };
     }
     const sources = excerpts.map((e) => ({
       title: isText(e?.title) ? e.title : "(untitled)",

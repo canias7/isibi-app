@@ -765,10 +765,21 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     if (p.endsWith("/rpc/search_knowledge") && init.method === "POST") {
       const { p_tenant: tenant, p_agent_id: agentId, p_query: query, p_limit: limit = 5 } = body;
       if (!isText(tenant)) return res(400, { message: "search_knowledge: tenant must be a non-empty string" });
+      /**
+       * ⚠ **ONE OBJECT, AND `searched`/`sources` ARE WHY IT IS NOT A LIST.** The real function
+       * answers whether there was anything searchable in the ask and how many sources the agent
+       * HAS, because "nothing to look for", "nothing to look IN" and "looked and found none"
+       * are three different things to tell somebody and used to arrive as one empty list. A
+       * fake still answering a bare list would make all three `unknown` — a shape LESS capable
+       * than the thing it stands in for, in the one field the feature turns on.
+       */
+      const sources = [...know.values()]
+        .filter((k) => k.tenant_id === tenant && k.agent_id === agentId).length;
+      const none = (searched) => res(200, { ok: true, searched, sources, excerpts: [] });
       // NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every document.
-      if (!isText(query)) return res(200, []);
+      if (!isText(query)) return none(false);
       const words = String(query).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
-      if (!words.length) return res(200, []);
+      if (!words.length) return none(false);
       const hits = [...know.values()]
         .filter((k) => k.tenant_id === tenant && k.agent_id === agentId)
         .map((k) => {
@@ -779,10 +790,10 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         .filter((h) => h.n > 0)
         .sort((a, b) => b.n - a.n || a.k.title.toLowerCase().localeCompare(b.k.title.toLowerCase()))
         .slice(0, Math.max(1, Number(limit) || 5));
-      return res(200, hits.map(({ k, n }) => ({
+      return res(200, { ok: true, searched: true, sources, excerpts: hits.map(({ k, n }) => ({
         id: k.id, title: k.title, version: k.version, format: k.format,
         text: k.body.slice(0, 200), rank: n,
-      })));
+      })) });
     }
 
     /** `agent.request_tool_approval` — record that one tool call is waiting for a person.

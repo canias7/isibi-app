@@ -71,6 +71,7 @@ import { defineTool, PUBLIC } from "./define.mjs";
 // and `uuidFrom` are both "the same call always reads the same way", and splitting
 // them into two files would be two answers to one question.
 import { uuidFrom } from "./approvals.mjs";
+import { readSearch, searchOutcome } from "./knowledge-search.mjs";
 // ⚠ THE STEP CATALOG AND THE VALIDATOR ARE THE PLATFORM'S OWN, imported rather than
 // described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
 // through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
@@ -145,11 +146,45 @@ const searchReference = tool({
   run: async (args, can) => {
     const query = text(args.query);
     if (!query) return { ok: false, error: "no-query", say: "say what to look for" };
-    const found = await can.searchKnowledge({ query, limit: args.limit });
-    // NOTHING FOUND IS AN ANSWER AND NOT A FAILURE, and it is said in as many words so
-    // that a model does not read an empty list as the search having gone wrong.
-    return { ok: true, found: found.length, passages: found,
-      say: found.length ? `${found.length} passage(s) matched` : "nothing in the reference material matched that" };
+    /**
+     * ⚠ **READ THROUGH THE SHARED READER, ALTHOUGH THE STORE HAS ALREADY USED IT — because
+     * `can` IS INJECTED.** `makeCapabilities` applies `readSearch` on its way out, so on this
+     * repository's own surface the second call is the identity; a deployment supplying its own
+     * surface is what makes it worth making, and a tool that trusted the shape would throw a
+     * `TypeError` at a model instead of saying it could not tell. It is not a second reading:
+     * one function applied twice cannot disagree with itself.
+     */
+    const read = readSearch(await can.searchKnowledge({ query, limit: args.limit }));
+    const passages = read.excerpts;
+    /**
+     * NOTHING FOUND IS AN ANSWER AND NOT A FAILURE, and it is said in as many words so that a
+     * model does not read an empty list as the search having gone wrong.
+     *
+     * ⚠ **AND WHICH NOTHING IT IS, because one sentence covered three facts.** *"nothing in
+     * the reference material matched that"* was said whether the ask held nothing searchable,
+     * whether this agent has no reference material at all, or whether it has some and none of
+     * it matched — and only the last of the three is what those words claim. A model told the
+     * documents do not mention something asks the customer about their documents; told there
+     * are none, it asks them to add one; told its own phrase had nothing searchable in it, it
+     * asks again differently. Three next moves, so three sentences.
+     *
+     * **`searchOutcome` MAKES THE CHOICE, shared with the workflow's own `knowledge` step**, so
+     * the two cannot decide it differently — and the words are each their own, because this
+     * one is read by a model and that one by a person reading an execution's history.
+     *
+     * **THE SHAPE A MODEL WAS PROMISED IS UNCHANGED**: `found` is still the count and
+     * `passages` still the list. `searched` and `sources` ride beside them because they are
+     * what the sentence rests on, and a model that wants to check it can.
+     */
+    const say = {
+      "matched": `${passages.length} passage(s) matched`,
+      "not-searched": "there was nothing searchable in that — try ordinary words rather than only short ones",
+      "no-sources": "this agent has no reference material yet, so there was nothing to search",
+      "no-match": "nothing in the reference material matched that",
+      "unknown": "no passages came back, and whether there was anything to match is not something this can say",
+    }[searchOutcome(read)];
+    return { ok: true, found: passages.length, passages,
+      searched: read.searched, sources: read.sources, say };
   },
 });
 
@@ -234,6 +269,22 @@ const remember = tool({
   },
 });
 
+/**
+ * ⚠ **WHAT FORGETTING REACHES, FOR A DATABASE THAT DOES NOT SAY — and it is a FALLBACK, not
+ * a second copy.** `agent.delete_memory` answers this sentence and `forget` forwards it; this
+ * is what a deployment older than that answer gets, because a model told only "forgotten"
+ * tells somebody it was removed everywhere, which is false about two of the three places a
+ * memory exists. The SITE's route answers `null` there instead, deliberately: a screen showing
+ * nothing extra says nothing untrue, while a model composes prose from whatever it holds.
+ *
+ * **IT IS EXPORTED SO THAT IT CANNOT DRIFT FROM THE FUNCTION'S OWN WORDS.** The cross-product
+ * census in the site's `test/agent-send.test.mjs` reads the migration and compares them, which
+ * is the same treatment the memory caps already get for the same reason.
+ */
+export const FORGET_REACH =
+  "later runs will not see it; a run already under way keeps what it started with,"
+  + " and the history keeps whatever it quoted";
+
 const forget = tool({
   name: "forget",
   description: "Forget one remembered fact, by its name.",
@@ -264,19 +315,29 @@ const forget = tool({
      * **THE FIELDS COME FROM THE FUNCTION'S OWN ANSWER** rather than being written here, and
      * an answer that does not carry them is `null` rather than an invented set: a claim about
      * reach that this code composed would be a claim nothing verified.
+     *
+     * ⚠ **AND SO DO THE WORDS NOW, WHICH THIS FILE USED TO CLAIM AND NOT DO.** The sentence was
+     * a constant here and the site's own route wrote its own three fields out, so one delete
+     * had two accounts of what it reaches — and the fields were said to be undriftable while
+     * the sentence beside them was a second copy nothing compared. `agent.delete_memory`
+     * answers `note`, both doors read it, and a caller that composes another is a caller with
+     * a copy of it.
+     *
+     * **A FUNCTION THAT ANSWERS NO SENTENCE STILL GETS ONE**, because the reach is a fact about
+     * how forgetting works rather than about this row — and an older database answering nothing
+     * must not leave a model saying only "forgotten".
      */
     const reach = answer.affects && typeof answer.affects === "object" && !Array.isArray(answer.affects)
       ? answer.affects
       : null;
-    const REACH = "later runs will not see it; a run already under way keeps what it started with,"
-      + " and the history keeps whatever it quoted";
+    const REACH = text(answer.note) || FORGET_REACH;
     if (answer.repeat === true) {
       return { ok: true, forgot: answer.forgot === true, repeat: true, affects: reach,
         say: `that was already forgotten by this same request; it may have been written again since — ${REACH}` };
     }
     return { ok: true, forgot: answer.forgot === true, affects: reach,
       say: answer.forgot === true ? `forgotten — ${REACH}`
-        : "there was nothing remembered under that name" };
+        : `there was nothing remembered under that name — ${REACH}` };
   },
 });
 

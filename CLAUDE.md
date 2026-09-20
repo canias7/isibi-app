@@ -10108,3 +10108,77 @@ and the declarations TOGETHER.
 recorded one — **migration → engine → site** — and here the site is last for its usual reason: it is
 the only half a person touches, and a Check button whose answer the live engine composes differently
 would be two interpretations of one question, which is the thing this round exists to prevent.
+
+---
+
+## M14-4: the screen says what forgetting reached, and three nothings stop being one (2026-09-20)
+
+Owner: *"Complete knowledge and memory behavior across the whole flow… distinct outcomes for
+no matches, deleted sources, and unavailable storage… the interface accurately explains what
+Forget removes."* **The engine's half — the reading, the five outcomes and the two doors'
+partition — is in `agent-builder/CLAUDE.md`**; what belongs here is the site's.
+
+### ⚠ THE LAST HOP OF A CHAIN THAT WAS OTHERWISE WHOLE
+
+`agent.delete_memory` reaches exactly ONE of the three places a memory lives — no later run
+sees it, a run already under way keeps what it started with, the history keeps whatever it
+quoted — so *deleted is not erased*, and that is the one thing a person pressing **Forget**
+needs told. The chain for telling them existed at every layer but the last:
+
+| layer | state |
+|---|---|
+| the function's three booleans | answered, and guarded by a real-PostgreSQL check |
+| `/api/agent/memory-delete` forwarding them | forwarded, with a route guard demanding it |
+| the function's own SENTENCE | **never answered — `null` on every delete that has ever gone through it** |
+| `agentMemDelete` keeping it | **read as far as `j.error` and no further** |
+| the memory panel drawing it | **nothing** |
+
+So the row vanished and nothing said what that reached. *A value computed and never forwarded*,
+this repository's most-recorded defect, one hop from the reader — **and the route's own comment
+already said the sentence was the function's and could not drift**, which is what a claim looks
+like when only half of it was built.
+
+- **`agentMemSaid` IS THE SERVER'S SENTENCE AND NEVER ONE OF OURS.** A fallback written on the
+  screen would be a second account of what a delete does, in a second language, and the copy a
+  person reads is the one that drifts. A delete that answered none says only which name it
+  forgot — with no dangling em dash, which is what a blank appended to a lead-in produces.
+- **NAMED, because the list is about to redraw without it** and "Forgot *tone*" is the only
+  thing tying the sentence to what was pressed.
+- **DRAWN AS A HINT AND NEVER AN ERROR** — nothing went wrong — on `ag-hint`, which already has
+  a rule. A class of its own would be a design decision nobody made.
+- **IT IS THIS SCREEN'S NEWS, so it does not outlive what it was about**: cleared on opening
+  another agent's material and on saving a new fact, and an answer that lands after the screen
+  moved writes nothing at all — the same wall every other in-flight read here has.
+
+### The cross-product census: one sentence, and only one copy left
+
+`test/agent-send.test.mjs` — the one file that may load both products — reads the sentence out
+of the migration and compares it with the engine's exported `FORGET_REACH`, the same treatment
+the memory caps already get. **And it asserts the site has NO copy at all**, which is the
+deliberate asymmetry: a screen showing nothing extra says nothing untrue, while a model
+composes prose from whatever it holds, so leaving a model with only "forgotten" is the one
+reading that misleads.
+
+### Measured
+
+- **Site suite 6,870 → 6,876** (6,874 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-binding` 127 → **132** (five cases) and `agent-send` 73 → **74** (one).
+  **6,870 is HEAD's own number, measured in a clean worktree at `41a7ce5`** rather than read
+  off a note.
+- **`scripts/mutants/forget-reach.json`**: 13 entries, 1 comment-only control, every anchor
+  present exactly once by a pre-check before the run.
+- **SEVEN BREAKAGES DRIVEN ON THIS SIDE**, each caught by the case written for it: the note
+  dropped again, the sentence outliving its screen, a sentence of our own when the answer had
+  none, a success drawn as a failure, a late answer writing anyway, the route composing the
+  sentence, and the route dropping it. Ten more are the engine's and are recorded there.
+- **⚠ TWO NEEDLES OF MY OWN WERE TOO LOOSE AND BOTH REPORTED CORRECT CODE AS BROKEN**:
+  `/formal/` matches the composer's `placeholder="formal"`, so *"the forgotten memory is gone
+  from the list"* was asked of a screen where it really was gone — it reads the row's own
+  markup now; and the refusal sentence was matched with its apostrophe, which `esc` writes as
+  `&#39;`. *A needle that can match something else cannot prove a class*, and one that cannot
+  match what is really there proves nothing about its absence.
+
+**NOT MERGED AND NOT DEPLOYED.** The two migrations this rests on are unapplied, so the order
+when it goes is the recorded one — **migration → engine → site** — with the site last for its
+usual reason and one sharper than usual: this screen now SHOWS the function's sentence, and a
+site shipped first would draw nothing where a person expects an explanation.

@@ -1429,9 +1429,18 @@ const spec = [
   mForget("⚠ SQL/memory: a delete claims it reaches an execution already accepted",
     "      'acceptedRuns',    false,    -- each holds the snapshot it was accepted with",
     "      'acceptedRuns',    true,"),
+  // RE-ANCHORED, NOT APPEASED: the line gained the sentence beside it, so the closing parens
+  // moved. The property — a delete claiming it reached the journal — is unchanged.
   mForget("⚠ SQL/memory: a delete claims the history is erased too",
-    "      'runHistory',      false));  -- the journal is append-only and keeps what was quoted",
-    "      'runHistory',      true));"),
+    "      'runHistory',      false),   -- the journal is append-only and keeps what was quoted",
+    "      'runHistory',      true),"),
+  // ⚠ AND THE SENTENCE IS ITS OWN MUTANT, because the booleans and the words are read by
+  // different halves: a screen shows the note and a model quotes it, so a note that claims
+  // more than the booleans do is a delete reported as an erasure with three correct fields
+  // sitting beside it saying otherwise.
+  mForget("⚠ SQL/memory: the note claims forgetting erases it everywhere",
+    "    'note', 'later runs will not see it; a run already under way keeps what it started with, '",
+    "    'note', 'it is erased everywhere, '"),
   mForget("SQL/memory: a delete says it does not reach a later run, which is the one place it does",
     "      'futureRuns',      true,     -- no later snapshot carries it",
     "      'futureRuns',      false,"),

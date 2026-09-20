@@ -4621,3 +4621,171 @@ test("⚠ CHECK READS IT THROUGH WITHOUT SAVING IT, and the three answers read d
   await late.w.ev("agentAutoCheckNow()"); await settle();
   assert.match(late.w.s.document.getElementById("viewAgents").innerHTML, /Read it through: 1 step,/);
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// WHAT FORGETTING REACHES, ON THE SCREEN
+//
+// ⚠ THE DEFECT THIS SECTION EXISTS FOR IS THE LAST HOP OF A CHAIN THAT WAS OTHERWISE WHOLE.
+// `agent.delete_memory` answers a sentence saying that a delete reaches ONE of the three
+// places a memory lives — no later run sees it, a run already under way keeps what it started
+// with, the history keeps whatever it quoted — and `/api/agent/memory-delete` forwards it,
+// with a route guard demanding that it does. The screen read as far as `j.error` and no
+// further, so a person pressed Forget, the row vanished, and *deleted is not erased* reached
+// nobody. A value computed and never forwarded, one hop from the reader.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** The knowledge/memory screen, open, with the routes it really reads. */
+async function withMemory({ memories = [MEM], deleteAnswer = DELETED, deleteFails = null } = {}) {
+  const posts = [];
+  const w = loadScreen({
+    answer: (p, init) => {
+      const body = init?.body ? JSON.parse(init.body) : {};
+      if (p.startsWith("/api/agent/list")) {
+        return okRes({ ok: true, agents: [{ id: "A", name: "Shop", instructions: "help", created: 1, updated: 1, preview: "", status: "active", tools: [] }], tools: [] });
+      }
+      if (p.startsWith("/api/agent/knowledge?")) return okRes({ ok: true, agent: "A", sources: [], max: 20 });
+      if (p.startsWith("/api/agent/memory?")) {
+        return okRes({ ok: true, agent: "A", memories: posts.some((x) => x.path === "/api/agent/memory-delete")
+          ? memories.filter((m) => m.key !== "tone") : memories, max: 200, valueMax: 4000 });
+      }
+      posts.push({ path: p, body });
+      if (p === "/api/agent/memory-delete") {
+        if (deleteFails) return badRes(deleteFails);
+        return okRes({ ok: true, agent: "A", key: body.name, ...deleteAnswer });
+      }
+      return okRes({ ok: true });
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentKnows("A")'); await settle();
+  return { w, posts };
+}
+
+const MEM = { key: "tone", value: "formal", version: 1, source: "person", updatedAt: "2026-09-18T09:00:00Z" };
+/** What `agent.delete_memory` really answers, through the route that forwards it. */
+const DELETED = {
+  affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
+  note: "later runs will not see it; a run already under way keeps what it started with, and the history keeps whatever it quoted",
+};
+const memHtml = (w) => w.s.document.getElementById("viewAgents").innerHTML;
+
+test("⚠ FORGETTING SAYS WHAT IT REACHED, in the words the database answered", async () => {
+  const { w, posts } = await withMemory();
+  assert.match(memHtml(w), /tone/, "the memory was not on screen to forget");
+
+  await w.ev('agentMemDelete("tone")'); await settle();
+  assert.deepEqual(posts.filter((p) => p.path === "/api/agent/memory-delete").map((p) => p.body),
+    [{ agent: "A", name: "tone" }]);
+
+  const html = memHtml(w);
+  // THE THREE THINGS A PERSON HAS TO BE TOLD, and every one of them is the function's own.
+  assert.match(html, /Forgot “tone”/, "nothing said which one was forgotten");
+  assert.match(html, /later runs will not see it/);
+  assert.match(html, /already under way keeps what it started with/);
+  assert.match(html, /history keeps whatever it quoted/);
+  // AND IT IS NOT DRAWN AS A FAILURE: nothing went wrong, so it is a hint and not an error.
+  assert.doesNotMatch(html, /ag-err[^>]*>[^<]*Forgot/);
+  /**
+   * THE LIST REDREW WITHOUT IT, which is what makes the sentence about a thing that happened.
+   *
+   * ⚠ ASKED ON THE ROW'S OWN MARKUP, because `/formal/` matches the composer's `placeholder`
+   * — so the first draft of this line reported a correct screen as broken. *A needle that can
+   * match something else cannot prove a class.*
+   */
+  assert.doesNotMatch(html, /data-act="agent-mem-delete" data-key="tone"/,
+    "the forgotten memory is still listed");
+  assert.match(html, /Nothing remembered yet/);
+});
+
+test("⚠ THE SENTENCE IS THE SERVER'S — a screen that wrote its own would be a second account", async () => {
+  // A DIFFERENT SENTENCE, from the same field. If the screen composed one, this would be
+  // whatever the screen thinks forgetting does rather than what this delete really did.
+  const { w } = await withMemory({ deleteAnswer: {
+    affects: { futureRuns: true, acceptedRuns: false, runHistory: false },
+    note: "it stays wherever it was already quoted",
+  } });
+  await w.ev('agentMemDelete("tone")'); await settle();
+  assert.match(memHtml(w), /it stays wherever it was already quoted/,
+    "the screen composed the reach instead of showing what the delete said");
+  assert.doesNotMatch(memHtml(w), /later runs will not see it/, "a sentence of our own won");
+});
+
+test("⚠ A DELETE THAT SAID NOTHING INVENTS NOTHING, and a refused one says only that", async () => {
+  /**
+   * ⚠ **A ROUTE THAT ANSWERED NO SENTENCE MUST NOT BE GIVEN ONE HERE.** `/api/agent/memory-delete`
+   * answers `note: null` for a database older than the answer, and a fallback written on this
+   * screen would be a second account of what a delete reaches — in a second language, with the
+   * copy a person reads being the one that drifts. So it says which name it forgot and stops.
+   */
+  for (const junk of [{ note: null }, { note: "" }, { note: "   " }, { note: 7 }, {}]) {
+    const { w } = await withMemory({ deleteAnswer: junk });
+    await w.ev('agentMemDelete("tone")'); await settle();
+    const html = memHtml(w);
+    assert.match(html, /Forgot “tone”\./, `note ${JSON.stringify(junk.note)} left nothing said at all`);
+    assert.doesNotMatch(html, /later runs will not see it/,
+      `note ${JSON.stringify(junk.note)} was answered with a sentence of ours`);
+    // AND NO DANGLING DASH, which is what a blank sentence appended to a lead-in produces.
+    assert.doesNotMatch(html, /Forgot “tone” —\s*</, "a blank reach was drawn as an em dash and nothing");
+  }
+
+  // A REFUSAL IS AN ERROR AND NEVER A REACH: nothing was forgotten, so there is nothing to
+  // explain about what forgetting reaches.
+  const { w } = await withMemory({ deleteFails: "that memory isn't here" });
+  await w.ev('agentMemDelete("tone")'); await settle();
+  // ⚠ MATCHED WITHOUT THE APOSTROPHE: `esc` writes it as `&#39;`, so the literal sentence is
+  // not what reaches the markup — the screen is right and the first needle was not.
+  assert.match(memHtml(w), /class="ag-err">that memory isn/);
+  assert.doesNotMatch(memHtml(w), /Forgot “tone”/, "a refused delete was reported as one that happened");
+  assert.doesNotMatch(memHtml(w), /later runs will not see it/);
+});
+
+test("⚠ THE SENTENCE IS THIS SCREEN'S NEWS, so it does not outlive what it was about", async () => {
+  const { w } = await withMemory();
+  await w.ev('agentMemDelete("tone")'); await settle();
+  assert.match(memHtml(w), /Forgot “tone”/);
+
+  // OPENING ANOTHER AGENT'S MATERIAL CLEARS IT — a sentence about a delete somewhere else is
+  // one a person reads as being about what is in front of them.
+  await w.ev('agentKnows("A")'); await settle();
+  assert.doesNotMatch(memHtml(w), /Forgot “tone”/, "the last delete's news survived a screen change");
+
+  // AND SO DOES SAVING SOMETHING: a new fact is not the delete's news.
+  const again = await withMemory();
+  await again.w.ev('agentMemDelete("tone")'); await settle();
+  assert.match(memHtml(again.w), /Forgot “tone”/);
+  again.w.s.document.getElementById("agMemName").value = "greeting";
+  again.w.s.document.getElementById("agMemValue").value = "hello";
+  await again.w.ev("agentMemSave()"); await settle();
+  assert.doesNotMatch(memHtml(again.w), /Forgot “tone”/, "a save left the delete's sentence standing");
+});
+
+test("⚠ AN ANSWER THAT LANDS AFTER THE SCREEN MOVED SAYS NOTHING", async () => {
+  /**
+   * The same wall every other in-flight read on this screen has: a delete is a REQUEST, and
+   * its answer can arrive after somebody has opened another agent's material. Writing the
+   * sentence then would put news about one agent's memory on another's screen.
+   */
+  const gate = held(okRes({ ok: true, agent: "A", key: "tone", ...DELETED }));
+  const w = loadScreen({
+    answer: (p, init) => {
+      const body = init?.body ? JSON.parse(init.body) : {};
+      if (p.startsWith("/api/agent/list")) {
+        return okRes({ ok: true, agents: [
+          { id: "A", name: "Shop", instructions: "h", created: 1, updated: 1, preview: "", status: "active", tools: [] },
+          { id: "B", name: "Yard", instructions: "h", created: 1, updated: 1, preview: "", status: "active", tools: [] },
+        ], tools: [] });
+      }
+      if (p.startsWith("/api/agent/knowledge?")) return okRes({ ok: true, agent: "A", sources: [], max: 20 });
+      if (p.startsWith("/api/agent/memory?")) return okRes({ ok: true, agent: "A", memories: [MEM], max: 200, valueMax: 4000 });
+      if (p === "/api/agent/memory-delete") return gate.p;
+      return okRes({ ok: true });
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentKnows("A")'); await settle();
+  const pressing = w.ev('agentMemDelete("tone")');
+  await w.ev('agentKnows("B")'); await settle();
+  gate.release(); await pressing; await settle();
+  assert.doesNotMatch(memHtml(w), /Forgot “tone”/, "a delete's news was written onto another agent's screen");
+  assert.equal(w.val("agentMemSaid"), "", "the sentence was kept for a screen nobody is on");
+});

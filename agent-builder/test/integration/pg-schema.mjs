@@ -2493,27 +2493,57 @@ try {
        ('${K2}','t1','${AG_ON}','Opening hours','The workshop is open eight until five on weekdays.'),
        ('${KT2}','t2','${AG_T2}','Their prices','Boiler service is 200 pounds.');`, asOwner);
 
+  /**
+   * ⚠ **RE-ANCHORED, NOT APPEASED — the function answers ONE OBJECT rather than a set now, so
+   * every `from agent.search_knowledge(...) t` here counted rows of a scalar.** The properties
+   * are unchanged and there are two more of them, because the three nothings that used to
+   * arrive as one empty list are the whole point of the new shape.
+   */
+  const sk = (tenant, agent, q, lim = 5) =>
+    `agent.search_knowledge('${tenant}','${agent}',${q === null ? "null" : `'${q}'`},${lim})`;
+  const titles = (tenant, agent, q) => jget(
+    `select coalesce(string_agg(e->>'title', ',' order by e->>'title'),'')
+       from jsonb_array_elements(${sk(tenant, agent, q)} -> 'excerpts') e;`);
+  const facts = (tenant, agent, q) => jget(
+    `select (a->>'searched') || '/' || (a->>'sources') || '/' || jsonb_array_length(a->'excerpts')
+       from (select ${sk(tenant, agent, q)} as a) x;`);
+
   // ⚠ THE SEARCH IS POSTGRESQL'S OWN, and this is the one place to see it: `pricing`
   // finds `price` because the `english` configuration STEMS, which `simple` would not.
-  const hit = jget(`select coalesce(string_agg(t->>'title', ',' order by t->>'title'),'')
-                      from agent.search_knowledge('t1','${AG_ON}','boiler pricing',5) t;`);
+  const hit = titles("t1", AG_ON, "boiler pricing");
   check("⚠ the search really searches — one source matched, BY STEM", hit === "Price list", hit);
+  const one = jget(`select e->>'text' || '|' || (e->>'version')
+                      from jsonb_array_elements(${sk("t1", AG_ON, "boiler")} -> 'excerpts') e limit 1;`);
+  // ⚠ TWO PROPERTIES, ASKED SEPARATELY. My own first needle was `/95\|1$/`, which demands the
+  // figure sit immediately before the version — the headline is a PASSAGE, so `95` is in the
+  // middle of it, and a correct answer read as broken.
   check("...and the answer is the MATCHED passage with its version",
-    /95/.test(jget(`select t->>'text' from agent.search_knowledge('t1','${AG_ON}','boiler',5) t limit 1;`)) &&
-    jget(`select t->>'version' from agent.search_knowledge('t1','${AG_ON}','boiler',5) t limit 1;`) === "1");
-  // ⚠ A QUERY WITH NOTHING SEARCHABLE IN IT FINDS NOTHING, NOT EVERYTHING. "There was
-  // nothing to look for" is a different answer from "there was, and it matched nothing".
-  check("⚠ a query of nothing but stopwords finds NOTHING",
-    jget(`select count(*) from agent.search_knowledge('t1','${AG_ON}','the and of',5) t;`) === "0");
-  check("...and so does an empty one",
-    jget(`select count(*) from agent.search_knowledge('t1','${AG_ON}','   ',5) t;`) === "0");
+    /\b95\b/.test(one) && /\|1$/.test(one), one);
+  /**
+   * ⚠ **A QUERY WITH NOTHING SEARCHABLE IN IT FINDS NOTHING, NOT EVERYTHING — AND NOW SAYS SO.**
+   * "There was nothing to look for", "this agent has nothing to look IN" and "there was, and it
+   * matched nothing" are three different things to tell somebody, and they used to arrive as
+   * one empty list. `searched/sources/excerpts` is what separates them.
+   */
+  check("⚠ a query of nothing but stopwords finds NOTHING, and says it searched for nothing",
+    facts("t1", AG_ON, "the and of") === "false/2/0", facts("t1", AG_ON, "the and of"));
+  check("...and so does an empty one", facts("t1", AG_ON, "   ") === "false/2/0");
+  check("...and so does a null one", facts("t1", AG_ON, null) === "false/2/0");
+  // AND THE ONE THAT IS A FACT ABOUT THE DOCUMENTS: it searched, there are sources, none matched.
+  check("⚠ a real query that matches nothing is TOLD APART from nothing to search for",
+    facts("t1", AG_ON, "kayaks") === "true/2/0", facts("t1", AG_ON, "kayaks"));
+  // AND AN AGENT WITH NOTHING TO SEARCH IS ITS OWN ANSWER, which is what stops a customer being
+  // told their documents do not mention something they have never uploaded.
+  check("⚠ an agent with NO reference material answers sources 0, not 'nothing matched'",
+    facts("t1", AG_OFF, "boiler") === "true/0/0", facts("t1", AG_OFF, "boiler"));
   check("⚠ the account next door searching the same agent finds nothing at all",
-    jget(`select count(*) from agent.search_knowledge('t2','${AG_ON}','boiler',5) t;`) === "0");
-  check("...and its OWN agent finds only its own",
-    jget(`select coalesce(string_agg(t->>'title',','),'') from agent.search_knowledge('t2','${AG_T2}','boiler',5) t;`)
-      === "Their prices");
+    facts("t2", AG_ON, "boiler") === "true/0/0", facts("t2", AG_ON, "boiler"));
+  check("...and its OWN agent finds only its own", titles("t2", AG_T2, "boiler") === "Their prices");
   check("a search of ANOTHER agent of the same account finds nothing",
-    jget(`select count(*) from agent.search_knowledge('t1','${AG_OFF}','boiler',5) t;`) === "0");
+    titles("t1", AG_OFF, "boiler") === "");
+  // AND `ok` IS ON IT, so a reader does not infer success from the shape of what came back.
+  check("the answer says it is one, rather than leaving a reader to infer it",
+    jget(`select ${sk("t1", AG_ON, "boiler")} ->> 'ok';`) === "true");
 
   // ⚠ TWO SOURCES OF ONE NAME IS A RETRIEVAL ANSWER NOBODY CAN ACT ON — which of them?
   refused("two sources of one name per agent is refused, case-insensitively",
@@ -2717,6 +2747,24 @@ try {
     fgReach === "true/false/false keys=acceptedRuns,futureRuns,runHistory", fgReach);
   check("...and it names the fact it forgot, so an answer can be tied to an ask",
     new RegExp(`"key"\\s*:\\s*"${FG_KEY}"`).test(fgAnswer), fgAnswer);
+  /**
+   * ⚠ **AND THE SENTENCE THOSE BOOLEANS ARE ABOUT IS THE FUNCTION'S TOO, which it did not
+   * answer until now.** MEASURED before: `note` was NULL on every delete that has ever gone
+   * through this function, while the site's route forwarded it and the agent's tool composed a
+   * constant of its own — so a person pressing Forget was shown three booleans and no
+   * explanation, and both products' notes claimed the words could not drift. The booleans are
+   * what a reader ACTS on; the sentence is what a screen SHOWS and a model quotes, and the
+   * fields are gone the moment somebody renders the note and nothing else.
+   */
+  const fgNote = jget(`select coalesce(agent.delete_memory('t1','${AG_ON}','${FG_KEY}') ->> 'note','<none>');`);
+  check("⚠ ...and the SENTENCE is the function's own, not each caller's",
+    fgNote.length > 40 && /later runs will not see it/.test(fgNote), fgNote);
+  check("⚠ ...and it claims no more than the booleans do — nothing is said to be erased",
+    !/eras|everywhere|all runs|completely|wiped/i.test(fgNote), fgNote);
+  // AND IT NAMES THE TWO PLACES THAT KEEP WHAT THEY HAVE, which is the half a bare "deleted"
+  // leaves out and the half that makes "deleted is not erased" a thing somebody can read.
+  check("⚠ ...and it names BOTH places a delete does not reach",
+    /already under way/.test(fgNote) && /history/.test(fgNote), fgNote);
 
   check("1/3 — the row is gone, so it is not remembered any more",
     jget(`select count(*) from agent.agent_memory where tenant_id='t1' and agent_id='${AG_ON}' and key='${FG_KEY}';`)
@@ -4203,12 +4251,16 @@ try {
   jget(`insert into agent.agent_knowledge (id, tenant_id, agent_id, title, body)
         values (gen_random_uuid(),'${SW_T}','${SW_AG}','Prices','A boiler service is ninety-five pounds.'),
                (gen_random_uuid(),'${SW_T}','${SW_AG}','Hours','Open eight until five.');`);
-  check("THE CONTROL: a real query really finds something",
-    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','boiler',5);`) === "1");
+  // RE-ANCHORED, NOT APPEASED: one object rather than a set, so the count is the EXCERPTS'
+  // and the two branches are told apart by what they say rather than by both being empty.
+  const swSearch = (q) => jget(
+    `select (a->>'searched') || '/' || jsonb_array_length(a->'excerpts')
+       from (select agent.search_knowledge('${SW_T}','${SW_AG}',${q},5) as a) x;`);
+  check("THE CONTROL: a real query really finds something", swSearch("'boiler'") === "true/1", swSearch("'boiler'"));
   check("⚠ a query of nothing but stopwords finds NOTHING, not everything",
-    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','the and of',5);`) === "0");
+    swSearch("'the and of'") === "false/0", swSearch("'the and of'"));
   check("⚠ ...and an empty query finds nothing either, for its own reason",
-    jget(`select count(*) from agent.search_knowledge('${SW_T}','${SW_AG}','   ',5);`) === "0");
+    swSearch("'   '") === "false/0", swSearch("'   '"));
 
   // ── 12: A MEMORY'S SCOPE IS (ACCOUNT, AGENT) ──
   // ⚠ TWO ACCOUNTS SHARING AN AGENT ID is the only shape that separates the two scopes, and

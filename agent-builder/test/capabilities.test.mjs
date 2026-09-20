@@ -14,7 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
 import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS,
-         MAX_TOOL_INPUTS } from "../src/capability-tools.mjs";
+         MAX_TOOL_INPUTS, FORGET_REACH } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
@@ -478,7 +478,13 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
     for (const op of CAPABILITIES) {
       can[op] = async () => {
         asked.push(op);
-        if (op.startsWith("list") || op === "searchKnowledge") return [];
+        // ⚠ THE SEARCH ANSWERS THE REAL SHAPE, not a bare list. `agent.search_knowledge`
+        // answers one object carrying whether there was anything searchable and how many
+        // sources the agent has, and a seam answering a list would make every tool above it
+        // read `unknown` — a fake LESS capable than the thing it stands in for, in the field
+        // the three-way distinction turns on.
+        if (op === "searchKnowledge") return { ok: true, searched: true, sources: 1, excerpts: [] };
+        if (op.startsWith("list")) return [];
         if (op === "saveMemory") return { ok: true, saved: "created", memory: {} };
         if (op === "deleteMemory") return { ok: true, forgot: true };
         if (op === "setAutomationEnabled") return { ok: true, enabled: true };
@@ -706,6 +712,74 @@ test("⚠ WHY A RUN WAS NOT STARTED NAMES THE ANSWER THAT WAS WRONG, not merely 
   assert.equal(fine.ok, true, JSON.stringify(fine));
   assert.match(fine.say, /begins within the minute/);
 });
+test("⚠ `search_reference` SAYS WHICH NOTHING IT FOUND — one sentence covered three facts", async () => {
+  /**
+   * ⚠ **MEASURED BEFORE THIS: *"nothing in the reference material matched that"* was said
+   * whether the ask held nothing searchable, whether this agent has no reference material at
+   * all, or whether it has some and none of it matched.** Only the last of the three is what
+   * those words claim, and the three want opposite next moves from a model: ask the customer
+   * about their documents, ask them to add one, or ask again differently. So three sentences —
+   * four, with the one that blames nothing.
+   */
+  const tool = CAPABILITY_TOOLS.find((t) => t.name === "search_reference");
+  const say = async (answer) => {
+    const r = recorder(() => answer);
+    return await tool.run({ query: "boiler" }, { capabilities: r.can.forTenant(T).forAgent(AG) });
+  };
+  const matched = await say({ ok: true, searched: true, sources: 2, excerpts: [{ title: "Prices", text: "£95" }] });
+  const noMatch = await say({ ok: true, searched: true, sources: 3, excerpts: [] });
+  const noSources = await say({ ok: true, searched: true, sources: 0, excerpts: [] });
+  const notSearched = await say({ ok: true, searched: false, sources: 3, excerpts: [] });
+  const cannotSay = await say({ excerpts: [] });
+
+  // THE SHAPE A MODEL WAS PROMISED IS UNCHANGED: `found` is the count and `passages` the list.
+  assert.equal(matched.ok, true);
+  assert.equal(matched.found, 1);
+  assert.deepEqual(matched.passages, [{ title: "Prices", text: "£95" }]);
+  assert.match(matched.say, /1 passage\(s\) matched/);
+
+  // NOTHING FOUND IS AN ANSWER AND NOT A FAILURE — all four of them.
+  for (const [what, r] of [["no-match", noMatch], ["no-sources", noSources],
+                           ["not-searched", notSearched], ["unknown", cannotSay]]) {
+    assert.equal(r.ok, true, `${what} was reported as a failure`);
+    assert.equal(r.found, 0, `${what} reported passages`);
+    assert.deepEqual(r.passages, [], `${what} answered passages`);
+  }
+  assert.match(noMatch.say, /nothing in the reference material matched/);
+  assert.match(noSources.say, /no reference material yet/);
+  assert.match(notSearched.say, /nothing searchable/);
+  // ⚠ CANNOT-TELL BLAMES NOTHING. It is what an older database or an unreadable answer
+  // produces, and "your documents do not mention that" is the one claim it cannot make.
+  assert.doesNotMatch(cannotSay.say, /matched|no reference material|searchable/);
+  // AND THE FOUR ARE FOUR: two of them reading the same way is the distinction gone, which is
+  // exactly the state before this change.
+  assert.equal(new Set([noMatch.say, noSources.say, notSearched.say, cannotSay.say]).size, 4,
+    "two different nothings are worded the same");
+
+  // THE TWO FACTS THE SENTENCE RESTS ON RIDE BESIDE IT, so a model can check it — and they are
+  // the reading's, so a shape that says neither answers `null` rather than a guess.
+  assert.equal(noMatch.searched, true);
+  assert.equal(noMatch.sources, 3);
+  assert.equal(cannotSay.searched, null);
+  assert.equal(cannotSay.sources, null);
+
+  /**
+   * ⚠ **AND A SURFACE THAT ANSWERS SOMETHING ELSE ENTIRELY SAYS IT COULD NOT TELL, rather than
+   * throwing a `TypeError` at a model.** `can` is INJECTED, so a deployment supplying its own
+   * capability surface is what makes reading through the shared reader here worth doing — and a
+   * BARE LIST is the shape that predates the object, which is folded rather than dropped.
+   */
+  for (const odd of [undefined, null, [], "nope", 7]) {
+    const r = await say(odd);
+    assert.equal(r.ok, true, `${JSON.stringify(odd)} made the tool fail instead of saying so`);
+    assert.equal(r.found, 0);
+    assert.doesNotMatch(r.say, /matched that|no reference material/, `${JSON.stringify(odd)} blamed the documents`);
+  }
+  const legacy = await say([{ title: "Prices", text: "£95" }]);
+  assert.equal(legacy.found, 1, "a database older than the object shape lost its passages");
+  assert.equal(legacy.searched, null, "an old answer invented the two facts it does not carry");
+});
+
 test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thing removed", async () => {
   // MEASURED: a mutant hardcoding `forgot: true` SURVIVED, and the answer it produced was
   // self-contradictory — `forgot: true` beside "there was nothing remembered under that
@@ -760,6 +834,30 @@ test("⚠ `forget` SAYS WHETHER THERE WAS ONE — a name got wrong is not a thin
   assert.equal(rep.repeat, true);
   assert.match(rep.say, /may have been written again since/);
   assert.deepEqual(rep.affects, out.affects, "a repeat lost the reach the first call reported");
+
+  /**
+   * ⚠ **AND THE WORDS ARE THE FUNCTION'S OWN WHEN IT HAS THEM, which this file used to claim
+   * and not check.** The sentence was a constant here while the site's route read a `note`
+   * `agent.delete_memory` never set — so one delete had two accounts of what it reaches, and
+   * the FIELDS were guarded as undriftable while the sentence beside them was an unchecked
+   * copy. The fallback above is a compatibility fold for a database older than the answer;
+   * what a database that speaks says has to win.
+   */
+  const spoke = recorder(() => ({ ok: true, forgot: true, note: "it stays wherever it was quoted" }));
+  const fwd = await tool.run({ name: "tone" }, { capabilities: spoke.can.forTenant(T).forAgent(AG), operation: OP() });
+  assert.match(fwd.say, /it stays wherever it was quoted/,
+    "the tool composed the reach instead of forwarding what the delete really said");
+  assert.doesNotMatch(fwd.say, /later runs will not see it/, "the fallback won over the answer");
+  // THE FALLBACK IS THE CONTROL, and it is a constant this module EXPORTS so the cross-product
+  // census can compare it with the migration's own sentence rather than with a remembered one.
+  assert.match(out.say, new RegExp(FORGET_REACH.slice(0, 30).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    "a database that answered no sentence left the model with none");
+  // AND A BLANK OR JUNK `note` IS NOT A SENTENCE — it falls back rather than saying nothing.
+  for (const junk of ["", "   ", 7, null, [], {}]) {
+    const r = recorder(() => ({ ok: true, forgot: true, note: junk }));
+    const said = await tool.run({ name: "tone" }, { capabilities: r.can.forTenant(T).forAgent(AG), operation: OP() });
+    assert.match(said.say, /later runs will not see it/, `note ${JSON.stringify(junk)} left nothing said`);
+  }
 });
 
 test("a refusal from the database is passed on as a sentence, never as a success", async () => {

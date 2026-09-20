@@ -185,6 +185,52 @@ try {
   const rOut = toolResult(read.body.runId);
   check("reading one source whole gives the material", rOut?.ok === true && /gutter clean/.test(rOut.source.body));
 
+  /**
+   * ⚠ **AND WHICH NOTHING IT FOUND, ON A REAL DATABASE, THROUGH THE MODEL'S OWN TOOL.**
+   *
+   * One sentence — *"nothing in the reference material matched that"* — used to be said about
+   * three different facts: a phrase with nothing searchable in it, an agent with no reference
+   * material at all, and an agent that has some and none of it matched. Only the last is what
+   * those words claim, and the three want opposite next moves from whoever reads them.
+   *
+   * Every reading here is the REAL `agent.search_knowledge` over rows a person really saved,
+   * reached through the real capability store and the real tool.
+   */
+  const nothing = async (q) => toolResult((await ask(AG, `use search_reference query=${q}`)).body.runId);
+  const missed = await nothing("kayaks");
+  check("⚠ a real query that matches nothing says so — and says the material was searched",
+    missed?.ok === true && missed.found === 0 && missed.searched === true && missed.sources === 1
+      && /nothing in the reference material matched/.test(missed.say),
+    JSON.stringify(missed));
+  const stop = await nothing("the");
+  check("⚠ ...and a phrase with nothing searchable in it is a DIFFERENT answer",
+    stop?.ok === true && stop.searched === false && /nothing searchable/.test(stop.say)
+      && stop.say !== missed.say,
+    JSON.stringify(stop));
+
+  /**
+   * ⚠ **AND A DELETED SOURCE IS THE THIRD, which is the one that used to read as a claim about
+   * documents somebody no longer has.** The material is deleted through the PERSON's own route,
+   * so what is being read back is a real empty library rather than a fixture of one.
+   */
+  const dropped = await api("/api/agent/knowledge-delete", { body: { agent: AG, id: SOURCE } });
+  check("a person deletes their source through their own screen's route", dropped.status === 200,
+    JSON.stringify(dropped.body).slice(0, 120));
+  const bare = await nothing("boiler");
+  check("⚠ an agent whose material is GONE is told it has none, not that none of it matched",
+    bare?.ok === true && bare.found === 0 && bare.searched === true && bare.sources === 0
+      && /no reference material yet/.test(bare.say),
+    JSON.stringify(bare));
+  check("⚠ ...and the three nothings are three sentences, not one said three times",
+    new Set([missed.say, stop.say, bare.say]).size === 3,
+    [missed.say, stop.say, bare.say].join(" | "));
+  // AND THE SOURCE IS PUT BACK, because the sections below read this agent's material.
+  const back = await api("/api/agent/knowledge-save", {
+    body: { agent: AG, title: "Price list",
+      body: "Boiler service is £95 including parts. A gutter clean is £60 for a terrace." },
+  });
+  check("the source is put back for the sections below", back.status === 200);
+
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n3. ⚠ REMEMBERING IS A ROW, AND THE ROW IS WHAT IS CHECKED");
   // ═════════════════════════════════════════════════════════════════════════

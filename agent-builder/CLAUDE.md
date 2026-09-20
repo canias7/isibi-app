@@ -7807,3 +7807,172 @@ one nothing compared.
    quotes to somebody. Fixed in the product.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED, and this round adds no SQL at all.**
+
+---
+
+## M14-4: three nothings, three sentences, and the last hop of what forgetting reaches (2026-09-20)
+
+Owner: *"Complete knowledge and memory behavior across the whole flow… distinct outcomes for
+no matches, deleted sources, and unavailable storage… the interface accurately explains what
+Forget removes… Do not add a second database, a new vector service, or real model calls for
+this work."* **The site builder's half — the screen that shows what a forget reached — is in
+the root `CLAUDE.md`**; what belongs here is the engine's.
+
+**NOTHING WAS ADDED: no store, no service, no model call.** Two functions in existing
+migrations answer more than they did, one 80-line pure module holds the reading, and every
+other point of that item turned out to be already built — checked one by one rather than
+assumed, and the two that were not are the two below.
+
+### ⚠ ONE SENTENCE WAS SAID ABOUT THREE DIFFERENT FACTS
+
+`agent.search_knowledge` answered `setof jsonb`, so a caller could not tell these apart:
+
+| what really happened | what arrived |
+|---|---|
+| there was nothing searchable in the ask (a blank, or only stopwords) | zero rows |
+| this agent has no reference material at all | zero rows |
+| it has some and none of it matched | zero rows |
+
+**MEASURED through the real step before anything changed: a stopword-only query and a genuine
+miss produced BYTE-IDENTICAL outcomes**, both saying *searched for "X" and found nothing* —
+and only the third of the three is a claim about somebody's documents. The other two send a
+person to read documents that are not there, or to argue with a library that is empty.
+
+**AND THE COMMENT ABOVE IT CLAIMED THE FIRST TWO WERE DISTINCT.** `numnode(v_q) = 0` took its
+own branch and answered the same empty list, so the code was right about the branch and wrong
+about what it bought.
+
+**THE FUNCTION ANSWERS ONE OBJECT NOW** — `{ok, searched, sources, excerpts}` — and the two
+new facts are the database's because both are questions about rows: whether there was
+anything to look for, and how many sources this agent HAS, which is what separates *you have
+none* from *none of yours matched*. `ok` rides on it for the reason every other answer here
+carries one: a reader that infers success from the shape of what came back reads an outage as
+an empty library.
+
+### `src/knowledge-search.mjs` — its own file, for the reason `rest-profile.mjs` is
+
+**THREE MODULES READ THAT ANSWER AND MUST NOT DISAGREE ABOUT WHAT AN ABSENCE MEANS.**
+`capabilities.mjs` reads it for an agent's tools, `automation-store.mjs` for a workflow's
+`retrieve` seam, and `automations.mjs` turns it into the sentence a person reads in an
+execution's history. Neither store may import the other and `automations.mjs` is deliberately
+dependency-light, so the choice was one tiny module or three readings that agree until one is
+edited. `readSearch` moved out of `capabilities.mjs`, **with a note left where it was**,
+because a check that vanishes reads like a check that was dropped.
+
+- **`searched` AND `sources` ARE `null` WHEN THEY CANNOT BE READ.** Refuse, never coerce:
+  `Boolean("false")` is `true` and `Number("0")` is `0`, so a string in either field is
+  unread rather than believed. **Cannot-tell must never read as a value, and the value here
+  is "your documents do not match".**
+- **⚠ A BARE ARRAY IS THE OLD SHAPE AND ITS PASSAGES ARE KEPT — a DEPLOYMENT-ORDER decision
+  rather than tidiness.** A PostgREST call to a database that has not had the migration comes
+  back as a list; dropping those would make a working search answer nothing found, in silence,
+  for as long as the two halves were apart. Taken, the two new facts are honestly `null`, so a
+  genuine miss on an old database reads `unknown` — which is the honest answer and the one
+  this file exists to keep available.
+- **`searchOutcome` IS FIVE ANSWERS AND THE ORDER IS THE MEANING.** Passages FIRST, whatever
+  the flags say (an answer carrying excerpts and `searched: false` is self-contradictory, and
+  the passages are the part a caller can use). Then `not-searched` BEFORE the source count,
+  because it is true however big the library is — reversed, somebody with no documents is told
+  to fix their query and somebody with a bad query is told to upload something. And `unknown`
+  is reached by FALLING THROUGH rather than being tested for, so a reading nobody has heard of
+  cannot become one of the other four by accident.
+- **IT IS IDEMPOTENT**, which is what lets a tool read an INJECTED surface's answer through it
+  without that being a second reading: one function applied twice cannot disagree with itself.
+
+**THE DECISION IS SHARED AND THE WORDS ARE NOT, deliberately.** The step's sentence is read by
+a person looking at an execution's history and the tool's by a model deciding what to do next
+— the same division the engine's `description` and the site's `label` already take. So the
+census is the PARTITION: `test/knowledge-search.test.mjs` drives both doors over the same five
+shapes and requires them to split them the same way, requires neither to collapse two, **and
+requires the sentences to differ** — because a tool answering the step's prose would satisfy
+the partition while making the sharing the wrong thing.
+
+### ⚠ AND THE REACH SENTENCE WAS CLAIMED BY BOTH PRODUCTS AND BUILT BY NEITHER
+
+`agent.delete_memory` answered three booleans and no words. The site's route forwarded a
+`note` **the function never set** — MEASURED: `null` on every delete that has ever gone
+through it — and the agent's `forget` tool composed a constant of its own. So one delete had
+two accounts of what it reaches, **and both products' notes said the reach was read from the
+function's own answer and could not drift**, which is what a claim looks like when only half
+of it was built.
+
+- **THE FUNCTION ANSWERS `note` NOW**, and both doors read it. A caller that composes another
+  is a caller with a copy of it.
+- **THE ENGINE KEEPS A FALLBACK AND THE SITE DOES NOT, and the asymmetry is stated.** A screen
+  showing nothing extra says nothing untrue; a model composes prose from whatever it holds, so
+  leaving it with only "forgotten" is the one reading that misleads. `FORGET_REACH` is
+  EXPORTED so the cross-product census in the site's `test/agent-send.test.mjs` compares it
+  with the migration's own sentence — the same treatment the memory caps already get.
+- **AND THE NOTE MAY CLAIM NO MORE THAN THE BOOLEANS DO**, asserted on a real PostgreSQL:
+  nothing in it may say *erased*, *everywhere*, *all runs* or *completely*.
+
+### Measured
+
+- **Engine suite 595 → 600**, 0 failed, and the arithmetic closes exactly:
+  `knowledge-search.test.mjs` **3** (new), `automations.test.mjs` 110 → 111,
+  `capabilities.test.mjs` 48 → 49. **595 is HEAD's own number, measured in a clean worktree at
+  `41a7ce5`** rather than read off a note.
+  **⚠ AND THIS LINE READ 599 UNTIL THE LAST RUN** — stamped after four of the five cases
+  existed, which is this directory's first rule broken in the entry that quotes it. *Stamp
+  measured numbers only AFTER the run.*
+- **Real PostgreSQL (`npm run test:pg`): 1,114 → 1,121, 0 failed**, and that closes exactly too
+  (+4 for the search's own answers, +3 for the note). **1,114 is HEAD's, measured in the same
+  worktree.**
+- **`verify:wf` 157 → 159** and **`verify:tools` 148 → 154**, both 0 FAIL. The six are section
+  2's new block: the three nothings driven through the REAL search over rows a person really
+  saved, **including a DELETED source** — deleted through the person's own route, so what is
+  read back is a real empty library rather than a fixture of one — and the census that the
+  three sentences are three.
+- **`verify:edits` 107 · `chat` 126 · `auto` 70 · `triggers` 98 · `connections` 76 ·
+  `controls` 71 · `ops` 75 · `integration` 89 · `send` 97 · `conversation` 79 — every one
+  green at its recorded count**, which is the control that this round broke nothing. `FAIL`
+  counted on the LEADING token, because `grep -c FAIL` matches check LABELS containing the
+  word and has reported green runs as failing here twice.
+- **Sweep spec 708 → 722 entries (11 controls → 711 product mutants)**, every anchor unique by
+  the generator's own pre-check.
+- **SEVENTEEN BREAKAGES DRIVEN ONE AT A TIME**, each caught by the case written for it: the
+  note ignored, the tool collapsing the three, the step collapsing them, a coerced flag, the
+  legacy fold dropped, the source count asked first, a flag outranking real passages,
+  cannot-tell read as a miss, the seam dropping both facts, the screen dropping the note, the
+  sentence outliving its screen, a sentence of our own, a success drawn as a failure, a late
+  answer writing anyway, the fallback drifting from the function, and the site carrying a copy.
+
+### ⚠ A RED PROOF CAME BACK GREEN, and that is the finding worth keeping
+
+Cutting `searched` and `sources` out of `automation-store.mjs`'s `search()` answer **changed
+nothing any test could see.** Every other case fakes `retrieve` directly, so the one hop
+between the database's answer and the executor was unguarded: the step could be perfect, the
+reader could be perfect, and with that hop dropped every nothing reads `unknown` again. *A
+value computed and never forwarded*, this repository's most-recorded defect, in the seam whose
+whole job is to carry the answer.
+
+`test/automations.test.mjs` drives the real store against a fake `fetch` now — four answers,
+including the legacy set — and the mutant dies.
+
+### ⚠ Four instrument faults of my own, every one the file being right
+
+1. **`isText` IS NOT DECLARED IN `capability-tools.mjs`** — that file's helper is `text`. The
+   parse check passes a free identifier by construction; this directory's own recorded trap,
+   caught before the free-identifier walker had to.
+2. **MY OWN CENSUS READER WAS BOUNDED BY THE NEXT SEMICOLON, AND THE SENTENCE CONTAINS ONE**
+   (*"later runs will not see it; a run already…"*), so it read back two words long and
+   reported a correct function as answering nothing. The adjacent literals are taken directly
+   now, which is SQL's own rule for making them one string — **and whitespace alone will not
+   do it, a NEWLINE is required**, which is what made the migration fail to apply on the first
+   try.
+3. **A NEEDLE THAT MATCHED THE COMPOSER'S PLACEHOLDER.** `/formal/` matches
+   `placeholder="formal"`, so "the forgotten memory is gone from the list" was asserted
+   against a screen where it really was gone. Asked on the row's own markup.
+4. **AND TWO ASSERTIONS PINNED A SPELLING RATHER THAN A PROPERTY, both re-anchored**: the
+   cross-product cap census pinned a SINGLE SPACE after `v_limit`, which alignment moved; and
+   the stopword assertion was pinned to a bare `return;`, which is the property written as
+   syntax — it reads the two branches for what they ANSWER now, and asserts the matching
+   branch is the only one that touches the index.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** Both migrations edited are unapplied
+(`20260917120000`, `20260918000000` — the round-number naming is this folder's tell), edited in
+place. When they go the order is the recorded one — **migration → engine → site** — and here
+every link has its own reason: the migration first because the engine's `readSearch` folds a
+bare array but the SITE's `memory-delete` route answers a `note` only the new function sets;
+the engine before the site because the site's screen now SHOWS that sentence, and a screen
+showing nothing where a person expects an explanation is the gap this round closed.

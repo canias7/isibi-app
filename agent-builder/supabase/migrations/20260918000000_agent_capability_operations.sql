@@ -223,9 +223,18 @@ begin
    *   * the JOURNAL keeps whatever was quoted. An entry is append-only by trigger, and a
    *     history that could be edited by forgetting a fact would be a history nobody can audit.
    *
-   * **SO `deleted` IS NOT `erased`, AND THE ANSWER SAYS SO IN ITS OWN FIELDS** rather than
-   * leaving a caller to write "removed everywhere" on a screen. A sentence is the caller's;
-   * these three booleans are what it has to be true about.
+   * **SO `deleted` IS NOT `erased`, AND THE ANSWER SAYS SO IN ITS OWN FIELDS AND IN ITS OWN
+   * WORDS.** The booleans are what a reader acts on; `note` is the sentence, and it is HERE
+   * rather than in each caller.
+   *
+   * ⚠ **IT USED TO SAY "a sentence is the caller's", AND THAT COST TWO DIFFERENT ACCOUNTS OF
+   * ONE FACT.** The agent's `forget` tool composed its own constant and the site's route read a
+   * `note` this function never set — MEASURED: `note` was `null` on every delete that has ever
+   * gone through it, so a person pressing Forget was shown three booleans and no explanation at
+   * all, while a model was shown a sentence written somewhere else. **Both products' notes then
+   * claimed the reach was read from this function's own answer and could not drift**, which is
+   * what a claim looks like when only half of it was built. One sentence, one place, and a
+   * caller that composes another is a caller with a copy of it.
    *
    * FORGETTING SOMETHING THAT IS NOT THERE IS NOT A FAILURE, and saying which happened is
    * what lets a caller tell a name it got wrong from one it had already forgotten.
@@ -235,7 +244,13 @@ begin
     'affects', jsonb_build_object(
       'futureRuns',      true,     -- no later snapshot carries it
       'acceptedRuns',    false,    -- each holds the snapshot it was accepted with
-      'runHistory',      false));  -- the journal is append-only and keeps what was quoted
+      'runHistory',      false),   -- the journal is append-only and keeps what was quoted
+    -- ⚠ THE SENTENCE THE BOOLEANS ABOVE ARE ABOUT, and it claims nothing they do not: it says
+    -- what will not happen again, and names the two places that keep what they already have.
+    -- ⚠ TWO ADJACENT LITERALS SEPARATED BY A NEWLINE ARE ONE STRING — SQL's own rule, which
+    -- is how a sentence this long fits a line. Whitespace alone will NOT do it.
+    'note', 'later runs will not see it; a run already under way keeps what it started with, '
+            'and the history keeps whatever it quoted');
 end; $$;
 
 comment on function agent.delete_memory(text, uuid, text) is

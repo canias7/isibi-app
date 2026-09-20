@@ -189,6 +189,24 @@ create trigger agent_knowledge_touched
 -- read the emptiness as "no filter" would hand back every document an agent has. It is
 -- refused here by name, so the emptiness is an answer rather than a fall-through.
 --
+-- ⚠ **AND IT ANSWERS ONE OBJECT RATHER THAN A SET, BECAUSE THREE DIFFERENT NOTHINGS USED TO
+-- ARRIVE AS THE SAME EMPTY LIST.** This returned `setof jsonb`, so "there was nothing to
+-- search for", "this agent has no reference material at all" and "it has some and none of it
+-- matched" were one answer: zero rows. MEASURED through the real step before this changed —
+-- a stopword-only query and a genuine miss produced BYTE-IDENTICAL outcomes, and the note on
+-- both said *searched for X and found nothing*, which is a claim about the customer's own
+-- documents in the one case where nothing was searched at all.
+--
+-- **The comment above this one claimed the two were distinct and they were not**: `numnode = 0`
+-- took a different branch and answered the same thing. So the two facts a reader cannot
+-- reconstruct now travel with the excerpts — `searched` (was there anything to look for) and
+-- `sources` (how many documents this agent HAS, which is what separates "you have none" from
+-- "none of yours matched"). Both are the DATABASE's, because both are questions about rows.
+--
+-- **`ok` IS ON IT for the same reason every other answer here carries one**: a reader that
+-- has to infer success from the shape of what came back is one that reads an outage as an
+-- empty library.
+--
 -- **`stable`, not `volatile`**, and `security definer` with the search path pinned empty:
 -- it is a read the server does on a tenant's behalf, and the tenant is an ARGUMENT, which
 -- is only safe because no client role can execute it.
@@ -199,28 +217,45 @@ create or replace function agent.search_knowledge(
   p_agent_id uuid,
   p_query    text,
   p_limit    integer default 5
-) returns setof jsonb
+) returns jsonb
   language plpgsql stable security definer set search_path = '' as $$
 declare
-  v_q     tsquery;
-  v_limit integer := least(greatest(coalesce(p_limit, 5), 1), 20);
+  v_q       tsquery;
+  v_limit   integer := least(greatest(coalesce(p_limit, 5), 1), 20);
+  v_sources integer;
+  v_rows    jsonb;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'search_knowledge: tenant must be a non-empty string';
   end if;
+
+  /**
+   * HOW MUCH THERE IS TO SEARCH, counted whatever the query turns out to be — because it is
+   * the fact that separates an agent with no reference material from one whose material does
+   * not match, and a caller cannot ask for it afterwards without a second round trip.
+   */
+  select count(*) into v_sources
+    from agent.agent_knowledge k
+   where k.tenant_id = p_tenant and k.agent_id = p_agent_id;
+
   if p_query is null or btrim(p_query) = '' then
-    return;   -- NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every document.
+    -- NOTHING SEARCHED FOR IS NOTHING FOUND, and it is not every document.
+    return jsonb_build_object('ok', true, 'searched', false, 'sources', v_sources,
+                              'excerpts', jsonb_build_array());
   end if;
 
   v_q := plainto_tsquery('english', p_query);
-  -- A QUERY MADE ENTIRELY OF STOPWORDS. `numnode` counts the nodes in the parsed query,
-  -- so zero is "there was nothing to look for" — distinct from "there was, and it matched
-  -- nothing", which the loop below answers by returning no rows.
+  -- A QUERY MADE ENTIRELY OF STOPWORDS. `numnode` counts the nodes in the parsed query, so
+  -- zero is "there was nothing to look for" — and it now SAYS so, where before it took its
+  -- own branch to produce the same empty list a genuine miss produces.
   if v_q is null or numnode(v_q) = 0 then
-    return;
+    return jsonb_build_object('ok', true, 'searched', false, 'sources', v_sources,
+                              'excerpts', jsonb_build_array());
   end if;
 
-  return query
+  select coalesce(jsonb_agg(e.row order by e.rank desc, e.name asc), jsonb_build_array())
+    into v_rows
+  from (
     select jsonb_build_object(
              'id',      k.id,
              'title',   k.title,
@@ -229,20 +264,27 @@ begin
              -- THE MATCHED PASSAGE, not the start of the document.
              'text',    ts_headline('english', k.body, v_q,
                           'MaxFragments=2, MinWords=8, MaxWords=40, StartSel="", StopSel="", FragmentDelimiter=" … "'),
-             'rank',    round(ts_rank(to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')), v_q)::numeric, 6))
+             'rank',    round(ts_rank(to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')), v_q)::numeric, 6)) as row,
+           ts_rank(to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')), v_q) as rank,
+           lower(k.title) as name
       from agent.agent_knowledge k
      where k.tenant_id = p_tenant
        and k.agent_id = p_agent_id
        and to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')) @@ v_q
      -- BEST FIRST, THEN BY NAME, so two equally good matches come back in a stable order
-     -- rather than in whatever order the scan happened to produce.
+     -- rather than in whatever order the scan happened to produce. The ORDER is applied in
+     -- the aggregate as well, because `jsonb_agg` over a subquery is not obliged to keep it.
      order by ts_rank(to_tsvector('english', coalesce(k.title, '') || ' ' || coalesce(k.body, '')), v_q) desc,
               lower(k.title) asc
-     limit v_limit;
+     limit v_limit
+  ) e;
+
+  return jsonb_build_object('ok', true, 'searched', true, 'sources', v_sources,
+                            'excerpts', v_rows);
 end; $$;
 
 comment on function agent.search_knowledge(text, uuid, text, integer) is
-  'Keyword search over one agent''s reference material, answering the matched passage with its source name and version. A query with no searchable words answers nothing rather than everything.';
+  'Keyword search over one agent''s reference material, answering the matched passages with their source name and version, whether there was anything searchable to look for, and how many sources the agent has. A query with no searchable words answers nothing rather than everything, and says which of the two it was.';
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 3. MEMORY — facts and preferences that persist between conversations

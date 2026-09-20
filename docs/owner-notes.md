@@ -13318,3 +13318,43 @@ agent quotes back to somebody. Fixed.
 tests 6,865 → 6,870; the agent engine's own 591 → 595. The end-to-end check that drives both doors
 against a real database went 74 → 107 checks, all passing. Two mutation sweeps: 17 breakages caught
 on this side and 16 on the engine's, nothing surviving either.
+
+## M14-4 — "your documents don't mention that" was said about three different things (2026-09-20)
+
+**A search that found nothing used to say one sentence, whatever the reason.** Measured before I
+changed anything: asking with a phrase made of nothing but short words, and asking a real question
+of an agent that has documents, produced *identical* answers — *searched for "X" and found nothing*.
+So did asking an agent that has no documents at all. Only one of those three is a fact about
+somebody's reference material, and the three want opposite things done about them: ask again
+differently, upload something, or look at what you have.
+
+Three sentences now, and a fourth that blames nothing when the platform genuinely cannot tell.
+The database says which of the three it was; one small shared reader turns that into a choice, so
+the chat and the automation history can never decide it differently — while the WORDS stay
+separate, because one is read by a person looking at a history and the other by the agent deciding
+what to do next.
+
+**And the bigger find: the Forget button explained nothing.** Forgetting a remembered fact reaches
+exactly one of the three places it lives — no future run sees it, a run already going keeps what it
+started with, and the history keeps whatever it quoted. *Deleted is not erased*, and that is the one
+thing somebody pressing Forget needs told. The whole chain for telling them was built except the
+last step: the database never actually answered the sentence, and the screen threw away the field
+that would have carried it. Both halves of this repository's own notes claimed it was already
+working. It works now — the words come from the database, both the screen and the agent read them
+from there, and neither writes its own.
+
+**Two red proofs came back green, which is the useful part.** One was the hop between the database's
+answer and the workflow that reads it: I could delete the two new facts from it and not one test
+noticed, because every test faked that hop directly. So a perfect reader and a perfect step, and the
+feature silently back to one sentence. There is a test for that hop now, and it goes red.
+
+**Seventeen breakages driven one at a time, every one caught.** Four of my own instruments were
+wrong and the code was right: a helper that doesn't exist in the file I used it in, a reader I
+bounded at the next semicolon in a sentence that contains one, and two test needles loose enough to
+match something else on the page.
+
+**Nothing is applied, deployed or merged.** Two existing (unapplied) database files answer more than
+they did; nothing new was added — no second store, no new service, no model calls. Site tests
+6,870 → 6,876; the agent engine's own 595 → 600; the real-database checks 1,114 → 1,121. The
+end-to-end demonstrations went 157 → 159 and 148 → 154, and the other ten are unchanged and green,
+which is what says this round broke nothing.

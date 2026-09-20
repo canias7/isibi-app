@@ -53,6 +53,7 @@ import { MAX_EXCERPTS as ENGINE_MAX_EXCERPTS,
   WORKFLOW_NEEDS as ENGINE_WORKFLOW_NEEDS, workflowNeeds as engineWorkflowNeeds,
 } from "../agent-builder/src/automations.mjs";
 import { SCHEDULE_NEEDS as ENGINE_SCHEDULE_NEEDS } from "../agent-builder/src/capability-tools.mjs";
+import { FORGET_REACH } from "../agent-builder/src/capability-tools.mjs";
 import {
   FAKE_PROVIDER, FAKE_SCOPES, FAKE_ACTIONS, FAKE_WRITES,
 } from "../agent-builder/src/fake-provider.mjs";
@@ -1946,6 +1947,67 @@ test("⚠ WHEN AN AUTOMATION RUNS IS ONE LIST IN THREE LANGUAGES, and this is th
  * Read out of the migration by what it DEFINES rather than by its filename: an applied file
  * is renamed to its remote version, so a name is not an identity.
  */
+/**
+ * ⚠ **WHAT FORGETTING REACHES IS ONE SENTENCE IN THREE LANGUAGES, and until this round only one
+ * of them existed.**
+ *
+ * `agent.delete_memory` answers `note`; the SITE's route forwards it and answers `null` when the
+ * function said nothing; the ENGINE's `forget` tool forwards it and falls back to a constant of
+ * its own, because a model told only "forgotten" tells somebody it was removed everywhere, which
+ * is false about two of the three places a memory lives. Both products' notes CLAIMED the reach
+ * was read from the function and could not drift — while the sentence beside those fields was a
+ * copy nothing compared, and MEASURED, `note` was `null` on every delete that had ever gone
+ * through it.
+ *
+ * So the fallback is the one copy left, and it is censused against the function's own words.
+ */
+test("⚠ THE REACH SENTENCE IS THE FUNCTION'S, and the engine's fallback cannot drift from it", () => {
+  const sql = latestMigration("create or replace function agent.delete_memory(");
+  /**
+   * TWO ADJACENT SQL STRING LITERALS ARE ONE STRING, which is how that sentence is written so
+   * it fits a line — so the reader has to join them rather than take the first. Asked for the
+   * `note` key specifically, because the function answers several.
+   */
+  const noteAt = sql.indexOf("'note',");
+  assert.ok(noteAt > 0, "delete_memory answers no sentence about what forgetting reaches");
+  /**
+   * ⚠ **THE TAIL CANNOT BE BOUNDED BY THE NEXT SEMICOLON, AND MY OWN FIRST DRAFT WAS** — the
+   * sentence CONTAINS one (*"later runs will not see it; a run already…"*), so it read back
+   * two words long and reported a correct function as answering nothing. The adjacent literals
+   * are taken directly instead: `'note',` then every quoted string separated from the last by
+   * nothing but whitespace, which is exactly SQL's own rule for making them one string.
+   */
+  const lits = /^'note',\s*((?:'(?:[^']|'')*'\s*)+)/.exec(sql.slice(noteAt));
+  assert.ok(lits, "the sentence could not be read out of the function at all");
+  const parts = (lits[1].match(/'(?:[^']|'')*'/g) || []).map((q) => q.slice(1, -1).replace(/''/g, "'"));
+  assert.ok(parts.length >= 1, "no literal followed the note key");
+  const fromSql = parts.join("").trim();
+  assert.ok(fromSql.length > 40, `the sentence read back too short to be one: ${JSON.stringify(fromSql)}`);
+
+  // THE ENGINE'S FALLBACK IS THAT SENTENCE, character for character.
+  assert.equal(FORGET_REACH, fromSql,
+    "the engine's fallback and the function's own words have drifted apart");
+
+  /**
+   * ⚠ **AND THE SITE HAS NO FALLBACK AT ALL, which is a deliberate asymmetry rather than a gap.**
+   * A screen showing nothing extra says nothing untrue; a model composes prose from whatever it
+   * holds, so leaving it with only "forgotten" is the one reading that misleads. Asserted as a
+   * source census over the route's own file: the sentence must appear NOWHERE in it.
+   */
+  const site = readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
+  assert.equal(site.includes(fromSql.slice(0, 40)), false,
+    "the site's route carries a copy of the reach sentence, which is the drift this closes");
+  assert.equal(site.includes("gone.note"), true,
+    "the site's route stopped forwarding the function's own sentence");
+
+  // AND THE THREE FACTS THE SENTENCE IS ABOUT ARE THE FUNCTION'S TOO, so the words and the
+  // booleans cannot claim different things.
+  for (const [field, value] of [["futureRuns", "true"], ["acceptedRuns", "false"], ["runHistory", "false"]]) {
+    assert.match(sql, new RegExp(`'${field}',\\s+${value}`),
+      `${field} is not answered by the function a screen reads it from`);
+  }
+});
+
 test("⚠ THE MEMORY CAP IS ONE NUMBER IN THREE LANGUAGES, censused all three ways", () => {
   // THE TWO DOORS AGREE. The engine's is what a tool sends; the site's is what the route
   // sends. Neither is the model's to choose — both are constants in code.
@@ -2125,13 +2187,31 @@ test("⚠ REFERENCE MATERIAL IS BOUNDED TOO — and by a DIFFERENT layer, which 
    * here is the CROSS-LAYER relation, which neither suite alone can see.
    */
   const search = latestMigration("create or replace function agent.search_knowledge(");
-  const clamp = /v_limit integer := least\(greatest\(coalesce\(p_limit, \d+\), 1\), (\d+)\)/.exec(search);
+  // RE-ANCHORED, NOT APPEASED: this pinned a SINGLE SPACE after `v_limit`, and the
+  // declaration gained alignment when the function grew two more locals — a spelling,
+  // going red on a change that moved no bound at all.
+  const clamp = /v_limit\s+integer := least\(greatest\(coalesce\(p_limit, \d+\), 1\), (\d+)\)/.exec(search);
   assert.ok(clamp, "the search does not bound its own answer, so the caller's number is the only limit");
   assert.ok(ENGINE_MAX_EXCERPTS <= Number(clamp[1]),
     `the engine asks for more than the search will ever give (${ENGINE_MAX_EXCERPTS} > ${clamp[1]})`);
-  // AND A QUERY OF NOTHING IS NOTHING FOUND rather than everything, which is the other half of
-  // bounded: an empty search must not become a table scan handed to a model.
-  assert.match(search, /return;\s+-- NOTHING SEARCHED FOR IS NOTHING FOUND/, search.slice(0, 0));
+  /**
+   * AND A QUERY OF NOTHING IS NOTHING FOUND rather than everything, which is the other half of
+   * bounded: an empty search must not become a table scan handed to a model.
+   *
+   * ⚠ RE-ANCHORED, NOT APPEASED: this was pinned to a bare `return;` followed by the comment
+   * above it — the property written as a spelling, and the function answers an OBJECT now so
+   * that a caller can tell "nothing to look for" from "nothing matched". It reads the two
+   * branches for what they ANSWER: `searched, false` with an empty list, and never a query.
+   */
+  const blanks = search.match(/'searched', false/g) || [];
+  assert.equal(blanks.length, 2,
+    `a query with nothing searchable in it does not say so (${blanks.length} of the two branches)`);
+  assert.match(search, /'searched', false, 'sources', v_sources,\s*'excerpts', jsonb_build_array\(\)/,
+    "the nothing-searched branch answers something other than an empty list");
+  // AND THE MATCHING BRANCH IS THE ONLY ONE THAT READS THE TABLE FOR PASSAGES, which is what
+  // says the two above cannot have become a scan.
+  assert.equal((search.match(/@@ v_q/g) || []).length, 1,
+    "the search matches the index in more than one place, so a branch may answer unbounded");
 
   // AND A WEBHOOK'S OWN CEILING IS THE DATABASE'S, like memory's and unlike knowledge's.
   const hook = latestMigration("create or replace function agent.create_webhook(");

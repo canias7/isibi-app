@@ -47,6 +47,8 @@ const CT = at("capability-tools.mjs");
 const AP = at("approvals.mjs");
 const RP = at("rest-profile.mjs");
 const CN = at("connections.mjs");
+/** WHAT A KNOWLEDGE SEARCH ANSWERED — one reading, for three modules that must not disagree. */
+const KS = at("knowledge-search.mjs");
 const FP = at("fake-provider.mjs");
 /** The inbound delivery surface: who a delivery belongs to, and whether it is one at all. */
 const WH = at("webhooks.mjs");
@@ -1572,9 +1574,17 @@ const spec = [
     "    return { ok: true, forgot: true, affects: reach,"),
   // ⚠ WHAT A DELETE REACHES — three places, and it reaches exactly one. A model told a bare
   // "forgotten" tells somebody it has gone everywhere, which is false about two of them.
-  m("⚠ tools: a forget claims the fact is gone everywhere, which is false of two of three places", CT,
-    '    const REACH = "later runs will not see it; a run already under way keeps what it started with,"\n      + " and the history keeps whatever it quoted";',
-    '    const REACH = "it is gone";'),
+  // ⚠ RE-ANCHORED, NOT APPEASED. The property was "the reach is said rather than collapsed to
+  // 'it is gone'", pinned to a CONSTANT here — and the sentence comes from the database now, so
+  // that constant is only the fallback. The same property splits into the two ways it can fail:
+  // reading the function's words and ignoring them, and having nothing to say when it answers
+  // none. Both are observable and both tell somebody a delete reached further than it did.
+  m("⚠ tools: a forget composes the reach here rather than reading what the function said", CT,
+    "    const REACH = text(answer.note) || FORGET_REACH;",
+    "    const REACH = FORGET_REACH;"),
+  m("⚠ tools: a forget says nothing about the reach when the function answered no sentence", CT,
+    "    const REACH = text(answer.note) || FORGET_REACH;",
+    "    const REACH = text(answer.note);"),
   m("⚠ tools: the reach is COMPOSED here rather than read, so it is a claim nothing verified", CT,
     "    const reach = answer.affects && typeof answer.affects === \"object\" && !Array.isArray(answer.affects)\n      ? answer.affects\n      : null;",
     "    const reach = { futureRuns: true, acceptedRuns: false, runHistory: false };"),
@@ -2604,6 +2614,49 @@ const spec = [
   m("scopes: a scope that is not a name is passed on", CN,
     "              if (typeof want === \"string\" && want) out[name] = want;",
     "              out[name] = want;"),
+
+  // ── knowledge-search.mjs: which nothing a search found ────────────────────
+  //
+  // ⚠ ONE SENTENCE USED TO COVER THREE FACTS, and these are the walls that keep them apart:
+  // "there was nothing searchable in the ask", "this agent has nothing to search" and "it has
+  // some and none matched". Only the last is a claim about somebody's documents.
+  m("⚠ search: a string flag is coerced, so \"false\" reads as searched", KS,
+    '    searched: o && typeof o.searched === "boolean" ? o.searched : null,',
+    "    searched: o ? !!o.searched : null,"),
+  m("⚠ search: a count that is not one is believed", KS,
+    "    sources: o && Number.isInteger(o.sources) && o.sources >= 0 ? o.sources : null,",
+    "    sources: o ? Number(o.sources) : null,"),
+  m("⚠ search: the shape that predates the object loses its passages", KS,
+    "  const bare = Array.isArray(answer) ? answer : null;",
+    "  const bare = null;"),
+  m("⚠ search: a flag outranks passages the database really found", KS,
+    '  if (Array.isArray(r.excerpts) && r.excerpts.length) return "matched";\n  if (r.searched === false) return "not-searched";',
+    '  if (r.searched === false) return "not-searched";\n  if (Array.isArray(r.excerpts) && r.excerpts.length) return "matched";'),
+  m("⚠ search: the source count is asked before 'nothing was searched for'", KS,
+    '  if (r.searched === false) return "not-searched";\n  if (r.searched === true && r.sources === 0) return "no-sources";',
+    '  if (r.sources === 0) return "no-sources";\n  if (r.searched === false) return "not-searched";'),
+  m("⚠ search: cannot-tell reads as 'your documents do not match'", KS,
+    '  return "unknown";', '  return "no-match";'),
+  m("search: an agent with nothing to search is told nothing of theirs matched", KS,
+    '  if (r.searched === true && r.sources === 0) return "no-sources";',
+    '  if (false) return "no-sources";'),
+
+  // ── the retrieve seam, and the two readers of what it answers ─────────────
+  m("⚠ search: the retrieve seam drops which nothing it was", AS,
+    "        searched: read.searched,\n        sources: read.sources,", ""),
+  m("search: the seam's no-agent belt answers a narrower shape than its main path", AS,
+    "      if (!isText(agentId)) return { searched: null, sources: null, excerpts: [] };",
+    "      if (!isText(agentId)) return { excerpts: [] };"),
+  m("⚠ search: the step collapses the three nothings into one sentence again", AU,
+    "      }[searchOutcome(read)];", '      }["no-match"];'),
+  m("⚠ search: the tool collapses the three nothings into one sentence again", CT,
+    "    }[searchOutcome(read)];", '    }[passages.length ? "matched" : "no-match"];'),
+  m("search: the tool trusts an injected surface's shape instead of reading it", CT,
+    "    const read = readSearch(await can.searchKnowledge({ query, limit: args.limit }));",
+    "    const read = await can.searchKnowledge({ query, limit: args.limit });"),
+  m("search: the two facts the sentence rests on never reach the model", CT,
+    "    return { ok: true, found: passages.length, passages,\n      searched: read.searched, sources: read.sources, say };",
+    "    return { ok: true, found: passages.length, passages, say };"),
 
 ];
 

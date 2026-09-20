@@ -118,17 +118,43 @@ try {
   check("a preference is remembered, at version 1", mem.status === 200 && mem.body.memory.version === 1, JSON.stringify(mem.body));
   check("...and it says who saved it", mem.body.memory.source === "person");
 
-  // THE SEARCH IS POSTGRESQL'S OWN, and this is the one place to see that: `pricing`
-  // finds `price` because `english` STEMS, which `simple` would not.
-  const hits = JSON.parse(q(`select coalesce(json_agg(t)::text,'[]') from agent.search_knowledge('${A}','${AG}','boiler pricing',5) t;`));
+  /**
+   * THE SEARCH IS POSTGRESQL'S OWN, and this is the one place to see that: `pricing` finds
+   * `price` because `english` STEMS, which `simple` would not.
+   *
+   * ⚠ **RE-ANCHORED, NOT APPEASED — the function answers ONE OBJECT rather than a set now, so
+   * `json_agg(t)` over it made a list of one object and every reading here was about a shape
+   * nothing produces.** The properties are unchanged and there are two more of them, because
+   * the three nothings that used to arrive as one empty list are the whole point of the change.
+   */
+  const search = (tenant, query) =>
+    JSON.parse(q(`select agent.search_knowledge('${tenant}','${AG}','${query}',5)::text;`));
+  const found = search(A, "boiler pricing");
+  const hits = found.excerpts;
   check("the search really searches — one source matched, by stem", hits.length === 1 && hits[0].title === "Price list",
     JSON.stringify(hits.map((h) => h.title)));
   check("...and the excerpt is the MATCHED passage, with its version",
     hits[0].version === 1 && /95/.test(hits[0].text), JSON.stringify(hits[0].text));
-  const none = JSON.parse(q(`select coalesce(json_agg(t)::text,'[]') from agent.search_knowledge('${A}','${AG}','the and of',5) t;`));
-  check("⚠ a query with nothing searchable in it finds NOTHING, not everything", none.length === 0, JSON.stringify(none));
-  const theirs = JSON.parse(q(`select coalesce(json_agg(t)::text,'[]') from agent.search_knowledge('${B}','${AG}','boiler',5) t;`));
-  check("and the account next door searching the same agent finds nothing at all", theirs.length === 0);
+  /**
+   * ⚠ **AND WHICH NOTHING IT WAS, because one empty list covered three different facts.** "There
+   * was nothing searchable in the ask", "this agent has nothing to search" and "it has some and
+   * none matched" are three things to tell somebody, and MEASURED before this change a
+   * stopword-only query and a genuine miss produced byte-identical outcomes.
+   */
+  const none = search(A, "the and of");
+  check("⚠ a query with nothing searchable in it finds NOTHING, not everything",
+    none.excerpts.length === 0 && none.searched === false, JSON.stringify(none));
+  check("⚠ ...and a real query that matches nothing is TOLD APART from it",
+    (() => { const m = search(A, "kayaks"); return m.excerpts.length === 0 && m.searched === true && m.sources === 2; })(),
+    JSON.stringify(search(A, "kayaks")));
+  const theirs = search(B, "boiler");
+  check("and the account next door searching the same agent finds nothing at all",
+    theirs.excerpts.length === 0);
+  // ⚠ AND IT IS `sources: 0` FOR THEM — "you have nothing to search" rather than "nothing of
+  // yours matched", which is the difference between an honest answer and a claim about
+  // documents somebody has never uploaded.
+  check("⚠ ...and it says they have nothing to search, not that nothing of theirs matched",
+    theirs.sources === 0 && theirs.searched === true, JSON.stringify(theirs));
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n2. THE WORKFLOW A CUSTOMER SAVES: input → look up → remember → branch → approve → save");

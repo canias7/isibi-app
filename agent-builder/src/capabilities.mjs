@@ -38,6 +38,7 @@
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 import { profileFor } from "./rest-profile.mjs";
+import { readSearch } from "./knowledge-search.mjs";
 // ⚠ `approvals.mjs` IS THE IDENTITY MODULE: it builds `<run>:<step>:<index>:<hash>` and
 // `splitOperation` is the one reader that takes it apart. Parsing it here would be a second
 // copy of a format, and the copy that drifts is the one deciding whether a retry is a retry.
@@ -82,6 +83,14 @@ export const CAPABILITIES = Object.freeze([
  * underlying operation" a fact rather than a claim: `test/agent-send.test.mjs` — the one
  * file that may load both products — compares this against the site's and requires the
  * two to name the same functions.
+ */
+/**
+ * WHAT A KNOWLEDGE SEARCH ANSWERED — `readSearch` LIVES IN `knowledge-search.mjs` NOW.
+ *
+ * It moved the day `automation-store.mjs` needed the same reading for the workflow executor's
+ * `retrieve` seam: two readers of one answer, which must not disagree about what an absence
+ * means. Recorded here rather than silently deleted, because a reader looking for it in the
+ * store that first had it would otherwise read its absence as a check that was dropped.
  */
 export const CAPABILITY_RPC = Object.freeze({
   searchKnowledge: "search_knowledge",
@@ -231,10 +240,22 @@ export function makeCapabilities(opts = {}) {
 
           return Object.freeze({
             // ── reference material ──────────────────────────────────────────
+            /**
+             * ⚠ **IT ANSWERS THREE FACTS, NOT A LIST, because three different nothings used to
+             * arrive as the same empty one.** `excerpts` is what matched; `searched` says whether
+             * there was anything searchable to look for; `sources` says how many documents this
+             * agent HAS, which is what separates an empty library from a miss.
+             *
+             * **CANNOT-TELL IS `null` FOR BOTH AND NEVER A VALUE.** An answer this does not
+             * recognise — an older deployment, a shape that changed — must not let a reader say
+             * *"we searched and none of your documents matched"*, which is a claim about the
+             * customer's own material made on the strength of not knowing.
+             */
             async searchKnowledge({ query, limit } = {}) {
-              return list(await rpc(CAPABILITY_RPC.searchKnowledge, {
+              const answer = await rpc(CAPABILITY_RPC.searchKnowledge, {
                 p_tenant: tenant, p_agent_id: agentId, p_query: query ?? "", p_limit: limit ?? 5,
-              }));
+              });
+              return readSearch(answer);
             },
             async listKnowledge() {
               return list(await rpc(CAPABILITY_RPC.listKnowledge, { p_tenant: tenant, p_agent_id: agentId }));

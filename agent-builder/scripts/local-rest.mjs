@@ -144,7 +144,11 @@ const RPCS = {
   set_automation_plan: { args: ["p_run_id::uuid", "p_worker", "p_token::uuid", "p_steps::jsonb", "p_uses::jsonb"], shape: "value" },
   decide_automation_approval: { args: ["p_tenant", "p_run_id::uuid", "p_step", "p_verdict", "p_note", "p_by"], shape: "value" },
   resume_due_automations: { args: ["p_limit::integer"], shape: "set" },
-  search_knowledge: { args: ["p_tenant", "p_agent_id::uuid", "p_query", "p_limit::integer"], shape: "set" },
+  // ⚠ `"value"`, NOT `"set"` — it answers ONE object now (the passages plus whether there was
+  // anything searchable and how many sources the agent has), because three different nothings
+  // used to arrive as one empty list. A shim still translating it as a set would hand every
+  // reader a list of one object and read as a search that matched itself.
+  search_knowledge: { args: ["p_tenant", "p_agent_id::uuid", "p_query", "p_limit::integer"], shape: "value" },
   agent_memory_snapshot: { args: ["p_tenant", "p_agent_id::uuid"], shape: "value" },
   // ── what an agent's own tools reach ───────────────────────────────────────
   // THE SAME FUNCTIONS THE CUSTOMER'S SCREEN CALLS, which is the whole point of the

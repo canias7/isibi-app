@@ -2131,6 +2131,20 @@ let agentMemCat = null;
 let agentMemDraft = null;      // {name, value} being added or corrected
 let agentMemBusy = false;
 let agentMemActErr = '';
+/**
+ * ⚠ WHAT A FORGET REACHED, IN THE DATABASE FUNCTION'S OWN WORDS.
+ *
+ * `agent.delete_memory` answers a sentence and `/api/agent/memory-delete` forwards it, and
+ * this screen threw it away — so somebody pressed Forget, the row vanished, and nothing said
+ * that a run already under way keeps what it started with and the history keeps whatever it
+ * quoted. *Deleted is not erased*, which is the one thing a person needs told here, and the
+ * whole chain existed except the last hop.
+ *
+ * **IT IS THE SERVER'S SENTENCE AND NEVER ONE OF OURS.** A fallback written here would be a
+ * second account of what a delete does, in a second language, and the copy that drifts is the
+ * one a person reads. A delete that answered no note shows none.
+ */
+let agentMemSaid = '';
 
 const AGENT_THREAD_MAX = 200;
 
@@ -2552,7 +2566,7 @@ function agentKnows(id) {
   agentPollStop(); agentAutoWatchStop();
   agentKnow = String(id || '');
   agentKnowRows = null; agentKnowErr = ''; agentKnowEditing = null; agentKnowDraft = null; agentKnowActErr = '';
-  agentMemRows = null; agentMemErr = ''; agentMemDraft = null; agentMemActErr = '';
+  agentMemRows = null; agentMemErr = ''; agentMemDraft = null; agentMemActErr = ''; agentMemSaid = '';
   agentKnowLoad();
   agentMemLoad(true);
 }
@@ -2684,7 +2698,7 @@ async function agentMemSave() {
   if (!String(d.value || '').trim()) { say('Say what to remember. To forget it, delete it instead.'); return; }
   const bound = agentBind();
   const forAgent = agentKnow;
-  agentMemBusy = true; agentMemActErr = ''; renderAgents();
+  agentMemBusy = true; agentMemActErr = ''; agentMemSaid = ''; renderAgents();
   let failed = '';
   try {
     const res = await apiFetch('/api/agent/memory-save', {
@@ -2706,8 +2720,9 @@ async function agentMemDelete(key) {
   const name = String(key || '');
   const bound = agentBind();
   const forAgent = agentKnow;
-  agentMemBusy = true; agentMemActErr = ''; renderAgents();
+  agentMemBusy = true; agentMemActErr = ''; agentMemSaid = ''; renderAgents();
   let failed = '';
+  let reached = '';
   try {
     const res = await apiFetch('/api/agent/memory-delete', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2715,10 +2730,19 @@ async function agentMemDelete(key) {
     });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+    // ⚠ WHAT THE DELETE SAID IT REACHED, kept rather than dropped. The route forwards
+    // `agent.delete_memory`'s own sentence and this read it as far as `j.error` and no
+    // further, so the one fact a person needs — that forgetting does not reach a run already
+    // going or the history it quoted — reached nobody.
+    else if (typeof j.note === 'string' && j.note.trim()) reached = j.note.trim();
   } catch { failed = 'Couldn’t reach the server.'; }
   agentMemBusy = false;
   if (!agentSame(bound) || agentKnow !== forAgent) { renderAgents(); return; }
   if (failed) { agentMemActErr = failed; renderAgents(); return; }
+  // NAMED, because the list is about to redraw without it and "forgot tone" is the only thing
+  // tying the sentence to what was pressed. A delete that answered no sentence says only that
+  // much: inventing the rest here is the second copy this fix exists to remove.
+  agentMemSaid = 'Forgot “' + name + '”' + (reached ? ' — ' + reached : '.');
   await agentMemLoad(true);
 }
 
@@ -4543,6 +4567,9 @@ function agentKnowsHtml() {
       '<div class="ag-hint">Facts and preferences that stay between conversations. A workflow’s "Use something remembered" step reads one by name. You can correct or delete any of them, and a change reaches the next run — never one already going.</div>' +
       (agentMemErr ? '<div class="ag-err">' + esc(agentMemErr) + '</div>' : '') +
       (agentMemActErr ? '<div class="ag-err">' + esc(agentMemActErr) + '</div>' : '') +
+      // ⚠ WHAT THE LAST FORGET REACHED, in the words the database answered. `ag-hint` already
+      // has a rule; a class of its own would be a design decision nobody made.
+      (agentMemSaid ? '<div class="ag-hint">' + esc(agentMemSaid) + '</div>' : '') +
       (agentMemRows === null
         ? '<div class="ag-auto-none">Loading…</div>'
         : !agentMemRows.length

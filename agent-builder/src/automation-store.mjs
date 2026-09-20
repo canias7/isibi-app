@@ -12,6 +12,7 @@
  * what is due.
  */
 import { profileFor } from "./rest-profile.mjs";
+import { readSearch } from "./knowledge-search.mjs";
 
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
@@ -372,14 +373,32 @@ export function makeAutomationStore(opts = {}) {
      */
     async search({ tenant, agentId, query, limit }) {
       if (!isText(tenant)) throw new TypeError("search: tenant must be a non-empty string, from the claim");
-      if (!isText(agentId)) return { excerpts: [] };
-      const rows = await call("POST", "rpc/search_knowledge", {
+      // NO AGENT TO SEARCH IS THE SAME SHAPE AS EVERY OTHER ANSWER, both flags unread — so it
+      // reads `unknown` downstream rather than "none of your documents matched". The runner
+      // refuses this case by name before it gets here, so this is a belt; a belt that answered
+      // a narrower shape than the main path is one every reader has to special-case.
+      if (!isText(agentId)) return { searched: null, sources: null, excerpts: [] };
+      const answer = await call("POST", "rpc/search_knowledge", {
         p_tenant: tenant, p_agent_id: agentId, p_query: query,
         p_limit: Number.isInteger(limit) && limit > 0 ? limit : 5,
       });
-      const list = Array.isArray(rows) ? rows : [];
+      /**
+       * ⚠ **THE ANSWER IS READ BY THE SHARED READER, NOT BY A SECOND READING OF IT.** This
+       * built its own excerpt list from rows for as long as the function answered a set, and
+       * `capabilities.mjs` built another beside it — so "there was nothing to search for",
+       * "this agent has no reference material" and "it has some and none matched" arrived
+       * here as one empty list and nothing downstream could tell them apart.
+       *
+       * **`searched` AND `sources` TRAVEL ON, AND THAT IS THE POINT OF FORWARDING THEM.** The
+       * executor's step is what turns them into the sentence a person reads in an execution's
+       * history, and a seam that dropped them would make the three nothings one again one
+       * layer further in.
+       */
+      const read = readSearch(answer);
       return {
-        excerpts: list.map((e) => ({
+        searched: read.searched,
+        sources: read.sources,
+        excerpts: read.excerpts.map((e) => ({
           id: e?.id ?? null,
           title: isText(e?.title) ? e.title : "(untitled)",
           version: Number.isInteger(e?.version) ? e.version : null,

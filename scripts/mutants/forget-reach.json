@@ -1,0 +1,107 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the sentence a forget shows",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "let agentMemSaid = '';",
+  "to": "// the database's own words about what a delete reaches\nlet agentMemSaid = '';"
+ },
+ {
+  "label": "⚠ the screen drops the note again, so 'deleted is not erased' reaches nobody",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    else if (typeof j.note === 'string' && j.note.trim()) reached = j.note.trim();",
+  "to": ""
+ },
+ {
+  "label": "⚠ the screen invents the reach when the answer carried none — a second account of it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentMemSaid = 'Forgot “' + name + '”' + (reached ? ' — ' + reached : '.');",
+  "to": "  agentMemSaid = 'Forgot “' + name + '” — ' + (reached || 'later runs will not see it');"
+ },
+ {
+  "label": "a blank reach is drawn as an em dash and nothing after it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(reached ? ' — ' + reached : '.')",
+  "to": "(' — ' + reached)"
+ },
+ {
+  "label": "the sentence does not name which memory was forgotten",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentMemSaid = 'Forgot “' + name + '”'",
+  "to": "  agentMemSaid = 'Forgot it'.slice(0, 10) + ''"
+ },
+ {
+  "label": "⚠ a successful forget is drawn as a failure, so nothing going wrong reads as something",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(agentMemSaid ? '<div class=\"ag-hint\">' + esc(agentMemSaid) + '</div>' : '')",
+  "to": "(agentMemSaid ? '<div class=\"ag-err\">' + esc(agentMemSaid) + '</div>' : '')"
+ },
+ {
+  "label": "⚠ the sentence is never drawn at all, so the whole chain ends one hop short",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      (agentMemSaid ? '<div class=\"ag-hint\">' + esc(agentMemSaid) + '</div>' : '') +\n",
+  "to": ""
+ },
+ {
+  "label": "⚠ an answer that lands after the screen moved writes onto whichever one is open",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentSame(bound) || agentKnow !== forAgent) { renderAgents(); return; }\n  if (failed) { agentMemActErr = failed; renderAgents(); return; }\n  // NAMED,",
+  "to": "  if (failed) { agentMemActErr = failed; renderAgents(); return; }\n  // NAMED,"
+ },
+ {
+  "label": "the last delete's news outlives the screen it was about",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentMemRows = null; agentMemErr = ''; agentMemDraft = null; agentMemActErr = ''; agentMemSaid = '';",
+  "to": "  agentMemRows = null; agentMemErr = ''; agentMemDraft = null; agentMemActErr = '';"
+ },
+ {
+  "label": "a save leaves the delete's sentence standing over a new fact",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentMemBusy = true; agentMemActErr = ''; agentMemSaid = ''; renderAgents();\n  let failed = '';\n  try {\n    const res = await apiFetch('/api/agent/memory-save'",
+  "to": "  agentMemBusy = true; agentMemActErr = ''; renderAgents();\n  let failed = '';\n  try {\n    const res = await apiFetch('/api/agent/memory-save'"
+ },
+ {
+  "label": "⚠ a REFUSED delete is reported as one that happened",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';\n    // ⚠ WHAT THE DELETE SAID IT REACHED",
+  "to": "    if (!res.ok || !j.ok) failed = '';\n    // ⚠ WHAT THE DELETE SAID IT REACHED"
+ },
+ {
+  "label": "⚠ the route composes the reach instead of forwarding what the delete said",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        note: typeof gone.note === \"string\" && gone.note ? gone.note : null,",
+  "to": "        note: \"later runs will not see it; a run already under way keeps what it started with, and the history keeps whatever it quoted\","
+ },
+ {
+  "label": "⚠ the route drops the sentence, so no reader has one at all",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        note: typeof gone.note === \"string\" && gone.note ? gone.note : null,",
+  "to": "        note: null,"
+ }
+]

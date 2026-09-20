@@ -1203,6 +1203,68 @@ test("⚠ a refused checkpoint HALTS — nothing else is attempted, and there is
   assert.ok(vague.halted !== null && vague.halted !== undefined);
 });
 
+test("⚠ THE RETRIEVE SEAM FORWARDS WHICH NOTHING IT WAS — a wiring hop nothing else sees", async () => {
+  /**
+   * ⚠ **A RED PROOF CAME BACK GREEN, WHICH IS WHY THIS CASE EXISTS.** Cutting `searched` and
+   * `sources` out of `automation-store.mjs`'s `search()` answer changed nothing any test could
+   * see: every other case here fakes `retrieve` directly, so the one hop between the database's
+   * answer and the executor was unguarded. The step can be perfect and the reader can be
+   * perfect, and with that hop dropped every nothing reads `unknown` again — *a value computed
+   * and never forwarded*, this repository's most-recorded defect.
+   */
+  const asked = [];
+  const answers = [
+    { ok: true, searched: true, sources: 3, excerpts: [] },
+    { ok: true, searched: false, sources: 3, excerpts: [] },
+    { ok: true, searched: true, sources: 0, excerpts: [] },
+    // AND THE SHAPE THAT PREDATES THE OBJECT: a bare set, which must keep its passages.
+    [{ id: "k1", title: "Prices", version: 2, text: "£95" }],
+  ];
+  const store = makeAutomationStore({
+    url: "https://p.example", key: "k", schema: "agent",
+    fetch: async (url, init) => {
+      asked.push({ url, body: JSON.parse(init.body) });
+      return { ok: true, status: 200, text: async () => JSON.stringify(answers[asked.length - 1]) };
+    },
+  });
+  const search = (q) => store.search({ tenant: "t1", agentId: "a1", query: q, limit: 5 });
+
+  const noMatch = await search("boiler");
+  assert.equal(noMatch.searched, true, "the seam dropped whether anything was searched for");
+  assert.equal(noMatch.sources, 3, "the seam dropped how many sources the agent has");
+  assert.deepEqual(noMatch.excerpts, []);
+
+  const notSearched = await search("the");
+  assert.deepEqual({ searched: notSearched.searched, sources: notSearched.sources },
+    { searched: false, sources: 3 });
+
+  const noSources = await search("boiler");
+  assert.deepEqual({ searched: noSources.searched, sources: noSources.sources },
+    { searched: true, sources: 0 });
+
+  // THE OLD SHAPE KEEPS ITS PASSAGES, mapped as this seam maps them, with both facts honestly
+  // unread — so a genuine miss on a database older than the answer says it cannot tell rather
+  // than blaming somebody's documents.
+  const legacy = await search("boiler");
+  assert.deepEqual(legacy.excerpts, [{ id: "k1", title: "Prices", version: 2, text: "£95" }]);
+  assert.equal(legacy.searched, null);
+  assert.equal(legacy.sources, null);
+
+  // AND THE ASK REALLY WENT TO THE FUNCTION, which is what makes the four readings above
+  // evidence about this seam rather than about a fixture.
+  assert.equal(asked.length, 4);
+  assert.match(asked[0].url, /rpc\/search_knowledge/);
+  assert.deepEqual(asked[0].body,
+    { p_tenant: "t1", p_agent_id: "a1", p_query: "boiler", p_limit: 5 });
+
+  // ⚠ AND NO AGENT TO SEARCH IS THE SAME SHAPE, both facts unread — the runner refuses that
+  // case by name first, so this is a belt, and a belt answering a narrower shape than the main
+  // path is one every reader downstream has to special-case.
+  const noAgent = await store.search({ tenant: "t1", agentId: "", query: "x" });
+  assert.deepEqual(noAgent, { searched: null, sources: null, excerpts: [] });
+  assert.equal(asked.length, 4, "the belt asked the database anyway");
+});
+
 test("⚠ retrieval is INJECTED, and a refusal by name is not 'found nothing'", async () => {
   const steps = readWorkflow([{ type: "knowledge", query: "{{topic}}", out: "facts" }],
     { inputs: ["topic"] }).steps;
@@ -1222,13 +1284,43 @@ test("⚠ retrieval is INJECTED, and a refusal by name is not 'found nothing'", 
   assert.match(found.values.facts, /Notes: Two hours\./);
   assert.deepEqual(found.outcomes[0].sources, [{ title: "Price list", version: 2 }, { title: "Notes", version: 1 }]);
 
-  // NOTHING MATCHED IS AN ANSWER: an empty value and a sentence saying so.
-  const empty = await runWorkflow({
-    steps, occurrence: WED, values: { topic: "x" }, retrieve: async () => ({ excerpts: [] }),
-  });
-  assert.equal(empty.outcomes[0].outcome, "ran");
-  assert.equal(empty.values.facts, "");
-  assert.match(empty.outcomes[0].why, /found nothing/);
+  /**
+   * NOTHING MATCHED IS AN ANSWER: an empty value and a sentence saying so.
+   *
+   * ⚠ **AND WHICH NOTHING, because one sentence used to cover three facts.** RE-ANCHORED,
+   * NOT APPEASED: the property was "an empty value and a sentence", pinned to the words
+   * `found nothing`, and it is now "an empty value and a sentence that says WHICH of the
+   * three". Only `no-match` is a claim about somebody's documents, and the four shapes below
+   * are the real producer's — `automation-store.mjs` answers `searched` and `sources` beside
+   * the excerpts, so a fixture carrying only a list is a shape nothing produces.
+   */
+  const nothing = async (answer) => {
+    const r = await runWorkflow({
+      steps, occurrence: WED, values: { topic: "x" }, retrieve: async () => answer,
+    });
+    return { ...r.outcomes[0], bound: r.values.facts };
+  };
+  const noMatch = await nothing({ searched: true, sources: 3, excerpts: [] });
+  const noSources = await nothing({ searched: true, sources: 0, excerpts: [] });
+  const notSearched = await nothing({ searched: false, sources: 3, excerpts: [] });
+  // A SHAPE THAT SAYS NEITHER — an older database, or a reading this cannot parse. It must
+  // blame nothing, because "your documents do not mention that" is the one claim it cannot
+  // make.
+  const cannotSay = await nothing({ excerpts: [] });
+  for (const [what, o] of [["no-match", noMatch], ["no-sources", noSources],
+                           ["not-searched", notSearched], ["unknown", cannotSay]]) {
+    assert.equal(o.outcome, "ran", `${what} is an answer, not a failure`);
+    assert.equal(o.bound, "", `${what} binds nothing`);
+    assert.ok(typeof o.why === "string" && o.why.trim() !== "", `${what} says something`);
+  }
+  assert.match(noMatch.why, /nothing in the reference material matched/);
+  assert.match(noSources.why, /no reference material yet/);
+  assert.match(notSearched.why, /nothing to search for/);
+  assert.doesNotMatch(cannotSay.why, /matched|no reference material/);
+  // ⚠ AND THE FOUR ARE FOUR. Two of them reading the same way is the distinction gone, which
+  // is exactly the state before this: every one of them said `found nothing`.
+  assert.equal(new Set([noMatch.why, noSources.why, notSearched.why, cannotSay.why]).size, 4,
+    "two different nothings are worded the same");
 
   // ⚠ A REFUSAL BY NAME IS A FAILURE, and it is NOT the same as finding nothing: "there
   // is nothing in your documents about this" is a different claim from "I could not look".
