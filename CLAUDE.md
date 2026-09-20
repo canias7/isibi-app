@@ -10296,3 +10296,83 @@ check written to say that nothing was carried across.
   declarations are not a design decision, and a second block would be one nobody made. The
   source reads correctly either way, which a deadline drawn on `.ag-ap-none` would not.
   `css-reachable` is still at zero unreachable rules.
+
+### ⚠ TWO DEFECTS THAT ONLY EXIST WHILE SOMEBODY IS TYPING (2026-09-20)
+
+Owner, at `ddbabb3`: *"Press Save, hold its response, then type a newer name. When the response
+arrives, the newer name remains but is incorrectly treated as saved; pressing Save again sends
+nothing… Check a valid one-step workflow and hold the response. Add a step containing
+`Hello {{missing}}`. Release the original successful response. The screen incorrectly says
+'nothing is missing' for the now-invalid workflow."* Both were reproduced through the real
+handlers before anything was changed, and both are this screen's recorded shape: the code reads
+correctly, every guard passes, and the defect exists only while a response is in the air.
+
+**1. THE BASELINE WAS ADVANCED TO WHAT WAS ON SCREEN, NOT TO WHAT WAS SENT.** `agentAutoSave`
+ended `agentAutoDraft = null; agentAutoWas = null`, so the next drawing re-captured the baseline
+**from the DOM as it stood when the answer landed** — which by then held whatever had been typed
+since. So a newer name read as saved (`agentAutoChanges` answered `{}`, the form said **Saved**,
+and the next press sent nothing), and a step added meanwhile was **destroyed outright**, because
+the draft that held it was thrown away and the form redrawn from the stored row.
+
+**THE SUBMITTED CONFIGURATION IS ITS OWN SNAPSHOT NOW** (`autoSnap`, derived from
+`AGENT_FORM_FIELDS`), and the baseline advances to THAT: `agentAutoWas = {...submitted, of:
+savedAs}`. **The draft is KEPT rather than nulled**, so every later edit survives its own save
+and is eligible for the next press. **AND `autoSnap` IS WHAT KEEPS `gen` OFF THE WIRE BY
+CONSTRUCTION** — it replaced `const { gen, ...sent } = values` at both call sites, so the
+bookkeeping field cannot reach the server by being forgotten rather than by being stripped.
+
+**2. A CHECK'S ANSWER SAID NOTHING ABOUT WHICH WORKFLOW IT WAS ABOUT.** `agentAutoCheck` held
+`{steps, needs, unchecked}` and the render drew it whenever it was truthy, so an answer landing
+after the steps had changed blessed a workflow nobody had checked — *"nothing is missing"* over a
+`{{missing}}` reference. It carries `of: asked` now — the same `autoSnap` the save takes,
+**read through `agentAutoFormRead()` so both sides are the DRAFT** rather than a
+draft→markup→read round trip — and **the two answers are DERIVED at every drawing rather than
+cleared by whatever notices**: `agentAutoCheckShown()` compares the answer's own configuration
+with the form's, and `agentAutoSavedShown()` asks whether anything is outstanding. So a result
+can only ever be shown for the configuration it is really about, the property holds at renders
+this screen does not cause, and **both answers come back if the person undoes the edit**, which
+a cleared flag cannot do.
+
+- **⚠ AND ORDINARY TYPING HAD TO INVALIDATE IT, which needed a hook the form did not have.**
+  One `data-input="agent-auto-form"` on the container — input events bubble, so there is no
+  per-control list to keep in step — and the handler REDRAWS ONLY WHEN THE ANSWER CHANGED
+  (`agentAutoSays()` before and after), so it is once per invalidation and never per keystroke.
+  Safe because `renderAgents` already restores the caret, the selection and the focus.
+- **THE DIFF IS STILL AGAINST WHAT THE PERSON WAS SHOWN**, never against the stored row: the
+  form NORMALISES as it seeds (a hidden `09:00`, this browser's zone), so a row-based baseline
+  reports two fields as changed on a form nobody touched — and SENDS them.
+
+**Guards**: `test/agent-binding.test.mjs` **133 → 139**, driving the real handlers with responses
+that can be held open, released, and landed after the screen has moved — a name typed while Save
+is pending, a step added while it is pending, a FAILED save keeping every word, a save landing on
+another automation or another account advancing no baseline, a check answered late over a changed
+workflow, and typing taking a result off the screen with a second keystroke that changes nothing
+redrawing nothing.
+
+**⚠ AND THE ONE SWEEP SURVIVOR WAS THE MARKUP HALF OF THAT HOOK — the recorded "a wall nobody
+can drive".** Every case calls `INPUT_ACTIONS['agent-auto-form']()` directly, so removing
+`data-input="agent-auto-form"` from the form's own markup changed nothing: the handler stayed in
+its table, reachable from nothing. **The existing hook census could not see it either**, because
+it walks what the markup DECLARES and pairs each name with an entry — so a deleted attribute
+simply stops being looked at. It asks the MIRROR direction too now: every `agent-` key in all
+four tables must be declared in the markup, **measured first (55 · 3 · 3 · 1, zero orphans)** so
+it is a census rather than a list, and deliberately NOT behind the forward loop's `continue`,
+since an attribute whose last declaration went is the loudest case of this and the one that skip
+would hide. *That is the dead control's own sibling: not a name that answers nothing, but an
+answer no name can reach, and it is silent in exactly the same way.*
+
+- **Site suite 6,878 → 6,884** (6,882 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-binding` 133 → 139 and nothing else. The mirror census is assertions inside a
+  case that already existed, so it adds none.
+- **NINE BREAKAGES DRIVEN ONE AT A TIME FROM THE COMMITTED TREE, eight red on the first pass**
+  and the ninth — the markup attribute — the survivor above, red once the mirror census existed:
+  the baseline advanced to the DOM (2 cases), the draft nulled (1), Saved drawn over unsent edits
+  (2), `gen` on the wire (1), the generation not drawn (21), a check shown unbound (2), the
+  typing hook removed (1), and every keystroke redrawing (1).
+- **AND SIX PRE-EXISTING STALE ANCHORS ARE RECORDED RATHER THAN FIXED**, found by a per-file
+  census over `scripts/mutants/` rather than by a survivor: `automation-patch.json` has six
+  whose source moved (the seven-field `AGENT_FORM_FIELDS`, `AGENT_SCHED_OWNS`), so those
+  properties are currently unswept — the instrument is a count per file, which is the only thing
+  that can see a mutant pointed at text that is gone. **One was closed on the way through**:
+  `automations.json`'s `gen`-on-the-wire anchor had become AMBIGUOUS (the check route added a
+  second copy of the line), so `mutate.mjs` would have refused it; re-anchored onto `autoSnap`.

@@ -13547,3 +13547,54 @@ one of my own test helpers as a function when it is a list. Both fixed against w
 code produces rather than against what I expected.
 
 **Nothing is applied, deployed or merged**, and this round adds no database change at all.
+
+---
+
+## Two bugs that only happened while you were typing (2026-09-20)
+
+Both were exactly as you described them, and I reproduced each one before touching anything.
+
+**1. Anything you typed while Save was in flight was treated as already saved.** Press Save,
+type a better name while it is thinking, and when the answer came back the new name was on
+screen, the form said **Saved**, and pressing Save again sent nothing at all — so the name you
+could see was not the name stored. Worse with a step: adding one while Save was in flight and
+typing into it, the answer **threw the step away** and redrew the form from what the server had.
+
+The cause is one line. On success the form forgot what it had been drawn with, so the next
+redraw worked out "has anything changed?" **by reading the boxes as they stood at that moment** —
+which by then held what you had just typed. It now remembers what it actually SENT, keeps
+everything you have typed since, and that typing is eligible for the next press.
+
+**2. Check could say "nothing is missing" about a workflow it had never seen.** Check a workflow,
+and while it is thinking add a step with a broken reference in it: the original answer landed and
+was drawn over the new, invalid workflow.
+
+Each Check is now tied to the exact workflow it asked about, and the panel is drawn only while
+the form still matches it. So changing anything takes the answer off the screen — including
+ordinary typing — and **putting the change back brings the answer back**, which is nicer than
+clearing it for good.
+
+**The tests are the sequences themselves**, with the server's answer held open on purpose and
+released after the screen has moved: typing while Save is pending, adding a step while it is
+pending, a FAILED save keeping every word, an answer arriving after you have opened a different
+job or signed in as somebody else, and a stale Check result.
+
+**And one hole was worth more than the fixes.** The typing hook has two halves — the attribute in
+the markup and the handler that answers it — and every test called the handler directly, so
+**deleting the attribute broke nothing.** The check that is supposed to catch exactly this could
+not either: it walks what the markup declares and looks each one up, so a deleted attribute just
+stops being looked at. It now asks the question both ways round — every handler must have an
+attribute somewhere — which I measured first (all 62 of them pair up today) so it is a real
+census rather than a list somebody has to maintain. *It is the dead-button problem's twin: not a
+button with nothing behind it, but something behind no button, and it is just as quiet.*
+
+**Nine breakages driven one at a time, from the committed code**, so every new test is proved to
+go red about the thing it is for rather than trusted because the suite is green. The whole suite
+is **6,884 tests, 0 failures**.
+
+**Nothing is applied, deployed or merged**, and this round adds no database change at all.
+
+**One thing recorded and not fixed**, because it is outside what you asked for: six of the
+breakage recipes in one older file point at code that has since moved, so those properties are
+not currently being checked. Found by counting them per file rather than by running them — which
+is the only way to see a recipe aimed at text that is gone.
