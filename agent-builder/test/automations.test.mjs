@@ -3379,6 +3379,31 @@ test("⚠ NOBODY HAS ANSWERED YET: it waits, and its deadline is the APPROVAL'S 
   // scheduler offers every minute for ever.
   assert.equal(r.waiting.hours, 6);
   assert.equal(r.position, 0, "the position stays AT the step, which is what a resume re-enters");
+
+  /**
+   * ⚠ **THE PAUSE NAMES THE REQUEST THAT ANSWERS IT, and without it the screen presses the
+   * wrong door.**
+   *
+   * An `approval` STEP's pause is `{kind: "approval", ask, hours, on_timeout}` and so is this
+   * one — byte-identical — and they are answered by two different functions: a step's decision
+   * by `agent.decide_automation_approval`, keyed by the run and the step, and a send by the TOOL
+   * approval this asked for, keyed by the REQUEST's own id. MEASURED on a real PostgreSQL before
+   * this field existed: the execution history's one Approve button sent the step's decision, the
+   * database answered `ok`, the run was requeued, this step found its request still pending and
+   * paused again at the same step — for ever, with nothing sent. *A dead control that ANSWERS.*
+   */
+  assert.equal(r.waiting.request, "ap-1", "the pause does not say which request answers it");
+
+  // ⚠ AND AN ID THAT IS NOT ONE NAMES NO DOOR — `null` rather than a value, which every reader
+  // then takes as the automation's own door. Cannot-tell must never read as a value, and the
+  // value here would be a request nobody can answer.
+  for (const junk of [null, undefined, 7, {}, "", true]) {
+    const odd = sendBench({ verdict: () => "pending", expiresAt: later });
+    const inner = odd.approve;
+    odd.approve = async (a) => ({ ...(await inner(a)), id: junk });
+    const w = await sent(odd);
+    assert.equal(w.waiting.request, null, `an id of ${JSON.stringify(junk)} named a door`);
+  }
 });
 
 test("⚠ EACH REFUSAL IS ITS OWN, because they want opposite things done about them", async () => {

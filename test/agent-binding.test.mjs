@@ -4338,6 +4338,59 @@ test("⚠ a WAITING execution offers the one thing that helps, and says what is 
   assert.deepEqual(sent.body, { run: "R9", step: "s8", verdict: "approved", note: "prices look right" });
 });
 
+test("⚠ A SEND'S APPROVAL IS A DIFFERENT DOOR, and pressing the wrong one answers ok and does nothing", async () => {
+  /**
+   * ⚠ **THE DEFECT A BROWSER JOURNEY FOUND, and it is a dead control that ANSWERS `ok`.**
+   *
+   * A `Wait for approval` STEP and a `send` step store a pause byte-identical in shape, and the
+   * history draws ONE Approve button for both. They are answered by two different functions: a
+   * step's decision by `agent.decide_automation_approval`, keyed by the run and the step, and a
+   * send by a TOOL approval bound to the payload's hash, keyed by the REQUEST's own id.
+   *
+   * MEASURED on a real PostgreSQL before this existed: the button sent the step's decision, the
+   * database answered `ok`, the run was requeued, the send step found its request still pending
+   * and it paused at the same step again — for ever, with nothing sent and a decision recorded
+   * where nothing reads it. So the pause names its request, and this asserts the SCREEN presses
+   * the door it names.
+   */
+  const REQ = "11111111-2222-4333-8444-555555555555";
+  const sendPause = {
+    id: "R7", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: {
+      kind: "approval", step: "s8", request: REQ, onTimeout: "fail", until: null,
+      ask: "send to ada@example.test from shop@example.test",
+    },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w, posts } = await withAutomations({ automations: [ONE], history: [sendPause] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  w.ev(`agentAutoNotes.set("R7", "prices look right");`);
+  await w.ev('agentAutoDecide("R7", "approved")'); await settle();
+
+  const tool = posts.filter((x) => x.path === "/api/agent/tool-approve");
+  const auto = posts.filter((x) => x.path === "/api/agent/automation-approve");
+  assert.equal(tool.length, 1, "the send's approval did not go to the door that answers it");
+  assert.equal(auto.length, 0, "it also sent the step's decision, which nothing reads for a send");
+  // BY THE REQUEST'S ID, because that is what the tool door is keyed on — the pause's step is
+  // `"s8"` and the request's is an index, so nothing could match them without a mapping.
+  assert.deepEqual(tool[0].body, { id: REQ, verdict: "approved", note: "prices look right" });
+
+  /**
+   * ⚠ **AND THE CONTROL, without which "it pressed the tool door" is satisfied by a screen that
+   * presses it for everything.** A pause with no `request` is an approval STEP — and is also
+   * every pause written before the engine named the field — and the automation's own door is
+   * right for it.
+   */
+  const stepPause = { ...sendPause, id: "R8", waiting: { ...sendPause.waiting, request: null, ask: "Send it?" } };
+  await w.ev(`agentAutoRuns = ${JSON.stringify([stepPause])}; agentAutoDeciding = "";`);
+  await w.ev('agentAutoDecide("R8", "approved")'); await settle();
+  assert.equal(posts.filter((x) => x.path === "/api/agent/tool-approve").length, 1,
+    "an approval STEP was sent to the tool door");
+  const stepSent = posts.filter((x) => x.path === "/api/agent/automation-approve");
+  assert.equal(stepSent.length, 1, "an approval STEP did not go to the automation's own door");
+  assert.deepEqual(stepSent[0].body, { run: "R8", step: "s8", verdict: "approved", note: null });
+});
+
 test("⚠ a decision that FAILS keeps the words, and a refused one says what to do", async () => {
   const waiting = {
     id: "R9", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",

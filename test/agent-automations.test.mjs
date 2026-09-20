@@ -1442,9 +1442,12 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
   // ⚠ RE-ANCHORED: the projection gained `event`, which is `null` for every pause that is not
   // one. A fixed shape is the property — a field added to a stored pause must not reach a reader
   // nobody has written — so the comparison stays whole rather than becoming a subset.
+  // ⚠ RE-ANCHORED AGAIN: it gained `request`, which names WHICH DOOR answers the pause and is
+  // `null` for an approval STEP — see the case below. Whole rather than a subset, for the reason
+  // above it.
   assert.deepEqual(suspended.waiting, {
     kind: "approval", step: "s8", ask: "Send this?", onTimeout: "reject", until: "2026-09-18T09:00:00Z",
-    event: null,
+    event: null, request: null,
   });
   assert.equal(suspended.position, 7);
   assert.deepEqual(suspended.values, { draft: "Dear customer" });
@@ -1471,6 +1474,38 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
   assert.equal(onEvent.waiting.until, null, "an event wait has no deadline, and that is the point of it");
   // AND IT CARRIES NOTHING ELSE OF THE STORED PAUSE — `since` is the executor's own bookkeeping.
   assert.ok(!JSON.stringify(onEvent.waiting).includes("since"));
+  /**
+   * ⚠ **WHICH DOOR ANSWERS A PAUSE, AND THE TWO ARE NOT INTERCHANGEABLE.**
+   *
+   * A `Wait for approval` STEP and a `send` step store a pause byte-identical in shape, and
+   * they are answered by two different functions — the automation's own decision, keyed by the
+   * run and the step, and a TOOL approval bound to the payload's hash, keyed by the request's
+   * own id. MEASURED before the engine named it: the history's one Approve button sent the
+   * step's decision, the database answered `ok`, the run was requeued, the send found its
+   * request still pending and it paused at the same step again, for ever, with nothing sent.
+   *
+   * `request` is the request's ID rather than a flag because the tool door needs exactly that
+   * value: the two do not even number their steps the same way (`"s8"` against the index `2`),
+   * so nothing could match them without a mapping.
+   */
+  const sendPause = executionRow({
+    run_status: "running",
+    waiting: {
+      kind: "approval", step: "s8", ask: "send to ada@example.test from shop@example.test",
+      on_timeout: "fail", request: "11111111-2222-4333-8444-555555555555",
+    },
+  });
+  assert.equal(sendPause.waiting.request, "11111111-2222-4333-8444-555555555555");
+  // AND IT IS REFUSED RATHER THAN COERCED, in both directions that matter: a pause carrying
+  // something that is not a request names no door, and `null` is what an approval STEP and
+  // every pause written before this field existed both read as — which is the automation's own
+  // door, and is right for them.
+  for (const junk of [7, true, {}, [], "", null, undefined]) {
+    assert.equal(
+      executionRow({ run_status: "running", waiting: { kind: "approval", step: "s8", request: junk } }).waiting.request,
+      null, `a request of ${JSON.stringify(junk)} named a door`);
+  }
+
   // A TIMED WAIT STILL SAYS NO EVENT, which is the control that makes the line above about the
   // kind rather than about the field existing.
   assert.equal(executionRow({ run_status: "running", waiting: { kind: "wait", step: "s2" } }).waiting.event, null);
