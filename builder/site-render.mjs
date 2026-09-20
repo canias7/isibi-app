@@ -375,6 +375,113 @@ export function probe() {
   return out;
 }
 
+// ── WHAT THIS CHECK CAN HONESTLY ANSWER FOR THE SITE'S OWN DATA API ─────────
+//
+// Run 53, 2026-09-20. `serveDist` answered EVERY non-auth `/api/` path with
+// `200 []`, and the reasoning written above it is sound about exactly one
+// endpoint: `/data/<table>`, where an empty array is what a `collect` table
+// really returns on a fresh site. The `api` tier then shipped, a page read an
+// outside connection, and `[]` — which is TRUTHY — arrived where an object was
+// expected. `data.rates` was `undefined`, `.EUR` threw, and the check reported
+// a page that renders perfectly as broken. *A rule true because of a layer
+// below it expires when that layer moves*, and here the layer was the set of
+// endpoints a generated page can call.
+//
+// MEASURED, both directions: the live page renders `1.1644 / 1.3344 / Rates
+// from 2026-09-18` in a real browser with zero page errors, from the published
+// chunk whose filename is the one in the check's own stack trace. The throw was
+// ours.
+//
+// TWO CLASSES, AND THE WHOLE POINT IS THAT THEY ARE DIFFERENT THINGS:
+//
+//   SUPPORTED — we can stand in for it truthfully. `/data/<table>` is `[]` (a
+//   fresh table's real answer, and it exercises the empty state every generated
+//   list is required to write); `/turnstile` is `{}` (measured against the live
+//   route, which answers exactly that for a site with no captcha key);
+//   `/error` is a sink nothing reads back.
+//
+//   UNAVAILABLE — there is no honest stand-in. An outside connection's answer
+//   is whatever that service returns and we cannot invent its shape; a checkout
+//   needs Stripe; an upload needs R2; a webhook is inbound. Synthesising any of
+//   them would be a fixture claiming to be live behaviour, which is the failure
+//   this whole round is about.
+//
+// 424 FAILED DEPENDENCY, AND THE CODE IS LOAD-BEARING rather than decorative.
+// It must be a 4xx: the kit's own retry policy (`router.tsx`) retries a 5xx
+// twice with 500/1000ms backoff and fails a 4xx immediately, so a 503 would
+// cost three requests and ~1.5s per page and could leave the page still
+// retrying when the check samples it — a loading skeleton read as `blank`. And
+// 424 is semantically the thing: the request failed because a dependency is
+// unavailable. Nothing else in this system emits it.
+//
+// THE PAGE THEN RENDERS ITS OWN ERROR STATE, which is why this fixes the false
+// alarm without blunting the instrument: a generated page is required to draw
+// three states, so the error branch is real code that really runs, and a
+// GENUINE bug anywhere on the page still throws and is still `threw`. Nothing
+// is downgraded and no finding is suppressed.
+//
+// AN UNKNOWN `/api/` PATH IS UNAVAILABLE, NOT A ROW LIST. That inversion is the
+// fix: a tier added next month is reported as unexercised rather than silently
+// handed an empty array, which is how this defect shipped in the first place.
+export const DEP_HEADER = "x-render-dep";
+
+/** The marker's value for each unavailable dependency — the customer-facing
+ *  noun, because it is what `unmetNote` prints. */
+const UNAVAILABLE = {
+  api: "an outside connection",
+  checkout: "card payment",
+  uploads: "file upload",
+  hook: "an incoming webhook",
+};
+
+/**
+ * What to answer for one path, or `null` when it is not a site data-API call.
+ *
+ * PURE AND EXPORTED, so the classification is driven directly rather than
+ * through a live HTTP server — the rule is the thing under test, not the socket.
+ */
+export function apiAnswer(pathname) {
+  const p = String(pathname || "");
+  if (!p.startsWith("/api/")) return null;
+  // Signed out, because a visitor arriving at a published site IS signed out.
+  if (/\/auth\//.test(p)) return { supported: true, what: "auth", status: 401, body: '{"error":"signed out"}' };
+  if (/\/data\//.test(p)) return { supported: true, what: "rows", status: 200, body: "[]" };
+  if (/\/turnstile$/.test(p)) return { supported: true, what: "turnstile", status: 200, body: "{}" };
+  if (/\/error$/.test(p)) return { supported: true, what: "error", status: 200, body: "{}" };
+  // MATCHED ON THE SEGMENT AFTER THE SLUG, never on the whole path. Every one
+  // of these shares the `/api/db/<slug>/` prefix, so a bare `includes("/api/")`
+  // matches that prefix and calls any `/api/…` path an outside connection —
+  // including one that is not a site data-API call at all. The tail is `""` for
+  // anything that is not this shape, which falls to `unknown`, which is
+  // unavailable: fail-closed is the whole correction here.
+  const m = p.match(/^\/api\/db\/[^/]+(\/.*)?$/);
+  const tail = m ? (m[1] || "") : "";
+  const what = /^\/api\//.test(tail) ? "api"
+    : tail === "/checkout" ? "checkout"
+      : tail === "/uploads" ? "uploads"
+        : /^\/hook\//.test(tail) ? "hook"
+          : "unknown";
+  return {
+    supported: false,
+    what,
+    status: 424,
+    body: JSON.stringify({
+      error: "not available while the site is being checked",
+      dependency: what,
+    }),
+  };
+}
+
+/** The distinct dependencies a page could not reach, in first-seen order. */
+export function unmetOf(obs) {
+  const seen = [];
+  for (const u of (obs && Array.isArray(obs.unmet) ? obs.unmet : [])) {
+    const w = String((u && u.what) || u || "").trim();
+    if (w && !seen.includes(w)) seen.push(w);
+  }
+  return seen;
+}
+
 /**
  * One page at one width, turned into findings.
  *
@@ -439,6 +546,23 @@ export function readPage(obs) {
     found.push(at("threw", hydration ? hydrationDetail(e, o.hydration) : e, hydration ? MAX_DETAIL * 2 : undefined));
   }
   for (const e of (Array.isArray(o.consoleErrors) ? o.consoleErrors : []).slice(0, 2)) found.push(at("logged", e));
+
+  // WHAT THIS ROUTE NEEDED AND THIS CHECK COULD NOT REACH (run 53, 2026-09-20).
+  //
+  // DELIBERATELY OUTSIDE `SERIOUS`, for the reason `slow` is: a page whose data
+  // branch we could not exercise is not a page we know is broken, so the repair
+  // round must not buy a fix for it and the harness must not stop a run on it.
+  // Both of those readers filter on `SERIOUS` already, so this needs no change
+  // in either — which is the argument for reusing that seam rather than adding
+  // a second notion of severity.
+  //
+  // AND IT IS A FINDING RATHER THAN SILENCE, because the alternative is the
+  // failure this whole round is about: a page that drew only its error state is
+  // a page nobody verified, and a report that says nothing about it is a report
+  // claiming a check it did not make. `WORD` carries it into `renderNote`, so
+  // the customer is told which page was not fully exercised and why.
+  const unmet = unmetOf(o);
+  if (unmet.length) found.push(at("unmet", unmet.map((w) => UNAVAILABLE[w] || w).join(", ")));
 
   const text = Number(o.text) || 0;
   const images = Number(o.images) || 0;
@@ -733,6 +857,12 @@ const WORD = {
   // NOT "is slow" and not "threw an error": the check gave up waiting, which is
   // a fact about the check. The customer is told what we saw, not blamed for it.
   slow: "took longer to open than the check waits",
+  // NOT "is broken" and not silence. The page reads something this check cannot
+  // reach — an outside connection, a card payment — so it drew its own "could
+  // not load" state and the real content was never on screen to be judged. The
+  // sentence says what was not checked, never that the page is faulty: a
+  // synthetic answer cannot prove live behaviour in either direction.
+  unmet: "reads something the check can't reach, so I couldn't see it with real data",
   image: "has an image that did not load",
   overflow: "scrolls sideways",
   contrast: "has text that is nearly invisible",

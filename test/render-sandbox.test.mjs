@@ -24,8 +24,8 @@ import { pathToFileURL } from "node:url";
 
 import { runStep, killTree } from "../builder/run-step.mjs";
 import { startSiteServer, renderAs, RENDER_CHILD } from "../builder/site-ssr.mjs";
-import { checkRender, chromiumSandboxed } from "../builder/render-check.mjs";
-import { renderNote } from "../builder/site-render.mjs";
+import { checkRender, chromiumSandboxed, serveDist } from "../builder/render-check.mjs";
+import { renderNote, apiAnswer, isSerious, readPage, DEP_HEADER } from "../builder/site-render.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -419,4 +419,152 @@ test("the child is spawned from the service's own directory, and writes nothing"
   for (const bad of [/\bfrom\s*["']node:fs["']/, /\bfrom\s*["']node:child_process["']/, /\bwriteFileSync\b/, /\bmkdirSync\b/]) {
     assert.doesNotMatch(kid, bad, "the render child reached for a capability it must not have: " + bad);
   }
+});
+
+// ── WHAT THE CHECK CAN HONESTLY STAND IN FOR (run 53, 2026-09-20) ───────────
+//
+// `serveDist` answered EVERY non-auth `/api/` path with `200 []`. That is the
+// right answer for exactly one endpoint — `/data/<table>`, where an empty array
+// is what a fresh `collect` table really returns — and `[]` is TRUTHY, so when
+// the `api` tier shipped and a page read an outside connection, `data.rates`
+// was `undefined` and `.EUR` threw. The check reported a page that renders
+// perfectly as broken, the repair round bought a fix for working code, and the
+// customer was told their page threw an error.
+//
+// MEASURED BOTH WAYS on the real thing: the published chunk — filename
+// `rates-CNnGu9ef.js`, the one in the check's own stack trace — renders
+// `1.1644 / 1.3344 / Rates from 2026-09-18` in a real browser with zero page
+// errors and zero console errors.
+
+test("the classifier separates what we can stand in for from what we cannot", () => {
+  // PURE, AND DRIVEN AS A TABLE. The rule is the thing under test, not the
+  // socket — and every path here is one the kit's own hooks really build,
+  // derived from `src/lib/rows.ts` rather than invented.
+  const want = [
+    ["/api/db/s1/data/bookings", "rows", true, 200],
+    ["/api/db/s1/auth/session", "auth", true, 401],
+    ["/api/db/s1/turnstile", "turnstile", true, 200],
+    ["/api/db/s1/error", "error", true, 200],
+    ["/api/db/s1/api/exchange_rates", "api", false, 424],
+    ["/api/db/s1/checkout", "checkout", false, 424],
+    ["/api/db/s1/uploads", "uploads", false, 424],
+    ["/api/db/s1/hook/stripe", "hook", false, 424],
+  ];
+  for (const [p, what, supported, status] of want) {
+    const a = apiAnswer(p);
+    assert.ok(a, p + " is not recognised as a data-API call at all");
+    assert.equal(a.what, what, p + " was classified as " + a.what);
+    assert.equal(a.supported, supported, p + " is on the wrong side of the supported/unavailable line");
+    assert.equal(a.status, status, p + " answered " + a.status);
+  }
+
+  // THE EMPTY ARRAY IS FOR THE TABLE LIST AND NOTHING ELSE. This is the exact
+  // value that threw, so it is asserted against the endpoint it is true of and
+  // against the one it is not.
+  assert.equal(apiAnswer("/api/db/s1/data/bookings").body, "[]");
+  assert.notEqual(apiAnswer("/api/db/s1/api/rates").body, "[]",
+    "an outside connection is still answered as a table list — this is the run 53 defect");
+  // `{}` is what the LIVE turnstile route answers for a site with no key,
+  // measured against `repairbench-1` rather than assumed.
+  assert.equal(apiAnswer("/api/db/s1/turnstile").body, "{}");
+
+  // FAIL-CLOSED, AND THIS IS THE INVERSION THAT MATTERS. A tier added next
+  // month must read as unexercised, never be handed an empty array — which is
+  // precisely how this defect shipped.
+  for (const p of ["/api/db/s1/brand-new-tier", "/api/site/anything"]) {
+    const a = apiAnswer(p);
+    assert.equal(a.supported, false, p + " is treated as something we can stand in for");
+  }
+  assert.equal(apiAnswer("/rates"), null, "a page route is being answered as an API call");
+});
+
+test("run 53's page, driven on the wire: the real answer renders, the unavailable one does not throw", async () => {
+  // NO BROWSER IS NEEDED FOR ANY OF THIS, and that is deliberate rather than a
+  // compromise. `unit.yml` runs `npm ci && npm test` and installs neither
+  // playwright nor Chromium, so a case that asserted "the page produced no
+  // `threw` finding" through `checkRender` would pass in CI having rendered
+  // nothing — the vacuous negative this repo has recorded, inside the guard
+  // written to fix a false alarm. The socket needs no browser, and the readers
+  // that turn an observation into a finding are pure, so both halves are driven
+  // where they can really be driven.
+  const srv = serveDist(scratch("wire"), null);
+  await new Promise((ok, no) => { srv.once("error", no); srv.listen(0, ok); });
+  const port = srv.address().port;
+  const get = (p) => fetch("http://127.0.0.1:" + port + p);
+  try {
+    // THE TABLE LIST IS UNCHANGED — the fixture that was always right.
+    const rows = await get("/api/db/s1/data/bookings");
+    assert.equal(rows.status, 200);
+    assert.equal(await rows.text(), "[]");
+    assert.equal(rows.headers.get(DEP_HEADER), null, "a supported fixture is marked as an unavailable dependency");
+
+    // THE OUTSIDE CONNECTION. 424 and marked.
+    const api = await get("/api/db/s1/api/exchange_rates");
+    assert.equal(api.status, 424, "an outside connection is still answered 200 — the run 53 defect");
+    assert.equal(api.headers.get(DEP_HEADER), "api", "the stub does not say it could not reach this");
+
+    // ⚠ 4xx AND NOT 5xx, PINNED BY VALUE. The kit's own query client
+    // (`src/router.tsx`) retries a 5xx twice at 500/1000ms and fails a 4xx at
+    // once, so a 503 would cost three requests and ~1.5s per page and could
+    // leave the page still retrying when the check samples it.
+    assert.ok(api.status >= 400 && api.status < 500,
+      "the unavailable answer is a 5xx, which the kit's retry policy will retry twice before the page settles");
+
+    // THE DEFECT ITSELF, REPRODUCED WITH NO BROWSER. This is what run 53's page
+    // did with what the old stub returned, and it is the exact exception the
+    // check reported: `[]` is truthy, so the guarded `data ?` branch is taken
+    // and the read one level in is on `undefined`.
+    assert.throws(() => JSON.parse("[]").rates.EUR.toFixed(4), /Cannot read properties of undefined/,
+      "the reproduction no longer reproduces, so this case is no longer about run 53");
+
+    // AND WHAT THE PAGE DOES NOW: a non-ok response is what the kit's `send`
+    // throws on, which is what puts the query into the error state the page is
+    // required to draw. Nothing is left to read a field off.
+    assert.equal(api.ok, false, "the page's error branch is never reached, so it renders against a non-answer");
+  } finally { srv.close(); }
+});
+
+test("an unreachable dependency is reported, is not serious, and does not hide a real error", () => {
+  // PURE, so it is worth exactly as much in CI as it is here.
+  //
+  // ⚠ `text` IS NOT DECORATION IN THIS FIXTURE. Without it `readPage` reads the
+  // observation as an empty page and adds `blank`, which IS serious — so the
+  // first draft of this case failed on a finding that had nothing to do with
+  // the dependency, and a fixture that quietly avoided it would have been
+  // asserting about a page shape no real observation has. A page drawing its
+  // own "Rates did not load" state has text, which is the point: the error
+  // branch renders something.
+  const page = (extra) => ({ route: "/rates", viewport: "phone", text: 220, images: 0, ...extra });
+  const dep = readPage(page({ unmet: [{ what: "api" }, { what: "api" }] }));
+  const unmet = dep.filter((f) => f.kind === "unmet");
+  assert.equal(unmet.length, 1, "the same dependency was reported once per request rather than once per page");
+  assert.match(unmet[0].detail, /outside connection/, "the finding does not name what could not be reached");
+  assert.equal(unmet[0].route, "/rates");
+
+  // NOT SERIOUS — the whole of repair eligibility. Both the repair round and
+  // the harness filter on `SERIOUS`, so this is what stops an unavailable
+  // dependency buying a paid fix for working code. Asserted through the
+  // exported predicate rather than by re-listing the kinds.
+  assert.equal(isSerious(dep), false,
+    "an unreachable dependency is SERIOUS, so the repair round will buy a fix for a page that never failed");
+
+  // THE CONTROL, and the one that stops this blunting the instrument: a page
+  // that really threw still reports it, `unmet` or no `unmet`.
+  const both = readPage(page({ unmet: [{ what: "api" }], pageErrors: ["TypeError: window.__nope is undefined"] }));
+  assert.ok(both.some((f) => f.kind === "threw"), "a real page error was lost on a page with an unavailable dependency");
+  assert.equal(isSerious(both), true, "a genuine page error stopped being serious");
+
+  // A PAGE THAT REACHED EVERYTHING SAYS NOTHING NEW, so a site with no outside
+  // connection produces a byte-identical report to the one it produced before
+  // this existed.
+  assert.deepEqual(readPage(page({ route: "/", unmet: [] })).filter((f) => f.kind === "unmet"), []);
+});
+
+test("the customer is told the page was not fully checked, not that it threw", () => {
+  const said = renderNote({ ok: true, findings: readPage({ route: "/rates", viewport: "phone", text: 220, unmet: [{ what: "api" }] }) });
+  assert.match(said, /\/rates/, "the sentence does not name the page: " + said);
+  assert.match(said, /can't reach/, "the sentence does not say what was not checked: " + said);
+  // RUN 53'S ACTUAL WORDS, asserted absent. This is what the customer was told
+  // about a page that renders the real numbers in a real browser.
+  assert.doesNotMatch(said, /threw an error/, "the reply still claims the page threw: " + said);
 });

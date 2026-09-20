@@ -8959,3 +8959,183 @@ test("a component declaration this step cannot use is named rather than binned",
   assert.ok(dropped.some((d) => d && d.what === "component" && d.name === "tide-chart"),
     "a binned hand-written component was not named: " + JSON.stringify(dropped));
 });
+
+/* ═════════════════════════════════════════════════════════════════════════
+   WHAT WAS PUBLISHED, NOT WHAT WAS PLANNED (run 53, 2026-09-20)
+
+   The ask was *"Add a page at /rates showing what one pound is worth…"*. The
+   `api` designer declared the connection and handed two needs to `page`; the
+   `page` KIND designer answered NOTHING — correct and ordinary, because a
+   connection is not pageless, so the PAGE CALL writes the page instead. The
+   page shipped, is live, and renders the real numbers.
+
+   `aShipped` was `aWanted` less `aMissing`, and `aWanted` is the page KIND
+   designer's own answer — so it was EMPTY on a change that published a page.
+   With no page in the applied inventory `implementationOf` fell past its
+   "there is output but no association, so answer `unknown`" branch to the one
+   below it and answered `absent` → `missing` → *"Still to do: A visitor can
+   see what one pound is worth…"*, about a page a visitor can see.
+
+   THE COVERAGE COUNTS ARE THE READER, not an entry's `status`. An entry keeps
+   the DESIGNER'S declaration (`elsewhere` — "I handed this on"); what this
+   layer RESOLVED it to is counted in `coverage`, and that is what the
+   customer's sentence is composed from. Run 53 stored `missing: 2`.
+
+   ⚠ A PLAIN HOME PAGE, NOT `photoHome`. The first draft reused the photograph
+   fixture and returned it through `linkHome(slug, "")`, which strips one of
+   the two `<SafeImage>`s — so `keptImages` refused the whole request 422
+   `lost-photos` and every assertion below was about a change that never
+   happened. A fixture carrying something the case is not about can refuse the
+   case out from under itself.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A home page with no photographs, so nothing here can trip the photo wall. */
+const plainHome = () => ({ path: "index.tsx", source:
+  "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/')({ component: Home })\n"
+  + "function Home(){ return <main><h1>Fretwork</h1><p>Guitar repairs in Sheffield.</p></main> }\n" });
+/** The same, carrying a link to a new route so the merge keeps the change. */
+const plainHomeLinking = (route) => ({ path: "index.tsx", source:
+  plainHome().source.replace("</main>", '<p>See our <a href="' + route + '">rates</a>.</p></main>') });
+
+/* ═════════════════════════════════════════════════════════════════════════
+   WHAT WAS PUBLISHED, NOT WHAT WAS PLANNED (run 53, 2026-09-20)
+
+   The ask was *"Add a page at /rates showing what one pound is worth…"*. The
+   `api` designer declared the connection and handed two needs to `page`; the
+   `page` KIND designer answered NOTHING — correct and ordinary, because a
+   connection is not pageless, so the PAGE CALL writes the page instead. The
+   page shipped, is live, and renders the real numbers.
+
+   `aShipped` was `aWanted` less `aMissing`, and `aWanted` is the page KIND
+   designer's own answer — so it was EMPTY on a change that published a page.
+   With no page in the applied inventory `implementationOf` fell past its
+   "there is output but no association, so answer `unknown`" branch to the one
+   below it and answered `absent` → `missing` → *"Still to do: A visitor can
+   see what one pound is worth…"*, about a page a visitor can see.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** Run 53's connection, verbatim from the designer's stored answer. */
+const RATES_API = {
+  name: "exchange_rates",
+  url: "https://api.frankfurter.dev/v1/latest?base=GBP&symbols=EUR,USD",
+  method: "GET",
+  returns: { amount: "number", base: "string", date: "string", rates: { EUR: "number", USD: "number" } },
+  cacheSeconds: 3600,
+};
+/** The two needs that step handed to `page`, neither naming an item. */
+const HANDED = [
+  { need: "A visitor can see what one pound is worth in euros and dollars right now", status: "elsewhere", step: "page" },
+  { need: "The date the rates are from is shown", status: "elsewhere", step: "page" },
+];
+/** The page the WRITER returns — the page kind declared nothing. */
+const ratesPage = { path: "rates.tsx", source:
+  "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "import { useApi } from '@/lib/rows'\n"
+  + "export const Route = createFileRoute('/rates')({ component: Rates })\n"
+  + "function Rates(){ const { data, isLoading, error } = useApi('exchange_rates')\n"
+  + "  if (isLoading) return <p>Looking up what a pound buys right now…</p>\n"
+  + "  if (error) return <p>Rates did not load</p>\n"
+  + "  if (!data) return <p>Rates did not load</p>\n"
+  + "  return <main><h1>What a pound is worth</h1>\n"
+  + "    <p>{data.rates.EUR.toFixed(4)} euros</p><p>Rates from {data.date}.</p></main> }\n" };
+
+const ratesAsk = (slug, opts) => addon(slug,
+  "Add a page at /rates showing what one pound is worth in euros and dollars right now, read live from the Frankfurter exchange-rate API", {
+    kinds: ["api", "page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    written: [ratesPage, plainHomeLinking("/rates")],
+    answers: {
+      api: { api: [RATES_API], requirements: HANDED },
+      // THE EMPTY PAGE DESIGNER — the whole point of the case.
+      page: {},
+    },
+    ...opts,
+  });
+
+test("a page the WRITER published is in the inventory, though the page designer declared none", async () => {
+  const r = await ratesAsk("fw-shipped");
+  assert.equal(r.body.ok, true, "the route refused: " + JSON.stringify(r.body).slice(0, 400));
+
+  // THE PUBLICATION REALLY CARRIES IT — the precondition, so nothing below is
+  // vacuous. A case where the page never shipped would satisfy every "not
+  // missing" assertion by having nothing to be missing about.
+  const added = [...(r.body.added || []), ...(r.body.changed || [])].map((p) => (p && p.path) || p);
+  assert.ok(added.some((p) => /rates/.test(String(p))), "the writer's page never published, so this case tests nothing: " + JSON.stringify(added));
+
+  const reqs = r.body.requirements || [];
+  assert.equal(reqs.filter((q) => HANDED.some((h) => h.need === q.need)).length, 2,
+    "the handed needs are not in the record: " + JSON.stringify(reqs).slice(0, 300));
+
+  // THE SENTENCE IS THE READER. `coverage` carries the DECLARED tally only
+  // (`total/covered/elsewhere/…`); what this layer resolved each need to is
+  // what the customer's line is composed from, so that line is the outcome.
+  const note = String(r.body.coverNote || "");
+
+  // RUN 53'S ACTUAL WORDS, asserted absent. "Still to do" is `missing`, and it
+  // is the most actionable line in the reply — said about a page that was live
+  // and rendering the real numbers.
+  assert.doesNotMatch(note, /Still to do/,
+    "the reply still tells the customer the published page is outstanding: " + note);
+
+  // AND `unknown` IS THE RIGHT ANSWER, not `covered`. Existence is not
+  // verification: neither need NAMES a page, so nothing associates the
+  // publication with the claim, and publishing any page must not satisfy every
+  // page requirement. This is that state's own sentence.
+  assert.match(note, /can't see from here whether/,
+    "an un-associated need was resolved rather than left uncertain: " + note);
+  assert.match(note, /nothing I can check says either way/,
+    "the reply does not say WHY it cannot tell: " + note);
+});
+
+test("…and a page that was PLANNED and never shipped is still reported missing", async () => {
+  // THE CONTROL that stops the fix above from simply switching the alarm off.
+  // Here the page KIND really declares a page, and the writer returns nothing
+  // for it — the case `missingPages` exists for, decided against the plan.
+  const r = await addon("fw-nopage", "add a stockists page", {
+    kinds: ["page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    // THE HOME PAGE CHANGES AND `stockists.tsx` NEVER ARRIVES. The writer has
+    // to return SOMETHING or there is no publish at all and the route answers
+    // `ok: false` — which would make this case about a refusal rather than
+    // about a page that did not survive.
+    written: [plainHomeLinking("/stockists")],
+    answers: {
+      page: { page: [{ path: "/stockists", name: "Stockists", purpose: "where to buy",
+        sections: ["a list of shops"], components: ["card"] }] },
+    },
+  });
+  assert.deepEqual(r.body.missingPages, ["/stockists"],
+    "a planned page that never shipped is no longer reported: " + JSON.stringify(r.body.missingPages));
+  assert.match(String(r.body.coverNote || "") + String(r.body.msg || ""), /stockists/,
+    "the customer is not told the page they asked for is not there");
+});
+
+test("…and an unrelated published page does not answer a requirement about another one", async () => {
+  // THE SECOND CONTROL, and the one the owner named: existence must not become
+  // satisfaction. The need NAMES `/rates`; the change publishes `/stockists`
+  // and nothing else. A reader that took "a page was published" as the answer
+  // would report this covered.
+  const r = await addon("fw-other", "add a stockists page", {
+    kinds: ["page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    written: [{ path: "stockists.tsx", source:
+      "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "export const Route = createFileRoute('/stockists')({ component: S })\n"
+      + "function S(){ return <main><h1>Stockists</h1><p>Where to buy our guitars.</p></main> }\n" },
+      plainHomeLinking("/stockists")],
+    answers: {
+      page: {
+        page: [{ path: "/stockists", name: "Stockists", purpose: "where to buy",
+          sections: ["a list of shops"], components: ["card"] }],
+        requirements: [{ need: "The rates page shows today's euro rate", status: "elsewhere", step: "page", item: "/rates" }],
+      },
+    },
+  });
+  const q = (r.body.requirements || []).find((x) => /euro rate/.test(String(x && x.need)));
+  assert.ok(q, "the requirement is not in the record at all: " + JSON.stringify(r.body.requirements));
+  assert.notEqual(q.status, "covered",
+    "publishing an unrelated page satisfied a requirement about a different one: " + JSON.stringify(q));
+  assert.notEqual(q.status, "configured",
+    "an unrelated publication was read as a real setting: " + JSON.stringify(q));
+});

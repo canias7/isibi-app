@@ -26192,17 +26192,62 @@ async function handleRequest(request, env, ctx) {
             // where this needs it after the publish for `aShipped`. One
             // computation with two readers, never one computation each.
             aMissing = aGone;
-            // ROUTES, NOT FILES, AND DERIVED FROM THE ONE READER THAT ALREADY
-            // KNOWS BOTH (2026-09-15). The merge answers FILE names and a
-            // requirement names a ROUTE — the customer's word, and the word
-            // `missingPages` reports for exactly that reason. Rather than invert
-            // `fileOfRoute` here and own a second copy of that correspondence,
-            // the shipped routes are the requested ones LESS the missing ones,
-            // so the two lists are complements of each other by construction and
-            // cannot disagree about a page.
-            aShipped = aWanted
-              .map((p) => (p && typeof p === "object" && typeof p.path === "string" ? p.path : ""))
-              .filter((r) => r && !aMissing.includes(r));
+            // ROUTES, NOT FILES, AND DERIVED FROM THE PUBLICATION — never from
+            // the plan (run 53, 2026-09-20).
+            //
+            // THIS WAS `aWanted` LESS `aMissing`, and the argument for it was
+            // that the two lists are complements by construction so they cannot
+            // disagree about a page. True, and both of them are about what was
+            // PLANNED: `aWanted` is the `page` KIND designer's own answer. When
+            // that designer answers nothing — which is correct and ordinary, a
+            // connection is not pageless so the PAGE CALL writes the page
+            // instead — `aWanted` is empty, so this was empty, on a change that
+            // really published `/rates`.
+            //
+            // WHAT THAT COST, measured on run 53: with no page in the applied
+            // inventory, `implementationOf` fell past its "there is output but
+            // no association, so answer `unknown`" branch to the one below it
+            // and answered `absent` → `missing` → *"Still to do: A visitor can
+            // see what one pound is worth…"*, about a page that was live and
+            // rendering the real numbers. The most actionable line in the reply,
+            // wrong, in the safe-looking direction.
+            //
+            // THE PUBLICATION IS `aFilesOut` — `aMerge.added` + `aMerge.changed`,
+            // the files that were really compiled and shipped, which is already
+            // the list `missingPages` is decided against on the line above. So
+            // the two readers still cannot disagree; they now disagree about
+            // nothing because they read the SAME artifact rather than because
+            // one is defined as the other's complement.
+            //
+            // AND THE PLAN IS KEPT, SEPARATELY AND DELIBERATELY: `aWanted` is
+            // still what `aGone`/`aMissing` is computed from, because a page
+            // that was asked for and is not there can only be found by comparing
+            // the plan with the publication. Existence comes from the
+            // publication; absence comes from the plan. Two questions, two
+            // sources, and collapsing them is what produced both halves of this
+            // defect.
+            //
+            // EXISTENCE IS NOT VERIFICATION, and nothing here claims otherwise.
+            // A route in this list means the file compiled and shipped. Whether
+            // it does what a requirement asked is a different question, answered
+            // by `implementationOf`, which requires the requirement to NAME its
+            // page (`{kind:"page", name:"/rates"}`) — with no such association it
+            // answers `unknown`, so publishing any page still satisfies no page
+            // requirement. `checked` stays empty for `page` as for every other
+            // kind.
+            // A COMPONENT IS NOT A ROUTE, and `routeOf` cannot say so — it
+            // answers `/-parts/photo-wall` for `-parts/photo-wall.tsx`, measured.
+            // The publication carries both since the band split, so without this
+            // filter every section this change wrote would arrive as a page the
+            // site has, and `appliedFacts` would record an inventory a visitor
+            // can never reach. `PART_DIR` is the one definition of that prefix.
+            aShipped = [...new Set(
+              (Array.isArray(aFilesOut) ? aFilesOut : [])
+                .map((f) => String((typeof f === "string" ? f : (f && f.path)) || ""))
+                .filter((f) => f && !f.includes(PART_DIR))
+                .map((f) => routeOf(f))
+                .filter(Boolean),
+            )];
             if (aMissing.length) {
               // A PAGE THAT DID NOT SURVIVE IS THE PAGE STEP FAILING, and the
               // coverage has to hear it: a requirement handed to `page` cannot
