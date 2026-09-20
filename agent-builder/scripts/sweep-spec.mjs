@@ -1700,13 +1700,21 @@ const spec = [
   m("approvals: the wall alone is cut, so an unreadable set reaches the request", AP,
     '              if (!show.ok) return { state: "unshowable", id: null, tool, hash: null, expiresAt: null };',
     ""),
-  m("approvals: the hash goes back over the raw value the row does not hold", AP,
+  // ⚠ **THE HASH IS BOUND TO NOTHING, so every request at a position matches whatever arrives.**
+  // The first mutant written here was `argsHash(args)` and it SURVIVED — measured, and twice:
+  // with the wall above in place the only shapes reaching that line are absent (→ `{}` both
+  // ways) or a plain object (→ itself), so `args` and `show.args` are the same value. **And my
+  // own replacement was worse than inert: `args && typeof args === "object" ? args : args` has
+  // the SAME expression in both branches**, which is a mutant that changes nothing wearing a
+  // plausible one's clothes. This one attacks the property instead — a constant hash is the
+  // binding gone, which is what the whole round is about.
+  m("approvals: the hash is a constant, so an approval binds to no arguments at all", AP,
     "              const hash = await argsHash(show.args);",
-    "              const hash = await argsHash(args && typeof args === \"object\" ? args : args);"),
-  // ⚠ **`p_args: show.args` HAS NO MUTANT OF ITS OWN AND THAT IS MEASURED, NOT AN OVERSIGHT.**
-  // Reverting it to the old coalesce is INERT once the wall above exists: every shape that
-  // reaches it is either absent (→ `{}` both ways) or a plain object (→ itself). Driven, and
-  // the OBSERVABLE half is the first mutant here, which removes the wall and the hash together.
+    "              const hash = await argsHash({});"),
+  // ⚠ **`p_args: show.args` AND `argsHash(args)` BOTH HAVE NO MUTANT, AND BOTH ARE MEASURED
+  // INERT RATHER THAN OVERLOOKED.** With the wall in place the two expressions cannot differ,
+  // for the reason above. The OBSERVABLE half is the FIRST mutant here, which removes the wall
+  // and the hash together — which is the defect this round closed.
   m("approvals: an unshowable call is refused as though somebody had said no", AP,
     '  if (decision?.state === "unshowable") {', "  if (false) {"),
   m("approvals: it tells the model there was nowhere to ask, which sends somebody to a deployment", AP,
