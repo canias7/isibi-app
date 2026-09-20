@@ -1,0 +1,13 @@
+spec scratchpad/stage1-sweep-2.json — 2 mutants + 1 controls, over worker.js
+tests: test/edit-page-context.test.mjs test/edit-parts.test.mjs test/site-files.test.mjs test/wiring.test.mjs test/free-identifiers.test.mjs
+
+baseline…
+baseline green
+
+  ok  CONTROL: a comment-only change beside the wall (must SURVIVE)
+  SURVIVED  THE PAIR: the unseen wall AND the merge's ok gate, both cut
+  killed    the text rung's refusal MOVES BELOW the model call
+
+2 mutants, 1 killed, 1 survived, 0 never applied, 1 comment-only controls
+SURVIVORS:
+  - THE PAIR: the unseen wall AND the merge's ok gate, both cut

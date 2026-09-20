@@ -1,0 +1,135 @@
+[
+  {
+    "label": "CONTROL: a comment-only change in the page rung (must SURVIVE)",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "              // ── WHAT THE PAGE WRITER IS SHOWN ────────────────────────────",
+    "to": "              // ── WHAT THE PAGE WRITER IS SHOWN (control) ──────────────────"
+  },
+  {
+    "label": "the page rung goes back to the collapsed reader",
+    "files": ["worker.js"],
+    "from": "const pStoredParts = pPartsRead.ok ? pPartsRead.parts : null;",
+    "to": "const pStoredParts = pPartsRead.parts.length ? pPartsRead.parts : null;"
+  },
+  {
+    "label": "partsSent is never told the store was unreadable",
+    "files": ["worker.js"],
+    "from": "const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok });",
+    "to": "const pSentParts = partsSent(pStoredParts, { unreadable: false });"
+  },
+  {
+    "label": "the merge drops its ok gate — mergeParts(null, [one]) deletes the rest",
+    "files": ["worker.js"],
+    "from": "const pParts = (pFreshParts.length && pPartsRead.ok)",
+    "to": "const pParts = (pFreshParts.length)"
+  },
+  {
+    "label": "the merge reads the RETURNED list rather than the accepted one",
+    "files": ["worker.js"],
+    "from": "                ? mergeParts(pPartsRead.parts, pFreshParts)",
+    "to": "                ? mergeParts(pPartsRead.parts, pValid.parts)"
+  },
+  {
+    "label": "the wall stops refusing a component the writer never saw",
+    "files": ["worker.js"],
+    "from": "                if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return false; }",
+    "to": "                if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return true; }"
+  },
+  {
+    "label": "the wall stops refusing a WITHHELD component",
+    "files": ["worker.js"],
+    "from": "                if (!pSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;\n                pKeptParts.push(p.name);\n                return false;",
+    "to": "                if (!pSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;\n                pKeptParts.push(p.name);\n                return true;"
+  },
+  {
+    "label": "partMoved goes back to reading presence rather than readability",
+    "files": ["worker.js"],
+    "from": "const partMoved = pPartsRead.ok && pFreshParts.some((pt) => {",
+    "to": "const partMoved = !!pStoredParts && pFreshParts.some((pt) => {"
+  },
+  {
+    "label": "the components snapshot is re-read per rung, not carried",
+    "files": ["worker.js"],
+    "from": "              if (!ePartsRead) ePartsRead = await readSiteParts(env, ownerSlug);",
+    "to": "              ePartsRead = await readSiteParts(env, ownerSlug);"
+  },
+  {
+    "label": "publishStep stops advancing the components snapshot",
+    "files": ["worker.js"],
+    "from": "              if (Array.isArray(args && args.parts) && ePartsRead && ePartsRead.ok) {\n                ePartsRead = { ok: true, parts: args.parts };\n              }",
+    "to": "              if (false) {\n                ePartsRead = { ok: true, parts: args.parts };\n              }"
+  },
+  {
+    "label": "the brief stops carrying the site's own component source",
+    "files": ["worker.js"],
+    "from": "                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok,",
+    "to": "                  tsx: eLook2.tsx, partsUnreadable: !pPartsRead.ok,"
+  },
+  {
+    "label": "the brief stops saying the store was unreadable",
+    "files": ["worker.js"],
+    "from": "                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok,\n                  gif: eLook2.gif,",
+    "to": "                  tsx: eLook2.tsx, parts: pStoredParts,\n                  gif: eLook2.gif,"
+  },
+  {
+    "label": "the brief stops carrying the theme",
+    "files": ["worker.js"],
+    "from": "                  theme: eLook2.theme, css: eCss2,",
+    "to": "                  css: eCss2,"
+  },
+  {
+    "label": "the brief stops carrying the stylesheet",
+    "files": ["worker.js"],
+    "from": "                  theme: eLook2.theme, css: eCss2,\n                }), eSpec,",
+    "to": "                  theme: eLook2.theme,\n                }), eSpec,"
+  },
+  {
+    "label": "the brief stops carrying the kit signatures",
+    "files": ["worker.js"],
+    "from": "                  plan: pPlanComponents.length ? { components: pPlanComponents } : null,",
+    "to": "                  plan: null,"
+  },
+  {
+    "label": "the kit plan takes the EXPORT names rather than the module names",
+    "files": ["worker.js"],
+    "from": "const pPlanComponents = (pPageApi && Array.isArray(pPageApi.modules)) ? pPageApi.modules : [];",
+    "to": "const pPlanComponents = (pPageApi && Array.isArray(pPageApi.kit)) ? pPageApi.kit : [];"
+  },
+  {
+    "label": "the kit plan is taken from the WHOLE site rather than the target page",
+    "files": ["worker.js"],
+    "from": "const pPageApi = pageComponents([target])[wantRoute];",
+    "to": "const pPageApi = pageComponents(eSrc)[wantRoute];"
+  },
+  {
+    "label": "a refused component is no longer named on the reply",
+    "files": ["worker.js"],
+    "from": "                keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,",
+    "to": "                keptParts: undefined,"
+  },
+  {
+    "label": "an unseen component is no longer named on the reply",
+    "files": ["worker.js"],
+    "from": "                unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,",
+    "to": "                unseenParts: undefined,"
+  },
+  {
+    "label": "the text rung stops refusing an unreadable store",
+    "files": ["worker.js"],
+    "from": "              if (!eTextParts.ok) {\n                return Response.json({\n                  ok: false, error: \"parts-unreadable\", cost: 0,",
+    "to": "              if (false) {\n                return Response.json({\n                  ok: false, error: \"parts-unreadable\", cost: 0,"
+  },
+  {
+    "label": "the text rung's refusal charges the customer",
+    "files": ["worker.js"],
+    "from": "                  ok: false, error: \"parts-unreadable\", cost: 0,",
+    "to": "                  ok: false, error: \"parts-unreadable\", cost: 1,"
+  },
+  {
+    "label": "the text rung refuses AFTER the model call",
+    "files": ["worker.js"],
+    "from": "              const eParts = eTextParts.parts;",
+    "to": "              const eParts = eTextParts.ok ? eTextParts.parts : null;"
+  }
+]

@@ -1,0 +1,21 @@
+[
+  {
+    "label": "CONTROL: a comment-only change beside the wall (must SURVIVE)",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "              const pKeptParts = [], pUnseenParts = [];",
+    "to": "              // control\n              const pKeptParts = [], pUnseenParts = [];"
+  },
+  {
+    "label": "THE PAIR: the unseen wall AND the merge's ok gate, both cut",
+    "files": ["worker.js"],
+    "from": "                if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return false; }",
+    "to": "                if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return true; }\n                if (!pPartsRead.ok) return true; // PAIR: the merge gate is cut below"
+  },
+  {
+    "label": "the text rung's refusal MOVES BELOW the model call",
+    "files": ["worker.js"],
+    "from": "              const eTextParts = await editParts();\n              if (!eTextParts.ok) {\n                return Response.json({\n                  ok: false, error: \"parts-unreadable\", cost: 0,\n                  msg: \"I couldn't read this site's sections just now, and changing the words without them could take one off. Nothing was changed — try again in a moment.\",\n                }, { status: 503 });\n              }\n              const eParts = eTextParts.parts;\n              const eFiles = editableFiles(eSrc, eParts);\n              const out = await runTextEdit({ send: eQuick() },\n                { instruction: eInstruction, pages: eFiles, model: eQuickModel });",
+    "to": "              const eTextParts = await editParts();\n              const eParts = eTextParts.parts;\n              const eFiles = editableFiles(eSrc, eParts);\n              const out = await runTextEdit({ send: eQuick() },\n                { instruction: eInstruction, pages: eFiles, model: eQuickModel });\n              if (!eTextParts.ok) {\n                return Response.json({\n                  ok: false, error: \"parts-unreadable\", cost: 0,\n                  msg: \"I couldn't read this site's sections just now, and changing the words without them could take one off. Nothing was changed — try again in a moment.\",\n                }, { status: 503 });\n              }"
+  }
+]

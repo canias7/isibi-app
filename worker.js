@@ -22784,21 +22784,45 @@ async function handleRequest(request, env, ctx) {
               // prompt and the wall that checks the answer were built from
               // different beliefs about the site.
               const pPartsRead = await editParts();
+              // ⚠ `.ok`, AND THE OBVIOUS `.parts.length` IS MEASURED EQUIVALENT
+              // TODAY RATHER THAN WRONG. They differ on exactly one input — a
+              // readable store with NO components, where this answers `[]` and
+              // that answers `null` — and both flow only into `partsSent`,
+              // which normalises them to the same three empty lists. Driven
+              // through the route over four scenarios (readable, failed read,
+              // empty store, withheld component): byte-identical status, reply,
+              // compiler payload, stored inventory and prompt.
+              //
+              // IT STAYS `.ok` BECAUSE IT STATES THE QUESTION. "Could we read
+              // it" is what every line below is really asking; "does it have
+              // any" is a different question that happens to agree, and the day
+              // a reader distinguishes `[]` from `null` the agreement ends
+              // silently. Said here because a sweep reports this as a survivor
+              // and cannot say why.
               const pStoredParts = pPartsRead.ok ? pPartsRead.parts : null;
               const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok });
               // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
               // how `siteComponentApi` is reached, and without it the writer
               // was rewriting a page built from `<Accordion>` with no idea of
-              // that component's props. Scoped to the TARGET page rather than
-              // the site: this rung edits exactly one file by design, and the
-              // signatures of components on other pages are input the model
-              // pays for and cannot use.
+              // that component's props.
+              //
+              // ⚠ THE SCOPING IS THE `[wantRoute]` INDEX, NOT THE ARGUMENT,
+              // and a first draft of this comment claimed otherwise. A sweep
+              // mutant passing `eSrc` here SURVIVED, and the measurement says
+              // why: `pageComponents` answers a map KEYED BY ROUTE, so
+              // selecting `wantRoute` out of the whole site and out of the one
+              // page give the same entry — driven over four scenarios,
+              // byte-identical throughout. What `[target]` really buys is not
+              // walking every page's imports to throw all but one away. Said
+              // out loud because *the argument does the scoping* is the kind of
+              // claim that survives until somebody relies on it.
               //
               // `modules`, NEVER `kit`. `pageComponents` answers both and they
               // are different vocabularies — `siteComponentApi` is keyed on
               // the MODULE name (`seat-map`), and handing it the EXPORT names
               // answers "" for every one, which from outside is
-              // indistinguishable from a page importing nothing.
+              // indistinguishable from a page importing nothing. That one is
+              // NOT equivalent and the sweep kills it.
               const pPageApi = pageComponents([target])[wantRoute];
               const pPlanComponents = (pPageApi && Array.isArray(pPageApi.modules)) ? pPageApi.modules : [];
 
@@ -22915,6 +22939,24 @@ async function handleRequest(request, env, ctx) {
               // check a returned component against and no way to know what a
               // replacement would destroy. The two can never both fire —
               // `partsSent` answers empty lists when it cannot read.
+              //
+              // ⚠ AND THAT `return false` IS A DECLARED REDUNDANCY, MEASURED
+              // RATHER THAN REASONED ABOUT — the addon route's own wall carries
+              // the same note for the same line. The merge below refuses to
+              // write anything at all while `pPartsRead.ok` is false, so
+              // KEEPING a returned component here changes no observable:
+              // driven through the route with the store throwing, the status,
+              // the reply, the compiler payload and the stored inventory are
+              // byte-identical either way, and the sweep reports it as a
+              // survivor.
+              //
+              // IT STAYS BECAUSE THE TWO SAY DIFFERENT THINGS — this one is
+              // "which returned components may be kept", that one is "may we
+              // write at all" — and because `pUnseenParts` is filled on this
+              // line, which is what the customer hears. The sweep mutates the
+              // PAIR, since neither half can be killed alone; said here because
+              // a sweep cannot say it and the next session deletes what nothing
+              // appears to need.
               const pKeptParts = [], pUnseenParts = [];
               const pFreshParts = (Array.isArray(pValid.parts) ? pValid.parts : []).filter((p) => {
                 const n = String((p && p.name) || "").toLowerCase();
