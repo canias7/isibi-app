@@ -289,6 +289,22 @@ duration**: `EDIT isibi-app-sitebuildcontainer`, the `- "image"` / `+ "image"`
 pair, `SUCCESS Modified application`, `Applied changes`. GitHub masks digit
 runs in the log, so a masked id still matches on every unmasked character.
 
+**A GREEN DEPLOY IS NOT A RUNTIME CONFIRMATION, AND THE TWO MUST BE REPORTED
+AS TWO THINGS.** Everything above — the conclusion, the `DEPLOY_ID` var, the
+image diff, the timings — is **the deploy reporting on itself**: it says what
+Wrangler was told to send and what Cloudflare said it applied. **Not one line
+of it is the live Worker answering a question.** That second claim needs
+`/api/site/build-health` (the sha AND the cold-start image, from any signed-in
+account) or `/api/site/runtime?slug=` (owner-scoped), and a session holding no
+Supabase token has neither. **The unauthenticated discriminator does NOT close
+the gap**: 401/401/401/404 is identical before and after any deploy, so it
+proves the Worker is up and routing and is silent on which code answers —
+which is exactly why it is safe to read and worthless as a version check.
+**Say "deployed, not runtime-confirmed" rather than letting a green run stand
+in for a reading nobody took**; *a claim that launders itself through a
+neighbour* is this file's own recorded failure, and a deploy conclusion sitting
+next to an unread runtime is the shape it takes here.
+
 **ONE SERVED FILE IS A FREE WORKER-SIDE CHECK — WHEN `public/` CHANGED.** A
 deploy that uploads an asset makes it fetchable with no token, byte-comparable
 to the merged tree, and a **cheap discriminator** is an identifier the change
@@ -1582,7 +1598,11 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
 - **1 escalates** — `kind`→`build`. A rebuild is what it IS.
 - **0 unbuilt.** The five groups are a **total, disjoint partition**. **A
   dispatched lane must never target `look`** — that is the door it came through.
-- **ALL FIFTEEN REMOVABLE LANES CAN BE TAKEN OFF, not nine.** The removal verb
+- **ALL SIXTEEN REMOVABLE LANES CAN BE TAKEN OFF, not nine** (**re-derived
+  2026-09-20 by DRIVING `removalRefusal` over all 21 `LANE_FIELDS`: 16
+  removable, 5 refused, the partition holding** — the file had said FIFTEEN in
+  two places and both were stale; `NOT_REMOVABLE` is the only gate, so the
+  count is `21 − 5` and never a list somebody typed). The removal verb
   lived inside `eLayer === "look"`, so six dispatching lanes never reached it:
   nothing failed and the STORED field kept saying the site had the thing.
   `DOOR_LAYERS` is derived from the two meanings collapsed into one constant.
@@ -3689,23 +3709,30 @@ measurements this file leans on (the kit closure's 9–53 files, the 322-against
   be one a model invented, and the stray wall empties it correctly. **The
   reachable half of that wall is the PDF**, which really can be uploaded.
 - **`pageless` is job + INTERNAL function only** — driven.
+- **A FUNCTION CHOOSES ITS OWN `language`, AND THIS SAT IN THE UNSUPPORTED LIST
+  FOR A DAY AFTER IT SHIPPED** (closed 2026-09-19, moved here 2026-09-20).
+  `FN_LANGUAGES` is `["sql", "plpgsql"]` beside the emitter, `fnLanguage` is the
+  ONE reader (`site-rls.mjs:932`, emitted at `site-schema.mjs:742`), the tool's
+  enum is DERIVED from it, `cleanAdd` refuses `bad-language`
+  (`site-add.mjs:2491`), and the **fold** — a third hop nothing had found,
+  because `foldAdds` REBUILDS the item too — is SUBTRACTIVE. Proven on a real
+  PostgreSQL 16: the same body declared `sql` is REFUSED, created as plpgsql it
+  ANSWERS, `pg_proc` agrees, and **SECURITY DEFINER and `search_path = public,
+  pg_temp` both survive**. **`job` is still additive and is NAMED in the code as
+  the remaining instance of that class.**
+  **THE SHAPE OF THE MISTAKE IS THE POINT**: the entry carried its own
+  `CLOSED 2026-09-19` in the body while its HEADING still read *"cannot choose
+  its language"*, and a heading is what anybody skimming a capability list
+  reads. **An entry that closes must MOVE, not gain a sentence** — a closed
+  limitation left in a limitations list is a false negative about our own
+  product, and it survived a session that quoted the list back out loud.
 
 **UNSUPPORTED, and the honest reason for each:**
 
 - **Nothing deletes a table, a saved function, a connection or a scheduled job**
-  — `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`. Fifteen lanes
-  ARE removable (`components` and `tsx` among them) and `PAGE_VERBS` is
+  — `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`. **SIXTEEN**
+  lanes ARE removable (`components` and `tsx` among them) and `PAGE_VERBS` is
   `add · remove · move`, so "nothing deletes" is only true of the backend.
-- **A function cannot choose its `language`** — the engine reads `f.language`
-  and emits `LANGUAGE plpgsql`; the addon's cleaner drops the key and reports it
-  as `unexpressed`. **CLOSED 2026-09-19** for the addon path: `FN_LANGUAGES`
-  lives beside the emitter, `fnLanguage` is the ONE reader, the tool's enum is
-  DERIVED from it, and the **fold** — a third hop nothing had found, because
-  `foldAdds` REBUILDS the item too — is SUBTRACTIVE now. **`job` is still
-  additive and is NAMED in the code as the remaining instance of the class.**
-  Proven on a real PostgreSQL 16: the same body declared `sql` is REFUSED,
-  created as plpgsql it ANSWERS, `pg_proc` agrees, and **SECURITY DEFINER and
-  `search_path = public, pg_temp` both survive**.
 - **The api tier's `credential` names no sign-up page** — the owner IS told
   where to PUT the key (`needsSecrets` → *"add RATES_KEY under Cloud →
   Secrets"*) and nothing says which service or whether it is free.
