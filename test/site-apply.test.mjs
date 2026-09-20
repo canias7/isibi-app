@@ -1600,7 +1600,75 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // offers to FILL a space and nothing can fill one of these.
   assert.match(w, /listPhotos: aListSlots/, "the addon answer never carries the list frames");
   assert.match(w, /listPhotosMore: aListMore/, "the addon answer never says a runtime list draws more");
-  assert.match(w, /photos: pSlots/, "the page edit never carries it");
+  // ⚠ THE PAGE EDIT'S COUNT IS TWO READERS NOW — 2026-09-20, and the change
+  // is the same correction the addon made in 2026-09-17, on the rung that was
+  // left behind. `pSlots` counts `@@IMG:` TOKENS, and this rung's directive
+  // FORBIDS a token, so on every obedient answer it was zero and `photoNote`
+  // never fired: a customer left looking at a new empty frame had no way to
+  // know it was theirs to fill. `newEmptySlots` is the frame counter.
+  //
+  // SUMMED RATHER THAN REPLACED, and the `||` is deliberate: the two count
+  // different things, and a token that really WAS written survives into the
+  // after side as `src=""` — `applyImages` sweeps it — so the frame counter
+  // sees it and the token counter is the fallback for nothing else.
+  assert.match(w, /photos: pNewSlots \|\| pSlots/,
+    "the page edit's picture count is not the frame reader with the token counter behind it");
+  assert.match(w, /const pNewSlots = newEmptySlots\(pPicsBefore, pPicsAfter\)/,
+    "the page edit's frame count took its own reading of the site");
+  // AND BOTH SIDES ARE `imageSources`, so a component the site already has has
+  // a BEFORE — two ideas of before-and-after is how an unchanged component
+  // reads as a new frame to one reader and not the other.
+  assert.match(w, /const pPicsBefore = imageSources\(eSrc, /,
+    "the page edit's BEFORE is not read through imageSources");
+  assert.match(w, /const pPicsAfter = imageSources\(pPages, /,
+    "the page edit's AFTER is not read through imageSources");
+  // ⚠ AND THE AFTER IS THE **PUBLICATION**, never the writer's answer: a
+  // component the parts wall refused is not part of what ships, so counting
+  // its frames would report a change nobody made.
+  assert.ok(w.indexOf("const pFreshParts") < w.indexOf("const pPicsAfter"),
+    "the page edit counts frames before the parts wall decides what publishes");
+
+  // ── AND A PHOTOGRAPH THE EDIT LOST IS REPORTED, NEVER REFUSED ───────────
+  //
+  // ⚠ THE LINE BETWEEN THIS RUNG AND THE ADDON'S. There a lost photograph is
+  // a 422 `lost-photos` at cost 0 — right for a step whose contract is *"an
+  // addition is always a new thing"* — and applying that here would refuse
+  // *"take the window photo off the front page"*, which is an ordinary edit.
+  // So the change SHIPS and the customer is told: the `orderingMoved` /
+  // `reordered` precedent, one field over in the same response.
+  //
+  // BOTH HALVES, because either alone is the failure: without the reader
+  // nobody detects it, and without the reply nobody hears it.
+  assert.match(w, /const pKept = keptImages\(pPicsBefore, pPicsAfter, ownerSlug\)/,
+    "the page edit does not detect a photograph it lost");
+  assert.match(w, /photosRemoved: pKept\.ok \? undefined : pKept\.lost\.length/,
+    "the page edit's loss never reaches the reply, or it carries the urls rather than the count");
+  // ⚠ AND IT IS **NOT** `lostPhotos`. That name is the addon's and carries a
+  // LIST of urls on a 422 that published nothing — `scripts/addon-sweep.mjs`
+  // reads it with `Array.isArray`. `Number([…])` is NaN, so one name over two
+  // shapes would make the browser's clause silently never fire.
+  assert.ok(!/lostPhotos: pKept/.test(w), "the edit rung reuses the addon's field name for a different shape");
+  // AND IT DOES NOT REFUSE. The addon's 422 must not appear on this rung —
+  // asserted against the addon's own error name, so a copy-paste of that
+  // refusal into this branch fails here rather than in front of a customer.
+  //
+  // ⚠ SCANNED OVER BLANKED COMMENTS. The rung's own note EXPLAINS why it does
+  // not refuse and names the refusal while doing so — "prose contains the
+  // thing it forbids", caught by this assertion on the day both were written.
+  // ⚠ AND THE CLOSING LANDMARK IS CODE AND IS **AFTER** THE OPENING ONE. The
+  // first draft closed on `if (eLayer === "look")`, which sits ABOVE the page
+  // rung in this file — so `indexOf(…, from)` answered -1 and `slice(a, -1)`
+  // swallowed the rest of the file, including the addon's real refusal. Both
+  // halves of this repository's own recorded window trap, in one line.
+  const blank = w.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const pFrom = blank.indexOf('if (eLayer === "page") {');
+  assert.ok(pFrom > 0, "the page rung is gone");
+  const pTo = blank.indexOf('return escalate("layer");', pFrom);
+  assert.ok(pTo > pFrom, "the page rung's next sibling moved — re-derive the closing landmark");
+  const pRung = blank.slice(pFrom, pTo);
+  assert.ok(pRung.length > 2000 && pRung.length < 40000, "re-derive the page rung window: " + pRung.length);
+  assert.ok(!/lost-photos/.test(pRung),
+    "the page edit rung refuses a lost photograph, so an authorised removal cannot publish");
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /function photoNote\(/);
   assert.equal((chat.match(/function photoNote\(/g) || []).length, 1, "two copies drift into one lane saying it");

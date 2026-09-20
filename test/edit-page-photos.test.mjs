@@ -40,7 +40,14 @@ import { CONFIG_KEY } from "../site-config.mjs";
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { imageDirective, shownPhotos } from "../builder/site-images.mjs";
-import { browserReply } from "../scripts/addon-sweep.mjs";
+// ⚠ `editBrowserReply`, NOT `browserReply` — the two are different composers
+// and the wrong one answers plausibly. `browserReply` runs `addonAnswer`,
+// which is the ADD route's selection; an EDIT reply goes through `editAnswer`
+// → `applyEditResult` → `editReply`, where every sentence about a page edit is
+// written. MEASURED: an edit reply naming a page, a lost photograph and two
+// picture spaces came back through the addon composer as "✅ Done." — a
+// fixture in a different shape from reality, one route over.
+import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const USER = { id: "u-editpix-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -144,7 +151,7 @@ async function edit(slug, instruction, { store, layer = "page", page = "/" } = {
   });
   const res = await worker.fetch(req, { SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", ...dispatchEnv() }, makeCtx());
   const body = await res.clone().json().catch(() => null);
-  return { status: res.status, body, said: browserReply(body, res.ok) };
+  return { status: res.status, body, said: editBrowserReply(body, res.ok) };
 }
 
 const pagePrompt = (calls) => {
@@ -178,7 +185,16 @@ const picsIn = (src, slug) => [...new Set([...String(src || "").matchAll(/\/u\/[
 // 1. THE PROMPT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("REPRODUCTION A: the page writer is told this site has no photographs, on a site showing two", async () => {
+test("the page writer is told what the site really shows, and that the zero is ours", async () => {
+  // THE DEFECT (reproduced at b9353187): the rung passed a bare `images: 0`,
+  // and `imageDirective` says a bare zero as *"PHOTOGRAPHS: none on this site
+  // … Every picture is <SafeImage> with no src … that is the intended look
+  // here."* On a site that HAS photographs every clause is false and the last
+  // two are an instruction to STRIP them.
+  //
+  // WHAT IT DOES NOW: the object form, with the inventory READ through
+  // `photoInventory`/`shownPhotos` — the correction the addon path made on
+  // 2026-09-17, on the caller that never moved.
   const slug = "pix-prompt";
   const store = bucket(slug);
   const c = installCompiler();
@@ -191,32 +207,71 @@ test("REPRODUCTION A: the page writer is told this site has no photographs, on a
       const prompt = pagePrompt(calls);
       assert.ok(prompt, "the page writer was never called");
 
-      // THE SENTENCE, FROM ITS REAL PRODUCER — so a reworded directive cannot
-      // read as a fixed defect, and a fixed defect cannot read as a rewording.
+      // (a) THE FALSE SENTENCE IS GONE, checked against its real producer — so
+      //     a reworded directive cannot read as a fixed defect, and a fixed
+      //     defect cannot read as a rewording.
       const bare = imageDirective(0);
       assert.ok(bare.includes("none on this site"), "the bare-zero directive no longer says what this case is about");
-      assert.ok(prompt.includes(esc(bare)),
-        "expected the reproduction: the bare-zero directive, verbatim, on a site showing two photographs");
+      assert.ok(!prompt.includes(esc(bare)),
+        "the bare-zero directive is still on the wire for a site showing two photographs");
 
-      // AND THE HONEST ALTERNATIVE IS ABSENT. `shownPhotos` reads the site's
-      // real pictures and `imageDirective`'s object form states the budget as
-      // OURS rather than as a fact about the site — the addon's own shape.
+      // (b) AND THE HONEST ONE IS THERE, VERBATIM, over the inventory the
+      //     readers really answer for this site.
       //
-      // ⚠ THE DISCRIMINATOR IS THE DIRECTIVE'S OWN SENTENCE, NOT THE URLS. A
-      // first draft asserted the picture urls were absent from the prompt and
-      // failed, correctly: the site's own page SOURCE is sent as the prior
-      // page and carries every `src` it draws. So a url in the prompt says
-      // nothing about whether the writer was TOLD the pictures are real and
-      // must stay — which is the whole of what is missing.
+      //     ⚠ THE DISCRIMINATOR IS THE DIRECTIVE'S OWN SENTENCE, NOT THE URLS.
+      //     A first draft of the reproduction asserted the picture urls were
+      //     absent from the prompt and failed, correctly: the site's own page
+      //     SOURCE is sent as the prior page and carries every `src` it draws.
+      //     So a url in the prompt says nothing about whether the writer was
+      //     TOLD the pictures are real and must stay.
       const shown = shownPhotos([{ path: "index.tsx", source: homeWith(slug) }], slug);
       assert.equal(shown.count, 2, "the fixture does not show two photographs: " + JSON.stringify(shown));
-      const honest = imageDirective({ shown });
+      const honest = imageDirective({ shown, place: false });
       assert.ok(honest.includes("already shows 2 real photographs"),
         "the object form no longer states the inventory, so this case has no discriminator");
+      assert.ok(prompt.includes(esc(honest)),
+        "the honest directive is not on the wire, verbatim: the writer was told something else");
+
+      // (c) AND THE BUDGET IS STILL ZERO — that half must not have moved. This
+      //     rung buys nothing; what changed is that the zero is stated as OURS
+      //     rather than as a fact about the site.
+      assert.ok(prompt.includes(esc("this change buys none")), "the zero is no longer stated");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("an unreadable component store claims nothing about the pictures either way", async () => {
+  // THE THIRD STATE, on the input that decides what a model believes about the
+  // site it is editing. `photoInventory` answers `null` when the components
+  // could not be read — a photograph can live in one since the band split — and
+  // `shownPhotos` reads that as `known: false`, so the directive says *"Leave
+  // every picture already on this site exactly as it is"* rather than naming a
+  // count it cannot stand behind.
+  //
+  // WITHOUT THIS CASE the wire could pass `shownPhotos(imageSources(...))` with
+  // the components silently missing, which reads as a SMALLER inventory — and a
+  // smaller inventory is an invitation to strip whatever is not in it.
+  const slug = "pix-unknown";
+  const store = bucket(slug);
+  const realGet = store.get.bind(store);
+  store.get = async (k) => { if (k === SLUG_PARTS(slug)) throw new Error("R2 GET failed"); return realGet(k); };
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: keptBoth(slug) }], parts: [] },
+    }, async (calls) => {
+      await edit(slug, "change the opening hours to six", { store });
+      const prompt = pagePrompt(calls);
+      assert.ok(prompt, "the page writer was never called");
+      const unknown = imageDirective({ shown: { known: false }, place: false });
+      assert.ok(unknown.includes("Leave every picture already on this site exactly as it is"),
+        "the unknown form no longer says what this case is about");
+      assert.ok(prompt.includes(esc(unknown)), "an unreadable inventory did not reach the writer as cannot-tell");
+      // AND IT DOES NOT CLAIM A COUNT. Naming one from the pages alone would
+      // be a number about half the site presented as a number about all of it.
       assert.ok(!prompt.includes(esc("already shows 2 real photographs")),
-        "the writer is already told the site's photographs are real — this reproduction is stale");
-      assert.ok(!prompt.includes(esc("they stay exactly as they are")),
-        "the writer is already told to keep them — this reproduction is stale");
+        "a count was claimed over an inventory that could not be completed");
     });
   } finally { c.uninstall(); }
 });
@@ -225,10 +280,20 @@ test("REPRODUCTION A: the page writer is told this site has no photographs, on a
 // 2. PRESERVATION — a wording edit keeps the pictures
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("REPRODUCTION B: a wording edit that strips both photographs publishes and reports nothing", async () => {
-  // The defect end to end: the writer obeys the sentence above, both `src`
-  // attributes come back empty, the publish carries the stripped page, the
-  // store keeps it, and the reply says `photos: 0` with no word about the loss.
+test("a wording edit that loses the photographs NAMES the loss on the reply", async () => {
+  // THE DEFECT (reproduced at b9353187): the writer obeyed the false sentence,
+  // both `src` attributes came back empty, the publish carried the stripped
+  // page, the store kept it, and the reply said `photos: 0` with no field
+  // naming the loss — over a request that asked in as many words to keep them.
+  //
+  // ⚠ WHAT IT DOES NOW IS **REPORT**, NOT REFUSE, and that line is the whole
+  // of Stage 2's design. The addon answers a lost photograph with 422
+  // `lost-photos` at cost 0 — right for a step whose contract is "an addition
+  // is always a new thing" — and applying that here would refuse *"take the
+  // window photo off the front page"*, which is an ordinary edit. The case
+  // below this one is the other side of that line and must stay green.
+  //
+  // So this asserts BOTH halves: it still publishes, AND the customer is told.
   const slug = "pix-strip";
   const store = bucket(slug);
   const c = installCompiler();
@@ -237,27 +302,45 @@ test("REPRODUCTION B: a wording edit that strips both photographs publishes and 
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "change the opening hours to six, and keep the photographs exactly as they are", { store });
+      const { status, body, said } = await edit(slug, "change the opening hours to six, and keep the photographs exactly as they are", { store });
+
+      // (a) IT PUBLISHES. Not a 422 — the customer's change is not held
+      //     hostage to a reader's opinion about their pictures.
+      assert.equal(status, 200, "a lost photograph was REFUSED: " + status + " " + JSON.stringify(body));
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
 
-      // (a) THE COMPILER PAYLOAD — both pictures gone.
-      assert.deepEqual(picsIn(sentHome(c), slug), [],
-        "expected the reproduction: the publish still carried the photographs");
+      // (b) AND THE LOSS IS NAMED, as a COUNT. A storage key tells a customer
+      //     nothing (`lostPhotosMsg`'s own rule); the number is what they can
+      //     act on.
+      assert.equal(body.photosRemoved, 2,
+        "the reply does not name the two lost photographs: " + JSON.stringify(body.photosRemoved));
+      assert.ok(!JSON.stringify(body).includes(PIC_A(slug)),
+        "the reply carries a storage key, which tells the customer nothing");
 
-      // (b) THE STORE — and the loss is permanent.
-      assert.deepEqual(picsIn(storedHome(store, slug), slug), [],
-        "expected the reproduction: the stored source still carries the photographs");
+      // (c) AND THE EMPTY FRAMES ARE COUNTED. Two pictures became two
+      //     placeholders, so there really are two spaces where a photograph
+      //     was — the reader the addon path uses, on the rung that lacked it.
+      assert.equal(body.photos, 2, "the empty frames left behind were not counted: " + body.photos);
 
-      // (c) THE REPLY — `photos` counts TOKENS, and the directive forbids
-      //     tokens, so an obedient answer is always zero.
-      assert.equal(body.photos, 0, "the token counter is no longer zero on an obedient answer: " + body.photos);
-      assert.equal(body.lostPhotos, undefined, "a lostPhotos field already exists on this rung");
-
-      // (d) AND THE CUSTOMER'S SENTENCE IS A FLAT SUCCESS over a page that
-      //     just lost two photographs they asked to keep.
+      // (d) AND THE CUSTOMER'S OWN SENTENCE SAYS SO. Composed by the
+      //     browser's real `addonAnswer`, not retyped here. It still opens as
+      //     a success, because it is one — the page change shipped — and the
+      //     two clauses beside it are the record: what was lost, and what is
+      //     standing where it was.
+      //
+      //     ⚠ A FIELD THE BROWSER NEVER RENDERS IS THIS REPOSITORY'S OWN
+      //     WIRING TRAP: a value computed and never forwarded, which from
+      //     outside is indistinguishable from never having been computed. The
+      //     reply half is asserted above; this is the hop.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.equal(said.text, "✅ Done.",
-        "the customer's sentence is not the flat success this reproduction is about: " + JSON.stringify(said.text));
+      assert.ok(said.text.startsWith("\u2705 Updated /."),
+        "the customer's sentence does not name the page it changed: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("2 photographs are no longer on that page"),
+        "the loss never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("put the photos back"),
+        "the customer is told what was lost and not what to do about it: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("2 spaces for a photo"),
+        "the empty frames left behind never reached the screen: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
 });
@@ -300,11 +383,14 @@ test("an explicitly requested removal takes the picture off and PUBLISHES", asyn
 // 4. THE EMPTY FRAME NOBODY IS TOLD ABOUT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("REPRODUCTION C: a page edit that adds an empty picture frame reports no space at all", async () => {
-  // The backlog's own open item: `pSlots = countImageSlots(...)` counts
-  // `@@IMG:` tokens on a rung whose directive forbids them, so `photoNote` is
-  // silent on every obedient answer — and a customer left looking at a new
-  // empty frame has no way to know it is theirs to fill.
+test("a page edit that adds an empty picture frame says so", async () => {
+  // THE BACKLOG'S OWN OPEN ITEM. `photos` was `countImageSlots(...)`, which
+  // counts `@@IMG:` TOKENS on a rung whose directive forbids them — so it was
+  // zero on every obedient answer and `photoNote` never fired. A customer left
+  // looking at a new empty frame had no way to know it was theirs to fill.
+  //
+  // `newEmptySlots(before, after)` is the reader the addon path already uses:
+  // per page, only the increase, negative never subtracting.
   const slug = "pix-frame";
   // A site with NO photographs, so the frame the writer adds is unambiguously
   // new rather than one it emptied.
@@ -321,11 +407,34 @@ test("REPRODUCTION C: a page edit that adds an empty picture frame reports no sp
     }, async () => {
       const { body } = await edit(slug, "hours to six, and leave room for a photo of the bench", { store });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
-      // THE FRAME REALLY SHIPPED.
       assert.ok(sentHome(c).includes('src=""'), "the publish carried no empty frame, so this case is about nothing");
-      // AND THE COUNT IS ZERO, because it counts the wrong thing.
-      assert.equal(body.photos, 0,
-        "expected the reproduction: the token counter reported " + body.photos + " for an empty frame");
+      assert.equal(body.photos, 1, "the new empty frame was not counted: " + body.photos);
+      // AND NOTHING WAS LOST, so the other field stays absent. Its PRESENCE is
+      // the signal, so a case that adds a frame must not also report a loss.
+      assert.equal(body.photosRemoved, undefined,
+        "an edit that lost no photograph reported one: " + JSON.stringify(body.photosRemoved));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a page edit that adds nothing and loses nothing reports neither", async () => {
+  // THE SILENCE THAT MAKES THE TWO FIELDS SIGNALS. Both are omitted when
+  // empty, so an ordinary page edit's reply is byte-identical to what it was
+  // — without this case, a rung that reported `0` and `0` on every edit would
+  // pass every assertion above and add a sentence to every reply.
+  const slug = "pix-quiet";
+  const plain = ROUTE_HEAD + "function Home(){return <main><h1>Ravenscroft</h1><p>Nine until five.</p></main>}\n";
+  const store = bucket(slug, { home: plain });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: plain.replace("five", "six") }], parts: [] },
+    }, async () => {
+      const { body } = await edit(slug, "hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      assert.equal(body.photos, 0, "a quiet edit reported a picture space: " + body.photos);
+      assert.equal(body.photosRemoved, undefined, "a quiet edit reported a loss: " + JSON.stringify(body.photosRemoved));
     });
   } finally { c.uninstall(); }
 });

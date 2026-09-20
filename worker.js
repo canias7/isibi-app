@@ -22837,7 +22837,44 @@ async function handleRequest(request, env, ctx) {
                 // that the canvas is deliberate. Read from the stored look, the
                 // same fields the build read from the design.
                 eGen = await generateSitePages(env, briefWithLayout({
-                  brief: eInstruction, images: 0,
+                  brief: eInstruction,
+                  // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
+                  //    CLAIM ABOUT THE SITE ────────────────────────────────
+                  //
+                  // This was a bare `0`, and `imageDirective` says a bare zero
+                  // as *"PHOTOGRAPHS: none on this site … Every picture is
+                  // <SafeImage> with no src … that is the intended look
+                  // here."* On a site that HAS photographs every clause is
+                  // false and the last two are an instruction to STRIP them —
+                  // reproduced through this route on a site showing two, on a
+                  // request that asked in as many words to keep them: both
+                  // `src` attributes came back empty, the publish carried the
+                  // stripped page, the store kept it, and the reply said
+                  // `photos: 0`.
+                  //
+                  // THE BUDGET IS UNCHANGED AND MUST BE. This rung buys
+                  // nothing; what moves is that the zero is stated as OURS and
+                  // what the site really shows is READ. The addon path made
+                  // exactly this correction on 2026-09-17 and says why in
+                  // `imageDirective`'s own comment; this is the caller that
+                  // never moved.
+                  //
+                  // THREE-STATE, THROUGH `photoInventory`. A component store
+                  // we could not read answers `null`, which reaches
+                  // `shownPhotos` as `known: false` and the directive then
+                  // says *"Leave every picture already on this site exactly as
+                  // it is"* rather than claiming a count — cannot-tell must
+                  // never read as a value, in the one input that decides what
+                  // a model believes about the site it is editing.
+                  //
+                  // `place` IS FALSE HERE, deliberately. It is the addon's
+                  // "a picture was asked for and is not being bought" clause,
+                  // which promises the picture rung will fill the slot; this
+                  // rung has no photograph request to hand on.
+                  images: {
+                    shown: shownPhotos(photoInventory(eSrc, pStoredParts, pPartsRead.ok), ownerSlug),
+                    place: false,
+                  },
                   plan: pPlanComponents.length ? { components: pPlanComponents } : null,
                   // THE DECLARATIONS **AND** THE REAL SOURCE. Sent alone,
                   // `tsx` reaches `tsxDirective` with an empty filter, so every
@@ -22883,7 +22920,22 @@ async function handleRequest(request, env, ctx) {
               // `src="@@IMG:…@@"`, which the browser cannot fetch. The build path
               // shipped exactly that live on `hebden-bike-repair` (2026-09-12);
               // `builder/site-images.mjs`'s `imageSources` has the account.
+              // ⚠ AND THE COUNT IT PRODUCES IS THE WRONG NUMBER — the
+              // backlog's own open item, closed below rather than here.
+              // `countImageSlots` counts `@@IMG:` TOKENS, and this rung's
+              // directive forbids tokens, so on every OBEDIENT answer it is
+              // zero and `photoNote` says nothing. What it really measures is
+              // how many tokens a model wrote against an instruction not to.
+              // Kept for the sweep it drives one line down — a token that did
+              // get written must still be swept — and replaced as the
+              // CUSTOMER'S number by `newEmptySlots` below.
               const pSlots = countImageSlots(imageSources(pValid.pages, pValid.parts));
+              // WHAT THE SITE DREW BEFORE THIS CHANGE, captured before the
+              // sweep rewrites anything. Read across the pages AND the
+              // components, because since the band split a photograph can be
+              // in either — `imageSources` is the one reader of that union and
+              // `photoInventory` is the same pair the prompt was built from.
+              const pPicsBefore = imageSources(eSrc, pPartsRead.ok ? pPartsRead.parts : []);
               pValid.pages = applyImages(pValid.pages, {});
               pValid.parts = applyImages(pValid.parts, {});
               // AND THE INVENTED EXPORT NAME IS REPAIRED, on this lane too. It
@@ -23001,6 +23053,36 @@ async function handleRequest(request, env, ctx) {
                 ? mergeParts(pPartsRead.parts, pFreshParts)
                 : null;
 
+              // ── WHAT THIS CHANGE DID TO THE SITE'S PICTURES ──────────────
+              //
+              // Read off the PUBLICATION rather than the writer's answer, so
+              // the sweep and the parts wall are both already applied — the
+              // addon's rule, and it matters here for the same reason: a
+              // component the wall refused is not part of what ships, so
+              // counting its pictures would report a change nobody made.
+              //
+              // ⚠ DETECTED AND REPORTED, NEVER REFUSED — and that line is the
+              // whole of what separates this rung from the addon's. There a
+              // lost photograph is a 422 `lost-photos` at cost 0, which is
+              // right for a step whose contract is *"an addition is always a
+              // new thing"*. Here *"take the window photo off the front page"*
+              // is an ordinary request, and a rung that refuses it cannot do
+              // its job. So the reply NAMES the loss and the customer decides:
+              // the `orderingMoved` / `reordered` precedent, one field over in
+              // this same response — *reported, never rewritten*.
+              //
+              // THE COUNT AND NOT THE URLS. A storage key tells a customer
+              // nothing (`lostPhotosMsg`'s own rule), and the number is what
+              // they can act on.
+              const pPicsAfter = imageSources(pPages, pParts || (pPartsRead.ok ? pPartsRead.parts : []));
+              const pKept = keptImages(pPicsBefore, pPicsAfter, ownerSlug);
+              // AND HOW MANY EMPTY PICTURE FRAMES THIS CHANGE ADDED. Per page
+              // and only the increase, so a page that already had one is not
+              // reported as this change's doing; computed over the same two
+              // publications, so a page the parts wall changed is counted as
+              // it really ships.
+              const pNewSlots = newEmptySlots(pPicsBefore, pPicsAfter);
+
               const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pPages,
                 parts: pParts || undefined,
@@ -23029,7 +23111,31 @@ async function handleRequest(request, env, ctx) {
               const alsoOn = orderingMoved(target.source, wrote.source, eSrc, target.path);
               return Response.json({
                 ok: true, layer: "page", page: wantRoute,
-                photos: pSlots,
+                // ── THE PICTURE SPACES THIS CHANGE LEFT ──────────────────
+                //
+                // `pSlots` counted `@@IMG:` TOKENS on a rung whose directive
+                // forbids them, so it was zero on every obedient answer and
+                // `photoNote` never fired: a customer looking at a new empty
+                // frame had no way to know it was theirs to fill. Summed with
+                // it rather than replacing it, because the two count
+                // different things and a token that really was written still
+                // produces a frame — `applyImages` sweeps it to `src=""`,
+                // which `newEmptySlots` then sees on the after side, so the
+                // sum is the honest total either way.
+                photos: pNewSlots || pSlots,
+                // AND A PHOTOGRAPH THE CHANGE TOOK OFF, NAMED. Omitted when
+                // empty, so an ordinary page edit's reply is byte-identical
+                // and the field's PRESENCE is the signal. The COUNT, never the
+                // urls: a storage key tells a customer nothing.
+                //
+                // ⚠ `photosRemoved`, NOT `lostPhotos` — and the two names are
+                // two facts rather than a preference. The addon's field is a
+                // LIST of urls on a 422 that published NOTHING, and its own
+                // harness reads it with `Array.isArray`; this is a COUNT on a
+                // change that SHIPPED. One name over two shapes is this
+                // repository's own recorded trap, and the reader that would
+                // meet it first is the one doing `Number(...)` on an array.
+                photosRemoved: pKept.ok ? undefined : pKept.lost.length,
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is

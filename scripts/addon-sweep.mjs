@@ -754,6 +754,136 @@ export function browserReply(reply, httpOk) {
 }
 
 /**
+ * ── THE **EDIT** ROUTE'S SCREEN, WHICH IS A DIFFERENT COMPOSER (2026-09-20) ──
+ *
+ * `browserReply` runs `addonAnswer`, and that is the ADD route's selection. An
+ * EDIT-route reply goes through `editAnswer` → `applyEditResult` → `editReply`,
+ * which is where every sentence about a page edit is written — the page it
+ * named, the pages it left alone, a list it reordered, the picture spaces it
+ * left. Reading an edit reply through `addonAnswer` is this repository's own
+ * "fixture in a different shape from reality", one route over: it answers a
+ * plausible sentence (`addonReplyText`'s "✅ Done.") for a body it was never
+ * written for, so a guard asserting that sentence passes whatever the edit
+ * composer does — and MEASURED, an edit reply carrying a page name, a lost
+ * photograph and two picture spaces came back as three words.
+ *
+ * ONE COPY OF THE MACHINERY, TWO ENTRY POINTS. The cut, the injected
+ * dependencies and the cannot-tell rule are `browserReply`'s and are shared;
+ * what differs is the function list and the name returned. Writing a second
+ * loader here would be two readers of one file, which is the trap this whole
+ * harness exists to avoid.
+ *
+ * ⚠ THE FUNCTION LIST IS THE WHOLE SCOPE. `browserSource`'s own note says it:
+ * a sentence whose composer is not named is a `ReferenceError` at the first
+ * reply that reaches it, and the harness then reports no customer screen at
+ * all rather than a wrong one. `test/edit-browser-reply.test.mjs` derives the
+ * requirement from `editReply`'s own body so the next one fails at a guard.
+ */
+export const EDIT_BROWSER_FNS = Object.freeze([
+  "problemNote", "photoNote", "listPhotoNote", "sitePathOf",
+  "renderTail", "alsoTail", "editReply", "applyEditResult", "escalatedEdit", "editAnswer",
+]);
+
+/**
+ * WHAT `editReply` REACHES FOR THAT IS NOT A FUNCTION IN THIS FILE: `EditPoll`
+ * alone — the real `public/edit-poll.js`, injected exactly as `browserReply`
+ * injects it, so both readers run the page's own outcome wording rather than a
+ * stand-in.
+ */
+
+let EDIT_BROWSER_SOURCE = null;
+function editBrowserSource() {
+  if (EDIT_BROWSER_SOURCE) return EDIT_BROWSER_SOURCE;
+  try {
+    const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+    const cut = (name) => {
+      const at = chat.indexOf("function " + name + "(");
+      if (at < 0) throw new Error(name + " is gone from chat.js");
+      const end = chat.indexOf("\n}", at);
+      if (end < 0) throw new Error(name + " has no end in chat.js");
+      return chat.slice(at, end + 2);
+    };
+    EDIT_BROWSER_SOURCE = {
+      ok: true,
+      // `editBlocked` IS A MODULE-SCOPE `Set` THE REFUSAL BRANCH WRITES TO,
+      // not a function, so it is declared here rather than cut. A fresh one
+      // per load, because a harness that shared it across replies would let
+      // one `needs-review` answer change what a later, unrelated one says.
+      src: "const editBlocked = new Set();\n"
+        + EDIT_BROWSER_FNS.map(cut).join("\n") + "\nreturn editAnswer;",
+    };
+  } catch (e) {
+    EDIT_BROWSER_SOURCE = { ok: false, why: String((e && e.message) || e).split("\n")[0].slice(0, 120) };
+  }
+  return EDIT_BROWSER_SOURCE;
+}
+
+/**
+ * What the screen says for an edit reply — the SELECTION, not one composer.
+ *
+ * `editAnswer` is the entry point for exactly the same reason `browserReply`
+ * runs `addonAnswer` rather than `addonReplyText`: the browser has several
+ * answers and running only the success composer reports "Updated /" over a
+ * refusal. The refusal branches are part of what is under test — the text
+ * rung's `parts-unreadable` 503 is a Stage 1 case — and they are the server's
+ * `msg` with a warning sign in front, which this runs rather than retypes.
+ *
+ * `actions` RECORDS WHAT THE SCREEN WOULD DO, never does it: the two arms that
+ * reach outside (`siteEdit`, `siteAddon`) are injected recorders, `siteById`
+ * answers `null` so the local-record block is skipped, and `sitesSave` is
+ * unreachable. `browserReply`'s own note says this and the reasoning is the
+ * same one function over.
+ */
+export function editBrowserReply(reply, httpOk) {
+  const s = editBrowserSource();
+  if (!s.ok) return { ok: false, text: "", actions: [], why: "the browser's own edit handling could not be loaded — " + s.why };
+  // CANNOT-TELL REFUSES, for the reason `browserReply` states: the browser's
+  // first question about a reply is its HTTP status.
+  if (httpOk !== true && httpOk !== false) {
+    return { ok: false, text: "", actions: [], why: "the response status was not recorded, and the browser's own selection reads it" };
+  }
+  const actions = [];
+  try {
+    const answer = new Function(
+      "EditPoll", "siteEdit", "siteAddon", "scheduleCreditRefresh", "siteById", "sitesSave", s.src,
+    )(
+      createRequire(import.meta.url)("../public/edit-poll.js"),
+      (site, d) => {
+        const layer = d && typeof d.layer === "string" ? d.layer : "";
+        actions.push("post a SECOND, PAID request to the edit route" + (layer ? ` (layer ${JSON.stringify(layer)})` : ""));
+      },
+      () => { actions.push("post a PAID request to the addon route"); },
+      // ⚠ `escalateAction` IS NOT INJECTED AND MUST NOT BE — it is
+      // `EditPoll.escalateAction`, a method on the module above, so the real
+      // decision about whether an escalate goes sideways, to the addon, or to
+      // the ~25-credit rewrite is the page's own. A parameter of that name
+      // here would be a stand-in that never runs, shadowing nothing and
+      // reading as a wire.
+      () => { actions.push("refresh the credit balance"); },
+      () => null,
+      () => { actions.push("write the browser's own stored site list"); },
+    );
+    let text = null;
+    answer(httpOk, (reply && typeof reply === "object") ? reply : null, {
+      site: null,
+      d: undefined,
+      origin: "",
+      slug: "",
+      instruction: "the ask this run posted",
+      clearFlight: () => {},
+      finish: (t) => { text = String(t); },
+      fallback: () => { actions.push("start the FULL ~25-credit rewrite (the browser's `fallback`)"); },
+    });
+    return { ok: true, text: typeof text === "string" ? text : "", shown: typeof text === "string", actions, why: "" };
+  } catch (e) {
+    return {
+      ok: false, text: "", actions,
+      why: "the browser's own edit handling threw on this reply — " + String((e && e.message) || e).split("\n")[0].slice(0, 120),
+    };
+  }
+}
+
+/**
  * THE COMPLETE CUSTOMER REPLY, as the SERVER composed it.
  *
  * `coverNote` alone was printed, which is one sentence of several: a refusal's

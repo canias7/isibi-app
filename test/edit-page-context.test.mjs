@@ -35,11 +35,18 @@ import { CONFIG_KEY } from "../site-config.mjs";
 // `edit-path.test.mjs`'s own header after it happened there.
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { TEXT_TOOL } from "../builder/site-apply.mjs";
-// THE CUSTOMER'S OWN SENTENCE. `browserReply` loads `public/chat.js` and runs
-// its real `addonAnswer` — the SELECTION, not one composer — so what is
-// asserted is what the screen said rather than a second copy of it written
-// here. `httpOk` is `Response.ok` and is not derivable from the body.
-import { browserReply } from "../scripts/addon-sweep.mjs";
+// THE CUSTOMER'S OWN SENTENCE, from `public/chat.js`'s real composer rather
+// than a second copy written here. `httpOk` is `Response.ok` and is not
+// derivable from the body.
+//
+// ⚠ `editBrowserReply`, NOT `browserReply` — the two are different composers
+// and the wrong one answers plausibly. `browserReply` runs `addonAnswer`,
+// which is the ADD route's selection; an EDIT reply goes through `editAnswer`
+// → `applyEditResult` → `editReply`, where every sentence about a page edit is
+// written. MEASURED: an edit reply naming a page, a lost photograph and two
+// picture spaces came back through the addon composer as "✅ Done." — a
+// fixture in a different shape from reality, one route over.
+import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS } from "../builder/page-gen.mjs";
 
 const USER = { id: "u-editctx-1", email: "owner@example.com" };
@@ -183,7 +190,7 @@ async function edit(slug, instruction, { store, layer = "page", page = "/" } = {
   // reader asks first, so it travels with the body rather than being inferred
   // from it — `{ok:false}` at a 200 and `{ok:true}` at a 503 are different
   // screens and only the pair separates them.
-  const said = browserReply(body, res.ok);
+  const said = editBrowserReply(body, res.ok);
   return { status: res.status, body, said };
 }
 
@@ -313,10 +320,16 @@ test("an unreadable components store publishes NOTHING over the inventory, and s
         "a size refusal was reported for a store that could not be read at all");
 
       // (e) THE CUSTOMER'S SENTENCE, composed by the browser's own selection.
-      //     The page change really did publish, so the screen is a success —
-      //     what changed is that the record beside it now names what did not.
+      //     The page change really did publish, so the screen opens as a
+      //     success — what changed is that the record beside it now names what
+      //     did not, in the customer's words rather than ours.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.equal(said.text, "\u2705 Done.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      assert.ok(said.text.startsWith("\u2705 Updated /."),
+        "the customer's sentence does not name the page: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("could not read this site\u2019s sections"),
+        "the unreadable store never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("card-a"),
+        "the customer is not told WHICH section was left alone: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
 });
@@ -358,7 +371,13 @@ test("two page steps in one message: BOTH components reach the single publicatio
       const { body, said } = await edit(slug, "hours to six, and say beside the weir", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.equal(said.text, "\u2705 Done.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      // ⚠ THE MERGED REPLY READS AS A **LOOK** EDIT, and that is the existing
+      // merge's doing rather than anything this stage introduced: the message
+      // came in through the lane picker's door, so the merge keeps the
+      // customer-facing layer it arrived on. Asserted as it really is, because
+      // pinning "Updated /." here would be asserting a sentence this path does
+      // not compose — the same mistake one composer over.
+      assert.equal(said.text, "\u2705 Updated the look.", "the customer's sentence changed: " + JSON.stringify(said.text));
 
       // BOTH STEPS REALLY RAN. Without this the case would pass by doing half
       // the work once, which is the shape it is trying to catch.
@@ -596,9 +615,15 @@ test("a wording edit REFUSES an unreadable components store, and spends nothing"
 
       // AND THE CUSTOMER IS TOLD, in the browser's own words — a refusal that
       // reads as a success is the failure this whole file is about.
+      // AND THE REFUSAL IS DRAWN AS ONE. `editAnswer` puts the server's `msg`
+      // behind a warning sign; a refusal the screen draws as a success is the
+      // failure this whole file is about.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.notEqual(said.text, "\u2705 Done.", "a refusal was drawn as a success");
+      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("sections"), "the refusal's own sentence did not reach the screen: " + JSON.stringify(said.text));
+      // AND IT DID NOT OFFER TO SPEND. A refusal that falls through to the
+      // ~25-credit rewrite charges for a message nobody re-typed.
+      assert.deepEqual(said.actions, [], "the refusal set something in motion: " + JSON.stringify(said.actions));
     });
   } finally { c.uninstall(); }
 });
@@ -643,7 +668,7 @@ test("CONTROL: with the store readable, one changed component leaves the other e
       const { body, said } = await edit(slug, "change the opening hours to six", { store });
       assert.equal(body && body.ok, true, "the control edit did not go through: " + JSON.stringify(body));
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.equal(said.text, "\u2705 Done.", "the control's sentence changed: " + JSON.stringify(said.text));
+      assert.equal(said.text, "\u2705 Updated /.", "the control's sentence changed: " + JSON.stringify(said.text));
       const got = sentParts(payload(c));
       assert.ok(got, "the compiler was handed no components at all");
       assert.equal(got["card-a"], A_NEW, "the change did not reach the publication");

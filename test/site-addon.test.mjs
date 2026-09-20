@@ -597,14 +597,29 @@ test("neither lane can publish an unbought image token", async () => {
     // nothing bought publishes as its own alt text. Asserted as the two keys
     // that carry it rather than as an expression shape, so the next honest
     // restructuring of this call does not report the property as gone.
+    // ⚠ BOTH LANES STATE THE ZERO AS AN OBJECT NOW — re-anchored 2026-09-20,
+    // and this is the FOURTH time for the same reason the note above gives
+    // twice. The page rung's `images: 0` was the BARE form, which
+    // `imageDirective` renders as *"PHOTOGRAPHS: none on this site"* — false
+    // on every site that has any, and its last two clauses are an instruction
+    // to STRIP them. Reproduced through the real route on a site showing two
+    // that asked in as many words to keep them: both came back with an empty
+    // `src`. The budget did not move and must not; what moved is that the zero
+    // is stated as OURS and the inventory is READ.
+    //
+    // SO THE PROPERTY IS ONE FOR BOTH: the call says something about
+    // photographs, and what it says about the SITE is read rather than assumed.
+    const at = call.indexOf("images: {");
+    assert.ok(at > 0, name + " no longer states anything about photographs in its page call");
+    const images = call.slice(at, call.indexOf("},", at));
+    assert.match(images, /\bshown: /, name + "'s page call does not say what the site already shows");
     if (name === "addon") {
-      const at = call.indexOf("images: {");
-      assert.ok(at > 0, "the addon no longer states anything about photographs in its page call");
-      const images = call.slice(at, call.indexOf("},", at));
       assert.match(images, /\bbuy: /, "the addon's page call does not say what it is buying");
-      assert.match(images, /\bshown: /, "the addon's page call does not say what the site already shows");
     } else {
-      assert.match(call, /\bimages: 0\b/, name + " does not tell the model there is nothing to buy");
+      // AND THE PAGE RUNG STILL BUYS NOTHING. `buy` absent is the zero — the
+      // object form's own door — so asserting its ABSENCE is asserting the
+      // budget, which is the half that must never move.
+      assert.ok(!/\bbuy: /.test(images), "the page edit rung has started buying photographs: " + images);
     }
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");

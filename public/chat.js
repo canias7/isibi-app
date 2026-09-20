@@ -10084,6 +10084,56 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
+    // ── A COMPONENT THE CHANGE DID NOT TOUCH, AND WHY ────────────────────
+    //
+    // Two fields because they are two sentences, and collapsing them would
+    // tell somebody to try again over a component that is simply too big to
+    // show a model. `keptParts` is "I would not rewrite it without seeing it";
+    // `unseenParts` is "I could not read this site's sections at all".
+    //
+    // NAMED, because a component the customer asked to change and did not get
+    // changed is the one thing they must hear — the server's own rule, and a
+    // field the screen never renders is a value computed and never forwarded.
+    const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];
+    if (kept.length) {
+      out += ' I left ' + kept.join(' and ') + ' alone — ' + (kept.length === 1 ? 'it is' : 'they are') +
+        ' too long to show the builder in one go, and rewriting ' + (kept.length === 1 ? 'it' : 'them') +
+        ' unseen would risk losing what ' + (kept.length === 1 ? 'it does' : 'they do') + '.';
+    }
+    const unseen = Array.isArray(e.unseenParts) ? e.unseenParts.filter(Boolean) : [];
+    if (unseen.length) {
+      out += ' I could not read this site’s sections just then, so I left ' + unseen.join(' and ') +
+        ' exactly as ' + (unseen.length === 1 ? 'it was' : 'they were') + '. Ask again and I’ll try once more.';
+    }
+    // ── A PHOTOGRAPH THIS CHANGE TOOK OFF THE PAGE ────────────────────────
+    //
+    // REPORTED, NEVER REFUSED, which is what separates this rung from the
+    // addon's: there a lost photograph is a 422 at cost 0, right for a step
+    // whose contract is "an addition is always a new thing"; here "take the
+    // window photo off the front page" is an ordinary request. So the change
+    // ships and the customer is told, the way `reordered` above is told —
+    // reported, never rewritten.
+    //
+    // SAID WHEN A REMOVAL WAS AUTHORISED TOO, deliberately. Nothing on this
+    // side knows which it was: the field is a fact about the publication and
+    // the intent lives in a sentence nobody parsed. An unasked-for loss with
+    // no sentence is the failure this closes; a sentence on an asked-for one
+    // costs a line that reads as confirmation.
+    //
+    // THE COUNT, NEVER THE URLS. A storage key tells somebody nothing —
+    // `lostPhotosMsg`'s own rule, one path over.
+    //
+    // ⚠ `photosRemoved` IS THE EDIT PATH'S OWN FIELD, and the addon's
+    // `lostPhotos` is a LIST of urls on a refusal that published nothing.
+    // `Number([…])` is NaN, so reading that one here would answer 0 and this
+    // clause would never fire — one name over two shapes, which is why they
+    // are two names.
+    const lostPix = Number(e.photosRemoved) || 0;
+    if (lostPix > 0) {
+      out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') +
+        ' no longer on that page. If that was not what you wanted, say “put the ' +
+        (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
+    }
     return out + photoNote(e.photos) + problemNote(e.problems);
   }
   if (e.layer === 'logo') {

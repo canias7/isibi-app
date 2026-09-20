@@ -104,7 +104,20 @@ test("the page rung tells the model what the site already has: its components, m
   const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
   const call = rung.slice(rung.indexOf("briefWithLayout({"), rung.indexOf("}), eSpec"));
   for (const f of ["tsx", "gif", "qr", "three"]) assert.match(call, new RegExp(`\\b${f}: eLook2\\.${f}\\b`), `the page rung's brief does not carry the stored ${f}`);
-  assert.match(call, /images: 0/, "the stated zero for photographs is gone");
+  // ⚠ RE-ANCHORED 2026-09-20. This was `/images: 0/` — the BARE form, which
+  // `imageDirective` renders as *"PHOTOGRAPHS: none on this site"*, false on
+  // every site that has any and an instruction to strip them. The budget is
+  // unchanged (no `buy` key is the zero); the SENTENCE is now stated as ours
+  // and the inventory is read. `test/edit-page-photos.test.mjs` drives what
+  // each half does to the prompt; the property here is that the call still
+  // says something rather than going silent, because silence is what makes a
+  // model write tokens of its own.
+  const imgAt = call.indexOf("images: {");
+  assert.ok(imgAt > 0, "the stated zero for photographs is gone");
+  const images = call.slice(imgAt, call.indexOf("},", imgAt));
+  assert.match(images, /\bshown: shownPhotos\(photoInventory\(/,
+    "the page rung does not READ what the site shows, so its sentence is a guess");
+  assert.ok(!/\bbuy: /.test(images), "the page edit rung has started buying photographs: " + images);
   // ── AND THE FOUR `briefWithLayout` HAS ALWAYS TAKEN AND THIS RUNG NEVER
   //    SENT (2026-09-20) ──────────────────────────────────────────────────
   //
