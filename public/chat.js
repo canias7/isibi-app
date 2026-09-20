@@ -3050,9 +3050,19 @@ function agentAutoInputDrop(at) {
  * depends on the steps and the declarations TOGETHER. So it asks about exactly what is on
  * screen, which is what the person wants to know about.
  *
- * ⚠ **A STRUCTURAL REFUSAL GOES WHERE A SAVE'S GOES.** `agentAutoActErr` is what draws a
- * refusal on the step it is about; a second place for the same kind of sentence would be two
- * accounts of one fact, and the step marking would only work through one of them.
+ * ⚠ **A STRUCTURAL REFUSAL IS DRAWN WHERE A SAVE'S IS AND HELD WHERE A CHECK'S IS, and the
+ * two halves of that are separate.** It is DRAWN through `agentAutoErrShown`, the one reader both
+ * the bottom line and the step marker go through — a second place for the same kind of sentence
+ * would be two accounts of one fact, and the marking would only work through one of them. It is
+ * HELD on `agentAutoCheck`, because it is a statement ABOUT A CONFIGURATION and `agentAutoActErr`
+ * is a remembered string with no configuration on it: written there, a refusal answered late
+ * landed on whatever the workflow had become, and once drawn it could not go away when the step
+ * it named was corrected.
+ *
+ * ⚠ **A REQUEST FAILURE IS NOT ONE OF THOSE, so it stays where a save's does.** *"Couldn't reach
+ * the server"* is a fact about the request and not about the steps, so a keystroke must leave it —
+ * unbinding it on an edit would read as the problem having gone away. What bounds it is the wall
+ * below, which is about the screen rather than about the workflow.
  *
  * ⚠ **AND IT IS NOT PERMISSION.** Nothing is recorded anywhere, so a save cannot read "this
  * was checked" — it reads every field again, and a run checks ownership, permissions, approval
@@ -3079,6 +3089,9 @@ async function agentAutoCheckNow() {
   const bound = agentBind();
   const forAgent = agentAuto;
   const editing = agentAutoEditing;
+  // WHICH OPENING OF THE FORM THIS PRESS BELONGS TO — the save's own wall, for the same reason:
+  // `editing` is `''` on every opening of a create, so it cannot tell two of them apart.
+  const opened = agentAutoOpen;
   agentAutoBusy = true; agentAutoActErr = ''; agentAutoCheck = null; renderAgents();
   let failed = '';
   let answer = null;
@@ -3094,15 +3107,23 @@ async function agentAutoCheckNow() {
   } catch { failed = 'Couldn’t reach the server.'; }
 
   // THE SCREEN MAY HAVE MOVED ON, exactly as on a save: writing an answer into a form
-  // somebody has since opened, or into another account's, is acting on another screen.
-  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) {
+  // somebody has since opened, or into another account's, is acting on another screen. ALL THREE
+  // OUTCOMES ARE BEHIND IT — a refusal and a failure are as capable of arriving late as a success,
+  // and two of them used to be written past it because they were written straight into a string.
+  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing
+      || agentAutoOpen !== opened) {
     agentAutoBusy = false; renderAgents(); return;
   }
   agentAutoBusy = false;
   if (failed) { agentAutoActErr = failed; renderAgents(); return; }
-  // ⚠ A STRUCTURAL PROBLEM IS THE SAVE'S OWN SENTENCE AND NOT A "CHECK RESULT", so it is
-  // written where a save writes one — which is what marks the step it is about.
-  if (answer && answer.error) { agentAutoActErr = String(answer.error); renderAgents(); return; }
+  // ⚠ A STRUCTURAL PROBLEM RIDES ON THE ANSWER IT IS, carrying the configuration it is about —
+  // so it is drawn only where it is still true, and the step marking still works through the one
+  // reader every refusal on this form goes through.
+  if (answer && answer.error) {
+    agentAutoCheck = { error: String(answer.error), of: asked };
+    renderAgents();
+    return;
+  }
   agentAutoCheck = {
     steps: Number.isInteger(answer && answer.steps) ? answer.steps : 0,
     needs: Array.isArray(answer && answer.needs) ? answer.needs : [],
@@ -4154,10 +4175,38 @@ function agentAutoOutstanding() {
   if (!agentAutoWas || agentAutoWas.of !== agentAutoEditing) return false;
   return Object.keys(agentAutoChanges(agentAutoWas, agentAutoForm())).length > 0;
 }
-function agentAutoCheckShown() {
+/** Does what the last check answered still apply to the configuration on screen? */
+function agentAutoCheckOn() {
   return !!agentAutoCheck && autoSameConfig(agentAutoCheck.of, agentAutoForm());
 }
+/** ...and was that answer a reading rather than a refusal? */
+function agentAutoCheckShown() {
+  return agentAutoCheckOn() && !agentAutoCheck.error;
+}
+/**
+ * ⚠ **THE ONE REFUSAL ON SCREEN, from either of the two places one can come from.**
+ *
+ * Both the bottom line and the step marker read this and nothing else, so there is exactly one
+ * sentence and the marking cannot work through one holder and not the other.
+ *
+ * **A PRESS SUPERSEDES WHAT IS DRAWN, which is what makes the order here right rather than
+ * arbitrary.** `agentAutoActErr` is the newer, more specific fact whenever it is set — a save, a
+ * delete, a run — and a Check press clears it first, so a check's own answer is never hidden
+ * behind a stale one.
+ */
+function agentAutoErrShown() {
+  if (agentAutoActErr) return agentAutoActErr;
+  return agentAutoCheckOn() && agentAutoCheck.error ? agentAutoCheck.error : '';
+}
 function agentAutoSavedShown() {
+  /**
+   * ⚠ **A SAVE'S OWN ERROR AND NOT EVERY REFUSAL ON SCREEN, and that is deliberate.** Widening
+   * this to `agentAutoErrShown` reads as tidier and is wrong: the one state that separates the two
+   * is a stored workflow the checker refuses, opened and saved with nothing changed — where the
+   * save really did land (there was nothing to send) and the workflow really is refused, so BOTH
+   * sentences are true and the wider reading would hide one of them. A check's refusal is not a
+   * statement about whether the save landed.
+   */
   return agentAutoSaved && !agentAutoActErr && !agentAutoOutstanding();
 }
 /**
@@ -4169,7 +4218,11 @@ function agentAutoSavedShown() {
  * nothing on screen to invalidate.
  */
 function agentAutoSays() {
-  return (agentAutoCheckShown() ? 'c' : '') + (agentAutoSavedShown() ? 's' : '');
+  // **THE REFUSAL AS ITS OWN WORDS, after a separator**, because a bound refusal ceasing to apply
+  // is exactly the change a keystroke makes and a flag could not tell two sentences apart. The
+  // separator is what keeps `'c' + 's'` from ever colliding with a sentence that begins with one.
+  return (agentAutoCheckShown() ? 'c' : '') + (agentAutoSavedShown() ? 's' : '') +
+    '|' + agentAutoErrShown();
 }
 
 /**
@@ -4513,12 +4566,20 @@ function automationFormHtml(agent) {
      * the schedule, the days, the date or the event.
      */
     ((() => {
-      const fault = agentAutoFault(agentAutoActErr);
-      if (!fault) return '<div class="ag-err">' + esc(agentAutoActErr) + '</div>';
+      // ⚠ **THROUGH THE ONE READER, so a check's refusal is said in the same place a save's is.**
+      // Reading `agentAutoActErr` here was what made a refusal answered by a Check a remembered
+      // string with no configuration on it — see `agentAutoErrShown`.
+      // AND THE SLOT IS DRAWN EVEN WHEN IT IS EMPTY, exactly as it was. `.ag-err` carries
+      // `min-height: 1.2em`, so the space is RESERVED on purpose: returning nothing here would
+      // take ~1.2em + .6rem out of the panel and make the actions row jump the moment a refusal
+      // appears — a design decision nobody made, in a change about when a sentence is true.
+      const said = agentAutoErrShown();
+      const fault = agentAutoFault(said);
+      if (!fault) return '<div class="ag-err">' + esc(said) + '</div>';
       // AND ONLY WHEN THE STEP IS REALLY DRAWN. A position past the end of the list — a stored
       // workflow longer than the one on screen, or a step removed since the save — would mark
       // nothing, so the sentence stays here whole rather than disappearing.
-      if (fault.at >= f.steps.length) return '<div class="ag-err">' + esc(agentAutoActErr) + '</div>';
+      if (fault.at >= f.steps.length) return '<div class="ag-err">' + esc(said) + '</div>';
       return '<div class="ag-err">Step ' + (fault.at + 1) + ' needs a change — it’s marked above.</div>';
     })()) +
   '</div>';
@@ -4619,7 +4680,9 @@ function automationStepHtml(st, i, total, cat, days, depth) {
   // ⚠ **THE REFUSAL THIS STEP EARNED, DRAWN ON IT.** `ag-err` is the class the form already
   // uses for a refusal, deliberately: a new one would be a design decision nobody made, and this
   // is the same kind of thing said in the same voice somewhere more useful.
-  const fault = agentAutoFault(agentAutoActErr);
+  // THE SAME READER THE BOTTOM LINE USES, or a refusal held on the check's answer would be said
+  // there and mark nothing here — the marking working through one holder and not the other.
+  const fault = agentAutoFault(agentAutoErrShown());
   const said = fault && fault.at === i ? '<div class="ag-err">' + esc(fault.said) + '</div>' : '';
   return '<div class="ag-step" data-step-type="' + esc(st.type) + '"' +
       ' style="--ag-step-d:' + (Number.isFinite(depth) ? depth : 0) + '">' +

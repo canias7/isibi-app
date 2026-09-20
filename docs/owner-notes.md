@@ -13650,3 +13650,54 @@ recipes for this change: **7 of 7 caught, 0 survived.** The whole suite is **6,8
 failures**.
 
 **Nothing is applied, deployed or merged**, and this round adds no database change at all.
+
+---
+
+## And the last one: a Check error could land on a workflow you had already fixed (2026-09-20)
+
+You found the one that was left. The sequence, exactly as you wrote it: press Check on a
+workflow with a broken `{{reference}}` in it, and while the answer is still on its way, correct
+that step. The answer arrives — **and the old complaint is drawn on the workflow you just
+fixed**, with the step marked, telling you to change something that is already right.
+
+**The cause is that one press has three possible outcomes and only one of them was tied to
+anything.** A Check can come back with a reading ("nothing is missing"), with a complaint about
+the steps, or not come back at all because the server could not be reached. The reading was
+already stamped with the workflow it was about, so a stale one is thrown away. The other two
+were written straight onto the screen's general error line, which belongs to whatever is on
+screen now.
+
+**So each of the three is now tied to what it is really about.** A complaint is a statement
+about a particular workflow, so it travels with that workflow and is only ever shown while that
+workflow is still what you are looking at — correct the step and it goes, on its own, without a
+request. A failure to reach the server is a statement about the request, not about the workflow,
+so it stays on the general line and is instead thrown away if the answer lands after you have
+moved on. And all three are now checked against **which opening of the form** they belong to, as
+well as which automation — so closing a form and opening another while a Check is pending cannot
+put the first one's answer on the second.
+
+**Your Save errors are untouched.** "Give it a name first." is about the press, not about the
+workflow, so typing in a step does not clear it. I tried widening this and reverted it: the one
+case where the two rules differ is a stored workflow the checker refuses, opened and saved
+without changing anything — where both sentences are true at once — and widening would have
+changed Save behaviour you asked me to leave alone. The measurement is written into the code so
+nobody re-does it.
+
+**And I nearly broke the layout while tidying.** The line that carries these sentences reserves
+its own space even when it is empty, deliberately, so the buttons below do not jump when a
+complaint appears. My first version returned nothing when there was nothing to say, which would
+have taken that space away. Put back, and the test re-run to confirm it still catches the real
+bug.
+
+**Four new tests, each proved to fail against the shipped code first** — your three-step
+sequence, correcting a complaint that is already on screen (with a control that an *unchanged*
+broken workflow still shows it), closing and reopening the form mid-Check, and a Check that
+never reached the server. **Six breakages driven one at a time, all six caught.** The whole suite
+is **6,893 tests, 0 failures**.
+
+**Two false alarms were mine, not the code's**, and both are recorded: a test looked for the
+words "Read it through", which are also on the Check button itself, so it failed about a panel
+that was right; and one used "add a step" as the ordinary keystroke, which clears errors on
+purpose, so it measured the wrong thing.
+
+**Nothing is applied, deployed or merged**, and this round adds no database change at all.

@@ -101,7 +101,7 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing) {\n    agentAutoBusy = false; renderAgents(); return;\n  }",
+  "from": "  if (!agentSame(bound) || agentAuto !== forAgent || agentAutoEditing !== editing\n      || agentAutoOpen !== opened) {\n    agentAutoBusy = false; renderAgents(); return;\n  }",
   "to": "  if (false) {\n    agentAutoBusy = false; renderAgents(); return;\n  }"
  },
  {
@@ -109,8 +109,8 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "  if (answer && answer.error) { agentAutoActErr = String(answer.error); renderAgents(); return; }",
-  "to": "  if (false) { agentAutoActErr = String(answer.error); renderAgents(); return; }"
+  "from": "  if (answer && answer.error) {\n    agentAutoCheck = { error: String(answer.error), of: asked };",
+  "to": "  if (false) {\n    agentAutoCheck = { error: String(answer.error), of: asked };"
  },
  {
   "label": "⚠ a thing to go and do is drawn in the voice of a question nobody could put",

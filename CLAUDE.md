@@ -10491,3 +10491,101 @@ into the draft, and a save from the example carried `on_event: "undefined"`, **w
   `agent-builder/` moved. **`site build` was NOT due and did not run**, checked per path: the
   changed files are two documents, `public/chat.js`, one guard and one mutant spec, and not one
   matches that workflow's `paths`.
+
+### ⚠ …AND THE THIRD OUTCOME OF THAT PRESS WAS BOUND TO NOTHING (2026-09-20)
+
+Owner, on the head above: *"The old error currently appears on the corrected workflow. Successful
+results are bound to their submitted configuration, but errors still write directly into
+`agentAutoActErr`."* Reproduced through the real handlers before anything was touched, in the
+owner's own three steps: check a workflow holding `Hello {{missing}}`, hold the response, correct
+the step, release the refusal.
+
+**ONE PRESS HAS THREE OUTCOMES AND THEY WERE BOUND THREE DIFFERENT AMOUNTS.** The round before
+this one gave the SUCCESS a configuration (`of`) and a derived reader, and left the other two
+writing straight into `agentAutoActErr` — the SAVE's holder, a remembered string with no
+configuration on it. So:
+
+| outcome | before | what it cost |
+|---|---|---|
+| a reading | `{steps, needs, unchecked, of}`, drawn only where it still applies | — |
+| a structural refusal | `agentAutoActErr = "step 1: …"` | drawn over the corrected workflow, **marking the step that no longer earned it**, and once drawn it could not go away |
+| a request failure | `agentAutoActErr = "Couldn’t reach the server."` | written past a wall that could not tell two openings of a create apart |
+
+- **A REFUSAL IS A STATEMENT ABOUT A CONFIGURATION, so it rides on the answer**:
+  `agentAutoCheck = { error, of: asked }`, and it is drawn only while `of` still matches the form.
+  So the owner's sequence discards it, and **correcting the step takes a DISPLAYED one off the
+  screen with no request in flight at all** — which a remembered string could never do, because it
+  has nothing to compare itself against.
+- **A REQUEST FAILURE IS NOT ONE, AND THAT IS WHY IT STAYS WHERE IT IS.** *"Couldn't reach the
+  server"* is a fact about the request; editing a step does not make it untrue, and unbinding it
+  there would read as the problem having gone away. What bounds it is the WALL, which is about the
+  screen rather than about the workflow — and **the wall gained the opening** (`agentAutoOpen`), the
+  save's own, for the save's own reason: `agentAutoEditing` is `''` on every opening of a create, so
+  it cannot tell two of them apart.
+- **ONE READER DRAWS EVERY REFUSAL ON THIS FORM.** `agentAutoErrShown()` answers
+  `agentAutoActErr` when it is set and the bound refusal otherwise, and BOTH the bottom line and
+  the per-step marker go through it — a second holder read in one place and not the other is the
+  marking working for one kind of refusal and not the other. **A press supersedes what is drawn**,
+  which is what makes that order right rather than arbitrary: a Check clears `agentAutoActErr`
+  first, so a check's own answer is never hidden behind a stale one.
+- **AND `agentAutoCheckShown()` NOW ASKS WHETHER THE ANSWER WAS A READING**, because a refusal and
+  a reading ride on one holder: a bare "is there an answer" test drew *"nothing is missing"* over a
+  refusal naming a step, which is the dead control that ANSWERS in the one panel this round is
+  about.
+
+**⚠ AND ONE HALF OF THE FIRST DRAFT WAS REVERTED, MEASURED RATHER THAN ARGUED.** Widening
+`agentAutoSavedShown()` from `!agentAutoActErr` to `!agentAutoErrShown()` reads as tidier and is
+wrong: the one state that separates the two readings is **a stored workflow the checker refuses,
+opened and saved with nothing changed** — where the save really did land (there was nothing to
+send, so the route returns early) and the workflow really is refused, so BOTH sentences are true
+and the wider reading would hide one. A check's refusal is not a statement about whether the save
+landed. *Save behaviour is byte-identical*, which is what the owner asked for.
+
+**⚠ AND THE EMPTY REFUSAL SLOT IS DRAWN EVEN WHEN THERE IS NOTHING TO SAY, which a first draft
+stopped doing.** Returning `''` for no sentence reads as tidier markup and is a layout change
+nobody asked for: `.ag-err` carries `min-height: 1.2em` and a `.6rem` top margin, so the space is
+RESERVED on purpose and removing it would take ~1.2em out of the panel and make the actions row
+jump the moment a refusal appeared. Caught by reading the sheet rather than by a test, because no
+assertion in this repository is about a slot that is deliberately empty.
+
+### Measured
+
+- **Site suite 6,889 → 6,893** (6,891 pass, 2 skipped, 0 fail), and the arithmetic closes exactly:
+  `agent-binding` 144 → **148** and nothing else.
+- **ALL FOUR CASES PROVED RED AGAINST THE COMMITTED TREE FIRST**, each for its own reason and each
+  after its own fixture fault was corrected: the late refusal drawn over the corrected workflow, a
+  displayed refusal surviving the correction, a late refusal drawn on the form opened after the
+  closed one, and a late failure the same. Their controls pass on the committed tree too — the
+  refusal IS drawn, on its step, and an unchanged invalid workflow keeps it — so none of the four is
+  satisfied by a screen that shows nothing.
+- **SIX BREAKAGES DRIVEN ONE AT A TIME FROM THE COMMITTED TREE, every one red**: the opening off
+  the wall (2 cases), the refusal back into `agentAutoActErr` (2), the reading drawn for a refusal
+  (2, one of them pre-existing), the bottom line off the one reader (2), the step marker off it (1),
+  and `agentAutoSays` blind to the refusal (1). The tree was proved restored byte-exactly between
+  each.
+- **⚠ AND THE FIRST CUT OF ONE CASE MEASURED THE WRONG WALL.** With the two configurations
+  differing, the binding on the answer discards a late refusal whatever the wall does — so
+  "closing and reopening while a check is pending" passed with the opening taken off the wall and
+  proved nothing about it. The second form is typed the SAME now, which is the state where only the
+  opening can tell the two presses apart, and it goes red.
+- **NO SWEEP WAS RUN, by instruction — but `scripts/mutants/workflow-check.json` was RE-ANCHORED**,
+  because two of its 21 entries pointed at the two lines this change moved and would have read as
+  NOT APPLIED rather than as findings. All 21 anchors are present exactly once again, checked.
+  **⚠ AND A BROAD ANCHOR CENSUS OVER EVERY SPEC IS STILL THE WRONG INSTRUMENT**, re-confirmed here:
+  run across `scripts/mutants/` it answers ~240 stale anchors, and every one belongs to a
+  historical per-round snapshot whose source has legitimately moved. Narrow it to the round's own
+  spec, or the instrument is noise wearing a finding's clothes.
+
+### ⚠ Two needles of my own reported correct code as broken
+
+Both are the recorded shape and both were mine, not the product's:
+
+1. **`/Read it through/` ALSO MATCHES THE CHECK BUTTON'S OWN `title="Read it through without
+   saving it"`**, which is in the markup whatever the panel says — so an assertion that a refusal is
+   not drawn as a reading failed about a panel that was correct. With the colon it discriminates.
+2. **A STEP ADD IS NOT A KEYSTROKE.** `agentAutoStepAdd` clears `agentAutoActErr` in as many words
+   (a refusal about a shorter list may not be true of a longer one), so using one as the "ordinary
+   typing" in the transport-failure case measured that instead and reported the working behaviour as
+   broken. It types into a step that already exists.
+
+**NOT MERGED AND NOT DEPLOYED, no migration applied, and no sweep run** — the round's own bounds.

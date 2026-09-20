@@ -3538,6 +3538,220 @@ test("⚠ ORDINARY TYPING TAKES A CHECK RESULT OFF THE SCREEN", async () => {
     "typing that redrew nothing was not kept either");
 });
 
+// ────────────────────────────────────────────────────────────────────────────
+// AND SO IS A CHECK'S REFUSAL
+//
+// ⚠ **THE DEFECT: only the SUCCESS was bound.** A success carried `of` and was drawn through
+// `agentAutoCheckShown`; a structural refusal and a request failure were written straight into
+// `agentAutoActErr`, which is the SAVE's holder and carries no configuration at all. So the three
+// outcomes of one press were bound three different amounts. A refusal answered late was drawn over
+// whatever the workflow had become — *"step 1: …"*, with that step marked, above words somebody had
+// just corrected — and once drawn it could not go away: a remembered string has nothing to compare
+// itself against, so correcting the step left the sentence on screen with nothing left on the form
+// that it was true of.
+// ────────────────────────────────────────────────────────────────────────────
+
+test("⚠ A CHECK'S REFUSAL ANSWERED LATE CANNOT LAND ON THE WORKFLOW THAT CORRECTED IT", async () => {
+  const gate = held(okRes({ checked: false,
+    error: 'step 1: "{{missing}}" isn’t produced by anything above it' }));
+  const { w } = await withAutomations({
+    automations: [], checkGates: [gate], check: { steps: 1, needs: [], unchecked: [] },
+  });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  let f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  // 1. THE PRESS, HELD OPEN — a check of the workflow with the bad reference in it.
+  const checking = w.ev("agentAutoCheckNow()");
+  // 2. AND THE STEP IS CORRECTED WHILE THE REFUSAL IS IN THE AIR.
+  f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello there";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  // 3. THE ORIGINAL VALIDATION ERROR IS RELEASED.
+  gate.release(); await checking; await settle();
+
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/isn’t produced by anything above it/.test(html), false,
+    "a refusal about the words before they changed was drawn over the corrected workflow");
+  assert.equal(/needs a change/.test(html), false, "and it marked the step that no longer earns it");
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "Hello there", "the correction itself was lost");
+  // ITS CONTROL: the next press, about the workflow as it now stands, IS drawn — without which
+  // "it drew nothing" is satisfied by a check whose answer never reaches the screen at all.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Read it through: 1 step/, "a check about the workflow on screen was discarded too");
+});
+
+test("⚠ CORRECTING THE STEP TAKES A DISPLAYED REFUSAL OFF THE SCREEN, and leaves a Save error alone", async () => {
+  const { w } = await withAutomations({
+    automations: [],
+    check: { checked: false, error: 'step 1: "{{missing}}" isn’t produced by anything above it' },
+  });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  let f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  await w.ev("agentAutoCheckNow()"); await settle();
+  // IT REALLY IS ON SCREEN, and on the step it is about, or everything below is vacuous.
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /isn’t produced by anything above it/);
+  assert.match(html, /Step 1 needs a change/);
+  // ⚠ AND THE READING PANEL IS NOT DRAWN BESIDE IT. A refusal and a reading ride on one holder,
+  // so a success test of "is there an answer" would draw "nothing is missing" over the refusal —
+  // which is the dead control that ANSWERS, wrongly, in the one panel this round is about.
+  assert.equal(/nothing is missing/.test(html), false,
+    "it said nothing is missing beside a refusal naming a step");
+  // ⚠ WITH THE COLON. `/Read it through/` alone also matches the Check button's own
+  // `title="Read it through without saving it"`, which is in the markup whatever the panel says —
+  // a needle that can match something else cannot prove a class, and it reported this as broken.
+  assert.equal(/Read it through: /.test(html), false, "a refusal was drawn as a reading");
+
+  // ⚠ AN UNCHANGED INVALID WORKFLOW STILL SHOWS IT — a keystroke that leaves the configuration
+  // where it was must not clear a refusal that is still true of it, or the sentence would vanish
+  // as somebody re-read the step it names.
+  f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /isn’t produced by anything above it/,
+    "a refusal still true of the workflow on screen was cleared anyway");
+  assert.match(html, /Step 1 needs a change/, "and its step stopped being marked");
+
+  // ...AND CORRECTING THE STEP CLEARS IT, with no request in flight at all.
+  f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello there";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/isn’t produced by anything above it/.test(html), false,
+    "a refusal about words that have since changed stayed on screen");
+  assert.equal(/needs a change/.test(html), false, "and it went on marking the step");
+
+  // ⚠ AND AN UNRELATED SAVE ERROR IS NOT A STATEMENT ABOUT THE STEPS, so typing leaves it whole.
+  w.ev('agentAutoActErr = "Give it a name first.";');
+  await w.ev("renderAgents()");
+  f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello again";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /Give it a name first\./,
+    "typing into a step cleared a refusal that was never about the steps");
+});
+
+test("⚠ CLOSING AND REOPENING THE FORM WHILE A CHECK IS PENDING DISCARDS ITS ANSWER", async () => {
+  /**
+   * ⚠ **`''` IS NOT AN IDENTITY HERE EITHER.** The check's wall asked the account, the agent and
+   * `agentAutoEditing` — and a create's is `''` on every opening, so a refusal answered after the
+   * form was closed and reopened as another create passed all three and was drawn on a workflow
+   * that had never been checked. The OPENING is what separates them, which is the same wall the
+   * save was given when keeping the draft made that non-identity destructive.
+   *
+   * ⚠ **THE SECOND FORM IS TYPED THE SAME, DELIBERATELY, and a first draft that typed something
+   * else measured the wrong wall.** With the two configurations differing, the binding on the
+   * answer discards it whatever the wall does — so the case passed with the opening taken off the
+   * wall and proved nothing about it. Somebody who cancels and starts the same workflow again is
+   * the state where only the opening can tell the two presses apart.
+   */
+  const gate = held(okRes({ checked: false,
+    error: 'step 1: "{{missing}}" isn’t produced by anything above it' }));
+  const { w } = await withAutomations({
+    automations: [], checkGates: [gate], check: { steps: 1, needs: [], unchecked: [] },
+  });
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  let f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  const checking = w.ev("agentAutoCheckNow()");
+  // THE TWO BUTTONS A BROWSER REALLY OFFERS WHILE A CHECK IS PENDING — neither carries the busy
+  // disable, and both leave `agentAutoEditing` at `''`.
+  await w.ev("agentAutoCancel()");
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello {{missing}}";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  gate.release(); await checking; await settle();
+
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/isn’t produced by anything above it/.test(html), false,
+    "a refusal about the closed form was drawn on the one opened after it");
+  assert.equal(/needs a change/.test(html), false, "and it marked a step it had never seen");
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "Hello {{missing}}",
+    "the new form's own words were lost");
+  // ITS CONTROL — this opening's OWN press is drawn, or "it drew nothing" is satisfied by a form
+  // that shows no check answer at all once it has been reopened.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Read it through: 1 step/, "the reopened form's own check was discarded too");
+});
+
+test("⚠ A CHECK THAT COULD NOT REACH THE SERVER SAYS SO, on its own opening and not on the next", async () => {
+  /**
+   * **A TRANSPORT FAILURE IS NOT A STATEMENT ABOUT THE CONFIGURATION, and that is why it is bound
+   * differently.** Editing a step does not make *"couldn't reach the server"* untrue, so a
+   * keystroke must leave it — clearing it there would read as the problem having gone away. What it
+   * IS bound by is the screen: an answer that arrives after the form was closed belongs to nobody.
+   */
+  const gate = held(null);
+  let holding = true;
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p === "/api/agent/automation-check") {
+        if (holding) { holding = false; return gate.p.then(() => { throw new Error("the network went away"); }); }
+        throw new Error("the network went away");
+      }
+      const a = autoAnswer({ automations: [] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Enquiries";
+  await w.ev('agentAutoStepAdd("note")');
+  hydrateAuto(w);
+  const checking = w.ev("agentAutoCheckNow()");
+  // THE FORM IS CLOSED AND ANOTHER CREATE OPENED before the failure lands.
+  await w.ev("agentAutoCancel()");
+  await w.ev("agentAutoNew()");
+  hydrateAuto(w);
+  w.s.document.getElementById("agAutoName").value = "Something else";
+  await w.ev('agentAutoStepAdd("note")');
+  hydrateAuto(w);
+  gate.release(); await checking; await settle();
+  let html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(/Couldn’t reach the server/.test(html), false,
+    "a failure about the closed form was drawn on the one opened after it");
+
+  // ITS CONTROL — a failure on the opening that asked for it IS said, or the assertion above is
+  // satisfied by a screen that never shows one.
+  await w.ev("agentAutoCheckNow()"); await settle();
+  html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Couldn’t reach the server/);
+  /**
+   * AND ORDINARY TYPING LEAVES IT, because it was never about the words. **Typing, and not a
+   * step ADD**: adding a step clears the sentence on purpose (`agentAutoStepAdd` does it in as
+   * many words, because a refusal about a shorter list may no longer be true of a longer one),
+   * so using one as the keystroke would have measured that instead.
+   */
+  const f = hydrateAuto(w);
+  f.rows[0].fields[0].value = "Hello there";
+  w.ev("INPUT_ACTIONS['agent-auto-form']()");
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /Couldn’t reach the server/,
+    "a transport failure was cleared by typing, which reads as the problem having gone away");
+  assert.equal(w.val("agentAutoDraft").steps[0].text, "Hello there", "and the typing was not kept");
+});
+
 test("⚠ A CREATE'S ANSWER LANDING ON A DIFFERENT OPENING OF THE FORM ADVANCES NOTHING", async () => {
   /**
    * ⚠ **`''` IS NOT AN IDENTITY, which is why the staleness wall could not see this.** It
