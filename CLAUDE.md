@@ -1604,26 +1604,88 @@ stored inventory and the browser's own sentence.
   that asked to keep them: both came back with an empty `src`. `images:
   {shown: shownPhotos(photoInventory(…)), place: false}` — **the budget did not
   move; no `buy` key IS the zero.**
-- **⚠ LOSS IS REPORTED, NEVER REFUSED, AND THAT LINE SEPARATES THIS RUNG FROM
-  THE ADDON'S.** There a lost photograph is 422 `lost-photos` at cost 0, right
-  for a step whose contract is *"an addition is always a new thing"*; here
-  *"take the window photo off the front page"* is an ordinary edit. So
-  `keptImages` over the two PUBLICATIONS puts a COUNT on the reply and the
-  customer decides — the `reordered` precedent, one field over.
+- **⚠ THE PHOTOGRAPH GOES BACK — REPORTING IS NOT PRESERVATION (2026-09-20,
+  owner).** The first cut of this rung detected the loss, PUBLISHED it and
+  named it: *"keep both photographs and change the opening hours"* shipped
+  `src=""` and a note about it. `keepPhotos` restores the attribute **from the
+  file's own previous source**, so it can only ever put back a picture the site
+  was already serving from that exact place — there is no url it could invent
+  and `strayPhotos`' concern cannot arise. **The identity is the `alt`**, which
+  is `PICTURE_TOOL`'s own rule rather than a second idea of what makes a
+  picture the same picture. **Four refusals to guess**: a slot holding a
+  DIFFERENT picture is an ANSWER and is left alone; `src={row.photo}` is a
+  binding; an `alt` two slots share is skipped on either side; and **a
+  photograph the answer still shows SOMEWHERE is never put back** — that last
+  one is not local, because `keptImages` is deliberately site-wide and a
+  per-file restoration would meet a legitimate MOVE and publish the picture
+  twice.
+- **AND AUTHORISED REMOVAL STILL WORKS, which is what makes it a protection
+  rather than a ban.** `ePhotoAsk` is `steps.some(s => s.layer === "picture")`
+  — **the PICKER's own answer, never a keyword scan of the sentence**, which
+  would be a second opinion about what was asked and wrong in the expensive
+  direction on *"keep the photo of the window and redo the columns"*. Asked of
+  `laneLayer` rather than a list of picture-ish fields, so a field that
+  dispatches there next month is covered by existing. **Driven as an A/B on
+  the one input that decides: the same model answer, two messages, two
+  publications.**
+- **⚠ WHAT IS LEFT IS REPORTED, NEVER REFUSED, AND THAT LINE STILL SEPARATES
+  THIS RUNG FROM THE ADDON'S.** There a lost photograph is 422 `lost-photos`
+  at cost 0, right for a step whose contract is *"an addition is always a new
+  thing"*; here *"take the window photo off the front page"* is an ordinary
+  edit. The residue the restoration cannot reach — a REWRITTEN description,
+  an element deleted outright — still puts a COUNT on the reply and the
+  customer decides.
   **`photosRemoved`, NOT `lostPhotos`**: the addon's field is a LIST of urls on
   a refusal that published nothing (`Array.isArray` in its own harness) and
   this is a count on a change that shipped — `Number([…])` is NaN, so one name
-  over two shapes makes the browser's clause silently never fire.
+  over two shapes makes the browser's clause silently never fire. **And
+  `photosKept` is the protection's own receipt**, because a customer cannot
+  otherwise tell that the builder nearly took them off.
 - **THE EMPTY FRAME IS COUNTED BY A FRAME READER.** `photos` was
   `countImageSlots`, which counts `@@IMG:` TOKENS on a rung whose directive
   forbids them — zero on every obedient answer, so `photoNote` never fired.
-  `newEmptySlots(before, after)` over the same two publications, token counter
-  behind it. **Both readers take `imageSources(pages, parts)`**: a photograph
+  `newEmptySlots(before, after)`, token counter behind it. **`countImageSlots`
+  now has NO caller in `worker.js` at all** (asserted, over blanked comments,
+  because the note explaining the move names it): both paths ask the frame
+  reader, which sees a swept token AND a frame the model simply wrote.
+  **Both readers take `imageSources(pages, parts)`**: a photograph
   can live in a component since the band split, and reading the pages alone
   answers a smaller inventory, which is an invitation to strip what is not in
   it. A sweep mutant survived until a case put a picture in a component AND
   lost it — **the untouched-component case cannot tell the two apart**, because
   `keptImages` reports only what the BEFORE had and the AFTER lacks.
+- **⚠ AND BOTH COMPARISONS ARE ASKED ONCE, BELOW THE LOOP (2026-09-20, owner:
+  *"avoid reporting intermediate changes that the final publication
+  reverses"*).** Each rung used to answer about its OWN output — and
+  `components` and `tsx` both dispatch here, so rung 2's "before" was rung 1's
+  output: a frame rung 1 left and rung 2 removed was reported on a publication
+  that does not have it, and the merge's first-body-wins rule carried exactly
+  that number to the customer. **The two ends that are really comparable are
+  `eSrcAt0`/`ePartsAt0` and `pendingPublish`**, and both exist only below the
+  loop. `ePartsAt0` falls back to **`[]` and never to the store**: an
+  unreadable store publishes no components, so both sides empty is the reading
+  that says *nothing moved*.
+- **⚠ AND THE WARNINGS DID NOT SURVIVE THE MERGE AT ALL.** `merged.layer` is
+  `"look"` whenever more than one rung ran, and `editReply`'s look branch read
+  none of `keptParts`, `unseenParts`, `photosRemoved` or `photos` — **the
+  facts were on the wire the whole way and none of them on the screen**.
+  `editOutcomes` is ONE writer called from both branches (every field is
+  absent on an ordinary edit, so the sentence is byte-identical where they do
+  not apply), and the merge takes a **UNION**: the catch-all copies a key from
+  the FIRST body that has one and skips every later rung, so a second page
+  rung's withheld component could never arrive.
+- **⚠ A CHANGE A PROTECTION WITHHELD IS NOT A NO-CHANGE (2026-09-20, owner).**
+  An oversized stored component, an unchanged page back and a replacement for
+  the component the wall withheld: nothing differed, so the rung answered
+  `escalate("no-change")` — **which `escalatedEdit` turns into the ~25-credit
+  rewrite of every page**, to avoid rewriting ONE component unseen, with no
+  sentence reaching the screen. **409 `withheld`, cost 0, naming the
+  component**; nothing compiles and neither store is written. The
+  discriminator is a positive test on this route's own three lists
+  (`pKeptParts`, `pUnseenParts`, `pRestored`) — all three are US declining to
+  write something. **A GENUINE no-change still escalates and the rewrite still
+  starts**, asserted as its own control, because a rung that simply stopped
+  escalating would delete the ladder.
 - **⚠ THE HARNESS WAS READING THE WRONG COMPOSER.** `browserReply` runs
   `addonAnswer`, the ADD route's selection; an edit reply goes through
   `editAnswer` → `applyEditResult` → `editReply`. The add composer does not
@@ -3172,15 +3234,17 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,026, and BOTH HALVES OF THAT READING ARE TAKEN.**
-  7,026 pass / 0 fail / 0 skipped locally, measured on the edit-path branch
-  after Stage 2; and CI run **`35542140722` on `903b5ea2`** answers
+- **Unit suite: 7,033 LOCALLY after the protection round, and the CI half of
+  THAT number is untaken.** The reading before it had both halves and they
+  agreed: **7,026** locally and CI run **`35542140722` on `903b5ea2`** at
   **`# tests 7026 / # pass 7022 / # fail 0 / # skipped 4`** — the four being
   the privilege-drop case, two RTL cases and `site-searchpath`'s
   baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a `pass` count alone
-  drifts between the two machines — and here the totals are equal, 7,026 both
-  sides. The previous reading with both halves was **7,005** on `2c596bc5`
-  (CI run `35504473370` at `7,001 / 0 / 4`).
+  drifts between the two machines — and there the totals were equal, 7,026
+  both sides. The one before that was **7,005** on `2c596bc5` (CI run
+  `35504473370` at `7,001 / 0 / 4`).
+  **THE +7 IS `test/edit-page-protect.test.mjs`**, stated as the difference
+  between two MEASURED readings rather than as arithmetic off a paragraph.
   **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND IS NOW A
   MEASUREMENT, and only the second kind is worth anything** — it happens to
   have been right, which is exactly the case where a paragraph quietly turns

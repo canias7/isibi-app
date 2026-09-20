@@ -155,6 +155,71 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-20 — Three more on the edit path, and the first one was a real miss
+
+You came back with three gaps, and the first is the one I should have got right
+the first time. I made the builder **report** that it had taken a photograph off
+a page. You were right that that is not preservation — the picture was already
+gone by the time anybody read the sentence.
+
+**It puts the photograph back now.** If a change empties a picture the message
+never mentioned, the address of that picture is copied back out of the page's
+own previous version. It can only ever restore a picture your site was already
+showing in that exact spot — there is nothing it could invent. It matches them
+up by the description written on each picture, which is the same thing the
+"change that photo" step already matches on.
+
+It refuses to guess in four places, each of which I drove: a slot the builder
+put a *different* picture in is an answer, so it is left alone; a picture your
+site's own data chooses is left alone; two pictures sharing one description are
+left alone, because nothing can say which is which; and a picture the builder
+simply **moved** somewhere else is never put back, or you would end up with two
+of it.
+
+**And asking to remove one still removes it.** That is the half that makes this
+a protection rather than a rule that gets in the way. The builder decides by
+what your message was about — read off the step that picks which part of the
+site you meant, never by looking for words like "photo" in your sentence, which
+would get *"keep the photo of the window and redo the columns"* exactly
+backwards. I proved both with the same builder answer and two different
+messages: one keeps the pictures, one removes them.
+
+**Second: the warnings were disappearing.** When one sentence makes the builder
+do two things — which happens whenever you mention a section and a component —
+the reply came back saying "Updated the look." and nothing else, while the
+record underneath it said a photograph had gone and a section had been left
+alone. Everything was there; the screen just never read it. One writer now, and
+both kinds of message use it.
+
+While fixing that I found the counting was wrong in the same way: each step
+counted the pictures against its *own* output, so a picture the first step moved
+and the second step put back was reported as lost on a site that has it. It is
+counted once now, against what actually gets published.
+
+**Third: a refusal was buying you a full rewrite.** If a section was too long to
+show the builder safely, it declined to rewrite it blind — correct — and then
+reported "nothing changed", which the app reads as *try the expensive way*. So a
+guard that exists to avoid rewriting one section unseen was buying a rewrite of
+every page, with no explanation on screen. It answers for itself now: it names
+the section, says your site is untouched, charges nothing and **starts nothing**.
+A genuine "your site already does that" still climbs, and I kept a test for that
+so the fix cannot quietly delete the ladder.
+
+### Proof
+
+- All three reproduced through the real route first, then fixed. Ten one-line
+  reverts, each run against the six test files that can see the change: every
+  one goes red on exactly the case it is about.
+- **7,033 unit tests pass, 0 fail.** CI has not read this number yet.
+- Six older assertions re-anchored rather than appeased. Two of them had been
+  asserting the old behaviour as correct — they now drive the case the
+  reporting really exists for, which is a picture whose description the builder
+  rewrote, leaving nothing to match on. That is a real limit of the protection
+  and it is written down rather than glossed.
+- **Not proven live.** Nothing here has run against a real site.
+
+---
+
 ## 2026-09-20 — The edit path: four ways a change ate things nobody asked about
 
 You asked me to move to the edit path, keep it separate from build and addon,
