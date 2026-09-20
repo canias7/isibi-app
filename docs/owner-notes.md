@@ -15122,3 +15122,68 @@ what a list quietly losing entries looks like.
 
 Nothing is merged, nothing is deployed, nothing is dispatched, and no job has
 been touched.
+
+---
+
+### …and a third one hiding one line below those two (2026-09-20)
+
+You found it: *"Import PhotoWall normally. Set `const example = ''`. Render
+`{example}`, without rendering PhotoWall. The saved page renders escaped text
+and zero images. Coverage still becomes configured and the customer hears 'I've
+set that up.'"* — and the same with a backtick string.
+
+**Reproduced before I touched anything, on all three ways of quoting it**, and
+each answered exactly what a page that really draws the component answers. The
+round before this one taught the reader that a quoted *import* is not an import;
+one line further down, the check for *"does this page actually draw it"* went on
+searching inside quotes. So a page that imports the component, quotes its tag
+into a constant, and prints that constant as text was credited with showing it.
+
+**The fix is that the two questions now read two different copies of the file.**
+*Does the page draw it* reads the copy with every string blanked out — a tag
+between quotes is words a visitor reads, never something a visitor sees. *Does
+the page mention it at all* reads the copy that keeps strings, so any mention
+anywhere is enough to stop me claiming it is definitely absent.
+
+**Why the second half is not just the mirror of the first**, since it looks like
+an inconsistency: a backtick string is blanked whole, `${…}` and all, so if I
+masked both the page could mention the component in a perfectly ordinary way and
+I would report it as definitely not there. That is the error that costs you a
+*"Still to do"* about something that is on your site, so *"definitely absent"*
+stays reserved for when the evidence is airtight.
+
+**And real code survives the blanking**, which is the half a lazier fix breaks:
+`<Band title="a <Band /> example" />` keeps its own tag and loses only the
+words inside the quotes. It is one of the checks.
+
+So the three reported shapes now answer *"I can't see from here whether…"* —
+neither *"I've set that up"* nor *"Still to do"*. Every other answer is exactly
+what it was: a page that really draws it still says so, an import nothing uses
+is still a definite absence, and a component held as a value is still uncertain.
+
+**Checked in the tests that already exist** — you asked for no new harness, and
+there is none. The page-level check drives both shapes through the real addon
+route against a genuinely rendered page in the same run, and reads the stored
+record *and* the sentence the browser really puts on screen. Putting the one
+line back turns exactly two of them red — the page-level one and the
+module-level one — and leaves the other 310 in those four files green, every
+existing control among them.
+
+**The mutation sweep is clean: 7 ways of breaking it, 7 caught, none missed, and
+the two do-nothing controls correctly left alone.** Every anchor was checked to
+sit in exactly one place both before the run and after it, with nothing left
+applied (9 of 9), and the whole suite is **6,992 — one more than before, which
+is the one new page-level check.**
+
+**The first pass had one survivor and it was not the code's.** Blanking the
+import lines out of the *second* copy of the file cannot change anything, since
+the placement test looks for a tag and an import line has no tag in it — I
+measured that rather than arguing it: across all 324 real pages the platform has
+built, plus eleven ways of writing an import, **not one import line contains
+what that test looks for, and not one file reads differently with the blanking
+and without it.** I kept the line anyway, because the two copies are one idea
+and leaving one blanked and the other not is the kind of asymmetry somebody has
+to re-derive later; the check for it now breaks *both* halves at once, which
+does fail, so it is guarded rather than merely explained.
+
+Nothing is merged, nothing is deployed, nothing is dispatched.

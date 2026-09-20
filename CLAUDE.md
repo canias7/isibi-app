@@ -15567,3 +15567,91 @@ tells the two apart.
 **Guards**: `addon-route` **186 → 188**, `site-add` **48 → 49**; `site-files`
 stays **8**, its two additions being assertions inside cases that already
 existed. **Suite 6,991** — 6,988 + 2 + 1, and the arithmetic closes exactly.
+
+#### …AND A THIRD BYPASS ONE LINE BELOW THE OTHER TWO (2026-09-20)
+
+Owner: *"One placement bypass remains in `partUses`… Import PhotoWall normally.
+Set `const example = ''`. Render `{example}`, without rendering PhotoWall. The
+saved page renders escaped text and zero images. Coverage still becomes
+configured and the customer hears 'I've set that up.' A template-string example
+does the same. The import reader excludes quoted examples, but the subsequent
+JSX-use check searches string contents again."*
+
+**REPRODUCED BEFORE ANYTHING MOVED, on all three quoting shapes** — single,
+double and template — each answering **`rendered`**, byte for byte what the
+genuinely rendered control answers. The round before this one closed the import
+reader by POSITION and left the scan one line further down reading the copy that
+KEEPS string contents; so a page that imports a component, quotes its tag in a
+constant and renders that constant as escaped text was credited with placing it.
+
+**THE TWO TESTS NOW READ TWO DIFFERENT COPIES, AND THAT ASYMMETRY IS THE WHOLE
+CORRECTION.**
+
+| test | copy | why |
+|---|---|---|
+| `drawn` — PLACEMENT | the **masked** one | a `<Name` between quotes is text a visitor READS, never a component a visitor SEES |
+| `seen` — the MENTION | the **code** one | a name mentioned anywhere, a string included, defeats the definite negative and falls to `unsure` |
+
+- **REAL JSX SURVIVES THE MASKING, which is the half a naive strip-then-search
+  gets wrong**: `<Band title="a <Band /> example" />` loses only the attribute's
+  CONTENTS and keeps its own opening tag, because an element is code. Driven, as
+  the control that keeps the masking honest.
+- **⚠ MASKING BOTH WOULD HAVE BROKEN THE ASYMMETRY RULE THE MODULE ALREADY
+  STATES.** `scanSource` masks a template literal WHOLE, `${…}` included, so a
+  binding referenced only in an interpolation (`` `${Band}` ``) would read
+  **`unused`** — a DEFINITE negative over a file that really does reference it,
+  which is the direction that costs the customer a *"Still to do"* about
+  something on their site. The same goes for the lexer's own recorded limitation
+  (a quote opening after `>` in JSX prose swallows to the next one): reading the
+  mention off the code copy turns that into uncertainty rather than a false
+  absence. **`unused` stays claimed only where it is airtight.**
+- **SO THE REPORTED SHAPES ANSWER `unsure`, WHICH IS THE OWNER'S OWN WORDING** —
+  *"preserving real JSX usage and uncertainty for indirect usage"*. Through the
+  route that is `maybeRoutes` → `unknown` → *"I can't see from here whether…"*,
+  and neither *"I've set that up"* nor *"Still to do"*.
+
+**MEASURED at the module over eight shapes, before and after** — the three
+string shapes `rendered` → `unsure`, and **every other answer unchanged**: the
+rendered control `rendered`, an unused import `unused`, a binding held as a
+value `unsure`, real JSX carrying a string attribute `rendered`, and an
+interpolation `unsure`.
+
+**Guards**, in the EXISTING files (owner: *"Use the existing tests; no new
+harness or capability work"*): `test/site-files.test.mjs` **8** — the three
+shapes, the string-attribute control, the interpolation and the unmoved definite
+negative, all as assertions inside the case that already drives `partUse`; and
+`test/addon-route.test.mjs` **188 → 189**, one case driving both shapes through
+`POST /api/site/<slug>/addon` against a GENUINELY RENDERED control in the same
+run, asserting the picture really landed in the component, that the page really
+renders the string, the **stored coverage**, and the **browser's actual
+sentence** composed by `addonAnswer` out of `chat.js`.
+
+**RED-CHECKED ALONE AND SURGICALLY**: reverting the one line turns exactly
+**two** cases red — the new route case and the module's new assertions — with
+all **310** other cases green on both trees, every existing control among them.
+
+**Sweep: 7 mutants, 7 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/string-placement.json`, over
+`builder/site-files.mjs` and `builder/site-add.mjs`, against the eleven test
+files the runner's own scope line names — a narrow list can only produce a false
+SURVIVOR, never a false kill). The reported defect is a mutant in it, as are the
+masked copy never leaving `importSpecs`, the mention test masked too, the
+blanker dropping its quotes, and a template left unmasked.
+
+**Pass 1 read 7/6/1 and the survivor was NOT the product's — it was measured
+INERT and is declared in the code rather than hunted.** Blanking the import
+statements out of the MASKED copy cannot change a verdict, because the placement
+test looks for `<Name` and an import statement contains no `<`: over the
+**324-file corpus, every one of them importing something, plus eleven
+constructed import spellings, ZERO blanked regions hold a `<` and ZERO files
+read differently** with it and without it. It is kept because the two copies are
+ONE idea — same file, same offsets, blanked the same way — and replaced in the
+spec by the **PAIR**, which the code copy's own half kills: unblanked there, a
+binding is always "mentioned again" by its own clause and every `unused` becomes
+`unsure`. **The count did not move** (7 before and after, one entry repointed in
+place), and **the anchor census at rest reads 9 of 9 exactly once** with no
+mutant left applied.
+
+**Suite 6,992** — 6,991 + 1, and the arithmetic closes exactly: the one is
+`addon-route`'s new case, and everything `site-files` gained is an assertion
+inside the case that already drove `partUse`.

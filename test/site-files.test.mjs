@@ -324,6 +324,36 @@ test("partUse tells a rendered import from a dead one, and says so when it canno
   assert.equal(of('import { Band, "other-name" as Other } from \'' + SPEC + "'", "<Other/>"), "none",
     "the quoted-export-name limit moved — check `importsPart`'s cascade, not just this answer");
 
+  // ⚠ A `<Band` BETWEEN QUOTES IS TEXT, NOT A PLACEMENT (2026-09-20). Owner:
+  // *"Import PhotoWall normally. Set const example = '<PhotoWall/>'. Render
+  // {example}… The saved page renders escaped text and zero images. Coverage
+  // still becomes configured."* REPRODUCED on all three quoting shapes, each
+  // answering `rendered` — byte for byte what the rendered control above
+  // answers. `importSpecs` excluded a quoted example by POSITION and this scan
+  // searched string contents again, one line further down.
+  for (const [what, head, body] of [
+    ["a single-quoted example", LIVE + "\nconst example = '<Band />'", "function P(){ return <main>{example}</main> }"],
+    ["a double-quoted example", LIVE + '\nconst example = "<Band />"', "function P(){ return <main>{example}</main> }"],
+    ["a template example", LIVE + "\nconst example = `<Band />`", "function P(){ return <main>{example}</main> }"],
+  ]) {
+    assert.equal(of(head, body), "unsure", what + " was read as a placement");
+  }
+  // …AND REAL JSX SURVIVES THE MASKING, which is the half a naive strip-the-
+  // strings-then-search gets wrong: the attribute's CONTENTS go and the
+  // element's own opening tag is code either way.
+  assert.equal(of(LIVE, 'function P(){ return <Band title="a <Band /> example" /> }'), "rendered",
+    "a string attribute on a real element took its own placement with it");
+  // ⚠ AND THE MENTION TEST READS THE OTHER COPY, DELIBERATELY. `scanSource`
+  // masks a template WHOLE, `${…}` included, so masking both would claim the
+  // one definite negative over a file that really does reference the binding —
+  // the asymmetry rule above, in the direction that costs the customer a
+  // "Still to do" about something on their site.
+  assert.equal(of(LIVE + "\nconst el = `${Band}`", "function P(){ return <main>{el}</main> }"), "unsure",
+    "a binding referenced in an interpolation was called a definite absence");
+  // THE DEFINITE NEGATIVE IS UNMOVED: nothing mentions it anywhere at all.
+  assert.equal(of(LIVE + "\nconst example = '<Other />'", "function P(){ return <main>{example}</main> }"), "unused",
+    "a string naming something else stopped being an absence");
+
   // NOT IMPORTED AT ALL IS ITS OWN ANSWER, distinct from all three.
   assert.equal(of("// " + LIVE, "<Band/>"), "none", "a commented import was read as an import");
   assert.equal(partUse("", "photo-wall", false), "none");

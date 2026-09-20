@@ -8493,6 +8493,76 @@ test("a commented-out, quoted or unused import does not put a component's photog
   }
 });
 
+test("a component named inside a string is text on the page, not a placement", async () => {
+  // ⚠ THE THIRD BYPASS, ONE LINE BELOW THE OTHER TWO (2026-09-20). Owner:
+  // *"Import PhotoWall normally. Set const example = ''. Render {example},
+  // without rendering PhotoWall. The saved page renders escaped text and zero
+  // images. Coverage still becomes configured and the customer hears 'I've set
+  // that up.' A template-string example does the same. The import reader
+  // excludes quoted examples, but the subsequent JSX-use check searches string
+  // contents again."*
+  //
+  // REPRODUCED THROUGH THIS ROUTE ON BOTH SHAPES BEFORE ANYTHING MOVED, each
+  // answering `state: configured`, `implementation: found` and *"I've set that
+  // up"* — byte for byte what the rendered control below answers.
+  const NEED = { need: "The gallery page shows a photograph of the workshop.", status: "elsewhere", step: "photo", item: "/gallery" };
+  const ECHO = { need: NEED.need, status: "covered", by: "a photograph of the bench on /gallery",
+    answers: "page#0", kind: "photo", item: "/gallery" };
+  const LIVE = "import { Band } from '@/routes/-parts/photo-wall'";
+  const run = (slug, head, draws) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 400,
+    written: [galleryHead(head, draws)],
+    writtenParts: [bandWith("photo-wall", TOKEN(BENCH))],
+    answers: {
+      page: { page: [PHOTO_PAGE], requirements: [NEED] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH, name: "bench" }], requirements: [ECHO] },
+    },
+  });
+  const held = (r, slug) => storedAnswer(r, slug).coverage.requirements.find((x) => x.status === "elsewhere");
+
+  // ── THE CONTROL FIRST, and it is a GENUINELY RENDERED component: every arm
+  // below differs from it in one way, and it must go on answering as it does.
+  const ok = await run("fw-str-live", LIVE, "<Band />");
+  assert.equal(ok.body.pictures, 1, "the control bought no picture, so it proves nothing: " + JSON.stringify(ok.body));
+  assert.equal(held(ok, "fw-str-live").state, "configured",
+    "a rendered component stopped answering its request: " + JSON.stringify(held(ok, "fw-str-live")));
+  assert.match(browserText(ok.body), /I've set that up/,
+    "the control's own sentence is gone, so an absence below proves nothing: " + browserText(ok.body));
+
+  for (const [what, head] of [
+    ["a quoted example", LIVE + "\nconst example = '<Band />'"],
+    ["a template-string example", LIVE + "\nconst example = `<Band />`"],
+  ]) {
+    const slug = "fw-str-" + (what.includes("template") ? "tpl" : "quo");
+    const r = await run(slug, head, "{example}");
+    assert.equal(r.body.ok, true, what + ": " + JSON.stringify(r.body));
+    // THE PICTURE REALLY LANDED IN THE COMPONENT, or there is nothing to
+    // mis-place and the case is about a step that bought nothing.
+    assert.equal(r.body.pictures, 1, what + " bought no picture: " + JSON.stringify(r.body));
+    assert.match(storedParts(r, slug)["photo-wall"] || "", new RegExp('src="/u/' + slug + '/'),
+      what + ": the url is not in the component");
+    // …AND THE PAGE REALLY RENDERS THE STRING, which is what makes the answer
+    // wrong rather than merely unproven: escaped text, and no picture.
+    assert.match(storedSource(r, slug, "gallery.tsx"), /\{example\}/,
+      what + ": the page does not render the string, so it is not the reported shape");
+    // ── THE STORED COVERAGE …
+    const h = held(r, slug);
+    assert.notEqual(h.state, "configured", what + " established a placement: " + JSON.stringify(h));
+    assert.notEqual(h.implementation, "found", what + " answered the request: " + JSON.stringify(h));
+    // ── …AND THE BROWSER'S ACTUAL SENTENCE, composed by `addonAnswer` out of
+    // `chat.js` rather than by this file.
+    const said = browserText(r.body);
+    assert.doesNotMatch(said, /I've set that up/,
+      what + ": the customer's screen claimed the picture is placed — " + said);
+    // AND IT IS UNCERTAINTY RATHER THAN AN ABSENCE: `unused` would be a claim
+    // the other way, and `scanSource` masks a template WHOLE, so the mention
+    // test deliberately reads the copy that keeps string contents.
+    assert.equal(h.state, "unknown", what + " was answered either way: " + JSON.stringify(h));
+    assert.doesNotMatch(said, /Still to do/,
+      what + ": a published picture was reported missing — " + said);
+  }
+});
+
 test("a placement nobody could establish is uncertainty, not an absence", async () => {
   // Owner: *"Where placement cannot be established, preserve uncertainty."*
   // The page imports the band and hands the BINDING to something else — which

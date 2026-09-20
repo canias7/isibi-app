@@ -188,7 +188,7 @@ export function importSpecs(src) {
       end,
     });
   }
-  return { specs: out, code: sc.code };
+  return { specs: out, code: sc.code, mask: sc.mask };
 }
 
 /**
@@ -315,16 +315,63 @@ function bindingsOf(clause, kind) {
  * THE IMPORT STATEMENTS ARE BLANKED BEFORE THE USE TEST, or a binding would
  * always be "mentioned again" by its own clause — and by every OTHER import's,
  * which is why all of them go rather than only this component's.
+ *
+ * ⚠ AND THE TWO TESTS READ TWO DIFFERENT COPIES, WHICH IS THE WHOLE OF THE
+ * 2026-09-20 CORRECTION. Owner: *"Import PhotoWall normally. Set const example
+ * = '<PhotoWall/>'. Render {example}… The saved page renders escaped text and
+ * zero images. Coverage still becomes configured… Exclude string contents from
+ * placement evidence while preserving real JSX usage and uncertainty for
+ * indirect usage."* REPRODUCED here on all three quoting shapes — single,
+ * double and template — each answering `rendered`, byte for byte what the
+ * genuinely rendered control answered. `importSpecs` had excluded a quoted
+ * example by POSITION and this scan searched string contents again, one line
+ * further down.
+ *
+ *   drawn (PLACEMENT) reads the MASKED copy — a `<Name` between quotes is text
+ *     a visitor reads, never a component a visitor sees. Real JSX survives
+ *     masking because it is code: `<Band title="a <Band/> example"/>` keeps its
+ *     own opening tag and loses only the attribute's contents.
+ *   seen (THE MENTION) reads the CODE copy — a name mentioned ANYWHERE, a
+ *     string included, defeats the definite negative and falls to `unsure`.
+ *
+ * ⚠ THE SECOND HALF IS NOT SYMMETRY AND MASKING BOTH WOULD BREAK THE ASYMMETRY
+ * RULE ABOVE. `scanSource` masks a template literal WHOLE, `${…}` included, so
+ * a binding referenced only in an interpolation (`` `${Band}` ``) would read
+ * `unused` — a DEFINITE negative over a file that really does reference it.
+ * The same goes for the lexer's own recorded limitation: a quote opening after
+ * `>` in JSX prose swallows to the next one, and reading the mention off the
+ * code copy turns that into uncertainty rather than a false absence. `unused`
+ * stays claimed only where it is airtight.
  */
 export function partUses(src, names, inPart) {
   const out = new Map();
   const list = [...new Set((Array.isArray(names) ? names : [])
     .map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean))];
   if (!list.length) return out;
-  const { specs, code } = importSpecs(src);
+  const { specs, code, mask } = importSpecs(src);
   if (!specs.length) return out;
-  let rest = code;
-  for (const m of specs) rest = rest.slice(0, m.start) + " ".repeat(m.end + 1 - m.start) + rest.slice(m.end + 1);
+  // BOTH COPIES ARE LENGTH-PRESERVING, so one set of offsets blanks the import
+  // statements out of each and a position means the same thing in either.
+  //
+  // ⚠ AND ONLY THE CODE COPY'S BLANKING IS OBSERVABLE TODAY, MEASURED RATHER
+  // THAN REASONED ABOUT. The placement test looks for `<Name`, and an import
+  // statement cannot contain a `<` — so blanking the MASKED copy changes no
+  // verdict: over the 324-file corpus (every one of them importing something)
+  // and eleven constructed import spellings, ZERO blanked regions hold a `<`
+  // and ZERO files read differently with it and without it. It is kept because
+  // the two copies are ONE idea — the same file, the same offsets, blanked the
+  // same way, so that an import statement is never its own evidence — and a
+  // reader finding one blanked and the other not would have to re-derive why.
+  // The sweep mutates the PAIR, which the code copy's own half kills: unblanked
+  // there, a binding is always "mentioned again" by its own clause and every
+  // `unused` becomes `unsure`.
+  const blank = (s) => {
+    let r = s;
+    for (const m of specs) r = r.slice(0, m.start) + " ".repeat(m.end + 1 - m.start) + r.slice(m.end + 1);
+    return r;
+  };
+  const rest = blank(code);
+  const shown = blank(mask);
   for (const n of list) {
     const mine = specs.filter((m) => specNames(m.spec, n, inPart));
     if (!mine.length) continue;
@@ -335,7 +382,7 @@ export function partUses(src, names, inPart) {
       bound.push(...b);
     }
     if (bound === null || !bound.length) { out.set(n, "unsure"); continue; }
-    const drawn = bound.some((b) => new RegExp("<\\s*" + esc(b) + "(?![\\w$])").test(rest));
+    const drawn = bound.some((b) => new RegExp("<\\s*" + esc(b) + "(?![\\w$])").test(shown));
     if (drawn) { out.set(n, "rendered"); continue; }
     const seen = bound.some((b) => new RegExp("(^|[^\\w$])" + esc(b) + "([^\\w$]|$)").test(rest));
     out.set(n, seen ? "unsure" : "unused");

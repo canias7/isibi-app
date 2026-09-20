@@ -1,0 +1,76 @@
+[
+  {
+    "label": "THE REPORTED DEFECT: the placement test searches string contents again",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "esc(b) + \"(?![\\\\w$])\").test(shown)",
+    "to": "esc(b) + \"(?![\\\\w$])\").test(rest)"
+  },
+  {
+    "label": "the masked copy never leaves `importSpecs`, so the placement test has nothing to read",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "return { specs: out, code: sc.code, mask: sc.mask };",
+    "to": "return { specs: out, code: sc.code, mask: sc.code };"
+  },
+  {
+    "label": "the mention test is masked too, so an interpolation becomes a definite absence",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "esc(b) + \"([^\\\\w$]|$)\").test(rest)",
+    "to": "esc(b) + \"([^\\\\w$]|$)\").test(shown)"
+  },
+  {
+    "label": "PAIR: neither copy has its import statements blanked (the masked half is absorbed and declared)",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  const rest = blank(code);\n  const shown = blank(mask);",
+    "to": "  const rest = code;\n  const shown = mask;"
+  },
+  {
+    "label": "the import statements are not blanked out of the code copy",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  const rest = blank(code);",
+    "to": "  const rest = code;"
+  },
+  {
+    "label": "the blanker keeps the quotes, so a masked literal still opens one",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "      if (c === quote) { code += c; mask += c; strings.push({ at: qAt, end: i }); quote = \"\"; i++; continue; }",
+    "to": "      if (c === quote) { code += c; mask += \" \"; strings.push({ at: qAt, end: i }); quote = \"\"; i++; continue; }"
+  },
+  {
+    "label": "a template is not masked, so a backtick example is a placement again",
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "    if (c === \"`\") { quote = c; qAt = i; code += c; mask += c; i++; continue; }",
+    "to": "    if (c === \"`\") { code += c; mask += c; i++; continue; }"
+  },
+  {
+    "label": "CONTROL: a comment only",
+    "control": true,
+    "files": [
+      "builder/site-files.mjs"
+    ],
+    "from": "  const rest = blank(code);",
+    "to": "  /* the mention test reads the copy that keeps string contents */\n  const rest = blank(code);"
+  },
+  {
+    "label": "CONTROL: a comment only, in the route's own reader",
+    "control": true,
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export function routedSources(",
+    "to": "/* one walk answers both maps */\nexport function routedSources("
+  }
+]
