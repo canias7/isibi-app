@@ -251,7 +251,9 @@ validator parses a non-file image with `new URL("https://" + image)` and a bare
 the skip: 14–15 minutes per deploy. After: a docs/test-only push is a
 one-minute deploy that rolls nothing (**47 seconds** on deploy 2019, image step
 1.4 s, both `reused`); a push that changes an image input is **~2m05s of image
-and ~3m of deploy at best** (2044) and **~3m ordinarily**. Layer reuse depends
+and ~3m of deploy at best** (2044) and **~3m ordinarily** — **deploy 2138
+(2026-09-20) sits exactly on that band: image step 2m06s, Wrangler 19s, whole
+run 2m55s**, on a merge whose image inputs really moved. Layer reuse depends
 on the GitHub runner's LOCAL Docker cache, and a runner is ephemeral with no
 registry cache import — so **a cold runner rebuilds everything whatever the diff
 touched** (2053: 2m56s, every layer rebuilt, on 2044's exact shape) and a FAST
@@ -264,10 +266,19 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality ten times**, most recently deploy
-2137: `origin/main` → `3cfbfded71cf9607`, **which is the id deploy 2136's own
-log recorded rolling to**, so the arithmetic is checked against the live
-container and not only against itself. Two things follow: **a rollback's speed
+whole reader. **Cross-checked against reality ELEVEN times**, and the eleventh
+is the strongest shape available — **deploy 2138 (2026-09-20) was PREDICTED
+BEFORE THE PUSH**: the id was computed over the local merge commit
+(`28fd02a1`) as `c371e27cf3060255` while main still stood at `7ee5226b`, and
+the deploy's own log then recorded `- …:94a380843efd95e1` → `+ …:c371e27cf3060255`
+with `SUCCESS Modified application` under it. **BOTH ends of that diff were
+computed in advance** — `94a380843efd95e1` is what the same reader answered for
+`origin/main` — so the arithmetic predicted the roll rather than being
+reconciled to it afterwards. (Deploy 2137 was the tenth: `origin/main` →
+`3cfbfded71cf9607`, the id deploy 2136's log recorded rolling to.) **GitHub
+masks digit runs, so match on the unmasked characters**: 2138's log prints
+`c37***e27cf3060255` and `***84 inputs`, each `***` a run of `1`s.
+Two things follow: **a rollback's speed
 is PREDICTABLE** (a revert restores a tree the registry already holds, so the
 step says `reused`), and **"is this commit an image input?" has an exact
 answer** — if the id does not move, nothing an image is built from moved, which
@@ -284,10 +295,18 @@ to the merged tree, and a **cheap discriminator** is an identifier the change
 introduces (0 occurrences before, N after). When `public/` did not change,
 Wrangler answers `No updated asset files to upload` and **there is no
 served-file check at all** — say so rather than glossing it. **And the Worker's
-own deploy sha is not session-readable**: both routes carrying `DEPLOY_ID` are
-owner-gated, so the Worker half then rests on Wrangler's own report plus the
-gate discriminator (`/api/site/build-health` **401**, `/api/site/runtime`
-**401**, `/api/site/job-probe` **401**, `/api/nope-not-a-route` **404**).
+own deploy sha is not session-readable**, so the Worker half rests on
+Wrangler's own report plus the gate discriminator (`/api/site/build-health`
+**401**, `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
+`/api/nope-not-a-route` **404** — read live on 2026-09-20 and all four as
+documented). **THE TWO GATES ARE NOT THE SAME GATE, and this file said they
+were** (read out of the routes 2026-09-20, not assumed):
+`/api/site/build-health` asks `authUser` ALONE, so **any signed-in account**
+reads the sha and the cold-start image; `/api/site/runtime?slug=` asks
+`authUser` **and** `siteOwnerBySlug(...) === tu.id`, answering the 404 a
+missing site gets. The practical answer is unchanged — a session holding NO
+Supabase token reads neither — but *"owner-gated"* was wrong about the first
+and names the wrong person to go and ask.
 
 Secrets live in GitHub Actions and upload to the Worker each deploy. **An
 optional secret must carry a `|| fallback`; a required one must not** — listing
@@ -1709,7 +1728,9 @@ it, both before the job that runs it, all before the page that shows them.
 | `three` | a WebGL element | 1/site | `scene · page` |
 | `photo` | a photograph bought from fal and placed in the same request | 6 | `page · describe · name` |
 
-`MAX_ADDS` is 9; six answer LISTS (`LIST_ADDS`). **No low limits while testing**
+`MAX_ADDS` is 9; **SEVEN** answer LISTS (`LIST_ADDS` = `table · function · api ·
+job · page · component · photo` — re-derived 2026-09-20; the record said "six"
+and had gone stale). **No low limits while testing**
 (owner) — every list rule says "as many as they asked for, and not one more".
 
 - **A SECTION IS A COMPONENT** (owner: *"section is just adding a new component,
@@ -1955,7 +1976,9 @@ evaluating `addTool(k)`.
 - **ABSENCE NEEDS EVERY READER THAT COULD SPEAK TO HAVE SPOKEN, and that is NOT
   a blanket demand for two readers** — the first cut demanded both everywhere
   and lost a real finding. `COVERAGE_STEPS` splits three ways, total and
-  disjoint: `SITE_KINDS` (`table · function · api · job · page · qr · three`)
+  disjoint: `SITE_KINDS` (`table · function · api · job · page · qr · three ·
+  **photo**` — EIGHT, re-derived 2026-09-20; the record listed seven and had
+  gone stale when photo joined the coverage steps)
   claim absence only when the inventory was really READ; `OPAQUE_KINDS`
   (`component`) **never**, because an addition folded into an existing page
   leaves no item in any list; and `edit` names no artifact at all.
