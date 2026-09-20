@@ -1,19 +1,19 @@
 {
-  "at": "2026-09-19T23:04:06.832Z",
+  "at": "2026-09-20T07:54:12.951Z",
   "site": "repairbench-1",
-  "start": 121,
-  "end": 119,
+  "start": 119,
+  "end": 105,
   "results": [
     {
       "name": "ask",
       "kinds": [
-        "job"
+        "api"
       ],
-      "verdict": "reported",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"job\"]\n      database: jobs [\"count_bookings_once\"]\n      pages: []; build UNMOVED\n      home text 5238→5238 chars\n      coverage 4/4 covered, 0 handed on, 0 unsupported, 0 unreadable\n      nothing left outstanding\n      photographs: bought (not said); empty frames left (not said); list frames nothing can fill (not said); existing ones LOST 0\n         the picture sentence: (none — this change neither bought a photograph nor left a frame to explain)\n      the customer's screen (the browser's own addonAnswer, executed, HTTP 200), 1 line(s):\n           ▸ ✅ Done — scheduled count_bookings_once (once on 3 October 2026 at 09:00 (Europe/London)). count_bookings_once runs once and then stops — pressing Run now in Cloud → Schedule uses up that one run. And this one is waiting on another part of the same change that didn't work: On 3 October 2026 at 09:00, count how many bookings we have and record the total in the job's run result — the count_bookings_once it needs could not be created; The count runs only once and never repeats — the count_bookings_once it needs could not be created. I've set that up, but I can't confirm from here that Bookings are not deleted or changed; or that Nobody is emailed or texted — have a look and tell me if it isn't right.\n         and the browser would then (NOT done here — recorded only), 1:\n           ↳ refresh the credit balance\n      server sentences carried whole (1):\n           · coverNote: \"And this one is waiting on another part of the same change that didn't work: On 3 October 2026 at 09:00, count how many bookings we have and record the total in the job's run result — the count_bookings_once it needs could not be created; The count runs only once and never repeats — the count_bookings_once it needs could not be created. I've set that up, but I can't confirm from here that Bookings are not deleted or changed; or that Nobody is emailed or texted — have a look and tell me if it isn't right.\"",
-      "cost": 2,
-      "wall": 121,
-      "build": "mu3wolgr-eqt2r5",
+      "verdict": "BROKEN",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"api\",\"page\"]\n      database: connections [\"exchange_rates\"]\n      pages: [\"/rates\",\"/\"]; build moved\n      home text 5238→5250 chars\n      coverage 1/3 covered, 2 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"A visitor can see what one pound is worth in euros and dollars right now\" (elsewhere → page); \"The date the rates are from is shown\" (elsewhere → page)\n      photographs: bought (not said); empty frames left 0; list frames nothing can fill 0; existing ones LOST 0\n         the picture sentence: (none — this change neither bought a photograph nor left a frame to explain)\n      the customer's screen (the browser's own addonAnswer, executed, HTTP 200), 2 line(s):\n           ▸ ✅ Done — added /rates, updated /, connected exchange_rates. exchange_rates needs no key, so there is nothing to paste for it. Still to do: A visitor can see what one pound is worth in euros and dollars right now; The date the rates are from is shown. I've set that up, but I can't confirm from here that Rates are read live from the Frankfurter exchange-rate API for one pound in euros and dollars — have a look and tell me if it isn't right. ⚠️ rates.tsx: has no `head` on its route, so it inherits the site's own title and description — pasted into WhatsApp it previews as the home page, same headline and same sentence. Add `head: () => ({ meta: [...] })` beside `component`, with a title and a description about THIS page. The home page is the one that leaves this out.\n           ▸ I had a look at the finished pages: /rates threw an error and /rates logged an error. I tried a fix for /rates and it didn't hold, so it's published as it was.\n         and the browser would then (NOT done here — recorded only), 1:\n           ↳ refresh the credit balance\n      server sentences carried whole (3):\n           · coverNote: \"Still to do: A visitor can see what one pound is worth in euros and dollars right now; The date the rates are from is shown. I've set that up, but I can't confirm from here that Rates are read live from the Frankfurter exchange-rate API for one pound in euros and dollars — have a look and tell me if it isn't right.\"\n           · credentialNote: \"exchange_rates needs no key, so there is nothing to paste for it.\"\n           · renderNote: \"I had a look at the finished pages: /rates threw an error and /rates logged an error. I tried a fix for /rates and it didn't hold, so it's published as it was.\"; the site's own render check: 1 serious finding — /rates threw: TypeError: Cannot read properties of undefined (reading 'EUR') at u (http://127.0.0.1:42535/assets/rates-CNnGu9ef.js:1:1240) at pc (http://1; repair ran: fixed nothing (refused); refused /rates",
+      "cost": 14,
+      "wall": 497,
+      "build": "mu9ilkik-3t0z9p",
       "pickedRight": true,
       "shots": []
     }
