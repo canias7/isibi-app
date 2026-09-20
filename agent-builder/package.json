@@ -22,6 +22,7 @@
     "verify:send": "node scripts/verify-automation-send.mjs",
     "verify:integration": "node scripts/verify-integration.mjs",
     "verify:conversation": "node scripts/verify-conversation.mjs",
-    "verify:edits": "node scripts/verify-edits.mjs"
+    "verify:edits": "node scripts/verify-edits.mjs",
+    "verify:journeys": "node scripts/verify-journeys.mjs"
   }
 }
