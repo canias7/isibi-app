@@ -435,14 +435,50 @@ const UNAVAILABLE = {
   hook: "an incoming webhook",
 };
 
+/**
+ * The status every unavailable dependency answers with.
+ *
+ * EXPORTED AND READ BY THE FINDING FILTER BELOW, so the number the stub sends
+ * and the number the reader forgives are the same number. Two copies of it
+ * would drift and the filter would quietly stop matching.
+ */
+export const DEP_STATUS = 424;
+
 /** The one refusal shape, so a second unavailable kind cannot answer a
  *  different body or forget the marker. */
 const unavailable = (what) => ({
   supported: false,
   what,
-  status: 424,
+  status: DEP_STATUS,
   body: JSON.stringify({ error: "not available while the site is being checked", dependency: what }),
 });
+
+/**
+ * Is this console line the browser reporting OUR OWN refusal?
+ *
+ * MEASURED, not guessed: the real page, the real `useApi`/`useRpc` and a real
+ * Chromium against `serveDist` log
+ *
+ *   Failed to load resource: the server responded with a status of 424 (Failed Dependency)
+ *
+ * once per refused request. A browser logs that for any non-2xx subresource and
+ * nothing can stop it at the network level — so it has to be read here. Left
+ * alone it lands as `logged`, and the customer is told *"/rates logged an
+ * error"* about a page whose only error is our stub declining to invent an
+ * answer. Not serious, so it buys no repair; still the reply saying something
+ * wrong about a working page, which is the whole subject of this round.
+ *
+ * NARROW ON PURPOSE, IN TWO WAYS THAT BOTH HAVE TO HOLD. It matches only the
+ * status this file itself sends, and it is asked only of a page that really had
+ * an unavailable dependency — so a page with none can never have a console
+ * error dropped, and a genuine 500 or 404 the SITE caused is untouched at any
+ * time. A real console error on a page that also has an unmet dependency is
+ * kept, which is the control.
+ */
+function ourRefusal(line) {
+  const t = String(line == null ? "" : line);
+  return /failed to load resource/i.test(t) && new RegExp("\\b" + DEP_STATUS + "\\b").test(t);
+}
 
 /**
  * What to answer for one path, or `null` when it is not a site data-API call.
@@ -560,7 +596,14 @@ export function readPage(obs) {
     const hydration = HYDRATION_ERROR.test(String(e == null ? "" : e));
     found.push(at("threw", hydration ? hydrationDetail(e, o.hydration) : e, hydration ? MAX_DETAIL * 2 : undefined));
   }
-  for (const e of (Array.isArray(o.consoleErrors) ? o.consoleErrors : []).slice(0, 2)) found.push(at("logged", e));
+  // THE BROWSER'S REPORT OF OUR OWN REFUSAL IS NOT THE PAGE'S ERROR.
+  // Filtered BEFORE the slice, or two refusals would fill both slots and push a
+  // real console error off the end — the fix hiding the thing it must not hide.
+  // Scoped to a page that really had one: with no unmet dependency `unmet` is
+  // empty and this list is untouched, byte for byte.
+  const ours = unmetOf(o).length;
+  const logged = (Array.isArray(o.consoleErrors) ? o.consoleErrors : []).filter((e) => !(ours && ourRefusal(e)));
+  for (const e of logged.slice(0, 2)) found.push(at("logged", e));
 
   // WHAT THIS ROUTE NEEDED AND THIS CHECK COULD NOT REACH (run 53, 2026-09-20).
   //

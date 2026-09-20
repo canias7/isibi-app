@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url";
 import { runStep, killTree } from "../builder/run-step.mjs";
 import { startSiteServer, renderAs, RENDER_CHILD } from "../builder/site-ssr.mjs";
 import { checkRender, chromiumSandboxed, serveDist } from "../builder/render-check.mjs";
-import { renderNote, apiAnswer, isSerious, readPage, DEP_HEADER } from "../builder/site-render.mjs";
+import { renderNote, apiAnswer, isSerious, readPage, DEP_HEADER, DEP_STATUS } from "../builder/site-render.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -596,6 +596,51 @@ test("an unreachable dependency is reported, is not serious, and does not hide a
   const two = readPage(page({ unmet: [{ what: "rpc" }, { what: "api" }] })).filter((f) => f.kind === "unmet");
   assert.match(two[0].detail, /database function.*outside connection|outside connection.*database function/,
     "two different unavailable kinds collapsed into one noun: " + two[0].detail);
+
+  // ── THE BROWSER'S REPORT OF OUR OWN REFUSAL (measured through a real page) ──
+  //
+  // The real `useApi`/`useRpc` against the real `serveDist` in a real Chromium
+  // make the browser log, once per refused request:
+  //
+  //   Failed to load resource: the server responded with a status of 424 (Failed Dependency)
+  //
+  // Nothing can stop that at the network level, so it has to be read here.
+  // Left alone it lands as `logged` and the customer is told "/rates logged an
+  // error" about a page whose only error is our stub declining to invent an
+  // answer.
+  const BROWSER_424 = "Failed to load resource: the server responded with a status of "
+    + DEP_STATUS + " (Failed Dependency)";
+  const refused = readPage(page({ unmet: [{ what: "api" }], consoleErrors: [BROWSER_424, BROWSER_424] }));
+  assert.deepEqual(refused.filter((f) => f.kind === "logged"), [],
+    "the browser's report of our own refusal is reported as the page logging an error");
+  assert.doesNotMatch(renderNote({ ok: true, findings: refused }), /logged an error/,
+    "the customer is told their page logged an error about our own stub");
+
+  // ⚠ THE CONTROL, and it is the one that matters: a GENUINE console error on a
+  // page that ALSO has an unavailable dependency must survive. A filter that
+  // dropped this would hide the very thing the check exists to find.
+  const mixed = readPage(page({
+    unmet: [{ what: "api" }],
+    consoleErrors: [BROWSER_424, "TypeError: hours.map is not a function"],
+  }));
+  assert.ok(mixed.some((f) => f.kind === "logged" && /hours\.map/.test(f.detail)),
+    "a real console error was dropped because the page also had an unreachable dependency");
+
+  // …AND THE FILTER RUNS BEFORE THE TWO-ENTRY SLICE. With it after, two
+  // refusals would fill both slots and push the real error off the end — the
+  // fix hiding exactly what the control above proves it must not.
+  const crowded = readPage(page({
+    unmet: [{ what: "api" }, { what: "rpc" }],
+    consoleErrors: [BROWSER_424, BROWSER_424, "TypeError: hours.map is not a function"],
+  }));
+  assert.ok(crowded.some((f) => f.kind === "logged" && /hours\.map/.test(f.detail)),
+    "two refusals crowded a real console error out of the report — the filter runs after the slice");
+
+  // AND A PAGE WITH NO UNAVAILABLE DEPENDENCY IS UNTOUCHED, byte for byte: the
+  // filter is scoped to `unmet`, so it can never fire on an ordinary page.
+  assert.deepEqual(
+    readPage(page({ unmet: [], consoleErrors: [BROWSER_424] })).filter((f) => f.kind === "logged").length, 1,
+    "a console error was dropped on a page that had no unreachable dependency at all");
 });
 
 test("the customer is told the page was not fully checked, not that it threw", () => {
