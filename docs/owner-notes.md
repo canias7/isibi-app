@@ -155,6 +155,97 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-20 — The edit path: four ways a change ate things nobody asked about
+
+You asked me to move to the edit path, keep it separate from build and addon,
+and make one rule hold: **change what the customer asked for and leave the rest
+alone.** An independent review named four defects. Every one is reproduced
+first, through the real route, before a line of the fix was written — the
+failing versions of the tests are in git at `ad30cc44` and `b9353187`.
+
+**Nothing was spent.** No model call, no credit, no container, no paid run.
+
+### What was wrong, in plain terms
+
+**1. A blip reading your sections deleted the rest of them.** A site's sections
+live in one file. The code asked for it, and when that read FAILED it got back
+the same answer as "this site has no sections at all". So a momentary storage
+hiccup during a section edit published the ONE section the model rewrote and
+quietly dropped every other one — none of them mentioned in your message.
+
+**2. Two changes in one sentence, and the first one vanished.** "Change the
+hours and reword the address card" runs the page step twice. Each run started
+from the site as it was when you pressed send, so the second one's answer
+overwrote the first one's. The first change ran, was charged for, said it
+worked, and shipped nothing.
+
+**3. The same blip, one lane over, was WORSE — and I only found it because of
+the trap in your own notes** ("when an infrastructure limit is found on one
+route, list every route under it"). A one-word **wording** change on a site
+whose sections could not be read rewrote the sections file to EMPTY. Measured:
+reply "done", and every section gone. It refuses now, before spending anything,
+and says why.
+
+**4. The builder was being told your site had no photographs.** Word for word:
+*"PHOTOGRAPHS: none on this site… every picture is a placeholder — that is the
+intended look here."* On a site with photographs that is false, and the last
+part is an instruction to take them off. Driven on a two-photograph site, on a
+message that asked in as many words to KEEP them: both came back blank, and the
+reply said nothing about it.
+
+There was a fifth, smaller one underneath: the page step was the blindest
+caller of the builder we have. It never saw your sections' actual code, your
+theme, your stylesheet, or the props of the kit components on the page it was
+rewriting — all five of which the function it calls has accepted for weeks.
+
+### What it does now
+
+- A failed read is **its own answer**, never "you have none". Nothing is written
+  over your sections while we cannot see them, and the reply says so.
+- **One reading per message**, carried forward between steps exactly the way the
+  pages already were.
+- The wording lane **refuses and spends nothing** rather than publishing over
+  your sections.
+- The builder is told **what the site really shows** — read, not assumed — plus
+  your sections' real code, your theme, your stylesheet and the kit props for
+  that page.
+- **A lost photograph is reported, never refused.** This is the line I want you
+  to know about: the addon step REFUSES a change that loses a picture, which is
+  right there. Here it would refuse *"take the window photo off the front
+  page"*, which is an ordinary thing to ask. So the change ships and the reply
+  names it: *"One photograph is no longer on that page. If that was not what you
+  wanted, say 'put the photo back'."*
+- **An empty picture space is counted properly.** It was counting the wrong
+  thing and answered zero every time the builder behaved, so you were never told
+  about a frame your change left.
+- Three things the reply knew and the screen never said now reach the screen: a
+  lost photograph, a section too long to show the builder, and a section we
+  could not read.
+
+### One thing I got wrong and corrected
+
+The harness that checks "what did the customer actually see" was running the
+**addon** screen's wording over an **edit** reply. It does not crash — it
+answers something plausible — so my first round of assertions was pinning a
+sentence this path never writes. Measured: a reply naming a page, a lost
+photograph and two picture spaces came back as three words. There are two
+readers now, and a guard that keeps them apart.
+
+### Proof
+
+- 7,026 unit tests pass locally, 0 fail. **CI has not read this branch yet** —
+  that half is untaken and I am not going to quote a number nobody has seen.
+- Two mutation sweeps, 37 deliberate sabotages of the new code in total: 34
+  died. Three of the survivors I measured INERT (identical behaviour over four
+  scenarios) rather than arguing they were; two were real gaps in my own tests
+  and I wrote the missing cases, after which both died. One survivor corrected a
+  comment I had written: I claimed an argument was doing the scoping and it was
+  the index.
+- **Not proven live.** Nothing here has run against a real site. The next thing
+  worth a real run is an edit on a site that has photographs and sections.
+
+---
+
 ## 2026-09-20 — Merged and deployed, then CLAUDE.md cut by three quarters
 
 **Both CI runs were green on the exact sha before I merged anything**, which is

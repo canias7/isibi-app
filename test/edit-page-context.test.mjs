@@ -546,7 +546,7 @@ test("a component too large to show is refused rather than rewritten blind, and 
       [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
     }, async (calls) => {
-      const { body } = await edit(slug, "change the opening hours to six", { store });
+      const { body, said } = await edit(slug, "change the opening hours to six", { store });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
 
       // THE WRITER WAS TOLD THE NAME AND NOT THE SOURCE — `partsSent`'s own
@@ -568,6 +568,16 @@ test("a component too large to show is refused rather than rewritten blind, and 
         "the refused component was not named on the reply: " + JSON.stringify(body.keptParts));
       assert.equal(body.unseenParts, undefined,
         "a size refusal was reported as an unreadable store");
+
+      // ⚠ AND IT REACHES THE SCREEN. A field on the reply that the browser
+      // never renders is a value computed and never forwarded — this
+      // repository's own wiring trap — and a sweep mutant cutting the clause
+      // out of `editReply` SURVIVED until this assertion existed.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.includes("I left card-a alone"),
+        "the refused component never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("too long to show the builder"),
+        "the customer is told WHICH component and not WHY: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
 });

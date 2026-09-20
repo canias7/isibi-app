@@ -345,6 +345,112 @@ test("a wording edit that loses the photographs NAMES the loss on the reply", as
   } finally { c.uninstall(); }
 });
 
+test("a photograph living in a COMPONENT counts on both sides", async () => {
+  // ⚠ SINCE THE BAND SPLIT A SECTION IS `src/routes/-parts/<name>.tsx`, so a
+  // site's hero photograph can live in a component rather than on the page.
+  // Every reader here has to take the PAIR: `imageSources(pages, parts)` is
+  // the one definition of "every file a photograph can be in", and reading the
+  // pages alone answers a SMALLER inventory — which is an invitation to strip
+  // whatever is not in it, and makes a component's picture invisible to the
+  // loss wall as well.
+  //
+  // FOUND BY A SWEEP MUTANT, and it was a real gap rather than an inert
+  // mutation: every other case in this file puts both photographs on the page,
+  // so cutting the parts out of the BEFORE changed nothing any of them could
+  // see.
+  const slug = "pix-part";
+  const partWith = 'export default function Hero(){return <SafeImage src="' + PIC_B(slug) + '" alt="the window" />}';
+  const pagePic = ROUTE_HEAD
+    + 'import Hero from "./-parts/hero"\n'
+    + "function Home(){return <main><h1>Ravenscroft</h1>"
+    + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
+    + "<p>Nine until five.</p><Hero /></main>}\n";
+  const store = bucket(slug, { home: pagePic, parts: [{ name: "hero", source: partWith }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      // THE WRITER TOUCHES THE PAGE AND RETURNS NO COMPONENT, which is the
+      // ordinary wording edit: the component is unchanged and the spine
+      // re-sends the store's own copy.
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: pagePic.replace("Nine until five.", "Nine until six.") }],
+        parts: [],
+      },
+    }, async (calls) => {
+      const { body } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // (a) THE PROMPT COUNTS BOTH. Reading the pages alone would say ONE, and
+      //     a writer told the site shows one picture has no reason to keep the
+      //     other.
+      const prompt = pagePrompt(calls);
+      const both = shownPhotos(
+        [{ path: "index.tsx", source: pagePic }, { path: "-parts/hero.tsx", source: partWith }],
+        slug,
+      );
+      assert.equal(both.count, 2, "the fixture does not put a photograph in the component: " + JSON.stringify(both));
+      assert.ok(prompt.includes(esc("already shows 2 real photographs")),
+        "the component's photograph is invisible to the prompt: " + JSON.stringify(prompt.slice(0, 0)) + " (count was not 2)");
+
+      // (b) AND NOTHING WAS REPORTED LOST. The component is untouched on both
+      //     sides, so a BEFORE that could not see it would read its picture as
+      //     appearing from nowhere — or, the other way round, as lost.
+      assert.equal(body.photosRemoved, undefined,
+        "an untouched component's photograph was reported as lost: " + JSON.stringify(body.photosRemoved));
+      assert.equal(body.photos, 0, "an untouched component's photograph was counted as a new space: " + body.photos);
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a photograph stripped out of a COMPONENT is detected too", async () => {
+  // ⚠ THE DISCRIMINATING HALF, and the case above is not it. There both
+  // pictures survive, so a BEFORE that reads the pages alone answers a smaller
+  // set and still loses nothing — `keptImages` only reports what was in the
+  // BEFORE and is not in the AFTER, and `newEmptySlots` counts EMPTY frames,
+  // which a filled `src` is not. Measured: a sweep mutant cutting the parts out
+  // of the BEFORE survived that case.
+  //
+  // So the photograph has to be in a component AND be lost. Unmutated the
+  // before holds both and the loss is one; with the pages alone the before
+  // holds one, the after holds the same one, and nothing is reported.
+  const slug = "pix-part-lost";
+  const partWith = 'export default function Hero(){return <SafeImage src="' + PIC_B(slug) + '" alt="the window" />}';
+  const partBare = 'export default function Hero(){return <SafeImage src="" alt="the window" />}';
+  const pagePic = ROUTE_HEAD
+    + 'import Hero from "./-parts/hero"\n'
+    + "function Home(){return <main><h1>Ravenscroft</h1>"
+    + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
+    + "<p>Nine until five.</p><Hero /></main>}\n";
+  const store = bucket(slug, { home: pagePic, parts: [{ name: "hero", source: partWith }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: pagePic.replace("Nine until five.", "Nine until six.") }],
+        parts: [{ name: "hero", source: partBare }],
+      },
+    }, async () => {
+      const { status, body, said } = await edit(slug, "change the opening hours to six, and keep the photographs", { store });
+      // IT STILL PUBLISHES — the edit path reports, it does not refuse.
+      assert.equal(status, 200, "a lost photograph in a component was REFUSED: " + status + " " + JSON.stringify(body));
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // THE LOSS IS THE COMPONENT'S, and only a BEFORE that read the
+      // components can see it.
+      assert.equal(body.photosRemoved, 1,
+        "a photograph stripped out of a component was not detected: " + JSON.stringify(body.photosRemoved));
+      // AND THE FRAME IT LEFT IS COUNTED — the same pair, one reader over.
+      assert.equal(body.photos, 1, "the empty frame left in the component was not counted: " + body.photos);
+      // AND THE SCREEN SAYS BOTH.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.includes("One photograph is no longer on that page"),
+        "the component's loss never reached the screen: " + JSON.stringify(said.text));
+    });
+  } finally { c.uninstall(); }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. AUTHORISED REMOVAL — which must keep working
 // ─────────────────────────────────────────────────────────────────────────────

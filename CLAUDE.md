@@ -1560,6 +1560,81 @@ many words, because the line sat at the page. Four hops, each guarded:
   so `no-backend` had sent every "add a QR code" on most of the platform to a
   rebuild.
 
+### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20)
+
+Four defects, each reproduced through `POST /api/site/<slug>/edit` before it
+was fixed, each now asserted on the designer's input, the compiler payload, the
+stored inventory and the browser's own sentence.
+`test/edit-page-{context,photos}.test.mjs` and
+`test/edit-browser-reply.test.mjs`.
+
+- **`readSiteParts`'s THREE STATES REACH THIS RUNG.** `loadSiteParts` collapses
+  "no components" and "the read threw" into one `null`, and
+  `mergeParts(null, [one])` answers `[one]` — so a transient R2 failure
+  published ONE component and deleted the rest. The addon's shape, on the
+  caller that never moved: `partsSent` answers `unreadable`, every returned
+  component is refused, the merge hands over `null`, and the spine re-sends the
+  store's own copy.
+- **ONE SNAPSHOT PER MESSAGE, ADVANCED BY `publishStep`.** `components` and
+  `tsx` both dispatch to `page`, so one sentence runs the rung TWICE — and each
+  run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
+  first rung's work was overwritten by the second rung's merge of the original:
+  step one ran, was charged for, reported success, and shipped nothing.
+  `editParts()` is the message-wide read and `publishStep` advances it exactly
+  as it advances `eSrc` — **the pages never had this bug because `eSrc` is this
+  variable one field over**.
+- **⚠ THE `text` RUNG'S VERSION WAS WORSE AND IT REFUSES NOW.** Its empty list
+  is REAL rather than absent: `editableFiles(eSrc, null)` presents the pages
+  alone, `splitEditable` answers `parts: []`, and both the spine's preference
+  and its save take that at face value. **Measured through the route: reply
+  `{ok: true, applied: 1}`, payload `parts: []`, and `source/<slug>/parts.json`
+  REWRITTEN TO `[]`** — every component deleted by a one-word wording change.
+  503 `parts-unreadable`, **above the model call**, cost 0, nothing written.
+- **THE PAGE WRITER GETS WHAT `briefWithLayout` HAS ALWAYS TAKEN** — `parts`,
+  `partsUnreadable`, `theme`, `css`, `plan`, all five omitted, so the one call
+  on this path that rewrites a whole page was that function's blindest caller.
+  The plan is scoped to the TARGET page and takes `modules`, never `kit`.
+  **⚠ THE SCOPING IS THE `[wantRoute]` INDEX, NOT THE `[target]` ARGUMENT** —
+  `pageComponents` answers a map keyed by route, so both give the same entry;
+  the argument saves a walk. A sweep mutant said so.
+- **THE PROMPT STOPS TELLING A PHOTOGRAPHED SITE IT HAS NONE.** A bare
+  `images: 0` renders as *"PHOTOGRAPHS: none on this site … that is the
+  intended look here"* — false on every site with any, and the last two clauses
+  are an instruction to STRIP them. Driven on a site showing two, on a request
+  that asked to keep them: both came back with an empty `src`. `images:
+  {shown: shownPhotos(photoInventory(…)), place: false}` — **the budget did not
+  move; no `buy` key IS the zero.**
+- **⚠ LOSS IS REPORTED, NEVER REFUSED, AND THAT LINE SEPARATES THIS RUNG FROM
+  THE ADDON'S.** There a lost photograph is 422 `lost-photos` at cost 0, right
+  for a step whose contract is *"an addition is always a new thing"*; here
+  *"take the window photo off the front page"* is an ordinary edit. So
+  `keptImages` over the two PUBLICATIONS puts a COUNT on the reply and the
+  customer decides — the `reordered` precedent, one field over.
+  **`photosRemoved`, NOT `lostPhotos`**: the addon's field is a LIST of urls on
+  a refusal that published nothing (`Array.isArray` in its own harness) and
+  this is a count on a change that shipped — `Number([…])` is NaN, so one name
+  over two shapes makes the browser's clause silently never fire.
+- **THE EMPTY FRAME IS COUNTED BY A FRAME READER.** `photos` was
+  `countImageSlots`, which counts `@@IMG:` TOKENS on a rung whose directive
+  forbids them — zero on every obedient answer, so `photoNote` never fired.
+  `newEmptySlots(before, after)` over the same two publications, token counter
+  behind it. **Both readers take `imageSources(pages, parts)`**: a photograph
+  can live in a component since the band split, and reading the pages alone
+  answers a smaller inventory, which is an invitation to strip what is not in
+  it. A sweep mutant survived until a case put a picture in a component AND
+  lost it — **the untouched-component case cannot tell the two apart**, because
+  `keptImages` reports only what the BEFORE had and the AFTER lacks.
+- **⚠ THE HARNESS WAS READING THE WRONG COMPOSER.** `browserReply` runs
+  `addonAnswer`, the ADD route's selection; an edit reply goes through
+  `editAnswer` → `applyEditResult` → `editReply`. The add composer does not
+  throw on an edit body — it answers a PLAUSIBLE `"✅ Done."` — so an assertion
+  pinned to it passes whatever the edit screen does. **MEASURED: a reply naming
+  a page, a lost photograph and two picture spaces came back as three words.**
+  `editBrowserReply` runs the real selection, refusal branches included, and
+  its function list is censused from `editReply`'s own body — a clause whose
+  composer is not cut is a `ReferenceError` that reports NO screen rather than
+  a wrong one.
+
 ### THE EDIT PATH IS ITS OWN PATH (2026-08-29)
 
 Owner: *"it should be 2 separated path tho"*, and on what the edit step IS:
@@ -3094,14 +3169,18 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,005** (7,005 pass, 0 fail, 0 skipped locally; CI reads
-  `7,001 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
-  `site-searchpath`'s baseline-commit case). **THE TOTAL IS WHAT MATCHES** — a
-  `pass` count alone drifts between the two machines. Both halves measured on
-  `2c596bc5` (2026-09-20): locally, and CI run `35504473370`. It was 6,992 at
-  `26f52f95`; **the +13 is this branch's own new cases and is stated as the
-  difference between two MEASURED readings, never as arithmetic off a
-  paragraph.**
+- **Unit suite: 7,026 LOCALLY, and the CI half of that reading is UNTAKEN.**
+  7,026 pass / 0 fail / 0 skipped, measured on the edit-path branch after
+  Stage 2. The last reading with BOTH halves was **7,005** on `2c596bc5`
+  (locally, and CI run `35504473370` at `7,001 / 0 / 4` — the four being the
+  privilege-drop case, two RTL cases and `site-searchpath`'s baseline-commit
+  case). **THE TOTAL IS WHAT MATCHES** — a `pass` count alone drifts between
+  the two machines — so until CI reads this branch the honest statement is
+  *7,026 local, CI unread*, and the four skips are expected to make it
+  `7,022 / 0 / 4` rather than being a number anybody has seen.
+  It was 6,992 at `26f52f95` and 7,005 before the edit-path work;
+  **the +21 is this branch's own new cases and is stated as the difference
+  between two MEASURED readings, never as arithmetic off a paragraph.**
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".
@@ -3811,20 +3890,10 @@ does name one — moved up to the supported list on 2026-09-20.)*
   prompt. What shipped instead is a REPORT (`missingPopulation`), because *"no
   client write grant does not mean no writer"* — a seed, a function body, a job
   body or a client grant all count.
-- **THE EDIT PATH CAN DELETE EVERY COMPONENT A REQUEST NEVER MENTIONED (open).**
-  `worker.js`'s page rung reads `loadSiteParts`, which answers `null` for a read
-  that FAILED exactly as for a site with no components, and
-  `mergeParts(null, [one])` answers `[one]`. Driven on the addon path, where the
-  same shape cost the reproduction two components. **The fix is the one the
-  addon has** — `readSiteParts`'s three states, one snapshot per request, nothing
-  written while `ok` is false — and it is a wiring change rather than a design
-  one.
-- **THE EDIT PATH'S `page` RUNG NEVER TELLS THE CUSTOMER ABOUT AN EMPTY PICTURE
-  FRAME (open).** It computes `pSlots = countImageSlots(…)` on a rung whose
-  directive is `images: 0`, so the count is *the number of tokens a model wrote
-  against an instruction not to* and `photoNote` is silent on every obedient
-  answer. **The fix is the one the addon has** (`newEmptySlots`, exported and
-  driven).
+*(Two edit-path items closed here on 2026-09-20 — the component-deletion one
+and the empty-frame one — moved up to the ladder's own section, because a
+closed limitation left in a limitations list is a false negative about our own
+product.)*
 - **A WORKING `video-embed` IS INVISIBLE TO THE `data-slot` CENSUS (open).** It
   stamps the attribute on its FALLBACK branch alone, so **a video that WORKS is
   invisible and a BROKEN one shows up** — both consequences backwards. Two
