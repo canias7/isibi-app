@@ -45,6 +45,8 @@ import { haveCluster, standUp, dispatcher } from "./lib/local-stack.mjs";
 import { startLocalSite, SITE_ROOT } from "./lib/local-site.mjs";
 import { makeScriptedModel, SIMULATED } from "./lib/scripted-model.mjs";
 import { FAKE_PROVIDER } from "../src/fake-provider.mjs";
+import { signDelivery, SIG_HEADER, TS_HEADER, ID_HEADER } from "../src/webhooks.mjs";
+import { handleAgentApi, makeAgentStore } from "../../agent-store.mjs";
 
 const CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const DB = `agent_browser_${process.pid}`;
@@ -58,6 +60,8 @@ const RECIPIENT = "ada@example.test";
 /** The two arms of journey 2's branch — one of them must be nowhere near the message. */
 const FORMAL = "Dear {{who}}, regarding {{topic}}: {{facts}} (scripted, not written by a model)";
 const CASUAL = "Hi {{who}} — about {{topic}}: {{facts}} (scripted, not written by a model)";
+/** The event journey 3 binds an automation to and then delivers from outside. */
+const EVENT = "order.paid";
 const ONLY = process.argv.slice(2).filter((s) => /^[1-6]$/.test(s)).map(Number);
 const want = (n) => !ONLY.length || ONLY.includes(n);
 /**
@@ -136,6 +140,25 @@ const site = await startLocalSite({
   tokens: new Map([[A.token, A.uid], [B.token, B.uid]]),
 });
 const mailbox = (account) => ADAPTERS[FAKE_PROVIDER].mailbox(account);
+/**
+ * ⚠ **THE SITE'S OWN ROUTE, FOR THE FOUR THAT HAVE NO SCREEN — declared, not a shortcut.**
+ * `webhooks`, `webhook-create`, `webhook-enable` and `webhook-delete` are on this
+ * repository's `NO_SCREEN_YET` list: a person cannot make an inbound endpoint or read its
+ * secret from the app at all. **Nothing else in this file may use this** — every other check
+ * goes through the browser, which is the whole point of the file.
+ */
+const siteApi = async (path, body = null, query = {}) => {
+  const answer = await handleAgentApi({
+    path, method: body ? "POST" : "GET", query: new URLSearchParams(query), body: body ?? {},
+    // ⚠ **THE STORE'S OWN REASON IS PRINTED, NEVER SWALLOWED.** A `log: () => {}` here cost a
+    // whole run: `/api/agent/webhooks` came back with the route's generic "couldn't save that
+    // just now" and the reason — which the store had logged — went nowhere. *A failure that
+    // cannot name itself*, in the one door this file has for a route with no screen.
+    tenant: A.uid, ring: disp.ring, log: (...a) => console.log("  route:", ...a),
+    store: makeAgentStore({ fetch: (u, o) => fetch(u, o), url: stack.rest.url, key: "local-service-role" }),
+  });
+  return { status: answer.status, body: answer.body };
+};
 const browser = await chromium.launch({ executablePath: CHROME });
 const shotDir = path.join(SITE_ROOT, "shots", "browser");
 fs.mkdirSync(shotDir, { recursive: true });
@@ -300,6 +323,39 @@ async function waitText(page, pattern, what, ms = 20_000) {
   }
 }
 const has = async (page, s) => !!(await page.$(s));
+
+/**
+ * Leave the automation FORM, so the list below it is on screen.
+ *
+ * ⚠ **THE FORM STAYS OPEN AFTER A SAVE** — deliberately, and recorded in the site's own
+ * notes: it says "Saved." where the button is and a create becomes an edit of what it just
+ * made. So nothing under it is drawn, and a journey that saves an automation and then wants
+ * its ROW has to close the form exactly as a person does. Pressed only when a form is
+ * really open, because Cancel is not a control the list has.
+ */
+async function closeAutoForm(page) {
+  if (!(await has(page, '[data-act="agent-auto-cancel"]'))) return;
+  await press(page, "agent-auto-cancel");
+  await page.waitForFunction(() => !document.getElementById("agAutoName"), { timeout: 10_000 });
+}
+
+/** One automation's own row, found by the id the markup puts on its buttons. */
+const autoRow = (id) => `.ag-auto:has([data-act="agent-auto-history"][data-id="${id}"])`;
+
+/**
+ * Open one automation's execution history, the way a person does.
+ *
+ * ⚠ **THE ROW IS A TOGGLE** — `agentAutoHistory` closes the panel on a second press — so
+ * this asks whether THIS automation's panel is already drawn rather than pressing blind and
+ * closing what it wanted. Scoped to the row, not to `.ag-auto-runs` anywhere on the page: a
+ * journey that has made more than one automation would otherwise read a neighbour's panel
+ * as this one's and press nothing.
+ */
+async function openHistory(page, id) {
+  await closeAutoForm(page);
+  if (!(await has(page, `${autoRow(id)} .ag-auto-runs`))) await press(page, "agent-auto-history", "id", id);
+  await page.waitForSelector(`${autoRow(id)} .ag-auto-runs`, { timeout: 10_000 });
+}
 const shot = async (page, name) => {
   const el = await page.$("#viewAgents");
   await (el ?? page).screenshot({ path: path.join(shotDir, `${name}.png`) });
@@ -607,6 +663,219 @@ try {
     await shot(page, "j2-branch-sent");
     check("2p. no page error anywhere in journey 2", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
     check("2q. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
+      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // JOURNEY 3 — the three ways in: by hand, on a schedule, and from an event.
+  //             Plus a duplicate delivery, and turning it off.
+  // ════════════════════════════════════════════════════════════════════════════
+  if (want(3)) {
+    head("JOURNEY 3 — run it by hand, on a schedule, and from an event");
+    const { page } = await openApp(A, "J3");
+    agentId = agentId ?? (await firstAgent(page));
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-new"]', { timeout: 10_000 });
+
+    // ── A DAILY SCHEDULE, SET ON THE FORM. One note step, so what is under test is the
+    //    trigger rather than an approval.
+    await press(page, "agent-auto-new");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    await type(page, "agAutoName", "Morning check");
+    await page.selectOption("#agAutoSched", "daily");
+    await page.fill("#agAutoAt", "09:00");
+    await page.fill("#agAutoZone", ZONE);
+    await addStep(page, "note", { text: "the shop opens at nine", out: "opened" });
+    await press(page, "agent-auto-save");
+    await waitText(page, /Saved\./, "the schedule to save", 10_000);
+
+    const scheduled = await page.evaluate(async (agent) => {
+      const r = await fetch("/api/agent/automations?agent=" + agent, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return ((await r.json()).automations || []).find((a) => a.name === "Morning check") ?? null;
+    }, agentId);
+    // ⚠ **`HH:MM` ON THE WIRE, NOT `HH:MM:SS`, AND THAT IS THE PRODUCT BEING RIGHT.** The
+    // COLUMN holds `09:00:00` — `cleanSchedule` appends the seconds — and `automationRow`
+    // slices them off so one shape leaves that file, which is what lets the form's own box
+    // and `agent.patch_automation`'s `^HH:MM$` read the same value. My first draft asserted
+    // the column's shape and reported a correct round trip as broken; what this asks is the
+    // ROUND TRIP, which is the property: what the form put in is what comes back.
+    check("3a. a daily schedule saved from the form, with its own zone",
+      scheduled?.schedule === "daily" && scheduled?.at === "09:00" && scheduled?.zone === ZONE,
+      JSON.stringify({ s: scheduled?.schedule, at: scheduled?.at, z: scheduled?.zone }));
+    check("3b. ...and the database armed a next run for it", !!scheduled?.nextRunAt, String(scheduled?.nextRunAt));
+    const AU3 = scheduled.id;
+
+    // ⚠ THE CLOCK IS PUSHED, NOT WAITED OUT, and it is the only thing simulated here — a
+    // daily schedule is a day away. What it does NOT simulate is the DECISION:
+    // `tick_automations` still selects on `next_run_at <= now()` and the instant it moves to
+    // is `automation_next_run`'s own arithmetic.
+    const due = () => stack.q(`update agent.automations set next_run_at = now() - interval '2 minutes' where id='${AU3}';`);
+    due();
+    const tick1 = await disp.tick();
+    await disp.drain();
+    // ⚠ THE SAVE LEFT THE FORM OPEN, so nothing under it is on screen — and the history is a
+    // row a person presses rather than a panel that appears. A first draft waited for the
+    // word `Scheduled` straight after the tick and timed out on a screen that was showing
+    // the FORM, with the execution having run perfectly.
+    await openHistory(page, AU3);
+    await waitText(page, /Scheduled/, "the scheduled execution to appear", 25_000);
+    const runs3 = () => page.evaluate(async (id) => {
+      const r = await fetch("/api/agent/automation-history?id=" + id, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return (await r.json()).executions || [];
+    }, AU3);
+    let hist3 = await runs3();
+    check("3c. ⚠ the REAL cron filed it and it ran", hist3.length === 1 && hist3[0].state === "done",
+      JSON.stringify(hist3.map((e) => [e.trigger, e.state])));
+    check("3d. ...and the history says it was SCHEDULED rather than pressed", /Scheduled/.test(await text(page)));
+
+    // ── A DUPLICATE DELIVERY OF THE SAME OCCURRENCE IS ONE EXECUTION ──────────
+    due();
+    await disp.tick();
+    await disp.drain();
+    hist3 = await runs3();
+    check("3e. ⚠ the same occurrence asked for twice is still ONE execution", hist3.length === 1,
+      JSON.stringify(hist3.map((e) => [e.trigger, e.occurrence ?? null])));
+    // AND A DUPLICATE QUEUE DELIVERY OF THE RUN ITSELF, which the claim is what refuses.
+    await disp.ring(hist3[0].id);
+    await disp.drain();
+    const again = await runs3();
+    check("3f. ...and re-ringing the finished run changed nothing",
+      again.length === 1 && again[0].state === "done" &&
+        JSON.stringify(again[0].outcomes) === JSON.stringify(hist3[0].outcomes),
+      JSON.stringify(again.map((e) => e.state)));
+
+    // ── TURNING IT OFF ON THE SCREEN PREVENTS NEW WORK ───────────────────────
+    await press(page, "agent-auto-toggle", "id", AU3);
+    await page.waitForFunction((id) => {
+      const b = document.querySelector(`[data-act="agent-auto-toggle"][data-id="${id}"]`);
+      return b && /Turn on/i.test(b.textContent || "");
+    }, AU3, { timeout: 10_000 });
+    due();
+    const tickOff = await disp.tick();
+    await disp.drain();
+    check("3g. ⚠ turned off on the screen, the cron starts nothing", (await runs3()).length === 1,
+      JSON.stringify((await runs3()).map((e) => e.trigger)));
+    // AND TURNING IT BACK ON RE-ARMS IT FORWARD rather than leaving a due-in-the-past row —
+    // the defect the M13-2 round fixed, in a browser this time.
+    await press(page, "agent-auto-toggle", "id", AU3);
+    await page.waitForFunction((id) => {
+      const b = document.querySelector(`[data-act="agent-auto-toggle"][data-id="${id}"]`);
+      return b && /Turn off/i.test(b.textContent || "");
+    }, AU3, { timeout: 10_000 });
+    const rearmed = await page.evaluate(async (agent) => {
+      const r = await fetch("/api/agent/automations?agent=" + agent, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return ((await r.json()).automations || []).find((a) => a.name === "Morning check")?.nextRunAt ?? null;
+    }, agentId);
+    check("3h. ⚠ ...and turning it back on re-armed it in the FUTURE, not in the past",
+      !!rearmed && Date.parse(rearmed) > Date.now(), String(rearmed));
+
+    // ── AN EVENT, BOUND ON THE FORM AND DELIVERED FROM OUTSIDE ───────────────
+    await press(page, "agent-auto-edit", "id", AU3);
+    await page.waitForSelector("#agAutoEvent", { timeout: 10_000 });
+    await page.fill("#agAutoEvent", EVENT);
+    await press(page, "agent-auto-save");
+    await waitText(page, /Saved\./, "the event binding to save", 10_000);
+    const bound = await page.evaluate(async (agent) => {
+      const r = await fetch("/api/agent/automations?agent=" + agent, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return ((await r.json()).automations || []).find((a) => a.name === "Morning check")?.onEvent ?? null;
+    }, agentId);
+    check("3i. an event binding saved from the form", bound === EVENT, String(bound));
+
+    /**
+     * ⚠ **THE ENDPOINT IS MADE THROUGH THE ROUTE, BECAUSE THERE IS NO SCREEN FOR ONE — and
+     * that is a stated gap rather than a shortcut.** `webhooks`, `webhook-create`,
+     * `webhook-enable` and `webhook-delete` are on this repository's own `NO_SCREEN_YET`
+     * list, so a person cannot make an inbound endpoint or read its secret at all. What a
+     * browser CAN show is the result, which is what the checks below read.
+     */
+    const made = await siteApi("/api/agent/webhook-create", { agent: agentId, name: "paid", event: EVENT });
+    check("3j. an inbound endpoint exists, and its secret is answered exactly once",
+      made.status === 200 && typeof made.body?.secret === "string" && made.body.secret.length >= 32,
+      `${made.status} ${typeof made.body?.secret}`);
+    const listed = await siteApi("/api/agent/webhooks", null, { agent: agentId });
+    /**
+     * ⚠ **THE OBSERVER IS PROVED ALIVE, because "no secret in the answer" is a NEGATIVE.** A
+     * first draft asked only `!/secret/` — and a FAILED read satisfies that perfectly: the
+     * check passed with a body of `{"error":"couldn't save that just now","retry":true}`, which
+     * is *a negative assertion whose observer is dead*, the trap this repository records most.
+     * So the endpoint has to be FOUND first, and only then is the absence worth anything.
+     */
+    const endpoints = listed.body?.webhooks ?? [];
+    check("3k. ...and reading them back FINDS it and never answers a secret again",
+      listed.status === 200 && endpoints.some((w) => w.id === made.body.id && w.event === EVENT) &&
+        !/secret/i.test(JSON.stringify(listed.body)),
+      `${listed.status} ${JSON.stringify(listed.body).slice(0, 160)}`);
+
+    const payload = JSON.stringify({ amount: 42, tenant: B.uid, name: "evil.event" });
+    const ts = String(Date.now());
+    /**
+     * ⚠ **THE JSON IS READ, and a first draft did not read it.** `worker.fetch` answers a
+     * `Response`, whose `.body` is a ReadableStream — so `res.body?.repeat` is `undefined` and
+     * `JSON.stringify` prints it as `{}`. The duplicate-delivery check asserted
+     * `body.repeat === true` against that and reported a correct platform as broken, with the
+     * detail line reading `{"status":202,"body":{}}` — which looks like an empty answer rather
+     * than an unread one.
+     */
+    const deliver = async (delivery) => {
+      const res = await worker.fetch(new Request(`https://x/deliver/${made.body.id}`, {
+        method: "POST", body: payload,
+        headers: { [SIG_HEADER]: sig, [TS_HEADER]: ts, [ID_HEADER]: delivery },
+      }), disp.env, { waitUntil() {} });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    };
+    const sig = await signDelivery(made.body.secret, ts, payload);
+    const one = await deliver("dlv-1");
+    check("3l. a signed delivery is accepted", one.status === 202, String(one.status));
+    await disp.tick();
+    await disp.drain();
+    await page.reload({ waitUntil: "load" });
+    await enterAgents(page);
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await openHistory(page, AU3);
+    await waitText(page, /the shop opens at nine/, "the event-started execution to be listed", 20_000);
+    hist3 = await runs3();
+    const fromEvent = hist3.filter((e) => e.trigger === "event");
+    check("3m. ⚠ the event started an execution and it ran", fromEvent.length === 1 && fromEvent[0].state === "done",
+      JSON.stringify(hist3.map((e) => [e.trigger, e.state])));
+    // ⚠ AND THE BODY'S OWN CLAIMS ARE NOT BELIEVED: the event belongs to the ENDPOINT's
+    // account under the ENDPOINT's name, and the tenant the payload named gets nothing.
+    const ev = JSON.parse(stack.q(
+      `select coalesce(json_agg(json_build_object('t',tenant_id,'n',name)::json)::text,'[]') from agent.events;`));
+    check("3n. ⚠ ...under the endpoint's own account and event name, not the body's",
+      ev.length === 1 && ev[0].t === A.uid && ev[0].n === EVENT, JSON.stringify(ev));
+
+    const twice = await deliver("dlv-1");
+    await disp.tick();
+    await disp.drain();
+    check("3o. ⚠ the same delivery twice is ONE event and ONE execution",
+      twice.status === 202 && twice.body?.repeat === true &&
+        (await runs3()).filter((e) => e.trigger === "event").length === 1,
+      JSON.stringify({ status: twice.status, body: twice.body }));
+
+    /**
+     * ⚠ **WHAT THE SCREEN SAYS ABOUT HOW IT STARTED, and this is the defect journey 3 found.**
+     * Three triggers exist and both layers had two words for them: `executionRow` collapsed
+     * anything that was not `schedule` into `manual`, and the row drew
+     * `trigger === 'schedule' ? 'Scheduled' : 'Run now'`. So an execution an inbound ENDPOINT
+     * started read as one a PERSON had pressed — a claim about somebody's own action, about an
+     * action nobody took. MEASURED here before the fix:
+     * `ag-run-how">Run now | ag-run-how">Scheduled · 2026-09-21`.
+     *
+     * Asserted POSITIVELY, with the scheduled row beside it as the OBSERVER: "it does not say
+     * Run now" is satisfied by a panel that says nothing at all.
+     */
+    const howWords = await page.$$eval(`${autoRow(AU3)} .ag-run-how`, (els) =>
+      els.map((e) => (e.textContent || "").trim()));
+    check("3p. ⚠ an event-started execution says so, rather than claiming somebody pressed Run now",
+      howWords.some((w) => /^From an event$/.test(w)) &&
+        howWords.some((w) => /^Scheduled/.test(w)) &&
+        !howWords.some((w) => /Run now/.test(w)),
+      howWords.join(" | "));
+    await shot(page, "j3-triggers");
+    check("3q. no page error anywhere in journey 3", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
+    check("3r. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
       agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 

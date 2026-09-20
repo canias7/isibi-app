@@ -4084,6 +4084,58 @@ test("⚠ AN EXECUTION ROW THAT DOES NOT CARRY THE THREE OPTIONAL LINES DRAWS NO
   assert.match(w.s.document.getElementById("viewAgents").innerHTML, /the note it saved/);
 });
 
+test("⚠ THE HISTORY SAYS HOW AN EXECUTION STARTED, and there are THREE ways rather than two", async () => {
+  /**
+   * ⚠ **REPRODUCED IN A REAL BROWSER: an execution an inbound ENDPOINT started read
+   * "Run now".** The row drew `trigger === 'schedule' ? 'Scheduled' : 'Run now'`, so the third
+   * word `automation_runs_trigger_known` admits collapsed into the one that says a PERSON
+   * pressed a button — a claim about somebody's own action, about an action nobody took.
+   * MEASURED, over the two executions of one automation:
+   * `ag-run-how">Run now | ag-run-how">Scheduled · 2026-09-21`.
+   *
+   * `executionRow` had the same defect one layer down and is guarded in
+   * `test/agent-automations.test.mjs`; this is the RENDERER, which is where a person reads it.
+   */
+  const row = (id, trigger) => ({
+    id, automationId: "AU1", trigger, occurrence: trigger === "schedule" ? "2026-09-21" : null,
+    state: "done", result: "the note it saved", why: null, error: null,
+    at: "2026-09-16T10:00:00Z", outcomes: [],
+  });
+  const runs = [row("EX1", "event"), row("EX2", "schedule"), row("EX3", "manual")];
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: runs });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const words = () => [...w.s.document.getElementById("viewAgents").innerHTML
+    .matchAll(/class="ag-run-how">([^<·]*)/g)].map((m) => m[1].trim());
+
+  // THE THREE ARE THREE DIFFERENT SENTENCES, which is what says none is standing in for
+  // another — and the event one is the one that used to be wrong.
+  assert.deepEqual(words(), ["From an event", "Scheduled", "Run now"]);
+  assert.equal(new Set(words()).size, 3);
+
+  /**
+   * ⚠ **AND A TRIGGER THE READER COULD NOT READ CLAIMS NOTHING.** `executionRow` answers
+   * `null` for a word it does not recognise — a row from a deployment with a fourth one, or a
+   * read that did not ask for the column — and every word above is a statement about who or
+   * what started the run. So the fallback is the one thing true of all of them, and it must
+   * not be "Run now": that was the defect, and defaulting to it is how it comes back.
+   */
+  await w.ev('agentAutoRuns = ' + JSON.stringify([{ ...row("EX4", null) }]) + '; renderAgents();');
+  assert.deepEqual(words(), ["Started"]);
+  await w.ev('agentAutoRuns = ' + JSON.stringify([{ ...row("EX5", "invented") }]) + '; renderAgents();');
+  assert.deepEqual(words(), ["Started"]);
+  // THE OBSERVER IS ALIVE: the row is really on screen, so "it does not say Run now" is
+  // about the words rather than about a history that has stopped drawing.
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /ag-chip-done/);
+});
+
 /** Capture the watch's own timer the way `catchPoll` captures the conversation poll. */
 function catchWatch(w) {
   const every = w.ev("AUTO_WATCH_MS");

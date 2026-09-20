@@ -20,6 +20,7 @@ import {
   AUTOMATION_COLUMNS,
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
+  AUTOMATION_TRIGGERS, webhookRow,
   // ── an edit changes only what it names ───────────────────────────────────────
   AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
   trigAt, trigZone, trigDays, trigOnDate, trigOnEvent,
@@ -961,6 +962,86 @@ test("automationRow fails closed on every field it cannot read", () => {
   assert.deepEqual([...shuffled].sort(), ["fri", "sat", "sun", "wed"], "and it is the same four days");
   // A DAY NOTHING RECOGNISES IS DROPPED, and the ones beside it survive.
   assert.deepEqual(automationRow({ days: ["mon", "funday", "fri"] }).days, ["mon", "fri"]);
+});
+
+test("⚠ AN EXECUTION HAS THREE WAYS OF HAVING STARTED, and reading `event` as `manual` is a claim about a person", () => {
+  /**
+   * ⚠ **REPRODUCED IN A BROWSER: the history said "Run now" about an execution an inbound
+   * ENDPOINT started.** `executionRow` read `r.trigger === "schedule" ? "schedule" : "manual"`,
+   * so the third word the column admits — `automation_runs_trigger_known` was widened for it
+   * when an event could first start something, and `agent.dispatch_events` really files
+   * `'event'` — collapsed into the one that says a PERSON pressed a button. Measured through
+   * the site's own history route: `[["manual","done"],["schedule","done"]]` for a run nobody
+   * had touched.
+   *
+   * ⚠ **AND THE FAIL-CLOSED DIRECTION IS THE POINT.** Every word here is a statement about who
+   * or what started the run, so a value this cannot read gets `null` — the absence of a claim —
+   * rather than the commonest of the three.
+   */
+  const of = (trigger) => executionRow({ id: R1, trigger, run_status: "running" }).trigger;
+  assert.equal(of("manual"), "manual");
+  assert.equal(of("schedule"), "schedule");
+  assert.equal(of("event"), "event", "an event-started execution is reported as one somebody pressed");
+  // THE THREE ARE THREE, which is what says none of them is standing in for another.
+  assert.equal(new Set([of("manual"), of("schedule"), of("event")]).size, 3);
+  // REFUSED, NEVER COERCED, and never read as `manual`.
+  for (const junk of ["Event", "", "pressed", 7, true, {}, [], null, undefined]) {
+    assert.equal(of(junk), null, `a trigger of ${JSON.stringify(junk)} claimed somebody started it`);
+  }
+  // AND THE VOCABULARY IS THE COLUMN'S OWN, read out of the migration that widened it rather
+  // than from this list — two copies of one constraint drift, and the drift is silent.
+  const sql = fs.readFileSync(path.join(import.meta.dirname, "..", "agent-builder", "supabase", "migrations",
+    "20260918050000_agent_triggers.sql"), "utf8");
+  const wid = sql.slice(sql.indexOf("add constraint automation_runs_trigger_known"));
+  const admitted = [...wid.slice(0, wid.indexOf(")")).matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...AUTOMATION_TRIGGERS].sort(), [...new Set(admitted)].sort(),
+    `the reader admits ${JSON.stringify(AUTOMATION_TRIGGERS)} and the column admits ${JSON.stringify(admitted)}`);
+});
+
+test("⚠ READING THE INBOUND ENDPOINTS BACK IS A LIST, and `answerOf` refuses one by design", async () => {
+  /**
+   * ⚠ **`/api/agent/webhooks` HAD NEVER ONCE WORKED, and it was dead by construction.**
+   * `agent.list_webhooks` is `returns jsonb` over a `jsonb_agg`, so PostgREST answers a bare
+   * JSON ARRAY — and `answerOf` refuses an array deliberately, because its nineteen other
+   * callers read a `{ok, …}` object and an array there is a broken shape. So every read threw
+   * `no answer came back`, the route answered **502 `couldn't save that just now`**, and the
+   * `Array.isArray(a) ? … : []` line beneath it was unreachable: the handling that reads as the
+   * fix. MEASURED in a browser journey, for every account, every time.
+   *
+   * **NOTHING COULD SEE IT**: the four endpoint routes are on `NO_SCREEN_YET` so no browser
+   * reaches them, `test/agent-api.test.mjs` drives a FAKE `listWebhooks` that answers `[]`, and
+   * the store-request census above answers `{ok: true, id}` to every rpc — *three fixtures all
+   * more capable than PostgREST, in the one function whose defect they were hiding.*
+   *
+   * So this drives the REAL store against the shape PostgREST really sends.
+   */
+  const answers = [];
+  const store = makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async () => ({ ok: true, status: 200, text: async () => JSON.stringify(answers.shift()) }),
+  });
+  answers.push([{ id: C1, name: "paid", event_name: "order.paid", enabled: true, last_at: null, created_at: "2026-09-20T00:00:00Z" }]);
+  const got = await store.listWebhooks(T1, A1);
+  assert.deepEqual(got, [webhookRow({ id: C1, name: "paid", event_name: "order.paid", enabled: true, last_at: null, created_at: "2026-09-20T00:00:00Z" })]);
+  // AN ACCOUNT WITH NONE IS AN EMPTY LIST, which is a real answer and the commonest one.
+  answers.push([]);
+  assert.deepEqual(await store.listWebhooks(T1, A1), []);
+  /**
+   * ⚠ **AND A SHAPE IT CANNOT READ IS REFUSED, NEVER `[]`.** `rows()` answers an empty list for
+   * anything — right for a table read, wrong here: *"this account has no inbound endpoints"* is
+   * a claim, and a read that came back malformed is not entitled to make it. Every one of these
+   * is a shape a deployment really produces (a function that answered an object, a read that
+   * was refused, a column that was not sent).
+   */
+  for (const bad of [{ ok: true }, null, "a string", 7, true]) {
+    answers.push(bad);
+    await assert.rejects(() => store.listWebhooks(T1, A1), /list endpoints/,
+      `an answer of ${JSON.stringify(bad)} read as an account with no endpoints`);
+  }
+  // AND NO SECRET IS EVER ASKED FOR: the column is the one thing `list_webhooks` never selects,
+  // so a reader that started admitting one would be reading a field that cannot arrive.
+  assert.ok(!Object.keys(webhookRow({ id: C1, secret: "s3cret" })).some((k) => /secret/i.test(k)),
+    "the endpoint reader carries a credential-shaped field");
 });
 
 test("⚠ an execution's state comes off the run's stop, and cannot-tell is not `queued`", () => {

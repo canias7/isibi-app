@@ -3893,6 +3893,21 @@ function automationRowHtml(a) {
   '</div>';
 }
 
+/**
+ * How an execution started, in words, and there are THREE ways rather than two.
+ *
+ * ⚠ **THIS ROW USED TO SAY `trigger === 'schedule' ? 'Scheduled' : 'Run now'`, so an
+ * execution an inbound ENDPOINT started read as one somebody had pressed** — a claim about a
+ * person's own action, about an action nobody took. Found in a real browser: an event
+ * delivered to `/deliver/<id>` produced a history row saying "Run now".
+ *
+ * ⚠ **AND THE FALLBACK CLAIMS NOTHING.** `executionRow` answers `null` for a trigger it
+ * cannot read, and every word above is a statement about who or what started the run — so a
+ * fourth value gets "Started", which is the one thing that is true of all of them.
+ */
+const AUTO_TRIGGER_WORDS = { manual: 'Run now', schedule: 'Scheduled', event: 'From an event' };
+function autoHow(trigger) { return AUTO_TRIGGER_WORDS[trigger] || 'Started'; }
+
 /** The words for each state, and they are six different things to say. */
 const AUTO_STATE_WORDS = {
   queued: 'Queued', done: 'Done', skipped: 'Skipped',
@@ -3957,7 +3972,7 @@ function automationRunsHtml() {
       '<div class="ag-run-top">' +
         '<span class="ag-chip ag-chip-' + esc(r.state) + '">' + esc(AUTO_STATE_WORDS[r.state] || r.state) + '</span>' +
         '<span class="ag-run-when">' + esc(autoWhen(r.at)) + '</span>' +
-        '<span class="ag-run-how">' + (r.trigger === 'schedule' ? 'Scheduled' : 'Run now') +
+        '<span class="ag-run-how">' + esc(autoHow(r.trigger)) +
           (r.occurrence ? ' · ' + esc(r.occurrence) : '') + '</span>' +
       '</div>' +
       // THE FINAL RESULT, THE REASON IT SKIPPED, OR THE ERROR — one of the three, never

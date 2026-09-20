@@ -774,6 +774,28 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     return a;
   };
 
+  /**
+   * The LIST a value-returning function answered with.
+   *
+   * ⚠ **ITS OWN READER, BECAUSE `answerOf` REFUSES AN ARRAY BY DESIGN — and that is what made
+   * `/api/agent/webhooks` a route that had never once worked.** `agent.list_webhooks` returns a
+   * single `jsonb` whose value is an array, so PostgREST answers a bare JSON array; `answerOf`
+   * threw `no answer came back` on every call and the `Array.isArray` line under it was
+   * unreachable. Measured in a browser journey: **HTTP 502 `couldn't save that just now`**, for
+   * every account, every time. The nineteen other callers read a `{ok, …}` object and an array
+   * there really is a broken shape, so widening `answerOf` would take a wall away from all of
+   * them — two shapes, two readers, each refusing the other's.
+   *
+   * **REFUSED, NEVER `[]`.** `rows()` answers an empty list for anything it cannot read, which
+   * is right for a table read and wrong here: *"your account has no inbound endpoints"* is a
+   * claim, and a read that failed is not entitled to make it.
+   */
+  const listOf = (r, what) => {
+    const a = r.body;
+    if (!Array.isArray(a)) throw storeFail(what, { status: r.status, text: "that wasn't a list" });
+    return a;
+  };
+
   return {
     /** Every agent of one account, newest first, off the overview view. */
     async list(tenant) {
@@ -1367,8 +1389,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
         body: { p_tenant: tenant, p_agent_id: agentId },
       });
       if (!r.ok) throw storeFail("list endpoints", r);
-      const a = answerOf(r, "list endpoints");
-      return Array.isArray(a) ? a.map(webhookRow) : [];
+      return listOf(r, "list endpoints").map(webhookRow);
     },
 
     // ── connected accounts ──────────────────────────────────────────────────
@@ -3692,6 +3713,20 @@ export const MEMORY_SOURCES = Object.freeze(["person", "run"]);
  * never read as "still going": a row that says it is queued for ever is the one state
  * nobody can act on.
  */
+/**
+ * ⚠ **THE THREE WAYS AN EXECUTION CAN HAVE STARTED, and there are three rather than two.**
+ *
+ * `automation_runs_trigger_known` admits exactly these — `20260918050000` widened it when an
+ * event could first start something — and `agent.dispatch_events` really files `'event'`. The
+ * reader below collapsed anything that was not `schedule` into `manual`, so **an execution an
+ * inbound endpoint started was reported to its owner as one a PERSON had pressed Run now**:
+ * a claim about somebody's own action, made about an action nobody took. Found in a browser,
+ * where the history drew "Run now" over an event-started run.
+ *
+ * A positive list, so a word nobody here recognises is not silently one of the three.
+ */
+export const AUTOMATION_TRIGGERS = Object.freeze(["manual", "schedule", "event"]);
+
 export function executionRow(r) {
   const stop = r?.run_stop && typeof r.run_stop === "object" && !Array.isArray(r.run_stop) ? r.run_stop : null;
   const reason = typeof stop?.reason === "string" ? stop.reason : "";
@@ -3731,7 +3766,13 @@ export function executionRow(r) {
   return {
     id: typeof r?.id === "string" ? r.id : "",
     automationId: typeof r?.automation_id === "string" ? r.automation_id : "",
-    trigger: r?.trigger === "schedule" ? "schedule" : "manual",
+    /**
+     * ⚠ **FAILS CLOSED TO `null`, WHICH IS NOT "A PERSON PRESSED IT".** A trigger this cannot
+     * read is one it cannot say anything about — a row from a deployment with a fourth word,
+     * or a read that did not ask for the column — and every other answer here is a claim.
+     * Reading it as `manual` is the defect this list replaces, one value narrower.
+     */
+    trigger: AUTOMATION_TRIGGERS.includes(r?.trigger) ? r.trigger : null,
     occurrence: typeof r?.occurrence === "string" ? r.occurrence : null,
     state,
     // WHAT IT SAVED, WHY IT STOPPED, OR WHAT BROKE — one of the three, never two.
