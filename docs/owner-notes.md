@@ -14703,15 +14703,34 @@ consistent with the schedule working and is not proof by itself — same as your
 nightly job's 22:04Z stamp. It is still worth having: nothing firing at all
 would be a clear answer in the other direction.
 
-### One loose end on fretwork-1, not urgent
+### The fretwork-1 mystery is solved, and it was our measuring stick
 
-That site's home page keeps growing by a few dozen bytes: 58,404 → 58,523 →
-58,551 → 58,642 → 58,670 over four days, while its published version has not
-moved at all. It is not the deploys — I took readings either side of this one,
-three minutes apart, and it moved across a window where nothing republished. It
-is not random either; five reads in a row give the same number.
+That site's home page has come back a different size after several deploys now,
+and it kept getting written down as unexplained. It isn't a fault. **The page
+shows a calendar.**
 
-Nothing is broken — the site serves fine — and it is one of the old demo sites,
-so I have left it alone and written down what I measured. If it matters later,
-the way to settle it is to save the page twice a few minutes apart and diff
-them, which names the bytes instead of guessing.
+Its home page renders "September 2026" with a month grid and a week strip — and
+those are worked out fresh every time somebody loads the page, not baked in when
+the site was published. So the size of the page depends on **what day it is**.
+
+Everything odd about it falls out of that: identical if you check twice in the
+same minute, different a day later, and it goes DOWN as often as up — 58,404,
+58,523, 58,642, then **58,551**, then 58,670. Nothing that is quietly growing
+behaves like that.
+
+**What clinched it**: my two readings tonight were four minutes apart and landed
+either side of midnight UTC, and the size changed. Last night's two readings
+were also four minutes apart, on the same side of midnight, and the size was
+identical. Same site, same check.
+
+**The part worth keeping is about the check, not the site.** After each deploy I
+compare each site's page size before and after to make sure nothing broke. That
+comparison only means anything while both readings are on the same day — any
+site showing a calendar, a "today", or opening hours will differ across midnight
+and it looks exactly like a regression. I have written that down so the next
+one is not investigated from scratch; the fix is to take both readings inside
+one day, which costs nothing.
+
+I have also corrected my own note from earlier tonight, which said the page was
+creeping upward. It wasn't — I had read the list of past readings in the order
+they appear in the file rather than the order they were taken.
