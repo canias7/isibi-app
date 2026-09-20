@@ -174,9 +174,59 @@ try {
   const lateId = q(`select id::text from agent.tool_approvals where run_id = '${R_EXP}';`);
   const late = await api("/api/agent/tool-approve", { body: { id: lateId, verdict: "approved" }, ring });
   check("⚠ an expired request cannot be approved afterwards, through the real route",
-    late.status === 404, `${late.status} ${JSON.stringify(late.body).slice(0, 120)}`);
+    late.status !== 200, `${late.status} ${JSON.stringify(late.body).slice(0, 120)}`);
   check("...and the row is still undecided, because expiry is the CLOCK's answer and not a verdict",
     q(`select coalesce(verdict, 'NULL') from agent.tool_approvals where run_id = '${R_EXP}';`) === "NULL");
+  // ⚠ **AND IT SAYS WHY, WHICH IS WHAT THIS CHECK USED TO ASSERT THE OPPOSITE OF.** It demanded
+  // a 404 — *"that request isn't waiting any more"* — which is FALSE of an expired request: it is
+  // still there, and the window closed. `agent.decide_tool_approval` has answered three distinct
+  // refusals all along (`no-request`, `expired`, `revoked-permission`) and the route collapsed
+  // them, so a person who missed the deadline and a person guessing an id read the same sentence.
+  // Re-anchored onto the property rather than the status: it cannot be approved, AND it names
+  // which of the three it was, AND the two are distinguishable from each other.
+  check("⚠ ...and the refusal NAMES the closed window rather than saying the request is gone",
+    late.status === 409 && late.body.expired === true && /answered that in time/.test(late.body.error) &&
+    !/isn't waiting any more/.test(late.body.error),
+    `${late.status} ${JSON.stringify(late.body).slice(0, 200)}`);
+  check("⚠ ...and it says what to do instead, which a person can act on",
+    /ask the agent for it again/.test(late.body.error), late.body.error);
+  // THE CONTROL, and it is what makes the sentence above mean anything: an id that is not a
+  // request of this account's is still the 404 it should be, with no `expired` flag on it.
+  const guessed = await api("/api/agent/tool-approve", {
+    body: { id: "dddddddd-9999-4999-8999-dddddddddddd", verdict: "approved" }, ring,
+  });
+  check("⚠ ...while an id nobody owns is still NOT FOUND, never forbidden and never expired",
+    guessed.status === 404 && guessed.body.expired === undefined &&
+    /isn't waiting any more/.test(guessed.body.error),
+    `${guessed.status} ${JSON.stringify(guessed.body).slice(0, 160)}`);
+
+  // ⚠ **AND THE THIRD REFUSAL, WHICH ONLY A RACE CAN PRODUCE THROUGH THE ROUTES.**
+  // `revoke_agent_tool` withdraws every pending request for the tool, and `decide_tool_approval`
+  // asks the repeat check FIRST — so a press after a revocation answers the WITHDRAWAL, and
+  // `revoked-permission` is the declared second wall for the row a revocation RACED. The state
+  // is produced by putting the revocation in as the OWNER, which is what the race leaves behind;
+  // that is the one thing simulated here, and it is the state rather than the decision.
+  const raced = await ask(AG, `use pause_automation id=${AUTO} enabled=false`);
+  const racedRow = await waitingOn(raced.body.runId);
+  check("a request is waiting with its tool still permitted", racedRow !== null);
+  q(`insert into agent.tool_revocations (tenant_id, agent_id, tool, revoked_by)
+       values ('${A}', '${AG}', 'pause_automation', '${A}');`);
+  const blocked = await api("/api/agent/tool-approve", { body: { id: racedRow.id, verdict: "approved" }, ring });
+  check("⚠ a call whose permission has gone cannot be approved, and the refusal says SO",
+    blocked.status === 409 && blocked.body.revoked === true &&
+    /permission for that was taken away/.test(blocked.body.error),
+    `${blocked.status} ${JSON.stringify(blocked.body).slice(0, 200)}`);
+  check("⚠ ...and it names the tool, because the remedy is to restore THAT one",
+    blocked.body.tool === "pause_automation", JSON.stringify(blocked.body.tool));
+  check("⚠ ...and the three refusals really are three sentences a person can tell apart",
+    new Set([late.body.error, guessed.body.error, blocked.body.error]).size === 3);
+  check("...and nothing was decided on that row either",
+    q(`select coalesce(verdict, 'NULL') from agent.tool_approvals where id = '${racedRow.id}';`) === "NULL");
+  // AND THE STATE IS PUT BACK, because the sections below need that tool. A revocation put in by
+  // hand comes out by hand: the route would be a second act this section is not about.
+  q(`delete from agent.tool_revocations where agent_id = '${AG}' and tool = 'pause_automation';`);
+  check("the permission is put back for the sections below",
+    q(`select count(*) from agent.tool_revocations where agent_id = '${AG}';`) === "0");
 
   // ═════════════════════════════════════════════════════════════════════════
   console.log("\n3. ⚠ WITHDRAWING ONE REQUEST IS NOT REJECTING IT");
@@ -200,7 +250,8 @@ try {
   // is the decision that stands. A 404 was the first draft's guess and the product is right:
   // *the first decision stands*, the withdrawal was one, and a person who presses late is told
   // whose answer it was rather than being shown their own. Two facts, two answers: an EXPIRED
-  // request is a 404 (nothing was decided at all), a withdrawn one is this.
+  // request is a 409 naming the closed window (nothing was decided at all — section 2), a
+  // withdrawn one is this.
   const pressedLate = await api("/api/agent/tool-approve", { body: { id: wRow.id, verdict: "approved" }, ring });
   check("⚠ ...and pressing approve afterwards answers the WITHDRAWAL rather than approving it",
     pressedLate.status === 200 && pressedLate.body.repeat === true && pressedLate.body.verdict === "revoked",

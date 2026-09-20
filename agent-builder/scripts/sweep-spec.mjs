@@ -1690,6 +1690,34 @@ const spec = [
     'if (Array.isArray(v)) return ["a", v.map(walk).sort()];'),
   m("approvals: a decision about DIFFERENT arguments is read as one about this call", AP,
     'if (answer.matches !== true) return whole("stale");', ""),
+  // ── M14-5: the hash and the stored row are over ONE value ─────────────────
+  // **MEASURED DEFECT**: `ask` hashed what a model wrote and stored `{}` whenever that was not
+  // a plain object, so a person approved a call with no arguments and it ran with `"hello"`.
+  m("approvals: a call nobody could be shown is asked about anyway, and stored as {}", AP,
+    '              const show = showableArgs(args);\n' +
+    '              if (!show.ok) return { state: "unshowable", id: null, tool, hash: null, expiresAt: null };',
+    '              const show = { ok: true, args: args && typeof args === "object" && !Array.isArray(args) ? args : {} };'),
+  m("approvals: the wall alone is cut, so an unreadable set reaches the request", AP,
+    '              if (!show.ok) return { state: "unshowable", id: null, tool, hash: null, expiresAt: null };',
+    ""),
+  m("approvals: the hash goes back over the raw value the row does not hold", AP,
+    "              const hash = await argsHash(show.args);",
+    "              const hash = await argsHash(args && typeof args === \"object\" ? args : args);"),
+  // ⚠ **`p_args: show.args` HAS NO MUTANT OF ITS OWN AND THAT IS MEASURED, NOT AN OVERSIGHT.**
+  // Reverting it to the old coalesce is INERT once the wall above exists: every shape that
+  // reaches it is either absent (→ `{}` both ways) or a plain object (→ itself). Driven, and
+  // the OBSERVABLE half is the first mutant here, which removes the wall and the hash together.
+  m("approvals: an unshowable call is refused as though somebody had said no", AP,
+    '  if (decision?.state === "unshowable") {', "  if (false) {"),
+  m("approvals: it tells the model there was nowhere to ask, which sends somebody to a deployment", AP,
+    '             say: "this needs a person\'s approval and its arguments could not be shown to " +',
+    '             say: "this needs a person\'s approval and there is nowhere to ask, so " +'),
+  m("approvals: a boolean argument set is read as showable, so `false` is drawn as no arguments", AP,
+    '  if (typeof args !== "object" || Array.isArray(args)) return Object.freeze({ ok: false, args: null });',
+    '  if (Array.isArray(args)) return Object.freeze({ ok: false, args: null });'),
+  m("approvals: an absent argument set is refused, so a tool that takes none can never be approved", AP,
+    "  if (args === undefined || args === null) return Object.freeze({ ok: true, args: {} });",
+    "  if (args === undefined || args === null) return Object.freeze({ ok: false, args: null });"),
   // ⚠ RE-ANCHORED, NOT APPEASED, when `ask` began answering the row's own hash and window:
   // the property moved from "it returns `stale`" to "it returns `stale` and the caller cannot
   // then perform the action under the hash it was going to use anyway".

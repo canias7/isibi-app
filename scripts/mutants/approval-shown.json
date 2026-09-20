@@ -1,0 +1,132 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the row a person decides from",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export function toolApprovalRow(r) {",
+  "to": "// the subject of a decision, as the screen reads it\nexport function toolApprovalRow(r) {"
+ },
+ {
+  "label": "CONTROL: a comment only, above the banner",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function agentApprovalHtml(r) {",
+  "to": "// one waiting call, drawn\nfunction agentApprovalHtml(r) {"
+ },
+ {
+  "label": "⚠ an unreadable argument set folds to {} again, so the screen states it as a call with none",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    args: readable ? r.args : null,",
+  "to": "    args: readable ? r.args : {},"
+ },
+ {
+  "label": "⚠ a readable argument set is answered as unreadable, so nothing can ever be approved",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    args: readable ? r.args : null,",
+  "to": "    args: null,"
+ },
+ {
+  "label": "⚠ the window is dropped again, so a decision's deadline never reaches the person making it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    expiresAt: typeof r?.expiresAt === \"string\" ? r.expiresAt : null,",
+  "to": ""
+ },
+ {
+  "label": "⚠ a junk window is passed through rather than refused, so the screen draws a date from nothing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    expiresAt: typeof r?.expiresAt === \"string\" ? r.expiresAt : null,",
+  "to": "    expiresAt: r?.expiresAt ?? null,"
+ },
+ {
+  "label": "⚠ the three refusals collapse into one 404 again, saying the wrong thing about two of them",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (d?.ok !== true) return sayVerdict(d);",
+  "to": "      if (d?.ok !== true) return no(404, \"that request isn't waiting any more\");"
+ },
+ {
+  "label": "⚠ an expired request reads as one that is not there",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (why === \"expired\") {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "⚠ a withdrawn permission reads as a missing request, so the remedy is the wrong one",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (why === \"revoked-permission\") {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "⚠ an unknown code is blamed on the caller as a 400 rather than owned as ours",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  return no(502, \"couldn't record that just now — nothing was decided, try again\", { retry: true });",
+  "to": "  return no(400, \"couldn't record that just now — nothing was decided, try again\", { retry: true });"
+ },
+ {
+  "label": "⚠ every refusal names the closed window, so a guessed id tells a stranger their id is real",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  if (why === \"no-request\") return no(404, \"that request isn't waiting any more\");",
+  "to": ""
+ },
+ {
+  "label": "⚠ the banner offers Approve for a call whose subject could not be shown",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      (unreadable\n        ? ''\n        : '<button class=\"ag-ap-yes\" data-act=\"agent-tool-approve\" data-id=\"' + esc(r.id) + '\"' +\n          (busy ? ' disabled' : '') + '>Approve</button>') +",
+  "to": "      '<button class=\"ag-ap-yes\" data-act=\"agent-tool-approve\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + '>Approve</button>' +"
+ },
+ {
+  "label": "⚠ the banner withholds Don’t as well, so an unreadable call leaves the run stuck",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      '<button class=\"ag-ap-no\" data-act=\"agent-tool-reject\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + '>Don’t</button>' +\n    '</div>' +\n  '</div>';\n}",
+  "to": "      (unreadable ? '' : '<button class=\"ag-ap-no\" data-act=\"agent-tool-reject\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + '>Don’t</button>') +\n    '</div>' +\n  '</div>';\n}"
+ },
+ {
+  "label": "⚠ an unreadable set is drawn as a call with nothing filled in — the defect itself",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const unreadable = r.args === null || r.args === undefined;",
+  "to": "  const unreadable = false;"
+ },
+ {
+  "label": "⚠ the banner draws no window at all",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const until = typeof r.expiresAt === 'string' && r.expiresAt",
+  "to": "  const until = false && typeof r.expiresAt === 'string' && r.expiresAt"
+ },
+ {
+  "label": "⚠ a row with no window is given one anyway, so the screen promises a deadline nobody set",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const until = typeof r.expiresAt === 'string' && r.expiresAt",
+  "to": "  const until = true || typeof r.expiresAt === 'string' && r.expiresAt"
+ }
+]
