@@ -216,6 +216,16 @@ const badResponses = [];
  */
 const OUT_OF_SCOPE = ["/api/credits", "/api/site/list", "/favicon.ico"];
 const agentFailures = () => badResponses.filter((r) => r.url.startsWith("/api/agent/"));
+/**
+ * The `/api/agent/*` calls refused in ONE journey's own sessions, by label.
+ *
+ * ⚠ **SCOPED, BECAUSE `badResponses` IS THE WHOLE RUN'S AND JOURNEY 5'S REFUSALS ARE THE
+ * POINT.** Asserted globally, every journey after it would go red on the fourteen things the
+ * account next door is supposed to be refused — and a journey run on its own and the same
+ * journey run after others would be asserting two different things, which is the worse half.
+ * A journey answers for its own sessions.
+ */
+const refusedIn = (prefix) => agentFailures().filter((r) => r.label.startsWith(prefix));
 const unexpected404s = () => badResponses.filter((r) =>
   !r.url.startsWith("/api/agent/") && !OUT_OF_SCOPE.includes(r.url));
 
@@ -326,6 +336,25 @@ async function addStep(page, type, fields = {}) {
   if (Object.keys(fields).length) await setStep(page, before, fields);
 }
 
+/**
+ * Retype the automation's name box. A thin name over `type` so journey 5's two sessions read
+ * the same way as the sentence describing them.
+ */
+const page5Name = (page, name) => type(page, "agAutoName", name);
+
+/** One automation of this account, found BY NAME from the server rather than by position. */
+const autoNamed = (page, agent, name) => page.evaluate(async ([a, n]) => {
+  const r = await fetch("/api/agent/automations?agent=" + a, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+  return ((await r.json()).automations || []).find((x) => x.name === n) ?? null;
+}, [agent, name]);
+const autoIdNamed = async (page, agent, name) => (await autoNamed(page, agent, name))?.id ?? null;
+
+/** One automation's executions, as the screen's own history route answers them. */
+const page5Runs = (page, id) => page.evaluate(async (a) => {
+  const r = await fetch("/api/agent/automation-history?id=" + a, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+  return (await r.json()).executions || [];
+}, id);
+
 /** A remembered fact's own row, found by the name the markup puts in `data-key`. */
 const memRow = (name) => `.ag-auto:has([data-act="agent-mem-delete"][data-key="${name}"])`;
 const memValue = (page, name) =>
@@ -400,6 +429,19 @@ const waitRung = async (n = 1, ms = 20_000) => {
     await new Promise((r) => setTimeout(r, 50));
   }
 };
+
+/**
+ * Open one automation's EDIT form, which needs the list on screen to press Edit from.
+ *
+ * ⚠ **THE SAVE LEAVES THE FORM OPEN**, so a journey that saves and then edits something has to
+ * close it first, exactly as a person does — and a first draft of journey 5 timed out on an
+ * Edit button that was not there because the create's own form was still up.
+ */
+async function openEdit(page, id) {
+  await closeAutoForm(page);
+  await press(page, "agent-auto-edit", "id", id);
+  await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+}
 
 /** Close and re-open one automation's history, which is how a person re-reads it. */
 async function refreshHistory(page, id) {
@@ -511,8 +553,9 @@ try {
     check("1m. ...and the memory did too, read off its own row", await memHas(page, "tone", "formal"),
       JSON.stringify(await memValue(page, "tone")));
     check("1n. no page error anywhere in journey 1", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
-    check("1o. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
-      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    check("1o. ...and no /api/agent/ call this journey's own session made was refused",
+      refusedIn("J1").length === 0,
+      refusedIn("J1").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
     check("1p. ...and nothing else 404d either, beyond what this harness declines to serve",
       unexpected404s().length === 0, unexpected404s().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
@@ -721,8 +764,9 @@ try {
       (voicePanel.match(/(first arm|other arm)/) || [""])[0]);
     await shot(page, "j2-branch-sent");
     check("2p. no page error anywhere in journey 2", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
-    check("2q. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
-      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    check("2q. ...and no /api/agent/ call this journey's own session made was refused",
+      refusedIn("J2").length === 0,
+      refusedIn("J2").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -934,8 +978,9 @@ try {
       howWords.join(" | "));
     await shot(page, "j3-triggers");
     check("3q. no page error anywhere in journey 3", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
-    check("3r. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
-      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    check("3r. ...and no /api/agent/ call this journey's own session made was refused",
+      refusedIn("J3").length === 0,
+      refusedIn("J3").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1157,8 +1202,275 @@ try {
 
     await shot(page, "j4-approval");
     check("4w. no page error anywhere in journey 4", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
-    check("4x. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
-      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    check("4x. ...and no /api/agent/ call this journey's own session made was refused",
+      refusedIn("J4").length === 0,
+      refusedIn("J4").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // JOURNEY 5 — two sessions of one account, and the account next door
+  // ════════════════════════════════════════════════════════════════════════════
+  if (want(5)) {
+    head("JOURNEY 5 — two browser sessions, and the account next door");
+    /**
+     * ⚠ **A CONTEXT IS A SESSION AND A TOKEN IS AN ACCOUNT, and the journey is the pair.**
+     * `one` and `two` hold the SAME token, so they are one person with the app open twice —
+     * two laptops, or two tabs of one browser, which is the commonest thing a customer does.
+     * `next` holds a different token and is a different account. **Neither half means much
+     * alone**: both-edits-survive is satisfied by a platform with no isolation at all, and
+     * every-refusal is satisfied by one that refuses everybody. Each is the other's control.
+     */
+    const one = await openApp(A, "J5-one");
+    const two = await openApp(A, "J5-two");
+    agentId = agentId ?? (await firstAgent(one.page));
+    check("5-pre. both sessions are the same account, and there is an agent to work on",
+      !!agentId && (await firstAgent(two.page)) === agentId,
+      `${agentId} / ${await firstAgent(two.page)}`);
+
+    // ── ONE AUTOMATION, MADE IN THE FIRST SESSION ───────────────────────────
+    await openAgent(one.page, agentId);
+    await press(one.page, "agent-automations", "id", agentId);
+    await press(one.page, "agent-auto-new");
+    await page5Name(one.page, "Two of us");
+    await addStep(one.page, "note", { text: "the first version", out: "said" });
+    await press(one.page, "agent-auto-save");
+    await waitText(one.page, /Saved\./, "the first session's save", 10_000);
+    const AU5 = await autoIdNamed(one.page, agentId, "Two of us");
+    check("5a. the first session made it", typeof AU5 === "string" && AU5.length > 0, String(AU5));
+
+    // ── THE SECOND SESSION SEES IT, which is what one account means ─────────
+    await openAgent(two.page, agentId);
+    await press(two.page, "agent-automations", "id", agentId);
+    await waitText(two.page, /Two of us/, "the second session to see the same automation", 10_000);
+    check("5b. ⚠ the OTHER SESSION of the same account sees it — one account, one set of work",
+      /Two of us/.test(await text(two.page)));
+
+    /**
+     * ⚠ **BOTH SESSIONS HAVE A FORM OPEN, AND THE SECOND ONE'S IS STALE BY THE TIME IT SAVES.**
+     * This is the lost-update property in a real browser for the first time: the edit route is a
+     * PATCH, and the form sends only what the person CHANGED — so session two, whose form was
+     * drawn before session one renamed anything, must not carry its stale copy of the name back
+     * over session one's edit. A full replace built from a cached row would.
+     */
+    await openEdit(two.page, AU5);
+    const staleName = await two.page.$eval("#agAutoName", (el) => el.value);
+    check("5c. the second session's form is open, holding the name as it was then", staleName === "Two of us", staleName);
+
+    // SESSION ONE renames it — and touches nothing else.
+    await openEdit(one.page, AU5);
+    await page5Name(one.page, "Two of us (renamed)");
+    await press(one.page, "agent-auto-save");
+    await waitText(one.page, /Saved\./, "the rename", 10_000);
+    check("5d. the first session renamed it",
+      (await autoNamed(two.page, agentId, "Two of us (renamed)"))?.name === "Two of us (renamed)");
+
+    // SESSION TWO, from its stale form, changes only the STEP.
+    await setStep(two.page, 0, { text: "the second version" });
+    await press(two.page, "agent-auto-save");
+    await waitText(two.page, /Saved\./, "the second session's save", 10_000);
+    const after5 = await autoNamed(one.page, agentId, "Two of us (renamed)");
+    check("5e. ⚠ BOTH EDITS SURVIVED — the stale form did not carry the old name back over",
+      after5?.name === "Two of us (renamed)" && after5?.steps?.[0]?.text === "the second version",
+      JSON.stringify({ name: after5?.name, text: after5?.steps?.[0]?.text }));
+
+    // AND THE OTHER WAY ROUND, so neither order is the one that happens to work.
+    await openEdit(one.page, AU5);
+    await openEdit(two.page, AU5);
+    await setStep(two.page, 0, { text: "the third version" });
+    await press(two.page, "agent-auto-save");
+    await waitText(two.page, /Saved\./, "the second session's step edit", 10_000);
+    await page5Name(one.page, "Two of us (renamed twice)");
+    await press(one.page, "agent-auto-save");
+    await waitText(one.page, /Saved\./, "the first session's rename", 10_000);
+    const both5 = await autoNamed(one.page, agentId, "Two of us (renamed twice)");
+    check("5f. ⚠ ...and in the other order too, so neither session's edit is the lucky one",
+      both5?.name === "Two of us (renamed twice)" && both5?.steps?.[0]?.text === "the third version",
+      JSON.stringify({ name: both5?.name, text: both5?.steps?.[0]?.text }));
+
+    /**
+     * ⚠ **AND A SAVE FROM A FORM WHOSE STEPS ARE REALLY STALE STILL LANDS — with the LATER one
+     * winning, which is what a patch means rather than what a merge would mean.** Session one's
+     * form still holds "the second version" in its step box; saving its steps writes them,
+     * because a person editing a step is asking for that step. What must not happen is a save
+     * that touched no step reverting one, which is the pair above.
+     */
+    await closeAutoForm(one.page);
+    await closeAutoForm(two.page);
+
+    // ── AN EXECUTION ONE SESSION STARTED IS THE OTHER'S TOO ─────────────────
+    await press(one.page, "agent-auto-run", "id", AU5);
+    await waitRung(1);
+    await disp.drain();
+    /**
+     * ⚠ **`agent-auto-reload` IS THE ERROR SCREEN'S "Try again" AND IS NOT A REFRESH BUTTON** —
+     * it is drawn only where the list failed to load, so a first draft timed out on a control
+     * that correctly is not there when everything is working. What a person does instead is
+     * re-open the history, which is a fresh read of the SERVER's own answer.
+     */
+    await openHistory(two.page, AU5);
+    await waitText(two.page, /Done/, "the second session to see the run", 20_000);
+    check("5g. ⚠ an execution one session started is on the OTHER session's screen too",
+      /the third version/.test(await text(two.page)),
+      (await text(two.page)).replace(/\s+/g, " ").slice(0, 200));
+
+    /**
+     * ⚠ **AND NOW AN AUTOMATION THAT HOLDS, so the account next door has something to try to
+     * approve.** A rejection or an approval from a stranger is the one refusal that cannot be
+     * demonstrated without a real request waiting for a real person.
+     */
+    await openEdit(one.page, AU5);
+    await addStep(one.page, "approval", { ask: "May the other account see this?", hours: "24", on_timeout: "fail" });
+    await press(one.page, "agent-auto-save");
+    await waitText(one.page, /Saved\./, "the approval step to save", 10_000);
+    await closeAutoForm(one.page);
+    await press(one.page, "agent-auto-run", "id", AU5);
+    await waitRung(1);
+    await disp.drain();
+    await refreshHistory(one.page, AU5);
+    await waitText(one.page, /Waiting/, "the execution to hold for a person", 20_000);
+    const waitingRun = await page5Runs(one.page, AU5).then((rs) => rs.find((e) => e.state === "waiting"));
+    check("5h. something of this account's is waiting for a person",
+      typeof waitingRun?.id === "string", JSON.stringify({ id: waitingRun?.id, state: waitingRun?.state }));
+
+    // ── THE ACCOUNT NEXT DOOR ───────────────────────────────────────────────
+    const next = await openApp(B, "J5-next");
+    /**
+     * ⚠ **ITS OWN SCREEN IS THE FIRST CHECK, AND IT IS A PRESS.** Opening the agent builder is
+     * something a person does, and what the other account sees there is the whole of what it may
+     * read: nothing. No control anywhere in `chat.js` names another account's agent, which is
+     * exactly why the refusals below are REQUESTS rather than presses — and that is said out
+     * loud rather than dressed up as a click.
+     */
+    await waitText(next.page, /No agents yet/, "the other account's own empty screen", 10_000);
+    check("5i. ⚠ THE ACCOUNT NEXT DOOR SEES ITS OWN SCREEN, and there is nothing on it",
+      /No agents yet/.test(await text(next.page)) && !/Bike shop|Two of us/.test(await text(next.page)),
+      (await text(next.page)).replace(/\s+/g, " ").slice(0, 120));
+    check("5j. ...and its own list, from the server, holds nothing of this account's",
+      (await firstAgent(next.page)) === null, String(await firstAgent(next.page)));
+
+    /**
+     * Every request A's own screen makes, made from B's page with B's own token and A's ids.
+     * **THIS IS WHAT AN OUTSIDER REALLY DOES** — there is no control to press, so the honest
+     * shape is the request, issued in B's page scope through the page's own `Auth.accessToken()`
+     * so the token is the one B's browser holds.
+     */
+    const asNextDoor = (path, body = null) => next.page.evaluate(async ([p, b]) => {
+      const r = await fetch(p, {
+        method: b ? "POST" : "GET",
+        headers: { authorization: "Bearer " + (await Auth.accessToken()), ...(b ? { "content-type": "application/json" } : {}) },
+        ...(b ? { body: JSON.stringify(b) } : {}),
+      });
+      let parsed = null;
+      try { parsed = await r.json(); } catch { parsed = null; }
+      return { status: r.status, body: parsed };
+    }, [path, body]);
+
+    const OUTSIDER = [
+      /**
+       * ⚠ **EACH BODY IS THE SHAPE ITS OWN ROUTE READS, and three of these were wrong first —
+       * which is why 5k demands a 404 and not merely a refusal.** `messages` reads `id` from the
+       * QUERY (not `agent`), `update` is a PATCH that still requires a name AND an instruction,
+       * and `send` reads `id` rather than `agent`. All three answered **400** — the route
+       * refusing MY body — and *a refusal from the wrong gate looks exactly like the wall
+       * working*. A check that accepted any non-2xx would have passed on three requests that
+       * never reached the ownership test at all.
+       */
+      ["read the agent's conversation", `/api/agent/messages?id=${agentId}`, null],
+      ["edit the agent itself", "/api/agent/update",
+        { id: agentId, name: "mine now", instructions: "answer as me" }],
+      ["send it a message", "/api/agent/send", { id: agentId, body: "hello", key: "j5-outsider" }],
+      ["delete the agent", "/api/agent/delete", { id: agentId }],
+      ["read its automations", `/api/agent/automations?agent=${agentId}`, null],
+      ["read one automation's history", `/api/agent/automation-history?id=${AU5}`, null],
+      ["read a workflow through", "/api/agent/automation-check", { agent: agentId, steps: [] }],
+      ["edit it", "/api/agent/automation-update", { id: AU5, name: "mine now" }],
+      ["turn it off", "/api/agent/automation-enable", { id: AU5, enabled: false }],
+      ["run it", "/api/agent/automation-run", { id: AU5 }],
+      ["DELETE it", "/api/agent/automation-delete", { id: AU5 }],
+      ["approve what it is waiting for", "/api/agent/automation-approve",
+        { run: waitingRun.id, step: "s2", verdict: "approved" }],
+      ["read what it remembers", `/api/agent/memory?agent=${agentId}`, null],
+      ["read what it knows", `/api/agent/knowledge?agent=${agentId}`, null],
+    ];
+    /**
+     * ⚠ **EVERY PATH HAS TO BE A REAL ROUTE, and this wall exists because the first draft got it
+     * wrong.** It tried `/api/agent/automation-read`, which does not exist — so `local-site.mjs`
+     * fell through to the static file server and answered a 404 in PLAIN TEXT, and the check
+     * "all ten were refused" passed on a 404 that had nothing to do with isolation. *A refusal
+     * from the wrong gate looks exactly like the wall working*, and here the wrong gate was the
+     * file server. Caught by the observer below asking for a JSON body.
+     */
+    for (const [what, path] of OUTSIDER) {
+      const route = path.split("?")[0];
+      if (!Object.hasOwn(AGENT_ROUTES, route)) {
+        throw new Error(`"${what}" names ${route}, which is not a route — a 404 from it proves nothing`);
+      }
+    }
+    const tries = {};
+    for (const [what, path, body] of OUTSIDER) tries[what] = await asNextDoor(path, body);
+    /**
+     * ⚠ **NOT FOUND, NEVER FORBIDDEN — and the status is the assertion.** "Forbidden" tells a
+     * stranger the id they hold is real, which is information; a missing thing and somebody
+     * else's thing answer the same 404. A 200 with an empty list would be worse still: it would
+     * read as *this account has none of these*, which is a claim about the wrong account.
+     */
+    const refused = Object.entries(tries).filter(([, r]) => r.status !== 404);
+    check(`5k. ⚠ NOT ONE of the ${OUTSIDER.length} things the other account tried was allowed, and each is a 404`,
+      refused.length === 0,
+      refused.map(([what, r]) => `${what}: ${r.status} ${JSON.stringify(r.body).slice(0, 60)}`).join(" | ")
+        || `all ${OUTSIDER.length} answered 404`);
+    /**
+     * ⚠ **THE OBSERVER, AND IT EARNED ITS PLACE ON THE FIRST RUN.** Each one really has to have
+     * reached the SITE and been answered by the `/api/agent/*` handler — which answers JSON —
+     * rather than by anything else that can produce a 404. It is what caught the invented route
+     * above, and it is also what stops a helper that quietly did nothing reading as ten
+     * refusals. **Derived from the list rather than a hardcoded count**, so an eleventh try
+     * cannot be added without being counted.
+     */
+    check(`5l. ...and all ${OUTSIDER.length} really reached the agent handler rather than some other 404`,
+      Object.keys(tries).length === OUTSIDER.length &&
+        Object.values(tries).every((r) => r.body !== null && typeof r.body === "object"),
+      JSON.stringify(Object.entries(tries).map(([w, r]) => [w, r.status, r.body === null ? "NOT JSON" : "json"])));
+
+    /**
+     * ⚠ **AND NOTHING THE OUTSIDER DID WROTE ANYTHING**, which a status code cannot say. A 404
+     * with a write behind it is a wall that refuses and moves `updated_at` on the way past.
+     */
+    const still = await autoNamed(one.page, agentId, "Two of us (renamed twice)");
+    check("5m. ⚠ ...and nothing it tried changed anything — the name, the step and the switch stand",
+      still?.name === "Two of us (renamed twice)" && still?.steps?.[0]?.text === "the third version" &&
+        still?.enabled === true,
+      JSON.stringify({ name: still?.name, text: still?.steps?.[0]?.text, enabled: still?.enabled }));
+    const heldAfter = (await page5Runs(one.page, AU5)).find((e) => e.id === waitingRun.id);
+    check("5n. ⚠ ...and what was waiting for a person is STILL waiting — a stranger decided nothing",
+      heldAfter?.state === "waiting", JSON.stringify({ state: heldAfter?.state }));
+
+    // ── AND THE OWNER CAN, WHICH IS WHAT MAKES ALL OF THAT ABOUT ISOLATION ──
+    await refreshHistory(one.page, AU5);
+    await press(one.page, "agent-auto-approve", "run", waitingRun.id);
+    await waitRung(1);
+    await disp.drain();
+    await refreshHistory(one.page, AU5);
+    const ownerDid = (await page5Runs(one.page, AU5)).find((e) => e.id === waitingRun.id);
+    check("5o. ⚠ THE CONTROL: the OWNER approves the very same thing and it finishes",
+      ownerDid?.state === "done", JSON.stringify({ state: ownerDid?.state }));
+
+    await shot(one.page, "j5-two-sessions");
+    await shot(next.page, "j5-next-door");
+    check("5p. no page error in any of the three sessions", pageProblems.length === 0, pageProblems.slice(0, 3).join(" | "));
+    /**
+     * ⚠ **THE OTHER ACCOUNT'S 404s ARE EXPECTED AND ARE DECLARED, rather than filtered.**
+     * Every other journey asserts that no `/api/agent/` call was refused; here the outsider's are
+     * the point. So they are counted by SESSION LABEL and the count has to be exactly the length
+     * of the list above — one more refusal, or one from the owner's own sessions, is a failure.
+     */
+    const ownerRefused = refusedIn("J5-one").concat(refusedIn("J5-two"));
+    const strangerRefused = refusedIn("J5-next");
+    check("5q. ⚠ ...and no /api/agent/ call the OWNER's two sessions made was refused",
+      ownerRefused.length === 0, ownerRefused.map((r) => `${r.status} ${r.url}`).join(" | "));
+    check(`5r. ⚠ ...while the other account's are exactly the ${OUTSIDER.length} it tried, all 404`,
+      strangerRefused.length === OUTSIDER.length && strangerRefused.every((r) => r.status === 404),
+      strangerRefused.map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -1259,8 +1571,9 @@ try {
       (await page.inputValue('.ag-step [data-field="text"]')) === "Hello there again");
     await shot(page, "j6-after-corrections");
     check("6i. no page error anywhere in journey 6", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
-    check("6j. ...and no /api/agent/ call the page made was refused", agentFailures().length === 0,
-      agentFailures().slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    check("6j. ...and no /api/agent/ call this journey's own session made was refused",
+      refusedIn("J6").length === 0,
+      refusedIn("J6").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
   }
 
   head(failed ? `${failed} CHECK(S) FAILED` : "ALL CHECKS PASSED");
