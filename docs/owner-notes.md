@@ -15317,3 +15317,161 @@ to re-derive later; the check for it now breaks *both* halves at once, which
 does fail, so it is guarded rather than merely explained.
 
 Nothing is merged, nothing is deployed, nothing is dispatched.
+
+## Run 53's two false reports, and which fix does which (2026-09-20)
+
+**Nothing about run 53's site was broken.** `/rates` is live and shows
+`1.1644` euros, `1.3344` dollars and *"Rates from 2026-09-18"*, with no errors
+at all. The connection was declared correctly, the page was written correctly,
+and it published. Both bad reports were ours.
+
+### 1. The checker was feeding the page a made-up answer
+
+When we check a new site, we open every page in a real browser. Anything the
+page asks the internet for, we answer ourselves — there is no live database yet.
+The trouble was that we answered **every** such request with an empty list,
+including the one asking an outside service for exchange rates. The page did
+what any correct page does with an answer it was promised — reached into it for
+`rates.EUR` — and an empty list has no such thing, so it crashed. We then
+reported *"the page threw"*, which is the wording that makes it eligible for a
+paid repair of code that works.
+
+**The fix is that we now tell the two apart.** A request for the site's own rows
+still gets the empty list, because an empty table really is a correct answer and
+the page draws its empty state. A request we genuinely cannot stand in for — an
+outside service, a database function, a checkout, an upload — now gets a clearly
+marked *"not available while the site is being checked"*, and anything we do not
+recognise is treated the same way, so a new kind of call fails safe rather than
+getting invented data.
+
+The page then draws its *"could not load"* state, which is exactly what it will
+do on a slow day in real life — and we say *"reads something the check can't
+reach, so I couldn't see it with real data"* rather than *"this page is
+broken"*. **A genuine page error on the very same page is still caught and
+still serious.**
+
+**One thing I got wrong and fixed before shipping.** My first test asserted
+"nothing crashed" by running the browser — and the machine that runs our tests
+**has no browser**, so it checked nothing and passed. That is the exact trap our
+own notes warn about, inside the test written to stop a false alarm. The test
+now drives the real server with a plain request, and I separately ran the real
+page with the real hooks in a real browser to confirm all of it.
+
+### 2. A page we published was not in the list of what we published
+
+Second, unrelated: the reply said *"Still to do: A visitor can see what one
+pound is worth…"* about a page a visitor could already open.
+
+The cause was that we built the list of "pages this change published" out of the
+**plan** rather than out of what actually shipped. On this request the planning
+step correctly declared no page — the page gets written by a later step — so the
+plan was empty, so the published page was in no list, so anything asking *"is
+`/rates` there?"* got *"no"*.
+
+**Existence now comes from the publication and absence still comes from the
+plan.** Two different questions, two different sources.
+
+**What it changes, measured by putting the old line back and nothing else:**
+
+| | before | after |
+|---|---|---|
+| pages recorded as published | *(none)* | `/rates`, `/` |
+| "the rates page exists and a visitor can open it" | Still to do | I can't confirm it, have a look |
+| "a visitor can see what one pound is worth" | unchanged | unchanged |
+| "the stockists page lists our shops" (a page we did **not** publish) | Still to do | Still to do |
+
+**Publishing a page proves the page is there and nothing else.** The best it can
+ever say now is *"I've set that up, but I can't confirm from here"* — never
+*"done"*. And a need that does not name a page still gets *"I can't see from
+here whether…"*, because there is nothing to look up; publishing any page still
+answers no requirement that does not name one.
+
+### Two things I have to correct in what I told you earlier
+
+1. **I credited this fix with the *"I can't see from here whether…"* sentence.
+   It is not this fix.** That sentence is there before and after — the two
+   unnamed needs read the same either way. What this fix changes is the
+   published-page list and the one need that names `/rates`.
+2. **Run 53's own report marked BOTH unnamed needs as outstanding, and I cannot
+   reproduce that.** In my reproduction they come out as uncertain in both
+   versions. So something else caused that part of the live reading, and I do
+   not yet know what. **Open.**
+
+### And the sweep caught a claim of mine that was wrong
+
+One line in the new code filters components out of the published-page list, and
+I wrote a comment saying it was load-bearing. Breaking it deliberately changed
+nothing, so I measured instead of arguing: a real component change puts only the
+**page** file in that list — components travel separately — so that line cannot
+fire today. I have kept it as a deliberate belt and corrected the comment to say
+so, with a test that proves it really would catch the case if components ever
+joined that list.
+
+Nothing is merged, nothing is deployed, nothing is dispatched, and no paid run
+was bought for any of this.
+
+## Run 53's two outstanding needs — what the code rules out, and what I can't prove (2026-09-20)
+
+You told me to hold the merge and replay Run 53's own captured data against the
+code that was actually deployed when it ran, and not to simplify the captured
+fields. That is what moved it on, and it overturns what I told you this morning.
+
+**What I said:** that Run 53's *"Still to do"* about two of its three
+requirements had "another, unidentified cause" I could not reproduce.
+
+**What is true:** I could not reproduce it because I had rewritten those two
+requirements before testing them. The captured log cuts off mid-record — it
+shows their wording and then stops — so it never said what else they declared.
+I filled the gap with the simplest thing, a requirement that names nothing in
+particular, and that is a different question for the code to answer.
+
+**What the code rules out without needing the missing bytes.** There is exactly
+one route to *"Still to do"* for a requirement like these, and it only fires
+when the thing the requirement NAMES is nowhere to be found. If a requirement
+names nothing, the code instead asks a broader question — *does this site have
+any pages at all?* — and answers *"I can't tell"*, never *"Still to do"*.
+
+Repairbench-1 plainly had pages. Its own sitemap lists five today —
+`/`, `/booking-check`, `/rates`, `/status`, `/workshop-load` — and `/rates` is
+the one Run 53 added, so four were already there. Run 53's own reply says
+*"updated /"*, which is a second, independent proof that it found the home page.
+
+So those two requirements **named a page** — the reading where they name nothing
+is ruled out. Measured on the real code, with the site's own pages present:
+
+| the requirement | before the fix | after |
+|---|---|---|
+| names nothing | I can't tell | I can't tell |
+| names `/rates` | **Still to do** | **there, but I can't confirm it** |
+| names a page nobody published | **Still to do** | **Still to do** |
+
+**Which page they named is where the evidence stops.** If they named `/rates`,
+this fix is the whole cause and it is corrected. If they named some other page
+that never shipped, *"Still to do"* was the right answer and this fix changes
+nothing about it. Both readings survive the capture, so the honest statement is
+that **Run 53's two outstanding needs are CONSISTENT with the `/rates` reading
+this fix corrects — not reproduced.**
+
+**And I cannot close that gap from here.** The full designer's answer is stored
+for every run, but nothing serves it back: the only mention of that file in the
+platform is the line that writes it, and the free *answer read* tool reads a
+different file, off the main branch, for a different site by default. Getting
+the missing bytes would need either a press I am not able to make or another
+paid run, and you have ruled both out for this — rightly, because the fix is
+independently verified without them. **So I am leaving the gap stated rather
+than filling it in with a guess.**
+
+**A second correction, smaller.** I also told you a line in the new code stops
+components being mistaken for pages, and that a test "bought" that case.
+Breaking the line deliberately changed nothing, so I measured instead of
+arguing: components travel separately from pages, so that line cannot fire
+today. I have kept it as a deliberate guard — the day they travel together it
+would matter — and the code now says so plainly.
+
+**One thing genuinely stays unattributed**, and it is the opposite of what I
+claimed: the *"I can't see from here whether…"* sentence was never in Run 53's
+reply at all. It comes from my simplified test requirements, not from the live
+run.
+
+Nothing merged, nothing deployed, no paid run, and the render-check correction
+is untouched.

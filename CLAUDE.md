@@ -2079,6 +2079,115 @@ evaluating `addTool(k)`.
   **Scoped to the job tier by its caller**: a table's `confirm.fn` is nulled by
   the APPLY too, so repairing it would make the audit disagree the other way.
 
+### RUN 53 — WHAT THE CHECK CAN STAND IN FOR, AND WHAT SHIPPED (2026-09-20)
+
+One paid addon run produced two independent false reports, and the honest
+summary is that **the connection, the declared shape and the page were all
+correct**: `/rates` is live and renders `1.1644 / 1.3344 / Rates from
+2026-09-18` with zero console errors. Everything wrong was ours.
+
+**A SYNTHETIC RESPONSE MUST NOT STAND IN FOR A DEPENDENCY WE CANNOT REACH.**
+`serveDist` answered **`200 []`** to every `/api/…` path that was not auth — so
+the render check handed a page reading `data.rates.EUR` an empty ARRAY, which is
+truthy, and the page threw reading `.EUR` of `undefined`. The check reported it
+`threw`, which is **SERIOUS**, and `isSerious` is what `site-repair.mjs` and
+`site-add.mjs` read to buy a paid repair of code that works.
+
+- **`apiAnswer(pathname)` IS THE ONE CLASSIFIER**, and it splits *supported
+  fixture* from *unavailable dependency*. Supported: `rows` (`200 []` — an empty
+  table list is a REAL answer and the page draws its empty state), `auth` (401),
+  `turnstile`, `error`. Unavailable: `api`, `rpc`, `checkout`, `uploads`, `hook`
+  and **every path it does not recognise**, which fails CLOSED.
+- **THE RPC TEST SITS ABOVE THE DATA TEST AND THE ORDER IS THE RULE.** `useRpc`
+  posts to `/api/db/<slug>/data/rpc/<fn>` — inside `/data/` — and a function may
+  return an object or a scalar, so the table-list fixture is exactly as wrong
+  there as it was for `api`. The guard asserts the ordering, not just the rows.
+- **424, NOT 503, AND THE SITE'S OWN RETRY POLICY IS WHY.** `router.tsx` fails a
+  4xx immediately and retries a 5xx twice at 500/1000 ms — so a 5xx would spend
+  the check's clock on a dependency that is never coming.
+- **`unmet` IS A FINDING KIND AND IS NOT SERIOUS**, the `slow` precedent. The
+  customer's sentence is *"reads something the check can't reach, so I couldn't
+  see it with real data"* — which is what it is, and never a page error.
+- **THE BROWSER'S OWN REPORT OF OUR REFUSAL IS NOT THE PAGE LOGGING AN ERROR.**
+  Chromium writes `Failed to load resource: …424` to the console for every
+  marked response, so the first cut reported our own fixture as `logged`.
+  `ourRefusal(line)` filters those and ONLY when something was really unmet.
+- **THE GUARD WAS VACUOUS BEFORE IT WAS FIXED, and the trap is this file's own.**
+  It asserted through `checkRender` that nothing `threw` — and CI has **no
+  browser**, so `checked: 0` made every absence true about nothing. `serveDist`
+  is exported now and the wire is driven with plain `fetch`; the finding readers
+  are pure. **Separately proven with the REAL hooks in a REAL Chromium**
+  (`src/lib/rows.ts`, the site's own retry policy, run 53's `data.rates.EUR`
+  read): both refusals draw the page's error state, the table list draws its
+  empty state, nothing throws, `isSerious` is false — and a genuine error on the
+  same page is still `threw` and still serious.
+
+**`aShipped` WAS THE PLAN LESS THE MISSING, SO A PUBLISHED PAGE WAS NOT IN THE
+INVENTORY.** The `api` designer handed two needs to `page`; the `page` KIND
+designer declared NOTHING, which is correct — a connection is not pageless, so
+the PAGE CALL writes the page. `aWanted` is the kind designer's answer, so
+`aShipped` was `[]` on a change that published `/rates`.
+
+- **EXISTENCE COMES FROM THE PUBLICATION, ABSENCE COMES FROM THE PLAN.**
+  `aShipped` is now derived from `aFilesOut` (`aMerge.added` + `changed` — what
+  really compiled and shipped); `aMissing` is still `aWanted` less that. Two
+  questions, two sources. They cannot disagree, because they read the same
+  artifact rather than one being defined as the other's complement.
+- **A COMPONENT IS NOT A ROUTE AND `routeOf` CANNOT SAY SO** — it answers
+  `/-parts/tide-chart`, measured. Since the band split the publication carries
+  components too, so the `PART_DIR` filter is what stops every section this
+  change wrote arriving as a page a visitor can open. **⚠ IT IS A BELT AND
+  CANNOT FIRE TODAY, and a sweep called the comment that said otherwise.**
+  Cutting the filter SURVIVED every guard, so it was measured rather than
+  argued: `aFilesOut` is `mergeAddonPages` over the PAGES alone and components
+  merge separately into `aParts`, so no entry can contain `-parts/` — driven
+  through the route, a change writing `tide-chart` answers
+  `changed: ["index.tsx"]` with the component in the container's own `parts`
+  list. **KEPT deliberately and said so in the code**, because the day
+  components join that list is one edit to `aFilesOut`; the PAIR is swept
+  (parts added AND the filter cut) and dies.
+- **THE DISCRIMINATOR IS AN EXPLICIT ITEM REFERENCE.** A need naming NO item has
+  nothing to look up and reads `unknown` on BOTH sides of this fix — so a case
+  built only out of run 53's two unnamed needs cannot tell the versions apart.
+  Measured on the reproduction, reverting the derivation and nothing else:
+  applied pages **`[]` → `["/rates", "/"]`**; the named need **`missing`/`absent`
+  → `unverified`/`found`**; both unnamed needs **`unknown` → `unknown`**; the
+  unrelated `/stockists` **`missing` → `missing`**; counts **missing 2 →
+  missing 1 + unverified 1**; and `"Still to do"` stops naming `/rates`.
+- **PUBLISHING A PAGE PROVES THE PAGE IS THERE AND NOTHING ELSE.** The ceiling
+  is `unverified`; `checked` stays `[]` for `page` as for every kind, so
+  `delivered` is unreachable from a publication. Publishing ANY page still
+  satisfies NO page requirement that does not name one.
+- **⚠ RUN 53'S OWN `missing: 2` IS CONSISTENT WITH THE INFERRED `/rates`
+  REFERENCES — NOT REPRODUCED, AND NOT "ANOTHER, UNIDENTIFIED CAUSE".** Two
+  earlier notes overstated it in opposite directions; this is the standing
+  reading. **THE EVIDENCE LIMIT IS EXPLICIT AND STAYS**: the capture truncates
+  at `…right now","statu`, so what those two entries declared past `status` is
+  unknown, and **the stored record is not readable from a session** —
+  `ADDON_ANSWER_KEY` (`source/<slug>/addon-answer.json`) has **no reader
+  route**, `GET /api/site/answer` serves `answer.json` ALONE, and the free
+  `answer read` workflow checks out `ref: main` and defaults to another slug.
+  Recovering it needs a reader, a merge and a press. **Nothing invents those
+  fields.**
+  What the deployed code (`d304120e`, byte-identical here in
+  `site-requirements.mjs` and `site-add.mjs`) does settle: `missing` is
+  reachable from ONE line, `impl.state === "absent"`; the only other "Still to
+  do" state is `failed`, which needs `status: "covered"` (both are `elsewhere`,
+  and the capture records `0 unsupported`); and with NO item `absent` comes from
+  the kind branch, gated on `mine.length || theirs.length`, where `theirs` is
+  the site's own routes. **repairbench-1 HAD routes** — its live sitemap answers
+  `/`, `/booking-check`, `/rates`, `/status`, `/workshop-load`, `/rates` being
+  the one that run added — and the reply's own *"updated /"* says so a second
+  way. **Measured on the real readers with those routes present**: no item →
+  `unknown` on BOTH inventories; `item: "/rates"` → **`absent` before, `found`
+  after**. So an item-less reading is RULED OUT, a `/rates`-or-`/` reading is
+  consistent and is corrected by this fix — **and a third reading survives**: a
+  reference naming a page NOBODY published is equally consistent with `missing`
+  and is NOT changed by the fix, correctly, being a true "still to do". The
+  guard drives the measurement so the inference cannot rot into a story.
+  **AND THE *"I can't see from here whether…"* CLAUSE IS NOT THIS FIX'S EITHER**
+  — run 53 never printed it at all; it belongs to the item-less fixtures.
+
 ### THE ADDON KNOWS WHAT THE SITE IS
 
 - **A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION.** `page` runs
@@ -2901,6 +3010,14 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   directions**: 382 was once stamped from a LOCAL run and the next CI read of it
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
+  **AND THIS BRANCH HAS ITS OWN READ, NAMED RATHER THAN COUNTED**: run
+  `35503280850` on `ecd3184d` (2026-09-20), the product commit, **all twenty
+  steps green and every figure above matching** — TAP 397, kit-typecheck 4,
+  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
+  kit-paint `all passed`. **The sixteen is deliberately NOT incremented**: that
+  number is a scan's answer, and the rule two lines up is exactly about taking
+  the next ordinal instead of re-deriving it.
 - **READ THE COUNTS OUT OF THE RUN'S PER-STEP LOG FILES**, which attribute by
   construction rather than by a window somebody drew. The flat-log alternative
   is landmark-to-landmark (`##[group]Run …` to the NEXT one, because GitHub
@@ -2911,10 +3028,14 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 6,992** (6,992 pass, 0 fail, 0 skipped locally; CI reads
-  `6,988 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
+- **Unit suite: 7,005** (7,005 pass, 0 fail, 0 skipped locally; CI reads
+  `7,001 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
   `site-searchpath`'s baseline-commit case). **THE TOTAL IS WHAT MATCHES** — a
-  `pass` count alone drifts between the two machines.
+  `pass` count alone drifts between the two machines. Both halves measured on
+  `2c596bc5` (2026-09-20): locally, and CI run `35504473370`. It was 6,992 at
+  `26f52f95`; **the +13 is this branch's own new cases and is stated as the
+  difference between two MEASURED readings, never as arithmetic off a
+  paragraph.**
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".

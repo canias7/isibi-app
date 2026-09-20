@@ -53,7 +53,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
-import { SITE_KINDS, OPAQUE_KINDS, claimEvidence } from "../builder/site-requirements.mjs";
+import { SITE_KINDS, OPAQUE_KINDS, claimEvidence, implementationOf } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
 // is derived from what the engine really emits rather than typed by hand — a
 // hand-typed permission is a second copy of the emitter and the two drift.
@@ -8958,4 +8958,468 @@ test("a component declaration this step cannot use is named rather than binned",
   const dropped = r.body.droppedFields || [];
   assert.ok(dropped.some((d) => d && d.what === "component" && d.name === "tide-chart"),
     "a binned hand-written component was not named: " + JSON.stringify(dropped));
+});
+
+/* ═════════════════════════════════════════════════════════════════════════
+   WHAT WAS PUBLISHED, NOT WHAT WAS PLANNED (run 53, 2026-09-20)
+
+   The ask was *"Add a page at /rates showing what one pound is worth…"*. The
+   `api` designer declared the connection and handed two needs to `page`; the
+   `page` KIND designer answered NOTHING — correct and ordinary, because a
+   connection is not pageless, so the PAGE CALL writes the page instead. The
+   page shipped, is live, and renders the real numbers.
+
+   `aShipped` was `aWanted` less `aMissing`, and `aWanted` is the page KIND
+   designer's own answer — so it was EMPTY on a change that published a page.
+   With no page in the applied inventory `implementationOf` answered `absent`
+   → `missing` → *"Still to do: …"* about a page a visitor can open.
+
+   ⚠ THE DISCRIMINATOR IS AN EXPLICIT ITEM REFERENCE, AND A FIRST DRAFT OF
+   THESE CASES DID NOT HAVE ONE. A need that names NO item is `unknown` on both
+   sides of this fix — it has nothing to look up — so a case built only out of
+   run 53's own two needs cannot tell the versions apart, and reads as the fix
+   doing nothing. What the inventory changes is the answer to *"is `/rates`
+   there?"*, which only a need naming `/rates` ever asks. MEASURED, with the
+   `aShipped` derivation reverted and nothing else (BEFORE → AFTER):
+
+       applied pages                        []          → ["/rates", "/"]
+       "A visitor can see what one pound…"  unknown     → unknown      same
+       "The date the rates are from…"       unknown     → unknown      same
+       "The rates page exists and a …"      missing     → unverified   CHANGED
+       "The stockists page lists our…"      missing     → missing      same
+       counts                               missing 2   → missing 1, unverified 1
+       "Still to do" names /rates           yes         → no
+
+   THREE OF THE SEVEN CASES BELOW GO RED ON THAT REVERT and four hold in both
+   arms, which is the shape a control is for: the inventory case, the named
+   need, and the browser's sentence fail; the two unnamed needs, the unrelated
+   page in the same run, the planned-and-never-shipped page and the
+   unrelated-page-published-alone case all pass either way.
+
+   ⚠ THE TWO NEEDS ABOVE ARE NOT RUN 53'S — THEY ARE A SIMPLIFICATION OF THEM,
+   AND THAT IS WHY RUN 53 LOOKED UNREPRODUCIBLE. An earlier note here said its
+   `missing: 2` had "another, unidentified cause"; a second said it was
+   REPRODUCED. Both overstate. The capture is TRUNCATED at `…right now","statu`
+   — it never showed whether those entries carried an `item` — and dropping one
+   to write these fixtures changed which branch of `implementationOf` answers.
+
+   ⚠ WHAT FOLLOWS IS AN INFERENCE, NOT A REPRODUCTION, and the difference is
+   the point. The stored record (`source/repairbench-1/addon-answer.json`) is
+   WRITE-ONLY from outside: `ADDON_ANSWER_KEY` has no reader route,
+   `/api/site/answer` serves `answer.json` alone, and the `answer read`
+   workflow checks out `ref: main` and defaults to another slug. So the actual
+   field values are NOT RECOVERABLE here, and nothing below invents them.
+
+   THE INFERENCE, from the deployed code (`d304120e`, byte-identical to this
+   tree in `site-requirements.mjs` and `site-add.mjs`) and the capture:
+
+     · `missing` is reachable from ONE line — `impl.state === "absent"`. The
+       only other thing in the "Still to do" bucket is `failed`, which for a
+       non-`unsupported` need needs `status: "covered"`; both of run 53's are
+       `elsewhere` and the capture records `0 unsupported`. So: `absent`.
+     · With NO item, `absent` comes from the kind branch, which is gated on
+       `mine.length || theirs.length`. `theirs` is the site's own routes.
+     · repairbench-1 HAD routes. Its live sitemap answers `/`, `/booking-check`,
+       `/rates`, `/status`, `/workshop-load`, and `/rates` is the one run 53
+       added — so four were there. The reply's own *"updated /"* proves it
+       independently: `mergeAddonPages` matched a stored home page.
+     · ∴ `theirs` was non-empty, ∴ the kind branch answers `unknown`, ∴ both
+       entries NAMED an item — and it was in neither inventory.
+
+   MEASURED on the real readers with those routes present:
+
+       no item,   aShipped []              → unknown  (by kind)   ← the fixture
+       no item,   aShipped ["/rates","/"]  → unknown  (by kind)
+       item /rates, aShipped []            → absent   (by item)
+       item /rates, aShipped ["/rates","/"]→ found    (by item)
+
+   WHAT THAT ESTABLISHES, EXACTLY — and this is the whole claim, no wider:
+
+     ✓ an item-less reading is INCONSISTENT with run 53's output on that site;
+     ✓ a reading whose references name a page THIS CHANGE PUBLISHED (`/rates`
+       or `/`) is CONSISTENT with it, and is corrected by the inventory fix;
+     ✗ the field values themselves are NOT established, and are not
+       recoverable from here;
+     ✗ **and a third reading survives**: a reference naming something else
+       absent — a page nobody published — is ALSO consistent with `missing`,
+       and that one the inventory fix does not change, correctly, because it
+       would be a true "still to do".
+
+   So: *consistent with the inferred `/rates` references*, NOT reproduced. The
+   case that demonstrates the correction is the NAMED one below. The two
+   item-less needs stay as a PROPERTY case — a need that names nothing has
+   nothing to look up — and are no longer described as run 53's own.
+
+   ⚠ A PLAIN HOME PAGE, NOT `photoHome`. The first draft reused the photograph
+   fixture and returned it through `linkHome(slug, "")`, which strips one of
+   the two `<SafeImage>`s — so `keptImages` refused the whole request 422
+   `lost-photos` and every assertion below was about a change that never
+   happened. A fixture carrying something the case is not about can refuse the
+   case out from under itself.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A home page with no photographs, so nothing here can trip the photo wall. */
+const plainHome = () => ({ path: "index.tsx", source:
+  "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/')({ component: Home })\n"
+  + "function Home(){ return <main><h1>Fretwork</h1><p>Guitar repairs in Sheffield.</p></main> }\n" });
+/** The same, carrying a link to a new route so the merge keeps the change. */
+const plainHomeLinking = (route) => ({ path: "index.tsx", source:
+  plainHome().source.replace("</main>", '<p>See our <a href="' + route + '">rates</a>.</p></main>') });
+
+/** Run 53's connection, verbatim from the designer's stored answer. */
+const RATES_API = {
+  name: "exchange_rates",
+  url: "https://api.frankfurter.dev/v1/latest?base=GBP&symbols=EUR,USD",
+  method: "GET",
+  returns: { amount: "number", base: "string", date: "string", rates: { EUR: "number", USD: "number" } },
+  cacheSeconds: 3600,
+};
+/**
+ * RUN 53'S TWO NEED TEXTS, handed to `page` — with the `item` DROPPED.
+ *
+ * ⚠ THE WORDS ARE THE RUN'S AND THE SHAPE IS NOT. The capture truncates at
+ * `…right now","statu`, so what these entries declared past `status` is not
+ * recoverable from it; the header above derives that they named an item, since
+ * nothing else can answer `missing` on a site with routes. Kept item-less
+ * deliberately, because that is the PROPERTY this pair is here for.
+ */
+const HANDED = [
+  { need: "A visitor can see what one pound is worth in euros and dollars right now", status: "elsewhere", step: "page" },
+  { need: "The date the rates are from is shown", status: "elsewhere", step: "page" },
+];
+/** THE ONE AN INVENTORY CAN ANSWER: a need that names the page by route. */
+const NAMED = { need: "The rates page exists and a visitor can open it",
+  status: "elsewhere", step: "page", item: "/rates", kind: "page" };
+/** THE UNRELATED-PAGE CONTROL, in the SAME run, so it is judged by the same
+ *  inventory that carries `/rates`. Existence must not become satisfaction. */
+const OTHER = { need: "The stockists page lists our shops",
+  status: "elsewhere", step: "page", item: "/stockists", kind: "page" };
+
+/** The page the WRITER returns — the page kind declared nothing. */
+const ratesPage = { path: "rates.tsx", source:
+  "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "import { useApi } from '@/lib/rows'\n"
+  + "export const Route = createFileRoute('/rates')({ component: Rates })\n"
+  + "function Rates(){ const { data, isLoading, error } = useApi('exchange_rates')\n"
+  + "  if (isLoading) return <p>Looking up what a pound buys right now…</p>\n"
+  + "  if (error) return <p>Rates did not load</p>\n"
+  + "  if (!data) return <p>Rates did not load</p>\n"
+  + "  return <main><h1>What a pound is worth</h1>\n"
+  + "    <p>{data.rates.EUR.toFixed(4)} euros</p><p>Rates from {data.date}.</p></main> }\n" };
+
+const ratesAsk = (slug, opts) => addon(slug,
+  "Add a page at /rates showing what one pound is worth in euros and dollars right now, read live from the Frankfurter exchange-rate API", {
+    kinds: ["api", "page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    written: [ratesPage, plainHomeLinking("/rates")],
+    answers: {
+      api: { api: [RATES_API], requirements: [...HANDED, NAMED, OTHER] },
+      // THE EMPTY PAGE DESIGNER — the whole point of the case.
+      page: {},
+    },
+    ...opts,
+  });
+
+/**
+ * ONE ROUTE RUN, READ BY SEVERAL CASES.
+ *
+ * Each property gets its own `test`, because a revert has to be able to say
+ * WHICH assertion it broke and `node:test` stops a case at its first failing
+ * assert — five properties in one case report as one. They are all facts about
+ * the same publication, so the run itself is memoised rather than repeated.
+ */
+const run53 = (() => { let p; return () => (p || (p = ratesAsk("fw-run53"))); })();
+
+/** The STORED applied inventory, one kind at a time — `aShipped` as it really
+ *  reaches the record, not a sentence derived from it. */
+const appliedNames = (rec, kind) =>
+  (((rec && rec.applied) || []).filter((m) => m && m.kind === kind)).map((m) => m.name);
+/** A RESOLVED requirement out of the stored record, found by its own words. */
+const resolvedNeed = (rec, re) =>
+  ((rec && rec.requirements) || []).find((q) => re.test(String((q && q.need) || "")));
+/** The "Still to do" clause alone. The rest of the reply names `/rates` for
+ *  good reasons — it was added — so an unscoped search cannot ask this. */
+const stillToDo = (text) => { const m = /Still to do: (.*?)\.(?: |$)/.exec(String(text || "")); return m ? m[1] : ""; };
+
+test("run 53: the stored applied-page inventory names the page the WRITER published", async () => {
+  const r = await run53();
+  assert.equal(r.body.ok, true, "the route refused: " + JSON.stringify(r.body).slice(0, 400));
+
+  // THE PUBLICATION REALLY CARRIES IT — the precondition, so nothing below is
+  // vacuous. A case where the page never shipped would satisfy every "not
+  // missing" assertion by having nothing to be missing about.
+  const published = [...(r.body.added || []), ...(r.body.changed || [])].map((p) => (p && p.path) || p);
+  assert.ok(published.some((p) => /rates/.test(String(p))),
+    "the writer's page never published, so this case tests nothing: " + JSON.stringify(published));
+
+  // AND THE PAGE DESIGNER REALLY DECLARED NOTHING, which is the shape under
+  // test. If a plan crept in, the inventory would have a planned page to fall
+  // back on and the old derivation would answer correctly by accident.
+  const rec = storedAnswer(r, "fw-run53");
+  assert.ok(rec && rec.coverage, "nothing was stored at source/fw-run53/addon-answer.json");
+  assert.deepEqual(rec.coverage.missingPages || [], [],
+    "the page designer declared a page after all, so this is not run 53's shape: "
+    + JSON.stringify(rec.coverage.missingPages));
+
+  // THE INVENTORY ITSELF. Measured before the fix: `[]`.
+  const pages = appliedNames(rec.coverage, "page");
+  assert.ok(pages.includes("/rates"),
+    "the published page is not in the applied inventory: " + JSON.stringify(pages));
+  const rates = (rec.coverage.applied || []).find((m) => m && m.kind === "page" && m.name === "/rates");
+
+  // EXISTENCE IS NOT VERIFICATION, IN THE RECORD AND NOT ONLY IN THE PROSE.
+  // `checked` is the tie between a claim and a behaviour that was exercised,
+  // and nothing on this path exercises one — so it is empty here for the same
+  // reason it is empty everywhere, and a later change that started filling it
+  // from a publication would be claiming a page works because it exists.
+  assert.deepEqual(rates.checked, [],
+    "publishing a page was recorded as checking its behaviour: " + JSON.stringify(rates));
+});
+
+test("run 53: a need that NAMES the page resolves `unverified`, never `covered`", async () => {
+  const rec = storedAnswer(await run53(), "fw-run53").coverage;
+  const q = resolvedNeed(rec, /rates page exists/);
+  assert.ok(q, "the named requirement is not in the record: " + JSON.stringify(rec.requirements).slice(0, 300));
+
+  // THE STATE THE INVENTORY BUYS. Before the fix: `missing` / `absent`.
+  assert.equal(q.state, "unverified", "the named page did not resolve to unverified: " + JSON.stringify(q));
+  assert.equal(q.implementation, "found", "the page was not found in the inventory: " + JSON.stringify(q));
+  assert.equal(q.foundIn, "applied", "the page was credited to the site rather than to this change: " + JSON.stringify(q));
+  assert.equal(q.implementedBy, "/rates", "the record does not say WHICH page answered: " + JSON.stringify(q));
+
+  // …AND NOT ONE STEP FURTHER. Publishing a page proves the page is there; it
+  // proves nothing about whether a visitor can read today's euro rate on it.
+  // `delivered` needs a `checked` behaviour and `configured` needs a real
+  // setting read back — a publication is neither.
+  assert.notEqual(q.state, "covered", "a publication was read as a guarantee: " + JSON.stringify(q));
+  assert.notEqual(q.state, "delivered", "a publication was read as verified behaviour: " + JSON.stringify(q));
+  assert.notEqual(q.state, "configured", "a publication was read as a checked setting: " + JSON.stringify(q));
+
+  // THE TALLY, which is the run's own property and lives here because this is
+  // the need that moves it: `unverified: 0 → 1` and `missing: 2 → 1`, the same
+  // one need crossing over. It is deliberately NOT asserted in the control
+  // cases below — a control has to hold in BOTH arms, and a count is a
+  // statement about every need in the run rather than about the one the
+  // control is named for.
+  assert.equal(rec.counts.unverified, 1, "the tally does not carry the one thing this change can claim: " + JSON.stringify(rec.counts));
+  assert.equal(rec.counts.missing, 1, "the tally still names the published page as outstanding: " + JSON.stringify(rec.counts));
+});
+
+test("…and an item-less need on a site WITH routes cannot answer `missing` at all", () => {
+  // THE MEASUREMENT THE HEADER'S INFERENCE RESTS ON, made a guard so it cannot
+  // rot into a story. It rules a reading OUT; it does not establish what run
+  // 53's entries declared, which is not recoverable from here.
+  //
+  // `missing` is `impl.state === "absent"` and nothing else. With no item that
+  // comes from the kind branch, which is gated on `mine.length || theirs.length`
+  // — so on a site whose own routes are non-empty it is UNREACHABLE, whatever
+  // the applied inventory says. repairbench-1 had four routes before run 53
+  // (its live sitemap answers five, `/rates` being the one that run added), and
+  // the reply's own "updated /" says the same thing a second way. So run 53's
+  // two must have NAMED something — which page they named is an inference the
+  // header states and this case does not make.
+  const SPEC = { tables: [{ name: "bookings" }], functions: [], apis: [{ name: "exchange_rates" }], jobs: [] };
+  const REPORTABLE = [...SITE_KINDS, "component", "edit"];
+  const ex = existingFacts({ spec: SPEC, pages: ["/", "/status", "/booking-check", "/workshop-load"],
+    look: {}, sources: null, slug: "repairbench-1" });
+  const made = (pages) => appliedFacts({ spec: SPEC, tables: [], altered: [], functions: [],
+    apis: ["exchange_rates"], jobs: [], fnErrors: {}, pages, qrs: [], three: false,
+    threeOn: [], threeUnsure: false, photos: [], shots: [] });
+
+  // THE OBSERVER IS ALIVE: the site really does carry routes, or every line
+  // below is true about an empty list and says nothing.
+  assert.ok(ex.items.filter((i) => i.kind === "page").length >= 4,
+    "the existing-routes fixture is empty, so this case proves nothing: " + JSON.stringify(ex.items));
+
+  const NEED = { need: "A visitor can see what one pound is worth", status: "elsewhere", step: "page" };
+  for (const pages of [[], ["/rates", "/"]]) {
+    const s = implementationOf(NEED, made(pages), REPORTABLE, ex).state;
+    assert.equal(s, "unknown",
+      "an item-less need answered " + s + " with applied pages " + JSON.stringify(pages)
+      + " — if this can reach `absent`, the header's inference is wrong");
+  }
+
+  // …AND THE NAMED ONE IS THE PAIR THAT REALLY MOVES, which is run 53's
+  // reading and its correction, measured on the same two inventories.
+  const NAMED_NEED = { ...NEED, kind: "page", item: "/rates" };
+  assert.equal(implementationOf(NAMED_NEED, made([]), REPORTABLE, ex).state, "absent",
+    "the named page was not read as absent before the fix — the inferred reading then explains nothing");
+  assert.equal(implementationOf(NAMED_NEED, made(["/rates", "/"]), REPORTABLE, ex).state, "found",
+    "the published page is still not found after the fix");
+});
+
+test("run 53's need TEXTS, with no item: they name nothing, so they stay `unknown`", async () => {
+  const rec = storedAnswer(await run53(), "fw-run53").coverage;
+  for (const h of HANDED) {
+    const q = (rec.requirements || []).find((x) => x && x.need === h.need);
+    assert.ok(q, "a handed need is not in the record at all: " + h.need);
+    // THE PROPERTY THE OWNER NAMED: publishing ANY page must not satisfy every
+    // page requirement. These name nothing, so there is nothing to look up and
+    // `unknown` is the honest answer — the same answer as before the fix, and
+    // that is correct rather than a shortfall.
+    assert.equal(q.state, "unknown", "an un-associated need was resolved from a publication: " + JSON.stringify(q));
+    assert.equal(q.implementation, "unknown", "an un-associated need claimed an implementation: " + JSON.stringify(q));
+  }
+  assert.equal(rec.counts.unknown, 2, "the tally lost the two uncertain needs: " + JSON.stringify(rec.counts));
+});
+
+test("run 53: a need about a page this change did NOT publish stays `missing`", async () => {
+  // THE CONTROL INSIDE THE SAME RUN, judged by the same inventory that carries
+  // `/rates`. A reader that took "a page was published" as the answer would
+  // report this one covered too.
+  const rec = storedAnswer(await run53(), "fw-run53").coverage;
+  const q = resolvedNeed(rec, /stockists/);
+  assert.ok(q, "the unrelated requirement is not in the record: " + JSON.stringify(rec.requirements).slice(0, 300));
+  assert.equal(q.state, "missing", "an unrelated page was answered by /rates: " + JSON.stringify(q));
+  assert.equal(q.implementation, "absent", "an unrelated page was found in the inventory: " + JSON.stringify(q));
+  assert.ok(!appliedNames(rec, "page").includes("/stockists"),
+    "a page nobody wrote is in the applied inventory");
+});
+
+test("run 53: the reply the BROWSER composes stops calling the live page outstanding", async () => {
+  // THE CUSTOMER'S OWN SCREEN, run through `public/chat.js`'s real composer —
+  // not the route's `coverNote`, which is the input to it.
+  const text = browserText((await run53()).body);
+
+  assert.match(text, /added \/rates/, "the reply does not announce the page: " + text);
+
+  // THE LINE RUN 53 GOT WRONG. "Still to do" is the most actionable sentence in
+  // the reply, and it was said about a page that was live and rendering real
+  // numbers. It is scoped to its own clause deliberately: the rest of the reply
+  // names `/rates` for good reasons.
+  const todo = stillToDo(text);
+  assert.match(todo, /stockists/, "the one genuinely outstanding thing is no longer said: " + JSON.stringify(todo));
+  assert.doesNotMatch(todo, /rates|pound|euro/i,
+    "the reply still tells the customer the published page is outstanding: " + JSON.stringify(todo));
+
+  // AND THE UNCERTAIN HALF IS STILL SAID, in both of its two voices — the one
+  // for a thing that is there and unverified, and the one for a thing nothing
+  // can speak to either way.
+  assert.match(text, /can't confirm from here that The rates page exists/,
+    "the named page's uncertainty is not said: " + text);
+  assert.match(text, /can't see from here whether/,
+    "an un-associated need was resolved rather than left uncertain: " + text);
+  assert.match(text, /nothing I can check says either way/,
+    "the reply does not say WHY it cannot tell: " + text);
+});
+
+test("…and a page that was PLANNED and never shipped is still reported missing", async () => {
+  // THE CONTROL THAT STOPS THE FIX ABOVE FROM SIMPLY SWITCHING THE ALARM OFF.
+  // Here the page KIND really declares a page, and the writer returns nothing
+  // for it — the case `missingPages` exists for, decided against the plan.
+  const r = await addon("fw-nopage", "add a stockists page", {
+    kinds: ["page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    // THE HOME PAGE CHANGES AND `stockists.tsx` NEVER ARRIVES. The writer has
+    // to return SOMETHING or there is no publish at all and the route answers
+    // `ok: false` — which would make this case about a refusal rather than
+    // about a page that did not survive.
+    written: [plainHomeLinking("/stockists")],
+    answers: {
+      page: { page: [{ path: "/stockists", name: "Stockists", purpose: "where to buy",
+        sections: ["a list of shops"], components: ["card"] }] },
+    },
+  });
+  assert.deepEqual(r.body.missingPages, ["/stockists"],
+    "a planned page that never shipped is no longer reported: " + JSON.stringify(r.body.missingPages));
+  assert.match(String(r.body.coverNote || "") + String(r.body.msg || ""), /stockists/,
+    "the customer is not told the page they asked for is not there");
+  // AND THE INVENTORY AGREES WITH THE PLAN — a page that did not survive must
+  // not be in it, or the two readers would answer opposite things about one
+  // page and the missing-page report would be the only one anybody saw.
+  const rec = storedAnswer(r, "fw-nopage");
+  assert.ok(!appliedNames(rec && rec.coverage, "page").includes("/stockists"),
+    "a page that never shipped is in the applied inventory: "
+    + JSON.stringify(appliedNames(rec && rec.coverage, "page")));
+});
+
+test("…and an unrelated published page does not answer a requirement about another one", async () => {
+  // THE SAME PROPERTY AS THE IN-RUN CONTROL, ONE LAYER OUT: here the change
+  // publishes `/stockists` and NOTHING else, so the inventory holds exactly the
+  // wrong page. The need names `/rates`.
+  const r = await addon("fw-other", "add a stockists page", {
+    kinds: ["page"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    written: [{ path: "stockists.tsx", source:
+      "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "export const Route = createFileRoute('/stockists')({ component: S })\n"
+      + "function S(){ return <main><h1>Stockists</h1><p>Where to buy our guitars.</p></main> }\n" },
+      plainHomeLinking("/stockists")],
+    answers: {
+      page: {
+        page: [{ path: "/stockists", name: "Stockists", purpose: "where to buy",
+          sections: ["a list of shops"], components: ["card"] }],
+        requirements: [{ need: "The rates page shows today's euro rate", status: "elsewhere", step: "page", item: "/rates" }],
+      },
+    },
+  });
+  const rec = storedAnswer(r, "fw-other");
+  // THE INVENTORY REALLY HOLDS THE OTHER PAGE — the precondition, so "not
+  // covered" below is a decision and not an empty inventory answering by
+  // default.
+  assert.ok(appliedNames(rec && rec.coverage, "page").includes("/stockists"),
+    "the published page is not in the inventory, so this case proves nothing: "
+    + JSON.stringify(appliedNames(rec && rec.coverage, "page")));
+  const q = resolvedNeed(rec && rec.coverage, /euro rate/);
+  assert.ok(q, "the requirement is not in the record at all: " + JSON.stringify(rec && rec.coverage && rec.coverage.requirements));
+  assert.equal(q.state, "missing", "publishing an unrelated page answered a need about a different one: " + JSON.stringify(q));
+  assert.notEqual(q.state, "unverified", "an unrelated publication was read as the named page: " + JSON.stringify(q));
+  assert.notEqual(q.status, "covered",
+    "publishing an unrelated page satisfied a requirement about a different one: " + JSON.stringify(q));
+  assert.notEqual(q.status, "configured",
+    "an unrelated publication was read as a real setting: " + JSON.stringify(q));
+});
+
+test("…and a COMPONENT this change wrote is not a page in the inventory", async () => {
+  // THE FILTER'S OWN CASE, bought by a mutation sweep — and the sweep also
+  // corrected what the filter is FOR, which is the part worth keeping.
+  //
+  // Cutting `PART_DIR` out of the derivation SURVIVED every guard here, and the
+  // first reading of that was "nothing drives a component publication". It is
+  // not: driven through this route, a change writing `tide-chart` answers
+  // `changed: ["index.tsx"]` with the component in the container's own `parts`
+  // list, because `aFilesOut` is `mergeAddonPages` over the PAGES alone. So the
+  // mutant is INERT and the filter is a BELT — the recorded "a mutant you wrote
+  // can be inert too; read what it DOES".
+  //
+  // WHAT THIS CASE THEREFORE ASSERTS is the belt's contract rather than its
+  // firing: a real component change leaves the inventory holding the PAGE it
+  // was added to and nothing shaped like a component. The PAIR — components
+  // joined to `aFilesOut` AND the filter cut — is swept and DIES here, which is
+  // what makes the line guarded rather than merely explained. `routeOf` answers
+  // `/-parts/tide-chart` for such a file, measured, so the day components join
+  // that list the defect returns without this.
+  const r = await addon("fw-part", "add a tide chart to the gallery page", {
+    kinds: ["component"], publishes: true, credits: 400,
+    storedPages: [plainHome()],
+    written: [{ path: "index.tsx", source:
+      plainHome().source
+        .replace("import { createFileRoute", "import { TideChart } from '@/routes/-parts/tide-chart'\nimport { createFileRoute")
+        .replace("</main>", "<TideChart /></main>") }],
+    writtenParts: [{ name: "tide-chart",
+      source: "export function TideChart(){ return <section><h2>Tides</h2></section> }\n" }],
+    answers: {
+      component: { component: [{ page: "/", where: "below the intro", does: "show today's tides",
+        tsx: [{ name: "tide-chart", does: "draws the tide table", props: "none" }] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, "the route refused: " + JSON.stringify(r.body).slice(0, 400));
+
+  // THE COMPONENT REALLY SHIPPED — the precondition, read off the CONTAINER
+  // PAYLOAD, which is the artifact `aFilesOut` is composed beside. Without it
+  // the assertion below is about an empty list and proves nothing.
+  const body = (r.compiles && r.compiles[0] && r.compiles[0].body) || {};
+  const parts = (Array.isArray(body.parts) ? body.parts : []).map((p) => (p && p.name) || p);
+  assert.ok(parts.includes("tide-chart"),
+    "the component never shipped, so this case tests nothing: " + JSON.stringify(parts));
+
+  const rec = storedAnswer(r, "fw-part");
+  const pages = appliedNames(rec && rec.coverage, "page");
+  assert.ok(!pages.some((p) => /-parts\//.test(String(p))),
+    "a component arrived in the inventory as a page a visitor can open: " + JSON.stringify(pages));
+  // …AND THE REAL PAGE IT WAS ADDED TO IS STILL THERE, so the filter is not
+  // simply emptying the list. Both halves, or a filter that dropped everything
+  // would satisfy the line above.
+  assert.ok(pages.includes("/"), "the page the component was added to is not in the inventory: " + JSON.stringify(pages));
 });

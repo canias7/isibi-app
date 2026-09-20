@@ -19,7 +19,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe, isNavTimeout } from "./site-render.mjs";
+import { VIEWPORTS, MAX_OPENS, OVERLAY_TRIGGERS, probe, probeOverlay, renderReport, landmarkProbe, MAX_LANDMARKS, HYDRATION_ERROR, hydrationProbe, isNavTimeout, apiAnswer, DEP_HEADER } from "./site-render.mjs";
 
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
@@ -79,7 +79,14 @@ export { fileForRoute };
  * out. Anything else would render the member view to a stranger and report on a
  * page no visitor sees.
  */
-function serveDist(dir, ssrFetch) {
+// EXPORTED SO THE STUB CAN BE DRIVEN WITHOUT A BROWSER. The unit workflow
+// installs neither playwright nor Chromium, so every assertion made through
+// `checkRender` about what a page rendered is vacuous in CI — which is this
+// repo's "a negative assertion must prove its observer is alive", and it is
+// exactly the shape of the defect this export exists to guard. The socket needs
+// no browser, so the wire is driven directly and the rendering half is asserted
+// where it can be: on the pure readers.
+export function serveDist(dir, ssrFetch) {
   return http.createServer(async (req, res) => {
     const raw = String(req.url || "/");
     // `decodeURIComponent` THROWS ON A MALFORMED PERCENT-SEQUENCE, and an
@@ -98,10 +105,17 @@ function serveDist(dir, ssrFetch) {
     let p;
     try { p = decodeURIComponent(bare); } catch { p = bare; }
 
-    if (p.startsWith("/api/")) {
-      const body = /\/auth\//.test(p) ? '{"error":"signed out"}' : "[]";
-      res.writeHead(/\/auth\//.test(p) ? 401 : 200, { "content-type": "application/json" });
-      res.end(body);
+    const api = apiAnswer(p);
+    if (api) {
+      res.writeHead(api.status, {
+        "content-type": "application/json",
+        // THE MARKER, NOT THE STATUS, IS WHAT THE CHECK READS. A 424 the SITE's
+        // own code produced and a 424 this stub produced are the same number
+        // from the browser's side, and only one of them means "we could not
+        // reach it". The header is ours and says so.
+        ...(api.supported ? {} : { [DEP_HEADER]: api.what }),
+      });
+      res.end(api.body);
       return;
     }
     // AN UPLOAD IS SERVED, NOT 404'd, and it is the same argument as the `/api/`
@@ -396,10 +410,20 @@ export async function checkRender(distDir, routes, ssrFetch, serverDown, opts = 
           // desktop coverage first, and the report says so.
           if (Date.now() > until) { cut = true; break; }
           const page = await ctx.newPage();
-          const pageErrors = [], consoleErrors = [];
+          const pageErrors = [], consoleErrors = [], unmet = [];
           page.on("pageerror", (e) => pageErrors.push(String((e && e.message) || e).slice(0, 200)));
           page.on("console", (m) => { if (m.type() === "error") consoleErrors.push(String(m.text()).slice(0, 200)); });
-          const obs = { route, viewport: vp.name };
+          // WHAT THIS PAGE ASKED FOR AND THE STUB COULD NOT STAND IN FOR.
+          // Observed from the BROWSER rather than threaded out of the server,
+          // because the question is per ROUTE and the server has no idea which
+          // page a request belongs to — two routes share one socket.
+          page.on("response", (r) => {
+            try {
+              const what = r.headers()[DEP_HEADER];
+              if (what) unmet.push({ what: String(what) });
+            } catch { /* a response that cannot be read tells us nothing */ }
+          });
+          const obs = { route, viewport: vp.name, unmet };
           try {
             // THE ROUTE, not the file. The address bar is what the router
             // matches on, and `/index.html` matches nothing.
