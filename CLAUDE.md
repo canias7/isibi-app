@@ -15180,8 +15180,29 @@ a paragraph.
 # fail 0 / # skipped 4`**, against local `6981 / 6981 / 0 / 0`, and **the TOTAL
 is what matches**; the four are the standing environment skips (the
 privilege-drop case, the two RTL cases, and `site-searchpath`'s baseline-commit
-case). `site build` fired on the same sha because `worker.js` and `builder/**`
-moved.
+case).
+**AND `site build` RUN 1221 IS GREEN ON THE SAME SHA (2026-09-20
+02:22:21→02:44:24Z, ALL TWENTY STEPS — the API answers 23 and three are
+GitHub's own): `site-build.mjs` 382 passed / 0 failed**, the step
+02:24:34→02:40:19Z (15m45s), with kit-typecheck 4, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it and
+kit-render / kit-a11y / kit-effects / kit-paint each `all passed` with no count
+— the three result SHAPES a census has to ask for. **Every count read out of the
+run's PER-STEP log files**, which attribute by construction rather than by a
+window somebody drew; **12 of the 20 steps carry a result** and 8 are setup. It
+fired because `worker.js` and `builder/**` moved. **The unit step's TAP is
+`# tests 397 / # pass 397 / # fail 0 / # skipped 0`, unchanged from runs 1216,
+1217, 1218 and 1220** — correct, because that step's glob is `page-gen` +
+`publish-pages` and this round touches neither.
+**⚠ AND A CENSUS THAT ANCHORS TAP AT THE START OF A LINE FINDS ELEVEN STEPS
+WHERE THERE ARE TWELVE.** A GitHub log line carries a timestamp prefix, so
+`^# tests` matches nothing and the unit step reads as carrying no result at all
+— **the silent direction**, since a step with no result line is an ordinary
+thing in this job (eight of them are setup). The two `##[error]` lines are the
+harness's own typecheck fixtures (TS2322 on `index.tsx` at 02:26:03Z, TS2339 on
+`menu.tsx` at 02:38:08Z), both inside the `site-build.mjs` step and **each
+followed immediately by its own `ok` line** — the recorded "the typecheck
+REPORTS; only `vite build` refuses", visible in CI in a green job.
 
 **NOT MERGED, NOT DEPLOYED, NO PAID RUN, NO JOB CHANGE** — the owner's standing
 constraint for this round.

@@ -14962,9 +14962,11 @@ here and **not merged**. So all four are live today:
   rather than a slash, gets **drawn, printed-ready, and published** — and it
   opens a 404.
 
-All four are fixed, swept, and signed off by the automated checks on exactly the
-commit I pushed. None of them has been through a real customer message, because
-you told me not to spend and I haven't.
+All four are fixed, swept, and signed off by **both** automated checks on exactly
+the commit I pushed — **unit tests 2812 green** (6,981 tests, 0 failed) and
+**site build 1221 green**, all twenty steps, the container harness **382 passed /
+0 failed**. None of them has been through a real customer message, because you
+told me not to spend and I haven't.
 
 **Three things I am not claiming, and I want them said plainly:**
 
