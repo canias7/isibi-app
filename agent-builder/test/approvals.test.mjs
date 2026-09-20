@@ -13,7 +13,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, toolRevoked, APPROVAL_STATES, splitOperation } from "../src/approvals.mjs";
+import { makeApprovals, canonicalJson, argsHash, storedForm, approvalRefusal, toolRevoked, APPROVAL_STATES, splitOperation, showableArgs } from "../src/approvals.mjs";
 import { CAPABILITY_TOOLS } from "../src/capability-tools.mjs";
 import { CAPABILITIES, CAPABILITY_RPC } from "../src/capabilities.mjs";
 import { OFFERED } from "../src/agents.mjs";
@@ -143,6 +143,55 @@ test("⚠ NOTHING A MODEL WRITES CAN REACH THE ACCOUNT, THE RUN OR THE POSITION"
   // and nowhere else.
   assert.equal(body.p_args.tenant, "someone-else");
   assert.equal(body.p_hash, await argsHash(body.p_args));
+});
+
+test("⚠ THE HASH IS OVER THE VALUE THAT IS STORED, and a call nobody could be shown is not asked", async () => {
+  // ⚠ **MEASURED BEFORE THIS EXISTED, and it is the worst shape available on this path.**
+  // `ask` hashed the arguments A MODEL REALLY WROTE and stored `p_args` COALESCED to `{}`, so
+  // for `args: "hello"` the row a person was shown held NO ARGUMENTS while the hash bound
+  // `"hello"` — `b7a901e5…` against `{}`'s own `6cfb17de…`. They approve a call with nothing in
+  // it, `matches` is satisfied (it compares the real value both times), and the call runs with
+  // `"hello"`. **An approval bound to arguments nobody was ever shown.**
+  const { gate, sent } = backend(said());
+
+  // ABSENT IS A REAL ANSWER AND IS `{}` — how a model calls a tool that takes none. It is
+  // NOT a coercion: `argsHash`'s own `?? {}` already hashes both as `{}`, so the row and the
+  // hash agree BY CONSTRUCTION. Asserted rather than assumed, because the whole invariant
+  // below rests on it.
+  assert.equal(await argsHash(undefined), await argsHash({}));
+  assert.equal(await argsHash(null), await argsHash({}));
+
+  for (const args of [undefined, null, {}, { to: "a@b.c" }, { n: 0, ok: false }]) {
+    sent.length = 0;
+    const out = await gate.ask({ step: 0, index: 0, tool: "t", args });
+    assert.equal(sent.length, 1, `nothing was asked about ${JSON.stringify(args) ?? "undefined"}`);
+    const body = sent.at(-1).body;
+    // THE INVARIANT: the fingerprint is of the row, so what a person is shown and what the
+    // approval is bound to cannot come apart.
+    assert.equal(body.p_hash, await argsHash(body.p_args),
+      `the hash and the stored row disagree for ${JSON.stringify(args) ?? "undefined"}`);
+    assert.notEqual(out.state, "unshowable");
+  }
+
+  // ⚠ AND EVERY OTHER SHAPE IS REFUSED WITH NOTHING SENT AT ALL. A row for a call nobody can
+  // be shown would sit on somebody's screen for ever offering a decision they cannot make.
+  for (const args of ["hello", "", 42, 0, true, false, ["a"], []]) {
+    sent.length = 0;
+    const out = await gate.ask({ step: 0, index: 0, tool: "t", args });
+    assert.equal(out.state, "unshowable", `${JSON.stringify(args)} was asked about`);
+    assert.equal(sent.length, 0, `${JSON.stringify(args)} wrote a request nobody can answer`);
+    assert.equal(out.id, null);
+    assert.equal(out.hash, null);
+  }
+
+  // AND THE READER ON ITS OWN, because the two halves of it are one decision and the caller
+  // above can only show which shapes reach the store.
+  assert.deepEqual(showableArgs(undefined), { ok: true, args: {} });
+  assert.deepEqual(showableArgs(null), { ok: true, args: {} });
+  const same = { a: 1 };
+  assert.equal(showableArgs(same).args, same, "a readable set was copied rather than passed");
+  assert.equal(showableArgs("x").ok, false);
+  assert.equal(showableArgs("x").args, null);
 });
 
 test("the four answers, and the one that outranks a verdict", async () => {
@@ -863,7 +912,7 @@ test("⚠ `APPROVAL_STATES` NAMES EVERY STATE `approvalRefusal` CAN BE HANDED, b
   // for falls to `no-approver`, which says "there is nowhere to ask" about a decision that
   // was made. Censused rather than listed.
   assert.deepEqual([...APPROVAL_STATES].sort(),
-    ["approved", "expired", "pending", "rejected", "revoked", "stale"].sort());
+    ["approved", "expired", "pending", "rejected", "revoked", "stale", "unshowable"].sort());
   const errors = new Map();
   for (const state of APPROVAL_STATES) {
     if (state === "approved" || state === "pending") continue;
@@ -879,6 +928,15 @@ test("⚠ `APPROVAL_STATES` NAMES EVERY STATE `approvalRefusal` CAN BE HANDED, b
   // A DECIDER'S OWN WORDS RIDE ON THE TWO STATES SOMEBODY REALLY SAID SOMETHING IN.
   assert.match(approvalRefusal({ state: "rejected", note: "not today" }).say, /not today/);
   assert.match(approvalRefusal({ state: "revoked", note: "wrong agent" }).say, /wrong agent/);
+  // ⚠ AND THE ONE STATE NOBODY DECIDED AND NOBODY WAS EVEN ASKED ABOUT SAYS BOTH HALVES: that
+  // nothing was asked, and what to do instead. Read as a rejection it tells a customer a person
+  // declined their work; read as `no-approver` it sends somebody to look at a deployment.
+  const un = approvalRefusal({ state: "unshowable" });
+  assert.equal(un.error, "arguments-unshowable");
+  assert.match(un.say, /could not be shown/);
+  assert.match(un.say, /nothing was asked/);
+  assert.match(un.say, /as an object/);
+  assert.doesNotMatch(un.say, /declined|nowhere to ask/);
 });
 
 test("⚠ A REVOKED TOOL IS NOT OFFERED TO THE MODEL, AND CANNOT BE DISPATCHED", async () => {

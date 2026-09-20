@@ -3907,23 +3907,73 @@ const no = (status, error, extra) => ({ status, body: { error, ...(extra || {}) 
 /**
  * One tool call waiting for a person, as the screen reads it.
  *
- * **IT FAILS CLOSED ON THE ARGUMENTS**, which is the field the whole decision is about:
- * a row whose `args` cannot be read as an object answers `{}` and the screen says it has
- * nothing to show, rather than drawing a person a decision they cannot see the subject
- * of. Approving what you were not shown is the one mistake here that cannot be taken back.
+ * **IT FAILS CLOSED ON THE ARGUMENTS**, which is the field the whole decision is about.
+ * Approving what you were not shown is the one mistake here that cannot be taken back.
+ *
+ * ⚠ **AND `{}` USED TO MEAN TWO OPPOSITE THINGS, which is the defect this shape closes.**
+ * A row whose `args` could not be read answered `{}` — the same value a call that really
+ * takes no arguments answers — and the screen drew that as *"with nothing filled in"*, a
+ * POSITIVE claim about a value it had failed to read. So `null` is *we could not read them*
+ * and `{}` is *there are none*, which are three screens rather than two: the list, the
+ * sentence, and a row that must not offer Approve at all.
+ *
+ * ⚠ **AND `expiresAt` WAS DROPPED HERE, one hop below the function that answers it.**
+ * `agent.pending_approvals` has carried the window since the approval-controls round and
+ * this reader did not name it, so **a decision's deadline never reached the person making
+ * it**: the request simply vanished from the banner when it closed, with nothing having
+ * said it would. *A value computed and never forwarded*, in the field that decides whether
+ * somebody knows they have to answer today.
  */
 export function toolApprovalRow(r) {
-  const args = r?.args && typeof r.args === "object" && !Array.isArray(r.args) ? r.args : {};
+  const readable = r?.args && typeof r.args === "object" && !Array.isArray(r.args);
   return {
     id: typeof r?.id === "string" ? r.id : "",
     run: typeof r?.run === "string" ? r.run : "",
     agent: typeof r?.agent === "string" ? r.agent : null,
     tool: typeof r?.tool === "string" ? r.tool : "",
-    args,
+    args: readable ? r.args : null,
     step: Number.isInteger(r?.step) ? r.step : 0,
     index: Number.isInteger(r?.index) ? r.index : 0,
     requestedAt: typeof r?.requestedAt === "string" ? r.requestedAt : null,
+    expiresAt: typeof r?.expiresAt === "string" ? r.expiresAt : null,
   };
+}
+
+/**
+ * ⚠ WHY A TOOL-CALL DECISION WAS NOT RECORDED — one sentence per reason the function gives.
+ *
+ * **NOT FOUND, NEVER FORBIDDEN, AND ONLY FOR THE ONE CODE THAT MEANS IT.**
+ * `agent.decide_tool_approval` puts the tenant in its own locked lookup, so another
+ * account's request and one that does not exist are BOTH `no-request` and both answer 404.
+ * Every other code below is only ever about a request THIS account owns, so naming it leaks
+ * nothing — and naming it is the whole point, because *"that request isn't waiting any
+ * more"* is false of an expired one (it is still there; the window closed) and false of a
+ * revoked one (the permission went, not the request).
+ *
+ * **EACH CARRIES ITS OWN FLAG BESIDE THE SENTENCE**, so the screen offers the one thing that
+ * helps rather than parsing our prose for it — the idiom the paused agent and the disabled
+ * automation already use. **AND A 409 RATHER THAN A 404**: the request was well formed, the
+ * thing exists and is theirs, and nothing is broken.
+ *
+ * **A CODE THIS DOES NOT KNOW IS A 502 AND NEVER A 400.** `bad-verdict` and `no-decider` are
+ * refusals of things this route decides for itself — the verdict is checked against
+ * `TOOL_VERDICTS` and the decider is the verified session — so one arriving is our own fault,
+ * and blaming the caller for it would send them to fix something they did not send.
+ */
+function sayVerdict(d) {
+  const why = typeof d?.error === "string" ? d.error : "";
+  if (why === "no-request") return no(404, "that request isn't waiting any more");
+  if (why === "expired") {
+    return no(409, "nobody answered that in time, so it can't be approved now — ask the agent for it again", {
+      expired: true, expiresAt: typeof d?.expiresAt === "string" ? d.expiresAt : null,
+    });
+  }
+  if (why === "revoked-permission") {
+    return no(409, "this agent's permission for that was taken away, so the call can't be approved", {
+      revoked: true, tool: typeof d?.tool === "string" ? d.tool : null,
+    });
+  }
+  return no(502, "couldn't record that just now — nothing was decided, try again", { retry: true });
 }
 
 /** The one answer for "not yours" and "no such agent". */
@@ -5015,9 +5065,12 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       // request because it has no way to be a session, and a person cannot be impersonated
       // because the field is not on the wire.
       const d = await store.decideToolApproval(who, { id, verdict: b.verdict, note, by: who });
-      // NOT FOUND, NEVER FORBIDDEN — another account's request and one that does not
-      // exist answer identically, because the difference between them is information.
-      if (d?.ok !== true) return no(404, "that request isn't waiting any more");
+      // ⚠ **THREE REFUSALS, AND THIS COLLAPSED THEM INTO ONE 404 SAYING THE WRONG THING
+      // ABOUT TWO OF THEM.** `agent.decide_tool_approval` answers `no-request`, `expired`
+      // and `revoked-permission`, and each needs something different done about it — ask the
+      // agent again, or restore the permission it lost. *A failure that cannot name itself*,
+      // in the door a person presses on the money path.
+      if (d?.ok !== true) return sayVerdict(d);
       // ⚠ THE DOORBELL, AND IT IS A DOORBELL AND NEVER THE WORK. `decide_tool_approval`
       // already put the run back on the queue INSIDE its own transaction — but it is a
       // SQL function and a SQL function cannot ring a Cloudflare queue, so without this

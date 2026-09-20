@@ -1727,24 +1727,47 @@ function agentCalls(n, before, after) {
 /** One waiting call, as a sentence somebody can act on. */
 function agentApprovalHtml(r) {
   // ⚠ THE ARGUMENTS ARE SHOWN, NOT SUMMARISED. Approving what you were not shown is the
-  // one mistake here that cannot be taken back, so the whole object is drawn — and a row
-  // whose arguments could not be read draws the sentence saying so rather than an empty
-  // box that reads like a call with no arguments.
-  const keys = Object.keys(r.args || {});
-  const args = keys.length
-    ? '<ul class="ag-ap-args">' + keys.map((k) =>
-        '<li><span class="ag-ap-k">' + esc(k) + '</span> ' +
-        '<span class="ag-ap-v">' + esc(agentApprovalValue(r.args[k])) + '</span></li>').join('') + '</ul>'
-    : '<div class="ag-ap-none">with nothing filled in</div>';
+  // one mistake here that cannot be taken back, so the whole object is drawn.
+  //
+  // ⚠ **AND THERE ARE THREE STATES HERE, NOT TWO — this drew two and stated the wrong one.**
+  // `toolApprovalRow` used to fold an unreadable argument set to `{}`, which is the same
+  // value a call that really takes no arguments answers, and this said *"with nothing filled
+  // in"* about both: **a positive claim about a value nobody could read**, in the one place a
+  // person is deciding. `null` is *we could not read them* now and `{}` is *there are none*,
+  // so the third row says so and **does not offer Approve at all** — a decision whose subject
+  // cannot be put on screen is not one to offer. "Don’t" stays, because refusing a call you
+  // cannot see is a reasonable thing to do and it is what gets the run moving again.
+  const unreadable = r.args === null || r.args === undefined;
+  const keys = unreadable ? [] : Object.keys(r.args);
+  const args = unreadable
+    ? '<div class="ag-ap-none">Its arguments couldn’t be read, so there is nothing to show ' +
+      'you — don’t approve this one. Ask the agent for it again.</div>'
+    : keys.length
+      ? '<ul class="ag-ap-args">' + keys.map((k) =>
+          '<li><span class="ag-ap-k">' + esc(k) + '</span> ' +
+          '<span class="ag-ap-v">' + esc(agentApprovalValue(r.args[k])) + '</span></li>').join('') + '</ul>'
+      : '<div class="ag-ap-none">with nothing filled in</div>';
+  // ⚠ **THE WINDOW, WHICH NEVER REACHED THIS SCREEN.** `agent.pending_approvals` has answered
+  // `expiresAt` since the approval-controls round and the site's own reader dropped it, so a
+  // request just vanished from the banner when it closed with nothing having said it would.
+  // The words are the execution history's own (`Runs out …`), because it is the same fact one
+  // screen over. Absent is drawn as nothing rather than as "never": a row from before the
+  // window existed has no deadline, and inventing one would be this screen making a promise.
+  const until = typeof r.expiresAt === 'string' && r.expiresAt
+    ? '<div class="ag-ap-when">Runs out ' + esc(autoWhen(r.expiresAt)) + '</div>'
+    : '';
   const busy = agentApprovalBusy === r.id;
   return '<div class="ag-ap" data-ap="' + esc(r.id) + '">' +
     '<div class="ag-ap-t">Waiting for you</div>' +
     '<div class="ag-ap-s">This agent wants to run <b>' + esc(agentToolLabel(r.tool)) + '</b>. ' +
       'Nothing has happened yet.</div>' +
     args +
+    until +
     '<div class="ag-ap-acts">' +
-      '<button class="ag-ap-yes" data-act="agent-tool-approve" data-id="' + esc(r.id) + '"' +
-        (busy ? ' disabled' : '') + '>Approve</button>' +
+      (unreadable
+        ? ''
+        : '<button class="ag-ap-yes" data-act="agent-tool-approve" data-id="' + esc(r.id) + '"' +
+          (busy ? ' disabled' : '') + '>Approve</button>') +
       '<button class="ag-ap-no" data-act="agent-tool-reject" data-id="' + esc(r.id) + '"' +
         (busy ? ' disabled' : '') + '>Don’t</button>' +
     '</div>' +

@@ -1360,11 +1360,12 @@ test("⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting 
   const pending = waitingFor({
     tool: "make_automation",
     args: { name: "Weekday follow-up", schedule: "weekly", at: "09:00" },
+    expiresAt: "2026-09-18T09:00:00Z",
   });
   // AND THE FIXTURE REALLY IS THE ROUTE'S SHAPE, or the case below is about an object
-  // nothing can send: eight fields, out of the producer, with nothing missing.
+  // nothing can send: nine fields, out of the producer, with nothing missing.
   assert.deepEqual(Object.keys(pending).sort(),
-    ["agent", "args", "id", "index", "requestedAt", "run", "step", "tool"]);
+    ["agent", "args", "expiresAt", "id", "index", "requestedAt", "run", "step", "tool"]);
   const back = sending(t, {
     thread: [msg("m1", "every weekday at nine", run("waiting", { open: 1 }))],
     approvals: [pending],
@@ -1389,6 +1390,49 @@ test("⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting 
   assert.match(banner, /Nothing has happened yet/, "it does not say nothing has happened");
   assert.match(banner, /data-act="agent-tool-approve"/, "there is no way to approve it");
   assert.match(banner, /data-act="agent-tool-reject"/, "there is no way to refuse it");
+  // ⚠ **AND THE DEADLINE, WHICH NEVER REACHED THIS SCREEN.** `agent.pending_approvals` has
+  // answered `expiresAt` since the approval-controls round and the site's reader dropped it,
+  // so a request simply vanished from the banner when its window closed with nothing having
+  // said it would — and the run then reads `unresolved`, which is a worse surprise than a
+  // deadline. A row with no window draws none rather than "never", which is the control:
+  // inventing one would be this screen promising something the database did not say.
+  assert.match(banner, /Runs out /, "the window is not shown to the person meeting it");
+  assert.doesNotMatch(
+    back.w.ev(`agentApprovalHtml(${JSON.stringify(waitingFor({ expiresAt: null }))})`),
+    /Runs out /, "a request with no window was given one");
+});
+
+test("⚠ THREE ARGUMENT STATES ON THE BANNER, and the unreadable one cannot be approved", async (t) => {
+  // ⚠ **`{}` MEANT TWO OPPOSITE THINGS AND THIS SCREEN STATED THE WRONG ONE.**
+  // `toolApprovalRow` folded an unreadable argument set to `{}` — the same value a call that
+  // really takes no arguments answers — and the banner drew both as *"with nothing filled
+  // in"*: a POSITIVE claim about a value nobody could read, in the one place a person is
+  // deciding. Three states now, and the third withholds Approve: a decision whose subject
+  // cannot be put on screen is not one to offer.
+  const b = sending(t, { thread: [] });
+  const html = (over) => b.w.ev(`agentApprovalHtml(${JSON.stringify(waitingFor(over))})`);
+
+  const some = html({ args: { to: "a@b.c", body: "hello" } });
+  assert.match(some, /a@b\.c/, "the values are not drawn");
+  assert.match(some, /data-act="agent-tool-approve"/);
+
+  const none = html({ args: {} });
+  assert.match(none, /with nothing filled in/);
+  assert.match(none, /data-act="agent-tool-approve"/, "a call with no arguments cannot be approved");
+
+  // EVERY SHAPE `toolApprovalRow` ANSWERS `null` FOR, driven through the producer rather than
+  // hand-built, so the two halves cannot disagree about which shapes are unreadable.
+  for (const junk of ["hello", 4, ["a"], null]) {
+    const bad = html({ args: junk });
+    assert.match(bad, /couldn’t be read/, `args of ${JSON.stringify(junk)} drew no warning`);
+    assert.doesNotMatch(bad, /with nothing filled in/,
+      "an unreadable argument set was stated as a call with no arguments");
+    assert.doesNotMatch(bad, /data-act="agent-tool-approve"/,
+      "Approve was offered for a decision whose subject could not be shown");
+    // AND "DON’T" STAYS. Refusing a call you cannot see is a reasonable thing to do, and it
+    // is what gets the run moving again — withholding both would leave it stuck.
+    assert.match(bad, /data-act="agent-tool-reject"/, "there is no way to refuse it either");
+  }
 });
 
 test("A FAILED RUN IS SHOWN AS A FAILURE, with the engine's own reason", async (t) => {

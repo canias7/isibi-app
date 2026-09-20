@@ -189,16 +189,7 @@ export function splitOperation(operation) {
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * What one ask can come back as. Every one is a different thing to DO, which is why none
- * of them is folded into another.
- *
- *   `approved`  — a person said yes to THESE arguments. Run it.
- *   `rejected`  — a person said no. Do not run it; tell the model, with their words.
- *   `pending`   — nobody has answered. Stop the run and wait; nothing has been spent.
- *   `stale`     — there is a request at this position for DIFFERENT arguments. Fail closed.
- */
-/**
- * ⚠ SIX STATES, AND EVERY ONE IS A DIFFERENT THING TO DO ABOUT IT.
+ * ⚠ SEVEN STATES, AND EVERY ONE IS A DIFFERENT THING TO DO ABOUT IT.
  *
  *   `approved`  — a person said yes to THESE arguments. Run it.
  *   `rejected`  — a person said no. Do not run it; tell the model, with their words.
@@ -209,14 +200,53 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  *                 is why it is not a verdict at all and is derived from the clock.
  *   `pending`   — nobody has answered yet. Stop the run and wait; nothing has been spent.
  *   `stale`     — there is a request at this position for DIFFERENT arguments. Fail closed.
+ *   `unshowable`— the arguments cannot be put in front of a person at all. Nothing is asked.
  *
  * **`revoked`, `expired` AND `rejected` ARE THREE REFUSALS AND NOT ONE.** A model told "a
  * person declined this" about a request nobody ever saw would report the wrong thing to a
  * customer, and one told "it timed out" about a real refusal would ask again.
+ *
+ * **AND `unshowable` IS NOT A REFUSAL BY ANYBODY EITHER — it is this platform declining to
+ * ASK.** It is the only one of the seven that never reaches the database: see `showableArgs`.
  */
 export const APPROVAL_STATES = Object.freeze([
-  "approved", "rejected", "revoked", "expired", "pending", "stale",
+  "approved", "rejected", "revoked", "expired", "pending", "stale", "unshowable",
 ]);
+
+/**
+ * ⚠ **CAN THESE ARGUMENTS BE PUT IN FRONT OF A PERSON — asked BEFORE anything is stored.**
+ *
+ * **THE DEFECT THIS CLOSES WAS MEASURED, and it is the worst shape available on this path.**
+ * `ask` hashed the arguments A MODEL REALLY WROTE and stored `p_args` COALESCED to `{}`, so
+ * for `args: "hello"` the row a person was shown held **no arguments** while the hash bound
+ * `"hello"` — they approve a call with nothing in it, `matches` is satisfied (it compares the
+ * real value both times), and the call runs with `"hello"`. **An approval bound to arguments
+ * nobody was ever shown**, which is the one mistake here that cannot be taken back.
+ *
+ * So the coalescing is gone and this is the wall instead. Two answers:
+ *
+ *   • **ABSENT IS A REAL ANSWER AND IS `{}`** — `undefined` and `null` are how a model calls
+ *     a tool that takes no arguments, and `{}` is an honest drawing of that. **It is not a
+ *     coercion, because `argsHash`'s own `?? {}` already hashes both of them as `{}`**, so
+ *     the row and the hash agree BY CONSTRUCTION rather than by care. Asserted, not assumed.
+ *   • **EVERYTHING ELSE IS REFUSED** — a string, a number, a boolean, an array. None is a
+ *     shape any tool's `input_schema` declares, there is no honest way to draw one as a set
+ *     of named arguments, and inventing a key for it (`{value: args}`) would label a person's
+ *     decision with a field name the tool does not have. *Refuse, never coerce.*
+ *
+ * **NOTHING IS WRITTEN ON THE REFUSING PATH**, deliberately: a row for a call nobody can be
+ * shown would sit on somebody's screen for ever offering a decision they cannot make.
+ *
+ * **AND A ROW WRITTEN BEFORE THIS IS LEFT TO EXPIRE, which is the honest outcome rather than
+ * an oversight.** Such a row holds `{}` with a hash over the real value, so it can never be
+ * matched again; the run is answered `arguments-unshowable` and carries on, and the request
+ * closes with its own window. Nothing is stranded and nothing is migrated.
+ */
+export function showableArgs(args) {
+  if (args === undefined || args === null) return Object.freeze({ ok: true, args: {} });
+  if (typeof args !== "object" || Array.isArray(args)) return Object.freeze({ ok: false, args: null });
+  return Object.freeze({ ok: true, args });
+}
 
 /**
  * WHAT THE MODEL IS TOLD when a call does not happen. One copy, because the run loop says
@@ -255,6 +285,16 @@ export const approvalRefusal = (decision) => {
     return { ok: false, error: "arguments-changed",
              say: "the decision on record is about different arguments, so nothing was done — " +
                   "ask again and it will be put to a person afresh" };
+  }
+  if (decision?.state === "unshowable") {
+    // ⚠ NOBODY WAS ASKED, AND THE MODEL IS TOLD THAT RATHER THAN THAT SOMEBODY REFUSED. The
+    // remedy is the model's own: send the arguments as an object, which is what the tool's
+    // schema asks for. Read as a rejection it would tell a customer a person declined their
+    // work; read as "nowhere to ask" it would send somebody to look at a deployment.
+    return { ok: false, error: "arguments-unshowable",
+             say: "this needs a person's approval and its arguments could not be shown to " +
+                  "anybody, so nothing was asked and nothing was done — send them as an " +
+                  "object with a name for each value and it will be put to a person" };
   }
   // `unavailable` — there is nowhere to ask. Named rather than folded into a rejection,
   // because "somebody said no" and "nobody could be asked" want opposite things done.
@@ -435,11 +475,18 @@ export function makeApprovals(opts = {}) {
              * than a `request` and a `read` that can disagree about what was asked.
              */
             async ask({ step, index, tool, args }) {
-              const hash = await argsHash(args);
+              // ⚠ **ASKED BEFORE ANYTHING IS HASHED OR SENT, so a call nobody could be shown
+              // leaves no row at all.** See `showableArgs` for the defect this closes.
+              const show = showableArgs(args);
+              if (!show.ok) return { state: "unshowable", id: null, tool, hash: null, expiresAt: null };
+              // ⚠ **THE HASH AND THE STORED ROW ARE OVER THE SAME VALUE, which is the whole
+              // invariant.** They were not: the hash was over what a model wrote and the row
+              // carried `{}` whenever that was not a plain object.
+              const hash = await argsHash(show.args);
               const answer = await call("request_tool_approval", {
                 p_tenant: tenant, p_run_id: runId, p_agent_id: agentId,
                 p_step: step, p_idx: index, p_tool: tool,
-                p_args: args && typeof args === "object" && !Array.isArray(args) ? args : {},
+                p_args: show.args,
                 p_hash: hash,
               });
               if (!answer || typeof answer !== "object" || Array.isArray(answer)) {

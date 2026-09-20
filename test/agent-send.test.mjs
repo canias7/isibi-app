@@ -1706,6 +1706,87 @@ test("a verdict is refused rather than defaulted, and nothing is written", async
   }
 });
 
+test("⚠ EVERY REASON A DECISION IS REFUSED HAS ITS OWN SENTENCE, censused off the function", async () => {
+  // ⚠ **THREE REFUSALS AND THIS ROUTE COLLAPSED THEM INTO ONE 404.** `agent.decide_tool_approval`
+  // answers `no-request`, `expired` and `revoked-permission`, and every one came back as *"that
+  // request isn't waiting any more"* — which is FALSE of an expired one (it is still there; the
+  // window closed) and FALSE of a revoked one (the permission went, not the request), and the two
+  // want opposite things done: ask the agent again, or restore the permission. *A failure that
+  // cannot name itself*, in the door a person presses.
+  const T = "11111111-1111-4111-8111-111111111111";
+  const ID = "22222222-2222-4222-8222-222222222222";
+  const press = async (answer) => handleAgentApi({
+    path: "/api/agent/tool-approve", method: "POST", tenant: T,
+    store: { ownsAgent: async () => true, decideToolApproval: async () => answer },
+    body: { id: ID, verdict: "approved" },
+  });
+
+  // NOT FOUND, NEVER FORBIDDEN, and only for the one code that means it: the function puts the
+  // tenant in its own locked lookup, so another account's request and one that never existed are
+  // both `no-request`.
+  const gone = await press({ ok: false, error: "no-request" });
+  assert.equal(gone.status, 404);
+  assert.match(gone.body.error, /isn.t waiting any more/);
+  assert.equal(gone.body.expired, undefined, "a missing request was reported as an expired one");
+
+  // ⚠ A 409 AND ITS OWN FLAG, so the screen offers the one thing that helps rather than parsing
+  // our prose for it. The request was well formed, the thing is theirs, and nothing is broken.
+  const late = await press({ ok: false, error: "expired", expiresAt: "2026-09-18T09:00:00Z" });
+  assert.equal(late.status, 409);
+  assert.equal(late.body.expired, true);
+  assert.equal(late.body.expiresAt, "2026-09-18T09:00:00Z");
+  assert.match(late.body.error, /nobody answered that in time/);
+  assert.match(late.body.error, /ask the agent for it again/, "it does not say what to do instead");
+  assert.doesNotMatch(late.body.error, /isn.t waiting any more/);
+
+  const withdrawn = await press({ ok: false, error: "revoked-permission", tool: "send_message" });
+  assert.equal(withdrawn.status, 409);
+  assert.equal(withdrawn.body.revoked, true);
+  assert.equal(withdrawn.body.tool, "send_message");
+  assert.match(withdrawn.body.error, /permission for that was taken away/);
+  assert.doesNotMatch(withdrawn.body.error, /isn.t waiting any more/);
+
+  // ⚠ A CODE THIS DOES NOT KNOW IS A 502 AND NEVER A 400. `bad-verdict` and `no-decider` refuse
+  // things the route decides for itself — the verdict against `TOOL_VERDICTS`, the decider from
+  // the verified session — so one arriving is our own fault, and blaming the caller for it sends
+  // them to fix something they did not send.
+  for (const ours of ["bad-verdict", "no-decider", "something-new", "", undefined]) {
+    const r = await press({ ok: false, error: ours });
+    assert.equal(r.status, 502, `${JSON.stringify(ours)} was blamed on the caller`);
+    assert.equal(r.body.retry, true);
+  }
+
+  // AND THE CONTROL: a decision that really lands is still a 200. Without it, "each refusal is
+  // named" is satisfied by a route that refuses everything.
+  const done = await press({ ok: true, id: "ap-1", verdict: "approved", run: null });
+  assert.equal(done.status, 200);
+
+  // ⚠ **AND EVERY CODE THE FUNCTION CAN ANSWER HAS AN ARM, censused out of the migration** — a
+  // code added there and not here falls to the 502, which is a real answer and the wrong one for
+  // a refusal a person could act on.
+  const sqlPath = new URL("../agent-builder/supabase/migrations/20260918030000_agent_approval_controls.sql",
+    import.meta.url);
+  const sql = readFileSync(sqlPath, "utf8");
+  // WINDOWED ON THE BODY'S OWN DOLLAR QUOTES, never on the next semicolon: the sentences in this
+  // file contain semicolons, which is a trap this repository has already paid for.
+  const head = sql.indexOf("create or replace function agent.decide_tool_approval");
+  assert.ok(head > 0, "decide_tool_approval could not be found");
+  const open = sql.indexOf("$$", head);
+  const close = sql.indexOf("$$", open + 2);
+  assert.ok(open > 0 && close > open, "its body could not be windowed");
+  const body = sql.slice(open, close);
+  assert.ok(body.length < sql.length / 3, "the window swallowed more than one function");
+  const codes = [...new Set([...body.matchAll(/'error',\s*'([a-z-]+)'/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(codes, ["bad-verdict", "expired", "no-decider", "no-request", "revoked-permission"]);
+  for (const code of codes) {
+    const r = await press({ ok: false, error: code });
+    assert.notEqual(r.status, 200, `${code} was answered as a success`);
+    // THE TWO THE ROUTE ITSELF PREVENTS ARE ALLOWED TO BE THE 502; the other three must not be.
+    if (code === "bad-verdict" || code === "no-decider") continue;
+    assert.notEqual(r.status, 502, `${code} fell through to the couldn't-record arm`);
+  }
+});
+
 test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS, not shown their own", async () => {
   const T = "11111111-1111-4111-8111-111111111111";
   const store = {
@@ -1738,13 +1819,33 @@ test("the verdicts and the cap are the database's own, and a row fails closed", 
   assert.ok(clamp, "pending_approvals' own clamp could not be found");
   assert.equal(MAX_TOOL_APPROVALS, Number(clamp[1]));
 
-  // ⚠ AND THE ROW FAILS CLOSED ON THE ARGUMENTS, which is the field the decision is
-  // about: a person must never be shown a blank where the subject should be.
+  // ⚠ **THIS ASSERTED THE DEFECT AS THE RULE, and re-anchoring it is the point.** It
+  // demanded every unreadable argument set read as `{}` — which is the same value a call
+  // that really takes no arguments answers, and the screen drew both as *"with nothing
+  // filled in"*: a positive claim about a value nobody could read, where the whole subject
+  // of a decision is. The property was never "fold it to `{}`"; it is *a person must never
+  // be shown a blank where the subject should be*, which needs the two told apart.
   for (const junk of [null, undefined, "args", 4, ["a"]]) {
-    assert.deepEqual(toolApprovalRow({ id: "a", args: junk }).args, {},
-      `args of ${JSON.stringify(junk)} was drawn as a decision's subject`);
+    assert.equal(toolApprovalRow({ id: "a", args: junk }).args, null,
+      `args of ${JSON.stringify(junk)} read as a decision's real subject`);
   }
+  // AND `{}` IS KEPT AS ITSELF, because a tool with no arguments is a real thing and the
+  // screen has a true sentence for it. Without this arm, "unreadable is null" is satisfied
+  // by a reader that answers null for everything and shows nobody anything.
+  assert.deepEqual(toolApprovalRow({ id: "a", args: {} }).args, {});
   assert.deepEqual(toolApprovalRow({ id: "a", args: { id: "x" } }).args, { id: "x" });
+  // ⚠ AND THE WINDOW REACHES THE PERSON MAKING THE DECISION. `agent.pending_approvals` has
+  // answered it since the approval-controls round and this reader dropped it, so a deadline
+  // never reached the one screen that is about meeting it. `null` for a row from before the
+  // window existed, never an invented one.
+  assert.equal(toolApprovalRow({ id: "a", expiresAt: "2026-09-21T10:00:00+00:00" }).expiresAt,
+    "2026-09-21T10:00:00+00:00");
+  for (const junk of [null, undefined, 17, {}]) {
+    assert.equal(toolApprovalRow({ id: "a", expiresAt: junk }).expiresAt, null);
+  }
+  // AND THE FIELD IS REALLY ON THE ANSWER, asked as the KEY SET rather than as one lookup:
+  // a field the function stops carrying is one the screen silently stops drawing.
+  assert.ok(Object.keys(toolApprovalRow({ id: "a" })).includes("expiresAt"));
   assert.equal(toolApprovalRow({}).tool, "", "a row with no tool read as something");
   assert.equal(toolApprovalRow(null).step, 0);
 });

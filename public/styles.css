@@ -5127,7 +5127,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .ag-ap-t { font-weight: 600; font-size: .9rem; }
 .ag-ap-s { margin-top: .2rem; font-size: .88rem; line-height: 1.5; }
-.ag-ap-none { margin-top: .35rem; color: var(--muted); font-size: .84rem; }
+/* ⚠ `.ag-ap-when` SHARES THIS RULE RATHER THAN GETTING ONE OF ITS OWN: identical
+   declarations are not a design decision, and a second block would be one nobody made.
+   The source reads correctly either way, which a deadline drawn on `.ag-ap-none` would
+   not. */
+.ag-ap-none, .ag-ap-when { margin-top: .35rem; color: var(--muted); font-size: .84rem; }
 .ag-ap-args { margin: .4rem 0 0; padding: 0; list-style: none; font-size: .84rem; line-height: 1.6; }
 .ag-ap-args li { display: flex; gap: .4rem; }
 .ag-ap-k { color: var(--muted); flex: 0 0 auto; }
