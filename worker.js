@@ -26237,10 +26237,27 @@ async function handleRequest(request, env, ctx) {
             // kind.
             // A COMPONENT IS NOT A ROUTE, and `routeOf` cannot say so — it
             // answers `/-parts/photo-wall` for `-parts/photo-wall.tsx`, measured.
-            // The publication carries both since the band split, so without this
-            // filter every section this change wrote would arrive as a page the
-            // site has, and `appliedFacts` would record an inventory a visitor
-            // can never reach. `PART_DIR` is the one definition of that prefix.
+            // Without this filter a section this change wrote would arrive as a
+            // page the site has, and `appliedFacts` would record an inventory a
+            // visitor can never reach. `PART_DIR` is the one definition.
+            //
+            // ⚠ IT IS A BELT AND CANNOT FIRE TODAY, and the first version of
+            // this comment claimed the opposite — that "the publication carries
+            // both since the band split". A mutation sweep called it: cutting
+            // the filter survived every guard, so it was MEASURED rather than
+            // argued. `aFilesOut` is `aMerge.added` + `changed`, and `aMerge` is
+            // `mergeAddonPages` over the PAGES alone — components are merged
+            // separately into `aParts`. Driven through the real route, a change
+            // that writes `tide-chart` answers `changed: ["index.tsx"]` with the
+            // component in the container's own `parts` list, so no entry here
+            // contains `-parts/` and the inventory is identical either way.
+            //
+            // KEPT DELIBERATELY, and the redundancy is said out loud because a
+            // sweep cannot say it and the next session deletes what nothing
+            // appears to need: the day components join this list — which is one
+            // edit to `aFilesOut` — the defect comes straight back. The PAIR is
+            // swept (parts added AND the filter cut) and DIES, so this line is
+            // guarded rather than merely explained.
             aShipped = [...new Set(
               (Array.isArray(aFilesOut) ? aFilesOut : [])
                 .map((f) => String((typeof f === "string" ? f : (f && f.path)) || ""))

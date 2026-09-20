@@ -2079,6 +2079,84 @@ evaluating `addTool(k)`.
   **Scoped to the job tier by its caller**: a table's `confirm.fn` is nulled by
   the APPLY too, so repairing it would make the audit disagree the other way.
 
+### RUN 53 — WHAT THE CHECK CAN STAND IN FOR, AND WHAT SHIPPED (2026-09-20)
+
+One paid addon run produced two independent false reports, and the honest
+summary is that **the connection, the declared shape and the page were all
+correct**: `/rates` is live and renders `1.1644 / 1.3344 / Rates from
+2026-09-18` with zero console errors. Everything wrong was ours.
+
+**A SYNTHETIC RESPONSE MUST NOT STAND IN FOR A DEPENDENCY WE CANNOT REACH.**
+`serveDist` answered **`200 []`** to every `/api/…` path that was not auth — so
+the render check handed a page reading `data.rates.EUR` an empty ARRAY, which is
+truthy, and the page threw reading `.EUR` of `undefined`. The check reported it
+`threw`, which is **SERIOUS**, and `isSerious` is what `site-repair.mjs` and
+`site-add.mjs` read to buy a paid repair of code that works.
+
+- **`apiAnswer(pathname)` IS THE ONE CLASSIFIER**, and it splits *supported
+  fixture* from *unavailable dependency*. Supported: `rows` (`200 []` — an empty
+  table list is a REAL answer and the page draws its empty state), `auth` (401),
+  `turnstile`, `error`. Unavailable: `api`, `rpc`, `checkout`, `uploads`, `hook`
+  and **every path it does not recognise**, which fails CLOSED.
+- **THE RPC TEST SITS ABOVE THE DATA TEST AND THE ORDER IS THE RULE.** `useRpc`
+  posts to `/api/db/<slug>/data/rpc/<fn>` — inside `/data/` — and a function may
+  return an object or a scalar, so the table-list fixture is exactly as wrong
+  there as it was for `api`. The guard asserts the ordering, not just the rows.
+- **424, NOT 503, AND THE SITE'S OWN RETRY POLICY IS WHY.** `router.tsx` fails a
+  4xx immediately and retries a 5xx twice at 500/1000 ms — so a 5xx would spend
+  the check's clock on a dependency that is never coming.
+- **`unmet` IS A FINDING KIND AND IS NOT SERIOUS**, the `slow` precedent. The
+  customer's sentence is *"reads something the check can't reach, so I couldn't
+  see it with real data"* — which is what it is, and never a page error.
+- **THE BROWSER'S OWN REPORT OF OUR REFUSAL IS NOT THE PAGE LOGGING AN ERROR.**
+  Chromium writes `Failed to load resource: …424` to the console for every
+  marked response, so the first cut reported our own fixture as `logged`.
+  `ourRefusal(line)` filters those and ONLY when something was really unmet.
+- **THE GUARD WAS VACUOUS BEFORE IT WAS FIXED, and the trap is this file's own.**
+  It asserted through `checkRender` that nothing `threw` — and CI has **no
+  browser**, so `checked: 0` made every absence true about nothing. `serveDist`
+  is exported now and the wire is driven with plain `fetch`; the finding readers
+  are pure. **Separately proven with the REAL hooks in a REAL Chromium**
+  (`src/lib/rows.ts`, the site's own retry policy, run 53's `data.rates.EUR`
+  read): both refusals draw the page's error state, the table list draws its
+  empty state, nothing throws, `isSerious` is false — and a genuine error on the
+  same page is still `threw` and still serious.
+
+**`aShipped` WAS THE PLAN LESS THE MISSING, SO A PUBLISHED PAGE WAS NOT IN THE
+INVENTORY.** The `api` designer handed two needs to `page`; the `page` KIND
+designer declared NOTHING, which is correct — a connection is not pageless, so
+the PAGE CALL writes the page. `aWanted` is the kind designer's answer, so
+`aShipped` was `[]` on a change that published `/rates`.
+
+- **EXISTENCE COMES FROM THE PUBLICATION, ABSENCE COMES FROM THE PLAN.**
+  `aShipped` is now derived from `aFilesOut` (`aMerge.added` + `changed` — what
+  really compiled and shipped); `aMissing` is still `aWanted` less that. Two
+  questions, two sources. They cannot disagree, because they read the same
+  artifact rather than one being defined as the other's complement.
+- **A COMPONENT IS NOT A ROUTE AND `routeOf` CANNOT SAY SO** — it answers
+  `/-parts/tide-chart`, measured. Since the band split the publication carries
+  components too, so the `PART_DIR` filter is what stops every section this
+  change wrote arriving as a page a visitor can open. **A mutation sweep bought
+  that case**: cutting the filter SURVIVED everything until a guard published a
+  component and read the inventory.
+- **THE DISCRIMINATOR IS AN EXPLICIT ITEM REFERENCE.** A need naming NO item has
+  nothing to look up and reads `unknown` on BOTH sides of this fix — so a case
+  built only out of run 53's two unnamed needs cannot tell the versions apart.
+  Measured on the reproduction, reverting the derivation and nothing else:
+  applied pages **`[]` → `["/rates", "/"]`**; the named need **`missing`/`absent`
+  → `unverified`/`found`**; both unnamed needs **`unknown` → `unknown`**; the
+  unrelated `/stockists` **`missing` → `missing`**; counts **missing 2 →
+  missing 1 + unverified 1**; and `"Still to do"` stops naming `/rates`.
+- **PUBLISHING A PAGE PROVES THE PAGE IS THERE AND NOTHING ELSE.** The ceiling
+  is `unverified`; `checked` stays `[]` for `page` as for every kind, so
+  `delivered` is unreachable from a publication. Publishing ANY page still
+  satisfies NO page requirement that does not name one.
+- **⚠ RUN 53'S OWN `missing: 2` ON ITS TWO UNNAMED NEEDS IS NOT REPRODUCED.**
+  They read `unknown` in both arms of the reproduction. Whatever produced that
+  live reading has another, unidentified cause — and **the *"I can't see from
+  here whether…"* clause is present BEFORE and AFTER**, so it is not
+  attributable to this fix. **Open.**
+
 ### THE ADDON KNOWS WHAT THE SITE IS
 
 - **A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION.** `page` runs
