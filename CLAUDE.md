@@ -3151,12 +3151,15 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   directions**: 382 was once stamped from a LOCAL run and the next CI read of it
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
-  **AND THIS BRANCH HAS ITS OWN READ, NAMED RATHER THAN COUNTED**: run
-  `35503280850` on `ecd3184d` (2026-09-20), the product commit, **all twenty
-  steps green and every figure above matching** — TAP 397, kit-typecheck 4,
-  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
-  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
-  kit-paint `all passed`. **The sixteen is deliberately NOT incremented**: that
+  **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
+  `35503280850` on `ecd3184d` and run **`35542140721` on `903b5ea2`** — the
+  edit-path branch's HEAD — both 2026-09-20, both **all twenty steps green and
+  every figure above matching**: TAP 397, kit-typecheck 4, site-build **382**,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
+  `all passed`. The second was read out of the twenty-three downloaded
+  per-step files rather than the flat log, so the attribution is the
+  archive's own. **The sixteen is deliberately NOT incremented**: that
   number is a scan's answer, and the rule two lines up is exactly about taking
   the next ordinal instead of re-deriving it.
 - **READ THE COUNTS OUT OF THE RUN'S PER-STEP LOG FILES**, which attribute by
@@ -3169,15 +3172,19 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,026 LOCALLY, and the CI half of that reading is UNTAKEN.**
-  7,026 pass / 0 fail / 0 skipped, measured on the edit-path branch after
-  Stage 2. The last reading with BOTH halves was **7,005** on `2c596bc5`
-  (locally, and CI run `35504473370` at `7,001 / 0 / 4` — the four being the
-  privilege-drop case, two RTL cases and `site-searchpath`'s baseline-commit
-  case). **THE TOTAL IS WHAT MATCHES** — a `pass` count alone drifts between
-  the two machines — so until CI reads this branch the honest statement is
-  *7,026 local, CI unread*, and the four skips are expected to make it
-  `7,022 / 0 / 4` rather than being a number anybody has seen.
+- **Unit suite: 7,026, and BOTH HALVES OF THAT READING ARE TAKEN.**
+  7,026 pass / 0 fail / 0 skipped locally, measured on the edit-path branch
+  after Stage 2; and CI run **`35542140722` on `903b5ea2`** answers
+  **`# tests 7026 / # pass 7022 / # fail 0 / # skipped 4`** — the four being
+  the privilege-drop case, two RTL cases and `site-searchpath`'s
+  baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a `pass` count alone
+  drifts between the two machines — and here the totals are equal, 7,026 both
+  sides. The previous reading with both halves was **7,005** on `2c596bc5`
+  (CI run `35504473370` at `7,001 / 0 / 4`).
+  **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND IS NOW A
+  MEASUREMENT, and only the second kind is worth anything** — it happens to
+  have been right, which is exactly the case where a paragraph quietly turns
+  into evidence if nobody stamps the run that settled it.
   It was 6,992 at `26f52f95` and 7,005 before the edit-path work;
   **the +21 is this branch's own new cases and is stated as the difference
   between two MEASURED readings, never as arithmetic off a paragraph.**

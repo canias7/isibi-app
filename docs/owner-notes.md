@@ -233,8 +233,11 @@ readers now, and a guard that keeps them apart.
 
 ### Proof
 
-- 7,026 unit tests pass locally, 0 fail. **CI has not read this branch yet** —
-  that half is untaken and I am not going to quote a number nobody has seen.
+- 7,026 unit tests, 0 fail — **and CI has now read it too**, on the same
+  commit: 7,026 tests, 7,022 pass, 0 fail, 4 skipped (the four are cases that
+  need things a GitHub machine has not got). The totals agree, 7,026 both
+  sides, which is the number that matters. `site build` is green as well, all
+  twenty steps, every count the same as the last time anybody read them.
 - Two mutation sweeps, 37 deliberate sabotages of the new code in total: 34
   died. Three of the survivors I measured INERT (identical behaviour over four
   scenarios) rather than arguing they were; two were real gaps in my own tests
