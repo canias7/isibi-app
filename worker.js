@@ -8642,8 +8642,18 @@ async function saveSiteParts(env, slug, parts) {
  * [one])` answered `[one]`: every OTHER component on the site was deleted, none
  * of them mentioned in the request.
  *
- * `loadSiteParts` STAYS, as a thin wrapper, so its five other callers read
+ * `loadSiteParts` STAYS, as a thin wrapper, so its remaining callers read
  * exactly as they did. There is one reader underneath, so the two cannot drift.
+ *
+ * ⚠ TWO CALLERS, NOT FIVE — re-derived 2026-09-20 rather than taken off the
+ * sentence that used to stand here. The edit route's `page` and `text` rungs
+ * both moved to `readSiteParts` that day, for exactly the reason this comment
+ * gives, and the count did not move with them. What is left is the publish
+ * spine's own fallback (`Array.isArray(parts) ? parts : …`), where the
+ * collapse is HARMLESS because the caller's `null` and the store's `null` mean
+ * the same thing there — nothing to send. A number nobody re-measured is a
+ * claim ahead of its evidence; derive it with a grep rather than reading it
+ * here.
  */
 async function readSiteParts(env, slug) {
   if (!env.SITES_BUCKET) return { ok: false, parts: [], why: "no-store" };
@@ -20441,6 +20451,44 @@ async function handleRequest(request, env, ctx) {
               if (snap.ok) preEditConfig = { look: snap.config.look, css: snap.config.css };
             } catch { preEditConfig = null; }
 
+            // ── THE SITE'S OWN COMPONENTS, READ ONCE AND CARRIED FORWARD ──
+            //
+            // TWO DEFECTS IN ONE VARIABLE, and they are the same shape as the
+            // two `eSrc` already answers for the pages.
+            //
+            // (1) THE READ MUST KEEP ITS THIRD STATE. The page rung read
+            // `loadSiteParts`, which collapses "this site has no components"
+            // and "the read threw" into one `null` — and `mergeParts(null,
+            // [one])` answers `[one]`, so a transient R2 failure published ONE
+            // component and deleted every other one, none of them mentioned in
+            // the request. `readSiteParts` is the three-state reader the addon
+            // route has used since 2026-09-17 and it says so in its own
+            // comment; this rung is the caller that never moved.
+            //
+            // (2) ONE SNAPSHOT PER MESSAGE, NOT PER RUNG. `components` and
+            // `tsx` both dispatch to `page`, so one sentence can run this rung
+            // twice — and each run re-reading the STORE merged against the
+            // state the message arrived with. `publishStep`'s rule is "a later
+            // list wins", so the first rung's component was overwritten by the
+            // second rung's merge of the original: step one ran, was charged
+            // for, reported success, and shipped nothing. The pages never had
+            // this bug because `eSrc` is exactly this variable one field over.
+            //
+            // LAZY, BECAUSE MOST EDITS NEVER ASK. A colour change has no
+            // business buying an R2 GET, so the read happens on first use and
+            // is remembered — which is also what makes the two rungs share one
+            // answer rather than merely reading the same key twice.
+            //
+            // ⚠ AND A FAILED READ IS REMEMBERED AS A FAILURE. Retrying it on
+            // the second rung would let a message publish under two different
+            // beliefs about what the site has, which is the state this whole
+            // block exists to make impossible.
+            let ePartsRead = null;
+            const editParts = async () => {
+              if (!ePartsRead) ePartsRead = await readSiteParts(env, ownerSlug);
+              return ePartsRead;
+            };
+
             let pendingPublish = null;
             // WHAT THE CORRECTION ROUND NEEDS, CARRIED ACROSS THE SCOPE BOUNDARY.
             //
@@ -20475,6 +20523,23 @@ async function handleRequest(request, env, ctx) {
               // then send the stored list and the page's import would not
               // compile. A later list wins; absent means "no change to them".
               const parts = Array.isArray(args && args.parts) ? args.parts : ((pendingPublish && pendingPublish.parts) || null);
+              // ── AND THE NEXT RUNG SEES THEM, exactly as it sees `eSrc` ────
+              //
+              // Handing the list over is not enough on its own: the next page
+              // rung computes its own merge, and until today it computed it
+              // from the STORE — which still holds what the message arrived
+              // with. So the two rungs' answers could not both survive, and
+              // "a later list wins" one line up decided which was thrown away.
+              //
+              // ONLY WHEN A RUNG REALLY HANDED COMPONENTS OVER, and only over
+              // a state we could READ. A rung produces `args.parts` solely on
+              // the path where the read succeeded and the merge ran, so this
+              // can never manufacture an `ok` out of a failure — and the
+              // explicit `ePartsRead.ok` keeps that true if a later caller
+              // forgets.
+              if (Array.isArray(args && args.parts) && ePartsRead && ePartsRead.ok) {
+                ePartsRead = { ok: true, parts: args.parts };
+              }
               // AND THE PICKER'S MODELS, so the spine's translation call runs
               // on the model this edit was picked for (run 38, 2026-09-04).
               // AND THE FUNNEL THE SPINE CHARGES ITS TRANSLATION CALLS THROUGH
@@ -21818,7 +21883,45 @@ async function handleRequest(request, env, ctx) {
               // place. `splitEditable` puts them back before anything publishes,
               // because a component that came back as a page would be counted
               // against the page cap and published in `sitemap.xml`.
-              const eParts = await loadSiteParts(env, ownerSlug);
+              // ── AND AN UNREADABLE STORE REFUSES BEFORE IT SPENDS ─────────
+              //
+              // ⚠ THIS RUNG'S VERSION OF THE COLLAPSE IS THE WORSE ONE, and
+              // it is measured rather than reasoned about: driven through this
+              // route with the components key throwing, the reply was
+              // `{ok: true, applied: 1}`, the compiler payload carried
+              // `parts: []`, and `source/<slug>/parts.json` was REWRITTEN TO
+              // `[]` — every component on the site deleted by a one-word
+              // wording change.
+              //
+              // The mechanism is the empty list being REAL rather than absent:
+              // `loadSiteParts` answers `null` for a failed read,
+              // `editableFiles(eSrc, null)` presents the pages alone,
+              // `splitEditable` then answers `parts: []`, and both the spine's
+              // preference (`Array.isArray(parts) ? parts : <the store's own
+              // copy>`) and its save (`if (Array.isArray(parts))`) take an
+              // empty array at face value. The page rung at least handed over
+              // `null`.
+              //
+              // REFUSED HERE RATHER THAN REPAIRED FURTHER DOWN, for two
+              // reasons. It costs NOTHING — above the model call, so a
+              // customer who retries in a minute has paid for neither attempt;
+              // and the alternative (hand over nothing and let the spine
+              // re-read) spends a call and a compile to reach a `vite` failure,
+              // because a page importing a component the payload lacks does
+              // not build. A refusal that changes nothing beats a refusal that
+              // charges for itself.
+              //
+              // `ok: false` ONLY. A site that genuinely has no components
+              // answers `{ok: true, parts: []}` and passes straight through,
+              // which is every frontend-only site on the platform.
+              const eTextParts = await editParts();
+              if (!eTextParts.ok) {
+                return Response.json({
+                  ok: false, error: "parts-unreadable", cost: 0,
+                  msg: "I couldn't read this site's sections just now, and changing the words without them could take one off. Nothing was changed — try again in a moment.",
+                }, { status: 503 });
+              }
+              const eParts = eTextParts.parts;
               const eFiles = editableFiles(eSrc, eParts);
               const out = await runTextEdit({ send: eQuick() },
                 { instruction: eInstruction, pages: eFiles, model: eQuickModel });
@@ -22622,11 +22725,15 @@ async function handleRequest(request, env, ctx) {
               const twSpent = tw.reason === "send" ? null : tw.usage;
 
               const eDb = await siteBackendBySlug(env, ownerSlug);
-              let eSpec = null, eLook2 = null;
+              let eSpec = null, eLook2 = null, eCss2 = "";
               try {
                 const cfg = await readSiteConfig(env, ownerSlug, eDb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
                 eLook2 = cfg.config.look;
+                // AND THE STYLESHEET THE SITE IS WEARING. Read from the same
+                // config as the look, in the same read — a second read would
+                // be a second answer to one question and the two can disagree.
+                eCss2 = typeof cfg.config.css === "string" ? cfg.config.css : "";
                 // ── A SITE WITH NO DATABASE HAS NO TABLES, WHICH IS AN ANSWER
                 //    AND NOT A FAILURE (2026-08-29) ────────────────────────────
                 //
@@ -22663,6 +22770,38 @@ async function handleRequest(request, env, ctx) {
               if (!eSpec || !eLook2) return escalate("no-meta");
 
               const eModels = modelsFor(eb && eb.picker);
+
+              // ── WHAT THE PAGE WRITER IS SHOWN ────────────────────────────
+              //
+              // `briefWithLayout` has taken `parts`, `partsUnreadable`,
+              // `theme`, `css` and `plan` since 2026-09-17 and this rung
+              // passed none of them, so the one call on the edit path that
+              // rewrites a whole page was the blindest caller of it there is.
+              //
+              // READ BEFORE THE CALL AND AGAIN AFTER IT, from ONE snapshot —
+              // the addon's rule, and its reason: the route read the store
+              // twice, minutes apart, and the two could disagree, so the
+              // prompt and the wall that checks the answer were built from
+              // different beliefs about the site.
+              const pPartsRead = await editParts();
+              const pStoredParts = pPartsRead.ok ? pPartsRead.parts : null;
+              const pSentParts = partsSent(pStoredParts, { unreadable: !pPartsRead.ok });
+              // AND THE KIT SIGNATURES FOR THE PAGE BEING EDITED. `plan` is
+              // how `siteComponentApi` is reached, and without it the writer
+              // was rewriting a page built from `<Accordion>` with no idea of
+              // that component's props. Scoped to the TARGET page rather than
+              // the site: this rung edits exactly one file by design, and the
+              // signatures of components on other pages are input the model
+              // pays for and cannot use.
+              //
+              // `modules`, NEVER `kit`. `pageComponents` answers both and they
+              // are different vocabularies — `siteComponentApi` is keyed on
+              // the MODULE name (`seat-map`), and handing it the EXPORT names
+              // answers "" for every one, which from outside is
+              // indistinguishable from a page importing nothing.
+              const pPageApi = pageComponents([target])[wantRoute];
+              const pPlanComponents = (pPageApi && Array.isArray(pPageApi.modules)) ? pPageApi.modules : [];
+
               let eGen = null;
               try {
                 // Same as the addon lane: a stated zero, because the absence of
@@ -22675,7 +22814,22 @@ async function handleRequest(request, env, ctx) {
                 // same fields the build read from the design.
                 eGen = await generateSitePages(env, briefWithLayout({
                   brief: eInstruction, images: 0,
-                  tsx: eLook2.tsx, gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
+                  plan: pPlanComponents.length ? { components: pPlanComponents } : null,
+                  // THE DECLARATIONS **AND** THE REAL SOURCE. Sent alone,
+                  // `tsx` reaches `tsxDirective` with an empty filter, so every
+                  // component the site ALREADY HAS arrived under a heading
+                  // telling the writer to build it — and anything it returned
+                  // replaced the real file by name. `partsSent` splits the two
+                  // lists from one input, so no component can be in both and
+                  // none can be missing from both.
+                  tsx: eLook2.tsx, parts: pStoredParts, partsUnreadable: !pPartsRead.ok,
+                  gif: eLook2.gif, qr: eLook2.qr, three: eLook2.three,
+                  // AND THE LOOK IT IS WEARING, sent as ALREADY APPLIED. The
+                  // stylesheet is appended last at build time so it wins on
+                  // source order; a model shown one with no such sentence
+                  // restates its rules inline, where editing the stylesheet
+                  // can no longer reach them.
+                  theme: eLook2.theme, css: eCss2,
                 }), eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
@@ -22739,9 +22893,47 @@ async function handleRequest(request, env, ctx) {
               // "the site already does that", given for an edit that was
               // sitting in `parts`. A part that is new, or differs from the
               // stored one, is a change even when the page is byte-identical.
-              const pStored = (pValid.parts && pValid.parts.length) ? await loadSiteParts(env, ownerSlug) : null;
-              const partMoved = !!pStored && pValid.parts.some((pt) => {
-                const s = pStored.find((x) => x && x.name === pt.name);
+              //
+              // ── AND NOTHING REPLACES WHAT THE WRITER WAS NEVER SHOWN ─────
+              //
+              // The addon route's wall, on the rung that needed it just as
+              // much: `mergeParts` replaces by name and has no wall of its
+              // own, so a returned `CardA` overwrote the real `CardA`
+              // whatever the model had in front of it. The ordinary case is
+              // now that every stored component's source IS in the prompt, and
+              // then this refuses nothing at all — it is the honest answer to
+              // `partsSent`'s size bound, which withholds a component too
+              // large to carry.
+              //
+              // BY THE SAME `pSentParts` THE PROMPT WAS BUILT FROM, so "was
+              // this shown?" has exactly one answer.
+              //
+              // ⚠ AN UNREADABLE STORE REFUSES EVERY ONE, and that is a
+              // SEPARATE list because it is a separate sentence. `withheld`
+              // names components we read and chose not to send; `unreadable`
+              // means we never learned a single name, so there is nothing to
+              // check a returned component against and no way to know what a
+              // replacement would destroy. The two can never both fire —
+              // `partsSent` answers empty lists when it cannot read.
+              const pKeptParts = [], pUnseenParts = [];
+              const pFreshParts = (Array.isArray(pValid.parts) ? pValid.parts : []).filter((p) => {
+                const n = String((p && p.name) || "").toLowerCase();
+                if (pSentParts.unreadable) { pUnseenParts.push(p && p.name); return false; }
+                if (!pSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
+                pKeptParts.push(p.name);
+                return false;
+              });
+              // ⚠ MEASURED AGAINST THE COMPONENTS WE ACCEPTED, over the
+              // snapshot the prompt and the wall were both built from — never
+              // a second read. `!!pStored` used to stand where `pPartsRead.ok`
+              // does, and it was wrong in both directions: a site with NO
+              // stored components read as "cannot tell" (so a brand-new
+              // component was not a change, and a part-only edit escalated
+              // `no-change`), while a store that THREW read as "no components"
+              // (so anything counted as a change and the merge below deleted
+              // the rest).
+              const partMoved = pPartsRead.ok && pFreshParts.some((pt) => {
+                const s = pPartsRead.parts.find((x) => x && x.name === pt.name);
                 return !s || s.source !== pt.source;
               });
               if (!wrote || (wrote.source === target.source && !partMoved)) {
@@ -22754,8 +22946,17 @@ async function handleRequest(request, env, ctx) {
               // sent to a container that never received the file — the lane
               // sweep's `tsx` failure. Merged over what is stored, by name, and
               // handed to the spine, which sends and then stores them.
-              const pParts = (pValid.parts && pValid.parts.length)
-                ? mergeParts(pStored, pValid.parts)
+              //
+              // ⚠ AND THE MERGE READS THE SAME SNAPSHOT, NEVER A SECOND READ.
+              // `mergeParts` replaces by name and keeps everything else — but
+              // only what it is HANDED: `mergeParts(null, [one])` answers
+              // `[one]`, so a read that failed where the prompt's succeeded
+              // would delete every component this change never mentioned. While
+              // `ok` is false nothing is written at all: `null` leaves the
+              // spine to re-send the store's own copy, which is exactly what a
+              // page edit that touched no component does.
+              const pParts = (pFreshParts.length && pPartsRead.ok)
+                ? mergeParts(pPartsRead.parts, pFreshParts)
                 : null;
 
               const pPub = await publishStep(env, {
@@ -22792,6 +22993,18 @@ async function handleRequest(request, env, ctx) {
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is
                 // byte-identical and the field's PRESENCE is the signal.
                 reordered: alsoOn.length ? alsoOn.slice(0, 4) : undefined,
+                // ── AND A COMPONENT WE REFUSED TO REPLACE IS NAMED ──────────
+                //
+                // NAMED, NEVER DROPPED IN SILENCE — the addon's rule, for the
+                // same reason: a component the customer asked to change and
+                // did not get changed is the one thing they must hear. Two
+                // fields because they are two sentences: `keptParts` is "too
+                // large to show you, so I would not rewrite it blind",
+                // `unseenParts` is "I could not read this site's components at
+                // all". Omitted when empty, so an ordinary page edit's reply is
+                // byte-identical to what it was.
+                keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,
+                unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,
                 // ONE BILL, ONE ROUNDING, for both calls. `eCharge` is variadic
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
