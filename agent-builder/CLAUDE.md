@@ -8332,3 +8332,114 @@ round-number naming is this folder's tell), edited in place. When they go the or
 recorded one — **migration → engine → site** — and here the engine's dependency is real and
 narrow: `alsoSay` reads a key only the new functions set, and reads its absence as
 nothing-to-say, so an engine shipped first is silent rather than wrong.
+
+---
+
+## M14-7: three complete customer journeys, and the one that was nowhere a journey (2026-09-20)
+
+Owner: *"Demonstrate three complete customer journeys… Journey A: conversational setup,
+clarification, reload/restart, approve, save, inspect in settings — **assert the actual context
+delivered after restart; scripted output alone does not prove that earlier conversation state
+survived.** Journey B: a useful automation through the fake provider — **inspect the provider's
+mailbox to establish what happened.** Journey C: two browser sessions, independent edits both
+preserved, an accepted run keeping its snapshot, a lost response recovered without duplicate
+effects, and another account attempting to read, edit, approve and resume — **distinguish two
+browser sessions belonging to one account from two different accounts.**"*
+
+**THE INSPECTION CAME FIRST, as W8 asks, AND IT MOVED THE WORK.** Read clause by clause against
+what already runs rather than assumed:
+
+| journey | where its clauses already are |
+|---|---|
+| **A** | `verify:conversation` §0–5 and §3b — the whole sequence INCLUDING the restart and the context assertion, and it already ends by reading the automation back through the site's own list route, which IS the settings screen's reader |
+| **B** | `verify:send` (97) and `verify:wf` (159) — the mailbox, the three ways in, the held approval, the execution history |
+| **C** | **nowhere as a journey.** Two sessions is `verify:triggers` §4c; the snapshot is `verify:auto` §7; the lost answer is `verify:ops`; the cross-account refusals are `verify:conversation` §6 — four files, and **the distinction the requirement names is asserted in none of them** |
+
+**SO WHAT THIS ROUND ADDS IS A SEQUENCE, WHICH IS A CLAIM NO COLLECTION OF PROPERTIES MAKES.**
+`npm run verify:journeys` — **67 checks, 0 failed** — is one run per journey on one database:
+A's and B's SPINES (their depth stays where it is, named in the file's own header) and C in
+full, with the distinction as the new assertion.
+
+### ⚠ THE CONTEXT AFTER THE RESTART, and the red proof is what makes it evidence
+
+A brand-new dispatcher **and a brand-new scripted sender**, so whatever reaches it came out of
+the database rather than out of this process; the doorbell is asserted empty first, so nothing
+is held open across the restart. Then the earlier request as a **user** turn, the agent's own
+question as an **assistant** turn, the new answer as a user turn, in that order, with the new
+message last.
+
+**MEASURED, by making `agent.history_turns()` answer 0 so no earlier turn reaches the
+snapshot:** A9, A10 and A12 go red — and **A11 and A13 stay GREEN.** A13 is *"the new message
+is the last turn"*, which is the `prompt`-shaped assertion, and it passes over a context that
+lost the entire conversation. *That is the whole reason the assertion is about the message list
+with its roles*, and it is now a measurement rather than an argument.
+
+### ⚠ AND JOURNEY C'S DISTINCTION IS PROVED BY A PAIR, because one clause could not kill it
+
+The same two request shapes are sent twice — once from two sessions of ONE account, once from
+two accounts — because neither half means much alone: *both kept* could be a platform with no
+isolation, and *refused* could be one that refuses everybody. **Each half is the other's
+control**, and the red proof says so:
+
+| what was cut | C24/C25 (one account) | C19/C23/C26/C27 (two accounts) |
+|---|---|---|
+| `patch_automation`'s tenant clause ALONE | green | **green — nothing changed** |
+| **that AND `update_automation`'s** | **green** | **all four RED** |
+
+**THE FIRST ROW IS THE FINDING.** `patch_automation` takes the row lock and then DELEGATES the
+write to `agent.update_automation`, which scopes by tenant too — so the two are a redundancy in
+the recorded *"two redundant defences cannot be killed one at a time"* shape, and cutting either
+alone is invisible from a customer's door. **Measured rather than reasoned**: the live function
+body was read back out of `pg_proc` with the clause gone, the row was proved visible, the
+owner's patch went through, and the outsider's still answered `no-automation` — from the
+delegate. The observable unit is the PAIR, and under it the one-account half stays green, which
+is what says C26/C27 are about isolation and not about a route that refuses everybody.
+
+### ⚠ One assertion of mine was wrong and the provider was right
+
+A mailbox entry is `{id, to, body, trace}` and **carries no label**, so asserting `simulated`
+on it went red about a provider doing exactly the right thing. Checked against the producer:
+the label lives where a person reads it — the execution's own outcome, where
+`src/automations.mjs` sets `simulated: done.result?.simulated === true` — and the ENTRY carries
+the thing only the platform needs, the operation's TRACE, which is what lets a reconciliation
+find this very send rather than guess at it. Both are asserted now, each off its real producer.
+
+**AND `asked` IS AN ARRAY, NOT A FUNCTION** — `makeScriptedModel()` answers `{send, arm, asked,
+left}` and I called `model.asked()`. A fixture API written from a guess about a producer, which
+is this directory's most-recorded fault, caught on the first run.
+
+### ⚠ AND A VERIFICATION NEEDLE OF MINE COULD NEVER HAVE MATCHED
+
+Checking that a breakage had landed, `grep -n "select 0 \$\$"` in DOUBLE quotes reads `$$` as
+**the shell's own PID**, so it found nothing and the `&&` chain stopped — and for a moment the
+mutation looked unapplied when `git diff` said it had landed. *A needle that cannot match the
+shape it is looking for proves nothing about its absence*, and in a shell the quoting is part
+of the shape. Asked with python, the count was right.
+
+### No sweep for this round, and the reason rather than a silence
+
+**A MUTATION OF A DEMONSTRATION'S OWN ASSERTIONS IS INERT BY CONSTRUCTION** — nothing outside
+`scripts/` reads that file, so no other check can observe it, which this directory records as
+the test-side mutant class. This round adds **no product code at all**: `git diff --name-only`
+over `src/`, `supabase/`, `agent-store.mjs` and `public/` is EMPTY. So the evidence here is the
+red proofs above, each driven one at a time against a committed tree, and the sweep specs are
+deliberately unmoved (JS 736, SQL 286).
+
+### Measured
+
+- **`npm run verify:journeys`: 67 checks, 0 failed** (new), `ALL CHECKS PASSED`, exit 0 — taken
+  at the restored tree after the red proofs rather than before them.
+- **Engine suite 602, unchanged, which is the control**: `npm test` is
+  `node --test "test/*.test.mjs"` and a script under `scripts/` is outside that glob.
+- **THE OTHER ELEVEN DEMONSTRATIONS ARE NOT RE-RUN AS EVIDENCE AND THAT IS SAID RATHER THAN
+  GLOSSED.** This round touches no file any of them reads — the diff is one new script and one
+  line of this directory's own `package.json` — so their recorded counts stand on their own
+  runs. **⚠ AND THE RED PROOFS DID TOUCH TWO MIGRATIONS**, so the restoration is proved two
+  ways: `git status` clean in both trees, and both spec generators' anchor censuses green (736
+  and 286, every anchor unique), which they cannot be while a mutant is applied.
+- **⚠ COMMITTED BEFORE ANY RED PROOF, which is this directory's own recorded rule**: a hand
+  red-proof loop restores with `git checkout`, and `git checkout` restores to HEAD — so an
+  uncommitted fix is discarded by the very loop that is meant to be proving it. It cost a
+  restore once here already.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and this round adds no SQL at all.

@@ -13503,3 +13503,47 @@ cannot quietly become *"it is erased everywhere"*. That matters more than the bo
 because your agent relays that exact sentence — so it would have told somebody their information
 was erased from work it is still part of, which is the one thing that round was built to
 prevent. I have run it, it catches the problem, and it is closed.
+
+## The three journeys a customer actually walks (2026-09-20)
+
+You asked for three complete customer journeys demonstrated. **I checked what already runs
+before building anything**, and the honest answer is that two of the three were already
+demonstrated end to end and the third was not a journey anywhere.
+
+**One command now walks all three** — `npm run verify:journeys`, 67 checks, nothing failed:
+
+1. **Somebody sets an agent up by talking to it.** They tell it the opening hours and it writes
+   them down; they ask for a weekly job and leave out the time; it ASKS rather than guessing;
+   **everything restarts**; they come back and answer; it proposes the whole thing, waits for
+   the button, and once they press it the job is there on the settings screen with its day, its
+   time and its time zone.
+2. **An automation that does something useful.** It looks the answer up in the shop's own
+   returns policy, writes the reply, waits for a person, and only then sends it through the
+   connected account. **The evidence is the provider's own mailbox**, not the success message:
+   empty while it waits, then exactly one message, identical to the words the person approved.
+3. **Two people in one account, and somebody from outside it.** Two browser sessions editing
+   the same job keep BOTH edits; a job already running keeps what it was started with even
+   though somebody edits it meanwhile; a lost answer is recovered without doing anything twice;
+   and the account next door cannot read it, edit it, approve it or start it.
+
+**The third one is the piece that did not exist, and its point is a distinction.** Two browser
+sessions of ONE account look exactly like two different accounts from the outside — two
+requests about one job, arriving from two places. What has to happen is opposite: one account's
+two edits are both kept, and the other account's identical request is refused. So the same two
+requests are sent twice, once each way, **because neither half proves anything alone** — "both
+kept" would also be true of a system with no separation at all, and "refused" would also be
+true of one that refuses everybody.
+
+**And I proved the important checks can fail, one at a time, rather than trusting a green run.**
+Making the conversation forget its history turns the restart checks red — **and, tellingly,
+leaves green the simpler check that "the newest message arrived"**, which is exactly why that
+simpler check was never good enough. Removing the account separation leaves the one-account
+half green and turns all four cross-account checks red, which is the pair working.
+
+**Two mistakes of my own, both the code being right.** I asserted a "simulated" label on the
+provider's mailbox entry, which does not carry one — the label is on the record a person reads,
+and the entry carries the tracking id the platform needs to recover a lost answer. And I called
+one of my own test helpers as a function when it is a list. Both fixed against what the real
+code produces rather than against what I expected.
+
+**Nothing is applied, deployed or merged**, and this round adds no database change at all.
