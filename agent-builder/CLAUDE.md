@@ -8283,7 +8283,14 @@ silent again. Measured through all three wrappers on a real database, plus the r
   an agent's own `forget` would have told a customer their fact was erased from the runs it is
   still in, which is the one claim the M14-4 round exists to prevent.
 - **Nothing outside `agent-builder/` moved** — `git diff --name-only` over the site's tree is
-  empty, so its 6,845 stands on its own CI read.
+  empty, so the site suite stands on its own CI read. **⚠ AND THIS LINE FIRST QUOTED 6,845,
+  WHICH IS THE M13-3 SECTION'S NUMBER AND WAS FOUR ROUNDS STALE.** Measured at this head:
+  **6,878** (6,876 pass, 2 skipped, 0 fail), which is also what M14-5's own commit message
+  carries. *A number stamped in two places drifts when only one is corrected* — and the way it
+  drifted here is worth naming, because it is not the usual way: nothing was edited, I read the
+  file for a current figure and took the first one my eye landed on. **The dated entries are
+  right at their own dates and stay**; what must not happen is a new entry borrowing an old
+  one's number. Measure it, or say it was not measured.
 
 ### ⚠ Eight instrument faults of my own, every one the product being right
 
@@ -8431,6 +8438,8 @@ deliberately unmoved (JS 736, SQL 286).
   at the restored tree after the red proofs rather than before them.
 - **Engine suite 602, unchanged, which is the control**: `npm test` is
   `node --test "test/*.test.mjs"` and a script under `scripts/` is outside that glob.
+- **Site suite 6,878** (6,876 pass, 2 skipped, 0 fail) — measured at this head rather than
+  quoted, after the previous round's note was found to be carrying a four-round-old figure.
 - **THE OTHER ELEVEN DEMONSTRATIONS ARE NOT RE-RUN AS EVIDENCE AND THAT IS SAID RATHER THAN
   GLOSSED.** This round touches no file any of them reads — the diff is one new script and one
   line of this directory's own `package.json` — so their recorded counts stand on their own
@@ -8443,3 +8452,28 @@ deliberately unmoved (JS 736, SQL 286).
   restore once here already.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and this round adds no SQL at all.
+
+### CI on the pushed head, and what was and was not due
+
+**`b679738` is the head that carries all of M14-6 and M14-7, and both workflows are green on
+it.**
+
+- **`unit tests` run 2821** — the suite step 06:21:13→06:23:05Z (110.7 s) — `# tests 6878 /
+  # pass 6874 / # fail 0 / # skipped 4`, against local `6878 / 6876 / 0 / 2`. **The TOTAL is
+  what matches and the skips are what differ**, the two extra being the recorded environment
+  skips — and this run is the independent confirmation of the 6,878 the corrected line above
+  now carries.
+- **`agent deploy` run 116** — the `agent checks` step 06:21:14→06:21:23Z (**8.7 s** against a
+  45-minute timeout), green, and **steps 6 through 13 all `skipped`** with the log reading
+  *"Not armed. The checks above are all this push does."* — **NOTHING WAS DEPLOYED**, which is
+  what this whole milestone intends.
+  **⚠ AND ITS PER-TEST COUNTS WERE NOT READABLE FROM THE LOG THIS TIME, which is said rather
+  than filled in from the local run.** The API returned the whole job log as 4,146 characters
+  and the step's TAP output is not in it, where earlier rounds read it fine. The local engine
+  reading at this head is `602 / 602 / 0 fail / 0 skipped`, and CI's own totals for it are
+  **unread**.
+- **`site build` did NOT run and NONE WAS DUE**, checked per path rather than assumed: every
+  file this span changed is under `agent-builder/` or `docs/` (`git diff --name-only
+  1588910..b679738` filtered on neither prefix is EMPTY), and that workflow's `paths` names
+  `builder/**`, `worker.js` and ROOT `*.mjs` — under which `agent-builder/**` does not fall.
+  So run 1224's green on `1588910` still covers this tip by the recorded ancestor rule.
