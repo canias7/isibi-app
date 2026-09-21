@@ -67,6 +67,15 @@ function fakeStore(over = {}) {
     runAutomation: of("runAutomation", { ok: true, repeat: false, run_id: R1, occurrence: null, trigger: "manual", state: "queued" }),
     executions: of("executions", []),
     /**
+     * ⚠ AS CAPABLE AS THE REAL STORE, for the SIXTH recorded time in this file — and the
+     * default is `null` rather than a row because that is the honest answer to "the newest page
+     * does not hold this run and neither do I". Without the operation at all the history route
+     * throws the moment a `run=` names something off the page, which from outside reads as the
+     * feature being broken; with a ROW as the default, every case that names a run would quietly
+     * get one whether the product asked properly or not.
+     */
+    execution: of("execution", null),
+    /**
      * ⚠ AS CAPABLE AS THE REAL STORE, for the FIFTH recorded time in this file — and this one
      * fails QUIETLY rather than loudly, which is why it is worth saying. The history route asks
      * for the waiting sends' payloads inside its own try/catch (a payload that cannot be read
@@ -329,11 +338,26 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   // operation added next month fails by existing. It is the read the run route asks for
   // what an automation wants, so it was the one operation of the nine nothing here drove.
   await store.readAutomation(T1, C1);
+  // ⚠ **AND `execution` WAS THE TENTH, added for the run an arrival names.** Its filter is the
+  // whole of its safety: `service_role` bypasses row level security, so a read of one execution
+  // BY ID is scoped by nothing but what is in the query.
+  await store.execution(T1, C1, R1);
   const AUTOMATION_OPS = ["listAutomations", "readAutomation", "ownsAutomation", "createAutomation",
-    "patchAutomation", "setAutomationEnabled", "removeAutomation", "runAutomation", "executions"];
+    "patchAutomation", "setAutomationEnabled", "removeAutomation", "runAutomation", "executions",
+    "execution"];
   for (const op of AUTOMATION_OPS) {
     assert.equal(typeof store[op], "function", `the store has no ${op}`);
   }
+  /**
+   * ⚠ **AND THE LIST IS DERIVED FROM THE STORE, which this comment claimed and the code did
+   * not do.** It was a hand-kept literal asserted only to EXIST, so an operation added next
+   * month did not fail by existing — it simply went undriven, which is how `readAutomation`
+   * came to be the one of nine nothing here touched. The store's own keys decide the family now,
+   * so a `readExecution` written later has to be driven or this goes red.
+   */
+  const FAMILY = Object.keys(store).filter((k) => /automation|execution/i.test(k)).sort();
+  assert.deepEqual(FAMILY, [...AUTOMATION_OPS].sort(),
+    "the store's automation operations and the ones driven here have come apart");
   assert.equal(seen.length, AUTOMATION_OPS.length,
     `${AUTOMATION_OPS.length} operations made ${seen.length} requests — one of them is unread`);
   // THE HISTORY IS A READ AND IT IS SCOPED TWICE: the route asks `ownsAutomation` first,
@@ -343,6 +367,38 @@ test("the store hands the ceiling to the transaction, and profiles every write",
   assert.ok(hist, "the history was never read");
   assert.match(hist.url, new RegExp(`tenant_id=eq\\.${T1}`), `the history is unscoped: ${hist.url}`);
   assert.match(hist.url, new RegExp(`automation_id=eq\\.${C1}`));
+  /**
+   * ⚠ **THE ONE-EXECUTION READ IS SCOPED THREE WAYS, and the tenant and the automation are the
+   * two that are walls.** It exists so a run an arrival names can be found when it is older than
+   * the newest page; by id alone it would be a read of any execution on the platform, since
+   * `service_role` bypasses row level security. `limit=1` is the shape, not the safety.
+   */
+  const one = seen.filter((r) => r.url.includes("automation_history")).find((r) => /[?&]id=eq\./.test(r.url));
+  assert.ok(one, "the one-execution read never happened");
+  assert.match(one.url, new RegExp(`tenant_id=eq\\.${T1}`), `the single read is unscoped: ${one.url}`);
+  assert.match(one.url, new RegExp(`automation_id=eq\\.${C1}`));
+  assert.match(one.url, new RegExp(`id=eq\\.${R1}`));
+  assert.equal(one.method, "GET", "reading one execution is not a read");
+  /**
+   * ⚠ **AND THE PAGE IS REALLY BOUNDED BY `MAX_EXECUTIONS`, which is what makes "a run outside
+   * the newest page" a thing rather than a phrase.** The one-run read takes `limit=1` because it
+   * is asking about one id; the page takes the constant, so a history that quietly answered
+   * everything would make the whole fetch-by-name hop unreachable and untestable.
+   */
+  assert.match(hist.url, new RegExp(`limit=${MAX_EXECUTIONS}(&|$)`), `the page is unbounded: ${hist.url}`);
+  assert.match(one.url, /limit=1(&|$)/, `the one-execution read is unbounded: ${one.url}`);
+  assert.match(hist.url, /order=created_at\.desc/, "the page is not newest-first, so 'outside it' means nothing");
+  /**
+   * ⚠ **AND BOTH READS ASK FOR THE SAME COLUMNS, from one constant.** `executionRow` fails
+   * closed on every field it cannot read, so a single read asking for fewer would answer a run
+   * whose steps, decisions and stop were all silently absent — the `&select=` defect this
+   * repository already records, with the two readers disagreeing instead of one being short.
+   */
+  const cols = (u) => decodeURIComponent((/[?&]select=([^&]*)/.exec(u) || [, ""])[1]).split(",").sort();
+  assert.deepEqual(cols(one.url), cols(hist.url),
+    "the two history readers ask for different columns, so one of them degrades every row it answers");
+  assert.ok(cols(one.url).includes("run_status") && cols(one.url).includes("steps"),
+    "the observer is dead: neither reader names the columns a run's state is read from");
   const made = seen.find((r) => r.url.includes("rpc/create_automation"));
   assert.equal(made.body.p_max, MAX_AUTOMATIONS, "the ceiling goes to the function that does the insert");
   assert.equal(made.body.p_tenant, T1);
@@ -1947,6 +2003,207 @@ test("⚠ the history's payload is the REQUEST's, never the automation's editabl
   assert.equal(r2.body.executions[0].waiting.payload, null);
   assert.equal(r2.body.executions[0].waiting.request, REQ);
   assert.ok(said.some((l) => /payloads could not be read/.test(l)), "it failed silently");
+});
+
+/**
+ * ⚠ **THE RUN AN ARRIVAL NAMES, and the older one that is the whole reason this exists.**
+ *
+ * An arrival records both halves (`{id, automation}`) and "Open the run" used to carry only the
+ * automation, so two arrivals starting two runs of ONE automation opened the same page with
+ * nothing saying which row was the one pressed. `run=` is that id coming back.
+ *
+ * Every arm is driven through the route, because the interesting half is what went to the store:
+ * whether the extra read happened at all, and what it was asked for.
+ */
+test("⚠ a named run outside the newest page is fetched, appended, and never faked", async () => {
+  const R2 = "dddddddd-2222-2222-3333-444444444444";
+  const OLD = "dddddddd-9999-2222-3333-444444444444";
+  /**
+   * The page as the store really answers it: newest first, and `executionRow`'s own shape.
+   *
+   * ⚠ **A FUNCTION, because `store.executions` answers a FRESH array on every call** — it is
+   * `rows(r).map(executionRow)`. One shared array here was a fixture the real store cannot
+   * produce, and it cost this case a false failure: the arm above it appends the older run to
+   * whatever it was handed, so a shared array arrived at the next arm already holding the run
+   * the next arm is about, and a read that correctly did not happen read as the product's.
+   */
+  const page = () => [
+    executionRow({ id: R2, automation_id: C1, created_at: "2026-09-21T10:00:00+00:00" }),
+    executionRow({ id: R1, automation_id: C1, created_at: "2026-09-21T09:00:00+00:00" }),
+  ];
+  const older = executionRow({ id: OLD, automation_id: C1, created_at: "2026-08-01T09:00:00+00:00" });
+
+  // ── TWO ARRIVALS, TWO RUNS OF ONE AUTOMATION, both on the page. ────────────────────
+  // Each names a DIFFERENT run and each answer has to carry it: this is the defect's own
+  // scenario, and the two ids are what tell the two answers apart.
+  // The one-run read is RECORDED HERE rather than read off `f.calls`, because `fakeStore`
+  // records the operations it declares and an OVERRIDE replaces one — so an arm that overrides
+  // the answer has to keep its own note of the arguments.
+  for (const want of [R1, R2]) {
+    const asked = [];
+    const f = fakeStore({
+      executions: async () => page(),
+      execution: async (...a) => { asked.push(a); return older; },
+    });
+    const r = await call("/api/agent/automation-history", {
+      store: f.store, query: new URLSearchParams({ id: C1, run: want }),
+    });
+    assert.equal(r.status, 200);
+    assert.ok(r.body.executions.some((e) => e.id === want), `the history lost the run ${want} names`);
+    // ⚠ AND NOTHING EXTRA WAS READ: the page holds it, so a second read would be a request
+    // per open for a row already in hand. This is the control that makes the arm below
+    // about the page really lacking the run rather than about the route always fetching.
+    assert.deepEqual(asked, [], "a run the page already holds was fetched again");
+    // AND THE OTHER RUN IS STILL THERE: one arrival's run being marked must not take the
+    // other arrival's off the history.
+    assert.deepEqual(r.body.executions.map((e) => e.id), [R2, R1]);
+  }
+
+  // ── AN OLDER RUN, OUTSIDE THE PAGE. ───────────────────────────────────────────────
+  /**
+   * ⚠ A FULL PAGE, at the real ceiling rather than a token two rows: the run that has fallen off
+   * the end is what this hop exists for, and a two-row fixture does not look like the state it is
+   * about. The store's own `limit=` and its ordering are asserted in the census above, so "outside
+   * the newest page" is tied to the number the product really sends.
+   */
+  const full = () => [
+    ...Array.from({ length: MAX_EXECUTIONS - 1 }, (_, i) =>
+      executionRow({ id: `dddddddd-0000-2222-3333-${String(i).padStart(12, "0")}`, automation_id: C1 })),
+    executionRow({ id: R1, automation_id: C1, created_at: "2026-09-21T09:00:00+00:00" }),
+  ];
+  const took = [];
+  const handed = full();
+  assert.equal(handed.length, MAX_EXECUTIONS, "the page fixture is not a full page");
+  const f = fakeStore({
+    executions: async () => handed,
+    execution: async (...a) => { took.push(a); return older; },
+  });
+  const r = await call("/api/agent/automation-history", {
+    store: f.store, query: new URLSearchParams({ id: C1, run: OLD }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(took.length, 1, "a run the page does not hold was never fetched");
+  // ⚠ THE TENANT AND THE AUTOMATION GO WITH IT. By id alone this would be a read of any
+  // execution on the platform: `service_role` bypasses row level security, so what is in
+  // the arguments is the wall. `ownsAutomation` above is the belt.
+  assert.deepEqual(took[0], [T1, C1, OLD]);
+  assert.ok(!JSON.stringify(took).includes(T2), "an account nobody sent reached the store");
+  // ⚠ APPENDED, NEVER PREPENDED: the page is the newest 50 `created_at.desc`, so a run
+  // outside it is older than every row in it and last is where it belongs. Prepended, the
+  // list would claim a month-old execution was the most recent thing that happened.
+  assert.equal(r.body.executions.length, MAX_EXECUTIONS + 1, "the fetched run did not join the page");
+  assert.equal(r.body.executions.at(-1).id, OLD, "the older run was put somewhere other than last");
+  assert.equal(r.body.executions.at(-2).id, R1, "the page's own last row moved");
+  // ⚠ AND THE STORE'S OWN ANSWER IS NOT WRITTEN INTO. `store.executions` hands back a fresh
+  // array today, so a `push` would be safe today — and that is a rule resting on a layer below,
+  // with nothing to announce it if the store ever shares or caches one. Asserted on the object
+  // the fake really handed over.
+  assert.equal(handed.length, MAX_EXECUTIONS,
+    "the route wrote the run it fetched into the array the store handed it");
+  assert.equal(handed.some((e) => e.id === OLD), false);
+
+  // ── A RUN THAT IS NOT THERE: said, not substituted. ───────────────────────────────
+  // `null` is a real answer — the run may have been pruned, or belong to another automation
+  // or another account, which the store's own filter turns into the same `null`. The list must
+  // come back exactly as it was, so the screen can say so rather than mark a different row.
+  const missed = [];
+  const gone = fakeStore({
+    executions: async () => page(),
+    execution: async (...a) => { missed.push(a); return null; },
+  });
+  const r2 = await call("/api/agent/automation-history", {
+    store: gone.store, query: new URLSearchParams({ id: C1, run: OLD }),
+  });
+  assert.equal(r2.status, 200, "a run that could not be found failed the whole history");
+  assert.equal(missed.length, 1);
+  assert.deepEqual(r2.body.executions.map((e) => e.id), [R2, R1]);
+  assert.ok(!JSON.stringify(r2.body).includes(OLD), "the answer named a run it does not carry");
+
+  // ── JUNK IS NOT A RUN. ───────────────────────────────────────────────────────────
+  // `cleanId` refuses it, so nothing is read — and the history is still answered, because a
+  // malformed `run=` is not a reason to refuse somebody their own history.
+  for (const junk of ["", "not-a-uuid", "../../etc", String(R1) + " or 1=1"]) {
+    const reached = [];
+    const j = fakeStore({
+      executions: async () => page(),
+      execution: async (...a) => { reached.push(a); return older; },
+    });
+    const rj = await call("/api/agent/automation-history", {
+      store: j.store, query: new URLSearchParams({ id: C1, run: junk }),
+    });
+    assert.equal(rj.status, 200, junk);
+    assert.deepEqual(reached, [], `${junk} reached the store`);
+    assert.deepEqual(rj.body.executions.map((e) => e.id), [R2, R1]);
+  }
+});
+
+/**
+ * ⚠ **THE ONE-EXECUTION READ ITSELF: `null` IS A REAL ANSWER and must stay one.**
+ *
+ * The route above is driven with a FAKE store, so nothing there can see what the real reader does
+ * with an empty result — *a guard proves the branch it drives, and no other*. A row invented for
+ * a run that is not there would put an empty execution on screen as the one an arrival started,
+ * which is the defect this whole hop exists to avoid, one layer down.
+ */
+test("⚠ reading one execution answers null when there is none, and never a stand-in", async () => {
+  const R2 = "dddddddd-2222-2222-3333-444444444444";
+  const answer = (rowsOut, ok = true, status = 200) => makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async () => ({ ok, status, text: async () => JSON.stringify(rowsOut) }),
+  });
+
+  // NOTHING THERE — pruned, another automation's, or another account's, which the filter turns
+  // into the same empty answer.
+  assert.equal(await answer([]).execution(T1, C1, R2), null);
+
+  // ONE ROW — read through `executionRow`, so it arrives in the shape every other run does.
+  const got = await answer([{ id: R2, automation_id: C1, run_status: "running", steps: [], outcomes: {} }])
+    .execution(T1, C1, R2);
+  assert.equal(got.id, R2);
+  assert.equal(got.state, "queued", "the row did not come through the same reader the page uses");
+  // AND THE OBSERVER IS ALIVE: `executionRow`'s own key set, so a reader asking for a narrower
+  // shape here than the page asks for would not satisfy this.
+  assert.deepEqual(Object.keys(got).sort(), Object.keys(executionRow({ id: R2 })).sort());
+
+  // A FAILED READ THROWS rather than answering `null`: "the database said no" and "there is no
+  // such run" are different facts, and the route's own sentence about a run it could not find
+  // must not be said about a database that was unreachable.
+  await assert.rejects(() => answer([], false, 500).execution(T1, C1, R2));
+});
+
+/**
+ * ⚠ **AND A FETCHED RUN IS JOINED LIKE ANY OTHER, which is an ORDERING and not a feature.**
+ *
+ * The payload join reads what each waiting send would send. If the one-run read happened AFTER
+ * it, a waiting run reached through `run=` would arrive with `payload: null` — the screen would
+ * then decline to offer Approve for the one execution somebody had pressed to see.
+ */
+test("⚠ a run fetched by name gets its waiting payload joined too", async () => {
+  const OLD = "dddddddd-9999-2222-3333-444444444444";
+  const REQ = "eeeeeeee-9999-2222-3333-444444444444";
+  const SHOWN = "Hello Ada — the lathe is ready.";
+  const f = fakeStore({
+    executions: async () => [],
+    execution: async () => executionRow({
+      id: OLD, automation_id: C1, run_status: "running",
+      waiting: { kind: "approval", step: "s3", request: REQ },
+    }),
+    listToolApprovals: async () => [toolApprovalRow({ id: REQ, args: { to: "ada@example.test", body: SHOWN } })],
+  });
+  const r = await call("/api/agent/automation-history", {
+    store: f.store, query: new URLSearchParams({ id: C1, run: OLD }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.executions[0].id, OLD);
+  assert.equal(r.body.executions[0].waiting.payload.body, SHOWN);
+  // AND THE CONTROL: the join really is conditional, so this arm is about the ORDER rather
+  // than about a route that asks for payloads on every read.
+  const quiet = fakeStore({ executions: async () => [], execution: async () => executionRow({ id: OLD }) });
+  const r2 = await call("/api/agent/automation-history", {
+    store: quiet.store, query: new URLSearchParams({ id: C1, run: OLD }),
+  });
+  assert.equal(r2.body.executions[0].id, OLD, "the fetched run never reached the answer");
+  assert.equal(quiet.calls.filter((c) => c.name === "listToolApprovals").length, 0);
 });
 
 test("⚠ a REJECTED execution has a reason and deliberately NO result", () => {

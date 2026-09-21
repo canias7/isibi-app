@@ -101,17 +101,35 @@ const killed = [], survived = [], unapplied = [];
 for (const m of spec) {
   const file = m.files[0];
   const before = original.get(file);
-  const first = before.indexOf(m.from);
-  if (first < 0) { unapplied.push(`${m.label} — anchor not found`); continue; }
-  if (first !== before.lastIndexOf(m.from)) { unapplied.push(`${m.label} — anchor is ambiguous`); continue; }
-
-  // The function form: the replacement is taken literally, whatever it contains.
-  const after = before.replace(m.from, () => m.to);
-  if (after === before) { unapplied.push(`${m.label} — replacement changed nothing`); continue; }
+  /**
+   * ⚠ **`also` MUTATES A DECLARED REDUNDANCY AS ONE MUTANT, and this repo's own rule needs it.**
+   *
+   * "Two redundant defences cannot be killed one at a time" is recorded, and the answer it
+   * prescribes is to mutate the PAIR — which until now could only be written where the two sites
+   * were CONTIGUOUS, because a mutant was one `from`/`to`. Two walls on one property are usually
+   * in two functions, so the rule was unexpressible for exactly the shape it is about.
+   *
+   * Every edit gets the SAME checks the single one gets — found, unambiguous, really landed — and
+   * one refusal makes the whole mutant NEVER APPLIED rather than a half-applied one reported as
+   * a kill. A `[from, to]` pair whose `from` is in another edit's `to` is refused by the
+   * ambiguity test on the text as it then stands, so order cannot hide one.
+   */
+  const edits = [[m.from, m.to], ...(m.also ?? []).map(([f, t]) => [f, t])];
+  let after = before, refused = null;
+  for (const [from, to] of edits) {
+    const first = after.indexOf(from);
+    if (first < 0) { refused = "anchor not found"; break; }
+    if (first !== after.lastIndexOf(from)) { refused = "anchor is ambiguous"; break; }
+    const next = after.replace(from, () => to);         // the function form: `to` is literal
+    if (next === after) { refused = "replacement changed nothing"; break; }
+    after = next;
+  }
+  if (refused) { unapplied.push(`${m.label} — ${refused}`); continue; }
   fs.writeFileSync(file, after);
   const landed = fs.readFileSync(file, "utf8");
   if (landed !== after || sum(landed) === sum(before)) { unapplied.push(`${m.label} — the landed text is not the written text`); fs.writeFileSync(file, before); continue; }
-  if (m.to && !landed.includes(m.to)) { unapplied.push(`${m.label} — the written text is not in the file`); fs.writeFileSync(file, before); continue; }
+  const missing = edits.find(([, to]) => to && !landed.includes(to));
+  if (missing) { unapplied.push(`${m.label} — the written text is not in the file`); fs.writeFileSync(file, before); continue; }
 
   const green = await runTests();
   fs.writeFileSync(file, before);

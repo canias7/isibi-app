@@ -5590,9 +5590,16 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
        * screen then says it could not be found rather than marking something else.
        */
       const want = cleanId(q.get("run"));
+      let shown = runs;
       if (want && !runs.some((e) => e && e.id === want)) {
         const one = await store.execution(who, id, want);
-        if (one) runs.push(one);
+        // ⚠ A NEW ARRAY RATHER THAN A `push`, because what came back is the store's and not
+        // ours. `store.executions` really does answer a fresh `rows(r).map(...)` today, so a
+        // push is safe today — which is exactly the shape of coupling this repository keeps
+        // paying for: a rule true because of a layer below it, with nothing announcing it if
+        // that layer ever caches or shares. It cost a fixture a false failure the hour it was
+        // written.
+        if (one) shown = [...runs, one];
       }
       /**
        * ⚠ **AND WHAT EACH WAITING SEND WOULD SEND, so nobody approves words they were never
@@ -5612,7 +5619,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
        * ceiling (`MAX_TOOL_APPROVALS`): an account with more waiting calls than one page
        * holds gets the explanation rather than a wrong payload.
        */
-      const waitingOnRequest = runs.some((e) => typeof e?.waiting?.request === "string" && e.waiting.request);
+      const waitingOnRequest = shown.some((e) => typeof e?.waiting?.request === "string" && e.waiting.request);
       let requests = [];
       if (waitingOnRequest) {
         try { requests = await store.listToolApprovals(who, null); }
@@ -5620,7 +5627,7 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
           if (typeof log === "function") log("agent automation-history: the waiting payloads could not be read", String(e?.message ?? e));
         }
       }
-      return ok({ id, executions: withWaitingPayloads(runs, requests) });
+      return ok({ id, executions: withWaitingPayloads(shown, requests) });
     }
 
     if (path === "/api/agent/import") {

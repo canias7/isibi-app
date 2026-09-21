@@ -481,6 +481,17 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
   fail = {}, noExample = false, halfExample = false, connections = [], connFails = false,
   connThrows = false,
   /**
+   * ⚠ **RUNS THE NEWEST PAGE DOES NOT HOLD, keyed by id — which is the real route's own
+   * single-execution read, and the fixture could not answer it at all.**
+   *
+   * `store.executions` answers the newest `MAX_EXECUTIONS`, so an arrival from last month names
+   * a run that has fallen off the end; the route fetches THAT ONE by name and APPENDS it. A
+   * fixture that ignored `run=` could not tell a screen that asks for it from one that does not,
+   * which is the whole of the defect being fixed — a fake less capable than the thing it stands
+   * in for, in the field the feature turns on.
+   */
+  older = {},
+  /**
    * ⚠ WHAT A CHECK ANSWERED, because the catch-all's `{ok: true}` carries no `needs` and no
    * `error` — so without this every check case would be about a route that reported nothing,
    * which is exactly the one answer the panel must not be satisfied by.
@@ -530,7 +541,16 @@ function autoAnswer({ automations = [], steps = STEP_CATALOG, listFails = false,
     // It held `executions: []` and that is what made every waiting-and-approving case below
     // impossible to write: the panel drew nothing and nothing was wrong with it.
     if (path.startsWith("/api/agent/automation-history")) {
-      return { ok: true, body: { ok: true, id: body.id, executions: history } };
+      // THE QUERY, not the body: this is a GET, so `body.id` was `undefined` on every answer
+      // this fixture has ever given — a shape the route cannot produce.
+      const q = new URLSearchParams(path.split("?")[1] || "");
+      const want = q.get("run") || "";
+      // APPENDED, never prepended, exactly as the route does it: the page is newest-first and
+      // anything outside it is older than every row in it.
+      const runs = want && !history.some((e) => e && e.id === want) && older[want]
+        ? [...history, older[want]]
+        : history;
+      return { ok: true, body: { ok: true, id: q.get("id") || "", executions: runs } };
     }
     onPost(path, body);
     if (path.startsWith("/api/agent/automation-check")) {
@@ -6014,6 +6034,54 @@ async function openWh(opts) {
   return w;
 }
 
+/**
+ * ⚠ **HYDRATE THE MAKE-AN-ADDRESS FORM FROM THE MARKUP IT REALLY DREW, and this one was
+ * MISSING while three cases about it passed.**
+ *
+ * The fake element answers `null` to `querySelector`, so `agentWhFormRead` — which walks the
+ * form for `[data-field="name"]` and `[data-field="event"]` — read nothing and wrote
+ * `{name: "", event: ""}` on every call. Every case that saved from this form was therefore
+ * saving an EMPTY form, which is exactly the fixture trap this file keeps paying for: the
+ * values are what the answer is bound to, so with no values there is nothing for a binding
+ * to be wrong about and the whole fix would read as working with the fix deleted.
+ *
+ * It parses what the product drew, like `hydrate` and `hydrateAuto` above it, so a field the
+ * form stops drawing disappears from the fixture too.
+ */
+function hydrateWh(w) {
+  const form = w.s.document.getElementById("agWhForm");
+  form.innerHTML = w.ev("agentWhFormHtml()");
+  const drawn = (n) => {
+    const m = new RegExp(`data-field="${n}"[^>]*value="([^"]*)"`).exec(form.innerHTML);
+    return m ? m[1] : null;
+  };
+  const boxes = {};
+  for (const n of ["name", "event"]) {
+    const v = drawn(n);
+    assert.notEqual(v, null, `the form drew no ${n} box — the fixture is reading markup that moved`);
+    boxes[n] = { value: v, getAttribute: (k) => (k === "data-field" ? n : null) };
+  }
+  form.querySelector = (sel) => {
+    const m = /\[data-field="([a-z]+)"\]/.exec(sel);
+    return m && boxes[m[1]] ? boxes[m[1]] : null;
+  };
+  // TYPE, the way a person does: the box changes and the screen's own input hook writes the
+  // draft, which is what makes "newer typing" a thing the product knows about rather than
+  // something this file arranges.
+  const type = (over) => {
+    for (const [n, v] of Object.entries(over)) boxes[n].value = String(v);
+    w.ev("INPUT_ACTIONS['agent-wh']()");
+  };
+  return { form, boxes, type };
+}
+
+/** Open the arrivals screen, open the form, and hydrate it. */
+async function openWhForm(opts) {
+  const w = await openWh(opts);
+  await w.ev("agentWhNewOpen()");
+  return { w, f: hydrateWh(w) };
+}
+
 test("the arrivals screen draws the addresses, the path and whether each is open", async () => {
   const w = await openWh({ webhooks: [EP, { ...EP, id: "WH2", name: "Closed one", enabled: false }] });
   const html = w.s.document.getElementById("viewAgents").innerHTML;
@@ -6128,6 +6196,239 @@ test("⚠ A CREATE ANSWERED AFTER THE SCREEN MOVED SHOWS NOBODY THE KEY", async 
   assert.equal(w.ev("agentWhSecret"), null, "a signing key survived opening the screen");
 });
 
+/**
+ * ⚠ **THE REPRODUCED SEQUENCE: save, cancel, open a new form, type, and THEN the answer lands.**
+ *
+ * `whSame` asked only the account and the agent, and `agentWhNew` is a boolean — so this answer
+ * passed every wall there was and did three things to a form it was not about: closed it, threw
+ * away what had been typed into it, and put the OLD address's signing key on screen in its place.
+ *
+ * Driven through the real handlers with the answer held open, because nothing about it is visible
+ * from a source read: the code is identical whether or not it asks which form it belongs to.
+ */
+function whGate(res, over = {}) {
+  const gate = held(res);
+  const w = whScreen({ create: () => gate.p, ...over });
+  return { gate, w };
+}
+const whHtml = (w) => w.s.document.getElementById("viewAgents").innerHTML;
+const KEY = okRes({ id: "WH9", name: "Our orders", event: "order.paid", path: "/deliver/WH9", secret: "s3cr3t" });
+
+test("⚠ A DELAYED ADDRESS ANSWER DOES NOT CLOSE A NEWER FORM OR EAT ITS WORDS", async () => {
+  const { gate, w } = whGate(KEY);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+
+  // ── SAVE THE FIRST ONE. ─────────────────────────────────────────
+  await w.ev("agentWhNewOpen()");
+  const first = hydrateWh(w);
+  first.type({ name: "Our orders", event: "order.paid" });
+  const saving = w.ev("agentWhSave()");
+
+  // ── CANCEL, OPEN A NEW FORM, AND TYPE INTO IT. ────────────────────────
+  await w.ev("agentWhCancel()");
+  await w.ev("agentWhNewOpen()");
+  const second = hydrateWh(w);
+  second.type({ name: "Returns desk", event: "return.started" });
+
+  gate.release();
+  await saving;
+
+  // THE NEWER FORM IS STILL OPEN AND STILL HOLDS WHAT WAS TYPED INTO IT.
+  assert.equal(w.ev("agentWhNew"), true, "the answer closed a form it was not about");
+  assert.deepEqual(w.val("agentWhDraft"), { name: "Returns desk", event: "return.started" },
+    "the newer form's words were thrown away");
+  // AND THE OLD ADDRESS'S KEY IS NOT IN ITS PLACE.
+  assert.equal(w.ev("agentWhSecret"), null, "the old address's signing key replaced the newer form");
+  assert.match(whHtml(w), /Returns desk/, "the newer form is not on screen");
+  // ⚠ **AND THE REFUSAL SLOT IS UNTOUCHED**, because a refusal about the old words drawn over
+  // the new form would read as that form's problem.
+  assert.equal(w.ev("agentWhActErr"), "");
+
+  // ── AND THE ADDRESS THAT WAS REALLY MADE IS DEALT WITH HONESTLY. ─────────────
+  // It exists and takes deliveries whatever this screen went on to show, and its key came back in
+  // that one answer and comes back nowhere else. It is OFFERED rather than dropped.
+  assert.match(whHtml(w), /Our orders/, "the address that was made is not mentioned at all");
+  assert.match(whHtml(w), /was made/);
+  assert.match(whHtml(w), /agent-wh-held-show/, "there is no way to reach the key that was answered");
+  // ⚠ **AND THE KEY ITSELF IS NOT IN THE MARKUP**, which is what keeps it out of every render
+  // until somebody asks for it.
+  assert.equal(/s3cr3t/.test(whHtml(w)), false, `the key is drawn before it was asked for`);
+  // ⚠ AND NOTHING STORED IT. Memory only, so a reload loses it — which the notice says.
+  for (const v of Object.values(w.store)) {
+    assert.equal(/s3cr3t/.test(String(v)), false, "the held signing key was written into storage");
+  }
+});
+
+test("⚠ A DELAYED REFUSAL NAMES WHAT IT WAS ABOUT AND STAYS OFF THE NEWER FORM", async () => {
+  const { gate, w } = whGate(badRes("that event name is taken"));
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Our orders", event: "order.paid" });
+  const saving = w.ev("agentWhSave()");
+  await w.ev("agentWhCancel()");
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Returns desk", event: "return.started" });
+  gate.release();
+  await saving;
+
+  assert.equal(w.ev("agentWhNew"), true);
+  assert.deepEqual(w.val("agentWhDraft"), { name: "Returns desk", event: "return.started" });
+  // ⚠ **THE REFUSAL IS NOT IN THE FORM'S OWN SLOT.** Put there it would be drawn under a form
+  // holding different words, blaming this address for the last one's problem.
+  assert.equal(w.ev("agentWhActErr"), "", "the old save's refusal was drawn on the newer form");
+  // IT IS SAID, AND IT NAMES WHICH ADDRESS.
+  assert.match(whHtml(w), /Our orders/);
+  assert.match(whHtml(w), /that event name is taken/);
+  assert.match(whHtml(w), /didn’t work/);
+  // AND THERE IS NO KEY TO OFFER, because nothing was made.
+  assert.equal(w.ev("agentWhSecret"), null);
+  await w.ev("CLICK_ACTIONS['agent-wh-held-show']()"); await settle();
+  assert.equal(w.ev("agentWhSecret"), null, "a refusal handed out a signing key");
+  assert.equal(w.ev("agentWhHeld"), null, "acknowledging a refusal left it on screen");
+});
+
+test("⚠ NEWER TYPING IN THE SAME FORM IS PRESERVED, and the same words are not", async () => {
+  /**
+   * The opening count alone would not catch this — it is the SAME opening — and the values alone
+   * would not catch a cancel and a reopen. Both are asked, so both halves are driven: here, and
+   * the CONTROL below, where nothing was typed and the ordinary path really does run.
+   */
+  const { gate, w } = whGate(KEY);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  const f = hydrateWh(w);
+  f.type({ name: "Our orders", event: "order.paid" });
+  const saving = w.ev("agentWhSave()");
+  f.type({ name: "Our orders and returns", event: "order.paid" });   // the same form, newer words
+  gate.release();
+  await saving;
+  assert.equal(w.ev("agentWhNew"), true, "a form somebody was still typing into was closed");
+  assert.equal(w.val("agentWhDraft.name"), "Our orders and returns", "the newer words were lost");
+  assert.equal(w.ev("agentWhSecret"), null, "the key closed a form holding words it is not about");
+  assert.match(whHtml(w), /agent-wh-held-show/, "the made address's key was dropped instead of offered");
+
+  // ── THE CONTROL: the same form, the same words, and the ordinary path runs. ───────
+  const two = whGate(KEY);
+  await two.w.ev("agentsLoad()");
+  await two.w.ev('agentWebhooks("A")'); await settle();
+  await two.w.ev("agentWhNewOpen()");
+  hydrateWh(two.w).type({ name: "Our orders", event: "order.paid" });
+  const ok = two.w.ev("agentWhSave()");
+  two.gate.release();
+  await ok;
+  assert.equal(two.w.ev("agentWhNew"), false, "the ordinary path no longer closes the form");
+  assert.equal(two.w.val("agentWhSecret.secret"), "s3cr3t", "the ordinary path no longer shows the key");
+  assert.equal(two.w.ev("agentWhHeld"), null, "the ordinary path held the key instead of showing it");
+});
+
+test("⚠ A REOPENED FORM HOLDING THE SAME WORDS IS STILL A DIFFERENT FORM", async () => {
+  /**
+   * ⚠ **THE ONE SCENARIO WHERE ONLY THE OPENING COUNT CAN TELL THEM APART, and nothing drove it
+   * until a red proof said so.** Every other case here types DIFFERENT words into the new form,
+   * so the submitted-values half of `whFormSame` catches those on its own — which means the
+   * opening check and `agentWhOpen++` could both be deleted with the suite still green.
+   *
+   * Somebody who cancels and types the same thing again has pressed Save once and is about to
+   * press it again. Closing their form on the FIRST answer and showing them that address's key
+   * makes the second press a second address nobody asked for.
+   */
+  const { gate, w } = whGate(KEY);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Our orders", event: "order.paid" });
+  const opened = w.ev("agentWhOpen");
+  const saving = w.ev("agentWhSave()");
+  await w.ev("agentWhCancel()");
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Our orders", event: "order.paid" });   // the SAME words
+  assert.notEqual(w.ev("agentWhOpen"), opened,
+    "cancelling and reopening the form did not count as a new opening");
+  gate.release();
+  await saving;
+  assert.equal(w.ev("agentWhNew"), true, "a reopened form was closed by the previous form's answer");
+  assert.deepEqual(w.val("agentWhDraft"), { name: "Our orders", event: "order.paid" });
+  assert.equal(w.ev("agentWhSecret"), null, "the previous form's key was shown over a reopened form");
+  assert.match(whHtml(w), /agent-wh-held-show/, "the address that was made was dropped");
+});
+
+test("⚠ A HELD KEY SURVIVES WALKING AWAY AND COMING BACK, and is shown on one press", async () => {
+  const { gate, w } = whGate(KEY);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Our orders", event: "order.paid" });
+  const saving = w.ev("agentWhSave()");
+  // WALK AWAY: the automations screen, which is what clears the arrivals.
+  await w.ev('agentAutomations("A")'); await settle();
+  gate.release();
+  await saving;
+  // NOTHING IS DRAWN THERE — the notice is bound to the agent whose addresses are open.
+  assert.equal(w.ev("agentWh"), null);
+  assert.equal(/s3cr3t/.test(whHtml(w)), false, "a signing key reached the automations screen");
+  assert.equal(/agent-wh-held-show/.test(whHtml(w)), false, "the arrivals notice was drawn over the automations");
+
+  // ── BACK TO THAT AGENT'S ADDRESSES, AND THE OFFER IS STILL THERE. ────────────
+  // ⚠ Losing a live address's only key to a stray click is the harm the hold exists to prevent,
+  // so the hold deliberately outlives a screen change — unlike the panel, which every door clears.
+  await w.ev('agentWebhooks("A")'); await settle();
+  assert.match(whHtml(w), /agent-wh-held-show/, "walking away and back lost the key");
+  assert.equal(/s3cr3t/.test(whHtml(w)), false, "the key is drawn before it was asked for");
+
+  // ── ONE PRESS SHOWS IT, IN THE ONE-TIME PANEL THAT ALREADY EXISTS. ────────────
+  await w.ev("CLICK_ACTIONS['agent-wh-held-show']()"); await settle();
+  assert.match(whHtml(w), /s3cr3t/, "the press did not show the key");
+  assert.match(whHtml(w), /only time it is shown/i, "it was not shown in the panel that says what it is");
+  // SHOWING IT IS SPENDING IT: the offer is gone, so nothing re-offers a key already on screen.
+  assert.equal(w.ev("agentWhHeld"), null);
+  await w.ev("agentWhSecretDone()");
+  assert.equal(/s3cr3t/.test(whHtml(w)), false);
+  assert.equal(/agent-wh-held-show/.test(whHtml(w)), false, "the offer came back after the key was shown");
+  // AND STORAGE NEVER HELD IT, at any point in the sequence.
+  for (const v of Object.values(w.store)) assert.equal(/s3cr3t/.test(String(v)), false);
+});
+
+test("⚠ A HELD KEY IS NEVER SHOWN TO, OR PRESSED BY, ANOTHER ACCOUNT", async () => {
+  const { gate, w } = whGate(KEY);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  hydrateWh(w).type({ name: "Our orders", event: "order.paid" });
+  const saving = w.ev("agentWhSave()");
+  await w.ev("agentWhCancel()");
+  // SOMEBODY ELSE SIGNS IN WHILE THE ANSWER IS STILL IN FLIGHT.
+  w.signIn("acct-B");
+  gate.release();
+  await saving;
+  // ⚠ NOT HELD AT ALL: the hold is keyed on WHO ASKED, so an answer that came back after the
+  // account changed is dropped rather than parked where the new account could reach it.
+  assert.equal(w.ev("agentWhHeld"), null, "a key was held for an account that had gone");
+  assert.equal(w.ev("agentWhSecret"), null);
+  assert.equal(/s3cr3t/.test(whHtml(w)), false, "another account was shown a signing key");
+  for (const v of Object.values(w.store)) assert.equal(/s3cr3t/.test(String(v)), false);
+
+  // ── AND A HOLD THAT ALREADY EXISTS IS NOT DRAWN OR PRESSABLE FOR SOMEBODY ELSE. ────
+  // The wall is asked at DRAW time and again at PRESS time, because the button that was drawn
+  // stays in the DOM until the next render.
+  await w.ev('agentWh = "A"; agentWhHeld = { uid: "acct-A", agent: "A", name: "Our orders", ' +
+    'event: "order.paid", made: { secret: "s3cr3t", name: "Our orders", event: "order.paid", path: "/deliver/WH9" }, why: "" };');
+  await w.ev("renderAgents()");
+  assert.equal(/agent-wh-held-show/.test(whHtml(w)), false, "another account was offered a held key");
+  await w.ev("CLICK_ACTIONS['agent-wh-held-show']()"); await settle();
+  assert.equal(w.ev("agentWhSecret"), null, "another account pressed a held key and got it");
+  assert.equal(/s3cr3t/.test(whHtml(w)), false);
+  // AND THE CONTROL: the account that made it still can, which is what makes the two lines
+  // above about the ACCOUNT rather than about a hold nobody can ever reach.
+  w.signIn("acct-A");
+  await w.ev("renderAgents()");
+  assert.match(whHtml(w), /agent-wh-held-show/, "the account that made it cannot reach its own key");
+  await w.ev("CLICK_ACTIONS['agent-wh-held-show']()"); await settle();
+  assert.match(whHtml(w), /s3cr3t/);
+});
+
 test("⚠ CLOSING AN ADDRESS SENDS THE FLAG THE BUTTON SAID, and deleting asks first", async () => {
   // ⚠ **THE FLAG COMES OFF THE BUTTON'S OWN ATTRIBUTE.** The row it was drawn from is what the
   // person looked at; re-reading the row could answer a state something has since changed, so
@@ -6162,6 +6463,214 @@ test("⚠ CLOSING AN ADDRESS SENDS THE FLAG THE BUTTON SAID, and deleting asks f
   w.s.confirm = () => true;
   await w.ev('agentWhDelete("WH1")'); await settle();
   assert.equal(w.calls.filter((c) => c.path === "/api/agent/webhook-delete").length, 1);
+});
+
+/**
+ * ⚠ **FROM AN ARRIVAL TO THE RUN IT STARTED, and NOT merely to the automation.**
+ *
+ * `list_events` records both halves per run (`{id, automation}`) and the button carried only
+ * `data-auto`, so two arrivals that started two runs of ONE automation opened the same general
+ * history with nothing saying which of the rows was the one pressed. An execution is read
+ * through its automation's history, so the hop is still to that screen — what was missing is
+ * the run id going with it.
+ */
+const twoRuns = [
+  { ...arrival("started"), id: "EV1", runs: [{ id: "EXA", automation: "AU1" }] },
+  { ...arrival("started"), id: "EV2", runs: [{ id: "EXB", automation: "AU1" }] },
+];
+/**
+ * The automation's own history, holding both of those runs, newest first.
+ *
+ * ⚠ **THE STATES ARE ONES A ROW DRAWS ITS RUN ID FOR, and that is a fact about the render
+ * rather than a convenience.** A row prints `data-run` only on its Stop button, which
+ * `AUTO_STOPPABLE` draws for `queued`, `running` and `waiting` — so on an ENDED run there is
+ * nothing in the markup that names which execution it is. Two deliveries a moment apart really
+ * do leave two runs still going, so this is the shape as well as the drivable one; without it a
+ * case can count the marks and cannot say the mark is on the right row.
+ */
+const bothRuns = [runIn("running", { id: "EXB" }), runIn("queued", { id: "EXA" })];
+
+/** One history row as it is drawn, split at the row wrapper and no deeper. */
+const runRows = (html) => html.split('<div class="ag-run">').slice(1);
+const rowOf = (html, id) => runRows(html).find((r) => r.includes('data-run="' + id + '"')) || null;
+
+function whRuns({ events = twoRuns, history = bothRuns, older = {} } = {}) {
+  return loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/webhooks")) return okRes({ webhooks: [EP], max: 10 });
+      if (p.startsWith("/api/agent/events")) {
+        return okRes({ events, states: ["queued", "ignored", "started", "woke"], max: 25 });
+      }
+      const a = autoAnswer({ automations: [ONE], history, older })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+}
+
+test("⚠ TWO ARRIVALS, TWO RUNS OF ONE AUTOMATION, AND EACH BUTTON OPENS ITS OWN", async () => {
+  const w = whRuns();
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  const list = whHtml(w);
+  // BOTH HALVES ARE ON EVERY BUTTON — this is the defect, in the markup.
+  const buttons = [...list.matchAll(/data-act="agent-wh-run" data-auto="([^"]*)" data-run="([^"]*)"/g)]
+    .map((m) => [m[1], m[2]]);
+  assert.deepEqual(buttons, [["AU1", "EXA"], ["AU1", "EXB"]],
+    `the arrival buttons carry ${JSON.stringify(buttons)} — two arrivals need two run ids`);
+
+  // ── PRESS EACH ONE, THROUGH THE REAL DISPATCH. ─────────────────────────
+  for (const want of ["EXA", "EXB"]) {
+    await w.ev('agentWebhooks("A")'); await settle();
+    await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "${want}" } })`);
+    await settle(); await settle();
+    // THE HOP LANDED ON THE AUTOMATION, WITH ITS HISTORY OPEN.
+    assert.equal(w.ev("agentAuto"), "A", "the press did not open the automations screen");
+    assert.equal(w.ev("agentAutoRunsFor"), "AU1");
+    // ⚠ AND THE REQUEST NAMED THE RUN. Without this the route cannot fetch one the newest page
+    // does not hold, and the screen cannot mark the row somebody pressed to see.
+    const read = w.calls.filter((c) => c.path.startsWith("/api/agent/automation-history")).at(-1);
+    assert.match(read.path, new RegExp(`[?&]run=${want}(&|$)`), `the history read asked for ${read.path}`);
+    // AND THAT ROW IS THE ONE MARKED, not the other.
+    const html = whHtml(w);
+    assert.match(html, /From that arrival/, "nothing on the history says which run the arrival started");
+    assert.equal((html.match(/From that arrival/g) || []).length, 1, "more than one row claims to be it");
+    // ⚠ THE MARK IS INSIDE THE WANTED RUN'S OWN ROW, not merely somewhere on the page — a
+    // count alone is satisfied by a chip on the wrong row.
+    const mine = rowOf(html, want);
+    assert.ok(mine, `the wanted run ${want} is not drawn at all`);
+    assert.match(mine, /From that arrival/, `the mark is on another run's row, not ${want}'s`);
+    const other = rowOf(html, want === "EXA" ? "EXB" : "EXA");
+    assert.ok(other, "the other run stopped being drawn");
+    assert.equal(/From that arrival/.test(other), false, "the other run is marked too");
+  }
+});
+
+test("⚠ AN OLDER RUN OUTSIDE THE NEWEST PAGE IS STILL FOUND AND STILL MARKED", async () => {
+  /**
+   * `MAX_EXECUTIONS` is 50 and the page is `created_at.desc`, so an arrival from last month
+   * names a run that has fallen off the end. The route fetches that one by name; the screen has
+   * to ASK for it, or it opens a page of fifty other runs with nothing saying which is the one.
+   */
+  const w = whRuns({
+    events: [{ ...arrival("started"), id: "EV9", runs: [{ id: "EXOLD", automation: "AU1" }] }],
+    history: bothRuns,                                  // the newest page, which lacks it
+    // A month-old run still waiting for a person to approve something is exactly the shape this
+    // is about — and `waiting` is one of the states a row draws its run id for.
+    older: { EXOLD: runIn("waiting", { id: "EXOLD", at: "2026-08-01T09:00:00Z" }) },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXOLD" } })`);
+  await settle(); await settle();
+  const html = whHtml(w);
+  const read = w.calls.filter((c) => c.path.startsWith("/api/agent/automation-history")).at(-1);
+  assert.match(read.path, /[?&]run=EXOLD(&|$)/, `the screen never asked for it: ${read.path}`);
+  assert.ok(rowOf(html, "EXOLD"), "the run the arrival named is not on the history at all");
+  assert.equal((html.match(/From that arrival/g) || []).length, 1);
+  assert.match(rowOf(html, "EXOLD"), /From that arrival/);
+  assert.equal(/From that arrival/.test(rowOf(html, "EXA")), false, "another run was marked too");
+  // AND IT IS LAST, because it is older than every row on the page.
+  assert.match(html, /data-run="EXB"[\s\S]*data-run="EXA"[\s\S]*data-run="EXOLD"/,
+    "the older run was put somewhere other than last");
+  assert.equal(/isn’t in this history/.test(html), false, "a run that WAS found was reported missing");
+
+  // ── A QUIET RELOAD KEEPS ASKING FOR IT. ────────────────────────────
+  // ⚠ The watcher re-reads the history while something is running, and a reload that dropped
+  // `run=` would drop the row and its mark with it — the run somebody pressed to see vanishing
+  // while they watched it.
+  await w.ev('agentAutoRunsLoad("AU1", true)'); await settle();
+  const again = w.calls.filter((c) => c.path.startsWith("/api/agent/automation-history")).at(-1);
+  assert.match(again.path, /[?&]run=EXOLD(&|$)/, `a quiet reload asked for ${again.path}`);
+  assert.equal((whHtml(w).match(/From that arrival/g) || []).length, 1, "the reload lost the mark");
+});
+
+test("⚠ A RUN THAT IS NOT THERE IS SAID, AND NOTHING ELSE IS OFFERED AS IT", async () => {
+  // The run may have been pruned, or the arrival may name one this automation no longer has.
+  // Marking a different row, or saying nothing at all, both leave somebody reading the wrong
+  // execution as the one their arrival started.
+  const w = whRuns({
+    events: [{ ...arrival("started"), id: "EV9", runs: [{ id: "EXGONE", automation: "AU1" }] }],
+    history: bothRuns,
+    older: {},                                          // the route finds nothing
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXGONE" } })`);
+  await settle(); await settle();
+  const html = whHtml(w);
+  assert.match(html, /isn’t in this history/, "a run that could not be found was not mentioned");
+  assert.match(html, /Nothing below is it/, "the screen did not say the rows are not the one");
+  assert.equal(/From that arrival/.test(html), false, "another run was marked as the arrival's");
+  // AND THE HISTORY IS STILL THERE: the rows are worth reading, they are just not the one.
+  assert.ok(rowOf(html, "EXA") && rowOf(html, "EXB"), "the history was emptied as well");
+});
+
+test("⚠ A HISTORY OPENED BY HAND INHERITS NO MARK, AND CLOSING ONE FORGETS IT", async () => {
+  const w = whRuns();
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXA" } })`);
+  await settle(); await settle();
+  assert.match(whHtml(w), /From that arrival/);
+
+  // ── CLOSING IT FORGETS THE RUN. A press is a press: the want goes with the history it
+  // was about, so reopening by hand is not a way back into somebody else's mark.
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  assert.equal(w.ev("agentAutoRunsFor"), null, "a second press did not close the history");
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const read = w.calls.filter((c) => c.path.startsWith("/api/agent/automation-history")).at(-1);
+  assert.equal(/[?&]run=/.test(read.path), false, `a history opened by hand asked for ${read.path}`);
+  assert.equal(/From that arrival/.test(whHtml(w)), false, "a history opened by hand inherited a mark");
+
+  /**
+   * ⚠ **AND A MARK DOES NOT FOLLOW THE SCREEN TO ANOTHER AUTOMATION — which TWO walls hold,
+   * measured rather than assumed.**
+   *
+   * A fresh open replaces the want (so nothing is stale), and the want carries WHICH history it
+   * is about (so a stale one could not be read anyway). With either one in place this passes, so
+   * neither mutant dies alone — that is a declared redundancy rather than a test gap, and the
+   * sweep mutates the PAIR. The last line below is the one that needs both gone: the same rows
+   * are drawn for AU2, so a want that survived AND was read would mark EXA's row on an
+   * automation whose arrival nobody pressed.
+   *
+   * ⚠ **AND THE PRESS IS DRIVEN FROM THE ARRIVALS SCREEN, which a first draft got wrong.** It
+   * pressed `agent-wh-run` while the automations screen was open, where `agentWhOpenRun` refuses
+   * for want of an owner — so the whole block ran against a want that had never been set, and
+   * passed with every wall deleted.
+   */
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXA" } })`);
+  await settle(); await settle();
+  assert.equal(w.ev("agentAutoWantedRun()"), "EXA", "the press did not set a want at all");
+  await w.ev('agentAutoHistory("AU2")'); await settle();
+  const other = w.calls.filter((c) => c.path.startsWith("/api/agent/automation-history")).at(-1);
+  assert.match(other.path, /[?&]id=AU2/, "the second history was not opened");
+  assert.equal(/[?&]run=/.test(other.path), false,
+    `another automation's history asked for a run nobody pressed: ${other.path}`);
+  assert.equal(w.ev("agentAutoWantedRun()"), "", "the want followed the screen to another automation");
+  assert.equal(/From that arrival/.test(whHtml(w)), false,
+    "a row on another automation's history was marked as the arrival's");
+});
+
+test("⚠ AN ARRIVAL'S RUN CANNOT BE OPENED FROM ANYWHERE BUT ITS OWN SCREEN", async () => {
+  // The hop needs to know WHOSE addresses these are, because it opens that agent's automations.
+  // With no agent's arrivals open there is nobody to open them for, and guessing would land
+  // somebody on another agent's screen.
+  const w = whRuns();
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();     // not the arrivals screen
+  assert.equal(w.ev("agentWh"), null);
+  const before = w.calls.length;
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXA" } })`);
+  await settle();
+  assert.equal(w.calls.length, before, "a press with no arrivals screen open still went to the server");
+  assert.equal(w.ev("agentAutoRunsFor"), null, "a history was opened for nobody");
+  // AND THE CONTROL: from the arrivals screen the same press really does work, so the line
+  // above is about the missing owner rather than about a press that never does anything.
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev(`CLICK_ACTIONS['agent-wh-run']({}, { dataset: { auto: "AU1", run: "EXA" } })`);
+  await settle(); await settle();
+  assert.equal(w.ev("agentAutoRunsFor"), "AU1");
 });
 
 test("⚠ A FAILED LOG READ DOES NOT HIDE THE ADDRESSES, AND EACH READ FAILS ON ITS OWN", async () => {

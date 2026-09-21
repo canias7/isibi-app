@@ -1,0 +1,326 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the wanted execution's one reader",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function agentAutoWantedRun() {",
+  "to": "// one reader, so the URL, the sentence and the row's marker cannot disagree\nfunction agentAutoWantedRun() {"
+ },
+ {
+  "label": "CONTROL: a comment only, above the columns both history readers ask for",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "const EXECUTION_SELECT =",
+  "to": "// one list, because two readers answering different shapes is a silent degrade\nconst EXECUTION_SELECT ="
+ },
+ {
+  "label": "THE DEFECT: the arrival's button carries only the automation",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "data-act=\"agent-wh-run\" data-auto=\"' + esc(r.automation) + '\"' +\n              ' data-run=\"' + esc(r.id) + '\"",
+  "to": "data-act=\"agent-wh-run\" data-auto=\"' + esc(r.automation) + '\"' +\n              '"
+ },
+ {
+  "label": "the dispatch reads the automation and drops the run",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "'agent-wh-run': (e, el) => agentWhOpenRun(el.dataset.auto, el.dataset.run),",
+  "to": "'agent-wh-run': (e, el) => agentWhOpenRun(el.dataset.auto),"
+ },
+ {
+  "label": "the hop to the history drops the run",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAutoHistory(target, String(runId || ''));",
+  "to": "  agentAutoHistory(target);"
+ },
+ {
+  "label": "the press is allowed with no arrivals screen open, so it opens for nobody",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!target || !owner) return;",
+  "to": "  if (!target) return;"
+ },
+ {
+  "label": "the history URL never asks for the run",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      (asked ? '&run=' + encodeURIComponent(asked) : ''));",
+  "to": "      '');"
+ },
+ {
+  "label": "a quiet reload drops the run, so the watcher loses the marked row",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const asked = agentAutoRunsWant && agentAutoRunsWant.of === forId ? agentAutoRunsWant.run : '';",
+  "to": "  const asked = quiet ? '' : (agentAutoRunsWant && agentAutoRunsWant.of === forId ? agentAutoRunsWant.run : '');"
+ },
+ {
+  "label": "PAIR (declared redundancy, MEASURED): a fresh open keeps the want AND both readers stop asking whose history it is",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    agentAutoRunsWant = want ? { of: forId, run: String(want) } : null;",
+  "to": "    if (want) agentAutoRunsWant = { of: forId, run: String(want) };",
+  "also": [
+   [
+    "  return w && w.of === agentAutoRunsFor ? w.run : '';",
+    "  return w ? w.run : '';"
+   ],
+   [
+    "  const asked = agentAutoRunsWant && agentAutoRunsWant.of === forId ? agentAutoRunsWant.run : '';",
+    "  const asked = agentAutoRunsWant ? agentAutoRunsWant.run : '';"
+   ]
+  ]
+ },
+ {
+  "label": "no row is marked, so a history of fifty rows says nothing about which one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        (want && r.id === want ? '<span class=\"ag-chip\">From that arrival</span>' : '') +",
+  "to": "        '' +"
+ },
+ {
+  "label": "every row is marked",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        (want && r.id === want ? '<span class=\"ag-chip\">From that arrival</span>' : '') +",
+  "to": "        (want ? '<span class=\"ag-chip\">From that arrival</span>' : '') +"
+ },
+ {
+  "label": "a run that is not there is not said, so another row reads as the target",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return '<div class=\"ag-err\">That arrival’s run isn’t in this history — it may no longer ' +\n    'exist. Nothing below is it.</div>';",
+  "to": "  return '';"
+ },
+ {
+  "label": "a run that IS there is reported missing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const found = !!want && agentAutoRuns.some((r) => r && r.id === want);",
+  "to": "  const found = false;"
+ },
+ {
+  "label": "the one-execution read is not scoped by the automation",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "`automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +\n        `&id=eq.${runId}&select=${EXECUTION_SELECT}&limit=1`",
+  "to": "`automation_history?tenant_id=eq.${t(tenant)}` +\n        `&id=eq.${runId}&select=${EXECUTION_SELECT}&limit=1`"
+ },
+ {
+  "label": "the one-execution read is not scoped by the account",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "`automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +\n        `&id=eq.${runId}&select=${EXECUTION_SELECT}&limit=1`",
+  "to": "`automation_history?automation_id=eq.${automationId}` +\n        `&id=eq.${runId}&select=${EXECUTION_SELECT}&limit=1`"
+ },
+ {
+  "label": "nothing found answers a stand-in row rather than null",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      return got.length ? got[0] : null;",
+  "to": "      return got.length ? got[0] : executionRow({ id: runId });"
+ },
+ {
+  "label": "a failed read answers null, so 'no such run' covers 'the database said no'",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (!r.ok) throw storeFail(\"read execution\", r);",
+  "to": "      if (!r.ok) return null;"
+ },
+ {
+  "label": "the fetched row skips the reader every other row goes through",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const got = rows(r).map(executionRow);",
+  "to": "      const got = rows(r);"
+ },
+ {
+  "label": "the one-execution read asks for its own narrower column list",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "&select=${EXECUTION_SELECT}&limit=1",
+  "to": "&select=id,automation_id,created_at&limit=1"
+ },
+ {
+  "label": "the route fetches on every read, page or no page",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      if (want && !runs.some((e) => e && e.id === want)) {",
+  "to": "      if (want) {"
+ },
+ {
+  "label": "the route never fetches, so a run off the page is simply absent",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        if (one) shown = [...runs, one];",
+  "to": "        if (!one) shown = runs;"
+ },
+ {
+  "label": "the fetched run is prepended, so a month-old run reads as the newest",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        if (one) shown = [...runs, one];",
+  "to": "        if (one) shown = [one, ...runs];"
+ },
+ {
+  "label": "the route writes the fetched run into the array the store handed it",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        if (one) shown = [...runs, one];",
+  "to": "        if (one) { runs.push(one); shown = runs; }"
+ },
+ {
+  "label": "the run id is not cleaned before it reaches a query",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const want = cleanId(q.get(\"run\"));",
+  "to": "      const want = q.get(\"run\") || \"\";"
+ },
+ {
+  "label": "the payload join reads the page rather than the answer",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const waitingOnRequest = shown.some((e) => typeof e?.waiting?.request === \"string\" && e.waiting.request);",
+  "to": "      const waitingOnRequest = runs.some((e) => typeof e?.waiting?.request === \"string\" && e.waiting.request);"
+ },
+ {
+  "label": "the page is unbounded, so 'outside the newest page' means nothing",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "&order=created_at.desc&limit=${Number(limit) || MAX_EXECUTIONS}",
+  "to": "&order=created_at.desc"
+ },
+ {
+  "label": "THE DEFECT: a superseded answer closes the newer form and shows its key",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (bound.uid && bound.uid === agentUid()) {\n    agentWhHeld = {",
+  "to": "  agentWhOpenForm(false);\n  agentWhSecret = secret;\n  if (failed) agentWhActErr = failed;\n  if (false) {\n    agentWhHeld = {"
+ },
+ {
+  "label": "the form's opening is not asked, so a cancel and a reopen are one form",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!whSame(b) || !b || b.open !== agentWhOpen) return false;",
+  "to": "  if (!whSame(b) || !b) return false;"
+ },
+ {
+  "label": "the submitted values are not asked, so newer typing in the same form is lost",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return d.name === sent.name && d.event === sent.event;",
+  "to": "  return true;"
+ },
+ {
+  "label": "the opening count never moves, so it cannot tell two openings apart",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentWhOpen++;\n  agentWhNew = !!open;",
+  "to": "  agentWhNew = !!open;"
+ },
+ {
+  "label": "the hold is not keyed on who asked, so another account could reach a key",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (bound.uid && bound.uid === agentUid()) {",
+  "to": "  if (true) {"
+ },
+ {
+  "label": "the notice has no draw-time account or agent wall",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!h || h.uid !== agentUid() || h.agent !== agentWh) return '';",
+  "to": "  if (!h) return '';"
+ },
+ {
+  "label": "the press has no account or agent wall",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!held || held.uid !== agentUid() || held.agent !== agentWh) return;",
+  "to": "  if (!held) return;"
+ },
+ {
+  "label": "the notice is never drawn, so a made address's only key is dropped in silence",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const held = agentWhHeldHtml();",
+  "to": "  const held = '';"
+ },
+ {
+  "label": "a refusal's press does nothing — the dead control that ANSWERS",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!held || held.uid !== agentUid() || held.agent !== agentWh) return;",
+  "to": "  if (!held || !held.made || held.uid !== agentUid() || held.agent !== agentWh) return;"
+ },
+ {
+  "label": "showing a held key does not spend it, so the offer outlives the showing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentWhHeld = null;\n  if (held.made) agentWhSecret = held.made;",
+  "to": "  if (held.made) agentWhSecret = held.made;"
+ },
+ {
+  "label": "the key is printed into every render of the notice",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      '<div class=\"ag-actions\">' +\n        '<button class=\"ag-save\" data-act=\"agent-wh-held-show\">Show the signing key</button>' +",
+  "to": "      '<div class=\"ag-in\">' + esc((h.made && h.made.secret) || '') + '</div>' +\n      '<div class=\"ag-actions\">' +\n        '<button class=\"ag-save\" data-act=\"agent-wh-held-show\">Show the signing key</button>' +"
+ },
+ {
+  "label": "a held refusal is put into the form's own slot, blaming it for another's problem",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      made: secret,\n      why: failed,",
+  "to": "      made: secret,\n      why: (agentWhActErr = failed),"
+ },
+ {
+  "label": "a held refusal says nothing about which address it was",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        '<div class=\"ag-err\">' + named + ' wasn\\u2019t made: ' + esc(h.why) + '</div>' +",
+  "to": "        '<div class=\"ag-err\">' + esc(h.why) + '</div>' +"
+ }
+]

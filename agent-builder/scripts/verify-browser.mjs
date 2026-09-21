@@ -1293,6 +1293,80 @@ try {
       events3 === 1 && /refused|turned away|never reach/i.test(arrivals3),
       JSON.stringify({ events: events3 }));
     await shot(page, "j3-endpoint-closed");
+
+    /**
+     * ⚠ **AND FROM AN ARRIVAL TO THE RUN IT STARTED — the one thing the arrivals list offers
+     * that nothing above presses.**
+     *
+     * "Open the run" carried only the automation, so two arrivals that started two runs of ONE
+     * automation opened the same general history with nothing saying which of the rows was the
+     * one pressed. An execution is read through its automation's history, so the hop is still to
+     * that screen; the run id is what was missing.
+     *
+     * **REOPENING THE ADDRESS IS ALSO THE TOGGLE'S OTHER DIRECTION**, which 3s/3t only proved one
+     * way round, so the second delivery is bought rather than arranged.
+     */
+    await press(page, "agent-wh-enable", "id", WH3);
+    await page.waitForFunction((id) => /close/i.test(
+      document.querySelector(`[data-act="agent-wh-enable"][data-id="${id}"]`)?.textContent || ""),
+      WH3, { timeout: 10_000 });
+    const reopened = await deliver("dlv-3");
+    await disp.tick();
+    await disp.drain();
+    check("3w. ⚠ an address reopened takes deliveries again — the toggle's other direction",
+      reopened.status === 202, String(reopened.status));
+
+    // TWO ARRIVALS, EACH NAMING ITS OWN RUN. Read off the buttons the screen really drew.
+    await page.reload({ waitUntil: "load" });
+    await enterAgents(page);
+    await openAgent(page, agentId);
+    await press(page, "agent-webhooks", "id", agentId);
+    await page.waitForSelector('[data-act="agent-wh-run"]', { timeout: 10_000 });
+    const opens = await page.$$eval('[data-act="agent-wh-run"]', (els) => els.map((e) =>
+      ({ auto: e.getAttribute("data-auto"), run: e.getAttribute("data-run") })));
+    check("3x. ⚠ each arrival's button names the RUN it started, not only the automation",
+      opens.length === 2 && opens.every((o) => o.auto === AU3 && !!o.run) &&
+        opens[0].run !== opens[1].run,
+      JSON.stringify(opens));
+
+    // ── PRESS EACH ONE, AND THE RIGHT ROW IS THE ONE MARKED. ─────────────────
+    // The mark is read from inside the row that carries that run's own id, never from the page:
+    // a count alone is satisfied by a chip on the wrong row.
+    let marks = [];
+    for (const o of opens) {
+      await press(page, "agent-webhooks", "id", agentId);
+      await page.waitForSelector(`[data-act="agent-wh-run"][data-run="${o.run}"]`, { timeout: 10_000 });
+      await page.click(`[data-act="agent-wh-run"][data-run="${o.run}"]`);
+      await page.waitForSelector(`${autoRow(AU3)} .ag-auto-runs`, { timeout: 10_000 });
+      await page.waitForFunction(() => /From that arrival/.test(
+        document.querySelector("#viewAgents")?.textContent || ""), null, { timeout: 10_000 });
+      marks.push(await page.evaluate((runId) => {
+        const rows = [...document.querySelectorAll(".ag-run")];
+        const mine = rows.find((r) => r.querySelector(`[data-run="${runId}"]`));
+        const chips = rows.filter((r) => /From that arrival/.test(r.textContent || "")).length;
+        const loose = /From that arrival/.test(document.querySelector("#viewAgents")?.textContent || "");
+        return { drew: rows.length, chips, loose,
+          onMine: !!mine && /From that arrival/.test(mine.textContent || ""),
+          foundMine: !!mine };
+      }, o.run));
+      await press(page, "agent-auto-back");
+    }
+    check("3y. ⚠ ...and the history marks THAT run's own row, exactly one of them",
+      marks.length === 2 && marks.every((m) => m.loose && m.chips === 1 && m.foundMine && m.onMine),
+      JSON.stringify(marks));
+    await shot(page, "j3-arrival-run");
+
+    /**
+     * ⚠ **WHAT THIS DOES NOT PROVE, said rather than left to be assumed.** The newest page is
+     * `MAX_EXECUTIONS` (50) ordered `created_at.desc`, so an arrival from last month names a run
+     * that has fallen off the end and the route fetches THAT ONE by name. Fifty-one real runs is
+     * not something a browser journey can buy, so the boundary is proved where it lives — the
+     * store's own `limit=` on the wire, and the route driven with a full page — and what is
+     * proved here is that the screen asks for the run and marks the row it gets back.
+     */
+
+    await press(page, "agent-webhooks", "id", agentId);
+    await page.waitForSelector('[data-act="agent-wh-back"]', { timeout: 10_000 });
     await press(page, "agent-wh-back");
 
     check("3q. no page error anywhere in journey 3", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));

@@ -2470,8 +2470,18 @@ async function agentAutoRunsLoad(id, quiet, want) {
   if (!forId) return;
   if (!quiet) {
     agentAutoRuns = null; agentAutoRunsErr = ''; agentAutoRunsFor = forId;
-    // A FRESH OPEN REPLACES THE WANT, so opening a history by hand never inherits the mark
-    // from an arrival somebody followed earlier.
+    /**
+     * A FRESH OPEN REPLACES THE WANT, so opening a history by hand never inherits the mark from
+     * an arrival somebody followed earlier.
+     *
+     * ⚠ **THIS AND THE `of` BINDING ARE TWO WALLS ON ONE PROPERTY, and it is MEASURED: neither
+     * mutant dies alone.** With this line intact nothing stale can exist; with `of` intact a
+     * stale one could not be read. Both are kept because they say different things — this one
+     * that a want belongs to the open it was made in, `of` that it belongs to a HISTORY — and
+     * the sweep mutates the PAIR. The three doors that also null it (`agentAutomations`,
+     * `agentAutoBack`, the delete's success) are tidiness on top of both: with the history
+     * closed, `agentAutoRunsFor` is `null` and nothing can read a want at all.
+     */
     agentAutoRunsWant = want ? { of: forId, run: String(want) } : null;
     renderAgents();
   }
@@ -4259,9 +4269,14 @@ async function agentWhDelete(id) {
  */
 function agentWhOpenRun(automationId, runId) {
   const target = String(automationId || '');
-  // ⚠ WHOSE ADDRESSES THESE ARE IS READ BEFORE ANYTHING IS CLEARED, because the hop needs an
-  // owner and `agentAutomations` is what clears this screen. Read after, it would be `null`
-  // and the automations list would open for nobody.
+  /**
+   * WHOSE ADDRESSES THESE ARE. `agentAutomations` is what clears this screen, so the value is
+   * taken first — though that is CLARITY and not a wall, and saying so beats implying otherwise:
+   * an argument is evaluated before the call it is passed to, so `agentAutomations(agentWh)`
+   * would read the same value. **The `!owner` REFUSAL is the load-bearing half**: with no agent's
+   * arrivals open there is nobody to open the automations for, and guessing would land somebody
+   * on another agent's screen.
+   */
   const owner = agentWh;
   if (!target || !owner) return;
   // The secret panel and any refusal go with the screen: `agentAutomations` calls
