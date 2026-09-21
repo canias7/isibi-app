@@ -225,6 +225,21 @@ had a non-withheld refusal to prove the new clause stays off it, and no case
 asserted that a step's own half of the sentence is scoped. Three cases added;
 all three now die.
 
+**The remaining CI gate has landed and it is green.** The container harness —
+the one that builds real sites in a real container with a real browser, and is
+the slow one — finished at 23 minutes 40 seconds with all twenty steps passing.
+I read all twelve of its counts out of the run's own log rather than taking the
+conclusion's word for it, and every one matches what this repo has recorded
+before: the build suite at 382, the unit step at 397, and the ten others
+unchanged. Both halves of the gate are now read on the code that is on the
+branch.
+
+One thing worth knowing when you look at that run yourself: **GitHub marks two
+lines in it red, and the run is still correct.** The harness deliberately builds
+a page with a type error to prove the rule you set — *ship it even if the
+compiler complains* — and GitHub flags any compiler-shaped line as an error
+wherever it appears. Both sit immediately above their own passing result.
+
 Nothing merged, deployed or dispatched; no paid run. The live check remains
 your press.
 

@@ -3373,16 +3373,30 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   ceiling, not the product.
   **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
   `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`**, run
-  **`35545181566` on `0523dfb1`** and run **`35546983002` on `e0540f37`**
-  (2026-09-21, 23m54s) — all four **all twenty steps green and
-  every figure above matching**: TAP 397, kit-typecheck 4, site-build **382**,
-  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  **`35545181566` on `0523dfb1`**, run **`35546983002` on `e0540f37`**
+  (2026-09-21, 23m54s) and run **`35554760166` on `38d934a2`**
+  (2026-09-21, 02:36:53 → 03:00:33Z, **23m40s**) — all five **all twenty steps
+  green and every figure above matching**: TAP 397, kit-typecheck 4, site-build
+  **382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
   `all passed`. The second was read out of the twenty-three downloaded
   per-step files rather than the flat log, so the attribution is the
-  archive's own. **The sixteen is deliberately NOT incremented**: that
-  number is a scan's answer, and the rule two lines up is exactly about taking
-  the next ordinal instead of re-deriving it.
+  archive's own; the fifth was read landmark-to-landmark off the flat log,
+  **all twelve counts in one pass with every shape asked for separately**, and
+  it came back step by step in the workflow's own order. **The sixteen is
+  deliberately NOT incremented**: that number is a scan's answer, and the rule
+  two lines up is exactly about taking the next ordinal instead of re-deriving
+  it.
+  **⚠ A GREEN `site build` CARRIES TWO `##[error]` ANNOTATIONS, AND THEY ARE THE
+  HARNESS DOING ITS JOB.** GitHub annotates any line in `tsc`'s own error format,
+  and `site-build.mjs` deliberately builds a page with a type error to prove
+  *"tsc REPORTS; only `vite` refuses"* — measured on run `35554760166`:
+  `src/routes/index.tsx(50,13) TS2322` and `src/routes/menu.tsx(27,17) TS2339`,
+  each immediately followed by its own `ok` line, inside the step that ends
+  **382 passed, 0 failed**. **A scan for red words answers TWO on a run whose
+  conclusion is `success`**, so read what the annotation sits next to rather than
+  counting it. (`SSR stream transform exceeded maximum lifetime (120000ms)` is
+  the same shape, twice, and is also inside passing cases.)
 - **READ THE COUNTS OUT OF THE RUN'S PER-STEP LOG FILES**, which attribute by
   construction rather than by a window somebody drew. The flat-log alternative
   is landmark-to-landmark (`##[group]Run …` to the NEXT one, because GitHub
