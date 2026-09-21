@@ -1117,9 +1117,33 @@ const spec = [
     "              return (await this.readAutomation({ id: row.automation })) ? row : null;", "              return row;"),
   m("caps: a history is answered without asking whose automation it is", CP,
     "              if (!(await this.readAutomation({ id: automation }))) return [];", "              void automation;"),
+  // ⚠ RE-ANCHORED 2026-09-21: `setEventEndpoint` refuses a non-boolean with the SAME line, so
+  // this anchor became AMBIGUOUS — the recorded "a mutant whose anchor is a substring of
+  // another's", met between two operations rather than two indents. It carries its neighbour.
+  // ⚠ PINNED BY THE LINE THAT FOLLOWS IT, because `setEventEndpoint` refuses a non-boolean
+  // `enabled` in byte-identical words — deliberately, since the two walls exist for the same
+  // reason. The bare line is AMBIGUOUS and the generator refuses it rather than letting the
+  // mutant land in whichever came first; what separates the two is their next line.
   m("caps: `enabled` is COERCED, so the string \"false\" turns an automation ON", CP,
-    '              if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };',
-    "              if (enabled === undefined) return { ok: false, error: \"bad-enabled\" };"),
+    '              if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };\n'
+    + "              if (!(await this.readAutomation({ id }))) return { ok: false, error: \"no-automation\" };",
+    "              if (enabled === undefined) return { ok: false, error: \"bad-enabled\" };\n"
+    + "              if (!(await this.readAutomation({ id }))) return { ok: false, error: \"no-automation\" };"),
+  // THE SAME WALL ON THE ENDPOINT SIDE, and it is not redundant with the one above: an
+  // endpoint read as enabled keeps taking deliveries somebody meant to close, and nothing in
+  // `setAutomationEnabled` can be wrong about that.
+  m("caps: an endpoint's `enabled` is COERCED, so \"false\" leaves it taking deliveries", CP,
+    '              if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };\n'
+    + "              if (!isId(endpoint)) return { ok: false, error: \"no-endpoint\" };",
+    "              if (enabled === undefined) return { ok: false, error: \"bad-enabled\" };\n"
+    + "              if (!isId(endpoint)) return { ok: false, error: \"no-endpoint\" };"),
+  // ⚠ THE WALL NO FUNCTION-LEVEL FILTER CAN SEE. `agent.set_webhook_enabled` scopes by
+  // TENANT, and two agents of one owner share a tenant — so the only thing between this
+  // agent and its sibling's endpoint is this list read.
+  m("caps: a sibling agent's endpoint can be disabled, because the list is not asked", CP,
+    "              const mine = await this.listEventEndpoints();\n"
+    + "              if (!mine.some((e) => e.id === endpoint)) return { ok: false, error: \"no-endpoint\" };",
+    "              const mine = await this.listEventEndpoints(); void mine;"),
   m("caps: an id is taken on trust, so a junk one reaches the database", CP,
     "const isId = (v) => typeof v === \"string\" && UUID.test(v);",
     "const isId = (v) => typeof v === \"string\";"),

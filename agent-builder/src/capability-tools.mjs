@@ -1666,6 +1666,88 @@ export function sayStart(error, name, wanted) {
  * screen's save goes through, and what reaches the database is its output and never the
  * model's list.
  */
+// ── what can start its automations from outside ─────────────────────────────
+//
+// ⚠ **TWO TOOLS AND NOT THREE: THERE IS NO `make_event_endpoint`, AND THAT IS THE WHOLE
+// SAFETY ARGUMENT RATHER THAN A GAP.**
+//
+// Creating an endpoint is the one and only moment its signing secret exists outside the
+// database — `agent.create_webhook` takes it and never hands it back, and
+// `agent.list_webhooks` does not select the column — so a tool that created one would have
+// to answer a secret, into model context, into a conversation, and into every log that
+// records a tool result. That is a user-only action for exactly the reason connecting an
+// account is, and the wall is that `makeCapabilities` offers no operation to call: not a
+// rule in a prompt, and not a filter on an answer.
+//
+// **SO THESE TWO ARE THE MANAGEABLE HALF**: see what exists, and turn one off. Both are
+// bounded to this agent's own endpoints by `capabilities`' own list, because
+// `agent.set_webhook_enabled` filters by tenant and the agent is the scope no function-level
+// filter can see.
+
+const listEventEndpoints = tool({
+  name: "list_event_endpoints",
+  description:
+    "List the inbound endpoints that can start this agent's automations from outside — what " +
+    "each is called, which event it emits, whether it is switched on, and the path deliveries " +
+    "are posted to. It never returns a signing secret; there is no way to read one.",
+  input: { type: "object", properties: {} },
+  repeatable: true,
+  run: async (_args, can) => {
+    const endpoints = await can.listEventEndpoints();
+    return { ok: true, count: endpoints.length, endpoints };
+  },
+});
+
+const setEventEndpoint = tool({
+  name: "set_event_endpoint",
+  description:
+    "Switch one of this agent's inbound endpoints on or off. Switching it off stops every " +
+    "delivery to it being accepted at all, so nothing it would have started runs. It does not " +
+    "delete the endpoint and does not change its secret.",
+  input: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "The endpoint's id, from list_event_endpoints." },
+      enabled: { type: "boolean", description: "true to accept deliveries again, false to stop them." },
+    },
+    required: ["id", "enabled"],
+  },
+  writes: true,
+  repeatable: true,
+  /**
+   * ⚠ **A PERSON SAYS YES, for the same reason the authoring tools are gated.** Switching an
+   * endpoint off silently stops work an account depends on arriving at all, and back on
+   * re-opens a door somebody closed — and neither is visible until something does or does not
+   * happen. The decision is about a durable setting, so an approval is what makes it theirs.
+   */
+  approval: true,
+  run: async (args, can, ctx) => {
+    // ⚠ REFUSED HERE AS WELL AS IN THE CAPABILITY, and the two are about different things: a
+    // model may write anything into an argument, and the capability is the wall for every
+    // caller. `Boolean("false")` is `true`, so the coercing reading keeps taking deliveries
+    // for an endpoint somebody meant to close.
+    if (typeof args.enabled !== "boolean") {
+      return { ok: false, error: "bad-enabled",
+               say: "say whether it should be on or off — true or false, not a word" };
+    }
+    const answer = await can.setEventEndpoint({
+      endpoint: text(args.id), enabled: args.enabled, operation: ctx?.operation,
+    });
+    if (answer?.ok !== true) {
+      return { ok: false, error: answer?.error ?? "refused",
+        say: answer?.error === "no-endpoint"
+          ? "this agent has no inbound endpoint with that id"
+          : answer?.error === "bad-enabled"
+            ? "say whether it should be on or off — true or false, not a word"
+            : "that endpoint could not be changed" };
+    }
+    return { ok: true, endpoint: text(args.id), enabled: answer.enabled === true,
+      say: answer.enabled === true
+        ? "it is on again — deliveries to it will be accepted"
+        : "it is off — deliveries to it will not be accepted, so nothing it would have started will run" };
+  },
+});
+
 // ── acting through a connection to something outside ────────────────────────
 //
 // ⚠ **THE CONNECTION SEAM IS ITS OWN, AND THAT IS NOT TIDINESS.** `ctx.capabilities` is
@@ -1786,6 +1868,7 @@ export const CAPABILITY_TOOLS = Object.freeze([
   listAutomations, readAutomation, makeAutomation, changeAutomation,
   pauseAutomation, runAutomation,
   listExecutions, readExecution, cancelExecution,
+  listEventEndpoints, setEventEndpoint,
   listConnections, readMessages, sendMessage,
 ]);
 

@@ -354,8 +354,24 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
    * approving a request, granting a permission, connecting an account — and the census below
    * asserts none of those has a tool at all.
    */
+  /**
+   * ⚠ RE-ANCHORED AGAIN 2026-09-21: `set_event_endpoint` joined, and it is the first gated tool
+   * whose effect is an ABSENCE. Switching an endpoint off means deliveries stop being accepted,
+   * so work an account depends on simply never arrives — nothing fails, nothing is logged for
+   * the customer, and the tell is that something did not happen. Switching it back on re-opens
+   * a door somebody closed. The line above is about work that carries on after the
+   * conversation, and both directions of this are decisions about exactly that.
+   *
+   * **ITS NEIGHBOUR `list_event_endpoints` IS DELIBERATELY NOT GATED, and the pair is the same
+   * one `send_message`/`read_messages` makes**: the rule is about EFFECT, not about which
+   * subject a tool happens to be named after.
+   *
+   * ⚠ **AND THERE IS NO `make_event_endpoint` TO GATE.** Creating one answers its signing
+   * secret — the only moment that value exists outside the database — so it is a user-only
+   * action like connecting an account, and the census below asserts the absence.
+   */
   const GATED = ["make_automation", "change_automation", "pause_automation", "run_automation",
-    "cancel_execution", "send_message"];
+    "cancel_execution", "send_message", "set_event_endpoint"];
   const byName = new Map(CAPABILITY_TOOLS.map((t) => [t.name, t]));
   for (const n of GATED) assert.equal(byName.get(n)?.approval, true, `${n} runs with nobody asked`);
   for (const t of CAPABILITY_TOOLS) {
@@ -372,6 +388,13 @@ test("⚠ WHICH TOOLS NEED A PERSON IS DECLARED IN CODE, and the set is pinned b
   assert.equal(byName.get("read_messages")?.approval, false,
     "a read through a connection is gated, so the rule has become about the seam");
   assert.equal(byName.get("list_connections")?.approval, false);
+  // AND THE SAME PAIR ON THE ENDPOINTS: reading what exists is not gated; changing one is.
+  assert.equal(byName.get("list_event_endpoints")?.approval, false,
+    "reading the endpoints is gated, so the rule has become about the subject");
+  // ⚠ AND CREATING ONE HAS NO TOOL AT ALL, because the create is the one thing that answers a
+  // signing secret. An absence is only a wall when something asserts it.
+  assert.equal(CAPABILITY_TOOLS.some((t) => /make_event_endpoint|create_event_endpoint|create_webhook/.test(t.name)), false,
+    "a tool can make an inbound endpoint, which means a tool can be handed its secret");
 
   /**
    * ⚠ **AND THE THREE POWERS AN AGENT MUST NEVER HOLD HAVE NO TOOL AT ALL — asserted as an

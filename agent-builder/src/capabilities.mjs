@@ -61,6 +61,12 @@ export const CAPABILITIES = Object.freeze([
   "patchAutomation",
   "setAutomationEnabled", "startAutomation",
   "listExecutions", "readExecution", "cancelExecution",
+  // ⚠ **THE INBOUND ENDPOINTS, READ AND SWITCHED OFF — AND THERE IS DELIBERATELY NO
+  // `createEventEndpoint`.** Making one is the one and only moment its signing secret
+  // exists outside the database, so a tool that created one would have to answer a secret
+  // into model context. That is a user-only action for the same reason connecting an account
+  // is, and the wall is that there is no operation here to call.
+  "listEventEndpoints", "setEventEndpoint",
   // ⚠ **A READ OF THE AGENT'S OWN SETTINGS, AND IT IS DELIBERATELY NOT A TOOL.** It exists
   // because a daily schedule needs a time zone and a zone is not a model's to choose; the
   // authoring tools ask this and then either use what a person set or ASK for it. Narrow by
@@ -109,6 +115,8 @@ export const CAPABILITY_RPC = Object.freeze({
   listExecutions: "list_executions",
   readExecution: "read_execution",
   cancelExecution: "cancel_run",
+  listEventEndpoints: "list_webhooks",
+  setEventEndpoint: "set_webhook_enabled",
   readAgentSettings: "read_agent_settings",
   checkOperation: "operation_check",
 });
@@ -130,6 +138,7 @@ export const CAPABILITY_WRITES = Object.freeze([
   "saveMemory", "deleteMemory",
   "createAutomation", "updateAutomation", "patchAutomation",
   "setAutomationEnabled", "startAutomation", "cancelExecution",
+  "setEventEndpoint",
 ]);
 
 /**
@@ -467,6 +476,59 @@ export function makeCapabilities(opts = {}) {
                 p_tenant: tenant, p_run_id: execution,
                 p_by: `agent:${agentId}`,
                 p_reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : null,
+              });
+            },
+            /**
+             * ── WHAT CAN START THIS AGENT'S AUTOMATIONS FROM OUTSIDE ────────────────
+             *
+             * ⚠ **THE SECRET IS NOT IN THE ANSWER AND CANNOT BE, and that is a property of
+             * the function rather than a filter here.** `agent.list_webhooks` does not select
+             * the column at all — asserted against the migration itself in
+             * `test/agent-api.test.mjs` — so there is no path from this surface to a signing
+             * key, and nothing to remember to strip. `agent.webhook_for_delivery` is the one
+             * reader that answers one, and it is not on `CAPABILITY_RPC`.
+             *
+             * **THE PATH RIDES ALONG because an endpoint whose address nobody can read is one
+             * nobody can configure** — and it is a PATH: this side does not hold the delivery
+             * origin, and inventing one prints a URL that never works.
+             */
+            async listEventEndpoints() {
+              const rows = list(await rpc(CAPABILITY_RPC.listEventEndpoints, {
+                p_tenant: tenant, p_agent_id: agentId,
+              }));
+              return rows.map((r) => ({
+                id: r?.id ?? null,
+                name: typeof r?.name === "string" ? r.name : "",
+                event: typeof r?.event_name === "string" ? r.event_name : "",
+                // FAILS CLOSED: an endpoint whose state cannot be read is reported as OFF,
+                // because being wrong that way costs a press and the other way tells a model
+                // that deliveries are being taken when they are not.
+                enabled: r?.enabled === true,
+                path: isId(r?.id) ? `/deliver/${r.id}` : "",
+                lastAt: typeof r?.last_at === "string" ? r.last_at : null,
+              }));
+            },
+            /**
+             * ⚠ **TURN ONE ON OR OFF — AND THE WALL IS THIS AGENT'S OWN LIST.**
+             *
+             * `agent.set_webhook_enabled` filters by TENANT alone, because a person is
+             * entitled to their whole account; an agent is entitled to its own, so the id has
+             * to be one of this agent's endpoints and nothing else. That is the same shape
+             * `cancelExecution` uses, and for the same reason: the scope no function-level
+             * filter can see is the AGENT, so it is asked by reading the agent's own list
+             * first rather than by a check somebody has to remember.
+             *
+             * `enabled` is REFUSED rather than coerced. `Boolean("false")` is `true`, and the
+             * direction that fails open keeps taking deliveries for an endpoint somebody meant
+             * to close.
+             */
+            async setEventEndpoint({ endpoint, enabled, operation } = {}) {
+              if (typeof enabled !== "boolean") return { ok: false, error: "bad-enabled" };
+              if (!isId(endpoint)) return { ok: false, error: "no-endpoint" };
+              const mine = await this.listEventEndpoints();
+              if (!mine.some((e) => e.id === endpoint)) return { ok: false, error: "no-endpoint" };
+              return mutate("setEventEndpoint", operation, {
+                p_tenant: tenant, p_id: endpoint, p_enabled: enabled,
               });
             },
             async readExecution({ id } = {}) {

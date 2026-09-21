@@ -266,6 +266,26 @@ export const AGENT_TOOLS = Object.freeze([
     label: "Send from a connected account",
     does: "Sends a message from one of the accounts you have connected. You are asked to approve every one before it goes out, and you see who it is for and what it says.",
   }),
+  // ── what it may do with the addresses things arrive at ────────────────────
+  //
+  // ⚠ **TWO, AND THERE IS NO THIRD.** There is no tool that MAKES an inbound endpoint,
+  // because creating one is the single moment its signing secret exists outside the
+  // database — and a tool that could be handed a secret is a tool whose answer, whose
+  // failure and whose journal entry could all carry one. So an endpoint is made by a
+  // PERSON, and the agent may only ever look at the ones there are and close one.
+  Object.freeze({
+    name: "list_event_endpoints",
+    label: "See where things can arrive",
+    does: "Lists the addresses you have set up for this agent — what each is called, which event it raises, and whether it is open. It never sees the signing secret.",
+  }),
+  Object.freeze({
+    name: "set_event_endpoint",
+    label: "Open or close an arrival address",
+    // ⚠ THE WORDS SAY WHAT IT CANNOT DO, because that is what somebody deciding needs.
+    does: "Stops one of those addresses accepting anything, or opens it again. It cannot make "
+      + "one, cannot delete one and is never shown the signing secret. You are asked before "
+      + "it happens.",
+  }),
 ]);
 
 /** The catalog's names, DERIVED, so nothing holds a second copy of the list. */
@@ -1392,6 +1412,25 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       return listOf(r, "list endpoints").map(webhookRow);
     },
 
+    /**
+     * WHAT HAS ARRIVED FOR ONE AGENT, newest first.
+     *
+     * ⚠ **A FUNCTION RATHER THAN A TABLE READ, and that is forced rather than preferred.**
+     * `agent.events` has no SELECT grant to `service_role` at all — asserted deliberately in
+     * `pg-schema.mjs`, because until now every write to it went through
+     * `security definer` functions — so a `GET agent_events?…` would be
+     * `permission denied for table events`. `agent.list_events` is definer, takes the tenant
+     * as an argument, scopes to one agent, and **selects no payload**, so there is nothing
+     * here to leave out.
+     */
+    async listEvents(tenant, agentId, limit = MAX_EVENT_LOG) {
+      const r = await req("POST", "rpc/list_events", {
+        body: { p_tenant: tenant, p_agent_id: agentId, p_limit: limit },
+      });
+      if (!r.ok) throw storeFail("list events", r);
+      return listOf(r, "list events").map(eventRow);
+    },
+
     // ── connected accounts ──────────────────────────────────────────────────
     //
     // ⚠ **FOUR OPERATIONS AND NOT ONE OF THEM CAN ANSWER A CREDENTIAL.** The list reads
@@ -1742,6 +1781,17 @@ export const AGENT_EVENT_RE = /^[a-z][a-z0-9_.-]{0,63}$/;
 /** How many endpoints one agent may hold. The create function's own ceiling. */
 export const MAX_WEBHOOKS = 10;
 
+/**
+ * How many arrivals one reading of the log carries.
+ *
+ * It is a PAGE rather than a bound on what is kept: `agent.events` holds what it holds, and
+ * this is what a screen asks for. The function clamps its own argument
+ * (`greatest(1, least(200, …))`), so a caller cannot widen it past what the database will
+ * answer — which is why the number here may be smaller than that ceiling and may never be
+ * larger without the function agreeing.
+ */
+export const MAX_EVENT_LOG = 25;
+
 /** How long an endpoint's name may be — the column's own check constraint. */
 export const WEBHOOK_NAME_MAX = 80;
 
@@ -2040,6 +2090,85 @@ export function webhookRow(r) {
     lastAt: typeof r?.last_at === "string" ? r.last_at : null,
     createdAt: typeof r?.created_at === "string" ? r.created_at : null,
     path: typeof r?.id === "string" ? webhookPath(r.id) : "",
+  };
+}
+
+/**
+ * WHAT BECAME OF ONE ARRIVAL — **four states, because the four need four sentences.**
+ *
+ * The milestone's own words are *"the difference between an incoming event being received,
+ * rejected, ignored, or starting a run"*, and the first and the last of those were the only
+ * two anything here could say. The other two are the interesting half:
+ *
+ * | state | means |
+ * |---|---|
+ * | `queued` | it arrived and the dispatcher has not looked at it yet |
+ * | `ignored` | the dispatcher looked, and NOTHING was listening for it |
+ * | `started` | it started at least one automation, and the executions are named |
+ * | `woke` | it released something that was already waiting for exactly this event |
+ *
+ * ⚠ **A REJECTED DELIVERY IS NOT ONE OF THEM AND CANNOT BE — said here rather than left for
+ * a reader to wonder about.** A wrong signature, a stale timestamp or an endpoint nobody has
+ * is refused by `/deliver/<id>` before any row is written, in ONE sentence deliberately, so
+ * the endpoint is not an oracle for probing which ids exist. So there is nothing to list: a
+ * refusal leaves no trace by design, and an event log that invented one would be claiming to
+ * show something this platform does not record.
+ *
+ * ⚠ **`handled_at` IS THE DISCRIMINATOR AND THE TWO COUNTS ARE NOT.** `filed` and `woke`
+ * default to `0`, so a row the dispatcher has never seen carries the same two zeros as one it
+ * looked at and found nobody for — which is why `queued` is decided by the STAMP and never by
+ * the numbers. **A stamp this cannot read is `queued`**, which is the fail-closed direction:
+ * being wrong that way says *not yet* about something finished, and the other way says
+ * *nothing was listening* about an arrival nobody has looked at.
+ *
+ * The payload is deliberately absent — `agent.list_events` does not select it, so there is
+ * nothing here to leave out.
+ */
+export const AGENT_EVENT_STATES = Object.freeze(["queued", "ignored", "started", "woke"]);
+
+export function eventRow(r) {
+  // ⚠ **A NON-EMPTY STRING, AND THE EMPTINESS IS THE POINT.** This is the DISCRIMINATOR
+  // rather than a value to draw, so `""` must read as *we cannot tell* and not as *the
+  // dispatcher looked*. Its neighbours here can be laxer because a blank timestamp they draw is
+  // a blank on screen; a blank one HERE decides whether somebody is told nothing was listening
+  // for an arrival nobody has examined. A guard case is what said so.
+  const handled = typeof r?.handled_at === "string" && r.handled_at !== "" ? r.handled_at : null;
+  const filed = Number.isInteger(r?.filed) ? r.filed : 0;
+  const woke = Number.isInteger(r?.woke) ? r.woke : 0;
+  // THE ORDER IS THE MEANING. Not looked at yet outranks everything, because the counts of a
+  // row nobody has dispatched say nothing at all; then STARTING something outranks waking
+  // something, because a started run is the thing a person goes and looks at.
+  const state = handled === null ? "queued" : filed > 0 ? "started" : woke > 0 ? "woke" : "ignored";
+  return {
+    id: typeof r?.id === "string" ? r.id : "",
+    name: typeof r?.name === "string" ? r.name : "",
+    source: typeof r?.source === "string" ? r.source : "",
+    at: typeof r?.at === "string" && r.at !== "" ? r.at : null,
+    handledAt: handled,
+    state,
+    // ⚠ THE COUNTS RIDE ONLY ON THE STATES THEY ARE ABOUT, exactly as `run_open_calls` does
+    // one reader over: a `0` on `ignored` invites somebody to draw it, and a `0` on `queued`
+    // would be reporting a default as a measurement.
+    ...(state === "started" ? { started: filed } : {}),
+    ...(state === "woke" ? { woke } : {}),
+    /**
+     * WHICH EXECUTIONS IT STARTED, so a person can go from the arrival to the run.
+     *
+     * ⚠ **EACH ONE NAMES ITS AUTOMATION, AND WITHOUT THAT THE LIST IS UNOPENABLE.** An
+     * execution is read through its automation's history, so a bare run id puts *"it started
+     * two runs"* on a screen with no way to reach either — the requirement's *show the
+     * relevant execution* met in words and not in a control.
+     *
+     * **AN ENTRY MISSING EITHER HALF IS DROPPED RATHER THAN CARRIED**, because a row that
+     * cannot be opened is a button that answers nothing. A list the function could not build
+     * is EMPTY: *"it started two and we cannot say which"* is not a state this reader can
+     * produce.
+     */
+    runs: (Array.isArray(r?.runs) ? r.runs : [])
+      .filter((x) => x && typeof x === "object"
+        && typeof x.id === "string" && x.id
+        && typeof x.automation === "string" && x.automation)
+      .map((x) => ({ id: x.id, automation: x.automation })),
   };
 }
 
@@ -3957,6 +4086,10 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/connection-disconnect": "POST",
   "/api/agent/connection-revoke": "POST",
   "/api/agent/webhooks": "GET",
+  // ⚠ THE ARRIVALS THEMSELVES, and it is its own route rather than a field on the one above:
+  // an endpoint list is what a person CONFIGURES and this is what HAPPENED, so one reading
+  // would make every glance at the configuration fetch a log nobody asked for.
+  "/api/agent/events": "GET",
   "/api/agent/webhook-create": "POST",
   "/api/agent/webhook-enable": "POST",
   "/api/agent/webhook-delete": "POST",
@@ -4772,6 +4905,30 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       return ok({ webhooks: await store.listWebhooks(who, agentId), max: MAX_WEBHOOKS });
     }
 
+    /**
+     * WHAT HAS ARRIVED, and what became of each one.
+     *
+     * ⚠ **THE STATE VOCABULARY RIDES ON THE ANSWER**, for the same reason `AGENT_TOOLS` and
+     * `AGENT_PROVIDERS` do: a browser drawing a word from its own list can draw one this
+     * server does not produce, and a fifth state added next month would then read as a blank.
+     *
+     * ⚠ **AND A REFUSED DELIVERY IS NOT IN HERE, which is a fact about the platform rather
+     * than a gap in this route.** `/deliver/<id>` refuses a wrong signature, a stale
+     * timestamp and an unknown endpoint BEFORE any row is written — in one sentence
+     * deliberately, so it cannot be used to probe which ids exist — so there is nothing
+     * recorded to list. Saying so beats an empty section a reader takes for "nothing has been
+     * rejected".
+     */
+    if (path === "/api/agent/events") {
+      const agentId = cleanId(q.get("agent"));
+      if (!agentId) return no(400, "which agent?");
+      if (!(await store.ownsAgent(who, agentId))) return NO_AGENT();
+      return ok({
+        events: await store.listEvents(who, agentId),
+        states: AGENT_EVENT_STATES, max: MAX_EVENT_LOG,
+      });
+    }
+
     if (path === "/api/agent/connection-connect") {
       const agentId = cleanId(b.agent);
       if (!agentId) return no(400, "which agent?");
@@ -5315,6 +5472,18 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         completedCalls: stopped.completedCalls ?? 0,
         withdrewApprovals: stopped.withdrewApprovals ?? 0,
         releasedWait: stopped.releasedWait === true,
+        /**
+         * ⚠ **WHETHER A WORKER WAS REALLY ON IT — the difference between *this is recorded*
+         * and *this has actually stopped*.**
+         *
+         * The stop is written synchronously, so the run reads `cancelled` the moment this
+         * answers. What can lag is a process already inside a model call or a tool batch: the
+         * fence stops it at its NEXT checkpoint, so the step it had started may finish first.
+         * `heldByWorker` is the only honest way to say which of the two a person is looking
+         * at, and `=== true` because a Worker older than that function answers no such key
+         * and *cannot-tell must not become a warning about something that was not happening*.
+         */
+        heldByWorker: stopped.heldByWorker === true,
         alreadyStopped: stopped.alreadyStopped === true,
         repeat: stopped.repeat === true,
         say: typeof stopped.say === "string" ? stopped.say

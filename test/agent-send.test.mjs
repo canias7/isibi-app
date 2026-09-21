@@ -752,6 +752,50 @@ test("⚠ THE CATALOG AND THE ENGINE'S OWN TOOLS ARE THE SAME SET, BOTH WAYS", (
   }
 });
 
+test("⚠ TWO ENDPOINT TOOLS AND NO THIRD — because a third would be handed a signing key", () => {
+  /**
+   * ⚠ **THE WHOLE OF THIS IS ABOUT WHAT IS ABSENT.** `agent.create_webhook` mints a secret and
+   * `agent.list_webhooks` never selects the column, so **the create's own answer is the one time
+   * it exists outside the database.** A tool that could make an endpoint would therefore be a
+   * tool whose answer carries a signing key — and a tool's answer goes into the model's context,
+   * into the run's journal, and into whatever the model writes next. So there is no such tool,
+   * and this censuses that rather than trusting it.
+   *
+   * It asks the ENGINE's catalog as well as this one, because a tool the engine offers is one a
+   * model can call whether or not this side describes it.
+   */
+  const MAKES = /make_event_endpoint|create_event_endpoint|create_webhook|new_event_endpoint/;
+  for (const name of [...AGENT_TOOL_NAMES, ...OFFERED_NAMES]) {
+    assert.ok(!MAKES.test(name), `${name} can make an inbound endpoint, so a tool can be handed its secret`);
+  }
+  // AND THE TWO THAT DO EXIST. The observer, without which "no tool makes one" is satisfied by a
+  // platform with no endpoint tools at all.
+  for (const name of ["list_event_endpoints", "set_event_endpoint"]) {
+    assert.ok(AGENT_TOOL_NAMES.includes(name), `${name} is not in the customer's catalog`);
+    assert.ok(OFFERED_NAMES.includes(name), `${name} is not a tool the engine can run`);
+  }
+  // ⚠ **THE ONE THAT WRITES IS APPROVAL-GATED AND THE READ IS NOT — asked of the ENGINE's own
+  // declaration, because that is where the requirement lives and a list here would be a second
+  // copy of it.** The pair is what keeps the gate about the EFFECT rather than about the seam:
+  // closing an address stops deliveries nobody watches arrive, and listing them changes nothing.
+  const engine = (n) => OFFERED.find((o) => o.name === n);
+  assert.equal(engine("set_event_endpoint").approval, true,
+    "closing an address needs nobody, and its effect is an absence nobody sees happen");
+  assert.equal(engine("list_event_endpoints").approval, false,
+    "listing addresses is gated, which makes the gate about the seam rather than the effect");
+  // AND THE CUSTOMER'S WORDS SAY BOTH THINGS. The write says a person is asked and says what it
+  // cannot do — the same rule `cancel_execution`'s words follow, because a label that left out
+  // the limit would promise the wrong thing — and NEITHER offers a secret.
+  const set = AGENT_TOOLS.find((t) => t.name === "set_event_endpoint");
+  assert.match(set.does, /asked before/i, "the tool a person must approve does not say so");
+  assert.match(set.does, /cannot make one/i, "it does not say it cannot make one");
+  for (const name of ["list_event_endpoints", "set_event_endpoint"]) {
+    const t = AGENT_TOOLS.find((x) => x.name === name);
+    assert.match(t.does, /never sees the signing secret|never shown the signing secret/i,
+      `${name}'s words do not say it never sees the signing key`);
+  }
+});
+
 test("⚠ A CONNECTION IS SOMETHING A PERSON MAKES, AND THE CATALOG'S WORDS SAY SO", () => {
   // ⚠ **THE HONEST GAP THIS PINS, stated rather than glossed: the three tools that reach
   // outside are tickable and there is no screen for making a connection yet.** That is not the

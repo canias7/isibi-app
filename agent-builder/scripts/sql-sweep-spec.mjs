@@ -1341,8 +1341,27 @@ const spec = [
     "  update agent.run_work w\n     set claimed_by = null, claimed_at = null, lease_expires_at = null, claim_token = null,\n         done_at = now(), last_error = 'cancelled'\n   where w.run_id = p_run_id and w.done_at is null;",
     "  -- the work row is left exactly as it was"),
   mCancel("⚠ SQL/cancel: the wait is left, so the resume tick wakes something that has stopped",
-    "  update agent.automation_runs ar\n     set waiting = null, wait_until = null, finished_at = coalesce(ar.finished_at, now())\n   where ar.id = p_run_id and (ar.waiting is not null or ar.wait_until is not null);",
+    "  update agent.automation_runs ar\n     set waiting = null, wait_until = null, finished_at = coalesce(ar.finished_at, now())\n   where ar.id = p_run_id;",
     "  perform 1 from agent.automation_runs ar where ar.id = p_run_id;"),
+  // ⚠ THE DEFECT AS IT SHIPPED: that `where` used to carry `and (ar.waiting is not null or
+  // ar.wait_until is not null)`, so an execution cancelled MID-STEP was never closed —
+  // `finished_at` stayed null, and `runner.mjs`'s `already-finished` wall is keyed on it. A
+  // redelivery then re-ran the stopped execution from its recorded position, met its own
+  // `stopped` entry at the fence and was released unfinished, so the sweeper offered it
+  // again every minute for ever.
+  mCancel("⚠ SQL/cancel: a run stopped WHILE WORKING is never closed, so it is re-offered for ever",
+    "   where ar.id = p_run_id;\n\n  -- AND EVERY REQUEST STILL WAITING IS WITHDRAWN",
+    "   where ar.id = p_run_id and (ar.waiting is not null or ar.wait_until is not null);\n\n  -- AND EVERY REQUEST STILL WAITING IS WITHDRAWN"),
+  // `releasedWait` is a DIFFERENT question from whether anything was closed, and reading it
+  // off the update's own `found` is what made the two one — true while the `where` WAS the
+  // question, and a fact about every execution the moment it was widened. **THE MUTANT IS
+  // THE READ DELETED, which is the one-edit half of that**: `v_waited` keeps its declared
+  // `false`, so stopping a run that was holding for a person reports it as one that was
+  // working. (The other direction needs two edits — the read gone AND the answer reading
+  // `found` — and the runner applies one replacement per mutant.)
+  mCancel("⚠ SQL/cancel: releasedWait is never read, so a run holding for a person reads as working",
+    "  select (ar.waiting is not null or ar.wait_until is not null) into v_waited\n    from agent.automation_runs ar where ar.id = p_run_id;",
+    "  -- read it off the update below instead"),
   mCancel("⚠ SQL/cancel: a request is left on somebody's screen for a run that has stopped",
     "  update agent.tool_approvals a\n     set verdict = 'revoked', decided_at = now(), decided_by = p_by,\n         note = coalesce(p_reason, 'the run was cancelled')\n   where a.run_id = p_run_id and a.verdict is null;",
     "  -- anything waiting is left waiting"),

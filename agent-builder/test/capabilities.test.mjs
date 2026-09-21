@@ -251,8 +251,16 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
    * operation it never exercised. *A fake less capable than the thing it stands in for hides a
    * defect exactly as well as one that is more.*
    */
+  /**
+   * ⚠ **AND IT HAS TO ANSWER A LIST OF ENDPOINTS TOO, for the third time and the same reason.**
+   * `setEventEndpoint` reads this agent's own endpoints FIRST — that read is its wall, because
+   * `agent.set_webhook_enabled` filters by tenant and the AGENT is the scope no function-level
+   * filter can see — so an empty list refuses `no-endpoint` and the census passes over an
+   * operation it never exercised.
+   */
   const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG }
     : fn === "read_execution" ? { id: AUTO, automation: AUTO }
+    : fn === "list_webhooks" ? [{ id: AUTO, name: "Payments", event_name: "order.paid", enabled: true }]
     : { ok: true, id: AUTO }));
   const ops = can.forTenant(T).forAgent(AG);
   const drive = {
@@ -281,6 +289,12 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
     // only thing it answers about — asking about a read is `unknown` and reaches no request
     // at all, which would leave this operation undriven while looking driven.
     checkOperation: [{ op: "patchAutomation", operation: OP() }],
+    // ⚠ A READ, AND IT TAKES NOTHING — the agent is the closure's, so there is nowhere to ask
+    // about another agent's endpoints.
+    listEventEndpoints: [],
+    // ⚠ IT READS THIS AGENT'S OWN LIST FIRST, which is the wall; the fixture answers one so
+    // the WRITE is reached at all.
+    setEventEndpoint: [{ endpoint: AUTO, enabled: false, operation: OP() }],
   };
   // ⚠ CENSUSED AGAINST `CAPABILITIES` BOTH WAYS, so an operation added next month is not
   // silently left undriven — the silence would read exactly like coverage.
@@ -903,8 +917,13 @@ test("⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND A MISSING IDENTITY 
   // ⚠ AND `read_execution` FOR THE SAME REASON, one operation later: `cancelExecution`'s own
   // wall is that read, so a row with no `automation` refuses `no-execution` and the case reads
   // as the identity wall being broken rather than as the fixture being thin.
+  // ⚠ AND `list_webhooks` FOR THE SAME REASON, one operation later: `setEventEndpoint`'s own
+  // wall is that read, so an empty list refuses `no-endpoint` and the case reads as the
+  // identity wall being broken rather than as the fixture being thin.
   const { can, sent } = recorder((fn) => (fn === "read_automation" ? { id: AUTO, agent: AG }
-    : fn === "read_execution" ? { id: AUTO, automation: AUTO } : { ok: true }));
+    : fn === "read_execution" ? { id: AUTO, automation: AUTO }
+    : fn === "list_webhooks" ? [{ id: AUTO, name: "Payments", event_name: "order.paid", enabled: true }]
+    : { ok: true }));
   const ops = can.forTenant(T).forAgent(AG);
   const drive = {
     saveMemory: { name: "a", value: "b" },
@@ -915,6 +934,7 @@ test("⚠ EVERY WRITE GOES THROUGH ITS OPERATION RECORD, AND A MISSING IDENTITY 
     setAutomationEnabled: { id: AUTO, enabled: false },
     startAutomation: { id: AUTO, runId: AUTO },
     cancelExecution: { execution: AUTO },
+    setEventEndpoint: { endpoint: AUTO, enabled: false },
   };
   // ⚠ CENSUSED AGAINST `CAPABILITY_WRITES` BOTH WAYS, so a write added next month is not
   // silently left undriven — the silence would read exactly like coverage.
@@ -971,6 +991,9 @@ test("⚠ A READ NEVER ASKS FOR AN OPERATION RECORD — it changes nothing to pr
     // ⚠ THE SETTINGS READ IS ON THIS SIDE OF THE PARTITION, and it belongs here: it changes
     // nothing, so a wrapper would be claiming to protect something no repeat can harm.
     readAgentSettings: {},
+    // The inbound endpoints an account has made. A read for the same reason: listing them
+    // changes nothing, and `agent.list_webhooks` never selects the signing secret.
+    listEventEndpoints: {},
     // ⚠ **THE ONE READ THAT IS ABOUT A RECORD AND STILL MUST NOT ASK FOR ONE**, which is
     // the distinction this census turns on rather than an exemption from it. It asks
     // `operation_check` — read-only, and the same function the `_once` wrapper asks inside
@@ -1186,6 +1209,7 @@ const REACH = Object.freeze({
     setAutomationEnabled: "pause_automation", startAutomation: "run_automation",
     listExecutions: "list_executions", readExecution: "read_execution",
     cancelExecution: "cancel_execution",
+    listEventEndpoints: "list_event_endpoints", setEventEndpoint: "set_event_endpoint",
   }),
   /**
    * ── INTENTIONALLY RESTRICTED: implemented, and deliberately not an agent's ──

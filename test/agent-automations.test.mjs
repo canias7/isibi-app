@@ -21,6 +21,7 @@ import {
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   AUTOMATION_TRIGGERS, webhookRow, withWaitingPayloads, toolApprovalRow,
+  eventRow, AGENT_EVENT_STATES,
   // ── an edit changes only what it names ───────────────────────────────────────
   AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
   trigAt, trigZone, trigDays, trigOnDate, trigOnEvent,
@@ -1006,6 +1007,127 @@ test("⚠ AN EXECUTION HAS THREE WAYS OF HAVING STARTED, and reading `event` as 
   const admitted = [...wid.slice(0, wid.indexOf(")")).matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
   assert.deepEqual([...AUTOMATION_TRIGGERS].sort(), [...new Set(admitted)].sort(),
     `the reader admits ${JSON.stringify(AUTOMATION_TRIGGERS)} and the column admits ${JSON.stringify(admitted)}`);
+});
+
+test("⚠ STOP IS OFFERED FOR EXACTLY THE STATES A RUN THAT HAS NOT STOPPED CAN BE IN", () => {
+  /**
+   * ⚠ **THE MILESTONE'S OWN WORDS ARE *show Stop only when applicable*, and `AUTO_STOPPABLE` in
+   * `public/chat.js` is a DECLARED COPY of that partition** — the browser cannot import from this
+   * module, so this is what keeps it honest.
+   *
+   * It is derived by DRIVING `executionRow` rather than by reading a list, which is what makes a
+   * fourth live state impossible to add without deciding this: whatever that reader answers for a
+   * run whose `run_status` is not `stopped` is a state somebody can still stop.
+   *
+   * **`unresolved` IS THE ONE WORTH THE CASE.** It reads like something still in the air and it is
+   * not: the run has ENDED and what is unknown is whether a message the provider never answered
+   * for went out. A Stop there would offer to reach something already past reaching — and
+   * `agent.cancel_run` would answer `alreadyStopped`, so the button would report success and
+   * change nothing, which is the dead control that ANSWERS.
+   */
+  const live = new Set();
+  const stopped = new Set();
+  // EVERY STATE THE READER CAN PRODUCE, produced by a row that really produces it.
+  for (const r of [
+    { id: R1, run_status: "running", position: 0 },
+    { id: R1, run_status: "running", position: 3 },
+    { id: R1, run_status: "running", position: 3, waiting: { kind: "approval", step: "s1" } },
+  ]) live.add(executionRow(r).state);
+  for (const reason of ["done", "skipped", "failed", "rejected", "missed", "paused", "cancelled"]) {
+    stopped.add(executionRow({ id: R1, run_status: "stopped", run_stop: { reason } }).state);
+  }
+  // AND THE UNCONFIRMED SEND, which is read off the STEP's own outcome rather than off the stop.
+  stopped.add(executionRow({
+    id: R1, run_status: "stopped", run_stop: { reason: "failed" },
+    outcomes: [{ id: "s1", outcome: "failed", unresolved: true }],
+  }).state);
+  assert.deepEqual([...live].sort(), ["queued", "running", "waiting"],
+    "the states a run that has not stopped can be in have moved");
+  assert.ok(stopped.has("unresolved") && stopped.has("cancelled"),
+    "the fixtures did not reach the two states this case is about");
+  // ⚠ THE CENSUS ITSELF, BOTH WAYS. Every live state is offered Stop and no stopped state is,
+  // read out of the browser's own source so the copy cannot drift from what this reader answers.
+  const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
+  const m = chat.match(/const AUTO_STOPPABLE = \[([^\]]*)\]/);
+  assert.ok(m, "the screen no longer declares which states can be stopped");
+  const offered = [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
+  assert.deepEqual([...offered].sort(), [...live].sort(),
+    `the screen offers Stop for ${JSON.stringify(offered)} and a run can be stopped in ${JSON.stringify([...live])}`);
+  for (const s of stopped) {
+    assert.equal(offered.includes(s), false, `Stop is offered for ${s}, which is a run that has already ended`);
+  }
+  // AND EVERY STATE THE READER CAN PRODUCE IS ON ONE SIDE OR THE OTHER, so one added next month
+  // is forced into the decision rather than inheriting "not stoppable" in silence.
+  for (const s of AUTOMATION_STATES) {
+    assert.ok(live.has(s) || stopped.has(s), `${s} is a state no fixture here produces, so nothing decides whether it can be stopped`);
+  }
+});
+
+test("⚠ WHAT BECAME OF AN ARRIVAL — four states, and `handled_at` is the discriminator", () => {
+  /**
+   * The milestone asks for the difference between an event being *received*, *rejected*,
+   * *ignored*, or *starting a run*. Three of those are in this reader; **the fourth cannot be and
+   * that is a fact about the platform** — a wrong signature, a stale timestamp or an unknown
+   * address is refused by `/deliver/<id>` before any row is written, in one sentence deliberately
+   * so the address is not an oracle for probing ids. So there is nothing recorded to list.
+   *
+   * ⚠ **THE COUNTS CANNOT TELL `queued` FROM `ignored` AND `handled_at` CAN.** `filed` and `woke`
+   * are `not null default 0`, so a row the dispatcher has never looked at carries the same two
+   * zeros as one it looked at and found nobody for. A stamp this cannot read is `queued`, which
+   * is the fail-closed direction: *not yet* about something finished costs a second look, and
+   * *nothing was listening* about an arrival nobody has examined is a claim about somebody's own
+   * configuration.
+   */
+  const at = "2026-09-21T00:00:00Z";
+  const of = (r) => eventRow({ id: C1, name: "order.paid", source: "webhook", at, ...r });
+  assert.equal(of({ handled_at: null, filed: 0, woke: 0 }).state, "queued");
+  assert.equal(of({ handled_at: at, filed: 0, woke: 0 }).state, "ignored");
+  assert.equal(of({ handled_at: at, filed: 2, woke: 0 }).state, "started");
+  assert.equal(of({ handled_at: at, filed: 0, woke: 1 }).state, "woke");
+  // THE FOUR ARE FOUR, which is what says none is standing in for another.
+  assert.equal(new Set([
+    of({ handled_at: null, filed: 0, woke: 0 }).state,
+    of({ handled_at: at, filed: 0, woke: 0 }).state,
+    of({ handled_at: at, filed: 2, woke: 0 }).state,
+    of({ handled_at: at, filed: 0, woke: 1 }).state,
+  ]).size, 4);
+  // ⚠ AN UNREADABLE STAMP IS `queued`, and an unreadable COUNT is zero rather than a state.
+  for (const junk of ["", 7, true, {}, [], undefined]) {
+    assert.equal(of({ handled_at: junk, filed: 5, woke: 0 }).state, "queued",
+      `a handled_at of ${JSON.stringify(junk)} was read as a dispatch that happened`);
+  }
+  for (const junk of ["2", 1.5, true, null, undefined, {}]) {
+    assert.equal(of({ handled_at: at, filed: junk, woke: junk }).state, "ignored",
+      `a count of ${JSON.stringify(junk)} was read as a number`);
+  }
+  // ⚠ **THE COUNT RIDES ONLY ON THE STATE IT IS ABOUT**, the way `run_open_calls` does one reader
+  // over: a `0` on `ignored` invites somebody to draw it, and a `0` on `queued` reports a column
+  // default as a measurement.
+  assert.equal(of({ handled_at: at, filed: 2, woke: 0 }).started, 2);
+  assert.equal(of({ handled_at: at, filed: 0, woke: 0 }).started, undefined);
+  assert.equal(of({ handled_at: at, filed: 0, woke: 1 }).woke, 1);
+  assert.equal(of({ handled_at: null, filed: 0, woke: 0 }).woke, undefined);
+  // ⚠ **A RUN ENTRY NAMES ITS AUTOMATION OR IT IS DROPPED.** An execution is read through its
+  // automation's history, so a bare id could not be opened from anywhere — a button that answers
+  // nothing. Both halves, or the entry is not carried.
+  assert.deepEqual(of({ handled_at: at, filed: 1, runs: [{ id: R1, automation: A1 }] }).runs,
+    [{ id: R1, automation: A1 }]);
+  for (const bad of [[R1], [{ id: R1 }], [{ automation: A1 }], [{ id: R1, automation: "" }], ["", null, 7], "runs", {}]) {
+    assert.deepEqual(of({ handled_at: at, filed: 1, runs: bad }).runs, [],
+      `runs of ${JSON.stringify(bad)} produced an entry nothing can open`);
+  }
+  // NO PAYLOAD, AND THE FUNCTION DOES NOT SELECT ONE — so the absence is structural rather than
+  // this reader choosing not to draw one. Asserted on the projection's own key set.
+  const keys = Object.keys(of({ handled_at: at, filed: 1, payload: { card: "4242" } })).sort();
+  assert.deepEqual(keys, ["at", "handledAt", "id", "name", "runs", "source", "started", "state"],
+    "the arrival projection carries a key nobody decided on");
+  // AND THE VOCABULARY THE ROUTE HANDS THE SCREEN IS THIS READER'S OWN, both ways, with the
+  // browser's words censused against it — a state with no word draws a blank.
+  const chat = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "chat.js"), "utf8");
+  const w = chat.slice(chat.indexOf("const WH_EVENT_WORDS = {"));
+  const worded = [...w.slice(0, w.indexOf("}")).matchAll(/^\s{2}([a-z]+):/gm)].map((x) => x[1]);
+  assert.deepEqual([...AGENT_EVENT_STATES].sort(), [...worded].sort(),
+    `the server answers ${JSON.stringify(AGENT_EVENT_STATES)} and the screen has words for ${JSON.stringify(worded)}`);
 });
 
 test("⚠ READING THE INBOUND ENDPOINTS BACK IS A LIST, and `answerOf` refuses one by design", async () => {

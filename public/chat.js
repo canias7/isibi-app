@@ -2176,6 +2176,36 @@ let agentConnNew = false;      // whether the connect form is open
  */
 let agentConnDraft = null;
 
+// ── WHERE THINGS ARRIVE ─────────────────────────────────────────────────────
+//
+// ⚠ **ITS OWN SCREEN, for the same reason the accounts have one**: an address somebody sets
+// up and the arrivals it has taken are a thing to sit with, not a row on a list of
+// automations. Two halves on it — the addresses, and what has arrived at them.
+let agentWh = null;            // which agent's arrival addresses are open
+let agentWhRows = null;        // its endpoints, as the server last answered
+let agentWhMax = 0;            // how many one agent may hold, the server's own number
+let agentWhEvents = null;      // what has arrived, newest first
+let agentWhEventsErr = '';
+let agentWhState = 'loading';
+let agentWhErr = '';
+let agentWhActErr = '';
+let agentWhNew = false;        // whether the make-an-address form is open
+let agentWhDraft = null;
+let agentWhBusy = false;
+/**
+ * ⚠ **THE SECRET, HELD IN MEMORY FOR AS LONG AS THE SCREEN SHOWS IT AND NOWHERE ELSE.**
+ *
+ * `agent.create_webhook` takes it and does not hand it back, and `agent.list_webhooks` never
+ * selects the column — so the create's own answer is the ONE time it exists outside the
+ * database, and if this screen does not put it in front of somebody it is gone for good.
+ *
+ * **NOT IN `localStorage`, NOT IN THE URL, AND NOT RE-READ FROM ANYWHERE.** A reload loses it,
+ * deliberately: the alternative is a copy of a signing key sitting in a browser's storage
+ * with nothing that ever cleans it up. The sentence beside it says so, because a person who
+ * is not told will close the panel and come back for it.
+ */
+let agentWhSecret = null;
+
 /**
  * ── ANSWERING AN APPROVAL ─────────────────────────────────────────────────────
  *
@@ -2185,6 +2215,14 @@ let agentConnDraft = null;
  */
 const agentAutoNotes = new Map();
 let agentAutoDeciding = '';
+/**
+ * WHICH RUN IS BEING STOPPED RIGHT NOW, so the button says so and cannot be pressed twice.
+ *
+ * ⚠ **A SECOND PRESS IS HARMLESS EITHER WAY AND THIS IS NOT WHAT MAKES IT SO.**
+ * `agent.cancel_run` refuses to write a second ending and answers what really happened, so
+ * two presses are one cancellation in the database. This is the screen not asking twice.
+ */
+let agentAutoStopping = '';
 
 /**
  * ── REFERENCE MATERIAL AND MEMORY ─────────────────────────────────────────────
@@ -2827,9 +2865,10 @@ async function agentMemDelete(key) {
 
 function agentAutomations(id) {
   agentPollStop();
-  // ⚠ AND THE OTHER WAY ROUND — see `agentConnections`. Two screens over one conversation
-  // cannot both be open, and each clearing the other is what says so.
+  // ⚠ AND THE OTHER WAY ROUND — see `agentConnections`. No two screens over one conversation
+  // can be open, and each clearing the others is what says so.
   agentConn = null; agentConnNew = false; agentConnDraft = null;
+  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhSecret = null;
   agentAuto = String(id || '');
   agentAutoOpenForm(null);
   agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
@@ -3521,6 +3560,98 @@ async function agentAutoDecide(runId, verdict) {
   if (agentAutoRunsFor) agentAutoWatchSoon(agentAutoRunsFor, AUTO_WATCH_TRIES);
 }
 
+/**
+ * ⚠ **STOP ONE RUN — and the whole of the care here is about not claiming too much.**
+ *
+ * **NOTHING ALREADY DONE IS UNDONE, and the answer is what says how far it got.** The counts
+ * come from `agent.cancel_run`, which reads them off the execution's own outcomes, so the
+ * sentence drawn afterwards is a fact about that run rather than a reassurance composed here.
+ *
+ * **AND `heldByWorker` IS WHAT SEPARATES *recorded* FROM *stopped*.** The stop is written
+ * synchronously, so the run reads `Stopped` the instant this returns — but a process already
+ * inside a model call or a tool batch is walled off at its NEXT checkpoint, so the step it had
+ * started may finish before it notices. When a claim was live, that is said; when it was not,
+ * saying it would be a warning about something that was not happening.
+ *
+ * The confirm is `window.confirm`, which is what the delete beside it uses — and it NAMES THE
+ * SCOPE, because *stop this run*, *turn the automation off* and *pause the agent* are three
+ * different reaches and a person pressing one may mean another.
+ */
+async function agentAutoStop(runId) {
+  const target = String(runId || '');
+  if (!target || agentAutoStopping) return;
+  const run = (agentAutoRuns || []).find((r) => r.id === target) || null;
+  // ⚠ REFUSED HERE TOO, not only left undrawn. The button that was drawn stays in the DOM
+  // until the next render, and the watch timer can re-read the history in between and come
+  // back with the run already finished — the same window `agentAutoDecide` guards, for the
+  // same reason. `cancel_run` would answer `alreadyStopped` and nothing would be harmed;
+  // what this avoids is telling somebody they stopped something that had already ended.
+  if (!run || AUTO_STOPPABLE.indexOf(run.state) === -1) {
+    agentAutoActErr = 'That run isn’t under way any more, so there is nothing to stop.';
+    renderAgents();
+    return;
+  }
+  if (!window.confirm('Stop this run? ' + AUTO_STOP_SCOPE
+    + ' Anything it has already done stays done — stopping cannot take a message back.')) return;
+  const note = String(agentAutoNotes.get(target) || '').trim();
+  const bound = agentBind();
+  agentAutoStopping = target; agentAutoActErr = ''; renderAgents();
+  let failed = '';
+  let said = '';
+  try {
+    const res = await apiFetch('/api/agent/run-cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ run: target, reason: note || null }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t stop that.';
+    else said = agentStopSaid(j);
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentAutoStopping = '';
+  // ⚠ AN ANSWER THAT LANDS AFTER THE SCREEN MOVED WRITES NOTHING — the same wall every other
+  // in-flight read on this screen has. The cancellation is durable either way.
+  if (!agentSame(bound) || agentAuto === null) { renderAgents(); return; }
+  if (failed) { agentAutoActErr = failed; renderAgents(); return; }
+  agentAutoNotes.delete(target);
+  agentAutoActErr = said;
+  await agentAutoRunsLoad(agentAutoRunsFor, true);
+}
+
+/**
+ * WHAT TO SAY ONCE IT HAS STOPPED — composed from the answer's own facts and never from a
+ * constant, so a run that had done nothing is not told it had done something.
+ *
+ * ⚠ **AND THE SERVER'S OWN SENTENCE IS PREFERRED FOR THE *not undone* HALF**, because that
+ * claim is `agent.cancel_run`'s to make: a second copy of it here is one that can drift from
+ * what a cancellation really reaches. What this adds is the part the server cannot know —
+ * whether the person is looking at something that has finished stopping or something whose
+ * last step may still be finishing.
+ */
+function agentStopSaid(j) {
+  const steps = Number.isInteger(j && j.completedSteps) ? j.completedSteps : null;
+  const calls = Number.isInteger(j && j.completedCalls) ? j.completedCalls : null;
+  const parts = [];
+  if (j && j.alreadyStopped === true) parts.push('That run had already stopped.');
+  else parts.push('Stopped.');
+  if (steps !== null) {
+    parts.push(steps + ' step' + (steps === 1 ? '' : 's') + ' had already run'
+      + (calls !== null && calls > 0
+        ? ' and ' + calls + ' action' + (calls === 1 ? '' : 's') + ' had already gone out'
+        : '') + '.');
+  }
+  parts.push(typeof (j && j.say) === 'string' && j.say
+    ? j.say
+    : 'What had already run has already run and was not undone.');
+  // ⚠ SAID ONLY WHEN A CLAIM WAS LIVE. Otherwise there is nothing still finishing, and a
+  // warning about one would be this screen inventing a delay the platform does not have.
+  if (j && j.heldByWorker === true) {
+    parts.push('Something was working on it, so the step it had already started may finish '
+      + 'before it notices — nothing after that will run.');
+  }
+  return parts.join(' ');
+}
+
 async function agentAutoDelete(id) {
   const target = String(id || '');
   if (!target) return;
@@ -3569,6 +3700,7 @@ function agentConnections(id) {
   // ⚠ THE TWO SCREENS CLEAR EACH OTHER, so they cannot both be open — and the view switch
   // reads this one first, which is what makes that a property rather than a convention.
   agentAuto = null; agentAutoOpenForm(null);
+  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhSecret = null;
   agentConn = String(id || '');
   agentConnRows = null; agentConnCat = null; agentConnNew = false;
   agentConnDraft = null; agentConnActErr = '';
@@ -3695,6 +3827,218 @@ async function agentConnDisconnect(id) {
     agentConnActErr = 'Couldn’t reach the server.';
     renderAgents();
   }
+}
+
+
+// ── where things arrive: the screen ──────────────────────────────────────────
+
+/**
+ * ⚠ **IS THE SAME AGENT'S ADDRESSES STILL OPEN, FOR THE SAME ACCOUNT?**
+ *
+ * Its own predicate, the way `connSame` is and for the same reason: `agentSame` asks about the
+ * CONVERSATION, and an answer landing after somebody opened another agent's addresses would
+ * show them rows that are not about what they are looking at.
+ */
+const whBind = () => ({ uid: agentUid(), wh: agentWh });
+const whSame = (b) => !!b && b.uid === agentUid() && b.wh === agentWh;
+
+function agentWebhooks(id) {
+  agentPollStop();
+  // ⚠ THE THREE SCREENS CLEAR EACH OTHER, so no two can be open — and the view switch reads
+  // them in one order, which is what makes that a property rather than a convention.
+  agentAuto = null; agentAutoOpenForm(null);
+  agentConn = null; agentConnNew = false; agentConnDraft = null;
+  agentWh = String(id || '');
+  agentWhRows = null; agentWhEvents = null; agentWhEventsErr = '';
+  agentWhNew = false; agentWhDraft = null; agentWhActErr = '';
+  // ⚠ THE SECRET IS CLEARED ON THE WAY IN, so one agent's key can never be on screen while
+  // another agent's addresses are. It is the one value here that must not outlive its context.
+  agentWhSecret = null;
+  agentWhLoad();
+}
+function agentWhBack() {
+  const back = agentWh;
+  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhActErr = '';
+  agentWhSecret = null;
+  if (back) agentOpen(back); else renderAgents();
+}
+function agentWhNewOpen() { agentWhNew = true; agentWhDraft = null; agentWhActErr = ''; agentWhSecret = null; renderAgents(); }
+function agentWhCancel() { agentWhNew = false; agentWhDraft = null; agentWhActErr = ''; renderAgents(); }
+function agentWhReload() { agentWhLoad(); }
+/** Put the secret away. It is gone from everywhere once this runs — that is the point of it. */
+function agentWhSecretDone() { agentWhSecret = null; renderAgents(); }
+
+/** Read the form back out of the DOM, so a redraw cannot eat what is typed. */
+function agentWhFormRead() {
+  const form = document.getElementById('agWhForm');
+  if (!form) return;
+  const get = (n) => { const el = form.querySelector('[data-field="' + n + '"]'); return el ? el.value : ''; };
+  agentWhDraft = { name: get('name'), event: get('event') };
+}
+
+/**
+ * Both halves in one press: the addresses, and what has arrived at them.
+ *
+ * ⚠ **TWO READS, EACH IN ITS OWN `try`, because they answer different questions and one
+ * outage must not silence the other.** The addresses are the configuration and the arrivals
+ * are the history; a screen that showed neither because the log was unreadable would hide the
+ * thing somebody came to change.
+ */
+async function agentWhLoad(quiet) {
+  const bound = whBind();
+  const forAgent = agentWh;
+  if (!quiet) { agentWhState = 'loading'; agentWhErr = ''; renderAgents(); }
+  try {
+    const res = await apiFetch('/api/agent/webhooks?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    if (!whSame(bound) || agentWh !== forAgent) return;
+    if (!res.ok || !j.ok) {
+      // A FAILED READ IS NOT AN AGENT WITH NO ADDRESSES. The rows it had stay as they were,
+      // so an outage does not read as everything having been deleted.
+      agentWhState = 'error';
+      agentWhErr = (j && j.error) || 'Couldn’t load the arrival addresses.';
+    } else {
+      agentWhRows = Array.isArray(j.webhooks) ? j.webhooks : [];
+      agentWhMax = Number.isInteger(j.max) ? j.max : 0;
+      agentWhState = 'ready';
+      agentWhErr = '';
+    }
+  } catch {
+    if (!whSame(bound) || agentWh !== forAgent) return;
+    agentWhState = 'error';
+    agentWhErr = 'Couldn’t reach the server.';
+  }
+  await agentWhEventsLoad(forAgent, bound);
+  renderAgents();
+}
+
+async function agentWhEventsLoad(forAgent, bound) {
+  try {
+    const res = await apiFetch('/api/agent/events?agent=' + encodeURIComponent(forAgent));
+    const j = await res.json().catch(() => ({}));
+    if (!whSame(bound) || agentWh !== forAgent) return;
+    if (!res.ok || !j.ok) {
+      agentWhEventsErr = (j && j.error) || 'Couldn’t load what has arrived.';
+    } else {
+      agentWhEvents = Array.isArray(j.events) ? j.events : [];
+      agentWhEventsErr = '';
+    }
+  } catch {
+    if (!whSame(bound) || agentWh !== forAgent) return;
+    agentWhEventsErr = 'Couldn’t reach the server.';
+  }
+}
+
+/**
+ * Make one.
+ *
+ * ⚠ **THE SECRET COMES BACK EXACTLY ONCE AND THIS IS THE ONLY PLACE IT IS EVER SEEN.** The
+ * answer is held in memory, shown, and dropped; nothing stores it and nothing can ask for it
+ * again. So the list is reloaded AFTER it is held, because a reload that failed must not be
+ * what loses it.
+ */
+async function agentWhSave() {
+  agentWhFormRead();
+  const d = agentWhDraft || {};
+  const bound = whBind();
+  const forAgent = agentWh;
+  agentWhBusy = true; agentWhActErr = ''; renderAgents();
+  let failed = '';
+  let secret = null;
+  try {
+    const res = await apiFetch('/api/agent/webhook-create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: forAgent, name: d.name, event: d.event }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t make that address.';
+    else secret = { id: j.id, name: j.name, event: j.event, path: j.path, secret: j.secret };
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentWhBusy = false;
+  // ⚠ AN ANSWER THAT LANDS AFTER THE SCREEN MOVED WRITES NOTHING — **including the secret**,
+  // which is the one value here where showing it on the wrong screen would be worse than
+  // losing it. The address exists either way and can be deleted and made again.
+  if (!whSame(bound) || agentWh !== forAgent) { renderAgents(); return; }
+  if (failed) { agentWhActErr = failed; renderAgents(); return; }
+  agentWhNew = false; agentWhDraft = null;
+  agentWhSecret = secret;
+  await agentWhLoad(true);
+}
+
+/** Open or close one. Closing it stops deliveries being accepted at all. */
+async function agentWhEnable(id, enabled) {
+  const target = String(id || '');
+  if (!target || agentWhBusy) return;
+  const bound = whBind();
+  agentWhBusy = true; agentWhActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/webhook-enable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: agentWh, id: target, enabled: !!enabled }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t change that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentWhBusy = false;
+  if (!whSame(bound)) { renderAgents(); return; }
+  if (failed) { agentWhActErr = failed; renderAgents(); return; }
+  await agentWhLoad(true);
+}
+
+/**
+ * Delete one.
+ *
+ * ⚠ **THE CONFIRM SAYS WHAT CANNOT BE PUT BACK.** There is no rotate — deliberately, because
+ * a rotate has to hand out a new secret and the whole design is that exactly one door does —
+ * so deleting an address is how a compromised key is dealt with, and whatever signs with the
+ * old one stops working the moment this returns.
+ */
+async function agentWhDelete(id) {
+  const target = String(id || '');
+  if (!target || agentWhBusy) return;
+  const row = (agentWhRows || []).find((w) => w.id === target);
+  if (!window.confirm('Delete ' + ((row && row.name) || 'this address')
+    + '? Anything sending to it stops working straight away, and its signing key cannot be '
+    + 'recovered — you would make a new address and a new key.')) return;
+  const bound = whBind();
+  agentWhBusy = true; agentWhActErr = ''; renderAgents();
+  let failed = '';
+  try {
+    const res = await apiFetch('/api/agent/webhook-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: agentWh, id: target }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t delete that.';
+  } catch { failed = 'Couldn’t reach the server.'; }
+  agentWhBusy = false;
+  if (!whSame(bound)) { renderAgents(); return; }
+  if (failed) { agentWhActErr = failed; renderAgents(); return; }
+  await agentWhLoad(true);
+}
+
+/**
+ * ⚠ **FROM AN ARRIVAL TO THE RUN IT STARTED — the requirement's *show the relevant execution*
+ * as a control rather than as a sentence.**
+ *
+ * An execution is read through its AUTOMATION's history, so this leaves the addresses and
+ * opens that automation with its history showing. `list_events` names both halves per run for
+ * exactly this reason; a bare run id could not be opened from anywhere.
+ */
+function agentWhOpenRun(automationId) {
+  const target = String(automationId || '');
+  // ⚠ WHOSE ADDRESSES THESE ARE IS READ BEFORE ANYTHING IS CLEARED, because the hop needs an
+  // owner and `agentAutomations` is what clears this screen. Read after, it would be `null`
+  // and the automations list would open for nobody.
+  const owner = agentWh;
+  if (!target || !owner) return;
+  agentWhSecret = null; agentWhActErr = '';
+  agentAutomations(owner);
+  agentAutoHistory(target);
 }
 
 /**
@@ -3834,6 +4178,247 @@ function connectionsHtml() {
   return '<div class="ag-page ag-thread-page">' + head +
     (agentConnActErr ? '<div class="ag-err">' + esc(agentConnActErr) + '</div>' : '') +
     body + '</div>';
+}
+
+
+/**
+ * ONE ARRIVAL ADDRESS: what it is called, what it raises, where it is, and whether it is open.
+ *
+ * ⚠ **IT REUSES THE AUTOMATIONS ROW'S OWN CLASSES rather than a set of its own**, for the
+ * reason `agentConnRowHtml` records: the owner directs the design here, and a class with no
+ * rule in `styles.css` is a control nobody can see. Every class below is one that already
+ * has one.
+ *
+ * ⚠ **AND THE SECRET IS NOT ON THIS ROW, because it cannot be.** `agent.list_webhooks` never
+ * selects the column, so there is nothing here to leave out — which is a stronger statement
+ * than this renderer choosing not to draw one.
+ */
+function agentWhRowHtml(w) {
+  const on = w.enabled === true;
+  return '<div class="ag-auto' + (on ? '' : ' ag-auto-off') + '">' +
+    '<div class="ag-auto-top">' +
+      '<div class="ag-auto-m">' +
+        '<div class="ag-auto-n">' + esc(w.name || w.id) +
+          (on ? '' : '<span class="ag-chip ag-chip-off">Closed</span>') + '</div>' +
+        // WHICH EVENT IT RAISES, because that is what an automation listens for — and the two
+        // have to be the same word or nothing ever runs.
+        '<div class="ag-auto-s">Raises ' + esc(w.event || '?') + '</div>' +
+        '<div class="ag-auto-steps">' +
+          // ⚠ **A PATH, NOT A URL, AND THE SENTENCE SAYS WHOSE.** This product rings the
+          // engine through a queue binding, which carries no address, so composing a URL here
+          // would mean inventing an origin — and an invented origin is what somebody
+          // configures their system with and which never works.
+          '<span class="ag-auto-step">POST ' + esc(w.path || '') + ' on the agent service</span>' +
+          '<span class="ag-auto-step ag-auto-none">' +
+            (w.lastAt ? 'Last arrival ' + esc(autoWhen(w.lastAt)) : 'Nothing has arrived yet') +
+          '</span>' +
+          '<span class="ag-auto-step ag-auto-none">id ' + esc(w.id) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ag-auto-acts">' +
+        // ⚠ CLOSING IT IS THE THING THE MILESTONE ASKS FOR — *disable incoming events* — and
+        // it is a separate act from deleting: a closed address keeps its key and can be opened
+        // again, a deleted one cannot be recovered at all.
+        '<button class="ag-auto-btn" data-act="agent-wh-enable" data-id="' + esc(w.id) + '"' +
+          ' data-on="' + (on ? '0' : '1') + '"' + (agentWhBusy ? ' disabled' : '') + '>' +
+          (on ? 'Close' : 'Open') + '</button>' +
+        '<button class="ag-auto-btn" data-act="agent-wh-delete" data-id="' + esc(w.id) + '"' +
+          (agentWhBusy ? ' disabled' : '') + '>Delete</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/**
+ * ⚠ **THE ONE TIME THE SIGNING KEY IS EVER SEEN, and the panel says so in as many words.**
+ *
+ * `agent.create_webhook` takes the secret and does not answer it, `agent.list_webhooks` never
+ * selects the column, and there is no rotate — so this is not a convenience, it is the only
+ * door. A person who closes this without copying it has to delete the address and make
+ * another. **Nothing stores it**: not `localStorage`, not the URL, and a reload loses it,
+ * which is deliberate — a copy of a signing key sitting in browser storage with nothing that
+ * cleans it up is worse than having to make a new address.
+ */
+function agentWhSecretHtml() {
+  const k = agentWhSecret;
+  if (!k) return '';
+  return '<div class="ag-form">' +
+      '<div class="ag-auto-n">' + esc(k.name || 'Your new address') + ' is ready</div>' +
+      '<label class="ag-lbl">Where to send to</label>' +
+      '<input class="ag-in" readonly value="' + esc(k.path || '') + '">' +
+      '<div class="ag-hint">Send a POST here on the agent service. It raises ' +
+        esc(k.event || '') + ', so an automation set to start on that event will run.</div>' +
+      '<label class="ag-lbl">The signing key</label>' +
+      '<input class="ag-in" readonly value="' + esc(k.secret || '') + '">' +
+      '<div class="ag-err">Copy this now. It is the only time it is shown — it is not stored ' +
+        'anywhere you can read it back, and there is no way to ask for it again. If you lose ' +
+        'it, delete this address and make another.</div>' +
+      '<div class="ag-hint">Sign each delivery with it: an <code>x-agent-timestamp</code> ' +
+        'header, and <code>x-agent-signature</code> as HMAC-SHA256 over ' +
+        '<code>timestamp.body</code>. Deliveries more than a few minutes out are refused.</div>' +
+      '<div class="ag-actions">' +
+        '<button class="ag-save" data-act="agent-wh-secret-done">I have copied it</button>' +
+      '</div>' +
+    '</div>';
+}
+
+/** The form: a name, and which event a delivery raises. */
+function agentWhFormHtml() {
+  const d = agentWhDraft || { name: '', event: '' };
+  return '<div class="ag-form" id="agWhForm">' +
+      '<label class="ag-lbl">What is it for</label>' +
+      '<input class="ag-in" data-field="name" data-input="agent-wh" maxlength="120"' +
+        ' placeholder="Our shop’s orders" value="' + esc(d.name) + '">' +
+
+      '<label class="ag-lbl">What arriving here means</label>' +
+      '<input class="ag-in" data-field="event" data-input="agent-wh" maxlength="64"' +
+        ' placeholder="order.paid" value="' + esc(d.event) + '">' +
+      // ⚠ **THE TWO NAMES HAVE TO MATCH OR NOTHING EVER RUNS**, and this is the only place
+      // somebody is told so. An automation's trigger box takes the same word; an address
+      // raising a name no automation listens for takes deliveries and starts nothing —
+      // a control that answers, which the arrivals list below then shows honestly as
+      // "nothing was listening".
+      '<div class="ag-hint">Lower case, letters and digits, with dots or dashes — for example ' +
+        '<code>order.paid</code>. Put the same name in an automation’s “It also starts when ' +
+        'this happens” box and that automation will run whenever something arrives here.</div>' +
+
+      '<div class="ag-hint">The signing key is made on the server when you save. You are shown ' +
+        'it once, on the next screen, and it is never shown again.</div>' +
+      (agentWhActErr ? '<div class="ag-err">' + esc(agentWhActErr) + '</div>' : '') +
+      '<div class="ag-actions">' +
+        '<button class="ag-save" data-act="agent-wh-save"' + (agentWhBusy ? ' disabled' : '') + '>' +
+          (agentWhBusy ? 'Making…' : 'Make the address') + '</button>' +
+        '<button class="ag-cancel" data-act="agent-wh-cancel">Cancel</button>' +
+      '</div>' +
+    '</div>';
+}
+
+/**
+ * ⚠ **WHAT BECAME OF EACH ARRIVAL — four words, because the four are four different things.**
+ *
+ * The milestone asks for the difference between *received*, *rejected*, *ignored* and
+ * *starting a run*, and three of those are in this list. **THE FOURTH IS NOT AND CANNOT BE**:
+ * a wrong signature, a stale timestamp or an unknown address is refused before any row is
+ * written — in one sentence deliberately, so the address cannot be used to find out which ids
+ * exist — so there is nothing recorded to show. The sentence under the list says that, because
+ * an empty section reads as *nothing has been rejected*, which is a claim nobody can make.
+ *
+ * The words come from the row's own `state`, which the server derived; a state this does not
+ * recognise draws its own word rather than a blank.
+ */
+const WH_EVENT_WORDS = {
+  queued: 'Just arrived',
+  started: 'Started a run',
+  woke: 'Released something waiting',
+  ignored: 'Nothing was listening',
+};
+
+function agentWhEventsHtml() {
+  if (agentWhEventsErr) {
+    return '<div class="ag-err">' + esc(agentWhEventsErr) + '</div>';
+  }
+  if (agentWhEvents === null) return '<div class="ag-auto-none">Loading what has arrived…</div>';
+  if (!agentWhEvents.length) {
+    return '<div class="ag-auto-none">Nothing has arrived yet. When something does, it shows ' +
+      'here with what it started.</div>';
+  }
+  return agentWhEvents.map((ev) =>
+    '<div class="ag-run">' +
+      '<div class="ag-run-top">' +
+        '<span class="ag-chip ag-chip-' +
+          // THE CHIP REUSES THE EXECUTION HISTORY'S OWN STATE CLASSES, so an arrival that
+          // started something reads the way a run that is going does, and one nobody was
+          // listening for reads the way a skipped step does. No new class, no new colour.
+          esc(ev.state === 'ignored' ? 'skipped' : ev.state === 'queued' ? 'queued' : 'running') +
+          '">' + esc(WH_EVENT_WORDS[ev.state] || ev.state) + '</span>' +
+        '<span class="ag-run-when">' + esc(autoWhen(ev.at)) + '</span>' +
+        '<span class="ag-run-how">' + esc(ev.name || '?') +
+          (ev.source ? ' · ' + esc(ev.source) : '') + '</span>' +
+      '</div>' +
+      (ev.state === 'ignored'
+        ? '<div class="ag-run-why">It arrived and nothing was set to start on it. Put ' +
+            esc(ev.name || 'that name') + ' in an automation’s “It also starts when this ' +
+            'happens” box and the next one will run it.</div>'
+        : '') +
+      (ev.state === 'queued'
+        ? '<div class="ag-run-why">It has arrived and hasn’t been looked at yet — that happens ' +
+            'within a minute.</div>'
+        : '') +
+      (ev.state === 'woke'
+        ? '<div class="ag-run-why">It released ' + esc(String(ev.woke || 1)) + ' run that was ' +
+            'waiting for exactly this.</div>'
+        : '') +
+      // ⚠ **FROM THE ARRIVAL TO THE RUN — a control and not a sentence.** Each entry names its
+      // automation as well as its run, because an execution is read through its automation's
+      // history and a bare run id could not be opened from anywhere.
+      ((ev.runs || []).length
+        ? '<div class="ag-actions">' + (ev.runs || []).map((r, i) =>
+            '<button class="ag-auto-btn" data-act="agent-wh-run" data-auto="' + esc(r.automation) + '">' +
+              'Open the run' + ((ev.runs || []).length > 1 ? ' (' + (i + 1) + ')' : '') +
+            '</button>').join('') + '</div>'
+        : '') +
+    '</div>').join('');
+}
+
+/**
+ * THE WHOLE SCREEN: the addresses, then what has arrived at them.
+ *
+ * Three states and no fourth, the way the accounts screen has two: the LIST, the FORM over it,
+ * and the SECRET over that. A form is drawn over the list rather than beside it, so nothing
+ * redraws behind somebody who is typing.
+ */
+function webhooksHtml() {
+  const agent = (agentRows || []).find((a) => a.id === agentWh) || null;
+  const full = agentWhMax > 0 && (agentWhRows || []).length >= agentWhMax;
+  const head =
+    '<div class="ag-head ag-thread-head">' +
+      '<button class="ag-back" data-act="agent-wh-back" aria-label="Back to the conversation" title="Back">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>' +
+      '</button>' +
+      '<div class="ag-thread-name">Where things arrive' + (agent ? ' · ' + esc(agent.name) : '') + '</div>' +
+      // ⚠ NO PLUS WHILE THE FORM OR THE SECRET IS OPEN, and none when the agent is full: a
+      // button that answers "that's as many as one agent can hold" is one nobody should press.
+      (!agentWhNew && !agentWhSecret && !full
+        ? '<button class="ag-edit" data-act="agent-wh-new" aria-label="Make an arrival address" title="Make an arrival address">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>' +
+          '</button>'
+        : '') +
+    '</div>';
+
+  if (agentWhSecret) return '<div class="ag-page ag-thread-page">' + head + agentWhSecretHtml() + '</div>';
+  if (agentWhNew) return '<div class="ag-page ag-thread-page">' + head + agentWhFormHtml() + '</div>';
+
+  let body;
+  if (agentWhState === 'loading' && agentWhRows === null) {
+    body = '<div class="ag-empty"><div class="ag-empty-s">Loading…</div></div>';
+  } else if (agentWhState === 'error' && agentWhRows === null) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">Couldn’t load the arrival addresses</div>' +
+             '<div class="ag-empty-s">' + esc(agentWhErr) + '</div>' +
+             '<button class="ag-retry" data-act="agent-wh-reload">Try again</button>' +
+           '</div>';
+  } else if (!(agentWhRows || []).length) {
+    body = '<div class="ag-empty">' +
+             '<div class="ag-empty-t">Nothing arrives here yet</div>' +
+             '<div class="ag-empty-s">Make an address and your own systems can start this ' +
+               'agent’s automations. Each address raises one event name; an automation set to ' +
+               'start on that name runs whenever something arrives.</div>' +
+           '</div>';
+  } else {
+    body = (agentWhRows || []).map(agentWhRowHtml).join('');
+  }
+  return '<div class="ag-page ag-thread-page">' + head +
+    (agentWhActErr ? '<div class="ag-err">' + esc(agentWhActErr) + '</div>' : '') +
+    body +
+    '<div class="ag-auto-n">What has arrived</div>' +
+    agentWhEventsHtml() +
+    // ⚠ **A REFUSED DELIVERY LEAVES NO TRACE, AND SAYING SO IS THE POINT.** Without this
+    // sentence an empty list reads as *nothing has been rejected*, which is a claim this
+    // platform cannot make: a wrong signature is refused before anything is written.
+    '<div class="ag-hint">Only deliveries that were accepted are listed. One that was refused ' +
+      '— a wrong signature, a timestamp too far out, or an address that has been deleted — is ' +
+      'turned away before anything is recorded, so it never appears here.</div>' +
+    '</div>';
 }
 
 /**
@@ -3981,6 +4566,47 @@ const AUTO_STATE_WORDS = {
 };
 
 /**
+ * ⚠ **WHICH STATES A RUN CAN BE STOPPED FROM — and the milestone's own words are *show Stop
+ * only when applicable*.**
+ *
+ * These are exactly the three `executionRow` answers for a run that has NOT stopped
+ * (`run_status !== 'stopped'` → `waiting` if it is holding, else `running` or `queued` by how
+ * far it got). Every other state in `AUTOMATION_STATES` belongs to a run whose `stopped` entry
+ * is already written, and `agent.cancel_run` answers `alreadyStopped` for one of those — so a
+ * button there is a control that reports success and changes nothing.
+ *
+ * **`unresolved` IS THE ONE WORTH SAYING OUT LOUD.** It reads like something still in the air
+ * and it is not: the run has ENDED, and what is unknown is whether a message the provider
+ * never answered for went out. Stopping it would promise to reach something that is already
+ * past reaching, which is the one claim a cancellation must never make.
+ *
+ * It is a DECLARED COPY of that partition — this file cannot import from `agent-store.mjs` —
+ * and `test/agent-automations.test.mjs` censuses it against `executionRow` itself, driving a
+ * row in each state rather than reading a list, so a fourth live state cannot arrive without
+ * this being decided.
+ */
+const AUTO_STOPPABLE = ['queued', 'running', 'waiting'];
+
+/**
+ * ⚠ **THE THREE THINGS SOMEBODY MIGHT MEAN, AND THEY ARE THREE — the milestone asks for the
+ * distinction in as many words.**
+ *
+ * | what | reaches |
+ * |---|---|
+ * | Stop | THIS run, and nothing else. The automation still runs next time. |
+ * | turn the automation off | every future run of it. Nothing under way is touched. |
+ * | pause the agent | every automation of that agent, and its conversation too. |
+ *
+ * Three different scopes, so a screen that offered one word for them would have somebody
+ * stopping tonight's run when they meant to stop the automation, or the reverse. The sentence
+ * beside the button says which this is; the other two have their own controls elsewhere on
+ * this screen, and it names them rather than describing them.
+ */
+const AUTO_STOP_SCOPE = 'This stops this one run and nothing else — the automation stays on '
+  + 'and will run again next time. To stop it running again, turn the automation off; to stop '
+  + 'everything this agent does, pause the agent in its settings.';
+
+/**
  * The form an automation's inputs are filled in on, before it runs.
  *
  * **ITS OWN SCREEN, AND ITS DEFAULTS ARE ALREADY IN THE BOXES** — so an automation run a
@@ -4078,7 +4704,24 @@ function automationRunsHtml() {
         '<span class="ag-run-when">' + esc(autoWhen(r.at)) + '</span>' +
         '<span class="ag-run-how">' + esc(autoHow(r.trigger)) +
           (r.occurrence ? ' · ' + esc(r.occurrence) : '') + '</span>' +
+        // ⚠ **STOP, AND ONLY WHERE IT APPLIES.** `AUTO_STOPPABLE` is the three states a run
+        // that has not stopped can be in; on any other state `agent.cancel_run` answers
+        // `alreadyStopped`, so a button there would report success and change nothing — the
+        // dead control that ANSWERS. It sits in the row's own top line rather than in a
+        // section of its own, because it is about the run and not about what the run is
+        // waiting for.
+        (AUTO_STOPPABLE.indexOf(r.state) !== -1
+          ? '<button class="ag-auto-btn" data-act="agent-auto-stop" data-run="' + esc(r.id) + '"' +
+              (agentAutoStopping ? ' disabled' : '') + '>' +
+              (agentAutoStopping === r.id ? 'Stopping…' : 'Stop') + '</button>'
+          : '') +
       '</div>' +
+      // ⚠ **WHAT STOPPING WOULD AND WOULD NOT REACH, beside the button rather than only in
+      // the confirm.** A person deciding needs it before they press, and the confirm is gone
+      // the instant they answer it. Three scopes, three controls, named — see
+      // `AUTO_STOP_SCOPE`.
+      (AUTO_STOPPABLE.indexOf(r.state) !== -1
+        ? '<div class="ag-hint">' + esc(AUTO_STOP_SCOPE) + '</div>' : '') +
       // THE FINAL RESULT, THE REASON IT SKIPPED, OR THE ERROR — one of the three, never
       // two, because an execution ended exactly one way.
       //
@@ -5195,6 +5838,10 @@ function renderAgentsNow() {
   // both be open: `agentConnections` and `agentAutomations` each clear the other's id, and
   // this order is what makes that a property rather than something to remember.
   if (agentConn !== null) { view.innerHTML = connectionsHtml(); wireActions(view); return; }
+  // ⚠ WHERE THINGS ARRIVE IS A SCREEN OF ITS OWN TOO, read here for the same reason: each
+  // of these openers clears the others' id, and this order is what makes "no two are open" a
+  // property rather than something to remember.
+  if (agentWh !== null) { view.innerHTML = webhooksHtml(); wireActions(view); return; }
   if (agentAuto !== null) { view.innerHTML = automationsHtml(); wireActions(view); return; }
   // REFERENCE MATERIAL AND MEMORY, also a screen of its own and for the same reason: it
   // holds a whole document in a box, and nothing may redraw behind somebody typing one.
@@ -5253,6 +5900,16 @@ function renderAgentsNow() {
           '<button class="ag-edit" data-act="agent-connections" data-id="' + esc(a.id) + '" aria-label="Connected accounts" title="Connected accounts">' +
             '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
               '<path d="M9 15l6-6"></path><path d="M11 6.5l1.8-1.8a3.5 3.5 0 0 1 5 5L16 11.5"></path><path d="M13 17.5l-1.8 1.8a3.5 3.5 0 0 1-5-5L8 12.5"></path>' +
+            '</svg>' +
+          '</button>' +
+          // ⚠ AND WHERE THINGS ARRIVE IS A FIFTH, because it is the other direction: the
+          // accounts are what the agent can reach OUT to, and these are the addresses things
+          // reach IN at. It sits beside them because the pair is one idea — and because an
+          // automation's event box and an address's event name have to be the same word, so
+          // somebody setting one up needs the other within a press.
+          '<button class="ag-edit" data-act="agent-webhooks" data-id="' + esc(a.id) + '" aria-label="Where things arrive" title="Where things arrive">' +
+            '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' +
+              '<path d="M12 3v11"></path><path d="M8 10.5l4 4 4-4"></path><path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13A1.5 1.5 0 0 0 20 19.5V17"></path>' +
             '</svg>' +
           '</button>' +
           // ITS OWN DOOR, beside the automations and the instructions, because the three
@@ -14513,6 +15170,19 @@ const CLICK_ACTIONS = {
   'agent-thread-retry': (e, el) => agentThreadRetry(el.dataset.id),
   'agent-automations': (e, el) => agentAutomations(el.dataset.id),
   'agent-connections': (e, el) => agentConnections(el.dataset.id),
+  'agent-webhooks': (e, el) => agentWebhooks(el.dataset.id),
+  'agent-wh-back': () => agentWhBack(),
+  'agent-wh-new': () => agentWhNewOpen(),
+  'agent-wh-cancel': () => agentWhCancel(),
+  'agent-wh-reload': () => agentWhReload(),
+  'agent-wh-save': () => agentWhSave(),
+  // ⚠ THE FLAG COMES OFF THE BUTTON'S OWN ATTRIBUTE, not off the row read again: the row
+  // this was drawn from is what the person looked at, and re-reading it could answer a state
+  // the poll has since changed — so the press would toggle the opposite way from what it said.
+  'agent-wh-enable': (e, el) => agentWhEnable(el.dataset.id, el.dataset.on === '1'),
+  'agent-wh-delete': (e, el) => agentWhDelete(el.dataset.id),
+  'agent-wh-secret-done': () => agentWhSecretDone(),
+  'agent-wh-run': (e, el) => agentWhOpenRun(el.dataset.auto),
   'agent-conn-back': () => agentConnBack(),
   'agent-conn-new': () => agentConnNewOpen(),
   'agent-conn-cancel': () => agentConnCancel(),
@@ -14543,6 +15213,7 @@ const CLICK_ACTIONS = {
   'agent-auto-ask-cancel': () => agentAutoAskCancel(),
   'agent-auto-approve': (e, el) => agentAutoDecide(el.dataset.run, 'approved'),
   'agent-auto-reject': (e, el) => agentAutoDecide(el.dataset.run, 'rejected'),
+  'agent-auto-stop': (e, el) => agentAutoStop(el.dataset.run),
   // ⚠ NOT THE TWO ABOVE. Those answer an approval STEP in a workflow; these answer one
   // TOOL CALL a model made in a conversation. Two different things, and a screen that
   // sent one where the other was meant would answer somebody else's question.
@@ -14616,6 +15287,10 @@ const INPUT_ACTIONS = {
   // THE CONNECT FORM'S OWN BOXES. Read back into the draft as they are typed, so a redraw
   // from anywhere else cannot eat them — and NO RE-RENDER, for the same reason as above.
   'agent-conn': () => agentConnFormRead(),
+  // THE ARRIVAL-ADDRESS FORM'S TWO BOXES, read back into the draft as they are typed, for
+  // the same reason and with the same NO RE-RENDER: a redraw from anywhere else must not
+  // eat what is in them, and a redraw per keystroke is the twitch that would replace.
+  'agent-wh': () => agentWhFormRead(),
   /**
    * ⚠ **THE AUTOMATION FORM, AND THE REDRAW IS CONDITIONAL — that is the whole of this entry.**
    *

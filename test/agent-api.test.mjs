@@ -140,6 +140,10 @@ function fakeStore(over = {}) {
     disconnectConnection: async (...a) => { calls.push({ name: "disconnectConnection", args: a }); return { ok: true }; },
     revokeConnection: async (...a) => { calls.push({ name: "revokeConnection", args: a }); return { ok: true }; },
     listWebhooks: async (...a) => { calls.push({ name: "listWebhooks", args: a }); return []; },
+    // ⚠ THE ARRIVALS READ, and a fake missing one is why this file has read a 502 five
+    // times: the route throws, the census reads the status, and the failure names the wrong
+    // thing entirely. Sixth time it would have.
+    listEvents: async (...a) => { calls.push({ name: "listEvents", args: a }); return []; },
     createWebhook: async (...a) => {
       calls.push({ name: "createWebhook", args: a });
       return { ok: true, id: A1, event_name: "order.paid" };

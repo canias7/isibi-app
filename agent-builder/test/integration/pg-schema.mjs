@@ -3808,6 +3808,59 @@ try {
       jget(`select outcomes->0->>'outcome' from agent.automation_runs where id='${C3}';`, asOwner) === "ran"
       && /was not undone/.test(C3out));
 
+    /**
+     * ⚠ **AN EXECUTION CANCELLED WHILE IT WAS WORKING IS CLOSED TOO, and it used not to be.**
+     *
+     * `cancel_run`'s execution update was `where waiting is not null or wait_until is not null`
+     * — right about waits and wrong about everything else. A run stopped mid-step kept
+     * `finished_at = NULL` for ever: nothing else could set it, because `finish_automation_run`
+     * is fenced on the claim token the cancellation has just cleared, so the holder's own
+     * finish is refused at its next checkpoint. And `runner.mjs`'s `already-finished` wall —
+     * written precisely to stop a finished execution being delivered and re-run for ever — is
+     * keyed on that field, so the one shape it could not see was a run somebody had stopped
+     * while it was working.
+     *
+     * **`releasedWait` IS THE CONTROL, and it is the other half of the same change**: it still
+     * answers whether there was a wait to release, which is a different question from whether
+     * the execution is closed. C2 above is `true`; this is `false`, and both are now true of
+     * the same function.
+     */
+    const C4 = "ff000000-0000-0000-0000-0000000000c4";
+    allowed("an automation execution working, holding for nobody", `
+      insert into agent.automations (id, tenant_id, agent_id, name, steps, zone)
+        values ('${C4}', '${XT}', '${XA}', 'w4',
+                '[{"id":"s1","type":"note","text":"x","out":"a"},{"id":"s2","type":"note","text":"y","out":"b"}]'::jsonb, 'UTC');
+      insert into agent.runs (id, tenant_id, status) values ('${C4}','${XT}','running');
+      insert into agent.run_entries (run_id, seq, body) values ('${C4}', 0, '{"kind":"started","at":1}'::jsonb);
+      insert into agent.automation_runs (id, automation_id, tenant_id, trigger, steps, zone, position, outcomes)
+        values ('${C4}', '${C4}', '${XT}', 'manual',
+                '[{"id":"s1","type":"note","text":"x","out":"a"},{"id":"s2","type":"note","text":"y","out":"b"}]'::jsonb,
+                'UTC', 1, '[{"id":"s1","type":"note","outcome":"ran","result":"x"}]'::jsonb);
+      -- ⚠ A CLAIM IS WHOLE OR ABSENT (run_work_claim_whole), so a hand-built holder has to
+      -- set all four columns — the schema being right, and the fixture had to be told.
+      insert into agent.run_work (run_id, tenant_id, kind, executor, claimed_by, claimed_at, claim_token, lease_expires_at)
+        values ('${C4}','${XT}','start','automation','worker-9', now(), '${C4}', now() + interval '1 minute');`, asOwner);
+    // THE OBSERVER: it really is open and really is held, so the two answers below are about
+    // a working execution rather than one that had already come to rest.
+    check("⚠ ...and it really is open and really is claimed before the cancellation",
+      jget(`select (finished_at is null and waiting is null and wait_until is null)::text
+              from agent.automation_runs where id='${C4}';`, asOwner) === "true"
+      && jget(`select (claim_token is not null and done_at is null)::text
+                 from agent.run_work where run_id='${C4}';`, asOwner) === "true");
+    const C4out = jget(`select agent.cancel_run('${XT}','${C4}','person-1','stop it there')::text;`);
+    check("⚠ A MID-STEP CANCELLATION CLOSES THE EXECUTION, so the already-finished wall can see it",
+      /"ok"\s*:\s*true/.test(C4out) &&
+      jget(`select finished_at is not null from agent.automation_runs where id='${C4}';`, asOwner) === "t",
+      C4out);
+    check("⚠ ...and `releasedWait` is FALSE, because there was no wait — the control for C2's true",
+      /"releasedWait"\s*:\s*false/.test(C4out), C4out);
+    check("...and the step that had run still says it ran, and the answer says nothing was undone",
+      jget(`select outcomes->0->>'outcome' from agent.automation_runs where id='${C4}';`, asOwner) === "ran"
+      && /"completedSteps"\s*:\s*1/.test(C4out) && /was not undone/.test(C4out), C4out);
+    check("...and the work it was holding is released and marked done",
+      jget(`select (claim_token is null and done_at is not null and last_error = 'cancelled')::text
+              from agent.run_work where run_id='${C4}';`, asOwner) === "true");
+
     // ── 7b. A RUN NOBODY ANSWERED IS PUT BACK, OR IT IS STRANDED FOR EVER ──
     // ⚠ BOTH OF THESE WERE FOUND BY DRIVING THE FEATURE AND NEITHER WAS OBVIOUS. A run waiting
     // for a person has its work row marked DONE, and `decide_tool_approval` is what puts it
@@ -4721,6 +4774,57 @@ try {
     /"no-webhook"/.test(jget(`select agent.delete_webhook('${TG2}','${WH1}')::text;`)));
   check("THE CONTROL: its owner can",
     /"ok"\s*:\s*true/.test(jget(`select agent.delete_webhook('${TG}','${WH1}')::text;`)));
+
+  // ── what an event DID, and the one reader of it ────────────────────────────
+  //
+  // ⚠ **`dispatch_events` COUNTED WHAT IT FILED AND WOKE AND WROTE NEITHER.** It returned them
+  // to the cron and stamped only `handled_at`, so from the row an event that started three
+  // executions and an event nothing listens for were the same state — and *ignored* is exactly
+  // the thing a customer needs to be told apart from *received*. The counts go in with the
+  // stamp, in one statement, because `handled_at` is what makes them an answer rather than the
+  // column's default.
+  check("⚠ a dispatched event RECORDS what it filed, not just that it was handled",
+    psql(`select filed || '/' || woke from agent.events where id='${EV1}';`, asOwner).out === "1/0");
+  const log1 = jget(`select agent.list_events('${TG}','${A_TG}',50)::text;`);
+  check("⚠ the reader answers that event with its counts AND THE RUN IT STARTED",
+    (() => {
+      const row = JSON.parse(log1).find((e) => e.id === EV1);
+      const run = jget(`select id from agent.automation_runs where automation_id='${AU_EV}' and event_id='${EV1}';`);
+      return !!row && row.filed === 1 && row.woke === 0 && row.handled_at !== null
+        && Array.isArray(row.runs) && row.runs.length === 1 && row.runs[0] === run;
+    })(), log1);
+  // ⚠ **NO PAYLOAD IN A LISTING, DELIBERATELY.** A body is somebody else's text, bounded at
+  // 64 KiB per delivery; twenty-five of them is a megabyte to draw a table of names, and an
+  // event-triggered execution gets its own payload through its own run, where it is useful.
+  check("⚠ ...and a listing carries no payload at all",
+    !/"payload"/.test(log1) && !/"amount"/.test(log1), log1);
+  // AND *IGNORED* IS DERIVABLE: handled, and nothing filed and nothing woken.
+  const EV_IG = "dd000000-0000-0000-0000-00000000ff31";
+  jget(`select agent.emit_event('${TG}','${A_TG}','${EV_IG}','nothing.listens','{"x":1}'::jsonb,'person')::text;`);
+  jget(`select count(*) from agent.dispatch_events(25);`);
+  check("⚠ AN EVENT NOTHING LISTENS FOR IS HANDLED AND DID NOTHING, which is its own state",
+    (() => {
+      const row = JSON.parse(jget(`select agent.list_events('${TG}','${A_TG}',50)::text;`))
+        .find((e) => e.id === EV_IG);
+      return !!row && row.handled_at !== null && row.filed === 0 && row.woke === 0
+        && Array.isArray(row.runs) && row.runs.length === 0;
+    })());
+  // AND AN EVENT STILL IN THE QUEUE IS NOT ONE THAT DID NOTHING: `handled_at` is the
+  // discriminator, or the columns' own default would read as an answer.
+  const EV_Q = "dd000000-0000-0000-0000-00000000ff32";
+  jget(`select agent.emit_event('${TG}','${A_TG}','${EV_Q}','order.paid','{"x":2}'::jsonb,'person')::text;`);
+  check("⚠ ...and an UNHANDLED event reads as unhandled rather than as one that did nothing",
+    (() => {
+      const row = JSON.parse(jget(`select agent.list_events('${TG}','${A_TG}',50)::text;`))
+        .find((e) => e.id === EV_Q);
+      return !!row && row.handled_at === null && row.filed === 0 && row.woke === 0;
+    })());
+  check("an account cannot read another account's events, and its own reads are not empty",
+    JSON.parse(jget(`select agent.list_events('${TG2}','${A_TG}',50)::text;`)).length === 0
+    && JSON.parse(jget(`select agent.list_events('${TG}','${A_TG}',50)::text;`)).length > 0);
+  check("⚠ the reader is the server's alone — `authenticated` cannot execute it",
+    jget(`select has_function_privilege('authenticated','agent.list_events(text,uuid,integer)','execute')::text;`) === "false"
+    && jget(`select has_function_privilege('service_role','agent.list_events(text,uuid,integer)','execute')::text;`) === "true");
 
   // ── the tick knows the two new schedules are due ───────────────────────────
   check("⚠ the tick considers every schedule that is not manual",

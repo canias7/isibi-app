@@ -5729,3 +5729,394 @@ test("⚠ AN ANSWER THAT LANDS AFTER THE SCREEN MOVED SAYS NOTHING", async () =>
   assert.doesNotMatch(memHtml(w), /Forgot “tone”/, "a delete's news was written onto another agent's screen");
   assert.equal(w.val("agentMemSaid"), "", "the sentence was kept for a screen nobody is on");
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// STOPPING ONE RUN
+//
+// ⚠ **THE WHOLE OF THIS IS ABOUT NOT CLAIMING TOO MUCH.** A cancellation stops what is
+// still to come and cannot reach back to a message that has gone out, so every sentence
+// here is checked against what the answer really said rather than against a reassurance
+// the screen composed for itself.
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A history showing one execution in whatever state a case is about. */
+const runIn = (state, extra = {}) => ({
+  id: "EXS", automationId: "AU1", trigger: "manual", occurrence: null, state,
+  at: "2026-09-21T10:00:00Z", outcomes: [], result: null, why: null, error: null, ...extra,
+});
+
+async function withHistory(rows, opts = {}) {
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: rows });
+      if (p === "/api/agent/run-cancel" && opts.cancel) return opts.cancel(init);
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  return w;
+}
+
+test("⚠ STOP IS DRAWN FOR A RUN THAT IS UNDER WAY AND FOR NO OTHER — and the scope is beside it", async () => {
+  /**
+   * The milestone's own words are *show Stop only when applicable*. A button on a run that has
+   * already ended would answer `alreadyStopped` — reporting success and changing nothing, which
+   * is the dead control that ANSWERS.
+   *
+   * ⚠ **`unresolved` IS THE STATE THIS CASE EXISTS FOR.** It reads like something still in the
+   * air and it is not: the run has ENDED and what is unknown is whether a message the provider
+   * never answered for went out. Offering to stop it would promise to reach something already
+   * past reaching.
+   */
+  const w = await withHistory([runIn("queued")]);
+  const html = () => w.s.document.getElementById("viewAgents").innerHTML;
+  for (const live of ["queued", "running", "waiting"]) {
+    await w.ev(`agentAutoRuns = ${JSON.stringify([runIn(live)])}; renderAgents();`);
+    assert.match(html(), /agent-auto-stop/, `a ${live} run offers no way to stop it`);
+    // AND THE SCOPE IS SAID BEFORE THE PRESS, not only in the confirm — which is gone the
+    // instant somebody answers it. Three reaches, three controls, named.
+    assert.match(html(), /stops this one run and nothing else/i, `a ${live} run does not say what stopping reaches`);
+    assert.match(html(), /turn the automation off/i, "it does not name the control that stops it running again");
+    assert.match(html(), /pause the agent/i, "it does not name the control that stops everything");
+  }
+  for (const over of ["done", "skipped", "failed", "missed", "paused", "rejected", "cancelled", "unresolved"]) {
+    await w.ev(`agentAutoRuns = ${JSON.stringify([runIn(over)])}; renderAgents();`);
+    assert.equal(/agent-auto-stop/.test(html()), false, `a ${over} run offers Stop, and it has already ended`);
+    assert.equal(/stops this one run and nothing else/i.test(html()), false,
+      `a ${over} run is told what stopping would reach`);
+  }
+  // THE OBSERVER: the row really is on screen throughout, so the absences above are about the
+  // button and not about a history that stopped drawing.
+  assert.match(html(), /ag-run-top/);
+});
+
+test("⚠ A STOP SAYS HOW FAR IT GOT AND NEVER THAT ANYTHING WAS UNDONE", async () => {
+  /**
+   * ⚠ **THE COUNTS ARE THE ANSWER'S OWN AND THE *not undone* SENTENCE IS THE SERVER'S.** Both
+   * halves matter: a screen that composed its own counts would be reporting arithmetic rather
+   * than what the database read off the execution's outcomes, and a second copy of the *not
+   * undone* claim here is one that can drift from what a cancellation really reaches.
+   */
+  const w = await withHistory([runIn("running")], {
+    cancel: () => okRes({
+      run: "EXS", completedSteps: 2, completedCalls: 1, withdrewApprovals: 0,
+      releasedWait: false, heldByWorker: false, alreadyStopped: false, repeat: false,
+      say: "stopped — what had already run has already run and was not undone",
+    }),
+  });
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  const said = w.ev("agentAutoActErr");
+  assert.match(said, /2 steps had already run/, "it does not say how far the run got");
+  assert.match(said, /1 action had already gone out/, "it does not say an action had gone out");
+  assert.match(said, /was not undone/, "it does not say the completed work stands");
+  // ⚠ AND IT DOES NOT CLAIM A ROLLBACK, in any of the words that would.
+  assert.equal(/undone\b(?!\.)|rolled back|reversed|taken back|cancelled the send/i.test(said.replace(/was not undone/g, "")), false,
+    `the sentence claims something was reversed: ${said}`);
+  // THE REQUEST IS THE RUN AND THE OPTIONAL REASON, and nothing else.
+  const post = w.calls.filter((c) => c.path === "/api/agent/run-cancel");
+  assert.equal(post.length, 1);
+  assert.deepEqual(Object.keys(post[0].body).sort(), ["reason", "run"]);
+  assert.equal(post[0].body.run, "EXS");
+});
+
+test("⚠ A WORKER THAT WAS ON IT IS SAID, AND ONE THAT WAS NOT IS NOT — recorded against stopped", async () => {
+  /**
+   * ⚠ **THE STOP IS WRITTEN SYNCHRONOUSLY, so the run reads Stopped the instant the route
+   * answers — but a process already inside a model call or a tool batch is walled off at its
+   * NEXT checkpoint.** `heldByWorker` is the only honest way to tell a person which of the two
+   * they are looking at, and saying it when no claim was live would be this screen inventing a
+   * delay the platform does not have.
+   */
+  const withHeld = async (heldByWorker) => {
+    const w = await withHistory([runIn("running")], {
+      cancel: () => okRes({ run: "EXS", completedSteps: 1, completedCalls: 0, heldByWorker, say: "stopped — nothing was undone" }),
+    });
+    await w.ev('agentAutoStop("EXS")'); await settle();
+    return w.ev("agentAutoActErr");
+  };
+  assert.match(await withHeld(true), /may finish before it notices/, "a live worker's last step is not mentioned");
+  const quiet = await withHeld(false);
+  assert.equal(/may finish before it notices/.test(quiet), false, `nothing was working on it and it said otherwise: ${quiet}`);
+  // AND A WORKER OLDER THAN THAT FUNCTION ANSWERS NO SUCH KEY — cannot-tell must not become a
+  // warning about something that was not happening.
+  const w = await withHistory([runIn("running")], {
+    cancel: () => okRes({ run: "EXS", completedSteps: 0, say: "stopped" }),
+  });
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  assert.equal(/may finish before it notices/.test(w.ev("agentAutoActErr")), false,
+    "an absent heldByWorker was read as a live claim");
+});
+
+test("⚠ A STOP SOMEBODY DID NOT CONFIRM SENDS NOTHING, and one on a finished run is refused", async () => {
+  // ⚠ **THE SECOND HALF IS THE DOM-STALE WINDOW, which is the same one `agentAutoDecide`
+  // guards.** The button that was drawn stays in the DOM until the next render, and the watch
+  // timer can re-read the history in between and come back with the run already finished. The
+  // cancellation would be harmless — `cancel_run` answers `alreadyStopped` — but telling
+  // somebody they stopped something that had already ended is not.
+  const w = await withHistory([runIn("running")], { cancel: () => okRes({ run: "EXS" }) });
+  w.s.confirm = () => false;
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  assert.equal(w.calls.filter((c) => c.path === "/api/agent/run-cancel").length, 0,
+    "a stop nobody confirmed was sent anyway");
+  // THE CONTROL: with the confirm answered, the same press really does send.
+  w.s.confirm = () => true;
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  assert.equal(w.calls.filter((c) => c.path === "/api/agent/run-cancel").length, 1);
+  // AND A RUN THAT HAS SINCE FINISHED IS REFUSED WITHOUT ASKING AT ALL.
+  await w.ev(`agentAutoRuns = ${JSON.stringify([runIn("done")])};`);
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  assert.equal(w.calls.filter((c) => c.path === "/api/agent/run-cancel").length, 1,
+    "a run that had already ended was sent a cancellation");
+  assert.match(w.ev("agentAutoActErr"), /isn’t under way any more/);
+});
+
+test("⚠ A STOP ANSWERED AFTER THE SCREEN MOVED WRITES NOTHING", async () => {
+  // The cancellation is durable either way, so the only question is whether its sentence lands
+  // on a screen it is not about — the wall every other in-flight read here has.
+  const gate = held(okRes({ run: "EXS", completedSteps: 1, say: "stopped" }));
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p === "/api/agent/run-cancel") return gate.p;
+      if (p.startsWith("/api/agent/automation-history")) return okRes({ id: "AU1", executions: [runIn("running")] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentAutomations("A")'); await settle();
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const stopping = w.ev('agentAutoStop("EXS")');
+  // The person closes the automations screen while it is in flight.
+  await w.ev("agentAuto = null; agentAutoActErr = 'something else';");
+  gate.release();
+  await stopping;
+  assert.equal(w.ev("agentAutoActErr"), "something else",
+    "a stop's sentence was written onto a screen it is not about");
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// WHERE THINGS ARRIVE
+//
+// ⚠ **THE SIGNING KEY IS THE WHOLE CARE HERE.** `agent.create_webhook` takes it and does not
+// answer it back, and `agent.list_webhooks` never selects the column — so the create's own
+// answer is the ONE time it exists outside the database. Every case below is about that: it is
+// shown, it is not stored, and it can never reach the wrong screen.
+// ────────────────────────────────────────────────────────────────────────────
+
+const EP = {
+  id: "WH1", name: "Our shop", event: "order.paid", enabled: true,
+  lastAt: null, createdAt: "2026-09-21T09:00:00Z", path: "/deliver/WH1",
+};
+const arrival = (state, extra = {}) => ({
+  id: "EV1", name: "order.paid", source: "webhook", at: "2026-09-21T10:00:00Z",
+  handledAt: state === "queued" ? null : "2026-09-21T10:00:01Z", state, runs: [], ...extra,
+});
+
+function whScreen({ webhooks = [EP], events = [], create, whFails = false, evFails = false, onPost = () => {} } = {}) {
+  return loadScreen({
+    answer: (p, init) => {
+      const body = init?.body ? JSON.parse(init.body) : {};
+      if (p.startsWith("/api/agent/webhooks")) {
+        return whFails ? badRes("the store is away") : okRes({ webhooks, max: 10 });
+      }
+      if (p.startsWith("/api/agent/events")) {
+        return evFails ? badRes("the log is away") : okRes({ events, states: ["queued", "ignored", "started", "woke"], max: 25 });
+      }
+      if (p === "/api/agent/webhook-create") { onPost(body); return create ? create(body) : okRes({ id: "WH9", name: body.name, event: body.event, path: "/deliver/WH9", secret: "s3cr3t" }); }
+      if (p === "/api/agent/webhook-enable" || p === "/api/agent/webhook-delete") { onPost(body); return okRes({ id: body.id }); }
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+}
+
+async function openWh(opts) {
+  const w = whScreen(opts);
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  return w;
+}
+
+test("the arrivals screen draws the addresses, the path and whether each is open", async () => {
+  const w = await openWh({ webhooks: [EP, { ...EP, id: "WH2", name: "Closed one", enabled: false }] });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Our shop/);
+  // WHICH EVENT IT RAISES, because that is what an automation listens for — and the two have to
+  // be the same word or nothing ever runs.
+  assert.match(html, /Raises order\.paid/);
+  // ⚠ A PATH AND NOT A URL. This product rings the engine through a queue binding, which carries
+  // no address, so a URL here would be an invented origin somebody configures and which fails.
+  assert.match(html, /POST \/deliver\/WH1/);
+  assert.equal(/https?:\/\/[^"']*\/deliver\//.test(html), false, "an origin was invented for the delivery address");
+  assert.match(html, /Nothing has arrived yet/);
+  assert.match(html, /Closed<\/span>/, "a closed address does not say so");
+  // AND BOTH CONTROLS, on each row.
+  assert.match(html, /agent-wh-enable/);
+  assert.match(html, /agent-wh-delete/);
+  // ⚠ **AND NO SIGNING KEY ANYWHERE ON THE LIST — which is structural: the function does not
+  // select the column, so there is nothing here to leave out.**
+  assert.equal(/secret/i.test(html), false, `the list mentions a secret: ${html.slice(0, 300)}`);
+});
+
+test("⚠ WHAT BECAME OF EACH ARRIVAL — four words, and only a started one can be opened", async () => {
+  /**
+   * Three of the milestone's four outcomes are here. **THE FOURTH CANNOT BE AND THE SCREEN SAYS
+   * SO**: a refused delivery is turned away before any row is written, so an empty list would
+   * otherwise read as *nothing has been rejected*, which is a claim this platform cannot make.
+   */
+  const w = await openWh({
+    events: [
+      arrival("started", { runs: [{ id: "EXS", automation: "AU1" }] }),
+      arrival("ignored", { id: "EV2" }),
+      arrival("queued", { id: "EV3" }),
+      arrival("woke", { id: "EV4", woke: 1 }),
+    ],
+  });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  for (const words of [/Started a run/, /Nothing was listening/, /Just arrived/, /Released something waiting/]) {
+    assert.match(html, words, `an arrival state has no words: ${words}`);
+  }
+  // ⚠ AN IGNORED ARRIVAL SAYS WHAT TO DO ABOUT IT, which is the actionable half: the address's
+  // event name and an automation's trigger box have to be the same word.
+  assert.match(html, /order\.paid.*automation’s/s);
+  // ⚠ **A STARTED ARRIVAL CAN BE OPENED AND THE OTHERS CANNOT** — one button, for the one entry
+  // that has a run. `list_events` names each run's automation for exactly this reason.
+  const buttons = html.match(/agent-wh-run/g) || [];
+  assert.equal(buttons.length, 1, `${buttons.length} runs can be opened and one arrival started one`);
+  assert.match(html, /data-auto="AU1"/, "the run button does not name the automation it is read through");
+  // AND THE SENTENCE ABOUT WHAT IS NOT LISTED.
+  assert.match(html, /Only deliveries that were accepted are listed/);
+  assert.match(html, /wrong signature/);
+});
+
+test("⚠ THE SIGNING KEY IS SHOWN ONCE, IS NOT STORED, AND IS GONE WHEN IT IS PUT AWAY", async () => {
+  /**
+   * ⚠ **THIS IS THE ONLY DOOR.** The create's answer is the one time the secret exists outside
+   * the database, `agent.list_webhooks` never selects it, and there is no rotate — so a person
+   * who closes this without copying it has to delete the address and make another. The panel
+   * says that in as many words, because somebody who is not told will come back for it.
+   */
+  const keys = () => Object.keys(w.store);
+  const before = [];
+  const w = await openWh();
+  before.push(...Object.keys(w.store));
+  await w.ev("agentWhNewOpen()");
+  w.s.document.getElementById("agWhForm").innerHTML = w.ev("agentWhFormHtml()");
+  await w.ev("agentWhSave()"); await settle();
+  const html = () => w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html(), /s3cr3t/, "the key that only exists once was not shown");
+  assert.match(html(), /only time it is shown/i, "it does not say this is the only time");
+  assert.match(html(), /delete this address and make another/i, "it does not say what to do if it is lost");
+  // ⚠ **NOTHING STORED IT.** A copy of a signing key in browser storage with nothing that cleans
+  // it up is worse than having to make a new address, so a reload losing it is deliberate.
+  assert.deepEqual(keys().filter((k) => !before.includes(k)), [],
+    `the signing key's screen wrote to storage: ${JSON.stringify(w.store)}`);
+  for (const v of Object.values(w.store)) {
+    assert.equal(/s3cr3t/.test(String(v)), false, "the signing key was written into storage");
+  }
+  // AND IT IS GONE THE MOMENT IT IS PUT AWAY.
+  await w.ev("agentWhSecretDone()");
+  assert.equal(w.ev("agentWhSecret"), null);
+  assert.equal(/s3cr3t/.test(html()), false, "the key is still on screen after it was put away");
+});
+
+test("⚠ A CREATE ANSWERED AFTER THE SCREEN MOVED SHOWS NOBODY THE KEY", async () => {
+  /**
+   * ⚠ **THE ONE VALUE WHERE SHOWING IT ON THE WRONG SCREEN IS WORSE THAN LOSING IT.** The
+   * address exists either way and can be deleted and made again; a signing key drawn while
+   * another agent's addresses are open is one agent's key in front of another's configuration.
+   */
+  const gate = held(okRes({ id: "WH9", name: "n", event: "e.v", path: "/deliver/WH9", secret: "s3cr3t" }));
+  const w = loadScreen({
+    answer: (p, init) => {
+      if (p === "/api/agent/webhook-create") return gate.p;
+      if (p.startsWith("/api/agent/webhooks")) return okRes({ webhooks: [], max: 10 });
+      if (p.startsWith("/api/agent/events")) return okRes({ events: [] });
+      const a = autoAnswer({ automations: [ONE] })(p, init);
+      return a.ok ? okRes(a.body) : badRes(a.body.error);
+    },
+  });
+  await w.ev("agentsLoad()");
+  await w.ev('agentWebhooks("A")'); await settle();
+  await w.ev("agentWhNewOpen()");
+  w.s.document.getElementById("agWhForm").innerHTML = w.ev("agentWhFormHtml()");
+  const saving = w.ev("agentWhSave()");
+  await w.ev('agentWh = "B";');                            // another agent's addresses
+  gate.release();
+  await saving;
+  assert.equal(w.ev("agentWhSecret"), null, "one agent's signing key was put on another agent's screen");
+  // AND OPENING THE SCREEN CLEARS IT TOO, so a key cannot outlive its context by any route.
+  await w.ev('agentWh = "A"; agentWhSecret = { secret: "left-over" };');
+  await w.ev('agentWebhooks("A")'); await settle();
+  assert.equal(w.ev("agentWhSecret"), null, "a signing key survived opening the screen");
+});
+
+test("⚠ CLOSING AN ADDRESS SENDS THE FLAG THE BUTTON SAID, and deleting asks first", async () => {
+  // ⚠ **THE FLAG COMES OFF THE BUTTON'S OWN ATTRIBUTE.** The row it was drawn from is what the
+  // person looked at; re-reading the row could answer a state something has since changed, so
+  // the press would toggle the opposite way from what it said.
+  const posts = [];
+  const w = await openWh({ onPost: (b) => posts.push(b) });
+  await w.ev('agentWhEnable("WH1", false)'); await settle();
+  assert.deepEqual(posts.at(-1), { agent: "A", id: "WH1", enabled: false });
+  await w.ev('agentWhEnable("WH1", true)'); await settle();
+  assert.deepEqual(posts.at(-1), { agent: "A", id: "WH1", enabled: true });
+  // ⚠ REFUSED, NEVER COERCED — a flag is a boolean on the wire, because `Boolean("false")` is
+  // `true` and a string there would open an address somebody meant to close.
+  assert.equal(typeof posts.at(-1).enabled, "boolean");
+  // A DELETE ASKS FIRST, and a refused confirm sends nothing.
+  w.s.confirm = () => false;
+  await w.ev('agentWhDelete("WH1")'); await settle();
+  assert.equal(w.calls.filter((c) => c.path === "/api/agent/webhook-delete").length, 0,
+    "an address nobody confirmed was deleted");
+  w.s.confirm = () => true;
+  await w.ev('agentWhDelete("WH1")'); await settle();
+  assert.equal(w.calls.filter((c) => c.path === "/api/agent/webhook-delete").length, 1);
+});
+
+test("⚠ A FAILED LOG READ DOES NOT HIDE THE ADDRESSES, AND EACH READ FAILS ON ITS OWN", async () => {
+  // Two reads, two `try` blocks: the addresses are the configuration and the arrivals are the
+  // history, so an outage in one must not hide the thing somebody came to change.
+  const w = await openWh({ evFails: true });
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Our shop/, "a failed log read hid the addresses");
+  assert.match(html, /the log is away/, "the log's own failure was not said");
+  // AND THE OTHER WAY ROUND: the addresses failing leaves the arrivals readable.
+  const v = await openWh({ whFails: true, events: [arrival("ignored")] });
+  const h2 = v.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(h2, /Couldn’t load the arrival addresses/);
+  assert.match(h2, /Try again/);
+});
+
+test("⚠ OPENING A RUN FROM AN ARRIVAL LEAVES THE ADDRESSES AND SHOWS THAT AUTOMATION'S HISTORY", async () => {
+  // ⚠ **THE OWNER IS READ BEFORE ANYTHING IS CLEARED.** `agentAutomations` is what closes this
+  // screen, so reading `agentWh` after it would answer `null` and the automations list would
+  // open for nobody — which is the requirement's *show the relevant execution* as a dead button.
+  const w = await openWh({ events: [arrival("started", { runs: [{ id: "EXS", automation: "AU1" }] })] });
+  await w.ev('agentWhOpenRun("AU1")'); await settle();
+  assert.equal(w.ev("agentWh"), null, "the addresses screen is still open");
+  assert.equal(w.ev("agentAuto"), "A", "the automations screen opened for nobody");
+  assert.equal(w.ev("agentAutoRunsFor"), "AU1", "it did not open that automation's history");
+  // AND AN ENTRY WITH NO AUTOMATION GOES NOWHERE rather than opening the wrong thing.
+  const v = await openWh({ events: [arrival("started")] });
+  await v.ev("agentWhOpenRun('')"); await settle();
+  assert.equal(v.ev("agentWh"), "A", "a run with no automation closed the screen anyway");
+});
+
+test("⚠ NO TWO OF THE THREE SCREENS CAN BE OPEN, and each opener clears the others", async () => {
+  // The view switch reads them in one order, and each opener clearing the others is what makes
+  // that a property rather than something to remember.
+  const w = await openWh();
+  assert.equal(w.ev("agentWh"), "A");
+  await w.ev('agentAutomations("A")'); await settle();
+  assert.equal(w.ev("agentWh"), null, "the arrivals screen survived opening the automations");
+  await w.ev('agentWebhooks("A")'); await settle();
+  assert.equal(w.ev("agentAuto"), null, "the automations survived opening the arrivals");
+  await w.ev('agentConnections("A")'); await settle();
+  assert.equal(w.ev("agentWh"), null, "the arrivals survived opening the accounts");
+  await w.ev('agentWebhooks("A")'); await settle();
+  assert.equal(w.ev("agentConn"), null, "the accounts survived opening the arrivals");
+});
