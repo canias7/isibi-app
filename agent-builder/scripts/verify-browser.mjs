@@ -763,6 +763,196 @@ try {
       /first arm/.test(voicePanel) && /skipped/.test(voicePanel),
       (voicePanel.match(/(first arm|other arm)/) || [""])[0]);
     await shot(page, "j2-branch-sent");
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ⚠ THE WORDS ARE READ OFF THE APPROVAL SCREEN **BEFORE** ANYBODY PRESSES APPROVE
+    //
+    // Every check above this compares the mailbox with what the history shows AFTERWARDS —
+    // and that could not tell "the person approved these words" from "the platform sent
+    // something and later drew it". The defect was real: the screen offered Approve showing
+    // the sender and the recipient out of the pause's own sentence and **not one word of the
+    // message**. So this captures the account, the recipient and the body from the waiting
+    // panel, proves nothing has gone, and only then approves and compares.
+    //
+    // ⚠ **AND THE WORKFLOW HAS NO `note` STEP, deliberately.** The two above it both bind
+    // their message with a note, whose text is on the form and whose outcome is drawn in the
+    // finished history — so a body found on screen could have come from either, and the check
+    // would pass with the payload never drawn at all. Here the body is the send's OWN field
+    // and the only place its resolved form exists is the approval request.
+    // ═════════════════════════════════════════════════════════════════════════
+    await closeAutoForm(page);
+    await press(page, "agent-auto-new");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    await type(page, "agAutoName", "Quote straight out, no note step");
+    for (let i = 0; i < 2; i++) {
+      await press(page, "agent-auto-input-add");
+      await page.waitForFunction((n) => document.querySelectorAll(".ag-auto-in").length === n, i + 1, { timeout: 10_000 });
+      const row = `[data-input-row="${i}"]`;
+      await page.fill(`${row} [data-in="name"]`, ["who", "topic"][i]);
+      await page.fill(`${row} [data-in="label"]`, ["Who it is for", "What they asked about"][i]);
+      await page.check(`${row} [data-in="required"]`);
+    }
+    await addStep(page, "memory", { key: "tone", out: "tone" });
+    await addStep(page, "knowledge", { query: "{{topic}}", out: "facts" });
+    // ⚠ THE BODY IS THE SEND'S OWN FIELD AND CARRIES ALL THREE KINDS OF SUBSTITUTION — an
+    // INPUT somebody typed, a remembered FACT and the REFERENCE MATERIAL — so what appears on
+    // the approval screen is either the resolved message or it is nothing.
+    // ⚠ **`{{topic}}` IS IN IT SO THE TWO RUNS' PAYLOADS REALLY DIFFER.** The reference
+    // material answers the whole price list whichever topic is asked, so without the topic in
+    // the body both runs read identically and the check below claiming to be "about what was
+    // asked this time" would be satisfied by the first run's words — an assertion that cannot
+    // fail. The first draft of this had exactly that, and it passed.
+    const QUOTE = "Quote for {{who}} about {{topic}} — {{facts}} — tone: {{tone}} (scripted, not written by a model)";
+    await addStep(page, "send", { connection: connId, to: "{{who}}", body: QUOTE });
+    const bare = await page.$$eval(".ag-step", (els) => els.map((e) => e.dataset.stepType).join(","));
+    check("2y. ⚠ the workflow is memory → reference material → send, with NO note step to show a body",
+      bare === "memory,knowledge,send", bare);
+    await press(page, "agent-auto-save");
+    await page.waitForFunction(() => /Saved\./.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    const quoteId = await autoIdNamed(page, agentId, "Quote straight out, no note step");
+    check("2z. it saved, and is on the account under its own name", !!quoteId, String(quoteId));
+
+    /** Run it, and hold at the approval. Used twice: once to approve, once to reject. */
+    const holdAtApproval = async (topic) => {
+      await closeAutoForm(page);
+      await press(page, "agent-auto-run", "id", quoteId);
+      await page.waitForSelector('[data-ask="who"]', { timeout: 10_000 });
+      await page.fill('[data-ask="who"]', RECIPIENT);
+      await page.fill('[data-ask="topic"]', topic);
+      await press(page, "agent-auto-ask-go");
+      await waitText(page, /Queued|Running|Waiting/, "the quote run to appear in the history", 10_000);
+      await disp.drain();
+      await waitText(page, /Waiting/, "the quote workflow to hold for a person");
+    };
+    /**
+     * WHAT THE PERSON IS SHOWN, read off the argument list the approval panel draws.
+     *
+     * ⚠ **OFF THE LIST AND NOT OFF THE PANEL**, because the pause's sentence above it names
+     * the recipient and the account too — so a search over the whole panel would find that
+     * sentence's copy and report the payload as present when it is not drawn at all.
+     */
+    const shownPayload = (pg) => pg.evaluate(() => {
+      const ul = document.querySelector(".ag-run-wait .ag-ap-args");
+      if (!ul) return null;
+      const out = {};
+      for (const li of ul.querySelectorAll("li")) {
+        const k = li.querySelector(".ag-ap-k")?.textContent ?? "";
+        const v = li.querySelector(".ag-ap-v")?.textContent ?? "";
+        if (k) out[k] = v;
+      }
+      return out;
+    });
+
+    await holdAtApproval("service");
+    const before = mailbox(ACCOUNT).length;
+    const shown = await shownPayload(page);
+    check("2aa. ⚠ THE MESSAGE IS ON THE APPROVAL SCREEN, with the account and the recipient",
+      !!shown && !!shown.body && shown.account === ACCOUNT && shown.to === RECIPIENT,
+      JSON.stringify(shown).slice(0, 160));
+    check("2ab. ⚠ ...and it is the RESOLVED message — the input, the remembered fact and the material",
+      !!shown?.body && shown.body.includes(`Quote for ${RECIPIENT} about service —`)
+        && /tone: formal/.test(shown.body) && /95/.test(shown.body),
+      JSON.stringify((shown?.body || "").slice(0, 140)));
+    check("2ac. ⚠ ...with no template left in it, so nothing unresolved is being approved",
+      !!shown?.body && !/\{\{/.test(shown.body), JSON.stringify((shown?.body || "").slice(0, 140)));
+    /**
+     * ⚠ **AND NOTHING ELSE ON THE SCREEN COULD BE SHOWING IT**, which is what makes the three
+     * checks above about the payload rather than about the panel happening to contain a string.
+     * `.ag-step-msg` is the send step's own outcome and is drawn only once it has SENT.
+     */
+    // ⚠ THE DETAIL IS THE READING AND NOT THE FAILURE SENTENCE: `check` prints it either way,
+    // so a sentence describing the bad outcome reads on a PASS as though it had happened.
+    check("2ad. ⚠ ...and the sent-message element is nowhere on screen, because nothing has sent",
+      !(await has(page, ".ag-step-msg")),
+      `.ag-step-msg present: ${await has(page, ".ag-step-msg")}`);
+    check("2ae. ...and the provider's mailbox has not grown", mailbox(ACCOUNT).length === before,
+      `${mailbox(ACCOUNT).length} vs ${before}`);
+    await shot(page, "j2-payload-before-approve");
+
+    // ── A RELOAD WHILE IT WAITS SHOWS THE SAME WORDS ────────────────────────
+    // The browser holds no state about a run, so this is an ordinary read of a conversation
+    // that happens to have work in it — and the payload comes from the persisted request, so
+    // a reload that lost it would mean the screen had been drawing something it had cached.
+    await enterAgents(page);
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-history"]', { timeout: 10_000 });
+    await press(page, "agent-auto-history", "id", quoteId);
+    await waitText(page, /Waiting/, "the reloaded screen to show the waiting run");
+    const again = await shownPayload(page);
+    check("2af. ⚠ A RELOAD WHILE IT WAITS SHOWS THE SAME PAYLOAD, character for character",
+      !!again && again.body === shown?.body && again.to === shown?.to && again.account === shown?.account,
+      JSON.stringify(again).slice(0, 160));
+    await shot(page, "j2-payload-after-reload");
+
+    // ── APPROVE, AND COMPARE THE MAILBOX WITH WHAT WAS ON SCREEN ─────────────
+    const quoteRun = await page.getAttribute('[data-act="agent-auto-approve"]', "data-run");
+    await press(page, "agent-auto-approve", "run", quoteRun);
+    await page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    await disp.drain();
+    await waitText(page, /Done/, "the quote workflow to finish");
+    const box3 = mailbox(ACCOUNT);
+    check("2ag. ⚠ one more message went, and only one", box3.length === before + 1, `${box3.length} vs ${before + 1}`);
+    check("2ah. ⚠ ITS RECIPIENT IS EXACTLY WHAT WAS ON THE APPROVAL SCREEN",
+      box3[box3.length - 1]?.to === shown?.to, JSON.stringify(box3[box3.length - 1]?.to));
+    check("2ai. ⚠ ITS BODY IS EXACTLY WHAT WAS ON THE APPROVAL SCREEN, character for character",
+      box3[box3.length - 1]?.body === shown?.body,
+      JSON.stringify((box3[box3.length - 1]?.body || "").slice(0, 140)));
+    await shot(page, "j2-payload-sent");
+
+    // ── AND A REFUSAL SENDS NOTHING, on a run whose words were read the same way ────
+    await holdAtApproval("puncture");
+    const held = await shownPayload(page);
+    // ⚠ **AND IT IS THIS RUN'S WORDS RATHER THAN THE LAST RUN'S.** Asserted as the topic the
+    // person typed AND as being DIFFERENT from what the approved run showed — without the second
+    // half, a screen drawing a cached payload from the previous approval satisfies the first.
+    check("2aj. the second run's message is on screen too, and is about what was asked THIS time",
+      !!held?.body && held.body.includes(`Quote for ${RECIPIENT} about puncture —`)
+        && held.body !== shown?.body,
+      JSON.stringify((held?.body || "").slice(0, 140)));
+
+    /**
+     * ⚠ **THE ACCOUNT NEXT DOOR CANNOT READ THE PENDING PAYLOAD AND CANNOT APPROVE IT**, asked
+     * of the routes from a session holding B's own token. **NOT FOUND, NEVER FORBIDDEN**: the
+     * tenant is inside the locked lookup, so another account's request and one that does not
+     * exist answer identically — "you may not touch that" would tell a stranger the id is real.
+     *
+     * ⚠ **THE LABEL DELIBERATELY DOES NOT START WITH `J2`.** `refusedIn` matches by prefix and
+     * journey 2 asserts it had NO refused calls; these 404s are the point, so they belong to a
+     * session of their own rather than to this journey's tally.
+     */
+    const waitingRuns = await page5Runs(page, quoteId);
+    const heldRun = waitingRuns.find((r) => r.state === "waiting");
+    const heldReq = heldRun?.waiting?.request ?? null;
+    check("2ak. the waiting run names the request its approval is bound to", !!heldReq, String(heldReq));
+    const { ctx: nextDoor, page: nd } = await openApp(B, "NEXTDOOR-PAYLOAD");
+    const peek = await nd.evaluate(async ([auto, req]) => {
+      const tok = "Bearer " + (await Auth.accessToken());
+      const h = await fetch("/api/agent/automation-history?id=" + auto, { headers: { authorization: tok } });
+      const read = { status: h.status, body: await h.text() };
+      const a = await fetch("/api/agent/tool-approve", {
+        method: "POST", headers: { authorization: tok, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: req, verdict: "approved" }),
+      });
+      return { read, approve: { status: a.status, body: await a.text() } };
+    }, [quoteId, heldReq]);
+    await nextDoor.close();
+    check("2al. ⚠ the account next door cannot READ the pending payload",
+      peek.read.status === 404 && !peek.read.body.includes(held?.body ?? "\u0000"),
+      `${peek.read.status} ${peek.read.body.slice(0, 80)}`);
+    check("2am. ⚠ ...and cannot APPROVE it either", peek.approve.status === 404,
+      `${peek.approve.status} ${peek.approve.body.slice(0, 80)}`);
+    check("2an. ⚠ ...and nothing was sent by the attempt", mailbox(ACCOUNT).length === before + 1,
+      `${mailbox(ACCOUNT).length} vs ${before + 1}`);
+
+    await press(page, "agent-auto-reject", "run", heldRun.id);
+    await page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    await disp.drain();
+    await waitText(page, /Rejected|Not approved|rejected/, "the refused run to stop");
+    check("2ao. ⚠ A REFUSAL SENT NOTHING", mailbox(ACCOUNT).length === before + 1,
+      `${mailbox(ACCOUNT).length} vs ${before + 1}`);
+    await shot(page, "j2-payload-rejected");
+
     check("2p. no page error anywhere in journey 2", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
     check("2q. ...and no /api/agent/ call this journey's own session made was refused",
       refusedIn("J2").length === 0,

@@ -4411,6 +4411,15 @@ test("⚠ A SEND'S APPROVAL IS A DIFFERENT DOOR, and pressing the wrong one answ
     waiting: {
       kind: "approval", step: "s8", request: REQ, onTimeout: "fail", until: null,
       ask: "send to ada@example.test from shop@example.test",
+      /**
+       * ⚠ **RE-ANCHORED: THIS FIXTURE BECAME THE LESS-CAPABLE FAKE.** A real waiting send now
+       * arrives with the persisted request's arguments joined on by the route, and the screen
+       * withholds Approve for one it cannot read — so without this the case asserted which door
+       * was pressed over a decision the product correctly refuses to make, and went red. The
+       * shape is `withWaitingPayloads`'s own output; the case below is the refusal on purpose.
+       */
+      payload: { connection: "c1", provider: "fake", account: "shop@example.test",
+                 to: "ada@example.test", body: "Your boiler service is booked for Tuesday." },
     },
     values: {}, input: {}, outcomes: [], steps: [], decisions: {},
   };
@@ -4441,6 +4450,135 @@ test("⚠ A SEND'S APPROVAL IS A DIFFERENT DOOR, and pressing the wrong one answ
   const stepSent = posts.filter((x) => x.path === "/api/agent/automation-approve");
   assert.equal(stepSent.length, 1, "an approval STEP did not go to the automation's own door");
   assert.deepEqual(stepSent[0].body, { run: "R8", step: "s8", verdict: "approved", note: null });
+});
+
+test("⚠ THE MESSAGE IS ON THE SCREEN BEFORE APPROVE, and its account and recipient with it", async () => {
+  /**
+   * ⚠ **THE DEFECT: the history offered Approve showing the sender and the recipient and NOT
+   * ONE WORD OF THE MESSAGE.** The pause's `ask` reads *"send to … from …"*, and that was the
+   * whole of it — so somebody could approve words they had never read, which is the one mistake
+   * on this path that cannot be taken back. The browser demonstration that "proved" the body
+   * compared the mailbox AFTERWARDS and could not have told this defect from its absence.
+   */
+  const REQ = "11111111-2222-4333-8444-555555555555";
+  const BODY = "Hello Ada — your boiler service is booked for Tuesday at 9am. £95 as quoted.";
+  const waiting = {
+    id: "R5", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: {
+      kind: "approval", step: "s3", request: REQ, onTimeout: "fail", until: "2026-09-18T09:00:00Z",
+      ask: "send to ada@example.test from shop@example.test",
+      payload: { connection: "c1", provider: "fake", account: "shop@example.test",
+                 to: "ada@example.test", body: BODY },
+    },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w } = await withAutomations({ automations: [ONE], history: [waiting] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+
+  assert.ok(html.includes(BODY), "the words that would go out are not on the screen");
+  assert.match(html, /shop@example\.test/, "the sending account is not on the screen");
+  assert.match(html, /ada@example\.test/, "the recipient is not on the screen");
+  assert.match(html, /agent-auto-approve/, "there is nothing to approve with");
+
+  /**
+   * ⚠ **AND THE WORDS COME BEFORE THE uuid**, which is `AGENT_ARGS_FIRST`'s only job: the
+   * payload's own key order is `{connection, provider, account, to, body}`, so without it a
+   * person reads a connection id first and the message — the one field the decision is about —
+   * last. An ordering and nothing more: every key is still drawn, which the control below says.
+   */
+  /**
+   * ⚠ **WINDOWED ON THE LIST ITSELF, because the `ask` above it says the recipient and the
+   * account too** — a bare `indexOf` over the panel finds that sentence's copy and reports the
+   * ordering of the sentence rather than of the list, which is how the first draft of this
+   * failed about correct code. Both ends of the window are asserted found, or an empty slice
+   * passes everything inside it.
+   */
+  const open = html.indexOf('<ul class="ag-ap-args">');
+  assert.ok(open > 0, "the arguments were not drawn as a list at all");
+  const shut = html.indexOf("</ul>", open);
+  assert.ok(shut > open, "the list never closed");
+  const list = html.slice(open, shut);
+  const at = (needle) => {
+    const i = list.indexOf(needle);
+    assert.ok(i >= 0, `${needle} is not in the argument list`);
+    return i;
+  };
+  assert.ok(at("shop@example.test") < at(">connection<"), "the account came after the connection id");
+  assert.ok(at(BODY) < at(">connection<"), "the message came after the connection id");
+  assert.ok(at("shop@example.test") < at("ada@example.test"), "the recipient came before the account");
+  assert.ok(at("ada@example.test") < at(BODY), "the message came before the recipient");
+  // AND NOTHING IS HIDDEN: an argument this screen has no opinion about is still drawn, so the
+  // ordering cannot become a filter.
+  assert.match(list, />connection</);
+  assert.match(list, />provider</);
+});
+
+test("⚠ A PAYLOAD THAT COULD NOT BE LOADED IS EXPLAINED, and Approve is not offered at all", async () => {
+  /**
+   * ⚠ **THE THIRD STATE, and it is the one the whole fix turns on.** A pause that NAMES a
+   * request whose arguments did not arrive is not a call with nothing in it — it is a decision
+   * whose subject cannot be put on screen, and offering Approve for one is the defect through a
+   * quieter door. **Reject stays**: refusing a send you cannot see is exactly the right thing to
+   * do with it, and withholding both would leave the run stuck.
+   */
+  const REQ = "11111111-2222-4333-8444-555555555555";
+  const lost = {
+    id: "R6", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: {
+      kind: "approval", step: "s3", request: REQ, onTimeout: "fail", until: null,
+      ask: "send to ada@example.test from shop@example.test", payload: null,
+    },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w, posts } = await withAutomations({ automations: [ONE], history: [lost] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /couldn.t be loaded/i, "it says nothing about why there is no message");
+  assert.match(html, /don.t approve it/i, "it does not say what to do");
+  assert.ok(!html.includes("agent-auto-approve"), "Approve was offered for a decision with no subject");
+  assert.match(html, /agent-auto-reject/, "Reject went too, which leaves the run stuck");
+
+  /**
+   * ⚠ **AND THE DECISION PATH REFUSES TOO, not only the drawing.** The button that was drawn
+   * stays in the DOM until the next render and the watch timer can re-read the history in
+   * between and come back without the payload — so the subject can go while the control is
+   * still there.
+   */
+  await w.ev('agentAutoDecide("R6", "approved")'); await settle();
+  assert.equal(posts.filter((x) => x.path === "/api/agent/tool-approve").length, 0,
+    "it approved a send whose message it could not read");
+  assert.match(w.val("agentAutoActErr"), /can.t be approved/i);
+  // AND A REJECTION STILL GOES, which is the control that makes the line above about approving
+  // rather than about the run being unanswerable.
+  await w.ev('agentAutoDecide("R6", "rejected")'); await settle();
+  const said = posts.filter((x) => x.path === "/api/agent/tool-approve");
+  assert.equal(said.length, 1, "a rejection was refused too");
+  assert.deepEqual(said[0].body, { id: REQ, verdict: "rejected", note: null });
+});
+
+test("⚠ an approval STEP draws no payload and is still approvable — the control", async () => {
+  /**
+   * ⚠ **WITHOUT THIS, "Approve is withheld" is satisfied by a screen that withholds it for
+   * every waiting run.** A pause with no `request` is an approval STEP: its subject is the
+   * question itself, which is already on the screen as `ask`, and there is no payload and never
+   * was one. Every ordinary workflow approval must read exactly as it did.
+   */
+  const step = {
+    id: "R7", automationId: "AU1", trigger: "manual", state: "waiting", at: "2026-09-17T09:00:00Z",
+    waiting: { kind: "approval", step: "s2", ask: "Shall I book it?", onTimeout: "reject", until: null,
+               request: null, payload: null },
+    values: {}, input: {}, outcomes: [], steps: [], decisions: {},
+  };
+  const { w, posts } = await withAutomations({ automations: [ONE], history: [step] });
+  await w.ev('agentAutoHistory("AU1")'); await settle();
+  const html = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(html, /Shall I book it\?/);
+  assert.match(html, /agent-auto-approve/, "an approval step lost its Approve button");
+  assert.ok(!/couldn.t be loaded/i.test(html), "it explained a missing payload for a pause that has none");
+  assert.ok(!html.includes("ag-ap-args"), "it drew an argument list for an approval step");
+  await w.ev('agentAutoDecide("R7", "approved")'); await settle();
+  assert.equal(posts.filter((x) => x.path === "/api/agent/automation-approve").length, 1);
 });
 
 test("⚠ a decision that FAILS keeps the words, and a refused one says what to do", async () => {

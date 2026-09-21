@@ -10754,3 +10754,124 @@ second implementation of it.**
   prescribes over-counts, because these paragraphs are long enough to put 1065/1066 (which read
   **373**) and 1115 (recorded UNREAD) beside a 382 claim. The hand-checked list is what to
   consult.
+
+### ⚠ APPROVE OFFERED THE DECISION AND NOT ITS SUBJECT — the send's words were nowhere (2026-09-21)
+
+Owner, on `6485902`: *"The automation history currently offers Approve while showing the sender
+and recipient but not the message body. The browser demonstration checks the body only after
+sending, so it does not prove the person approved the words that went out."*
+
+**BOTH HALVES WERE TRUE AND THE SECOND IS WHY THE FIRST SURVIVED SIX JOURNEYS.** A `send` step's
+pause carries `ask`, which reads *"send to ada@example.test from shop@example.test"* — the
+sender and the recipient — and the history drew that, the deadline, the timeout sentence and an
+**Approve** button. **Not one word of the message was on the screen.** So somebody could approve
+words they had never read, which is the one mistake on this path that cannot be taken back; and
+the check that "proved" the body (`2l`) read it off `.ag-step-msg`, **the send step's own outcome,
+which is drawn only once it has SENT** — so it compared the mailbox with something that exists
+only after the decision and could not have told this defect from its absence.
+
+**THE PAYLOAD HAS ONE HOME AND THE PAUSE IS NOT IT.** The pause names the REQUEST; the request
+holds the arguments **and the hash they are bound to**. So the fix reads `agent.tool_approvals`
+(through `pending_approvals`) and joins it on, and the two obvious alternatives are both wrong:
+the automation's **current editable configuration** is not what was put up for approval and is
+not what the hash is over — a workflow edited while a run waits would show a message the database
+will refuse to match — and a **copy inside the pause** would be a second value that can disagree
+with the hash, which is the M12-2 defect exactly (*an approval bound to arguments nobody was ever
+shown*). `executionRow` declares `payload: null` so the shape stays fixed and a `payload` key
+inside a stored pause is unreadable from the screen; **driven, with the smuggled value asserted
+absent from the projection's JSON.**
+
+- **`withWaitingPayloads(executions, requests)` IS PURE AND FAILS CLOSED.** A request absent from
+  the page, a read that threw, a row with no id, arguments that are not a plain object — every one
+  leaves `payload: null`. *Cannot-tell must never read as a value*, and here the value would be
+  somebody's consent. **`{}` is a real answer and is NOT `null`**: a call that takes no arguments
+  is drawable, and folding the two together is the same defect through the other door.
+- **ITS OWN TYPE TEST IS A DECLARED REDUNDANCY, MEASURED.** In the route the rows always come
+  through `toolApprovalRow`, whose `readable` test has already folded a string or a list to `null`
+  — so a first red proof of that line came back GREEN. Each is drivable on its own and both are
+  kept: the guard hands the function RAW rows, which is the shape only its own test refuses.
+- **THE ROUTE ASKS ONLY WHEN SOMETHING WAITS ON A REQUEST**, so every other history read costs
+  what it did before; the tenant is always in the filter; and **a failure there does not fail the
+  history** — fail closed, not fail whole, logged and said. The page's own ceiling
+  (`MAX_TOOL_APPROVALS`, 100) gets the same explanation rather than a wrong payload.
+
+**THE SCREEN HAS THREE STATES AND `request` CARRIES THE THIRD** — the same three the banner above
+the message box already draws. No request is an approval STEP: no payload, never was, nothing
+drawn, **every ordinary workflow approval reads exactly as it did**. A request with no payload is
+*we could not load it*: a sentence, and **no Approve button at all**. A payload is the thing
+itself. **Reject stays in every case**, because refusing a send you cannot see is the right thing
+to do with it and withholding both would leave the run stuck.
+
+**AND THE DECISION PATH REFUSES TOO, not only the drawing.** The button that was drawn stays in
+the DOM until the next render and the watch timer can re-read the history in between and come
+back without the payload — so the subject can go while the control is still there. **This is NOT
+the wall**: what binds an approval to the words that go out is the hash `agent.decide_tool_approval`
+compares inside the statement that reads the row, which answers `stale` for a changed payload.
+This is the screen declining to ask for a decision it cannot put a subject in front of.
+
+**ONE READER FOR THE ARGUMENTS, shared with the banner** (`agentArgsReadable` · `agentArgKeys` ·
+`agentArgsHtml`), because two drawings of one fact drift into two different answers about one row.
+**`AGENT_ARGS_FIRST` IS AN ORDERING AND NOTHING ELSE** — every key is still drawn, which is what
+stops it becoming a filter — and what it buys is that a send's `{connection, provider, account,
+to, body}` does not put a uuid in front of somebody and leave the WORDS last. **No new CSS class**:
+it is drawn on the banner's own rules, which already exist.
+
+#### The browser demonstration cannot pass on the completed result any more
+
+**A NEW WORKFLOW WITH NO `note` STEP, deliberately.** The two above it both bind their message
+with a note, whose text is on the form and whose outcome is drawn in the finished history — so a
+body found on screen could have come from either and the check would pass with the payload never
+drawn. Here the body is the send's **own** field, `memory → reference material → send`, carrying
+an input somebody typed, a remembered fact and the reference material, so what appears on the
+approval screen is either the resolved message or nothing.
+
+- **CAPTURED OFF THE ARGUMENT LIST AND NOT OFF THE PANEL** (`.ag-run-wait .ag-ap-args`), because
+  the pause's sentence above it names the recipient and the account too — a search over the whole
+  panel finds that copy and reports the payload as present when it is not drawn at all. The same
+  mistake failed the first draft of the unit case about correct code.
+- **NOTHING HAS SENT WHEN IT IS READ**: the mailbox is unchanged and `.ag-step-msg` is absent.
+- **A RELOAD MID-WAIT SHOWS THE SAME PAYLOAD CHARACTER FOR CHARACTER**, then Approve, then the
+  mailbox's `to` and `body` compared **exactly** against what was on screen.
+- **A SECOND RUN IS REJECTED AND NOTHING SENDS**, and the account next door can neither READ the
+  pending payload nor APPROVE it (404 both, **not found, never forbidden**, with the mailbox
+  unchanged by the attempt). **Its session label deliberately does not start with `J2`**, because
+  `refusedIn` matches by prefix and journey 2 asserts it had no refused calls.
+- **⚠ AND THE SECOND RUN'S CHECK WAS VACUOUS IN ITS FIRST DRAFT.** The reference material answers
+  the whole price list whichever topic is asked, so both runs' bodies read identically and *"about
+  what was asked this time"* was satisfied by the first run's words. `{{topic}}` is in the body
+  template now and the check asserts the payload DIFFERS from the approved run's — without which a
+  screen drawing a cached payload satisfies it.
+- **⚠ AND ONE PASS PRINTED ITS OWN FAILURE SENTENCE.** `check(label, ok, detail)` prints the detail
+  either way, so *"a finished send's outcome was on a waiting run"* read on a PASS as though it had
+  happened. The detail is the reading now.
+
+### Measured
+
+- **Site suite 6,897 → 6,902** (6,900 pass, 2 skipped, 0 fail), and the arithmetic closes exactly:
+  `agent-automations` 53 → **55** and `agent-binding` 150 → **153**, nothing else.
+- **`verify:browser` 115 → 132 checks, 0 failed, exit 0.** **Engine suite 602, unchanged — the
+  control**, since nothing under `agent-builder/src/` moved. The other twelve demonstrations are
+  green at their own counts, every one re-run on this tree: `wf` **159** · `tools` **154** ·
+  `chat` 126 · `triggers` **111** · `edits` **107** · `send` 97 · `controls` 89 ·
+  `integration` 89 · `conversation` 79 · `connections` 76 · `ops` 75 · `auto` 70. **`FAIL` counted
+  on the LEADING token**, because `grep -c FAIL` matches check LABELS containing the word and has
+  reported green runs as failing here twice.
+- **ELEVEN BREAKAGES DRIVEN ONE AT A TIME, every one red**: the route's join removed, `payload` not
+  declared on the projection, the join's own type test weakened, the gate removed so it always
+  asks, the catch removed; and on the screen the payload not drawn, Approve drawn whatever the
+  payload, `agentWaitApprovable` not failing closed, the decide guard removed, the ordering removed,
+  and an unreadable payload folded into *"with nothing filled in"*. **Twelfth: the whole fix
+  reverted to HEAD and the browser journey run** — **seven checks red**, and the two that matter
+  are the mailbox comparisons, which fail because there was nothing on screen to compare with.
+  **`2ag` ("one more message went") still PASSES at HEAD**, which is the point: sending worked, and
+  it was the approval having shown the words that did not.
+- **TWO OLDER GUARDS RE-ANCHORED, NOT APPEASED.** The fixed-shape `deepEqual` gained `payload: null`
+  (the property is that the shape is named, so a new key is declared here too), and the send-door
+  case's fixture gained a payload: **it had become the less-capable fake** the moment the route
+  joined one on, and without it the case asserted which door was pressed over a decision the
+  product now correctly refuses to make.
+
+**NOT MERGED AND NOT DEPLOYED, no migration applied, and no broad mutation sweep** — this round's
+own bounds. **Cancellation and inbound-endpoint controls remain route-only**, as before: neither
+has a screen, and `test/agent-builder-view.test.mjs`'s `NO_SCREEN_YET` list is where that is
+recorded.

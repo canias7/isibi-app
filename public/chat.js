@@ -1724,6 +1724,49 @@ function agentCalls(n, before, after) {
   return before + esc(String(n)) + ' action' + (n === 1 ? '' : 's') + after;
 }
 
+/**
+ * ⚠ **CAN THESE ARGUMENTS BE PUT IN FRONT OF A PERSON AT ALL.** One test, asked by the
+ * banner above the message box AND by the automation history, because the two screens draw
+ * the same fact and two copies of the question drift into two different answers about one
+ * row. A plain object only: `null` is *nobody could read them* and an array or a string is a
+ * shape no tool declares and no honest key/value drawing exists for.
+ */
+function agentArgsReadable(args) {
+  return !!args && typeof args === 'object' && !Array.isArray(args);
+}
+
+/**
+ * WHICH ARGUMENT TO READ FIRST.
+ *
+ * **AN ORDERING AND NOTHING ELSE — every key is drawn whether or not it is named here**, and
+ * that is what stops this being a second copy of anything: a field the engine adds, renames
+ * or drops still reaches the screen, so drift cannot hide one. What it buys is that a send's
+ * own `{connection, provider, account, to, body}` does not put a uuid in front of somebody
+ * and leave the WORDS last, which is the one field the whole decision is about.
+ */
+const AGENT_ARGS_FIRST = ['account', 'to', 'body'];
+function agentArgKeys(args) {
+  const all = Object.keys(args);
+  const first = AGENT_ARGS_FIRST.filter((k) => all.includes(k));
+  return first.concat(all.filter((k) => !first.includes(k)));
+}
+
+/**
+ * The arguments of one waiting call, as a list. ONE drawing, shared for the reason above.
+ *
+ * **`{}` IS *there are none* AND IS NOT *we could not read them*** — the caller asks
+ * `agentArgsReadable` first and says its own sentence for the second, because what to DO
+ * about it differs by screen (ask the agent again; ask for the automation again).
+ */
+function agentArgsHtml(args) {
+  const keys = agentArgKeys(args);
+  return keys.length
+    ? '<ul class="ag-ap-args">' + keys.map((k) =>
+        '<li><span class="ag-ap-k">' + esc(k) + '</span> ' +
+        '<span class="ag-ap-v">' + esc(agentApprovalValue(args[k])) + '</span></li>').join('') + '</ul>'
+    : '<div class="ag-ap-none">with nothing filled in</div>';
+}
+
 /** One waiting call, as a sentence somebody can act on. */
 function agentApprovalHtml(r) {
   // ⚠ THE ARGUMENTS ARE SHOWN, NOT SUMMARISED. Approving what you were not shown is the
@@ -1737,16 +1780,11 @@ function agentApprovalHtml(r) {
   // so the third row says so and **does not offer Approve at all** — a decision whose subject
   // cannot be put on screen is not one to offer. "Don’t" stays, because refusing a call you
   // cannot see is a reasonable thing to do and it is what gets the run moving again.
-  const unreadable = r.args === null || r.args === undefined;
-  const keys = unreadable ? [] : Object.keys(r.args);
+  const unreadable = !agentArgsReadable(r.args);
   const args = unreadable
     ? '<div class="ag-ap-none">Its arguments couldn’t be read, so there is nothing to show ' +
       'you — don’t approve this one. Ask the agent for it again.</div>'
-    : keys.length
-      ? '<ul class="ag-ap-args">' + keys.map((k) =>
-          '<li><span class="ag-ap-k">' + esc(k) + '</span> ' +
-          '<span class="ag-ap-v">' + esc(agentApprovalValue(r.args[k])) + '</span></li>').join('') + '</ul>'
-      : '<div class="ag-ap-none">with nothing filled in</div>';
+    : agentArgsHtml(r.args);
   // ⚠ **THE WINDOW, WHICH NEVER REACHED THIS SCREEN.** `agent.pending_approvals` has answered
   // `expiresAt` since the approval-controls round and the site's own reader dropped it, so a
   // request just vanished from the banner when it closed with nothing having said it would.
@@ -3440,6 +3478,23 @@ async function agentAutoDecide(runId, verdict) {
   if (!target || agentAutoDeciding) return;
   const door = agentAutoDoor(target);
   if (!door) { agentAutoActErr = 'That run isn’t waiting to be approved any more.'; renderAgents(); return; }
+  /**
+   * ⚠ **AND AN APPROVAL IS REFUSED HERE TOO, not only left undrawn.**
+   *
+   * `agentWaitApprovable` takes the Approve button away, so an ordinary press cannot reach
+   * this — but the button that was drawn stays in the DOM until the next render, and the
+   * watch timer can re-read the history in between and come back without the payload (the
+   * approvals read is allowed to fail on its own). Then the subject of the decision is gone
+   * and the control is still there. A REJECTION is deliberately not gated: refusing a send
+   * you cannot see is exactly the right thing to do with it.
+   */
+  const wait = ((agentAutoRuns || []).find((r) => r.id === target) || {}).waiting;
+  if (verdict === 'approved' && !agentWaitApprovable(wait)) {
+    agentAutoActErr = 'What that would send can’t be read just now, so it can’t be approved — ' +
+      'reject it and run the automation again.';
+    renderAgents();
+    return;
+  }
   const note = String(agentAutoNotes.get(target) || '').trim();
   const bound = agentBind();
   agentAutoDeciding = target; agentAutoActErr = ''; renderAgents();
@@ -3963,6 +4018,55 @@ function automationAskHtml() {
  */
 function autoSaid(v) { return typeof v === 'string' && v !== ''; }
 
+/**
+ * ⚠ **WHAT A WAITING SEND WOULD ACTUALLY SEND — and the screen used to offer Approve without
+ * it.**
+ *
+ * The pause's own `ask` reads *"send to someone@example.com from ops@example.com"*: the
+ * sender and the recipient, and **not one word of the message**. So somebody could approve
+ * words they had never read, which is the one mistake on this path that cannot be taken back.
+ *
+ * **IT IS THE PERSISTED REQUEST'S ARGUMENTS AND NEVER THE AUTOMATION'S CURRENT FORM.** The
+ * route joins them on from `agent.tool_approvals`; the editable configuration is the wrong
+ * source twice over — it is not what was put up for approval, and it is not what the hash on
+ * the request is over, so a workflow edited while a run waits would show a message the
+ * database will refuse to match.
+ *
+ * **THREE STATES, AND `request` CARRIES THE THIRD.** No request is an approval STEP — there is
+ * no payload, there never was, and this draws nothing so every ordinary workflow approval
+ * reads exactly as it did. A request with no payload is *we could not load it*, which gets a
+ * sentence and no Approve button. A payload is the thing itself.
+ */
+function agentWaitPayloadHtml(w) {
+  if (!w || typeof w.request !== 'string' || !w.request) return '';
+  if (!agentArgsReadable(w.payload)) {
+    return '<div class="ag-ap-none">What this would send couldn’t be loaded, so there is ' +
+      'nothing to show you — don’t approve it. Reject it and run the automation again, and it ' +
+      'will be put up for approval afresh.</div>';
+  }
+  return agentArgsHtml(w.payload);
+}
+
+/**
+ * ⚠ **MAY THIS BE APPROVED FROM HERE — asked of the pause, and it FAILS CLOSED.**
+ *
+ * Approving what you were not shown is the mistake this whole block exists to prevent, so a
+ * request whose payload could not be loaded gets no Approve button at all. **A pause with no
+ * request is approvable**: it is an approval STEP, whose subject is the question itself and
+ * is already on the screen as `ask`.
+ *
+ * **THIS IS NOT THE WALL AND MUST NOT BE MISTAKEN FOR ONE.** What makes an approval bind to
+ * the words that go out is the hash `agent.decide_tool_approval` compares inside the
+ * statement that reads the row — a payload changed since it was shown answers `stale` and
+ * nothing is sent. This is the screen declining to ASK for a decision it cannot put a subject
+ * in front of.
+ */
+function agentWaitApprovable(w) {
+  if (!w || w.kind !== 'approval') return false;
+  if (typeof w.request !== 'string' || !w.request) return true;
+  return agentArgsReadable(w.payload);
+}
+
 function automationRunsHtml() {
   if (agentAutoRunsErr) return '<div class="ag-auto-runs"><div class="ag-err">' + esc(agentAutoRunsErr) + '</div></div>';
   if (agentAutoRuns === null) return '<div class="ag-auto-runs"><div class="ag-auto-none">Loading…</div></div>';
@@ -4039,7 +4143,8 @@ function automationRunsHtml() {
                 '</span>' : '') +
             '</div>' +
             (r.waiting.kind === 'approval'
-              ? '<div class="ag-hint">' +
+              ? agentWaitPayloadHtml(r.waiting) +
+                '<div class="ag-hint">' +
                   (r.waiting.onTimeout === 'approve' ? 'If nobody answers, it carries on anyway.'
                     : r.waiting.onTimeout === 'reject' ? 'If nobody answers, it stops as though it were rejected.'
                     : 'If nobody answers, it stops as a failure.') +
@@ -4047,9 +4152,15 @@ function automationRunsHtml() {
                 '<input class="ag-in" data-note="' + esc(r.id) + '" maxlength="1000"' +
                   ' placeholder="Why (optional)" value="' + esc(agentAutoNotes.get(r.id) || '') + '">' +
                 '<div class="ag-actions">' +
-                  '<button class="ag-save" data-act="agent-auto-approve" data-run="' + esc(r.id) + '"' +
-                    (agentAutoDeciding ? ' disabled' : '') + '>' +
-                    (agentAutoDeciding === r.id ? 'Sending…' : 'Approve') + '</button>' +
+                  // ⚠ **APPROVE IS NOT DRAWN FOR SOMETHING NOBODY CAN READ, and Reject IS.**
+                  // See `agentWaitApprovable`. Refusing a send you cannot see is a reasonable
+                  // thing to do and it is what gets the run moving again, so withholding both
+                  // would leave it stuck — the same split the banner above the message box makes.
+                  (agentWaitApprovable(r.waiting)
+                    ? '<button class="ag-save" data-act="agent-auto-approve" data-run="' + esc(r.id) + '"' +
+                        (agentAutoDeciding ? ' disabled' : '') + '>' +
+                        (agentAutoDeciding === r.id ? 'Sending…' : 'Approve') + '</button>'
+                    : '') +
                   '<button class="ag-cancel" data-act="agent-auto-reject" data-run="' + esc(r.id) + '"' +
                     (agentAutoDeciding ? ' disabled' : '') + '>Reject</button>' +
                 '</div>'

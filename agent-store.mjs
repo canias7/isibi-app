@@ -3851,12 +3851,72 @@ export function executionRow(r) {
        * the engine carried this reads as.
        */
       request: typeof waiting.request === "string" && waiting.request ? waiting.request : null,
+      /**
+       * ⚠ **WHAT WOULD BE SENT, AND IT IS FILLED BY THE ROUTE FROM THE PERSISTED REQUEST —
+       * NEVER READ OFF THIS PAUSE.**
+       *
+       * Declared here so the shape is fixed and always present: `request === null` is an
+       * approval STEP (there is no payload and never was), `payload === null` beside a
+       * request is *we could not load it*, and an object is the thing itself. Three states,
+       * the same three the banner above the message box already draws.
+       *
+       * **THE PAYLOAD HAS ONE HOME AND THIS IS NOT IT.** The pause names the request; the
+       * request holds the arguments AND the hash they are bound to. Copying them into the
+       * pause would be a second copy that can disagree with the hash — which is the M12-2
+       * defect exactly (*an approval bound to arguments nobody was ever shown*), so a
+       * `payload` key inside a stored pause is deliberately unreadable from here: this
+       * projection names its keys, so it cannot fall through, and the route overwrites it.
+       */
+      payload: null,
       ask: typeof waiting.ask === "string" ? waiting.ask : null,
       onTimeout: AUTOMATION_TIMEOUTS.includes(waiting.on_timeout) ? waiting.on_timeout : null,
       until: typeof r?.wait_until === "string" ? r.wait_until : null,
     } : null,
     decisions: r?.decisions && typeof r.decisions === "object" && !Array.isArray(r.decisions) ? r.decisions : {},
   };
+}
+
+/**
+ * ⚠ **THE MESSAGE A PERSON IS ABOUT TO APPROVE, JOINED ONTO THE PAUSE THAT IS WAITING FOR
+ * IT — and until this existed the screen offered Approve without it.**
+ *
+ * **THE DEFECT, MEASURED IN A BROWSER.** A `send` step's pause carries `ask`, which reads
+ * *"send to someone@example.com from ops@example.com"* — the sender and the recipient — and
+ * the automation history drew that, the deadline, and an Approve button. **The words that
+ * would go out were nowhere on the screen.** So somebody could approve a message they had
+ * never read, which is the one mistake on this path that cannot be taken back, and the
+ * browser demonstration that "proved" the body only compared the mailbox AFTERWARDS: it
+ * could not have told this defect from its absence.
+ *
+ * **IT IS THE PERSISTED REQUEST AND NEVER THE AUTOMATION'S CURRENT CONFIGURATION.** The two
+ * can differ — somebody edits the workflow while a run waits — and the editable row is the
+ * wrong one twice over: it is not what was put up for approval, and it is not what the hash
+ * on the request is over. Reading `agent.tool_approvals` (through `pending_approvals`, whose
+ * row this indexes) is the only source that cannot disagree with what the database will
+ * compare when the decision arrives.
+ *
+ * **PURE, AND IT FAILS CLOSED.** A request the caller could not read — absent from the page,
+ * a read that threw, arguments that are not a plain object — leaves `payload: null`, which
+ * the screen draws as an explanation and refuses to offer Approve for. *Cannot-tell must
+ * never read as a value*, and here the value would be somebody's consent.
+ *
+ * A pause with no `request` is an approval STEP and is returned untouched: there is no
+ * payload, there never was one, and `payload` stays the `null` `executionRow` declared.
+ */
+export function withWaitingPayloads(executions, requests) {
+  const byId = new Map();
+  for (const r of Array.isArray(requests) ? requests : []) {
+    if (r && typeof r.id === "string" && r.id) byId.set(r.id, r);
+  }
+  return (Array.isArray(executions) ? executions : []).map((e) => {
+    const id = e?.waiting?.request;
+    if (typeof id !== "string" || !id) return e;
+    const found = byId.get(id);
+    const args = found?.args && typeof found.args === "object" && !Array.isArray(found.args)
+      ? found.args
+      : null;
+    return { ...e, waiting: { ...e.waiting, payload: args } };
+  });
 }
 
 // ── the surface ─────────────────────────────────────────────────────────────
@@ -5303,7 +5363,34 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       const id = cleanId(q.get("id"));
       if (!id) return no(400, "which automation?");
       if (!(await store.ownsAutomation(who, id))) return NO_AUTOMATION();
-      return ok({ id, executions: await store.executions(who, id) });
+      const runs = await store.executions(who, id);
+      /**
+       * ⚠ **AND WHAT EACH WAITING SEND WOULD SEND, so nobody approves words they were never
+       * shown.** See `withWaitingPayloads` for the defect; three things about this read.
+       *
+       * **ASKED ONLY WHEN SOMETHING IS WAITING ON A REQUEST.** Every other history read — which
+       * is nearly all of them — costs exactly what it did before.
+       *
+       * **THE TENANT IS THE WALL AND IS ALWAYS IN THE FILTER**, so another account's request
+       * is not in this answer to be joined; `null` for the agent is deliberate rather than
+       * loose, because the join is by the request id a pause of THIS automation names and no
+       * other row can match it. Narrowing by agent would be a second read for no wall.
+       *
+       * **A FAILURE HERE DOES NOT FAIL THE HISTORY.** The history is worth showing either
+       * way, and a payload that could not be read leaves `null`, which the screen explains
+       * and will not offer Approve for — fail closed, not fail whole. Same for the page's own
+       * ceiling (`MAX_TOOL_APPROVALS`): an account with more waiting calls than one page
+       * holds gets the explanation rather than a wrong payload.
+       */
+      const waitingOnRequest = runs.some((e) => typeof e?.waiting?.request === "string" && e.waiting.request);
+      let requests = [];
+      if (waitingOnRequest) {
+        try { requests = await store.listToolApprovals(who, null); }
+        catch (e) {
+          if (typeof log === "function") log("agent automation-history: the waiting payloads could not be read", String(e?.message ?? e));
+        }
+      }
+      return ok({ id, executions: withWaitingPayloads(runs, requests) });
     }
 
     if (path === "/api/agent/import") {

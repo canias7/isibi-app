@@ -20,7 +20,7 @@ import {
   AUTOMATION_COLUMNS,
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
-  AUTOMATION_TRIGGERS, webhookRow,
+  AUTOMATION_TRIGGERS, webhookRow, withWaitingPayloads, toolApprovalRow,
   // ── an edit changes only what it names ───────────────────────────────────────
   AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
   trigAt, trigZone, trigDays, trigOnDate, trigOnEvent,
@@ -65,6 +65,16 @@ function fakeStore(over = {}) {
     removeAutomation: of("removeAutomation", true),
     runAutomation: of("runAutomation", { ok: true, repeat: false, run_id: R1, occurrence: null, trigger: "manual", state: "queued" }),
     executions: of("executions", []),
+    /**
+     * ⚠ AS CAPABLE AS THE REAL STORE, for the FIFTH recorded time in this file — and this one
+     * fails QUIETLY rather than loudly, which is why it is worth saying. The history route asks
+     * for the waiting sends' payloads inside its own try/catch (a payload that cannot be read
+     * must not fail the whole history), so a fake without this operation does not read as a 502:
+     * it reads as a waiting send whose message could not be loaded, which is a plausible wrong
+     * answer. Derived from `toolApprovalRow`, so a fixture cannot be in a shape the real reader
+     * does not produce.
+     */
+    listToolApprovals: of("listToolApprovals", []),
     // ⚠ THE FAKE HAS TO BE AS CAPABLE AS THE REAL STORE. `readAutomation` is what the run
     // route asks for the input DECLARATION, so a fake without it makes the route throw and
     // reports it as a save that failed — five correct cases came back 502 that way. A
@@ -1526,10 +1536,23 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
   // ⚠ RE-ANCHORED AGAIN: it gained `request`, which names WHICH DOOR answers the pause and is
   // `null` for an approval STEP — see the case below. Whole rather than a subset, for the reason
   // above it.
+  // ⚠ RE-ANCHORED A THIRD TIME: it gained `payload`, declared `null` here and filled by the
+  // ROUTE from the persisted approval request. Declaring it is what keeps the shape fixed — a
+  // `payload` key inside a stored pause must not reach the screen, because the arguments have one
+  // home and it is the request the hash is over. Whole rather than a subset, for the same reason.
   assert.deepEqual(suspended.waiting, {
     kind: "approval", step: "s8", ask: "Send this?", onTimeout: "reject", until: "2026-09-18T09:00:00Z",
-    event: null, request: null,
+    event: null, request: null, payload: null,
   });
+  // ⚠ AND A STORED `payload` IS UNREADABLE FROM HERE, which is the half that makes the sentence
+  // above a wall rather than a preference: the arguments a person is shown come from the request,
+  // so a pause that carried its own copy could disagree with the hash the database compares.
+  const smuggled = executionRow({
+    run_status: "running",
+    waiting: { kind: "approval", step: "s8", request: "req-1", payload: { body: "not this" } },
+  });
+  assert.equal(smuggled.waiting.payload, null);
+  assert.ok(!JSON.stringify(smuggled.waiting).includes("not this"));
   assert.equal(suspended.position, 7);
   assert.deepEqual(suspended.values, { draft: "Dear customer" });
   // THE SAME ROW WITH NOTHING TO WAIT FOR IS `queued`, which is the control that makes the
@@ -1596,6 +1619,146 @@ test("⚠ `waiting` is told from `queued` by the EXECUTION ROW, not by the run's
   assert.equal(executionRow({ run_status: "running", waiting: { kind: "nonsense", step: "s2" } }).waiting.kind, "wait");
   assert.equal(executionRow({ run_status: "running", waiting: { kind: "approval", step: "s8", on_timeout: "maybe" } })
     .waiting.onTimeout, null, "a timeout outcome this cannot read is not invented");
+});
+
+test("⚠ WHAT A WAITING SEND WOULD SEND is joined on from the PERSISTED request", () => {
+  /**
+   * ⚠ **THE DEFECT: the history offered Approve with the message nowhere on the screen.**
+   *
+   * A send's pause carries `ask`, which reads *"send to … from …"* — the sender and the
+   * recipient — and nothing of the words. So somebody could approve a message they had never
+   * read. `withWaitingPayloads` joins the persisted request's own arguments onto the pause that
+   * names it, and everything below is about which source that is and what happens when it is
+   * not there.
+   */
+  const REQ = "99999999-1111-4222-8333-444444444444";
+  const ARGS = { connection: "c1", provider: "fake", account: "shop@example.test",
+                 to: "ada@example.test", body: "Tuesday at 9, £95." };
+  // DERIVED FROM THE REAL READER, so a fixture cannot be in a shape `pending_approvals` does
+  // not produce — which is how a join like this passes over an answer nothing really sends.
+  const pending = toolApprovalRow({ id: REQ, run: R1, agent: A1, tool: "send_message", args: ARGS, step: 1, index: 0 });
+  const sendPause = executionRow({
+    id: R1, run_status: "running", position: 3,
+    waiting: { kind: "approval", step: "s3", request: REQ, ask: "send to ada@example.test from shop@example.test" },
+  });
+  const stepPause = executionRow({
+    id: "R2", run_status: "running", position: 1,
+    waiting: { kind: "approval", step: "s1", ask: "Send it?" },
+  });
+
+  const [send, step] = withWaitingPayloads([sendPause, stepPause], [pending]);
+  assert.deepEqual(send.waiting.payload, ARGS, "the words a person has to read did not arrive");
+  // ⚠ AND AN APPROVAL STEP IS UNTOUCHED, which is the control that makes the line above about
+  // the join rather than about every pause getting a payload from somewhere.
+  assert.equal(step.waiting.payload, null);
+  assert.equal(step.waiting.request, null);
+  // NOTHING ELSE OF THE PAUSE MOVES — the join replaces one key and copies the rest.
+  assert.equal(send.waiting.ask, "send to ada@example.test from shop@example.test");
+  assert.equal(send.waiting.step, "s3");
+  assert.equal(send.position, 3);
+
+  /**
+   * ⚠ **IT FAILS CLOSED, and every one of these is a screen that must not offer Approve.**
+   * *Cannot-tell must never read as a value*, and the value here would be somebody's consent.
+   */
+  for (const [what, requests] of [
+    ["the request is not in the page at all", []],
+    ["a read that failed and answered nothing", null],
+    ["a row with no id to match on", [{ ...pending, id: "" }]],
+    ["a row that came back through the reader with nothing readable", [toolApprovalRow({ id: REQ, args: "hello" })]],
+    ["no arguments at all", [toolApprovalRow({ id: REQ })]],
+    /**
+     * ⚠ **AND ITS OWN TEST, driven with RAW rows, which is what makes it a wall rather than a
+     * line that happens to be true.** In the route these rows always come through
+     * `toolApprovalRow`, whose own `readable` test has already folded a string or a list to
+     * `null` — so the two are a DECLARED redundancy, and each is drivable on its own: this
+     * function is exported and pure, and a caller handing it `pending_approvals` rows directly
+     * is the shape only its own test refuses.
+     */
+    ["a raw row whose arguments are a string", [{ id: REQ, args: "hello" }]],
+    ["a raw row whose arguments are a list", [{ id: REQ, args: ["hello"] }]],
+    ["a raw row whose arguments are a number", [{ id: REQ, args: 7 }]],
+  ]) {
+    const [only] = withWaitingPayloads([sendPause], requests);
+    assert.equal(only.waiting.payload, null, what);
+    assert.equal(only.waiting.request, REQ, `${what}: the request itself must stay, or the screen loses the third state`);
+  }
+  // A non-list of executions answers a list rather than throwing, because this runs on the
+  // answer of a read that is allowed to fail.
+  assert.deepEqual(withWaitingPayloads(null, [pending]), []);
+  // ⚠ AND `{}` IS A REAL ANSWER AND IS NOT `null`: a call that takes no arguments is drawable,
+  // and folding it into "could not be read" is the M12-2 defect through the other door.
+  const [none] = withWaitingPayloads([sendPause], [toolApprovalRow({ id: REQ, args: {} })]);
+  assert.deepEqual(none.waiting.payload, {});
+});
+
+test("⚠ the history's payload is the REQUEST's, never the automation's editable configuration", async () => {
+  /**
+   * ⚠ **THE ONE CLAIM THIS ROUTE HAS TO MAKE.** The two sources can differ — somebody edits
+   * the workflow while a run waits — and the editable row is the wrong one twice over: it is
+   * not what was put up for approval, and it is not what the hash on the request is over, so a
+   * screen drawing it would show a message the database will refuse to match. The fixture makes
+   * them differ on purpose, and nothing of the stored configuration may appear.
+   */
+  const REQ = "99999999-1111-4222-8333-444444444444";
+  const SHOWN = "Tuesday at 9, £95.";
+  const EDITED = "Wednesday at 2, £150.";
+  // COUNTED HERE RATHER THAN OFF `f.calls`, because an override replaces the recording wrapper:
+  // asserting on a list an override never writes to is a check that cannot fail.
+  let asked = 0;
+  const f = fakeStore({
+    executions: async () => [executionRow({
+      id: R1, run_status: "running", waiting: { kind: "approval", step: "s3", request: REQ },
+    })],
+    listToolApprovals: async (tenant, agentId) => {
+      asked++;
+      assert.equal(tenant, T1, "the payload read was not scoped to the tenant the handler was given");
+      assert.equal(agentId, null, "the join is by the request id a pause names, so narrowing by agent is a second read for no wall");
+      return [toolApprovalRow({ id: REQ, args: { account: "shop@example.test", to: "ada@example.test", body: SHOWN } })];
+    },
+    // THE AUTOMATION AS IT STANDS NOW, saying something else entirely.
+    readAutomation: async () => ({ id: C1, agentId: A1, name: "n", inputs: [],
+      steps: [{ id: "s3", type: "send", connection: "c1", to: "someone@else.test", body: EDITED }] }),
+  });
+  const r = await call("/api/agent/automation-history", { store: f.store, query: new URLSearchParams({ id: C1 }) });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.executions[0].waiting.payload.body, SHOWN);
+  assert.ok(!JSON.stringify(r.body).includes(EDITED), "the editable configuration reached the screen");
+  assert.ok(!JSON.stringify(r.body).includes("someone@else.test"));
+
+  /**
+   * ⚠ **ASKED ONLY WHEN SOMETHING IS WAITING ON A REQUEST**, so every other history read —
+   * which is nearly all of them — costs exactly what it did before.
+   */
+  const quiet = fakeStore({
+    executions: async () => [executionRow({ id: R1, run_status: "running", waiting: { kind: "approval", step: "s3" } })],
+  });
+  await call("/api/agent/automation-history", { store: quiet.store, query: new URLSearchParams({ id: C1 }) });
+  assert.equal(quiet.calls.filter((c) => c.name === "listToolApprovals").length, 0,
+    "a history with nothing waiting on a request still asked for the payloads");
+  // AND THE CONTROL: the read above really does happen when one IS waiting, or the line is
+  // satisfied by a route that never asks at all.
+  assert.equal(asked, 1);
+
+  /**
+   * ⚠ **A FAILURE THERE DOES NOT FAIL THE HISTORY.** The history is worth showing either way,
+   * and a payload that could not be read leaves `null`, which the screen explains and will not
+   * offer Approve for — fail closed, not fail whole.
+   */
+  const broke = fakeStore({
+    executions: async () => [executionRow({
+      id: R1, run_status: "running", waiting: { kind: "approval", step: "s3", request: REQ },
+    })],
+    listToolApprovals: async () => { throw new Error("PostgREST said no"); },
+  });
+  const said = [];
+  const r2 = await call("/api/agent/automation-history", {
+    store: broke.store, query: new URLSearchParams({ id: C1 }), log: (...a) => said.push(a.join(" ")),
+  });
+  assert.equal(r2.status, 200, "a payload that could not be read failed the whole history");
+  assert.equal(r2.body.executions[0].waiting.payload, null);
+  assert.equal(r2.body.executions[0].waiting.request, REQ);
+  assert.ok(said.some((l) => /payloads could not be read/.test(l)), "it failed silently");
 });
 
 test("⚠ a REJECTED execution has a reason and deliberately NO result", () => {

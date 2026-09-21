@@ -13777,3 +13777,67 @@ lost a check would look identical to a check that had nothing to say.
 **The two documentation commits after it did not need that harness and did not run it** — I
 checked which files it watches rather than assuming, and neither commit touches one — so the
 green run covers the code as it stands.
+
+## The Approve button was showing the envelope and not the letter (2026-09-21)
+
+You were right, and the second half of what you said is why it lasted this long.
+
+**What the screen did.** A waiting send said *"send to ada@example.test from shop@example.test"*,
+then a deadline, then Approve and Reject. That sentence comes off the pause itself, and it carries
+who it is going to and which account it is going from — **and nothing at all of what it says**. So
+somebody could press Approve on words they had never read. That is the one mistake on this screen
+you cannot take back afterwards.
+
+**Why every test missed it.** The browser journey did compare the message against the fake
+provider's mailbox — but it read the message off the send step's own result, which only exists
+*after* the send. So it was comparing the mailbox against something that appears at the same
+moment the mailbox does. A screen that showed nothing would have passed it.
+
+**What it does now.** The pending message is on the screen before anyone can approve it: the
+account it would go from, who it is for, and the complete message with everything filled in — the
+answers somebody typed, what the agent remembered, and what it looked up. The two screenshots in
+the chat are that panel, and the second one is the same run after a full page reload.
+
+**Where those words come from matters, so I want to be plain about it.** They are read from the
+approval request that was saved when the run stopped — not from the automation as it stands now.
+Those two can be different: if somebody edits the workflow while a run is waiting, the automation
+says one thing and the thing awaiting approval says another. Showing the edited version would be
+showing a message that is not the one going out, and the database would refuse it anyway. So the
+screen shows the saved request, which is the same thing the database checks against when you press
+Approve.
+
+**And if it cannot be loaded, it says so and Approve is not there.** Not greyed out — not drawn at
+all, with a line saying don't approve this one and to run it again. **Reject stays**, because
+refusing something you cannot see is a perfectly sensible thing to do and it is what gets the run
+moving again; taking both buttons away would just leave it stuck.
+
+### What I checked, and one thing I got wrong on the way
+
+The browser test now reads the account, the recipient and the message off the approval panel
+**before** clicking anything, confirms the mailbox is still empty, then approves and compares the
+mailbox against those exact strings. It does that on a new workflow built with **no note step** —
+the older ones write their message in a note, whose text is on the form and in the history, so a
+body found on screen could have come from there and the check would pass with the new panel never
+drawn at all. Here the message is the send step's own field, so it is either on the approval screen
+or nowhere.
+
+It also reloads the page mid-wait and confirms the same words are still there, rejects a second run
+and confirms nothing sends, and checks that the account next door can neither read the pending
+message nor approve it.
+
+**Then I put the old code back and ran it.** Seven checks went red, and the two worth naming are the
+mailbox comparisons — they fail because there was nothing on screen to compare against. One check
+stayed green: *"one more message went"*. That is exactly right. Sending always worked. What did not
+work was the approval having shown you the words.
+
+**The thing I got wrong**: my first version of one check claimed the second run's message was
+"about what was asked this time", and it could not tell. The price list comes back whole whichever
+topic you ask about, so both runs read identically and the check would have passed on the first
+run's words. It now puts the topic into the message and asserts the two runs differ.
+
+**Counts.** The site suite is 6,902 (was 6,897) and the engine suite is 602, unchanged — which is
+the control, since nothing in the engine moved. The browser demonstration is 132 checks (was 115),
+none failed. The other twelve demonstrations are all green and all re-run on this tree.
+
+**Nothing is merged, deployed or migrated** — that is where you asked me to stop. Cancellation and
+the inbound-endpoint controls are still backend-only, unchanged.
