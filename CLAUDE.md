@@ -4401,13 +4401,14 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,118 LOCALLY, and the CI half of THAT reading is UNREAD at the
-  moment of writing** (2026-09-21, the reader's own wiring hole) —
-  `# tests 7118 / # pass 7118 / # fail 0 / # skipped 0`, `duration_ms 112,388`.
-  **The +2 is the difference between two measured readings**, 7,116 → 7,118:
-  the census over the REAL Supabase getter, and the case driving all three
-  reads against a non-list body. **Say which half is taken**; the stamp is
-  completed once the run is read.
+- **Unit suite: 7,118, BOTH HALVES TAKEN** (2026-09-21, the reader's own wiring
+  hole) — locally `# tests 7118 / # pass 7118 / # fail 0 / # skipped 0`,
+  `duration_ms 112,388`, and CI run **`35666256160` on `e7f0e82f`** at
+  **`# tests 7118 / # pass 7114 / # fail 0 / # skipped 4`**, `duration_ms
+  113,629`. **THE TOTAL IS WHAT MATCHES** — 7,118 both sides, `pass` differing
+  by exactly CI's own four skips. **The +2 is the difference between two
+  measured readings**, 7,116 → 7,118: the census over the REAL Supabase getter,
+  and the case driving all three reads against a non-list body.
 - **Unit suite: 7,116, BOTH HALVES TAKEN** (2026-09-21, the unreadable-ledger
   correction) — locally `# tests 7116 / # pass 7116 / # fail 0 / # skipped 0`,
   `duration_ms 113,677`, and CI run **`35665789941` on `04f1897c`** at
