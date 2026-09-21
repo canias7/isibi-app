@@ -28,6 +28,14 @@
  * the queue is an in-process doorbell, because neither is reachable from a laptop;
  * durability is unchanged, because the work is a ROW.
  *
+ * ⚠ **AND THIS IS NOT A CLAIM ABOUT UNDERSTANDING LANGUAGE, which matters because a green
+ * run of this file is exactly what somebody might take for one.** The stand-in fills a
+ * DECLARED property by its own name (`id=<uuid>`), so what every check here proves is the
+ * PLATFORM: the routes, the tenant and agent closures, the approval gate, the operation
+ * record, the journal and the database. It proves nothing whatever about reading a
+ * sentence — there is **no phrase matching anywhere in it**, and a request whose words
+ * name no tool simply reaches no tool.
+ *
  * ⚠ NOT A STATEMENT ABOUT THE DEPLOYMENT. Nothing here touches the hosted project.
  */
 
