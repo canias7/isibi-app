@@ -1274,6 +1274,25 @@ layer=page page=/` in **19.4 s for 2 credits**, rung **20**, **balance
   `briefWithLayout` 13,639 + the 28,002-character prior page = **73,638
   characters in**) rather than from a remembered figure, which is why it was
   worth quoting at all.
+- **⚠ THE CLAIM IS "STILL RENDERING, WITH SOURCE UNCHANGED" AND NEVER "STILL
+  WORKING"** (owner). Nothing in this run submitted the trial booking form or
+  exercised the day/space lookup, so what is established is that the three
+  files are byte-identical and the three components PAINT. Whether their
+  behaviour survives is a different check and this run is not it — the same
+  distinction this file already draws between a 200 and a health check.
+  **ONE OF THE THREE WAS THEN DRIVEN SEPARATELY, FREE, and it works**: in a
+  real browser the day/space lookup renders `Choose a day to check space.`,
+  and filling its date input calls
+  **`POST /api/db/fretwork-1/data/rpc/bookings_on_day` → 200** and renders
+  `No bookings on this day yet — it still has space.`, with zero console
+  errors and zero failed requests. **AND THAT SETTLES WHAT THE SCHEMA WARNING
+  MEANS**: the reply calls `bookings_on_day` undeclared and the live RPC
+  answers 200, which is not a contradiction — the warning is about the STORED
+  SPEC, empty while this site's backend reference is missing, and the
+  DATABASE is real (`lookupRoute` resolves an `incomplete` site out of the KV
+  cache in the Worker). *A correct warning about the spec is not a claim about
+  the database.* **The trial booking form is still undriven**, deliberately: a
+  submission would write a row to a customer site.
 - **⚠ WHAT THIS RUN DID NOT DEMONSTRATE, KEPT SEPARATE ON PURPOSE.** The
   photograph **restoration and refusal** behaviour is untouched — `fretwork-1`
   serves no uploaded photographs on any of its three routes, so `keepPhotos`
@@ -3735,19 +3754,20 @@ separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,053 LOCALLY, and the CI half of this reading is UNREAD** —
-  `# tests 7053 / # pass 7053 / # fail 0 / # skipped 0`, `duration_ms 111,174`,
-  taken 2026-09-21 on `c2085045` (run 11's docs). **The docs commit moved the
-  total by ZERO, measured rather than assumed**: the same suite run in a
-  worktree at its parent `4e2c076a` answers `# tests 7053` as well.
-  **⚠ AND THAT PAIR IS THE CLEANEST DEMONSTRATION THIS FILE HAS OF *THE TOTAL
-  IS THE ONLY COMPARABLE NUMBER* — sharper than the local-vs-CI one below,
-  because both halves are the SAME SESSION minutes apart.** The worktree read
-  **`pass 7051 / skipped 2`** and the main checkout **`pass 7053 / skipped 0`**:
-  **same total, different split**, so a stamp comparing `pass` would have
-  reported a two-test regression that does not exist. The two that skip are an
-  ENVIRONMENT difference (the worktree's linked `node_modules`), exactly as the
-  local-vs-CI four are — *the sandbox moves, the suite does not.*
+- **Unit suite: 7,053, BOTH HALVES TAKEN, AND THE DOCS COMMIT MOVED IT BY ZERO**
+  (2026-09-21, run 11's docs). **CI runs 2862 (the parent) and 2864 (the
+  current) BOTH read `7,053 total / 7,049 passed / 0 failed / 4 skipped`** —
+  the parent-and-current pair is what settles *the docs change did not increase
+  the count*, and it is a stronger reading than a local baseline because both
+  halves come off the same machine. Locally the same tree reads
+  `# tests 7053 / # pass 7053 / # fail 0 / # skipped 0`, `duration_ms 111,174`.
+  **⚠ AND THE THREE READINGS ARE THE CLEANEST DEMONSTRATION THIS FILE HAS OF
+  *THE TOTAL IS THE ONLY COMPARABLE NUMBER*.** One tree, one day, **three
+  different pass/skip splits and ONE total**: the main checkout `7053/0`, a
+  worktree at the parent `7051/2`, CI `7049/4`. A stamp comparing `pass` would
+  have reported a two-test regression against the worktree and a four-test one
+  against CI, and **neither exists**. What moves is the SANDBOX — a worktree's
+  linked `node_modules`, CI's own four — never the suite.
   **⚠ AND THE +1 AGAINST THE PREVIOUS LOCAL READING OF 7,052 IS UNEXPLAINED AND
   PREDATES THIS COMMIT.** 7,052 was taken earlier the same day after the
   edit-canary work (`# tests 7052 / # pass 7052 / # fail 0 / # skipped 0`, the
@@ -3755,10 +3775,9 @@ separately and free.
   7,052). Every commit between it and `4e2c076a` is docs-only, and the two
   tests that PARSE `docs/owner-notes.md` read **31/31 on both sides**, so the
   docs are ruled out as the cause. **It is recorded as unexplained rather than
-  reconciled**, which is the only honest option: a count nobody can attribute
-  is not a count to argue from. **Say which half is taken**: a local number
-  beside an unread CI run is one reading, not two, and the pair below is what
-  two halves looks like.
+  reconciled and NO further investigation is owed** (owner) — a count nobody
+  can attribute is not a count to argue from, and the parent/current CI pair
+  already answers the only question the milestone needed.
 - **Unit suite: 7,048, BOTH HALVES TAKEN** (2026-09-21) — locally, and CI run
   **`35554760170` on `38d934a2`** at **`# tests 7048 / # pass 7044 / # fail 0
   / # skipped 4`**. The eight are this round's own: five tweak-rung cases, the

@@ -174,10 +174,15 @@ in one block instead of nine in three.
 
 **The three components are byte-for-byte what they were** — the chord diagrams,
 the day/space lookup and the trial booking form. Same size, same fingerprint,
-still on the page and still working. I checked this against the test's own
+**still rendering, with source unchanged**. I checked this against the test's own
 saved copy of the files rather than the test's own pass/fail flag, because that
 flag only checks the components still EXIST by name and would say "fine" about
 one that had been rewritten.
+
+**⚠ "Still rendering" is the whole of it — I did not press anything.** Nothing
+in this test submitted the trial booking form or ran the day/space lookup, so
+what is established is that the files are unchanged and the components paint.
+Whether they still WORK is a different check and this run is not it.
 
 **Your other two pages are byte-identical** as well, and the change to the home
 page only ever removes: sixty lines gone, one import line tidied, and **not one
