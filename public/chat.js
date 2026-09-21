@@ -1161,6 +1161,24 @@ let agentRevokeBusy = '';      // the tool a press is in flight for
  */
 let agentRevokeWhy = '';
 /**
+ * ⚠ **WHICH TOOL THE PICKER HOLDS — AND IT HAS TO BE HELD, BECAUSE A `<select>` DRAWN AGAIN
+ * ANSWERS ITS FIRST OPTION. MEASURED in a real browser: a press took away the wrong
+ * permission.**
+ *
+ * Opening the settings draws this form at once and ASKS the server what is already taken away;
+ * that read lands a moment later and re-renders. So somebody who picked a tool and typed a
+ * reason inside that window had their CHOICE silently reset to the first tool in the list —
+ * and the handler reads the control at the moment it is pressed, so Take it away withdrew
+ * whatever happened to be first. **The reason survived and the choice did not**, which is the
+ * worse half: a wrong reason is a wrong sentence, and a wrong choice is a permission somebody
+ * never meant to withdraw.
+ *
+ * It is read by the form's own read-first door (`agentFormRead`), behind the same `data-agent`
+ * wall the name and the instructions are behind, and drawn back as `selected`. `''` means
+ * *nothing picked*, which is what a fresh form shows.
+ */
+let agentRevokePick = '';
+/**
  * WHAT THE SERVER SAID JUST HAPPENED — its sentence, never one of ours.
  *
  * Both routes answer a `say`, and the one about restoring is the one nobody would guess:
@@ -6687,8 +6705,14 @@ function renderAgentsNow() {
                 ? (catalog.some((t) => revoked.indexOf(t.name) < 0)
                     ? '<div class="ag-auto-acts">' +
                         '<select class="ag-in" id="agRevPick">' +
+                          // ⚠ SELECTED FROM WHAT IS HELD, or a re-render answers the first
+                          // option and a press withdraws the wrong permission. A held tool that
+                          // is no longer offerable matches nothing, which is right: it has just
+                          // been taken away.
                           catalog.filter((t) => revoked.indexOf(t.name) < 0).map((t) =>
-                            '<option value="' + esc(t.name) + '">' + esc(t.label || t.name) +
+                            '<option value="' + esc(t.name) + '"' +
+                            (t.name === agentRevokePick ? ' selected' : '') + '>' +
+                            esc(t.label || t.name) +
                             '</option>').join('') +
                         '</select>' +
                         '<button class="ag-auto-btn" data-act="agent-revoke-take"' +
@@ -6845,6 +6869,7 @@ function agentEdit(id) {
   // beside this one's ticks, which is the one thing this section must never do.
   agentRevoked = null; agentRevokedFor = null; agentRevokedErr = '';
   agentRevokeActErr = ''; agentRevokeBusy = ''; agentRevokeSaid = ''; agentRevokeWhy = '';
+  agentRevokePick = '';
   if (agentEditing) agentRevokedLoad(agentEditing);
   renderAgents();
 }
@@ -6915,6 +6940,13 @@ function agentFormRead() {
   // readers of one form is two answers about what somebody typed.
   agentDraft = agentFormValues();
   agentDraftFor = agentEditing;
+  // ⚠ **AND THE TOOL PICKER, behind the SAME wall.** It is not one of the agent's own fields
+  // — it is which permission a press is about — so it is held apart from the draft; what it
+  // shares with the draft is the question *is this form the one for the agent being edited*.
+  // Read here rather than on a change hook because the thing that resets it is a RE-RENDER,
+  // and this door is what every re-render goes through.
+  const pick = document.getElementById('agRevPick');
+  if (pick) agentRevokePick = pick.value || '';
 }
 
 /**
@@ -6983,6 +7015,16 @@ async function agentRevokeAct(tool, how) {
   // ⚠ THE WORDS ARE KEPT WHEN THE PRESS FAILED and dropped when it landed. A reason that
   // reached the agent has done its job; one that reached nobody is still what somebody
   // wrote, and making them type it again is the cost of our own failure.
+  // ⚠ THE WORDS ARE KEPT WHEN THE PRESS FAILED and dropped when it landed. A reason that
+  // reached the agent has done its job; one that reached nobody is still what somebody wrote,
+  // and making them type it again is the cost of our own failure.
+  //
+  // ⚠ **AND THE CHOICE NEEDS NO CLEARING HERE, WHICH IS NOT A SYMMETRY WITH THE REASON — IT
+  // IS MEASURED.** The re-read below redraws this form, `agentFormRead` reads the control back,
+  // and the tool that was just taken away is no longer among the OPTIONS — so the control can
+  // only be showing something offerable and the holder follows it. A text box accepts anything,
+  // so nothing narrows the reason and it really would come back. Clearing the choice as well is
+  // a line no state can observe.
   if (!failed && !back) agentRevokeWhy = '';
   // RE-READ EITHER WAY. A refusal may still have been a race somebody else won, so what is
   // drawn afterwards is the server's answer rather than what this press hoped for.

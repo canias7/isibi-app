@@ -355,7 +355,15 @@ function hydrate(w) {
   const pickOptions = pickBlock
     ? [...pickBlock[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]) : [];
   const pickEl = w.s.document.getElementById("agRevPick");
-  if (pickOptions.length) pickEl.value = pickOptions[0];
+  // ⚠ **AND `selected` DECIDES, WHICH IS THE BROWSER'S OWN RULE AND NOT A DETAIL HERE.** The
+  // first option is what a browser shows when NOTHING is selected; an option carrying
+  // `selected` is what it shows otherwise. A fixture that always took the first would be
+  // less capable than the render in exactly the field the held choice exists for — so the
+  // case about a re-render keeping somebody's choice would pass with the fix deleted.
+  const pickChosen = pickBlock
+    ? [...pickBlock[1].matchAll(/<option value="([^"]+)" selected>/g)].map((m) => m[1]) : [];
+  if (pickChosen.length) pickEl.value = pickChosen[0];
+  else if (pickOptions.length) pickEl.value = pickOptions[0];
   const whyEl = w.s.document.getElementById("agRevWhy");
   const drawnWhy = val("agRevWhy");
   if (drawnWhy !== null) whyEl.value = drawnWhy;
@@ -365,7 +373,7 @@ function hydrate(w) {
     .map((m) => m[1]);
   return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl,
            drewZone: drawnZone !== null, zone: zoneEl.value, zoneBox: zoneEl,
-           pickOptions, pickBox: pickEl, drewPicker: !!pickBlock,
+           pickOptions, pickChosen, pickBox: pickEl, drewPicker: !!pickBlock,
            whyBox: whyEl, drewWhy: drawnWhy !== null, why: whyEl.value, takenAway };
 }
 
@@ -7259,6 +7267,81 @@ test("⚠ THE PICKER DECIDES WHICH TOOL, AND EVERY BUTTON GOES DEAD WHILE ONE PR
   const presses = sent.filter((c) => c.p === "/api/agent/tool-revoke");
   assert.equal(presses.length, 1, "a second press went out while the first was in flight");
   assert.equal(presses[0].body.tool, "remember", "the press sent the catalog's first tool, not the chosen one");
+});
+
+test("⚠ THE TOOL SOMEBODY PICKED SURVIVES A RE-RENDER, so a press takes away what they chose", async () => {
+  // ⚠ **THE DEFECT, MEASURED IN A REAL BROWSER: it took away the wrong permission.** Opening
+  // the settings draws this form at once and ASKS the server what is already taken away; that
+  // read lands a moment later and re-renders. A `<select>` drawn again with no `selected`
+  // answers its FIRST option, and the handler reads the control at the moment it is pressed —
+  // so somebody who picked a tool and typed a reason inside that window pressed Take it away
+  // and withdrew whatever happened to be first in the list.
+  //
+  // The reason survived all along (its own input hook holds it) and the CHOICE did not, which
+  // is the worse half: a wrong reason is a wrong sentence, a wrong choice is a permission
+  // nobody meant to withdraw.
+  const TWO = [CATALOG[0], { name: "remember", label: "Remember", does: "Keeps a fact." }];
+  const sent = [];
+  // ⚠ **THE FAKE REMEMBERS WHAT WAS TAKEN AWAY, because the picker's options are DERIVED from
+  // that answer.** A fixture answering `revoked: []` for ever would keep offering the tool the
+  // press just withdrew — less capable than the render in the one list this case is about — so
+  // the assertions about what the form offers afterwards would be about the fake.
+  const gone = [];
+  const w = await withCatalog({
+    tools: TWO,
+    rows: TICKED_ROWS,
+    answer: (p, init) => {
+      const body = init && init.body ? JSON.parse(init.body) : null;
+      sent.push({ p, body });
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: TWO });
+      if (p.startsWith("/api/agent/revoked-tools")) return okRes({ agent: "A", revoked: [...gone] });
+      if (p === "/api/agent/tool-revoke") {
+        if (body && body.tool) gone.push(body.tool);
+        return okRes({ agent: "A", tool: body && body.tool, say: "it cannot use that again" });
+      }
+      return okRes({});
+    },
+  });
+  w.ev('agentEdit("A")');
+  await settle();
+  // ⚠ **THE CONTROL IS WHAT A PERSON SEES, NOT WHETHER `selected` IS IN THE MARKUP — and my
+  // first draft got that wrong.** A fresh form shows the FIRST option, and it reaches that
+  // either way: with nothing held, by the browser's own rule; and once the revoked-tools read
+  // has re-rendered, because the door reads the old control back and the old control was
+  // showing the first option. Both are the same screen. What the fix is about is a choice
+  // somebody MADE surviving the next drawing, which is the assertion below.
+  const fresh = hydrate(w);
+  assert.equal(fresh.pickBox.value, "echo", "a fresh form did not show the first tool");
+
+  // SOMEBODY PICKS THE SECOND ONE AND TYPES A REASON, on the controls the form really drew.
+  fresh.pickBox.value = "remember";
+  fresh.whyBox.value = "not while we are checking";
+  w.ev("INPUT_ACTIONS['agent-revoke-why'](null, document.getElementById('agRevWhy'))");
+
+  // ⚠ AND THEN THE FORM IS DRAWN AGAIN — which is what the revoked-tools read really does
+  // when it lands, and what every other press on this screen does too.
+  w.ev("renderAgents();");
+  const after = hydrate(w);
+  assert.deepEqual(after.pickChosen, ["remember"], "the re-render forgot which tool was chosen");
+  assert.equal(after.pickBox.value, "remember", "the picker came back on the first option");
+  assert.equal(after.why, "not while we are checking", "the reason was lost with it");
+
+  // AND THE PRESS TAKES AWAY WHAT THEY CHOSE, read off the request that really went out.
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  await settle();
+  const press = sent.filter((c) => c.p === "/api/agent/tool-revoke");
+  assert.equal(press.length, 1, "the press never reached the server");
+  assert.equal(press[0].body.tool, "remember", "it took away the first tool in the list, not the chosen one");
+  assert.equal(press[0].body.note, "not while we are checking");
+
+  // ⚠ AND A LANDED TAKE DROPS THE REASON — while the CHOICE is left to the form itself, which
+  // is measured rather than symmetric: the tool is no longer among the options, so the control
+  // can only be showing something offerable and the door reads that back. A text box narrows
+  // nothing, so the reason really would come back.
+  assert.equal(w.ev("agentRevokeWhy"), "", "the reason outlived the press that used it");
+  const done = hydrate(w);
+  assert.deepEqual(done.pickOptions, ["echo"], "the form still offers the tool it just took away");
+  assert.equal(done.why, "", "the reason was drawn back into the box");
 });
 
 test("⚠ A REVOCATION ANSWERED AFTER THE FORM MOVED WRITES NOTHING, and its list is not another agent's", async () => {
