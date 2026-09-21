@@ -165,9 +165,27 @@ taking the test's word for it.
 minimal-patch writer and never fell back to the expensive rewrite — one model
 call, two and a half minutes. Your screen would have read **"✅ Updated /."**
 
-**Nothing else moved.** Both photographs on the front page are still there, the
-one on the Visit page is untouched, and the four other pages are unchanged. Only
-the page you asked about changed.
+**Nothing else moved — and I checked this properly the second time.** My first
+version of this claim rested on comparing headings and photograph links, and you
+were right that this does not establish it: two files can look identical that way
+and differ everywhere else. So I went back to the test's own saved record and
+compared the **actual page source**, character for character. Four of the five
+pages are **byte-identical**. The fifth, the front page, is the same **4,389
+characters** before and after, and the only difference is that one block of
+sixteen lines moved from one place to another, word for word. **Not a single word
+anywhere on the site changed.**
+
+**The photographs were opened in a real browser, not counted in the page code.**
+Counting the links would only prove a link exists — it could still be broken, or
+hidden. Both photographs loaded at full size (2400×1792), are on screen at
+976×549 and 720×540, fully opaque, and nothing failed to load.
+
+**What this test did NOT prove, kept deliberately separate.** It exercised one
+change on one site. It says nothing about the builder putting a photograph back
+when something tries to remove it, nothing about refusing a change it cannot make
+safely, nothing about custom-built components (this site has none), and nothing
+about the expensive full-rewrite path — that never ran, because the cheap one
+succeeded.
 
 **It cost 4 credits, and my estimate was wrong in one place.** Two for the edit,
 which is what I told you — plus **two for the routing call**, which I quoted as

@@ -1120,12 +1120,42 @@ morning since we opened' section above 'Today's bake'."*
 - **THE ARITHMETIC CLOSES**: route 2 + rung 2 = **4**, and the balance moved
   **105 → 101** exactly. That is what makes the routing correction a
   measurement rather than an inference.
-- **PRESERVATION READ FROM THE PUBLICATION**: `/` photos **2 → 2** with its
-  order CHANGED as asked; `/gallery`, `/order`, `/the-starter`, `/visit` all
-  byte-equal in order and photographs (`/visit` **1 → 1**). **Only the page the
-  message named moved.** `photosKept` **absent**, which is the CORRECT outcome
-  for a clean reorder — nothing needed restoring, and the owner's own
-  correction on this file predicted it.
+- **⚠ "ONLY THE TARGET PAGE CHANGED" WAS FIRST CLAIMED OFF HEADINGS AND
+  PHOTOGRAPH REFERENCES, WHICH CANNOT ESTABLISH IT (owner: *"that alone does
+  not establish unchanged source or wording"*).** Two files can carry identical
+  headings and identical `src` attributes and differ everywhere else. **The
+  claim is now the STORED SOURCE BODIES, compared out of the run's own
+  artifact** — free, no rerun, no harness change:
+  **`gallery.tsx` 3011b, `order.tsx` 9262b, `the-starter.tsx` 955b and
+  `visit.tsx` 4049b are BYTE-IDENTICAL** (sha256 equal on each), and
+  **`index.tsx` alone differs — at exactly 4,389 bytes on both sides.**
+- **AND INSIDE IT THE DIFF IS A PURE BLOCK MOVE.** One 16-line `<section>`
+  removed from one position and inserted at another, VERBATIM, `SafeImage`'s
+  `src`/`alt`/`ratio`/`fallbackSeed` carried with it. **The TOKEN MULTISET over
+  the whole file is IDENTICAL** — every token occurs the same number of times
+  before and after — which is the property `sameProse` asserts, measured here
+  on the artifact rather than trusted from the rung's own verdict.
+- **THE PHOTOGRAPHS WERE CHECKED IN A REAL BROWSER, NOT COUNTED IN HTML.**
+  Counting `<img src="/u/…">` establishes a reference, never a picture: a
+  reference can 404, decode to nothing, or sit under `display: none`. Chromium
+  against the live page: **NAV 200, both photographs `complete` with
+  naturalWidth 2400×1792, on screen at 976×549 and 720×540, opacity 1, both
+  `/u/` responses 200, ZERO failed requests.**
+  **⚠ AND THIS FALSIFIES THIS FILE'S OWN RECORDED LIMITATION** — *"Chromium in
+  this sandbox cannot reach a site host at all"* is listed under the blind-
+  instrument traps and is NOT true today. A stale limitation is a false
+  negative about our own instruments, and it had already cost one check nobody
+  attempted.
+- `photosKept` **absent**, which is the CORRECT outcome for a clean reorder —
+  nothing needed restoring, and the owner's own correction on this file
+  predicted it.
+- **⚠ WHAT THIS RUN DID NOT DEMONSTRATE, KEPT SEPARATE ON PURPOSE.** It
+  exercised ONE rung on ONE shape. **The restoration and refusal behaviour is
+  untouched** — `keepPhotos` restored nothing and `withheld`/`photosBlocked`
+  never fired, because nothing was ever at risk; **custom components are
+  untested**, this site storing none; and **the full rewrite path never ran**,
+  the tweak having held. Three separate bodies of law, none of them evidenced
+  here.
 - **CONFIRMED FROM OUTSIDE THE HARNESS**: the live page was fetched separately
   afterwards and serves `Harbour Loaf | Fed every morning since we opened |
   Today's bake | Order a loaf for collection`. The run's own claim and an
@@ -3905,8 +3935,15 @@ rule and the measurement.
   right. `sitePreviewSrc(site, '/')` and `sitePreviewSrc(site, active.path)` answer
   the same string until a case presses on `/press`.
 - **A ZERO FROM A BLIND INSTRUMENT IS NOT EVIDENCE OF ABSENCE.** Headless Chromium
-  uses OVERLAY scrollbars (0px in precisely the case that moves); Chromium in this
-  sandbox cannot reach a site host at all, so a CSP render read BROKEN both ways;
+  uses OVERLAY scrollbars (0px in precisely the case that moves);
+  **⚠ "Chromium in this sandbox cannot reach a site host at all" WAS TRUE AND IS
+  NOT (falsified 2026-09-21)** — a real Chromium opened
+  `fold-lane-bakery.gofarther.app`, answered **NAV 200**, and read both
+  photographs as loaded and visible with zero failed requests. It was recorded
+  from a CSP render that read BROKEN both ways, and **a limitation nobody
+  re-tested is a false negative about our own instruments**: it sat here long
+  enough that a live-browser check went unattempted rather than unavailable.
+  The CSP reading it came from is still the blind one;
   a fake `sqlQuery` injected where none is accepted answered **0 statements**,
   which reads exactly like "no constraint anywhere". **A `net::` error in a CSP
   failure list is the tell — a refusal is `blockedURI`, never a transport error.**
