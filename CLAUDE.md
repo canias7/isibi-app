@@ -4225,14 +4225,16 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,090 LOCALLY, and the CI half of THIS reading is UNREAD** —
-  `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`, `duration_ms 117,987`,
-  taken 2026-09-21 on the run-14 harness corrections. **The +12 is the
-  difference between two measured readings**: `test/canary-watch.test.mjs`
-  arriving with twelve cases. The re-anchored `edit-canary` guard added none —
-  it is the same case asserting the same property through a wider landmark.
-  **Say which half is taken**: a local number beside an unread CI run is ONE
-  reading.
+- **Unit suite: 7,090, BOTH HALVES TAKEN** (2026-09-21, the run-14 harness
+  corrections) — locally `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`,
+  `duration_ms 117,987`, and CI run **`35655515164` on `c0dcd60e`** at
+  **`# tests 7090 / # pass 7086 / # fail 0 / # skipped 4`**. **THE TOTAL IS
+  WHAT MATCHES** — 7,090 both sides, with `pass` differing by exactly CI's own
+  four skips, which is this file's standing reading of that gap and not a
+  regression. **The +12 is the difference between two measured readings**:
+  `test/canary-watch.test.mjs` arriving with twelve cases. The re-anchored
+  `edit-canary` guard added none — it is the same case asserting the same
+  property through a wider landmark.
 - **Unit suite: 7,078 LOCALLY, and the CI half of THAT reading is UNREAD** —
   `# tests 7078 / # pass 7078 / # fail 0 / # skipped 0`, `duration_ms 111,643`,
   taken 2026-09-21 on the three bounded corrections. **The +7 is the difference
