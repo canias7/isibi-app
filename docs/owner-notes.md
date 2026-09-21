@@ -254,6 +254,56 @@ source. 5 mutants killed, comment-only control survived. Suite 7,090.
 
 **No re-run pressed, nothing deployed, no product code touched.**
 
+### ✅ You pressed it — and both open questions are answered
+
+Read-only run 15, 23:56Z, **18 seconds**, nothing spent.
+
+**1. The job DID finish, and the old harness just kept looking.** It went
+terminal at **09:26:10**, which is **571.9 seconds** after it started — and
+the shape change in the old log was at 576 seconds. That *was* the job
+finishing. The stored answer is a **503**, and the old watch only stopped on a
+**200**, so it polled straight past a completed reply for another four and a
+half minutes and then reported the job as unfinished. Settled, and it was the
+harness both times.
+
+**2. The money: charged 2, refunded 2 — on top of the routing call's 2.**
+The ledger's own two rows:
+
+| when | what | amount | balance after |
+|---|---|---|---|
+| 09:18:33 | reserve | −2 | 73 |
+| 09:26:10 | refund | +2 | 75 |
+
+Which closes the arithmetic: **77 → 75 → 73 → 75**. Your balance went 77 to 75
+because of the routing call; the edit itself took 2 and gave it straight back.
+
+So the caution was worth having and **both** of the guesses were wrong. Not
+"never billed", and not "charged 20 and refunded 20" — a much smaller number
+than either. The job's own `billing` field says `refunded` independently of the
+ledger, and the two agree without either being derived from the other, which is
+exactly what that pair was separated for.
+
+**3. Why it failed.** It was working on the button-colour change the harness
+invented. It wrote the CSS, sent it to be published, and the check that the
+change actually shows up on the page found nothing. It ran its one correction
+round, tried again, and the correction didn't show up either — so it refused
+and refunded. Your screen would have read:
+
+> My correction still wouldn't have shown up on your page, so I've left your
+> site exactly as it was and refunded what this cost.
+
+That is the right answer. Nothing was ever published (the record shows no
+publish at all), and the site was left alone.
+
+One thing worth knowing from the timings: of the 565 seconds it ran, **about
+350 were spent waiting for a container** — 192 seconds before the first publish
+and 159 before the second. That's queueing, not work.
+
+**And the fix from an hour ago is what made the money arithmetic readable.**
+Without the transaction lines the account would have said "charged 2 and
+refunded 2" with nothing underneath — no times, no balances — and 77 → 75 → 73
+→ 75 could not have been checked.
+
 ### Reading an existing job — built, not pressed
 
 The **edit canary** workflow has a new box, **`read_job`**. Put a job id in it

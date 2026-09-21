@@ -1476,13 +1476,55 @@ NOT COMPARABLE TO A CURL** — two instruments, two numbers.
 - **THE COMPONENT STILL WORKS, WHICH IS THE BEFORE BEHAVIOUR AND NOT A PASS**:
   NAV 200, `POST /api/db/fretwork-1/data/rpc/bookings_on_day` → **200, body
   `0`**, 0 console errors, 0 failed requests.
-- **AND THE JOB RECORD ITSELF IS STILL UNREAD.** `fa4fef0ff88b4d0a2bb3cb79be44004f`
-  needs `/api/site/edit/<job>` with the building account's token, which is a
-  GitHub Actions secret; a session cannot read it. The log and the artifact are
-  what this account is built on, and they are enough for everything above and
-  not enough for the 576-second question.
-  **THE READER IS BUILT AND THE PRESS IS THE OWNER'S** — `edit-canary.yml`'s
-  `read_job` input, below.
+- **⚠ THE JOB RECORD IS READ, AND BOTH OPEN QUESTIONS ARE SETTLED** (the
+  owner's press, read-job run **15**, `35669789100`, 2026-09-21T23:56Z, free,
+  **18 seconds**). Everything below is `edit_jobs` and `credit_events`
+  answering, not a log being interpreted.
+
+**1. THE 576-SECOND SHAPE CHANGE WAS THE JOB FINISHING.** The row is
+`state: failed`, created `09:16:38.906801Z`, updated `09:26:10.801425Z` —
+**571.9 s**, against the harness's shape change at 576 s. `result` is
+**HTTP 503** and the poll answers `503` under **`x-gf-edit: final`**, so the
+old watch's `status === 200` polled straight past a completed answer and ran
+on to its own 845.2-second exhaustion. *Recorded as unresolved for a day and
+resolved by one free press*; the corrected watch's `reply` outcome — a stored
+reply **whatever its status** — is the thing that would have read it.
+
+**2. THE MONEY IS CHARGED-AND-REVERSED, AND IT IS A THIRD VALUE NEITHER GUESS
+NAMED.** `billing: refunded, cost 2`, and the ledger's own two rows:
+`09:18:33 reserve −2 after **73** ref <job>#1` and `09:26:10 refund +2 after
+**75** ref <job>` (bare). **The balance arithmetic closes: 77 → 75 → 73 →
+75.** The reserve's `after 73` puts the balance at 75 immediately before it
+while the harness's before-reading was 77, so 2 moved in between — run 14's
+log records a routing call at cost 2, **and that last step is an INFERENCE**:
+the routing call's own row does not name this job, so this query did not
+return it. **So the standing caution was right and both readings were wrong**:
+not *"never billed"*, not *"charged 20 and refunded 20"* — **charged 2 and
+refunded 2, beside a routing call of 2.** `billing` and the ledger agree
+without borrowing from each other, which is the two-line design working.
+
+**3. WHY IT FAILED, out of the trace** (`e_mub16sydzvwux9q3`, ms **565,204**,
+`failed_phase: stopped`, a slug-and-window CANDIDATE rather than a join —
+the only one, ending 0.4 s before the row's `updated`): `pick_lanes` 1.3→7.1 s,
+`lane:css` 8.0→107.2 s, `publish:1` at 108.5 s reaching `container:ok` at
+300.97 s and failing in the same millisecond; `lane:correct` 301→405 s;
+`publish:2` at 406 s, `container:ok` at 564.95 s, failing again; `stopped` at
+565.2 s. The reply is `{"ok":false,"error":"unverified","phase":"verify",
+"cost":0,"refunded":2}` — **the css lane's zero-match rule refusing twice and
+refunding**, which is correct for the CTA-colour request the harness invented.
+**`publish started -, published -`**, confirming the version reading
+independently. **~350 s of the 565 was waiting for a container** (192 s and
+159 s before the two publishes), which is a fact about the queue rather than
+the work.
+
+- **`credit_events` HAS NOW BEEN READ OVER THE WIRE**, the one hop this file
+  records as never driven by anything. It answered with the service key.
+- **THE TRANSACTION LINES ARE WHAT MADE THE ARITHMETIC AVAILABLE.** An hour
+  earlier the same account would have printed `CHARGED 2 AND REFUNDED 2` with
+  nothing beneath it, and 77 → 75 → 73 → 75 could not have been closed from
+  it — see the `readable` defect below.
+- **STILL UNREACHABLE, AND IMMATERIAL HERE**: the submitted instruction (R2,
+  behind a Worker binding). Run 14's own log already showed that box empty.
 
 ### THE READ-ONLY JOB LOOKUP (2026-09-21)
 
@@ -4318,7 +4360,15 @@ HISTORY** (owner, 2026-09-21): 2 is equally consistent with a routing call of 2
 and with a routing call of 2 beside an edit charged 20 and refunded 20, and
 only `edit_jobs.billing` and the `credit_events` rows separate them. **Every
 figure on this line is a net reading** and the same caution applies to all of
-them. Run 12 ended at 77 (79 → 77, net 2) — and **that one has a second,
+them.
+**✅ AND FOR RUN 14 THE LEDGER HAS NOW BEEN READ AND THE TRUE ANSWER IS A
+THIRD VALUE** (read-job run 15, 2026-09-21T23:56Z): `billing: refunded,
+cost 2`, with `reserve −2 after 73` and `refund +2 after 75` — so
+**77 → 75 → 73 → 75**, a routing call of 2 beside an edit **charged 2 and
+refunded 2**. **Neither guess named it**, which is the strongest form of the
+rule this line states: a net reading does not merely fail to *choose* between
+two histories, it can be consistent with a history nobody listed. The balance
+of **75** is unchanged and now has a second, stronger reader behind it. Run 12 ended at 77 (79 → 77, net 2) — and **that one has a second,
 stronger reader**: its terminal body states `cost: 0` for the edit in the
 route's own words, which a balance cannot. Run 11 ended at 79 (101 → 79, net 22)
 and run 9 at 101 (105 → 101, moved 4). It was 119 at run 52's end on
