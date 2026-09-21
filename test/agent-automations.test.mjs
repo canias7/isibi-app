@@ -21,7 +21,7 @@ import {
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   AUTOMATION_TRIGGERS, webhookRow, withWaitingPayloads, toolApprovalRow,
-  eventRow, AGENT_EVENT_STATES,
+  eventRow, AGENT_EVENT_STATES, MAX_EVENT_LOG,
   // ── an edit changes only what it names ───────────────────────────────────────
   AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
   trigAt, trigZone, trigDays, trigOnDate, trigOnEvent,
@@ -1128,6 +1128,72 @@ test("⚠ WHAT BECAME OF AN ARRIVAL — four states, and `handled_at` is the dis
   const worded = [...w.slice(0, w.indexOf("}")).matchAll(/^\s{2}([a-z]+):/gm)].map((x) => x[1]);
   assert.deepEqual([...AGENT_EVENT_STATES].sort(), [...worded].sort(),
     `the server answers ${JSON.stringify(AGENT_EVENT_STATES)} and the screen has words for ${JSON.stringify(worded)}`);
+});
+
+test("⚠ THE ARRIVALS READ IS THE FUNCTION'S OWN, SCOPED, AND THE ROUTE HANDS THE SCREEN ITS WORDS", async () => {
+  /**
+   * ⚠ **THE REQUEST, NOT THE ANSWER — and a sweep survivor is why this exists.** The tenant
+   * census above drives a FAKE store, and the events route asks `ownsAgent(who, agentId)`
+   * BEFORE it reads the log, so the tenant reaches *a* call whatever `listEvents` then sends:
+   * dropping `p_tenant` from its own body changed nothing any case could see. `service_role`
+   * bypasses row level security, so that argument is the WALL rather than the belt — without
+   * it `agent.list_events` is asked for a tenant it was never given.
+   */
+  const seen = [];
+  const store = makeAgentStore({
+    url: "https://db.example", key: "k",
+    fetch: async (url, opts) => {
+      seen.push({ url: String(url), method: opts.method, headers: opts.headers,
+                  body: opts.body ? JSON.parse(opts.body) : undefined });
+      return { ok: true, status: 200, text: async () => JSON.stringify([]) };
+    },
+  });
+  await store.listEvents(T1, A1);
+  assert.equal(seen.length, 1, `reading the log made ${seen.length} requests`);
+  const [ask] = seen;
+  assert.match(ask.url, /rpc\/list_events/, "the log is not read through the function that scopes it");
+  assert.equal(ask.method, "POST");
+  assert.deepEqual(Object.keys(ask.body).sort(), ["p_agent_id", "p_limit", "p_tenant"],
+    "the arrivals read's arguments are not the function's own");
+  assert.equal(ask.body.p_tenant, T1, "the log went out with no account on it");
+  assert.equal(ask.body.p_agent_id, A1, "the log was not scoped to one agent");
+  // ⚠ THE CEILING TRAVELS WITH IT rather than being left to the parameter's own default: this
+  // side decides how much of a log a screen is handed, and the route's own answer says so.
+  assert.equal(ask.body.p_limit, MAX_EVENT_LOG, "the ceiling is not handed to the function");
+  // A WRITE'S PROFILE HEADER IS THE VERB'S — PostgREST ignores the read header on a POST, which
+  // is how a DELETE in this module once resolved against `public` and could never have worked.
+  assert.equal(ask.headers["content-profile"], "agent");
+  assert.equal(ask.headers["accept-profile"], undefined);
+  // AND NOTHING READS THE TABLE DIRECTLY: `service_role` holds no SELECT on `agent.events` at
+  // all, which is what makes the definer function the only door.
+  assert.ok(!seen.some((r) => r.method === "GET" && /agent_events|\/events\?/.test(r.url)),
+    "the arrival log is being read straight out of the table");
+
+  /**
+   * ⚠ **AND THE VOCABULARY IS ON THE WIRE, for the same reason `AGENT_TOOLS` is.** The screen
+   * draws each word from `WH_EVENT_WORDS`, censused against `AGENT_EVENT_STATES` above — but a
+   * browser that had to guess which states exist would draw a blank for one this server added,
+   * so the list travels with the answer. Dropping it is a red run rather than a quiet blank.
+   */
+  const events = [{ id: R1, name: "order.paid", source: "wh", at: "2026-09-21T09:00:00Z",
+                    handled_at: "2026-09-21T09:00:01Z", filed: 1,
+                    runs: [{ id: R1, automation: A1 }] }].map(eventRow);
+  const got = [];
+  const r = await call("/api/agent/events", {
+    query: new URLSearchParams({ agent: A1 }),
+    store: {
+      ownsAgent: async () => true,
+      listEvents: async (...args) => { got.push(args); return events; },
+    },
+  });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.events, events);
+  assert.deepEqual(r.body.states, [...AGENT_EVENT_STATES],
+    "the screen is left to guess which states this server can answer");
+  assert.equal(r.body.max, MAX_EVENT_LOG);
+  // AND THE ACCOUNT IS THE SESSION'S, taken as the read's own first argument rather than off
+  // the request — there is nowhere on this route to put one, and this is what says so.
+  assert.deepEqual(got, [[T1, A1]], "the log was not read for the signed-in account and that agent");
 });
 
 test("⚠ READING THE INBOUND ENDPOINTS BACK IS A LIST, and `answerOf` refuses one by design", async () => {

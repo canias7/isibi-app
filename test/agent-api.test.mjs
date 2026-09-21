@@ -1210,6 +1210,19 @@ test("⚠ A CANCELLATION REPORTS WHAT COMPLETED AND NEVER CLAIMS IT WAS UNDONE",
   const g = fakeStore({ cancelRun: async () => ({ ok: true, run: A1 }) });
   const bare = await call("/api/agent/run-cancel", { store: g.store, body: { run: A1 } });
   assert.match(bare.body.say, /was not undone/);
+  // ⚠ **`heldByWorker` IS NARROWED TO A BOOLEAN HERE, and a truthy non-boolean is the only
+  // shape that says so** — a sweep survivor is why this is asserted. It separates *the
+  // cancellation is recorded* from *execution has actually stopped*, and the screen draws a
+  // sentence about a step that may still be finishing off it; `true`, `false` and absent all
+  // read the same through either `=== true` or `!!`, so with only those three the coercion is
+  // invisible. A string is what a `cancel_run` older than the field can leave in an answer.
+  const j = fakeStore({ cancelRun: async () => ({ ok: true, run: A1, heldByWorker: "no" }) });
+  const junk = await call("/api/agent/run-cancel", { store: j.store, body: { run: A1 } });
+  assert.equal(junk.body.heldByWorker, false, "a heldByWorker we could not read went out as true");
+  // ITS CONTROL: a real one reaches the wire, or "it is false" is satisfied by a route that
+  // never carries the field at all.
+  const k = fakeStore({ cancelRun: async () => ({ ok: true, run: A1, heldByWorker: true }) });
+  assert.equal((await call("/api/agent/run-cancel", { store: k.store, body: { run: A1 } })).body.heldByWorker, true);
   // AND A RUN THAT IS NOT THIS ACCOUNT'S IS THE SAME 404 A MISSING ONE GETS.
   const h = fakeStore({ cancelRun: async () => ({ ok: false, error: "no-run" }) });
   assert.equal((await call("/api/agent/run-cancel", { store: h.store, body: { run: A1 } })).status, 404);

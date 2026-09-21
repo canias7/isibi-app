@@ -1,0 +1,276 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the three states a run that has not stopped can be in",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AUTO_STOPPABLE = ['queued', 'running', 'waiting'];",
+  "to": "// exactly what executionRow answers for a run whose status is not `stopped`\nconst AUTO_STOPPABLE = ['queued', 'running', 'waiting'];"
+ },
+ {
+  "label": "CONTROL: a comment only, above what became of an arrival",
+  "control": true,
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const AGENT_EVENT_STATES = Object.freeze([\"queued\", \"ignored\", \"started\", \"woke\"]);",
+  "to": "// four, because the four are four different things to be told\nexport const AGENT_EVENT_STATES = Object.freeze([\"queued\", \"ignored\", \"started\", \"woke\"]);"
+ },
+ {
+  "label": "stop: the button is drawn for every state, live or not",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        (AUTO_STOPPABLE.indexOf(r.state) !== -1\n          ? '<button class=\"ag-auto-btn\" data-act=\"agent-auto-stop\" data-run=\"' + esc(r.id) + '\"'",
+  "to": "        (true\n          ? '<button class=\"ag-auto-btn\" data-act=\"agent-auto-stop\" data-run=\"' + esc(r.id) + '\"'"
+ },
+ {
+  "label": "stop: the scope sentence is not drawn, so the three acts read as one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      (AUTO_STOPPABLE.indexOf(r.state) !== -1\n        ? '<div class=\"ag-hint\">' + esc(AUTO_STOP_SCOPE) + '</div>' : '') +",
+  "to": "      (false\n        ? '<div class=\"ag-hint\">' + esc(AUTO_STOP_SCOPE) + '</div>' : '') +"
+ },
+ {
+  "label": "stop: what had already run is not said",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (steps !== null) {\n    parts.push(steps + ' step'",
+  "to": "  if (false) {\n    parts.push(steps + ' step'"
+ },
+ {
+  "label": "stop: the still-finishing sentence is said whatever heldByWorker holds",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (j && j.heldByWorker === true) {",
+  "to": "  if (j && j.heldByWorker) {"
+ },
+ {
+  "label": "stop: a run that has ended is stopped anyway rather than refused",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!run || AUTO_STOPPABLE.indexOf(run.state) === -1) {\n    agentAutoActErr = 'That run isn’t under way any more, so there is nothing to stop.';",
+  "to": "  if (false) {\n    agentAutoActErr = 'That run isn’t under way any more, so there is nothing to stop.';"
+ },
+ {
+  "label": "stop: no confirmation is asked for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!window.confirm('Stop this run? ' + AUTO_STOP_SCOPE",
+  "to": "  if (false && !window.confirm('Stop this run? ' + AUTO_STOP_SCOPE"
+ },
+ {
+  "label": "stop: an answer that lands after the screen moved writes anyway",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!agentSame(bound) || agentAuto === null) { renderAgents(); return; }\n  if (failed) { agentAutoActErr = failed; renderAgents(); return; }\n  agentAutoNotes.delete(target);",
+  "to": "  if (false) { renderAgents(); return; }\n  if (failed) { agentAutoActErr = failed; renderAgents(); return; }\n  agentAutoNotes.delete(target);"
+ },
+ {
+  "label": "stop: heldByWorker is coerced on the wire rather than read as a boolean",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        heldByWorker: stopped.heldByWorker === true,",
+  "to": "        heldByWorker: !!stopped.heldByWorker,"
+ },
+ {
+  "label": "stop: AUTO_STOPPABLE gains a state a stopped run can be in",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AUTO_STOPPABLE = ['queued', 'running', 'waiting'];",
+  "to": "const AUTO_STOPPABLE = ['queued', 'running', 'waiting', 'unresolved'];"
+ },
+ {
+  "label": "arrivals: the row composes a URL instead of answering the path",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          '<span class=\"ag-auto-step\">POST ' + esc(w.path || '') + ' on the agent service</span>' +",
+  "to": "          '<span class=\"ag-auto-step\">POST https://agent.example.test' + esc(w.path || '') + '</span>' +"
+ },
+ {
+  "label": "arrivals: the four words collapse into two",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const WH_EVENT_WORDS = {\n  queued: 'Just arrived',\n  started: 'Started a run',\n  woke: 'Released something waiting',\n  ignored: 'Nothing was listening',\n};",
+  "to": "const WH_EVENT_WORDS = {\n  queued: 'Just arrived',\n  started: 'Started a run',\n  woke: 'Started a run',\n  ignored: 'Just arrived',\n};"
+ },
+ {
+  "label": "arrivals: the secret is kept rather than dropped when it is put away",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "function agentWhSecretDone() { agentWhSecret = null; renderAgents(); }",
+  "to": "function agentWhSecretDone() { renderAgents(); }"
+ },
+ {
+  "label": "arrivals: a secret that landed after the screen moved is drawn anyway",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!whSame(bound) || agentWh !== forAgent) { renderAgents(); return; }\n  if (failed) { agentWhActErr = failed; renderAgents(); return; }\n  agentWhNew = false; agentWhDraft = null;",
+  "to": "  if (false) { renderAgents(); return; }\n  if (failed) { agentWhActErr = failed; renderAgents(); return; }\n  agentWhNew = false; agentWhDraft = null;"
+ },
+ {
+  "label": "arrivals: the open/close button hardcodes its flag",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          ' data-on=\"' + (on ? '0' : '1') + '\"' + (agentWhBusy ? ' disabled' : '') + '>' +",
+  "to": "          ' data-on=\"1\"' + (agentWhBusy ? ' disabled' : '') + '>' +"
+ },
+ {
+  "label": "arrivals: deleting an address asks for no confirmation",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!window.confirm('Delete ' + ((row && row.name) || 'this address')",
+  "to": "  if (false && !window.confirm('Delete ' + ((row && row.name) || 'this address')"
+ },
+ {
+  "label": "arrivals: whose addresses these are is read after the screen is cleared",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const owner = agentWh;\n  if (!target || !owner) return;\n  agentWhSecret = null; agentWhActErr = '';\n  agentAutomations(owner);",
+  "to": "  if (!target) return;\n  agentWhSecret = null; agentWhActErr = ''; agentWh = null;\n  agentAutomations(agentWh);"
+ },
+ {
+  "label": "eventRow: a blank handled_at is read as a dispatch that happened",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "  const handled = typeof r?.handled_at === \"string\" && r.handled_at !== \"\" ? r.handled_at : null;",
+  "to": "  const handled = typeof r?.handled_at === \"string\" ? r.handled_at : null;"
+ },
+ {
+  "label": "eventRow: the counts ride on every state",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    ...(state === \"started\" ? { started: filed } : {}),\n    ...(state === \"woke\" ? { woke } : {}),",
+  "to": "    started: filed,\n    woke,"
+ },
+ {
+  "label": "eventRow: a run pair missing its automation is carried rather than dropped",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        && typeof x.automation === \"string\" && x.automation)\n      .map((x) => ({ id: x.id, automation: x.automation })),",
+  "to": "        )\n      .map((x) => ({ id: x.id, automation: x.automation })),"
+ },
+ {
+  "label": "endpoints: set_event_endpoint stops needing a person",
+  "files": [
+   "agent-builder/src/capability-tools.mjs"
+  ],
+  "from": "  approval: true,\n  run: async (args, can, ctx) => {\n    // ⚠ REFUSED HERE AS WELL AS IN THE CAPABILITY",
+  "to": "  approval: false,\n  run: async (args, can, ctx) => {\n    // ⚠ REFUSED HERE AS WELL AS IN THE CAPABILITY"
+ },
+ {
+  "label": "arrivals: the button's own word is hardcoded, so a closed address offers to close",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          (on ? 'Close' : 'Open') + '</button>' +",
+  "to": "          'Close</button>' +"
+ },
+ {
+  "label": "arrivals: the addresses failing takes the arrivals with them",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  await agentWhEventsLoad(forAgent, bound);",
+  "to": "  if (agentWhState === 'ready') await agentWhEventsLoad(forAgent, bound);"
+ },
+ {
+  "label": "arrivals: the run button names the run rather than the automation it is read through",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "            '<button class=\"ag-auto-btn\" data-act=\"agent-wh-run\" data-auto=\"' + esc(r.automation) + '\">' +",
+  "to": "            '<button class=\"ag-auto-btn\" data-act=\"agent-wh-run\" data-auto=\"' + esc(r.id) + '\">' +"
+ },
+ {
+  "label": "arrivals: opening the addresses leaves the automations screen open",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentAuto = null; agentAutoOpenForm(null);\n  agentConn = null; agentConnNew = false; agentConnDraft = null;\n  agentWh = String(id || '');",
+  "to": "  agentAutoOpenForm(null);\n  agentConn = null; agentConnNew = false; agentConnDraft = null;\n  agentWh = String(id || '');"
+ },
+ {
+  "label": "census: the site's catalog loses an endpoint tool the engine offers",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "    name: \"list_event_endpoints\",",
+  "to": "    name: \"list_event_endpoints_x\","
+ },
+ {
+  "label": "census: WH_EVENT_WORDS stops covering a state the server can answer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  woke: 'Released something waiting',",
+  "to": ""
+ },
+ {
+  "label": "census: AGENT_EVENT_STATES gains a state eventRow can never answer",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "export const AGENT_EVENT_STATES = Object.freeze([\"queued\", \"ignored\", \"started\", \"woke\"]);",
+  "to": "export const AGENT_EVENT_STATES = Object.freeze([\"queued\", \"ignored\", \"started\", \"woke\", \"refused\"]);"
+ },
+ {
+  "label": "route: the arrivals read drops the tenant from the request",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        body: { p_tenant: tenant, p_agent_id: agentId, p_limit: limit },\n      });\n      if (!r.ok) throw storeFail(\"list events\", r);",
+  "to": "        body: { p_agent_id: agentId, p_limit: limit },\n      });\n      if (!r.ok) throw storeFail(\"list events\", r);"
+ },
+ {
+  "label": "route: the arrivals answer drops the states the screen draws from",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        states: AGENT_EVENT_STATES, max: MAX_EVENT_LOG,",
+  "to": "        max: MAX_EVENT_LOG,"
+ },
+ {
+  "label": "route: the arrivals read leaves the ceiling to the parameter's own default",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        body: { p_tenant: tenant, p_agent_id: agentId, p_limit: limit },",
+  "to": "        body: { p_tenant: tenant, p_agent_id: agentId },"
+ },
+ {
+  "label": "route: the arrivals read takes its account off the query rather than the session",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "        events: await store.listEvents(who, agentId),",
+  "to": "        events: await store.listEvents(cleanId(q.get(\"tenant\")) || who, agentId),"
+ },
+ {
+  "label": "route: the log is read straight out of the table rather than through the function",
+  "files": [
+   "agent-store.mjs"
+  ],
+  "from": "      const r = await req(\"POST\", \"rpc/list_events\", {",
+  "to": "      const r = await req(\"GET\", `agent_events?tenant_id=eq.${enc(tenant)}`, {"
+ }
+]

@@ -501,11 +501,19 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
    *
    * ⚠ **NO MUTANT GUARDS THIS LIST, and that is declared rather than left to be discovered.**
    * A mutation of it is a mutation of a TEST FILE, and nothing outside `scripts/mutants/`
-   * reads this file — so every shape of it is INERT BY CONSTRUCTION: emptying the loop, or
-   * exempting these routes by a regex instead of by the list, changes no other test's result.
+   * reads this file — so no shape of it changes any OTHER test's result: emptying the loop, or
+   * exempting these routes by a regex instead of by the list, is invisible from outside.
    * The recorded answer is to give a property an observable half and mutate THAT, and there
    * is none here: the property is about which names a guard exempts. What stands in its place
    * is the two assertions below being present and this paragraph saying so.
+   *
+   * ⚠ **ONE SHAPE IS CAUGHT, THOUGH — inside this file, and it is the one that matters.** A
+   * route left on the list AFTER its screen arrives fails the census below on its own, because
+   * a name here must not already be called: driven, putting `/api/agent/run-cancel` back turns
+   * this file red. So the list SHRINKING is enforced, and what is unguarded is only the
+   * opposite direction — a route dropped from the list while it still has no screen, which is
+   * a claim about design intent rather than about code. This paragraph said "every shape is
+   * inert by construction" until that breakage was driven; it was overstated.
    */
   const NO_SCREEN_YET = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
                          "/api/agent/tool-restore", "/api/agent/revoked-tools"];

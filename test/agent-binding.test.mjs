@@ -5848,6 +5848,13 @@ test("⚠ A WORKER THAT WAS ON IT IS SAID, AND ONE THAT WAS NOT IS NOT — recor
   await w.ev('agentAutoStop("EXS")'); await settle();
   assert.equal(/may finish before it notices/.test(w.ev("agentAutoActErr")), false,
     "an absent heldByWorker was read as a live claim");
+  // ⚠ **AND A TRUTHY NON-BOOLEAN IS THE ONE SHAPE THAT SEPARATES `=== true` FROM `!!`** —
+  // a sweep survivor is why it is here. `true`, `false` and absent all agree between the two
+  // readings, so with only those three the coercion is invisible; a string is what the wire
+  // really can carry from a deployment whose `cancel_run` predates this field, and read as a
+  // live claim it tells somebody a step may still be finishing when nothing is on the run.
+  assert.equal(/may finish before it notices/.test(await withHeld("no")), false,
+    "a heldByWorker this could not read was coerced into a live claim");
 });
 
 test("⚠ A STOP SOMEBODY DID NOT CONFIRM SENDS NOTHING, and one on a finished run is refused", async () => {
@@ -6060,6 +6067,19 @@ test("⚠ CLOSING AN ADDRESS SENDS THE FLAG THE BUTTON SAID, and deleting asks f
   // the press would toggle the opposite way from what it said.
   const posts = [];
   const w = await openWh({ onPost: (b) => posts.push(b) });
+  // ⚠ **AND THE ATTRIBUTE IS ASSERTED, not only the call** — a sweep survivor is why. Every
+  // case below drives `agentWhEnable` directly, so a button hardcoding its flag would send the
+  // right thing from a test and the WRONG thing from a press: an open address offering "Open"
+  // and re-opening what is already open, a closed one never openable at all. `1` means the
+  // press asks for it to be opened, so an OPEN row carries `0` and a closed row carries `1`.
+  const attr = (html, id) => (html.match(new RegExp('data-act="agent-wh-enable" data-id="' + id + '" data-on="(\\d)"')) || [])[1];
+  const openRow = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(attr(openRow, "WH1"), "0", "an address that is open offered to open it again");
+  assert.match(openRow, /agent-wh-enable[^>]*>Close</, "an open address did not offer to close");
+  const shut = await openWh({ webhooks: [{ ...EP, enabled: false }] });
+  const shutRow = shut.s.document.getElementById("viewAgents").innerHTML;
+  assert.equal(attr(shutRow, "WH1"), "1", "an address that is closed did not offer to open it");
+  assert.match(shutRow, /agent-wh-enable[^>]*>Open</, "a closed address did not offer to open");
   await w.ev('agentWhEnable("WH1", false)'); await settle();
   assert.deepEqual(posts.at(-1), { agent: "A", id: "WH1", enabled: false });
   await w.ev('agentWhEnable("WH1", true)'); await settle();
@@ -6089,6 +6109,13 @@ test("⚠ A FAILED LOG READ DOES NOT HIDE THE ADDRESSES, AND EACH READ FAILS ON 
   const h2 = v.s.document.getElementById("viewAgents").innerHTML;
   assert.match(h2, /Couldn’t load the arrival addresses/);
   assert.match(h2, /Try again/);
+  // ⚠ **AND THE ARRIVAL IS ON SCREEN, which is the half that says the second read really
+  // happened** — a sweep survivor is why. Without it, a loader that gave up on the arrivals
+  // the moment the addresses failed would satisfy every line above: the list's own error is
+  // drawn either way, and the history somebody came to read would simply be absent.
+  assert.match(h2, /Nothing was listening/, "the addresses failing took the arrivals with them");
+  assert.equal(v.calls.filter((c) => c.path.startsWith("/api/agent/events")).length, 1,
+    "the log was never asked for once the addresses failed");
 });
 
 test("⚠ OPENING A RUN FROM AN ARRIVAL LEAVES THE ADDRESSES AND SHOWS THAT AUTOMATION'S HISTORY", async () => {
