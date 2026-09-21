@@ -14080,3 +14080,7 @@ all thirty-seven were caught, first time.
 
 **Nothing is applied, deployed or merged**, no paid call was made, and no real account or
 provider was touched.
+
+**The container harness read it too** — `site build` 1240 on the fixes' own tree, all twenty
+steps green, the big one **382 passed / 0 failed**. So all three of the checks that run
+automatically have now seen this work.

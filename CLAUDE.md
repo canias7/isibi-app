@@ -11309,3 +11309,18 @@ reported the mark as missing when it was drawn, exactly once, on the right row.
 **AND WHAT THE BROWSER DOES NOT BUY IS SAID IN THE SCRIPT**: fifty-one real runs is not something
 a journey can purchase, so the `MAX_EXECUTIONS` boundary is proved where it lives — the store's
 own `limit=` and `order=` on the wire, and the route driven with a full page.
+
+**AND `site build` 1240 IS GREEN ON `3b1e2a7`, all twenty steps, `site-build.mjs` `382 passed /
+0 failed`** (09:20:02→09:42:19Z; the harness step 09:22:00→09:38:04Z, 16m04s), beside TAP
+`# pass 390`, kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29, site-routing
+14, site-runtime 47, and `all passed` on kit-render, kit-a11y, kit-effects and kit-paint. **It
+was DUE rather than incidental**: this push carries root `agent-store.mjs`, which that
+workflow's `paths` names as `*.mjs`. **Every figure is bounded to its own step's region** — from
+that step's `##[endgroup]` to the next `##[group]Run `, because the pair itself wraps only the
+command echo — **and the parse asserts that no figure falls outside any region: 12 attributed,
+0 loose**, without which a bound that silently dropped a step would read as a step with nothing
+to report. No line anywhere reports a nonzero failure. **The later push `d3f3a68` fired no
+`site build` and none was due**, checked per PATH: its whole diff is two documents,
+`agent-builder/scripts/verify-browser.mjs` and one mutant spec, and `*.mjs` in that filter is a
+ROOT glob, so a nested script is outside it — **which is where a `fnmatch` matcher would answer
+DUE and be wrong**, the recorded trap. So 1240's green covers the tip by the ancestor rule.
