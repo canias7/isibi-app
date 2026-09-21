@@ -14084,3 +14084,88 @@ provider was touched.
 **The container harness read it too** — `site build` 1240 on the fixes' own tree, all twenty
 steps green, the big one **382 passed / 0 failed**. So all three of the checks that run
 automatically have now seen this work.
+
+## You can now answer, take back, and take away — from the screens (2026-09-21)
+
+Three things a customer could not do until this week, all of them on screens they already use.
+
+**When an agent asks permission to do something**, the banner above the message box now says
+which agent and which run is asking, and offers three answers rather than two: allow it, turn it
+down, or **take the request back**. And it says what each one means — taking the request back
+cancels that one call and the agent carries on with something else; it is not the same as
+stopping the run, which ends the whole job; and it does not change what the agent is allowed
+next time. A second tab pressing Approve on a request somebody already took back is told it was
+taken back, in those words, rather than being told it was "revoked" or — worse — that the
+approval landed.
+
+**And you can take one tool away from one agent**, in a small section of its settings, with the
+scope stated in the panel rather than left to be guessed: it is *this agent and one tool*, it
+stops the tool mid-job, and anything already waiting to be approved for it is taken back.
+**It also says what it does not reach**: anything the agent has already done with that tool has
+already happened, this does not undo it, and a call that was already on its way is not called
+back. Giving the tool back says its own half out loud too — the requests it withdrew stay
+withdrawn, and the agent has to ask again.
+
+**Nothing an agent can do reaches any of those controls.** It can be told a tool is unavailable
+and say so; it cannot grant itself a permission, restore its own access, or answer its own
+request — there is no tool for any of the three, and the screen sends only the request's id and
+which of the three answers you chose. Who decided comes from your signed-in session.
+
+### Almost nothing was built on the server
+
+Every capability this needed already existed and was already tested — taking a request back,
+taking a tool away, giving it back, reading what is taken away. So this week is one screen file,
+one line of stylesheet, and the tests: **no new route, no database change, nothing to deploy in
+a particular order.**
+
+It also emptied a list I have been keeping since August — the routes that worked and had no
+screen yet. It is empty now.
+
+### Two real defects, and both were found by pressing the thing
+
+**A refusal the screen wiped a moment after showing it.** When a press was refused, the sentence
+explaining why was put in the same place as "we could not load the list" — and every press
+re-reads the list, and a successful read clears that place. So a person pressed Approve, it was
+refused, and the screen said nothing at all. The two are separate now, and both can be on screen
+at once, because they are two different problems.
+
+**A press that took away the wrong permission.** The tool picker forgot which tool you had
+chosen whenever the screen redrew itself, and fell back to the first in the list — so choosing
+one tool, typing a reason and pressing the button took away a *different* tool. I only found it
+because the browser run printed which permission it had really withdrawn, and it was not the one
+it had chosen. That is the second month running that a real browser has caught something no
+amount of route testing could: a test that builds a request itself gets whatever it put in it.
+
+### What I checked
+
+**The whole site suite is 6,958 and nothing fails** — measured at both ends, before and after,
+so the twenty-four new tests account for the whole difference exactly.
+
+**The real-browser run is 193 checks and nothing fails**, and the new eighth journey is 27 of
+them: it takes a request back and then presses Approve in a stale second tab; takes a tool away
+while a request is waiting, and proves approving the old request cannot get round it; reloads;
+tries all of it from another account and is refused every time; gives the tool back and shows
+that the old work does not silently resume; then makes a fresh, allowed request and watches it
+really run.
+
+**I also broke each fix on purpose, forty different ways.** Six of those breakages were NOT
+caught first time, and none of the six was a fault in the fixed code: two were badly written
+breakages of mine that changed nothing at all, and four were tests that were not really asking
+what they claimed — the most embarrassing being one that checked "the restore button does not
+claim to be taking a tool away" on a screen where, in that particular setup, there was no take
+button at all. All six are closed, each proved to fail against the thing it is meant to catch.
+
+**And then I re-ran all forty from the start rather than just re-checking the six** — a re-check
+of the six bolted onto the earlier numbers would be two readings of two different versions of the
+code wearing one figure. **Forty out of forty caught, nothing missed.**
+
+### Two numbers I wrote down before measuring them
+
+Twice this week I put a test count in a commit message before running the tests. One of them was
+wrong — a message says 6,962 where the tree really reads 6,953 — and a commit message cannot be
+corrected once it is pushed, so the right figure is written in the notes instead. The other
+happened to be right, which is luck rather than diligence. The rule is written in my own notes:
+measure, then stamp.
+
+**Nothing is applied, deployed or merged**, no paid call was made, and no real account or
+provider was touched.

@@ -11324,3 +11324,240 @@ to report. No line anywhere reports a nonzero failure. **The later push `d3f3a68
 `agent-builder/scripts/verify-browser.mjs` and one mutant spec, and `*.mjs` in that filter is a
 ROOT glob, so a nested script is outside it — **which is where a `fnmatch` matcher would answer
 DUE and be wrong**, the recorded trap. So 1240's green covers the tip by the ancestor rule.
+
+---
+
+## M17: a customer can answer a request, take it back, and take a tool away (2026-09-21)
+
+Owner: *"give customers control over pending approvals and revoked tool access… Reuse the
+existing tool-withdraw, tool-revoke, tool-restore and revoked-tools capabilities wherever they
+already implement the required behavior… The model may explain that access is unavailable and
+direct the customer to the appropriate control. It must not grant itself permissions, restore
+its own access, or approve its own requests."*
+
+**THE INSPECTION IS WHAT MADE THIS ROUND SMALL, and it went first.** Every capability the item
+names already existed and is already driven: `tool-approve`, `tool-withdraw`, `tool-revoke`,
+`tool-restore`, `revoked-tools`, plus `run-cancel` from M16. So **nothing was built on the
+backend** — `git diff --stat` over the span is `public/chat.js`, one line of `public/styles.css`,
+the browser demonstration, three guards and a mutation spec. **No route, no migration, no engine
+change**, which is the first round in a long while with nothing to deploy in order.
+
+**AND `NO_SCREEN_YET` IS EMPTY NOW**, which is the list doing exactly what it was built for:
+*it SHRINKS as the screen arrives rather than being forgotten*, and the assertion that a
+deferred name must not already be CALLED is what turned each removal into a red run until it
+came off. ⚠ **AN EMPTY LIST MAKES ITS OWN LOOP VACUOUS**, so the claim is turned round and made
+POSITIVELY: `GAINED_A_SCREEN` names the four this round removed and each must really be called.
+`for (const p of [])` is the recorded dead observer, and with the list empty every rule about it
+is satisfied by nothing — the live half is a census that fails if a control is DELETED, where
+the loop above it could only fail if a name were put back.
+
+### The three acts are ONE object, because the route and the body are one decision
+
+`AGENT_AP_ACTS` — `approved` and `rejected` to `/api/agent/tool-approve` with a verdict,
+`withdrawn` to `/api/agent/tool-withdraw` with the id alone.
+
+- **⚠ A WITHDRAWAL IS NOT A THIRD VERDICT, AND THE DATABASE IS WHY.**
+  `agent.decide_tool_approval` refuses `revoked` as a verdict on purpose, so a withdrawal
+  carrying one is refused outright — and a withdrawal sent to the APPROVE door with `rejected`
+  on it would be recorded as a person having declined the call, **which nobody did.** Choosing
+  the door and the body together is what makes that unsayable rather than merely wrong.
+- **`Object.hasOwn`, NEVER TRUTHINESS**, because `AGENT_AP_ACTS["constructor"]` is truthy and
+  an act nobody declared must not pick a door off the prototype.
+- **ONE PRESS AT A TIME PER REQUEST** (`agentApprovalBusy`): every button on that row goes dead
+  while one is in flight, so a double click cannot send a second press and an Approve cannot
+  chase a Withdraw. What it does NOT rest on is that: the database's verdict is write-once and
+  the loser of a race is told whose answer stands.
+- **THE SCREEN SENDS THE ID AND THE ACT AND NOTHING ELSE.** Who decided is taken by the server
+  from the verified session; there is no field for it here, and **no tool anywhere reaches
+  either door** — an agent cannot answer its own request because it has no way to be a session.
+
+**AND THE CENSUS THAT SAYS SO IS THE CROSS-PRODUCT ONE.** `test/agent-send.test.mjs` is the
+one file that may load both products, so it is where *authority stays with the customer* is
+asserted: no tool in the catalog grants a permission, lifts one, or answers its own request —
+asked over the ENGINE's own registry and this side's `AGENT_TOOLS` rather than over a list
+somebody typed, so a tool added next month is covered by existing. Beside it, the reason box's
+cap is asserted in **all three languages** — the screen's `AGENT_REV_WHY_MAX`, the route's
+`TOOL_NOTE_MAX` and the column's own CHECK, read out of the migration — because a cap in three
+places is three copies of one number.
+
+**`agentVerdictWord` — THE DATABASE'S THREE WORDS ARE NOT ENGLISH ABOUT A DECISION.** *"it was
+revoked"* reads as something done to the person who just pressed, where what happened is that
+the request was taken back before anybody answered it; it says **taken back**. An unknown word
+is PASSED THROUGH rather than dropped, because a deployment answering a fourth verdict must not
+read as nothing having happened.
+
+**THE ROW SAYS WHICH AGENT AND WHICH RUN ASKED** (`agentRunTag`), and a run id it cannot read
+SAYS SO rather than drawing an empty gap. **And `AGENT_AP_SCOPE` names the three acts apart in
+the row itself** — taking this request back, turning the automation off, pausing the agent — so
+the difference from stopping the run is readable before anybody commits to a dialog.
+
+### Taking a tool away is a section on the settings form, and the scope is the backend's
+
+`AGENT_REV_SCOPE` is read off `agent.tool_revocations` and `agent.revoke_agent_tool` rather
+than from an idea of what a restriction ought to be: the primary key is `(tenant, agent, tool)`,
+so it is **this agent and ONE tool**; it is enforced before the next action of a run already
+going, because the runner re-reads it on every delivery; and it withdraws whatever was waiting
+for that tool.
+
+- **⚠ WHAT IT DOES NOT REACH IS SAID IN THE SAME BREATH, POSITIVELY.** A sentence listing only
+  what a restriction STOPS reads as though it stopped everything, and the one thing this
+  platform may never imply is that work already done was undone — the engine re-reads the
+  revocation before the NEXT call, so a call already dispatched is not recalled and a completed
+  one stays completed. **Nothing asserted that clause until a sweep mutant cut it and
+  survived** (below).
+- **THERE IS NO CONNECTION-SCOPED RESTRICTION ANYWHERE IN THE BACKEND**, so the sentence must
+  not imply one: stopping an agent reaching one account is disconnecting that account, which is
+  its own screen, and saying otherwise would send somebody to a control that does not exist.
+- **IT IS NOT THE TICK ABOVE IT.** The tick decides what the NEXT run is accepted with — a run
+  that loses a tool half way through is a run whose plan no longer works — and a revocation
+  says *stop doing this now*. Two acts, two readers, and the form says which is which.
+- **`agentRevoked` IS `null` UNTIL READ AND A FAILED READ STAYS `null`.** *Cannot-tell must
+  never read as a value*, in the one place the value is a permission: `[]` would draw a form
+  saying every ticked tool is usable while the server refuses each call.
+- **A REVOKED TOOL'S TICK IS MARKED RATHER THAN QUIETLY UNTICKED**, because the tick and the
+  revocation are separate rows in separate tables — correctly — and a form drawing only the
+  tick disagrees with the database in the direction that reads as permission.
+- **ONE PRESS IN FLIGHT AT A TIME, AND EACH BUTTON SAYS ONLY WHAT ITS OWN PRESS IS DOING.**
+  `agentRevokeBusy` holds the TOOL, so which press is in flight is DERIVED: a restore's tool is
+  one of `revoked` and a take's is not. A restore in flight leaves the take button disabled
+  without claiming to be taking anything away.
+- **THE REASON IS WHAT THE AGENT IS TOLD**, so a blank one is not sent at all —
+  `coalesce(p_note, …)` keeps an empty string, and the agent would be handed a blank where the
+  reason should be. The cap is `AGENT_REV_WHY_MAX` **2000**, the column's own.
+- **A FAILED PRESS KEEPS THE WORDS.** A reason that reached nobody is still what somebody
+  wrote, and making them type it again is the cost of our own failure.
+
+### ⚠ TWO PRODUCT DEFECTS, both found by pressing it rather than by reading it
+
+**1. THE APPROVALS BANNER WIPED ITS OWN PRESS REFUSAL.** `agentApprovalsErr` held two different
+facts — a READ that failed and a PRESS that was refused — and every press ends by re-reading the
+list, and the read clears its own error. So the sentence a person needed was wiped by the very
+re-read the press triggered. **MEASURED: a press refused, the thread re-read, and the screen said
+nothing at all.** `agentApprovalActErr` is its own holder, drawn beside the read's with the
+press's first, and cleared when the CONVERSATION changes rather than when the list is re-read.
+**The pair one section over already had this split** (`agentRevokeActErr` against
+`agentRevokedErr`), which is what made the missing one visible at all.
+
+**2. ⚠ THE TOOL PICKER RESET ON EVERY RE-RENDER, SO A PRESS TOOK AWAY THE WRONG PERMISSION.**
+This round put the settings form on the read-first door — it was the one form on this screen that
+had never been on it — and **the PICKER inside it was still off it.** `renderAgents` rebuilds from
+`innerHTML`, and **a `<select>` drawn again with no `selected` answers its FIRST option**, which
+is HTML's own selectedness algorithm and is already recorded here for `hydrateAuto`. So choosing
+`pause_automation`, typing a reason and pressing Take away withdrew `echo`: **measured in a real
+browser, `revocations=[echo=…]` for a press that named another tool.** `agentRevokePick` is read
+back in `agentFormRead` behind the same `data-agent` wall and drawn with `selected`.
+
+- **⚠ AND THE REASON'S CLEAR IS OBSERVABLE WHERE THE PICKER'S IS NOT — measured, and the
+  asymmetry is declared in the code.** After a landed take, the option list NARROWS (the tool
+  just taken away is no longer offered), so the door self-corrects and clearing
+  `agentRevokePick` changes nothing; a text box narrows nothing, so `agentRevokeWhy` must be
+  cleared. `if (!failed && !back) agentRevokeWhy = '';`
+- **⚠ AND `revoke_agent_tool`'s "still going" CLAUSE WAS NEVER THE CAUSE**, established by
+  measurement rather than by reading: that function withdraws a pending request only while the
+  run has no `stopped` entry, and **the withdrawal is itself what requeues and therefore ENDS
+  the run**, so the state is not readable afterwards. What was sending `echo` was the picker.
+
+### ⚠ THE SWEEP LEFT SIX SURVIVORS AND NOT ONE WAS THE PRODUCT'S
+
+**Pass 1: 40 mutants, 34 killed, 6 survived, 0 never applied, 2 comment-only controls
+survived** — over the eight guard files that can SEE `public/chat.js`, taken after the run, in a
+detached worktree so the main tree held no mutant while it ran. *A narrow list can only produce
+a false SURVIVOR, never a false kill*, so the whole suite still decides and it is green.
+
+**PASS 2, AFTER ALL SIX WERE CLOSED: 40 mutants, 40 KILLED, 0 survived, 0 never applied, 2
+comment-only controls survived** — the whole spec re-run rather than the six re-checked on their
+own, because a targeted re-run bolted onto a stale tally is two readings of two different trees
+wearing one number. **The spec's 42 entries are those 40 plus the two controls**, which is why
+the two figures never have to be reconciled by arithmetic: the runner counts PRODUCT mutants and
+reports controls on their own line. Taken after the run, at `3abe78a`, in a detached worktree,
+and **that worktree is proved to hold no mutant afterwards TWO WAYS** — no tracked file differs
+from the commit, and the spec's own anchor census is green over all 42 entries, which it cannot
+be while one is applied.
+
+**TWO WERE MY OWN MUTANTS RATHER THAN GAPS.** One appended `if (false) agentFormRead();` and
+left the real call standing below it — *a mutant that changes nothing reads exactly like a test
+gap*, and this is the second time that exact shape has been written here. Re-anchored onto the
+real call: four cases go red. The other is **INERT, MEASURED RATHER THAN REASONED**: in the
+state `agentFormRead`'s first refusal is written for — a cancel, with the old markup still in
+the document — the refusal BELOW it already returns, because the box carries the agent it was
+drawn for and that is not `null`. Declared as a PAIR where the next reader meets it, and the
+spec mutates the two together through `also`; the pair is red, and the case under it asserts the
+property both of them hold up.
+
+**FOUR WERE GENUINE GAPS, and three of the four are recorded traps:**
+
+- **A REASON TYPED AND THEN RESTORE PRESSED.** The case asserted the restore's body key set with
+  the box EMPTY, where "no note is sent" is true however the body is built — *a fixture too
+  shallow to separate the two readings*. It types one first, and its observer is the take case
+  above it, where the same typed reason really does arrive as `note`. `/api/agent/tool-restore`
+  RETURNS before it reads one, so a note sent there is somebody's words going nowhere at all.
+- **A RESTORE IN FLIGHT MUST NOT MAKE THE TAKE BUTTON SAY "Taking away…"** — and ⚠ **the first
+  draft of that case was VACUOUS**: the take form is drawn only while something is left to take
+  away, so with the one-tool catalog every other case uses there was **no take button on screen
+  to be wrong about**. Two tools, the picker asserted present before the negative, and the
+  control is a TAKE in flight really saying so.
+- **A SECOND PRESS CLEARS THE FIRST PRESS'S REFUSAL.** The two holders are separate on purpose,
+  so a press that cleared the READ's would leave one row saying the same act failed and worked.
+  Nothing had ever pressed twice.
+- **THE SCOPE'S "already happened / not called back" CLAUSE**, which nothing asserted — the one
+  claim this screen must never soften.
+
+### Measured
+
+- **Site suite 6,934 → 6,958** (6,956 pass, 2 skipped, 0 fail), **both ends measured** — the
+  baseline in a detached worktree at `8d1d6c8` rather than read off a note — and **the +24
+  closes exactly per file**: `agent-binding` 178 → **200**, `agent-send` 76 → **78**,
+  `agent-builder-view` **14** unchanged in count (its `NO_SCREEN_YET` list emptied instead).
+  **A worktree run reads one extra FAILURE** — `render-sandbox`'s privilege-drop case, which is
+  about writing outside the repository root — so the TOTAL is what carries across and the pass
+  count does not.
+- **`verify:browser` 166 → 193 checks, 0 failed, exit 0** — journey 1: 16 · 2: 43 · 3: 27 ·
+  4: 29 · 5: 19 · 6: 11 · 7: 21 · **8: 27**, counted by parsing the run's own banners. The
+  27 is exactly journey 8 and 166 is the recorded total before it, so the arithmetic closes.
+- **⚠ A CORRECTION TO A PUSHED COMMIT MESSAGE, which cannot be corrected where it was
+  written.** `9e813c4`'s message stamped **6,948 → 6,962**; measured in a clean worktree at that
+  commit, the tree is **6,953**, and the baseline it was moving from is **6,934**. Both halves
+  were predicted rather than measured — *stamp measured numbers only AFTER the run* — and the
+  figure to carry is this one.
+- **⚠ AND THE CLOSURES' OWN COMMIT MESSAGE STAMPED 6,955 → 6,958 BEFORE THE RUN TOO.** It was
+  derived from a measured per-file delta rather than guessed, and the run then answered exactly
+  6,958 — so it is right, and it was still written in the wrong order.
+- **⚠ AND THE SUITE WAS RE-RUN OVER THE DOC EDITS RATHER THAN ASSUMED, which is not
+  belt-and-braces here: ELEVEN guards in `test/` read `CLAUDE.md` and two read
+  `docs/owner-notes.md`** — the skip-CI marker's own half lives in one of them — **so a sentence
+  can turn a guard red with no code having moved.** Measured after the prose landed: **6,958 /
+  6,956 pass / 0 fail / 2 skipped**, identical to the reading at `3abe78a`, and the **engine
+  suite 603/603, 0 failed**, which is the control for the engine notes' own edit.
+  **AND THE PARAGRAPH YOU ARE READING WAS CHECKED BY THE THIRTEEN THEMSELVES rather than by a
+  third whole-suite run, because otherwise the rule is an infinite regress**: every edit would
+  need a run and every run would be invalidated by the note recording it. `node --test` over
+  exactly those thirteen files reads **303 / 303, 0 failed** in 34 s, which is the instrument for
+  this class — the whole suite adds only files that cannot see a document.
+
+### Journey 8, and what it proves that a route test cannot
+
+`verify:browser 8` presses **five of the milestone's six bullets** in the order a person meets
+them, against a real PostgreSQL, the site's real routes, `worker.queue` and `worker.scheduled`:
+a pending action withdrawn and a stale second tab's Approve refused *naming the withdrawal
+rather than an approval*; a tool taken away while a request waits, and approving the old request
+unable to bypass it; a reload preserving what the database recorded; the account next door
+refused on every door (404 three times, *not found and never forbidden*); and a restore saying
+what it does NOT do, with the old work not resuming — closed by a FRESH authorized request that
+really runs the call, which is the control on every refusal above it.
+
+**⚠ THE SIXTH IS JOURNEY 7's AND IS SAID RATHER THAN CLAIMED HERE.** *"Stopping a run still
+withdraws its pending approvals without undoing completed actions"* is where a run is STOPPED,
+which is journey 7 — `7m2` reads the request back as withdrawn BY the cancellation rather than
+approved, beside `7h`/`7i`, which assert it says how far it got and never claims a rollback.
+Those came with M16 and are re-run green here at their own count; putting a second copy in
+journey 8 would be two demonstrations of one fact, and claiming journey 8 covered it would be
+this entry saying something the run does not.
+
+**⚠ AND ITS DIAGNOSTICS ARE WHAT FOUND THE PICKER.** The journey printed the revocation rows it
+had really made, and they named `echo` for a press that had chosen `pause_automation` — which is
+the whole argument for a browser demonstration over a route test, met for the second milestone
+running.
+
+**NOT MERGED AND NOT DEPLOYED**, no migration applied, no paid call made, and no real account or
+provider touched: the browser never leaves loopback, the model is the scripted one and the
+provider is `fakemail`.

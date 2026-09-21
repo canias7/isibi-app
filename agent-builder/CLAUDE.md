@@ -8999,3 +8999,39 @@ the site's screen and the local PostgREST stand-in could break any of them, and 
 moved" is a claim only a re-run can make. **Site suite 6,920** (6,918 pass, 2 skipped, 0 fail) and
 **engine suite 603**, both measured after the change rather than carried.
 
+
+### ⚠ Journey 8, and the browser found a defect the whole site suite could not (2026-09-21)
+
+**Nothing under `src/` or `supabase/` moved**, so this is the engine's half of a site-builder
+round rather than a change to this product — and what belongs here is the count and the one
+lesson. The round itself (a customer answering, withdrawing and revoking through the screens,
+and the two defects that found) is the last section of the root `CLAUDE.md`.
+
+- **`verify:browser` 166 → 193 checks, 0 failed, exit 0** — journey 1: 16 · 2: 43 · 3: 27 ·
+  4: 29 · 5: 19 · 6: 11 · 7: 21 · **8: 27**, counted by parsing the run's own banners rather
+  than from a recollection of the journeys, which is how an earlier stamp of these came to be
+  wrong on three of six. The 27 is exactly journey 8 and 166 is the recorded total before it,
+  so the arithmetic closes.
+- **JOURNEY 8 PRESSES FIVE OF THE MILESTONE'S SIX BULLETS IN THE ORDER A PERSON MEETS THEM**: a
+  pending action withdrawn and a stale second tab's Approve refused *naming the withdrawal rather
+  than an approval*; a tool taken away while a request waits, and approving the old request unable
+  to bypass it; a reload preserving what the database recorded; the account next door refused on
+  every door; and a restore saying what it does NOT do — closed by a fresh authorized request
+  going through and really running, which is the CONTROL on every refusal above it rather than a
+  sixth bullet. **⚠ THE SIXTH IS JOURNEY 7's AND IS SAID RATHER THAN CLAIMED HERE**: *"stopping a
+  run still withdraws its pending approvals without undoing completed actions"* is where a run is
+  STOPPED, and `7m2`/`7h`/`7i` are what read that back.
+- **⚠ AND ITS DIAGNOSTICS ARE WHAT FOUND THE DEFECT.** The journey printed the revocation rows
+  it had really made, and they named the wrong tool for a press that had chosen another one: a
+  `<select>` redrawn with no `selected` answers its FIRST option, so a re-render between the
+  choice and the press took away a permission nobody asked to lose. **A route test cannot see
+  that at all** — the request it builds carries whatever the caller put in it — which is the
+  argument for these journeys, met for the second milestone running.
+- **Engine suite 603, unchanged — the control**, and `npm run test:pg` is untouched and
+  deliberately not re-run as evidence: `test/integration/` and `supabase/` are both unmodified,
+  so its number is HEAD's.
+  **⚠ AND THIS LINE FIRST READ 602, which is a paragraph four sections up and was already
+  superseded there by M16's own `602 → 603`.** Measured at this head rather than read off a
+  note — *a number stamped in two places drifts when only one is corrected*, and the way it
+  drifted is worth naming because it is not the usual way: nothing was edited, I read this file
+  for a current figure and took the first one my eye landed on.
