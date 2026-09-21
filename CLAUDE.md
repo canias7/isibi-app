@@ -11132,3 +11132,32 @@ the list rather than copying it. The engine's own notes have that half; what bel
 **a change to `public/chat.js` puts every browser guard AND every demonstration in scope whatever
 their filenames say**, which is this repository's own *re-run the thing the change is asserted
 by*, and it is the instrument that caught this one.
+
+### Where each of M16's own cancellation cases is proved, and the one split stated
+
+*"Verify cancellation during a wait, while awaiting approval, and during execution"* is three
+moments, and they are not proved by one instrument. Written out because the honest reading of
+this is a table rather than a claim:
+
+| the moment | what the run was doing | where |
+|---|---|---|
+| during a WAIT | held on an `approval` STEP the workflow's author configured | **browser** — journey 4, on a real PostgreSQL |
+| awaiting APPROVAL of an action | held on a `send`'s tool approval, with one send already gone | **browser** — journey 7 |
+| during EXECUTION | `queued` and not yet swept | **the agent's own tool**, `verify:tools` §7e, on a real PostgreSQL |
+
+- **⚠ THE THIRD IS NOT A BROWSER CHECK AND THAT IS SAID RATHER THAN GLOSSED.** A queued run is
+  queued for as long as nothing offers it, and what offers it is the dispatcher — so pressing Stop
+  on one from a browser is a race with the drain rather than a scenario, and `verify:tools`' own
+  recorded measurement is that a started-and-swept execution has FINISHED by the next line and
+  answers `alreadyStopped`. The tool path withholds the sweep deliberately, which is the only way
+  to hold that state on purpose.
+- **WHAT IS BROWSER-PROVED FOR ALL THREE IS THE BUTTON'S OWN RULE**: `AUTO_STOPPABLE` is
+  `queued · running · waiting`, and `test/agent-binding.test.mjs` drives Stop being DRAWN for each
+  of the three and for no other state, with the row on screen throughout as the observer. So *may
+  it be pressed* is proved for all three and *what pressing it does* is proved on two of them in a
+  browser and on the third through the tool.
+- **AND THE LATE APPROVAL IS ITS OWN CASE, not a corollary of the stop.** A second tab holding an
+  Approve button that is still in the DOM presses it after the run was cancelled elsewhere —
+  journey 7, and the control is that the button really was drawn there while the run was waiting.
+  It answers **200**, because the first answer stands and nothing went wrong; the refusal is
+  asserted on the SENTENCE and on the mailbox rather than on a status code.
