@@ -155,6 +155,81 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The cheap rung had no protection at all, and a refusal spoke for the whole site
+
+Two more, both yours, both reproduced before anything moved.
+
+**1. The protection was on the wrong rung.** You asked for *"make the heading
+bigger and keep both photographs"*; the cheap step answered with the bigger
+heading and one picture emptied, published it, and told you about the loss
+afterwards. That is the behaviour the last two rounds closed — still live,
+because I had put the guard on the step that runs SECOND.
+
+There are two steps here. A cheap one tries first and answers most messages; an
+expensive rewrite picks up what it cannot do. Every guard I wrote went on the
+rewrite. **And every test I wrote forced the cheap step to decline**, so all of
+them exercised the fallback and not one exercised the path your message
+actually takes. Your instruction said exactly that — *"test this with
+write_tweak succeeding; forcing it to decline misses the defect"* — and it
+names a fault in my test file rather than in the product.
+
+Both steps are on one contract now, asked before anything is published: put the
+picture back where it can be put back, and refuse the change where it cannot
+(nothing published, nothing charged, and it does NOT fall through to the
+expensive rewrite — that would charge you for a whole-page regeneration because
+our cheap step mangled a photograph).
+
+**One thing I measured rather than assumed**, because it decided what the tests
+could even show: a picture's description counts as words on the page. So of the
+three ways a picture can go missing, two — deleting the element, renaming its
+description — are already refused one layer earlier and never reach this step
+at all. Only *substituting a different picture* gets through, and that is what
+the refusal case drives. A test built on a deletion would have been green about
+a path it never took.
+
+**2. A refusal spoke for the whole site.** The picture step took the window
+photograph off as you asked; the page step withheld a different change it could
+not make safely; and the screen read
+
+> ✅ Took the picture off "the window". ⚠️ … so I left your site exactly as it
+> was.
+
+A picture had just come off. Both halves were true of their own step and the
+second was false about your request.
+
+The cause is that a step cannot know. It is one part of a message that may run
+several, its neighbours run after it, and the screen prints its sentence word
+for word beside whatever shipped. So the steps' sentences now stop at *"so I
+didn't make it"* — true whether the step stood alone or beside six others — and
+*"Nothing on your site changed and you haven't been charged"* is added by the
+browser only when the whole reply refused, which is the one place it is true.
+
+**Four of my own guards were pinned to the old wording** and went red. They
+were asserting the right thing in the wrong way — the words rather than the
+property — which is this codebase's most repeated own-goal, met four times in
+one correction.
+
+**What I checked and did not do.** Widening the test that catches an unwired
+sentence looked obvious, and I measured it before believing it: rooting it at
+the entry point demands 36 more functions that the harness deliberately does
+NOT cut, because it replaces them with recorders so the tests can see what the
+screen would do without doing it. A check demanding those be cut would assert
+the opposite of the design. It watches the entry point's own three calls
+instead.
+
+**Measured.** Focused files 138 green. Red checks: 14 one-line mutations, 11
+killed on the first pass, comment-only control survived, nothing failed to
+apply — and **all three survivors were real gaps in my tests, not harmless
+mutations**: no case put a photograph in a component on the cheap path, no case
+had a non-withheld refusal to prove the new clause stays off it, and no case
+asserted that a step's own half of the sentence is scoped. Three cases added;
+all three now die.
+
+Nothing merged, deployed or dispatched; no paid run. The live check remains
+your press.
+
+---
+
 ## 2026-09-21 — The photo protection, third time, and the first two were mine
 
 You sent back three more on the same fix, and the honest summary is that all

@@ -380,7 +380,13 @@ test("a wording edit that loses the photographs is WITHHELD, not published", asy
       assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("2 photographs"),
         "the refusal does not say how many on screen: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("left your site exactly as it was"),
+      // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's
+      //   own sentence no longer claims the whole site, because the identical
+      //   sentence is printed beside a rung that SHIPPED — it ends at "so I
+      //   didn't make it". The reassurance is true on a COMPLETE refusal and
+      //   the browser adds it there, so what this asserts is that the customer
+      //   is told, never which half of the reply tells them.
+      assert.ok(said.text.includes("Nothing on your site changed"),
         "the customer is not told their site is untouched: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("take those photos off"),
         "the customer is not told how to authorise it: " + JSON.stringify(said.text));
@@ -509,7 +515,13 @@ test("a photograph stripped out of a COMPONENT is withheld too", async () => {
       assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("a photograph"),
         "the component's loss never reached the screen: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("left your site exactly as it was"),
+      // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). The rung's
+      //   own sentence no longer claims the whole site, because the identical
+      //   sentence is printed beside a rung that SHIPPED — it ends at "so I
+      //   didn't make it". The reassurance is true on a COMPLETE refusal and
+      //   the browser adds it there, so what this asserts is that the customer
+      //   is told, never which half of the reply tells them.
+      assert.ok(said.text.includes("Nothing on your site changed"),
         "the customer is not told their site is untouched: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }

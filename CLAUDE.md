@@ -1560,20 +1560,99 @@ many words, because the line sat at the page. Four hops, each guarded:
   so `no-backend` had sent every "add a QR code" on most of the platform to a
   rebuild.
 
-### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20)
+### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20 → 09-21)
 
-Nine defects, each reproduced through `POST /api/site/<slug>/edit` before it
+Eleven defects, each reproduced through `POST /api/site/<slug>/edit` before it
 was fixed, each now asserted on the designer's input, the compiler payload, the
 stored inventory and the browser's own sentence.
 `test/edit-page-{context,photos,protect}.test.mjs`, `test/edit-parts.test.mjs`
 and `test/edit-browser-reply.test.mjs`.
 
-**⚠ THREE OF THE NINE ARE DEFECTS IN THE FIX FOR THE FIRST PHOTOGRAPH ONE, and
+**⚠ FIVE OF THE ELEVEN ARE DEFECTS IN THE FIX FOR THE FIRST PHOTOGRAPH ONE, and
 that is the shape worth keeping**: each shipped with a green suite, a sweep and
 an entry in this file, and each was reported back by the owner off the shipped
 code. The protection's *mechanism* was right every time; what was wrong was the
-SCOPE it applied to, the COVERAGE it claimed, and the number of LISTS it looked
-at.
+SCOPE it applied to, the COVERAGE it claimed, the number of LISTS it looked at,
+**the RUNG it was attached to, and the REACH of the sentence it refused with**.
+
+**⚠ AND THE FOURTH ROUND IS THE ONE WITH A GENERAL LESSON: THE PROTECTION WAS
+BUILT ON THE RUNG THAT ANSWERS SECOND (2026-09-21, owner: *"Successful tweaks
+bypass protection"*).** `runTweak` is tried FIRST and unconditionally, and on
+`tw.ok` it published and returned — three hundred lines above every guard. So
+*"make the heading bigger and keep both photographs"* came back with the larger
+heading and one emptied `src`, shipped it, and reported the loss afterwards:
+the exact behaviour two rounds had already closed on the rewrite, still live on
+the path most messages take. **A guard on the FALLBACK is a guard on the case
+that does not usually happen.**
+- **THE CONTRACT IS NOW ONE CONTRACT**, asked before `publishStep` on both
+  rungs: restore what can be restored, refuse what cannot (409 `withheld`,
+  cost 0, `photosBlocked`), and `withheldPhotosMsg` is ONE composer so the two
+  refusals cannot drift into describing one outcome differently.
+- **THE COMPONENTS GO ON BOTH SIDES THOUGH A TWEAK CANNOT TOUCH ONE** —
+  `runTweak` takes one page's source and answers one page's source, so they are
+  equal by construction; they are passed because `keepPhotos` is SITE-WIDE and
+  a photograph the page drops that a component still shows must not be put
+  back.
+- **A TWEAK THAT IS A NO-OP ONCE THE PICTURE IS BACK FALLS THROUGH**, and that
+  is NOT the rewrite rung's *"the only thing that change would have done"*
+  refusal: there the expensive writer has had its go, here it has not, and the
+  fall-through is what that branch exists for. `twSpent` carries the call's
+  tokens into the rewrite's bill.
+- **⚠ AND `alt` TEXT IS PROSE, WHICH DECIDES WHICH BYPASSES REACH THIS RUNG AT
+  ALL — MEASURED, and it is not what the general contract predicts.** `proseOf`
+  reads a picture's description as words on the page, so of the three bypasses
+  the previous round named, **DELETE the element and RENAME its description are
+  refused by `sameProse` as `reworded`** and never get past `readTweak`;
+  **SUBSTITUTE another url is the one that arrives**, and it is what the
+  withheld case drives. A case built on a deletion would be green about a path
+  it never took, so the census is asserted rather than commented.
+- **⚠ AND THE TEST FILE'S OWN HABIT WAS THE BLIND SPOT.** Every case in
+  `edit-page-protect.test.mjs` stubbed `write_tweak` with `{cannot}`, because
+  each was written about the rewrite — so all of them drove the fallback and
+  not one drove the path a customer takes. *"Test this with `write_tweak`
+  succeeding; forcing it to decline misses the defect"* is the owner's own
+  wording and it names a property of the harness, not of the product.
+
+**⚠ AND A RUNG'S REFUSAL DOES NOT SPEAK FOR THE WHOLE REQUEST (2026-09-21,
+owner: *"Partial-success wording makes whole-site claims"*).** The picture rung
+took the window photograph off as asked, the page rung withheld a second change
+it could not make safely, and the screen read *"✅ Took the picture off "the
+window". ⚠️ … so I left your site exactly as it was."* — a picture HAD just come
+off. Both halves true of their own rung and the second **false of the request**.
+- **THE CAUSE IS THAT A RUNG CANNOT KNOW.** It is one step of a message that
+  may run several, its neighbours run after it, and `editOutcomes` prints its
+  sentence VERBATIM beside whatever shipped — correctly, because the rung is
+  the only side that knows why it stopped. What it does not know is what ran
+  beside it.
+- **SO THE SENTENCES END AT *"so I didn't make it"*** — true of the rung
+  whether it stood alone or beside six others, which is what makes one string
+  safe in both places — **and *"Nothing on your site changed and you haven't
+  been charged"* is added by `wholeRequestNote` on the browser's
+  complete-refusal branch**, the one reader that can see `ok: false` for the
+  whole reply. That is not a guess: the merge sets `ok` from `ranOk.length > 0`,
+  so a reply reaching that branch had no rung succeed and published nothing.
+- **TWO CONDITIONS, EACH WITH ITS OWN JOB**: `e.ok` is the property (it may
+  never fire on a reply that shipped, asked in the composer rather than trusted
+  from the one call site), and `error === "withheld"` is the SCOPE — those are
+  the sentences written to be completed this way, and every other refusal on
+  the route carries its own wording, so firing on them would print the
+  reassurance twice.
+- **⚠ AND FOUR GUARDS WERE PINNED TO THE OLD SPELLING**, two in each of the
+  protect and photos files: `includes("left your site exactly as it was")`.
+  They assert a PROPERTY — the customer is told nothing changed — and are
+  re-anchored to `"Nothing on your site changed"`, which is where that claim
+  now lives. *This file's single most repeated own-goal, met four times in one
+  correction.*
+- **THE CENSUS WIDENED TO THE ENTRY POINT'S OWN CALLS, AND DELIBERATELY NO
+  FURTHER.** `wholeRequestNote` is reached from `editAnswer`'s REFUSAL branch,
+  which the transitive walk from `editReply` — the SUCCESS composer — cannot
+  see. **Rooting that walk at `editAnswer` was tried and MEASURED: it demands
+  36 further functions** (`siteEdit`, `watchEditJob`, `siteAddon`, `sitesSave`,
+  the whole build-panel closure) **which the harness does not cut ON PURPOSE** —
+  they are injected as recorders and stubs, which is what makes `actions` a
+  record of what the screen would do rather than the screen doing it. A census
+  demanding those be cut would assert the opposite of the design. The property
+  is the entry point's own direct calls: three today, all cut.
 
 - **`readSiteParts`'s THREE STATES REACH THIS RUNG.** `loadSiteParts` collapses
   "no components" and "the read threw" into one `null`, and
@@ -3314,9 +3393,17 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,040, BOTH HALVES TAKEN** — locally, and CI run
+- **Unit suite: 7,048 LOCALLY and the CI half UNREAD** (2026-09-21). The eight
+  are this round's own: five tweak-rung cases, the `sameProse` bypass census,
+  and the two scoped-wording cases — **stated as the difference between two
+  measured readings**, 7,040 → 7,048, never arithmetic off a paragraph.
+  **⚠ AND THIS LOCAL RUN READ `# skipped 0` WHERE EVERY ONE BEFORE IT READ 4** —
+  a sandbox difference rather than anything this change did, and the reason
+  **THE TOTAL IS THE ONLY COMPARABLE NUMBER**: a `pass` count drifts between
+  the two machines by exactly those four, and now the skip count drifts too.
+  The reading before it had both halves at **7,040** — locally, and CI run
   **`35547698419` on `9a56cacc`** at **`# tests 7040 / # pass 7036 / # fail 0
-  / # skipped 4`**. The two readings before it also agreed both ways: **7,038**
+  / # skipped 4`**. The two readings before that also agreed both ways: **7,038**
   locally and CI run **`35546983030` on `e0540f37`** at
   **`# tests 7038 / # pass 7034 / # fail 0 / # skipped 4`**; before that
   **7,033** locally and CI run **`35545181576` on

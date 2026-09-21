@@ -9548,6 +9548,48 @@ function cannotRemoveMsg(refused) {
   return "I didn't change anything, because " + said + ". Everything else on your site is exactly as it was.";
 }
 
+/**
+ * A PHOTOGRAPH WE WOULD NOT LOSE — SAID WITHOUT CLAIMING THE WHOLE SITE.
+ *
+ * ⚠ THE WORDING IS SCOPED TO THIS RUNG, and that is the whole of the
+ * 2026-09-21 correction (owner: *"Partial-success wording makes whole-site
+ * claims"*). REPRODUCED: the picture rung takes the window photograph off as
+ * asked, the page rung withholds an unrelated change it could not make
+ * safely, and the screen read
+ *
+ *     ✅ Took the picture off “the window”. ⚠️ … so I left your site exactly
+ *     as it was.
+ *
+ * Both halves true of their own rung and the second FALSE of the request — a
+ * picture really had just come off. The site was right; the sentence was not.
+ *
+ * THE CAUSE IS THAT A RUNG CANNOT KNOW. It is one step of a message that may
+ * run several, its neighbours run after it, and `editOutcomes` prints its
+ * sentence VERBATIM beside whatever shipped. So a step composing a claim about
+ * the whole site is composing a claim it has no way to check — the same shape
+ * as every other *"answered, wrongly"* defect in this file, one layer up in
+ * the prose.
+ *
+ * SO IT SAYS WHAT IT DID: *"so I didn't make it"*. True of this rung whether
+ * it stood alone or beside six others, which is what makes one sentence safe
+ * in both places. **"Nothing changed" and "you haven't been charged" are
+ * statements about the REQUEST**, and they are added by the browser's
+ * complete-refusal branch, which is the one reader that can see `ok: false`
+ * for the whole reply and therefore the one place they are true.
+ *
+ * ONE WRITER FOR TWO RUNGS — the cheap tweak and the rewrite both refuse this
+ * way, and a second copy is how the two sentences drift into disagreeing about
+ * the same outcome.
+ */
+function withheldPhotosMsg(n) {
+  return "I couldn't make that change without taking " +
+    (n === 1 ? "a photograph" : n + " photographs") +
+    " off your site, and I couldn't put " + (n === 1 ? "it" : "them") +
+    " back safely — so I didn't make it. Say " +
+    "“take " + (n === 1 ? "that photo" : "those photos") +
+    " off” if you did want " + (n === 1 ? "it" : "them") + " gone.";
+}
+
 function compileMsg(pub, theirs) {
   // ── A LEDGER THAT SAID NO (2026-09-05) ────────────────────────────────
   //
@@ -22779,25 +22821,103 @@ async function handleRequest(request, env, ctx) {
                 send: eQuick(),
               });
               if (tw.ok) {
-                const twPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
-                const twPub = await publishStep(env, {
-                  slug: ownerSlug, pages: twPages,
-                  label: versionLabel({ revise: true, changeNote: eInstruction }),
-                });
-                // A FAILED COMPILE FALLS THROUGH rather than answering, and that
-                // is the one place this rung differs from every other lane. The
-                // rewrite below is a genuinely different attempt at the same
-                // request by a stronger model, so telling the customer "that
-                // didn't compile" here would refuse them a path that still
-                // works. Their live site is untouched either way.
-                if (twPub.ok) {
+                // ── ⚠ THE PRESERVATION CONTRACT APPLIES TO A TWEAK THAT WORKED
+                //    (2026-09-21, owner: *"Successful tweaks bypass
+                //    protection"*) ───────────────────────────────────────────
+                //
+                // REPRODUCED THROUGH THE ROUTE: *"make the heading bigger and
+                // keep both photographs"* — `write_tweak` answers with the
+                // larger heading AND one emptied `src`, `tw.ok` is true, and
+                // this branch published the missing photograph and returned.
+                // The rewrite below never ran, so the guard that was built for
+                // exactly this was three hundred lines past the only path the
+                // request ever took.
+                //
+                // THE SHAPE OF THE MISS IS THE REUSABLE PART: the protection
+                // was put on the EXPENSIVE rung, and the cheap rung in front
+                // of it is the one that answers most messages. A guard on the
+                // fallback is a guard on the case that does not usually
+                // happen — and a test that forces `write_tweak` to DECLINE
+                // sees the fallback's protection working and proves nothing
+                // about the path a customer takes.
+                //
+                // ⚠ AND IT IS ASKED BEFORE `publishStep`, not after it. The
+                // previous behaviour reported the loss below the loop, on a
+                // publication that already carried it, which is the exact
+                // thing the last two rounds closed on the rewrite path:
+                // *reporting a photograph off a page is not keeping it on*.
+                //
+                // THE COMPONENTS ARE THE SAME LIST ON BOTH SIDES, and that is
+                // a fact about this rung rather than a shortcut: `runTweak`
+                // takes ONE page's source and answers one page's source, so
+                // nothing it can return reaches a component. They are still
+                // passed, because `keepPhotos` is SITE-WIDE — a photograph
+                // this page drops that a component still shows must not be
+                // put back, and the `shows` set can only know that if it is
+                // given both lists.
+                const twParts = await editParts();
+                const twStored = twParts.ok ? twParts.parts : [];
+                const twWrote = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: tw.source } : p));
+                const twGuard = keepPhotos(
+                  { pages: eSrc, parts: twStored },
+                  { pages: twWrote, parts: twStored },
+                  ownerSlug,
+                );
+                // A LOSS THE RESTORATION COULD NOT REACH REFUSES, and it does
+                // NOT fall through to the rewrite. Owner, the round before
+                // this one: *"Do not publish the loss merely because matching
+                // failed, or trigger a full rewrite."* Falling through here
+                // would be that second clause exactly — the customer asked
+                // for a heading and would buy a whole-page regeneration
+                // because our cheap rung mangled a picture.
+                if (twGuard.lost.length) {
+                  const n = twGuard.lost.length;
                   return Response.json({
-                    ok: true, layer: "page", page: wantRoute, tweak: true,
-                    files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
-                    cost: await eCharge(tw.usage, twPub), usage: tw.usage,
-                  });
+                    ok: false, error: "withheld", cost: 0,
+                    msg: withheldPhotosMsg(n),
+                    photosBlocked: n,
+                  }, { status: 409 });
                 }
-                console.error("tweak compile failed, falling through:", ownerSlug, target.path);
+                const twPages = twGuard.pages;
+                const twKept = twPages.find((p) => p.path === target.path);
+                // ⚠ AND A TWEAK THAT IS A NO-OP ONCE THE PICTURE IS BACK FALLS
+                // THROUGH, rather than refusing. This is NOT the page rung's
+                // "the only thing that change would have done is take a
+                // photograph off" branch, and the difference is which rung is
+                // speaking: there, the expensive writer has had its go and
+                // there is nothing left to try; here, the CHEAP attempt
+                // produced nothing but a removal we undid, which is precisely
+                // what the fall-through exists for. The rewrite is a real
+                // second attempt at the same sentence, its own protection is
+                // intact, and `twSpent` carries this call's tokens into its
+                // bill so the customer is not charged twice for one ask.
+                if (twKept && twKept.source !== target.source) {
+                  // RECORDED ACROSS THE MESSAGE, exactly as the rewrite rung
+                  // records it, and read once below the loop against what
+                  // really ships — never summed per rung.
+                  for (const u of twGuard.restored) ePhotosHeld.add(u);
+                  const twPub = await publishStep(env, {
+                    slug: ownerSlug, pages: twPages,
+                    label: versionLabel({ revise: true, changeNote: eInstruction }),
+                  });
+                  // A FAILED COMPILE FALLS THROUGH rather than answering, and
+                  // that is the one place this rung differs from every other
+                  // lane. The rewrite below is a genuinely different attempt
+                  // at the same request by a stronger model, so telling the
+                  // customer "that didn't compile" here would refuse them a
+                  // path that still works. Their live site is untouched
+                  // either way.
+                  if (twPub.ok) {
+                    return Response.json({
+                      ok: true, layer: "page", page: wantRoute, tweak: true,
+                      files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
+                      cost: await eCharge(tw.usage, twPub), usage: tw.usage,
+                    });
+                  }
+                  console.error("tweak compile failed, falling through:", ownerSlug, target.path);
+                } else if (twGuard.restored.length) {
+                  console.error("tweak was a photo removal only, falling through:", ownerSlug, target.path);
+                }
               }
               // WHAT THE CHEAP ATTEMPT COST IS CARRIED FORWARD, never dropped.
               // The call really happened, so its tokens are billed with the
@@ -23221,16 +23341,24 @@ async function handleRequest(request, env, ctx) {
                 if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length)) {
                   return Response.json({
                     ok: false, error: "withheld", cost: 0,
+                    // ⚠ SCOPED TO THIS RUNG — see `withheldPhotosMsg`. Each of
+                    // these says what THIS change did not do and stops there;
+                    // "nothing changed" and "you haven't been charged" are
+                    // claims about the whole request, and the browser adds
+                    // them on the branch that can see the whole request
+                    // refused. A rung that ran beside a picture step which
+                    // really took a photograph off must not tell the customer
+                    // their site is untouched.
                     msg: pKeptParts.length
                       ? "I couldn't make that change without rewriting " + pKeptParts.slice(0, 3).join(" and ") +
                         " unseen — " + (pKeptParts.length === 1 ? "it is" : "they are") +
-                        " too long to show the builder in one go, so I left your site exactly as it was. " +
+                        " too long to show the builder in one go, so I didn't make it. " +
                         "Ask for a smaller part of it and I'll do that."
                       : pUnseenParts.length
-                        ? "I couldn't read this site's sections just now, so I left your site exactly as it was. " +
-                          "Nothing was changed and you haven't been charged — try again in a moment."
-                        : "The only thing that change would have done is take a photograph off your page, so I left " +
-                          "your site exactly as it was. Say “take the photo off” if that is what you wanted.",
+                        ? "I couldn't read this site's sections just now, so I didn't make that change — " +
+                          "changing a page without them could take one off. Try again in a moment."
+                        : "The only thing that change would have done is take a photograph off your page, " +
+                          "so I didn't make it. Say “take the photo off” if that is what you wanted.",
                     keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,
                     unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,
                     problems: pProblems.slice(0, 4),
@@ -23269,12 +23397,12 @@ async function handleRequest(request, env, ctx) {
                 const n = pGuard.lost.length;
                 return Response.json({
                   ok: false, error: "withheld", cost: 0,
-                  msg: "I couldn't make that change without taking " +
-                    (n === 1 ? "a photograph" : n + " photographs") +
-                    " off your site, and I couldn't put " + (n === 1 ? "it" : "them") +
-                    " back safely — so I left your site exactly as it was. Say " +
-                    "“take " + (n === 1 ? "that photo" : "those photos") +
-                    " off” if you did want " + (n === 1 ? "it" : "them") + " gone.",
+                  // ⚠ THE SAME COMPOSER THE CHEAP TWEAK RUNG USES. One outcome
+                  // reached by two paths is one sentence: a second copy here
+                  // is how the two drift into describing the same refusal
+                  // differently, and this is now the refusal a customer is
+                  // most likely to meet — the tweak answers first.
+                  msg: withheldPhotosMsg(n),
                   // THE COUNT, NEVER THE URLS — `lostPhotosMsg`'s own rule, one
                   // path over: a storage key tells a customer nothing.
                   photosBlocked: n,

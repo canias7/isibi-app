@@ -88,6 +88,39 @@ test("the function list is the whole scope, and a sentence outside it throws rat
     assert.ok(EDIT_BROWSER_FNS.includes(n),
       "`" + n + "` is reachable from editReply and is not in EDIT_BROWSER_FNS — the reader will throw on the first reply that gets there");
   }
+
+  // ── AND THE ENTRY POINT'S OWN CALLS, WHICH THE WALK ABOVE CANNOT SEE ──────
+  //
+  // ⚠ `editReply` IS THE **SUCCESS** COMPOSER. A helper reached from the
+  // REFUSAL branch is not under it at all — `wholeRequestNote` is exactly
+  // that, called by `editAnswer` above the `applyEditResult` hop — so the
+  // census was blind to the half of the reader that draws refusals.
+  //
+  // ⚠ AND IT IS DELIBERATELY **NOT** TRANSITIVE, which is the part worth
+  // writing down. Walking `editAnswer` the way `editReply` is walked demands
+  // 36 further functions — `siteEdit`, `watchEditJob`, `siteAddon`,
+  // `sitesSave`, the whole build-panel closure — and the harness does not cut
+  // those ON PURPOSE: they are INJECTED as recorders and stubs, which is what
+  // makes `actions` a record of what the screen would do rather than the
+  // screen doing it. A census demanding they be cut would be asserting the
+  // opposite of the design. MEASURED before this was written, rather than
+  // guessed: rooting the transitive walk here turned one green file into
+  // thirty-six demands.
+  //
+  // So the property is the entry point's OWN calls: three today, all cut. What
+  // it catches is precisely what happened — a new composer added to the
+  // refusal branch and forgotten in the list, which the reader would otherwise
+  // meet as a `ReferenceError` and report as NO screen at all.
+  const entry = new Set([...bodyOf("editAnswer").matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)]
+    .map((m) => m[1]).filter((n) => declared.has(n) && n !== "editAnswer"));
+  assert.ok(entry.size >= 3,
+    "editAnswer reaches " + entry.size + " chat.js helpers — re-derive its window before believing this census");
+  assert.ok(entry.has("wholeRequestNote"),
+    "the refusal branch no longer composes through a named helper, so this census proves nothing about it");
+  for (const n of entry) {
+    assert.ok(EDIT_BROWSER_FNS.includes(n),
+      "`" + n + "` is called by editAnswer itself and is not in EDIT_BROWSER_FNS — the reader will throw on the first reply that gets there");
+  }
 });
 
 test("the selection is the real `editAnswer`, so a refusal is drawn as one", () => {

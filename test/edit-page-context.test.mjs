@@ -631,6 +631,16 @@ test("a wording edit REFUSES an unreadable components store, and spends nothing"
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("sections"), "the refusal's own sentence did not reach the screen: " + JSON.stringify(said.text));
+      // ⚠ AND IT IS **NOT** COMPLETED BY THE WHOLE-REQUEST CLAUSE (2026-09-21).
+      // `wholeRequestNote` exists for the `withheld` refusals, whose sentences
+      // were rewritten to stop at *"so I didn't make it"* so they stay true
+      // beside a rung that shipped. THIS refusal is not one of them: it says
+      // *"Nothing was changed"* in its own words, so appending the clause
+      // would print the reassurance twice in one sentence. The `error` test in
+      // that composer is the scope, and this is what drives it — without a
+      // case here, dropping the test is a mutant nothing can see.
+      assert.ok(!said.text.includes("Nothing on your site changed"),
+        "a refusal that already says it got the clause as well: " + JSON.stringify(said.text));
       // AND IT DID NOT OFFER TO SPEND. A refusal that falls through to the
       // ~25-credit rewrite charges for a message nobody re-typed.
       assert.deepEqual(said.actions, [], "the refusal set something in motion: " + JSON.stringify(said.actions));

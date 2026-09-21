@@ -781,7 +781,14 @@ export function browserReply(reply, httpOk) {
  */
 export const EDIT_BROWSER_FNS = Object.freeze([
   "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "editOutcomes",
-  "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit", "editAnswer",
+  "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit",
+  // ⚠ `editAnswer`'s OWN COMPOSER, and the census had to widen for it. The
+  // requirement was derived from `editReply`'s body alone, which cannot see a
+  // function the REFUSAL branch reaches — so the first reply through it would
+  // have been a `ReferenceError` and the harness would have reported no
+  // screen. That is the designed failure rather than a wrong sentence, and it
+  // is still one a guard should catch first.
+  "wholeRequestNote", "editAnswer",
 ]);
 
 /**

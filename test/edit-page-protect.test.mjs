@@ -55,7 +55,7 @@ import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, sameProse, proseOf } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL, MAX_PART_CHARS } from "../builder/page-gen.mjs";
 import { PICTURE_TOOL, newEmptySlots } from "../builder/site-picture.mjs";
 import { keptImages, keepPhotos, photoUrls } from "../builder/site-images.mjs";
@@ -705,8 +705,23 @@ test("a loss the restoration cannot reach is withheld, not published", async () 
       // (c) THE SCREEN, AND WHAT IT DOES NOT START.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("left your site exactly as it was"),
+      // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
+      //   the words *"left your site exactly as it was"*, which the rung no
+      //   longer says — it cannot, because the same sentence is printed beside
+      //   a rung that SHIPPED. The reassurance is true here and is added by
+      //   the browser's complete-refusal branch, so the property to assert is
+      //   that the customer is told it, never which half of the reply says so.
+      assert.ok(said.text.includes("Nothing on your site changed"),
         "the customer is not told their site is untouched: " + JSON.stringify(said.text));
+      // ⚠ AND THE RUNG'S OWN HALF STOPS AT ITS OWN CHANGE. The clause above is
+      //   the BROWSER's, added because this reply refused outright; the
+      //   sentence the rung composed must be true beside a rung that shipped
+      //   too, so it ends at "I didn't make it" and never claims the site.
+      //   Without this, putting the whole-site wording back into the server's
+      //   sentence is a mutant the line above cannot see — the browser would
+      //   still be appending its own clause and the assertion would pass.
+      assert.ok(/so I didn't make (it|that change)/.test(said.text),
+        "the rung's own sentence is not scoped to its own change: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("take that photo off"),
         "the customer is not told how to authorise it: " + JSON.stringify(said.text));
       assert.deepEqual(said.actions, [],
@@ -1022,8 +1037,23 @@ test("a component-only refusal answers for itself instead of buying a full rewri
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
       assert.ok(said.text.includes("card-b"), "the screen does not name the component: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("left your site exactly as it was"),
+      // ⚠ THE PROPERTY, NOT THE SPELLING (re-anchored 2026-09-21). This pinned
+      //   the words *"left your site exactly as it was"*, which the rung no
+      //   longer says — it cannot, because the same sentence is printed beside
+      //   a rung that SHIPPED. The reassurance is true here and is added by
+      //   the browser's complete-refusal branch, so the property to assert is
+      //   that the customer is told it, never which half of the reply says so.
+      assert.ok(said.text.includes("Nothing on your site changed"),
         "the customer is not told their site is untouched: " + JSON.stringify(said.text));
+      // ⚠ AND THE RUNG'S OWN HALF STOPS AT ITS OWN CHANGE. The clause above is
+      //   the BROWSER's, added because this reply refused outright; the
+      //   sentence the rung composed must be true beside a rung that shipped
+      //   too, so it ends at "I didn't make it" and never claims the site.
+      //   Without this, putting the whole-site wording back into the server's
+      //   sentence is a mutant the line above cannot see — the browser would
+      //   still be appending its own clause and the assertion would pass.
+      assert.ok(/so I didn't make (it|that change)/.test(said.text),
+        "the rung's own sentence is not scoped to its own change: " + JSON.stringify(said.text));
       assert.deepEqual(said.actions, [],
         "the refusal still started something: " + JSON.stringify(said.actions));
     });
@@ -1057,6 +1087,377 @@ test("a GENUINE no-change still escalates, and the rewrite still starts", async 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       assert.deepEqual(said.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"],
         "the ladder no longer climbs on a genuine no-change: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. THE CHEAP RUNG IS ON THE SAME CONTRACT (2026-09-21)
+//
+// Owner: *"Successful tweaks bypass protection … Test this with write_tweak
+// succeeding; forcing it to decline misses the defect."*
+//
+// ⚠ AND THAT INSTRUCTION NAMES A REAL PROPERTY OF THIS FILE. Every case above
+// stubs `write_tweak` with `{cannot}`, because each was written about the
+// REWRITE rung — so all of them drove the fallback and not one drove the path
+// a customer's message actually takes. The protection was built on the rung
+// that answers second.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A third real photograph, for the one bypass shape that reaches this rung. */
+const PIC_C = (slug) => "/u/" + slug + "/c3d4e5f60718293a.jpg";
+
+/**
+ * THE TWEAK'S OWN ANSWER: the heading really is bigger, and one `src` is gone.
+ *
+ * ⚠ THE HEADING CHANGE MUST BE VISUAL AND NOT VERBAL, or `sameProse` refuses
+ * the answer as `reworded` and the rung falls through to the rewrite — the
+ * case would then pass by testing the branch it is not about. A `className` is
+ * what a real "make the heading bigger" tweak returns.
+ */
+const biggerHeading = (slug) => homeWith(slug).replace("<h1>", '<h1 className="text-5xl">');
+const biggerLostBench = (slug) => biggerHeading(slug).replace('src="' + PIC_A(slug) + '"', 'src=""');
+const biggerSwappedBench = (slug) => biggerHeading(slug).replace('src="' + PIC_A(slug) + '"', 'src="' + PIC_C(slug) + '"');
+
+test("WHICH bypass shapes can reach the cheap rung at all — measured, not assumed", () => {
+  // ⚠ THE FINDING THAT SHAPED THE THREE CASES BELOW, and it is worth keeping
+  // because it is not what the general contract predicts: `alt` TEXT IS PROSE.
+  // `proseOf` reads a picture's description as words on the page, so of the
+  // three bypasses the last round named — DELETE the element, RENAME its
+  // description, SUBSTITUTE another url — the first two never get past
+  // `readTweak` at all. They come back `reworded` and the rung falls through.
+  //
+  // SO THE SUBSTITUTION IS THE ONE THAT REACHES THE GUARD HERE, and a case
+  // built on a deletion would be green about a path it never took. Asserted
+  // rather than commented, because the day `extractText` stops reading `alt`
+  // this file needs to grow two cases and nothing else would say so.
+  const slug = "prot-shapes";
+  const before = homeWith(slug);
+  assert.equal(proseOf(before).includes("the bench"), true,
+    "`alt` stopped being prose — the delete and rename bypasses now reach this rung and need their own cases");
+  assert.equal(sameProse(before, biggerHeading(slug)), true, "a className change reads as a rewording");
+  assert.equal(sameProse(before, biggerLostBench(slug)), true, "an emptied src reads as a rewording");
+  assert.equal(sameProse(before, biggerSwappedBench(slug)), true, "a substituted url reads as a rewording");
+  assert.equal(sameProse(before, benchDeleted(slug)), false, "a deleted element is no longer caught by the prose gate");
+});
+
+test("a SUCCESSFUL tweak puts the photograph back before it publishes", async () => {
+  // THE DEFECT, REPRODUCED EXACTLY AS REPORTED. *"Make the heading bigger and
+  // keep both photographs"*: `write_tweak` answers with the larger heading and
+  // one emptied `src`, `tw.ok` is true, and the rung published the missing
+  // photograph and reported it afterwards — the behaviour two rounds have now
+  // closed on the rewrite path, still live on the path that answers first.
+  const slug = "prot-tweak-keep";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { source: biggerLostBench(slug) },
+      // ⚠ NO `write_pages` STUB AT ALL. `withWire` refuses a tool it has no
+      // stub for, so if this case ever reaches the rewrite it fails loudly
+      // instead of quietly proving the fallback's protection a third time.
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "make the heading bigger and keep both photographs", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // (a) THE PATH IS THE SUBJECT. One tweak call, no page call — so
+      //     everything below is a statement about the cheap rung.
+      assert.equal(body.tweak, true, "this did not go through the tweak rung: " + JSON.stringify(body));
+      assert.equal(calls.filter((x) => x.tool === TWEAK_TOOL.name).length, 1, "the tweak rung never ran");
+      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 0,
+        "the rewrite ran, so this case is about the fallback again");
+
+      // (b) THE COMPILER PAYLOAD carries both photographs AND the asked-for
+      //     change. A protection that reverted the file would satisfy the
+      //     first half and throw away the customer's edit.
+      const sent = sentHome(c);
+      assert.deepEqual(pics(sent, slug), [PIC_A(slug), PIC_B(slug)].sort(),
+        "the tweak published a page with a photograph stripped: " + JSON.stringify(pics(sent, slug)));
+      assert.ok(sent.includes('className="text-5xl"'),
+        "the visual tweak itself was thrown away by the protection");
+
+      // (c) THE STORED SOURCE agrees, so the next message starts from a site
+      //     that still has its pictures.
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug), PIC_B(slug)].sort(),
+        "the store kept the stripped page");
+      assert.ok(storedHome(store, slug).includes('className="text-5xl"'), "the store lost the tweak");
+
+      // (d) THE RECEIPT. `photosKept` is the message-wide intersection, so a
+      //     restoration on this rung has to reach it exactly as one on the
+      //     rewrite rung does.
+      assert.equal(body.photosRemoved, undefined,
+        "a loss was reported on a publication that kept both: " + JSON.stringify(body.photosRemoved));
+      assert.equal(body.photosKept, 1, "the protection's own count is wrong: " + JSON.stringify(body.photosKept));
+
+      // (e) THE SCREEN.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(!said.text.includes("no longer on the site"),
+        "the customer was told about a loss that did not happen: " + JSON.stringify(said.text));
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a tweak whose loss cannot be reached is withheld, and no rewrite starts", async () => {
+  // THE SUBSTITUTION — the one bypass that gets past `sameProse`. The slot
+  // holds a DIFFERENT picture, which `keepPhotos` correctly leaves alone (it
+  // is an answer, not an omission), so there is nothing to put back and the
+  // photograph the site was serving is gone.
+  //
+  // ⚠ IT MUST NOT FALL THROUGH. Owner, the previous round: *"Do not publish
+  // the loss merely because matching failed, or trigger a full rewrite."*
+  // Falling through here is that second clause — the customer asked for a
+  // heading and would buy a whole-page regeneration because our cheap rung
+  // mangled a picture.
+  const slug = "prot-tweak-lost";
+  const store = bucket(slug, { parts: [] });
+  const before = storedHome(store, slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { source: biggerSwappedBench(slug) },
+    }, async (calls) => {
+      const { status, body, said } = await edit(slug, "make the heading bigger", { store });
+
+      // (a) THE REFUSAL, BY NAME AND AT COST 0.
+      assert.equal(status, 409, "the loss was not withheld: " + status + " " + JSON.stringify(body));
+      assert.equal(body.error, "withheld", "the refusal lost its name: " + JSON.stringify(body));
+      assert.equal(body.cost, 0, "a withheld change was charged for: " + JSON.stringify(body.cost));
+      assert.equal(body.photosBlocked, 1, "the count is wrong: " + JSON.stringify(body.photosBlocked));
+
+      // (b) NOTHING COMPILED AND NOTHING WAS WRITTEN. The refusal is before
+      //     the publish, which is the whole of "preservation, not reporting".
+      assert.equal(c.calls.length, 0, "a withheld change was compiled anyway");
+      assert.equal(storedHome(store, slug), before, "the store moved on a refusal");
+      assert.deepEqual(store.writes, [], "a refusal wrote to the bucket: " + JSON.stringify(store.writes.map((w) => w[0])));
+
+      // (c) AND THE REWRITE NEVER RAN — neither here nor from the browser.
+      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 0,
+        "the withheld tweak fell through to the paid rewrite");
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.deepEqual(paidActions(said), [],
+        "the browser started something paid off a refusal: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a tweak that was ONLY a removal falls through, and the rewrite still protects", async () => {
+  // THE BRANCH THE RESTORATION CREATES. With the picture put back, this
+  // tweak's answer is byte-identical to the page it was given — the cheap
+  // attempt achieved nothing. That is what the fall-through is for, and it is
+  // NOT the rewrite rung's "the only thing that change would have done is take
+  // a photograph off" refusal: there the expensive writer has already had its
+  // go, here it has not.
+  const slug = "prot-tweak-noop";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      // The tweak empties a `src` and changes nothing else.
+      [TWEAK_TOOL.name]: { source: homeWith(slug).replace('src="' + PIC_A(slug) + '"', 'src=""') },
+      // The rewrite makes the real change, and keeps both pictures.
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: homeWith(slug).replace("Nine until five.", "Nine until six.") }],
+        parts: [],
+      },
+    }, async (calls) => {
+      const { body } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // THE REWRITE RAN, which is the point of the branch.
+      assert.equal(calls.filter((x) => x.tool === TWEAK_TOOL.name).length, 1, "the tweak rung never ran");
+      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 1,
+        "the no-op tweak did not fall through to the rewrite");
+      assert.notEqual(body.tweak, true, "the no-op tweak published itself");
+
+      // AND THE SITE IS RIGHT: the change happened and both pictures survived.
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug), PIC_B(slug)].sort(),
+        "a photograph was lost across the fall-through");
+      assert.ok(storedHome(store, slug).includes("Nine until six."), "the asked-for change never happened");
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a tweak that touches no photograph publishes exactly what the model wrote", async () => {
+  // THE CONTROL. Every case above is about the guard ACTING; this one is about
+  // it not acting. A protection that rewrote an innocent tweak would pass the
+  // three cases above and quietly corrupt the ordinary path — which is most
+  // messages, since the cheap rung answers first.
+  const slug = "prot-tweak-clean";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { source: biggerHeading(slug) },
+    }, async (calls) => {
+      const { body } = await edit(slug, "make the heading bigger", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      assert.equal(body.tweak, true, "this did not go through the tweak rung");
+      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 0, "an innocent tweak bought a rewrite");
+      // BYTE-IDENTICAL to what the model returned, which is the assertion a
+      // weaker "it still has both pictures" check would not make.
+      assert.equal(sentHome(c), biggerHeading(slug), "the guard rewrote a tweak that lost nothing");
+      assert.equal(storedHome(store, slug), biggerHeading(slug), "the store holds something the model did not write");
+      assert.equal(body.photosKept, undefined, "a receipt was printed for a protection that never acted");
+      assert.equal(body.photosRemoved, undefined, "a loss was reported on a publication that lost nothing");
+    });
+  } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. A RUNG'S REFUSAL DOES NOT SPEAK FOR THE WHOLE REQUEST (2026-09-21)
+//
+// Owner: *"Partial-success wording makes whole-site claims … Scope refusal
+// wording to the part that was withheld. Reserve 'nothing changed' and
+// 'nothing charged' for cases where those statements are true of the whole
+// request."*
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a refusal beside a change that SHIPPED does not claim the site is untouched", async () => {
+  // REPRODUCED: the picture rung takes the window off as asked, the page rung
+  // withholds a photograph it could not put back, and the screen read
+  //
+  //     ✅ Took the picture off “the window”. ⚠️ … so I left your site
+  //     exactly as it was.
+  //
+  // A picture HAD just come off. Both halves true of their own rung and the
+  // second false of the request.
+  const slug = "prot-scope-partial";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      pick_lanes: { fields: ["images", "tsx"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
+    }, async () => {
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+
+      // (a) THE PREMISE: one rung shipped, one withheld.
+      assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
+      assert.ok(Array.isArray(body.partial) && body.partial.length === 1, "this case is no longer a partial");
+      assert.equal(body.partial[0].error, "withheld", "the partial is not the refusal this case is about");
+
+      // (b) THE STORED RESULT really did change — which is what makes the old
+      //     sentence false rather than merely clumsy.
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug)],
+        "the site did not change, so this case cannot show the defect: "
+        + JSON.stringify(pics(storedHome(store, slug), slug)));
+
+      // (c) THE SCREEN, EXACTLY. The refusal is still there and still names
+      //     its reason; what is gone is the claim about the whole site.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      // ⚠ THE WHOLE SENTENCE, MEASURED OFF THE REAL COMPOSER rather than
+      // written from memory — my first draft of this expectation left out the
+      // two clauses the picture rung legitimately earns (a photograph really
+      // did come off, and the slot it left is really empty), and a narrower
+      // pin would have called those a defect. What this case is about is the
+      // LAST clause: the refusal's own words, ending at "I didn't make it".
+      assert.equal(
+        said.text,
+        "✅ Took the picture off “the window”. One photograph is no longer on the site. If that was not what "
+        + "you wanted, say “put the photo back”. ⚠️ I couldn't make that change without taking a photograph "
+        + "off your site, and I couldn't put it back safely — so I didn't make it. Say “take that photo off” "
+        + "if you did want it gone. There is a space for a photo — upload yours in the Data panel and it’ll "
+        + "fill in.",
+        "the partial-success sentence is not what this case fixed: " + JSON.stringify(said.text),
+      );
+      assert.ok(!said.text.includes("left your site exactly as it was"),
+        "the refusal still claims the whole site is untouched: " + JSON.stringify(said.text));
+      assert.ok(!said.text.includes("haven’t been charged") && !said.text.includes("haven't been charged"),
+        "a partial success claims nothing was charged: " + JSON.stringify(said.text));
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a COMPLETE refusal does say nothing changed and nothing was charged", async () => {
+  // THE OTHER HALF, AND IT IS WHAT STOPS THE FIX BEING A DELETION. The
+  // reassurance is true of a request where no rung shipped, and dropping it
+  // everywhere would take a real sentence off the one screen that should
+  // carry it. `wholeRequestNote` adds it here because `ok` is false for the
+  // WHOLE reply — the merge sets that from `ranOk.length > 0`, so nothing
+  // published.
+  const slug = "prot-scope-whole";
+  const store = bucket(slug, { parts: [] });
+  const before = storedHome(store, slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { source: biggerSwappedBench(slug) },
+    }, async () => {
+      const { status, body, said } = await edit(slug, "make the heading bigger", { store });
+      assert.equal(status, 409, "this case is no longer a complete refusal: " + status);
+      assert.equal(body.ok, false, "the reply claims something shipped");
+      assert.equal(storedHome(store, slug), before, "something really did change, so the sentence would be false");
+
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.equal(
+        said.text,
+        "⚠️ I couldn't make that change without taking a photograph off your site, and I couldn't put it back "
+        + "safely — so I didn't make it. Say “take that photo off” if you did want it gone. "
+        + "Nothing on your site changed and you haven’t been charged.",
+        "the complete-refusal sentence is wrong: " + JSON.stringify(said.text),
+      );
+      assert.deepEqual(paidActions(said), [], "a refusal started something paid: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a tweak reads the site's COMPONENTS too, though it cannot write one", async () => {
+  // ⚠ THE SURVIVOR THAT FOUND THIS, and it was a real gap rather than an inert
+  // mutant: every tweak case above gives the site `parts: []`, so passing the
+  // stored components on the AFTER side and passing `[]` are the same input
+  // and no assertion could tell them apart.
+  //
+  // WHY IT IS PASSED AT ALL, since `runTweak` answers one page's source and
+  // can never touch a component: `keepPhotos` is SITE-WIDE. The `shows` set is
+  // built over pages AND components, and `lost` is `keptImages` over the
+  // union — so a component's photograph missing from the AFTER side reads as a
+  // photograph this tweak took off, and an innocent heading change refuses.
+  const slug = "prot-tweak-parts";
+  // The component carries its OWN photograph, and the tweak never mentions it.
+  const CARD_WITH_PIC = 'export default function CardA(){return <section data-slot="card">'
+    + '<SafeImage src="' + PIC_B(slug) + '" alt="the window" /></section>}';
+  const home = ROUTE_HEAD
+    + 'import CardA from "./-parts/card-a"\n'
+    + "function Home(){return <main><h1>Ravenscroft</h1>"
+    + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
+    + "<p>Nine until five.</p><CardA /></main>}\n";
+  const store = bucket(slug, { home, parts: [{ name: "card-a", source: CARD_WITH_PIC }] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      // The tweak makes the heading bigger and empties the PAGE's picture.
+      [TWEAK_TOOL.name]: {
+        source: home.replace("<h1>", '<h1 className="text-5xl">').replace('src="' + PIC_A(slug) + '"', 'src=""'),
+      },
+    }, async () => {
+      const { status, body } = await edit(slug, "make the heading bigger and keep both photographs", { store });
+
+      // (a) NO REFUSAL. The component's photograph never moved, so nothing was
+      //     lost — which is exactly what reading it on both sides establishes.
+      assert.equal(status, 200, "an innocent tweak was refused: " + status + " " + JSON.stringify(body));
+      assert.equal(body.tweak, true, "this did not go through the tweak rung");
+      assert.equal(body.photosBlocked, undefined, "a loss was found where the component still shows it");
+
+      // (b) THE PAGE'S OWN PICTURE IS BACK, and the component is untouched, so
+      //     the publication shows both — once each.
+      // ⚠ BY BASENAME, because the two rungs spell the payload's page key
+      //   DIFFERENTLY: the tweak passes `eSrc` straight through and those
+      //   paths are stored bare (`cleanPath` strips `src/routes/`), while the
+      //   rewrite's come back from the model prefixed. `sentHome` hides that
+      //   behind a `$`-anchored regex; a raw key comparison here would pin the
+      //   spelling and go red on a rung it is not about. Both files showing a
+      //   photograph is the property.
+      const showing = sentShowing(c, slug).map((k) => k.split("/").pop()).sort();
+      assert.deepEqual(showing, ["card-a.tsx", "index.tsx"],
+        "the publication does not show a photograph in each file: " + JSON.stringify(sentShowing(c, slug)));
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug)],
+        "the page's own photograph was not put back: " + JSON.stringify(pics(storedHome(store, slug), slug)));
+      assert.equal(storedParts(store, slug)["card-a"], CARD_WITH_PIC,
+        "a tweak rewrote a component it cannot even see");
     });
   } finally { c.uninstall(); }
 });

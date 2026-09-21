@@ -9014,6 +9014,43 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
  * about the reply: a stored 422 says the edit did not compile exactly as an
  * inline 422 does.
  */
+/**
+ * "NOTHING CHANGED" IS A CLAIM ABOUT THE REQUEST, AND THIS IS THE ONE READER
+ * THAT CAN MAKE IT (2026-09-21).
+ *
+ * ⚠ THE DEFECT IT CLOSES, owner: *"Partial-success wording makes whole-site
+ * claims."* REPRODUCED — the picture step takes the window photograph off as
+ * asked, the page step withholds a second change it could not make safely, and
+ * the screen read
+ *
+ *     ✅ Took the picture off “the window”. ⚠️ … so I left your site exactly
+ *     as it was.
+ *
+ * A picture HAD just come off. The rung's sentence was true about the rung and
+ * false about the site, and `editOutcomes` prints it verbatim — correctly, for
+ * the reason that clause states: the rung is the only side that knows why it
+ * stopped. What the rung does NOT know is what ran beside it.
+ *
+ * SO THE SERVER'S SENTENCES STOPPED SAYING IT (`withheldPhotosMsg` and the
+ * three beside it now end at *"so I didn't make it"*) AND IT IS ADDED HERE,
+ * where `ok` is false for the WHOLE reply. That is not a guess: the merge sets
+ * `ok` from `ranOk.length > 0`, so a reply that reaches this branch had no rung
+ * succeed and therefore published nothing — which is exactly what makes both
+ * halves of the sentence true.
+ *
+ * TWO CONDITIONS, EACH DOING ITS OWN JOB. `e.ok` is the property — this may
+ * never fire on a reply that shipped something, and it is asked here rather
+ * than trusted from the caller, because a composer that is only safe at one
+ * call site is one the next call site breaks. `error === 'withheld'` is the
+ * SCOPE: those are the sentences written to be completed this way, and every
+ * other refusal on this route already carries its own wording, so firing on
+ * them would print the reassurance twice.
+ */
+function wholeRequestNote(e) {
+  if (!e || e.ok || e.error !== 'withheld') return '';
+  return ' Nothing on your site changed and you haven’t been charged.';
+}
+
 function editAnswer(httpOk, e, o) {
   const clearFlight = o.clearFlight || function () {};
   // A body we cannot read is not a refusal — it is us not knowing, and the
@@ -9029,7 +9066,9 @@ function editAnswer(httpOk, e, o) {
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
     if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
-    if (e.msg) { o.finish('⚠️ ' + e.msg); return; }
+    // THE RUNG'S OWN SENTENCE, THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE.
+    // `wholeRequestNote` is empty for every refusal that already says it.
+    if (e.msg) { o.finish('⚠️ ' + e.msg + wholeRequestNote(e)); return; }
     // NO SENTENCE AND NO ASK IS NOT A REASON TO SPEND. A watch resumed after a
     // refresh has no `fallback` to fall to, and inventing a ~25-credit rewrite
     // there would charge for a message nobody re-typed.
