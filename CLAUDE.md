@@ -4347,6 +4347,12 @@ free.
   by exactly CI's own four skips, which is this file's standing reading of that
   gap and not a regression. **The +20 is the difference between two measured
   readings**: `test/canary-read-job.test.mjs` arriving with twenty cases.
+  **AND THE STAMP CHAIN'S OWN ENDPOINT AGREES**: `283046ba`, the last commit
+  that moved a test or product file, reads **`7110 / 7106 / 0 / 4`** on CI run
+  **`35659338080`** — the ref-shape correction added an ASSERTION to an
+  existing case, so it moved the count by zero, and a current-and-parent pair
+  off the same machine is what settles that rather than an argument about what
+  an assertion costs.
 - **Unit suite: 7,090, BOTH HALVES TAKEN** (2026-09-21, the run-14 harness
   corrections) — locally `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`,
   `duration_ms 117,987`, and CI run **`35655515164` on `c0dcd60e`** at
