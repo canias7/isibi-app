@@ -3534,7 +3534,7 @@ async function agentAutoDecide(runId, verdict) {
     renderAgents();
     return;
   }
-  const note = String(agentAutoNotes.get(target) || '').trim();
+  const note = agentAutoNoteFor(target);
   const bound = agentBind();
   agentAutoDeciding = target; agentAutoActErr = ''; renderAgents();
   let failed = '';
@@ -3577,6 +3577,32 @@ async function agentAutoDecide(runId, verdict) {
  * SCOPE, because *stop this run*, *turn the automation off* and *pause the agent* are three
  * different reaches and a person pressing one may mean another.
  */
+/**
+ * ⚠ **READ THE NOTE BOXES AT THE POINT OF USE, NOT ONLY AT A RENDER — a browser found this.**
+ *
+ * `agentAutoNotesRead` runs inside `renderAgents`, which is what keeps a note alive across the
+ * 1.5-second history poll. But a person who types a reason and presses the button in the same
+ * breath has typed it since the last render, so `agentAutoNotes` still holds what the box held
+ * BEFORE — and the reason goes nowhere. MEASURED in a real browser: a stop with
+ * "we posted it instead" typed into the box stored `note: null`.
+ *
+ * The poll makes it narrow rather than harmless: it is armed only by live work, so on a run
+ * nothing is working on — which is every run waiting for a person, the one place a note is most
+ * likely to be typed — no render intervenes at all and the words are lost every time.
+ *
+ * One line at the top of each handler, through the reader that already exists rather than a
+ * second copy of it. Both doors, because the approval note has the identical shape and had it
+ * first; this was inherited rather than introduced.
+ *
+ * ⚠ A `function` DECLARATION AND NOT A `const`, because one of its two callers sits textually
+ * above it — a `const` there is the temporal dead zone, which this repository has paid for in
+ * exactly this shape.
+ */
+function agentAutoNoteFor(id) {
+  agentAutoNotesRead();
+  return String(agentAutoNotes.get(id) || '').trim();
+}
+
 async function agentAutoStop(runId) {
   const target = String(runId || '');
   if (!target || agentAutoStopping) return;
@@ -3593,7 +3619,7 @@ async function agentAutoStop(runId) {
   }
   if (!window.confirm('Stop this run? ' + AUTO_STOP_SCOPE
     + ' Anything it has already done stays done — stopping cannot take a message back.')) return;
-  const note = String(agentAutoNotes.get(target) || '').trim();
+  const note = agentAutoNoteFor(target);
   const bound = agentBind();
   agentAutoStopping = target; agentAutoActErr = ''; renderAgents();
   let failed = '';

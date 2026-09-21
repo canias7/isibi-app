@@ -128,6 +128,13 @@ const RPCS = {
   create_webhook: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_name", "p_event", "p_secret", "p_max::integer"], shape: "value" },
   set_webhook_enabled: { args: ["p_tenant", "p_id::uuid", "p_enabled::boolean"], shape: "value" },
   delete_webhook: { args: ["p_tenant", "p_id::uuid"], shape: "value" },
+  // ⚠ **THE ARRIVALS LOG, and it was MISSING — the shim answered 400 to every read of it.**
+  // Journey 3 of `verify:browser` asked the arrivals panel for its list and the panel drew its
+  // own error; the check under it passed anyway, because the sentence it looked for is the
+  // panel's CHROME and is there whether the list loaded or not. *A negative assertion whose
+  // observer is dead*, and what made it visible was the run's own refused-call census rather
+  // than any assertion about the list.
+  list_events: { args: ["p_tenant", "p_agent_id::uuid", "p_limit::integer"], shape: "value" },
   // THE DEPTH IS NOT IN THIS LIST AS A CALLER'S ARGUMENT BY ACCIDENT: `p_max_depth` is the
   // function's own default and nothing sends one, so the ceiling cannot be reset from
   // outside. `p_from_run` is what the depth is really taken from.

@@ -57,12 +57,14 @@ const ZONE = "Europe/London";
 /** The account a person connects, and who the example's workflow writes to. */
 const ACCOUNT = "shop@example.test";
 const RECIPIENT = "ada@example.test";
+/** Journey 7's SECOND send goes somewhere else, so the mailbox can say WHICH one went. */
+const RECIPIENT2 = "bev@example.test";
 /** The two arms of journey 2's branch — one of them must be nowhere near the message. */
 const FORMAL = "Dear {{who}}, regarding {{topic}}: {{facts}} (scripted, not written by a model)";
 const CASUAL = "Hi {{who}} — about {{topic}}: {{facts}} (scripted, not written by a model)";
 /** The event journey 3 binds an automation to and then delivers from outside. */
 const EVENT = "order.paid";
-const ONLY = process.argv.slice(2).filter((s) => /^[1-6]$/.test(s)).map(Number);
+const ONLY = process.argv.slice(2).filter((s) => /^[1-7]$/.test(s)).map(Number);
 const want = (n) => !ONLY.length || ONLY.includes(n);
 /**
  * ⚠ **THE JOURNEYS ARE A SEQUENCE, AND A SELECTION THAT LEAVES OUT WHAT ONE RESTS ON IS
@@ -71,7 +73,7 @@ const want = (n) => !ONLY.length || ONLY.includes(n);
  * on its own is a selection nobody can satisfy, and saying so beats a timeout on
  * `[data-id="null"]`.
  */
-const RESTS_ON = { 2: [1], 3: [1, 2], 4: [1, 2], 5: [1] };
+const RESTS_ON = { 2: [1], 3: [1, 2], 4: [1], 5: [1], 7: [1, 2] };
 for (const [n, on] of Object.entries(RESTS_ON)) {
   if (!want(Number(n))) continue;
   const missing = on.filter((m) => !want(m));
@@ -158,13 +160,30 @@ const mailbox = (account) => ADAPTERS[FAKE_PROVIDER].mailbox(account);
  * these are the only things this file may reach past the browser, and the list shrinks as the
  * screen arrives rather than being forgotten.
  */
-const NO_SCREEN_YET = [
-  "/api/agent/webhooks", "/api/agent/webhook-create",
-  "/api/agent/webhook-enable", "/api/agent/webhook-delete",
-  "/api/agent/run-cancel",
-  "/api/agent/tool-withdraw", "/api/agent/tool-revoke",
-  "/api/agent/tool-restore", "/api/agent/revoked-tools",
-];
+/**
+ * ⚠ **READ OUT OF THE SITE'S OWN GUARD, NOT TYPED AGAIN — and it had already drifted.**
+ *
+ * `test/agent-builder-view.test.mjs` keeps the authoritative list and it SHRINKS as each screen
+ * arrives. This file held a copy, and when `/api/agent/run-cancel` and the four endpoint routes
+ * got screens the copy kept them — so `siteApi` went on admitting five routes a person can now
+ * press, which is exactly how a demonstration keeps calling a route instead of pressing the
+ * control it is supposed to be proving. **The list is the drift; the door is fine.**
+ *
+ * So it is parsed from that file's own declaration. A test file is not a module and cannot be
+ * imported, and duplicating the list is what just failed — reading it is the remaining option,
+ * and it fails LOUDLY (the throw below) rather than quietly falling back to a copy.
+ */
+const VIEW_GUARD = path.join(SITE_ROOT, "test", "agent-builder-view.test.mjs");
+const NO_SCREEN_YET = (() => {
+  const src = fs.readFileSync(VIEW_GUARD, "utf8");
+  const at = src.indexOf("const NO_SCREEN_YET = [");
+  if (at === -1) throw new Error(`verify-browser: ${VIEW_GUARD} no longer declares NO_SCREEN_YET`);
+  const end = src.indexOf("]", at);
+  if (end === -1) throw new Error("verify-browser: NO_SCREEN_YET's declaration does not close");
+  const names = [...src.slice(at, end).matchAll(/"(\/api\/agent\/[a-z-]+)"/g)].map((m) => m[1]);
+  if (!names.length) throw new Error("verify-browser: NO_SCREEN_YET parsed as empty");
+  return names;
+})();
 // ⚠ EVERY NAME HAS TO BE A REAL ROUTE, so a typo cannot quietly exempt one that does exist.
 for (const p of NO_SCREEN_YET) {
   if (!Object.hasOwn(AGENT_ROUTES, p)) throw new Error(`NO_SCREEN_YET names ${p}, which is not a route`);
@@ -1076,29 +1095,73 @@ try {
     check("3i. an event binding saved from the form", bound === EVENT, String(bound));
 
     /**
-     * ⚠ **THE ENDPOINT IS MADE THROUGH THE ROUTE, BECAUSE THERE IS NO SCREEN FOR ONE — and
-     * that is a stated gap rather than a shortcut.** `webhooks`, `webhook-create`,
-     * `webhook-enable` and `webhook-delete` are on this repository's own `NO_SCREEN_YET`
-     * list, so a person cannot make an inbound endpoint or read its secret at all. What a
-     * browser CAN show is the result, which is what the checks below read.
+     * ⚠ **THE ENDPOINT IS MADE ON THE SCREEN NOW, AND THAT IS A CORRECTION TO THIS BLOCK.**
+     * It used to go through `siteApi` under a paragraph saying `webhooks`, `webhook-create`,
+     * `webhook-enable` and `webhook-delete` were on `NO_SCREEN_YET` — true when it was
+     * written and false since those four got a screen. The route door is walled to that list
+     * precisely so this cannot be a shortcut, and the list is now READ from the site's own
+     * guard rather than copied here, which is what made the drift visible.
+     *
+     * So the whole of it is pressed: the door on the agent's row, Make the address, the two
+     * fields, Save — and the key is read off the screen that shows it once.
      */
-    const made = await siteApi("/api/agent/webhook-create", { agent: agentId, name: "paid", event: EVENT });
-    check("3j. an inbound endpoint exists, and its secret is answered exactly once",
-      made.status === 200 && typeof made.body?.secret === "string" && made.body.secret.length >= 32,
-      `${made.status} ${typeof made.body?.secret}`);
-    const listed = await siteApi("/api/agent/webhooks", null, { agent: agentId });
     /**
-     * ⚠ **THE OBSERVER IS PROVED ALIVE, because "no secret in the answer" is a NEGATIVE.** A
-     * first draft asked only `!/secret/` — and a FAILED read satisfies that perfectly: the
-     * check passed with a body of `{"error":"couldn't save that just now","retry":true}`, which
-     * is *a negative assertion whose observer is dead*, the trap this repository records most.
-     * So the endpoint has to be FOUND first, and only then is the absence worth anything.
+     * ⚠ **THE THREE PANEL DOORS ARE IN THE THREAD'S OWN HEADER, so a panel has to be LEFT
+     * before another can be opened** — Automations, Connected accounts and Where things arrive
+     * all sit beside the agent's name. A first draft pressed straight through and timed out on
+     * a control that is really there and is simply not on this screen. The form is closed the
+     * way a person closes it, then the screen's own Back.
      */
-    const endpoints = listed.body?.webhooks ?? [];
-    check("3k. ...and reading them back FINDS it and never answers a secret again",
-      listed.status === 200 && endpoints.some((w) => w.id === made.body.id && w.event === EVENT) &&
-        !/secret/i.test(JSON.stringify(listed.body)),
-      `${listed.status} ${JSON.stringify(listed.body).slice(0, 160)}`);
+    await closeAutoForm(page);
+    await press(page, "agent-auto-back");
+    await page.waitForSelector('[data-act="agent-webhooks"]', { timeout: 10_000 });
+    await press(page, "agent-webhooks", "id", agentId);
+    await page.waitForSelector('[data-act="agent-wh-new"]', { timeout: 10_000 });
+    await press(page, "agent-wh-new");
+    await page.waitForSelector("#agWhForm", { timeout: 10_000 });
+    await page.fill('#agWhForm [data-field="name"]', "The shop\u2019s orders");
+    await page.fill('#agWhForm [data-field="event"]', EVENT);
+    await press(page, "agent-wh-save");
+    /**
+     * ⚠ **THE KEY IS READ OFF THE SCREEN, which is the only place it ever exists.** `create_webhook`
+     * answers it once and `list_webhooks` never selects the column, so this is not a convenience:
+     * a journey that wanted to sign a delivery has to take it here or not at all. The two readonly
+     * boxes are the PATH and then the KEY, in the order the labels put them.
+     */
+    await page.waitForSelector('[data-act="agent-wh-secret-done"]', { timeout: 10_000 });
+    const shown = await page.$$eval('.ag-form input.ag-in[readonly]', (els) => els.map((e) => e.value));
+    const made = { body: { id: (shown[0] || "").split("/").pop(), secret: shown[1] } };
+    check("3j. ⚠ an endpoint made ON THE SCREEN, whose key is shown exactly once",
+      typeof made.body.secret === "string" && made.body.secret.length >= 32 &&
+        /^\/deliver\/[0-9a-f-]{36}$/.test(shown[0] || ""),
+      JSON.stringify({ path: shown[0], keyLen: (made.body.secret || "").length }));
+    /**
+     * ⚠ **AND THE SCREEN SAYS THE KEY IS NOT COMING BACK, which is the half a stored value cannot
+     * say.** A person who reads *"copy this now"* and does not is in a state the platform cannot
+     * rescue them from, so the sentence is the product rather than decoration.
+     */
+    check("3j2. ...and it says so, rather than leaving somebody to find out",
+      /only time it is shown/i.test(await text(page)) && /delete this address and make another/i.test(await text(page)));
+    await press(page, "agent-wh-secret-done");
+    /**
+     * ⚠ **THE OBSERVER IS PROVED ALIVE, because "no secret on the screen" is a NEGATIVE.** An
+     * earlier draft of this check asked only `!/secret/` of a ROUTE's answer — and a FAILED read
+     * satisfies that perfectly: it passed over a body of `{"error":"couldn't save that just
+     * now"}`, which is *a negative assertion whose observer is dead*. So the endpoint has to be
+     * FOUND on the list first, and only then is the absence of its key worth anything.
+     */
+    await page.waitForSelector('[data-act="agent-wh-enable"]', { timeout: 10_000 });
+    const listPanel = await text(page);
+    check("3k. ⚠ ...and the list FINDS it and never shows the key again",
+      listPanel.includes(EVENT) && listPanel.includes("/deliver/") &&
+        !listPanel.includes(made.body.secret),
+      JSON.stringify({ found: listPanel.includes(EVENT), key: listPanel.includes(made.body.secret) }));
+    const WH3 = await page.getAttribute('[data-act="agent-wh-enable"]', "data-id");
+    await shot(page, "j3-endpoint");
+    await press(page, "agent-wh-back");
+    await page.waitForSelector('[data-act="agent-automations"]', { timeout: 10_000 });
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-new"]', { timeout: 10_000 });
 
     const payload = JSON.stringify({ amount: 42, tenant: B.uid, name: "evil.event" });
     const ts = String(Date.now());
@@ -1167,6 +1230,71 @@ try {
         !howWords.some((w) => /Run now/.test(w)),
       howWords.join(" | "));
     await shot(page, "j3-triggers");
+
+    /**
+     * ⚠ **CLOSING THE ADDRESS IS A THIRD THING, and none of the three above it covers this.**
+     * Journey 3 has already disabled the AUTOMATION (3g/3h) — which stops the automation
+     * whatever arrives — and the requirement asks for the other end: the address itself
+     * closed, so a delivery is turned away before anything is even considered. The two are
+     * different acts with different remedies, which is why the panel has its own control.
+     */
+    await closeAutoForm(page);
+    await press(page, "agent-auto-back");
+    await page.waitForSelector('[data-act="agent-webhooks"]', { timeout: 10_000 });
+    await press(page, "agent-webhooks", "id", agentId);
+    await page.waitForSelector(`[data-act="agent-wh-enable"][data-id="${WH3}"]`, { timeout: 10_000 });
+    const openedWord = await page.textContent(`[data-act="agent-wh-enable"][data-id="${WH3}"]`);
+    check("3s. ⚠ an OPEN address offers to close it rather than to open it again",
+      /close/i.test(openedWord || ""), JSON.stringify(openedWord));
+    await press(page, "agent-wh-enable", "id", WH3);
+    await page.waitForFunction((id) => /open/i.test(
+      document.querySelector(`[data-act="agent-wh-enable"][data-id="${id}"]`)?.textContent || ""),
+      WH3, { timeout: 10_000 });
+    const shutRow = await page.$eval(`.ag-auto:has([data-act="agent-wh-enable"][data-id="${WH3}"])`,
+      (el) => (el.textContent || "").trim());
+    check("3t. ⚠ ...and once closed it says so and offers to open it",
+      /closed/i.test(shutRow), shutRow.replace(/\s+/g, " ").slice(0, 120));
+
+    const afterShut = await deliver("dlv-2");
+    await disp.tick();
+    await disp.drain();
+    const runsAfterShut = (await page5Runs(page, AU3)).filter((e) => e.trigger === "event").length;
+    /**
+     * ⚠ **REFUSED WITH THE SAME SENTENCE EVERY OTHER REFUSAL GETS, which is deliberate.** A
+     * closed address, an unknown one, a wrong key and a stale timestamp all answer one line, so
+     * the route is not an oracle for which ids exist. What says it was CLOSED rather than
+     * broken is the row above, which the person can read.
+     */
+    check("3u. ⚠ a delivery to a CLOSED address is refused, and starts nothing",
+      afterShut.status === 401 && runsAfterShut === 1,
+      JSON.stringify({ status: afterShut.status, runs: runsAfterShut }));
+    /**
+     * ⚠ **AND THE ARRIVAL IS NOT EVEN RECORDED, which is the honest half.** `agent.events` is
+     * what a delivery the platform ACCEPTED leaves behind; a refused one never reaches it, so
+     * the arrivals list is about what got in rather than about everything that knocked. The
+     * list says so in as many words, because an empty panel would otherwise read as *nothing
+     * has been rejected*, which is a claim nobody can make.
+     *
+     * ⚠ **AND THE LIST HAS TO BE FOUND BEFORE ITS SILENCE MEANS ANYTHING — a first draft asked
+     * only for that sentence and it PASSED OVER A PANEL THAT NEVER LOADED.** The sentence is
+     * the panel's CHROME and is drawn whether the read worked or not, so with the shim missing
+     * `list_events` the arrivals read answered 400, the panel drew its own error, and this check
+     * was green. *A negative assertion whose observer is dead*, and what caught it was the
+     * run's own refused-call census rather than anything asserted here. So the ACCEPTED arrival
+     * is found on screen first, by the event's own name.
+     */
+    const events3 = Number(stack.q(`select count(*) from agent.events;`).trim());
+    const arrivals3 = await text(page);
+    check("3v. ⚠ the arrivals list really loaded and shows the ONE that got in",
+      /Started a run|Nothing was listening|Waiting to be picked up/i.test(arrivals3) &&
+        arrivals3.includes(EVENT) && !/Couldn.t load the arrivals/i.test(arrivals3),
+      arrivals3.replace(/\s+/g, " ").slice(0, 140));
+    check("3v2. ⚠ ...and the refused delivery left no arrival behind, which the list says out loud",
+      events3 === 1 && /refused|turned away|never reach/i.test(arrivals3),
+      JSON.stringify({ events: events3 }));
+    await shot(page, "j3-endpoint-closed");
+    await press(page, "agent-wh-back");
+
     check("3q. no page error anywhere in journey 3", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
     check("3r. ...and no /api/agent/ call this journey's own session made was refused",
       refusedIn("J3").length === 0,
@@ -1328,19 +1456,46 @@ try {
       (rejHtml.match(/ag-chip-[a-z]+/g) || []).join(" "));
 
     /**
-     * ⚠ **CANCELLATION HAS NO SCREEN, AND THAT IS ROUTE-LEVEL VERIFICATION — said out loud.**
-     * `/api/agent/run-cancel` is on this repository's own `NO_SCREEN_YET` list: a person is
-     * exactly who stops a run, the backend landed first, and no control anywhere in `chat.js`
-     * reaches it. So this half is driven through the route and the RESULT is read in the
-     * browser, which is the honest split rather than a check that pretends to be a press.
+     * ⚠ **CANCELLATION HAS A SCREEN NOW, SO THIS IS A PRESS — and the list shrinking is what
+     * moved the check.** This block used to call `/api/agent/run-cancel` through `siteApi` and
+     * read the RESULT in the browser, on the honest grounds that no control anywhere in
+     * `chat.js` reached that route. M16 gave it one, so `NO_SCREEN_YET` no longer names it —
+     * and because that list is PARSED out of the site's own guard rather than copied here,
+     * `siteApi` refused this call the moment the screen landed. *A derived list falsifies the
+     * checks that were true only while it was shorter*, which is the derivation working.
+     *
+     * So the properties are unchanged and every one of them is read from the SCREEN or from
+     * the DATABASE instead of from a route's answer body — which is the stronger reading
+     * anyway: the counts are asserted where `agent.cancel_run` really wrote them.
      */
+    // ⚠ **ONE HANDLER, AND IT ACCEPTS — the REFUSAL half is journey 7's and is not repeated
+    // here.** Playwright's default is to DISMISS a dialog nobody handles, which is exactly a
+    // person pressing Cancel, so journey 7 gets that arm free and drives it as its own control.
+    // What journey 4 is about is the counts and what survives, so it confirms once.
+    const asked4 = [];
+    page.on("dialog", async (d) => { asked4.push(d.message()); await d.accept(); });
+
     await press(page, "agent-auto-run", "id", AU4);
     await waitRung(1);
     await disp.drain();
     await refreshHistory(page, AU4);
+    await page.waitForSelector(`${autoRow(AU4)} .ag-run`, { timeout: 20_000 });
     await waitText(page, /Waiting/, "the third run to hold", 20_000);
     const third = (await hist4()).find((e) => e.state === "waiting");
-    const cancelled = await siteApi("/api/agent/run-cancel", { run: third.id, reason: "we handled it by phone" });
+    check("4r. ⚠ the waiting run offers Stop, and the row says what stopping reaches before the press",
+      (await has(page, `${autoRow(AU4)} [data-act="agent-auto-stop"][data-run="${third.id}"]`)) &&
+        /one run and nothing else/i.test(await text(page)));
+    // ⚠ A REASON TYPED THE WAY A PERSON TYPES ONE — into the row's own box, and then the
+    // button, with nothing re-rendering in between. That order is what found the note-reader
+    // defect in journey 7, and it is the order a person really performs.
+    await page.fill(`[data-note="${third.id}"]`, "we handled it by phone");
+    await press(page, "agent-auto-stop", "run", third.id);
+    await waitText(page, /Stopped\./, "the screen to say it stopped", 20_000);
+    const stopSaid = await text(page);
+    check("4r2. ⚠ ...and the press really asked first, naming what stopping cannot take back",
+      asked4.length === 1 && /cannot take a message back/i.test(asked4[0]),
+      JSON.stringify((asked4[0] || "").slice(0, 100)));
+
     /**
      * ⚠ **THE COUNT IS EXACT, AND `>= 1` WAS NOT ENOUGH TO CATCH WHAT WAS WRONG.** This read
      * **0** before the fix — `cancel_run` counted `model` entries as completed steps, which is
@@ -1348,26 +1503,39 @@ try {
      * Then it read **2**, because the executor's `done` counts the PAUSED step's own outcome.
      * The truth is ONE: the note before the approval ran, and the approval itself did not.
      * A floor would have passed both wrong answers.
+     *
+     * ⚠ **AND IT IS ASSERTED WHERE THE FUNCTION WROTE IT rather than off the answer it
+     * returned.** `agent.project_entry` reads the `stopped` entry's nested `stop`, so
+     * `agent.runs.stop` holds the counts a person was shown — one fact, read from the journal
+     * the run really left, which a route's reply cannot be wrong about separately from.
      */
-    check("4r. ⚠ CANCELLED (route-level: this has no screen) — and it counts what had ALREADY run",
-      cancelled.status === 200 && cancelled.body?.completedSteps === 1 &&
-        cancelled.body?.completedCalls === 0 && cancelled.body?.releasedWait === true,
-      `${cancelled.status} ${JSON.stringify(cancelled.body)}`);
+    const stopRow = JSON.parse(stack.q(
+      `select coalesce(to_json((select json_build_object(
+         'reason', r.stop->>'reason', 'why', r.stop->>'note',
+         'steps', (r.stop->>'completedSteps')::int, 'calls', (r.stop->>'completedCalls')::int,
+         'stops', (select count(*) from agent.run_entries e where e.run_id=r.id and e.kind='stopped'),
+         'waiting', (select ar.waiting from agent.automation_runs ar where ar.id=r.id)
+       ) from agent.runs r where r.id='${third.id}'))::text,'null');`));
+    check("4s. ⚠ STOPPED, and it counts what had ALREADY run — exactly one step, and no tool calls",
+      stopRow?.reason === "cancelled" && stopRow?.steps === 1 && stopRow?.calls === 0 &&
+        stopRow?.stops === 1, JSON.stringify(stopRow));
+    // ⚠ THE WAIT IS RELEASED, asserted as the ROW rather than as the answer's own
+    // `releasedWait`: what matters to a customer is that nothing is waiting for them any
+    // more, and a function reporting that it released one is a weaker claim than the column.
+    check("4s2. ⚠ ...and nothing is waiting for a person any more — the wait itself is gone",
+      stopRow?.waiting === null, JSON.stringify({ waiting: stopRow?.waiting }));
     /**
      * ⚠ **AND IT SAYS THE COMPLETED WORK STANDS — asserted POSITIVELY, which is the whole
-     * point.** "It does not say undone" is satisfied by an answer that says nothing at all — and
-     * worse: the honest sentence is *"what had already run has already run and was not
+     * point.** "It does not say undone" is satisfied by an answer that says nothing at all —
+     * and worse: the honest sentence is *"what had already run has already run and was not
      * undone"*, so a needle over the bare word `undone` goes RED about the one thing it was
      * written to demand. **This repository records that exact mistake in `verify:send` and I
      * made it again here**, and it cost a run.
-     *
-     * So the claim is the PHRASE a reversal would be stated as, never a word a denial contains.
      */
-    const said = String(cancelled.body?.say || "");
-    check("4s. ⚠ ...and it SAYS the completed work stands, rather than claiming a rollback",
-      /already run/i.test(said) && /not undone/i.test(said) &&
-        !/(was|were|has been|have been) (undone|rolled back|reversed)/i.test(said),
-      said);
+    check("4s3. ⚠ ...and the SCREEN says how far it got and never claims a rollback",
+      /1 step had already run\./.test(stopSaid) && /was not undone/i.test(stopSaid) &&
+        !/(was|were|has been|have been) (undone|rolled back|reversed)/i.test(stopSaid),
+      (stopSaid.match(/Stopped\.[\s\S]{0,140}/) || [""])[0].replace(/\s+/g, " "));
     // ⚠ LATER STEPS DO NOT RUN, and neither a delivery nor a tick changes that.
     await disp.ring(third.id);
     await disp.drain();
@@ -1389,6 +1557,8 @@ try {
       /we handled it by phone/.test(await text(page)) &&
         !/ag-chip-failed/.test(await page.evaluate(() => document.getElementById("viewAgents").innerHTML)),
       (await text(page)).replace(/\s+/g, " ").slice(0, 240));
+    check("4v2. ⚠ ...and a stopped run offers no Stop at all",
+      !(await has(page, `${autoRow(AU4)} [data-act="agent-auto-stop"][data-run="${third.id}"]`)));
 
     await shot(page, "j4-approval");
     check("4w. no page error anywhere in journey 4", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
@@ -1764,6 +1934,275 @@ try {
     check("6j. ...and no /api/agent/ call this journey's own session made was refused",
       refusedIn("J6").length === 0,
       refusedIn("J6").slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+  }
+
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // JOURNEY 7 — stopping a run, from the history, with one action already gone
+  //
+  // ⚠ **TWO SENDS, AND THAT IS WHAT MAKES THIS ONE JOURNEY RATHER THAN TWO.** The
+  // milestone asks for *start → wait for approval → stop → attempt a late approval →
+  // confirm no send*, and for *start → complete one action → stop → preserve that result
+  // and prevent later actions*. A workflow that sends twice is both at once: the first
+  // send really goes out, the second is the one somebody stops, and the mailbox
+  // afterwards is the only reading that can tell "preserved" from "never happened".
+  //
+  // ⚠ **AND THE CONFIRMATION IS A REAL `window.confirm`, so Playwright's DEFAULT is the
+  // refusal half — free.** It dismisses a dialog nobody handles, which is exactly a person
+  // pressing Cancel, and a first pass that forgot to accept one would report the button as
+  // dead rather than reporting itself as unhandled. So the refusal is DRIVEN first, with
+  // the acceptance after it, and the two are each other's control.
+  // ════════════════════════════════════════════════════════════════════════════
+  if (want(7)) {
+    head("JOURNEY 7 — one action goes, then somebody stops the run");
+    const { page } = await openApp(A, "J7");
+    agentId = agentId ?? (await firstAgent(page));
+    connId = connId ?? (await page.evaluate(async (a) => {
+      const r = await fetch("/api/agent/connections?agent=" + a, { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+      return ((await r.json()).connections || []).find((c) => c.status === "active")?.id ?? null;
+    }, agentId));
+    await openAgent(page, agentId);
+    await press(page, "agent-automations", "id", agentId);
+    await page.waitForSelector('[data-act="agent-auto-new"]', { timeout: 10_000 });
+
+    /**
+     * ⚠ **THE DIALOG IS ANSWERED BY ONE HANDLER WHOSE ANSWER THIS JOURNEY CHANGES**, rather
+     * than by adding and removing listeners around each press. Playwright queues dialogs, so
+     * a second listener would leave the first one answering too and the two would race for
+     * which verdict the page sees.
+     */
+    let sayYes = false;
+    const asked = [];
+    page.on("dialog", async (d) => { asked.push(d.message()); await (sayYes ? d.accept() : d.dismiss()); });
+
+    // ── A WORKFLOW THAT SENDS TWICE, built on the form ───────────────────────
+    await press(page, "agent-auto-new");
+    await page.waitForSelector("#agAutoName", { timeout: 10_000 });
+    await type(page, "agAutoName", "Two notices");
+    await addStep(page, "send", { connection: connId, to: RECIPIENT, body: "the first notice" });
+    await addStep(page, "send", { connection: connId, to: RECIPIENT2, body: "the second notice" });
+    await press(page, "agent-auto-save");
+    await waitText(page, /Saved\./, "the two-send workflow to save", 10_000);
+    const AU7 = await autoIdNamed(page, agentId, "Two notices");
+    check("7a. a workflow with two sends saved from the form", !!AU7, String(AU7));
+
+    const before7 = mailbox(ACCOUNT).length;
+    await closeAutoForm(page);
+    await press(page, "agent-auto-run", "id", AU7);
+    await waitText(page, /Queued|Running|Waiting/, "the run to appear", 10_000);
+    await disp.drain();
+    await waitText(page, /Waiting/, "the first send to hold for a person");
+
+    /**
+     * ⚠ **STOP IS OFFERED BECAUSE THE RUN IS IN ONE OF THE THREE STATES IT CAN BE STOPPED
+     * IN — `AUTO_STOPPABLE` — and the row says what stopping would reach BEFORE the press.**
+     * The confirm is gone the instant somebody answers it, so a scope named only there is a
+     * scope named too late. Asserted on the row's own hint rather than on the dialog.
+     */
+    const row7 = autoRow(AU7);
+    check("7b. ⚠ the waiting run offers Stop", await has(page, `${row7} [data-act="agent-auto-stop"]`));
+    const hint7 = await page.$$eval(`${row7} .ag-hint`, (els) => els.map((e) => (e.textContent || "").trim()).join(" | "));
+    /**
+     * ⚠ **THE THREE REMEDIES, not the word "run" — a first draft asked `/this run/` and the
+     * sentence says "this one run", so it went red about a screen that is right.** What the
+     * requirement asks for is that stopping ONE run, disabling the automation and pausing the
+     * agent are told apart, and the property is therefore the three things to DO, each of which
+     * names a different control.
+     */
+    check("7c. ⚠ ...and the row names all three scopes by what each one takes — the run, the automation, the agent",
+      /one run and nothing else/i.test(hint7) && /turn the automation off/i.test(hint7) &&
+        /pause the agent/i.test(hint7), hint7.replace(/\s+/g, " ").slice(0, 200));
+
+    // ── THE REFUSAL HALF, FIRST, and it is the dialog's own default ──────────
+    const run7 = await page.getAttribute(`${row7} [data-act="agent-auto-stop"]`, "data-run");
+    sayYes = false;
+    await press(page, "agent-auto-stop", "run", run7);
+    await page.waitForTimeout(400);
+    check("7d. ⚠ the press really asked, and named what stopping cannot take back",
+      asked.length === 1 && /cannot take a message back/i.test(asked[0]), JSON.stringify((asked[0] || "").slice(0, 120)));
+    const stillWaiting = JSON.parse(stack.q(
+      `select coalesce(to_json((select json_build_object('s', status) from agent.runs where id='${run7}'))::text,'null');`));
+    check("7e. ⚠ ...and answering NO stopped nothing at all", stillWaiting?.s === "running", JSON.stringify(stillWaiting));
+
+    // ── APPROVE THE FIRST SEND, so one action really goes out ────────────────
+    await press(page, "agent-auto-approve", "run", run7);
+    await page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 10_000 });
+    await disp.drain();
+    await waitText(page, /Waiting/, "the SECOND send to hold");
+    const afterFirst = mailbox(ACCOUNT);
+    check("7f. ⚠ ONE action has gone, and it is the first", afterFirst.length === before7 + 1 &&
+      afterFirst[afterFirst.length - 1]?.to === RECIPIENT, JSON.stringify(afterFirst.map((m) => m.to)));
+    check("7g. ...and the second send is holding rather than having gone",
+      !afterFirst.some((m) => m.to === RECIPIENT2), JSON.stringify(afterFirst.map((m) => m.to)));
+
+    /**
+     * ⚠ **A SECOND TAB, OPENED WHILE APPROVE IS STILL DRAWN — because that is what a late
+     * approval really is.** `siteApi` refuses `/api/agent/automation-approve`, and it is right
+     * to: that route has a screen, so calling it here would be the shortcut the door exists to
+     * forbid. What a person can actually do is leave a tab open, have somebody stop the run in
+     * another, and press the Approve that is still sitting in the first tab's DOM. So the stale
+     * control is REAL rather than fabricated, and the check below presses it.
+     */
+    const stale = await openApp(A, "J7-stale");
+    await openAgent(stale.page, agentId);
+    await press(stale.page, "agent-automations", "id", agentId);
+    await openHistory(stale.page, AU7);
+    await waitText(stale.page, /Waiting/, "the second tab to show the run still waiting");
+    check("7g2. ⚠ a second tab of the same account shows Approve while it is still waiting",
+      await has(stale.page, `[data-act="agent-auto-approve"][data-run="${run7}"]`));
+
+    // ── NOW STOP IT, with a reason typed the way a person types one ──────────
+    await refreshHistory(page, AU7);
+    await page.fill(`[data-note="${run7}"]`, "we posted it instead");
+    sayYes = true;
+    await press(page, "agent-auto-stop", "run", run7);
+    await waitText(page, /Stopped\./, "the screen to say it stopped", 15_000);
+    const said7 = await text(page);
+    /**
+     * ⚠ **WHAT IT SAYS IS THE COUNTS AND NEVER A ROLLBACK, asserted POSITIVELY.** Forbidding
+     * the word `undone` is what a first draft of `verify:send` did, and it goes red on the
+     * honest sentence — which says the completed work was *not* undone. So the claim is that
+     * the *not undone* half is SAID, beside a phrase no honest answer carries.
+     */
+    /**
+     * ⚠ **ONE STEP, AND NO "actions had gone out" CLAUSE — which is the product being right and
+     * my own expectation being wrong.** `completedCalls` counts the journal's `tool` entries,
+     * which is the AGENT loop's vocabulary; a workflow execution writes none, so it is 0 and the
+     * clause is correctly left off. The send really did go — through the connection, recorded as
+     * the step's own outcome — and `completedSteps` is what counts it. A screen that said
+     * "1 action had already gone out" here would be reading an agent's tool budget onto an
+     * automation, which is two different things wearing one number.
+     */
+    check("7h. ⚠ it says how far it got — one step, and no tool-call clause a workflow cannot have",
+      /1 step had already run\./.test(said7) && !/action(s)? had already gone out/.test(said7),
+      (said7.match(/Stopped\.[\s\S]{0,150}/) || [""])[0].replace(/\s+/g, " "));
+    check("7i. ⚠ ...and never claims a rollback", /was not undone/i.test(said7) &&
+      !/(reversed|rolled back|taken back|recalled)/i.test(said7));
+    /**
+     * ⚠ **AND NOTHING WAS WORKING ON IT, SO THE DELAY SENTENCE IS CORRECTLY ABSENT.** A run
+     * suspended for a person has released its work row, so `heldByWorker` is false and saying
+     * *"the step it had already started may finish"* would be this screen inventing a delay
+     * the platform does not have. **The `true` half cannot be arranged from a browser** — it
+     * needs a worker holding a claim mid-flight — and is driven at the route and at the
+     * renderer instead (`agent-api` and `agent-binding`), which is said rather than glossed.
+     */
+    check("7j. ⚠ ...and does not warn of a step still finishing, because nothing held it",
+      !/may finish/i.test(said7));
+
+    const stopped7 = JSON.parse(stack.q(
+      `select coalesce(to_json((select json_build_object(
+         's', r.status, 'stops', (select count(*) from agent.run_entries e where e.run_id=r.id and e.body->>'kind'='stopped'),
+         'reason', r.stop->>'reason', 'why', r.stop->>'note',
+         'work', (select count(*) from agent.run_work w where w.run_id=r.id and w.done_at is null)
+       ) from agent.runs r where r.id='${run7}'))::text,'null');`));
+    /**
+     * ⚠ **THE PERSON'S OWN WORDS ARE ASSERTED, AND THAT IS THE DEFECT THIS JOURNEY FOUND.**
+     * `agentAutoNotes` was filled only by `renderAgents`, so a reason typed and followed
+     * straight by the button was read from the box's PREVIOUS contents — measured here as
+     * `note: null`. Both handlers read the box at the point of use now. The words being in the
+     * row is what makes this check about the reason rather than about the stop.
+     */
+    check("7k. ⚠ the run is stopped in the database, with ONE ending and the person's own words",
+      stopped7?.s === "stopped" && stopped7?.stops === 1 && stopped7?.reason === "cancelled" &&
+      stopped7?.why === "we posted it instead" && stopped7?.work === 0, JSON.stringify(stopped7));
+
+    // ── THE LATE APPROVAL, PRESSED IN THE STALE TAB ─────────────────────────
+    await press(stale.page, "agent-auto-approve", "run", run7);
+    await stale.page.waitForFunction(() => !/Sending…/.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 15_000 });
+    await disp.tick();
+    await disp.drain();
+    const staleSaid = await text(stale.page);
+    /**
+     * ⚠ **REFUSED, AND THE STALE TAB IS TOLD — which is the half that matters to a person.** A
+     * press that answered `ok` and changed nothing would be the dead control that ANSWERS; what
+     * the screen has to do is say the decision did not take. Asserted on the SENTENCE and on the
+     * mailbox, because either alone is weak: a refusal with a message sent is the defect, and a
+     * silent nothing is a screen that lied about the press.
+     */
+    check("7l. ⚠ A LATE APPROVAL IS REFUSED, and the stale tab says so rather than claiming it took",
+      /(isn.t waiting|already|stopped|couldn.t)/i.test(staleSaid) && !/Done/.test(staleSaid.slice(0, 400)),
+      staleSaid.replace(/\s+/g, " ").slice(0, 200));
+    const afterLate = mailbox(ACCOUNT);
+    check("7m. ⚠ ...and NOTHING was sent — the first message stands and the second never went",
+      afterLate.length === before7 + 1 && !afterLate.some((m) => m.to === RECIPIENT2),
+      JSON.stringify(afterLate.map((m) => m.to)));
+    /**
+     * ⚠ **AND THE DATABASE HAS NO SECOND VERDICT, which is what says the refusal happened at
+     * the wall rather than in the screen's own wording.** A decision recorded against a stopped
+     * run would be a row nothing will ever act on, sitting there as evidence somebody approved
+     * something that never ran.
+     */
+    /**
+     * ⚠ **THE REQUEST STILL SAYS IT WAS WITHDRAWN BY THE CANCELLATION, which is what says the
+     * refusal happened at the WALL rather than in the screen's own wording.** `cancel_run`
+     * withdraws anything waiting for a person (`verdict = 'revoked'`, carrying the reason they
+     * typed), and `decide_tool_approval` only ever writes `where verdict is null` — so a late
+     * approval that had landed would have overwritten the record of WHY the run stopped with an
+     * approval nobody acted on. Asserted as `revoked` AND not `approved`, and with the person's
+     * own words still on it.
+     *
+     * ⚠ NO NESTED SINGLE QUOTES, AND NO `jsonb_array_length` EITHER — `stack.q` hands the
+     * statement to `psql -c` inside single quotes, so a `'[]'::jsonb` literal closes it and the
+     * shell reports a syntax error as a crash; and `automation_runs.decisions` is an OBJECT
+     * keyed by step, so asking for an array's length raises. Both were mine.
+     */
+    const req7 = JSON.parse(stack.q(
+      `select coalesce(to_json((select json_build_object('v', verdict, 'n', note)
+         from agent.tool_approvals where run_id='${run7}' order by requested_at desc limit 1))::text, 'null');`));
+    check("7m2. ⚠ ...and the request still reads as WITHDRAWN by the cancellation, not approved",
+      req7?.v === "revoked" && req7?.n === "we posted it instead", JSON.stringify(req7));
+
+    /**
+     * ⚠ **A SECOND STOP IS IMPOSSIBLE FROM THE SCREEN, which is stronger than harmless.** The
+     * button is drawn only for a stoppable state, so once the run has stopped there is nothing
+     * to press — the dead control that ANSWERS cannot exist here. The ROUTE's own duplicate is
+     * a different question and is driven in `verify:tools`, where a second stop answers what
+     * really happened and writes no second ending.
+     */
+    /**
+     * ⚠ **THE PANEL IS DRAWN BEFORE ITS ROWS ARE, so waiting for the panel is not waiting for
+     * the history.** `refreshHistory` closes and re-opens, and the re-open renders the container
+     * immediately and fills it when the read lands — so a check that ran straight after it read
+     * an EMPTY panel and reported a working screen as having no chip and no Stop button.
+     * Measured: `runs: 1` container, `.ag-run: 0` rows. The wait belongs here rather than in the
+     * shared helper, because an automation with no executions legitimately has an empty panel
+     * and a helper that waited for a row would hang on one.
+     */
+    await refreshHistory(page, AU7);
+    await page.waitForSelector(`${row7} .ag-run`, { timeout: 15_000 });
+    check("7n. ⚠ a stopped run offers no Stop at all", !(await has(page, `${row7} [data-act="agent-auto-stop"]`)));
+    const chips7 = await page.$$eval(`${row7} .ag-chip`, (els) => els.map((e) => e.className + "=" + (e.textContent || "").trim()));
+    check("7o. ...and the row reads as stopped by somebody rather than as a failure",
+      chips7.some((c) => /ag-chip-cancelled/.test(c)) && !chips7.some((c) => /ag-chip-failed/.test(c)),
+      chips7.join(" | "));
+    const tickAfter = await disp.tick();
+    check("7p. ⚠ ...and a tick afterwards does not offer it again",
+      !JSON.stringify(tickAfter ?? {}).includes(run7), JSON.stringify(tickAfter ?? {}).slice(0, 120));
+
+    await shot(page, "j7-stopped");
+    check("7q. no page error anywhere in journey 7", pageProblems.length === 0, pageProblems.slice(0, 2).join(" | "));
+    /**
+     * ⚠ **SCOPED TO THE FIRST TAB, BECAUSE THE STALE TAB'S REFUSAL IS THE POINT.** `refusedIn`
+     * matches by label PREFIX and `J7-stale` starts with `J7`, so asking about `J7` would go red
+     * on the one call this journey exists to have refused. The stale tab answers for itself: its
+     * ONLY refused call may be the late approval, which is asserted rather than excused.
+     */
+    const mine7 = refusedIn("J7").filter((r) => !r.label.startsWith("J7-stale"));
+    check("7r. ...and no /api/agent/ call the FIRST tab made was refused",
+      mine7.length === 0, mine7.slice(0, 3).map((r) => `${r.status} ${r.url}`).join(" | "));
+    /**
+     * ⚠ **AND THE STALE TAB'S REFUSAL IS IN THE ANSWER RATHER THAN IN THE STATUS, which is the
+     * product being right and my own expectation being wrong.** `decide_tool_approval` writes
+     * only `where verdict is null`, so a request already decided answers `ok: true, repeat:
+     * true` — *the first answer stands* — and that is a 200, because nothing went wrong and the
+     * request was well formed. A 4xx there would tell a person their press was malformed when
+     * what happened is that somebody had already answered. So the refusal is asserted on the
+     * SENTENCE (7l) and on the mailbox (7m); what this asks is that nothing was refused at the
+     * transport, which is a different claim and would be red if the route had started erroring.
+     */
+    const stale7 = refusedIn("J7-stale");
+    check("7s. ⚠ ...and the stale tab was answered rather than refused — the first answer stands is a 200",
+      stale7.length === 0, stale7.map((r) => `${r.status} ${r.url}`).join(" | ") || "none");
   }
 
   head(failed ? `${failed} CHECK(S) FAILED` : "ALL CHECKS PASSED");

@@ -5822,6 +5822,73 @@ test("⚠ A STOP SAYS HOW FAR IT GOT AND NEVER THAT ANYTHING WAS UNDONE", async 
   assert.equal(post[0].body.run, "EXS");
 });
 
+test("⚠ A REASON TYPED AND THEN THE BUTTON REACHES THE WIRE, with no redraw in between", async () => {
+  /**
+   * ⚠ **THE DEFECT A REAL BROWSER FOUND, and neither this file nor any route test could.**
+   * `agentAutoNotes` is filled by `agentAutoNotesRead()`, which runs inside `renderAgents` — so
+   * a reason typed and followed STRAIGHT by the button was read from whatever the map held at
+   * the last draw, which for a box nobody had typed into yet is nothing. **MEASURED live: a stop
+   * with "we posted it instead" in the box stored `note: null`.**
+   *
+   * The poll is what makes it narrow rather than harmless: it is armed only by live work in a
+   * successful read, so a person typing during a quiet second lost their words and a person
+   * typing while something ran kept them. Both handlers read the box AT THE POINT OF USE now.
+   *
+   * ⚠ **SO THE CASE MUST NOT REDRAW BETWEEN THE TYPING AND THE PRESS**, because a redraw is
+   * exactly what the old code was relying on — and a case that includes one passes against the
+   * defect. That absence is the whole assertion, which is why it is said here rather than left
+   * to be inferred from the lack of a `renderAgents()` call.
+   */
+  const w = await withHistory([runIn("running")], {
+    cancel: () => okRes({ run: "EXS", completedSteps: 1, completedCalls: 0, heldByWorker: false, say: "stopped" }),
+  });
+  const box = w.s.document.getElementById("__note");
+  assert.ok(box, "the fake DOM has no note box");
+  box.setAttribute("data-note", "EXS");
+  box.value = "we handled it by phone";
+  w.ev(`document.querySelectorAll = (sel) => (sel === "[data-note]" ? [document.getElementById("__note")] : []);`);
+  // NO `renderAgents()` HERE — see above. The map is whatever the history's own draw left.
+  await w.ev('agentAutoStop("EXS")'); await settle();
+  const post = w.calls.filter((c) => c.path === "/api/agent/run-cancel");
+  assert.equal(post.length, 1, "the stop never reached the route");
+  assert.equal(post[0].body.reason, "we handled it by phone",
+    `the person's own words did not reach the wire: ${JSON.stringify(post[0].body.reason)}`);
+  /**
+   * ⚠ **AND THE SAME FOR THE DECISION DOOR, which is the other half of the fix.** An approval
+   * note is typed into the same kind of box beside the same kind of row, and `agentAutoDecide`
+   * had the identical read — so fixing one and not the other leaves a person's reason for
+   * rejecting something silently dropped. Driven here rather than assumed from the shared
+   * helper, because what a helper is CALLED FROM is exactly what the wiring layer gets wrong.
+   */
+  const v = await withHistory([runIn("waiting", {
+    waiting: { kind: "approval", step: "s8", ask: "Send it?", onTimeout: "reject", until: null, request: null },
+  })]);
+  const vbox = v.s.document.getElementById("__note");
+  vbox.setAttribute("data-note", "EXS");
+  vbox.value = "we cannot promise that";
+  v.ev(`document.querySelectorAll = (sel) => (sel === "[data-note]" ? [document.getElementById("__note")] : []);`);
+  await v.ev('agentAutoDecide("EXS", "rejected")'); await settle();
+  /**
+   * ⚠ **ONE ROUTE FOR BOTH VERDICTS, AND MY OWN FIRST DRAFT LOOKED FOR A SECOND — the screen
+   * being right.** There is no `/api/agent/automation-reject`: the verdict rides in the BODY,
+   * which is what lets `agent.decide_automation_approval` hold "the first decision stands"
+   * whichever way it went. A separate route per verdict would be two doors into one
+   * write-once decision.
+   */
+  const dec = v.calls.filter((c) => c.path === "/api/agent/automation-approve");
+  assert.equal(dec.length, 1, `the decision never reached the route: ${JSON.stringify(v.calls.map((c) => c.path))}`);
+  assert.equal(dec[0].body.verdict, "rejected", `the verdict was not the one pressed: ${JSON.stringify(dec[0].body)}`);
+  /**
+   * ⚠ **AND THE FIELD IS `note` HERE WHERE THE STOP CALLS IT `reason` — which is the two
+   * database functions' own parameters and not an inconsistency to tidy.** `agent.cancel_run`
+   * takes `p_reason` and `agent.decide_automation_approval` takes a note; a screen that renamed
+   * either on the way out would be a spelling the function does not read. An assertion written
+   * from one door is therefore wrong about the other, which is what this line cost.
+   */
+  assert.equal(dec[0].body.note, "we cannot promise that",
+    `the person's reason for saying no did not reach the wire: ${JSON.stringify(dec[0].body)}`);
+});
+
 test("⚠ A WORKER THAT WAS ON IT IS SAID, AND ONE THAT WAS NOT IS NOT — recorded against stopped", async () => {
   /**
    * ⚠ **THE STOP IS WRITTEN SYNCHRONOUSLY, so the run reads Stopped the instant the route
