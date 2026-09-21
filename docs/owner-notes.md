@@ -155,6 +155,37 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The live edit test ran, and it did exactly what you asked
+
+**It worked.** On `fold-lane-bakery`, "Fed every morning since we opened" is now
+above "Today's bake", and I checked the live page myself afterwards rather than
+taking the test's word for it.
+
+**It took the cheap path.** The builder made the change with the small,
+minimal-patch writer and never fell back to the expensive rewrite — one model
+call, two and a half minutes. Your screen would have read **"✅ Updated /."**
+
+**Nothing else moved.** Both photographs on the front page are still there, the
+one on the Visit page is untouched, and the four other pages are unchanged. Only
+the page you asked about changed.
+
+**It cost 4 credits, and my estimate was wrong in one place.** Two for the edit,
+which is what I told you — plus **two for the routing call**, which I quoted as
+about 0.3. That figure in my notes was years-stale: routing follows whichever
+model you've picked now, and yours is Grok. **So the real cost of any message is
+the rung's price plus 2.** Balance is **101**; it was 105 before this ran.
+
+**One thing this test did NOT prove.** This site has no custom-built components,
+so the check for "a change must not quietly delete your components" had nothing
+to look at. It is untested, not passed — the harness says so itself rather than
+staying quiet about it. Proving that needs a site that has one.
+
+**Two presses before this one cost nothing**: the first died because I had
+broken the workflow (my bug, fixed), and the one you cancelled stopped before it
+touched anything.
+
+---
+
 ## 2026-09-21 — Merged and deployed; the two presses are yours
 
 Merged and deployed while you read this. **Deploy 2140 was green in 46

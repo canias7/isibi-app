@@ -402,7 +402,11 @@ which is live.
 `POST /api/site/react-build` (also `/api/site/build`, `/api/site/react-revise`) —
 auth-gated, idempotent, a slug claimed by whoever builds it first (409).
 
-1. **Route** (`/api/site/route`, Haiku, ~0.3 credits) — is this a build, a
+1. **Route** (`/api/site/route`, **2 credits MEASURED on run 9, 2026-09-21** —
+   the long-standing *"Haiku, ~0.3"* is STALE and was quoted to the owner as an
+   estimate before the run corrected it. **Every small call follows the picker**,
+   and the picker is grok; the ladder's per-rung prices do NOT include this, so
+   the real floor for any message is the rung's price PLUS the route) — is this a build, a
    question, a clarify round, or one of the cheap edit layers? **Every unclear
    case resolves to work, never to prose**: a wrong "build" is visible and
    undoable, a wrong "ask" is indistinguishable from the builder being broken.
@@ -1100,6 +1104,36 @@ before-record.
   uncommitted work — the 2026-09-16 trap): **five mutants killed, a
   comment-only control survived.**
 
+**RUN 9 (2026-09-21) IS THE PAGE RUNG'S TWEAK PROVEN LIVE, END TO END THROUGH
+ACTIONS WITH NO BROWSER CONSOLE.** `fold-lane-bakery`, *"Put the 'Fed every
+morning since we opened' section above 'Today's bake'."*
+
+- **THE TWEAK HELD** — `tweak: true`, so the cheap writer answered and nothing
+  fell through to the rewrite. **153.9 s** fire-to-terminal, ONE model call
+  (grok-4.6, **2,413 in / 1,230 out**), `files: 24`, `photos: 0`.
+- **THE ROUTER NAMED THE LAYER AND THE LANE PICKER NEVER RAN** — `intent=edit
+  layer=page page=/` and **`lanes: []`** on the merged reply. The prediction
+  beforehand was `shape` → `page`, off the picker's own prose (*"moving a band
+  up or down"*); the DESTINATION was right and the DOOR was not. **`lanes` is
+  empty whenever the router answers a layer directly**, so an empty `lanes` is
+  not evidence that no lane would have matched.
+- **THE ARITHMETIC CLOSES**: route 2 + rung 2 = **4**, and the balance moved
+  **105 → 101** exactly. That is what makes the routing correction a
+  measurement rather than an inference.
+- **PRESERVATION READ FROM THE PUBLICATION**: `/` photos **2 → 2** with its
+  order CHANGED as asked; `/gallery`, `/order`, `/the-starter`, `/visit` all
+  byte-equal in order and photographs (`/visit` **1 → 1**). **Only the page the
+  message named moved.** `photosKept` **absent**, which is the CORRECT outcome
+  for a clean reorder — nothing needed restoring, and the owner's own
+  correction on this file predicted it.
+- **CONFIRMED FROM OUTSIDE THE HARNESS**: the live page was fetched separately
+  afterwards and serves `Harbour Loaf | Fed every morning since we opened |
+  Today's bake | Order a loaf for collection`. The run's own claim and an
+  independent read agree.
+- **AND THE COMPONENTS HALF IS UNTESTED RATHER THAN PROVED** — this site stores
+  NO components, so `parts 0 → 0` establishes nothing, and the harness says so
+  in its own output instead of letting the silence read as a pass.
+
 **AND A SESSION CANNOT PRESS THE BUTTON.** Every paid harness is
 `workflow_dispatch` only; a dispatch needs GitHub's **`actions: write`**, and
 the session's App does not have it — the MCP tool and a direct REST POST both
@@ -1472,7 +1506,7 @@ express the change. Cheapest first:
 | `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
 | `logo` | the header logo or tab icon — stored as that mark's `image` form | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
-| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 |
+| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+2 route** |
 | `addon` | a real page rewrite | ~25 |
 
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
@@ -3460,8 +3494,10 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 119** at run 52's end (2026-09-20, read by the harness at both
-ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
+build. **Balance 101** at run 9's end (2026-09-21, read by the canary at both ends:
+105 → 101). It was 119 at run 52's end on 2026-09-20 and **14 went somewhere
+this session did not spend** — the free press read 105 before anything paid ran,
+which is exactly the reading a stale line cannot give you. `GET /api/fal-balance` answers fal's, separately and free.
 
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance. Look at the wrong row
