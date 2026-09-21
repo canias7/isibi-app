@@ -29,6 +29,10 @@ import { editBrowserReply } from "./addon-sweep.mjs";
 // file is a script with top-level await that spends money, so a test cannot
 // import it to reach a function — see the header of `canary-watch.mjs`.
 import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport } from "./canary-watch.mjs";
+// THE READ-ONLY LOOKUP. Its own module for the same reason: the decisions it
+// makes about billing and about what the old watch would have seen are worth
+// driving, and they cannot be reached through a script that spends money.
+import { readJobRecords, describeJob } from "./canary-read-job.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -48,9 +52,16 @@ const EXPECT_IMAGE = String(process.env.EXPECT_IMAGE || "").trim();
 // WHERE THE EVIDENCE GOES. A directory the workflow uploads, so the whole
 // before/after record is readable without a browser or a developer console.
 const EVID = String(process.env.CANARY_EVIDENCE_DIR || "docs/edits/canary").trim();
+// READ ONE EXISTING JOB AND STOP. Set, everything below the sign-in is skipped
+// — see the branch above the preflight.
+const READ_JOB = String(process.env.CANARY_READ_JOB || "").trim();
 
-if (!EMAIL || !SERVICE_KEY || !CANARY) {
-  console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and CANARY_SLUG are required");
+// THE READ MODE DOES NOT NEED A SLUG, and demanding one would be a false
+// demand with a real cost: the job row CARRIES its slug, so asking the caller
+// to name one invites them to name the wrong one, and a lookup of a job on
+// another site would be refused for a reason that has nothing to do with it.
+if (!EMAIL || !SERVICE_KEY || (!CANARY && !READ_JOB)) {
+  console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and CANARY_SLUG are required (CANARY_SLUG is not needed with CANARY_READ_JOB)");
   process.exit(1);
 }
 
@@ -105,6 +116,43 @@ const check = (name, ok, detail) => {
   if (!ok) failed++;
 };
 const hex32 = () => Array.from({ length: 32 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+
+// ── READ ONE EXISTING JOB, AND THEN STOP ───────────────────────────────────
+//
+// A mode, not a flag beside the others: it EXITS, so nothing below it runs.
+// `backend-repair.mjs` argues the same shape — "a flag beside `--apply` would
+// be a two-field invariant, and a forgotten flag fails OPEN" — and the failure
+// this one is guarding against is the expensive direction: a lookup that also
+// dispatched an edit.
+//
+// IT SITS ABOVE THE PREFLIGHT ON PURPOSE. The preflight's own reads are
+// harmless GETs, but what makes the read-only claim checkable is the LINE it
+// stops at rather than the harmlessness of each thing past it. Everything
+// below — the routing call, the POST, the watch, the inventory, the browser —
+// is unreachable from here.
+if (READ_JOB) {
+  console.log(`READ-ONLY — job ${READ_JOB}\n`);
+  const rec = await readJobRecords({
+    job: READ_JOB,
+    // TWO GETTERS AND NOTHING ELSE. The method is bound HERE, so the module
+    // has no verb to reach for: it cannot route, edit, replay, cancel or
+    // retry, because none of those is in scope for it. A promise in a comment
+    // would be the weaker form of the same claim.
+    sb: async (path) => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: svc });
+      const rows = await r.json().catch(() => null);
+      return { status: r.status, rows: Array.isArray(rows) ? rows : [] };
+    },
+    poll: () => call("GET", `/api/site/edit/${encodeURIComponent(READ_JOB)}`),
+  });
+  const account = describeJob(rec);
+  console.log(account);
+  mkdirSync(EVID, { recursive: true });
+  writeFileSync(`${EVID}/job-${READ_JOB}.json`, JSON.stringify(rec, null, 2));
+  writeFileSync(`${EVID}/job-${READ_JOB}.txt`, account + "\n");
+  console.log(`\nwritten to ${EVID}/job-${READ_JOB}.{json,txt}`);
+  process.exit(rec.row ? 0 : 1);
+}
 
 // ── PREFLIGHT: WHICH CODE IS ANSWERING, AND IS IT READY ────────────────────
 //

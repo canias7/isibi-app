@@ -214,13 +214,24 @@ question rather than writing a story around it.
 `fa4fef0ff88b4d0a2bb3cb79be44004f` needs the building account's token, which
 lives as a GitHub Actions secret — a session can't read it. Everything above
 comes from the run's own log and uploaded artifact, which I could download.
+**The reader is built now** — see "Reading an existing job" below — and the
+press is yours.
 
 ### What the run does still establish
 
-Balance **77 → 75** — the routing call only, the edit was never billed. And
-nothing published: eleven hours later the site still serves the build run 11
-made this morning (version stamp `01789972018761`, minted 06:26:58Z). So your
-box still counts up, and none of the three corrections was exercised.
+Balance **77 → 75 — a net movement of 2, and that is all a balance can say.**
+
+**⚠ I first wrote "the routing call only, the edit was never billed", and you
+were right that it doesn't follow.** A net of 2 fits a routing call of 2. It
+fits equally well a routing call of 2 beside an edit that was charged 20 and
+refunded 20 — and those are two different things that need two different next
+steps. The records that separate them are the job row's own `billing` field and
+the ledger rows filed under the job, and nothing had ever read either.
+
+What is unaffected: nothing published. Eleven hours later the site still serves
+the build run 11 made this morning (version stamp `01789972018761`, minted
+06:26:58Z). So your box still counts up, and none of the three corrections was
+exercised.
 
 ### The fix
 
@@ -243,10 +254,101 @@ source. 5 mutants killed, comment-only control survived. Suite 7,090.
 
 **No re-run pressed, nothing deployed, no product code touched.**
 
+### Reading an existing job — built, not pressed
+
+The **edit canary** workflow has a new box, **`read_job`**. Put a job id in it
+and press Run: it signs in with the credentials the workflow already uses,
+reads that job's row, the ledger rows filed under it and the trace rows from
+the same site and window, prints one account and **stops**. It ignores every
+other box, spends nothing and changes nothing.
+
+**It can't do anything else, and that is the design rather than a promise.**
+The lookup is handed two readers — one Supabase read and one poll read — so it
+holds no way to send anything. There is no route, no edit, no replay, no
+cancel and no retry anywhere in its reach, and it exits *above* the part of the
+harness that can spend. A test checks that: no transport in the file, and none
+of the four write verbs.
+
+**And a leftover `spend: yes` can't ride along with it.** If the job box is
+filled in, the workflow sends `spend` as off — settled there so the script
+never sees both at once. That pairing was the only way this could have cost
+money.
+
+**Press it with:**
+
+| box | value |
+|---|---|
+| **Use workflow from** | **`claude/help-needed-ehlwlj`** — not `main` |
+| `read_job` | `fa4fef0ff88b4d0a2bb3cb79be44004f` |
+| everything else | leave as is |
+
+**The branch matters and it is the first thing to get wrong.** GitHub reads the
+form's boxes from the workflow file on whichever branch you pick, and it runs
+the script from there too. On `main` there is no `read_job` box yet and no read
+mode in the script, so the run would fall through to the ordinary free checks —
+harmless, and not what you pressed for.
+
+It will answer, for that job: its state and phase, its timestamps, its
+`billing` field, the reply it stored (status, body, and the sentence a customer
+would have read), the ledger rows with their amounts — and whether the old
+watch would have ended on that stored reply or polled straight past it, which
+is the 576-second question.
+
+**Two things it will NOT answer, said now rather than after the press:**
+
+1. **The instruction that was submitted.** The request body is kept in R2 under
+   the job's own key, which is reachable only from inside the Worker — no
+   database read and no existing route gets to it, and building one would be a
+   product change. For *this* job it doesn't matter: the run's own log shows the
+   instruction box was empty, so what was sent is already established.
+2. **Which trace row is this job's.** The trace table is keyed by its own id
+   and has no job column, so the rows come back as candidates from the same
+   site and time window. If two edits ran on `fretwork-1` inside that window
+   they are not distinguishable — the account says so rather than picking one.
+
+20 new tests, 5 mutants killed, comment-only control survived. Suite **7,110**.
+
+### The places-left retry — prepared, not dispatched
+
+Same workflow, the paid half. Every box filled in, nothing pressed:
+
+| box | value |
+|---|---|
+| **Use workflow from** | **`claude/help-needed-ehlwlj`** |
+| `spend` | `yes` |
+| `instruction` | `On the home page, show how many places are left for each lesson slot rather than how many are already booked.` |
+| `site` | `fretwork-1` |
+| `control` | `washhouse-3` |
+| `read_job` | **leave empty** — it would turn this into a free lookup |
+| `expect_deploy` | `3b555acf09de5e078ef6e7930ea041a32824bbba` |
+| `expect_image` | `6b14851c0cd0c1c1` |
+
+**Those two are valid right now and stop being valid the moment anything
+merges to main.** `main` is still at `3b555acf`, unmoved since run 13 — and run
+13 is where both numbers come from: it read them *live off the Worker and off a
+cold container*, not off a deploy log, which is the difference between the
+platform answering and a deploy reporting on itself. The image `6b14851c0cd0c1c1`
+is what deploy 2142 rolled to. **If you merge this branch before pressing,
+re-read them first** — a stale pair refuses the run, which is the safe
+direction and still a wasted press. Leaving both blank also works: the run
+reads and prints both identifiers, it just won't refuse on a mismatch.
+
+**What this one is for, kept narrow:** run 14 never sent this request, so how
+it routes is still unknown. It may land on `page` (a section calculating
+differently from data it already has) or on `rules` (the database enforcing
+something new) — that distinction is exactly what the router fix earlier today
+addressed, and this sentence is the one that tests it. **I am not promising a
+layer**; the router stays under test.
+
+**I cannot press it, and that hasn't changed.** The paid workflows are
+run-by-hand only, and this session's GitHub app can read Actions but not start
+them — so both of these are yours to press.
+
 ## 2026-09-21 — The paid retry never finished, and the scary line in its report was my own instrument
-**⚠ SUPERSEDED BY THE ENTRY ABOVE — kept for the record, and wrong in two
-places: the run did not submit the places-left request, and the harness could
-not establish that anything stalled.**
+**⚠ SUPERSEDED BY THE ENTRY ABOVE — kept for the record, and wrong in three
+places: the run did not submit the places-left request, the harness could not
+establish that anything stalled, and "the edit was never billed" does not
+follow from a net balance movement.**
 
 **The short version: it cost 2 credits, nothing published, and the one alarming
 thing in the output turned out to be the harness rather than the product.**

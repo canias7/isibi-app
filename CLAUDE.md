@@ -1446,8 +1446,17 @@ which is a claim about the JOB made from a fact about the HARNESS.
   reads identically for a completed failure, a lost job and a watch that
   stopped looking.
 
-**WHAT THE RUN DOES ESTABLISH.** Balance **77 → 75, moved 2** — the routing
-call alone; the edit was never billed. Nothing published: at **20:40:27Z**, 11.4
+**WHAT THE RUN DOES ESTABLISH.** Balance **77 → 75, moved 2** — **a NET
+deduction of 2 and nothing more** (corrected 2026-09-21, owner). ⚠ This first
+read *"the routing call alone; the edit was never billed"*, and **a before/after
+balance cannot establish that**: a net of 2 is equally consistent with a routing
+call of 2, and with a routing call of 2 beside an edit charged 20 and refunded
+20. **The two need different next steps** — one is a run that stopped before it
+spent, the other is a run that spent and reversed — so collapsing them is the
+same shape as every other cannot-tell-read-as-a-value in this file. **What
+separates them is `edit_jobs.billing` and the `credit_events` rows, neither of
+which anything here had ever read**; the read mode below exists for exactly that
+and has not been pressed. Nothing published: at **20:40:27Z**, 11.4
 hours later, the live site still serves **`x-site-version: 01789972018761`**,
 minted **06:26:58.761Z**, inside run **11**'s window (06:21:38 → 06:30:36Z).
 `mintVersion` runs BEFORE the compile, so a late publish would carry a version
@@ -1472,6 +1481,80 @@ NOT COMPARABLE TO A CURL** — two instruments, two numbers.
   GitHub Actions secret; a session cannot read it. The log and the artifact are
   what this account is built on, and they are enough for everything above and
   not enough for the 576-second question.
+  **THE READER IS BUILT AND THE PRESS IS THE OWNER'S** — `edit-canary.yml`'s
+  `read_job` input, below.
+
+### THE READ-ONLY JOB LOOKUP (2026-09-21)
+
+`CANARY_READ_JOB` is a MODE on the existing canary, not a flag beside the
+others: it signs in, reads the job's row, the ledger rows naming it and the
+trace candidates, prints one account, writes it to the evidence directory and
+**EXITS ABOVE THE PREFLIGHT** — so the routing call, the edit POST, the watch
+and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
+
+- **THE BOUND IS STRUCTURAL AND NOT A PROMISE.** The module is handed exactly
+  two readers — a Supabase GET and a poll GET — so it has no transport of its
+  own and no verb to reach for. Asserted as a census over blanked comments: no
+  `fetch(`, no `node:https`, and none of `POST`/`PUT`/`PATCH`/`DELETE` occurs
+  in it. **⚠ THE POLL ROUTE'S OWN `DELETE` IS A CANCEL**, which is why the
+  method is bound at the call site rather than passed in.
+- **A READ-JOB DISPATCH BEATS A STALE `spend`, AND IT IS SETTLED IN THE
+  WORKFLOW.** `CANARY_SPEND` is `inputs.read_job == '' && inputs.spend ==
+  'yes'`, so the two can never both be live on the wire — a `spend: yes` left
+  in the form from the previous press is not a second request, and that pairing
+  is the only way this mode could cost money.
+- **`billing` IS THE FIELD THAT ANSWERS THE MONEY QUESTION**, and its five
+  states are the check constraint's own list: `none` is the only one that
+  licenses *"never charged"*; `refunded` means **charged and reversed**;
+  `reserved` means held and unsettled. **A sixth value is a schema change and
+  answers `charged: null`** with the value NAMED — never the most reassuring
+  branch.
+- **THE LEDGER IS MATCHED ON THE JOB ID INSIDE THE REF** (`ref=like.*<job>*`),
+  because `debitRef` names each debit `<…>:<job>:<step>`: an equality match
+  finds none of them and a prefix match finds none of the suffixed ones.
+- **A FAILED LEDGER READ IS NAMED, NEVER FOLDED INTO "NO ROWS"** — the two
+  answer identically as `[]` and only one of them licenses a claim about money.
+- **`edit_traces` HAS NO JOB COLUMN**, so its rows are found by slug and time
+  window and are reported as **CANDIDATES rather than a join**; a second edit
+  on the same site inside the window is indistinguishable.
+- **THE SUBMITTED INSTRUCTION IS NOT REACHABLE AND THE ACCOUNT SAYS SO.**
+  `worker.js` stores the whole request body in R2 at `editJobKey(<job>)`, which
+  is a Worker binding — no Supabase read and no existing route reaches it.
+  Recovering it would need a new owner route, which is a product change.
+- **EVIDENCE**: `test/canary-read-job.test.mjs`, **20 cases**, the decisions
+  DRIVEN over injected stores and the wiring a census. **5 mutants killed, a
+  comment-only control survived** (each mutant restores one defect: the ledger
+  reading a net zero as never charged, a failing stored reply reading as one
+  the old watch would have ended on, a failed ledger read folding into no-rows,
+  the mode not exiting, and a stale spend arming the paid half).
+  **⚠ THE CONTROL'S FIRST ANCHOR NEVER APPLIED** — it carried a `── ` the real
+  comment does not have — and a control that did not apply is a check with no
+  control. Re-run with the anchor COUNTED first (1 before, 1 after), it
+  survived. This file's own recorded trap, met while writing the check for
+  another one.
+
+**THE PLACES-LEFT RETRY IS PREPARED AND NOT DISPATCHED.** `edit-canary.yml`,
+`spend: yes`, `site: fretwork-1`, `control: washhouse-3`, `read_job` EMPTY, and
+the instruction *"On the home page, show how many places are left for each
+lesson slot rather than how many are already booked."* — the ask run 14 was
+pressed for and never sent.
+
+- **`expect_deploy=3b555acf09de5e078ef6e7930ea041a32824bbba` and
+  `expect_image=6b14851c0cd0c1c1`, VALID AS OF NOW.** `origin/main` is unmoved
+  at `3b555acf`, and both numbers are run 13's own LIVE readings off
+  `/api/site/build-health` rather than a deploy log — the platform answering,
+  not Wrangler reporting on itself. **A merge invalidates them**, and a stale
+  pair refuses the run: the safe direction, and still a wasted press.
+- **⚠ THE DISPATCH MUST NAME THE BRANCH.** GitHub reads a `workflow_dispatch`
+  form's inputs from the file on the SELECTED ref and, with an unpinned
+  checkout, runs that ref's script — so a dispatch from `main` offers no
+  `read_job` box and carries no read mode, and falls through to the ordinary
+  free checks. Harmless and not what was pressed for.
+- **NO LAYER IS PROMISED.** Run 14 never sent this sentence, so how it routes
+  is unknown; `page` and `rules` are both live readings of it and the
+  display-versus-enforcement fix earlier today is exactly what it tests. **A
+  routing prediction is a prediction about WORDING** and this file's standing
+  rule is that a live run settles it and nothing else does.
 
 ### THE HARNESS PATCH RUN 14 BOUGHT (2026-09-21)
 
@@ -4120,10 +4203,15 @@ landed text IS the written text.
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 75** at run 14's end (2026-09-21, read by the canary at both
-ends: 77 → 75, moved 2 — the routing call alone, on a run whose outcome the
-harness could not read; see run 14 below). Run 12 ended at 77 (79 → 77,
-moved 2 — again the routing call alone, on a message that escalated
-`no-backend` and published nothing). Run 11 ended at 79 (101 → 79, moved 22)
+ends: 77 → 75, **a NET movement of 2**, on a run whose outcome the harness
+could not read; see run 14 below). **⚠ A NET MOVEMENT IS NOT A CHARGE
+HISTORY** (owner, 2026-09-21): 2 is equally consistent with a routing call of 2
+and with a routing call of 2 beside an edit charged 20 and refunded 20, and
+only `edit_jobs.billing` and the `credit_events` rows separate them. **Every
+figure on this line is a net reading** and the same caution applies to all of
+them. Run 12 ended at 77 (79 → 77, net 2) — and **that one has a second,
+stronger reader**: its terminal body states `cost: 0` for the edit in the
+route's own words, which a balance cannot. Run 11 ended at 79 (101 → 79, net 22)
 and run 9 at 101 (105 → 101, moved 4). It was 119 at run 52's end on
 2026-09-20 and **14 went somewhere this session did not spend** — run 9's free
 press read 105 before anything paid ran, which is exactly the reading a stale
@@ -4225,6 +4313,12 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
+- **Unit suite: 7,110 LOCALLY, and the CI half of THAT reading is UNREAD** —
+  `# tests 7110 / # pass 7110 / # fail 0 / # skipped 0`, `duration_ms 112,947`,
+  taken 2026-09-21 on the read-only job lookup. **The +20 is the difference
+  between two measured readings**: `test/canary-read-job.test.mjs` arriving
+  with twenty cases. **Say which half is taken** — a local number beside an
+  unread CI run is ONE reading.
 - **Unit suite: 7,090, BOTH HALVES TAKEN** (2026-09-21, the run-14 harness
   corrections) — locally `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`,
   `duration_ms 117,987`, and CI run **`35655515164` on `c0dcd60e`** at

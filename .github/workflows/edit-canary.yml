@@ -42,8 +42,21 @@ on:
         description: 'What to change. REQUIRED when spend=1 — there is no default, and a blank one refuses.'
         required: false
         default: ''
+      read_job:
+        # A MODE, NOT A FLAG. Filled in, the script signs in, reads that job's
+        # row, its ledger rows and its trace candidates, and EXITS — above the
+        # preflight, so the routing call, the edit POST, the watch and the
+        # browser are all unreachable. It spends nothing and writes nothing,
+        # and `spend` is ignored while it is set.
+        #
+        # It exists because run 14's write-up said the edit "was never billed"
+        # on the strength of the balance moving by 2, which is a net reading
+        # and cannot tell a routing call of 2 from a charge of 20 refunded.
+        description: 'READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes nothing, and ignores every input below.'
+        required: false
+        default: ''
       site:
-        description: 'The site to edit. Defaults to the canary site; name another to run this against it.'
+        description: 'The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.'
         required: false
         default: 'fretwork-1'
       control:
@@ -135,7 +148,12 @@ jobs:
           CANARY_SLUG: ${{ github.event.inputs.site || 'fretwork-1' }}
           # A second site, used only to prove the other half of the shape.
           CONTROL_SLUG: ${{ github.event.inputs.control || 'washhouse-3' }}
-          CANARY_SPEND: ${{ github.event.inputs.spend == 'yes' && '1' || '0' }}
+          # THE READ MODE WINS OVER `spend`, AND IT IS SETTLED HERE RATHER THAN
+          # IN THE SCRIPT so the two can never both be live on the wire. A
+          # dispatch filling in a job id has asked for a lookup; a `spend: yes`
+          # left over from the previous press is not a second request.
+          CANARY_READ_JOB: ${{ github.event.inputs.read_job }}
+          CANARY_SPEND: ${{ github.event.inputs.read_job == '' && github.event.inputs.spend == 'yes' && '1' || '0' }}
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}

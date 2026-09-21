@@ -1,0 +1,177 @@
+// READ ONE EXISTING EDIT JOB AND ITS RECORDS. Nothing else.
+//
+// ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+//
+// Run 14's write-up said the edit "was never billed" on the strength of the
+// balance moving 77 → 75 — the routing call's 2 — and that is an inference the
+// number cannot support. **A net movement of 2 is equally consistent with a
+// routing call of 2 and an edit that was charged 20 and refunded 20.** The
+// ledger is what separates them and nothing here had ever read it.
+//
+// ── WHAT IT MAY DO, AND THE BOUND IS THE POINT ─────────────────────────────
+//
+// READ-ONLY, AND NOT BY DISCIPLINE. It is handed exactly two readers — a
+// Supabase GET and a poll GET — so there is nothing in scope to POST with. It
+// cannot route, cannot edit, cannot replay, cannot cancel and cannot retry,
+// because none of those verbs is reachable from what it was given. A promise
+// in a comment would be the weaker form of the same claim.
+//
+// ⚠ THE POLL ROUTE'S OWN `DELETE` IS A CANCEL, so this only ever sends GET —
+// and `edit-canary.mjs` hands it a reader already bound to the method.
+
+/**
+ * WHAT `billing` MEANS, AND IT IS THE ONE FIELD THAT ANSWERS THE MONEY
+ * QUESTION DIRECTLY.
+ *
+ * `edit_jobs.billing` is constrained to exactly these five, so an unknown
+ * value is a schema change rather than a case to guess at — and it says so
+ * rather than falling into the most reassuring branch.
+ */
+export function billingMeans(billing) {
+  switch (String(billing || "")) {
+    case "none": return { charged: false, refunded: false, says: "no reservation was ever taken — this job never reached a paid rung" };
+    case "reserved": return { charged: true, refunded: false, says: "a reservation was taken and never finalized — the money is held, not settled" };
+    case "finalized": return { charged: true, refunded: false, says: "the edit was CHARGED and the charge stands" };
+    case "refunded": return { charged: true, refunded: true, says: "the edit WAS charged and the charge was reversed" };
+    case "exempt": return { charged: false, refunded: false, says: "exempt — a founder account takes no debit and writes no row" };
+    default: return { charged: null, refunded: null, says: `unrecognised billing state ${JSON.stringify(billing)} — the schema moved; do not guess` };
+  }
+}
+
+/**
+ * THE LEDGER IS THE AUTHORITY, AND THE BALANCE IS NOT.
+ *
+ * `credit_events` carries one row per movement with its own `ref`, `reason`,
+ * `delta` and `balance_after`. Summing the deltas for a job's refs answers
+ * what a before/after balance reading structurally cannot: **whether the net
+ * zero was no charge at all, or a charge and its reversal.**
+ */
+export function ledgerVerdict(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return { rows: 0, debits: 0, refunds: 0, net: 0, charged: false, refunded: false, says: "no ledger rows name this job — nothing was debited under it" };
+  let debits = 0, refunds = 0;
+  for (const r of list) {
+    const d = Number(r && r.delta);
+    if (!Number.isFinite(d)) continue;
+    if (d < 0) debits += -d; else refunds += d;
+  }
+  const net = refunds - debits;
+  return {
+    rows: list.length, debits, refunds, net,
+    charged: debits > 0,
+    refunded: refunds > 0,
+    says: debits > 0 && refunds >= debits
+      ? `CHARGED ${debits} AND REFUNDED ${refunds} — the net of ${net} is not the same as never charged`
+      : debits > 0
+        ? `charged ${debits}${refunds ? `, of which ${refunds} was refunded` : ", with no refund"}`
+        : "credited only — no debit is recorded under this job",
+  };
+}
+
+/**
+ * DID THE JOB ANSWER, AND DID THE OLD WATCH IGNORE IT?
+ *
+ * The question run 14 left open. A stored reply at a NON-2xx status under the
+ * final header is precisely the shape the old loop — `if (q.status === 200)` —
+ * polled straight past, so this states the answer rather than leaving it to a
+ * reader to assemble.
+ *
+ * IT REFUSES TO ANSWER WITHOUT THE STATUS. "There is a result" and "the result
+ * had a failing status" are different claims, and a missing `result.status`
+ * makes only the first available.
+ */
+export function oldWatchWouldHaveSeen(row) {
+  const res = row && row.result;
+  if (!res || typeof res !== "object") return { settled: false, says: "no stored reply on the row — nothing the old watch could have ignored" };
+  const st = Number(res.status);
+  if (!Number.isFinite(st)) return { settled: false, says: "a stored reply exists but carries no readable status — cannot say what the old watch would have done" };
+  if (st >= 200 && st < 300) return { settled: true, ignored: false, status: st, says: `the stored reply is ${st} — the old watch WOULD have ended on it` };
+  return { settled: true, ignored: true, status: st, says: `the stored reply is ${st} — the old watch tested \`status === 200\` and polled past a COMPLETED answer` };
+}
+
+/**
+ * Read the job and everything filed against it.
+ *
+ * `sb(path)` performs one Supabase REST GET and answers `{status, rows}`;
+ * `poll()` performs one owner-session GET of the poll route and answers
+ * `{status, headers, json, text}`. Both are INJECTED, which is what makes this
+ * drivable and what makes the read-only bound structural.
+ */
+export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 1000 }) {
+  const out = { job, row: null, poll: null, traces: [], ledger: [], notes: [] };
+
+  const jr = await sb(`edit_jobs?id=eq.${encodeURIComponent(job)}&select=*`);
+  if (!jr || jr.status !== 200) { out.notes.push(`edit_jobs read failed (${jr && jr.status})`); return out; }
+  out.row = (jr.rows || [])[0] || null;
+  if (!out.row) { out.notes.push("no edit_jobs row with that id — the job never existed, or it has been pruned"); return out; }
+
+  // THE LEDGER, MATCHED ON THE JOB ID INSIDE THE REF. `debitRef` names each
+  // debit `<something>:<job>:<step>`, so a prefix match would miss the step
+  // suffix and an equality match would miss every one of them.
+  const lr = await sb(`credit_events?ref=like.*${encodeURIComponent(job)}*&select=*&order=at.asc`);
+  if (lr && lr.status === 200) out.ledger = lr.rows || [];
+  else out.notes.push(`credit_events read failed (${lr && lr.status})`);
+
+  // THE TRACE IS KEYED BY `cid`, NOT BY JOB ID — so it is found by the site and
+  // the job's own time window, and that is a JOIN THIS SCHEMA CANNOT MAKE
+  // EXACTLY. Whatever comes back is reported as candidates rather than as
+  // "this job's trace", because a second edit on the same site inside the
+  // window would be indistinguishable.
+  if (out.row.slug && out.row.created_at) {
+    const from = new Date(out.row.created_at).toISOString();
+    const to = new Date(new Date(out.row.updated_at || out.row.created_at).getTime() + traceWindowMs).toISOString();
+    const tr = await sb(`edit_traces?slug=eq.${encodeURIComponent(out.row.slug)}&ended_at=gte.${from}&ended_at=lte.${to}&select=*&order=ended_at.asc`);
+    if (tr && tr.status === 200) out.traces = tr.rows || [];
+    else out.notes.push(`edit_traces read failed (${tr && tr.status})`);
+    out.notes.push("edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join");
+  }
+
+  if (poll) {
+    const p = await poll();
+    const h = (p && p.headers) || {};
+    let fin;
+    for (const k of Object.keys(h)) if (String(k).toLowerCase() === "x-gf-edit") { fin = h[k]; break; }
+    out.poll = { status: p && p.status, final: fin || null, body: (p && p.json) || null, text: (p && p.text) || "" };
+  }
+
+  // THE STORED INSTRUCTION IS NOT IN ANY OF THESE. `worker.js` puts the whole
+  // request body in R2 under `editJobKey(jobId)`, and R2 is a Worker binding —
+  // no Supabase read and no existing route reaches it. Said out loud, because
+  // an absence the reader has to notice is the shape this repo keeps meeting.
+  out.notes.push("the submitted instruction is stored in R2 at editJobKey(<job>) and is NOT reachable from here — it would need a new owner route, which is a product change");
+
+  return out;
+}
+
+/** One printable account, so the workflow log carries the whole answer. */
+export function describeJob(rec) {
+  const L = [];
+  const r = rec.row;
+  if (!r) { L.push(`no record for ${rec.job}`); for (const n of rec.notes) L.push("  note: " + n); return L.join("\n"); }
+  L.push(`JOB ${rec.job}`);
+  L.push(`  slug        ${r.slug}   op ${r.op}`);
+  L.push(`  state       ${r.state}${r.phase ? "  phase " + r.phase : ""}${r.needs_review ? "  NEEDS REVIEW" : ""}`);
+  L.push(`  created     ${r.created_at}`);
+  L.push(`  updated     ${r.updated_at}`);
+  L.push(`  publish     started ${r.publish_started_at || "-"}   published ${r.published_at || "-"}`);
+  L.push(`  lease       owner ${r.lease_owner || "-"}  expires ${r.lease_expires_at || "-"}  beat ${r.heartbeat_at || "-"}`);
+  const bill = billingMeans(r.billing);
+  L.push(`  billing     ${r.billing}  cost ${r.cost}  ->  ${bill.says}`);
+  if (r.error) L.push(`  error       ${JSON.stringify(r.error)}`);
+  const res = r.result || null;
+  L.push(`  result      ${res ? `status ${res.status} type ${res.type || "-"}` : "NONE STORED"}`);
+  if (res && typeof res.body === "string") L.push(`  body        ${res.body.slice(0, 700)}`);
+  const seen = oldWatchWouldHaveSeen(r);
+  L.push(`  old watch   ${seen.says}`);
+  const led = ledgerVerdict(rec.ledger);
+  L.push(`  LEDGER      ${led.says}`);
+  for (const e of rec.ledger) L.push(`    ${e.at}  ${e.kind}  ${e.reason}  delta ${e.delta}  after ${e.balance_after}  ref ${e.ref}`);
+  if (rec.poll) L.push(`  poll        HTTP ${rec.poll.status}  x-gf-edit: ${rec.poll.final || "(absent)"}`);
+  for (const t of rec.traces) {
+    L.push(`  trace ${t.cid}  ended ${t.ended_at}  ms ${t.ms}  ok ${t.ok}  failed_phase ${t.failed_phase || "-"}${t.err_name ? "  " + t.err_name : ""}`);
+    if (t.err_msg) L.push(`    err       ${t.err_msg}`);
+    if (Array.isArray(t.events)) L.push(`    events    ${t.events.map((e) => `${e.p}:${e.s}@${e.ms}`).join(" ")}`);
+  }
+  for (const n of rec.notes) L.push("  note: " + n);
+  return L.join("\n");
+}
