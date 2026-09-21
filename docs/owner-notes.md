@@ -380,6 +380,33 @@ charged*, and the trace read would crash the printer outright. Three more
 mutants killed with a control surviving, and both files restored byte for
 byte afterwards.
 
+### ⚠ And the ledger's own transaction lines were never printing
+
+You caught this one too. The account has two parts: a summary sentence
+(*"charged 20 and refunded 20"*) and, under it, **one line per movement** —
+when it happened, what kind, the amount, the balance after, and the reference
+it was filed under. The second part never appeared.
+
+The printer only lists those lines when the ledger is marked readable, and the
+branch that handles **a ledger with rows in it** forgot to set that mark. The
+two branches that do set it are the refusal and the empty read — *both of which
+have nothing to list* — so no output ever looked wrong.
+
+The effect: on the one case that has transactions, you would have got the
+summary sentence and nothing beneath it. That is backwards for what this lookup
+is for — the summary already gives the amounts; the lines are the only thing
+that says **which reference moved and when**, which is how a reserve
+(`<job>#1`) is told from a refund (the bare job id).
+
+Fixed, and the test asserts the lines really print — both of them, field by
+field, with the summary line as a control so the check can't pass over an empty
+account. It was verified by putting the fault back: exactly that one test goes
+red, and nothing else.
+
+**And I should have seen it before you did.** I ran a demonstration of what the
+press would print, fed it two ledger rows, and the output listed neither — I
+generated the evidence and didn't read it.
+
 ### The places-left retry — prepared, not dispatched
 
 Same workflow, the paid half. Every box filled in, nothing pressed:

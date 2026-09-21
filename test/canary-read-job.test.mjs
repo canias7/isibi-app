@@ -395,6 +395,40 @@ test("no ledger ROWS are listed under a refusal", async () => {
   assert.doesNotMatch(out, /delta -20/, "a row printed under a refusal reads as evidence");
 });
 
+// ── ⚠ AND ITS POSITIVE TWIN, WHICH IS WHERE THE DEFECT ACTUALLY WAS ────────
+//
+// The refusal case above asserts the rows are NOT printed, and it passed for
+// the wrong reason: `ledgerVerdict`'s non-empty branch never set `readable`,
+// so it was `undefined`, and `describeJob` gates the per-transaction lines on
+// it. The rows were absent under a refusal AND absent under a clean read —
+// the "no rows under a refusal" assertion was true of every ledger there is.
+//
+// So the two cases are a PAIR: one proves the lines are withheld when the read
+// failed, this proves they are printed when it answered. Neither is worth
+// anything alone.
+
+test("a readable ledger PRINTS its transaction lines, one per row", async () => {
+  const ledger = [
+    { at: "2026-09-21T09:02:14Z", kind: "reserve", reason: "edit", delta: -20, balance_after: 57, ref: "JOBID#1" },
+    { at: "2026-09-21T09:11:48Z", kind: "refund", reason: "ours", delta: 20, balance_after: 77, ref: "JOBID" },
+  ];
+  const rec = await readJobRecords({ job: "JOBID", sb: store({ ledger }).sb });
+  assert.equal(rec.ledgerRead.ok, true);
+  assert.equal(ledgerVerdict(rec.ledger, rec.ledgerRead).readable, true, "a read that answered is readable whatever it found");
+
+  const out = describeJob(rec);
+  assert.match(out, /CHARGED 20 AND REFUNDED 20/, "the summary line is the control — without it the scan below proves nothing");
+
+  // EVERY FIELD, BECAUSE THE SUMMARY ALREADY CARRIES THE AMOUNTS. What only a
+  // transaction line can give is WHICH ref moved WHEN and to what balance —
+  // the reserve's `<job>#1` against the refund's bare `<job>`, which is the
+  // whole reason the query is a `like` and not an equality.
+  const lines = out.split("\n").filter((l) => /^ {4}\S/.test(l));
+  assert.equal(lines.length, 2, `expected one line per ledger row, got ${lines.length}`);
+  assert.match(lines[0], /2026-09-21T09:02:14Z\s+reserve\s+edit\s+delta -20\s+after 57\s+ref JOBID#1/);
+  assert.match(lines[1], /2026-09-21T09:11:48Z\s+refund\s+ours\s+delta 20\s+after 77\s+ref JOBID/);
+});
+
 test("the poll is optional and its final header is read case-insensitively", async () => {
   const rec = await readJobRecords({
     job: "JOBID", sb: store().sb,

@@ -88,6 +88,17 @@ export function ledgerVerdict(rows, read) {
     rows: list.length, debits, refunds, net,
     charged: debits > 0,
     refunded: refunds > 0,
+    // ⚠ `readable` IS A PROPERTY OF THE READ, NEVER OF THE ROW COUNT, and this
+    // branch omitted it — so it was `undefined`, and `describeJob` gates the
+    // per-transaction lines on it. The one case that HAS rows to list was the
+    // one case that never listed them: every `at / kind / reason / delta /
+    // balance_after / ref` line silently absent, leaving the summary sentence
+    // as the whole of the money evidence with nothing under it to audit.
+    //
+    // It survived because the two branches that DO set it are the two with
+    // nothing to print, so no output ever looked wrong — and the shape demo
+    // that would have shown it was generated and not read.
+    readable: true,
     says: debits > 0 && refunds >= debits
       ? `CHARGED ${debits} AND REFUNDED ${refunds} — the net of ${net} is not the same as never charged`
       : debits > 0

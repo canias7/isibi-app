@@ -1534,6 +1534,27 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   facts, two sentences. **`ledgerRead` fails CLOSED** (it opens as `not read`),
   and **no rows are printed under a refusal** — rows in hand do not rescue a
   read that did not answer.
+  **⚠ AND THAT LAST RULE WAS TRUE OF EVERY LEDGER THERE IS, WHICH MADE IT
+  WORTHLESS (owner, 2026-09-21).** `describeJob` gates the per-transaction
+  lines on `readable`, and `ledgerVerdict`'s NON-EMPTY branch never set it —
+  the refusal branch says `false`, the empty branch says `true`, and the one
+  branch with rows to list left it `undefined`. **So the only case that has
+  transactions was the only case that never printed them**: every
+  `at / kind / reason / delta / balance_after / ref` line silently absent,
+  leaving the summary sentence as the whole of the money evidence with nothing
+  under it to audit — which is the opposite of this instrument's point, since
+  the summary carries the amounts and only a transaction line carries WHICH
+  ref moved WHEN. `readable` is a property of the READ and never of the row
+  count. **The two cases are a PAIR and neither is worth anything alone**: the
+  refusal case proves the lines are withheld, and *"a readable ledger PRINTS
+  its transaction lines, one per row"* proves they arrive — asserted field by
+  field on both rows, with the summary line as the control.
+  **⚠ THE SHAPE DEMO THAT WOULD HAVE SHOWN IT WAS GENERATED AND NOT READ.** A
+  three-shape driver was run over `describeJob` to show what the press would
+  print; shape 1 passed two ledger rows and its output listed none, and the
+  absence went straight past. *An instrument's output is evidence only once
+  somebody reads it* — the same failure as reporting a count nobody
+  re-measured, one layer out.
 - **THE JOB'S OWN `billing` FIELD AND THE LEDGER ARE PRINTED AS TWO LINES THAT
   NEVER BORROW FROM EACH OTHER**, and that is what makes a disagreement a
   finding. **DRIVEN**: under a failed ledger read the account still prints
@@ -4401,6 +4422,12 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
+- **Unit suite: 7,119 LOCALLY, and the CI half of THAT reading is UNREAD at the
+  moment of writing** (2026-09-21, the unprinted transaction lines) —
+  `# tests 7119 / # pass 7119 / # fail 0 / # skipped 0`, `duration_ms 111,953`.
+  **The +1 is the difference between two measured readings**, 7,118 → 7,119:
+  the one case asserting a readable ledger prints a line per row. **Say which
+  half is taken**; the stamp is completed once the run is read.
 - **Unit suite: 7,118, BOTH HALVES TAKEN** (2026-09-21, the reader's own wiring
   hole) — locally `# tests 7118 / # pass 7118 / # fail 0 / # skipped 0`,
   `duration_ms 112,388`, and CI run **`35666256160` on `e7f0e82f`** at
