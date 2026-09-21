@@ -3393,14 +3393,19 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,048 LOCALLY and the CI half UNREAD** (2026-09-21). The eight
-  are this round's own: five tweak-rung cases, the `sameProse` bypass census,
-  and the two scoped-wording cases — **stated as the difference between two
-  measured readings**, 7,040 → 7,048, never arithmetic off a paragraph.
-  **⚠ AND THIS LOCAL RUN READ `# skipped 0` WHERE EVERY ONE BEFORE IT READ 4** —
-  a sandbox difference rather than anything this change did, and the reason
-  **THE TOTAL IS THE ONLY COMPARABLE NUMBER**: a `pass` count drifts between
-  the two machines by exactly those four, and now the skip count drifts too.
+- **Unit suite: 7,048, BOTH HALVES TAKEN** (2026-09-21) — locally, and CI run
+  **`35554760170` on `38d934a2`** at **`# tests 7048 / # pass 7044 / # fail 0
+  / # skipped 4`**. The eight are this round's own: five tweak-rung cases, the
+  `sameProse` bypass census, and the two scoped-wording cases — **stated as the
+  difference between two measured readings**, 7,040 → 7,048, never arithmetic
+  off a paragraph.
+  **⚠ AND THE LOCAL RUN READ `# skipped 0` WHERE CI READ 4 — MEASURED ON THIS
+  VERY PAIR, and it is the cleanest demonstration this file has of why THE
+  TOTAL IS THE ONLY COMPARABLE NUMBER.** Every earlier local run read 4 as
+  well, so the sandbox moved rather than the suite; `pass` differed by exactly
+  those four (7,048 against 7,044) while the totals were equal. A stamp
+  comparing `pass` would have reported a four-test regression that does not
+  exist.
   The reading before it had both halves at **7,040** — locally, and CI run
   **`35547698419` on `9a56cacc`** at **`# tests 7040 / # pass 7036 / # fail 0
   / # skipped 4`**. The two readings before that also agreed both ways: **7,038**
