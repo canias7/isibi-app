@@ -8545,7 +8545,35 @@ real PostgreSQL and the real engine.
   which is the same state a deploy leaves behind, and the old doorbell is asserted EMPTY first
   so nothing is held open across it.
 
-### ⚠ THREE PRODUCT DEFECTS, each reproduced before it was fixed
+### ⚠ FOUR PRODUCT DEFECTS, each reproduced before it was fixed
+
+**⚠ AND THE COUNT WAS WRONG IN THE FIRST DRAFT OF THIS ENTRY: it read THREE**, because
+journey 2's was fixed in its own commit and the M15 span had no entry here until now, so I
+counted the ones whose notes I was carrying rather than the ones the round found. Counted from
+the commits instead. **The one it left out is the worst of the four.**
+
+**0. PRESSING APPROVE ON A `send` STEP ANSWERED THE WRONG DOOR — 200 OK, AND NOTHING SENT,
+FOR EVER.** A `Wait for approval` STEP and a `send` step store a pause that is byte-identical
+in shape, and they are answered by two DIFFERENT functions: a step's decision goes to
+`agent.decide_automation_approval`, keyed by the run and the step; a send is gated by a TOOL
+approval bound to its payload's hash and answered by `agent.decide_tool_approval`, keyed by the
+request's own id. **The history draws ONE Approve button for both and it sent the step's
+decision.** Measured on a real PostgreSQL: `200 ok`, a decision written into `decisions.s3`
+where nothing reads it, the run requeued, and it paused at **the same step again** — with the
+tool request still waiting and the mailbox empty. **A dead control that ANSWERS, and answers
+`ok`**, which is this repository's own worst-named shape of that finding.
+
+**THE FIX IS THE PAUSE NAMING THE REQUEST THAT ANSWERS IT**, in three layers: the engine writes
+`waiting.request`, `executionRow` projects it, and `agentAutoDecide` presses `tool-approve` with
+it and `automation-approve` otherwise. **It is the request's ID rather than a flag because the
+tool door needs exactly that value** — the two mechanisms do not even number their steps the
+same way (the pause's is `"s3"`, the request's is the index `2`), so nothing could match them
+without a mapping. **Absent means the automation's own door**, which is right for every approval
+step and is what every pause written before the engine carried the field already did.
+
+**AND ITS FIX IS WHAT BROKE THE TOKEN GUARD** — the section below has that, and the two together
+are one lesson: a browser found a defect no route test could, and fixing it falsified a guard
+whose premise was a spelling.
 
 **1. AN EVENT-STARTED EXECUTION READ "Run now", IN TWO LAYERS.** `executionRow` answered
 `r?.trigger === "schedule" ? "schedule" : "manual"`, so a webhook delivery's own execution —
