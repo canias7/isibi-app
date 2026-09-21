@@ -3735,14 +3735,30 @@ separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,052 LOCALLY, and the CI half of this reading is UNREAD** —
-  `# tests 7052 / # pass 7052 / # fail 0 / # skipped 0`, taken 2026-09-21 after
-  the edit-canary work. The four are this round's own, all in
-  `test/edit-canary.test.mjs`: the sha floor, the two preflight eligibilities,
-  the derived control expectation and the unreadable-control arm — **stated as
-  the difference between two measured readings**, 7,048 → 7,052. **Say which
-  half is taken**: a local number beside an unread CI run is one reading, not
-  two, and the pair below is what two halves looks like.
+- **Unit suite: 7,053 LOCALLY, and the CI half of this reading is UNREAD** —
+  `# tests 7053 / # pass 7053 / # fail 0 / # skipped 0`, `duration_ms 111,174`,
+  taken 2026-09-21 on `c2085045` (run 11's docs). **The docs commit moved the
+  total by ZERO, measured rather than assumed**: the same suite run in a
+  worktree at its parent `4e2c076a` answers `# tests 7053` as well.
+  **⚠ AND THAT PAIR IS THE CLEANEST DEMONSTRATION THIS FILE HAS OF *THE TOTAL
+  IS THE ONLY COMPARABLE NUMBER* — sharper than the local-vs-CI one below,
+  because both halves are the SAME SESSION minutes apart.** The worktree read
+  **`pass 7051 / skipped 2`** and the main checkout **`pass 7053 / skipped 0`**:
+  **same total, different split**, so a stamp comparing `pass` would have
+  reported a two-test regression that does not exist. The two that skip are an
+  ENVIRONMENT difference (the worktree's linked `node_modules`), exactly as the
+  local-vs-CI four are — *the sandbox moves, the suite does not.*
+  **⚠ AND THE +1 AGAINST THE PREVIOUS LOCAL READING OF 7,052 IS UNEXPLAINED AND
+  PREDATES THIS COMMIT.** 7,052 was taken earlier the same day after the
+  edit-canary work (`# tests 7052 / # pass 7052 / # fail 0 / # skipped 0`, the
+  four being that round's own cases in `test/edit-canary.test.mjs`, 7,048 →
+  7,052). Every commit between it and `4e2c076a` is docs-only, and the two
+  tests that PARSE `docs/owner-notes.md` read **31/31 on both sides**, so the
+  docs are ruled out as the cause. **It is recorded as unexplained rather than
+  reconciled**, which is the only honest option: a count nobody can attribute
+  is not a count to argue from. **Say which half is taken**: a local number
+  beside an unread CI run is one reading, not two, and the pair below is what
+  two halves looks like.
 - **Unit suite: 7,048, BOTH HALVES TAKEN** (2026-09-21) — locally, and CI run
   **`35554760170` on `38d934a2`** at **`# tests 7048 / # pass 7044 / # fail 0
   / # skipped 4`**. The eight are this round's own: five tweak-rung cases, the
