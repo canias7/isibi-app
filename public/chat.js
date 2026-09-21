@@ -10019,17 +10019,92 @@ function editOutcomes(e) {
       ' no longer on the site. If that was not what you wanted, say “put the ' +
       (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
   }
+  // ── AND A RUNG THAT DID NOT LAND, IN ITS OWN WORDS ─────────────────────
+  //
+  // ⚠ `partial` HAD NO READER ANYWHERE IN THIS FILE, and my own change is
+  // what made that matter. The merge has written it for weeks — one entry per
+  // rung that tried and failed — and nothing rendered it, so a message whose
+  // second half did not happen opened with a green tick and said nothing
+  // about the half that did not.
+  //
+  // MEASURED through the real route: "take the window photo off and rewrite
+  // the cards", where the picture rung succeeds and the page rung WITHHOLDS a
+  // photograph it could not put back, came back as
+  // `"✅ Took the picture off “the window”."` and nothing else. The site was
+  // correct — the bench survived, the window went, the withheld half
+  // published nothing — but the customer had no way to know half their
+  // sentence was refused.
+  //
+  // THE SERVER'S OWN SENTENCE, VERBATIM, which is what `lookNote`, `cssNote`
+  // and the refusal branch all already do: the rung is the only side that
+  // knows why it stopped. **NOT** re-composed here from `error`, which would
+  // be a second copy of every refusal's wording in a second language.
+  //
+  // ⚠ AND IT OPENS WITH A WARNING, inside a reply whose first character is a
+  // green tick. Part of what was asked did not happen; a clause that reads
+  // like the rest of the success line is the silent partial one sentence
+  // longer.
+  const stopped = Array.isArray(e.partial) ? e.partial : [];
+  const said = stopped.map(function (p) { return p && typeof p.msg === 'string' ? p.msg.trim() : ''; }).filter(Boolean);
+  if (said.length) {
+    out += ' ⚠️ ' + said.slice(0, 2).join(' ');
+    // BOUNDED, AND THE REMAINDER IS COUNTED RATHER THAN DROPPED. A message
+    // can run several rungs, and three refusals pasted end to end is a wall
+    // of text; a silent drop is the defect this clause exists to close.
+    if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
+  } else if (stopped.length) {
+    // A RUNG THAT FAILED WITHOUT A SENTENCE IS STILL SAID. `msg` is optional
+    // on that record, and *nothing at all* is the outcome this whole clause
+    // is about — so the count goes out even when the words did not.
+    out += ' ⚠️ ' + (stopped.length === 1 ? 'One part' : stopped.length + ' parts') +
+      ' of that message didn’t go through. Ask for ' + (stopped.length === 1 ? 'it' : 'them') + ' again on ' +
+      (stopped.length === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
+  }
   return out;
 }
 
+/**
+ * ONE READING OF AN EDIT REPLY, AND `partial` REACHES IT FROM EVERY BRANCH.
+ *
+ * ⚠ THE WRAPPER IS 2026-09-20 AND IT CLOSES A SILENT PARTIAL. `editReplyBody`
+ * has ELEVEN branches, one per layer, and a message that runs several rungs
+ * lands on whichever layer SUCCEEDED — so a rung that failed beside it was
+ * reported on `partial` and rendered by nobody. `editOutcomes` was called
+ * from two of the eleven, which covered the case the previous round drove
+ * (`layer: "look"`, several page rungs) and nothing else.
+ *
+ * MEASURED through the real route: "take the window photo off and rewrite the
+ * cards" — the picture rung succeeds, the page rung WITHHOLDS a photograph it
+ * could not put back — answered `layer: "picture"`, and the screen read
+ * `"✅ Took the picture off “the window”."` with no mention of the half that
+ * was refused. The SITE was right (the bench survived, the window went,
+ * nothing was published for the withheld half); the sentence was not.
+ *
+ * SO THE OUTCOMES ARE APPENDED ONCE, ABOVE THE SWITCH, and the two branches
+ * that appended them themselves no longer do. Every clause inside is absent
+ * on a reply that does not carry its field, so every other branch's sentence
+ * is byte-identical to what it was — the widening costs nothing where there
+ * is nothing to say, which is what makes one hop safer than eleven.
+ *
+ * ⚠ THE RECOVERED REPLY IS EXEMPT, because it is not an outcome at all: a job
+ * that committed and died has no layer, no pages and no fields, and appending
+ * to its sentence would be describing work nobody can read.
+ */
 function editReply(e) {
-  // THE SWEEP'S REPLY, BEFORE ANY LAYER (stage 2a, 2026-09-05). A job that
-  // committed and died before storing its reply is finalized by the sweep
-  // with `{ ok, recovered }` and nothing else: no layer, no pages, no words.
-  // Read past this, the switch below would say '✅ Done.' — true, and not
-  // the half the customer needs, which is that the details were lost. The
-  // decision lives in edit-poll.js so a test can drive it.
   if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
+  return editReplyBody(e) + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+}
+
+function editReplyBody(e) {
+  // ⚠ THE SWEEP'S REPLY IS ANSWERED IN THE WRAPPER ABOVE, not here (moved
+  // 2026-09-20). A job that committed and died before storing its reply is
+  // finalized with `{ ok, recovered }` and nothing else: no layer, no pages,
+  // no words. Read past that, the switch below would say '✅ Done.' — true,
+  // and not the half the customer needs, which is that the details were
+  // lost. It sits in the wrapper because the recovered sentence must not
+  // gain the outcome clauses either: there is nothing to say about a change
+  // whose record is gone. A SECOND copy here would be unreachable — the
+  // wrapper has already returned — and dead by construction.
   if (e.layer === 'text') {
     // NAMES WHAT IT NOW SAYS. "Updated the wording in 3 places" is a number the
     // owner cannot check — the same class as the two silent partials this file
@@ -10173,7 +10248,7 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
-    return out + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+    return out;
   }
   if (e.layer === 'logo') {
     // THE SERVER'S OWN SENTENCE. It is the only side that knows whether the
@@ -10245,7 +10320,7 @@ function editReply(e) {
     // edits and everything else that shares a sentence with them. Without
     // these the withheld component, the protected photograph and the empty
     // frame were all on the wire and none of them on the screen.
-    return out + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+    return out;
   }
   return '✅ Done.';
 }

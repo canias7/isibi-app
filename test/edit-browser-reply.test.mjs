@@ -68,7 +68,13 @@ test("the function list is the whole scope, and a sentence outside it throws rat
     if (seen.has(name)) return;
     seen.add(name);
     const body = bodyOf(name);
-    assert.ok(body.length > 200 && body.length < 40000, "re-derive " + name + "'s window: " + body.length + " bytes");
+    // A SANITY BOUND ON THE CUT, not a size claim. The floor catches a `\n}`
+    // that closed at a NESTED brace and left a fragment; the ceiling catches
+    // one that never closed. ⚠ LOWERED 2026-09-20: `editReply` is a 194-byte
+    // WRAPPER now — it appends the outcomes once and hands the switch to
+    // `editReplyBody` — and a floor of 200 reported that correct refactor as
+    // a broken landmark. A real member of this closure can be one line.
+    assert.ok(body.length > 100 && body.length < 40000, "re-derive " + name + "'s window: " + body.length + " bytes");
     for (const m of body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
       if (!declared.has(m[1]) || m[1] === name) continue;
       need.add(m[1]);

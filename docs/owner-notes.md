@@ -225,6 +225,20 @@ so the scope fix was never exercised in the direction that matters; one
 refusal sentence had no case at all; and nothing had ever put a photograph
 back into a *section*. Three new cases, and all three mutants now die.
 
+**And one more I found myself, which is the same complaint a third time.**
+Making the builder refuse a change opened a new way for it to go quiet. On a
+message with two parts — *"take the window photo off and rewrite the cards"* —
+the photo half succeeds and the card half is refused, and the screen said
+**only** *"✅ Took the picture off 'the window'."* Your site was right either
+way (the bench stayed, the window went, the refused half published nothing),
+but you would have had no idea half your sentence was turned down.
+
+The cause is the same shape you sent back before: the reply has eleven
+different sentences, one per kind of change, and the warnings were being
+added to two of them. They are added once now, above all eleven, so it does
+not matter which half of a message succeeds. The refused half's own sentence
+is printed under a ⚠️, inside a reply that opens with a tick.
+
 **Not proven live.** Nothing here has run against a real site — no paid run,
 no merge, no deploy.
 

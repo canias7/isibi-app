@@ -560,6 +560,104 @@ test("an authorised removal takes the one it names and keeps the one it does not
   } finally { c.uninstall(); }
 });
 
+test("a rung that WITHHELD beside a rung that shipped still reaches the screen", async () => {
+  // ⚠ THE SILENT PARTIAL MY OWN REFUSAL MADE REACHABLE, and it is the third
+  // round of exactly one complaint: *"the new warnings disappear in
+  // multi-step edits."*
+  //
+  // REPRODUCED before the fix. The picture rung clears the window and
+  // succeeds; the page rung finds a loss it cannot put back and refuses. One
+  // rung succeeded, so `merged.layer` is `"picture"` — and `editReply` had
+  // ELEVEN layer branches with the outcome clauses called from TWO of them.
+  // The refusal's sentence went onto `partial`, which had no reader anywhere
+  // in `chat.js`, and the screen read `"✅ Took the picture off “the
+  // window”."` and stopped.
+  //
+  // THE SITE WAS RIGHT EITHER WAY — the bench survived, the window went, the
+  // withheld half published nothing — which is what makes this a REPORTING
+  // defect and exactly the kind that ships unnoticed.
+  const slug = "prot-partial";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      pick_lanes: { fields: ["images", "tsx"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      // The bench element is DELETED, so the restoration cannot reach it and
+      // the page rung withholds.
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
+    }, async () => {
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+
+      // (a) ONE RUNG SHIPPED AND ONE DID NOT, and the reply says so on the
+      //     field that carries it.
+      assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
+      assert.equal(body.layer, "picture",
+        "this case no longer lands on a branch that never composed the outcomes: " + body.layer);
+      assert.ok(Array.isArray(body.partial) && body.partial.length === 1,
+        "the withheld rung is not on `partial`: " + JSON.stringify(body.partial));
+      assert.equal(body.partial[0].layer, "page", "the wrong rung is reported as partial");
+      assert.equal(body.partial[0].error, "withheld", "the partial lost the refusal's name");
+
+      // (b) THE SITE IS CORRECT EITHER WAY, which is why only the screen can
+      //     catch this: the bench is still there and the window is gone.
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug)],
+        "the withheld half published anyway: " + JSON.stringify(pics(storedHome(store, slug), slug)));
+
+      // (c) AND THE CUSTOMER IS TOLD. The refusal's own sentence, verbatim,
+      //     under a warning inside a reply that opens with a green tick.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.startsWith("✅"), "the successful half is no longer reported: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("⚠️"), "the withheld half is not flagged: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("couldn't put it back safely"),
+        "the refusal's own sentence never reached the screen: " + JSON.stringify(said.text));
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a rung that failed WITHOUT a sentence is counted rather than dropped", async () => {
+  // ⚠ THE OTHER ARM OF THE PARTIAL CLAUSE, and a red check found it undriven:
+  // cutting it SURVIVED, because every case here gives its failing rung a
+  // `msg`. It is reachable in the product — `escalate(...)` answers
+  // `{ok:false, escalate:true, reason, cost:0}` and carries NO sentence at
+  // all, and so does a body the route could not read.
+  //
+  // *NOTHING AT ALL* IS THE OUTCOME THIS WHOLE CLAUSE EXISTS TO CLOSE, so a
+  // failure with no words still has to leave a mark. The count goes out even
+  // when the sentence did not, with an instruction that gets the customer the
+  // reason: ask for that part on its own.
+  const slug = "prot-wordless";
+  const store = bucket(slug, { parts: [] });
+  const c = installCompiler();
+  try {
+    await withWire({
+      pick_lanes: { fields: ["images", "tsx"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      // THE MODEL RETURNS NO PAGE, which is `escalate("no-page-back")` — a
+      // refusal with a reason and no prose.
+      [SITE_PAGES_TOOL.name]: { pages: [], parts: [] },
+    }, async () => {
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
+      assert.ok(Array.isArray(body.partial) && body.partial.length === 1,
+        "the failed rung is not on `partial`: " + JSON.stringify(body.partial));
+      assert.equal(body.partial[0].msg, undefined,
+        "this case's premise is a failure with NO sentence, and it has one: " + JSON.stringify(body.partial[0]));
+
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.includes("⚠️"), "a wordless failure left no mark at all: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("One part of that message didn’t go through"),
+        "the wordless failure is not counted: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("on its own"),
+        "the customer is told a part failed and not how to find out why: " + JSON.stringify(said.text));
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
 test("a loss the restoration cannot reach is withheld, not published", async () => {
   // THE DEFECT, REPRODUCED THROUGH THE ROUTE. Owner: *"`keepPhotos` restores
   // empty `src` only when the description still matches. Deleting the

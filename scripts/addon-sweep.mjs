@@ -781,7 +781,7 @@ export function browserReply(reply, httpOk) {
  */
 export const EDIT_BROWSER_FNS = Object.freeze([
   "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "editOutcomes",
-  "renderTail", "alsoTail", "editReply", "applyEditResult", "escalatedEdit", "editAnswer",
+  "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit", "editAnswer",
 ]);
 
 /**

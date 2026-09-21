@@ -1718,14 +1718,41 @@ at.
   unreadable store publishes no components, so both sides empty is the reading
   that says *nothing moved*.
 - **⚠ AND THE WARNINGS DID NOT SURVIVE THE MERGE AT ALL.** `merged.layer` is
-  `"look"` whenever more than one rung ran, and `editReply`'s look branch read
-  none of `keptParts`, `unseenParts`, `photosRemoved` or `photos` — **the
+  `"look"` whenever more than one rung SUCCEEDED, and `editReply`'s look branch
+  read none of `keptParts`, `unseenParts`, `photosRemoved` or `photos` — **the
   facts were on the wire the whole way and none of them on the screen**.
-  `editOutcomes` is ONE writer called from both branches (every field is
-  absent on an ordinary edit, so the sentence is byte-identical where they do
-  not apply), and the merge takes a **UNION**: the catch-all copies a key from
-  the FIRST body that has one and skips every later rung, so a second page
-  rung's withheld component could never arrive.
+  `editOutcomes` is ONE writer (every field is absent on an ordinary edit, so
+  the sentence is byte-identical where they do not apply), and the merge takes
+  a **UNION**: the catch-all copies a key from the FIRST body that has one and
+  skips every later rung, so a second page rung's withheld component could
+  never arrive.
+- **⚠ AND THE SAME COMPLAINT CAME BACK A THIRD TIME THROUGH THE FAILURE PATH
+  (2026-09-20).** `editOutcomes` was called from TWO of `editReply`'s ELEVEN
+  layer branches — the two the previous round drove — and a message that runs
+  several rungs lands on whichever layer SUCCEEDED. So a rung that FAILED
+  beside one that shipped was written to **`partial`, which had no reader
+  anywhere in `chat.js`**. **MEASURED through the real route**: "take the
+  window photo off and rewrite the cards", where the picture rung succeeds and
+  the page rung withholds a photograph it could not put back, answered
+  `layer: "picture"` and the screen read *"✅ Took the picture off “the
+  window”."* and stopped. **The SITE was right** — the bench survived, the
+  window went, the withheld half published nothing — **which is what makes it
+  a reporting defect and exactly the kind that ships unnoticed.**
+  **THE FIX IS ONE HOP, NOT ELEVEN**: `editReply` is a wrapper that appends
+  `editOutcomes` + `photoNote` + `problemNote` ONCE above the switch, and
+  `editReplyBody` holds the eleven branches. Every clause is absent on a reply
+  that does not carry its field, so every other branch's sentence is
+  byte-identical — *the widening costs nothing where there is nothing to say,
+  which is what makes one hop safer than eleven*. The recovered reply is
+  exempt: it has no layer, no pages and no fields. **The partial clause opens
+  with a warning inside a reply whose first character is a green tick**, and
+  prints the rung's **own sentence verbatim** (never re-composed from `error`,
+  which would be a second copy of every refusal's wording); over two it counts
+  the remainder, and a failed rung with **no** sentence is still counted —
+  *nothing at all* is the outcome the clause exists to close.
+  **AND THE HARNESS CAUGHT THE WIRING, AS DESIGNED**: `editReplyBody` was not
+  on `EDIT_BROWSER_FNS`, so the reader threw `editReplyBody is not defined`
+  and reported **NO** screen rather than a wrong one.
 - **⚠ A CHANGE A PROTECTION WITHHELD IS NOT A NO-CHANGE (2026-09-20, owner).**
   An oversized stored component, an unchanged page back and a replacement for
   the component the wall withheld: nothing differed, so the rung answered
@@ -3286,9 +3313,11 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,038 LOCALLY after the photo-protection corrections, and the
-  CI half of THAT number is untaken.** The reading before it had both halves
-  and they agreed: **7,033** locally and CI run **`35545181576` on
+- **Unit suite: 7,040 LOCALLY after the silent-partial fix, and the CI half of
+  THAT number is untaken.** The two readings before it had both halves and
+  both agreed: **7,038** locally and CI run **`35546983030` on `e0540f37`** at
+  **`# tests 7038 / # pass 7034 / # fail 0 / # skipped 4`**; before that
+  **7,033** locally and CI run **`35545181576` on
   `0523dfb1`** at **`# tests 7033 / # pass 7029 / # fail 0 / # skipped 4`** —
   the four being the privilege-drop case, two RTL cases and
   `site-searchpath`'s baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a
@@ -3296,9 +3325,10 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   and there the totals were equal, 7,033 both sides. The two before that:
   **7,026** on `903b5ea2` (CI run `35542140722` at `7,022 / 0 / 4`) and
   **7,005** on `2c596bc5` (CI run `35504473370` at `7,001 / 0 / 4`).
-  **THE +5 IS THREE NEW ROUTE CASES IN `edit-page-protect` PLUS TWO MORE**,
-  stated as the difference between two MEASURED readings rather than as
-  arithmetic off a paragraph; the +7 before it was that file arriving.
+  **EACH STEP IS THE DIFFERENCE BETWEEN TWO MEASURED READINGS**, never
+  arithmetic off a paragraph: 7,033 → 7,038 is five new route cases in
+  `edit-page-protect`, and 7,038 → 7,040 is the two the silent partial needed;
+  the +7 before all of them was that file arriving.
   **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND BECAME A
   MEASUREMENT, and only the second kind is worth anything** — it happened to
   have been right, which is exactly the case where a paragraph quietly turns
