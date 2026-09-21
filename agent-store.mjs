@@ -1587,11 +1587,36 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
     async executions(tenant, automationId, limit = MAX_EXECUTIONS) {
       const r = await req("GET",
         `automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +
-        `&select=id,automation_id,trigger,occurrence,steps,outcomes,missed,created_at,finished_at,` +
-        `position,vars,input,waiting,wait_until,decisions,` +
-        `run_status,run_stop&order=created_at.desc&limit=${Number(limit) || MAX_EXECUTIONS}`);
+        `&select=${EXECUTION_SELECT}&order=created_at.desc&limit=${Number(limit) || MAX_EXECUTIONS}`);
       if (!r.ok) throw storeFail("read executions", r);
       return rows(r).map(executionRow);
+    },
+
+    /**
+     * ONE NAMED EXECUTION OF ONE AUTOMATION, or `null`.
+     *
+     * ⚠ **IT EXISTS BECAUSE `MAX_EXECUTIONS` IS A PAGE AND AN ARRIVAL NAMES A RUN.** The
+     * history read answers the newest 50; an arrival recorded in March names a run that has
+     * long since fallen off it, and "open the run" that opened the newest page instead would
+     * put a different execution on screen as the target — which is the defect this closes.
+     *
+     * **THE TENANT AND THE AUTOMATION ARE BOTH IN THE FILTER**, which is what makes this
+     * safe to reach by id: a run of another account's automation, or of another automation of
+     * this account's, matches no row and answers `null` — the same answer an id that never
+     * existed gets, so nothing here can be used to find out which runs exist. The route above
+     * it has already asked `ownsAutomation`; this is the wall rather than a second opinion,
+     * because a filter the statement carries cannot be forgotten by a later caller.
+     *
+     * `null` is a real answer and the caller says so in words; it must never read as "here is
+     * a run" — that is the whole point of not falling back to anything.
+     */
+    async execution(tenant, automationId, runId) {
+      const r = await req("GET",
+        `automation_history?tenant_id=eq.${t(tenant)}&automation_id=eq.${automationId}` +
+        `&id=eq.${runId}&select=${EXECUTION_SELECT}&limit=1`);
+      if (!r.ok) throw storeFail("read execution", r);
+      const got = rows(r).map(executionRow);
+      return got.length ? got[0] : null;
     },
 
     /**
@@ -1706,6 +1731,19 @@ export const AGENT_NAME_RE = /^[a-z][a-z0-9_]{0,39}$/;
  * has been doing.
  */
 export const MAX_EXECUTIONS = 50;
+
+/**
+ * WHAT A HISTORY ROW CARRIES — named once, because two readers ask for it.
+ *
+ * `executions` reads the newest page and `execution` reads one named row, and the two have
+ * to answer the SAME shape or a run fetched by name would be missing fields the page's rows
+ * have and `executionRow` would fail closed on every one of them. Two copies of a column
+ * list is this repository's own recorded "two lists of the same thing", and the drift is
+ * silent: the row still renders, just with its state read off nothing.
+ */
+const EXECUTION_SELECT =
+  "id,automation_id,trigger,occurrence,steps,outcomes,missed,created_at,finished_at," +
+  "position,vars,input,waiting,wait_until,decisions,run_status,run_stop";
 
 /** How a trigger starts. `manual` is Run now only; `daily` also fires once a day. */
 export const AUTOMATION_SCHEDULES = Object.freeze(["manual", "daily", "weekly", "once"]);
@@ -5533,6 +5571,29 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
       if (!id) return no(400, "which automation?");
       if (!(await store.ownsAutomation(who, id))) return NO_AUTOMATION();
       const runs = await store.executions(who, id);
+      /**
+       * ⚠ **AND ONE NAMED RUN THAT THE NEWEST PAGE DOES NOT HOLD — because an arrival names
+       * an execution and the history is a page.**
+       *
+       * An inbound event records which runs it started; "open the run" hands that id back
+       * here. `store.executions` answers the newest `MAX_EXECUTIONS`, so an arrival from last
+       * month names a run that has fallen off the end — and a screen that opened the page
+       * anyway would put a DIFFERENT execution on screen as the one the arrival started.
+       *
+       * **APPENDED, never prepended, and that keeps the order honest.** The page is the
+       * newest 50 ordered `created_at.desc`, so anything outside it is older than every row
+       * in it; putting it last is where it belongs, and the list stays newest-first.
+       *
+       * **ASKED ONLY WHEN THE PAGE REALLY LACKS IT**, so the ordinary case — an arrival
+       * minutes old — costs exactly what it did before. A run that is not this automation's,
+       * or not this account's, answers `null` and is simply absent from the answer; the
+       * screen then says it could not be found rather than marking something else.
+       */
+      const want = cleanId(q.get("run"));
+      if (want && !runs.some((e) => e && e.id === want)) {
+        const one = await store.execution(who, id, want);
+        if (one) runs.push(one);
+      }
       /**
        * ⚠ **AND WHAT EACH WAITING SEND WOULD SEND, so nobody approves words they were never
        * shown.** See `withWaitingPayloads` for the defect; three things about this read.

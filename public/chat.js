@@ -2128,6 +2128,22 @@ let agentAutoCheck = null;
 let agentAutoRuns = null;      // the open automation's executions
 let agentAutoRunsFor = null;
 let agentAutoRunsErr = '';
+/**
+ * ⚠ **WHICH EXECUTION SOMEBODY ASKED TO BE SHOWN — `{of, run}`, never a bare id.**
+ *
+ * An arrival names a run AND its automation, and "open the run" hands both over. Holding only
+ * the run id would leak: `agentAutoRunsFor` moves on a Run now (which sets it and then reloads
+ * quietly), so a want left over from an arrival would mark a row in a DIFFERENT automation's
+ * history. Bound to the automation it is about, a want for anything else is ignored by
+ * construction — which is stronger than remembering to clear it at each of the doors.
+ */
+let agentAutoRunsWant = null;
+/**
+ * The three doors that close a history null it too, and that is TIDINESS RATHER THAN THE WALL:
+ * the `of` binding above is what makes a want for another automation unreadable, so a door
+ * added next month that forgets this line cannot mark the wrong row — it can only leave a dead
+ * id in memory. Both are kept because they say different things.
+ */
 
 /** How long to keep asking after a Run now, and how often. */
 const AUTO_WATCH_MS = 1500;
@@ -2192,6 +2208,50 @@ let agentWhActErr = '';
 let agentWhNew = false;        // whether the make-an-address form is open
 let agentWhDraft = null;
 let agentWhBusy = false;
+/**
+ * ⚠ **WHICH OPENING OF THE FORM THIS IS — a monotonic count, bumped in exactly one place.**
+ *
+ * `agentWhNew` is a boolean and cannot tell two openings apart, so an answer that landed after
+ * somebody cancelled and opened a NEW form passed every wall there was: same account, same
+ * agent, a form open — and it closed that form, threw away what had been typed into it, and
+ * put the OLD address's signing key on screen in its place. Counting the openings is what makes
+ * "the form this answer is about" a thing that can be asked. `agentAutoOpen` is the same fix on
+ * the automations form, for the same reason.
+ */
+let agentWhOpen = 0;
+/**
+ * ⚠ **AN ANSWER WHOSE FORM HAD MOVED ON — held, named, and never written over the newer one.**
+ *
+ * `{uid, agent, name, event, made, why}`, and exactly one of `made`/`why` is set because one
+ * request had one outcome.
+ *
+ * **`made` IS AN ADDRESS THAT REALLY EXISTS.** The request succeeded; the endpoint is live and
+ * takes deliveries whatever this screen went on to show. Its signing key came back in that one
+ * answer and comes back nowhere else, so dropping it silently would cost somebody a key for an
+ * address they now have and cannot sign for — they would have to find it, delete it and make
+ * another. It is offered instead, as a press.
+ *
+ * **`why` IS A REFUSAL ABOUT VALUES THAT ARE NO LONGER ON SCREEN.** Put into `agentWhActErr` it
+ * would be drawn over a form holding different words, blaming this address for the last one's
+ * problem; so it NAMES what it was about.
+ *
+ * **BOUND TO THE ACCOUNT AND THE AGENT, and read at DRAW time rather than only at write time.**
+ * That is what keeps a key from reaching another account: the notice is drawn only while the
+ * account that made it is signed in and that agent's addresses are open. **And it is memory and
+ * only memory** — not `localStorage`, not the URL, never logged, and a reload loses it, exactly
+ * as the panel below already promises.
+ *
+ * ⚠ **ONE SLOT IS ENOUGH, and that is a property rather than a hope**: Save is `disabled`
+ * while `agentWhBusy`, so two creates can never be in flight at once and a second hold can
+ * never overwrite a first one's key.
+ *
+ * ⚠ **IT IS NOT CLEARED BY THE NEXT SAVE PRESS, deliberately.** Two presses can make two
+ * addresses, and each has its own key that exists in its own one answer; dropping the held one
+ * because somebody made another would be exactly the harm this prevents, quietly. So a made
+ * address's offer outlives a later save, and the only things that end it are showing it,
+ * signing out and a reload.
+ */
+let agentWhHeld = null;
 /**
  * ⚠ **THE SECRET, HELD IN MEMORY FOR AS LONG AS THE SCREEN SHOWS IT AND NOWHERE ELSE.**
  *
@@ -2385,14 +2445,40 @@ async function agentAutoLoad(quiet) {
   renderAgents();
 }
 
-/** One automation's history, newest first. */
-async function agentAutoRunsLoad(id, quiet) {
+/**
+ * The wanted execution, but only while it is about the history that is open.
+ *
+ * ONE READER, so the URL that asks for it, the sentence that names it and the marker on its
+ * row cannot disagree about which run that is.
+ */
+function agentAutoWantedRun() {
+  const w = agentAutoRunsWant;
+  return w && w.of === agentAutoRunsFor ? w.run : '';
+}
+
+/**
+ * One automation's history, newest first.
+ *
+ * ⚠ **AND THE WANTED RUN IS ASKED FOR ON EVERY READ, not only the first.** A want outside the
+ * newest page is in the answer only because the route went and fetched it; a quiet reload —
+ * the watcher's, or the one after a Stop — that dropped `run=` would drop that row and its
+ * marker with it, so the run somebody pressed to see would vanish while they watched it.
+ */
+async function agentAutoRunsLoad(id, quiet, want) {
   const bound = agentBind();
   const forId = String(id || '');
   if (!forId) return;
-  if (!quiet) { agentAutoRuns = null; agentAutoRunsErr = ''; agentAutoRunsFor = forId; renderAgents(); }
+  if (!quiet) {
+    agentAutoRuns = null; agentAutoRunsErr = ''; agentAutoRunsFor = forId;
+    // A FRESH OPEN REPLACES THE WANT, so opening a history by hand never inherits the mark
+    // from an arrival somebody followed earlier.
+    agentAutoRunsWant = want ? { of: forId, run: String(want) } : null;
+    renderAgents();
+  }
+  const asked = agentAutoRunsWant && agentAutoRunsWant.of === forId ? agentAutoRunsWant.run : '';
   try {
-    const res = await apiFetch('/api/agent/automation-history?id=' + encodeURIComponent(forId));
+    const res = await apiFetch('/api/agent/automation-history?id=' + encodeURIComponent(forId) +
+      (asked ? '&run=' + encodeURIComponent(asked) : ''));
     const j = await res.json().catch(() => ({}));
     if (agentAutoRunsFor !== forId || bound.uid !== agentUid()) return;
     if (!res.ok || !j.ok) agentAutoRunsErr = (j && j.error) || 'Couldn’t load the history.';
@@ -2868,10 +2954,10 @@ function agentAutomations(id) {
   // ⚠ AND THE OTHER WAY ROUND — see `agentConnections`. No two screens over one conversation
   // can be open, and each clearing the others is what says so.
   agentConn = null; agentConnNew = false; agentConnDraft = null;
-  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhSecret = null;
+  agentWh = null; agentWhOpenForm(false);
   agentAuto = String(id || '');
   agentAutoOpenForm(null);
-  agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null;
+  agentAutoRows = null; agentAutoRuns = null; agentAutoRunsFor = null; agentAutoRunsWant = null;
   agentAutoLoad();
 }
 /**
@@ -2898,7 +2984,7 @@ function agentAutoBack() {
   agentAutoWatchStop();
   const back = agentAuto;
   agentAuto = null; agentAutoOpenForm(null);
-  agentAutoRunsFor = null; agentAutoRuns = null;
+  agentAutoRunsFor = null; agentAutoRuns = null; agentAutoRunsWant = null;
   // BACK TO THE CONVERSATION IT BELONGS TO, which is where this was opened from.
   if (back) agentOpen(back); else renderAgents();
 }
@@ -3013,12 +3099,17 @@ async function agentAutoExample() {
 function agentAutoEdit(id) { agentAutoWatchStop(); agentAutoOpenForm(id || ''); renderAgents(); }
 function agentAutoCancel() { agentAutoOpenForm(null); renderAgents(); }
 function agentAutoReload() { agentAutoLoad(); }
-function agentAutoHistory(id) {
+function agentAutoHistory(id, want) {
   agentAutoWatchStop();
   const target = String(id || '');
-  // A SECOND PRESS CLOSES IT, so the row is a toggle and not a one-way door.
-  if (agentAutoRunsFor === target) { agentAutoRunsFor = null; agentAutoRuns = null; renderAgents(); return; }
-  agentAutoRunsLoad(target);
+  // A SECOND PRESS CLOSES IT, so the row is a toggle and not a one-way door. ⚠ AND IT CLOSES
+  // WITHOUT REOPENING EVEN WHEN A RUN IS NAMED: a press is a press, and the want goes with
+  // the history it was about.
+  if (agentAutoRunsFor === target) {
+    agentAutoRunsFor = null; agentAutoRuns = null; agentAutoRunsWant = null;
+    renderAgents(); return;
+  }
+  agentAutoRunsLoad(target, false, want);
 }
 
 /** Add a step of one type, with the catalog's own fields empty. */
@@ -3700,7 +3791,9 @@ async function agentAutoDelete(id) {
     if (failed) agentAutoActErr = failed;
     else {
       agentAutoOpenForm(null);
-      if (agentAutoRunsFor === target) { agentAutoRunsFor = null; agentAutoRuns = null; }
+      if (agentAutoRunsFor === target) {
+        agentAutoRunsFor = null; agentAutoRuns = null; agentAutoRunsWant = null;
+      }
     }
   }
   await agentAutoLoad(true);
@@ -3726,7 +3819,7 @@ function agentConnections(id) {
   // ⚠ THE TWO SCREENS CLEAR EACH OTHER, so they cannot both be open — and the view switch
   // reads this one first, which is what makes that a property rather than a convention.
   agentAuto = null; agentAutoOpenForm(null);
-  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhSecret = null;
+  agentWh = null; agentWhOpenForm(false);
   agentConn = String(id || '');
   agentConnRows = null; agentConnCat = null; agentConnNew = false;
   agentConnDraft = null; agentConnActErr = '';
@@ -3868,6 +3961,40 @@ async function agentConnDisconnect(id) {
 const whBind = () => ({ uid: agentUid(), wh: agentWh });
 const whSame = (b) => !!b && b.uid === agentUid() && b.wh === agentWh;
 
+/**
+ * OPEN THE MAKE-AN-ADDRESS FORM, OR CLOSE IT — the single writer of whether it is open.
+ *
+ * ⚠ Every door goes through here so the OPENING COUNT cannot be forgotten by one of them, and
+ * a door added next month carries it by construction. The secret panel is closed too, which is
+ * what makes `webhooksHtml`'s "three states and no fourth" a property rather than a convention.
+ */
+function agentWhOpenForm(open) {
+  agentWhOpen++;
+  agentWhNew = !!open;
+  agentWhDraft = null;
+  agentWhActErr = '';
+  agentWhSecret = null;
+}
+
+/**
+ * ⚠ **IS THIS ANSWER STILL ABOUT WHAT IS ON SCREEN? Three questions, not one.**
+ *
+ * `whSame` asks about the account and the agent. This asks the two that were missing: is it the
+ * SAME OPENING of the form — a cancel and a reopen is a different form, however identical it
+ * looks — and are the values still the ones that were SUBMITTED. The second is what preserves
+ * newer typing in the same form: the address named in the answer was made from the old words, so
+ * closing the form and showing its key would take away the words somebody has since typed.
+ *
+ * The opening count alone would catch a cancel/reopen; the values alone would catch newer
+ * typing. Neither catches the other, so both are asked.
+ */
+function whFormSame(b) {
+  if (!whSame(b) || !b || b.open !== agentWhOpen) return false;
+  const d = agentWhDraft || { name: '', event: '' };
+  const sent = b.sent || { name: '', event: '' };
+  return d.name === sent.name && d.event === sent.event;
+}
+
 function agentWebhooks(id) {
   agentPollStop();
   // ⚠ THE THREE SCREENS CLEAR EACH OTHER, so no two can be open — and the view switch reads
@@ -3876,20 +4003,21 @@ function agentWebhooks(id) {
   agentConn = null; agentConnNew = false; agentConnDraft = null;
   agentWh = String(id || '');
   agentWhRows = null; agentWhEvents = null; agentWhEventsErr = '';
-  agentWhNew = false; agentWhDraft = null; agentWhActErr = '';
-  // ⚠ THE SECRET IS CLEARED ON THE WAY IN, so one agent's key can never be on screen while
-  // another agent's addresses are. It is the one value here that must not outlive its context.
-  agentWhSecret = null;
+  // ⚠ THE SECRET IS CLEARED ON THE WAY IN — `agentWhOpenForm` does it — so one agent's key can
+  // never be on screen while another agent's addresses are. It is the one value here that must
+  // not outlive its context. **And opening this screen is an OPENING**: reaching the same agent's
+  // addresses again closes any form that was open, so an answer still in flight for it has to
+  // know that, or it writes into a screen that has been round the houses since.
+  agentWhOpenForm(false);
   agentWhLoad();
 }
 function agentWhBack() {
   const back = agentWh;
-  agentWh = null; agentWhNew = false; agentWhDraft = null; agentWhActErr = '';
-  agentWhSecret = null;
+  agentWh = null; agentWhOpenForm(false);
   if (back) agentOpen(back); else renderAgents();
 }
-function agentWhNewOpen() { agentWhNew = true; agentWhDraft = null; agentWhActErr = ''; agentWhSecret = null; renderAgents(); }
-function agentWhCancel() { agentWhNew = false; agentWhDraft = null; agentWhActErr = ''; renderAgents(); }
+function agentWhNewOpen() { agentWhOpenForm(true); renderAgents(); }
+function agentWhCancel() { agentWhOpenForm(false); renderAgents(); }
 function agentWhReload() { agentWhLoad(); }
 /** Put the secret away. It is gone from everywhere once this runs — that is the point of it. */
 function agentWhSecretDone() { agentWhSecret = null; renderAgents(); }
@@ -3966,7 +4094,9 @@ async function agentWhEventsLoad(forAgent, bound) {
 async function agentWhSave() {
   agentWhFormRead();
   const d = agentWhDraft || {};
-  const bound = whBind();
+  // ⚠ **WHAT WAS SUBMITTED, AND WHICH OPENING OF THE FORM SUBMITTED IT**, beside the account and
+  // the agent. See `whFormSame`: those two were the missing halves.
+  const bound = { ...whBind(), open: agentWhOpen, sent: { name: d.name || '', event: d.event || '' } };
   const forAgent = agentWh;
   agentWhBusy = true; agentWhActErr = ''; renderAgents();
   let failed = '';
@@ -3982,14 +4112,79 @@ async function agentWhSave() {
     else secret = { id: j.id, name: j.name, event: j.event, path: j.path, secret: j.secret };
   } catch { failed = 'Couldn’t reach the server.'; }
   agentWhBusy = false;
-  // ⚠ AN ANSWER THAT LANDS AFTER THE SCREEN MOVED WRITES NOTHING — **including the secret**,
-  // which is the one value here where showing it on the wrong screen would be worse than
-  // losing it. The address exists either way and can be deleted and made again.
-  if (!whSame(bound) || agentWh !== forAgent) { renderAgents(); return; }
-  if (failed) { agentWhActErr = failed; renderAgents(); return; }
-  agentWhNew = false; agentWhDraft = null;
-  agentWhSecret = secret;
-  await agentWhLoad(true);
+  // WHAT IS IN THE BOXES RIGHT NOW, read off the DOM rather than off whatever the last
+  // keystroke happened to write: the question below is about the screen as it stands.
+  agentWhFormRead();
+
+  // ── THE ORDINARY PATH: the same form, still holding the words that were sent. ────────
+  if (whFormSame(bound)) {
+    if (failed) { agentWhActErr = failed; renderAgents(); return; }
+    // The opener closes the form AND clears the secret, so the secret is set after it.
+    agentWhOpenForm(false);
+    agentWhSecret = secret;
+    await agentWhLoad(true);
+    return;
+  }
+
+  /**
+   * ── SUPERSEDED: the form this answer is about is not the one on screen. ────────────
+   *
+   * ⚠ **NOTHING THAT BELONGS TO THE FORM IS TOUCHED.** Not `agentWhNew`, not `agentWhDraft`,
+   * not `agentWhActErr`: whatever somebody has since opened and typed is theirs, and this
+   * answer is about words that are no longer on the screen. That is the defect — a save, a
+   * cancel, a new form, and the first answer closed the new form, threw its draft away and put
+   * the old address's signing key up in its place.
+   *
+   * ⚠ **AND THE ANSWER IS STILL DEALT WITH HONESTLY, because an address was really made.**
+   * Dropping it silently would leave somebody with a live endpoint whose signing key existed in
+   * exactly one HTTP response and is now gone. It is HELD — in memory, bound to the account and
+   * the agent that made it — and offered as a press on that agent's own screen. A refusal is
+   * held the same way and NAMES what it was about, because drawn over the newer form it would
+   * read as that form's problem.
+   *
+   * The hold is keyed on the ACCOUNT, so an answer that came back after somebody signed in as
+   * somebody else is dropped here and never drawn: `bound.uid` is who asked.
+   */
+  if (bound.uid && bound.uid === agentUid()) {
+    agentWhHeld = {
+      uid: bound.uid,
+      agent: forAgent,
+      name: (secret && secret.name) || bound.sent.name,
+      event: (secret && secret.event) || bound.sent.event,
+      made: secret,
+      why: failed,
+    };
+  }
+  // The list is worth refreshing while this agent's addresses are still open — a made address
+  // belongs on it — and a quiet load redraws the form from the draft, which was preserved.
+  if (whSame(bound)) await agentWhLoad(true); else renderAgents();
+}
+
+/**
+ * DEAL WITH A HELD ANSWER, and that consumes the hold.
+ *
+ * ⚠ **ONE PRESS FOR BOTH OUTCOMES, because a refusal's button must not be a dead control.**
+ * A made address hands its key to the one panel that shows one; a refusal has nothing to show
+ * and the press is an acknowledgement, which is the whole of what it needs to be. A second
+ * action that only dismissed would be a button answering nothing.
+ *
+ * ⚠ **THE KEY GOES TO THE SAME ONE-TIME PANEL A SAVE USES, deliberately** — one place says
+ * the sentence about copying it now, so there is no second account of what that key is. The
+ * form underneath is untouched, so "I have copied it" comes back to whatever was being typed.
+ *
+ * **SHOWING IT IS SPENDING IT.** The panel's own contract is that a key is seen once; keeping
+ * the offer after it has been on screen would re-offer something already shown and leave a key
+ * in memory with nothing that ends it.
+ *
+ * **THE ACCOUNT AND THE AGENT ARE ASKED AGAIN HERE**, not only at draw time: the button that
+ * was drawn stays in the DOM until the next render, and a quiet reload can land in between.
+ */
+function agentWhHeldShow() {
+  const held = agentWhHeld;
+  if (!held || held.uid !== agentUid() || held.agent !== agentWh) return;
+  agentWhHeld = null;
+  if (held.made) agentWhSecret = held.made;
+  renderAgents();
 }
 
 /** Open or close one. Closing it stops deliveries being accepted at all. */
@@ -4054,17 +4249,25 @@ async function agentWhDelete(id) {
  * An execution is read through its AUTOMATION's history, so this leaves the addresses and
  * opens that automation with its history showing. `list_events` names both halves per run for
  * exactly this reason; a bare run id could not be opened from anywhere.
+ *
+ * ⚠ **AND BOTH HALVES ARE CARRIED, not just the automation — which is the defect this
+ * closes.** One arrival can start one run and two arrivals can start two runs of the SAME
+ * automation, so an id-less hop opened one history and left somebody to guess which of the
+ * rows in it was the one they pressed. The run id goes through to the history, which marks
+ * that row, fetches it when the newest page does not hold it, and says so when it cannot be
+ * found rather than leaving another run reading as the target.
  */
-function agentWhOpenRun(automationId) {
+function agentWhOpenRun(automationId, runId) {
   const target = String(automationId || '');
   // ⚠ WHOSE ADDRESSES THESE ARE IS READ BEFORE ANYTHING IS CLEARED, because the hop needs an
   // owner and `agentAutomations` is what clears this screen. Read after, it would be `null`
   // and the automations list would open for nobody.
   const owner = agentWh;
   if (!target || !owner) return;
-  agentWhSecret = null; agentWhActErr = '';
+  // The secret panel and any refusal go with the screen: `agentAutomations` calls
+  // `agentWhOpenForm(false)`, which is the single writer that clears both.
   agentAutomations(owner);
-  agentAutoHistory(target);
+  agentAutoHistory(target, String(runId || ''));
 }
 
 /**
@@ -4288,6 +4491,56 @@ function agentWhSecretHtml() {
     '</div>';
 }
 
+/**
+ * ⚠ **AN ANSWER WHOSE FORM HAD MOVED ON, said out loud above whatever is on screen now.**
+ *
+ * Drawn only while the account that asked is signed in AND that agent's addresses are open, so
+ * a key can never reach another account and never appears beside another agent's things. Read
+ * at DRAW time, so signing out or walking away takes it off the screen without anything having
+ * to remember to clear it.
+ *
+ * **THE KEY ITSELF IS NOT IN THIS MARKUP.** It is behind a press, which is what keeps it out of
+ * a screenshot of the list, out of a page somebody leaves open, and out of the markup of every
+ * render until it is asked for. The address is named so the press is about a known thing.
+ *
+ * **A REFUSAL NAMES WHAT IT WAS ABOUT**, for the same reason it is not in `agentWhActErr`: over
+ * a form holding different words it would read as that form's problem.
+ */
+function agentWhHeldHtml() {
+  const h = agentWhHeld;
+  if (!h || h.uid !== agentUid() || h.agent !== agentWh) return '';
+  const what = (h.name || '') + (h.event ? ' (' + (h.event) + ')' : '');
+  const named = what.trim() ? esc(what.trim()) : 'the address you were making';
+  if (h.why) {
+    return '<div class="ag-form">' +
+        '<div class="ag-auto-n">That earlier save didn\u2019t work</div>' +
+        '<div class="ag-err">' + named + ' wasn\u2019t made: ' + esc(h.why) + '</div>' +
+        '<div class="ag-hint">This is about the save you started before this one, not about ' +
+          'anything on screen now. Nothing you have typed since has been touched.</div>' +
+        '<div class="ag-actions">' +
+          '<button class="ag-save" data-act="agent-wh-held-show">OK</button>' +
+        '</div>' +
+      '</div>';
+  }
+  return '<div class="ag-form">' +
+      '<div class="ag-auto-n">' + named + ' was made</div>' +
+      '<div class="ag-hint">You had moved on by the time the server answered, so it isn\u2019t ' +
+        'shown below as a new form — but the address is live and takes deliveries. Its signing ' +
+        'key came back in that one answer and comes back nowhere else.</div>' +
+      // ⚠ THE SENTENCE SAYS WHAT THE HOLD REALLY SURVIVES, which is not the same as what the
+      // panel below survives. The panel is cleared by every door (`agentWhOpenForm`); the hold
+      // is memory bound to an account and an agent, so walking to the automations and back
+      // still has it — losing a live address's only key to a stray click would be the harm
+      // this exists to prevent. What ends it is a reload, signing out, or showing it.
+      '<div class="ag-err">Reloading the page or signing out ends this offer, and then the ' +
+        'only way to sign for that address is to delete it and make another. It is held in ' +
+        'this page\u2019s memory and nowhere else.</div>' +
+      '<div class="ag-actions">' +
+        '<button class="ag-save" data-act="agent-wh-held-show">Show the signing key</button>' +
+      '</div>' +
+    '</div>';
+}
+
 /** The form: a name, and which event a delivery raises. */
 function agentWhFormHtml() {
   const d = agentWhDraft || { name: '', event: '' };
@@ -4374,12 +4627,15 @@ function agentWhEventsHtml() {
         ? '<div class="ag-run-why">It released ' + esc(String(ev.woke || 1)) + ' run that was ' +
             'waiting for exactly this.</div>'
         : '') +
-      // ⚠ **FROM THE ARRIVAL TO THE RUN — a control and not a sentence.** Each entry names its
-      // automation as well as its run, because an execution is read through its automation's
-      // history and a bare run id could not be opened from anywhere.
+      // ⚠ **FROM THE ARRIVAL TO THE RUN — a control and not a sentence, and it carries BOTH
+      // IDS.** Each entry names its automation as well as its run, because an execution is read
+      // through its automation's history and a bare run id could not be opened from anywhere;
+      // and the RUN has to travel too, or two arrivals that started two runs of one automation
+      // both open the same history with nothing saying which row either of them meant.
       ((ev.runs || []).length
         ? '<div class="ag-actions">' + (ev.runs || []).map((r, i) =>
-            '<button class="ag-auto-btn" data-act="agent-wh-run" data-auto="' + esc(r.automation) + '">' +
+            '<button class="ag-auto-btn" data-act="agent-wh-run" data-auto="' + esc(r.automation) + '"' +
+              ' data-run="' + esc(r.id) + '">' +
               'Open the run' + ((ev.runs || []).length > 1 ? ' (' + (i + 1) + ')' : '') +
             '</button>').join('') + '</div>'
         : '') +
@@ -4411,8 +4667,14 @@ function webhooksHtml() {
         : '') +
     '</div>';
 
-  if (agentWhSecret) return '<div class="ag-page ag-thread-page">' + head + agentWhSecretHtml() + '</div>';
-  if (agentWhNew) return '<div class="ag-page ag-thread-page">' + head + agentWhFormHtml() + '</div>';
+  // ⚠ A HELD ANSWER IS DRAWN ABOVE ALL THREE STATES, not instead of any of them: it is about a
+  // save that has already happened, and the form, the panel and the list are about now. It is
+  // above rather than below because a key that is about to be lost is the most urgent thing on
+  // the screen.
+  const held = agentWhHeldHtml();
+
+  if (agentWhSecret) return '<div class="ag-page ag-thread-page">' + head + held + agentWhSecretHtml() + '</div>';
+  if (agentWhNew) return '<div class="ag-page ag-thread-page">' + head + held + agentWhFormHtml() + '</div>';
 
   let body;
   if (agentWhState === 'loading' && agentWhRows === null) {
@@ -4433,7 +4695,7 @@ function webhooksHtml() {
   } else {
     body = (agentWhRows || []).map(agentWhRowHtml).join('');
   }
-  return '<div class="ag-page ag-thread-page">' + head +
+  return '<div class="ag-page ag-thread-page">' + head + held +
     (agentWhActErr ? '<div class="ag-err">' + esc(agentWhActErr) + '</div>' : '') +
     body +
     '<div class="ag-auto-n">What has arrived</div>' +
@@ -4719,14 +4981,47 @@ function agentWaitApprovable(w) {
   return agentArgsReadable(w.payload);
 }
 
+/**
+ * ⚠ **THE RUN SOMEBODY ASKED TO SEE, SAID BEFORE THE LIST — or said to be missing.**
+ *
+ * Two sentences and they are two different facts. A want that IS in the list gets a line saying
+ * where to look, and its row gets a mark. A want that is NOT gets a refusal, because the whole
+ * defect being closed is a screen that answered a request for one execution by showing another
+ * one: "here is the history" over a list that does not contain the thing pressed reads as *this
+ * is it*. So it says, in as many words, that nothing below is that run.
+ *
+ * **BOTH ARE DECIDED FROM THE LIST THIS FUNCTION IS ABOUT TO DRAW**, never from a field on the
+ * answer. That is what makes the sentence and the mark unable to disagree: "found" is exactly
+ * "there is a row to mark".
+ */
+function automationWantHtml(want, found) {
+  if (!want) return '';
+  if (found) {
+    return '<div class="ag-hint">The run that arrival started is marked below.</div>';
+  }
+  return '<div class="ag-err">That arrival’s run isn’t in this history — it may no longer ' +
+    'exist. Nothing below is it.</div>';
+}
+
 function automationRunsHtml() {
   if (agentAutoRunsErr) return '<div class="ag-auto-runs"><div class="ag-err">' + esc(agentAutoRunsErr) + '</div></div>';
   if (agentAutoRuns === null) return '<div class="ag-auto-runs"><div class="ag-auto-none">Loading…</div></div>';
-  if (!agentAutoRuns.length) return '<div class="ag-auto-runs"><div class="ag-auto-none">It hasn’t run yet.</div></div>';
-  return '<div class="ag-auto-runs">' + agentAutoRuns.map((r) =>
+  const want = agentAutoWantedRun();
+  const found = !!want && agentAutoRuns.some((r) => r && r.id === want);
+  if (!agentAutoRuns.length) {
+    return '<div class="ag-auto-runs">' + automationWantHtml(want, found) +
+      '<div class="ag-auto-none">It hasn’t run yet.</div></div>';
+  }
+  return '<div class="ag-auto-runs">' + automationWantHtml(want, found) + agentAutoRuns.map((r) =>
     '<div class="ag-run">' +
       '<div class="ag-run-top">' +
         '<span class="ag-chip ag-chip-' + esc(r.state) + '">' + esc(AUTO_STATE_WORDS[r.state] || r.state) + '</span>' +
+        // ⚠ **WHICH ROW THE ARRIVAL MEANT.** On the row itself rather than only in the line
+        // above the list, because a history holds up to `MAX_EXECUTIONS` of them and a sentence
+        // at the top cannot point at one forty rows down. No new class: the plain chip already
+        // has a rule, and it deliberately carries none of the state colours — this says where
+        // the row came from, not what became of it.
+        (want && r.id === want ? '<span class="ag-chip">From that arrival</span>' : '') +
         '<span class="ag-run-when">' + esc(autoWhen(r.at)) + '</span>' +
         '<span class="ag-run-how">' + esc(autoHow(r.trigger)) +
           (r.occurrence ? ' · ' + esc(r.occurrence) : '') + '</span>' +
@@ -15208,7 +15503,8 @@ const CLICK_ACTIONS = {
   'agent-wh-enable': (e, el) => agentWhEnable(el.dataset.id, el.dataset.on === '1'),
   'agent-wh-delete': (e, el) => agentWhDelete(el.dataset.id),
   'agent-wh-secret-done': () => agentWhSecretDone(),
-  'agent-wh-run': (e, el) => agentWhOpenRun(el.dataset.auto),
+  'agent-wh-held-show': () => agentWhHeldShow(),
+  'agent-wh-run': (e, el) => agentWhOpenRun(el.dataset.auto, el.dataset.run),
   'agent-conn-back': () => agentConnBack(),
   'agent-conn-new': () => agentConnNewOpen(),
   'agent-conn-cancel': () => agentConnCancel(),
