@@ -2571,16 +2571,20 @@ try {
       tickSaid.found && tickSaid.ticked && /taken away/.test(tickSaid.said),
       JSON.stringify({ ...tickSaid, said: tickSaid.said.replace(/\s+/g, " ").slice(0, 120) }));
     /**
-     * ⚠ **WHAT A REVOCATION REACHES DEPENDS ON THE RUN'S OWN STATE, and the state is
-     * MEASURED rather than assumed.** `agent.revoke_agent_tool` withdraws a pending request
-     * only while its run is still going — `not exists (… kind = 'stopped')` — and that
-     * condition is deliberate and documented: a run the expiry sweep has already ended still
-     * has an undecided request, and withdrawing it would record a person deciding a call that
-     * was already dealt with AND put a finished run back on the queue for ever.
+     * ⚠ **`ended` IS IN THE DETAIL AND IS DELIBERATELY NOT THE ASSERTION, and a draft of this
+     * check got that wrong in an instructive way.**
      *
-     * So this asserts the FUNCTION'S CONTRACT with the run's state as its input, rather than
-     * one half of it. A first draft demanded the withdrawal unconditionally and read
-     * `{v: null}` — the product being right about a run that had ended.
+     * `agent.revoke_agent_tool` withdraws a pending request only while its run is still going
+     * (`not exists (… kind = 'stopped')`) — documented, and there for a reason: withdrawing a
+     * request whose run has ended would record a person deciding a call already dealt with and
+     * put a finished run back on the queue for ever. So a draft made the assertion CONDITIONAL
+     * on that state, read here.
+     *
+     * **It cannot be read here, because the withdrawal is what ENDS the run.** Answering the
+     * request requeues it, the delivery runs it to a stop, and by the time this reads the row
+     * the run is ended — so the condition is satisfied by the very thing it was meant to
+     * exclude. The state at the moment the revocation looked is not recoverable afterwards,
+     * which is why this asserts the outcome and keeps `ended` only as a diagnostic.
      */
     const gone8 = JSON.parse(stack.q(
       `select coalesce(to_json((select json_build_object(
@@ -2590,9 +2594,8 @@ try {
          from agent.tool_approvals a where a.id = '${second8.id}'))::text, 'null');`));
     const revs8 = stack.q(`select coalesce(string_agg(tool || '=' || coalesce(note, '-'), ','), '')
        from agent.tool_revocations where agent_id = '${agentId}';`).trim();
-    const withdrew8 = gone8?.v === "revoked" && /not while we are checking/.test(String(gone8?.n));
     check("8m. ⚠ ...and a request still waiting for it is taken back WITH it, carrying the reason",
-      gone8?.ended === true ? gone8?.v === null : withdrew8,
+      gone8?.v === "revoked" && /not while we are checking/.test(String(gone8?.n)),
       `${JSON.stringify(gone8)} · revocations=[${revs8}]`);
     // THE STALE TAB PRESSES APPROVE over a request whose permission has gone.
     //
@@ -2616,7 +2619,13 @@ try {
     await openAgent(page, agentId);
     await press(page, "agent-edit", "id", agentId);
     await page.waitForSelector("#agRevPick", { timeout: 10_000 });
-    await waitText(page, /taken away/, "the reloaded form to show what is taken away", 15_000);
+    // ⚠ **WAIT FOR THE THING THE REVOKED LIST ITSELF DRAWS, NOT FOR THE WORDS.** A draft
+    // waited for `/taken away/`, which the SCOPE sentence beside the buttons also says
+    // (*"to take a tool away for good, use Taken away right now in its settings"*) and which is
+    // on screen from the first paint — so the wait was satisfied before the read had landed and
+    // the check below ran against a form that had not got the list yet. The restore button is
+    // the only thing that row draws, so it is the honest signal.
+    await page.waitForSelector('[data-act="agent-revoke-back"][data-tool="pause_automation"]', { timeout: 15_000 });
     const reloaded = await text(page);
     check("8o. ⚠ RELOADING PRESERVES IT — the restriction is read from the account, not remembered",
       /taken away/.test(reloaded) &&
@@ -2665,6 +2674,12 @@ try {
     check("8t. ⚠ A FRESH AUTHORIZED REQUEST PROCEEDS — the tool can be asked for again",
       !!fresh8 && fresh8.id !== first8.id && fresh8.id !== second8.id, JSON.stringify(fresh8 && { id: fresh8.id }));
     await press(page, "agent-tool-approve", "id", fresh8.id);
+    // ⚠ THE PRESS IS A FETCH, so draining at once drains a queue the decision has not reached.
+    // The row leaving the banner is the screen's own re-read landing, which is after the
+    // decision committed and requeued the run.
+    await page.waitForFunction(
+      (id) => !document.querySelector(`[data-act="agent-tool-approve"][data-id="${id}"]`),
+      fresh8.id, { timeout: 15_000 });
     await disp.drain();
     check("8u. ⚠ ...and approving it really runs the call, which is the control on every refusal above",
       Number(stack.q(`select count(*) from agent.run_entries
