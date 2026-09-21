@@ -516,28 +516,49 @@ export function keptImages(before, after, slug) {
  *     the place it came FROM — publishing the photograph twice. So the
  *     site-wide `after` decides, exactly as it decides the loss.
  *
- * TWO LISTS, PAIRED BY IDENTITY, AND EACH FILE WRITTEN BACK INTO THE LIST IT
- * CAME FROM — `applyImages`' own rule, for its own reason: the union that
- * `imageSources` answers is for READING, and slicing it apart by length is how
- * a fix of this shape silently breaks again. Pages pair on `path` and
- * components on `name`, so one function serves both callers without either
- * list learning about the other.
+ * ⚠ BOTH LISTS ARRIVE IN ONE CALL, `{pages, parts}` on each side, and that is
+ * a correction rather than a convenience. Called once per list, each call's
+ * site-wide rule was only half site-wide: a writer moving a photograph out of
+ * the page and into a component left the page's slot empty, the pages call
+ * could not see where it had gone, and restored it — publishing the same
+ * picture TWICE. One call, one `shows` set, one answer.
+ *
+ * EACH FILE IS STILL WRITTEN BACK INTO THE LIST IT CAME FROM — `applyImages`'
+ * own rule, for its own reason: the union `imageSources` answers is for
+ * READING, and slicing it apart by length is how a fix of this shape silently
+ * breaks again. Pages pair on `path` and components on `name`.
+ *
+ * AND THE CALLER IS GIVEN WHAT IS STILL MISSING. `restored` is what went back;
+ * `lost` is what could not, and the two are not complements — a match that
+ * never happened leaves both empty, which from outside is indistinguishable
+ * from a file with nothing to protect. The caller decides what to do about
+ * `lost`; this function never publishes it and never hides it.
  */
 export function keepPhotos(before, after, slug) {
-  const files = Array.isArray(after) ? after : [];
+  const bPages = Array.isArray(before && before.pages) ? before.pages : [];
+  const bParts = Array.isArray(before && before.parts) ? before.parts : [];
+  const aPages = Array.isArray(after && after.pages) ? after.pages : [];
+  const aParts = Array.isArray(after && after.parts) ? after.parts : [];
   const restored = [];
-  if (!files.length || !slug) return { files, restored };
-  // WHAT THE ANSWER STILL SHOWS, SITE-WIDE — computed before anything is
-  // written, so a photograph the writer MOVED is seen where it landed and is
-  // therefore never duplicated back into the file it left.
+  if (!slug) return { pages: aPages, parts: aParts, restored, lost: [] };
+  // WHAT THE ACCEPTED PUBLICATION STILL SHOWS — pages AND components in ONE
+  // set, computed before anything is written.
+  //
+  // ⚠ THIS IS THE WHOLE OF WHY THE TWO LISTS ARRIVE TOGETHER. Called once per
+  // list, each call saw only its own half: a writer that moved a photograph
+  // OUT of the page and INTO a component left the page's slot empty, the page
+  // call could not see where it had gone, and put it back — so the site
+  // published the same picture TWICE. The move is the case `keptImages` is
+  // site-wide for, and a restoration that is not site-wide undoes exactly the
+  // reorganisation that wall is written to permit.
   const shows = new Set();
-  for (const f of files) for (const u of photoUrls(f && f.source, slug)) shows.add(u);
+  for (const f of [...aPages, ...aParts]) for (const u of photoUrls(f && f.source, slug)) shows.add(u);
   const was = new Map();
-  for (const f of Array.isArray(before) ? before : []) {
+  for (const f of [...bPages, ...bParts]) {
     const id = fileKey(f);
     if (id) was.set(id, f);
   }
-  const out = files.map((f) => {
+  const fix = (files) => files.map((f) => {
     const id = fileKey(f);
     const old = id ? was.get(id) : null;
     if (!old || typeof f.source !== "string" || typeof old.source !== "string") return f;
@@ -572,7 +593,22 @@ export function keepPhotos(before, after, slug) {
     }
     return { ...f, source: src };
   });
-  return { files: out, restored };
+  const pages = fix(aPages), parts = fix(aParts);
+  // ── AND WHAT IS STILL MISSING AFTERWARDS ───────────────────────────────
+  //
+  // ⚠ RESTORATION IS NOT COVERAGE, AND THE CALLER MUST BE ABLE TO TELL.
+  // Everything above needs a slot to write into and a description to match
+  // on, so a writer that DELETES the element, RENAMES its description or
+  // SUBSTITUTES another url walks straight past it — and the first cut of
+  // this published those losses, because a match that did not happen looked
+  // exactly like a file with nothing to protect.
+  //
+  // `keptImages` IS THE ONE DEFINITION and is asked here rather than a second
+  // idea of "what the site shows": two readers of that would disagree in
+  // exactly the cases that matter. It reads the union, so a move is not a
+  // loss on this side either.
+  const lost = keptImages([...bPages, ...bParts], [...pages, ...parts], slug).lost;
+  return { pages, parts, restored, lost };
 }
 
 /** A page is its `path` and a component its `name`; one pairing, two callers. */

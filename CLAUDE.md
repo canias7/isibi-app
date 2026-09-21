@@ -1562,11 +1562,18 @@ many words, because the line sat at the page. Four hops, each guarded:
 
 ### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20)
 
-Four defects, each reproduced through `POST /api/site/<slug>/edit` before it
+Nine defects, each reproduced through `POST /api/site/<slug>/edit` before it
 was fixed, each now asserted on the designer's input, the compiler payload, the
 stored inventory and the browser's own sentence.
-`test/edit-page-{context,photos}.test.mjs` and
-`test/edit-browser-reply.test.mjs`.
+`test/edit-page-{context,photos,protect}.test.mjs`, `test/edit-parts.test.mjs`
+and `test/edit-browser-reply.test.mjs`.
+
+**⚠ THREE OF THE NINE ARE DEFECTS IN THE FIX FOR THE FIRST PHOTOGRAPH ONE, and
+that is the shape worth keeping**: each shipped with a green suite, a sweep and
+an entry in this file, and each was reported back by the owner off the shipped
+code. The protection's *mechanism* was right every time; what was wrong was the
+SCOPE it applied to, the COVERAGE it claimed, and the number of LISTS it looked
+at.
 
 - **`readSiteParts`'s THREE STATES REACH THIS RUNG.** `loadSiteParts` collapses
   "no components" and "the read threw" into one `null`, and
@@ -1619,28 +1626,73 @@ stored inventory and the browser's own sentence.
   one is not local, because `keptImages` is deliberately site-wide and a
   per-file restoration would meet a legitimate MOVE and publish the picture
   twice.
-- **AND AUTHORISED REMOVAL STILL WORKS, which is what makes it a protection
-  rather than a ban.** `ePhotoAsk` is `steps.some(s => s.layer === "picture")`
-  — **the PICKER's own answer, never a keyword scan of the sentence**, which
-  would be a second opinion about what was asked and wrong in the expensive
-  direction on *"keep the photo of the window and redo the columns"*. Asked of
-  `laneLayer` rather than a list of picture-ish fields, so a field that
-  dispatches there next month is covered by existing. **Driven as an A/B on
-  the one input that decides: the same model answer, two messages, two
-  publications.**
-- **⚠ WHAT IS LEFT IS REPORTED, NEVER REFUSED, AND THAT LINE STILL SEPARATES
-  THIS RUNG FROM THE ADDON'S.** There a lost photograph is 422 `lost-photos`
-  at cost 0, right for a step whose contract is *"an addition is always a new
-  thing"*; here *"take the window photo off the front page"* is an ordinary
-  edit. The residue the restoration cannot reach — a REWRITTEN description,
-  an element deleted outright — still puts a COUNT on the reply and the
-  customer decides.
+- **⚠ AND AUTHORISED REMOVAL STILL WORKS — BUT THE PERMISSION IS A STATE AND
+  NEVER A FLAG (corrected 2026-09-20, owner: *"`ePhotoAsk` disables protection
+  globally"*).** The first cut asked whether the MESSAGE had a picture step at
+  all, which is a judgement about the sentence made by a rung that cannot see
+  WHICH picture was meant — so *"remove only the window photograph; keep the
+  bench photograph"* turned the protection off for every picture on the site
+  and published both missing. **The scope is `eSrc`**, the site as THIS rung
+  finds it: the picture rung publishes through `publishStep`, which advances
+  `eSrc`, so a photograph it really cleared is already gone from the before
+  side and there is nothing to put back, while one it did not touch is still
+  standing and is protected. *"Permission belongs to the operations that
+  matched, and the state is where those are recorded."*
+  **⚠ AND THE RUNNING ORDER IS WHAT MAKES THAT TESTABLE.** `LANE_FIELDS` puts
+  `shape` (12) and `components` (11) BEFORE `images` (13) and `tsx` (17)
+  AFTER, so only an `images`+`tsx` message runs the picture rung FIRST — and a
+  red check proved that mutating the before side to `eSrcAt0` survived every
+  case until one drove that ordering. **The two readings are equal by
+  construction whenever the page rung goes first**, which is most messages.
+- **⚠ RESTORATION IS NOT COVERAGE, AND A LOSS IT CANNOT REACH REFUSES THE RUNG
+  (corrected 2026-09-20, owner: *"Do not publish the loss merely because
+  matching failed"*).** Everything `keepPhotos` does needs a slot to write into
+  and a description to match on, so a writer that **DELETES** the element,
+  **RENAMES** its description or **SUBSTITUTES** another url walks straight
+  past it — and the previous cut then published the loss and named it
+  afterwards, which is the behaviour the round before that was meant to end. A
+  match that never happened is indistinguishable, from outside, from a file
+  that had nothing to protect. So `keepPhotos` answers `lost` as well as
+  `restored`, over the same accepted publication, and a loss left standing is
+  **409 `withheld`, cost 0, `photosBlocked: n`** — nothing compiles, neither
+  store is written, and the customer is told how to authorise it. **NOT an
+  `escalate`**, which would buy the ~25-credit rewrite of every page to protect
+  one photograph.
+  **THE LINE THAT STILL SEPARATES THIS RUNG FROM THE ADDON'S IS THE WORD
+  *UNRELATED*, not the word *refuse*.** There a lost photograph is 422
+  `lost-photos` at cost 0 on a step whose contract is *"an addition is always
+  a new thing"*; here a removal the picture rung really made ships and is
+  REPORTED. Three refusals with three sentences and they are not
+  interchangeable: a reachable loss that is the change's whole content
+  (*"the only thing that change would have done…"*), a loss we could not put
+  back (`photosBlocked`), and a component we would not rewrite unseen
+  (`keptParts`).
   **`photosRemoved`, NOT `lostPhotos`**: the addon's field is a LIST of urls on
   a refusal that published nothing (`Array.isArray` in its own harness) and
   this is a count on a change that shipped — `Number([…])` is NaN, so one name
-  over two shapes makes the browser's clause silently never fire. **And
-  `photosKept` is the protection's own receipt**, because a customer cannot
-  otherwise tell that the builder nearly took them off.
+  over two shapes makes the browser's clause silently never fire.
+- **⚠ AND THE GUARD TAKES BOTH LISTS IN ONE CALL (corrected 2026-09-20, owner:
+  *"Moving an image from the page into a component publishes it twice"*).** It
+  ran once per list, so each call's site-wide rule was only half site-wide: the
+  pages call saw an empty `src`, could not see where the url had gone, and put
+  the old copy back beside the component that now carried it. **One call,
+  `{pages, parts}` on both sides, ONE `shows` set over the union** — which is
+  what makes *"a photograph the answer still shows SOMEWHERE is never put
+  back"* true rather than aspirational. It is asked of the **ACCEPTED
+  publication**: the target page folded into the site's own list, and the
+  components the wall admitted, so a refused component cannot be protected and
+  a page nobody publishes cannot count. And **both its outputs go on to
+  publish** — `pGuard.parts`, not the unguarded merge, or a `src` written back
+  into a component is silently dropped.
+- **AND `photosKept` IS THE PROTECTION'S RECEIPT, INTERSECTED WITH WHAT SHIPS.**
+  A customer cannot otherwise tell the builder nearly took them off. It is
+  **not a sum of the rungs' own counts**: the page rung puts a picture back,
+  an AUTHORISED picture rung further down the same sentence takes that same
+  picture off, and the sum then prints *"the 2 photographs are still there"*
+  beside *"one photograph is no longer on the site"* — two sentences about one
+  publication, disagreeing. `ePhotosHeld` is a set of URLS across the message,
+  intersected below the loop with what the publication really shows; urls
+  because only an identity can be intersected, and they never reach the wire.
 - **THE EMPTY FRAME IS COUNTED BY A FRAME READER.** `photos` was
   `countImageSlots`, which counts `@@IMG:` TOKENS on a rung whose directive
   forbids them — zero on every obedient answer, so `photoNote` never fired.
@@ -3214,8 +3266,8 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
   **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
-  `35503280850` on `ecd3184d` and run **`35542140721` on `903b5ea2`** — the
-  edit-path branch's HEAD — both 2026-09-20, both **all twenty steps green and
+  `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`** and run
+  **`35545181566` on `0523dfb1`** — all 2026-09-20, all **all twenty steps green and
   every figure above matching**: TAP 397, kit-typecheck 4, site-build **382**,
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
@@ -3234,24 +3286,26 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,033 LOCALLY after the protection round, and the CI half of
-  THAT number is untaken.** The reading before it had both halves and they
-  agreed: **7,026** locally and CI run **`35542140722` on `903b5ea2`** at
-  **`# tests 7026 / # pass 7022 / # fail 0 / # skipped 4`** — the four being
-  the privilege-drop case, two RTL cases and `site-searchpath`'s
-  baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a `pass` count alone
-  drifts between the two machines — and there the totals were equal, 7,026
-  both sides. The one before that was **7,005** on `2c596bc5` (CI run
-  `35504473370` at `7,001 / 0 / 4`).
-  **THE +7 IS `test/edit-page-protect.test.mjs`**, stated as the difference
-  between two MEASURED readings rather than as arithmetic off a paragraph.
-  **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND IS NOW A
-  MEASUREMENT, and only the second kind is worth anything** — it happens to
+- **Unit suite: 7,038 LOCALLY after the photo-protection corrections, and the
+  CI half of THAT number is untaken.** The reading before it had both halves
+  and they agreed: **7,033** locally and CI run **`35545181576` on
+  `0523dfb1`** at **`# tests 7033 / # pass 7029 / # fail 0 / # skipped 4`** —
+  the four being the privilege-drop case, two RTL cases and
+  `site-searchpath`'s baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a
+  `pass` count alone drifts between the two machines by exactly those four —
+  and there the totals were equal, 7,033 both sides. The two before that:
+  **7,026** on `903b5ea2` (CI run `35542140722` at `7,022 / 0 / 4`) and
+  **7,005** on `2c596bc5` (CI run `35504473370` at `7,001 / 0 / 4`).
+  **THE +5 IS THREE NEW ROUTE CASES IN `edit-page-protect` PLUS TWO MORE**,
+  stated as the difference between two MEASURED readings rather than as
+  arithmetic off a paragraph; the +7 before it was that file arriving.
+  **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND BECAME A
+  MEASUREMENT, and only the second kind is worth anything** — it happened to
   have been right, which is exactly the case where a paragraph quietly turns
   into evidence if nobody stamps the run that settled it.
-  It was 6,992 at `26f52f95` and 7,005 before the edit-path work;
-  **the +21 is this branch's own new cases and is stated as the difference
-  between two MEASURED readings, never as arithmetic off a paragraph.**
+  It was 6,992 at `26f52f95` and 7,005 before the edit-path work.
+  (`site build`'s own third read on this branch is stamped with the other two
+  above — run `35545181566` on `0523dfb1`, 22m55s, all twenty steps green.)
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".

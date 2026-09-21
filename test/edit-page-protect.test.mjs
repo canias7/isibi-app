@@ -1,6 +1,6 @@
 // WHAT THE EDIT PATH PROTECTS, AND WHAT IT REFUSES TO CALL A NO-CHANGE.
 //
-// Three defects, each reproduced through `POST /api/site/<slug>/edit` with the
+// Six defects, each reproduced through `POST /api/site/<slug>/edit` with the
 // wire stubbed and the opt-in compiler installed, before anything moved.
 // Nothing here reaches a model and nothing is spent.
 //
@@ -23,6 +23,29 @@
 //      into the ~25-credit rewrite of every page — with no sentence saying
 //      why.
 //
+// AND THREE MORE IN THE FIX FOR (1), each reported against the shipped
+// version of it:
+//
+//   4. THE PERMISSION WAS A BOOLEAN OVER THE WHOLE MESSAGE. *"Remove only the
+//      window photograph; keep the bench photograph"* turned the protection
+//      off for every picture on the site and published both missing. It is
+//      the picture rung's own APPLIED WORK that permits a removal now — the
+//      state, not a flag — so the scope is exactly the operations that
+//      matched.
+//
+//   5. RESTORATION WAS TREATED AS COVERAGE. It needs a slot to write into and
+//      a description to match on, so a writer that DELETES the element,
+//      RENAMES its description or SUBSTITUTES another url walked past it and
+//      the loss was published anyway. A loss the restoration cannot reach
+//      REFUSES the rung — not an escalate, which would buy the ~25-credit
+//      rewrite of every page.
+//
+//   6. A MOVE PUBLISHED THE PHOTOGRAPH TWICE. The guard ran once per list, so
+//      each call's site-wide rule was only half site-wide: the pages call saw
+//      an empty `src` and no sign of where the url had gone, and restored it
+//      beside the component that now carried it. One call, both lists,
+//      evaluated over the ACCEPTED publication.
+//
 // WHAT EVERY CASE ASSERTS: the COMPILER PAYLOAD, the STORED SOURCE, the reply,
 // and the CUSTOMER'S SCREEN — composed by `public/chat.js`'s own `editAnswer`
 // selection, including whether another paid action would start.
@@ -36,7 +59,7 @@ import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL, MAX_PART_CHARS } from "../builder/page-gen.mjs";
 import { PICTURE_TOOL, newEmptySlots } from "../builder/site-picture.mjs";
 import { keptImages, keepPhotos, photoUrls } from "../builder/site-images.mjs";
-import { laneLayer } from "../builder/site-lanes.mjs";
+import { laneLayer, LANE_FIELDS } from "../builder/site-lanes.mjs";
 // ⚠ `editBrowserReply`, NOT `browserReply`. The add composer answers a
 // PLAUSIBLE sentence for an edit body rather than throwing, so a guard pinned
 // to it passes whatever the edit screen really says.
@@ -75,6 +98,27 @@ const strippedBoth = (slug) => homeWith(slug)
   .replace("Nine until five.", "Nine until six.")
   .replace('src="' + PIC_A(slug) + '"', 'src=""')
   .replace('src="' + PIC_B(slug) + '"', 'src=""');
+
+/**
+ * THE SAME PAGE WITH ONE PICTURE ELEMENT SIMPLY GONE.
+ *
+ * Owner: *"Deleting the element, changing its description, or substituting
+ * another URL bypasses preservation."* This is the first of those three, and
+ * it is the shape that made the previous round's fix a half-fix: the
+ * restoration needs a slot to write into and a description to match on, so a
+ * writer that deletes the element walks past it entirely and the photograph
+ * was published missing exactly as if no protection existed.
+ */
+const benchDeleted = (slug) => homeWith(slug)
+  .replace("Nine until five.", "Nine until six.")
+  .replace('<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />', "");
+
+/** ONE PICTURE, ONE COMPONENT — the shape a move can be measured on. */
+const homeOnePic = (slug) => ROUTE_HEAD
+  + 'import CardA from "./-parts/card-a"\n'
+  + "function Home(){return <main><h1>Ravenscroft</h1>"
+  + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
+  + "<p>Nine until five.</p><CardA /></main>}\n";
 
 const A_OLD = 'export default function CardA(){return <section data-slot="card"><h2>Opening hours</h2></section>}';
 const A_NEW = 'export default function CardA(){return <section data-slot="card"><h2>When we are open</h2></section>}';
@@ -178,6 +222,35 @@ function sentHome(c) {
   return files[key];
 }
 
+/**
+ * EVERY FILE THE PUBLISH SPINE SENT, pages and components together.
+ *
+ * ⚠ THE UNION IS THE POINT. A photograph moved out of a page and into a
+ * component is only correct site-wide: reading the page alone says it was
+ * lost, and reading the component alone says it was added. The defect this
+ * answers published it TWICE, which neither single-list reader can see.
+ */
+function sentFiles(c) {
+  assert.ok(c.calls.length >= 1, "nothing was compiled at all");
+  const body = c.calls[c.calls.length - 1].body || {};
+  const out = { ...(body.files || {}) };
+  // ⚠ COMPONENTS RIDE IN THEIR OWN ARRAY, not in `files` — `build-server.mjs`
+  // writes each `payload.parts` entry into `src/routes/-parts/<name>.tsx`
+  // itself. A reader that only walked `files` answered "no file shows it" on a
+  // payload whose component shows it, which is the same blindness the defect
+  // this case is about.
+  for (const p of Array.isArray(body.parts) ? body.parts : []) {
+    if (p && typeof p.name === "string") out["src/routes/-parts/" + p.name + ".tsx"] = String(p.source || "");
+  }
+  return out;
+}
+
+/** Which of the publication's files carry a photograph of this site's. */
+const sentShowing = (c, slug) => Object.entries(sentFiles(c))
+  .filter(([, v]) => photoUrls(String(v || ""), slug).size)
+  .map(([k]) => k)
+  .sort();
+
 /** What `source/<slug>/pages.json` holds afterwards, home page only. */
 function storedHome(store, slug) {
   const raw = store.store.get(SRC_KEY(slug));
@@ -271,18 +344,179 @@ test("an unrelated edit that empties a `src` publishes the photograph, not the l
   } finally { c.uninstall(); }
 });
 
-test("a message that IS about the pictures still removes them", async () => {
-  // THE OTHER HALF, and without it the fix above is a ban rather than a
-  // protection. The model answer is BYTE-IDENTICAL to the case above; the only
-  // difference is what the message asked for, so this is an A/B on the one
-  // input that decides.
+test("the picture rung running FIRST is what the page rung protects against", async () => {
+  // ⚠ THE CASE THAT PROVES THE SCOPE, AND A RED CHECK IS WHY IT EXISTS.
   //
-  // THE SIGNAL IS THE PICKER'S OWN ANSWER. `laneLayer("images")` is `picture`,
-  // so a message the picker reads as being about photographs gets a step at
-  // that layer — and the page rung asks for the layer rather than keeping its
-  // own list of which fields are about pictures.
-  assert.equal(laneLayer("images"), "picture",
-    "this case's whole premise is that the images lane dispatches to `picture`");
+  // Mutating the guard's BEFORE from `eSrc` (the site as THIS rung finds it)
+  // to `eSrcAt0` (the site the MESSAGE arrived to) SURVIVED every case in
+  // these six files — and it is the whole of the permission rule. The reason
+  // is the running order: `LANE_FIELDS` puts `shape` (12) before `images`
+  // (13), so the case below runs the PAGE rung first and the two readings are
+  // equal by construction. Nothing exercised the direction that matters.
+  //
+  // `tsx` IS 17, AFTER `images`. So "take the window photo off and rewrite
+  // the cards" runs the picture rung FIRST — it clears the window and
+  // publishes through `publishStep`, which advances `eSrc` — and the page
+  // rung then finds a site whose window slot is already empty. There is
+  // nothing to put back, the removal ships, and the bench (which nobody
+  // named) is protected from the same answer.
+  //
+  // Under `eSrcAt0` BOTH go back and the authorised removal is undone, which
+  // is the defect wearing a different hat.
+  assert.ok(LANE_FIELDS.indexOf("images") < LANE_FIELDS.indexOf("tsx"),
+    "this case's whole premise is that the picture rung runs before this page rung");
+  const slug = "prot-first";
+  const store = bucket(slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      pick_lanes: { fields: ["images", "tsx"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      assert.deepEqual(body.layers, ["picture", "page"],
+        "the rungs did not run picture-then-page, so this case proves nothing: " + JSON.stringify(body.layers));
+      assert.equal(calls.filter((x) => x.tool === PICTURE_TOOL.name).length, 1, "the picture rung never ran");
+
+      // THE BENCH IS BACK AND THE WINDOW IS GONE — the same answer, told
+      // apart by which of the two the picture rung had already acted on.
+      assert.deepEqual(pics(sentHome(c), slug), [PIC_A(slug)],
+        "the publication does not carry the bench alone: " + JSON.stringify(pics(sentHome(c), slug)));
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug)],
+        "the store disagrees with what was published");
+      assert.equal(body.photosKept, 1, "the wrong number was protected: " + JSON.stringify(body.photosKept));
+      assert.equal(body.photosRemoved, 1, "the authorised removal was not reported: " + JSON.stringify(body.photosRemoved));
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a change whose ONLY effect is taking a photograph off is withheld", async () => {
+  // ⚠ THE THIRD REFUSAL SENTENCE, AND A RED CHECK FOUND IT UNTESTED. Cutting
+  // `wrote = { ...wrote, source: pGuarded.source }` SURVIVED — the
+  // publication comes from `pGuard.pages` either way, so that line matters
+  // only where the guarded page is compared: the no-change decision.
+  //
+  // WHICH IS THE CASE THIS IS. The writer's whole answer is one emptied
+  // `src`, and the guard puts it straight back — so the page that would ship
+  // is byte-identical to the one stored. Publishing it would be a compile and
+  // a version for a site identical to itself, and escalating would buy the
+  // ~25-credit rewrite. It refuses, and the sentence says what the change
+  // would have done.
+  const slug = "prot-only-photo";
+  const store = bucket(slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: {
+        // The alt is INTACT, so the restoration reaches it — which is what
+        // makes this a withheld change rather than an unreachable loss.
+        pages: [{ path: "src/routes/index.tsx", source: homeWith(slug).replace('src="' + PIC_B(slug) + '"', 'src=""') }],
+        parts: [],
+      },
+    }, async () => {
+      const { status, body, said } = await edit(slug, "tidy up the front page", { store });
+      assert.equal(status, 409, "the refusal wore the wrong status: " + status);
+      assert.equal(body.error, "withheld", "the refusal cannot name itself: " + JSON.stringify(body.error));
+      assert.equal(body.escalate, undefined, "a withheld photograph still buys the full rewrite");
+      assert.equal(body.cost, 0, "a refusal was charged for: " + JSON.stringify(body.cost));
+      // NOT THE UNREACHABLE-LOSS BRANCH. The guard REACHED this one, which is
+      // why it is a no-change rather than a loss — two refusals, two
+      // sentences, and only the pair separates them.
+      assert.equal(body.photosBlocked, undefined,
+        "the reachable case answered the unreachable branch: " + JSON.stringify(body.photosBlocked));
+      assert.equal(c.calls.length, 0, "a refusal compiled the site: " + c.calls.length);
+      assert.equal(storedHome(store, slug), homeWith(slug), "a refusal wrote to the page store");
+
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("take a photograph off your page"),
+        "the customer is not told what the change would have done: " + JSON.stringify(said.text));
+      assert.deepEqual(said.actions, [], "the refusal still started something: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a photograph put back into a COMPONENT reaches the publication", async () => {
+  // ⚠ AND A RED CHECK FOUND THIS ONE UNTESTED TOO. Handing the publish
+  // `pAccepted` — the merge of what the model returned — instead of
+  // `pGuard.parts` SURVIVED, because no case here had ever restored a `src`
+  // INTO a component: the one that empties a component's picture renames its
+  // description too, so nothing is put back and the rung refuses instead.
+  //
+  // THE GUARD WRITES INTO BOTH LISTS, so both have to reach the container.
+  // Publishing the unguarded merge would ship the component the model wrote
+  // and quietly drop what was put back into it — and the message-wide reader
+  // would then report the loss the guard had just undone.
+  const slug = "prot-part-back";
+  const withPic = 'export default function CardA(){return <section data-slot="card"><h2>Opening hours</h2>'
+    + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" /></section>}';
+  const bare = withPic.replace('src="' + PIC_A(slug) + '"', 'src=""');
+  const store = bucket(slug, {
+    home: homeOnePic(slug).replace('<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />', ""),
+    parts: [{ name: "card-a", source: withPic }],
+  });
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: store.store.get(SRC_KEY(slug))
+          ? JSON.parse(store.store.get(SRC_KEY(slug)))[0].source.replace("Nine until five.", "Nine until six.") : "" }],
+        parts: [{ name: "card-a", source: bare }],
+      },
+    }, async () => {
+      const { body, said } = await edit(slug, "change the opening hours to six", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // (a) THE COMPILER PAYLOAD'S COMPONENT CARRIES IT, which is the half a
+      //     pages-only reader cannot see.
+      assert.deepEqual(sentShowing(c, slug), ["src/routes/-parts/card-a.tsx"],
+        "the restored component never reached the container: " + JSON.stringify(sentShowing(c, slug)));
+
+      // (b) AND THE STORE AGREES, so the next edit starts from a component
+      //     that still has its picture.
+      assert.deepEqual(pics(storedParts(store, slug)["card-a"], slug), [PIC_A(slug)],
+        "the store kept the stripped component");
+
+      // (c) AND IT IS COUNTED AND SAID. `photosKept` reads the publication,
+      //     and the publication's picture is in a component.
+      assert.equal(body.photosKept, 1, "the restoration was not counted: " + JSON.stringify(body.photosKept));
+      assert.equal(body.photosRemoved, undefined,
+        "a photograph the guard put back was reported lost: " + JSON.stringify(body.photosRemoved));
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.includes("still there"),
+        "the protection never reached the screen: " + JSON.stringify(said.text));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("an authorised removal takes the one it names and keeps the one it does not", async () => {
+  // THE OTHER HALF, and without it the fix above is a ban rather than a
+  // protection. The model's PAGE answer is BYTE-IDENTICAL to the case above —
+  // `strippedBoth`, both pictures emptied. The only difference is that a
+  // picture rung ran first and cleared ONE of them.
+  //
+  // ⚠ AND THIS EXPECTATION IS THIS ROUND'S CORRECTION. It used to assert that
+  // BOTH photographs disappeared, which is what the code really did and what
+  // the owner reported: *"'Remove only the window photograph; keep the bench
+  // photograph' can publish both missing. `ePhotoAsk` disables protection
+  // globally."* A boolean over the whole message — "did any picture step
+  // run?" — turned the protection off for every picture on the site the
+  // moment one was named. The test agreed with the defect, so it could never
+  // have found it.
+  //
+  // WHERE THE PERMISSION COMES FROM NOW: the picture rung publishes through
+  // `publishStep`, which advances `eSrc` — so by the time the page rung runs,
+  // the site AS IT STANDS already has the window's `src` empty and the
+  // bench's filled. The guard's BEFORE is that state. The window is not in
+  // it, so there is nothing to put back and the removal ships; the bench IS
+  // in it, was never asked about, and goes back.
   const slug = "prot-authorised";
   const store = bucket(slug);
   const c = installCompiler();
@@ -295,50 +529,177 @@ test("a message that IS about the pictures still removes them", async () => {
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "take the window photo off and lay the front page out in two columns", { store, layer: "look" });
+      const { body, said } = await edit(slug, "take the window photo off, keep the bench one, and lay the front page out in two columns", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
 
-      // (a) THE PUBLICATION HAS NEITHER. The same answer that was protected
-      //     above ships as written here.
-      assert.deepEqual(pics(sentHome(c), slug), [],
-        "an authorised removal was undone by the protection: " + JSON.stringify(pics(sentHome(c), slug)));
-      assert.deepEqual(pics(storedHome(store, slug), slug), [], "the store kept a picture the customer asked to remove");
+      // (a) THE PUBLICATION HAS EXACTLY ONE, and which one is the whole case.
+      //     The named removal is honoured; the unnamed photograph survives an
+      //     answer that emptied it.
+      assert.deepEqual(pics(sentHome(c), slug), [PIC_A(slug)],
+        "the publication does not carry the bench alone: " + JSON.stringify(pics(sentHome(c), slug)));
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug)],
+        "the store disagrees with what was published: " + JSON.stringify(pics(storedHome(store, slug), slug)));
 
-      // (b) NOTHING WAS RESTORED, and the loss is reported the way it always
-      //     was — this rung reports, it does not refuse. The addon's 422 is
-      //     deliberately not here.
-      assert.equal(body.photosKept, undefined,
-        "the protection acted on a message that asked about the pictures: " + JSON.stringify(body.photosKept));
-      assert.equal(body.photosRemoved, 2, "the loss was not reported: " + JSON.stringify(body.photosRemoved));
-      assert.notEqual(body.error, "lost-photos", "this rung refused instead of reporting");
+      // (b) BOTH COUNTS, because each is half the claim. One put back, one
+      //     really gone — and the loss is REPORTED rather than refused, which
+      //     is what separates this rung from the addon's 422.
+      assert.equal(body.photosKept, 1,
+        "the protection did not act on the photograph nobody named: " + JSON.stringify(body.photosKept));
+      assert.equal(body.photosRemoved, 1,
+        "the authorised removal was not reported, or the wrong number was: " + JSON.stringify(body.photosRemoved));
+      assert.notEqual(body.error, "withheld", "this rung refused an authorised removal instead of making it");
 
-      // (c) THE SCREEN NAMES IT, and starts nothing.
+      // (c) THE SCREEN SAYS BOTH THINGS, and starts nothing.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.includes("2 photographs are no longer on the site"),
+      assert.ok(said.text.includes("One photograph is no longer on the site"),
         "the loss never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("still there"),
+        "the customer is not told the other one was kept: " + JSON.stringify(said.text));
+      assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a loss the restoration cannot reach is withheld, not published", async () => {
+  // THE DEFECT, REPRODUCED THROUGH THE ROUTE. Owner: *"`keepPhotos` restores
+  // empty `src` only when the description still matches. Deleting the
+  // element, changing its description, or substituting another URL bypasses
+  // preservation… withhold the unsafe change with an explanation. Do not
+  // publish the loss merely because matching failed, or trigger a full
+  // rewrite."*
+  //
+  // The writer DELETES the `<SafeImage>` for the bench. There is no slot to
+  // write into, so the previous round's restoration fired on nothing — and
+  // the page shipped with the photograph gone, reported afterwards, which is
+  // exactly the behaviour the round before that was meant to end.
+  const slug = "prot-unreachable";
+  const store = bucket(slug);
+  const c = installCompiler();
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
+    }, async () => {
+      const { status, body, said } = await edit(slug, "change the opening hours to six", { store });
+
+      // (a) ITS OWN REFUSAL — and NOT an escalate, for the reason the
+      //     component case one section down gives: `escalate` is what buys
+      //     the ~25-credit rewrite of every page, which is the opposite of
+      //     protecting one photograph.
+      assert.equal(status, 409, "the refusal wore the wrong status: " + status);
+      assert.equal(body && body.ok, false, "a refusal reported success: " + JSON.stringify(body));
+      assert.equal(body.error, "withheld", "the refusal cannot name itself: " + JSON.stringify(body.error));
+      assert.equal(body.escalate, undefined, "the refusal escalates: " + JSON.stringify(body.escalate));
+      assert.equal(body.cost, 0, "a refusal was charged for: " + JSON.stringify(body.cost));
+      assert.equal(body.photosBlocked, 1, "the refusal does not say how many: " + JSON.stringify(body.photosBlocked));
+      // THE COUNT, NEVER THE URL — `lostPhotosMsg`'s own rule, one path over.
+      assert.ok(!JSON.stringify(body).includes(PIC_A(slug)),
+        "a storage key reached the customer: " + JSON.stringify(body).slice(0, 300));
+
+      // (b) NOTHING WAS BUILT AND NOTHING WAS WRITTEN. A refusal changes
+      //     nothing — including the customer's own hours change, which is the
+      //     stated cost of this rule and not an oversight.
+      assert.equal(c.calls.length, 0, "a refusal compiled the site: " + c.calls.length);
+      assert.equal(storedHome(store, slug), homeWith(slug), "a refusal wrote to the page store");
+      assert.deepEqual(pics(storedHome(store, slug), slug), [PIC_A(slug), PIC_B(slug)].sort(),
+        "the store lost a photograph on a request that published nothing");
+
+      // (c) THE SCREEN, AND WHAT IT DOES NOT START.
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(said.text.startsWith("⚠️"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("left your site exactly as it was"),
+        "the customer is not told their site is untouched: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("take that photo off"),
+        "the customer is not told how to authorise it: " + JSON.stringify(said.text));
+      assert.deepEqual(said.actions, [],
+        "the refusal still started something: " + JSON.stringify(said.actions));
+    });
+  } finally { c.uninstall(); }
+});
+
+test("a photograph moved from the page into a component is published once", async () => {
+  // THE DEFECT, REPRODUCED THROUGH THE ROUTE. Owner: *"Moving an image from
+  // the page into a component publishes it twice: the separate page check
+  // restores the old copy without seeing the new component."*
+  //
+  // The guard ran TWICE, once per list, and each call's site-wide rule was
+  // only half site-wide: the pages call saw an emptied `src` on the page and
+  // no sign of where the url had gone, so it put the old copy back — beside
+  // the component that now also carries it.
+  const slug = "prot-moved";
+  const store = bucket(slug, { home: homeOnePic(slug), parts: [{ name: "card-a", source: A_OLD }] });
+  const c = installCompiler();
+  const moved = 'export default function CardA(){return <section data-slot="card"><h2>Opening hours</h2>'
+    + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" /></section>}';
+  try {
+    await withWire({
+      [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: homeOnePic(slug).replace('src="' + PIC_A(slug) + '"', 'src=""') }],
+        parts: [{ name: "card-a", source: moved }],
+      },
+    }, async () => {
+      const { body, said } = await edit(slug, "put the bench photograph inside the opening-hours card", { store });
+      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+
+      // (a) ONE FILE SHOWS IT, AND IT IS THE COMPONENT. Counted over the
+      //     WHOLE compiler payload rather than the page alone, because the
+      //     page alone cannot tell a move from a loss and the component alone
+      //     cannot tell a move from an addition.
+      assert.deepEqual(sentShowing(c, slug), ["src/routes/-parts/card-a.tsx"],
+        "the photograph is not published exactly once, in the component: " + JSON.stringify(sentShowing(c, slug)));
+      assert.deepEqual(pics(sentHome(c), slug), [],
+        "the page it moved OUT of got a copy put back: " + JSON.stringify(pics(sentHome(c), slug)));
+
+      // (b) THE STORE AGREES, so the next edit starts from a site with one
+      //     copy rather than two.
+      assert.deepEqual(pics(storedHome(store, slug), slug), [], "the stored page kept a duplicate");
+      assert.deepEqual(pics(storedParts(store, slug)["card-a"], slug), [PIC_A(slug)],
+        "the component did not keep the photograph it was given");
+
+      // (c) A MOVE IS NEITHER A LOSS NOR A RESTORATION, and both fields say
+      //     so — the message-wide reader is site-wide, so the site still
+      //     shows what it showed.
+      assert.equal(body.photosRemoved, undefined,
+        "a move was reported as a loss: " + JSON.stringify(body.photosRemoved));
+      assert.equal(body.photosKept, undefined,
+        "the protection claimed to have acted on a move: " + JSON.stringify(body.photosKept));
+      assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      assert.ok(!said.text.includes("no longer on the site"),
+        "the customer was told about a loss that did not happen: " + JSON.stringify(said.text));
       assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
     });
   } finally { c.uninstall(); }
 });
 
 test("the restoration is by description, and it refuses to guess", () => {
-  // THE MODULE, DRIVEN DIRECTLY, for the four cases a route test cannot reach
+  // THE MODULE, DRIVEN DIRECTLY, for the cases a route test cannot reach
   // cheaply. Each is a refusal to guess rather than a capability.
+  //
+  // ⚠ ONE CALL, TWO LISTS. `keepPhotos` takes `{pages, parts}` on both sides,
+  // because two calls — one per list — each had a rule that was only half
+  // site-wide. The `lost` half is the other half of the answer: what the
+  // restoration COULD NOT reach, which the route turns into a refusal.
   const slug = "fw";
   const url = "/u/fw/aaaabbbbccccdddd.jpg";
-  const one = (body) => [{ path: "index.tsx", source: ROUTE_HEAD + "function Home(){return <main>" + body + "</main>}\n" }];
+  const src = (body) => ROUTE_HEAD + "function Home(){return <main>" + body + "</main>}\n";
+  const one = (body) => ({ pages: [{ path: "index.tsx", source: src(body) }], parts: [] });
 
-  // (a) THE ORDINARY CASE: emptied, and put back.
+  // (a) THE ORDINARY CASE: emptied, and put back — and nothing is left lost.
   const back = keepPhotos(
     one('<SafeImage src="' + url + '" alt="the bench" />'),
     one('<SafeImage src="" alt="the bench" />'),
     slug,
   );
   assert.deepEqual(back.restored, [url], "the ordinary restoration did not happen");
-  assert.ok(back.files[0].source.includes('src="' + url + '"'), "the url is not in the file");
+  assert.ok(back.pages[0].source.includes('src="' + url + '"'), "the url is not in the file");
+  assert.deepEqual(back.lost, [], "a photograph that WAS put back is also reported lost");
 
   // (b) A DIFFERENT PICTURE IS AN ANSWER, NOT A LOSS. Overwriting it would be
-  //     this function editing the change rather than protecting what was there.
+  //     this function editing the change rather than protecting what was
+  //     there — so nothing is restored. But the url the site showed is gone,
+  //     and `lost` is what says so: the route refuses rather than publishing
+  //     a substitution nobody asked for.
   const other = "/u/fw/1111222233334444.jpg";
   const swapped = keepPhotos(
     one('<SafeImage src="' + url + '" alt="the bench" />'),
@@ -346,16 +707,18 @@ test("the restoration is by description, and it refuses to guess", () => {
     slug,
   );
   assert.deepEqual(swapped.restored, [], "a deliberate replacement was overwritten");
+  assert.deepEqual(swapped.lost, [url], "a substituted url reads as no loss at all: " + JSON.stringify(swapped.lost));
 
   // (c) AN EXPRESSION IS NOT OUR SLOT — `src={row.photo}` is a picture the
   //     site's own data decides, and a literal written over it drops the
-  //     binding.
+  //     binding. Reported lost for the same reason.
   const bound = keepPhotos(
     one('<SafeImage src="' + url + '" alt="the bench" />'),
     one("<SafeImage src={row.photo} alt=\"the bench\" />"),
     slug,
   );
   assert.deepEqual(bound.restored, [], "a data binding was overwritten with a literal");
+  assert.deepEqual(bound.lost, [url], "a binding that took a photograph's place reads as no loss");
 
   // (d) AN AMBIGUOUS DESCRIPTION IS SKIPPED. Two empty slots sharing one `alt`
   //     cannot say which is the one that had the picture.
@@ -365,20 +728,49 @@ test("the restoration is by description, and it refuses to guess", () => {
     slug,
   );
   assert.deepEqual(twice.restored, [], "an ambiguous description was guessed at");
+  assert.deepEqual(twice.lost, [url], "an ambiguity the restoration skipped reads as no loss");
 
-  // (e) ⚠ AND A PHOTOGRAPH THE ANSWER MOVED IS NEVER PUT BACK. `keptImages` is
-  //     site-wide on purpose — a writer moving a `<SafeImage>` into a component
-  //     has kept every picture the site shows — so a per-file restoration would
-  //     meet that legitimate move and publish the photograph TWICE.
-  const moved = keepPhotos(
-    [{ path: "index.tsx", source: 'x<SafeImage src="' + url + '" alt="the bench" />' },
-      { path: "about.tsx", source: "y" }],
-    [{ path: "index.tsx", source: 'x<SafeImage src="" alt="the bench" />' },
-      { path: "about.tsx", source: 'y<SafeImage src="' + url + '" alt="the bench" />' }],
+  // (e) ⚠ THE THREE WAYS ROUND THE MATCH, all of which used to publish the
+  //     loss because the restoration simply did not fire. Owner: *"Deleting
+  //     the element, changing its description, or substituting another URL
+  //     bypasses preservation."* (b) is the substitution; these two are the
+  //     other two, and the point is that `lost` names every one of them.
+  const gone = keepPhotos(one('<SafeImage src="' + url + '" alt="the bench" />'), one("<p>nothing here</p>"), slug);
+  assert.deepEqual(gone.restored, [], "a deleted element was somehow restored");
+  assert.deepEqual(gone.lost, [url], "a DELETED picture element reads as no loss: " + JSON.stringify(gone.lost));
+  const renamed = keepPhotos(
+    one('<SafeImage src="' + url + '" alt="the bench" />'),
+    one('<SafeImage src="" alt="the seating area" />'),
     slug,
   );
-  assert.deepEqual(moved.restored, [], "a moved photograph was duplicated back into the page it left");
-  assert.equal(keptImages(moved.files, moved.files, slug).ok, true, "the move reads as a loss");
+  assert.deepEqual(renamed.restored, [], "a renamed description was matched anyway");
+  assert.deepEqual(renamed.lost, [url], "a RENAMED description reads as no loss: " + JSON.stringify(renamed.lost));
+
+  // (f) ⚠ AND A PHOTOGRAPH THE ANSWER MOVED IS NEVER PUT BACK, whichever list
+  //     it moved into. `keptImages` is site-wide on purpose — a writer moving
+  //     a `<SafeImage>` into a COMPONENT has kept every picture the site
+  //     shows — so a restoration that could not see the other list would meet
+  //     that legitimate move and publish the photograph TWICE. Both
+  //     directions, because the two lists are two arguments and a fix that
+  //     only looked one way would pass one of these.
+  const intoPart = keepPhotos(
+    { pages: [{ path: "index.tsx", source: src('<SafeImage src="' + url + '" alt="the bench" />') }], parts: [{ name: "card", source: "y" }] },
+    { pages: [{ path: "index.tsx", source: src('<SafeImage src="" alt="the bench" />') }],
+      parts: [{ name: "card", source: 'y<SafeImage src="' + url + '" alt="the bench" />' }] },
+    slug,
+  );
+  assert.deepEqual(intoPart.restored, [], "a photograph moved into a component was duplicated back into the page");
+  assert.deepEqual(intoPart.lost, [], "a move reads as a loss: " + JSON.stringify(intoPart.lost));
+  assert.equal(keptImages([...intoPart.pages, ...intoPart.parts], [...intoPart.pages, ...intoPart.parts], slug).ok, true,
+    "the moved publication does not satisfy the site-wide reader");
+  const intoPage = keepPhotos(
+    { pages: [{ path: "index.tsx", source: src("<p>x</p>") }], parts: [{ name: "card", source: 'y<SafeImage src="' + url + '" alt="the bench" />' }] },
+    { pages: [{ path: "index.tsx", source: src('<SafeImage src="' + url + '" alt="the bench" />') }],
+      parts: [{ name: "card", source: 'y<SafeImage src="" alt="the bench" />' }] },
+    slug,
+  );
+  assert.deepEqual(intoPage.restored, [], "a photograph moved OUT of a component was duplicated back into it");
+  assert.deepEqual(intoPage.lost, [], "the other direction of a move reads as a loss: " + JSON.stringify(intoPage.lost));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

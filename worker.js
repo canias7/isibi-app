@@ -166,7 +166,7 @@ import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, our
 // callers ask `newEmptySlots` over the publication instead — a reader that sees
 // a swept token AND an empty frame the model simply wrote. Two comments below
 // still name it because they explain that move; neither is a consumer.
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, keepPhotos, photoUrls, newImageRefs, strayImages, uploadKeyFor, dropStrayPhotos, imageNote, imageRefs, shotKey, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -20512,6 +20512,22 @@ async function handleRequest(request, env, ctx) {
             // what the one publish is about to ship.
             const eSrcAt0 = eSrc;
             let ePartsAt0 = null;
+            // ⚠ AND THE PROTECTION'S OWN RECEIPT IS A SET OF URLS, NOT A SUM.
+            //
+            // Every photograph a rung put back, collected across the message
+            // and read ONCE below the loop against what really ships. A sum of
+            // per-rung counts is the intermediate-state shape one field over:
+            // the page rung restores a picture nobody named, an AUTHORISED
+            // picture rung then takes it off, and *"the 2 photographs are
+            // still there"* is printed beside *"one photograph is no longer on
+            // the site"* — two sentences about one publication, contradicting
+            // each other. Urls because only an identity can be intersected; a
+            // count cannot say WHICH of them survived.
+            //
+            // IT NEVER REACHES THE WIRE. The merge turns it into a number, for
+            // the reason `lostPhotosMsg` gives one path over: a storage key
+            // tells a customer nothing.
+            const ePhotosHeld = new Set();
             const editParts = async () => {
               if (!ePartsRead) {
                 ePartsRead = await readSiteParts(env, ownerSlug);
@@ -21182,29 +21198,33 @@ async function handleRequest(request, env, ctx) {
               steps.push({ layer: eLayer, page: ePage, fields: [] });
             }
 
-            // ── DID THIS MESSAGE ASK ABOUT THE PICTURES AT ALL? ───────────
+            // ── THE PERMISSION IS THE STATE, NOT A FLAG (2026-09-20) ──────
             //
-            // The one thing that separates *"lay the front page out in two
-            // columns"* — where a photograph coming off is a loss nobody
-            // asked for — from *"take the window photo off"*, where it is the
-            // work. The page rung protects what it finds on the first and
-            // must not on the second.
+            // A boolean stood here: *does this message have a picture step at
+            // all?* — and with it true the page rung's whole photograph
+            // protection was a no-op. So *"remove only the window photograph;
+            // keep the bench photograph"* picked the images lane, turned the
+            // protection off for the entire message, and published BOTH
+            // missing. The permission was scoped to the QUESTION rather than
+            // to the operations that answered it.
             //
-            // READ OUT OF THE PICKER'S OWN ANSWER, NEVER OUT OF THE SENTENCE.
-            // A keyword scan over the customer's words would be a second
-            // opinion about what they asked for, sitting beside the model
-            // call whose whole job is to answer that — and it would be wrong
-            // in the expensive direction on *"keep the photo of the window
-            // and redo the columns"*, which names a photograph and asks for
-            // no change to one.
+            // WHAT REPLACED IT IS NOT A NARROWER FLAG; IT IS `eSrc`. The
+            // picture rung applies its own work and hands the pages to
+            // `publishStep`, which advances `eSrc` — so by the time any later
+            // rung reads it, a photograph that was really cleared is already
+            // an empty slot and a photograph that was really replaced already
+            // carries the new url. The page rung protects what the site still
+            // shows, which is exactly "everything the matched picture
+            // operations did not touch", recorded by the operations
+            // themselves rather than inferred from the message.
             //
-            // THE LAYER, NOT THE FIELD. `laneLayer("images")` is `picture`, so
-            // asking for the layer is asking the resolver rather than keeping
-            // a list of which fields are about photographs — and it is
-            // already true of the router's own `picture` decision, which
-            // carries no fields at all. A field that dispatches there next
-            // month is covered by existing.
-            const ePhotoAsk = steps.some((s) => s && s.layer === "picture");
+            // AND IT IS ORDER-FREE. `pickedFields` order decides whether the
+            // picture step runs before or after a page step; either way the
+            // last writer wins and the publication is the same. What it
+            // cannot repair is a page rung that runs FIRST and is refused for
+            // a loss the picture rung was about to authorise — that message
+            // gets the removal and a `partial` naming the other half, which
+            // is honest and is written down rather than papered over.
 
             // THE DISPATCH CHAIN, AS A CALLABLE. Its parameters are named
             // exactly as the variables the branches already read, so the eight
@@ -23011,48 +23031,17 @@ async function handleRequest(request, env, ctx) {
               // in a hand-written component takes the build down exactly as one
               // in a page does.
               pValid.parts = repairImports(pValid.parts).pages;
-              // ── AND THE PHOTOGRAPHS NOBODY ASKED ABOUT GO BACK ───────────
-              //
-              // Owner: *"Photo preservation is not fixed by publishing the
-              // loss and reporting it afterward."* It was not: the rung read
-              // the loss off the publication, shipped it, and named it in the
-              // reply. A customer whose sentence said *"keep the window
-              // photograph"* got an empty frame and a note about it.
-              //
-              // AFTER THE SWEEP, WHICH IS THE POSITION THAT MATTERS.
-              // `applyImages` is what turns an unbought `@@IMG:` token into
-              // `src=""`, so a restoration above it would meet a token and a
-              // restoration below it meets the empty attribute the customer
-              // would really have seen. Both shapes reach here as one.
-              //
-              // NOT WHEN THE PICTURES ARE THE SUBJECT. `ePhotoAsk` is the
-              // message's own picker answering; with it true this is a
-              // no-op and the picture rung's removal and replacement work
-              // exactly as they did.
-              //
-              // TWICE, ONE LIST EACH, because `keepPhotos` writes each file
-              // back into the list it came from — the union `imageSources`
-              // answers is for READING, and slicing it apart by length is
-              // `applyImages`' own recorded way of breaking this again.
-              // Components pair on `name`, pages on `path`.
-              //
-              // ⚠ THE COMPONENT SIDE IS EMPTY ON AN UNREADABLE STORE, never
-              // the store's own copy: `pPartsRead.ok` false means we never
-              // learned a name, and pairing against a list we could not read
-              // is pairing against nothing. The merge refuses to publish any
-              // component in that state anyway, so there is nothing a
-              // restoration there could reach.
-              const pGuard = ePhotoAsk ? null : keepPhotos(eSrc, pValid.pages, ownerSlug);
-              const pGuardParts = ePhotoAsk ? null : keepPhotos(pPartsRead.ok ? pPartsRead.parts : [], pValid.parts, ownerSlug);
-              if (pGuard) pValid.pages = pGuard.files;
-              if (pGuardParts) pValid.parts = pGuardParts.files;
-              const pRestored = [...((pGuard && pGuard.restored) || []), ...((pGuardParts && pGuardParts.restored) || [])];
               const pProblems = pValid.problems.concat(lintPages(pValid.pages, eSpec));
               // ONLY THE PAGE THAT WAS ASKED FOR. A page edit that returns a
               // different file is not a page edit, and taking it would let one
               // instruction rewrite a page the customer never named. The prompt
               // says so too; this is the half that cannot be talked out of it.
-              const wrote = (pValid.pages || []).find((p) => p.path === target.path);
+              // ⚠ `let`, BECAUSE THE PROTECTION BELOW REWRITES IT. The page
+              // that ships is the model's answer with any photograph it emptied
+              // put back, and every reader under this line — the no-change test,
+              // `orderingMoved`, the publication — must see that one and not the
+              // answer it replaced.
+              let wrote = (pValid.pages || []).find((p) => p.path === target.path);
               // A CHANGED COMPONENT IS A CHANGE. Run 12's tsx lane (2026-09-02)
               // asked for a word inside the chord-diagram component; the model
               // rewrote the PART and handed the page back as it was, and this
@@ -23117,9 +23106,81 @@ async function handleRequest(request, env, ctx) {
               // `no-change`), while a store that THREW read as "no components"
               // (so anything counted as a change and the merge below deleted
               // the rest).
+              // ── AND NOW THE PHOTOGRAPHS NOBODY ASKED ABOUT GO BACK ───────
+              //
+              // Owner: *"Photo preservation is not fixed by publishing the
+              // loss and reporting it afterward."* It was not: the rung read
+              // the loss off the publication, shipped it, and named it in the
+              // reply. A customer whose sentence said *"keep the window
+              // photograph"* got an empty frame and a note about it.
+              //
+              // ⚠ HERE, AND NOT ABOVE THE PARTS WALL, and the position is the
+              // second of this round's corrections. *"Evaluate the accepted
+              // publication across pages and components TOGETHER, after
+              // discarded outputs are excluded"* — so the guard is asked of
+              // exactly what will ship: the target page folded into the
+              // site's own list, and the components the wall ACCEPTED.
+              // Anything the wall refused, and every page the model returned
+              // that was not asked for, is gone by now. A guard that ran
+              // before them would protect a file nobody publishes and count a
+              // picture in one as still shown.
+              //
+              // ⚠ AND THE TWO LISTS GO IN ONE CALL. Two calls, one per list,
+              // each had a site-wide rule that was only half site-wide: a
+              // writer moving a photograph out of the page and into a
+              // component left the page's slot empty, the pages call could
+              // not see where it had gone, and restored it — the same picture
+              // published TWICE.
+              //
+              // AFTER THE SWEEP TOO. `applyImages` is what turns an unbought
+              // `@@IMG:` token into `src=""`, so a restoration above it would
+              // meet a token and one below it meets the empty attribute the
+              // customer would really have seen.
+              //
+              // ── WHERE THE PERMISSION COMES FROM, AND IT IS NOT A FLAG ────
+              //
+              // The BEFORE is `eSrc` and the stored components — the site as
+              // it stands at the moment this rung starts, which is not the
+              // site the message arrived to. `publishStep` advances `eSrc`,
+              // so a picture rung that really cleared or replaced a
+              // photograph has ALREADY written that into it: the slot is
+              // empty, there is nothing to put back, and the removal ships.
+              // One that did not run, or ran and matched nothing, leaves the
+              // photograph standing and this protects it.
+              //
+              // THAT IS THE SCOPE, AND A BOOLEAN WAS NOT. The first cut asked
+              // whether the MESSAGE had a picture step at all and turned the
+              // whole protection off when it did — so *"remove only the
+              // window photograph; keep the bench photograph"* published both
+              // missing. Permission belongs to the picture operations that
+              // really matched, and the state is where those are recorded.
+              const pAccepted = (pFreshParts.length && pPartsRead.ok)
+                ? mergeParts(pPartsRead.parts, pFreshParts)
+                : (pPartsRead.ok ? pPartsRead.parts : []);
+              const pShip = wrote
+                ? eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p))
+                : eSrc;
+              const pGuard = keepPhotos(
+                // ⚠ THE COMPONENT SIDE IS EMPTY ON AN UNREADABLE STORE on
+                // BOTH sides, never the store's own copy: `ok` false means we
+                // never learned a name, and pairing against a list we could
+                // not read is pairing against nothing. Empty against empty is
+                // the reading that says *nothing about the components moved*,
+                // which is true — the merge publishes none of them.
+                { pages: eSrc, parts: pPartsRead.ok ? pPartsRead.parts : [] },
+                { pages: pShip, parts: pAccepted },
+                ownerSlug,
+              );
+              const pRestored = pGuard.restored;
+              // RECORDED ACROSS THE MESSAGE, NOT ANSWERED HERE. Read once
+              // below the loop against the publication — see `ePhotosHeld`.
+              for (const u of pRestored) ePhotosHeld.add(u);
+              const pGuarded = wrote ? pGuard.pages.find((p) => p.path === target.path) : null;
+              if (pGuarded) wrote = { ...wrote, source: pGuarded.source };
               const partMoved = pPartsRead.ok && pFreshParts.some((pt) => {
                 const s = pPartsRead.parts.find((x) => x && x.name === pt.name);
-                return !s || s.source !== pt.source;
+                const g = pGuard.parts.find((x) => x && x.name === pt.name);
+                return !s || s.source !== ((g && g.source) || pt.source);
               });
               if (!wrote || (wrote.source === target.source && !partMoved)) {
                 // ── A CHANGE A PROTECTION WITHHELD IS NOT A NO-CHANGE ──────
@@ -23177,7 +23238,50 @@ async function handleRequest(request, env, ctx) {
                 }
                 return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
               }
-              const pPages = eSrc.map((p) => (p.path === target.path ? { path: p.path, source: wrote.source } : p));
+              // ── AND A LOSS THE PROTECTION COULD NOT REACH IS WITHHELD ────
+              //
+              // Owner: *"If an unrelated edit loses a protected image and safe
+              // restoration is uncertain, withhold the unsafe change with an
+              // explanation. Do not publish the loss merely because matching
+              // failed, or trigger a full rewrite."*
+              //
+              // ⚠ RESTORATION IS NOT COVERAGE, AND THE FIRST CUT TREATED IT AS
+              // IF IT WERE. Everything `keepPhotos` does needs a slot to write
+              // into and a description to match on, so a writer that DELETES
+              // the element, RENAMES its description or SUBSTITUTES another
+              // url walks straight past it — and the picture was then
+              // published missing, exactly as before the protection existed.
+              // A match that never happened is indistinguishable, from
+              // outside, from a file that had nothing to protect.
+              //
+              // SO `lost` IS ASKED, over the same accepted publication, and a
+              // loss left standing REFUSES THIS RUNG. Nothing compiles,
+              // nothing is written, cost 0 — and it is NOT an `escalate`, for
+              // the reason one branch up: that word buys the ~25-credit
+              // rewrite of every page, which is the opposite of protecting
+              // one photograph.
+              //
+              // IT CANNOT FIRE ON AN AUTHORISED REMOVAL, by construction
+              // rather than by a flag: the BEFORE is `eSrc`, which already
+              // carries whatever the picture rung did, so a photograph it
+              // cleared is not in the before and cannot be lost from it.
+              if (pGuard.lost.length) {
+                const n = pGuard.lost.length;
+                return Response.json({
+                  ok: false, error: "withheld", cost: 0,
+                  msg: "I couldn't make that change without taking " +
+                    (n === 1 ? "a photograph" : n + " photographs") +
+                    " off your site, and I couldn't put " + (n === 1 ? "it" : "them") +
+                    " back safely — so I left your site exactly as it was. Say " +
+                    "“take " + (n === 1 ? "that photo" : "those photos") +
+                    " off” if you did want " + (n === 1 ? "it" : "them") + " gone.",
+                  // THE COUNT, NEVER THE URLS — `lostPhotosMsg`'s own rule, one
+                  // path over: a storage key tells a customer nothing.
+                  photosBlocked: n,
+                  problems: pProblems.slice(0, 4),
+                }, { status: 409 });
+              }
+              const pPages = pGuard.pages;
               // THE COMPONENTS THE EDIT WROTE GO WITH THE PAGE. `validatePages`
               // reads them out of `parts`, as the build does; this rung dropped
               // them, so a page importing `@/routes/-parts/string-names` was
@@ -23193,9 +23297,13 @@ async function handleRequest(request, env, ctx) {
               // `ok` is false nothing is written at all: `null` leaves the
               // spine to re-send the store's own copy, which is exactly what a
               // page edit that touched no component does.
-              const pParts = (pFreshParts.length && pPartsRead.ok)
-                ? mergeParts(pPartsRead.parts, pFreshParts)
-                : null;
+              //
+              // ⚠ AND IT IS THE GUARD'S COPY, because the protection may have
+              // written a `src` back into a COMPONENT. `pGuard.parts` is
+              // `pAccepted` with those restorations applied; handing the
+              // unprotected merge over would publish the component the model
+              // wrote and quietly drop what was put back into it.
+              const pParts = (pFreshParts.length && pPartsRead.ok) ? pGuard.parts : null;
 
               // ── WHAT THIS CHANGE DID TO THE SITE'S PICTURES ──────────────
               //
@@ -23253,13 +23361,14 @@ async function handleRequest(request, env, ctx) {
                 // see it, so answering them here answered about an
                 // intermediate state a later rung may reverse.
                 //
-                // AND A PHOTOGRAPH THIS RUNG PUT BACK IS SAID, because that
-                // is a fact about what the rung DID rather than a comparison:
-                // the writer emptied a `src` nobody asked about and the
-                // attribute was restored from the file's own previous source.
-                // Omitted when empty, so an ordinary page edit's reply is
-                // byte-identical to what it was.
-                photosKept: pRestored.length || undefined,
+                // ⚠ AND `photosKept` IS THE MERGE'S TOO, for the same reason
+                // one sentence later than the other two. What this rung DID
+                // is a fact about the rung — the writer emptied a `src`
+                // nobody asked about and the attribute was put back — but
+                // what the customer is told, *"it is still there"*, is a
+                // claim about the PUBLICATION, and a later authorised picture
+                // rung can take the same photograph off. The urls go into
+                // `ePhotosHeld` above and are intersected with what ships.
                 ignored: (pValid.pages || []).filter((p) => p.path !== target.path).map((p) => p.path).slice(0, 4),
                 problems: pProblems.slice(0, 4),
                 // OMITTED WHEN EMPTY, so an ordinary page edit's response is
@@ -23579,7 +23688,7 @@ async function handleRequest(request, env, ctx) {
             // never read them at all leaves both sides empty, which says the
             // same thing. Reading the store here would be a THIRD read of it
             // in one message, against the rule the snapshot exists for.
-            let picsRemoved, picsFrames;
+            let picsRemoved, picsFrames, picsKept;
             if (finalPub && finalPub.ok && pendingPublish) {
               const at0 = ePartsAt0 || [];
               const was = imageSources(eSrcAt0, at0);
@@ -23587,6 +23696,20 @@ async function handleRequest(request, env, ctx) {
               const kept = keptImages(was, now, ownerSlug);
               picsRemoved = kept.ok ? undefined : kept.lost.length;
               picsFrames = newEmptySlots(was, now);
+              // ⚠ AND A RESTORATION A LATER RUNG UNDID IS NOT A KEPT
+              // PHOTOGRAPH. The page rung puts back a picture nobody named;
+              // an AUTHORISED picture rung further down the same sentence
+              // takes that same picture off — and a sum of the rungs' own
+              // counts then prints *"the 2 photographs are still there"*
+              // beside *"one photograph is no longer on the site"*. Two
+              // sentences about one publication, disagreeing.
+              //
+              // INTERSECTED WITH WHAT SHIPS, which is why `ePhotosHeld` holds
+              // urls: a count cannot say WHICH of them survived. Same
+              // publication both fields read, so they cannot disagree.
+              const shows = new Set();
+              for (const f of now) for (const u of photoUrls(f && f.source, ownerSlug)) shows.add(u);
+              picsKept = [...ePhotosHeld].filter((u) => shows.has(u)).length || undefined;
             }
             const merged = {
               ok: ranOk.length > 0,
@@ -23663,9 +23786,9 @@ async function handleRequest(request, env, ctx) {
                 ? [...new Set(flat("keptParts"))].slice(0, 6) : undefined,
               unseenParts: [...new Set(flat("unseenParts"))].slice(0, 6).length
                 ? [...new Set(flat("unseenParts"))].slice(0, 6) : undefined,
-              // A SUM, because each rung restored its own and the customer's
-              // question is how many photographs stayed put.
-              photosKept: ranOk.reduce((n, d) => n + (Number(d.body.photosKept) || 0), 0) || undefined,
+              // NOT A SUM OF THE RUNGS — see the intersection above. What the
+              // protection held AND the publication still shows.
+              photosKept: picsKept,
               // AND THE TWO COMPARISONS, from the ONE publication above.
               // Declared here rather than left to the catch-all so no rung's
               // own idea of either can overwrite them: `Object.hasOwn` is

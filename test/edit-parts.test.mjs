@@ -115,7 +115,20 @@ test("a changed component is a change, even when the page came back byte-identic
   // The comparison is by name against the STORED source: a new part, or one
   // whose source differs, is a move; an identical re-send is not.
   const cmp = rung.slice(moved, rung.indexOf("});", moved));
-  assert.match(cmp, /return !s \|\| s\.source !== pt\.source;/, "the part comparison is not by stored source");
+  assert.match(cmp, /const s = pPartsRead\.parts\.find\(\(x\) => x && x\.name === pt\.name\)/,
+    "the stored side is no longer found by name");
+  assert.match(cmp, /return !s \|\|/, "a component the store has never seen is no longer a change");
+  // ⚠ AND THE AFTER SIDE IS THE PHOTO GUARD'S COPY, NOT THE MODEL'S ANSWER
+  // (2026-09-20). `keepPhotos` may write a `src` back into a COMPONENT, so a
+  // component whose ONLY difference from the store is a restoration we made
+  // is still a change worth publishing — and comparing against the raw
+  // answer would call it one for the wrong reason, or miss it entirely when
+  // the model's own text matched the store. `pt.source` stays as the
+  // fallback for a name the guard did not return.
+  assert.match(cmp, /s\.source !== \(\(g && g\.source\) \|\| pt\.source\)/,
+    "the part comparison does not read the guarded copy");
+  assert.match(cmp, /const g = pGuard\.parts\.find\(\(x\) => x && x\.name === pt\.name\)/,
+    "the guarded copy is not found by name either");
   // AND IT MEASURES WHAT WE ACCEPTED, not what came back. A component the
   // wall refused is not a change — counting it would publish a "change" whose
   // only content is a rewrite we declined to keep.

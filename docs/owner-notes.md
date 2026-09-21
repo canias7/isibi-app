@@ -155,6 +155,81 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The photo protection, third time, and the first two were mine
+
+You sent back three more on the same fix, and the honest summary is that all
+three were defects in **my** fix rather than in the original problem. The
+mechanism was right each time; what was wrong was who it applied to, what it
+claimed, and how many places it looked.
+
+**1. "Remove only the window photograph; keep the bench photograph" published
+both missing.** I had made the permission a single yes/no over the whole
+message — *did the customer mention photographs at all?* — and the answer
+turned the protection off for **every** picture on the site. A rung that
+cannot see which picture was meant has no business deciding that.
+
+It is the state now, not a question about the sentence. When the picture rung
+really takes a photograph off, it publishes that change, so by the time the
+page step runs, that photograph is already gone from the site it is comparing
+against — there is nothing to put back. The bench is still there, was never
+mentioned, and goes back. One is removed, one is kept, from exactly the same
+model answer.
+
+**You were also right about the test.** Mine expected both photographs to
+disappear on a message that named only the window, which is the defect written
+down as an expectation — so it could never have found it. Corrected.
+
+**2. Putting a photograph back only worked when the description still
+matched.** If the builder deleted the picture element outright, renamed its
+description, or swapped in a different file, the restoration simply never
+fired — and the old code then published the loss and mentioned it afterwards,
+which is the thing you objected to in the first place. From outside, a match
+that never happened looks identical to a file that had nothing to protect.
+
+So the builder now works out what it could **not** put back, and if anything
+is left it **refuses the whole change**: nothing is compiled, nothing is
+saved, nothing is charged, and the reply says *"I couldn't make that change
+without taking a photograph off your site, and I couldn't put it back safely
+— so I left your site exactly as it was. Say 'take that photo off' if you did
+want it gone."* Deliberately **not** an escalation, because escalating is what
+buys the ~25-credit rewrite of every page — spending that to protect one
+photograph is the opposite of the point.
+
+The cost, stated plainly: the customer's own wording change is held back with
+it. That is the rule doing what you asked rather than an oversight, and one
+sentence from them releases it.
+
+**3. Moving a photograph from the page into a section published it twice.**
+The guard ran once for pages and once for sections, so each run's "is it still
+somewhere on the site?" question was only half the site. The pages run saw an
+empty slot, could not see the section that now carried the picture, and put
+the old copy back next to it. It is one call over both lists now, asked of
+exactly what is about to ship.
+
+**What I did not break.** The plain empty-`src` restoration, intended removal
+and replacement, the multi-step warnings from last round, and the
+blocked-component refusal are all still driven through the real route and all
+still green.
+
+**How it was checked.** Every one of these is reproduced through the real edit
+route with the model wire stubbed — no model call, no credits — and each case
+reads four things: what went to the compiler, what ended up in storage, the
+reply, and the sentence your browser would actually draw. The focused files
+are 128 green. The full suite is 7,038.
+
+I also ran a red check: 18 one-line mutations that each undo half of this
+round's work, 17 killed, and a comment-only control that survived. **Three of
+them survived the first time and all three were real gaps in my own tests** —
+the running order means the picture step usually runs *after* the page step,
+so the scope fix was never exercised in the direction that matters; one
+refusal sentence had no case at all; and nothing had ever put a photograph
+back into a *section*. Three new cases, and all three mutants now die.
+
+**Not proven live.** Nothing here has run against a real site — no paid run,
+no merge, no deploy.
+
+---
+
 ## 2026-09-20 — Three more on the edit path, and the first one was a real miss
 
 You came back with three gaps, and the first is the one I should have got right
@@ -274,12 +349,15 @@ rewriting — all five of which the function it calls has accepted for weeks.
 - The builder is told **what the site really shows** — read, not assumed — plus
   your sections' real code, your theme, your stylesheet and the kit props for
   that page.
-- **A lost photograph is reported, never refused.** This is the line I want you
-  to know about: the addon step REFUSES a change that loses a picture, which is
-  right there. Here it would refuse *"take the window photo off the front
-  page"*, which is an ordinary thing to ask. So the change ships and the reply
-  names it: *"One photograph is no longer on that page. If that was not what you
-  wanted, say 'put the photo back'."*
+- **A lost photograph is reported, never refused.** ⚠ **Corrected the next day
+  — see the 2026-09-21 entry above.** You sent this back: a picture the
+  builder could not safely put back was still being published with a note
+  about it, which is the thing you objected to in the first place. It now
+  refuses that case outright and leaves your site untouched. What is still
+  true of this bullet is the *reason* it was written: a removal you really
+  asked for still ships and is still named on the reply — *"One photograph is
+  no longer on the site. If that was not what you wanted, say 'put the photo
+  back'."*
 - **An empty picture space is counted properly.** It was counting the wrong
   thing and answered zero every time the builder behaved, so you were never told
   about a frame your change left.

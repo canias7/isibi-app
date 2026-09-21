@@ -9990,12 +9990,14 @@ function editOutcomes(e) {
   }
   // ── AND ONE THAT REALLY DID COME OFF ───────────────────────────────────
   //
-  // REPORTED, NEVER REFUSED, which is what separates this rung from the
-  // addon's: there a lost photograph is a 422 at cost 0, right for a step
-  // whose contract is "an addition is always a new thing"; here "take the
-  // window photo off the front page" is an ordinary request. So the change
-  // ships and the customer is told, the way `reordered` is told — reported,
-  // never rewritten.
+  // ⚠ THIS CLAUSE IS ABOUT A LOSS THAT SHIPPED, AND SINCE 2026-09-20 THAT IS
+  // A NARROWER SET THAN IT WAS. A loss the protection could not put back
+  // safely now REFUSES the whole change on the server (409 `withheld`), and
+  // that answer never reaches this branch at all — it goes through the
+  // refusal arm with its own sentence. What still lands here is a removal the
+  // picture rung really made: "take the window photo off the front page" is
+  // an ordinary request, so the change ships and the customer is told, the
+  // way `reordered` is told — reported, never rewritten.
   //
   // SAID WHEN A REMOVAL WAS AUTHORISED TOO, deliberately. This side does not
   // know which it was; the field is a fact about the publication and the

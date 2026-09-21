@@ -25,12 +25,27 @@
 // about an empty picture frame the change left. `newEmptySlots(before, after)`
 // is the reader the addon path already uses for exactly this.
 //
-// ⚠ THE PRESERVATION CONTRACT IS **NOT** THE ADDON'S HERE, and that is the
-// whole design of this stage. The addon REFUSES 422 `lost-photos` — right for
-// a step whose contract is "an addition is always a new thing", and wrong for
-// an edit, where "take that photo off the front page" is an ordinary request.
-// So loss is DETECTED and REPORTED, never refused: the `orderingMoved` /
-// `alsoOn` precedent one field over in the same reply.
+// ⚠ THE PRESERVATION CONTRACT, AND IT MOVED ON 2026-09-20. Until then this
+// rung DETECTED and REPORTED a loss and published it anyway — deliberately,
+// because the addon's 422 `lost-photos` is right for a step whose contract is
+// "an addition is always a new thing" and would have refused *"take that
+// photo off the front page"*, which is an ordinary edit.
+//
+// What that missed is the word UNRELATED. Owner: *"If an unrelated edit loses
+// a protected image and safe restoration is uncertain, withhold the unsafe
+// change with an explanation. Do not publish the loss merely because matching
+// failed."* Restoration needs a slot to write into and a description to match
+// on, so a writer that DELETES the element, RENAMES its description or
+// SUBSTITUTES another url walked past the protection — and the reporting
+// sentence below then arrived after the photograph had already gone.
+//
+// SO THE LINE IS NOW: a loss `keepPhotos` could REACH is silently put back; a
+// loss it could not reach REFUSES the rung (409 `withheld`, cost 0, nothing
+// compiled, nothing stored). A removal the customer really asked for is
+// authorised by the PICTURE RUNG'S OWN APPLIED WORK — it publishes through
+// `publishStep`, which advances `eSrc`, so the photograph is already gone
+// from the site this rung compares against and there is nothing to protect.
+// `test/edit-page-protect.test.mjs` drives both halves end to end.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -40,6 +55,8 @@ import { CONFIG_KEY } from "../site-config.mjs";
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { imageDirective, shownPhotos } from "../builder/site-images.mjs";
+import { PICTURE_TOOL } from "../builder/site-picture.mjs";
+import { laneLayer } from "../builder/site-lanes.mjs";
 // ⚠ `editBrowserReply`, NOT `browserReply` — the two are different composers
 // and the wrong one answers plausibly. `browserReply` runs `addonAnswer`,
 // which is the ADD route's selection; an EDIT reply goes through `editAnswer`
@@ -106,10 +123,6 @@ const strippedBoth = (slug) => homeWith(slug)
 const strippedAndRenamed = (slug) => strippedBoth(slug)
   .replace('alt="the bench"', 'alt="a bench in the yard"')
   .replace('alt="the window"', 'alt="the front window"');
-
-/** One picture deliberately taken off, the other kept — an authorised removal. */
-const removedOne = (slug) => homeWith(slug)
-  .replace('<SafeImage src="' + PIC_B(slug) + '" alt="the window" />', "");
 
 const STORED_CSS = ":root{--background:oklch(100% 0 0)}";
 const STORED_LOOK = { brand: "Ravenscroft", theme: "broadsheet" };
@@ -301,20 +314,22 @@ test("an unreadable component store claims nothing about the pictures either way
 // 2. PRESERVATION — a wording edit keeps the pictures
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("a wording edit that loses the photographs NAMES the loss on the reply", async () => {
+test("a wording edit that loses the photographs is WITHHELD, not published", async () => {
   // THE DEFECT (reproduced at b9353187): the writer obeyed the false sentence,
   // both `src` attributes came back empty, the publish carried the stripped
   // page, the store kept it, and the reply said `photos: 0` with no field
   // naming the loss — over a request that asked in as many words to keep them.
   //
-  // ⚠ WHAT IT DOES NOW IS **REPORT**, NOT REFUSE, and that line is the whole
-  // of Stage 2's design. The addon answers a lost photograph with 422
-  // `lost-photos` at cost 0 — right for a step whose contract is "an addition
-  // is always a new thing" — and applying that here would refuse *"take the
-  // window photo off the front page"*, which is an ordinary edit. The case
-  // below this one is the other side of that line and must stay green.
+  // ⚠ RE-ANCHORED 2026-09-20, AND THE EXPECTATION IS THIS ROUND'S CORRECTION.
+  // It asserted `status: 200` with the loss NAMED afterwards, which is what
+  // the previous round shipped and is exactly what the owner sent back:
+  // *"Do not publish the loss merely because matching failed."* A rewritten
+  // description leaves the restoration nothing to match, so this request —
+  // which says *"keep the photographs exactly as they are"* — now refuses.
   //
-  // So this asserts BOTH halves: it still publishes, AND the customer is told.
+  // THE REPORTING CHAIN THIS CASE USED TO CARRY IS NOT LOST: an AUTHORISED
+  // removal still publishes and still names the loss, driven through the real
+  // picture rung in `test/edit-page-protect.test.mjs`.
   const slug = "pix-strip";
   const store = bucket(slug);
   const c = installCompiler();
@@ -331,43 +346,44 @@ test("a wording edit that loses the photographs NAMES the loss on the reply", as
     }, async () => {
       const { status, body, said } = await edit(slug, "change the opening hours to six, and keep the photographs exactly as they are", { store });
 
-      // (a) IT PUBLISHES. Not a 422 — the customer's change is not held
-      //     hostage to a reader's opinion about their pictures.
-      assert.equal(status, 200, "a lost photograph was REFUSED: " + status + " " + JSON.stringify(body));
-      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      // (a) IT REFUSES, AND NOT AS AN ESCALATE. `escalate` is what the browser
+      //     turns into the ~25-credit rewrite of every page, which is the
+      //     opposite of protecting two photographs.
+      assert.equal(status, 409, "a loss the restoration could not reach was published: " + status + " " + JSON.stringify(body));
+      assert.equal(body && body.ok, false, "a refusal reported success: " + JSON.stringify(body));
+      assert.equal(body.error, "withheld", "the refusal cannot name itself: " + JSON.stringify(body.error));
+      assert.equal(body.escalate, undefined, "the refusal escalates: " + JSON.stringify(body.escalate));
+      assert.equal(body.cost, 0, "a refusal was charged for: " + JSON.stringify(body.cost));
 
-      // (b) AND THE LOSS IS NAMED, as a COUNT. A storage key tells a customer
-      //     nothing (`lostPhotosMsg`'s own rule); the number is what they can
-      //     act on.
-      assert.equal(body.photosRemoved, 2,
-        "the reply does not name the two lost photographs: " + JSON.stringify(body.photosRemoved));
+      // (b) AND IT SAYS HOW MANY, as a COUNT. A storage key tells a customer
+      //     nothing — `lostPhotosMsg`'s own rule, one path over.
+      assert.equal(body.photosBlocked, 2,
+        "the refusal does not say how many it held: " + JSON.stringify(body.photosBlocked));
       assert.ok(!JSON.stringify(body).includes(PIC_A(slug)),
         "the reply carries a storage key, which tells the customer nothing");
 
-      // (c) AND THE EMPTY FRAMES ARE COUNTED. Two pictures became two
-      //     placeholders, so there really are two spaces where a photograph
-      //     was — the reader the addon path uses, on the rung that lacked it.
-      assert.equal(body.photos, 2, "the empty frames left behind were not counted: " + body.photos);
+      // (c) NOTHING WAS BUILT AND NOTHING WAS WRITTEN — including the hours
+      //     change, which is the stated cost of this rule rather than an
+      //     oversight.
+      assert.equal(c.calls.length, 0, "a refusal compiled the site: " + c.calls.length);
+      assert.equal(storedHome(store, slug), homeWith(slug),
+        "a refusal wrote to the page store — the ORIGINAL is what must still be there, not the answer");
 
       // (d) AND THE CUSTOMER'S OWN SENTENCE SAYS SO. Composed by the
-      //     browser's real `addonAnswer`, not retyped here. It still opens as
-      //     a success, because it is one — the page change shipped — and the
-      //     two clauses beside it are the record: what was lost, and what is
-      //     standing where it was.
+      //     browser's real `editAnswer` selection, not retyped here.
       //
       //     ⚠ A FIELD THE BROWSER NEVER RENDERS IS THIS REPOSITORY'S OWN
       //     WIRING TRAP: a value computed and never forwarded, which from
       //     outside is indistinguishable from never having been computed. The
       //     reply half is asserted above; this is the hop.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.startsWith("\u2705 Updated /."),
-        "the customer's sentence does not name the page it changed: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("2 photographs are no longer on the site"),
-        "the loss never reached the screen: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("put the photos back"),
-        "the customer is told what was lost and not what to do about it: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("2 spaces for a photo"),
-        "the empty frames left behind never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("2 photographs"),
+        "the refusal does not say how many on screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("left your site exactly as it was"),
+        "the customer is not told their site is untouched: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("take those photos off"),
+        "the customer is not told how to authorise it: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
 });
@@ -430,7 +446,7 @@ test("a photograph living in a COMPONENT counts on both sides", async () => {
   } finally { c.uninstall(); }
 });
 
-test("a photograph stripped out of a COMPONENT is detected too", async () => {
+test("a photograph stripped out of a COMPONENT is withheld too", async () => {
   // ⚠ THE DISCRIMINATING HALF, and the case above is not it. There both
   // pictures survive, so a BEFORE that reads the pages alone answers a smaller
   // set and still loses nothing — `keptImages` only reports what was in the
@@ -465,20 +481,36 @@ test("a photograph stripped out of a COMPONENT is detected too", async () => {
       },
     }, async () => {
       const { status, body, said } = await edit(slug, "change the opening hours to six, and keep the photographs", { store });
-      // IT STILL PUBLISHES — the edit path reports, it does not refuse.
-      assert.equal(status, 200, "a lost photograph in a component was REFUSED: " + status + " " + JSON.stringify(body));
-      assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      // ⚠ IT REFUSES SINCE 2026-09-20 — see the contract note at the top of
+      // this file. What this case is about has NOT moved: only a BEFORE that
+      // reads the components can see this loss at all, and a pages-only
+      // reader publishes it in silence either way.
+      assert.equal(status, 409, "a loss the restoration could not reach was published: " + status + " " + JSON.stringify(body));
+      assert.equal(body && body.ok, false, "a refusal reported success: " + JSON.stringify(body));
+      assert.equal(body.error, "withheld", "the refusal cannot name itself: " + JSON.stringify(body.error));
+      assert.equal(body.escalate, undefined, "the refusal escalates: " + JSON.stringify(body.escalate));
+      assert.equal(body.cost, 0, "a refusal was charged for: " + JSON.stringify(body.cost));
 
       // THE LOSS IS THE COMPONENT'S, and only a BEFORE that read the
-      // components can see it.
-      assert.equal(body.photosRemoved, 1,
-        "a photograph stripped out of a component was not detected: " + JSON.stringify(body.photosRemoved));
-      // AND THE FRAME IT LEFT IS COUNTED — the same pair, one reader over.
-      assert.equal(body.photos, 1, "the empty frame left in the component was not counted: " + body.photos);
-      // AND THE SCREEN SAYS BOTH.
+      // components can see it — so this count is the whole discriminator.
+      assert.equal(body.photosBlocked, 1,
+        "a photograph stripped out of a component was not detected: " + JSON.stringify(body.photosBlocked));
+
+      // AND NOTHING SHIPPED, on either list. The store keeps its own copy of
+      // the component, which is what makes the next edit start from a site
+      // that still has its picture.
+      assert.equal(c.calls.length, 0, "a refusal compiled the site: " + c.calls.length);
+      assert.equal(storedHome(store, slug), pagePic, "a refusal wrote to the page store");
+      assert.equal(JSON.parse(store.store.get(SLUG_PARTS(slug)))[0].source, partWith,
+        "a refusal wrote the stripped component to the store");
+
+      // AND THE SCREEN SAYS SO.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.includes("One photograph is no longer on the site"),
+      assert.ok(said.text.startsWith("\u26a0\ufe0f"), "a refusal was not drawn as one: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("a photograph"),
         "the component's loss never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("left your site exactly as it was"),
+        "the customer is not told their site is untouched: " + JSON.stringify(said.text));
     });
   } finally { c.uninstall(); }
 });
@@ -488,23 +520,36 @@ test("a photograph stripped out of a COMPONENT is detected too", async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("an explicitly requested removal takes the picture off and PUBLISHES", async () => {
-  // ⚠ THE CASE THAT BOUNDS THE FIX. The addon's contract refuses a publish that
-  // loses a photograph (422 `lost-photos`, cost 0), which is right for a step
-  // whose whole subject is adding and wrong here: "take the window photo off
-  // the front page" is an ordinary edit, and a rung that refuses it is a rung
-  // that cannot do its job.
+  // ⚠ THE CASE THAT BOUNDS THE REFUSAL, and it is the half the two above
+  // cannot prove: a rung that simply refused every loss would satisfy both of
+  // them and leave this product unable to take a photograph off a page.
   //
-  // Asserted BEFORE the fix as well as after, so the fix cannot quietly import
-  // the addon's refusal.
+  // ⚠ RE-ANCHORED 2026-09-20 ONTO THE DOOR THE ROUTER REALLY USES. It drove a
+  // bare `layer: "page"` POST and expected the page rung to authorise the
+  // removal from the customer's sentence — which is the `ePhotoAsk` shape the
+  // owner sent back: a judgement about the MESSAGE, made by a rung that
+  // cannot see which picture was meant. *"Scope permission to the actual
+  // matched picture operations."*
+  //
+  // THOSE OPERATIONS LIVE IN THE PICTURE RUNG. `pick_lanes` reads the
+  // message, the `images` lane dispatches to `picture`, and that rung matches
+  // the customer's words to a slot by its `alt` and publishes through
+  // `publishStep` — which advances `eSrc`. So the removal IS the state, and
+  // nothing downstream has to re-derive an intention from prose.
+  assert.equal(laneLayer("images"), "picture",
+    "this case's whole premise is that the images lane dispatches to `picture`");
   const slug = "pix-remove";
   const store = bucket(slug);
   const c = installCompiler();
   try {
     await withWire({
+      // `layer: "look"` IS WHAT OPENS THE LANE SYSTEM — `pick_lanes` runs
+      // above the layer dispatch and is the front door for all of it.
+      pick_lanes: { fields: ["images"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
-      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: removedOne(slug) }], parts: [] },
     }, async () => {
-      const { status, body } = await edit(slug, "take the window photo off the front page", { store });
+      const { status, body } = await edit(slug, "take the window photo off the front page", { store, layer: "look" });
       assert.equal(status, 200, "an authorised removal was refused: " + status + " " + JSON.stringify(body));
       assert.equal(body && body.ok, true, "an authorised removal did not publish: " + JSON.stringify(body));
 
@@ -513,6 +558,9 @@ test("an explicitly requested removal takes the picture off and PUBLISHES", asyn
         "the removal did not leave exactly the other photograph: " + JSON.stringify(picsIn(sentHome(c), slug)));
       assert.deepEqual(picsIn(storedHome(store, slug), slug), [PIC_A(slug)],
         "the store does not hold exactly the other photograph");
+      // AND IT IS NOT WITHHELD. The refusal the two cases above assert is the
+      // one thing that must not fire here.
+      assert.notEqual(body.error, "withheld", "an authorised removal was withheld");
     });
   } finally { c.uninstall(); }
 });

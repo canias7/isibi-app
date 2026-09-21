@@ -883,7 +883,11 @@ test("the page layer takes ONLY the page that was asked for", () => {
   // would let one instruction rewrite a page the customer never named. The
   // prompt says so; this is the half that cannot be talked out of it.
   const b = editBlock();
-  assert.match(b, /const wrote = \(pValid\.pages \|\| \[\]\)\.find\(\(p\) => p\.path === target\.path\)/,
+  // ⚠ `let`, NOT `const`, SINCE 2026-09-20 — and the declaration keyword is
+  // not the property. The photograph guard rewrites `wrote` when it puts a
+  // `src` back, so pinning the spelling reported this feature as gone on a
+  // change that only made the binding assignable.
+  assert.match(b, /\b(?:const|let) wrote = \(pValid\.pages \|\| \[\]\)\.find\(\(p\) => p\.path === target\.path\)/,
     "the handler does not pin the returned file to the target");
   assert.match(b, /ignored:/, "files the model returned uninvited must be reported, not silently dropped");
   // An unchanged page is not a publish: it would bill a recompile for a
@@ -1586,10 +1590,24 @@ test("a photo slot nobody can fill is said out loud", async () => {
   const at0 = code.indexOf("const was = imageSources(eSrcAt0, at0);");
   assert.ok(at0 > 0, "the edit path's message-wide picture BEFORE is gone");
   const win = code.slice(at0, code.indexOf("const merged = {", at0));
-  assert.ok(win.length > 0 && win.length < 900, "re-derive this window: " + win.length + " bytes");
+  // A SANITY BOUND ON A LANDMARK-TO-LANDMARK WINDOW, not a byte-sized window:
+  // both ends are asserted above and below, and this only catches a closing
+  // landmark that has moved somewhere unrelated. Raised 2026-09-20 when the
+  // third reader joined the block.
+  assert.ok(win.length > 0 && win.length < 1600, "re-derive this window: " + win.length + " bytes");
   assert.match(win, /picsFrames = newEmptySlots\(was, now\)/, "the edit path no longer counts the frames it left");
   assert.match(win, /keptImages\(was, now, ownerSlug\)/, "the edit path no longer reads what it lost");
   assert.match(win, /pendingPublish\.pages/, "the AFTER is not the one publication, so it can describe a version nobody ships");
+  // AND THE THIRD READER (2026-09-20): what the protection HELD is read here
+  // too, intersected with what really ships. A sum of the rungs' own counts
+  // printed *"the 2 photographs are still there"* beside *"one photograph is
+  // no longer on the site"* — two sentences about one publication, from two
+  // different versions of it.
+  assert.match(win, /ePhotosHeld/, "the protection's receipt is no longer read against the publication");
+  assert.match(win, /picsKept = \[\.\.\.ePhotosHeld\]\.filter\(/,
+    "the kept count is not an intersection, so a restoration a later rung undid still counts");
+  assert.match(win, /photoUrls\(f && f\.source, ownerSlug\)/,
+    "what the publication shows is no longer read with the site's own url reader");
 
   // ── AND THE ADDON'S HALF, WHICH IS THE OPPOSITE ORDER FOR THE OPPOSITE
   // REASON (2026-09-17) ──
@@ -1679,10 +1697,23 @@ test("a photo slot nobody can fill is said out loud", async () => {
   assert.ok(open > 0 && close > open, "the page rung's own reply is gone — re-derive these landmarks");
   const rung = code.slice(open, close);
   assert.ok(rung.length > 500 && rung.length < 4000, "re-derive this window: " + rung.length + " bytes");
-  assert.match(rung, /photosKept: pRestored\.length/,
-    "the page rung stopped saying what it put back, so the protection is invisible to the customer");
+  // ⚠ AND `photosKept` JOINED THEM 2026-09-20, one sentence later than the
+  // other two. What this rung DID is a fact about the rung; what the customer
+  // is told — *"it is still there"* — is a claim about the PUBLICATION, and
+  // an AUTHORISED picture rung further down the same message can take the
+  // same photograph off. A sum of the rungs' own counts printed *"the 2
+  // photographs are still there"* beside *"one photograph is no longer on the
+  // site"*. So all three are the merge's, and what belongs here is that the
+  // rung answers NONE of them — a per-rung reader would otherwise come back
+  // and quietly win the merge's `Object.hasOwn` race.
   assert.ok(!/\bphotos:/.test(rung), "the page rung answers its own frame count again: " + rung.slice(0, 300));
   assert.ok(!/\bphotosRemoved:/.test(rung), "the page rung answers its own loss count again");
+  assert.ok(!/\bphotosKept:/.test(rung), "the page rung answers its own kept count again");
+  // AND IT STILL RECORDS WHAT IT HELD, into the message-wide set the merge
+  // intersects — a protection that acted and told nobody is invisible to the
+  // customer, which is the half this must not lose while dropping the field.
+  assert.match(code, /for \(const u of pRestored\) ePhotosHeld\.add\(u\);/,
+    "the page rung stopped recording what it put back, so the protection is invisible to the customer");
   // ⚠ AND THE PAIR IT IS MADE OVER IS NOW THE MESSAGE'S, asserted above on
   // `was`/`now` rather than on this rung's own `pPicsBefore`/`pPicsAfter`,
   // which are gone. Two readers over ONE pair is the property; where the pair
@@ -1741,9 +1772,16 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // reads it with `Array.isArray`. `Number([…])` is NaN, so one name over two
   // shapes would make the browser's clause silently never fire.
   assert.ok(!/lostPhotos: picsRemoved/.test(code), "the edit rung reuses the addon's field name for a different shape");
-  // AND IT DOES NOT REFUSE. The addon's 422 must not appear on this rung —
-  // asserted against the addon's own error name, so a copy-paste of that
-  // refusal into this branch fails here rather than in front of a customer.
+  // AND IT DOES NOT BORROW THE ADDON'S REFUSAL. ⚠ RE-WORDED 2026-09-20: this
+  // rung DOES refuse now, under its own name (`withheld`, 409, cost 0) and
+  // for a narrower reason — a loss the protection could not put back safely.
+  // What must never appear here is `lost-photos`, the ADDON's 422, whose
+  // contract is *"an addition is always a new thing"* and which would refuse
+  // an authorised removal. Asserted against that error name, so a copy-paste
+  // of the addon's refusal into this branch fails here rather than in front
+  // of a customer. The `withheld` branch's own behaviour is driven end to end
+  // in `test/edit-page-protect.test.mjs`, including that it does NOT fire on
+  // a removal the picture rung made.
   //
   // ⚠ SCANNED OVER BLANKED COMMENTS. The rung's own note EXPLAINS why it does
   // not refuse and names the refusal while doing so — "prose contains the
