@@ -11081,3 +11081,54 @@ prepared locally and the round-number name is that folder's own tell. When it go
 the recorded one — **migration → engine → site** — and the site's reason is the sharpest: its
 arrivals screen reads columns the live database has not got, so a site shipped first would draw
 nothing where somebody expects a list.
+
+### ⚠ …AND A REAL BROWSER FOUND A DEFECT IN IT THAT NO ROUTE TEST COULD (2026-09-21)
+
+**A REASON TYPED INTO THE ROW'S BOX AND THEN THE BUTTON WAS DROPPED.** `agentAutoNotes` is
+filled by `agentAutoNotesRead()`, which runs **inside `renderAgents`** — so both handlers read
+whatever the map held at the LAST DRAW, and for a box nobody had typed into yet that is nothing.
+**MEASURED in a real browser: a stop with *"we posted it instead"* in the box stored
+`note: null`.**
+
+- **THE POLL IS WHAT MADE IT NARROW RATHER THAN HARMLESS, and that is the reason it survived
+  every route test and every unit case.** The history re-reads itself only while something is
+  RUNNING, so a person typing during a quiet second lost their words and a person typing while
+  work was in flight kept them — which is the shape of defect that only exists while time passes
+  and somebody is typing, recorded here four times already.
+- **`agentAutoNoteFor(id)` READS THE BOXES AT THE POINT OF USE**, and both doors go through it.
+  ⚠ **A `function` DECLARATION AND NOT A `const`**, because one of its two callers sits textually
+  above it and a `const` there is the temporal dead zone — this repository's own recorded trap,
+  met in a three-line helper.
+- **BOTH HALVES ARE LOAD-BEARING AND EACH IS PROVED ON ITS OWN.** `agentAutoDecide` had the
+  identical read, so fixing only the stop would leave a person's reason for REJECTING something
+  silently dropped. Red-proofed separately: breaking the decision door alone fails on the
+  decision's assertion with `{"run":"EXS","step":"s8","verdict":"rejected","note":null}` on the
+  wire, and breaking both fails on the stop's with `null`.
+- **⚠ AND THE GUARD MUST NOT REDRAW BETWEEN THE TYPING AND THE PRESS**, which is said in the case
+  rather than left to be inferred from the absence of a `renderAgents()` call: a redraw is
+  exactly what the old code was relying on, so a case that includes one passes against the defect.
+
+**⚠ AND THREE OF MY OWN EXPECTATIONS WERE WRONG AND THE SCREEN WAS RIGHT**, every one an
+assertion written from a guess about a producer rather than from the producer:
+
+1. **THERE IS NO `/api/agent/automation-reject`.** One route answers both verdicts and the
+   verdict rides in the BODY — which is what lets `agent.decide_automation_approval` hold *the
+   first decision stands* whichever way it went. A route per verdict would be two doors into one
+   write-once decision.
+2. **THE DECISION'S FIELD IS `note` WHERE THE STOP'S IS `reason`**, and that is the two database
+   functions' own parameters rather than an inconsistency to tidy: `agent.cancel_run` takes
+   `p_reason`. *An assertion written from one door is wrong about the other.*
+3. **JOURNEY 4 NEEDED A `window.confirm` HANDLER AT ALL** — Playwright dismisses a dialog nobody
+   handles, so without one the press would have been a person pressing Cancel.
+
+**Guards**: `test/agent-binding.test.mjs` **166 → 167** — one case, both doors, each proved RED
+against its own half. **Site suite 6,919 → 6,920** (6,918 pass, 2 skipped, 0 fail), and the
+arithmetic closes exactly.
+
+**AND THE DEMONSTRATION THAT FOUND IT IS THE ENGINE'S `verify:browser`, now 115 → 163 checks, 0
+failed** — journey 4's cancellation became a browser PRESS in the same round, because this
+screen's arrival took `/api/agent/run-cancel` off `NO_SCREEN_YET` and that demonstration PARSES
+the list rather than copying it. The engine's own notes have that half; what belongs here is that
+**a change to `public/chat.js` puts every browser guard AND every demonstration in scope whatever
+their filenames say**, which is this repository's own *re-run the thing the change is asserted
+by*, and it is the instrument that caught this one.

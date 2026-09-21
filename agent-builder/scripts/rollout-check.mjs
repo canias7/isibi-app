@@ -148,7 +148,7 @@ check("no APPLIED migration keeps a round-number name", appliedRound.length === 
 check("no PENDING migration carries a real remote version", pendingReal.length === 0,
   pendingReal.join(", ") || "none");
 
-console.log("\n  the ten to apply, in this order:");
+console.log(`\n  the ${PENDING.length} to apply, in this order:`);
 for (const f of PENDING) console.log(`    ${f}`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -169,7 +169,7 @@ try {
   check("the fresh schema really has something in it", freshFp.length > 400, `${freshFp.length}`);
 
   // ═════════════════════════════════════════════════════════════════════════════
-  console.log("\n3. AN UPGRADE — the deployed schema, SEEDED, then the ten one at a time");
+  console.log(`\n3. AN UPGRADE — the deployed schema, SEEDED, then the ${PENDING.length} one at a time`);
   // ═════════════════════════════════════════════════════════════════════════════
 
   up = await standUp({ db: DB_UP, quiet: true, upTo: LAST_DEPLOYED });
@@ -178,7 +178,7 @@ try {
   const q = up.q;
 
   // ⚠ THE DEPLOYED SCHEMA IS FINGERPRINTED **BEFORE** ANYTHING IS APPLIED TO IT, which is
-  // what makes "what the ten add" a subtraction between two databases rather than a list
+  // what makes "what the pending set adds" a subtraction between two databases than a list
   // read off the files. It is also why there is no third stand-up: the same database
   // answers the before and the after.
   const deplFp = fingerprint(up.su, DB_UP);
@@ -237,12 +237,12 @@ try {
     if (!ok) break;
   }
 
-  // WHAT THE TEN ADD — the subtraction, now that both ends are in hand.
+  // WHAT THE PENDING SET ADDS — the subtraction, now that both ends are in hand.
   const freshFns = new Set(freshFp.filter((l) => l.startsWith("FN ")).map(fnName));
   const addedFns = [...freshFns].filter((n) => !deplFns.has(n)).sort();
   const addedCols = freshFp.filter((l) => l.startsWith("COL ")).map(colOf)
     .filter((c) => !deplCols.has(c)).sort();
-  check("the ten really add objects, so the sections below have a subject",
+  check(`the ${PENDING.length} really add objects, so the sections below have a subject`,
     addedFns.length > 0 && addedCols.length > 0,
     `${addedFns.length} new functions, ${addedCols.length} new columns`);
 
@@ -296,8 +296,8 @@ try {
   // once the applies above have succeeded, because Postgres would have refused the ALTER on
   // a table with rows in it. What it is worth is DIAGNOSIS — the day a migration does that,
   // this line names the column instead of leaving somebody reading a psql error. It is
-  // restricted to the columns the ten ADD, because a `not null` primary key that has been
-  // there since the table was created is not this check's business, and asking over every
+  // restricted to the columns the pending set ADDS, because a `not null` primary key that has
+  // been there since the table was created is not this check's business, and asking over every
   // column of the seven named twenty-four of them.
   const nulled = newHere.length === 0 ? "" : q(`select coalesce(string_agg(bad, ', '), '') from (
       select format('%s.%s', c.table_name, c.column_name) bad
@@ -323,10 +323,10 @@ try {
     `${freshFp.length} / ${upFp.length}`);
 
   // ═════════════════════════════════════════════════════════════════════════════
-  console.log("\n4. THE ORDER WITHIN THE TEN IS LOAD-BEARING, not a convention");
+  console.log(`\n4. THE ORDER WITHIN THE ${PENDING.length} IS LOAD-BEARING, not a convention`);
   // ═════════════════════════════════════════════════════════════════════════════
 
-  // If the ten could go in any order, "in this order" would be advice. Applied backwards
+  // If they could go in any order, "in this order" would be advice. Applied backwards
   // onto the same deployed schema they must REFUSE — and the refusal is read for its own
   // file, because one that failed at the last step would say nothing about the order.
   const DB_REV = `rollout_reverse_${process.pid}`;
@@ -411,7 +411,7 @@ try {
   // half. Without the split this line reads as untested dead code, which would be wrong.
   const checkSrc = read(path.join(ROOT, "test", "integration", "pg-schema.mjs"));
   const onlyChecked = nobodyFns.filter((n) => names(checkSrc, n));
-  console.log(`\n  functions the ten add that NO PRODUCT CODE calls (${nobodyFns.length}):`);
+  console.log(`\n  functions the ${PENDING.length} add that NO PRODUCT CODE calls (${nobodyFns.length}):`);
   for (const n of nobodyFns) {
     console.log(`    agent.${n} — ${onlyChecked.includes(n) ? "driven by pg-schema.mjs, so its guarantees are proved and its caller is what is missing" : "nothing anywhere touches it"}`);
   }

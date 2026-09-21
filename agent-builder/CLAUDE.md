@@ -8599,16 +8599,27 @@ includes the paused step's own `waiting` outcome; the second counts the executio
 outcomes excluding `waiting` → **1**. **The check was tightened from `>= 1` to exactly 1**,
 because a floor would have passed both wrong answers.
 
-### The rollout check — `npm run verify:rollout`, 44 checks
+### The rollout check — `npm run verify:rollout`, 44 checks at M15 and **45 at M16**
 
-`docs/rollout.md` carries it in full. **Ten migrations pending**, the set derived TWO ways and
-required to agree (the live project's own last version, and this folder's round-number naming
-convention). A fresh database: **576 objects**. An upgrade from the deployed schema, **SEEDED
-through the real functions** and applied one file at a time — every row survived, the journal
-byte for byte, each of the 13 new defaulted columns holding its own default. **The two
-converge object for object**, which is what says the set is correctly ordered. Applied
-BACKWARDS it refuses at `20260918120000` with `column a.inputs does not exist` — migration
-1's column, so it stopped for the ordering's own reason.
+`docs/rollout.md` carries it in full. **Ten migrations pending at M15 and ELEVEN since**, the set
+derived TWO ways and required to agree (the live project's own last version, and this folder's
+round-number naming convention). A fresh database: **576 objects at M15, 580 since**. An upgrade
+from the deployed schema, **SEEDED through the real functions** and applied one file at a time —
+every row survived, the journal byte for byte, each new defaulted column holding its own default.
+**The two converge object for object**, which is what says the set is correctly ordered. Applied
+BACKWARDS it refuses — at M15 at `20260918120000` with `column a.inputs does not exist`, and
+since M16 at `20260921000000` with `relation "agent.events" does not exist`, which is
+`20260918050000`'s table. **Both are the ordering's own reason and the SECOND is not a weaker
+one**: in reverse the newest file goes first, so the refusal moves with the set.
+
+**⚠ AND THE INSTRUMENT SAID "the ten" IN EIGHT PLACES WHILE THE SET WAS ELEVEN.** The count was
+DERIVED all along (`PENDING.length`) and only the PROSE was hardcoded — a check's own label, a
+section heading, and six comments — so `rollout-check.mjs` printed *"the ten to apply"* above a
+list of eleven and one check's label said *"the ten really add objects"* about eleven of them.
+Nothing was wrong with what it MEASURED, which is exactly why nobody looked: the count moving
+44 → 45 is the only thing that showed, and a count moving is what a new migration does. Derived
+now, so it reads `the 11` and moves by itself. *A hand-typed number in a check is one of two
+copies of it*, and this is the half that lives in a sentence.
 
 - **THE SHARED FIXTURE GAINED `upTo` AND A ONE-FILE APPLY, and the default is unchanged.**
   `standUp({ upTo })` REFUSES when it names no migration, because applying every file instead
@@ -8665,7 +8676,8 @@ producer rather than from the producer:
   own output — the totals matched, which is exactly what makes it a good instance of *stamp
   measured numbers only AFTER the run* rather than a harmless one. Counted by parsing the
   run's own banners.
-- **`verify:rollout`: 44 checks, 0 failed** (new).
+- **`verify:rollout`: 44 checks, 0 failed** (new at M15; **45 since M16**, the extra being the
+  per-migration apply of the eleventh pending file).
 - **Engine suite 602 → 602**, 0 failed — unchanged, which is the control for a round whose
   product changes are the site's and one migration's.
 - **AND ALL SIXTEEN DEMONSTRATIONS RE-RUN AT THIS HEAD, every one green at its recorded
@@ -8859,3 +8871,115 @@ loaded by everything else in that directory.
 `list_events` answers a shape the store reads, the engine before the site because an endpoint tick
 the live engine cannot honour is a control that answers wrongly, and the site last because it is
 the only half a person touches.
+
+### ⚠ AND THE SCREEN FALSIFIED A DEMONSTRATION'S OWN SPLIT, which is the derivation working
+
+Journey 4 of `verify:browser` drove `/api/agent/run-cancel` through `siteApi` and read the RESULT
+in the browser, under a comment that said so out loud: *"cancellation has no screen, and that is
+route-level verification"*, on the honest grounds that the route was on the site's own
+`NO_SCREEN_YET` list and no control anywhere in `chat.js` reached it. **M16 gave it one, so the
+list shrank — and because `verify-browser.mjs` PARSES that list out of the site's guard rather
+than carrying a copy, `siteApi` refused the call the moment the screen landed.** The run crashed
+by name (*"`/api/agent/run-cancel` has a screen — press it in the browser rather than calling it
+here"*) instead of quietly going on proving the weaker thing.
+
+*A derived list falsifies the checks that were true only while it was shorter*, and that is worth
+more than the fix: a hand-kept copy would have left journey 4 driving a route the product now has
+a button for, reporting route-level verification as if it were the browser's, for as long as
+nobody looked.
+
+- **EVERY PROPERTY IS UNCHANGED AND EACH IS NOW READ FROM THE SCREEN OR FROM THE DATABASE**, which
+  is the stronger reading anyway. The counts are asserted in **`agent.runs.stop`, where
+  `agent.cancel_run` really wrote them** — `agent.project_entry` reads the `stopped` entry's
+  nested `stop`, so what is checked is the journal the run left rather than a reply that could be
+  wrong about it separately. And *the wait was released* is asserted as
+  `agent.automation_runs.waiting` being GONE rather than as `releasedWait` reporting that one was:
+  what matters to a customer is that nothing is waiting for them, and a function saying it
+  released something is the weaker claim.
+- **THE COUNT IS STILL EXACT AND `>= 1` WOULD NOT DO.** It read **0** before the M16 fix (the
+  function counted the agent loop's `model` entries, which an automation execution has none of)
+  and then **2** (the executor's `done` counts the PAUSED step's own outcome). The truth is ONE —
+  the note before the approval ran and the approval itself did not — so a floor would have passed
+  both wrong answers.
+- **⚠ AND `RESTS_ON` CLAIMED JOURNEY 4 CONTINUES JOURNEY 2, WHICH IT DOES NOT.** It uses no
+  connection at all, so the dependency was a false one — and a false dependency in that map is a
+  refusal somebody meets for no reason. Corrected to `[1]` and **PROVED by running `1 4` on its
+  own: 45 checks, 0 failed**, which is the only thing that can establish it.
+- **⚠ AND THE DIALOG HANDLER ACCEPTS, with the REFUSAL half left to journey 7 deliberately.**
+  Playwright's default is to DISMISS a dialog nobody handles, which is exactly a person pressing
+  Cancel — so journey 7 gets that arm free and drives it as its own control, and journey 4, whose
+  subject is the counts and what survives, confirms once.
+
+**Measured: `verify:browser` 115 → 163 checks, 0 failed** — journey 1: 16 · 2: 43 · 3: 24 ·
+4: 29 · 5: 19 · 6: 11 · 7: 21, counted by parsing the run's own banners rather than from a
+recollection of the journeys, which is how the last stamp of these six came to be wrong on three
+of them. **Engine suite 603 and `verify:tools` 168, both unchanged by this**, which is the control
+for a round whose only product change is the site's.
+
+### ⚠ AND THE ROLLOUT CHECK SAID "the ten" IN EIGHT PLACES OVER A PENDING SET OF ELEVEN
+
+Re-running all sixteen demonstrations after the M16 span, one moved: **`verify:rollout` 44 → 45**,
+which is the eleventh pending migration getting a per-file apply of its own. That is a count
+moving for a real reason, and it is the ONLY thing that showed — which is what made the rest
+invisible.
+
+**THE COUNT WAS DERIVED ALL ALONG (`PENDING.length`) AND ONLY THE PROSE WAS HARDCODED.** A
+check's own label, a section heading and six comments said *ten*, so the run printed *"the ten to
+apply"* above a list of eleven and asserted *"the ten really add objects"* about eleven of them.
+Nothing it MEASURED was wrong, which is exactly why nobody looked. Derived now, so it reads
+`the 11` and moves by itself: *a hand-typed number in a check is one of two copies of it*, and
+this is the half that lives in a sentence rather than in an expression.
+
+**AND THREE FACTS IN `docs/rollout.md` AND THIS FILE HAD STOPPED BEING TRUE**, each corrected
+rather than edited to look current — the counts are DATED, so a reader can tell which run they
+came from:
+
+| | M15 | since M16 |
+|---|---|---|
+| pending | ten | **eleven** |
+| a fresh `agent` schema | 576 objects | **580** |
+| applied BACKWARDS, refuses at | `20260918120000` (`column a.inputs does not exist`) | **`20260921000000`** (`relation "agent.events" does not exist`) |
+
+**⚠ THE REVERSE REFUSAL MOVING IS THE ORDERING ARGUMENT HOLDING, not weakening.** In reverse the
+NEWEST file goes first, so where it stops moves with the set — and `agent.events` is
+`20260918050000`'s table, so it stopped for the ordering's own reason exactly as the `inputs`
+column did. The check reads the refusal's own FILE for precisely that: one that failed at the
+last step would say nothing about the order.
+
+**Two counts came OUT of `docs/rollout.md`'s table rather than being updated** (13 defaulted
+columns, 124 new columns — M16 took the second to 126). Both sets are derived by subtracting two
+databases, so a number there is a transcription that goes stale on the next migration, and a
+stale number in a table reads as a measurement. The run prints them.
+
+### ALL SIXTEEN DEMONSTRATIONS RE-RUN AT THIS HEAD, and thirteen are the control
+
+Re-run because `public/chat.js` and `local-rest.mjs` both moved, which puts every one of them in
+scope whatever their filenames say. **Every one exit 0, `FAIL` 0**, and the verdict is counted on
+the LEADING token rather than grepped for a phrase — these end in three different wordings and one
+exits silently, and `grep -c FAIL` matches check LABELS containing the word, which has reported
+green runs as failing here twice.
+
+| | checks | |
+|---|---|---|
+| `browser` | 115 → **163** | the two new screens, and journey 4 as a press |
+| `tools` | **168** | unchanged — the control for the `_once` wrapper |
+| `rollout` | 44 → **45** | the eleventh pending migration's own apply |
+| `wf` | **159** | unchanged |
+| `chat` | **126** | unchanged |
+| `triggers` | **111** | unchanged |
+| `edits` | **107** | unchanged |
+| `send` | **97** | unchanged |
+| `controls` | **89** | unchanged |
+| `integration` | **89** | unchanged |
+| `conversation` | **79** | unchanged |
+| `connections` | **76** | unchanged |
+| `ops` | **75** | unchanged |
+| `auto` | **70** | unchanged |
+| `local` | **69** | unchanged, `verify-live.mjs exited 0` |
+| `journeys` | **67** | unchanged |
+
+**THE THIRTEEN UNCHANGED COUNTS ARE THE EVIDENCE, not the three that moved.** A round that touches
+the site's screen and the local PostgREST stand-in could break any of them, and "nothing else
+moved" is a claim only a re-run can make. **Site suite 6,920** (6,918 pass, 2 skipped, 0 fail) and
+**engine suite 603**, both measured after the change rather than carried.
+

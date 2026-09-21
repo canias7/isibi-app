@@ -13957,6 +13957,34 @@ its functions defined in a migration, so this class cannot recur silently. The s
 to START rather than reporting a missing function, which is louder than any test. And the
 hand-kept list is gone.
 
+### And a real browser found the Stop button throwing the reason away
+
+Driving the new screens in Chromium rather than through the routes, seven journeys end to end:
+somebody types *"we posted it instead"* into the box beside a run, presses Stop, and **the reason
+was recorded as nothing at all.** The words were read from a list the screen refreshes when it
+REDRAWS — so a reason typed and followed straight by the button was read from whatever the box
+held at the last redraw, which for a box nobody had touched is empty.
+
+**The reason it was not caught earlier is worth knowing.** The history refreshes itself every
+second and a half while something is actually running, so a person typing while work was in
+flight kept their words and a person typing during a quiet moment lost them. That is the kind of
+defect that only exists while time is passing and somebody is typing, and no test that builds a
+request and hands it to the server can see it — which is why the browser run exists.
+
+**The same read was on the Approve and Reject buttons**, so a person's reason for saying NO to
+something was being dropped in exactly the same way. Both are fixed and each is tested on its
+own, so fixing one and forgetting the other would go red.
+
+**And one of the new checks caught its own demonstration going stale.** The browser run had a
+note saying *stopping a run has no screen, so this half is checked through the server* — true
+when it was written, and false the moment this milestone gave it a button. Because that run reads
+the list of screenless routes out of the code rather than keeping its own copy, it REFUSED the
+shortcut by name instead of quietly going on proving the weaker thing. Journey 4 presses the
+button now, and everything it checks is read off the screen or out of the database.
+
+**The whole browser run is 163 checks across seven journeys, nothing failed**, and it never
+leaves this machine: no real accounts, no real provider, no paid calls.
+
 ### Nothing is applied, deployed or merged
 
 The migration is written and not applied. When it goes the order is the one this repository keeps
