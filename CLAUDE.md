@@ -4422,12 +4422,14 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,119 LOCALLY, and the CI half of THAT reading is UNREAD at the
-  moment of writing** (2026-09-21, the unprinted transaction lines) —
-  `# tests 7119 / # pass 7119 / # fail 0 / # skipped 0`, `duration_ms 111,953`.
-  **The +1 is the difference between two measured readings**, 7,118 → 7,119:
-  the one case asserting a readable ledger prints a line per row. **Say which
-  half is taken**; the stamp is completed once the run is read.
+- **Unit suite: 7,119, BOTH HALVES TAKEN** (2026-09-21, the unprinted
+  transaction lines) — locally `# tests 7119 / # pass 7119 / # fail 0 /
+  # skipped 0`, `duration_ms 111,953`, and CI run **`35667246371` on
+  `66c45d0f`** at **`# tests 7119 / # pass 7115 / # fail 0 / # skipped 4`**,
+  `duration_ms 112,524`. **THE TOTAL IS WHAT MATCHES** — 7,119 both sides,
+  `pass` differing by exactly CI's own four skips. **The +1 is the difference
+  between two measured readings**, 7,118 → 7,119: the one case asserting a
+  readable ledger prints a line per row.
 - **Unit suite: 7,118, BOTH HALVES TAKEN** (2026-09-21, the reader's own wiring
   hole) — locally `# tests 7118 / # pass 7118 / # fail 0 / # skipped 0`,
   `duration_ms 112,388`, and CI run **`35666256160` on `e7f0e82f`** at
