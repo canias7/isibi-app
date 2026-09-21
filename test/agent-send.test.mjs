@@ -27,7 +27,7 @@ import {
   handleAgentApi, makeAgentStore, AGENT_ROUTES, AGENT_BODY_MAX,
   runView, threadRow, cleanSendKey, RUN_STATES, STANDIN_MODEL, MAX_THREAD,
   AGENT_TOOLS, AGENT_TOOL_NAMES, MAX_AGENT_TOOLS, AGENT_STATUSES, cleanStatus, cleanTools,
-  TOOL_VERDICTS, MAX_TOOL_APPROVALS, toolApprovalRow,
+  TOOL_VERDICTS, MAX_TOOL_APPROVALS, toolApprovalRow, TOOL_NOTE_MAX,
   MAX_MEMORIES, MEMORY_VALUE_MAX, MEMORY_SOURCES,
   sayMemory, memoryFromAnswer,
   MAX_KNOWLEDGE, KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
@@ -2616,4 +2616,29 @@ test("⚠ AUTHORITY STAYS WITH THE CUSTOMER: no tool grants a permission, lifts 
     assert.ok(!/approv|revoke|restore|permission/i.test(name),
       `the tool "${name}" reads as a permission control`);
   }
+});
+
+test("⚠ THE REASON BOX'S CAP IS THE COLUMN'S OWN, in all three languages", () => {
+  /**
+   * ⚠ **A BOX THAT TAKES MORE THAN THE COLUMN DOES IS A REFUSAL AFTER THE WORDS ARE
+   * WRITTEN**, and the browser cannot import either side — `public/chat.js` is a classic
+   * script and this is the one file that may read both products. So the three copies are
+   * compared: the column's CHECK, the site route's `TOOL_NOTE_MAX`, and the `maxlength` the
+   * form really draws.
+   *
+   * **READ OUT OF THE TABLE'S OWN MIGRATION**, not out of a function's, because the bound is
+   * the column's — the recorded mistake of asking the wrong file for a constraint.
+   */
+  const cols = latestMigration("create table if not exists agent.tool_revocations");
+  const note = /note\s+text\s+check \(note is null or length\(note\) <= (\d+)\)/.exec(cols);
+  assert.ok(note, "the note column does not bound its length");
+  assert.equal(Number(note[1]), TOOL_NOTE_MAX, "the route's cap is not the column's");
+  const page = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const drawn = /const AGENT_REV_WHY_MAX = (\d+);/.exec(page);
+  assert.ok(drawn, "the screen declares no cap for the reason box");
+  assert.equal(Number(drawn[1]), TOOL_NOTE_MAX, "the box lets somebody type more than the column takes");
+  // AND THE BOX REALLY USES IT, or the constant is a number nothing reads — which is how a
+  // cap comes to agree with the column and mean nothing.
+  assert.match(page, /id="agRevWhy" maxlength="' \+ AGENT_REV_WHY_MAX/,
+    "the reason box does not draw the cap it declares");
 });

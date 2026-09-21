@@ -1,0 +1,298 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the three acts and their doors",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AGENT_AP_ACTS = {",
+  "to": "// one entry per act, because the route and the body are one decision\nconst AGENT_AP_ACTS = {"
+ },
+ {
+  "label": "CONTROL: a comment only, above what a revocation reaches",
+  "control": true,
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AGENT_REV_SCOPE = 'This is this agent and one tool",
+  "to": "// read off agent.tool_revocations rather than from an idea of what it ought to be\nconst AGENT_REV_SCOPE = 'This is this agent and one tool"
+ },
+ {
+  "label": "withdraw: the door carries a verdict, so a request taken back is recorded as refused",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  withdrawn: { path: '/api/agent/tool-withdraw', body: (id) => ({ id: id }) },",
+  "to": "  withdrawn: { path: '/api/agent/tool-withdraw', body: (id) => ({ id: id, verdict: 'rejected' }) },"
+ },
+ {
+  "label": "withdraw: routed to the approve door, which turns it into a rejection nobody made",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  withdrawn: { path: '/api/agent/tool-withdraw', body: (id) => ({ id: id }) },",
+  "to": "  withdrawn: { path: '/api/agent/tool-approve', body: (id) => ({ id: id }) },"
+ },
+ {
+  "label": "withdraw: an act nobody declared picks a door off the prototype",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const door = Object.hasOwn(AGENT_AP_ACTS, act) ? AGENT_AP_ACTS[act] : null;",
+  "to": "  const door = AGENT_AP_ACTS[act] || null;"
+ },
+ {
+  "label": "the row: which agent and run asked is not drawn",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const who = (agentRows || []).find((x) => x && x.id === r.agent) || null;\n  const from = '<div class=\"ag-ap-who\">' + (who ? esc(who.name) + ' · ' : '') +\n    'run ' + esc(agentRunTag(r.run)) + '</div>';",
+  "to": "  const from = '';"
+ },
+ {
+  "label": "the row: the agent's name is left out, so only the header names it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "'<div class=\"ag-ap-who\">' + (who ? esc(who.name) + ' · ' : '') +",
+  "to": "'<div class=\"ag-ap-who\">' + (false ? esc(who.name) + ' · ' : '') +"
+ },
+ {
+  "label": "the row: a run id this cannot read draws an empty gap rather than saying so",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  return s ? s.slice(0, 8) : 'not recorded';",
+  "to": "  return s.slice(0, 8);"
+ },
+ {
+  "label": "the row: the scope sentence is not drawn, so the three acts read as one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    '<div class=\"ag-ap-who\">' + esc(AGENT_AP_SCOPE) + '</div>' +",
+  "to": "    '' +"
+ },
+ {
+  "label": "the row: Take it back is withheld when the arguments cannot be read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      '<button class=\"ag-ap-no\" data-act=\"agent-tool-withdraw\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + ' title=\"Take the request back without deciding it\">' +\n        'Take it back</button>' +",
+  "to": "      (unreadable ? '' : '<button class=\"ag-ap-no\" data-act=\"agent-tool-withdraw\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + ' title=\"Take the request back without deciding it\">' +\n        'Take it back</button>') +"
+ },
+ {
+  "label": "the row: Take it back is not offered at all",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      '<button class=\"ag-ap-no\" data-act=\"agent-tool-withdraw\" data-id=\"' + esc(r.id) + '\"' +\n        (busy ? ' disabled' : '') + ' title=\"Take the request back without deciding it\">' +\n        'Take it back</button>' +",
+  "to": "      '' +"
+ },
+ {
+  "label": "a withdrawal is reported as an answer, in the database's own token",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      agentApprovalsErr = j.verdict === 'revoked'\n        ? 'That request was taken back before anybody answered it, so it won’t run.'\n        : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';",
+  "to": "      agentApprovalsErr = 'Somebody already answered that one — it was ' + String(j.verdict) + '.';"
+ },
+ {
+  "label": "the verdict is drawn as the database's word rather than as English",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (v === 'approved') return 'approved';\n  if (v === 'rejected') return 'turned down';\n  if (v === 'revoked') return 'taken back';\n  return (typeof v === 'string' && v) ? v : 'already answered';",
+  "to": "  return (typeof v === 'string' && v) ? v : 'already answered';"
+ },
+ {
+  "label": "the press stays in flight for ever when the screen moves, so every button dies",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    agentApprovalBusy = '';\n    if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;",
+  "to": "    if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;",
+  "also": [
+   [
+    "  } catch {\n    agentApprovalBusy = '';\n    if (agentMsgsFor === forAgent)",
+    "  } catch {\n    if (agentMsgsFor === forAgent)"
+   ]
+  ]
+ },
+ {
+  "label": "the form never asks what is taken away",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (agentEditing) agentRevokedLoad(agentEditing);",
+  "to": "  if (false) agentRevokedLoad(agentEditing);"
+ },
+ {
+  "label": "a revoked tool's tick is drawn as plain allowed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                      (revoked.indexOf(t.name) >= 0\n                        ? ' <span class=\"ag-chip ag-chip-off\">taken away</span>' : '') +",
+  "to": "                      ('') +"
+ },
+ {
+  "label": "the list is drawn without asking which agent it was read for",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    const revoked = (agentRevoked && agentRevokedFor === agentEditing) ? agentRevoked : [];",
+  "to": "    const revoked = agentRevoked || [];"
+ },
+ {
+  "label": "a blank reason is sent, so the database's own sentence is replaced by nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!back && why) body.note = why;",
+  "to": "    if (!back) body.note = why;"
+ },
+ {
+  "label": "a restore carries a reason too, which reaches nobody",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!back && why) body.note = why;",
+  "to": "    if (why) body.note = why;"
+ },
+ {
+  "label": "the reason is sent under a field the route does not read",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (!back && why) body.note = why;",
+  "to": "    if (!back && why) body.reason = why;"
+ },
+ {
+  "label": "the take press reads the catalog instead of the control somebody chose",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    const pick = document.getElementById('agRevPick');\n    agentRevokeAct(pick ? pick.value : '', 'take');",
+  "to": "    agentRevokeAct((agentTools && agentTools[0] ? agentTools[0].name : ''), 'take');"
+ },
+ {
+  "label": "the server's own sentence about what just happened is thrown away",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    else said = typeof j.say === 'string' ? j.say : '';",
+  "to": "    else said = '';"
+ },
+ {
+  "label": "the settings form is left off the read-first door, so every redraw replaces what is typed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentKnowFormRead();\n  agentMemFormRead();",
+  "to": "  agentKnowFormRead();\n  agentMemFormRead();\n  if (false) agentFormRead();"
+ },
+ {
+  "label": "a press's refusal is written into the read's holder, and the re-read wipes it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentRevokeActErr = failed;",
+  "to": "  agentRevokedErr = failed;"
+ },
+ {
+  "label": "a failed read is recorded as an empty list, so every tick reads as allowed",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      agentRevokedErr = (j && j.error) || 'Couldn’t check what has been taken away.';",
+  "to": "      agentRevokedErr = (j && j.error) || 'Couldn’t check what has been taken away.';\n      agentRevoked = [];"
+ },
+ {
+  "label": "a failed press costs the words somebody wrote",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!failed && !back) agentRevokeWhy = '';",
+  "to": "  if (!back) agentRevokeWhy = '';"
+ },
+ {
+  "label": "the section is drawn for an agent that does not exist yet",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "          (cur\n            ? '<label class=\"ag-lbl\">Taken away right now</label>' +",
+  "to": "          (true\n            ? '<label class=\"ag-lbl\">Taken away right now</label>' +"
+ },
+ {
+  "label": "the revoke press stays in flight when the form moves, so its buttons die",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentRevokeBusy = '';\n  if (!agentSameEdit(bound)) return;",
+  "to": "  if (!agentSameEdit(bound)) return;\n  agentRevokeBusy = '';"
+ },
+ {
+  "label": "the take button claims to be taking away while a restore is in flight",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                          (agentRevokeBusy && revoked.indexOf(agentRevokeBusy) < 0\n                            ? 'Taking away…' : 'Take it away') +",
+  "to": "                          (agentRevokeBusy ? 'Taking away…' : 'Take it away') +"
+ },
+ {
+  "label": "the buttons stay live while a press is in flight",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                        '<button class=\"ag-auto-btn\" data-act=\"agent-revoke-take\"' +\n                          (agentRevokeBusy ? ' disabled' : '') + '>' +",
+  "to": "                        '<button class=\"ag-auto-btn\" data-act=\"agent-revoke-take\"' +\n                          ('') + '>' +"
+ },
+ {
+  "label": "the reason box loses what is typed into it, because nothing holds it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  'agent-revoke-why': (e, el) => { agentRevokeWhy = el ? (el.value || '') : ''; },",
+  "to": "  'agent-revoke-why': () => {},"
+ },
+ {
+  "label": "the cap the reason box draws is not the column's",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const AGENT_REV_WHY_MAX = 2000;",
+  "to": "const AGENT_REV_WHY_MAX = 4000;"
+ },
+ {
+  "label": "the door files what it reads under whoever is being edited now, not the form's own agent",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const whose = name.getAttribute ? name.getAttribute('data-agent') : null;\n  if (whose !== agentEditing) return;",
+  "to": "  const whose = agentEditing;\n  if (whose !== agentEditing) return;"
+ },
+ {
+  "label": "the form does not say whose it is, so the door cannot tell",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "'<input class=\"ag-in\" id=\"agName\" data-agent=\"' + esc(cur ? cur.id : '') + '\" ' +",
+  "to": "'<input class=\"ag-in\" id=\"agName\" ' +"
+ },
+ {
+  "label": "the door reads the form itself rather than the reader the save uses",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentDraft = agentFormValues();\n  agentDraftFor = agentEditing;",
+  "to": "  agentDraft = { name: (document.getElementById('agName').value || ''),\n    instructions: (document.getElementById('agInstr').value || ''),\n    status: 'active', tools: [], zone: '' };\n  agentDraftFor = agentEditing;"
+ },
+ {
+  "label": "the door snapshots a form nobody has open, and files it under nobody",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (agentEditing === null) return;\n  const name = document.getElementById('agName');",
+  "to": "  const name = document.getElementById('agName');"
+ }
+]

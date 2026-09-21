@@ -101,14 +101,81 @@ function el(id, doc) {
  * `apiFetch` resolves to and, crucially, WHEN: a case can hold a response open,
  * move the screen, and only then let it land.
  */
+/**
+ * ⚠ **SEED THE SETTINGS FORM'S ELEMENTS FROM THE MARKUP THE PAGE JUST WROTE, which is what a
+ * browser does for free and what this fixture did not.**
+ *
+ * `renderAgentsNow` writes a STRING into `#viewAgents`; the elements a case then reads are
+ * separate objects this file creates on demand, starting empty. That was harmless while only
+ * `agentSave` read the form — and it BLOCKED A CORRECT FIX the moment the settings form joined
+ * `renderAgents`' read-first door, because the door read four empty boxes and filed them as the
+ * draft, so the next drawing showed an empty form. **The fixture was less capable than the
+ * render, in the direction that makes a real fix look like a regression.**
+ *
+ * So the values follow the drawing, exactly as they do in a page: written once per render,
+ * derived from the producer's own output, and never from anything a case typed by hand — a case
+ * that sets a value still sets it, and the next render round-trips it through the draft the way
+ * a browser round-trips it through the DOM.
+ */
+function seedForm(doc, html) {
+  const val = (id) => {
+    const m = new RegExp(`id="${id}"[^>]*value="([^"]*)"`).exec(html);
+    return m ? m[1] : null;
+  };
+  for (const id of ["agName", "agZone", "agRevWhy"]) {
+    const v = val(id);
+    if (v !== null) doc.getElementById(id).value = v;
+  }
+  // THE AGENT THE FORM WAS DRAWN FOR, which the read-first door reads to decide whose words
+  // these are — so the fixture has to carry it exactly as the markup does.
+  const whose = /id="agName" data-agent="([^"]*)"/.exec(html);
+  if (whose) doc.getElementById("agName").setAttribute("data-agent", whose[1]);
+  const ta = /<textarea[^>]*id="agInstr"[^>]*>([\s\S]*?)<\/textarea>/.exec(html);
+  if (ta) doc.getElementById("agInstr").value = ta[1].trim();
+  const pause = /<input type="checkbox" id="agPaused"([^>]*)>/.exec(html);
+  if (pause) doc.getElementById("agPaused").checked = / checked/.test(pause[1]);
+  const pick = /<select class="ag-in" id="agRevPick">([\s\S]*?)<\/select>/.exec(html);
+  if (pick) {
+    const first = /<option value="([^"]+)"/.exec(pick[1]);
+    if (first) doc.getElementById("agRevPick").value = first[1];
+  }
+  const boxes = [...html.matchAll(/<input type="checkbox" data-tool="([^"]+)"([^>]*)>/g)].map((m) => ({
+    checked: / checked/.test(m[2]),
+    getAttribute: (k) => (k === "data-tool" ? m[1] : null),
+  }));
+  if (boxes.length) doc.querySelectorAll = (s) => (s === "[data-tool]" ? boxes : []);
+}
+
 function loadScreen({ store = {}, uid = "acct-A", answer, refuse: refuseAt = null } = {}) {
   // A `let`, because a store can come BACK: the one case that can isolate what
   // `doSignOut` claims for needs the write refused at boot and accepted at
   // sign-out, inside one page load.
   let refuse = refuseAt;
   const els = new Map();
+  /**
+   * ⚠ **THE SETTINGS FORM'S OWN BOXES ANSWER `null` WHEN THE DRAWING DOES NOT HOLD THEM,
+   * because that is what a browser answers — and this fixture creating one on demand is what
+   * made a correct fix look like a regression.**
+   *
+   * `renderAgents` reads every form on this screen before it redraws, so that nothing typed is
+   * replaced by what is stored. In a page that read is a no-op while the form is not drawn:
+   * `getElementById` answers `null`. Here it answered a brand-new EMPTY element, so the door
+   * snapshotted four empty boxes as the draft and the form was then drawn from them.
+   *
+   * Narrowed to these four rather than applied to everything: a case that reaches for `#agMsg`
+   * or a step row before a draw is reaching for something this file's own helpers create, and
+   * making every id answer `null` would be a different fixture. These four are the ones the
+   * door reads, and they are the ones a drawing declares.
+   */
+  const FORM_IDS = ["agName", "agInstr", "agZone", "agPaused"];
+  let viewHtml = "";
   const doc = {
-    getElementById: (id) => (els.has(id) ? els.get(id) : (els.set(id, el(id, doc)), els.get(id))),
+    getElementById: (id) => {
+      if (FORM_IDS.includes(id) && !viewHtml.includes(`id="${id}"`)) return null;
+      return els.has(id) ? els.get(id) : (els.set(id, el(id, doc)), els.get(id));
+    },
+    // Replaced by `seedForm` once a drawing has tool checkboxes in it.
+    querySelectorAll: () => [],
     querySelector: () => el("shell"),
     querySelectorAll: () => [],
     addEventListener() {}, createElement: () => el("x"), body: el("body"),
@@ -117,6 +184,14 @@ function loadScreen({ store = {}, uid = "acct-A", answer, refuse: refuseAt = nul
     // element, so "the box had focus and got it back" could not be asked at all.
     activeElement: null,
   };
+  // ⚠ THE VIEW'S OWN `innerHTML` IS THE HOOK, because it is the one thing every render goes
+  // through — so no case and no future screen has to remember to hydrate.
+  const view = el("viewAgents", doc);
+  Object.defineProperty(view, "innerHTML", {
+    get: () => viewHtml,
+    set: (v) => { viewHtml = String(v == null ? "" : v); seedForm(doc, viewHtml); },
+  });
+  els.set("viewAgents", view);
   let currentUid = uid;
   const calls = [];
   const sandbox = {
@@ -692,7 +767,10 @@ test("a save that lands after the composer moved cannot close it or clear it", a
   const gate = held(badRes("couldn’t save that"));
   const w = loadScreen({ answer: (p) => (/\/(update|create)$/.test(p) ? gate.p : okRes({ agents: [] })) });
   setRows(w);
-  w.ev('agentEditing = "A";');
+  // ⚠ THE FORM IS DRAWN BEFORE ANYTHING IS TYPED INTO IT, because a box that exists without
+  // the form having been drawn is a fixture shortcut a browser cannot produce — and it became
+  // load-bearing when `renderAgents` started reading this form before it redraws.
+  w.ev('agentEditing = "A"; renderAgents();');
   w.s.document.getElementById("agName").value = "A renamed";
   w.s.document.getElementById("agInstr").value = "new instructions for A";
   const saving = w.ev("agentSave()");
@@ -715,7 +793,10 @@ test("...and a save that lands where it started still reports its failure", asyn
   const gate = held(badRes("couldn’t save that"));
   const w = loadScreen({ answer: (p) => (/\/(update|create)$/.test(p) ? gate.p : okRes({ agents: [] })) });
   setRows(w);
-  w.ev('agentEditing = "A";');
+  // ⚠ THE FORM IS DRAWN BEFORE ANYTHING IS TYPED INTO IT, because a box that exists without
+  // the form having been drawn is a fixture shortcut a browser cannot produce — and it became
+  // load-bearing when `renderAgents` started reading this form before it redraws.
+  w.ev('agentEditing = "A"; renderAgents();');
   w.s.document.getElementById("agName").value = "A renamed";
   w.s.document.getElementById("agInstr").value = "new instructions for A";
   const saving = w.ev("agentSave()");
@@ -6874,6 +6955,14 @@ test("⚠ A WITHDRAWAL ANSWERED AFTER THE SCREEN MOVED WRITES NOTHING INTO THE N
   await pressing;
   assert.equal(w.ev("agentApprovals"), null, "the old conversation's list was painted into the new one");
   assert.equal(w.ev("agentApprovalsFor"), null);
+  // ⚠ **AND THE PRESS IS NO LONGER IN FLIGHT, WHICH IS A DIFFERENT FACT FROM WHOSE SCREEN IT
+  // WAS FOR — and this was MEASURED before it was fixed.** `agentApprovalBusy` gates every
+  // press on this banner, and the binding walls returned with it still SET: so moving
+  // conversation while one press was in flight left Approve, Don't and Take it back dead for
+  // the rest of the page's life, on every conversation, until a reload. The request really has
+  // settled by then, so the flag comes off whoever is looking — and nothing is WRITTEN into a
+  // screen that has moved, which is the wall that stays.
+  assert.equal(w.ev("agentApprovalBusy"), "", "the press stayed in flight for ever");
 });
 
 test("⚠ A STALE TAB APPROVING A WITHDRAWN REQUEST IS TOLD IT WAS TAKEN BACK, NOT APPROVED", async () => {
@@ -7079,4 +7168,143 @@ test("a new agent has no taken-away section, because there is nothing to take it
   w.ev('agentEdit("A")');
   await settle();
   assert.match(hydrate(w).html, /Taken away right now/);
+});
+
+test("⚠ THE PICKER DECIDES WHICH TOOL, AND EVERY BUTTON GOES DEAD WHILE ONE PRESS IS IN FLIGHT", async () => {
+  // ⚠ **TWO TOOLS IN THE CATALOG, DELIBERATELY.** With one, "the picker decided" and "the
+  // first entry of the catalog decided" are the same string, so a press reading the catalog
+  // instead of the control somebody chose would pass — the recorded *fixture too shallow to
+  // separate the two readings*, in the one field this press is about.
+  const TWO = [CATALOG[0], { name: "remember", label: "Remember", does: "Keeps a fact." }];
+  const gate = held(okRes({ agent: "A", tool: "remember", say: "done" }));
+  const sent = [];
+  const w = await withCatalog({
+    tools: TWO,
+    rows: TICKED_ROWS,
+    answer: (p, init) => {
+      sent.push({ p, body: init && init.body ? JSON.parse(init.body) : null });
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: TWO });
+      if (p.startsWith("/api/agent/revoked-tools")) return okRes({ agent: "A", revoked: [] });
+      if (p === "/api/agent/tool-revoke") return gate.p;
+      return okRes({});
+    },
+  });
+  w.ev('agentEdit("A")');
+  await settle();
+  const f = hydrate(w);
+  assert.deepEqual(f.pickOptions, ["echo", "remember"], "the picker does not offer the whole catalog");
+  // SOMEBODY CHOOSES THE SECOND ONE, on the control the form really drew.
+  f.pickBox.value = "remember";
+  const pressing = w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  assert.equal(w.ev("agentRevokeBusy"), "remember", "the press is not held against its own tool");
+  // THE BUTTON SAYS SO AND IS DEAD, read off the markup the form really drew.
+  const busyHtml = hydrate(w).html;
+  assert.match(busyHtml, /data-act="agent-revoke-take"[^>]*disabled/, "the button stayed live");
+  assert.match(busyHtml, /Taking away…/, "nothing said which way the press was going");
+  // AND A SECOND PRESS SENDS NOTHING, so a double click cannot take two tools away.
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  gate.release();
+  await pressing;
+  await settle();
+  const presses = sent.filter((c) => c.p === "/api/agent/tool-revoke");
+  assert.equal(presses.length, 1, "a second press went out while the first was in flight");
+  assert.equal(presses[0].body.tool, "remember", "the press sent the catalog's first tool, not the chosen one");
+});
+
+test("⚠ A REVOCATION ANSWERED AFTER THE FORM MOVED WRITES NOTHING, and its list is not another agent's", async () => {
+  const gate = held(okRes({ agent: "A", tool: "echo", say: "it cannot use that again" }));
+  const sent = [];
+  const w = await withCatalog({
+    rows: TICKED_ROWS,
+    answer: (p, init) => {
+      sent.push(p);
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: CATALOG });
+      if (p.startsWith("/api/agent/revoked-tools")) return okRes({ agent: "A", revoked: [] });
+      if (p === "/api/agent/tool-revoke") return gate.p;
+      return okRes({});
+    },
+  });
+  w.ev('agentEdit("A")');
+  await settle();
+  hydrate(w);
+  const pressing = w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  // The form closes while the press is in flight.
+  w.ev("agentEditing = null;");
+  gate.release();
+  await pressing;
+  await settle();
+  assert.equal(w.ev("agentRevokeSaid"), "", "a sentence about a form nobody has open was written");
+  assert.equal(w.ev("agentRevokeBusy"), "", "the press left its tool held");
+  // AND NOTHING WAS RE-READ EITHER, because there is no screen to draw it into.
+  assert.equal(sent.filter((p) => p.startsWith("/api/agent/revoked-tools")).length, 1,
+    "a closed form re-read the list");
+  // ⚠ **AND A LIST READ FOR ONE AGENT IS NEVER DRAWN BESIDE ANOTHER'S TICKS.** Both halves are
+  // asked — the list and the agent it was read FOR — so a stale answer cannot mark a tick here.
+  w.ev('agentRevoked = ["echo"]; agentRevokedFor = "A"; agentEditing = "P"; renderAgents();');
+  assert.equal(/taken away<\/span>/.test(hydrate(w).html), false,
+    "another agent's restriction was drawn on this one's form");
+});
+
+test("⚠ EVERY REDRAW OF THE SETTINGS FORM READS IT FIRST, not just a save", async () => {
+  /**
+   * ⚠ **THE ONE FORM ON THIS SCREEN THAT WAS NOT ON `renderAgents`' READ-FIRST LIST, found by
+   * pressing it in a real browser.** Its draft was written in exactly one place — the save —
+   * so every other redraw replaced what was on screen with what is stored. Two redraws do
+   * that today: the conversation poll, every 2.5 seconds while a run is live, and the
+   * revoked-tools read this milestone added, which lands a moment after the form opens.
+   *
+   * **MEASURED in Chromium before the fix**: a tool ticked immediately after opening
+   * Instructions was unticked again by that read, and the save then stored the ticks the
+   * person had not made.
+   */
+  const w = await withCatalog({ rows: TICKED_ROWS, answer: (p) =>
+    okRes(p === "/api/agent/list" ? { agents: TICKED_ROWS, tools: CATALOG } : {}) });
+  w.ev('agentEditing = "A"; renderAgents();');
+  const f = hydrate(w);
+  // Somebody types, and unticks the one tool — and presses nothing.
+  w.s.document.getElementById("agName").value = "Half a new name";
+  w.s.document.getElementById("agInstr").value = "half an instruction";
+  f.boxes[0].checked = false;
+  // A REDRAW THAT IS NOT A SAVE. This is what a poll does, and what the revoked-tools read
+  // does — neither of them anything the person asked for.
+  w.ev("renderAgents();");
+  const after = hydrate(w);
+  assert.match(after.html, /Half a new name/, "a redraw replaced the name being typed");
+  assert.match(after.html, /half an instruction/, "a redraw replaced the instructions being typed");
+  assert.deepEqual(after.boxes.map((b) => b.checked), [false],
+    "a redraw put back a tick the person had just taken off");
+  // AND THE SAVE THEN SENDS WHAT WAS ON SCREEN, which is the half that says the draft is real
+  // rather than merely drawn.
+  assert.equal(w.ev("agentDraft.name"), "Half a new name");
+  // ⚠ ASKED AS A LENGTH, because an array built inside the vm carries THAT realm's
+  // `Array.prototype` and `deepEqual` refuses it — the recorded fixture trap.
+  assert.equal(w.ev("agentDraft.tools.length"), 0, "the draft kept a tick the person took off");
+});
+
+test("⚠ THE DOOR FILES WHAT IT READS UNDER THE FORM'S OWN AGENT, never whoever is being edited now", async () => {
+  // ⚠ **PRESSING EDIT ON A SECOND AGENT CHANGES `agentEditing` AND THEN REDRAWS**, so for that
+  // instant the form on screen belongs to the FIRST one. A door that filed what it found under
+  // the new id would put one agent's half-typed words into the other's draft — which is the
+  // composer's own recorded rule (*the box's own attribute decides whose words they are*),
+  // met on a second form.
+  const rows = [TICKED_ROWS[0],
+    { id: "B", name: "Agent B", instructions: "b", created: 1, updated: 1, preview: "",
+      status: "active", tools: [], zone: "" }];
+  const w = await withCatalog({ rows, answer: (p) =>
+    okRes(p === "/api/agent/list" ? { agents: rows, tools: CATALOG } : {}) });
+  w.ev('agentEditing = "A"; renderAgents();');
+  hydrate(w);
+  w.s.document.getElementById("agName").value = "A, half renamed";
+  // The screen moves to B without a redraw in between, exactly as pressing Edit does.
+  w.ev('agentEditing = "B"; renderAgents();');
+  const onB = hydrate(w);
+  assert.match(onB.html, /Agent B/, "B's own name was not drawn");
+  assert.equal(/A, half renamed/.test(onB.html), false, "A's words were drawn on B's form");
+  assert.notEqual(w.ev("agentDraftFor"), "B", "A's words were filed under B");
+  // THE CONTROL: back on A's own form, a redraw still keeps what was typed there.
+  w.ev('agentEditing = "A"; renderAgents();');
+  hydrate(w);
+  w.s.document.getElementById("agName").value = "A, half renamed";
+  w.ev("renderAgents();");
+  assert.match(hydrate(w).html, /A, half renamed/, "the door stopped reading its own form");
 });

@@ -1787,6 +1787,13 @@ async function agentApprovalAct(id, act) {
       body: JSON.stringify(door.body(id)),
     });
     const j = await res.json().catch(() => ({}));
+    // ⚠ **THE FLAG COMES OFF BEFORE THE WALL, BECAUSE THE TWO ARE DIFFERENT FACTS — and this
+    // was measured after it was written the other way round.** `agentApprovalBusy` says a
+    // request is IN FLIGHT; the wall says whether this answer may be WRITTEN anywhere. Returning
+    // from inside the wall with the flag still set left every button on this banner dead for the
+    // rest of the page's life — a person who changed conversation mid-press could not answer
+    // anything again until they reloaded, with nothing saying why.
+    agentApprovalBusy = '';
     if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;
     if (!res.ok || !j.ok) {
       agentApprovalsErr = (j && j.error) || 'Couldn’t record that.';
@@ -1805,6 +1812,7 @@ async function agentApprovalAct(id, act) {
         : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';
     }
   } catch {
+    agentApprovalBusy = '';
     if (agentMsgsFor === forAgent) agentApprovalsErr = 'Couldn’t reach the server.';
   }
   agentApprovalBusy = '';
@@ -6304,6 +6312,16 @@ function renderAgents() {
   agentAutoNotesRead();
   agentKnowFormRead();
   agentMemFormRead();
+  // ⚠ **AND THE SETTINGS FORM, WHICH WAS THE ONE FORM ON THIS SCREEN THAT WAS NEVER ON THIS
+  // LIST — found by pressing it in a real browser.** Its draft was written in exactly one
+  // place, the save, so every OTHER redraw replaced what was on screen with what is stored:
+  // the conversation poll runs every 2.5 seconds while a run is live, and the read this
+  // milestone added lands a moment after the form opens. **MEASURED in Chromium: a tool
+  // ticked immediately after opening Instructions was unticked again by that read, and the
+  // save then stored the ticks the person had NOT made.** The comment above says four
+  // readers and one door so no caller has to remember; this is the fifth, and its absence is
+  // why a caller had to.
+  agentFormRead();
   renderAgentsNow();
   agentComposerRestore(held);
   agentFocusRestore(spot);
@@ -6539,7 +6557,15 @@ function renderAgentsNow() {
         '</div>' +
         '<div class="ag-form">' +
           '<label class="ag-lbl" for="agName">Name</label>' +
-          '<input class="ag-in" id="agName" maxlength="' + AGENT_NAME_MAX + '" placeholder="Booking assistant" value="' + esc(nameVal) + '">' +
+          // ⚠ **THE FORM SAYS WHOSE IT IS, and the read-first door reads THAT rather than
+          // whoever is being edited now.** Pressing Edit on a second agent while the first
+          // one's form is open changes `agentEditing` and then redraws — so a door that filed
+          // what it found under the new id would put the first agent's words into the second
+          // one's draft. The composer above this screen learned the same lesson: *the box's
+          // own attribute decides whose words they are*, never the state at the moment the
+          // answer lands. `''` is a create, which is a real value and not an absence.
+          '<input class="ag-in" id="agName" data-agent="' + esc(cur ? cur.id : '') + '" ' +
+            'maxlength="' + AGENT_NAME_MAX + '" placeholder="Booking assistant" value="' + esc(nameVal) + '">' +
           '<label class="ag-lbl" for="agInstr">Instructions</label>' +
           '<div class="ag-hint">What it does, how it should answer, and anything it must never do. Its personality and tone belong in here too.</div>' +
           '<textarea class="ag-ta" id="agInstr" maxlength="' + AGENT_MAX + '" rows="10" ' +
@@ -6836,19 +6862,24 @@ async function agentRevokedLoad(id) {
  * closed between the press and this call looks like.
  */
 function agentFormRead() {
+  // ⚠ ONLY WHILE A FORM IS OPEN. `agentCancel` clears `agentEditing` and then redraws, and
+  // the OLD markup is still in the document at that moment — so without this the door would
+  // snapshot the form somebody just left and file it under `null`.
+  if (agentEditing === null) return;
   const name = document.getElementById('agName');
   const instr = document.getElementById('agInstr');
   if (!name || !instr) return;
-  const zone = document.getElementById('agZone');
-  const paused = document.getElementById('agPaused');
-  agentDraft = {
-    name: name.value || '',
-    instructions: instr.value || '',
-    status: (paused && paused.checked) ? 'paused' : 'active',
-    tools: Array.prototype.slice.call(document.querySelectorAll('[data-tool]'))
-      .filter((b) => b && b.checked).map((b) => b.getAttribute('data-tool')),
-    zone: zone ? (zone.value || '') : '',
-  };
+  // ⚠ AND ONLY THE FORM THIS EDIT IS ABOUT. The box carries the agent it was drawn for, so a
+  // drawing of somebody else's — which is what is on screen for the instant between pressing
+  // Edit on a second agent and the redraw — is left alone rather than filed under this one.
+  const whose = name.getAttribute ? name.getAttribute('data-agent') : null;
+  if (whose !== agentEditing) return;
+  // ⚠ **`agentFormValues` IS THE ONE READER OF THIS FORM, and writing a second one cost a
+  // red run before it cost anything worse.** The first draft of this door read the four
+  // boxes itself and answered `zone: ''` where the save answers `null` — the save's `null`
+  // being a CLEAR rather than a silence, which is a distinction the route acts on. Two
+  // readers of one form is two answers about what somebody typed.
+  agentDraft = agentFormValues();
   agentDraftFor = agentEditing;
 }
 
@@ -6873,8 +6904,10 @@ async function agentRevokeAct(tool, how) {
   const name = typeof tool === 'string' ? tool.trim() : '';
   const id = agentEditing;
   if (!name || !id || agentRevokeBusy) return;
-  // WHAT IS TYPED SURVIVES THIS PRESS, which redraws the whole form.
-  agentFormRead();
+  // WHAT IS TYPED SURVIVES THIS PRESS: `renderAgents` reads the form before it redraws it,
+  // the same door the automation form and the two knowledge forms go through. A second read
+  // here would be one mechanism too many — and the point of the door is that a press does
+  // not have to remember.
   const bound = agentBind();
   const back = how === 'restore';
   // THE BOX WHEN IT IS THERE, AND WHAT WAS TYPED INTO IT WHEN IT IS NOT. The input hook
@@ -6901,13 +6934,14 @@ async function agentRevokeAct(tool, how) {
       body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
-    if (!agentSameEdit(bound)) return;
     if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t change that.';
     else said = typeof j.say === 'string' ? j.say : '';
   } catch {
-    if (!agentSameEdit(bound)) return;
     failed = 'Couldn’t reach the server.';
   }
+  // ⚠ THE REQUEST HAS SETTLED, SO THE FLAG COMES OFF WHOEVER IS LOOKING — see the same
+  // correction on the approvals banner above. What the wall below decides is whether any of
+  // it may be WRITTEN, which is a different question and is asked after.
   agentRevokeBusy = '';
   if (!agentSameEdit(bound)) return;
   agentRevokeActErr = failed;
