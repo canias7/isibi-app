@@ -1302,6 +1302,154 @@ layer=page page=/` in **19.4 s for 2 credits**, rung **20**, **balance
   different claim from the `tsx` lane correctly rewriting one on request.
   Neither is evidenced here.
 
+**RUN 12 (2026-09-21) WAS BLOCKED BEFORE ANY COMPONENT WAS GENERATED, AND THE
+RECORD IS A ROUTING READING RATHER THAN A CAPABILITY FINDING.** `fretwork-1`,
+an ask aimed at `day-space-lookup`'s booking-count display. The router answered
+**`layer=rules`**, the `rules` rung met `no-backend`, and the whole message
+stopped: **2 credits** for the routing call, **balance 77**, `cost: 0` on the
+terminal body, **nothing published and no component written**.
+
+- **THE TERMINAL BODY IS THE WHOLE OF IT**: `{"ok":false, "escalate":true,
+  "reason":"no-backend", "cost":0}` at **HTTP 200** — an escalate is a product
+  answer, not a transport failure, so the status is not what separates it from
+  a published edit.
+- **THE CAUSE IS THE ALREADY-RECORDED `incomplete` STATE MEETING A RUNG THIS
+  FILE HAD NOT NAMED.** The `rules` rung gates on `siteBackendBySlug(env,
+  ownerSlug)` and escalates on a falsy answer; `fretwork-1` is one of the four
+  backlog sites whose `site_backends.neon_db` is blank. Not a new defect —
+  the same blank column, one rung over.
+- **⚠ THE ROUTING CONCLUSION IS NARROW AND STAYS NARROW (owner).** **This
+  WORDING selected `rules`.** It does not establish that a booking-count
+  display cannot be edited through the component path: one run fixes one
+  sentence's route and says nothing about the rung the sentence never reached.
+  The prediction beforehand was `tsx` → `page`; it was wrong because the
+  sentence said *"counts bookings"* and *"six lesson slots a day"*, which is
+  `rules`' own description. **A routing prediction is a prediction about
+  WORDING, and the lane picker never ran** (`lanes` is empty whenever the
+  router answers a layer directly — run 9's rule, holding here too).
+
+**⚠ AND THE FIRST WRITE-UP OF THIS GOT THE ESCALATION WRONG (owner:
+*"`editBrowserReply` records a FULL rewrite action for this response; it is
+not a sideways layer retry"*).** The blank `customer-reply.txt` was written up
+as *"the browser re-posts at another layer and the harness sends one POST"* —
+which is a different and cheaper outcome than the one the page really takes.
+**DRIVEN LOCALLY on the stored body, no paid request, and the helper answers:**
+
+```
+shown  : false          (finish was NEVER called — this branch ACTS instead of printing)
+text   : ""
+actions: 1
+   -> start the FULL ~25-credit rewrite (the browser's `fallback`)
+```
+
+- **IT IS `up` BY CONSTRUCTION, NOT BY THE HOP BOUND.** `escalateAction` reads
+  `e.layer` for a sideways hop and **this reply carries no `layer` at all**, so
+  `named` is `""`, `handedOff` never enters it, and the decision falls to `up`
+  → `fallback()`. A hop would have been recorded as *a second PAID post naming
+  a layer* — a different sentence and a different price.
+- **THE CONTROL PROVES THE RECORDER IS NOT MUTE**: an ordinary published edit
+  through the same helper answers `"✅ Updated /."` with `actions:
+  ["refresh the credit balance"]`, and the three escalate shapes (`up`, `hop`,
+  `addon`) record three different actions.
+- **⚠ AND THE BLANK CAPTURE WAS THE HARNESS DROPPING A FIELD THE HELPER HAS
+  ALWAYS RETURNED.** `editBrowserReply` returns `{ok, text, shown, actions,
+  why}`; `edit-canary.mjs` read `.text` alone, so the artifact was **0 bytes**
+  and the whole evidence bundle was silent about the ~25-credit rewrite the
+  page would start. **`customerLines`, the ADDON sweep's reader one function
+  over, had printed `actions` for weeks.** *The wiring trap in its plainest
+  form: the producer perfect, the consumer dropping the field, and from outside
+  "the helper did not record one" and "we did not read it" are the same
+  absence.* Fixed: the capture prints and writes both, and **`shown` separates
+  an acting branch from a composer that answered `""`** — without it the two
+  write the same blank file. Driven over run 12's stored body: **0 → 179 bytes**.
+- **THE GUARD IS WHAT WAS MISSING**, and it is split the way the defect was:
+  the helper half is **DRIVEN** (`test/edit-browser-reply.test.mjs`, three
+  escalate shapes plus a published-edit control) and the wiring half is the
+  hop (`test/edit-canary.test.mjs`, landmark to landmark). **4 mutants killed,
+  a comment-only control survived** — the artifact losing `actions`, the
+  run-12 defect restored verbatim, the helper's recorder silenced, and a hop
+  recorded as a fall.
+- **⚠ THE GUARD'S OWN LANDMARK WAS A HEADING COMMENT AND WENT RED AT ONCE** —
+  `SRC` is the BLANKED source, so `"THE CUSTOMER'S OWN SCREEN"` is whitespace
+  by the time it is searched for. Anchored on **code** now (`const said =
+  editBrowserReply(` → `await inventory("after")`). This file's own recorded
+  trap, met while writing the guard for another one.
+- **AND THE HARNESS REFUSING A NO-OP ROUND TRIP IS IT WORKING**: `check("the
+  edit published", ...)` fails on an escalate by design, because a terminal
+  answer is not a pass.
+
+**THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
+run 11 left open is *deliberate component MODIFICATION* — run 11 proved the
+writer leaves components alone, which is a different claim from the writer
+correctly rewriting one on request. `fretwork-1`'s `chord-diagram` (**3,861 b,
+sha `d0c20d52f91d69d2`**) draws a muted string as the letter **`X`** and an
+open string as **`O`**; the ask is that they become a drawn cross and a drawn
+outline ring. **The router stays under test — neither the selected layer nor a
+tweak fallback is promised.**
+
+- **⚠ A TWEAK CANNOT TOUCH A COMPONENT AT ALL**, so the two outcomes are not
+  symmetric: `runTweak` takes ONE page's source and answers ONE page's source.
+  If `tweak: true` comes back **with a changed component**, the model of this
+  path is wrong, not the run.
+- **THE PLACEMENT IS THE CLAIM AND THE COUNT IS NOT.** *"7 crosses and 18
+  rings"* is satisfied by a rewrite that draws them on the WRONG STRINGS of the
+  WRONG CHORDS. Every check is keyed on `(chord, string index)`.
+- **THE BASELINE RECONCILES FROM TWO INDEPENDENT SOURCES**, which is what makes
+  it worth having: the page's own `CHORDS` array declares 8 chords, and a real
+  Chromium against the live site reads **the same placement string-index by
+  string-index on all eight** — **X 7, O 18, dots 23, finger numbers 23, 13
+  lines each, 0 paths, 0 outlined circles, NAV 200, 0 console errors, 0 failed
+  requests**, every dot `r=9 fill=currentColor`, every diagram 160×214.8.
+
+  | chord | X at | O at | dots at |
+  |---|---|---|---|
+  | E major | — | 0,4,5 | 1,2,3 |
+  | A major | 0 | 1,5 | 2,3,4 |
+  | D major | 0,1 | 2 | 3,4,5 |
+  | G major | — | 2,3,4 | 0,1,5 |
+  | C major | 0 | 3,5 | 1,2,4 |
+  | E minor | — | 0,3,4,5 | 1,2 |
+  | A minor | 0 | 1,5 | 2,3,4 |
+  | D minor | 0,1 | 2 | 3,4,5 |
+
+- **ONE READER SERVES BOTH SIDES**, because after the change the marks are
+  SHAPES and a letters-only reader would report the after side as an empty row
+  — indistinguishable from a rewrite that deleted them. Anything above the nut
+  (`y < 38` in viewBox units) is a mark; a `<circle>` with no solid fill is a
+  ring, two `<line>`s or a two-`M` `<path>` is a cross, an `a`/`A` arc is a
+  ring, and **anything else is NAMED as unclassified rather than guessed at**.
+- **⚠ AND A SYNTHETIC FIXTURE FOUND TWO READER DEFECTS BEFORE ANYTHING WAS
+  SPENT — both of which would have produced a FALSE FAILURE on a correct
+  rewrite.** (1) An outlined ring drawn as a `<circle>` was counted as a
+  fingering dot too, so the 23-dot census moved for a change that never touched
+  a dot; a dot is now required to be BELOW the nut. (2) A ring drawn as an ARC
+  PATH vanished **in silence**: the reader averaged the numbers in the `d`, and
+  a relative arc's numbers are DELTAS, so it placed the ring at x≈8, `nearest`
+  answered `-1`, and `-1` was dropped — *a false "the open marks are gone"*.
+  Position comes from the browser's own `getBBox()` now, and a dropped `-1` is
+  NAMED. **The observer is proved alive against all three spellings** (lines,
+  paths, letters) before any zero it reports is believed.
+- **THE FIVE ACCEPTANCE CHECKS** (the owner's own wording): the target's stored
+  source changes while the other two components stay **byte-identical**
+  (`day-space-lookup` `5330fca7b88e5ac1`, `trial-booking-form`
+  `4b66386c0ad46092`); the 7 X and 18 O become drawn crosses and rings **on the
+  same strings of the same chords**; the 23 dots, 23 finger numbers, chord
+  names and fret positions are unchanged **by placement, not by aggregate
+  count**; unrelated pages stay byte-identical and any home-page change is
+  INSPECTED rather than auto-failed (the `CHORDS` array is asserted
+  byte-identical, since a moved array would make a matching placement
+  meaningless); and the result is confirmed in a real browser.
+- **TWO WALLS THE PLACEMENT CHECKS CANNOT SEE ON THEIR OWN**, both asserted:
+  the letters `X`/`O` must be **gone** from the page (a rewrite that draws
+  shapes and leaves the letters standing satisfies every placement check), and
+  **something must have been drawn in their place** (or "no letters" is
+  satisfied by an empty row).
+- **THE PREFLIGHT IS STILL ARMED**: `origin/main` is unmoved at `0e5ee09d`, so
+  `expect_deploy=0e5ee09d9a3a35c123ba9cf5a8a62f3ee111693b` and
+  `expect_image=82bccb3bee50e4fd` remain valid. `edit-canary.yml`'s checkout is
+  **unpinned**, so the corrected capture takes effect from the branch without a
+  merge.
+
 **AND A SESSION CANNOT PRESS THE BUTTON.** Every paid harness is
 `workflow_dispatch` only; a dispatch needs GitHub's **`actions: write`**, and
 the session's App does not have it — the MCP tool and a direct REST POST both
@@ -3662,12 +3810,14 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 79** at run 11's end (2026-09-21, read by the canary at both
-ends: 101 → 79, moved 22). Run 9 ended at 101 (105 → 101, moved 4). It was 119
-at run 52's end on 2026-09-20 and **14 went somewhere this session did not
-spend** — run 9's free press read 105 before anything paid ran, which is exactly
-the reading a stale line cannot give you. `GET /api/fal-balance` answers fal's,
-separately and free.
+build. **Balance 77** at run 12's end (2026-09-21, read by the canary at both
+ends: 79 → 77, moved 2 — the routing call alone, on a message that escalated
+`no-backend` and published nothing). Run 11 ended at 79 (101 → 79, moved 22)
+and run 9 at 101 (105 → 101, moved 4). It was 119 at run 52's end on
+2026-09-20 and **14 went somewhere this session did not spend** — run 9's free
+press read 105 before anything paid ran, which is exactly the reading a stale
+line cannot give you. `GET /api/fal-balance` answers fal's, separately and
+free.
 
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance. Look at the wrong row
@@ -3754,6 +3904,13 @@ separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
+- **Unit suite: 7,057 LOCALLY, and the CI half of THIS reading is UNREAD** —
+  `# tests 7057 / # pass 7057 / # fail 0 / # skipped 0`, `duration_ms 111,992`,
+  taken 2026-09-21 on run 12's docs-and-guards commit. **The +4 is the
+  difference between two measured readings, never arithmetic off a paragraph**:
+  7,053 → 7,057 is this round's own four cases — three escalate-action cases in
+  `edit-browser-reply` and one capture-wiring case in `edit-canary`. **Say
+  which half is taken**: a local number beside an unread CI run is ONE reading.
 - **Unit suite: 7,053, BOTH HALVES TAKEN, AND THE DOCS COMMIT MOVED IT BY ZERO**
   (2026-09-21, run 11's docs). **CI runs 2862 (the parent) and 2864 (the
   current) BOTH read `7,053 total / 7,049 passed / 0 failed / 4 skipped`** —

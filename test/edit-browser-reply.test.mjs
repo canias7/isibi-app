@@ -164,3 +164,69 @@ test("the two lists are separate, and each names its own entry point", () => {
     assert.ok(list.includes("photoNote"), "a reader lost the picture-space sentence: " + JSON.stringify(list));
   }
 });
+
+// ── AN ESCALATE PRINTS NOTHING AND SPENDS ~25 CREDITS ───────────────────────
+//
+// Run 12 (2026-09-21, `fretwork-1`) came back `{ok:false, escalate:true,
+// reason:"no-backend", cost:0}` at HTTP 200, and the canary's capture was
+// EMPTY — which read as "the customer was told nothing", full stop. It is
+// worse than that: the branch that prints nothing is the branch that ACTS,
+// and what it starts is the ~25-credit full rewrite.
+//
+// TWO PROPERTIES, AND ONLY THE PAIR IS THE FINDING: the text is empty, and
+// `actions` is not. A harness reading one of them reports half an outcome.
+const RUN12 = { ok: false, escalate: true, reason: "no-backend", cost: 0 };
+
+test("an escalate with no layer starts the FULL rewrite, and says so in `actions`", () => {
+  // HTTP 200 — the real status run 12 recorded. An escalate is a product
+  // answer rather than a transport failure, so it arrives on a 2xx and the
+  // status is NOT what separates it from a published edit.
+  const r = editBrowserReply(RUN12, true);
+  assert.equal(r.ok, true, "the edit reader could not compose: " + r.why);
+  assert.equal(r.text, "", "this branch printed something: " + JSON.stringify(r.text));
+  // ⚠ `shown` IS WHAT SEPARATES "ACTED" FROM "ANSWERED EMPTY". `finish` is
+  // never called here, so an empty string with `shown: true` would be a
+  // DIFFERENT outcome — a composer that answered nothing — and collapsing the
+  // two is the one way this reader can mislead rather than go quiet.
+  assert.equal(r.shown, false, "`finish` was called, so this is no longer the acting branch");
+  // THE EXPENSIVE HALF, AND IT IS A FULL REWRITE RATHER THAN A SIDEWAYS HOP.
+  // `escalateAction` reads `e.layer` for a hop and this reply carries NO
+  // layer at all, so `named` is "" and the decision is `up` by construction —
+  // `handedOff` never enters it. A sideways hop would be recorded as a second
+  // PAID post naming a layer, which is a different sentence and a different
+  // price.
+  assert.deepEqual(r.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"],
+    "the escalate no longer records the rewrite it starts: " + JSON.stringify(r.actions));
+});
+
+test("a sideways hop and a fall are two different recorded actions", () => {
+  // THE DISCRIMINATOR, or the case above is satisfied by a reader that records
+  // "full rewrite" for every escalate there is. A NAMED layer different from
+  // ours is one rung sideways at that rung's price.
+  const hop = editBrowserReply({ ok: false, escalate: true, layer: "page", page: "/", cost: 0 }, true);
+  assert.equal(hop.ok, true, "the hop reply could not compose: " + hop.why);
+  assert.equal(hop.actions.length, 1, "the hop recorded something else too: " + JSON.stringify(hop.actions));
+  assert.match(hop.actions[0], /SECOND, PAID request to the edit route \(layer "page"\)/,
+    "a named layer no longer hops sideways: " + JSON.stringify(hop.actions));
+  // AND THE ADDON RUNG IS ITS OWN THIRD ANSWER, by name.
+  const add = editBrowserReply({ ok: false, escalate: true, layer: "addon", cost: 0 }, true);
+  assert.deepEqual(add.actions, ["post a PAID request to the addon route"],
+    "the addon escalate no longer reaches the middle rung: " + JSON.stringify(add.actions));
+  // THE THREE ARE REALLY THREE. A guard that only ever saw one of them would
+  // pass on a reader that collapsed them.
+  const seen = new Set([RUN12, { ok: false, escalate: true, layer: "page", page: "/", cost: 0 }, { ok: false, escalate: true, layer: "addon", cost: 0 }]
+    .map((b) => JSON.stringify(editBrowserReply(b, true).actions)));
+  assert.equal(seen.size, 3, "two escalate shapes record the same action: " + [...seen].join(" | "));
+});
+
+test("an ordinary published edit prints and does NOT start a rewrite", () => {
+  // THE OBSERVER PROVED ALIVE, in both directions: the recorder really does
+  // stay quiet when nothing expensive happens, so the array above is a
+  // reading of that reply rather than a reader that always pushes.
+  const r = editBrowserReply({ ok: true, layer: "page", page: "/", files: 24, cost: 2 }, true);
+  assert.equal(r.ok, true, "the success reply could not compose: " + r.why);
+  assert.equal(r.shown, true, "a published edit stopped calling `finish`");
+  assert.ok(r.text.includes("/"), "the success screen does not name the page: " + JSON.stringify(r.text));
+  assert.ok(!r.actions.some((a) => /rewrite|PAID/.test(a)),
+    "a published edit records a paid action: " + JSON.stringify(r.actions));
+});

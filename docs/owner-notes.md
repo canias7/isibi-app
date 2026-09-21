@@ -155,6 +155,68 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The component test never reached the component: it stopped at a missing database, and cost 2
+
+**Nothing was published and nothing was written.** I pointed the harness at
+`fretwork-1` with a request about the booking-count display inside
+`day-space-lookup`. The router sent it to the **`rules`** rung, that rung looked
+for the site's database, found the reference missing, and stopped the whole
+message. **2 credits for the routing call, balance 79 → 77, nothing else.**
+
+**Why it stopped is not new.** `fretwork-1` is one of the four sites on the open
+list whose database reference is blank — the database is real, the pointer to it
+is not. What is new is only that a rung we had not tested also refuses on it.
+
+**⚠ And I am keeping the routing conclusion narrow, because it is narrow.** This
+*wording* went to `rules`. It does **not** establish that a booking-count
+display cannot be reached through the component path. I had predicted the
+component path and was wrong, for a plain reason: my sentence said *"counts
+bookings"* and *"six lesson slots a day"*, which is very nearly the `rules`
+rung's own description of itself. One run tells you where one sentence goes.
+
+**⚠ And I got the consequence wrong in my first account of it, which you
+caught.** I wrote that the browser would quietly re-post at another layer. It
+would not. I drove the browser's own code over the stored answer — no request,
+nothing spent — and what it records is:
+
+> start the FULL ~25-credit rewrite
+
+It is the expensive one, and it is that by construction rather than by chance:
+the answer carries no layer at all, so there is no cheaper rung to hop to and
+the page falls straight to the full rewrite.
+
+**The evidence file was empty, and that was our harness, not the product.** The
+browser's own reader has always returned two things — what the screen says, and
+what the screen would then *do*. The canary read only the first, so a refusal
+wrote a **zero-byte** file and the record said nothing at all about the
+25-credit rewrite sitting behind it. The addon sweep's equivalent reader had
+been printing both for weeks. Fixed, and the same file is **179 bytes** now when
+driven over that same stored answer. **Guards added on both halves, four
+deliberate breakages all caught, and a harmless comment change correctly
+ignored.**
+
+**Next, prepared and not pressed: the chord diagrams.** Your guitar site draws a
+muted string as the letter **X** and an open string as **O**; the ask is that
+they become a drawn cross and a drawn ring. That is a real rewrite of a
+hand-built component, which is the gap still open.
+
+- I took the before-picture in a real browser: **8 diagrams, 7 X marks, 18 O
+  marks, 23 finger dots, 23 finger numbers, no errors** — and, more to the
+  point, **which string of which chord each one sits on**. Counts alone would
+  pass a rewrite that drew everything in the wrong places.
+- **The same numbers come out of the page's own chord list**, independently, and
+  the two agree exactly on all eight chords. That is the part worth having.
+- **Two bugs in my own measuring tool turned up before anything was spent**, and
+  both would have reported a perfectly good rewrite as broken. Found by feeding
+  it a fake page with the change already made — which is the only way to know a
+  tool can see the thing it is looking for.
+- **The router stays under test.** I am not promising which rung it picks or
+  whether the cheap writer tries first; the checks are about the result.
+
+**Nothing paid has run since, and nothing will without you.**
+
+---
+
 ## 2026-09-21 — The expensive writer ran with your own components in front of it, and left every one of them alone
 
 **This is the gap the bakery test could not close.** That one took the cheap

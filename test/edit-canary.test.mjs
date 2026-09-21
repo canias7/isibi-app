@@ -266,3 +266,49 @@ test("the free checks still cost nothing, and the paid one is still opt-in", () 
   assert.match(SRC, /if \(!SPEND\)/, "the paid half no longer checks the switch");
   assert.match(SRC, /if \(failed\)/, "the paid edit runs even when a free check failed");
 });
+
+// ── THE CAPTURE CARRIES WHAT THE SCREEN WOULD DO, NOT ONLY WHAT IT SAYS ─────
+//
+// ⚠ RUN 12 (2026-09-21). `editBrowserReply` has returned `actions` since it
+// was written — a record of what the real browser would do beside printing —
+// and this canary read `.text` alone, so an escalate wrote an EMPTY
+// `customer-reply.txt` and the whole evidence bundle was silent about the
+// ~25-credit rewrite the page would then start. `customerLines`, the ADDON
+// sweep's reader one function over, had printed the actions for weeks.
+//
+// THE WIRING TRAP IN ITS PLAINEST FORM: the producer was perfect, the consumer
+// dropped the field, and from outside "the helper did not record one" and "we
+// did not read it" are the same absence. The helper half is DRIVEN in
+// `test/edit-browser-reply.test.mjs`; this half is the hop.
+test("the reply capture reads the browser's ACTIONS, not only its text", () => {
+  // Landmark to landmark, and BOTH asserted — a missing end landmark makes
+  // `slice(a, -1)` swallow the file and every assertion inside it vacuous.
+  //
+  // ⚠ ON CODE, NEVER ON A HEADING COMMENT. `SRC` is the BLANKED source, so
+  // "THE CUSTOMER'S OWN SCREEN" — the obvious landmark, and the one this case
+  // was first written against — is whitespace by the time it is searched for.
+  // This file's own recorded trap, met writing the guard for it.
+  const at = SRC.indexOf("const said = editBrowserReply(");
+  assert.ok(at > 0, "the reply-capture block's opening landmark is gone");
+  // CLOSED ON THE NEXT CODE SIBLING, not on the section heading under it, for
+  // the same reason — and searched FROM the opening one so the two cannot
+  // cross.
+  const end = SRC.indexOf('await inventory("after")', at);
+  assert.ok(end > at, "the reply-capture block's closing landmark is gone or moved above it");
+  const block = SRC.slice(at, end);
+  assert.ok(block.length > 300, "the capture block came out too small to assert over: " + block.length);
+  // THE OBSERVER PROVED ALIVE BEFORE ANY OF THIS IS BELIEVED — the block must
+  // really be the one that composes the screen.
+  assert.match(block, /editBrowserReply\(/, "the capture no longer runs the browser's own selection");
+  // THE PROPERTY: the actions are READ, PRINTED and WRITTEN TO THE ARTIFACT.
+  // Three separate readers, because a run whose log is gone still has the
+  // file and a run read live still has the log.
+  assert.match(block, /said\.actions/, "the capture stopped reading the helper's `actions`");
+  assert.match(block, /writeFileSync\(`\$\{EVID\}\/customer-reply\.txt`/, "the capture no longer writes the reply artifact");
+  const written = block.slice(block.indexOf("writeFileSync(`${EVID}/customer-reply.txt`"));
+  assert.match(written, /sActs|actions/, "the ARTIFACT is written without the actions — only the console has them");
+  // AND `shown` SEPARATES "ACTED" FROM "ANSWERED EMPTY". Without it an
+  // escalate and a composer that answered "" write the same blank file, which
+  // is what made run 12's capture unreadable.
+  assert.match(block, /said\.shown|\bshown\b/, "the capture cannot tell an acting branch from an empty answer");
+});

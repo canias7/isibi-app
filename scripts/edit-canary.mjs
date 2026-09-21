@@ -470,10 +470,38 @@ if (rb && rb.error) console.log(`  error       ${rb.error}  ${rb.msg || ""}`);
 if (rb && Array.isArray(rb.partial) && rb.partial.length) console.log(`  partial     ${JSON.stringify(rb.partial)}`);
 
 // THE CUSTOMER'S OWN SCREEN, composed by the browser's real selection.
+//
+// ⚠ THE TEXT IS HALF THE ANSWER AND THE SILENT HALF IS THE EXPENSIVE ONE
+// (2026-09-21, run 12). `editBrowserReply` has ALWAYS returned `actions` — a
+// record of what the real browser would do beside printing — and this block
+// read only `.text`, so an escalate wrote an EMPTY `customer-reply.txt` and
+// the capture said nothing at all about the ~25-credit rewrite the page would
+// then start. `addonAnswer`'s own reader (`customerLines`) had printed the
+// actions for weeks; this one never did.
+//
+// `shown` IS WHY THE BLANK IS NOT A FAILURE TO COMPOSE. The escalate and hop
+// branches never call `finish`, so an empty string here is a branch that ACTS
+// instead of printing — and a harness that cannot tell that from a composer
+// that answered "" is reporting two opposite outcomes as one.
+//
+// NOTHING IS DONE. The two arms that reach outside are injected recorders and
+// `siteById` answers `null`, so this costs nothing and posts nothing.
 const said = editBrowserReply(rb, done ? done.status >= 200 && done.status < 300 : false);
+const sActs = Array.isArray(said.actions) ? said.actions : [];
 console.log("\nWHAT THE CUSTOMER READS");
-console.log(said.ok ? "  " + said.text : `  (could not compose: ${said.why})`);
-writeFileSync(`${EVID}/customer-reply.txt`, said.ok ? said.text : `could not compose: ${said.why}`);
+if (!said.ok) console.log(`  (could not compose: ${said.why})`);
+else if (said.text) console.log("  " + said.text);
+else console.log(said.shown
+  ? "  (the composer answered an empty string — the screen shows nothing)"
+  : "  (nothing is shown — this reply takes a branch that ACTS instead of printing)");
+if (sActs.length) {
+  console.log(`\n  and the browser would then (NOT done here — recorded only), ${sActs.length}:`);
+  for (const a of sActs) console.log(`    -> ${a}`);
+}
+writeFileSync(`${EVID}/customer-reply.txt`, said.ok
+  ? [said.text || (said.shown ? "(the composer answered an empty string)" : "(nothing shown — this reply ACTS instead of printing)"),
+     ...(sActs.length ? ["", `the browser would then (NOT done here — recorded only), ${sActs.length}:`, ...sActs.map((a) => "  -> " + a)] : [])].join("\n")
+  : `could not compose: ${said.why}`);
 
 // ── BEFORE / AFTER EVIDENCE ────────────────────────────────────────────────
 console.log(`\nINVENTORY — after (written to ${EVID}/after)\n`);
