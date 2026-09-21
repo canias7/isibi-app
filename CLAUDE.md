@@ -8323,6 +8323,15 @@ rule and the measurement.
 
 ### Reading source with a regex
 
+- **⚠ `fnmatch` IS NOT GITHUB'S GLOB, AND THE DIFFERENCE DECIDES WHETHER A HARNESS WAS DUE.**
+  In a workflow's `paths`, `*` does NOT cross `/` and `**` does; in Python's `fnmatch` both do.
+  So a matcher written with `fnmatch` reported four `agent-builder/scripts/*.mjs` files as
+  matching the ROOT glob `*.mjs` and answered **`site build` DUE** for a push GitHub fired no
+  run for. **The observation is what caught it** — a claim derived from a wrong matcher and
+  contradicted by what GitHub did, where the instrument is the thing to suspect. Translate the
+  glob (`**` → `.*`, `*` → `[^/]*`, `?` → `[^/]`) and **prove the matcher alive** on a root
+  `.mjs` that really does match, or "no run was due" is a statement about the matcher.
+
 - **ASSERT THE PROPERTY, NOT THE SPELLING.** The single most repeated own-goal. A
   guard pinned to `foo(a, b)` goes red the moment an honest third argument
   arrives, reporting the feature as gone. **AND ITS QUIETEST FORM IS PINNING A
