@@ -4339,12 +4339,14 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,110 LOCALLY, and the CI half of THAT reading is UNREAD** —
-  `# tests 7110 / # pass 7110 / # fail 0 / # skipped 0`, `duration_ms 112,947`,
-  taken 2026-09-21 on the read-only job lookup. **The +20 is the difference
-  between two measured readings**: `test/canary-read-job.test.mjs` arriving
-  with twenty cases. **Say which half is taken** — a local number beside an
-  unread CI run is ONE reading.
+- **Unit suite: 7,110, BOTH HALVES TAKEN** (2026-09-21, the read-only job
+  lookup) — locally `# tests 7110 / # pass 7110 / # fail 0 / # skipped 0`,
+  `duration_ms 112,947`, and CI run **`35659172717` on `f662d68d`** at
+  **`# tests 7110 / # pass 7106 / # fail 0 / # skipped 4`**, `duration_ms
+  113,158`. **THE TOTAL IS WHAT MATCHES** — 7,110 both sides, `pass` differing
+  by exactly CI's own four skips, which is this file's standing reading of that
+  gap and not a regression. **The +20 is the difference between two measured
+  readings**: `test/canary-read-job.test.mjs` arriving with twenty cases.
 - **Unit suite: 7,090, BOTH HALVES TAKEN** (2026-09-21, the run-14 harness
   corrections) — locally `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`,
   `duration_ms 117,987`, and CI run **`35655515164` on `c0dcd60e`** at
