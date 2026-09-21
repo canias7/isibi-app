@@ -112,6 +112,84 @@ test("a terminal answer is not a pass — the edit has to have published", () =>
     "publication is judged by something other than the reply's own ok flag");
 });
 
+// ── THE PREFLIGHT, AND THE CONTROL THAT WENT STALE UNDER IT ────────────────
+//
+// `shaMatches` is a pure top-level declaration, so it is CUT AND DRIVEN rather
+// than read: a source scan can see that a floor is written and cannot see what
+// it answers, and the one direction that matters here is the cheap pass — a
+// two-character expectation matching every sha there is.
+function cut(name) {
+  const at = RAW.indexOf(`function ${name}(`);
+  assert.ok(at > 0, `${name} is gone from the canary`);
+  const end = RAW.indexOf("\n}\n", at);
+  assert.ok(end > at, `${name}'s closing brace is not where a cut can find it`);
+  return new Function(`${RAW.slice(at, end + 3)}; return ${name};`)();
+}
+
+test("a sha match is floored at 7 on BOTH sides, and cannot-tell is a refusal", () => {
+  const shaMatches = cut("shaMatches");
+  assert.equal(shaMatches("28e46e91ab", "28e46e91abcdef"), true, "a real prefix stopped matching");
+  assert.equal(shaMatches("28e46e91ab", "ffffffffffff"), false, "a wrong sha matched");
+  // THE CHEAP PASS IS THE ONE THAT COSTS MONEY: a short expectation must not
+  // match by being short, in EITHER position.
+  assert.equal(shaMatches("28e46e91ab", "28e"), false, "a 3-character expectation passed");
+  assert.equal(shaMatches("28e", "28e46e91ab"), false, "a 3-character reading passed");
+  // CANNOT-TELL IS A REFUSAL, NEVER A MATCH — an unstamped image and a route
+  // that failed both arrive as "".
+  assert.equal(shaMatches("", ""), false, "two absences matched each other");
+  assert.equal(shaMatches("28e46e91ab", ""), false, "an absent expectation matched");
+});
+
+test("the preflight requires both eligibilities, not just the deploy identifiers", () => {
+  const pre = SRC.slice(SRC.indexOf("PREFLIGHT"), SRC.indexOf("ZERO-COST CONFIRMATIONS"));
+  assert.ok(pre.length > 400, "the preflight came out empty");
+  // BOTH, and required rather than printed. `async` off means the edit runs in
+  // the Worker's isolate bounded by this connection; `runner` off means the job
+  // was never handed to the site's own container. Either one makes a green
+  // result a statement about a path that is not the one under test.
+  assert.match(pre, /check\(\s*"async is true",\s*rAsync === true/, "`async` is no longer required");
+  assert.match(pre, /check\(\s*"runner is true",\s*rRunner === true/, "`runner` is no longer required");
+  // AND THE TWO READERS STILL HAVE TO AGREE, asked with no expectation set.
+  assert.match(pre, /the two deploy readers agree/, "the two-reader agreement check is gone");
+});
+
+// ⚠ THE CASE THAT WOULD HAVE CAUGHT THE SEVENTEEN-DAY DRIFT. Check 2 was
+// written 2026-09-01 as "a non-canary still receives the SYNCHRONOUS shape",
+// which was true while `EDIT_ASYNC_CANARY` named one slug. The everyone door
+// opened on 2026-09-04 (`dacc9b51`) and nothing here asserted the control at
+// all, so the demand went on standing for a state the platform had left — and
+// a failed free check REFUSES TO SPEND, so it would have blocked every paid
+// dispatch for a reason unrelated to the code under test.
+test("the control's expected shape is DERIVED from its own eligibility", () => {
+  const free = SRC.slice(SRC.indexOf("ZERO-COST CONFIRMATIONS"), SRC.indexOf("INVENTORY — before"));
+  assert.ok(free.length > 400, "the free half came out empty");
+  // The expectation comes from the runtime read, and the two shapes are both
+  // expressible — so whichever way the platform's flags are set, the property
+  // asserted is that the route follows the site's OWN answer.
+  assert.match(free, /const want = cAsync \?/, "the control's expectation is no longer derived");
+  assert.match(free, /got === want/, "the control no longer compares what it got with what it derived");
+  // AND THE OLD HARDCODED DEMAND IS GONE, not merely accompanied. A second copy
+  // of the expectation is the thing that went stale.
+  assert.doesNotMatch(free, /still receives the SYNCHRONOUS shape/,
+    "the hardcoded sync-only demand is back — it will go stale the next time a flag moves");
+});
+
+test("an unreadable control is outstanding coverage, never a refusal to spend", () => {
+  const free = SRC.slice(SRC.indexOf("ZERO-COST CONFIRMATIONS"), SRC.indexOf("INVENTORY — before"));
+  const at = free.indexOf("cRuntime.status !== 200");
+  assert.ok(at > 0, "the control's readability test is gone");
+  // The unreadable arm SAYS so and calls no `check(` — `/api/site/runtime` is
+  // owner-scoped, so a control the building account does not own answers the
+  // 404 a missing site gets, and that is a fact about a DIFFERENT site.
+  const arm = free.slice(at, free.indexOf("} else {", at));
+  assert.match(arm, /OUTSTANDING/, "the unreadable control no longer says its coverage is outstanding");
+  assert.doesNotMatch(arm, /check\(/,
+    "an unreadable control counts as a failed check again, so it blocks a paid run about another site");
+  // The readable arm is still a real wall: a mismatch there IS a defect.
+  assert.match(free.slice(free.indexOf("} else {", at)), /check\(`\$\{CONTROL\}/,
+    "the readable control stopped asserting anything");
+});
+
 test("the free checks still cost nothing, and the paid one is still opt-in", () => {
   // The four confirmations lean on `escalate("empty")`, which answers cost 0
   // before any model call — so they must keep posting an EMPTY instruction.

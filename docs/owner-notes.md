@@ -155,6 +155,39 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The live edit test runs through Actions now, and no console
+
+You said keep this testing through GitHub Actions, no F12 and no collecting
+JSON by hand. The existing `edit canary` workflow does it now: it takes a
+**site** and an **instruction**, and it uploads the whole record as an artifact
+you download from the run page — every page and component body before and
+after, each route's HTML, the photographs on each route, the headings in order,
+the routing answer, the terminal answer, the exact sentence the customer would
+have read, and a before/after comparison. **The inventory runs on a free
+dispatch too**, so one press with `spend: no` costs nothing and still gives you
+the complete before-state.
+
+**One thing preparation turned up, and it would have blocked the paid run.**
+A check in that harness read *"a non-canary still receives the synchronous
+shape"*. That was true when it was written on 1 September, while the queued
+edit path was switched on for one site. It was opened to everyone on 4
+September and nobody went back to the harness — so the check had been demanding
+a state the platform left seventeen days ago, and **a failed free check refuses
+to spend**, which means every paid press would have stopped for a reason with
+nothing to do with what was being tested. It asks the platform now instead of
+assuming. Nothing in the harness had ever tested that check, which is exactly
+why it could rot in plain sight; four new cases cover it, and I mutated the
+code five ways to prove each one can actually fail.
+
+**Not pressed, and I have spent nothing.** The workflow file has to reach
+`main` before the new boxes appear on the form — that is a GitHub rule, not a
+choice. The merge itself is a ~3 minute deploy that rebuilds no container
+(measured: the image id does not move). After that the order is: one **free**
+press to read the live identifiers and capture the before-state, then the
+**paid** press. I have the exact values for both ready in the chat.
+
+---
+
 ## 2026-09-21 — Merged and deployed
 
 You said merge it and deploy, and it is done. **Deploy 2139 finished green in

@@ -36,6 +36,26 @@ on:
         description: 'What to change, if spending'
         required: false
         default: ''
+      site:
+        description: 'The site to edit. Defaults to the canary site; name another to run this against it.'
+        required: false
+        default: 'fretwork-1'
+      control:
+        description: 'A second site, used only to prove the OTHER half of the async shape. Leave as is unless you know why.'
+        required: false
+        default: 'washhouse-3'
+      # THE TWO DEMANDS, and they are optional by design: unset, the preflight
+      # still READS both identifiers and prints them — what it will not do is
+      # claim a match nobody asked for. `lane-sweep.yml` carries the same pair
+      # under the same names, so one habit covers both harnesses.
+      expect_deploy:
+        description: 'Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.'
+        required: false
+        default: ''
+      expect_image:
+        description: 'Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.'
+        required: false
+        default: ''
 
 jobs:
   canary:
@@ -79,12 +99,27 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           OWNER_EMAIL: aniascristian@gmail.com
           OWNER_BASE_URL: https://gofarther.dev
-          # The site the allowlist names. Kept here rather than read from the
-          # secret, so a mismatch between what the Worker admits and what this
-          # tests SHOWS UP as a failed check rather than passing quietly.
-          CANARY_SLUG: fretwork-1
-          # A site the allowlist does NOT name, to prove the other half.
-          CONTROL_SLUG: washhouse-3
+          # THE SITE IS THE CALLER'S NOW, and the default is the one this
+          # workflow has always used — so a dispatch that names nothing behaves
+          # exactly as every earlier run did. Kept out of the secret
+          # deliberately: a mismatch between what the Worker admits and what
+          # this tests SHOWS UP as a failed check rather than passing quietly.
+          CANARY_SLUG: ${{ github.event.inputs.site || 'fretwork-1' }}
+          # A second site, used only to prove the other half of the shape.
+          CONTROL_SLUG: ${{ github.event.inputs.control || 'washhouse-3' }}
           CANARY_SPEND: ${{ github.event.inputs.spend == 'yes' && '1' || '0' }}
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
+          EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
+          EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
+          CANARY_EVIDENCE_DIR: canary-evidence
         run: node scripts/edit-canary.mjs
+      # THE RECORD SURVIVES THE RUN, and is uploaded even when the canary
+      # FAILS — a refusal's before-inventory is exactly as worth reading as a
+      # pass's, and `if: always()` is what stops a red run throwing it away.
+      - name: keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-evidence
+          path: canary-evidence
+          if-no-files-found: warn

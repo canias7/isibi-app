@@ -19,6 +19,12 @@
 // Admin magic-link, the same way `wall-probe.mjs` and `build-as-owner.mjs` do:
 // no password anywhere, and the session is minted for this run and thrown away.
 import https from "node:https";
+import { mkdirSync, writeFileSync } from "node:fs";
+// THE CUSTOMER'S OWN SCREEN, EXECUTED — never re-composed here. `editAnswer`
+// is the browser's real selection and `editBrowserReply` runs it with the
+// outward arms injected as recorders, which is the only way a harness can
+// report what the customer would read rather than a second copy of it.
+import { editBrowserReply } from "./addon-sweep.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -29,6 +35,15 @@ const EMAIL = String(process.env.OWNER_EMAIL || "").trim();
 const CANARY = String(process.env.CANARY_SLUG || "").trim().toLowerCase();
 const CONTROL = String(process.env.CONTROL_SLUG || "").trim().toLowerCase();
 const SPEND = process.env.CANARY_SPEND === "1";
+// THE DEMANDS, AND THEY ARE OPTIONAL BY DESIGN. Unset, the preflight still
+// READS both identifiers and prints them — what it will not do is claim a
+// match nobody asked for. `lane-sweep.yml` carries the same pair under the
+// same names, so one habit covers both harnesses.
+const EXPECT_DEPLOY = String(process.env.EXPECT_DEPLOY || "").trim();
+const EXPECT_IMAGE = String(process.env.EXPECT_IMAGE || "").trim();
+// WHERE THE EVIDENCE GOES. A directory the workflow uploads, so the whole
+// before/after record is readable without a browser or a developer console.
+const EVID = String(process.env.CANARY_EVIDENCE_DIR || "docs/edits/canary").trim();
 
 if (!EMAIL || !SERVICE_KEY || !CANARY) {
   console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and CANARY_SLUG are required");
@@ -82,6 +97,72 @@ const check = (name, ok, detail) => {
 };
 const hex32 = () => Array.from({ length: 32 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
 
+// ── PREFLIGHT: WHICH CODE IS ANSWERING, AND IS IT READY ────────────────────
+//
+// `scripts/addon-sweep.mjs` refuses to spend against the wrong build BEFORE
+// the browser, the balance or the first post, and the reason it can be a
+// refusal rather than a warning is that nothing has been spent yet. The same
+// discipline, the same two readers:
+//
+//   /api/site/build-health   the Worker's DEPLOY_ID *and* the container's
+//                            cold-start image, in ONE call
+//   /api/site/runtime?slug=  `async` and `runner` — the effective
+//                            eligibilities — plus the sha as a SECOND reader
+//
+// CANNOT-TELL IS A REFUSAL, NEVER A MATCH. An unstamped image arrives as `""`
+// and refuses; so does a route that failed. The wrong direction is the
+// expensive one: a run against the PREVIOUS build produces a complete,
+// plausible, green-looking result about code that is not under test.
+//
+// A SHA MATCHES BY PREFIX, FLOORED AT 7 ON BOTH SIDES; AN IMAGE ID MATCHES
+// WHOLE. A prefix of a hash is not a weaker claim, it is a different one.
+console.log("PREFLIGHT — which code is answering, and is it ready\n");
+
+const health = await call("GET", "/api/site/build-health");
+const runtime = await call("GET", `/api/site/runtime?slug=${encodeURIComponent(CANARY)}`);
+// THE CONTROL'S OWN ELIGIBILITY, READ RATHER THAN ASSUMED — see check 2.
+const cRuntime = CONTROL ? await call("GET", `/api/site/runtime?slug=${encodeURIComponent(CONTROL)}`) : { status: 0 };
+const cAsync = (cRuntime.json || {}).async;
+const hDeploy = String((health.json || {}).deploy || "");
+const hImage = String((health.json || {}).image || "");
+const rDeploy = String((runtime.json || {}).deploy || "");
+const rAsync = (runtime.json || {}).async;
+const rRunner = (runtime.json || {}).runner;
+
+console.log(`  build-health  ${health.status}  deploy=${hDeploy.slice(0, 12) || "(none)"}  image=${hImage || "(none/unstamped)"}`);
+console.log(`  runtime       ${runtime.status}  deploy=${rDeploy.slice(0, 12) || "(none)"}  async=${rAsync}  runner=${rRunner}`);
+if (CONTROL) console.log(`  control       ${cRuntime.status}  ${CONTROL} async=${cAsync}`);
+
+/** Floored at 7 on BOTH sides, so a short expectation cannot pass by being short. */
+function shaMatches(saw, want) {
+  const a = String(saw || ""), b = String(want || "");
+  if (a.length < 7 || b.length < 7) return false;
+  const n = Math.min(a.length, b.length);
+  return a.slice(0, n) === b.slice(0, n);
+}
+
+// THE TWO READERS MUST AGREE, asked with no expectation set — a disagreement
+// means a roll is in flight, which is a fact about the platform rather than
+// about what the caller wanted.
+check("build-health answered", health.status === 200 && !!hDeploy, `${health.status} ${hDeploy.slice(0, 12) || health.text.slice(0, 60)}`);
+check("runtime answered", runtime.status === 200 && !!rDeploy, `${runtime.status} ${rDeploy.slice(0, 12) || runtime.text.slice(0, 60)}`);
+check("the two deploy readers agree", shaMatches(hDeploy, rDeploy), `${hDeploy.slice(0, 12)} vs ${rDeploy.slice(0, 12)}`);
+// REQUIRED, NOT ADVISORY. `async` off means the edit runs inside the Worker's
+// isolate bounded by this connection at ~270s; `runner` off means the job was
+// never handed to the site's own container. Either one turns a green result
+// into a statement about a different path.
+check("async is true", rAsync === true, String(rAsync));
+check("runner is true", rRunner === true, String(rRunner));
+
+if (EXPECT_DEPLOY) {
+  check(`the Worker is the expected build (${EXPECT_DEPLOY.slice(0, 12)})`, shaMatches(hDeploy, EXPECT_DEPLOY), hDeploy.slice(0, 12) || "(none)");
+}
+if (EXPECT_IMAGE) {
+  check(`a cold container gets the expected image (${EXPECT_IMAGE})`, !!hImage && hImage === EXPECT_IMAGE, hImage || "(none/unstamped)");
+}
+
+console.log("");
+
 // ── THE FOUR FREE CHECKS ───────────────────────────────────────────────────
 
 console.log("ZERO-COST CONFIRMATIONS\n");
@@ -95,16 +176,42 @@ check(`the canary (${CANARY}) receives the ASYNC shape`, asyncShape,
   `${a.status} ${a.json ? JSON.stringify({ job: a.json.job, status: a.json.status, poll: a.json.poll }) : a.text}`);
 const JOB = asyncShape ? a.json.job : "";
 
-// 2. A NON-CANARY STILL GETS THE SYNCHRONOUS SHAPE — the same empty
-//    instruction, answered inline with an escalate rather than a job.
-if (CONTROL) {
+// 2. A SECOND SITE'S SHAPE FOLLOWS ITS OWN ELIGIBILITY.
+//
+// ── THIS CHECK USED TO HARDCODE THE ANSWER, AND THE PLATFORM MOVED UNDER IT ─
+//
+// It was written 2026-09-01 as *"a non-canary still receives the SYNCHRONOUS
+// shape"* — a true and useful thing to assert while `EDIT_ASYNC_CANARY` named
+// one slug and everybody else was synchronous. `EDIT_ASYNC_EVERYONE` opened
+// the door to everyone on 2026-09-04 (`dacc9b51`) and this file was not
+// touched again, so the assertion went on demanding a state the platform had
+// left — and because a failed free check REFUSES TO SPEND, a stale control
+// would block every paid dispatch for a reason that has nothing to do with
+// the code under test. This repo's own trap: *a rule true because of a layer
+// below it expires when that layer moves, and nothing announces it.*
+//
+// THE PROPERTY IS THE DURABLE HALF: the route's shape follows the SITE'S OWN
+// eligibility, whichever way the flags are set. `/api/site/runtime` is the
+// one reader of that, so the expectation is derived from it rather than typed.
+//
+// AND AN UNREADABLE CONTROL IS OUTSTANDING COVERAGE, NEVER A REFUSAL. The
+// route is owner-scoped, so a control the building account does not own
+// answers the 404 a missing site gets — a fact about a DIFFERENT site, which
+// must not stop a paid run aimed at this one. The preflight's own demands are
+// where cannot-tell refuses; this is not one of them.
+if (!CONTROL) {
+  console.log("  NOTE  CONTROL_SLUG is not set, so the second-site shape check is OUTSTANDING.");
+} else if (cRuntime.status !== 200 || typeof cAsync !== "boolean") {
+  console.log(`  NOTE  ${CONTROL}'s eligibility is unreadable (${cRuntime.status}) — the second-site`);
+  console.log("        shape check is OUTSTANDING for this run. Not disproved, untested.");
+} else {
   const b = await call("POST", `/api/site/${encodeURIComponent(CONTROL)}/edit`,
     { body: { instruction: "", layer: "", idem: hex32() } });
-  const syncShape = b.status === 200 && b.json && b.json.escalate === true && !b.json.job;
-  check(`a non-canary (${CONTROL}) still receives the SYNCHRONOUS shape`, syncShape,
-    `${b.status} ${b.json ? JSON.stringify({ escalate: b.json.escalate, reason: b.json.reason, cost: b.json.cost, job: b.json.job }) : b.text}`);
-} else {
-  check("a non-canary still receives the SYNCHRONOUS shape", false, "CONTROL_SLUG not set");
+  const got = b.status === 202 && b.json && b.json.ok === true && typeof b.json.job === "string" ? "async"
+    : b.status === 200 && b.json && b.json.escalate === true && !b.json.job ? "sync" : "neither";
+  const want = cAsync ? "async" : "sync";
+  check(`${CONTROL} (async=${cAsync}) receives the ${want.toUpperCase()} shape`, got === want,
+    `${b.status} got=${got} ${b.json ? JSON.stringify({ job: b.json.job, escalate: b.json.escalate, reason: b.json.reason, cost: b.json.cost }) : b.text}`);
 }
 
 // 3. A FORGED REPLAY MARKER IS REFUSED. Well-formed but never minted here, so
@@ -134,6 +241,103 @@ if (JOB) {
 }
 
 console.log(`\n${failed ? "FAILED — " + failed + " check(s)" : "ALL FREE CHECKS PASSED"}\n`);
+
+// ── THE INVENTORY, CAPTURED BEFORE ANYTHING IS SPENT ───────────────────────
+//
+// Two halves, and they answer different questions:
+//
+//   the SOURCE   what the site is made of — pages and components, with their
+//                bodies — read through `/api/site/source`, which carries
+//                `reads` because it answers `200 ok:true` with EMPTY LISTS
+//                for a store that threw. A missing `reads` is an older Worker
+//                and is CANNOT-TELL, never "complete".
+//   the RENDER   what a visitor actually gets, per route, which is the only
+//                half that can show a section order or a photograph loading.
+//
+// Captured on EVERY run, paid or not, so one free dispatch produces the whole
+// before-record for review.
+
+/** og:image is a SHARE CARD, not a picture on a page — `photoUrls`' own rule. */
+function onPagePhotos(html, slug) {
+  const body = String(html || "").replace(/<meta[^>]*og:image[^>]*>/g, "");
+  const found = new Set();
+  for (const m of body.matchAll(/<img[^>]*>/g)) {
+    const src = /src="([^"]*)"/.exec(m[0]);
+    if (src && src[1].includes(`/u/${slug}/`)) found.add(src[1]);
+  }
+  return [...found].sort();
+}
+
+/** Headings in DOCUMENT ORDER — what "the section order" means to a visitor. */
+function headingOrder(html) {
+  const out = [];
+  for (const m of String(html || "").matchAll(/<(h1|h2)[^>]*>([\s\S]*?)<\/\1>/g)) {
+    const t = m[2].replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").trim();
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/** Every word a visitor reads, as a sorted multiset — the prose-preservation check. */
+function proseBag(html) {
+  const body = String(html || "").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ");
+  return body.toLowerCase().replace(/&[a-z#0-9]+;/g, " ").split(/[^a-z0-9']+/).filter(Boolean).sort();
+}
+
+async function inventory(label) {
+  mkdirSync(`${EVID}/${label}`, { recursive: true });
+  const src = await call("GET", `/api/site/source?slug=${encodeURIComponent(CANARY)}`);
+  const sb = src.json || {};
+  // THE PUBLIC ORIGIN IS THE SITEMAP'S OWN, never assembled from the slug: a
+  // renamed site serves at its ALIAS and `sitemap.xml` carries the address
+  // the platform substitutes at serve time.
+  let origin = `https://${CANARY}.gofarther.app`;
+  let routes = ["/"];
+  try {
+    const sm = await fetch(`${origin}/sitemap.xml`).then((r) => r.text());
+    const locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    if (locs.length) {
+      origin = new URL(locs[0]).origin;
+      routes = [...new Set(locs.map((l) => new URL(l).pathname || "/"))].sort();
+    }
+  } catch { /* the render half degrades to the home page; the source half is unaffected */ }
+
+  const render = {};
+  for (const r of routes) {
+    let html = "";
+    try { html = await fetch(origin + r).then((x) => x.text()); } catch (e) { html = ""; }
+    const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+    writeFileSync(`${EVID}/${label}/route${file}.html`, html);
+    render[r] = { bytes: html.length, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
+  }
+
+  const inv = {
+    at: new Date().toISOString(), slug: CANARY, origin, label,
+    status: src.status,
+    // THREE STATES, and the third is the one that matters.
+    reads: sb.reads || null,
+    readsComplete: sb.reads ? (sb.reads.pages === true && sb.reads.parts === true && sb.reads.assets === true) : null,
+    pages: (sb.pages || []).map((p) => ({ path: p.path, bytes: String(p.source || "").length })),
+    parts: (sb.parts || []).map((p) => ({ path: p.path || p.name, bytes: String(p.source || "").length })),
+    render,
+  };
+  // THE BODIES TOO, because "complete before-inventory" means the source a
+  // comparison can be made against, not a table of sizes.
+  writeFileSync(`${EVID}/${label}/source.json`, JSON.stringify({ pages: sb.pages || [], parts: sb.parts || [] }, null, 2));
+  writeFileSync(`${EVID}/${label}/inventory.json`, JSON.stringify(inv, null, 2));
+  return inv;
+}
+
+console.log(`INVENTORY — before (written to ${EVID}/before)\n`);
+const BEFORE = await inventory("before");
+console.log(`  source ${BEFORE.status}  reads=${JSON.stringify(BEFORE.reads)}  complete=${BEFORE.readsComplete}`);
+console.log(`  pages  ${BEFORE.pages.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(none)"}`);
+console.log(`  parts  ${BEFORE.parts.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(NONE — component coverage is outstanding for this run)"}`);
+for (const [r, v] of Object.entries(BEFORE.render)) {
+  console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+}
+check("the source read is complete (reads all true)", BEFORE.readsComplete === true, JSON.stringify(BEFORE.reads));
+console.log("");
 
 if (!SPEND) {
   console.log("CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was charged.");
@@ -222,6 +426,67 @@ console.log("  " + (done ? done.text.slice(0, 600) : "NO TERMINAL ANSWER — the
 const after = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
   .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
 console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})`);
+
+// ── WHAT ACTUALLY HAPPENED, AND WHAT THE CUSTOMER WOULD READ ───────────────
+//
+// THE EXECUTION PATH IS READ, NEVER INFERRED. The merged reply carries
+// `lanes` — a deduped union of every rung's fields — so the lanes the picker
+// chose are on the wire. `tweak: true` marks a PUBLISHED TWEAK, and its
+// ABSENCE proves nothing on its own: it reads the same for a `withheld`
+// refusal, a lane that never reached the page rung, an escalate and a
+// failure. Print all of it and let the reader judge.
+const rb = done && done.json ? done.json : null;
+writeFileSync(`${EVID}/routing.json`, JSON.stringify({ status: rt.status, ms: rt.ms, body: rd }, null, 2));
+writeFileSync(`${EVID}/terminal.json`, JSON.stringify({ status: done ? done.status : 0, body: rb, text: done ? done.text : "" }, null, 2));
+
+console.log("\nEXECUTION PATH");
+console.log(`  router      intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}`);
+console.log(`  lanes       ${Array.isArray(rb && rb.lanes) ? rb.lanes.join(", ") : "(none on the reply)"}`);
+console.log(`  layer       ${(rb && rb.layer) || "-"}`);
+console.log(`  tweak       ${rb && rb.tweak === true ? "true (a published tweak)" : "absent — NOT proof a rewrite ran"}`);
+console.log(`  cost        ${rb ? rb.cost : "?"}`);
+console.log(`  photosKept  ${rb && rb.photosKept != null ? rb.photosKept : "absent (nothing needed restoring — the ordinary outcome)"}`);
+console.log(`  photosRemoved ${rb && rb.photosRemoved != null ? rb.photosRemoved : "absent"}`);
+if (rb && rb.error) console.log(`  error       ${rb.error}  ${rb.msg || ""}`);
+if (rb && Array.isArray(rb.partial) && rb.partial.length) console.log(`  partial     ${JSON.stringify(rb.partial)}`);
+
+// THE CUSTOMER'S OWN SCREEN, composed by the browser's real selection.
+const said = editBrowserReply(rb, done ? done.status >= 200 && done.status < 300 : false);
+console.log("\nWHAT THE CUSTOMER READS");
+console.log(said.ok ? "  " + said.text : `  (could not compose: ${said.why})`);
+writeFileSync(`${EVID}/customer-reply.txt`, said.ok ? said.text : `could not compose: ${said.why}`);
+
+// ── BEFORE / AFTER EVIDENCE ────────────────────────────────────────────────
+console.log(`\nINVENTORY — after (written to ${EVID}/after)\n`);
+const AFTER = await inventory("after");
+const cmp = { slug: CANARY, routes: {}, parts: {} };
+for (const r of Object.keys(BEFORE.render)) {
+  const b = BEFORE.render[r], a = AFTER.render[r] || { photos: [], headings: [], words: 0 };
+  const lostPix = b.photos.filter((u) => !a.photos.includes(u));
+  const newPix = a.photos.filter((u) => !b.photos.includes(u));
+  const moved = JSON.stringify(b.headings) !== JSON.stringify(a.headings);
+  cmp.routes[r] = { photosBefore: b.photos.length, photosAfter: a.photos.length, lost: lostPix, gained: newPix,
+                    headingsBefore: b.headings, headingsAfter: a.headings, orderChanged: moved,
+                    wordsBefore: b.words, wordsAfter: a.words };
+  console.log(`  ${r.padEnd(14)} photos ${b.photos.length}->${a.photos.length}${lostPix.length ? "  LOST " + lostPix.length : ""}  order ${moved ? "CHANGED" : "same"}`);
+  if (moved) { console.log(`      before: ${b.headings.join(" | ")}`); console.log(`      after : ${a.headings.join(" | ")}`); }
+}
+const partsBefore = BEFORE.parts.map((p) => p.path).sort();
+const partsAfter = AFTER.parts.map((p) => p.path).sort();
+cmp.parts = { before: partsBefore, after: partsAfter, preserved: JSON.stringify(partsBefore) === JSON.stringify(partsAfter) };
+console.log(`  components  ${partsBefore.length} -> ${partsAfter.length}  ${cmp.parts.preserved ? "preserved" : "CHANGED"}`);
+writeFileSync(`${EVID}/compare.json`, JSON.stringify(cmp, null, 2));
+
+// THE PRESERVATION VERDICT, stated as its own line so a published edit that
+// lost a photograph cannot read as a pass on the strength of `ok: true`.
+const anyLost = Object.values(cmp.routes).some((v) => v.lost.length > 0);
+check("no route lost an on-page photograph", !anyLost,
+  anyLost ? Object.entries(cmp.routes).filter(([, v]) => v.lost.length).map(([r, v]) => `${r}:${v.lost.length}`).join(" ") : "none lost");
+check("the stored components are preserved", cmp.parts.preserved, `${partsBefore.length} -> ${partsAfter.length}`);
+if (!partsBefore.length) {
+  console.log("  NOTE  this fixture has no stored component, so the components half of the");
+  console.log("        preservation guard is OUTSTANDING after this run — not disproved, untested.");
+}
 
 // ── A TERMINAL ANSWER IS NOT A PASS ────────────────────────────────────────
 //

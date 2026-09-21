@@ -987,6 +987,46 @@ it can be a refusal rather than a warning printed over a run already under way.
   guard, since a constant handed over and one not handed over look identical
   from outside.
 
+**THE EDIT CANARY TAKES A SITE AND AN INSTRUCTION, AND WRITES ITS OWN
+EVIDENCE (2026-09-21).** `edit-canary.yml` grew `site`, `control`,
+`expect_deploy` and `expect_image` beside the `spend`/`instruction` pair it
+already had, so one live edit test runs end to end through Actions with no
+browser console and nothing collected by hand. **The record is an uploaded
+artifact** (`CANARY_EVIDENCE_DIR`, `if: always()` so a refusal's before-state
+survives too): `source.json` with every page and component BODY, `inventory.json`
+(per route: on-page photographs with the og:image share card stripped, headings
+in document order, a word multiset), the raw HTML per route, then `routing.json`,
+`terminal.json`, `customer-reply.txt` and `compare.json`. **The inventory runs
+on EVERY run, paid or not**, so one free dispatch produces the whole
+before-record.
+
+- **THE PREFLIGHT DEMANDS BOTH ELIGIBILITIES, not just the identifiers.**
+  `async` false means the edit runs in the Worker's isolate bounded by the
+  caller's connection; `runner` false means the job never reached the site's
+  own container. Either one makes a green result a statement about a different
+  path. Plus both deploy readers agreeing, and `shaMatches` **floored at 7 on
+  BOTH sides** so a short expectation cannot pass by being short.
+- **⚠ THE CONTROL CHECK WENT STALE FOR SEVENTEEN DAYS AND NOTHING ASSERTED
+  IT.** *"A non-canary still receives the SYNCHRONOUS shape"* was written
+  2026-09-01 and was true while `EDIT_ASYNC_CANARY` named one slug;
+  `EDIT_ASYNC_EVERYONE` opened the door on 2026-09-04 (`dacc9b51`) and the file
+  was never touched again. **A rule true because of a layer below it expires
+  when that layer moves** — and the cost here is specific: **a failed free
+  check REFUSES TO SPEND**, so a stale control blocks every paid dispatch for a
+  reason that has nothing to do with the code under test. The expectation is
+  DERIVED from `/api/site/runtime` now, which is the property that cannot go
+  stale whichever way the flags are set.
+- **AN UNREADABLE CONTROL IS OUTSTANDING COVERAGE, NEVER A REFUSAL.** That
+  route is owner-scoped, so a control the building account does not own answers
+  the 404 a missing site gets — a fact about a DIFFERENT site. Cannot-tell
+  refuses in the preflight's own demands and must not refuse here.
+- **THE GUARD IS WHAT WAS MISSING, and it is the reusable part**: the harness
+  had six cases and not one of them read the control, which is exactly why the
+  constant could rot in plain sight. Four cases now, all four red-checked
+  against a backup (never `git checkout`, which restores to HEAD and eats the
+  uncommitted work — the 2026-09-16 trap): **five mutants killed, a
+  comment-only control survived.**
+
 **AND A SESSION CANNOT PRESS THE BUTTON.** Every paid harness is
 `workflow_dispatch` only; a dispatch needs GitHub's **`actions: write`**, and
 the session's App does not have it — the MCP tool and a direct REST POST both
@@ -3435,6 +3475,14 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
+- **Unit suite: 7,052 LOCALLY, and the CI half of this reading is UNREAD** —
+  `# tests 7052 / # pass 7052 / # fail 0 / # skipped 0`, taken 2026-09-21 after
+  the edit-canary work. The four are this round's own, all in
+  `test/edit-canary.test.mjs`: the sha floor, the two preflight eligibilities,
+  the derived control expectation and the unreadable-control arm — **stated as
+  the difference between two measured readings**, 7,048 → 7,052. **Say which
+  half is taken**: a local number beside an unread CI run is one reading, not
+  two, and the pair below is what two halves looks like.
 - **Unit suite: 7,048, BOTH HALVES TAKEN** (2026-09-21) — locally, and CI run
   **`35554760170` on `38d934a2`** at **`# tests 7048 / # pass 7044 / # fail 0
   / # skipped 4`**. The eight are this round's own: five tweak-rung cases, the
