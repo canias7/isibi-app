@@ -1378,6 +1378,75 @@ actions: 1
   edit published", ...)` fails on an escalate by design, because a terminal
   answer is not a pass.
 
+**RUN 13 (2026-09-21) IS THE FREE PRESS THAT CONFIRMED WHICH CODE ANSWERS, AND
+IT IS THE ONLY RUNTIME READING OF THE MERGE.** `build-health 200 deploy=3b555acf09de
+image=6b14851c0cd0c1c1`, `runtime 200 async=true runner=true`, both deploy
+readers agreeing, balance **77**. Deploy 2142 had rolled the image
+`82bccb3bee50e4fd` → `6b14851c0cd0c1c1`, confirmed on two channels (the log's
+own `- "image"`/`+ "image"` pair and an input count of 184). **The deploy said
+what Wrangler sent; run 13 is the live Worker answering**, and this file's
+standing rule is that those are two claims.
+
+**RUN 14 (2026-09-21) WAS THE ONE PAID RETRY OF THE COMPONENT-EDIT TEST AND IT
+DID NOT COMPLETE. THE RECORD IS A STALL, NOT A CAPABILITY FINDING.**
+`fretwork-1`, *"The 'Space on a preferred day' box counts bookings. Make it
+count down the places left instead — six lesson slots a day, so an empty day
+reads six places left."* POST **202 in 0.9 s**, then `claimed` 4→108 s,
+**`routing` 121→563 s**, `? / verify` 576→836 s, and **settled after 845.2 s
+with NO TERMINAL ANSWER**. Balance **77 → 75, moved 2** — the routing call
+alone; the edit was never billed. Nothing published.
+
+- **IT ROUTED `look`, NOT `rules` AND NOT `page`** — `intent=edit layer=look
+  page=- cost=2` in 24.3 s. So the distinction the corrections were pressed to
+  test (backend recovery against completing the display change) **did not
+  arise**, and one wording on one run is all that says. The router stayed under
+  test; no layer was forced.
+- **NONE OF THE THREE CORRECTIONS WAS EXERCISED.** The job stalled before any
+  terminal answer, so the ownership gate, the catalog-aware schema read and the
+  scoped cost sentence were never reached. **This run neither confirms nor
+  contradicts them** — it is outstanding coverage, not evidence.
+- **⚠ AND THE RECORDED "THE BROWSER WOULD START THE FULL ~25-CREDIT REWRITE" IS
+  A HARNESS ARTIFACT, NOT A CLAIM ABOUT A CUSTOMER'S SCREEN.**
+  `scripts/edit-canary.mjs:457` is `const rb = done && done.json ? done.json :
+  null;` — with no terminal answer the browser reader is handed **`null`**, and
+  `editAnswer`'s very first branch (`public/chat.js:9058`) is `if (!e) { … return
+  o.fallback() }`, whose own comment says *a body we cannot read is not a
+  refusal*. **A real browser polling a job that is still running shows
+  `running`; it never receives `null`.** The composer is correct, the harness's
+  own watch gave up, and from outside *"the page would fall through"* and *"we
+  stopped looking"* are the same absence. This file's recorded shape — **read
+  what the instrument DID, not what the product would do** — met on the
+  instrument built to read the product.
+- **THE LATE-PUBLISH RE-CHECK IS NEGATIVE AND IT IS THE STRONG READING.** At
+  **20:40:27Z**, 11.4 hours after the POST and long past `CONTAINER_EDIT_JOB_MS`
+  (50 min), the live site serves **`x-site-version: 01789972018761-6tng48`** —
+  minted **06:26:58.761Z**, inside run 11's window (06:21:38 → 06:30:36Z).
+  **The pointer has not moved since run 11.** `mintVersion` runs BEFORE the
+  compile, so a late publish would carry a version minted around 09:16Z; there
+  is none. Reconciled against a curl capture from 2026-09-20: **58,670 b / 2
+  `testimonial-grid` → 54,453 b / 1**, which is run 11's change and nothing
+  else, with the component's sentence byte-identical on both sides (*"Pick a
+  day to see how many bookings already sit on it…"*) and **zero occurrences of
+  `places left`, `lesson slots` or `slots left` on either.**
+  **⚠ THE 72,649-BYTE FIGURE IN RUN 11'S ENTRY IS A BROWSER POST-HYDRATION DOM
+  READING AND IS NOT COMPARABLE TO A CURL** — two instruments, two numbers; the
+  curl-to-curl pair above is the one that reconciles.
+- **THE ARITHMETIC WAS CHECKED SIMULATED AND IS UNCHANGED**: controlled RPC
+  responses (no rows created) give 0 → *"No bookings on this day yet — it still
+  has space."*, 2 → `2 bookings already on this day.`, 6 → `6 bookings already
+  on this day.` **Still counting UP**; the requested 6/4/0 inversion has not
+  happened.
+- **THE COMPONENT ITSELF STILL WORKS, WHICH IS THE BEFORE BEHAVIOUR AND NOT A
+  PASS**: NAV 200, `POST /api/db/fretwork-1/data/rpc/bookings_on_day` → **200,
+  body `0`**, 0 console errors, 0 failed requests — an empty day verified by the
+  RPC's own answer.
+- **WHY THE JOB STALLED IS UNKNOWN AND STAYS UNKNOWN.** 442 s in `routing` and
+  260 in `? / verify`, past run 11's comparable 8m58s end to end and still not
+  terminal at 845 s. Whether it later completed, was swept lost, or is still
+  held needs an owner-scoped poll of `/api/site/edit/<job>`, which a session
+  cannot read. **One run is not a diagnosis** — recorded as an open question,
+  not attributed.
+
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the
 writer leaves components alone, which is a different claim from the writer
@@ -3977,8 +4046,10 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 77** at run 12's end (2026-09-21, read by the canary at both
-ends: 79 → 77, moved 2 — the routing call alone, on a message that escalated
+build. **Balance 75** at run 14's end (2026-09-21, read by the canary at both
+ends: 77 → 75, moved 2 — the routing call alone, on a message that never
+reached a terminal answer; see run 14 below). Run 12 ended at 77 (79 → 77,
+moved 2 — again the routing call alone, on a message that escalated
 `no-backend` and published nothing). Run 11 ended at 79 (101 → 79, moved 22)
 and run 9 at 101 (105 → 101, moved 4). It was 119 at run 52's end on
 2026-09-20 and **14 went somewhere this session did not spend** — run 9's free

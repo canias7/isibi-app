@@ -155,6 +155,64 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The paid retry never finished, and the scary line in its report was my own instrument
+
+**The short version: it cost 2 credits, nothing published, and the one alarming
+thing in the output turned out to be the harness rather than the product.**
+
+**Before it, the free press (run 13) did confirm the merge is live.** The
+Worker answers `deploy=3b555acf09de` and the container's cold start answers
+image `6b14851c0cd0c1c1` — both readers agreeing, queued work on, the runner
+on. That is the live code answering, not the deploy reporting on itself.
+
+**Then the paid attempt (run 14) stalled.** `fretwork-1`, your exact wording
+about counting down the places left. It accepted the job in under a second,
+then sat in `routing` for **seven and a half minutes**, went to verify, and
+**never produced an answer at all** before the watch ran out at 14 minutes.
+Balance **77 → 75** — that is the routing call on its own. The edit was never
+billed, because there was nothing to bill for.
+
+**It picked `look`, not the database rung and not the page rung.** So the thing
+the three corrections were pressed to test — telling *"recovered your database
+reference"* apart from *"made the change you asked for"* — **never came up**.
+I am not going to dress that up as a partial pass: **none of the three
+corrections was exercised by this run.** They are still only proven by the
+fifteen focused tests, not by a live press.
+
+**The line that looked like a real bug, and why it is not.** The report said
+the browser would start the full ~25-credit rewrite. I went and read the
+harness rather than believing it: when there is no final answer, it hands the
+browser's own composer **nothing** (`scripts/edit-canary.mjs`, line 457), and
+the composer's very first rule is *"a body I cannot read is not a refusal"* —
+so it falls through. **A real browser watching a job that is still running just
+shows "running"; it is never handed nothing.** So that was my instrument
+reporting its own timeout as the product's behaviour. Written down rather than
+quietly dropped, because it is the same shape as the reader that answered zero
+a few days ago: *a blank from a blind instrument reads exactly like a finding.*
+
+**I checked again eleven hours later, free, in case it published late. It did
+not.** The strongest evidence is not the wording — it is the version stamp the
+site serves: **`01789972018761`, minted at 06:26:58Z**, which is inside run
+11's window this morning. The version is minted *before* the compile, so a late
+publish would carry a new one from around 09:16Z. There is none. Comparing
+yesterday's capture with today's, the only change to that page is **run 11's**
+(the nine quotes down to three) and nothing since.
+
+**So the box still counts up.** With controlled answers — no rows created on
+your site — it reads 0 → *"No bookings on this day yet"*, 2 → *"2 bookings
+already on this day"*, 6 → *"6 bookings already on this day"*. The 6 / 4 / 0
+you asked for has not happened. The component itself is fine: it loads, its
+database call answers 200, no errors.
+
+**What I do not know: why it stalled.** Seven and a half minutes in routing is
+well past anything I have measured on this path. Whether it finished later, was
+swept up as lost, or is still sitting there needs a read of the job record that
+only your account can make. **One run is not a diagnosis** and I have not
+guessed at one.
+
+**Nothing was retried, nothing escalated, no product code changed.** One paid
+attempt, as you set it.
+
 ## 2026-09-21 — Three fixes for what that run exposed, and the third one was hiding under the second
 
 **Everything that went wrong was the same mistake three times**: two different
