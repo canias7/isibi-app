@@ -1551,9 +1551,25 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
 
 **THE PLACES-LEFT RETRY IS PREPARED AND NOT DISPATCHED.** `edit-canary.yml`,
 `spend: yes`, `site: fretwork-1`, `control: washhouse-3`, `read_job` EMPTY, and
-the instruction *"On the home page, show how many places are left for each
-lesson slot rather than how many are already booked."* — the ask run 14 was
-pressed for and never sent.
+the instruction **verbatim**:
+
+> The "Space on a preferred day" box counts bookings. Make it count down the
+> places left instead — six lesson slots a day, so an empty day reads six
+> places left.
+
+— the ask run 14 was pressed for and never sent.
+
+- **⚠ AND A PARAPHRASE OF IT WAS PREPARED HERE FIRST (owner, 2026-09-21).**
+  The draft read *"show how many places are left for each lesson slot rather
+  than how many are already booked"*, which **is a different request**: it
+  loses the DAILY CAPACITY (six slots a day, so an empty day reads six) and
+  re-points the count at *each slot* rather than the day. It also drops the
+  control's own name, *"Space on a preferred day"*, which is the only thing
+  tying the ask to a thing on the page. **A retry that re-words the request is
+  a retry of a different request** — precisely run 14's own defect, arrived at
+  by a second route: there a blank field was filled by a default, here a
+  remembered sentence stood in for the one that was given. **The instruction
+  is quoted, never restated.**
 
 - **`expect_deploy=3b555acf09de5e078ef6e7930ea041a32824bbba` and
   `expect_image=6b14851c0cd0c1c1`, VALID AS OF NOW.** `origin/main` is unmoved
@@ -4339,6 +4355,16 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
+- **Unit suite: 7,116 LOCALLY, and the CI half of THAT reading is UNREAD at the
+  moment of writing** (2026-09-21, the unreadable-ledger correction) —
+  `# tests 7116 / # pass 7116 / # fail 0 / # skipped 0`, `duration_ms 113,677`.
+  **The +6 is the difference between two measured readings**, 7,110 → 7,116:
+  `test/canary-read-job.test.mjs` goes 20 → 26 cases, the six being the
+  unreadable-read loop (three shapes), the missing-read argument, the
+  non-list-200, the PRINTED ACCOUNT under a failed read, the
+  successful-empty CONTROL, and the no-rows-listed-under-a-refusal case.
+  **Say which half is taken**: a local number beside an unread CI run is ONE
+  reading, and the stamp is completed below once the run is read.
 - **Unit suite: 7,110, BOTH HALVES TAKEN** (2026-09-21, the read-only job
   lookup) — locally `# tests 7110 / # pass 7110 / # fail 0 / # skipped 0`,
   `duration_ms 112,947`, and CI run **`35659172717` on `f662d68d`** at

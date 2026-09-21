@@ -45,10 +45,38 @@ export function billingMeans(billing) {
  * `delta` and `balance_after`. Summing the deltas for a job's refs answers
  * what a before/after balance reading structurally cannot: **whether the net
  * zero was no charge at all, or a charge and its reversal.**
+ *
+ * ── AND THE READ'S OWN STATE IS AN ARGUMENT, NOT A NOTE ────────────────────
+ *
+ * ⚠ THIS ANSWERED *"nothing was debited under it"* ON A 503 (owner,
+ * 2026-09-21). A failed read handed back `[]`, the emptiness was read as a
+ * FACT ABOUT THE ACCOUNT, and the refusal survived only as a note printed
+ * underneath — so the one line anybody reads said the opposite of the truth,
+ * on the instrument built for exactly this distinction. **This file's own
+ * recorded trap** (*cannot-tell must never read as a value*), committed in
+ * the round that quotes it.
+ *
+ * So `read` is REQUIRED to license any claim: `{ok: true}` for a read that
+ * really answered, anything else — a status, a malformed body, nothing passed
+ * at all — is `unknown`, where `charged` and `refunded` are **`null` rather
+ * than `false`**. An absent argument is unknown too, because a caller that
+ * forgot to pass one is exactly a caller that cannot vouch for the rows.
  */
-export function ledgerVerdict(rows) {
+export function ledgerVerdict(rows, read) {
+  const ok = !!(read && read.ok === true);
   const list = Array.isArray(rows) ? rows : [];
-  if (!list.length) return { rows: 0, debits: 0, refunds: 0, net: 0, charged: false, refunded: false, says: "no ledger rows name this job — nothing was debited under it" };
+  if (!ok) {
+    const why = read && read.status ? ` (${read.status})` : read && read.why ? ` (${read.why})` : "";
+    return {
+      rows: list.length, debits: null, refunds: null, net: null,
+      charged: null, refunded: null, readable: false,
+      // NEVER A NUMBER HERE. A partial list is not a smaller ledger, and a
+      // sum over one would be a figure with no standing that reads exactly
+      // like a measured one.
+      says: `BILLING UNKNOWN — the ledger could not be read${why}, so whether this job was charged is not established either way`,
+    };
+  }
+  if (!list.length) return { rows: 0, debits: 0, refunds: 0, net: 0, charged: false, refunded: false, readable: true, says: "the ledger READ CLEAN and names no row for this job — nothing was debited under it" };
   let debits = 0, refunds = 0;
   for (const r of list) {
     const d = Number(r && r.delta);
@@ -98,7 +126,11 @@ export function oldWatchWouldHaveSeen(row) {
  * drivable and what makes the read-only bound structural.
  */
 export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 1000 }) {
-  const out = { job, row: null, poll: null, traces: [], ledger: [], notes: [] };
+  // `ledgerRead` TRAVELS WITH `ledger` AND IS NEVER OPTIONAL. It opens as a
+  // REFUSAL, so a path that returns early — a missing job row, a throw — hands
+  // back an unknown rather than an empty ledger that reads as "nothing was
+  // charged". The one state that licenses a money claim has to be EARNED.
+  const out = { job, row: null, poll: null, traces: [], ledger: [], ledgerRead: { ok: false, why: "not read" }, notes: [] };
 
   const jr = await sb(`edit_jobs?id=eq.${encodeURIComponent(job)}&select=*`);
   if (!jr || jr.status !== 200) { out.notes.push(`edit_jobs read failed (${jr && jr.status})`); return out; }
@@ -117,9 +149,19 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
   // the worst answer this instrument could give: **a refund with no debit
   // beside it**, which reads as credits appearing from nowhere. A PREFIX match
   // has the mirror problem on the build path. The `like` finds all three.
+  //
+  // AND A 200 WITH A BODY THAT IS NOT A LIST IS NOT A READ EITHER. PostgREST
+  // answers an error as an OBJECT, and `sb` normalises a non-array to `[]` —
+  // so `status === 200` alone would let a malformed answer through wearing the
+  // one shape that means "no rows".
   const lr = await sb(`credit_events?ref=like.*${encodeURIComponent(job)}*&select=*&order=at.asc`);
-  if (lr && lr.status === 200) out.ledger = lr.rows || [];
-  else out.notes.push(`credit_events read failed (${lr && lr.status})`);
+  if (lr && lr.status === 200 && Array.isArray(lr.rows)) {
+    out.ledger = lr.rows;
+    out.ledgerRead = { ok: true, status: 200 };
+  } else {
+    out.ledgerRead = { ok: false, status: (lr && lr.status) || 0, why: lr && lr.status === 200 ? "not a list" : "status" };
+    out.notes.push(`credit_events read failed (${lr && lr.status}) — the ledger is UNKNOWN, not empty`);
+  }
 
   // THE TRACE IS KEYED BY `cid`, NOT BY JOB ID — so it is found by the site and
   // the job's own time window, and that is a JOIN THIS SCHEMA CANNOT MAKE
@@ -164,6 +206,12 @@ export function describeJob(rec) {
   L.push(`  updated     ${r.updated_at}`);
   L.push(`  publish     started ${r.publish_started_at || "-"}   published ${r.published_at || "-"}`);
   L.push(`  lease       owner ${r.lease_owner || "-"}  expires ${r.lease_expires_at || "-"}  beat ${r.heartbeat_at || "-"}`);
+  // THE ROW'S OWN `billing` FIELD AND THE LEDGER ARE TWO SEPARATE READINGS,
+  // and they are printed as two lines that never borrow from each other. The
+  // field is the job's own record of what it did; the ledger is the money that
+  // moved. When both are readable they should agree, and **a disagreement is a
+  // finding** — which is only visible if neither line is derived from the
+  // other.
   const bill = billingMeans(r.billing);
   L.push(`  billing     ${r.billing}  cost ${r.cost}  ->  ${bill.says}`);
   if (r.error) L.push(`  error       ${JSON.stringify(r.error)}`);
@@ -172,9 +220,13 @@ export function describeJob(rec) {
   if (res && typeof res.body === "string") L.push(`  body        ${res.body.slice(0, 700)}`);
   const seen = oldWatchWouldHaveSeen(r);
   L.push(`  old watch   ${seen.says}`);
-  const led = ledgerVerdict(rec.ledger);
+  const led = ledgerVerdict(rec.ledger, rec.ledgerRead);
   L.push(`  LEDGER      ${led.says}`);
-  for (const e of rec.ledger) L.push(`    ${e.at}  ${e.kind}  ${e.reason}  delta ${e.delta}  after ${e.balance_after}  ref ${e.ref}`);
+  // ROWS ARE PRINTED ONLY UNDER A READ THAT ANSWERED. Under a refusal there
+  // may still be rows in hand — a partial body, a retry's leftovers — and
+  // listing them beneath an "unknown" invites exactly the arithmetic the line
+  // above refuses to do.
+  if (led.readable) for (const e of rec.ledger) L.push(`    ${e.at}  ${e.kind}  ${e.reason}  delta ${e.delta}  after ${e.balance_after}  ref ${e.ref}`);
   if (rec.poll) L.push(`  poll        HTTP ${rec.poll.status}  x-gf-edit: ${rec.poll.final || "(absent)"}`);
   for (const t of rec.traces) {
     L.push(`  trace ${t.cid}  ended ${t.ended_at}  ms ${t.ms}  ok ${t.ok}  failed_phase ${t.failed_phase || "-"}${t.err_name ? "  " + t.err_name : ""}`);

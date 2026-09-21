@@ -77,6 +77,11 @@ test("a refunded job is not an uncharged one, and the sentence says so", () => {
 });
 
 // ── THE LEDGER: WHAT A NET BALANCE READING STRUCTURALLY CANNOT SAY ────────
+//
+// `OK` IS THE READ THAT ANSWERED. Every case below that wants a number has to
+// say so, because a verdict without one is UNKNOWN by construction — see the
+// unreadable cases at the end of this block.
+const OK = { ok: true, status: 200 };
 
 test("a charge and its reversal are not the same as no charge", () => {
   // THE EXACT SHAPE RUN 14'S CLAIM CANNOT RULE OUT: a debit and a matching
@@ -85,7 +90,7 @@ test("a charge and its reversal are not the same as no charge", () => {
   const v = ledgerVerdict([
     { delta: -20, reason: "edit", ref: "edit:JOB:pages", balance_after: 57 },
     { delta: 20, reason: "reverse", ref: "edit:JOB:pages", balance_after: 77 },
-  ]);
+  ], OK);
   assert.equal(v.charged, true);
   assert.equal(v.refunded, true);
   assert.equal(v.debits, 20);
@@ -95,20 +100,17 @@ test("a charge and its reversal are not the same as no charge", () => {
   assert.match(v.says, /not the same as never charged/);
 });
 
-test("no ledger rows is the one reading that licenses 'nothing was debited'", () => {
-  const v = ledgerVerdict([]);
+test("no ledger rows licenses 'nothing was debited' ONLY under a read that answered", () => {
+  const v = ledgerVerdict([], OK);
   assert.equal(v.rows, 0);
   assert.equal(v.charged, false);
+  assert.equal(v.readable, true);
+  assert.match(v.says, /READ CLEAN/);
   assert.match(v.says, /nothing was debited/);
-  // AND A NON-ARRAY IS THE SAME ABSENCE, never a throw: the caller hands over
-  // whatever the read answered, and a failed read must not take the account
-  // down with it.
-  assert.equal(ledgerVerdict(null).rows, 0);
-  assert.equal(ledgerVerdict(undefined).rows, 0);
 });
 
 test("a debit with no refund reads as charged and stays charged", () => {
-  const v = ledgerVerdict([{ delta: -2, reason: "route", ref: "edit:JOB:route", balance_after: 75 }]);
+  const v = ledgerVerdict([{ delta: -2, reason: "route", ref: "edit:JOB:route", balance_after: 75 }], OK);
   assert.equal(v.charged, true);
   assert.equal(v.refunded, false);
   assert.equal(v.debits, 2);
@@ -125,10 +127,41 @@ test("an unreadable delta is skipped rather than coerced", () => {
     { delta: -5, ref: "a" },
     { delta: "not a number", ref: "b" },
     { delta: null, ref: "c" },
-  ]);
+  ], OK);
   assert.equal(v.debits, 5);
   assert.equal(v.refunds, 0);
   assert.equal(v.rows, 3);
+});
+
+test("AN UNREADABLE LEDGER IS BILLING UNKNOWN, never 'nothing was charged'", () => {
+  // ⚠ THE DEFECT, REPRODUCED: a 503 handed back `[]` and the emptiness was
+  // read as a fact about the account. `charged` is NULL rather than false —
+  // cannot-tell must never read as a value — and no arithmetic is offered,
+  // because a figure beside an "unknown" reads exactly like a measured one.
+  for (const read of [{ ok: false, status: 503 }, { ok: false, status: 0 }, { ok: false, status: 200, why: "not a list" }]) {
+    const v = ledgerVerdict([], read);
+    assert.equal(v.charged, null, `charged for ${JSON.stringify(read)}`);
+    assert.equal(v.refunded, null);
+    assert.equal(v.debits, null);
+    assert.equal(v.readable, false);
+    assert.match(v.says, /BILLING UNKNOWN/);
+    assert.match(v.says, /not established either way/);
+    assert.doesNotMatch(v.says, /nothing was debited/);
+  }
+});
+
+test("a MISSING read argument is unknown too, and rows in hand do not rescue it", () => {
+  // A caller that forgot to say whether the read answered is exactly a caller
+  // that cannot vouch for the rows — so the absent argument fails CLOSED, and
+  // it stays closed even with plausible-looking rows in hand.
+  for (const v of [ledgerVerdict([]), ledgerVerdict(null), ledgerVerdict(undefined)]) {
+    assert.equal(v.charged, null);
+    assert.match(v.says, /BILLING UNKNOWN/);
+  }
+  const partial = ledgerVerdict([{ delta: -20, ref: "JOB#1" }], { ok: false, status: 503 });
+  assert.equal(partial.charged, null, "a partial list under a refusal is not a smaller ledger");
+  assert.equal(partial.debits, null);
+  assert.match(partial.says, /BILLING UNKNOWN/);
 });
 
 // ── WHAT THE OLD WATCH WOULD HAVE DONE ────────────────────────────────────
@@ -241,7 +274,70 @@ test("a failed ledger read is NAMED, never folded into 'no rows'", async () => {
   const s = store({ fail: "credit_events" });
   const rec = await readJobRecords({ job: "JOBID", sb: s.sb });
   assert.deepEqual(rec.ledger, []);
+  assert.equal(rec.ledgerRead.ok, false, "the read's own state travels with the rows");
   assert.ok(rec.notes.some((n) => /credit_events read failed/.test(n)));
+});
+
+test("A 200 CARRYING A NON-LIST IS NOT A READ EITHER", async () => {
+  // PostgREST answers an error as an OBJECT and `sb` normalises a non-array to
+  // `[]`, so `status === 200` alone lets a malformed answer through wearing
+  // the one shape that means "no rows".
+  const sb = async (p) => p.startsWith("edit_jobs") ? { status: 200, rows: [ROW] }
+    : p.startsWith("credit_events") ? { status: 200, rows: { message: "permission denied" } }
+      : { status: 200, rows: [] };
+  const rec = await readJobRecords({ job: "JOBID", sb });
+  assert.equal(rec.ledgerRead.ok, false);
+  assert.equal(rec.ledgerRead.why, "not a list");
+  assert.match(describeJob(rec), /BILLING UNKNOWN/);
+});
+
+// ── THE PRINTED ACCOUNT IS WHAT ANYBODY READS, SO IT IS WHAT IS ASSERTED ──
+//
+// ⚠ THE DEFECT WAS ONLY EVER VISIBLE HERE. `ledgerVerdict` and the note were
+// each defensible on their own; what shipped was the ACCOUNT printing
+// *"nothing was debited under it"* with the failed-read note underneath it,
+// and no unit case looked at the finished text.
+
+test("the printed account says BILLING UNKNOWN when the ledger could not be read", async () => {
+  const rec = await readJobRecords({ job: "JOBID", sb: store({ fail: "credit_events" }).sb });
+  const out = describeJob(rec);
+  const ledgerLine = out.split("\n").find((l) => l.includes("LEDGER"));
+  assert.ok(ledgerLine, "the account has no LEDGER line at all");
+  assert.match(ledgerLine, /BILLING UNKNOWN/);
+  // THE WHOLE ACCOUNT, not only that line: the sentence must not appear
+  // anywhere, because the defect was one line claiming what another denied.
+  assert.doesNotMatch(out, /nothing was debited under it/);
+  assert.match(out, /credit_events read failed/);
+  // AND THE ROW'S OWN `billing` FIELD IS UNTOUCHED BY THE LEDGER'S FAILURE —
+  // two readings, two lines, neither derived from the other.
+  assert.match(out, /billing {5}refunded {2}cost 20/);
+  assert.match(out, /the edit WAS charged and the charge was reversed/);
+});
+
+test("the CONTROL: a successful empty read still says nothing was debited", async () => {
+  // Without this the fix above is satisfied by a reader that calls every
+  // ledger unknown — which would be the same defect pointing the other way,
+  // and just as useless.
+  const rec = await readJobRecords({ job: "JOBID", sb: store({ ledger: [] }).sb });
+  assert.equal(rec.ledgerRead.ok, true);
+  const out = describeJob(rec);
+  const ledgerLine = out.split("\n").find((l) => l.includes("LEDGER"));
+  assert.match(ledgerLine, /READ CLEAN/);
+  assert.match(ledgerLine, /nothing was debited under it/);
+  assert.doesNotMatch(out, /BILLING UNKNOWN/);
+  assert.doesNotMatch(out, /credit_events read failed/);
+});
+
+test("no ledger ROWS are listed under a refusal", async () => {
+  // A partial body's rows beneath an "unknown" invite exactly the arithmetic
+  // the line above refuses to do.
+  const sb = async (p) => p.startsWith("edit_jobs") ? { status: 200, rows: [ROW] }
+    : p.startsWith("credit_events") ? { status: 503, rows: [{ at: "t", kind: "debit", reason: "edit", delta: -20, balance_after: 57, ref: "JOBID#1" }] }
+      : { status: 200, rows: [] };
+  const rec = await readJobRecords({ job: "JOBID", sb });
+  const out = describeJob(rec);
+  assert.match(out, /BILLING UNKNOWN/);
+  assert.doesNotMatch(out, /delta -20/, "a row printed under a refusal reads as evidence");
 });
 
 test("the poll is optional and its final header is read case-insensitively", async () => {

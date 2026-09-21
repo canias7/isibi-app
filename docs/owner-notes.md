@@ -320,6 +320,40 @@ nothing either way.
 
 20 new tests, 5 mutants killed, comment-only control survived. Suite **7,110**.
 
+### ⚠ And the lookup itself had the very defect it was built to catch
+
+You reproduced it: a **503** from the ledger still printed
+
+> LEDGER  no ledger rows name this job — nothing was debited under it
+
+with the failed-read note underneath. The failed read handed back an empty
+list, and the emptiness got read as a fact about your account — on the one
+instrument whose entire job is telling "nothing was charged" apart from "we
+could not look". The note was there; the line anybody actually reads said the
+opposite.
+
+**Fixed so the two cannot merge again.** Whether the read answered now travels
+*with* the rows rather than as a note beside them, so:
+
+- a ledger that could not be read prints **`BILLING UNKNOWN — … not
+  established either way`**, with no debit or refund figure at all (a number
+  beside an "unknown" reads exactly like a measured one);
+- a ledger that **read clean and found nothing** says so in those words —
+  that reading still licenses "nothing was debited", and there is a control
+  test for it, because a reader that calls every ledger unknown would be the
+  same defect pointing the other way;
+- a **200 carrying something that is not a list** is also not a read. The
+  database answers an error as an object, and it would otherwise arrive
+  wearing the one shape that means "no rows";
+- rows are printed **only** under a read that answered;
+- and the job row's own `billing` field stays a **separate line** from the
+  ledger evidence — neither derived from the other, so if they ever disagree
+  you can see it.
+
+The tests assert the **finished printed account**, not just the helper — which
+is where the defect lived: both halves were defensible alone, and nothing
+looked at the text they produced together.
+
 ### The places-left retry — prepared, not dispatched
 
 Same workflow, the paid half. Every box filled in, nothing pressed:
@@ -328,12 +362,22 @@ Same workflow, the paid half. Every box filled in, nothing pressed:
 |---|---|
 | **Use workflow from** | **`claude/help-needed-ehlwlj`** |
 | `spend` | `yes` |
-| `instruction` | `On the home page, show how many places are left for each lesson slot rather than how many are already booked.` |
+| `instruction` | `The "Space on a preferred day" box counts bookings. Make it count down the places left instead — six lesson slots a day, so an empty day reads six places left.` |
 | `site` | `fretwork-1` |
 | `control` | `washhouse-3` |
 | `read_job` | **leave empty** — it would turn this into a free lookup |
 | `expect_deploy` | `3b555acf09de5e078ef6e7930ea041a32824bbba` |
 | `expect_image` | `6b14851c0cd0c1c1` |
+
+**⚠ That instruction is yours, verbatim, and I had put a paraphrase of it
+there first.** The draft said *"show how many places are left for each lesson
+slot rather than how many are already booked"* — which asks for a different
+thing: it loses the **six-a-day capacity** (so an empty day reads six), points
+the count at *each slot* instead of the day, and drops the box's own name,
+which is the only thing tying the ask to something on the page. That is run
+14's mistake arriving by a second door — there a blank field got a default,
+here a remembered sentence stood in for the one you gave. Quoted now, not
+restated.
 
 **Those two are valid right now and stop being valid the moment anything
 merges to main.** `main` is still at `3b555acf`, unmoved since run 13 — and run
