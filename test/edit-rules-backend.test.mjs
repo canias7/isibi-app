@@ -38,6 +38,7 @@ import { BACKEND_STATES, backendState } from "../site-backend-state.mjs";
 // plausible sentence for an edit body rather than throwing, so a guard pinned
 // to it passes whatever the edit screen really says.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+import { readFileSync } from "node:fs";
 
 const USER = { id: "u-rulesback-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -108,18 +109,37 @@ function withWire({ backends = [{ uid: USER.id, brief: "", neon_db: "" }], proje
     // which made two cases pass for a reason that had nothing to do with their
     // subject. `rows` are arrays of VALUES and `fields` carries the names.
     if (/neon\.tech|\/sql$/.test(url)) {
-      seen.sql.push(url);
-      // `sql` is a MODE or a function of which call this is, because the
+      // ⚠ THE QUERY IS READ, NOT JUST COUNTED (2026-09-21). The catalog-aware
+      // reader asks TWO different things — `information_schema.columns` and
+      // then `_meta` — and the whole of correction 2 is that they can disagree:
+      // a table that exists with no schema row. A fixture answering every query
+      // the same way cannot express that at all, so it is dispatched on what
+      // was actually asked. The body shape is DERIVED from the driver
+      // (`{"query":…,"params":[]}`), not typed from memory.
+      let asked = "";
+      try { asked = String(JSON.parse(String((init && init.body) || "{}")).query || ""); }
+      catch { asked = String((init && init.body) || ""); }
+      // ⚠ RECORDED WHOLE, SLICED ONLY WHEN PRINTED. The first draft pushed
+      // `asked.slice(0, 80)` and then matched on `information_schema.columns`,
+      // which falls PAST that cut — so four cases reported the catalog as never
+      // asked when it had been asked first. A window sized in bytes, met inside
+      // the guard written for the fix that needed it.
+      seen.sql.push(asked);
+      // `sql` is a MODE, or a FUNCTION of the query text — because the
       // schema-read case needs the probe to SUCCEED and the read after it to
-      // fail — one answer for every query cannot express that pair, and the
-      // pair is the whole discriminator.
-      const mode = typeof sql === "function" ? sql() : sql;
+      // fail, and the catalog cases need the two reads to answer differently.
+      const mode = typeof sql === "function" ? sql(asked, seen.sql.length) : sql;
       if (mode === "down") return new Response("could not connect", { status: 500 });
-      const rows = mode === "empty" ? [] : [[1]];
-      return new Response(JSON.stringify({
-        command: "SELECT", rowCount: rows.length, rows,
-        fields: [{ name: "?column?", dataTypeID: 23, tableID: 0, columnID: 0, dataTypeSize: 4, dataTypeModifier: -1, format: "text" }],
-      }), { status: 200, headers: { "content-type": "application/json" } });
+      // A descriptor answers a shaped result; a bare string keeps the two
+      // original modes working byte for byte.
+      const rows = mode && typeof mode === "object" && Array.isArray(mode.rows)
+        ? mode.rows
+        : mode === "empty" ? [] : [[1]];
+      const fields = mode && typeof mode === "object" && Array.isArray(mode.fields)
+        ? mode.fields.map((n) => ({ name: n, dataTypeID: 25, tableID: 0, columnID: 0, dataTypeSize: -1, dataTypeModifier: -1, format: "text" }))
+        : [{ name: "?column?", dataTypeID: 23, tableID: 0, columnID: 0, dataTypeSize: 4, dataTypeModifier: -1, format: "text" }];
+      return new Response(JSON.stringify({ command: "SELECT", rowCount: rows.length, rows, fields }),
+        { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/v1/messages")) {
       seen.messages++;
@@ -153,6 +173,49 @@ async function rulesEdit(instruction, { store } = {}) {
 
 /** Did the browser's own handling record a second, PAID request? */
 const paidActions = (said) => (said.actions || []).filter((a) => /PAID|rewrite/i.test(a));
+
+/**
+ * WHICH OF THE CATALOG-AWARE READER'S TWO QUESTIONS IS THIS?
+ *
+ * Both are matched on a fragment of the module's OWN query text rather than on
+ * call order, because the order is `readSchemaState`'s to change and a guard
+ * that encodes it would report a refactor as a defect.
+ */
+const asksCatalog = (q) => /information_schema\.columns/i.test(String(q));
+const asksMeta = (q) => /_meta/i.test(String(q)) && /k\s*=\s*'schema'/i.test(String(q));
+
+/**
+ * A DATABASE WHOSE CATALOG AND `_meta` CAN DISAGREE.
+ *
+ * `tables` is what `information_schema.columns` answers — the shape `appTables`
+ * reads, one row per column — and `spec` is what `_meta` holds, with `null`
+ * meaning THE ROW IS ABSENT. That pair is the whole of correction 2: a table
+ * that exists with no schema row is neither "empty" nor "unreadable", and the
+ * rung used to call it empty and buy a paid addon for it.
+ */
+function catalog({ tables = {}, spec = null, catalogDown = false, permsDown = false } = {}) {
+  return (asked) => {
+    if (asksCatalog(asked)) {
+      if (catalogDown) return "down";
+      const rows = [];
+      for (const [t, cols] of Object.entries(tables)) for (const c of cols) rows.push([t, c, "text"]);
+      return { rows, fields: ["t", "c", "ty"] };
+    }
+    if (asksMeta(asked)) return { rows: spec === null ? [] : [[JSON.stringify(spec)]], fields: ["v"] };
+    // THE PERMISSION SURFACE — the three reads `reconcileSpec` needs before it
+    // may rebuild anything. Failing them is the honest way to reach "recovery
+    // is not safe here", because without grants and policies there is nothing
+    // to verify a rebuilt declaration against.
+    if (asksPerms(asked)) return permsDown ? "down" : { rows: [], fields: ["t"] };
+    // Everything else — the `incomplete` probe among them — answers empty
+    // rather than failing, so a case that reaches it reports about the branch
+    // it means to.
+    return { rows: [], fields: ["x"] };
+  };
+}
+
+/** The three reads the recovery needs: grants, policies, triggers. */
+const asksPerms = (q) => /privileges|pg_policies|pg_trigger/i.test(String(q));
 
 // ── 1. THE FOUR STATES ARE FOUR, AND THE RESOLVER IS THE SHARED ONE ─────────
 
@@ -194,26 +257,71 @@ test("a Supabase that cannot be read refuses above the rung, and starts nothing"
   // turns into the ~25-credit rewrite, and a rewrite does not fix Supabase.
   assert.notEqual(r.body && r.body.escalate, true, "an unreadable dependency still escalates");
 
-  // ⚠⚠ AND HERE IS AN OPEN FINDING THIS FILE RECORDS RATHER THAN FIXES.
+  // ⚠ THIS CASE ASSERTED THE DEFECT AND NOW ASSERTS THE FIX (2026-09-21,
+  // owner: *"Ownership lookup failure still starts a full rewrite"*).
   //
-  // The SERVER is right — 503, no model, no query, no charge, nothing
-  // published — and the BROWSER still falls through to the ~25-credit rewrite,
-  // because this body carries only `{error}`: no `ok`, no `msg`, so
-  // `editAnswer` reaches its catch-all and calls `fallback()`. Same class as
-  // the two defects this round fixes, one layer up.
+  // It was written as a recorded OPEN finding — the server right, the browser
+  // falling through to the ~25-credit rewrite because the gate's body carries
+  // only `{error}` and `editAnswer` needs a `msg` to display anything. The
+  // reasoning for leaving it was that `assertOwner` is ONE gate shared by a
+  // dozen owner routes, which is true and is not a reason to leave the EDIT
+  // route starting a paid request off a refusal: `editGateRefusal` re-shapes
+  // the answer at this boundary alone and the gate is untouched.
+  assert.equal(r.said.shown, true, "the browser printed NOTHING for an unreadable ownership check");
+  assert.deepEqual(r.said.actions, [],
+    "an unreadable ownership check still starts a paid request: " + JSON.stringify(r.said.actions));
+  // THE EXACT WORDING, because "displays something" and "displays the right
+  // thing" are two claims and only the second is worth having.
+  assert.equal(r.said.text,
+    "⚠️ I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. "
+    + "Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.");
+  // OWNERSHIP ENFORCEMENT IS UNCHANGED: the gate's own decision and its own
+  // sentence both survive verbatim on the wire, under the field the other
+  // dozen routes read.
+  assert.equal(r.body.error, "couldn't check that site just now — try again in a moment",
+    "the gate's own refusal was rewritten rather than carried: " + JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, "a refusal claimed success");
+  assert.equal(r.body.cost, 0);
+});
+
+test("a site that is not yours is refused on the screen, not with a paid rewrite", async () => {
+  // ⚠ THE REPORT NAMED THE 503 AND THE 404 HAD THE IDENTICAL DEFECT —
+  // MEASURED, not assumed: `{error: "no such site"}` carries no `msg` either,
+  // so it fell through the same way. A rewrite cannot make a site yours.
   //
-  // NOT FIXED HERE ON PURPOSE. The sentence comes from `assertOwner` in
-  // `site-owner.mjs`, ONE gate shared by a dozen owner routes (measured:
-  // `grep -c "assertOwner(" worker.js`), so changing its body shape is a
-  // change to every one of them — a reporting redesign, which this round is
-  // explicitly not. It is the owner's call.
-  //
-  // ASSERTED AS IT IS, so the day it changes this case says so rather than
-  // going quiet. A test that simply omitted it would leave the finding
-  // undiscoverable.
-  assert.deepEqual(r.said.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"],
-    "the shared ownership refusal's browser behaviour changed — re-read this note and decide whether the finding is closed: "
-    + JSON.stringify(r.said.actions));
+  // AND THIS IS THE ENFORCEMENT CONTROL. A fix that made the refusal friendly
+  // by letting the edit through would satisfy every assertion above it, so the
+  // status, the gate's own body and the absence of any work are all asserted.
+  const store = bucket(SLUG);
+  const r = await withWire({ backends: [{ uid: "somebody-else", brief: "", neon_db: "site_x" }] },
+    (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+  assert.equal(r.status, 404, "a stranger's site answered something other than 404: " + JSON.stringify(r.body));
+  assert.equal(r.body.error, "no such site", "the 404's own sentence was rewritten: " + JSON.stringify(r.body));
+  assert.equal(r.seen.messages, 0, "a model was called for a site the caller does not own");
+  assert.equal(r.seen.sql.length, 0, "a site the caller does not own was queried anyway");
+  assert.equal(r.said.shown, true, "the browser printed NOTHING for a site that is not yours");
+  assert.deepEqual(r.said.actions, [],
+    "a site that is not yours still starts a paid request: " + JSON.stringify(r.said.actions));
+  assert.equal(r.said.text,
+    "⚠️ I can't find a site with that name on your account, so there was nothing for me to edit. "
+    + "Nothing changed and this edit cost you nothing.");
+});
+
+test("the re-shaping is the EDIT route's and no other owner route's", async () => {
+  // THE CENSUS THAT KEEPS THE BOUND. `assertOwner` is shared by a dozen routes
+  // that hand its body straight back, and widening the GATE would change every
+  // one of them to fix one — which the owner ruled out in as many words. So the
+  // property is that exactly one call site re-shapes.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // Blanked, because the note above the call site names the function and a
+  // comment about a name is not a second caller.
+  const code = src.split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  const calls = (code.match(/editGateRefusal\(/g) || []).length;
+  assert.equal(calls, 1, "the edit boundary's re-shaping has spread to " + calls + " call sites");
+  // AND THE OBSERVER IS PROVED ALIVE: the gate itself still has its many.
+  const gates = (code.match(/assertOwner\(/g) || []).length;
+  assert.ok(gates >= 10, "the scanner found only " + gates + " `assertOwner` calls, so its zero above means nothing");
 });
 
 test("a schema read that throws refuses, and does not buy a rewrite of every page", async () => {
@@ -245,7 +353,16 @@ test("a schema read that throws refuses, and does not buy a rewrite of every pag
   assert.equal(r.status, 503, "an unreadable schema answered something other than 503: " + JSON.stringify(r.body));
   assert.equal(r.body.cost, 0, "an unreadable schema was charged for");
   assert.equal(r.body.ours, true, "this is our failure and the reply does not say so");
-  assert.equal(r.body.backend, "schema-unreadable", "the refusal does not name which read failed");
+  // ⚠ RE-ANCHORED ON THE PROPERTY WHEN THE READER MOVED (2026-09-21). This
+  // asserted the literal `"schema-unreadable"`, which was the old reader's one
+  // word for every failure; the catalog-aware reader names the STATE and the
+  // read (`unreadable:catalog-unreadable` here, measured). The property the
+  // sweep proved worth having is unchanged and is what is asserted: the reason
+  // says which LINK failed, and it is not the resolution gate's reason.
+  assert.ok(r.body.backend && /unreadable|catalog|meta|schema/i.test(String(r.body.backend)),
+    "the refusal does not name which read failed: " + JSON.stringify(r.body.backend));
+  assert.notEqual(r.body.backend, "derived-database-unreachable",
+    "the schema read's refusal wears the resolution gate's reason, so the two walls are indistinguishable");
   assert.notEqual(r.body.escalate, true, "an unreadable schema still escalates");
   // THE CUSTOMER'S SCREEN, composed by the browser's own selection.
   assert.equal(r.said.ok, true, "the screen could not be composed: " + r.said.why);
@@ -257,17 +374,157 @@ test("a schema read that throws refuses, and does not buy a rewrite of every pag
     "an unreadable schema would still buy something: " + JSON.stringify(r.said.actions));
 });
 
-test("a database with no tables keeps its legitimate fallback, by name", async () => {
-  // THE CONTROL FOR THE CASE ABOVE, and it is what stops the fix from simply
-  // deleting the ladder: a database that reads fine and holds nothing has a
-  // real answer — there is nothing here to make a rule about, and the addon
-  // step is where a table is made.
+// ── 4. A MISSING SCHEMA ROW IS NOT AN EMPTY DATABASE ────────────────────────
+//
+// Owner, 2026-09-21: *"Missing schema metadata is not proof of an empty
+// database."* REPRODUCED — `bookings` exists, the `_meta` row does not, the
+// rung asked `_meta` alone, got nothing and escalated to a PAID addon without
+// ever looking at the table inventory. That is an inference from the absence of
+// ONE ROW to the absence of every table.
+//
+// THE READER IS THE EXISTING CATALOG-AWARE ONE. `specForAddon` → the Worker's
+// `readStoredSpec` → `readSchemaState`, which asks the CATALOG FIRST. Nothing
+// here is a second copy of those rules: the three cases below drive the three
+// answers that reader really gives, through the real route.
+
+test("a table with no schema row is RECOVERED, not called empty", async () => {
+  // THE REPRODUCTION VERBATIM: a live `bookings` table and no stored
+  // declaration. The old rung asked `_meta` alone, got nothing, and escalated
+  // to a PAID addon. `readSchemaState` answers `tables-without-metadata`, so
+  // `specForAddon` rebuilds the declaration from the permission surface and
+  // verifies it through the real `policiesFor`/`grantsFor` before using it.
+  //
+  // ⚠ MEASURED, NOT PREDICTED — and the first draft of this case asserted the
+  // opposite. It was written expecting a refusal ("no grants, so nothing can
+  // be rebuilt"), and the run answered that recovery SUCCEEDS: a table with no
+  // grants and no policies really does derive as the admin pair, and the
+  // re-emit matched. The behaviour is right and the guess was wrong, which is
+  // this repo's own rule about reading what a thing DOES rather than what it
+  // was meant to do.
+  //
+  // THE RECOVERY'S OWN CORRECTNESS IS NOT RE-TESTED HERE — it has its own
+  // sixteen-cell round trip against a real PostgreSQL. What this case is about
+  // is that THIS rung reaches it instead of inferring an empty database.
   const store = bucket(SLUG);
   const r = await withWire({
     backends: [{ uid: USER.id, brief: "", neon_db: "site_ravenscroft_rules" }],
     project: [{ uid: USER.id, neon_conn: "postgres://u:p@host.neon.tech/neondb" }],
-    sql: "empty",
+    sql: catalog({ tables: { bookings: ["id", "name", "created_at"] }, spec: null }),
   }, (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+
+  // THE CATALOG WAS REALLY ASKED — the whole correction. Without this the case
+  // could pass against a rung that still reads `_meta` alone.
+  assert.ok(r.seen.sql.some(asksCatalog),
+    "the table inventory was never read, so this case is about nothing: " + JSON.stringify(r.seen.sql.map((q) => q.slice(0, 40))));
+  // ⚠ AND IT DID NOT ESCALATE TO THE PAID ADDON. That is the defect verbatim:
+  // a table the customer is asking about, reported as a database with nothing
+  // in it, answered with a ~25-credit step.
+  assert.notEqual(r.body.escalate, true,
+    "a table with no schema row still escalates to a paid step: " + JSON.stringify(r.body));
+  assert.notEqual(r.body.reason, "no-meta", "a live table was still called `no-meta`");
+  assert.deepEqual(paidActions(r.said), [],
+    "a table with no schema row would still buy something: " + JSON.stringify(r.said.actions));
+  // THE RECOVERY WAS ATTEMPTED rather than skipped — `reconcileSpec` can decide
+  // nothing without the permission surface, so these reads ARE "recover where
+  // it is safe".
+  assert.ok(r.seen.sql.some(asksPerms),
+    "recovery was never attempted, so the rung cannot recover anything: " + JSON.stringify(r.seen.sql.map((q) => q.slice(0, 40))));
+  // AND THE RUNG WENT ON TO THE WORK with the recovered table in hand, which is
+  // the outcome the customer wanted from the message that produced run 12.
+  assert.equal(r.seen.messages, 1,
+    "the recovered spec did not reach the work: " + JSON.stringify({ body: r.body, sql: r.seen.sql.map((q) => q.slice(0, 40)) }));
+});
+
+test("a table that cannot be recovered safely stops, and does not invent a schema", async () => {
+  // THE OTHER ARM, and it is the safety-critical one: the permission surface
+  // cannot be read, so nothing can be VERIFIED, so nothing may be rebuilt —
+  // and a spec still missing a live table must never be designed against.
+  //
+  // THE THREE WRONG ANSWERS THIS FORBIDS, each of which the old path gave: call
+  // it empty, escalate to a paid addon, or design rules against a declaration
+  // known to be short a table.
+  const store = bucket(SLUG);
+  const r = await withWire({
+    backends: [{ uid: USER.id, brief: "", neon_db: "site_ravenscroft_rules" }],
+    project: [{ uid: USER.id, neon_conn: "postgres://u:p@host.neon.tech/neondb" }],
+    sql: catalog({ tables: { bookings: ["id", "name", "created_at"] }, spec: null, permsDown: true }),
+  }, (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+  assert.ok(r.seen.sql.some(asksCatalog), "the inventory was never read");
+  assert.ok(r.seen.sql.some(asksPerms), "recovery was never attempted, so this case is about nothing");
+  assert.equal(r.status, 503, "an unverifiable recovery answered something else: " + JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0);
+  assert.notEqual(r.body.escalate, true, "an unverifiable recovery still escalates to a paid step");
+  assert.notEqual(r.body.reason, "no-meta", "a live table was still called `no-meta`");
+  assert.equal(r.seen.messages, 0, "a model was called against a schema known to be short a table");
+  assert.deepEqual(paidActions(r.said), [], "an unverifiable recovery would still buy something");
+  // THE REASON NAMES WHAT STOPPED IT, never a generic failure.
+  assert.match(String(r.body.backend), /permission|recover|unread/i,
+    "the refusal does not say what stopped it: " + JSON.stringify(r.body.backend));
+});
+
+test("a table inventory that cannot be read stops; it is never an empty site", async () => {
+  // CANNOT-SEE-THE-CATALOG IS CANNOT-TELL. The old path could not reach this
+  // state at all — it never asked — so a database whose catalog is unreadable
+  // answered exactly like one with nothing in it.
+  const store = bucket(SLUG);
+  const r = await withWire({
+    backends: [{ uid: USER.id, brief: "", neon_db: "site_ravenscroft_rules" }],
+    project: [{ uid: USER.id, neon_conn: "postgres://u:p@host.neon.tech/neondb" }],
+    sql: catalog({ catalogDown: true }),
+  }, (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+  assert.equal(r.status, 503, "an unreadable inventory answered something else: " + JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0);
+  assert.notEqual(r.body.escalate, true, "an unreadable inventory still escalates to a paid step");
+  assert.equal(r.seen.messages, 0, "a model was called against a database that could not be inspected");
+  assert.deepEqual(paidActions(r.said), [], "an unreadable inventory would still buy something");
+  assert.equal(r.said.shown, true, "the browser printed NOTHING for an unreadable inventory");
+  // THE EXACT WORDING, and it is scoped to the edit rather than the request.
+  assert.equal(r.said.text,
+    "⚠️ I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. "
+    + "Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.");
+});
+
+test("a stored spec with tables passes both gates and reaches the work", async () => {
+  // THE SUCCESSFUL CONTROL, and it is what stops the two cases above from
+  // being satisfied by a rung that refuses everything. A site whose `_meta`
+  // declares the table the customer is asking about must get past resolution
+  // AND past the schema read.
+  //
+  // ⚠ WHAT IS CLAIMED IS EXACTLY "REACHED THE WORK", NOT "PUBLISHED". The wire
+  // fails `/v1/messages` on purpose in this file, so the model call going out
+  // is the observable and the reply after it is not the subject. Saying this
+  // out loud rather than letting a green case read as a published edit.
+  const store = bucket(SLUG);
+  const spec = { tables: [{ name: "bookings", columns: [{ name: "name", type: "text" }], read: "none", write: "anyone" }] };
+  const r = await withWire({
+    backends: [{ uid: USER.id, brief: "", neon_db: "site_ravenscroft_rules" }],
+    project: [{ uid: USER.id, neon_conn: "postgres://u:p@host.neon.tech/neondb" }],
+    sql: catalog({ tables: { bookings: ["id", "name"] }, spec }),
+  }, (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+  assert.ok(r.seen.sql.some(asksCatalog), "the inventory was not read even on the good path");
+  assert.ok(r.seen.sql.some(asksMeta), "the stored spec was never read");
+  assert.equal(r.seen.messages, 1,
+    "a site whose schema declares the table did NOT reach the model call — the new gates refuse a good site: "
+    + JSON.stringify({ body: r.body, sql: r.seen.sql }));
+  // AND NOTHING ABOUT THIS PATH IS A BACKEND REFUSAL.
+  assert.notEqual(r.body && r.body.backend, "unreadable:catalog-unreadable");
+});
+
+test("a database the catalog CONFIRMS is empty keeps its legitimate fallback, by name", async () => {
+  // THE OTHER CONTROL, and it is what stops the fix from deleting the ladder:
+  // a database that reads fine and genuinely holds nothing has a real answer —
+  // there is nothing here to make a rule about, and the addon step is where a
+  // table is made. **This is the only state in which `{tables: []}` is true**,
+  // and it is now measured (the catalog answered no rows) rather than inferred
+  // from a missing `_meta` row.
+  const store = bucket(SLUG);
+  const r = await withWire({
+    backends: [{ uid: USER.id, brief: "", neon_db: "site_ravenscroft_rules" }],
+    project: [{ uid: USER.id, neon_conn: "postgres://u:p@host.neon.tech/neondb" }],
+    sql: catalog({ tables: {}, spec: null }),
+  }, (seen) => rulesEdit("only twenty places on a booking", { store }).then((x) => ({ ...x, seen })));
+  assert.ok(r.seen.sql.some(asksCatalog),
+    "the empty answer was inferred rather than measured — the catalog was never asked");
   assert.equal(r.body.escalate, true, "an empty database stopped escalating, which deletes the ladder");
   assert.equal(r.body.reason, "no-meta");
   assert.equal(r.body.layer, "addon", "the escalate does not name the step that can make a table");
@@ -352,6 +609,61 @@ test("the run-12 shape — a real database with a missing reference — is not a
   assert.ok(r.seen.sql.length >= 1, "the derived database was never proved before being used");
   // AND THE REFERENCE IS RECORDED ON THE WAY PAST, from a database known good.
   assert.ok(r.seen.patches.length >= 1, "the missing reference was not repaired once the database was proved");
+});
+
+// ── 5. THE CHARGING SENTENCE IS SCOPED TO THIS EDIT ─────────────────────────
+//
+// Owner, 2026-09-21: *"The new database-error replies say 'you haven't been
+// charged,' but routing was billed separately. A zero edit cost does not
+// establish a zero-cost request."* MEASURED on run 12: `cost: 0` on the
+// terminal body and the balance moved 79 → 77 — two credits for the routing
+// call, which is a separate POST this route never sees. No refund is claimed
+// either, because none happened: there was nothing to reverse.
+
+test("no refusal this round added claims the whole request was free", () => {
+  // A SOURCE CENSUS, because the property is about every sentence these two
+  // places can produce, and driving them one at a time asserts only the ones
+  // somebody remembered to drive.
+  //
+  // ⚠ COMMENTS BLANKED FIRST. The note explaining this correction QUOTES the
+  // forbidden phrase — prose containing the thing it forbids, which is this
+  // repo's most repeated own-goal and would fail this case against itself.
+  const blank = (s) => s.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+
+  // ⚠ WINDOWED TO THE FUNCTION, NOT THE FILE. A first draft read every long
+  // string in `site-owner.mjs` and went red on a member-access sentence forty
+  // lines away — an observer so wide it reports about code this case is not
+  // about. Landmark to landmark, on CODE, both ends asserted.
+  const osrc = readFileSync(new URL("../site-owner.mjs", import.meta.url), "utf8");
+  const oAt = osrc.indexOf("export function editGateRefusal(");
+  const oEnd = osrc.indexOf("async function openSite(", oAt);
+  assert.ok(oAt > 0, "`editGateRefusal` is gone — the edit boundary no longer re-shapes anything");
+  assert.ok(oEnd > oAt, "the closing landmark is gone or moved above the opening one");
+  const owner = blank(osrc.slice(oAt, oEnd));
+  const wsrc = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  // The rules rung's own window, landmark to landmark on CODE, with both ends
+  // asserted — a missing landmark gives `slice(-1, -1)` and passes everything.
+  const at = wsrc.indexOf("const rBack = await siteBackendDetail(env, ownerSlug);");
+  const end = wsrc.indexOf("let rCost = 0, rBilled = false;", at);
+  assert.ok(at > 0, "the rules rung's opening landmark is gone — this scan is over nothing");
+  assert.ok(end > at, "the rules rung's closing landmark is gone or moved above the opening one");
+  const rung = blank(wsrc.slice(at, end));
+
+  // THE OBSERVER PROVED ALIVE before any absence is believed: both regions
+  // really do carry customer sentences. `editGateRefusal` writes its three as
+  // ternary arms rather than under a `msg:` key, so both spellings are read.
+  const msgs = [...owner.matchAll(/msg:\s*"([^"]+)"/g), ...rung.matchAll(/msg:\s*"([^"]+)"/g)].map((m) => m[1])
+    .concat([...owner.matchAll(/[?:]\s*"([^"]{60,})"/g)].map((m) => m[1]));
+  assert.ok(msgs.length >= 5, "found only " + msgs.length + " sentences, so the absence below means nothing");
+
+  for (const s of msgs) {
+    // ⚠ BOTH APOSTROPHES. The source writes a typographic one in places and a
+    // search for the ASCII form alone answers zero on text carrying the claim.
+    assert.ok(!/have?n.t been charged/i.test(s),
+      "a refusal still claims the whole request was free, and the routing call was billed: " + JSON.stringify(s));
+    assert.match(s, /this edit cost you nothing/i,
+      "a refusal says nothing about what it did or did not cost: " + JSON.stringify(s));
+  }
 });
 
 test("nothing in this rung provisions a database", () => {

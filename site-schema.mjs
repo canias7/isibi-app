@@ -1936,27 +1936,34 @@ export function invalidateSiteSchema(uuid) { _schemaCache.delete(uuid); }
  * THE SAME READ, SAYING WHICH OF THREE THINGS HAPPENED.
  *
  * ⚠ `loadSiteSchema` HAS A BARE `catch {}` AND ANSWERS `{tables: []}` EITHER
- * WAY, which is this repository's own recorded collapse for the third time in
- * one path: an unreadable `_meta` and a database with genuinely no tables are
- * different facts and they arrived as one value. The comment below the catch
- * already knew — it refuses to CACHE the empty answer precisely because a
- * transient failure must not serve "no tables" — so the distinction was
- * understood and then thrown away one line above.
- *
- * WHAT IT COST: the `rules` edit rung read this, saw a falsy spec and
- * escalated `no-meta`, which the browser turns into the ~25-credit rewrite of
- * every page — for a database that is up and could not be read this second. A
- * rewrite does not repair an unreadable `_meta`.
+ * WAY, which is this repository's own recorded collapse: an unreadable `_meta`
+ * and a database with genuinely no tables are different facts and they arrived
+ * as one value. The comment below the catch already knew — it refuses to CACHE
+ * the empty answer precisely because a transient failure must not serve "no
+ * tables" — so the distinction was understood and then thrown away one line
+ * above.
  *
  * `{ok, spec, why}`:
  *   ok: true  — the read succeeded. `spec` is what was stored, or `{tables:[]}`
- *               when the row is genuinely absent, which is a REAL answer.
+ *               when the row is genuinely absent.
  *   ok: false — the query threw. `spec` is still `{tables:[]}` so a caller that
  *               ignores `ok` behaves exactly as it did, and `why` names it.
  *
  * ONE READER, TWO DOORS. `loadSiteSchema` is a wrapper over this rather than a
  * second copy of the query, so the cache, the TTL and the never-cache-an-empty
  * rule cannot drift between them.
+ *
+ * ⚠ AND `{tables: []}` FOR A MISSING ROW IS STILL AN INFERENCE, WHICH IS WHY
+ * NO CALLER READS `ok` TODAY (2026-09-21, owner: *"Missing schema metadata is
+ * not proof of an empty database"*). This split was written for the `rules`
+ * edit rung, and it answered only half the question: it separates "the read
+ * threw" from "no row", and says nothing about whether the DATABASE has
+ * tables. `readSchemaState` in `site-schema-recover.mjs` asks the CATALOG
+ * FIRST and answers all four states, so that rung uses `specForAddon` over it
+ * instead and this function is `loadSiteSchema`'s implementation and nothing
+ * more. **Do not reach for `ok` here when the question is what the database
+ * holds** — ask the catalog-aware reader, or the two become two answers to one
+ * question and the weaker one wins by being nearer.
  */
 export async function readSiteSchema(uuid) {
   const hit = _schemaCache.get(uuid);

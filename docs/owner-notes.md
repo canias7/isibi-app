@@ -225,6 +225,55 @@ of code, the other to a count that was right the day it was typed.
 
 ---
 
+## 2026-09-21 — Your three corrections, and one of them was a finding I had written down and walked past
+
+You reviewed the commit, ran the fourteen checks yourself, and found three
+things. All three are fixed.
+
+**1. The ownership check still bought a rewrite — and I had recorded that and
+left it.** My own note said the sentence comes from one gate a dozen routes
+share, so changing it would change all of them. That was true and it was not a
+reason to leave the edit screen starting a ~25-credit rewrite off a refusal
+that spent nothing. **The gate is untouched.** The edit route alone re-shapes
+its answer on the way out: same decision, same status, same sentence, plus the
+two fields the screen needs to print anything. **And the version you reported
+was only half of it** — I drove the other arm and found "that site isn't yours"
+did exactly the same thing, so both are fixed. **A stranger still gets the same
+refusal they always did**; it now appears on screen instead of quietly buying a
+rewrite.
+
+**2. A missing schema row is not an empty database.** You are right and the fix
+is to stop asking the wrong question. The rung asked one table for one row; it
+now asks the database **what tables it actually has, first**, through the reader
+the add-on path has used since the 15th. A table that exists with no
+declaration gets rebuilt from the database's own permissions and checked before
+it is used; one that cannot be checked **stops and says so**. Nothing is
+invented, nothing is provisioned, nothing is written back.
+
+**⚠ And the first check I wrote for this asserted the wrong answer.** I expected
+a bare table to be refused, and the run showed it is **recovered** — correctly.
+The behaviour was right and my guess was wrong, so the check is now two: one for
+recovery working, one for it refusing when it cannot verify.
+
+**3. The charging sentence.** You are right — routing is billed separately, so
+"you haven't been charged" was false. Every one of these replies now says **"this
+edit cost you nothing"**, which is what this part of the system can actually
+see. No refund is mentioned, because none happened.
+
+**One more of the same kind, reported not fixed**: the same unscoped sentence
+exists in one older message on a different path. It is not one of your three and
+four checks read it, so it is yours to call.
+
+**Evidence**: 8 checks became 15, six deliberate breakages all caught, a
+harmless comment change correctly ignored, all three files verified back to
+byte-identical. **A fourth older check went red on a COMMENT I added** — it
+was reading the one line below a call — and I re-anchored it on what it is
+really about rather than making it pass.
+
+**Nothing merged, nothing deployed, nothing paid.**
+
+---
+
 ## 2026-09-21 — The component test never reached the component: it stopped at a missing database, and cost 2
 
 **Nothing was published and nothing was written.** I pointed the harness at

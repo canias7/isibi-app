@@ -32,7 +32,7 @@ import { backendState, unsetDbFilter, dbNameFromConn } from "./site-backend-stat
 // site-schema-recover.mjs.
 import { readSchemaState, reconcileSpec, RECOVER_QUERIES } from "./site-schema-recover.mjs";
 import { policiesFor, grantsFor } from "./site-rls.mjs";
-import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner } from "./site-owner.mjs";
+import { handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerImport, handleOwnerMembers, handleOwnerAnalytics, assertOwner, editGateRefusal } from "./site-owner.mjs";
 import { MAX_IMPORT_BYTES } from "./site-csv.mjs";
 import { takeIdemKey, makeIdem, replayHeaders } from "./site-idem.mjs";
 import { handleUpload, handleUploadList, handleUploadDelete, handleVisitorUpload, MAX_UPLOAD_BYTES, MAX_DOC_BYTES, MAX_VISITOR_UPLOAD_BYTES, MAX_FILES_PER_SITE, sniffImage, uploadName, uploadKey, uploadUrl, uploadFileName, dispositionFor, readDownloadName, DOWNLOAD_NAME_KEY, uploadIsImage, UPLOAD_URL_PATH } from "./site-uploads.mjs";
@@ -133,7 +133,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
@@ -20317,7 +20317,15 @@ async function handleRequest(request, env, ctx) {
             if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
             if (request.method !== "POST") return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
             const g = await assertOwner(ownerDeps, ownerSlug, ou.id);
-            if (g.error) return Response.json(g.error.body, { status: g.error.status });
+            // ⚠ THE GATE'S BODY ALONE STARTS THE ~25-CREDIT REWRITE. It carries
+            // `{error}` and no `msg`, so `editAnswer` falls past its display
+            // branch into `fallback()` — a paid request begun by a refusal that
+            // spent nothing. `editGateRefusal` keeps the decision, the status
+            // and the sentence and adds the two fields the screen reads; the
+            // gate itself is untouched, because a dozen other routes share it.
+            // `Response.json` rather than `eAnswer`, which is a `const` three
+            // hundred lines BELOW this and would be a temporal-dead-zone throw.
+            if (g.error) { const gr = editGateRefusal(g); return Response.json(gr.body, { status: gr.status }); }
 
             // ── THE BODY IS READ AS TEXT FIRST ────────────────────────────
             //
@@ -21498,7 +21506,15 @@ async function handleRequest(request, env, ctx) {
                 console.error("rules edit backend unreadable:", ownerSlug, rBack.why, rBack.detail || "");
                 return eAnswer({
                   status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rBack.why,
-                  msg: "I couldn't reach your site's database just now, so I've stopped rather than guess at what's in it — this is on us, nothing on your site changed and you haven't been charged. Try again in a few minutes.",
+                  // ⚠ "YOU HAVEN'T BEEN CHARGED" WAS FALSE AND IS SCOPED NOW
+                  // (2026-09-21, owner). `cost: 0` is true of this EDIT; the
+                  // routing call that chose this layer is a separate POST that
+                  // was billed on its own — run 12 moved the balance by 2 on a
+                  // message that published nothing. A zero edit cost does not
+                  // establish a zero-cost request, so the sentence says what
+                  // this route can actually see. No refund is claimed, because
+                  // none happened: there was nothing to reverse.
+                  msg: "I couldn't reach your site's database just now, so I've stopped rather than guess at what's in it — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
                 });
               }
               // A SITE THAT REALLY HAS NO DATABASE ESCALATES TO THE STEP THAT
@@ -21531,26 +21547,54 @@ async function handleRequest(request, env, ctx) {
               // repairs a missing reference. The two are split the way the four
               // backend states are: cannot-tell stops, genuinely-nothing-there
               // escalates to the step that can make something.
-              // ⚠ AND `loadSiteSchema` COULD NOT TELL EITHER — it has a bare
-              // `catch {}` and answers `{tables: []}` whichever happened, which
-              // is the same collapse a THIRD time in one path. `readSiteSchema`
-              // is the same query saying which of the two it was; the tolerant
-              // door is unchanged for every other caller.
-              const rRead = await readSiteSchema(rdb);
+              // ⚠ AND ASKING `_meta` ALONE CANNOT TELL AT ALL — A MISSING ROW
+              // IS NOT AN EMPTY DATABASE (2026-09-21, reproduced: `bookings`
+              // exists, the schema row does not, and this rung escalated to a
+              // PAID addon without ever looking at the table inventory). That
+              // is an inference from the absence of ONE ROW to the absence of
+              // every table, and it is run 47's own defect met on a third path.
+              //
+              // `specForAddon` IS THE READER, not a second one written here.
+              // It asks `readSchemaState`, which asks the CATALOG FIRST, so its
+              // four states are measured rather than inferred:
+              //
+              //   stored / empty            → `ok: true`, and `empty` means the
+              //                               catalog CONFIRMED no tables
+              //   tables-without-metadata   → recovered through the real
+              //                               `policiesFor`/`grantsFor`, or
+              //                               `ok: false` if any table cannot
+              //                               be rebuilt without changing what
+              //                               it does
+              //   unreadable                → `ok: false`, named
+              //
+              // AND IT IS READ-ONLY. Nothing is written back to `_meta` here;
+              // the reconciled spec is used for THIS message and the rung's own
+              // apply writes the merged result if it gets that far. Recovering
+              // somebody's stored schema as a side effect of reading it would
+              // be a write nobody asked for, on the money path.
+              const rRead = await specForAddon(rdb);
               const rSpec = rRead.spec;
               if (!rRead.ok) {
-                console.error("rules edit schema read failed:", ownerSlug, rRead.why, rRead.detail || "");
+                console.error("rules edit schema read failed:", ownerSlug, rRead.why);
                 return eAnswer({
-                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: "schema-unreadable",
-                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us, nothing on your site changed and you haven't been charged. Try again in a few minutes.",
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rRead.why,
+                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
                 });
               }
-              // NO TABLES AND A READ THAT SUCCEEDED is a real answer: there is
-              // nothing here to make a rule about. The addon step is where a
-              // table is made, so it is named — the same legitimate fallback
-              // the `none` state keeps, and not the full rewrite.
+              // NO TABLES AND A CATALOG THAT CONFIRMS IT is a real answer:
+              // there is nothing here to make a rule about. The addon step is
+              // where a table is made, so it is named — the same legitimate
+              // fallback the `none` state keeps, and not the full rewrite.
+              // Reached ONLY for `empty` now: `tables-without-metadata` either
+              // recovered above, in which case `tables` is not empty, or
+              // refused with `ok: false` and never arrives here at all.
               if (!rSpec || !Array.isArray(rSpec.tables) || !rSpec.tables.length) {
                 return escalate("no-meta", { layer: "addon" });
+              }
+              // A RECOVERED TABLE IS SAID OUT LOUD, because the spec this rung
+              // is about to design against is not the one the site has stored.
+              if (Array.isArray(rRead.recovered) && rRead.recovered.length) {
+                console.log("rules edit recovered undeclared tables:", ownerSlug, rRead.recovered.join(","));
               }
 
               // EVERY TABLE, unlike the data layer's `display`-only list. A rule

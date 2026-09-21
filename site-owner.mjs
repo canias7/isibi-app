@@ -80,6 +80,62 @@ export async function assertOwner(deps, slug, uid) {
   return {};
 }
 
+/**
+ * THE EDIT ROUTE'S OWN RE-SHAPING OF THAT GATE'S REFUSAL, AND NOBODY ELSE'S.
+ *
+ * ⚠ THE DEFECT, reproduced through the real route: `assertOwner` answers
+ * `{error: "<sentence>"}` and nothing else, so the browser's `editAnswer`
+ * reaches `if (e.msg)` with no `msg`, falls past it, and calls `fallback()` —
+ * **the ~25-credit rewrite of every page**, started by a refusal that made no
+ * model call, took no credit and touched nothing. MEASURED on both arms, not
+ * just the 503 the report named: `{error: "no such site"}` at 404 records the
+ * same paid action.
+ *
+ * THE SERVER IS RIGHT AND THE BROWSER IS NOT, so this changes neither. The
+ * gate's decision, its status and its sentence are carried through UNTOUCHED;
+ * what is added is the two fields the screen reads. A rewrite cannot make a
+ * site yours and cannot reach a Supabase that is down, so neither refusal is a
+ * reason to spend.
+ *
+ * WHY HERE RATHER THAN IN `assertOwner`: that gate is shared by a dozen owner
+ * routes whose callers hand its body straight back, and `ok`/`msg` are the EDIT
+ * screen's vocabulary. Widening the gate itself would change every one of them
+ * to fix one. So this is a SECOND function the edit route alone calls, and the
+ * guard censuses exactly that.
+ *
+ * OWNERSHIP ENFORCEMENT IS UNCHANGED AND MUST STAY SO. A non-owner still gets
+ * the 404 a missing site gets, with the same body and the same status — it is
+ * now a sentence on the screen instead of a silent fall into a paid request.
+ *
+ * `cost: 0` IS TRUE OF THIS ROUTE AND IS NOT A CLAIM ABOUT THE REQUEST. The
+ * routing call that chose this layer is a separate POST and was billed on its
+ * own; the sentences below say "this edit" for that reason, and never "you
+ * haven't been charged".
+ */
+export function editGateRefusal(gate) {
+  const status = (gate && gate.error && gate.error.status) || 500;
+  const body = (gate && gate.error && gate.error.body) || {};
+  // THE STATUS DECIDES, because the gate's own sentence is written for a
+  // developer reading a response and these are written for the person whose
+  // site it is. 401 is unreachable from the edit route (it checks the session
+  // above this) and is answered anyway rather than falling to a default that
+  // would be wrong about whose fault it is.
+  const said = status === 503
+    ? "I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes."
+    : status === 404
+      ? "I can't find a site with that name on your account, so there was nothing for me to edit. Nothing changed and this edit cost you nothing."
+      : status === 401
+        ? "You've been signed out, so I couldn't check whose site this is. Sign in and send that again — nothing changed and this edit cost you nothing."
+        : "I couldn't start that edit, so I've stopped rather than guess. Nothing on your site changed and this edit cost you nothing.";
+  return {
+    status,
+    // `...body` FIRST so the gate's own `error` survives verbatim — a caller
+    // reading the old field keeps reading it, and a future gate arm that adds
+    // its own key arrives here without this function being edited.
+    body: { ...body, ok: false, cost: 0, ours: status >= 500, msg: said },
+  };
+}
+
 async function openSite(deps, slug, uid) {
   const gate = await assertOwner(deps, slug, uid);
   if (gate.error) return gate;

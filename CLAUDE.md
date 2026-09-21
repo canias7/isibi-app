@@ -1533,14 +1533,81 @@ distinction was understood and thrown away one line above it.*
   failed is not**, so the guard is on the named REASON — the one thing the two
   walls do not share. The PAIR mutated together dies.
 
-**WHAT WAS FOUND AND NOT FIXED, on purpose.** A 503 from `assertOwner` carries
-only `{error}` — no `ok`, no `msg` — so the browser's `editAnswer` reaches its
-catch-all and calls `fallback()`: **the same class, one layer up.** The server
-is right (no model, no query, no charge); the browser is not.
-**`assertOwner` is ONE gate shared by a dozen owner routes**, so changing its
-body shape is a change to every one of them — a reporting redesign rather than
-this round's fix. **Asserted AS IT IS** in `edit-rules-backend.test.mjs`, so
-the day it changes the case says so rather than going quiet. Owner's call.
+### THE THREE CORRECTIONS ON TOP OF THOSE (2026-09-21, owner, after reviewing
+`0d15ab4c` and running the fourteen cases independently)
+
+**1. THE OWNERSHIP GATE'S REFUSAL STILL BOUGHT A REWRITE, AND IT WAS LEFT AS AN
+OPEN FINDING IN THE ROUND ABOVE.** *"`assertOwner` is one gate shared by a
+dozen routes"* is true and is **not a reason to leave the EDIT route starting a
+paid request off a refusal.** The gate is untouched; `editGateRefusal`
+(`site-owner.mjs`, called from ONE place, censused) re-shapes its answer at the
+edit boundary alone — the decision, the STATUS and the gate's own `error`
+survive verbatim and the two fields the screen reads are added.
+
+- **`e.msg` IS THE WHOLE CONTRACT.** `editAnswer`'s branch order is
+  `escalate` → `needs-review` → **`if (e.msg)`** → `fallback()`, so a body
+  without `msg` cannot be displayed and falls to the ~25-credit rewrite. `ok`
+  absent is already falsy; nothing else is needed.
+- **⚠ THE REPORT NAMED THE 503 AND THE 404 HAD THE IDENTICAL DEFECT** —
+  measured, not assumed: `{error: "no such site"}` recorded the same paid
+  action. **Ownership enforcement is unchanged**: a non-owner still gets the
+  404 a missing site gets, now as a sentence instead of a silent fall into a
+  paid request.
+- **`Response.json`, NEVER `eAnswer`** at that call site — `eAnswer` is a
+  `const` three hundred lines below and would be a temporal-dead-zone throw.
+
+**2. A MISSING `_meta` ROW IS NOT AN EMPTY DATABASE.** Reproduced: `bookings`
+exists, the schema row does not, and the rung escalated to a PAID addon without
+ever looking at the table inventory — an inference from the absence of ONE ROW
+to the absence of every table, which is run 47's defect on a third path.
+**`specForAddon` is the reader now** — the same one the addon path uses, over
+`readSchemaState`, which **asks the catalog FIRST**. It is READ-ONLY: nothing
+is written back to `_meta`.
+
+- **THE FOUR STATES ARE MEASURED, NOT INFERRED**: `stored`/`empty` proceed
+  (`empty` meaning the catalog CONFIRMED none), `tables-without-metadata`
+  recovers through the real `policiesFor`/`grantsFor` or refuses, `unreadable`
+  refuses. `escalate("no-meta", {layer:"addon"})` is now reachable ONLY from
+  `empty`.
+- **⚠ AND THE FIRST GUARD FOR THIS ASSERTED THE WRONG OUTCOME.** It was written
+  expecting a bare fixture to REFUSE ("no grants, so nothing can be rebuilt")
+  and the run answered that recovery **SUCCEEDS**: a table with no grants and
+  no policies derives as the admin pair and the re-emit matches. The behaviour
+  is right and the guess was wrong — *read what a thing DOES, not what it was
+  meant to do* — so the case is split in two, recovery-succeeds and
+  permission-surface-unreadable.
+- **`readSiteSchema` KEEPS NO READER OF ITS `ok`** and says so in its own
+  comment: it separates "the read threw" from "no row" and is silent on whether
+  the DATABASE has tables, which is the question. It stays as
+  `loadSiteSchema`'s implementation; **do not reach for its `ok`** — ask the
+  catalog-aware reader, or the two become two answers to one question and the
+  weaker one wins by being nearer.
+
+**3. "YOU HAVEN'T BEEN CHARGED" WAS FALSE AND IS SCOPED.** `cost: 0` is true of
+the EDIT; the routing call that chose the layer is a separate POST billed on its
+own — **run 12 moved the balance by 2 on a message that published nothing**. A
+zero edit cost does not establish a zero-cost request. Every refusal this round
+adds says *"this edit cost you nothing"*, and **no refund is claimed, because
+none happened**. A source census over `editGateRefusal` and the rung's own
+window holds it, with comments blanked first (the note explaining it quotes the
+forbidden phrase) and **both apostrophes** matched.
+
+**⚠ AND `wholeRequestNote` IN `chat.js` CARRIES THE SAME UNSCOPED CLAIM** — it
+appends *"you haven't been charged"* on the `withheld` branch, where the routing
+call was billed too. **Reported, not fixed**: it is the `withheld` path's
+wording, four re-anchored guards read it, and this round is bounded to three
+corrections. Owner's call.
+
+**THE EVIDENCE**: the file goes 8 → **15 cases**, **6 mutants killed with a
+comment-only control surviving** and all three touched files restored
+byte-identical (each mutant restores one of the three defects verbatim).
+**⚠ AND A PRE-EXISTING GUARD WENT RED ON A COMMENT** — `site-owner.test.mjs`
+matched `assertOwner\([^)]*\);\n([^\n]*)`, literally the next LINE, and the edit
+call site gained a note explaining why its refusal is re-shaped. Re-anchored on
+the next few NON-COMMENT lines, bounded by the next `assertOwner` call, with the
+window asserted non-empty — and red-checked by making one call site test `.ok`.
+*A guard pinned to a position reports a comment as the feature going away*, and
+that is now **three** pre-existing guards in two rounds of this one change.
 
 **THE EVIDENCE**: 14 new cases (8 backend, 6 router), **9 mutants killed with a
 comment-only control surviving**, all three touched files restored
@@ -3971,19 +4038,29 @@ free.
   **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
   `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`**, run
   **`35545181566` on `0523dfb1`**, run **`35546983002` on `e0540f37`**
-  (2026-09-21, 23m54s) and run **`35554760166` on `38d934a2`**
-  (2026-09-21, 02:36:53 → 03:00:33Z, **23m40s**) — all five **all twenty steps
-  green and every figure above matching**: TAP 397, kit-typecheck 4, site-build
-  **382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
-  site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
-  `all passed`. The second was read out of the twenty-three downloaded
+  (2026-09-21, 23m54s), run **`35554760166` on `38d934a2`**
+  (2026-09-21, 02:36:53 → 03:00:33Z, **23m40s**) and run **`35574816749` on
+  `0d15ab4c`** (2026-09-21, 07:49:53 → 08:11:28Z, **21m35s**) — all six **all
+  twenty steps green and every figure above matching**: TAP 397, kit-typecheck 4,
+  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
+  kit-paint `all passed`. The second was read out of the twenty-three downloaded
   per-step files rather than the flat log, so the attribution is the
-  archive's own; the fifth was read landmark-to-landmark off the flat log,
-  **all twelve counts in one pass with every shape asked for separately**, and
-  it came back step by step in the workflow's own order. **The sixteen is
+  archive's own; the fifth and sixth were read landmark-to-landmark off the flat
+  log, **all twelve counts in one pass with every shape asked for separately**,
+  and both came back step by step in the workflow's own order. **The sixteen is
   deliberately NOT incremented**: that number is a scan's answer, and the rule
   two lines up is exactly about taking the next ordinal instead of re-deriving
-  it.
+  it. (**"All six" IS auditable** — it is a count of the named runs on this
+  line, which is a different kind of number from a scan's.)
+  **THE CENSUS OF SHAPES IS THE OBSERVER'S OWN PROOF, and on run 1238 it closes
+  exactly**: `N passed` **7** + `all passed` **4** + TAP **1** = **12**, the
+  twelve steps that report. A scan finding eleven has lost one silently, and
+  the sum is what says it has not.
+  **⚠ 21m35s IS ~2 MINUTES UNDER THE OTHER TWO READS AND IS RECORDED RATHER
+  THAN EXPLAINED.** Every count matched, so it is runner speed rather than work
+  skipped; there is no per-step baseline from the earlier runs to compare it
+  against, and inventing one would be arithmetic off a paragraph.
   **⚠ A GREEN `site build` CARRIES TWO `##[error]` ANNOTATIONS, AND THEY ARE THE
   HARNESS DOING ITS JOB.** GitHub annotates any line in `tsc`'s own error format,
   and `site-build.mjs` deliberately builds a page with a type error to prove
@@ -4004,13 +4081,25 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,071 LOCALLY, and the CI half of THIS reading is UNREAD** —
-  `# tests 7071 / # pass 7071 / # fail 0 / # skipped 0`, `duration_ms 111,743`,
-  taken 2026-09-21 on the run-12 product fixes. **The +14 is the difference
-  between two measured readings, never arithmetic off a paragraph**:
-  7,057 → 7,071 is this round's own fourteen — eight in `edit-rules-backend`
-  and six in `ask-router-display`. **Say which half is taken**: a local number
-  beside an unread CI run is ONE reading.
+- **Unit suite: 7,078 LOCALLY, and the CI half of THIS reading is UNREAD** —
+  `# tests 7078 / # pass 7078 / # fail 0 / # skipped 0`, `duration_ms 111,643`,
+  taken 2026-09-21 on the three bounded corrections. **The +7 is the difference
+  between two measured readings**: `edit-rules-backend` goes 8 → 15 cases.
+  `site-owner`'s re-anchored guard added none — it is the same case asserting
+  the same property through a window instead of a line. **Say which half is
+  taken**: a local number beside an unread CI run is ONE reading.
+  **⚠ AND THE FIRST RUN OF IT WAS 7,078 WITH ONE FAILURE**, which was a
+  PRE-EXISTING guard going red on a COMMENT — see the re-anchor above.
+- **Unit suite: 7,071, BOTH HALVES TAKEN** (2026-09-21, the run-12 product
+  fixes) — locally `# tests 7071 / # pass 7071 / # fail 0 / # skipped 0`,
+  `duration_ms 111,743`, and CI run **`35574816773` on `0d15ab4c`** at
+  **`# tests 7071 / # pass 7067 / # fail 0 / # skipped 4`**, `duration_ms
+  113,310`. **THE TOTAL IS WHAT MATCHES** — 7,071 both sides, with `pass`
+  differing by exactly CI's own four skips, which is this file's standing
+  reading of that gap and not a regression. **The +14 is the difference between
+  two measured readings, never arithmetic off a paragraph**: 7,057 → 7,071 is
+  this round's own fourteen — eight in `edit-rules-backend` and six in
+  `ask-router-display`.
   **⚠ AND THE FIRST RUN OF IT WAS 7,070/1.** Two PRE-EXISTING guards went red
   on honest changes, and neither was appeased: `site-apply`'s was pinned to the
   spelling `if (!rdb) return escalate("no-backend")` and `site-delete`'s to an

@@ -775,13 +775,33 @@ test("assertOwner signals failure through `error`, and success carries no flag",
 
 test("no caller tests assertOwner's result for a field it does not have", () => {
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const calls = [...src.matchAll(/const (\w+) = await assertOwner\([^)]*\);\n([^\n]*)/g)];
+  // ⚠ RE-ANCHORED FROM "THE NEXT LINE" TO "THE NEXT CODE" (2026-09-21). This
+  // took `([^\n]*)` — literally the one line below the call — and went red when
+  // the edit route's call site gained a comment explaining why ITS refusal is
+  // re-shaped. The property was never about adjacency: it is that the result is
+  // tested through `.error` and never through an `.ok` this function does not
+  // have. A guard pinned to a position reports a comment as the feature going
+  // away, which is this repo's most repeated own-goal.
+  //
+  // THE WINDOW IS THE NEXT FEW NON-COMMENT LINES, so an intervening note is
+  // ignored and a call site that really tests nothing is still caught: the
+  // window ends at the next `assertOwner` call or 12 lines, whichever is first.
+  const calls = [...src.matchAll(/const (\w+) = await assertOwner\([^)]*\);\n/g)];
   assert.ok(calls.length >= 3, `only found ${calls.length} assertOwner call sites — the scan broke`);
-  for (const [, name, next] of calls) {
-    assert.ok(next.includes(`${name}.error`),
-      `the line after \`${name} = await assertOwner(...)\` does not test \`${name}.error\` — it reads: ${next.trim()}`);
-    assert.ok(!new RegExp(`${name}\\.ok\\b`).test(next),
+  for (const m of calls) {
+    const name = m[1];
+    const after = src.slice(m.index + m[0].length);
+    const stop = after.indexOf("await assertOwner(");
+    const lines = after.slice(0, stop >= 0 ? stop : after.length).split("\n").slice(0, 12)
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l));
+    const code = lines.join("\n");
+    assert.ok(code.includes(`${name}.error`),
+      `\`${name} = await assertOwner(...)\` is never tested through \`${name}.error\` — the code after it reads: ${code.trim().slice(0, 160)}`);
+    assert.ok(!new RegExp(`${name}\\.ok\\b`).test(code),
       `\`${name}.ok\` is always undefined — that branch fires on success too`);
+    // AND THE OBSERVER IS PROVED ALIVE: a window that blanked away to nothing
+    // would satisfy the first assertion vacuously in the other direction.
+    assert.ok(code.trim().length > 0, `the window after \`${name}\` is empty, so the check above is about nothing`);
   }
 });
 
