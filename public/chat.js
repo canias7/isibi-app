@@ -1042,6 +1042,13 @@ const AGENTS_KEY = 'zephyr_agents_v1';
 /** The composer's ceiling. Long enough for a real brief, short enough to store. */
 const AGENT_MAX = 4000;
 const AGENT_NAME_MAX = 60;
+/**
+ * How long a reason for taking a tool away may be — `agent.tool_revocations.note`'s own
+ * CHECK, which is also `TOOL_NOTE_MAX` on the route. **A copy, and censused as one**
+ * (`test/agent-send.test.mjs` reads the cap out of the migration), because a box that lets
+ * somebody type more than the column takes is a refusal after the words are written.
+ */
+const AGENT_REV_WHY_MAX = 2000;
 
 /**
  * The account's agents as the server last answered, or `null`.
@@ -1096,6 +1103,53 @@ let agentDraftFor = null;
  * `tools` key at all, which lands here as `[]` and draws a sentence saying so.
  */
 let agentTools = null;
+// ── a permission taken away, which is NOT the tick above ────────────────────
+//
+// ⚠ **TWO ACTS THAT LOOK ALIKE ON A SCREEN AND ARE OPPOSITE IN WHAT THEY REACH.**
+// The tick decides what the agent's NEXT run is ACCEPTED with, and a run already
+// going keeps the snapshot it was accepted with — deliberately, because a run that
+// loses a tool half way through is a run whose plan no longer works. A REVOCATION is
+// the other act: it says *stop using this now*, the engine re-reads it on every
+// delivery, and it withdraws whatever was waiting for that tool. Neither can stand in
+// for the other, so the screen draws both and says which is which.
+//
+// ⚠ `null` IS "NOT ASKED YET" AND `[]` IS "NOTHING IS TAKEN AWAY", for the same reason
+// the approvals list keeps them apart: a failed read answering `[]` would tell somebody
+// their agent may use a tool the server refuses on every call.
+let agentRevoked = null;       // the tools withheld from the open agent, the server's answer
+let agentRevokedFor = null;    // the agent it was read for
+let agentRevokedErr = '';
+/**
+ * ⚠ **A PRESS'S REFUSAL IS ITS OWN, AND KEEPING IT IN THE READ'S HOLDER LOSES IT —
+ * MEASURED.** Every press re-reads the list afterwards, deliberately, so that what is drawn
+ * is the server's answer rather than what the press hoped for. That read then SUCCEEDS and
+ * clears its own error — so a refusal written into the same field was wiped by the very
+ * re-read that followed it, and somebody pressing a control that failed saw nothing at all.
+ *
+ * Two facts, two holders: this one is *what your press did*, `agentRevokedErr` is *whether we
+ * can tell you what is taken away*. The automations screen keeps the same two apart for the
+ * same reason (`agentAutoErr` and `agentAutoActErr`).
+ */
+let agentRevokeActErr = '';
+let agentRevokeBusy = '';      // the tool a press is in flight for
+/**
+ * Why somebody is taking a tool away, kept across a re-render and a failed press.
+ *
+ * ⚠ **IT IS NOT DECORATION: it is what the agent is TOLD.** `revoke_agent_tool` writes this
+ * onto every request the revocation just answered, and the engine reads it back to the model
+ * as *"the authority for this was withdrawn: …"*. So it reaches somebody, which is the whole
+ * reason the box is offered — and why a failed press must not cost the words.
+ */
+let agentRevokeWhy = '';
+/**
+ * WHAT THE SERVER SAID JUST HAPPENED — its sentence, never one of ours.
+ *
+ * Both routes answer a `say`, and the one about restoring is the one nobody would guess:
+ * *anything that was waiting for it stays withdrawn*. Composing that here would be a second
+ * copy of a claim about somebody's data in a second language, and the copy a person reads is
+ * the one that drifts.
+ */
+let agentRevokeSaid = '';
 /** Whether the settings just saved, for the one line that says so. */
 let agentSaved = false;
 /**
@@ -1669,24 +1723,68 @@ async function agentApprovalsLoad(id) {
 }
 
 /**
- * Answer one of them.
+ * ⚠ **THE THREE THINGS A PERSON MAY DO WITH A WAITING CALL, AND THE DOOR EACH GOES
+ * THROUGH — chosen together, in one entry, because the route and the body are ONE
+ * decision.**
  *
- * **THE SCREEN SENDS THE ID AND THE VERDICT AND NOTHING ELSE.** Who decided is taken by
- * the server from the verified session; there is no field for it here, and there is no
- * tool anywhere that reaches this route — an agent cannot answer its own request because
- * it has no way to be a session.
+ * `/api/agent/tool-approve` carries a verdict and `/api/agent/tool-withdraw` carries
+ * none, and `agent.decide_tool_approval` REFUSES `revoked` as a verdict on purpose: a
+ * withdrawal is not a third verdict, because nobody looked at the call and said no.
+ * So a body naming one at the wrong door would be this screen turning a request being
+ * taken back into a rejection somebody never made. **Two fields chosen in two places is
+ * how that happens; one entry per act is how it cannot.**
+ *
+ * `say` is what the LOSER of a race is told, and it is per act for the same reason: the
+ * sentence for a press that arrived second is about what the first one did.
  */
-async function agentApprovalDecide(id, verdict) {
-  if (!id || agentApprovalBusy) return;
+const AGENT_AP_ACTS = {
+  approved: { path: '/api/agent/tool-approve', body: (id) => ({ id: id, verdict: 'approved' }) },
+  rejected: { path: '/api/agent/tool-approve', body: (id) => ({ id: id, verdict: 'rejected' }) },
+  withdrawn: { path: '/api/agent/tool-withdraw', body: (id) => ({ id: id }) },
+};
+
+/**
+ * WHAT BECAME OF A REQUEST, IN WORDS NOBODY HAD TO LEARN.
+ *
+ * The three verdicts are the DATABASE's — `approved · rejected · revoked` — and two of
+ * them are not English about a decision. *"it was revoked"* reads as something done to
+ * the person who just pressed, where what happened is that the request was taken back
+ * before anybody answered it. **An unknown word is passed through rather than dropped**:
+ * a deployment answering a fourth verdict must not read as nothing having happened.
+ */
+function agentVerdictWord(v) {
+  if (v === 'approved') return 'approved';
+  if (v === 'rejected') return 'turned down';
+  if (v === 'revoked') return 'taken back';
+  return (typeof v === 'string' && v) ? v : 'already answered';
+}
+
+/**
+ * Answer one of them, or take it back.
+ *
+ * **THE SCREEN SENDS THE ID AND THE ACT AND NOTHING ELSE.** Who decided is taken by
+ * the server from the verified session; there is no field for it here, and there is no
+ * tool anywhere that reaches either route — an agent cannot answer its own request
+ * because it has no way to be a session.
+ *
+ * ⚠ **AND ONE PRESS AT A TIME PER REQUEST, which is what `agentApprovalBusy` is for.**
+ * Every button on that row goes dead while one is in flight, so a double click cannot
+ * send a second press and an Approve cannot chase a Withdraw. What it does NOT do is
+ * make the act happen twice if it somehow did: the database's verdict is write-once and
+ * the second press is told whose answer stands.
+ */
+async function agentApprovalAct(id, act) {
+  const door = Object.hasOwn(AGENT_AP_ACTS, act) ? AGENT_AP_ACTS[act] : null;
+  if (!id || !door || agentApprovalBusy) return;
   const bound = agentBind();
   const forAgent = agentMsgsFor;
   agentApprovalBusy = id;
   agentApprovalsErr = '';
   renderAgents();
   try {
-    const res = await apiFetch('/api/agent/tool-approve', {
+    const res = await apiFetch(door.path, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: id, verdict: verdict }),
+      body: JSON.stringify(door.body(id)),
     });
     const j = await res.json().catch(() => ({}));
     if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;
@@ -1696,7 +1794,15 @@ async function agentApprovalDecide(id, verdict) {
       // ⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS. Two people pressing at once is
       // one decision, and showing the loser their own verdict would be this screen saying
       // something the database did not.
-      agentApprovalsErr = 'Somebody already answered that one — it was ' + String(j.verdict) + '.';
+      //
+      // ⚠ **AND A WITHDRAWAL IS NOT AN ANSWER, SO IT DOES NOT GET THE ANSWER'S SENTENCE.**
+      // This printed the verdict verbatim — *"it was revoked"* — which is both unreadable
+      // and wrong about what happened: nobody decided it, it was taken back. It is the
+      // exact case a stale tab produces, pressing Approve on a request that has since been
+      // withdrawn, and the one thing that must never read as an approval.
+      agentApprovalsErr = j.verdict === 'revoked'
+        ? 'That request was taken back before anybody answered it, so it won’t run.'
+        : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';
     }
   } catch {
     if (agentMsgsFor === forAgent) agentApprovalsErr = 'Couldn’t reach the server.';
@@ -1767,6 +1873,60 @@ function agentArgsHtml(args) {
     : '<div class="ag-ap-none">with nothing filled in</div>';
 }
 
+/**
+ * ⚠ **WHAT TAKING ONE REQUEST BACK DOES AND DOES NOT REACH — three scopes, named.**
+ *
+ * Modelled on `AUTO_STOP_SCOPE` and for the same reason: a screen offering one word for
+ * several scopes has somebody cancelling tonight's call when they meant to stop the job, or
+ * taking a tool away for ever when they meant to say no once. The three here are ONE
+ * REQUEST (this control), ONE RUN (stopping it, which ends the whole job) and ONE TOOL
+ * FOR GOOD (a revocation, in the agent's settings).
+ *
+ * **IT DOES NOT PROMISE A STOP CONTROL FOR EVERY RUN, because there is not one.** An
+ * automation's executions have Stop on their own history; a run started by a message has no
+ * such button, so this says where the control IS rather than implying one everywhere.
+ */
+const AGENT_AP_SCOPE = 'Taking it back cancels just this request — the agent is told it may '
+  + 'not make the call and carries on with something else. It is not the same as stopping the '
+  + 'run, which ends the whole job; an automation’s runs can be stopped from its history. And '
+  + 'it does not change what this agent may do next time — to take a tool away for good, use '
+  + 'Taken away right now in its settings.';
+
+/**
+ * ⚠ **WHAT A REVOCATION REACHES, SAID AS WHAT THE BACKEND REALLY DOES.**
+ *
+ * Read off `agent.tool_revocations` and `agent.revoke_agent_tool` rather than from an idea
+ * of what it ought to be:
+ *
+ *   * the primary key is `(tenant, agent, tool)`, so it is THIS AGENT and ONE TOOL — not the
+ *     account, not this agent's other tools, and not another agent that has the same one;
+ *   * **there is no connection-scoped restriction anywhere in the backend**, so this must not
+ *     imply one: stopping an agent reaching one account is disconnecting that account, which
+ *     is its own screen, and saying otherwise here would send somebody to a control that
+ *     does not exist;
+ *   * it is enforced BEFORE the next action of a run already going — the runner re-reads it
+ *     on every delivery — and it withdraws whatever was already waiting for that tool;
+ *   * it is not the tick above it. That decides what the NEXT run is accepted with.
+ */
+const AGENT_REV_SCOPE = 'This is this agent and one tool — not your other agents, and not '
+  + 'anything else this one may use. It stops the tool mid-job: a run already going cannot '
+  + 'use it again, and anything waiting to be approved for it is taken back. It is not the '
+  + 'ticks above, which decide what the agent is allowed next time it starts. To stop it '
+  + 'reaching one connected account, disconnect that account instead.';
+
+/**
+ * A RUN, SHORT ENOUGH TO READ AND LONG ENOUGH TO TELL TWO APART.
+ *
+ * **NOT A LINK AND NOT A NAME.** There is no screen that opens one run of a conversation, and
+ * inventing a friendly word for it would be a label somebody could match against nothing.
+ * What it is FOR is telling two waiting requests apart, which is the whole reason it is drawn
+ * — so an id this cannot read says so rather than drawing an empty gap.
+ */
+function agentRunTag(run) {
+  const s = typeof run === 'string' ? run : '';
+  return s ? s.slice(0, 8) : 'not recorded';
+}
+
 /** One waiting call, as a sentence somebody can act on. */
 function agentApprovalHtml(r) {
   // ⚠ THE ARGUMENTS ARE SHOWN, NOT SUMMARISED. Approving what you were not shown is the
@@ -1794,11 +1954,24 @@ function agentApprovalHtml(r) {
   const until = typeof r.expiresAt === 'string' && r.expiresAt
     ? '<div class="ag-ap-when">Runs out ' + esc(autoWhen(r.expiresAt)) + '</div>'
     : '';
+  // ⚠ **WHICH AGENT AND WHICH RUN ASKED, and the run is the half that was missing.** The
+  // agent is named rather than left to the header, because this row is what a person reads
+  // when they come back to a screen they left; the RUN is what tells two waiting requests of
+  // one agent apart, and until now nothing on screen did.
+  //
+  // **`pending_approvals` SAYS WHICH RUN AND NOTHING ABOUT WHAT KIND OF RUN IT IS** — a
+  // gated call inside a conversation and an automation's send approval both arrive in this
+  // list — so this names the run and stops, rather than composing a sentence about an
+  // automation nobody has read. A name we do not hold is left out rather than guessed.
+  const who = (agentRows || []).find((x) => x && x.id === r.agent) || null;
+  const from = '<div class="ag-ap-who">' + (who ? esc(who.name) + ' · ' : '') +
+    'run ' + esc(agentRunTag(r.run)) + '</div>';
   const busy = agentApprovalBusy === r.id;
   return '<div class="ag-ap" data-ap="' + esc(r.id) + '">' +
     '<div class="ag-ap-t">Waiting for you</div>' +
     '<div class="ag-ap-s">This agent wants to run <b>' + esc(agentToolLabel(r.tool)) + '</b>. ' +
       'Nothing has happened yet.</div>' +
+    from +
     args +
     until +
     '<div class="ag-ap-acts">' +
@@ -1807,8 +1980,20 @@ function agentApprovalHtml(r) {
         : '<button class="ag-ap-yes" data-act="agent-tool-approve" data-id="' + esc(r.id) + '"' +
           (busy ? ' disabled' : '') + '>Approve</button>') +
       '<button class="ag-ap-no" data-act="agent-tool-reject" data-id="' + esc(r.id) + '"' +
-        (busy ? ' disabled' : '') + '>Don’t</button>' +
+        (busy ? ' disabled' : '') + ' title="Somebody looked at this and said no">Don’t</button>' +
+      // ⚠ **THE THIRD ACT, AND THE ROUTE FOR IT HAS BEEN THERE ALL ALONG WITH NOTHING
+      // REACHING IT.** `/api/agent/tool-withdraw` is not a third verdict: nobody decided
+      // the call, the request is being taken back, and the model is told the AUTHORITY was
+      // withdrawn rather than that a person declined. **Drawn even when the arguments
+      // cannot be read**, unlike Approve — taking back a request you cannot see is a
+      // reasonable thing to do, and it is what gets the run moving again.
+      '<button class="ag-ap-no" data-act="agent-tool-withdraw" data-id="' + esc(r.id) + '"' +
+        (busy ? ' disabled' : '') + ' title="Take the request back without deciding it">' +
+        'Take it back</button>' +
     '</div>' +
+    // WHAT EACH OF THOSE REACHES, beside the buttons rather than only in a confirm — a
+    // person deciding needs it before they press.
+    '<div class="ag-ap-who">' + esc(AGENT_AP_SCOPE) + '</div>' +
   '</div>';
 }
 
@@ -6340,6 +6525,10 @@ function renderAgentsNow() {
     // nobody chose would make every such schedule fire at an hour nobody asked for.
     const zoneVal = draft ? (draft.zone || '') : ((cur && typeof cur.zone === 'string') ? cur.zone : '');
     const catalog = Array.isArray(agentTools) ? agentTools : [];
+    // WHAT IS WITHHELD FROM *THIS* AGENT. `agentRevokedFor` is asked as well as the list
+    // itself, so a read that answered for the agent opened before this one cannot mark a
+    // tick here — the same rule the approvals banner follows about its own list.
+    const revoked = (agentRevoked && agentRevokedFor === agentEditing) ? agentRevoked : [];
     view.innerHTML =
       '<div class="ag-page">' +
         '<div class="ag-head">' +
@@ -6370,7 +6559,20 @@ function renderAgentsNow() {
                   '<input type="checkbox" data-tool="' + esc(t.name) + '"' +
                     (picked.indexOf(t.name) >= 0 ? ' checked' : '') + '>' +
                   '<span class="ag-tool-m">' +
-                    '<span class="ag-tool-n">' + esc(t.label || t.name) + '</span>' +
+                    '<span class="ag-tool-n">' + esc(t.label || t.name) +
+                      // ⚠ **A TICKED TOOL WHOSE PERMISSION HAS BEEN TAKEN AWAY READ
+                      // "ALLOWED", AND THE SERVER REFUSES EVERY CALL OF IT.** The tick and
+                      // the revocation are separate rows in separate tables — correctly, so
+                      // that lifting one leaves the other as it was — and this form drew only
+                      // the tick. So the one screen that says what an agent may do disagreed
+                      // with the database, in the direction that reads as permission.
+                      //
+                      // Marked rather than unticked: unticking would say the CONFIGURATION
+                      // changed, which it has not, and would be this screen making a
+                      // decision nobody asked for.
+                      (revoked.indexOf(t.name) >= 0
+                        ? ' <span class="ag-chip ag-chip-off">taken away</span>' : '') +
+                    '</span>' +
                     '<span class="ag-tool-d">' + esc(t.does || '') + '</span>' +
                   '</span>' +
                 '</label>').join('') + '</div>'
@@ -6378,6 +6580,87 @@ function renderAgentsNow() {
             // allow yet — rather than drawing an empty list, which reads as a
             // rendering fault, or a promise about when there will be.
             : '<div class="ag-nothing">There are no tools to give an agent yet. When there are, they’ll be listed here and nothing will be allowed until you tick it.</div>') +
+          // ── what has been taken away, which is not the ticks above ──────
+          //
+          // ⚠ **A SMALL SECTION AND NOT A SIXTH DOOR, and it is HERE for a reason**: the one
+          // thing somebody will get wrong about a revocation is mistaking it for the tick, so
+          // it sits directly under the ticks where the two can be read together and the
+          // difference stated once. **Only for an agent that exists** — a create has no id to
+          // revoke against, and the route would have nothing to answer.
+          //
+          // ⚠ **EVERY PRESS HERE ACTS AT ONCE AND NOT ON SAVE**, which is said out loud: a
+          // control inside a form that does not wait for the form's own button is one
+          // somebody will press expecting to be able to change their mind.
+          (cur
+            ? '<label class="ag-lbl">Taken away right now</label>' +
+              '<div class="ag-hint">' + esc(AGENT_REV_SCOPE) + ' Each of these takes effect ' +
+                'the moment you press it — Save is only for the settings above.</div>' +
+              // THREE STATES, AND THE FIRST TWO ARE NOT THE SAME. `null` is "we have not
+              // asked yet", `[]` is "nothing is taken away" — and a read that FAILED keeps
+              // whatever it had and says so in the line below, rather than drawing an empty
+              // list that reads as a clean bill of health.
+              (agentRevoked === null
+                ? '<div class="ag-hint">Checking what has been taken away…</div>'
+                : (revoked.length
+                    ? '<div class="ag-autos">' + revoked.map((name) =>
+                        '<div class="ag-auto">' +
+                          '<div class="ag-auto-top">' +
+                            '<div class="ag-auto-m">' +
+                              '<div class="ag-auto-n">' + esc(agentToolLabel(name)) + '</div>' +
+                              '<div class="ag-auto-when">It cannot use this, whatever its ticks say.</div>' +
+                            '</div>' +
+                            '<div class="ag-auto-acts">' +
+                              '<button class="ag-auto-btn" data-act="agent-revoke-back" ' +
+                                'data-tool="' + esc(name) + '"' +
+                                (agentRevokeBusy ? ' disabled' : '') + '>' +
+                                (agentRevokeBusy === name ? 'Giving back…' : 'Give it back') +
+                              '</button>' +
+                            '</div>' +
+                          '</div>' +
+                        '</div>').join('') + '</div>'
+                    : '<div class="ag-nothing">Nothing is taken away. This agent may use ' +
+                      'whatever is ticked above.</div>')) +
+              // THE CONTROL THAT TAKES ONE AWAY. A `select` of what is left, because the
+              // catalog is the server's and a box somebody types a tool name into is a
+              // refusal waiting to happen.
+              (catalog.length
+                ? (catalog.some((t) => revoked.indexOf(t.name) < 0)
+                    ? '<div class="ag-auto-acts">' +
+                        '<select class="ag-in" id="agRevPick">' +
+                          catalog.filter((t) => revoked.indexOf(t.name) < 0).map((t) =>
+                            '<option value="' + esc(t.name) + '">' + esc(t.label || t.name) +
+                            '</option>').join('') +
+                        '</select>' +
+                        '<button class="ag-auto-btn" data-act="agent-revoke-take"' +
+                          (agentRevokeBusy ? ' disabled' : '') + '>' +
+                          // ⚠ WHICH PRESS IS IN FLIGHT, DERIVED RATHER THAN HELD. A restore's
+                          // busy tool is one of `revoked` and a take's is not, so this says
+                          // "Taking away…" only for its own press — and a restore in flight
+                          // leaves this button disabled without claiming to be doing it.
+                          (agentRevokeBusy && revoked.indexOf(agentRevokeBusy) < 0
+                            ? 'Taking away…' : 'Take it away') +
+                        '</button>' +
+                      '</div>' +
+                      // ⚠ THE REASON IS WHAT THE AGENT IS TOLD, not a note to ourselves —
+                      // so the label says whose words they become. Optional: with none, the
+                      // database fills in its own sentence.
+                      '<input class="ag-in" id="agRevWhy" maxlength="' + AGENT_REV_WHY_MAX + '" ' +
+                        'data-input="agent-revoke-why" placeholder="Why (optional)" ' +
+                        'value="' + esc(agentRevokeWhy) + '">' +
+                      '<div class="ag-hint">If it is waiting for permission to use that tool ' +
+                        'right now, this is what it will be told.</div>'
+                    : '<div class="ag-hint">Every tool this platform has is already taken away ' +
+                      'from this agent.</div>')
+                : '') +
+              // THE SERVER'S OWN SENTENCE about what just happened — including the one
+              // nobody would guess, that giving a tool back does not re-open the requests
+              // the revocation took away.
+              (agentRevokeSaid ? '<div class="ag-saved">' + esc(agentRevokeSaid) + '</div>' : '') +
+              // BOTH, because they answer different questions: one is what your press did,
+              // the other is whether we can tell you what is taken away at all.
+              (agentRevokeActErr ? '<div class="ag-err">' + esc(agentRevokeActErr) + '</div>' : '') +
+              (agentRevokedErr ? '<div class="ag-err">' + esc(agentRevokedErr) + '</div>' : '')
+            : '') +
           // ── whether it is taking work ───────────────────────────────────
           '<label class="ag-lbl">Status</label>' +
           '<label class="ag-check">' +
@@ -6494,7 +6777,149 @@ function agentOpen(id) {
   agentThreadLoad(agentThread);
 }
 /** The pencil, from inside a thread: edit without losing your place. */
-function agentEdit(id) { agentEditing = String(id || ''); agentActErr = ''; renderAgents(); }
+function agentEdit(id) {
+  agentEditing = String(id || '');
+  agentActErr = '';
+  // ⚠ WHAT IS TAKEN AWAY IS READ WHEN THE FORM OPENS, and thrown away when it opens for
+  // somebody else. Kept from the last agent it would draw another agent's restrictions
+  // beside this one's ticks, which is the one thing this section must never do.
+  agentRevoked = null; agentRevokedFor = null; agentRevokedErr = '';
+  agentRevokeActErr = ''; agentRevokeBusy = ''; agentRevokeSaid = ''; agentRevokeWhy = '';
+  if (agentEditing) agentRevokedLoad(agentEditing);
+  renderAgents();
+}
+
+/**
+ * WHICH TOOLS ARE WITHHELD FROM THIS AGENT RIGHT NOW.
+ *
+ * **SCOPED TO THE AGENT ON THE WIRE**, like every other read here: the route takes the id,
+ * checks it belongs to this account, and answers that agent's. A 404 is what a stranger
+ * gets and what a missing agent gets, so the two cannot be told apart from outside.
+ *
+ * ⚠ **A FAILED READ KEEPS WHAT IT HAD AND SAYS SO.** Answering `[]` would draw a form
+ * claiming every tool is usable while the server refuses each call — *cannot-tell must
+ * never read as a value*, in the one place the value is a permission.
+ */
+async function agentRevokedLoad(id) {
+  const bound = agentBind();
+  try {
+    const res = await apiFetch('/api/agent/revoked-tools?agent=' + encodeURIComponent(id));
+    const j = await res.json().catch(() => ({}));
+    // MOVED ON, OR SIGNED IN AS SOMEBODY ELSE. `agentSameEdit` is the wall for this one
+    // rather than `agentSame`: what decides whether this answer is still wanted is which
+    // agent's FORM is open, not which conversation is.
+    if (!agentSameEdit(bound)) return;
+    if (!res.ok || !j.ok) {
+      agentRevokedErr = (j && j.error) || 'Couldn’t check what has been taken away.';
+    } else {
+      agentRevoked = Array.isArray(j.revoked) ? j.revoked.filter((t) => typeof t === 'string') : [];
+      agentRevokedFor = id;
+      agentRevokedErr = '';
+    }
+  } catch {
+    if (agentSameEdit(bound)) agentRevokedErr = 'Couldn’t reach the server.';
+  }
+  renderAgents();
+}
+
+/**
+ * ⚠ **READ THE FORM BEFORE A PRESS THAT REDRAWS IT, or somebody's typing is the price of
+ * taking a tool away.**
+ *
+ * This form is rebuilt from `innerHTML` and its draft was written in exactly one place —
+ * `agentSave` — so until now the only thing that redrew it was a save. Taking a tool away
+ * is a second thing that redraws it, and without this the name and the instructions in
+ * front of somebody would be replaced by whatever is stored the moment they pressed it.
+ *
+ * **IT READS THE SAME FOUR FIELDS THE SAVE READS**, out of the DOM, so what is held is
+ * what is on screen; and it is a no-op when the boxes are absent, which is what a form
+ * closed between the press and this call looks like.
+ */
+function agentFormRead() {
+  const name = document.getElementById('agName');
+  const instr = document.getElementById('agInstr');
+  if (!name || !instr) return;
+  const zone = document.getElementById('agZone');
+  const paused = document.getElementById('agPaused');
+  agentDraft = {
+    name: name.value || '',
+    instructions: instr.value || '',
+    status: (paused && paused.checked) ? 'paused' : 'active',
+    tools: Array.prototype.slice.call(document.querySelectorAll('[data-tool]'))
+      .filter((b) => b && b.checked).map((b) => b.getAttribute('data-tool')),
+    zone: zone ? (zone.value || '') : '',
+  };
+  agentDraftFor = agentEditing;
+}
+
+/**
+ * TAKE ONE TOOL AWAY FROM THIS AGENT, OR GIVE IT BACK.
+ *
+ * ⚠ **THIS IS NOT THE TICK AND IT DOES NOT TOUCH THE TICK.** The settings the Save button
+ * writes are what the agent's NEXT run is accepted with; this is enforced against a run
+ * already going, the engine re-reads it on every delivery, and it withdraws anything
+ * waiting for that tool. The two are separate rows in separate tables on purpose, so the
+ * two facts can be told apart afterwards.
+ *
+ * ⚠ **AND IT HAPPENS ON THE PRESS, NOT ON SAVE.** A control inside a form that acts
+ * immediately has to say so, and the sentence beside it does.
+ *
+ * `reason` is deliberately offered for taking one away and not for giving one back: a
+ * revocation's note is what the agent is TOLD about the calls it just answered
+ * (`the authority for this was withdrawn: …`), and a restoration answers nobody — it does
+ * not re-open the requests the revocation withdrew, so there is no message to carry.
+ */
+async function agentRevokeAct(tool, how) {
+  const name = typeof tool === 'string' ? tool.trim() : '';
+  const id = agentEditing;
+  if (!name || !id || agentRevokeBusy) return;
+  // WHAT IS TYPED SURVIVES THIS PRESS, which redraws the whole form.
+  agentFormRead();
+  const bound = agentBind();
+  const back = how === 'restore';
+  // THE BOX WHEN IT IS THERE, AND WHAT WAS TYPED INTO IT WHEN IT IS NOT. The input hook
+  // keeps the two in step, so this is the same words either way — and a form closed between
+  // the press and this line still sends what the person wrote.
+  const box = back ? null : document.getElementById('agRevWhy');
+  const why = (box ? (box.value || '') : agentRevokeWhy).trim();
+  agentRevokeBusy = name;
+  agentRevokeActErr = '';
+  agentRevokeSaid = '';
+  renderAgents();
+  let failed = '';
+  let said = '';
+  try {
+    const body = { agent: id, tool: name };
+    // ⚠ **THE FIELD IS `note` ON THE WIRE — the route's own name — AND A BLANK ONE IS NOT
+    // SENT AT ALL.** The route reads an absent note as "none given" and lets the database
+    // fill in its own sentence; an empty string is a note that says nothing, and
+    // `coalesce(p_note, …)` keeps it, so the agent would be told the authority was
+    // withdrawn and given a blank where the reason should be.
+    if (!back && why) body.note = why;
+    const res = await apiFetch(back ? '/api/agent/tool-restore' : '/api/agent/tool-revoke', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!agentSameEdit(bound)) return;
+    if (!res.ok || !j.ok) failed = (j && j.error) || 'Couldn’t change that.';
+    else said = typeof j.say === 'string' ? j.say : '';
+  } catch {
+    if (!agentSameEdit(bound)) return;
+    failed = 'Couldn’t reach the server.';
+  }
+  agentRevokeBusy = '';
+  if (!agentSameEdit(bound)) return;
+  agentRevokeActErr = failed;
+  agentRevokeSaid = said;
+  // ⚠ THE WORDS ARE KEPT WHEN THE PRESS FAILED and dropped when it landed. A reason that
+  // reached the agent has done its job; one that reached nobody is still what somebody
+  // wrote, and making them type it again is the cost of our own failure.
+  if (!failed && !back) agentRevokeWhy = '';
+  // RE-READ EITHER WAY. A refusal may still have been a race somebody else won, so what is
+  // drawn afterwards is the server's answer rather than what this press hoped for.
+  agentRevokedLoad(id);
+}
 function agentList() { agentPollStop(); agentThread = null; agentEditing = null; agentActErr = ''; renderAgents(); }
 /** Cancel returns where you came from — the thread if one is open. */
 function agentCancel() { agentEditing = null; agentDraft = null; agentDraftFor = null; agentActErr = ''; renderAgents(); }
@@ -6782,6 +7207,12 @@ async function agentSave() {
   // An id we cannot read leaves the composer rather than pretending: closing onto
   // the list is the honest answer when we do not know what was made.
   if (!editing) agentEditing = made;
+  // ⚠ **A CREATE THAT BECAME AN EDIT HAS TO READ WHAT IS TAKEN AWAY, or its new section
+  // says "Checking…" for as long as the form stays open.** There can be nothing revoked for
+  // an agent a moment old, so the answer is always `[]` — which is exactly why the read is
+  // needed: `null` draws the loading line, and only an answer turns it into the sentence
+  // that says nothing is taken away.
+  if (!editing && made) agentRevokedLoad(made);
   await agentsLoad(true);
 }
 
@@ -15554,8 +15985,17 @@ const CLICK_ACTIONS = {
   // ⚠ NOT THE TWO ABOVE. Those answer an approval STEP in a workflow; these answer one
   // TOOL CALL a model made in a conversation. Two different things, and a screen that
   // sent one where the other was meant would answer somebody else's question.
-  'agent-tool-approve': (e, el) => agentApprovalDecide(el.dataset.id, 'approved'),
-  'agent-tool-reject': (e, el) => agentApprovalDecide(el.dataset.id, 'rejected'),
+  'agent-tool-approve': (e, el) => agentApprovalAct(el.dataset.id, 'approved'),
+  'agent-tool-reject': (e, el) => agentApprovalAct(el.dataset.id, 'rejected'),
+  'agent-tool-withdraw': (e, el) => agentApprovalAct(el.dataset.id, 'withdrawn'),
+  // ⚠ THE TOOL COMES OFF THE ROW'S OWN ATTRIBUTE for a restore, and off the PICKER for a
+  // take — in both cases what was on screen when somebody pressed, never a re-read of the
+  // list, which a poll or a re-read could have changed in between.
+  'agent-revoke-back': (e, el) => agentRevokeAct(el.dataset.tool, 'restore'),
+  'agent-revoke-take': () => {
+    const pick = document.getElementById('agRevPick');
+    agentRevokeAct(pick ? pick.value : '', 'take');
+  },
   // ── reference material and memory ─────────────────────────────────────────
   'agent-knows': (e, el) => agentKnows(el.dataset.id),
   'agent-know-back': () => agentKnowBack(),
@@ -15623,6 +16063,10 @@ const INPUT_ACTIONS = {
   'agent-msg': (e, el) => { agentDraftSet((el.getAttribute && el.getAttribute('data-agent')) || '', el.value); },
   // THE CONNECT FORM'S OWN BOXES. Read back into the draft as they are typed, so a redraw
   // from anywhere else cannot eat them — and NO RE-RENDER, for the same reason as above.
+  // ⚠ DRAWS NOTHING, like every other input hook here: a re-render per keystroke is the
+  // twitch those hooks exist to remove. What it is for is that this box lives inside a form
+  // something else redraws, so words only in the DOM are words a redraw can take.
+  'agent-revoke-why': (e, el) => { agentRevokeWhy = el ? (el.value || '') : ''; },
   'agent-conn': () => agentConnFormRead(),
   // THE ARRIVAL-ADDRESS FORM'S TWO BOXES, read back into the draft as they are typed, for
   // the same reason and with the same NO RE-RENDER: a redraw from anywhere else must not

@@ -2569,3 +2569,51 @@ test("⚠ WHICH SCHEDULES ARE LOCAL TO SOMEWHERE IS ONE TABLE IN TWO LANGUAGES",
   assert.ok(SITE_NEEDS_ZONE.length >= 1, "no schedule needs a zone, so the derivation found nothing");
   assert.equal(SITE_NEEDS_ZONE.includes("manual"), false, "a manual automation was asked for a time zone");
 });
+
+test("⚠ AUTHORITY STAYS WITH THE CUSTOMER: no tool grants a permission, lifts one, or answers its own request", () => {
+  /**
+   * ⚠ **THE REQUIREMENT IS A NEGATIVE ONE, SO IT NEEDS A CENSUS RATHER THAN A CASE**:
+   * *"It must not grant itself permissions, restore its own access, or approve its own
+   * requests."* A case can only show that the tools we thought of do not; this shows that
+   * NONE of them can, and that one added next month cannot either.
+   *
+   * **THE WALL IS `CAPABILITY_RPC`, which is the whole of what a tool can reach.** Every
+   * capability an agent has is an entry in that map, and the database function it names is
+   * the only thing the engine will call for it — so a permission function absent from the
+   * map is one no tool can reach however it is described. That is a stronger statement than
+   * reading the tool list, because it is about the door rather than about the words on it.
+   *
+   * **AND THE OBSERVER IS ALIVE**: each of these five is asserted to be a door the SITE
+   * really has, or the census would pass just as well over five misspelled names.
+   */
+  const AUTHORITY_RPC = Object.freeze([
+    "decide_tool_approval",  // approve or reject one waiting call
+    "revoke_tool_approval",  // take one request back, before it runs
+    "revoke_agent_tool",     // take a tool away from an agent, now
+    "restore_agent_tool",    // give it back
+    "revoked_tools",         // read which are withheld
+  ]);
+  const store = readFileSync(new URL("../agent-store.mjs", import.meta.url), "utf8");
+  for (const fn of AUTHORITY_RPC) {
+    assert.ok(store.includes(`rpc/${fn}`), `${fn} is not a door the site has — check the name`);
+  }
+  const reachable = new Set(Object.values(CAPABILITY_RPC));
+  for (const fn of AUTHORITY_RPC) {
+    assert.ok(!reachable.has(fn), `a tool can reach ${fn}, so an agent can decide its own permissions`);
+  }
+  // ⚠ **THE OTHER DIRECTION, SAID RATHER THAN LEFT TO BE INFERRED: an agent CAN stop a run
+  // of its own.** `cancelExecution` → `cancel_run` is in the map deliberately — stopping work
+  // is not granting yourself permission to do any — and asserting it keeps this census from
+  // being read as *an agent may touch nothing*, which would make the next person weaken the
+  // wrong list when a legitimate control is added.
+  assert.ok(reachable.has("cancel_run"),
+    "this census is about permission, not about every control — cancel_run has moved");
+  // AND THE CATALOG'S WORDS ARE ASKED TOO, because a tool named for an act it cannot perform
+  // is a promise in the one list a customer reads when they tick permissions. A name is not
+  // the wall — the map above is — but a catalog that reads as though the agent could do this
+  // is its own defect.
+  for (const name of OFFERED_NAMES) {
+    assert.ok(!/approv|revoke|restore|permission/i.test(name),
+      `the tool "${name}" reads as a permission control`);
+  }
+});

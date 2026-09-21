@@ -180,8 +180,16 @@ const NO_SCREEN_YET = (() => {
   if (at === -1) throw new Error(`verify-browser: ${VIEW_GUARD} no longer declares NO_SCREEN_YET`);
   const end = src.indexOf("]", at);
   if (end === -1) throw new Error("verify-browser: NO_SCREEN_YET's declaration does not close");
-  const names = [...src.slice(at, end).matchAll(/"(\/api\/agent\/[a-z-]+)"/g)].map((m) => m[1]);
-  if (!names.length) throw new Error("verify-browser: NO_SCREEN_YET parsed as empty");
+  const decl = src.slice(at, end);
+  const names = [...decl.matchAll(/"(\/api\/agent\/[a-z-]+)"/g)].map((m) => m[1]);
+  // ⚠ **AN EMPTY LIST IS A REAL ANSWER NOW, AND A FAILED PARSE MUST NOT READ AS ONE.** This
+  // threw on empty, which was right while the list had names in it and is wrong now: every
+  // `/api/agent/*` route a person is meant to touch has a screen, so `[]` is what that state
+  // looks like. The two are told apart by what is WRITTEN — a declaration holding quoted
+  // strings this regex could not read is a parse failure and still throws, where one holding
+  // no strings at all is genuinely empty.
+  const quoted = (decl.match(/"/g) || []).length;
+  if (!names.length && quoted) throw new Error("verify-browser: NO_SCREEN_YET could not be parsed");
   return names;
 })();
 // ⚠ EVERY NAME HAS TO BE A REAL ROUTE, so a typo cannot quietly exempt one that does exist.
@@ -197,6 +205,11 @@ for (const p of NO_SCREEN_YET) {
  * verifies is ROUTE-level and says so — every other check presses something a person presses.
  */
 const siteApi = async (path, body = null, query = {}) => {
+  // ⚠ **IT ADMITS NOTHING TODAY, because `NO_SCREEN_YET` is empty — and that is the strongest
+  // form of this file's own claim: there is no route left that a check could reach past the
+  // browser.** Kept rather than deleted, because a route landing before its screen is a
+  // deliberate ordering here and this is the declared door for one; with the list empty the
+  // wall refuses every path, so it cannot quietly become a shortcut in the meantime.
   if (!NO_SCREEN_YET.includes(path)) {
     throw new Error(`${path} has a screen — press it in the browser rather than calling it here`);
   }

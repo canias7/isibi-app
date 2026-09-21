@@ -488,12 +488,19 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
    * ⚠ ROUTES THAT EXIST AND HAVE NO SCREEN YET — a SEPARATE list from `SERVER_ONLY`, because
    * they are separate facts and collapsing them would state something untrue.
    *
-   * `SERVER_ONLY` means *the screen is never meant to call this*. These four are the opposite:
-   * a person is exactly who takes a tool away or stops a run, so each of them WILL be reached
-   * from a screen — the backend landed first, deliberately, on the standing instruction that
-   * the frontend is fine as it is. Putting them in `SERVER_ONLY` would record a design
-   * decision nobody made; leaving them out of both lists would force a screen to be invented
-   * to keep a test green.
+   * ⚠ **IT IS EMPTY, AND THAT IS THE MILESTONE RATHER THAN A TIDY-UP: every `/api/agent/*`
+   * route a person is meant to touch is now reached from a screen.** It went 9 → 4 when the
+   * execution history and the arrivals panel arrived, and 4 → 0 with the pending-approval and
+   * revoked-access controls — the last four being `tool-withdraw`, `tool-revoke`,
+   * `tool-restore` and `revoked-tools`.
+   *
+   * **THE MECHANISM STAYS, because a route may again land before its screen** — that ordering
+   * is deliberate here, not an accident — and an empty list is what says none is waiting.
+   *
+   * `SERVER_ONLY` means *the screen is never meant to call this*, which is the opposite fact:
+   * a person is exactly who takes a tool away or stops a run, so putting one of those on it
+   * would record a design decision nobody made, and leaving a deferred route out of both
+   * lists would force a screen to be invented to keep a test green.
    *
    * **AND THE LIST IS AUDITABLE, WHICH IS THE WHOLE POINT**: every name has to be a real
    * route, so a typo cannot quietly exempt one that does exist, and the list SHRINKS as the
@@ -515,13 +522,19 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
    * a claim about design intent rather than about code. This paragraph said "every shape is
    * inert by construction" until that breakage was driven; it was overstated.
    */
-  const NO_SCREEN_YET = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
-                         "/api/agent/tool-restore", "/api/agent/revoked-tools"];
-  // ⚠ **`/api/agent/run-cancel` AND THE FOUR ENDPOINT ROUTES CAME OFF THIS LIST**, which is
-  // the list doing what it was built to do: *it SHRINKS as the screen arrives rather than
-  // being forgotten*. Each is now reached from the execution history or from the arrivals
-  // panel, and the assertion below — that a deferred name must not already be called — is
-  // what turned each of the five into a red run until it was removed.
+  const NO_SCREEN_YET = [];
+  // ⚠ **`/api/agent/run-cancel`, THE FOUR ENDPOINT ROUTES AND THEN THESE FOUR CAME OFF THIS
+  // LIST**, which is the list doing what it was built to do: *it SHRINKS as the screen
+  // arrives rather than being forgotten*. The assertion below — that a deferred name must not
+  // already be called — is what turned each of the nine into a red run until it was removed.
+  //
+  // ⚠ **AN EMPTY LIST MEANS THE LOOP OVER IT ASSERTS NOTHING, so the claim is made the other
+  // way round and POSITIVELY.** `for (const p of [])` is the recorded dead observer, and with
+  // the list empty every rule below about it is vacuous — so the four this round removed are
+  // named here and each must really be CALLED. That is the live half: it fails if a control
+  // is deleted, where the loop above it could only fail if a name were put back.
+  const GAINED_A_SCREEN = ["/api/agent/tool-withdraw", "/api/agent/tool-revoke",
+                           "/api/agent/tool-restore", "/api/agent/revoked-tools"];
   const paths = Object.keys(AGENT_ROUTES)
     .filter((p) => !SERVER_ONLY.includes(p) && !NO_SCREEN_YET.includes(p));
   assert.ok(paths.length >= 6, `the census is looking at only ${paths.length} routes`);
@@ -541,6 +554,13 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   for (const p of NO_SCREEN_YET) {
     assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} is deferred and does not exist`);
     assert.ok(!called(p), `${p} is on the no-screen-yet list and the screen calls it — take it off`);
+  }
+  // THE FOUR THIS ROUND GAVE A SCREEN, each asserted to be reached — see the paragraph above
+  // `GAINED_A_SCREEN` for why this is the assertion that carries the weight now.
+  for (const p of GAINED_A_SCREEN) {
+    assert.ok(Object.hasOwn(AGENT_ROUTES, p), `${p} gained a screen and does not exist`);
+    assert.ok(!NO_SCREEN_YET.includes(p), `${p} has a screen and is still deferred`);
+    assert.ok(called(p), `${p} has a screen and nothing in chat.js calls it`);
   }
   // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: the matcher finds a route the
   // screen really does call, and refuses one that only shares a prefix with it.

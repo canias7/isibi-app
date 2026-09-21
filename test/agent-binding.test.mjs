@@ -268,8 +268,30 @@ function hydrate(w) {
   // with, `pauseBox` is the control somebody presses. A case that only had the
   // boolean could assert the drawing and never tick the box — which is how a
   // control that answers and is discarded stays invisible.
+  // ⚠ **THE TAKE-A-TOOL-AWAY CONTROLS, HYDRATED FROM WHAT THE FORM REALLY DREW — and the
+  // picker is the case the recorded trap is about.** `hydrateAuto` once read a choice field
+  // by `value="…"`, which **a `<select>` has no attribute for**, so no case had ever read one;
+  // here the browser's `getElementById` CREATES an element on demand with `value: ""`, so a
+  // press would send an empty tool name and return early — the fixture passing every
+  // assertion about a control it never operated. The value comes off the first `<option>`,
+  // which is what a browser shows before anybody touches it, and `pickOptions` is handed back
+  // so a case can choose a different one.
+  const pickBlock = /<select class="ag-in" id="agRevPick">([\s\S]*?)<\/select>/.exec(html);
+  const pickOptions = pickBlock
+    ? [...pickBlock[1].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]) : [];
+  const pickEl = w.s.document.getElementById("agRevPick");
+  if (pickOptions.length) pickEl.value = pickOptions[0];
+  const whyEl = w.s.document.getElementById("agRevWhy");
+  const drawnWhy = val("agRevWhy");
+  if (drawnWhy !== null) whyEl.value = drawnWhy;
+  // WHICH TOOLS THE FORM DREW AS TAKEN AWAY, off the rows themselves rather than off the
+  // state the render read — so a case asserts what somebody can see.
+  const takenAway = [...html.matchAll(/data-act="agent-revoke-back" data-tool="([^"]+)"/g)]
+    .map((m) => m[1]);
   return { html, boxes, drewPause: !!drawnPause, paused: pausedEl.checked, pauseBox: pausedEl,
-           drewZone: drawnZone !== null, zone: zoneEl.value, zoneBox: zoneEl };
+           drewZone: drawnZone !== null, zone: zoneEl.value, zoneBox: zoneEl,
+           pickOptions, pickBox: pickEl, drewPicker: !!pickBlock,
+           whyBox: whyEl, drewWhy: drawnWhy !== null, why: whyEl.value, takenAway };
 }
 
 /**
@@ -4854,7 +4876,7 @@ test("⚠ THE PRESS SENDS THE ID AND THE VERDICT AND NOTHING ELSE", async () => 
   setRows(w);
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  await w.ev('agentApprovalDecide("ap-1", "approved")');
+  await w.ev('agentApprovalAct("ap-1", "approved")');
   const press = sent.find((c) => c.p === "/api/agent/tool-approve");
   assert.ok(press, "the press never reached the server");
   // WHO DECIDED IS THE SERVER'S TO TAKE FROM THE SESSION. A screen that sent one would
@@ -4878,7 +4900,7 @@ test("⚠ A PRESS WHOSE ANSWER LANDS AFTER THE SCREEN MOVED WRITES NOTHING", asy
   setRows(w);
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  const pressing = w.ev('agentApprovalDecide("ap-1", "approved")');
+  const pressing = w.ev('agentApprovalAct("ap-1", "approved")');
   w.ev('agentThread = "B"; agentMsgsFor = "B";');
   gate.release();
   await pressing;
@@ -4897,11 +4919,26 @@ test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS", async () => {
   setRows(w);
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  await w.ev('agentApprovalDecide("ap-1", "approved")');
+  await w.ev('agentApprovalAct("ap-1", "approved")');
   // Somebody else's verdict, in their words — not a silent success that shows this
   // person their own answer standing when it is not.
   assert.match(w.ev("agentApprovalsErr"), /already answered/);
-  assert.match(w.ev("agentApprovalsErr"), /rejected/);
+  // ⚠ **RE-ANCHORED, NOT APPEASED: this demanded the word `rejected`, which was the
+  // DATABASE's token rather than the property.** The property is that the loser is told what
+  // the winner's answer WAS; the token is not English about a decision, and the third one
+  // (`revoked`) is not even an answer. So the sentence is asserted in the words a person
+  // reads, and the raw token is asserted ABSENT — which is the half a spelling could not say.
+  assert.match(w.ev("agentApprovalsErr"), /turned down/);
+  assert.ok(!/\brejected\b/.test(w.ev("agentApprovalsErr")),
+    "the raw verdict token reached the sentence");
+  // AND THE READER IS DRIVEN over every verdict the database can answer, plus one it cannot:
+  // an unknown word is passed through rather than dropped, or a newer deployment's fourth
+  // verdict would read as nothing having happened.
+  assert.equal(w.ev('agentVerdictWord("approved")'), "approved");
+  assert.equal(w.ev('agentVerdictWord("rejected")'), "turned down");
+  assert.equal(w.ev('agentVerdictWord("revoked")'), "taken back");
+  assert.equal(w.ev('agentVerdictWord("something-new")'), "something-new");
+  assert.equal(w.ev("agentVerdictWord(null)"), "already answered");
 });
 
 test("a second press while one is in flight does nothing, and the buttons say so", async () => {
@@ -4913,11 +4950,11 @@ test("a second press while one is in flight does nothing, and the buttons say so
   setRows(w);
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  const first = w.ev('agentApprovalDecide("ap-1", "approved")');
+  const first = w.ev('agentApprovalAct("ap-1", "approved")');
   assert.equal(w.ev("agentApprovalBusy"), "ap-1");
   // The drawn buttons are disabled while it is in flight, read off the real markup.
   assert.match(w.ev(`agentApprovalHtml(${JSON.stringify(WAITING[0])})`), /data-act="agent-tool-approve"[^>]*disabled/);
-  await w.ev('agentApprovalDecide("ap-1", "rejected")');
+  await w.ev('agentApprovalAct("ap-1", "rejected")');
   gate.release();
   await first;
   assert.equal(sent.filter((p) => p === "/api/agent/tool-approve").length, 1,
@@ -4965,7 +5002,7 @@ test("a press whose FAILURE lands after the screen moved says nothing into the n
   setRows(w);
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  const pressing = w.ev('agentApprovalDecide("ap-1", "approved")');
+  const pressing = w.ev('agentApprovalAct("ap-1", "approved")');
   w.ev('agentThread = "B"; agentMsgsFor = "B"; agentApprovalsErr = "";');
   gate.release();
   await pressing;
@@ -4980,7 +5017,7 @@ test("a press whose FAILURE lands after the screen moved says nothing into the n
   setRows(w2);
   w2.ev('agentThread = "A"; agentMsgsFor = "A";');
   w2.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
-  const p2 = w2.ev('agentApprovalDecide("ap-1", "approved")');
+  const p2 = w2.ev('agentApprovalAct("ap-1", "approved")');
   gate2.release();
   await p2;
   assert.match(w2.ev("agentApprovalsErr"), /waiting/, "the failure was swallowed on its own screen");
@@ -6722,4 +6759,324 @@ test("⚠ NO TWO OF THE THREE SCREENS CAN BE OPEN, and each opener clears the ot
   assert.equal(w.ev("agentWh"), null, "the arrivals survived opening the accounts");
   await w.ev('agentWebhooks("A")'); await settle();
   assert.equal(w.ev("agentConn"), null, "the accounts survived opening the arrivals");
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * TAKING A REQUEST BACK, AND TAKING A TOOL AWAY (M17)
+ *
+ * The routes for both have existed since the approval-controls round with nothing
+ * reaching them. What these cases own is the SCREEN: that each press goes through its
+ * own door with its own body, that an answer landing late cannot write into a screen
+ * that has moved, and that the two acts a person will confuse — withdrawing one request
+ * and taking a tool away for good — are drawn as two different things saying so.
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/** Rows where the one tool in `CATALOG` is ticked, so a revocation has something to mark. */
+const TICKED_ROWS = [
+  { id: "A", name: "Agent A", instructions: "a", created: 1, updated: 1, preview: "",
+    status: "active", tools: ["echo"], zone: "Europe/London" },
+];
+
+/** Open the settings form for real, with whatever the revoked-tools route should answer. */
+async function openSettings(revoked, { answer } = {}) {
+  const sent = [];
+  const w = await withCatalog({
+    rows: TICKED_ROWS,
+    answer: (p, init) => {
+      sent.push({ p, body: init && init.body ? JSON.parse(init.body) : null });
+      if (answer) { const r = answer(p, init); if (r) return r; }
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: CATALOG });
+      if (p.startsWith("/api/agent/revoked-tools")) {
+        return revoked === null ? badRes("no such agent", 404)
+                                : okRes({ agent: "A", revoked });
+      }
+      return okRes({});
+    },
+  });
+  w.ev('agentEdit("A")');
+  await settle();
+  return { w, sent };
+}
+
+test("⚠ TAKING A REQUEST BACK GOES THROUGH ITS OWN DOOR, WITH NO VERDICT ON IT", async () => {
+  // ⚠ **NOT A THIRD VERDICT, AND THE DATABASE IS WHY.** `decide_tool_approval` refuses
+  // `revoked` as a verdict on purpose, so a withdrawal carrying one would be refused — and a
+  // withdrawal sent to the APPROVE door with `rejected` on it would be recorded as a person
+  // having declined the call, which nobody did. The route and the body are chosen together in
+  // `AGENT_AP_ACTS`; this asserts what came out.
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, init) => {
+      sent.push({ p, body: init && init.body ? JSON.parse(init.body) : null });
+      return p === "/api/agent/tool-withdraw"
+        ? okRes({ id: "ap-1", withdrawn: true, repeat: false })
+        : okRes({ agents: [], approvals: [], messages: [] });
+    },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalAct("ap-1", "withdrawn")');
+  const press = sent.find((c) => c.p === "/api/agent/tool-withdraw");
+  assert.ok(press, "the withdrawal never reached the server");
+  assert.deepEqual(Object.keys(press.body).sort(), ["id"], "the withdrawal carried more than the id");
+  assert.equal(press.body.id, "ap-1");
+  // AND NOT THROUGH THE OTHER DOOR, which is the half that says the two are separate acts.
+  assert.equal(sent.filter((c) => c.p === "/api/agent/tool-approve").length, 0,
+    "a withdrawal was sent to the approve route");
+  // BOTH ARE RE-READ: the withdrawal put the run back on the queue, and this row is gone.
+  assert.ok(sent.some((c) => c.p.startsWith("/api/agent/tool-approvals")), "the list was not re-read");
+  assert.ok(sent.some((c) => c.p.startsWith("/api/agent/messages")), "the conversation was not re-read");
+  // AND AN ACT NOBODY DECLARED REACHES NOTHING. `AGENT_AP_ACTS` is asked with `hasOwn`, so a
+  // key off the object's prototype cannot pick a door either.
+  sent.length = 0;
+  await w.ev('agentApprovalAct("ap-1", "constructor")');
+  assert.equal(sent.length, 0, "an unknown act reached the server");
+});
+
+test("⚠ THE WAITING ROW SAYS WHICH AGENT AND RUN ASKED, AND OFFERS ALL THREE ANSWERS", () => {
+  const w = loadScreen({ answer: () => okRes({ agents: [] }) });
+  setRows(w);
+  const html = w.ev(`agentApprovalHtml(${JSON.stringify(WAITING[0])})`);
+  // WHICH RUN — the half that was missing, and the only thing that tells two waiting
+  // requests of one agent apart.
+  assert.match(html, /run r1/, "the row does not say which run asked");
+  // WHICH AGENT, by name off the list rather than left to the header.
+  assert.match(html, /Agent A/, "the row does not name the agent");
+  for (const act of ["agent-tool-approve", "agent-tool-reject", "agent-tool-withdraw"]) {
+    assert.match(html, new RegExp(`data-act="${act}"`), `${act} is not offered`);
+  }
+  // ⚠ AND THE DIFFERENCE IS STATED WHERE THE BUTTONS ARE. A person deciding needs it before
+  // they press, and a confirm is gone the moment they answer it.
+  assert.match(html, /not the same as stopping the run/i, "nothing says how this differs from stopping the run");
+  assert.match(html, /Taken away right now/, "nothing says where a tool is taken away for good");
+  // ⚠ THE CONTROL: with arguments nobody can read, Approve is withheld and Take it back is
+  // NOT — refusing a call you cannot see is reasonable, and it gets the run moving again.
+  const blind = w.ev(`agentApprovalHtml(${JSON.stringify(waitingFor({ args: null }))})`);
+  assert.equal(/data-act="agent-tool-approve"/.test(blind), false,
+    "Approve was offered for a call whose arguments could not be shown");
+  assert.match(blind, /data-act="agent-tool-withdraw"/, "Take it back was withheld too");
+  // AND AN ID THIS CANNOT READ SAYS SO rather than drawing an empty gap.
+  assert.match(w.ev(`agentApprovalHtml(${JSON.stringify(waitingFor({ run: "" }))})`), /not recorded/);
+});
+
+test("⚠ A WITHDRAWAL ANSWERED AFTER THE SCREEN MOVED WRITES NOTHING INTO THE NEW ONE", async () => {
+  const gate = held(okRes({ id: "ap-1", withdrawn: true, repeat: false }));
+  const w = loadScreen({
+    answer: (p) => (p === "/api/agent/tool-withdraw" ? gate.p : okRes({ agents: [], approvals: [], messages: [] })),
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  const pressing = w.ev('agentApprovalAct("ap-1", "withdrawn")');
+  w.ev('agentThread = "B"; agentMsgsFor = "B"; agentApprovals = null; agentApprovalsFor = null;');
+  gate.release();
+  await pressing;
+  assert.equal(w.ev("agentApprovals"), null, "the old conversation's list was painted into the new one");
+  assert.equal(w.ev("agentApprovalsFor"), null);
+});
+
+test("⚠ A STALE TAB APPROVING A WITHDRAWN REQUEST IS TOLD IT WAS TAKEN BACK, NOT APPROVED", async () => {
+  // ⚠ **THE CASE THE REQUIREMENT NAMES: *stale tabs must not execute an action twice or
+  // revive withdrawn work*.** The database answers the withdrawal — `repeat: true` with
+  // `verdict: "revoked"` — because the first decision stands and a withdrawal was one. What
+  // this screen must never do is read that as its own approval having landed.
+  const w = loadScreen({
+    answer: (p) => (p === "/api/agent/tool-approve"
+      ? okRes({ id: "ap-1", repeat: true, verdict: "revoked", decidedBy: "acct-A" })
+      : okRes({ agents: [], approvals: [], messages: [] })),
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalAct("ap-1", "approved")');
+  const said = w.ev("agentApprovalsErr");
+  assert.match(said, /taken back/, "a withdrawn request read as something else");
+  assert.match(said, /won’t run/, "nothing said the call will not happen");
+  // ⚠ AND IT IS NOT THE ANSWERED SENTENCE: a withdrawal is not an answer, so saying
+  // "somebody already answered that one" about it would be this screen inventing a decision.
+  assert.equal(/already answered/.test(said), false, "a withdrawal was reported as an answer");
+  assert.equal(/approved/.test(said), false, "the press read as its own approval landing");
+});
+
+test("⚠ OPENING THE SETTINGS READS WHAT IS TAKEN AWAY, AND MARKS THE TICK IT DISAGREES WITH", async () => {
+  // ⚠ **THE DEFECT: a ticked tool whose permission has been taken away read "allowed".** The
+  // tick and the revocation are separate rows in separate tables — correctly — and this form
+  // drew only the tick, so the one screen that says what an agent may do disagreed with the
+  // database, in the direction that reads as permission.
+  const { w, sent } = await openSettings(["echo"]);
+  assert.ok(sent.some((c) => c.p === "/api/agent/revoked-tools?agent=A"),
+    "the form did not ask what is taken away");
+  const f = hydrate(w);
+  assert.deepEqual(f.boxes.map((b) => b.checked), [true], "the tool is not ticked");
+  assert.match(f.html, /taken away<\/span>/, "a revoked tool is drawn as plain allowed");
+  // THE SCOPE, said as what the backend really does — and the one thing it must NOT imply.
+  assert.match(f.html, /this agent and one tool/i, "the scope is not stated");
+  assert.match(f.html, /not the ticks above/i, "nothing distinguishes this from the ticks");
+  assert.match(f.html, /disconnect that account/i, "it does not say what to do about a connection");
+  // AND THE ROW THAT LIFTS IT.
+  assert.deepEqual(f.takenAway, ["echo"], "there is no way to give it back");
+  // ⚠ THE CONTROL: with nothing taken away the tick is NOT marked, and the section says so
+  // rather than drawing an empty list that reads as a rendering fault.
+  const clean = await openSettings([]);
+  const g = hydrate(clean.w);
+  assert.equal(/taken away<\/span>/.test(g.html), false, "a tool nobody revoked was marked");
+  assert.match(g.html, /Nothing is taken away/i);
+  assert.deepEqual(g.takenAway, []);
+});
+
+test("⚠ TAKING A TOOL AWAY SENDS THE AGENT AND THE TOOL, AND DRAWS THE SERVER'S OWN SENTENCE", async () => {
+  const { w, sent } = await openSettings([], {
+    answer: (p) => (p === "/api/agent/tool-revoke"
+      ? okRes({ agent: "A", tool: "echo", withdrew: 1, notified: 1,
+                say: "it cannot use that again — and anything that was waiting for it has been taken back" })
+      : null),
+  });
+  const f = hydrate(w);
+  assert.deepEqual(f.pickOptions, ["echo"], "the picker does not offer the catalog");
+  f.whyBox.value = "not for now";
+  w.ev('INPUT_ACTIONS["agent-revoke-why"](null, document.getElementById("agRevWhy"))');
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, document.getElementById('agRevPick'))");
+  await settle();
+  const press = sent.find((c) => c.p === "/api/agent/tool-revoke");
+  assert.ok(press, "the press never reached the server");
+  assert.deepEqual(Object.keys(press.body).sort(), ["agent", "note", "tool"]);
+  assert.equal(press.body.agent, "A");
+  assert.equal(press.body.tool, "echo", "the tool came from somewhere other than the picker");
+  // ⚠ THE REASON IS WHAT THE AGENT IS TOLD, so it has to arrive as the route's own field.
+  assert.equal(press.body.note, "not for now");
+  // THE SERVER'S SENTENCE, not one of ours — including the part nobody would guess.
+  assert.match(hydrate(w).html, /anything that was waiting for it has been taken back/);
+  // AND THE LIST IS RE-READ afterwards, so what is drawn is the server's answer rather than
+  // what this press hoped for.
+  assert.equal(sent.filter((c) => c.p === "/api/agent/revoked-tools?agent=A").length, 2);
+});
+
+test("⚠ A BLANK REASON IS NOT SENT AT ALL, so the database keeps its own sentence", async () => {
+  const { w, sent } = await openSettings([], {
+    answer: (p) => (p === "/api/agent/tool-revoke" ? okRes({ agent: "A", tool: "echo", say: "done" }) : null),
+  });
+  hydrate(w);
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  await settle();
+  const press = sent.find((c) => c.p === "/api/agent/tool-revoke");
+  // ⚠ `""` IS NOT AN ABSENT NOTE. `coalesce(p_note, 'the permission for this tool was
+  // withdrawn')` keeps an empty string, so the agent would be told the authority was
+  // withdrawn and handed a blank where the reason should be.
+  assert.deepEqual(Object.keys(press.body).sort(), ["agent", "tool"], "an empty reason was sent");
+});
+
+test("⚠ GIVING A TOOL BACK SAYS WHAT IT DOES NOT DO — the withdrawn requests stay withdrawn", async () => {
+  const { w, sent } = await openSettings(["echo"], {
+    answer: (p) => (p === "/api/agent/tool-restore"
+      ? okRes({ agent: "A", tool: "echo", lifted: true,
+                say: "it can use that again from its next action — anything that was waiting for it stays withdrawn" })
+      : null),
+  });
+  hydrate(w);
+  await w.ev(`CLICK_ACTIONS['agent-revoke-back'](null, { dataset: { tool: "echo" } })`);
+  await settle();
+  const press = sent.find((c) => c.p === "/api/agent/tool-restore");
+  assert.ok(press, "the restore never reached the server");
+  // NO REASON ON THIS ONE, and that is deliberate: a restoration answers nobody, so there is
+  // no message for a note to become.
+  assert.deepEqual(Object.keys(press.body).sort(), ["agent", "tool"]);
+  // ⚠ **THE SENTENCE IS THE SERVER'S, because this is the claim nobody would guess and the
+  // one a screen must not soften: lifting a revocation does NOT re-open what it withdrew.**
+  assert.match(hydrate(w).html, /stays withdrawn/,
+    "the screen did not say that the withdrawn requests stay withdrawn");
+});
+
+test("⚠ A FAILED PRESS KEEPS THE REASON AND SAYS WHAT HAPPENED", async () => {
+  const { w } = await openSettings([], {
+    answer: (p) => (p === "/api/agent/tool-revoke"
+      ? badRes("there is no tool called \"echo\"", 400) : null),
+  });
+  const f = hydrate(w);
+  f.whyBox.value = "because";
+  w.ev('INPUT_ACTIONS["agent-revoke-why"](null, document.getElementById("agRevWhy"))');
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  await settle();
+  const after = hydrate(w);
+  assert.match(after.html, /there is no tool called/, "the refusal was swallowed");
+  // ⚠ THE WORDS SURVIVE. A reason that reached nobody is still what somebody wrote, and
+  // making them type it again is the cost of our own failure.
+  assert.equal(w.ev("agentRevokeWhy"), "because", "a failed press cost the reason");
+  assert.equal(after.why, "because", "the box was redrawn empty");
+  assert.equal(w.ev("agentRevokeBusy"), "", "the buttons stayed dead after a refusal");
+});
+
+test("⚠ AN ANSWER THAT LANDS AFTER THE FORM OPENED FOR SOMEBODY ELSE WRITES NOTHING", async () => {
+  const gate = held(okRes({ agent: "A", revoked: ["echo"] }));
+  const w = await withCatalog({
+    rows: TICKED_ROWS,
+    answer: (p) => {
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: CATALOG });
+      if (p.startsWith("/api/agent/revoked-tools")) return gate.p;
+      return okRes({});
+    },
+  });
+  const reading = w.ev('agentRevokedLoad("A")');
+  // The form is closed and opened for another agent while the read is in flight.
+  w.ev('agentEditing = "P";');
+  gate.release();
+  await reading;
+  assert.equal(w.ev("agentRevoked"), null, "another agent's restrictions were written in");
+  assert.equal(w.ev("agentRevokedFor"), null);
+});
+
+test("⚠ A FAILED READ DOES NOT CLAIM NOTHING IS TAKEN AWAY", async () => {
+  const { w } = await openSettings(null);
+  // ⚠ *Cannot-tell must never read as a value*, in the one place the value is a permission.
+  // `[]` would draw a form saying every ticked tool is usable while the server refuses each
+  // call — so the list stays unread and the line says so.
+  assert.equal(w.ev("agentRevoked"), null, "a failed read was recorded as an empty list");
+  const f = hydrate(w);
+  assert.ok(w.ev("agentRevokedErr").length > 0, "a failed read said nothing");
+  // ⚠ **THE SERVER'S OWN WORDS WIN, which is what this assertion had to be re-anchored onto.**
+  // It demanded our fallback sentence and the route really answers one — *"no such agent"* —
+  // so the first draft was red about correct code. What matters is that the failure is DRAWN.
+  assert.match(f.html, /class="ag-err">no such agent</, "the read's failure never reached the screen");
+  assert.equal(/Nothing is taken away/.test(f.html), false,
+    "a read that failed drew a clean bill of health");
+  // AND THE FALLBACK EXISTS for a failure that names nothing, or the line would be blank in
+  // the one case where there is least to go on.
+  const mute = await openSettings([], {
+    answer: (p) => (p.startsWith("/api/agent/revoked-tools") ? badRes("", 500) : null),
+  });
+  assert.match(hydrate(mute.w).html, /Couldn’t check what has been taken away/);
+});
+
+test("⚠ TAKING A TOOL AWAY DOES NOT COST WHAT IS TYPED IN THE FORM ABOVE IT", async () => {
+  // ⚠ **THIS FORM IS REBUILT FROM `innerHTML` AND ITS DRAFT WAS WRITTEN IN EXACTLY ONE PLACE
+  // — the save.** So until these controls arrived, the only thing that redrew it was a save;
+  // a press that redraws it without reading it first replaces what somebody is typing with
+  // whatever is stored.
+  const { w } = await openSettings([], {
+    answer: (p) => (p === "/api/agent/tool-revoke" ? okRes({ agent: "A", tool: "echo", say: "done" }) : null),
+  });
+  const f = hydrate(w);
+  f.whyBox.value = "";
+  w.s.document.getElementById("agName").value = "Renamed but not saved";
+  w.s.document.getElementById("agInstr").value = "half an instruction";
+  await w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  await settle();
+  const after = hydrate(w);
+  assert.match(after.html, /Renamed but not saved/, "the press wiped the name being typed");
+  assert.match(after.html, /half an instruction/, "the press wiped the instructions being typed");
+  // AND THE DRAFT IS THIS AGENT'S, so it cannot be drawn over another one's form.
+  assert.equal(w.ev("agentDraftFor"), "A");
+});
+
+test("a new agent has no taken-away section, because there is nothing to take it away from", async () => {
+  const w = await withCatalog({ rows: TICKED_ROWS });
+  w.ev("agentNew()");
+  const f = hydrate(w);
+  assert.equal(/Taken away right now/.test(f.html), false,
+    "a create offered a control over an agent that does not exist yet");
+  assert.equal(f.drewPicker, false);
+  // THE CONTROL: the same form for an agent that DOES exist draws it.
+  w.ev('agentEdit("A")');
+  await settle();
+  assert.match(hydrate(w).html, /Taken away right now/);
 });
