@@ -11279,3 +11279,33 @@ store's own keys** now — it was a hand-kept literal asserted only to EXIST, wh
 **MEASURED: twenty-five properties red-proofed one at a time from a committed tree, and the four
 gaps they found were all in the new guards rather than the product** — the same-words reopen, the
 by-hand-open case pressing from the wrong screen, `const owner`, and the want's pair.
+
+**Site suite 6,920 → 6,934** (6,932 pass, 2 skipped, 0 fail), and the arithmetic closes exactly:
+`agent-automations` 58 → 61 and `agent-binding` 167 → 178, **both ends measured** — the baseline
+whole-suite and per-file in a detached worktree at the pre-change commit rather than read off a
+note. **CI has read the head `3b1e2a7`**: `unit tests` run **2873**, green, the suite step 110.4 s
+— `# tests 6934 / # pass 6930 / # fail 0 / # skipped 4` against local `6934 / 6932 / 0 / 2`; the
+TOTAL is what matches and the two extra are the recorded environment skips. `agent deploy` run
+**134** green with steps 6–13 all `skipped`, so **nothing was deployed**.
+
+**Sweep (`scripts/mutants/arrival-run-and-form.json`, 39 entries): 37 mutants, 37 killed, 0
+survived, 0 never applied, 2 comment-only controls survived — CLEAN ON THE FIRST PASS.** Taken
+after the run, in a detached worktree so the main tree held no mutant while it ran, against the
+five guard files that can SEE them; every anchor was proved present exactly once by a pre-check
+BEFORE it rather than read as NOT APPLIED afterwards, and the worktree is proved restored **two
+ways** — a clean `git status` and the spec's own anchor census, which cannot pass while a mutant
+is applied.
+
+**AND THE ARRIVAL HOP IS PROVED IN A REAL CHROMIUM, on a real PostgreSQL: `verify:browser` 163
+→ 166 checks, 0 failed, ALL CHECKS PASSED.** Journey 3 reopens the address (the toggle's other
+direction, which 3s/3t only proved one way round), buys a second delivery, and then reads the two
+buttons off the screen: **two arrivals, one automation, two different run ids** — the defect's own
+scenario. Pressing each marks exactly one row, the right one, with no other row marked.
+**⚠ THE ROW IS FOUND BY POSITION AND THE REASON IS A FACT ABOUT THE RENDER**: a row prints
+`data-run` only on its Stop button, which `AUTO_STOPPABLE` draws for `queued`, `running` and
+`waiting`, so an ENDED run's row carries nothing that names it. The index comes from the answer's
+own list, asked for with the same `run=` the screen used. A first draft looked for the id and
+reported the mark as missing when it was drawn, exactly once, on the right row.
+**AND WHAT THE BROWSER DOES NOT BUY IS SAID IN THE SCRIPT**: fifty-one real runs is not something
+a journey can purchase, so the `MAX_EXECUTIONS` boundary is proved where it lives — the store's
+own `limit=` and `order=` on the wire, and the route driven with a full page.

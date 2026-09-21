@@ -14070,8 +14070,13 @@ Three test fixtures turned out to be less capable than the real thing, and each 
 this round's own subject — the worst of them meant every existing test that "saved the address
 form" was saving an empty one, and the words in that form are exactly what the fix turns on.
 
-The whole site test suite is **6,934 and nothing fails**. The real-browser run now presses
-those arrival buttons for real: two deliveries, two runs, and each button opening its own.
+The whole site test suite is **6,934 and nothing fails**, and the same number came back from the
+build server. The real-browser run now presses those arrival buttons for real — two deliveries,
+two runs of one automation, and each button opening its own — and the whole run is **166 checks
+with nothing failing**.
+
+I also broke each fix on purpose, thirty-seven different ways, to check the tests would notice:
+all thirty-seven were caught, first time.
 
 **Nothing is applied, deployed or merged**, no paid call was made, and no real account or
 provider was touched.

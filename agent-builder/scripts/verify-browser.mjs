@@ -1332,29 +1332,53 @@ try {
     // ── PRESS EACH ONE, AND THE RIGHT ROW IS THE ONE MARKED. ─────────────────
     // The mark is read from inside the row that carries that run's own id, never from the page:
     // a count alone is satisfied by a chip on the wrong row.
-    let marks = [];
+    // ⚠ THE SCREEN IS ALREADY THE ARRIVALS ONE HERE, and `agent-webhooks` lives on the agent's
+    // CONVERSATION rather than on this panel — so the walk back is at the END of the body. A
+    // first draft pressed it at the top and timed out on a button that is not on this screen.
+    const marks = [];
     for (const o of opens) {
-      await press(page, "agent-webhooks", "id", agentId);
       await page.waitForSelector(`[data-act="agent-wh-run"][data-run="${o.run}"]`, { timeout: 10_000 });
       await page.click(`[data-act="agent-wh-run"][data-run="${o.run}"]`);
       await page.waitForSelector(`${autoRow(AU3)} .ag-auto-runs`, { timeout: 10_000 });
       await page.waitForFunction(() => /From that arrival/.test(
         document.querySelector("#viewAgents")?.textContent || ""), null, { timeout: 10_000 });
-      marks.push(await page.evaluate((runId) => {
+      /**
+       * ⚠ **THE ROW IS FOUND BY ITS POSITION, because an ENDED run's row carries no id.**
+       *
+       * A row prints `data-run` only on its Stop button, which is drawn for `queued`, `running`
+       * and `waiting` — and journey 3's runs have finished, so there is nothing in the markup
+       * that names which execution a row is. **The order is what makes position sound**: the
+       * rows are drawn straight from the answer's own list, in its order, and that list is asked
+       * for HERE with the same `run=` the screen used — so the index is the screen's index and
+       * not a guess. A first draft looked for the id and reported the mark as missing when it was
+       * drawn, exactly once, on the right row.
+       */
+      marks.push(await page.evaluate(async (a) => {
+        const r = await fetch(`/api/agent/automation-history?id=${a.auto}&run=${a.run}`,
+          { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
+        const runs = (await r.json()).executions || [];
+        const want = runs.findIndex((e) => e && e.id === a.run);
         const rows = [...document.querySelectorAll(".ag-run")];
-        const mine = rows.find((r) => r.querySelector(`[data-run="${runId}"]`));
-        const chips = rows.filter((r) => /From that arrival/.test(r.textContent || "")).length;
-        const loose = /From that arrival/.test(document.querySelector("#viewAgents")?.textContent || "");
-        return { drew: rows.length, chips, loose,
-          onMine: !!mine && /From that arrival/.test(mine.textContent || ""),
-          foundMine: !!mine };
-      }, o.run));
-      await press(page, "agent-auto-back");
+        const chipped = rows.map((el) => /From that arrival/.test(el.textContent || ""));
+        return {
+          drew: rows.length, listed: runs.length, want,
+          chips: chipped.filter(Boolean).length,
+          loose: /From that arrival/.test(document.querySelector("#viewAgents")?.textContent || ""),
+          onMine: want >= 0 && want < rows.length && chipped[want] === true,
+          // AND NO OTHER ROW carries it, which is what makes the count above about the RIGHT row.
+          others: chipped.filter((c, i) => c && i !== want).length,
+        };
+      }, { auto: o.auto, run: o.run }));
+      // THE MARKED HISTORY, captured while it is on screen — taken after the loop it would show
+      // the arrivals list the loop walks back to, which is not the thing being proved.
+      await shot(page, `j3-arrival-run-${o.run.slice(0, 8)}`);
+      await press(page, "agent-auto-back");                // back to the conversation
+      await press(page, "agent-webhooks", "id", agentId);   // and into the arrivals again
     }
     check("3y. ⚠ ...and the history marks THAT run's own row, exactly one of them",
-      marks.length === 2 && marks.every((m) => m.loose && m.chips === 1 && m.foundMine && m.onMine),
+      marks.length === 2 && marks.every((m) =>
+        m.loose && m.chips === 1 && m.want >= 0 && m.onMine && m.others === 0 && m.drew === m.listed),
       JSON.stringify(marks));
-    await shot(page, "j3-arrival-run");
 
     /**
      * ⚠ **WHAT THIS DOES NOT PROVE, said rather than left to be assumed.** The newest page is
@@ -1365,7 +1389,6 @@ try {
      * proved here is that the screen asks for the run and marks the row it gets back.
      */
 
-    await press(page, "agent-webhooks", "id", agentId);
     await page.waitForSelector('[data-act="agent-wh-back"]', { timeout: 10_000 });
     await press(page, "agent-wh-back");
 
