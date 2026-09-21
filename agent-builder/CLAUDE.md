@@ -8710,3 +8710,152 @@ instrument CI does run, which is why it was six commits rather than permanent.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and no paid call was made: the browser never leaves
 loopback, the model is the scripted one and the provider is `fakemail`.
+
+---
+
+## M16: two endpoint tools, and no third (2026-09-21)
+
+Owner: *"Expose the existing cancellation capability in run history and through the agent's tool
+interface… Expose the existing inbound-event configuration through a small section in the current
+automation screen and through server-controlled tools… **Protect signing secrets: never put them
+into model context, ordinary logs, or conversation history.**"* **The site's half — the two
+screens, `heldByWorker` and the four routes coming off `NO_SCREEN_YET` — is in the root
+`CLAUDE.md`**; what belongs here is the engine's, and it is small because the inspection found the
+work already done.
+
+**CANCELLATION NEEDED NOTHING.** `cancel_execution` has been in the catalog since M12 and
+`agent.cancel_run` since M4; what this round added is one field to the migration (recorded on the
+site's side) and a screen. So the engine's whole change is **two capability operations and two
+tools**, and the catalog goes **19 → 21**.
+
+### TWO, AND THERE IS NO THIRD — because a third would be handed a signing key
+
+| tool | what it does |
+|---|---|
+| `list_event_endpoints` | what each is called, which event it raises, whether it is on, and the PATH |
+| `set_event_endpoint` | switch one on or off, **`approval: true`** |
+
+**MAKING AN ENDPOINT IS A PERSON'S DOOR AND CANNOT BECOME A TOOL'S.** `agent.create_webhook`
+answers the secret exactly once, so a tool for it would put a credential into a tool RESULT — into
+model context and into conversation history, which is the one thing the brief forbids by name.
+`agent-store.mjs` is the only caller of that function, and the cross-product census asserts both
+sentences say the agent never sees a signing secret.
+
+- **THE LIST NEVER CARRIES ONE AND CANNOT.** `agent.list_webhooks` does not select the column, so
+  the absence is structural rather than this operation choosing not to answer it — a stronger
+  statement than a filter. Nothing here logs, either: this module has no logger, asserted.
+- **`set_event_endpoint` IS GATED ON THE TOOL AND NEVER ON ITS ARGUMENTS.** Switching an endpoint
+  off silently stops work an account depends on ARRIVING at all, and back on re-opens a door
+  somebody closed — and neither is visible until something does or does not happen. A gate that a
+  model can turn off by writing `enabled: false` is not a gate. **Its sibling read is deliberately
+  NOT gated**, which is what keeps the rule about EFFECT rather than about which seam a tool uses.
+- **`enabled` IS REFUSED, NEVER COERCED, AT BOTH LAYERS** — the tool and the capability, and the
+  two are about different things: a model may write anything into an argument, and the capability
+  is the wall for every caller. `Boolean("false")` is `true`, so the coercing reading keeps taking
+  deliveries for an endpoint somebody meant to close. ⚠ **The obvious mutant for the tool's half
+  was INERT and had to be re-aimed**: `approval: true` sits LATER in the object literal, so an
+  inserted `approval: false` at the top is a duplicate key the later one wins — the recorded
+  duplicate-key trap, met again.
+- **AND A SIBLING AGENT'S ENDPOINT CANNOT BE SWITCHED.** `setEventEndpoint` asks its own
+  `listEventEndpoints` first, because `agent.set_webhook_enabled` is scoped to the tenant and both
+  agents of one owner share a tenant — the wall no tenant filter can see. It is `writes: true` and
+  `repeatable: true`, so it takes an operation identity like every other write.
+
+### ⚠ AND A `writes: true` TOOL WITH NO `_once` WRAPPER TOLD THE AGENT ITS OWN ENDPOINT WAS GONE
+
+**FOUND BY DRIVING IT, and it is invisible from every unit guard by construction.**
+`makeCapabilities`' `mutate` composes `` `${CAPABILITY_RPC[op]}_once` `` — so declaring
+`setEventEndpoint` a write silently commits this product to a SQL function called
+`agent.set_webhook_enabled_once`, **and there was no such function in any migration.** PostgREST
+answers `PGRST202`, the capability refuses, and what reaches the model is *"this agent has no
+inbound endpoint with that id"* — **a dead control that ANSWERS, and answers about the wrong
+thing entirely**: the endpoint is there, it is theirs, and the sentence sends them to look for
+one that is not missing.
+
+**NO UNIT GUARD COULD SEE IT.** Every case in `test/capabilities.test.mjs` drives a FAKE `fetch`
+or a fake capability surface, so the only thing asserted is the request the store SENDS; whether
+the database has a function of that name is a fact about the migrations, which nothing in that
+file read. `verify:tools` section 7e — driving the tool through a real PostgreSQL — is what went
+red, and it went red at the one check that reads the ROW back rather than the tool's sentence.
+
+**AND THE WRAPPER LIVES IN `20260918020000` rather than in the new migration**, because the
+operations table's doors belong in one place — the reason `operation_begin` and `operation_settle`
+were put there rather than beside the connections they were written for. It is that file's own
+shape with the action name and the inner call changed, which is the shape that exists because
+PL/pgSQL cannot invoke a named function with a caller-shaped argument list without dynamic SQL.
+
+**THE CENSUS IS A FILE READ, because that is the only instrument that can answer it.**
+`test/capabilities.test.mjs` walks `supabase/migrations/` and requires every `CAPABILITY_WRITES`
+member to have BOTH its plain function and its `<rpc>_once` wrapper defined — derived from
+`CAPABILITY_RPC` rather than from the suffix, since a suffix is a spelling — **with the reader
+proved alive in both directions** (a name it must find, and one it must not). So a write added
+next month fails by existing rather than by somebody remembering.
+
+### ⚠ AND THE SHIM HAD THE SAME GAP, one hand-kept list over
+
+Fixing the migration did NOT make the demonstration green, and the second half is the more
+interesting one. `scripts/local-rest.mjs` derives each wrapper's ARGUMENT LIST from its inner
+function — deliberately, and its own docblock says why — **but the set of NAMES was typed out**,
+and `set_webhook_enabled` was not on it. So the shim did not serve the wrapper the database now
+has, and the run came back `ran` with no error at all and the row untouched: *a shim less capable
+than the thing it stands in for reports the product as broken*, the **sixth** instance in this
+product.
+
+**IT IS DERIVED NOW — `CAPABILITY_WRITES` through `CAPABILITY_RPC`, the same two constants
+`mutate` composes the name from**, so a write reaching the capability surface reaches the shim by
+existing. **The `throw` beside it is the census and it is stronger than a test**: it fires at
+IMPORT, so every demonstration using the shim refuses to START rather than reporting a wrapper
+the real database has as absent. Measured: the hand-kept list held 8 names and the derivation
+answers 9 — exactly the missing one.
+
+**AND IT IS THE ONE IMPORT FROM `src/` THAT SHIM NOW HAS**, declared where it sits, which is the
+price of the derivation and is cheap: both constants are frozen, dependency-free and already
+loaded by everything else in that directory.
+
+### Measured
+
+- **Engine suite 602 → 603**, 0 failed, and the arithmetic closes exactly: ONE case, the
+  wrapper-existence census above. **⚠ AND THIS LINE READ "602, unchanged, which is the control"
+  BEFORE THE DEMONSTRATION WAS RUN**, which was true of the two tools and false of the round —
+  the census exists because driving them found a wrapper that was never written. The two tools
+  themselves really are assertions inside censuses that already existed
+  (`capabilities.test.mjs`'s total read census gained `listEventEndpoints`).
+- **`npm run verify:tools`: 154 → 168 checks, 0 failed** — section 7e, driving both tools through
+  a real PostgreSQL: a run LISTED as not stopped and then stopped by `cancel_execution` reading
+  how far it got, the *not undone* sentence asserted POSITIVELY as well as negatively, the
+  journal's own single `stopped` entry, a tick afterwards not re-offering it, a second stop
+  writing no second ending, an endpoint made through the PERSON's route answering a 64-character
+  key exactly once, the key asserted absent from the tool result AND from `agent.run_entries` AND
+  from `agent.agent_messages`, the switch holding for a person and then really off in the row, back
+  on again as the control, and a SIBLING agent refused `no-endpoint`.
+- **⚠ AND THE STAND-IN CENSUS IS WHAT FORCED THAT**, rather than a decision to be thorough: it
+  requires every catalog tool to have been really called, so a tool added without a demonstration
+  fails by existing — and the two added here could not be excused, which is how the missing
+  wrapper was reached at all.
+- **`scripts/sweep-spec.mjs` gained three entries** (a coerced `enabled` on the endpoint, a
+  sibling's endpoint switched because the list is not asked) and **the automation-enable mutant
+  was RE-ANCHORED, not appeased**: `setEventEndpoint` refuses a non-boolean in byte-identical
+  words — deliberately, since the two walls exist for the same reason — so the bare line became
+  AMBIGUOUS and the generator refused it rather than letting the mutant land in whichever came
+  first. What separates them is their next line. **`scripts/sql-sweep-spec.mjs` gained two**,
+  and the cancel mutant was re-anchored onto the widened `where`.
+- **⚠ THE SQL IS UNSWEPT AND UNAPPLIED, and that is said rather than rounded into a pass.** The
+  new migration is prepared locally (the round-number name is this folder's tell); its own
+  guarantees — the live-claim read, the run pair `list_events` answers — have not been driven
+  against a real PostgreSQL in this round, and no tally is stamped for them.
+- **AND `set_webhook_enabled_once` CARRIES NO SQL MUTANT EITHER, which is stated rather than
+  implied covered.** `npm run sweep:sql` drives `test/integration/pg-schema.mjs` and
+  `test/authored-run.test.mjs`, and neither reaches that wrapper — so a mutant there would
+  SURVIVE and say nothing, which is the *a property proven only by an instrument the sweep cannot
+  run* trap met before it is written rather than after. What proves it instead is two things that
+  fail differently: `verify:tools` drives it end to end against a real PostgreSQL (the row is read
+  back, not the sentence), and the migration census reads the FILE, so the function existing is
+  checked by something that cannot be fooled by a fake. **This is the recorded per-file count's
+  own lesson** — a clean tally is the same sentence whether a wrapper is covered or missing from
+  the denominator — so the gap is named here where the next reader meets it.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** When it goes the order is the recorded one —
+**migration → engine → site** — and here every link has its own reason: the migration because
+`list_events` answers a shape the store reads, the engine before the site because an endpoint tick
+the live engine cannot honour is a control that answers wrongly, and the site last because it is
+the only half a person touches.

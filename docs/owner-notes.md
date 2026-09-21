@@ -13850,3 +13850,116 @@ touches a file it watches — and I read every figure out of its own step's outp
 the other way round that none was left over, so a step that quietly dropped out would not look
 like a step with nothing to say. Nothing was deployed: the deploy steps all say `skipped`, and the
 log says so in as many words.
+
+---
+
+## M16 — Stop a run, and manage an event trigger (2026-09-21)
+
+**Both of these already worked and neither had a screen.** You could stop a run and you could
+configure an inbound endpoint, from the backend, and there was no button for either. So this
+round is not new machinery — it is the two capabilities becoming things a customer can reach.
+
+### Stopping a run
+
+Every execution in the automation history that has not stopped now has a **Stop** beside it,
+and pressing it asks first. **The confirmation names what stopping does and does not reach**:
+this one run, not the automation and not the agent. Those are three different acts with three
+different scopes, and somebody pressing one may well mean another — so the sentence is next to
+the button rather than somewhere in a help page.
+
+When it has stopped it says how far it got, and **it never claims anything was undone**, which
+is the one thing this feature has to get right: a message that went out went out. It also says
+the part the server cannot know — whether something was working on the run at that moment, in
+which case the step it had already started may finish before it notices. I added the field that
+answers that (`heldByWorker`): the migration reads the live claim *before* releasing the work,
+so "we have recorded the stop" and "it has actually stopped" stop being one word. Nothing else
+could have said that.
+
+Pressing Stop twice is harmless — the second press answers what really happened and writes no
+second ending.
+
+### Managing the event trigger
+
+A new screen on the agent view: which event starts an automation, the addresses that raise it,
+and what became of each delivery. Four words for the four outcomes, because they are four
+different things — *just arrived*, *started a run*, *released something waiting*, *nothing was
+listening* — and the one that started something is the only one that offers a way into the run.
+
+**The signing key is shown exactly once.** Not stored, not in the URL, not readable back, no
+rotate — if you lose it you delete the address and make another, and the panel says so where you
+see the key. There is no rotate deliberately: a rotate has to hand out a new key, which would be
+a second door that gives one out, and the whole point is that one door does.
+
+**And what you are shown is a path, not a web address.** This side rings the agent service
+through a private queue, which carries no address at all — so composing a URL would mean
+inventing one, and an invented address is what somebody configures their system with and which
+then never works. You get `POST /deliver/<id> on the agent service`.
+
+The agent gets two tools here and no third: it can list the addresses and switch one on or off
+(with your approval), and it cannot make one. Making one hands out a signing key, and that is a
+person's door.
+
+### The one sentence the arrivals list has to say out loud
+
+A refused delivery — a wrong signature, a stale timestamp, an address nobody has — leaves **no
+record at all**, by design, so the endpoint cannot be used to find out which ids exist. Which
+means an empty arrivals list would read as *nothing has been rejected*, and that is a claim
+nobody can make. The list says what it does and does not show.
+
+### What I got wrong
+
+**Six of my own thirty-three breakage tests were badly written** and had to be replaced rather
+than relabelled — one was an argument evaluated before the call that clears it, one was a
+duplicate key in an object where the later one wins, one produced an empty `<div>` and changed
+nothing. A test that changes nothing reads exactly like a gap in the tests, so each was measured
+rather than guessed at.
+
+**Three real gaps came out of it.** Nothing anywhere fed the "was something working on it" field
+a value that was neither true nor false nor absent — and those three all read the same either
+way, so the narrowing that stops a junk value becoming a warning was unguarded at both layers.
+Nothing read the open/close button's own attribute, only the function behind it, so a button
+that hardcoded its flag would have worked from a test and sent the wrong thing from a press. And
+the arrivals read had nothing asserting the account goes out with it — the route checks
+ownership first, so the account reached *a* call whatever the read then sent.
+
+**And one paragraph of mine was overstated** and is corrected: it claimed no mutation of the
+"routes with no screen yet" list could be caught. One can — a route left on that list after its
+screen arrives fails a check in the same file, which I drove. So the list shrinking is enforced;
+only the opposite direction is not.
+
+### And driving it found a real one — the agent could not switch an endpoint off at all
+
+**This is the one worth reading.** Letting an agent switch an endpoint on or off makes it a
+*write*, and a write on this platform automatically goes through a database function whose name
+is composed rather than typed — so declaring it a write silently committed us to a function that
+**nobody had written**. The database answered "no such thing", the tool turned that into *"this
+agent has no inbound endpoint with that id"*, and what a customer would have read is that their
+own endpoint had vanished. It was there, it was theirs, and the sentence sent them looking for
+something that was not missing.
+
+**No unit test could have caught it**, and that is not a complaint about the tests: every one of
+them hands the code a fake database, so what they check is the request that goes out and not
+whether a function of that name exists. The thing that caught it is the demonstration that runs
+against a real PostgreSQL — and it only ran at all because an existing rule says every tool in
+the catalog must be really called by one, so a tool added without a demonstration fails by
+existing.
+
+**Then fixing the database did not fix it**, which is the second half. The local stand-in for the
+database derives each function's argument list automatically — deliberately — but the LIST OF
+NAMES was typed out by hand, and the new one was not on it. So the stand-in would not serve the
+function the real database now has, and the run came back successful with the row unchanged: the
+test reporting the product broken because the fixture was less capable than the real thing. Both
+are now derived from the same two lists the composing code uses, so a write added next month
+reaches all three by existing rather than by being remembered.
+
+**Three things are cheaper for it.** A file-reading check now requires every write to have both
+its functions defined in a migration, so this class cannot recur silently. The stand-in refuses
+to START rather than reporting a missing function, which is louder than any test. And the
+hand-kept list is gone.
+
+### Nothing is applied, deployed or merged
+
+The migration is written and not applied. When it goes the order is the one this repository keeps
+recording — **migration, then the agent service, then the site** — and here the reason is sharp:
+the screen reads three columns the live database has not got, so a site shipped first would show
+nothing where somebody expects a list. No paid call was made and no demo site was touched.

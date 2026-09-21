@@ -10901,3 +10901,183 @@ recorded.
   the PARSE's own pattern matched, so it moves with the pattern rather than with the run; the
   per-step figures are what to compare. Saying so beats reading an instrument change as a
   change in the harness.
+
+---
+
+## M16: stopping a run, and managing an event trigger, became things a person can press (2026-09-21)
+
+Owner: *"make the existing run-cancellation and event-trigger capabilities usable through the
+product… Inspect what already exists first. Reuse the engine, routes, permissions, journal, and
+recovery behavior."* **The engine's half — the two tools and the capability — is in
+`agent-builder/CLAUDE.md`**; what belongs here is the site's.
+
+**THE INSPECTION IS WHAT MADE THE ROUND SMALL, and it went first.** Both capabilities were
+complete and neither was reachable from a screen: `agent.cancel_run` writes the `stopped` entry
+synchronously, releases the work row, clears the wait, withdraws pending approvals and is
+idempotent; `agent.webhooks` + five functions and `agent.events` + the dispatcher have existed
+since the triggers round; `cancel_execution` was already in the catalog. **So nothing was
+built** — four site routes came off `NO_SCREEN_YET` and two screens went in.
+
+### ⚠ `heldByWorker` IS THE FACT THAT SEPARATES *recorded* FROM *stopped*
+
+The requirement asks for both, and **nothing in the schema could have said the second.** The
+stop is written synchronously, so the run reads Stopped the instant the route answers — but the
+fence walls a displaced worker off at its **NEXT** checkpoint, so a process already inside a
+model call or a tool batch finishes the step it had started. That window is this repository's
+own recorded limit (*"the window is one model call plus one tool batch"*), and a screen that did
+not mention it would be telling somebody the work has ended when its last step may not have.
+
+- **THE LIVE CLAIM IS READ BEFORE THE RELEASE**, the same shape `v_waited` already uses, and
+  `row_count` on the release could not have stood in: that update matches a queued row nobody
+  holds as readily as a claimed one, so its answer says nothing about whether anybody was on it.
+- **A MISSING WORK ROW OR A LAPSED LEASE READS `false`**, which is the direction that does not
+  invent a delay the platform has not got.
+- **AND IT IS NARROWED AT BOTH LAYERS, `=== true` each time.** The route's and the screen's.
+  ⚠ **A sweep survivor is what made both drivable**: `true`, `false` and absent all read the
+  same through `=== true` and `!!`, so with only those three the coercion is invisible — and a
+  string is what a `cancel_run` older than the field leaves in an answer. Read as a live claim
+  it warns about a step that is not running.
+
+### STOP, AND THE THREE SCOPES SAID BESIDE IT RATHER THAN SOMEWHERE ELSE
+
+- **`AUTO_STOPPABLE` IS DERIVED, NOT CHOSEN.** It is exactly what `executionRow` answers for a
+  run whose `run_status` is not `stopped` — `queued · running · waiting` — censused BOTH ways by
+  driving that reader and reading the constant out of `chat.js`, with every `AUTOMATION_STATES`
+  member forced onto one side. **`unresolved` is deliberately out**: the run has ended, so
+  `cancel_run` answers `alreadyStopped` and a button there is the dead control that ANSWERS.
+- **IT IS REFUSED AT THE PRESS AS WELL AS LEFT UNDRAWN.** The button that was drawn stays in the
+  DOM until the next render and the watch timer can re-read the history in between — the same
+  window `agentAutoDecide` guards. Nothing is harmed either way; what this avoids is telling
+  somebody they stopped something that had already ended.
+- **THE CONFIRMATION NAMES THE OTHER TWO ACTS** (`AUTO_STOP_SCOPE`), because stopping one run,
+  disabling the automation and pausing the agent are three different reaches and a person
+  pressing one may mean another. **The sentence is beside the button too**, not only in the
+  confirm, so it is readable before anybody commits to reading a dialog.
+- **THE COUNTS ARE THE FUNCTION'S AND THE *not undone* CLAUSE IS ITS SENTENCE**, preferred over
+  a copy here — that claim is `agent.cancel_run`'s to make, and a second copy drifts from what a
+  cancellation really reaches. What the screen adds is the half the server cannot know.
+- **A SECOND STOP ANSWERS WHAT REALLY HAPPENED** and writes no second ending.
+
+### THE ARRIVALS SCREEN, AND THE ONE SENTENCE IT HAS TO SAY OUT LOUD
+
+- **FOUR STATES OFF ONE DISCRIMINATOR.** `eventRow`'s `handled_at` decides, never the counts:
+  `filed` and `woke` both default to `0`, so a row the dispatcher has never seen carries the same
+  two zeros as one it looked at and found nobody for. **A stamp it cannot read is `queued`**,
+  which is fail-closed — being wrong that way says *not yet* about something finished, and the
+  other way says *nothing was listening* about an arrival nobody has examined. ⚠ **A guard case
+  is what made the emptiness load-bearing**: `""` is a string, and its neighbours here can be
+  laxer because a blank they draw is a blank on screen.
+- **THE COUNTS RIDE ONLY ON THE STATES THEY ARE ABOUT**, exactly as `run_open_calls` does one
+  reader over: a `0` on `ignored` invites somebody to draw it.
+- **⚠ A REFUSED DELIVERY LEAVES NO ROW, BY DESIGN — so the list says what it does not show.**
+  `/deliver/<id>` refuses a wrong signature, a stale timestamp and an unknown id before any row
+  is written, in ONE sentence so it cannot be used to probe which ids exist. An empty section
+  would otherwise read as *nothing has been rejected*, which is a claim nobody can make.
+- **`list_events` NAMES EACH RUN'S AUTOMATION, and without that the list is unopenable.** An
+  execution is read through its automation's history, so a bare run id puts *"it started two
+  runs"* on screen with no way to reach either — *show the relevant execution* met in words and
+  not in a control. **An entry missing either half is DROPPED**, because a row that cannot be
+  opened is a button that answers nothing.
+- **AND THE OWNER IS READ BEFORE ANYTHING IS CLEARED.** `agentAutomations` is what closes this
+  screen, so reading `agentWh` after it answers `null` and the automations list opens for
+  nobody. ⚠ **The obvious mutant for that is INERT and was replaced**: an argument is evaluated
+  before the call that clears it, so `agentAutomations(agentWh)` still passes the live value.
+
+### ⚠ THE SIGNING KEY HAS ONE DOOR, AND EVERY HALF OF THAT IS LOAD-BEARING
+
+`agent.create_webhook` takes the secret and does not answer it; `agent.list_webhooks` never
+selects the column; **there is no rotate** — deliberately, because a rotate has to hand back a
+new key, which is a SECOND door that gives one out, and delete-and-make-another does the same
+job through the door that already exists. So the create's own answer is the only time it exists
+outside the database, it is held in memory and dropped, **nothing stores it** (not
+`localStorage`, not the URL, and a reload loses it), and the panel says so where the key is.
+
+**AN ANSWER THAT LANDS AFTER THE SCREEN MOVED SHOWS NOBODY THE KEY** — the one value here where
+showing it on the wrong screen is worse than losing it, and the address exists either way.
+
+**⚠ AND IT IS A PATH, NEVER A URL.** This product rings the engine through a queue BINDING,
+which carries no address, so composing one would mean inventing an origin — and an invented
+origin is what somebody configures their system with and which never works. `webhookPath`
+answers `/deliver/<id>` and the sentence beside it says whose service.
+
+### The screen is the existing one, and no class is new
+
+Both screens reuse the automations row's own classes (`ag-auto`, `ag-auto-top`, `ag-auto-m`,
+`ag-run`, `ag-chip-*`, `ag-form`, `ag-hint`, `ag-err`). **Every one of the forty was checked to
+have a rule in `styles.css`** — the owner directs the design, and *a class with no rule is a
+control nobody can see*, which this repository has already paid for once with five invented
+`ag-conn-*` names. `css-reachable` is still at zero unreachable rules. **The chip colours are
+the execution history's own**, so an arrival that started something reads the way a running run
+does and one nobody was listening for reads the way a skipped step does.
+
+**THE THREE SCREENS CLEAR EACH OTHER**, and the view switch reads them in one order — which is
+what makes "no two can be open" a property rather than a convention.
+
+### ⚠ THE OPEN/CLOSE BUTTON'S FLAG COMES OFF ITS OWN ATTRIBUTE
+
+The row somebody looked at is what the press must act on; re-reading the row could answer a
+state something has since changed, so the press would toggle the opposite way from what it said.
+⚠ **A sweep survivor is why that is asserted**: every case drove `agentWhEnable` directly, so a
+button hardcoding its flag sends the right thing from a test and the wrong thing from a press —
+an open address offering "Open", a closed one never openable. Both the attribute and the word
+are read now, for an open row AND a closed one.
+
+### `NO_SCREEN_YET` SHRANK 9 → 4, which is the list doing what it was built for
+
+`/api/agent/run-cancel` and the four endpoint routes came off it. ⚠ **AND ITS OWN PARAGRAPH WAS
+OVERSTATED AND IS CORRECTED**: it said every mutation of that list is inert by construction, and
+one shape is not — a route left on it after its screen arrives fails the census in the same file,
+because a name there must not already be called. Driven. So the list SHRINKING is enforced and
+only the opposite direction is unguarded, which is a claim about design intent rather than code.
+
+**AND THE TENANT CENSUS'S FAKE STORE NEEDED `listEvents`** — a fake missing one makes the route
+throw and the census reads a 502, naming the wrong thing entirely. **Sixth time in that file.**
+
+### Measured
+
+- **Site suite 6,902 → 6,919** (6,917 pass, 2 skipped, 0 fail), and **the arithmetic closes
+  exactly per file**: `agent-automations` 55 → 58, `agent-binding` 153 → 166, `agent-send`
+  75 → 76; `agent-api` 56 and `agent-builder-view` 14 unchanged in count and stronger in what
+  they ask. **Both ends measured in a clean worktree at HEAD** rather than read off a note —
+  a worktree run reads one extra FAILURE (`render-sandbox`'s privilege-drop case, which is about
+  writing outside the repository root), so the TOTAL is what carries across.
+- **Engine suite 602 → 603**, 0 failed — one case, and it is there because **driving the two new
+  tools found a defect no unit guard could see**: `setEventEndpoint` is `writes: true`, so
+  `mutate` composes `agent.set_webhook_enabled_once`, and no migration defined it — PostgREST
+  answers `PGRST202`, the capability refuses, and the agent is told **its own endpoint does not
+  exist.** A dead control that ANSWERS, about the wrong thing. **The full account, and the shim's
+  identical gap one hand-kept list over, is in `agent-builder/CLAUDE.md`.**
+- **`npm run verify:tools`: 154 → 168 checks, 0 failed** — section 7e drives both tools through a
+  real PostgreSQL, and it is what went red. **⚠ AND THAT IS LOCAL EVIDENCE, as the line below
+  says**: CI would not have caught this either.
+- **THIRTY-THREE BREAKAGES DRIVEN ONE AT A TIME, each against the case written for it**, with
+  the tree restored between each and the work COMMITTED first (a hand red-proof loop restores
+  with `git checkout`, which restores to HEAD — this repository has already lost a fix that way).
+  Six of my own were badly written and were REPLACED rather than relabelled: an empty `<div>`,
+  an argument evaluated before the call that clears it, a duplicate object key the later one
+  wins, a parameter renamed and reassigned, and two aimed at the wrong half of a pair.
+- **⚠ AND THREE SURVIVORS WERE REAL GAPS**, each closed with its own control: the truthy
+  non-boolean at both `heldByWorker` layers, the button's own attribute, and the arrivals
+  read's request census — where the route asks `ownsAgent` FIRST, so the tenant reached *a* call
+  whatever `listEvents` then sent and dropping `p_tenant` from its body changed nothing.
+- **Site sweep (`scripts/mutants/stop-and-arrivals.json`, 34 entries): 32 mutants, 32 killed,
+  0 survived, 0 never applied, 2 comment-only controls survived — CLEAN ON THE FIRST PASS.**
+  Taken after the run, in a detached worktree so the main tree held no mutant while it ran,
+  against the eleven guard files that can SEE them — *a narrow list can only produce a false
+  SURVIVOR, never a false kill*, so the full suite still decides and it is green at 6,919. **The
+  worktree is proved restored TWO WAYS**: `git status` clean with an empty diff against the
+  commit, and the spec's own anchor census green over all 34 entries — which it cannot be while
+  a mutant is applied. The two numbers never need reconciling by arithmetic because the runner
+  counts PRODUCT mutants and reports controls on their own line: 32 + 2 = 34.
+- **Every anchor was proved present exactly once BEFORE the run** rather than read as NOT APPLIED
+  afterwards, and the breakages are COMMITTED, so they are re-runnable rather than having existed
+  only in a terminal.
+- **⚠ `npm run test:pg` AND EVERY `verify:*` ARE LOCAL EVIDENCE ONLY**, which this repository
+  records: CI runs the root suite and the engine's suite and nothing else. The migration is
+  unapplied, so its own guarantees are unverified against a real PostgreSQL in this round.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED.** `20260921000000_agent_stop_and_event_log.sql` is
+prepared locally and the round-number name is that folder's own tell. When it goes the order is
+the recorded one — **migration → engine → site** — and the site's reason is the sharpest: its
+arrivals screen reads columns the live database has not got, so a site shipped first would draw
+nothing where somebody expects a list.

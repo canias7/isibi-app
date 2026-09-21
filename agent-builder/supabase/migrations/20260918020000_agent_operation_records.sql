@@ -545,6 +545,108 @@ end $$;
 revoke all on function agent.set_automation_enabled_once(text, text, text, uuid, uuid, boolean) from public;
 grant execute on function agent.set_automation_enabled_once(text, text, text, uuid, uuid, boolean) to service_role;
 
+-- ── SWITCHING AN INBOUND ENDPOINT IS A WRITE, SO IT NEEDS ITS OPERATION RECORD ─────────────
+--
+-- ⚠ **WITHOUT THIS THE TOOL COULD NEVER HAVE WORKED, and the demonstration is what said so.**
+-- `set_event_endpoint` is `writes: true`, so `makeCapabilities`' `mutate` composes
+-- `<rpc>_once` — `agent.set_webhook_enabled_once` — and there was no such function: PostgREST
+-- answers `PGRST202`, the capability refuses, and the agent is told **its own endpoint does not
+-- exist**. A dead control that ANSWERS, which is this repository's worst recorded shape of that
+-- finding, and no unit guard could see it: every one of them drives a FAKE `fetch`, so the
+-- composed name is never resolved against anything. `verify:tools` section 7e found it on its
+-- first run, in one check, by reading the ROW rather than the sentence.
+--
+-- **IT IS THE SAME SHAPE AS ITS SIBLINGS AND DELIBERATELY NOT A NEW ONE** — the record is the
+-- arbiter of every failure, a committed twin's answer is authoritative, and anything else is
+-- re-raised as itself. A second design for one contract is how two of them come to disagree
+-- about what a retry means. The only per-operation parts are the action's NAME and the inner
+-- call, which is why this is that shape rather than a call into a shared one: PL/pgSQL cannot
+-- invoke a named function with a caller-shaped argument list without dynamic SQL, and dynamic
+-- SQL here would take a function name from a string.
+--
+-- ⚠ **AND IT LIVES IN THIS FILE RATHER THAN IN THE NEW ONE**, because the operations table's
+-- doors belong in one place — the reason `operation_begin` and `operation_settle` were put here
+-- rather than beside the connections they were written for.
+
+create or replace function agent.set_webhook_enabled_once(
+  p_tenant    text,
+  p_op_key    text,
+  p_args_hash text,
+  p_op_run    uuid,
+  p_id      uuid,
+  p_enabled boolean
+) returns jsonb
+  language plpgsql security definer set search_path = '' as $$
+declare
+  v_check jsonb;
+  v_out   jsonb;
+  v_lost  boolean := false;
+  v_state text;
+  v_msg   text;
+begin
+  v_check := agent.operation_check(p_tenant, p_op_key, 'set_webhook_enabled', p_args_hash);
+  if v_check ->> 'state' = 'repeat' then
+    -- ANSWER WHAT HAPPENED, MARKED AS A REPEAT. The mark is additive so every field the
+    -- first attempt answered comes back unchanged, and a caller that ignores it is correct.
+    return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+  end if;
+  if v_check ->> 'state' <> 'fresh' then
+    return jsonb_build_object('ok', false, 'error', 'operation-' || (v_check ->> 'state'),
+                              'was', v_check ->> 'action');
+  end if;
+
+  -- ⚠ A SUBTRANSACTION, AND IT CATCHES EVERYTHING — because the race can be lost in two
+  -- different places and only one of them was obvious.
+  --
+  -- The obvious one is the operation record's own primary key. The other was MEASURED, by a
+  -- concurrency check bought for exactly that purpose: two first attempts both read `fresh`,
+  -- both call the inner function, and **the INNER function's own unique key refuses one of
+  -- them** — `duplicate key value violates unique constraint "agent_memory_one_per_key"`,
+  -- HTTP 409, where the caller wanted the twin's answer. The inner functions are not
+  -- concurrency-safe on their own and were never asked to be.
+  --
+  -- **SO THE RECORD IS THE ARBITER OF EVERY FAILURE, not of its own.** Anything that goes
+  -- wrong rolls the work back, and then the record decides what it was: a committed twin
+  -- means we lost a race and its answer is the authoritative one; no twin means the failure
+  -- is genuinely ours and is RE-RAISED with its own code and message. Swallowing it would
+  -- turn a real refusal into a silent `ok: false`, which is the direction that loses work.
+  begin
+    v_out := agent.set_webhook_enabled(p_tenant := p_tenant, p_id := p_id, p_enabled := p_enabled);
+    if not agent.operation_record(p_tenant, p_op_key, 'set_webhook_enabled', p_args_hash, p_op_run, v_out) then
+      raise exception 'another delivery recorded this operation first'
+        using errcode = 'AG001';
+    end if;
+  exception when others then
+    v_lost  := true;
+    v_state := sqlstate;
+    v_msg   := sqlerrm;
+  end;
+
+  if v_lost then
+    -- `on conflict do nothing` waits for a conflicting twin, and every statement takes a
+    -- fresh snapshot under READ COMMITTED — so by the time we are here the twin has
+    -- finished, and if it committed, this read sees it.
+    v_check := agent.operation_check(p_tenant, p_op_key, 'set_webhook_enabled', p_args_hash);
+    if v_check ->> 'state' = 'repeat' then
+      return (v_check -> 'outcome') || jsonb_build_object('repeat', true);
+    end if;
+    -- NOT THE RACE. Our own failure, and it goes out as itself. The message carries
+    -- Postgres's own words (the constraint name included); DETAIL and HINT are lost to the
+    -- re-raise, which is stated rather than glossed.
+    if v_state <> 'AG001' then
+      raise exception '%', v_msg using errcode = v_state;
+    end if;
+    -- `AG001` with no twin to read is the one residue: the record was taken and is gone
+    -- again, which means the twin rolled back after winning the key. Named rather than
+    -- retried here, because a retry belongs to whoever can decide to make one.
+    return jsonb_build_object('ok', false, 'error', 'operation-lost', 'action', 'set_webhook_enabled');
+  end if;
+  return v_out;
+end $$;
+
+revoke all on function agent.set_webhook_enabled_once(text, text, text, uuid, uuid, boolean) from public;
+grant execute on function agent.set_webhook_enabled_once(text, text, text, uuid, uuid, boolean) to service_role;
+
 create or replace function agent.accept_automation_run_once(
   p_tenant    text,
   p_op_key    text,

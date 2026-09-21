@@ -1058,6 +1058,143 @@ try {
   check("⚠ ...and the request recorder is ALIVE, or none of the five above means anything",
     rest.seen().some((r) => /^GET \S*\/agent_memory/.test(r)), JSON.stringify(rest.seen()));
 
+  // ═════════════════════════════════════════════════════════════════════════
+  console.log("\n7e. LISTING RUNS, STOPPING ONE, AND MANAGING AN INBOUND ENDPOINT");
+  // ═════════════════════════════════════════════════════════════════════════
+  /**
+   * The milestone's own three: *listing runs, stopping a selected run, and managing an event
+   * trigger*, driven by the scripted model through real messages.
+   *
+   * ⚠ **SCRIPTED, AND THE LABEL IS THE POINT.** `standInArgs` fills each declared property by
+   * NAME from the request's words; nothing here understands a sentence, and an identifier is
+   * the one thing a stand-in can never invent, which is why every ask below spells one out.
+   * What this demonstrates is the PLATFORM — the tools, the approval gate, the cancellation's
+   * own journal entry and the endpoint's row — and not language.
+   */
+  const evAg = (await api("/api/agent/create", {
+    body: { name: "Arrivals", instructions: "Look after the shop's arrivals.", zone: "Europe/London" },
+  })).body.agent.id;
+  await api("/api/agent/update", { body: { id: evAg, name: "Arrivals",
+    instructions: "Look after the shop's arrivals.", tools: [...CAPABILITY_TOOLS.map((t) => t.name)] } });
+
+  // ── STOPPING A SELECTED RUN ────────────────────────────────────────────────
+  /**
+   * ⚠ **THE EXECUTION HAS TO STILL BE GOING, so the sweep is withheld.** A tick offers every
+   * unheld work row, so an automation started and then swept has FINISHED by the next line and
+   * `cancel_execution` correctly answers `alreadyStopped` — which is this helper's own recorded
+   * measurement. Started and not swept, the execution is queued: the state a person really
+   * presses Stop on.
+   */
+  const evAuto = (await api("/api/agent/automation-create", {
+    body: { agent: evAg, name: "Nightly note", enabled: true, schedule: "manual", inputs: [],
+            steps: [{ type: "note", text: "something to stop" }] },
+  })).body.id;
+  const evStarted = await askOk(evAg, `use run_automation with id=${evAuto}`, "approved", A, false);
+  const evList = await api("/api/agent/automation-history", { query: { id: evAuto } });
+  const evRun = (evList.body.executions || [])[0] || null;
+  check("⚠ a run the agent started is LISTED, and it has not stopped",
+    !!evRun && ["queued", "running", "waiting"].includes(evRun.state),
+    JSON.stringify({ started: evStarted.status, state: evRun && evRun.state }));
+
+  // AND THE AGENT'S OWN LIST IS THE SAME ONE, which is what makes `list_executions` the tool
+  // for a person asking their agent what is going on rather than a second view of it.
+  const evSaw = toolResult((await askOk(evAg, `use list_executions with automation=${evAuto}`, "approved", A, false)).body.runId);
+  check("⚠ ...and `list_executions` names that same execution",
+    (evSaw.executions || []).some((e) => e.id === evRun.id),
+    JSON.stringify((evSaw.executions || []).map((e) => [e.id, e.state])));
+
+  const evStopSaid = toolResult((await askOk(evAg, `use cancel_execution with id=${evRun.id}`, "approved", A, false)).body.runId);
+  check("⚠ STOPPING THE SELECTED RUN, through the tool, says how far it got",
+    evStopSaid.ok === true && typeof evStopSaid.completedSteps === "number",
+    JSON.stringify(evStopSaid).slice(0, 220));
+  // ⚠ **AND IT NEVER CLAIMS ANYTHING WAS UNDONE**, which is the one thing this has to get right.
+  // Asserted POSITIVELY as well, because the honest sentence contains the word `undone` and a
+  // needle that merely forbade it would go red about the thing it was written to demand.
+  check("⚠ ...and the sentence says what already ran STANDS rather than that it was undone",
+    /not undone|already run/i.test(String(evStopSaid.say || ""))
+    && !/rolled back|has been undone|was undone(?! )/i.test(String(evStopSaid.say || "")),
+    JSON.stringify(evStopSaid.say));
+  // THE JOURNAL IS THE EVIDENCE, not the sentence: one `stopped` entry carrying the reason.
+  check("⚠ ...and the execution really stopped, read out of its own journal",
+    q(`select count(*) from agent.run_entries where run_id = '${evRun.id}' and body ->> 'kind' = 'stopped';`) === "1"
+    && q(`select coalesce(status, '') from agent.runs where id = '${evRun.id}';`) === "stopped",
+    `entries=${q(`select count(*) from agent.run_entries where run_id = '${evRun.id}' and body ->> 'kind' = 'stopped';`)} status=${q(`select coalesce(status, '') from agent.runs where id = '${evRun.id}';`)}`);
+  // AND NOTHING RE-OFFERS IT: a tick afterwards leaves it where it is.
+  await tick(); await drain();
+  check("⚠ ...and a tick afterwards does not start it again",
+    q(`select count(*) from agent.run_entries where run_id = '${evRun.id}' and body ->> 'kind' = 'stopped';`) === "1",
+    "a stopped execution was re-offered and ran on");
+  // STOPPING IT AGAIN IS HARMLESS and says so rather than pretending it did something.
+  const evAgain = toolResult((await askOk(evAg, `use cancel_execution with id=${evRun.id}`, "approved", A, false)).body.runId);
+  check("⚠ ...and stopping it a second time writes no second ending",
+    evAgain.ok === true && evAgain.alreadyStopped === true
+    && q(`select count(*) from agent.run_entries where run_id = '${evRun.id}' and body ->> 'kind' = 'stopped';`) === "1",
+    JSON.stringify(evAgain).slice(0, 200));
+
+  // ── MANAGING AN EVENT TRIGGER ──────────────────────────────────────────────
+  /**
+   * ⚠ **MAKING THE ENDPOINT IS A PERSON'S DOOR AND THERE IS NO TOOL FOR IT.** The create is the
+   * only thing that ever answers a signing key, so a tool for it would put a credential into a
+   * tool RESULT — into model context and into conversation history, which the brief forbids by
+   * name. So this half goes through the SITE's route, exactly as the screen does.
+   */
+  const evMade = await api("/api/agent/webhook-create", {
+    body: { agent: evAg, name: "The shop's orders", event: "order.paid" },
+  });
+  check("⚠ an inbound endpoint is made through the PERSON's route, and answers its key once",
+    evMade.status === 200 && typeof evMade.body.secret === "string" && evMade.body.secret.length >= 64
+    && evMade.body.path === `/deliver/${evMade.body.id}`,
+    JSON.stringify({ status: evMade.status, path: evMade.body.path, keyLen: (evMade.body.secret || "").length }));
+  const evWh = evMade.body.id;
+
+  const evTold = toolResult((await askOk(evAg, "use list_event_endpoints", "approved", A, false)).body.runId);
+  const evMine = (evTold.endpoints || []).find((w) => w.id === evWh) || null;
+  check("⚠ THE AGENT CAN SEE IT — what it is called, which event it raises, and its PATH",
+    !!evMine && evMine.event === "order.paid" && evMine.enabled === true
+    && evMine.path === `/deliver/${evWh}`,
+    JSON.stringify(evMine));
+  /**
+   * ⚠ **AND NOT ITS KEY — ANYWHERE.** `agent.list_webhooks` does not select the column, so the
+   * absence is structural rather than this tool choosing not to answer one. Asserted over the
+   * WHOLE tool result and over the whole run's journal, because a credential that reached the
+   * model reached the conversation.
+   */
+  const evSecret = evMade.body.secret;
+  check("⚠ ...and the signing key is in NO tool result and nowhere in the conversation",
+    !JSON.stringify(evTold).includes(evSecret)
+    && q(`select count(*) from agent.run_entries where body::text like '%${evSecret}%';`) === "0"
+    && q(`select count(*) from agent.agent_messages where body like '%${evSecret}%';`) === "0",
+    "the signing key reached the model or the log");
+
+  // ⚠ SWITCHING IT OFF NEEDS A PERSON, and the row is what says it happened.
+  const evOffRun = await ask(evAg, `use set_event_endpoint with id=${evWh} and enabled=false`);
+  check("⚠ SWITCHING AN ENDPOINT OFF HOLDS FOR A PERSON — nothing changed while it waits",
+    q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`) === "true"
+    && q(`select count(*) from agent.tool_approvals where run_id = '${evOffRun.body.runId}' and verdict is null;`) === "1",
+    `enabled=${q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`)}`);
+  await decide(evAg, evOffRun.body.runId, "approved", A, false);
+  check("⚠ ...and once a person says yes it really is off, in the row",
+    q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`) === "false",
+    `enabled=${q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`)}`);
+  // THE CONTROL: it goes back on the same way, so "off" is the decision rather than a one-way door.
+  const evOnRun = await ask(evAg, `use set_event_endpoint with id=${evWh} and enabled=true`);
+  await decide(evAg, evOnRun.body.runId, "approved", A, false);
+  check("⚠ ...and back on again, which is what says the flag is the caller's and not a one-way door",
+    q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`) === "true",
+    `enabled=${q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`)}`);
+  // AND THE ACCOUNT NEXT DOOR CANNOT SWITCH IT, which is the wall no tenant filter can see:
+  // `agent.set_webhook_enabled` is scoped to the TENANT, and a sibling agent shares one.
+  const evSib = (await api("/api/agent/create", { body: { name: "Sibling", instructions: "x" } })).body.agent.id;
+  await api("/api/agent/update", { body: { id: evSib, name: "Sibling", instructions: "x",
+    tools: [...CAPABILITY_TOOLS.map((t) => t.name)] } });
+  const evSibRun = await ask(evSib, `use set_event_endpoint with id=${evWh} and enabled=false`);
+  const evSibSaid = await decide(evSib, evSibRun.body.runId, "approved", A, false);
+  check("⚠ ...and a SIBLING agent of the same owner cannot switch it at all",
+    q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`) === "true"
+    && /no-endpoint|no inbound endpoint/.test(JSON.stringify(toolResult(evSibRun.body.runId))),
+    JSON.stringify({ enabled: q(`select coalesce(enabled::text, '') from agent.webhooks where id = '${evWh}';`),
+                     said: toolResult(evSibRun.body.runId), decided: !!evSibSaid }).slice(0, 240));
+
   console.log("\n8. WHAT THE WHOLE RUN LEFT BEHIND");
   // ═════════════════════════════════════════════════════════════════════════
   check("every run finished", q(`select count(*) from agent.runs where stop is null;`) === "0");

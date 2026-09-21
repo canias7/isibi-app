@@ -320,6 +320,40 @@ test("⚠ …AND EVERY CAPABILITY OPERATION, WITHOUT EXCEPTION — a census, not
   }
 });
 
+test("⚠ EVERY `_once` WRAPPER A WRITE COMPOSES REALLY EXISTS IN A MIGRATION", () => {
+  /**
+   * ⚠ **THE CENSUS ABOVE ASKS WHAT THE STORE SENT; THIS ONE ASKS WHETHER ANYTHING IS THERE TO
+   * ANSWER IT — and until `verify:tools` found it, nothing did.** `mutate` composes the name
+   * (`` `${CAPABILITY_RPC[op]}_once` ``), so a write added with no wrapper sends a perfectly
+   * well-formed request to a function that does not exist: PostgREST answers `PGRST202`, the
+   * capability refuses, and **the agent is told its own row does not exist.** A dead control
+   * that ANSWERS, which is the shape this repository records as the worst of them.
+   *
+   * **NO GUARD COULD SEE IT, and that is the point of this one.** Every case in this file drives
+   * a FAKE `fetch`, which answers whatever it is asked — so the composed name is never resolved
+   * against anything. `test/integration/pg-schema.mjs` asks `pg_proc` and is the authority, and
+   * it needs a PostgreSQL that CI does not have. This is a FILE READ, so it runs everywhere the
+   * suite does and the mutation sweep can see it.
+   *
+   * It is a CENSUS derived from `CAPABILITY_WRITES`, so a write added next month is covered by
+   * existing rather than by somebody remembering.
+   */
+  const sql = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql"))
+    .map((f) => fs.readFileSync(path.join(MIGRATIONS, f), "utf8")).join("\n");
+  const defines = (fn) => sql.includes(`create or replace function agent.${fn}(`);
+  const missing = CAPABILITY_WRITES.filter((w) => !defines(`${CAPABILITY_RPC[w]}_once`));
+  assert.deepEqual(missing, [], `no migration defines a wrapper for: ${missing.join(", ")}`);
+  // ⚠ AND THE PLAIN FUNCTION TOO, because the wrapper calls it BY NAME — a wrapper naming a
+  // function nobody created fails at run time in exactly the same way, one layer in.
+  const plainMissing = CAPABILITY_WRITES.filter((w) => !defines(CAPABILITY_RPC[w]));
+  assert.deepEqual(plainMissing, [], `no migration defines the inner function for: ${plainMissing.join(", ")}`);
+  // THE OBSERVER, or a reader that found nothing at all would satisfy both lines above. The
+  // needle has to be able to MISS as well as match, and both halves are asserted.
+  assert.ok(CAPABILITY_WRITES.length >= 4, `the census is looking at only ${CAPABILITY_WRITES.length} writes`);
+  assert.equal(defines("set_webhook_enabled_once"), true, "the reader cannot find a wrapper it should");
+  assert.equal(defines("no_such_function_anywhere_once"), false, "the reader matches anything");
+});
+
 // ⚠ THE CENSUS THAT USED TO SIT HERE MOVED TO `test/rest-profile.test.mjs`, WHOLE.
 // It is about the RULE and its five speakers, not about this store — and it was one of two
 // copies of the same check the moment the rule got a file of its own. Two lists of one

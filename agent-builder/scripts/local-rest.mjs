@@ -21,6 +21,9 @@
  */
 
 import { execFile } from "node:child_process";
+// ⚠ THE ONE IMPORT FROM `src/`, and it is what makes `ONCE_OF` below a DERIVATION
+// rather than a list somebody has to keep in step with the capability surface.
+import { CAPABILITY_RPC, CAPABILITY_WRITES } from "../src/capabilities.mjs";
 import http from "node:http";
 import { promisify } from "node:util";
 
@@ -208,19 +211,31 @@ const RPCS = {
 };
 
 /**
- * ⚠ THE `_once` WRAPPERS ARE DERIVED FROM THE SIX, NEVER TYPED AGAIN.
+ * ⚠ THE `_once` WRAPPERS ARE DERIVED TWICE OVER — the LIST and each ARGUMENT LIST.
  *
  * Each takes `p_tenant` followed by its own four and then the plain function's remaining
- * parameters, in that order — so a parameter added to any of the six reaches its wrapper
- * here by construction. Eleven argument lists written out twice is how a shim comes to
- * serve a function the database no longer has, and this shim's whole value is that it is
- * not more forgiving than the real thing.
+ * parameters, in that order — so a parameter added to any of them reaches its wrapper here
+ * by construction. Argument lists written out twice is how a shim comes to serve a function
+ * the database no longer has, and this shim's whole value is that it is not more forgiving
+ * than the real thing.
+ *
+ * ⚠ **AND THE NAMES WERE A HAND-KEPT LIST UNTIL 2026-09-21, WHICH COST A ROUND.**
+ * `setEventEndpoint` shipped as a `writes: true` capability and was not on it, so the shim
+ * did not serve `set_webhook_enabled_once` — and `verify:tools` reported the tool as failing
+ * to switch an endpoint off with the migration, the store and the tool all correct. It read
+ * as the product being broken, which is the safe direction and is still a round.
+ *
+ * So the list is `CAPABILITY_WRITES` through `CAPABILITY_RPC`: the same two constants
+ * `makeCapabilities` composes `<rpc>_once` from, so a write added to that surface reaches
+ * this shim by existing rather than by being remembered. **The `throw` below is the census**
+ * and it is stronger than a test — it fires at IMPORT, so every demonstration using the shim
+ * refuses to start rather than reporting a wrapper the real database has as absent.
  */
-const ONCE_OF = ["save_memory", "delete_memory", "set_automation_enabled",
-  "accept_automation_run", "create_automation", "update_automation", "patch_automation",
-  // ⚠ STOPPING ONE EXECUTION IS A WRITE AN AGENT MAY MAKE NOW, so it has a record like every
-  // other. A person's press still goes through `cancel_run` itself, from the site's own route.
-  "cancel_run"];
+const ONCE_OF = CAPABILITY_WRITES.map((op) => {
+  const rpc = CAPABILITY_RPC[op];
+  if (!rpc) throw new Error(`local-rest: ${op} is a capability write with no rpc name`);
+  return rpc;
+});
 for (const name of ONCE_OF) {
   const inner = RPCS[name];
   if (!inner) throw new Error(`local-rest: ${name} is not served, so ${name}_once cannot be derived`);
