@@ -10718,3 +10718,39 @@ second implementation of it.**
   loopback.
 
 **NOT MERGED AND NOT DEPLOYED, no migration applied, and no paid call made.**
+
+### CI has read all three pushed heads, and the harness covers the tip by the ancestor rule
+
+- **`e1aa082` — all THREE workflows green.** `unit tests` **2845** (`# tests 6897 /
+  # pass 6893 / # fail 0 / # skipped 4` against local `6897 / 6895 / 0 / 2` — the TOTAL is
+  what matches and the two extra are the recorded environment skips); `agent deploy` **124**
+  (`602 / 601 / 0 / 1`, the one skip the predicted privilege-drop case, and steps 6 through 13
+  all `skipped`, so **nothing was deployed**); and **`site build` 1234, 00:17:10→00:37:38Z,
+  ALL TWENTY STEPS GREEN** with **`site-build.mjs` `382 passed, 0 failed`** (the harness step
+  00:19:01→00:33:45Z, 14m44s), beside TAP `# tests 390 / # pass 390 / # fail 0 / # skipped 0`,
+  kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and `all passed` on kit-render, kit-a11y, kit-effects and kit-paint.
+  **IT WAS DUE RATHER THAN INCIDENTAL**: this push carries root `agent-store.mjs`, which that
+  workflow's `paths` names as `*.mjs`.
+- **⚠ EVERY COUNT IS BOUNDED TO ITS OWN STEP, AND THE OBSERVER IS PROVED ALIVE IN BOTH
+  DIRECTIONS.** The recorded rule is that a forward search from a step marker picks up the NEXT
+  step's number and mis-attributes it in silence — and here the bound is not `##[group] …
+  ##[endgroup]` either, because **that pair wraps only the command ECHO and the output follows
+  the `endgroup`**. So each step's region runs from its own `endgroup` to the next `##[group]`,
+  and the parse then asserts that **no count falls outside any region** (0 loose against 15
+  attributed). Without that second half, a bound that silently dropped a step would read as a
+  step with nothing to report. **The API reports 23 steps where the job has twenty** — three are
+  GitHub's automatic post-steps, numbered 39–41, which is this file's own recorded correction.
+- **`0d0305e` and `a386a09` are green on both workflows they fired** — `unit tests` **2846** and
+  **2848**, `agent deploy` **125** and **126**, the deploying steps `skipped` in both — and
+  **`site build` was NOT due for either and did not run**, checked per PATH rather than assumed:
+  their whole diffs are `CLAUDE.md`, `agent-builder/CLAUDE.md` and
+  `test/agent-builder-view.test.mjs`, and **`*.mjs` in that filter is a ROOT glob**, so a nested
+  test file is outside it and is none of the twelve `test/` files the list names one by one.
+  Confirmed from the other side too: the branch's run list holds no `site build` for either sha.
+  **So 1234's green covers the tip by the recorded ancestor rule** — *a green harness on an
+  ancestor is only evidence when nothing between it and the tip is an image input.*
+- **NO ORDINAL IS WRITTEN for the 382 run, by this file's own rule**: the paragraph scan it
+  prescribes over-counts, because these paragraphs are long enough to put 1065/1066 (which read
+  **373**) and 1115 (recorded UNREAD) beside a 382 claim. The hand-checked list is what to
+  consult.

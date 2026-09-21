@@ -13758,3 +13758,22 @@ superseded by a better one and never removed. Harmless, recorded, not touched.
 
 **Nothing is applied, deployed or merged**, no real message was sent, no model was paid for, and
 the browser never left this machine.
+
+**And the last outstanding thing has landed: the container harness is green.** When I wrote to
+you earlier it was still running, so I said so rather than predicting it. It finished in twenty
+minutes, **all twenty steps green**, with the big one — the check that builds a real site in a
+real container and opens it in a real browser — reading **382 passed, 0 failed**, which is
+exactly the number it has read every time. So **all three checks are green on the code I
+pushed**, and nothing is deployed: the deploying half of the agent workflow is switched off and
+its log says so in as many words.
+
+**One small thing about how I read that, because it is the kind of mistake that quietly produces
+a wrong number.** The log runs every check's output together, and if you search forward from one
+check's name you land on the NEXT check's figures without noticing. So I bounded each figure to
+its own check's output, and then checked the other way round too: every figure in the log belongs
+to exactly one check and none was left over. Without that second half, a reader that silently
+lost a check would look identical to a check that had nothing to say.
+
+**The two documentation commits after it did not need that harness and did not run it** — I
+checked which files it watches rather than assuming, and neither commit touches one — so the
+green run covers the code as it stands.
