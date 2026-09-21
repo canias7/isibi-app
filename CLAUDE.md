@@ -1168,7 +1168,7 @@ morning since we opened' section above 'Today's bake'."*
   **Only the REWRITE rung can put a stored component at risk**, because that is
   the call `partsSent` shows source to and `mergeParts` folds answers back
   from. So *"components preserved"* is worth having only on a run where the
-  tweak DECLINED.
+  tweak DECLINED — **which is run 11, below.**
 - **⚠ WHAT THIS RUN DID NOT DEMONSTRATE, KEPT SEPARATE ON PURPOSE.** It
   exercised ONE rung on ONE shape. **The restoration and refusal behaviour is
   untouched** — `keepPhotos` restored nothing and `withheld`/`photosBlocked`
@@ -1183,6 +1183,105 @@ morning since we opened' section above 'Today's bake'."*
 - **AND THE COMPONENTS HALF IS UNTESTED RATHER THAN PROVED** — this site stores
   NO components, so `parts 0 → 0` establishes nothing, and the harness says so
   in its own output instead of letting the silence read as a pass.
+
+**RUN 11 (2026-09-21) IS THE PAGE RUNG'S FULL WRITER PROVEN LIVE WITH THE
+SITE'S OWN COMPONENTS STANDING IN FRONT OF IT — the gap run 9 explicitly could
+not close.** `fretwork-1`, *"The home page shows nine beginner quotes in three
+stacked blocks and they all say much the same thing. Show just the first three,
+in one block."* Run **8m58s** (06:21:38 → 06:30:36Z), routed `intent=edit
+layer=page page=/` in **19.4 s for 2 credits**, rung **20**, **balance
+101 → 79, moved 22.**
+
+- **THE FIXTURE WAS CHOSEN SO THE TEST COULD NOT BE VACUOUS, and that was
+  measured BEFORE the press rather than hoped for.** `partsSent` was driven
+  locally over the run-10 free capture and answered **shown 3, withheld 0** —
+  so the writer really held all **9,372 bytes** of component source in its
+  prompt, and `mergeParts` would have folded any returned component back over
+  the stored file. A run where the components were withheld would have proved
+  the wall, not the writer.
+- **THE THREE COMPONENT BODIES CAME BACK BYTE-IDENTICAL**, compared out of the
+  artifact's own `source.json` on both sides rather than off the harness's
+  `preserved` flag: `chord-diagram` **3,861 b sha `d0c20d52f91d69d2`**,
+  `day-space-lookup` **1,466 b sha `5330fca7b88e5ac1`**, `trial-booking-form`
+  **4,045 b sha `4b66386c0ad46092`** — equal on each side, `parts 3 → 3`. All
+  three still IMPORTED and still RENDERED by the rewritten page.
+- **THE UNRELATED PAGES ARE BYTE-IDENTICAL TOO**: `gear.tsx`
+  **`d580389f971cdd31`**, `prices.tsx` **`0d2d72dee56a2a71`**.
+- **AND THE TARGET PAGE'S DIFF IS PURELY SUBTRACTIVE** — `index.tsx` 28,002 →
+  **26,276**, three hunks, **60 lines removed and one line narrowed**
+  (`Testimonial, TestimonialGrid` → `TestimonialGrid`, the import the removal
+  left unused). Token multiset over the whole file: **199 lost, 0 gained.** The
+  writer invented no words.
+- **⚠ WHICH DOOR SENT IT TO THE REWRITE IS UNCONFIRMED, AND THE FIRST WRITE-UP
+  OF THIS CLAIMED `sameProse` ON EVIDENCE THAT CANNOT ESTABLISH IT** (owner).
+  What the wire carries is `tweak` ABSENT and `tweakUsage` present —
+  `{model: "grok-4.6", in: 8776, out: 7797, cacheRead: 512}`. **The honest
+  statement is: a tweak attempt incurred usage; the full writer subsequently
+  completed; the exact fallback reason is unconfirmed.** The rejected tweak
+  output was never captured and `readTweak`'s `reason` is not on the reply, so
+  an output-token count plus the FINAL published source — which is the
+  REWRITE's output, not the tweak's — cannot tell `reworded` from `cannot`,
+  `lint`, `truncated`, `moved-route` or `no-change`. **Putting the reason on
+  the wire, or storing the refused answer, is what would settle it**; neither
+  exists today.
+- **THE CUSTOMER'S SCREEN, VERBATIM** (the browser's own composer, executed):
+  > ✅ Updated /. ⚠️ index.tsx: reads table "lessons", which the schema does not declare. index.tsx: reads table "bookings", which the schema does not declare. index.tsx: calls the database function "bookings_on_day", which this schema does not declare — the request is a 404. This schema declares no functions at all.
+  > I had a look at the finished pages: 2 pages threw an error and 4 pages reads something the check can't reach, so I couldn't see it with real data.
+- **THOSE SCHEMA WARNINGS ARE PRE-EXISTING AND CORRECT, counted on both sides**:
+  `lessons` 2 → 2, `bookings` 4 → 4, `bookings_on_day` 1 → 1, `gbp_eur` 1 → 1,
+  `gear` 1 → 1, as quoted string arguments across every stored page and
+  component. `fretwork-1` is one of the four sites the backlog records as
+  `incomplete` — `site_backends.neon_db` blank — so the schema the lint compares
+  against is empty and every genuine data read reports undeclared. **The rewrite
+  introduced none of them.**
+- **⚠ AND THE FIRST READING OF THAT ANSWERED ZERO FOR EVERY NAME**, one step
+  from reporting that the rewrite had invented broken database calls. It was a
+  shell-quoted `node -e` whose `\b` escaping collapsed, so the regex matched
+  nothing — **a zero from a broken reader is byte-identical to an absence**.
+  Re-run as a FILE rather than a one-liner, the counts above are what came back.
+  This file's own trap, met on its own evidence.
+- **THE REPLY PRINTS THREE PROBLEMS AND THE WIRE CARRIES FOUR.** `problemNote`
+  is `…slice(0, 3)` with no "and N more" clause, so the fourth —
+  *"index.tsx: writes to table \"bookings\", which the schema does not
+  declare."* — is on `problems` and not on the screen, and from the screen a
+  customer cannot tell it is there. Recorded, not fixed.
+- **THE HYDRATION FINDINGS ARE UNRESOLVED IN BOTH DIRECTIONS.** The render
+  check answered `checked 7, pages 7, partial: true` with `threw` on **`/`
+  [phone]** and **`/es` [phone]** — *"React error #418 (hydration mismatch) —
+  no differing text was found once the page had settled"* — plus four `unmet`
+  (a database function on `/` and `/es`, an outside connection on `/prices` and
+  `/es/prices`), which is run 53's non-serious kind working live. A later
+  browser load of both at 390×844 answered **200 with 0 console errors**, and
+  **that settles nothing either way**: a clean later load does not establish
+  the findings were false, and there is **no before-render baseline**, because
+  the free half of this harness takes no render check — so nothing here
+  establishes a new regression either. `deadSelectors` were
+  `[data-slot="cta-band"] [data-slot="button"]` and `[data-slot="hero-split"]
+  h1`, 2 of 7 looked at. #80 already carries the Spanish variant's #418 open.
+- **THE BROWSER HALVES ARE TWO READINGS, TAKEN EIGHT MINUTES APART.** Before at
+  **06:23:41Z**, deliberately while the run was still working, because after a
+  publish lands *"it was there"* and *"I never looked"* are the same absence:
+  NAV 200, **9 of 9 quotes on screen**, 2 `testimonial-grid` slots, html
+  **76,503 b**. After at **06:31:44Z**: NAV 200, **3 of 9 quotes** — exactly
+  the first three, which is what was asked — **1** `testimonial-grid` slot,
+  html **72,649 b**. **Zero console errors and zero failed requests on both**,
+  and all three components painting at identical sizes both times
+  (8 chord diagrams at 160×215, `DaySpaceLookup` and `TrialBookingForm` at
+  576×30, opacity 1).
+- **THE COST LANDED INSIDE A BAND QUOTED BEFORE THE PRESS** — estimated 15–24
+  with an honest band of 12–30, measured **22**. The estimate was built from
+  measured prompt sizes (`pageRulesFor` 29,077 + `SITE_PAGES_TOOL` 2,920 +
+  `briefWithLayout` 13,639 + the 28,002-character prior page = **73,638
+  characters in**) rather than from a remembered figure, which is why it was
+  worth quoting at all.
+- **⚠ WHAT THIS RUN DID NOT DEMONSTRATE, KEPT SEPARATE ON PURPOSE.** The
+  photograph **restoration and refusal** behaviour is untouched — `fretwork-1`
+  serves no uploaded photographs on any of its three routes, so `keepPhotos`
+  had nothing to restore and `withheld`/`photosBlocked` never fired. And
+  **deliberate component MODIFICATION is untested**: this proves the writer
+  leaves components alone when nothing asks it to change one, which is a
+  different claim from the `tsx` lane correctly rewriting one on request.
+  Neither is evidenced here.
 
 **AND A SESSION CANNOT PRESS THE BUTTON.** Every paid harness is
 `workflow_dispatch` only; a dispatch needs GitHub's **`actions: write`**, and
@@ -1556,7 +1655,7 @@ express the change. Cheapest first:
 | `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
 | `logo` | the header logo or tab icon — stored as that mark's `image` form | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
-| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+ routing** |
+| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+ routing**; **20 measured once** when the tweak fell through to the rung's own full rewrite (run 11) |
 | `addon` | a real page rewrite | ~25 |
 
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
@@ -3544,10 +3643,12 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 101** at run 9's end (2026-09-21, read by the canary at both ends:
-105 → 101). It was 119 at run 52's end on 2026-09-20 and **14 went somewhere
-this session did not spend** — the free press read 105 before anything paid ran,
-which is exactly the reading a stale line cannot give you. `GET /api/fal-balance` answers fal's, separately and free.
+build. **Balance 79** at run 11's end (2026-09-21, read by the canary at both
+ends: 101 → 79, moved 22). Run 9 ended at 101 (105 → 101, moved 4). It was 119
+at run 52's end on 2026-09-20 and **14 went somewhere this session did not
+spend** — run 9's free press read 105 before anything paid ran, which is exactly
+the reading a stale line cannot give you. `GET /api/fal-balance` answers fal's,
+separately and free.
 
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance. Look at the wrong row

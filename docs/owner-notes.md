@@ -155,6 +155,85 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The expensive writer ran with your own components in front of it, and left every one of them alone
+
+**This is the gap the bakery test could not close.** That one took the cheap
+path, and a cheap edit carries your hand-built components through untouched by
+construction — so it proved the plumbing and said nothing about the writer.
+This time the full page writer ran, on a page that uses all three of
+`fretwork-1`'s own components, with all three of their source files in front
+of it. **It did not change a byte of any of them.**
+
+**What you asked for.** *"The home page shows nine beginner quotes in three
+stacked blocks and they all say much the same thing. Show just the first three,
+in one block."*
+
+**What happened.** Nine minutes, **22 credits** (2 to work out what you meant,
+20 for the change). **Balance 101 → 79.** The home page now shows three quotes
+in one block instead of nine in three.
+
+**The three components are byte-for-byte what they were** — the chord diagrams,
+the day/space lookup and the trial booking form. Same size, same fingerprint,
+still on the page and still working. I checked this against the test's own
+saved copy of the files rather than the test's own pass/fail flag, because that
+flag only checks the components still EXIST by name and would say "fine" about
+one that had been rewritten.
+
+**Your other two pages are byte-identical** as well, and the change to the home
+page only ever removes: sixty lines gone, one import line tidied, and **not one
+new word invented anywhere**.
+
+**I opened it in a real browser before and after**, eight minutes apart. Before:
+nine quotes on screen, three components drawn. After: three quotes — exactly the
+first three — one block instead of three, the same three components drawn at the
+same sizes. **No errors either time.**
+
+**Your screen would have read this, word for word:**
+
+> ✅ Updated /. ⚠️ index.tsx: reads table "lessons", which the schema does not declare. index.tsx: reads table "bookings", which the schema does not declare. index.tsx: calls the database function "bookings_on_day", which this schema does not declare — the request is a 404. This schema declares no functions at all.
+> I had a look at the finished pages: 2 pages threw an error and 4 pages reads something the check can't reach, so I couldn't see it with real data.
+
+**Those database warnings are real, and they were already true before this
+change.** I counted every one of them on both sides and they are identical —
+nothing new was introduced. `fretwork-1` is one of the four sites whose database
+reference is missing (it is in the open list below), so the builder is comparing
+your pages against an empty schema and correctly reporting that everything they
+read is undeclared. **The fix is the two-press backend repair, not anything to
+do with this edit.**
+
+**And I nearly told you the opposite.** My first check of those warnings came
+back "zero occurrences" and I was one step from reporting that the rewrite had
+invented broken database calls. The check itself was broken — a quoting mistake
+meant it was searching for nothing. Re-run properly, the counts above are what
+came back.
+
+**One small thing worth knowing: the reply shows three warnings and there were
+four.** The screen cuts the list at three with nothing saying so, so from your
+side you cannot tell a fourth exists. Recorded, not fixed.
+
+**Two things I am deliberately NOT claiming.**
+
+- **Why the cheap writer stepped aside is unconfirmed.** What the record shows
+  is that a cheap attempt was made and billed, and then the full writer
+  finished the job. The reason it handed over was never captured — it is not
+  written down anywhere — so I cannot tell you which of its several refusal
+  reasons applied. I had written that it was the word-preservation check; that
+  was a guess dressed as a finding, and you were right to pull it.
+- **The page checker flagged a display problem on two pages and that is
+  unresolved.** It reported a React hydration mismatch on the home page and the
+  Spanish home page at phone size. A later browser load of both was clean — but
+  **that does not prove the flag was wrong**, and there is no equivalent
+  "before" check to compare against, so it equally does not show anything got
+  worse. It stays open. The Spanish one is already on the open list.
+
+**What this did NOT test, kept separate on purpose:** photograph
+protection (this site has no photographs, so nothing was ever at risk), and
+**deliberately changing a component** — this proves the writer leaves your
+components alone when nothing asks it to touch one, which is a different
+question from whether it edits one correctly when you do ask.
+
+---
+
 ## 2026-09-21 — The live edit test ran, and it did exactly what you asked
 
 **It worked.** On `fold-lane-bakery`, "Fed every morning since we opened" is now
