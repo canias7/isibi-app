@@ -402,11 +402,15 @@ which is live.
 `POST /api/site/react-build` (also `/api/site/build`, `/api/site/react-revise`) —
 auth-gated, idempotent, a slug claimed by whoever builds it first (409).
 
-1. **Route** (`/api/site/route`, **2 credits MEASURED on run 9, 2026-09-21** —
-   the long-standing *"Haiku, ~0.3"* is STALE and was quoted to the owner as an
-   estimate before the run corrected it. **Every small call follows the picker**,
-   and the picker is grok; the ladder's per-rung prices do NOT include this, so
-   the real floor for any message is the rung's price PLUS the route) — is this a build, a
+1. **Route** (`/api/site/route`, **2 credits on run 9, 2026-09-21 — ONE
+   MEASUREMENT AND NOT A PRICE.** The long-standing *"Haiku, ~0.3"* is stale:
+   every small call follows the picker now and the picker is grok. But routing
+   is **metered on real tokens like everything else**, so 2 is what THAT message
+   cost, not what the next one will. **The honest statement is that the ladder's
+   per-rung prices do NOT include the route at all** — a message costs its rung
+   PLUS a routing call of unmeasured size — and anyone quoting a total owes a
+   range or a run. ⚠ This entry first read *"the real floor for any message is
+   the rung's price PLUS 2"*, which is a price generalised from n=1) — is this a build, a
    question, a clarify round, or one of the cheap edit layers? **Every unclear
    case resolves to work, never to prose**: a wrong "build" is visible and
    undoable, a wrong "ask" is indistinguishable from the builder being broken.
@@ -1149,6 +1153,22 @@ morning since we opened' section above 'Today's bake'."*
 - `photosKept` **absent**, which is the CORRECT outcome for a clean reorder —
   nothing needed restoring, and the owner's own correction on this file
   predicted it.
+- **⚠ AND THE HARNESS'S `preserved` CHECK COMPARES NAMES, NOT BODIES.**
+  `cmp.parts` is `parts.map(p => p.path).sort()` on each side, so it answers
+  *"the same components exist"* and is silent on whether any of them was
+  REWRITTEN. **The bodies ARE in the artifact** — `source.json` carries
+  `{pages, parts}` whole on both sides — so the comparison is available and
+  simply is not made by the check. **Compare the bodies out of the artifact**
+  rather than reading `preserved: true` as body preservation; that is what the
+  bakery's own claim had to be rebuilt on.
+- **⚠ AND A TWEAK CANNOT EVIDENCE COMPONENT PRESERVATION AT ALL.** `runTweak`
+  takes ONE page's source and answers ONE page's source, so component bodies
+  are carried through **unchanged by construction** — a green components result
+  on a tweak run is true of the transport and says nothing about the writer.
+  **Only the REWRITE rung can put a stored component at risk**, because that is
+  the call `partsSent` shows source to and `mergeParts` folds answers back
+  from. So *"components preserved"* is worth having only on a run where the
+  tweak DECLINED.
 - **⚠ WHAT THIS RUN DID NOT DEMONSTRATE, KEPT SEPARATE ON PURPOSE.** It
   exercised ONE rung on ONE shape. **The restoration and refusal behaviour is
   untouched** — `keepPhotos` restored nothing and `withheld`/`photosBlocked`
@@ -1536,7 +1556,7 @@ express the change. Cheapest first:
 | `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
 | `logo` | the header logo or tab icon — stored as that mark's `image` form | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
-| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+2 route** |
+| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+ routing** |
 | `addon` | a real page rewrite | ~25 |
 
 **`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
