@@ -6931,6 +6931,16 @@ function agentFormRead() {
   // ⚠ AND ONLY THE FORM THIS EDIT IS ABOUT. The box carries the agent it was drawn for, so a
   // drawing of somebody else's — which is what is on screen for the instant between pressing
   // Edit on a second agent and the redraw — is left alone rather than filed under this one.
+  //
+  // ⚠ **THESE TWO REFUSALS ARE A DECLARED PAIR, MEASURED RATHER THAN ARGUED, and neither can
+  // be killed on its own.** In the state the first one is written for — `agentCancel` clears
+  // `agentEditing` and then redraws, with the old markup still in the document — this one
+  // already refuses, because the box still carries the agent it was drawn for and that is not
+  // `null`. So a sweep mutant cutting either alone changes nothing any case can see, and the
+  // spec mutates the two TOGETHER. Both stay: the first says the intent where the second only
+  // happens to be right, and the day a form is drawn without its `data-agent` the second
+  // stops refusing at all. See the case "THE READ-FIRST DOOR FILES NOTHING WHILE NO FORM IS
+  // OPEN", which asserts the property both of them hold up.
   const whose = name.getAttribute ? name.getAttribute('data-agent') : null;
   if (whose !== agentEditing) return;
   // ⚠ **`agentFormValues` IS THE ONE READER OF THIS FORM, and writing a second one cost a

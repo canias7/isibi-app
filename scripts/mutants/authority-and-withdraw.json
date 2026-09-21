@@ -188,8 +188,8 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "  agentKnowFormRead();\n  agentMemFormRead();",
-  "to": "  agentKnowFormRead();\n  agentMemFormRead();\n  if (false) agentFormRead();"
+  "from": "  agentFormRead();\n  renderAgentsNow();",
+  "to": "  renderAgentsNow();"
  },
  {
   "label": "a press's refusal is written into the read's holder, and the re-read wipes it",
@@ -288,12 +288,18 @@
   "to": "  agentDraft = { name: (document.getElementById('agName').value || ''),\n    instructions: (document.getElementById('agInstr').value || ''),\n    status: 'active', tools: [], zone: '' };\n  agentDraftFor = agentEditing;"
  },
  {
-  "label": "the door snapshots a form nobody has open, and files it under nobody",
+  "label": "the door snapshots a form nobody has open, and files it under nobody (the PAIR: neither refusal is observable alone)",
   "files": [
    "public/chat.js"
   ],
   "from": "  if (agentEditing === null) return;\n  const name = document.getElementById('agName');",
-  "to": "  const name = document.getElementById('agName');"
+  "to": "  const name = document.getElementById('agName');",
+  "also": [
+   [
+    "  if (whose !== agentEditing) return;",
+    ""
+   ]
+  ]
  },
  {
   "label": "a press's refusal goes back into the read's holder, so the re-read wipes it",

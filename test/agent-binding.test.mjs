@@ -7061,6 +7061,16 @@ test("⚠ OPENING THE SETTINGS READS WHAT IS TAKEN AWAY, AND MARKS THE TICK IT D
   assert.match(f.html, /this agent and one tool/i, "the scope is not stated");
   assert.match(f.html, /not the ticks above/i, "nothing distinguishes this from the ticks");
   assert.match(f.html, /disconnect that account/i, "it does not say what to do about a connection");
+  // ⚠ **AND WHAT IT DOES NOT REACH, which is the half that must never be softened.** A
+  // sentence listing only what a restriction STOPS reads as though it stopped everything, and
+  // the one thing this platform may never imply is that work already done was undone — the
+  // engine re-reads the revocation before the NEXT call, so a call already dispatched is not
+  // recalled and a completed one stays completed. Nothing asserted this clause until a sweep
+  // mutant cut it and survived.
+  assert.match(f.html, /already happened/i, "it does not say the finished work stands");
+  assert.match(f.html, /not called back/i, "it does not say a call already on its way still goes");
+  assert.equal(/undone|reversed|rolled back/i.test(f.html), false,
+    "the scope claims something was undone");
   // AND THE ROW THAT LIFTS IT.
   assert.deepEqual(f.takenAway, ["echo"], "there is no way to give it back");
   // ⚠ THE CONTROL: with nothing taken away the tick is NOT marked, and the section says so
@@ -7120,13 +7130,23 @@ test("⚠ GIVING A TOOL BACK SAYS WHAT IT DOES NOT DO — the withdrawn requests
                 say: "it can use that again from its next action — anything that was waiting for it stays withdrawn" })
       : null),
   });
-  hydrate(w);
+  const f = hydrate(w);
+  // ⚠ **A REASON IS TYPED BEFORE THE PRESS, AND THAT IS WHAT MAKES THE ASSERTION BELOW MEAN
+  // ANYTHING.** With the box empty, "a restore carries no note" is true however the body is
+  // built, so a sweep mutant that sent one SURVIVED this case — the recorded "a fixture too
+  // shallow to separate the two readings". The reason really is on screen when Restore is
+  // pressed: the take form and the revoked rows are drawn together, so somebody can type one
+  // and then press the other.
+  f.whyBox.value = "not for now";
+  w.ev('INPUT_ACTIONS["agent-revoke-why"](null, document.getElementById("agRevWhy"))');
   await w.ev(`CLICK_ACTIONS['agent-revoke-back'](null, { dataset: { tool: "echo" } })`);
   await settle();
   const press = sent.find((c) => c.p === "/api/agent/tool-restore");
   assert.ok(press, "the restore never reached the server");
   // NO REASON ON THIS ONE, and that is deliberate: a restoration answers nobody, so there is
-  // no message for a note to become.
+  // no message for a note to become — and `/api/agent/tool-restore` RETURNS before it reads
+  // one, so a note sent here is somebody's words going nowhere at all. Its observer is the
+  // take case above: the same typed reason really does arrive as `note` on a revocation.
   assert.deepEqual(Object.keys(press.body).sort(), ["agent", "tool"]);
   // ⚠ **THE SENTENCE IS THE SERVER'S, because this is the claim nobody would guess and the
   // one a screen must not soften: lifting a revocation does NOT re-open what it withdrew.**
@@ -7151,6 +7171,119 @@ test("⚠ A FAILED PRESS KEEPS THE REASON AND SAYS WHAT HAPPENED", async () => {
   assert.equal(w.ev("agentRevokeWhy"), "because", "a failed press cost the reason");
   assert.equal(after.why, "because", "the box was redrawn empty");
   assert.equal(w.ev("agentRevokeBusy"), "", "the buttons stayed dead after a refusal");
+});
+
+test("⚠ A RESTORE IN FLIGHT DOES NOT MAKE THE TAKE BUTTON CLAIM TO BE TAKING SOMETHING AWAY", async () => {
+  // ⚠ **ONE FLAG SAYS WHICH TOOL A PRESS IS FOR, AND BOTH BUTTONS READ IT — so the label has
+  // to ask WHICH press, not merely whether one is in flight.** `agentRevokeBusy` holds the
+  // tool, and the take button is about a tool being taken away, so a restore in flight must
+  // leave it alone. A sweep mutant that dropped that question survived every case here,
+  // because nothing had ever read the form while a RESTORE was still going: the screen said
+  // *Taking away…* about an act nobody had asked for, in the panel whose whole job is to say
+  // what is being done to a permission.
+  // ⚠ **TWO TOOLS IN THE CATALOG, AND THE FIRST DRAFT OF THIS CASE WAS VACUOUS WITHOUT
+  // THEM.** The take form is drawn only while something is left to take away
+  // (`catalog.some(not revoked)`), so with the one-tool catalog every other case uses, a
+  // revoked `echo` means there is NO take button on screen — and "it does not say Taking
+  // away…" was true of a panel that had no such button. The observer below is what says so.
+  const TWO = [CATALOG[0], { name: "remember", label: "Remember", does: "Keeps a fact." }];
+  const gate = held(okRes({ agent: "A", tool: "echo", lifted: true, say: "back" }));
+  const { w } = await openSettings(["echo"], {
+    answer: (p) => {
+      if (p === "/api/agent/tool-restore") return gate.p;
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: TWO });
+      return null;
+    },
+  });
+  const before = hydrate(w);
+  assert.ok(before.drewPicker, "there is no take control on screen to be wrong about");
+  assert.match(before.html, /Take it away/, "the take button was never drawn");
+  const pressing = w.ev(`CLICK_ACTIONS['agent-revoke-back'](null, { dataset: { tool: "echo" } })`);
+  await settle();
+  const mid = hydrate(w);
+  assert.equal(w.ev("agentRevokeBusy"), "echo", "the press did not mark itself in flight");
+  assert.match(mid.html, /Giving back…/, "the button somebody pressed does not say so");
+  assert.equal(/Taking away…/.test(mid.html), false,
+    "the take button claimed to be taking a tool away while a restore was in flight");
+  gate.release();
+  await pressing;
+  await settle();
+  // ⚠ **THE CONTROL, IN THE OTHER DIRECTION: a TAKE in flight really does say so.** Without
+  // it, "the label never appears" is satisfied by a button that can never show progress at
+  // all, which is a different defect wearing this one's assertion.
+  const take = held(okRes({ agent: "A", tool: "echo", say: "done" }));
+  const two = await openSettings([], {
+    answer: (p) => {
+      if (p === "/api/agent/tool-revoke") return take.p;
+      if (p === "/api/agent/list") return okRes({ agents: TICKED_ROWS, tools: TWO });
+      return null;
+    },
+  });
+  hydrate(two.w);
+  const taking = two.w.ev("CLICK_ACTIONS['agent-revoke-take'](null, null)");
+  await settle();
+  assert.match(hydrate(two.w).html, /Taking away…/, "a take in flight does not say so");
+  take.release();
+  await taking;
+});
+
+test("⚠ A SECOND PRESS CLEARS THE FIRST'S REFUSAL, so one row cannot say it failed and worked", async () => {
+  // ⚠ **THE HOLDER A PRESS CLEARS IS THE PRESS'S OWN, and a sweep mutant that cleared the
+  // READ's instead survived everything.** The two are separate on purpose — a press re-reads
+  // the list, and the read clears its own error, which is what used to wipe the sentence a
+  // person needed. But the press must still clear its OWN: press, be refused, press again and
+  // have it work, and the failure sentence has to go. Nothing pressed twice until now.
+  let presses = 0;
+  const sent = [];
+  const w = loadScreen({
+    answer: (p, init) => {
+      sent.push(p);
+      if (p === "/api/agent/tool-approve") {
+        presses += 1;
+        return presses === 1 ? badRes("Couldn’t record that.", 500)
+                             : okRes({ id: "ap-1", verdict: "approved" });
+      }
+      return okRes({ agents: [], approvals: [], messages: [] });
+    },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalAct("ap-1", "approved")');
+  await settle();
+  assert.match(w.ev("agentApprovalActErr"), /record that/, "the refusal was swallowed");
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /record that/,
+    "the refusal was held and never drawn");
+  await w.ev('agentApprovalAct("ap-1", "approved")');
+  await settle();
+  // ⚠ IT IS GONE, and that is not the same as the list having been re-read: the read's own
+  // holder is cleared by the read, and this one is only ever cleared by a press starting.
+  assert.equal(w.ev("agentApprovalActErr"), "", "the refusal outlived the press that fixed it");
+  assert.equal(/record that/.test(w.s.document.getElementById("viewAgents").innerHTML), false,
+    "a screen said the press failed and worked at once");
+  assert.equal(presses, 2, "the second press never reached the server");
+});
+
+test("⚠ THE READ-FIRST DOOR FILES NOTHING WHILE NO FORM IS OPEN", async () => {
+  // ⚠ **A DECLARED PAIR, AND IT IS MEASURED RATHER THAN ARGUED.** `agentFormRead` refuses
+  // twice: once because no form is open at all, and once because the form on screen is not
+  // the one being edited. `agentCancel` clears `agentEditing` and then redraws, so the OLD
+  // markup is still in the document — which is the state the first wall is written for, and
+  // in it the SECOND wall already refuses, because the box still carries the agent it was
+  // drawn for and that is not `null`. So cutting either alone changes nothing this or any
+  // other case can see, and the spec mutates the two TOGETHER. What is asserted here is the
+  // PROPERTY both of them hold up: a cancel leaves nothing filed under nobody.
+  const { w } = await openSettings([]);
+  hydrate(w);
+  assert.equal(w.ev("agentDraftFor"), "A", "the form was never read for the agent it is about");
+  await w.ev("CLICK_ACTIONS['agent-cancel']()");
+  assert.equal(w.ev("agentEditing"), null, "the form did not close");
+  assert.equal(w.ev("agentDraftFor"), null, "a form nobody has open was filed under somebody");
+  assert.equal(w.ev("agentDraft"), null, "the draft survived the form being closed");
+  // AND A SECOND REDRAW WITH NOTHING OPEN CHANGES NEITHER, which is the state a poll lands in.
+  w.ev("renderAgents()");
+  assert.equal(w.ev("agentDraftFor"), null, "a redraw with no form open filed one anyway");
+  assert.equal(w.ev("agentDraft"), null);
 });
 
 test("⚠ AN ANSWER THAT LANDS AFTER THE FORM OPENED FOR SOMEBODY ELSE WRITES NOTHING", async () => {
