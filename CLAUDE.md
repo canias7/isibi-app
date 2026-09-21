@@ -3293,8 +3293,9 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
   **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
-  `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`** and run
-  **`35545181566` on `0523dfb1`** — all 2026-09-20, all **all twenty steps green and
+  `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`**, run
+  **`35545181566` on `0523dfb1`** and run **`35546983002` on `e0540f37`**
+  (2026-09-21, 23m54s) — all four **all twenty steps green and
   every figure above matching**: TAP 397, kit-typecheck 4, site-build **382**,
   contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
   site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
@@ -3313,9 +3314,10 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,040 LOCALLY after the silent-partial fix, and the CI half of
-  THAT number is untaken.** The two readings before it had both halves and
-  both agreed: **7,038** locally and CI run **`35546983030` on `e0540f37`** at
+- **Unit suite: 7,040, BOTH HALVES TAKEN** — locally, and CI run
+  **`35547698419` on `9a56cacc`** at **`# tests 7040 / # pass 7036 / # fail 0
+  / # skipped 4`**. The two readings before it also agreed both ways: **7,038**
+  locally and CI run **`35546983030` on `e0540f37`** at
   **`# tests 7038 / # pass 7034 / # fail 0 / # skipped 4`**; before that
   **7,033** locally and CI run **`35545181576` on
   `0523dfb1`** at **`# tests 7033 / # pass 7029 / # fail 0 / # skipped 4`** —
@@ -3334,8 +3336,20 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   have been right, which is exactly the case where a paragraph quietly turns
   into evidence if nobody stamps the run that settled it.
   It was 6,992 at `26f52f95` and 7,005 before the edit-path work.
-  (`site build`'s own third read on this branch is stamped with the other two
-  above — run `35545181566` on `0523dfb1`, 22m55s, all twenty steps green.)
+  **⚠ AND `9a56cacc` HAS NO `site build` RUN AT ALL, WHICH IS THE `paths`
+  FILTER AND NOT A MISSING RUN** — it touched `CLAUDE.md`,
+  `docs/owner-notes.md`, `public/chat.js`, `scripts/addon-sweep.mjs` and two
+  unit test files, and **not one of those is in `site-build.yml`'s `paths`**
+  (`builder/**`, `worker.js`, root `*.mjs` — `scripts/*.mjs` is NOT root —
+  `Dockerfile`, `.dockerignore`, `package.json`/`-lock`, the workflow's own
+  file, and **eleven `test/integration/` files plus `test/page-gen.test.mjs`
+  NAMED ONE BY ONE — not a `test/**` glob**, so a test file added anywhere
+  else, this round's two included, fires nothing).
+  **NO RUN, not a fast one**, the shape the deploy section records one layer
+  up. The last commit touching those paths is `e0540f37`, whose run is stamped
+  with the other three above. **Say which of the two it is by reading the
+  commit's own file list against that `paths` block** — a listing with no run
+  in it reads identically to a run that never fired.
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".
