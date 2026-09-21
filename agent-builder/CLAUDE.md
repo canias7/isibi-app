@@ -8653,11 +8653,32 @@ producer rather than from the producer:
   asserted untouched.
 - **Site: `agent-automations` 51 → 53** (the trigger vocabulary, censused against the column's
   own CHECK read out of the migration; and `listWebhooks` driven against the shape PostgREST
-  really sends, with five malformed ones each refused) and **`agent-binding` 149 → 150** (the
-  renderer's three words and its fail-closed fallback, with `ag-chip-done` as the observer).
+  really sends, with five malformed ones each refused) and **`agent-binding` 148 → 150** (the
+  renderer's three words and its fail-closed fallback, with `ag-chip-done` as the observer) —
+  **site suite 6,893 → 6,897**, the baseline measured at `db55835` in a clean worktree rather
+  than read off a note. The site's own `CLAUDE.md` has that half, including the guard my fix
+  broke and the six commits it was red for.
 - **REFUSALS ARE ASSERTED PER SESSION LABEL, not globally.** Each journey asserts that no
   `/api/agent/` call IT made was refused — a global assertion goes red in journey 6 on journey
   5's fourteen deliberate 404s, reporting a working platform as broken.
+
+### ⚠ AND CI READS TWO SUITES AND NOTHING ELSE, which bounds what any of this can catch later
+
+Checked rather than assumed: `unit.yml` runs `npm test` at the root and `agent-deploy.yml`'s
+`agent checks` step runs `npm --prefix agent-builder test`. **That is the whole of CI.** So
+`npm run test:pg` (1,163 checks against a real PostgreSQL), all sixteen `verify:*`
+demonstrations and the six browser journeys are **LOCAL evidence only** — nothing external
+re-runs them, and a regression in any property only they prove produces no red run.
+
+It is the same shape this file already records seven times about the mutation sweep — *a
+property proven only by an instrument the sweep cannot run is a property no mutant can be
+caught by* — arriving through CI instead, and it is worth stating once rather than discovering
+per round. **Neither can be fixed by adding them to CI as they stand**: `test:pg` and every
+demonstration need a PostgreSQL cluster reachable by `su postgres`, and the browser needs that
+plus Chromium. What it means in practice is that after any change to `chat.js`, `agent-store.mjs`
+or this engine's `src/`, the demonstrations have to be re-run BY HAND or the claim is a stamp.
+**This round's own guard failure is exactly that cost being paid** — and paid by the one
+instrument CI does run, which is why it was six commits rather than permanent.
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and no paid call was made: the browser never leaves
 loopback, the model is the scripted one and the provider is `fakemail`.

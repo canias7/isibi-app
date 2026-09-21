@@ -561,8 +561,18 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   assert.equal(fetches.length, 1,
     `chat.js should have exactly one fetch() — the one inside apiFetch — and has ${fetches.length}`
     + ` at line(s) ${fetches.map((m) => code.slice(0, m.index).split("\n").length).join(", ")}`);
-  const inside = code.slice(code.indexOf("async function apiFetch("),
-                            code.indexOf("async function apiFetch(") + 700);
+  // ⚠ **LANDMARK TO LANDMARK, NEVER A BYTE COUNT.** The first version sliced 700 characters
+  // from the header, which is the window this repository forbids in as many words — and
+  // `apiFetch` carries a fifteen-line comment inside it, so the next sentence added there
+  // would have pushed the 401 gate out of view and reported a correct transport as broken.
+  // It closes on the next top-level function, and BOTH ends are asserted found.
+  const atFetch = code.indexOf("async function apiFetch(");
+  assert.ok(atFetch >= 0, "apiFetch is not declared where this test looks for it");
+  const afterFetch = code.indexOf("\nfunction ", atFetch);
+  assert.ok(afterFetch > atFetch, "apiFetch has no following top-level function to close on");
+  const inside = code.slice(atFetch, afterFetch);
+  assert.ok(inside.length < code.length / 20,
+    `the apiFetch window is ${inside.length} of ${code.length} characters — it swallowed the file`);
   assert.ok(inside.includes("await fetch("), "the one fetch() is not the one inside apiFetch");
   // ⚠ ASKED OF THE CALL, NOT OF THE FILE — a red proof caught this as a spelling. Dropping
   // the headers from the `fetch(...)` while leaving `headers['Authorization'] = 'Bearer '`

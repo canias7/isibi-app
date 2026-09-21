@@ -10642,8 +10642,17 @@ by a fixture. The check finds the endpoint first now.
 rides and a 401 re-opens the sign-in gate. It did that by requiring each path LITERAL to sit
 inside an `apiFetch(` call — and journey 2's own fix introduced `agentAutoDoor`, which picks
 between the two approval doors and hands `door.path` to `apiFetch`. **So two working,
-token-carrying calls came back as bare**, and the site suite has been RED on this branch for
-five commits.
+token-carrying calls came back as bare**, and the site suite was RED on this branch from
+`db034a0` (where `agentAutoDoor` was written) to `bbe46b2` — **SIX commits, not the five the
+fixing commit's message says**; counted with `git log -S agentAutoDoor` rather than recalled,
+and corrected here because a pushed message cannot be.
+
+**⚠ AND CI HAD NOT READ ANY OF THE SIX, because none of them had been pushed.** The last
+pushed head was `db55835`, which is green; the whole M15 span went out in one push at the end.
+So *nothing external could have caught this*, and the only instrument that would have is the
+one I skipped: `npm test` at the root, on the commit that changed `chat.js`. Saying so matters
+because "CI was green" is true of this branch's history and says nothing about the six commits
+in the middle of it.
 
 **THE PROCESS FAULT IS THE FINDING, and it is one this repository already records.** I ran the
 three agent test files whose NAMES matched what I had touched and not the suite; a change to
@@ -10658,12 +10667,21 @@ Beside it: no `XMLHttpRequest`, no `sendBeacon`, no `EventSource`, no `new Reque
 claim would be about one door of several. A path not found at a call site is now REPORTED
 rather than refused, with a ceiling so a fifth indirection is a sentence.
 
-**⚠ AND ONE OF MY OWN THREE REPLACEMENTS WAS A SPELLING TOO, caught by red-proofing it.**
+**⚠ AND TWO MORE FAULTS WERE MINE, IN THE REPLACEMENT ITSELF.** The first was a spelling,
+caught by red-proofing it.
 `inside.includes("'Bearer '")` stayed GREEN when the headers were dropped from the `fetch(...)`
 call, because the line that BUILDS the header is three lines above and still there. The
 property is that the bearer is built AND that what was built reaches the call, so both are
 asserted. **Four breakages driven one at a time, all red**: a bare `fetch` added, the headers
 dropped from the call, the header built under another name, and the 401 gate removed.
+
+**AND THE SECOND WAS A BYTE WINDOW, which this file forbids in as many words.** The window
+over `apiFetch`'s body was `slice(header, header + 700)` — and `apiFetch` carries a
+fifteen-line comment inside it, so the next sentence written there would have pushed the 401
+gate out of view and reported a correct transport as broken. It closes on the next top-level
+function now, **with both ends asserted found and the window asserted to be under a twentieth
+of the file**, because a missing landmark gives `slice(-1, -1)` and an empty window passes
+everything inside it.
 
 ### The browser's own half, and what it is honest about
 
