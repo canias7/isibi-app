@@ -4790,8 +4790,14 @@ try {
     (() => {
       const row = JSON.parse(log1).find((e) => e.id === EV1);
       const run = jget(`select id from agent.automation_runs where automation_id='${AU_EV}' and event_id='${EV1}';`);
+      // ⚠ **AND THE ENTRY IS A PAIR, NOT AN ID — my own first version of this line compared
+      // `row.runs[0]` against the uuid and was RED about a reader doing exactly what it should.**
+      // `list_events` names each run's AUTOMATION beside it, deliberately: an execution is read
+      // through its automation's history, so a bare id puts *"it started two runs"* on screen with
+      // no way to reach either. So both halves are asserted, which is the stronger claim anyway.
       return !!row && row.filed === 1 && row.woke === 0 && row.handled_at !== null
-        && Array.isArray(row.runs) && row.runs.length === 1 && row.runs[0] === run;
+        && Array.isArray(row.runs) && row.runs.length === 1
+        && row.runs[0] && row.runs[0].id === run && row.runs[0].automation === AU_EV;
     })(), log1);
   // ⚠ **NO PAYLOAD IN A LISTING, DELIBERATELY.** A body is somebody else's text, bounded at
   // 64 KiB per delivery; twenty-five of them is a megabyte to draw a table of names, and an

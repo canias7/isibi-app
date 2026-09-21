@@ -13991,3 +13991,29 @@ The migration is written and not applied. When it goes the order is the one this
 recording — **migration, then the agent service, then the site** — and here the reason is sharp:
 the screen reads three columns the live database has not got, so a site shipped first would show
 nothing where somebody expects a list. No paid call was made and no demo site was touched.
+
+### And a dozen checks I wrote and never ran — one of them was red (2026-09-21)
+
+Finishing M16 I went to write down what the database check said, and found I had never
+run it. The same commit that built the Stop and arrivals screens added **twelve new
+checks** to the engine's real-PostgreSQL file — the ones that prove a cancellation says
+whether anybody was still working, and that an arrival says which run it started — and
+then I wrote in the notes that those guarantees *"have not been driven against a real
+PostgreSQL"*. That reads like a limitation of the round. It was a limitation of me: the
+checks were sitting there, and I had not pressed the button.
+
+**Pressed: 1,180 passed, 1 failed.** The failing one was the arrivals reader, and the
+product was right — it answers each run as a PAIR, the run and the automation it belongs
+to, because an execution is only readable through its automation's history and a bare id
+would be a row nobody can open. My check compared the pair against the id. Fixed to
+assert both halves, which is a better check than the one I meant to write, and the file
+now reads **1,181 passed, 0 failed**.
+
+I measured the before as well as the after — 1,163 at the commit before this milestone,
+in a throwaway copy of the tree — so the eighteen is a measurement rather than me taking
+one number off another in my head.
+
+**The thing worth remembering: a check written and never run is not evidence, and from
+the outside it looks exactly like one that passed.** And understating what has been
+checked is as misleading as overstating it — a note saying "not driven" sends the next
+person to write the same twelve checks again.

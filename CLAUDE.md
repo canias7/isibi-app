@@ -11082,8 +11082,20 @@ throw and the census reads a 502, naming the wrong thing entirely. **Sixth time 
   afterwards, and the breakages are COMMITTED, so they are re-runnable rather than having existed
   only in a terminal.
 - **⚠ `npm run test:pg` AND EVERY `verify:*` ARE LOCAL EVIDENCE ONLY**, which this repository
-  records: CI runs the root suite and the engine's suite and nothing else. The migration is
-  unapplied, so its own guarantees are unverified against a real PostgreSQL in this round.
+  records: CI runs the root suite and the engine's suite and nothing else.
+  **⚠ AND THIS LINE SAID THE MIGRATION'S OWN GUARANTEES WERE UNDRIVEN, WHICH WAS FALSE ABOUT THE
+  CHECKS AND TRUE ABOUT ME NOT HAVING RUN THEM — CORRECTED 2026-09-21.** The same commit added
+  **twelve `check(` calls** to `test/integration/pg-schema.mjs` covering exactly them, and the
+  file was never run afterwards. Run: **1,163 → 1,181 checks, and one of the twelve was RED** —
+  `⚠ the reader answers that event with its counts AND THE RUN IT STARTED` compared
+  `row.runs[0]` against a uuid, and `list_events` answers a PAIR (`{id, automation}`),
+  deliberately, because an execution is read through its automation's history. *An expectation
+  written from a guess about a producer rather than from the producer*, and the product was
+  right. Both halves are asserted now, which is the stronger claim. **Both ends measured** — the
+  baseline in a detached worktree at the pre-M16 tip — so the +18 is a measurement rather than a
+  subtraction, and it is 18 rather than 12 because some of those calls sit in loops.
+  **The reusable half: a check that is written and never run is not evidence, and it reads
+  exactly like one that is.**
 
 **NOT APPLIED, NOT DEPLOYED, NOT MERGED.** `20260921000000_agent_stop_and_event_log.sql` is
 prepared locally and the round-number name is that folder's own tell. When it goes the order is

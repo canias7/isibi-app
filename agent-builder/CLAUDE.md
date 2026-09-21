@@ -8851,10 +8851,26 @@ loaded by everything else in that directory.
   AMBIGUOUS and the generator refused it rather than letting the mutant land in whichever came
   first. What separates them is their next line. **`scripts/sql-sweep-spec.mjs` gained two**,
   and the cancel mutant was re-anchored onto the widened `where`.
-- **⚠ THE SQL IS UNSWEPT AND UNAPPLIED, and that is said rather than rounded into a pass.** The
-  new migration is prepared locally (the round-number name is this folder's tell); its own
-  guarantees — the live-claim read, the run pair `list_events` answers — have not been driven
-  against a real PostgreSQL in this round, and no tally is stamped for them.
+- **⚠ THE SQL IS UNSWEPT, AND UNAPPLIED TO THE LIVE PROJECT — but it IS DRIVEN, and this line
+  said otherwise until 2026-09-21.** UNSWEPT stays true: the new migration carries no SQL mutant,
+  for the reason given below. What was false is *"have not been driven against a real
+  PostgreSQL"*: the same commit added **twelve `check(` calls** to `test/integration/pg-schema.mjs`
+  over exactly those guarantees — the live-claim read, the four arrival states, the run pair
+  `list_events` answers, the isolation and the grant — **and I never ran the file afterwards.**
+  **⚠ RUN AT LAST: 1,163 → 1,181 checks, and ONE OF THE TWELVE WAS RED.**
+  `⚠ the reader answers that event with its counts AND THE RUN IT STARTED` asserted
+  `row.runs[0] === run` — an object against a uuid — where `list_events` answers
+  `{id, automation}`, **deliberately**, because an execution is read through its automation's
+  history and a bare id is a row nobody can open. *An expectation written from a guess about a
+  producer rather than from the producer*, this directory's most-recorded fault, and the product
+  was right. Both halves are asserted now, which is strictly stronger.
+  **BOTH ENDS MEASURED** — the baseline in a detached worktree at the pre-M16 tip, so the +18 is
+  a measurement rather than a subtraction of notes, and it is 18 rather than 12 because some of
+  those calls sit in loops.
+  **AND THE REUSABLE HALF IS ABOUT THE NOTE RATHER THAN THE CHECK: understating evidence drifts
+  exactly as badly as overstating it.** A reader taking *"undriven"* at its word writes those
+  twelve checks again; a reader taking it as *"driven and green"* ships a red one. Say which
+  instrument was RUN, not which one exists.
 - **AND `set_webhook_enabled_once` CARRIES NO SQL MUTANT EITHER, which is stated rather than
   implied covered.** `npm run sweep:sql` drives `test/integration/pg-schema.mjs` and
   `test/authored-run.test.mjs`, and neither reaches that wrapper — so a mutant there would
