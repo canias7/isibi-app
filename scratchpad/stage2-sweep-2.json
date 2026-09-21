@@ -1,0 +1,21 @@
+[
+  {
+    "label": "CONTROL: a comment-only change beside the BEFORE (must SURVIVE)",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "              // WHAT THE SITE DREW BEFORE THIS CHANGE, captured before the",
+    "to": "              // WHAT THE SITE DREW BEFORE THIS CHANGE (control), captured before the"
+  },
+  {
+    "label": "the BEFORE is read from the pages alone",
+    "files": ["worker.js"],
+    "from": "              const pPicsBefore = imageSources(eSrc, pPartsRead.ok ? pPartsRead.parts : []);",
+    "to": "              const pPicsBefore = imageSources(eSrc, []);"
+  },
+  {
+    "label": "the browser stops naming a component it left alone",
+    "files": ["public/chat.js"],
+    "from": "    const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];",
+    "to": "    const kept = [];"
+  }
+]

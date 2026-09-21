@@ -32,7 +32,7 @@ import { PUBLISH_RESERVE_MS } from "./build-budget.mjs";
 // THE KEY GRAMMAR IS `site-picture.mjs`' AND IS IMPORTED RATHER THAN RESTATED —
 // see `imageRefs` below. That module imports `site-addon.mjs` and
 // `build-models.mjs`, both of which import nothing, so there is no cycle.
-import { KEY_BEFORE, keyName } from "./site-picture.mjs";
+import { KEY_BEFORE, keyName, imageSlots, isEmptySlot } from "./site-picture.mjs";
 // The shape `uploadUrl` mints and the serve route answers, so `uploadKeyFor`
 // below is asking the same question the route asks rather than a copy of it.
 // Root, dependency-free of this tree (it reads `site-access.mjs` alone), so no
@@ -463,6 +463,160 @@ export function keptImages(before, after, slug) {
   }
   const lost = [...had].filter((u) => !now.has(u));
   return { ok: !lost.length, lost };
+}
+
+/**
+ * ── AND ON AN EDIT, THE PHOTOGRAPH GOES BACK (2026-09-20) ──────────────────
+ *
+ * Owner: *"Photo preservation is not fixed by publishing the loss and
+ * reporting it afterward. A request explicitly saying 'keep the existing
+ * photograph' still ships `src=""`."*
+ *
+ * `keptImages` ANSWERS A DIFFERENT QUESTION AND ITS ANSWER ARRIVES TOO LATE.
+ * It is a wall for a step whose contract is *"an addition is always a new
+ * thing"* — there a loss is a 422 and the change does not ship. The edit
+ * path's page rung cannot refuse an ordinary layout change over it, so the
+ * loss was reported and PUBLISHED: the customer's photograph came off the
+ * page, and the reply said so afterwards. A sentence is not preservation.
+ *
+ * SO THE `src` IS PUT BACK, and nothing else about the answer is touched. The
+ * page the model wrote ships exactly as written except for the one attribute
+ * it emptied — which is the smallest correction that keeps both halves of
+ * what was asked for.
+ *
+ * ⚠ THE URL COMES OUT OF THE FILE'S OWN PREVIOUS SOURCE, never from anywhere
+ * else, so this can only ever restore a photograph the site was already
+ * serving from that exact place. There is no url it could invent and none it
+ * could take from another site — `strayPhotos`' concern cannot arise here by
+ * construction.
+ *
+ * THE IDENTITY IS THE `alt`, which is the picture rung's own rule: a
+ * photograph is matched on the description written for it (`PICTURE_TOOL`:
+ * *"copied EXACTLY from the list below — this is how the slot is
+ * identified"*). Two readers of one identity rather than a second idea of what
+ * makes a picture the same picture.
+ *
+ * FOUR THINGS IT REFUSES TO DO, each because the alternative is a guess:
+ *
+ *   * AN AMBIGUOUS DESCRIPTION IS SKIPPED, on either side. Two before-slots
+ *     sharing an `alt` cannot say which url belongs where, and two empty
+ *     after-slots sharing one cannot say which to fill — skip-rather-than-
+ *     guess, the rule every scanner in this module already lives under.
+ *   * AN EXPRESSION IS NOT OUR SLOT. `src={row.photo}` is a picture the
+ *     site's own data decides, and writing a literal over it drops the
+ *     binding — `imageSlots`' own note, one module over.
+ *   * A SLOT THAT IS NOT EMPTY IS LEFT ALONE. A model that put a DIFFERENT
+ *     picture there has answered; replacing its answer would be this function
+ *     editing the change rather than protecting what was there.
+ *   * ⚠ AND A PHOTOGRAPH THE ANSWER STILL SHOWS SOMEWHERE IS NEVER PUT BACK.
+ *     This is the one rule that is not local: `keptImages` is deliberately
+ *     SITE-WIDE because *"a writer that moves a `<SafeImage>` between
+ *     components has kept every picture the site shows"*, and a per-file
+ *     restoration would meet that same legitimate move and write the url into
+ *     the place it came FROM — publishing the photograph twice. So the
+ *     site-wide `after` decides, exactly as it decides the loss.
+ *
+ * ⚠ BOTH LISTS ARRIVE IN ONE CALL, `{pages, parts}` on each side, and that is
+ * a correction rather than a convenience. Called once per list, each call's
+ * site-wide rule was only half site-wide: a writer moving a photograph out of
+ * the page and into a component left the page's slot empty, the pages call
+ * could not see where it had gone, and restored it — publishing the same
+ * picture TWICE. One call, one `shows` set, one answer.
+ *
+ * EACH FILE IS STILL WRITTEN BACK INTO THE LIST IT CAME FROM — `applyImages`'
+ * own rule, for its own reason: the union `imageSources` answers is for
+ * READING, and slicing it apart by length is how a fix of this shape silently
+ * breaks again. Pages pair on `path` and components on `name`.
+ *
+ * AND THE CALLER IS GIVEN WHAT IS STILL MISSING. `restored` is what went back;
+ * `lost` is what could not, and the two are not complements — a match that
+ * never happened leaves both empty, which from outside is indistinguishable
+ * from a file with nothing to protect. The caller decides what to do about
+ * `lost`; this function never publishes it and never hides it.
+ */
+export function keepPhotos(before, after, slug) {
+  const bPages = Array.isArray(before && before.pages) ? before.pages : [];
+  const bParts = Array.isArray(before && before.parts) ? before.parts : [];
+  const aPages = Array.isArray(after && after.pages) ? after.pages : [];
+  const aParts = Array.isArray(after && after.parts) ? after.parts : [];
+  const restored = [];
+  if (!slug) return { pages: aPages, parts: aParts, restored, lost: [] };
+  // WHAT THE ACCEPTED PUBLICATION STILL SHOWS — pages AND components in ONE
+  // set, computed before anything is written.
+  //
+  // ⚠ THIS IS THE WHOLE OF WHY THE TWO LISTS ARRIVE TOGETHER. Called once per
+  // list, each call saw only its own half: a writer that moved a photograph
+  // OUT of the page and INTO a component left the page's slot empty, the page
+  // call could not see where it had gone, and put it back — so the site
+  // published the same picture TWICE. The move is the case `keptImages` is
+  // site-wide for, and a restoration that is not site-wide undoes exactly the
+  // reorganisation that wall is written to permit.
+  const shows = new Set();
+  for (const f of [...aPages, ...aParts]) for (const u of photoUrls(f && f.source, slug)) shows.add(u);
+  const was = new Map();
+  for (const f of [...bPages, ...bParts]) {
+    const id = fileKey(f);
+    if (id) was.set(id, f);
+  }
+  const fix = (files) => files.map((f) => {
+    const id = fileKey(f);
+    const old = id ? was.get(id) : null;
+    if (!old || typeof f.source !== "string" || typeof old.source !== "string") return f;
+    // WHAT THIS FILE DREW BEFORE, keyed by its own description. An `alt` two
+    // slots share is DELETED rather than overwritten, so the ambiguity is
+    // carried rather than resolved by which one came last.
+    const had = new Map(), seen = new Set();
+    for (const s of imageSlots([{ path: "f", source: old.source }])) {
+      if (s.expr || isEmptySlot(s)) continue;
+      const url = String(s.value || "").trim();
+      if (!url.toLowerCase().startsWith(sitePhotoUrl(slug))) continue;
+      if (seen.has(s.alt)) { had.delete(s.alt); continue; }
+      seen.add(s.alt);
+      // ALREADY SOMEWHERE IN THE ANSWER — a move, not a loss.
+      if (!shows.has(url)) had.set(s.alt, url);
+    }
+    if (!had.size) return f;
+    const puts = [], twice = new Set();
+    for (const s of imageSlots([{ path: "f", source: f.source }])) {
+      if (!s.quoted || !isEmptySlot(s) || !had.has(s.alt)) continue;
+      if (puts.some((p) => p.alt === s.alt)) { twice.add(s.alt); continue; }
+      puts.push({ alt: s.alt, at: s.at, to: s.to, url: had.get(s.alt) });
+    }
+    const write = puts.filter((p) => !twice.has(p.alt));
+    if (!write.length) return f;
+    // BACK TO FRONT, or the first write moves every later offset — the same
+    // one-pass rule `applyPictures` keeps for the same reason.
+    let src = f.source;
+    for (const p of [...write].sort((a, b) => b.at - a.at)) {
+      src = src.slice(0, p.at) + p.url + src.slice(p.to);
+      restored.push(p.url);
+    }
+    return { ...f, source: src };
+  });
+  const pages = fix(aPages), parts = fix(aParts);
+  // ── AND WHAT IS STILL MISSING AFTERWARDS ───────────────────────────────
+  //
+  // ⚠ RESTORATION IS NOT COVERAGE, AND THE CALLER MUST BE ABLE TO TELL.
+  // Everything above needs a slot to write into and a description to match
+  // on, so a writer that DELETES the element, RENAMES its description or
+  // SUBSTITUTES another url walks straight past it — and the first cut of
+  // this published those losses, because a match that did not happen looked
+  // exactly like a file with nothing to protect.
+  //
+  // `keptImages` IS THE ONE DEFINITION and is asked here rather than a second
+  // idea of "what the site shows": two readers of that would disagree in
+  // exactly the cases that matter. It reads the union, so a move is not a
+  // loss on this side either.
+  const lost = keptImages([...bPages, ...bParts], [...pages, ...parts], slug).lost;
+  return { pages, parts, restored, lost };
+}
+
+/** A page is its `path` and a component its `name`; one pairing, two callers. */
+function fileKey(f) {
+  if (!f || typeof f !== "object") return "";
+  if (typeof f.path === "string" && f.path) return "p:" + f.path;
+  if (typeof f.name === "string" && f.name) return "c:" + f.name;
+  return "";
 }
 
 /**

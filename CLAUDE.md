@@ -1560,6 +1560,301 @@ many words, because the line sat at the page. Four hops, each guarded:
   so `no-backend` had sent every "add a QR code" on most of the platform to a
   rebuild.
 
+### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20 → 09-21)
+
+Eleven defects, each reproduced through `POST /api/site/<slug>/edit` before it
+was fixed, each now asserted on the designer's input, the compiler payload, the
+stored inventory and the browser's own sentence.
+`test/edit-page-{context,photos,protect}.test.mjs`, `test/edit-parts.test.mjs`
+and `test/edit-browser-reply.test.mjs`.
+
+**⚠ FIVE OF THE ELEVEN ARE DEFECTS IN THE FIX FOR THE FIRST PHOTOGRAPH ONE, and
+that is the shape worth keeping**: each shipped with a green suite, a sweep and
+an entry in this file, and each was reported back by the owner off the shipped
+code. The protection's *mechanism* was right every time; what was wrong was the
+SCOPE it applied to, the COVERAGE it claimed, the number of LISTS it looked at,
+**the RUNG it was attached to, and the REACH of the sentence it refused with**.
+
+**⚠ AND THE FOURTH ROUND IS THE ONE WITH A GENERAL LESSON: THE PROTECTION WAS
+BUILT ON THE RUNG THAT ANSWERS SECOND (2026-09-21, owner: *"Successful tweaks
+bypass protection"*).** `runTweak` is tried FIRST and unconditionally, and on
+`tw.ok` it published and returned — three hundred lines above every guard. So
+*"make the heading bigger and keep both photographs"* came back with the larger
+heading and one emptied `src`, shipped it, and reported the loss afterwards:
+the exact behaviour two rounds had already closed on the rewrite, still live on
+the path most messages take. **A guard on the FALLBACK is a guard on the case
+that does not usually happen.**
+- **THE CONTRACT IS NOW ONE CONTRACT**, asked before `publishStep` on both
+  rungs: restore what can be restored, refuse what cannot (409 `withheld`,
+  cost 0, `photosBlocked`), and `withheldPhotosMsg` is ONE composer so the two
+  refusals cannot drift into describing one outcome differently.
+- **THE COMPONENTS GO ON BOTH SIDES THOUGH A TWEAK CANNOT TOUCH ONE** —
+  `runTweak` takes one page's source and answers one page's source, so they are
+  equal by construction; they are passed because `keepPhotos` is SITE-WIDE and
+  a photograph the page drops that a component still shows must not be put
+  back.
+- **A TWEAK THAT IS A NO-OP ONCE THE PICTURE IS BACK FALLS THROUGH**, and that
+  is NOT the rewrite rung's *"the only thing that change would have done"*
+  refusal: there the expensive writer has had its go, here it has not, and the
+  fall-through is what that branch exists for. `twSpent` carries the call's
+  tokens into the rewrite's bill.
+- **⚠ AND `alt` TEXT IS PROSE, WHICH DECIDES WHICH BYPASSES REACH THIS RUNG AT
+  ALL — MEASURED, and it is not what the general contract predicts.** `proseOf`
+  reads a picture's description as words on the page, so of the three bypasses
+  the previous round named, **DELETE the element and RENAME its description are
+  refused by `sameProse` as `reworded`** and never get past `readTweak`;
+  **SUBSTITUTE another url is the one that arrives**, and it is what the
+  withheld case drives. A case built on a deletion would be green about a path
+  it never took, so the census is asserted rather than commented.
+- **⚠ AND THE TEST FILE'S OWN HABIT WAS THE BLIND SPOT.** Every case in
+  `edit-page-protect.test.mjs` stubbed `write_tweak` with `{cannot}`, because
+  each was written about the rewrite — so all of them drove the fallback and
+  not one drove the path a customer takes. *"Test this with `write_tweak`
+  succeeding; forcing it to decline misses the defect"* is the owner's own
+  wording and it names a property of the harness, not of the product.
+
+**⚠ AND A RUNG'S REFUSAL DOES NOT SPEAK FOR THE WHOLE REQUEST (2026-09-21,
+owner: *"Partial-success wording makes whole-site claims"*).** The picture rung
+took the window photograph off as asked, the page rung withheld a second change
+it could not make safely, and the screen read *"✅ Took the picture off "the
+window". ⚠️ … so I left your site exactly as it was."* — a picture HAD just come
+off. Both halves true of their own rung and the second **false of the request**.
+- **THE CAUSE IS THAT A RUNG CANNOT KNOW.** It is one step of a message that
+  may run several, its neighbours run after it, and `editOutcomes` prints its
+  sentence VERBATIM beside whatever shipped — correctly, because the rung is
+  the only side that knows why it stopped. What it does not know is what ran
+  beside it.
+- **SO THE SENTENCES END AT *"so I didn't make it"*** — true of the rung
+  whether it stood alone or beside six others, which is what makes one string
+  safe in both places — **and *"Nothing on your site changed and you haven't
+  been charged"* is added by `wholeRequestNote` on the browser's
+  complete-refusal branch**, the one reader that can see `ok: false` for the
+  whole reply. That is not a guess: the merge sets `ok` from `ranOk.length > 0`,
+  so a reply reaching that branch had no rung succeed and published nothing.
+- **TWO CONDITIONS, EACH WITH ITS OWN JOB**: `e.ok` is the property (it may
+  never fire on a reply that shipped, asked in the composer rather than trusted
+  from the one call site), and `error === "withheld"` is the SCOPE — those are
+  the sentences written to be completed this way, and every other refusal on
+  the route carries its own wording, so firing on them would print the
+  reassurance twice.
+- **⚠ AND FOUR GUARDS WERE PINNED TO THE OLD SPELLING**, two in each of the
+  protect and photos files: `includes("left your site exactly as it was")`.
+  They assert a PROPERTY — the customer is told nothing changed — and are
+  re-anchored to `"Nothing on your site changed"`, which is where that claim
+  now lives. *This file's single most repeated own-goal, met four times in one
+  correction.*
+- **THE CENSUS WIDENED TO THE ENTRY POINT'S OWN CALLS, AND DELIBERATELY NO
+  FURTHER.** `wholeRequestNote` is reached from `editAnswer`'s REFUSAL branch,
+  which the transitive walk from `editReply` — the SUCCESS composer — cannot
+  see. **Rooting that walk at `editAnswer` was tried and MEASURED: it demands
+  36 further functions** (`siteEdit`, `watchEditJob`, `siteAddon`, `sitesSave`,
+  the whole build-panel closure) **which the harness does not cut ON PURPOSE** —
+  they are injected as recorders and stubs, which is what makes `actions` a
+  record of what the screen would do rather than the screen doing it. A census
+  demanding those be cut would assert the opposite of the design. The property
+  is the entry point's own direct calls: three today, all cut.
+
+- **`readSiteParts`'s THREE STATES REACH THIS RUNG.** `loadSiteParts` collapses
+  "no components" and "the read threw" into one `null`, and
+  `mergeParts(null, [one])` answers `[one]` — so a transient R2 failure
+  published ONE component and deleted the rest. The addon's shape, on the
+  caller that never moved: `partsSent` answers `unreadable`, every returned
+  component is refused, the merge hands over `null`, and the spine re-sends the
+  store's own copy.
+- **ONE SNAPSHOT PER MESSAGE, ADVANCED BY `publishStep`.** `components` and
+  `tsx` both dispatch to `page`, so one sentence runs the rung TWICE — and each
+  run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
+  first rung's work was overwritten by the second rung's merge of the original:
+  step one ran, was charged for, reported success, and shipped nothing.
+  `editParts()` is the message-wide read and `publishStep` advances it exactly
+  as it advances `eSrc` — **the pages never had this bug because `eSrc` is this
+  variable one field over**.
+- **⚠ THE `text` RUNG'S VERSION WAS WORSE AND IT REFUSES NOW.** Its empty list
+  is REAL rather than absent: `editableFiles(eSrc, null)` presents the pages
+  alone, `splitEditable` answers `parts: []`, and both the spine's preference
+  and its save take that at face value. **Measured through the route: reply
+  `{ok: true, applied: 1}`, payload `parts: []`, and `source/<slug>/parts.json`
+  REWRITTEN TO `[]`** — every component deleted by a one-word wording change.
+  503 `parts-unreadable`, **above the model call**, cost 0, nothing written.
+- **THE PAGE WRITER GETS WHAT `briefWithLayout` HAS ALWAYS TAKEN** — `parts`,
+  `partsUnreadable`, `theme`, `css`, `plan`, all five omitted, so the one call
+  on this path that rewrites a whole page was that function's blindest caller.
+  The plan is scoped to the TARGET page and takes `modules`, never `kit`.
+  **⚠ THE SCOPING IS THE `[wantRoute]` INDEX, NOT THE `[target]` ARGUMENT** —
+  `pageComponents` answers a map keyed by route, so both give the same entry;
+  the argument saves a walk. A sweep mutant said so.
+- **THE PROMPT STOPS TELLING A PHOTOGRAPHED SITE IT HAS NONE.** A bare
+  `images: 0` renders as *"PHOTOGRAPHS: none on this site … that is the
+  intended look here"* — false on every site with any, and the last two clauses
+  are an instruction to STRIP them. Driven on a site showing two, on a request
+  that asked to keep them: both came back with an empty `src`. `images:
+  {shown: shownPhotos(photoInventory(…)), place: false}` — **the budget did not
+  move; no `buy` key IS the zero.**
+- **⚠ THE PHOTOGRAPH GOES BACK — REPORTING IS NOT PRESERVATION (2026-09-20,
+  owner).** The first cut of this rung detected the loss, PUBLISHED it and
+  named it: *"keep both photographs and change the opening hours"* shipped
+  `src=""` and a note about it. `keepPhotos` restores the attribute **from the
+  file's own previous source**, so it can only ever put back a picture the site
+  was already serving from that exact place — there is no url it could invent
+  and `strayPhotos`' concern cannot arise. **The identity is the `alt`**, which
+  is `PICTURE_TOOL`'s own rule rather than a second idea of what makes a
+  picture the same picture. **Four refusals to guess**: a slot holding a
+  DIFFERENT picture is an ANSWER and is left alone; `src={row.photo}` is a
+  binding; an `alt` two slots share is skipped on either side; and **a
+  photograph the answer still shows SOMEWHERE is never put back** — that last
+  one is not local, because `keptImages` is deliberately site-wide and a
+  per-file restoration would meet a legitimate MOVE and publish the picture
+  twice.
+- **⚠ AND AUTHORISED REMOVAL STILL WORKS — BUT THE PERMISSION IS A STATE AND
+  NEVER A FLAG (corrected 2026-09-20, owner: *"`ePhotoAsk` disables protection
+  globally"*).** The first cut asked whether the MESSAGE had a picture step at
+  all, which is a judgement about the sentence made by a rung that cannot see
+  WHICH picture was meant — so *"remove only the window photograph; keep the
+  bench photograph"* turned the protection off for every picture on the site
+  and published both missing. **The scope is `eSrc`**, the site as THIS rung
+  finds it: the picture rung publishes through `publishStep`, which advances
+  `eSrc`, so a photograph it really cleared is already gone from the before
+  side and there is nothing to put back, while one it did not touch is still
+  standing and is protected. *"Permission belongs to the operations that
+  matched, and the state is where those are recorded."*
+  **⚠ AND THE RUNNING ORDER IS WHAT MAKES THAT TESTABLE.** `LANE_FIELDS` puts
+  `shape` (12) and `components` (11) BEFORE `images` (13) and `tsx` (17)
+  AFTER, so only an `images`+`tsx` message runs the picture rung FIRST — and a
+  red check proved that mutating the before side to `eSrcAt0` survived every
+  case until one drove that ordering. **The two readings are equal by
+  construction whenever the page rung goes first**, which is most messages.
+- **⚠ RESTORATION IS NOT COVERAGE, AND A LOSS IT CANNOT REACH REFUSES THE RUNG
+  (corrected 2026-09-20, owner: *"Do not publish the loss merely because
+  matching failed"*).** Everything `keepPhotos` does needs a slot to write into
+  and a description to match on, so a writer that **DELETES** the element,
+  **RENAMES** its description or **SUBSTITUTES** another url walks straight
+  past it — and the previous cut then published the loss and named it
+  afterwards, which is the behaviour the round before that was meant to end. A
+  match that never happened is indistinguishable, from outside, from a file
+  that had nothing to protect. So `keepPhotos` answers `lost` as well as
+  `restored`, over the same accepted publication, and a loss left standing is
+  **409 `withheld`, cost 0, `photosBlocked: n`** — nothing compiles, neither
+  store is written, and the customer is told how to authorise it. **NOT an
+  `escalate`**, which would buy the ~25-credit rewrite of every page to protect
+  one photograph.
+  **THE LINE THAT STILL SEPARATES THIS RUNG FROM THE ADDON'S IS THE WORD
+  *UNRELATED*, not the word *refuse*.** There a lost photograph is 422
+  `lost-photos` at cost 0 on a step whose contract is *"an addition is always
+  a new thing"*; here a removal the picture rung really made ships and is
+  REPORTED. Three refusals with three sentences and they are not
+  interchangeable: a reachable loss that is the change's whole content
+  (*"the only thing that change would have done…"*), a loss we could not put
+  back (`photosBlocked`), and a component we would not rewrite unseen
+  (`keptParts`).
+  **`photosRemoved`, NOT `lostPhotos`**: the addon's field is a LIST of urls on
+  a refusal that published nothing (`Array.isArray` in its own harness) and
+  this is a count on a change that shipped — `Number([…])` is NaN, so one name
+  over two shapes makes the browser's clause silently never fire.
+- **⚠ AND THE GUARD TAKES BOTH LISTS IN ONE CALL (corrected 2026-09-20, owner:
+  *"Moving an image from the page into a component publishes it twice"*).** It
+  ran once per list, so each call's site-wide rule was only half site-wide: the
+  pages call saw an empty `src`, could not see where the url had gone, and put
+  the old copy back beside the component that now carried it. **One call,
+  `{pages, parts}` on both sides, ONE `shows` set over the union** — which is
+  what makes *"a photograph the answer still shows SOMEWHERE is never put
+  back"* true rather than aspirational. It is asked of the **ACCEPTED
+  publication**: the target page folded into the site's own list, and the
+  components the wall admitted, so a refused component cannot be protected and
+  a page nobody publishes cannot count. And **both its outputs go on to
+  publish** — `pGuard.parts`, not the unguarded merge, or a `src` written back
+  into a component is silently dropped.
+- **AND `photosKept` IS THE PROTECTION'S RECEIPT, INTERSECTED WITH WHAT SHIPS.**
+  A customer cannot otherwise tell the builder nearly took them off. It is
+  **not a sum of the rungs' own counts**: the page rung puts a picture back,
+  an AUTHORISED picture rung further down the same sentence takes that same
+  picture off, and the sum then prints *"the 2 photographs are still there"*
+  beside *"one photograph is no longer on the site"* — two sentences about one
+  publication, disagreeing. `ePhotosHeld` is a set of URLS across the message,
+  intersected below the loop with what the publication really shows; urls
+  because only an identity can be intersected, and they never reach the wire.
+- **THE EMPTY FRAME IS COUNTED BY A FRAME READER.** `photos` was
+  `countImageSlots`, which counts `@@IMG:` TOKENS on a rung whose directive
+  forbids them — zero on every obedient answer, so `photoNote` never fired.
+  `newEmptySlots(before, after)`, token counter behind it. **`countImageSlots`
+  now has NO caller in `worker.js` at all** (asserted, over blanked comments,
+  because the note explaining the move names it): both paths ask the frame
+  reader, which sees a swept token AND a frame the model simply wrote.
+  **Both readers take `imageSources(pages, parts)`**: a photograph
+  can live in a component since the band split, and reading the pages alone
+  answers a smaller inventory, which is an invitation to strip what is not in
+  it. A sweep mutant survived until a case put a picture in a component AND
+  lost it — **the untouched-component case cannot tell the two apart**, because
+  `keptImages` reports only what the BEFORE had and the AFTER lacks.
+- **⚠ AND BOTH COMPARISONS ARE ASKED ONCE, BELOW THE LOOP (2026-09-20, owner:
+  *"avoid reporting intermediate changes that the final publication
+  reverses"*).** Each rung used to answer about its OWN output — and
+  `components` and `tsx` both dispatch here, so rung 2's "before" was rung 1's
+  output: a frame rung 1 left and rung 2 removed was reported on a publication
+  that does not have it, and the merge's first-body-wins rule carried exactly
+  that number to the customer. **The two ends that are really comparable are
+  `eSrcAt0`/`ePartsAt0` and `pendingPublish`**, and both exist only below the
+  loop. `ePartsAt0` falls back to **`[]` and never to the store**: an
+  unreadable store publishes no components, so both sides empty is the reading
+  that says *nothing moved*.
+- **⚠ AND THE WARNINGS DID NOT SURVIVE THE MERGE AT ALL.** `merged.layer` is
+  `"look"` whenever more than one rung SUCCEEDED, and `editReply`'s look branch
+  read none of `keptParts`, `unseenParts`, `photosRemoved` or `photos` — **the
+  facts were on the wire the whole way and none of them on the screen**.
+  `editOutcomes` is ONE writer (every field is absent on an ordinary edit, so
+  the sentence is byte-identical where they do not apply), and the merge takes
+  a **UNION**: the catch-all copies a key from the FIRST body that has one and
+  skips every later rung, so a second page rung's withheld component could
+  never arrive.
+- **⚠ AND THE SAME COMPLAINT CAME BACK A THIRD TIME THROUGH THE FAILURE PATH
+  (2026-09-20).** `editOutcomes` was called from TWO of `editReply`'s ELEVEN
+  layer branches — the two the previous round drove — and a message that runs
+  several rungs lands on whichever layer SUCCEEDED. So a rung that FAILED
+  beside one that shipped was written to **`partial`, which had no reader
+  anywhere in `chat.js`**. **MEASURED through the real route**: "take the
+  window photo off and rewrite the cards", where the picture rung succeeds and
+  the page rung withholds a photograph it could not put back, answered
+  `layer: "picture"` and the screen read *"✅ Took the picture off “the
+  window”."* and stopped. **The SITE was right** — the bench survived, the
+  window went, the withheld half published nothing — **which is what makes it
+  a reporting defect and exactly the kind that ships unnoticed.**
+  **THE FIX IS ONE HOP, NOT ELEVEN**: `editReply` is a wrapper that appends
+  `editOutcomes` + `photoNote` + `problemNote` ONCE above the switch, and
+  `editReplyBody` holds the eleven branches. Every clause is absent on a reply
+  that does not carry its field, so every other branch's sentence is
+  byte-identical — *the widening costs nothing where there is nothing to say,
+  which is what makes one hop safer than eleven*. The recovered reply is
+  exempt: it has no layer, no pages and no fields. **The partial clause opens
+  with a warning inside a reply whose first character is a green tick**, and
+  prints the rung's **own sentence verbatim** (never re-composed from `error`,
+  which would be a second copy of every refusal's wording); over two it counts
+  the remainder, and a failed rung with **no** sentence is still counted —
+  *nothing at all* is the outcome the clause exists to close.
+  **AND THE HARNESS CAUGHT THE WIRING, AS DESIGNED**: `editReplyBody` was not
+  on `EDIT_BROWSER_FNS`, so the reader threw `editReplyBody is not defined`
+  and reported **NO** screen rather than a wrong one.
+- **⚠ A CHANGE A PROTECTION WITHHELD IS NOT A NO-CHANGE (2026-09-20, owner).**
+  An oversized stored component, an unchanged page back and a replacement for
+  the component the wall withheld: nothing differed, so the rung answered
+  `escalate("no-change")` — **which `escalatedEdit` turns into the ~25-credit
+  rewrite of every page**, to avoid rewriting ONE component unseen, with no
+  sentence reaching the screen. **409 `withheld`, cost 0, naming the
+  component**; nothing compiles and neither store is written. The
+  discriminator is a positive test on this route's own three lists
+  (`pKeptParts`, `pUnseenParts`, `pRestored`) — all three are US declining to
+  write something. **A GENUINE no-change still escalates and the rewrite still
+  starts**, asserted as its own control, because a rung that simply stopped
+  escalating would delete the ladder.
+- **⚠ THE HARNESS WAS READING THE WRONG COMPOSER.** `browserReply` runs
+  `addonAnswer`, the ADD route's selection; an edit reply goes through
+  `editAnswer` → `applyEditResult` → `editReply`. The add composer does not
+  throw on an edit body — it answers a PLAUSIBLE `"✅ Done."` — so an assertion
+  pinned to it passes whatever the edit screen does. **MEASURED: a reply naming
+  a page, a lost photograph and two picture spaces came back as three words.**
+  `editBrowserReply` runs the real selection, refusal branches included, and
+  its function list is censused from `editReply`'s own body — a clause whose
+  composer is not cut is a `ReferenceError` that reports NO screen rather than
+  a wrong one.
+
 ### THE EDIT PATH IS ITS OWN PATH (2026-08-29)
 
 Owner: *"it should be 2 separated path tho"*, and on what the edit step IS:
@@ -3076,14 +3371,32 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
   directions**: 382 was once stamped from a LOCAL run and the next CI read of it
   came back **381 passed, 1 failed** — the harness's own hardcoded fan-out
   ceiling, not the product.
-  **AND THIS BRANCH HAS ITS OWN READ, NAMED RATHER THAN COUNTED**: run
-  `35503280850` on `ecd3184d` (2026-09-20), the product commit, **all twenty
-  steps green and every figure above matching** — TAP 397, kit-typecheck 4,
-  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
-  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
-  kit-paint `all passed`. **The sixteen is deliberately NOT incremented**: that
-  number is a scan's answer, and the rule two lines up is exactly about taking
-  the next ordinal instead of re-deriving it.
+  **AND THIS BRANCH HAS ITS OWN READS, NAMED RATHER THAN COUNTED**: run
+  `35503280850` on `ecd3184d`, run **`35542140721` on `903b5ea2`**, run
+  **`35545181566` on `0523dfb1`**, run **`35546983002` on `e0540f37`**
+  (2026-09-21, 23m54s) and run **`35554760166` on `38d934a2`**
+  (2026-09-21, 02:36:53 → 03:00:33Z, **23m40s**) — all five **all twenty steps
+  green and every figure above matching**: TAP 397, kit-typecheck 4, site-build
+  **382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
+  `all passed`. The second was read out of the twenty-three downloaded
+  per-step files rather than the flat log, so the attribution is the
+  archive's own; the fifth was read landmark-to-landmark off the flat log,
+  **all twelve counts in one pass with every shape asked for separately**, and
+  it came back step by step in the workflow's own order. **The sixteen is
+  deliberately NOT incremented**: that number is a scan's answer, and the rule
+  two lines up is exactly about taking the next ordinal instead of re-deriving
+  it.
+  **⚠ A GREEN `site build` CARRIES TWO `##[error]` ANNOTATIONS, AND THEY ARE THE
+  HARNESS DOING ITS JOB.** GitHub annotates any line in `tsc`'s own error format,
+  and `site-build.mjs` deliberately builds a page with a type error to prove
+  *"tsc REPORTS; only `vite` refuses"* — measured on run `35554760166`:
+  `src/routes/index.tsx(50,13) TS2322` and `src/routes/menu.tsx(27,17) TS2339`,
+  each immediately followed by its own `ok` line, inside the step that ends
+  **382 passed, 0 failed**. **A scan for red words answers TWO on a run whose
+  conclusion is `success`**, so read what the annotation sits next to rather than
+  counting it. (`SSR stream transform exceeded maximum lifetime (120000ms)` is
+  the same shape, twice, and is also inside passing cases.)
 - **READ THE COUNTS OUT OF THE RUN'S PER-STEP LOG FILES**, which attribute by
   construction rather than by a window somebody drew. The flat-log alternative
   is landmark-to-landmark (`##[group]Run …` to the NEXT one, because GitHub
@@ -3094,14 +3407,55 @@ ends: 121 → 119). `GET /api/fal-balance` answers fal's, separately and free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,005** (7,005 pass, 0 fail, 0 skipped locally; CI reads
-  `7,001 / 0 / 4`, the four being the privilege-drop case, two RTL cases and
-  `site-searchpath`'s baseline-commit case). **THE TOTAL IS WHAT MATCHES** — a
-  `pass` count alone drifts between the two machines. Both halves measured on
-  `2c596bc5` (2026-09-20): locally, and CI run `35504473370`. It was 6,992 at
-  `26f52f95`; **the +13 is this branch's own new cases and is stated as the
-  difference between two MEASURED readings, never as arithmetic off a
-  paragraph.**
+- **Unit suite: 7,048, BOTH HALVES TAKEN** (2026-09-21) — locally, and CI run
+  **`35554760170` on `38d934a2`** at **`# tests 7048 / # pass 7044 / # fail 0
+  / # skipped 4`**. The eight are this round's own: five tweak-rung cases, the
+  `sameProse` bypass census, and the two scoped-wording cases — **stated as the
+  difference between two measured readings**, 7,040 → 7,048, never arithmetic
+  off a paragraph.
+  **⚠ AND THE LOCAL RUN READ `# skipped 0` WHERE CI READ 4 — MEASURED ON THIS
+  VERY PAIR, and it is the cleanest demonstration this file has of why THE
+  TOTAL IS THE ONLY COMPARABLE NUMBER.** Every earlier local run read 4 as
+  well, so the sandbox moved rather than the suite; `pass` differed by exactly
+  those four (7,048 against 7,044) while the totals were equal. A stamp
+  comparing `pass` would have reported a four-test regression that does not
+  exist.
+  The reading before it had both halves at **7,040** — locally, and CI run
+  **`35547698419` on `9a56cacc`** at **`# tests 7040 / # pass 7036 / # fail 0
+  / # skipped 4`**. The two readings before that also agreed both ways: **7,038**
+  locally and CI run **`35546983030` on `e0540f37`** at
+  **`# tests 7038 / # pass 7034 / # fail 0 / # skipped 4`**; before that
+  **7,033** locally and CI run **`35545181576` on
+  `0523dfb1`** at **`# tests 7033 / # pass 7029 / # fail 0 / # skipped 4`** —
+  the four being the privilege-drop case, two RTL cases and
+  `site-searchpath`'s baseline-commit case. **THE TOTAL IS WHAT MATCHES** — a
+  `pass` count alone drifts between the two machines by exactly those four —
+  and there the totals were equal, 7,033 both sides. The two before that:
+  **7,026** on `903b5ea2` (CI run `35542140722` at `7,022 / 0 / 4`) and
+  **7,005** on `2c596bc5` (CI run `35504473370` at `7,001 / 0 / 4`).
+  **EACH STEP IS THE DIFFERENCE BETWEEN TWO MEASURED READINGS**, never
+  arithmetic off a paragraph: 7,033 → 7,038 is five new route cases in
+  `edit-page-protect`, and 7,038 → 7,040 is the two the silent partial needed;
+  the +7 before all of them was that file arriving.
+  **THE `7,022 / 0 / 4` WAS WRITTEN HERE AS AN EXPECTATION AND BECAME A
+  MEASUREMENT, and only the second kind is worth anything** — it happened to
+  have been right, which is exactly the case where a paragraph quietly turns
+  into evidence if nobody stamps the run that settled it.
+  It was 6,992 at `26f52f95` and 7,005 before the edit-path work.
+  **⚠ AND `9a56cacc` HAS NO `site build` RUN AT ALL, WHICH IS THE `paths`
+  FILTER AND NOT A MISSING RUN** — it touched `CLAUDE.md`,
+  `docs/owner-notes.md`, `public/chat.js`, `scripts/addon-sweep.mjs` and two
+  unit test files, and **not one of those is in `site-build.yml`'s `paths`**
+  (`builder/**`, `worker.js`, root `*.mjs` — `scripts/*.mjs` is NOT root —
+  `Dockerfile`, `.dockerignore`, `package.json`/`-lock`, the workflow's own
+  file, and **eleven `test/integration/` files plus `test/page-gen.test.mjs`
+  NAMED ONE BY ONE — not a `test/**` glob**, so a test file added anywhere
+  else, this round's two included, fires nothing).
+  **NO RUN, not a fast one**, the shape the deploy section records one layer
+  up. The last commit touching those paths is `e0540f37`, whose run is stamped
+  with the other three above. **Say which of the two it is by reading the
+  commit's own file list against that `paths` block** — a listing with no run
+  in it reads identically to a run that never fired.
   - **Run it as `node --test "test/*.test.mjs"`** — the quoted glob.
     `node --test test/` reads the directory as a MODULE path and answers
     `MODULE_NOT_FOUND` as one failing "test".
@@ -3811,20 +4165,10 @@ does name one — moved up to the supported list on 2026-09-20.)*
   prompt. What shipped instead is a REPORT (`missingPopulation`), because *"no
   client write grant does not mean no writer"* — a seed, a function body, a job
   body or a client grant all count.
-- **THE EDIT PATH CAN DELETE EVERY COMPONENT A REQUEST NEVER MENTIONED (open).**
-  `worker.js`'s page rung reads `loadSiteParts`, which answers `null` for a read
-  that FAILED exactly as for a site with no components, and
-  `mergeParts(null, [one])` answers `[one]`. Driven on the addon path, where the
-  same shape cost the reproduction two components. **The fix is the one the
-  addon has** — `readSiteParts`'s three states, one snapshot per request, nothing
-  written while `ok` is false — and it is a wiring change rather than a design
-  one.
-- **THE EDIT PATH'S `page` RUNG NEVER TELLS THE CUSTOMER ABOUT AN EMPTY PICTURE
-  FRAME (open).** It computes `pSlots = countImageSlots(…)` on a rung whose
-  directive is `images: 0`, so the count is *the number of tokens a model wrote
-  against an instruction not to* and `photoNote` is silent on every obedient
-  answer. **The fix is the one the addon has** (`newEmptySlots`, exported and
-  driven).
+*(Two edit-path items closed here on 2026-09-20 — the component-deletion one
+and the empty-frame one — moved up to the ladder's own section, because a
+closed limitation left in a limitations list is a false negative about our own
+product.)*
 - **A WORKING `video-embed` IS INVISIBLE TO THE `data-slot` CENSUS (open).** It
   stamps the attribute on its FALLBACK branch alone, so **a video that WORKS is
   invisible and a BROKEN one shows up** — both consequences backwards. Two

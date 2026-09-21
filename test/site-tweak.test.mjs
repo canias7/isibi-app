@@ -242,9 +242,39 @@ test("a failed cheap attempt FALLS THROUGH rather than answering", () => {
   const at = worker.indexOf("const tw = await runTweak(");
   const win = worker.slice(at, worker.indexOf("const eDb = await siteBackendBySlug", at));
   assert.ok(win.length > 400, "the tweak window is empty — the anchor moved");
-  // Only ONE return, and it is inside the success branch.
+  // ⚠ RE-ANCHORED 2026-09-21, AND THE PROPERTY IS SHARPER THAN THE COUNT WAS.
+  // This asserted exactly ONE `return`, which stood for *"a failure falls
+  // through"* only while the success branch had one answer. The protection
+  // added a second — a SUCCESSFUL tweak whose photograph loss cannot be put
+  // back is withheld — and that is a different thing from a failed attempt:
+  // it deliberately must NOT fall through, because falling through buys the
+  // ~25-credit rewrite to cover a picture our own cheap rung mangled.
+  //
+  // THE REAL PROPERTY IS WHERE THE RETURNS ARE, not how many. `twSpent` is the
+  // first statement after the `if (tw.ok)` block, so every answer occurring
+  // above it is an answer reachable only when the cheap attempt SUCCEEDED —
+  // which is exactly "a failure falls through", stated so that an honest third
+  // answer inside the success branch does not read as this rung breaking.
   const returns = [...win.matchAll(/return Response\.json\(/g)];
-  assert.equal(returns.length, 1, "the cheap rung answers on " + returns.length + " paths — a failure must fall through");
+  assert.equal(returns.length, 2,
+    "the cheap rung answers on " + returns.length + " paths — expected the publish and the withheld refusal");
+  const spent = win.indexOf("const twSpent");
+  assert.ok(spent > 0, "the fall-through's own landmark is gone — re-derive this window");
+  for (const r of returns) {
+    assert.ok(r.index < spent,
+      "the cheap rung answers AFTER its success branch closes — a failed attempt must fall through to the rewrite");
+  }
+  // ⚠ AND THE REFUSAL COMES **FIRST**, WHICH IS THE SAFETY PROPERTY ITSELF —
+  // owner, 2026-09-21: *"Apply the same preservation contract to successful
+  // tweaks BEFORE publication."* The withheld answer is above the publishing
+  // one in source order because the guard is asked before `publishStep`; the
+  // defect this replaced published the loss and reported it afterwards, and a
+  // version that put the check below the publish would satisfy every count
+  // above while shipping exactly the old behaviour.
+  assert.match(win.slice(returns[0].index, returns[1].index), /error: "withheld"/,
+    "the photograph refusal is not the first answer — the guard has moved below the publish");
+  assert.match(win.slice(returns[1].index, spent), /ok: true,[^}]*tweak: true/,
+    "the second answer is not the publish — re-read what this rung now returns");
   // BOTH ANCHORS PROVED TO EXIST BEFORE THEY ARE ORDERED. `indexOf` answers -1
   // for a string that is not there and -1 is less than everything, so a mutant
   // deleting the gate entirely — `if (tw.ok)` → `if (false)`, which pays for

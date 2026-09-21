@@ -43,21 +43,34 @@ test("mergeParts lays fresh components over stored ones by name, keeping order",
 });
 
 // ── THE PAGE RUNG CARRIES WHAT THE MODEL WROTE ────────────────────────────
+//
+// ⚠ THE BEHAVIOUR IS ASSERTED IN `test/edit-page-context.test.mjs`, WHICH
+// DRIVES THE REAL ROUTE. These three stayed source scans for as long as this
+// rung was believed undrivable, and that belief cost three defects that a
+// source scan is structurally unable to see: it can say `mergeParts` follows
+// a read, and it cannot say what the compiler was handed or what the store
+// held afterwards. What is left here is the ORDER, which is cheap to state
+// and which the driven file does not pin.
 test("the page rung merges the edit's parts over the stored ones and hands them to the publish", () => {
   const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
-  // The stored list is read ONCE (`pStored`), for the no-change decision and
-  // the merge alike — the spelling moved from an inline load on 2026-09-02
-  // when the decision learned to read parts.
-  const loaded = rung.indexOf("const pStored = (pValid.parts && pValid.parts.length) ? await loadSiteParts(env, ownerSlug) : null;");
-  const merged = rung.indexOf("mergeParts(pStored, pValid.parts)");
-  assert.ok(loaded > 0 && merged > loaded, "the page rung does not merge the model's parts over the stored ones");
+  // RE-ANCHORED 2026-09-20. `pStored` was `loadSiteParts`' collapsed `null`,
+  // read fresh inside this rung; it is `pPartsRead` now — the message's ONE
+  // three-state snapshot, taken through `editParts()` above the loop. Both
+  // halves of that move are the fix: the third state, and the single read.
+  const loaded = rung.indexOf("const pPartsRead = await editParts();");
+  const merged = rung.indexOf("mergeParts(pPartsRead.parts, pFreshParts)");
+  assert.ok(loaded > 0 && merged > loaded, "the page rung does not merge the model's parts over the snapshot it read");
   const handed = rung.indexOf("parts: pParts || undefined");
   assert.ok(handed > merged, "the merged parts are not handed to the publish step");
-  // GATED ON THERE BEING ANY: an edit that wrote none must not re-store the
-  // stored list, and must not send `[]`, which the spine would read as "no
-  // parts" and strip the site's existing components.
+  // GATED ON THERE BEING ANY **AND** ON THE READ HAVING SUCCEEDED. The first
+  // half is old: an edit that wrote none must not re-store the stored list,
+  // and must not send `[]`, which the spine reads as "no parts" and strips the
+  // site's existing components. The second is the fix: `mergeParts(null,
+  // [one])` answers `[one]`, so merging over a read that THREW deletes every
+  // component the request never mentioned.
   const gate = rung.slice(rung.lastIndexOf("const pParts", merged), merged);
-  assert.match(gate, /pValid\.parts\.length/, "the merge is not gated on the edit having written any parts");
+  assert.match(gate, /pFreshParts\.length/, "the merge is not gated on the edit having written any parts");
+  assert.match(gate, /pPartsRead\.ok/, "the merge is not gated on the components store having been READABLE");
 });
 
 test("a changed component is a change, even when the page came back byte-identical", () => {
@@ -65,23 +78,96 @@ test("a changed component is a change, even when the page came back byte-identic
   // and handed the page back unchanged, and the rung escalated no-change —
   // the edit was sitting in `parts` the whole time.
   const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
-  const moved = rung.indexOf("const partMoved = !!pStored && pValid.parts.some(");
+  // RE-ANCHORED 2026-09-20, and the change is not cosmetic. `!!pStored` was
+  // wrong in BOTH directions: a site with no stored components read as
+  // "cannot tell" (so a brand-new component was not a change), and a store
+  // that THREW read as "no components" (so anything counted as one, and the
+  // merge below then deleted the rest). `pPartsRead.ok` is the real question.
+  const moved = rung.indexOf("const partMoved = pPartsRead.ok && pFreshParts.some(");
   const decide = rung.indexOf('return escalate(wrote ? "no-change" : "no-page-back"');
   assert.ok(moved > 0 && decide > moved, "the no-change decision is made before the parts are compared");
-  const cond = rung.slice(rung.lastIndexOf("if (", decide), decide);
+  // ⚠ RE-ANCHORED 2026-09-20, AND THE OLD ANCHOR WAS THIS REPOSITORY'S OWN
+  // RECORDED TRAP. It read the condition as `lastIndexOf("if (", decide)` —
+  // a BACKWARDS search from a named neighbour — so the moment a sibling `if`
+  // was inserted between the branch's own head and its escalate, the window
+  // silently became the sibling's condition and this reported the feature as
+  // gone. It is now a FORWARD anchor on the head itself, which no later
+  // insertion can move.
+  const open = rung.indexOf("if (!wrote || (");
+  assert.ok(open > 0 && open < decide, "the no-change branch's own head is gone");
+  const cond = rung.slice(open, rung.indexOf("{", open));
   assert.match(cond, /wrote\.source === target\.source && !partMoved/, "an unchanged page with a changed part still reads as no-change");
   assert.match(cond, /!wrote \|\|/, "a page that did not come back at all must still be no-page-back");
+  // ── AND A CHANGE WE WITHHELD IS NOT A NO-CHANGE (2026-09-20) ────────────
+  //
+  // Inside the branch and ABOVE the escalate: an oversized component the
+  // wall refused, a components store we could not read, and a photograph put
+  // back are all US declining to write something. `escalate` is what the
+  // browser turns into the ~25-credit rewrite, so answering it there bought
+  // a whole-site rewrite to avoid rewriting one component unseen.
+  const held = rung.indexOf("if (wrote && (pKeptParts.length || pUnseenParts.length || pRestored.length))", open);
+  assert.ok(held > open && held < decide,
+    "a withheld change escalates again, so the browser buys the full rewrite with no sentence saying why");
+  const refusal = rung.slice(held, decide);
+  assert.match(refusal, /error: "withheld"/, "the refusal cannot name itself");
+  assert.match(refusal, /cost: 0/, "a refusal is charged for");
+  assert.ok(!/escalate\(/.test(refusal), "the refusal still escalates: " + refusal.slice(0, 200));
   // The comparison is by name against the STORED source: a new part, or one
   // whose source differs, is a move; an identical re-send is not.
   const cmp = rung.slice(moved, rung.indexOf("});", moved));
-  assert.match(cmp, /return !s \|\| s\.source !== pt\.source;/, "the part comparison is not by stored source");
+  assert.match(cmp, /const s = pPartsRead\.parts\.find\(\(x\) => x && x\.name === pt\.name\)/,
+    "the stored side is no longer found by name");
+  assert.match(cmp, /return !s \|\|/, "a component the store has never seen is no longer a change");
+  // ⚠ AND THE AFTER SIDE IS THE PHOTO GUARD'S COPY, NOT THE MODEL'S ANSWER
+  // (2026-09-20). `keepPhotos` may write a `src` back into a COMPONENT, so a
+  // component whose ONLY difference from the store is a restoration we made
+  // is still a change worth publishing — and comparing against the raw
+  // answer would call it one for the wrong reason, or miss it entirely when
+  // the model's own text matched the store. `pt.source` stays as the
+  // fallback for a name the guard did not return.
+  assert.match(cmp, /s\.source !== \(\(g && g\.source\) \|\| pt\.source\)/,
+    "the part comparison does not read the guarded copy");
+  assert.match(cmp, /const g = pGuard\.parts\.find\(\(x\) => x && x\.name === pt\.name\)/,
+    "the guarded copy is not found by name either");
+  // AND IT MEASURES WHAT WE ACCEPTED, not what came back. A component the
+  // wall refused is not a change — counting it would publish a "change" whose
+  // only content is a rewrite we declined to keep.
+  assert.ok(rung.indexOf("const pFreshParts") < moved,
+    "the accepted list is computed after the change decision that reads it");
 });
 
-test("the page rung tells the model what the site already has: its components, marks and scene", () => {
+test("the page rung tells the model what the site already has: its components, marks, look and kit", () => {
   const rung = CODE.slice(at(CODE, 'if (eLayer === "page") {', "page rung"), at(CODE, "for (const step of steps) {", "page rung end"));
   const call = rung.slice(rung.indexOf("briefWithLayout({"), rung.indexOf("}), eSpec"));
   for (const f of ["tsx", "gif", "qr", "three"]) assert.match(call, new RegExp(`\\b${f}: eLook2\\.${f}\\b`), `the page rung's brief does not carry the stored ${f}`);
-  assert.match(call, /images: 0/, "the stated zero for photographs is gone");
+  // ⚠ RE-ANCHORED 2026-09-20. This was `/images: 0/` — the BARE form, which
+  // `imageDirective` renders as *"PHOTOGRAPHS: none on this site"*, false on
+  // every site that has any and an instruction to strip them. The budget is
+  // unchanged (no `buy` key is the zero); the SENTENCE is now stated as ours
+  // and the inventory is read. `test/edit-page-photos.test.mjs` drives what
+  // each half does to the prompt; the property here is that the call still
+  // says something rather than going silent, because silence is what makes a
+  // model write tokens of its own.
+  const imgAt = call.indexOf("images: {");
+  assert.ok(imgAt > 0, "the stated zero for photographs is gone");
+  const images = call.slice(imgAt, call.indexOf("},", imgAt));
+  assert.match(images, /\bshown: shownPhotos\(photoInventory\(/,
+    "the page rung does not READ what the site shows, so its sentence is a guess");
+  assert.ok(!/\bbuy: /.test(images), "the page edit rung has started buying photographs: " + images);
+  // ── AND THE FOUR `briefWithLayout` HAS ALWAYS TAKEN AND THIS RUNG NEVER
+  //    SENT (2026-09-20) ──────────────────────────────────────────────────
+  //
+  // The one call on the edit path that rewrites a whole page was the blindest
+  // caller of that function there is: no component SOURCE (so an existing
+  // component arrived under a heading telling the writer to build it), no
+  // theme, no stylesheet, no kit signatures for the page being edited.
+  // `test/edit-page-context.test.mjs` drives what each one does to the prompt;
+  // this is only the census that all four are on the wire.
+  assert.match(call, /\bparts: pStoredParts\b/, "the brief does not carry the site's own component source");
+  assert.match(call, /\bpartsUnreadable: !pPartsRead\.ok\b/, "the brief cannot say the components store was unreadable");
+  assert.match(call, /\btheme: eLook2\.theme\b/, "the brief does not carry the theme the site is wearing");
+  assert.match(call, /\bcss: eCss2\b/, "the brief does not carry the site's own stylesheet");
+  assert.match(call, /\bplan: pPlanComponents\.length \?/, "the brief does not carry the kit signatures for this page");
 });
 
 // ── THE SPINE SENDS AND THEN STORES THEM ──────────────────────────────────
@@ -114,6 +200,36 @@ test("a rung's parts survive a later rung's publish in the same message, and rea
   assert.match(ps.slice(set), /\bparts\b/, "the carried parts are not put on the pending publish");
   // A later list wins: the args' own parts are preferred over the carried.
   assert.match(ps.slice(carry - 80, carry), /args\.parts\) \? args\.parts :/, "an earlier rung's parts override the later rung's");
+  // ── AND THE NEXT RUNG SEES THEM, exactly as it sees `eSrc` (2026-09-20) ──
+  //
+  // Handing the list over is not enough on its own, and "a later list wins"
+  // one line up is precisely what made that fatal: the next page rung
+  // computed its OWN merge from the STORE, which still held what the message
+  // arrived with, so the two rungs' answers could not both survive. Driven
+  // end to end in `test/edit-page-context.test.mjs`; the property here is
+  // that the snapshot is advanced in the same place the pages are, and only
+  // over a state we could read.
+  assert.match(ps, /ePartsRead = \{ ok: true, parts: args\.parts \}/,
+    "publishStep does not advance the components snapshot, so a second page rung merges against the original");
+  assert.match(ps, /ePartsRead && ePartsRead\.ok/,
+    "the snapshot is advanced without checking the read succeeded, which manufactures an `ok` out of a failure");
+  // ⚠ RE-ANCHORED 2026-09-20 — ASSERT THE PROPERTY, NOT THE SPELLING. This
+  // was pinned to the reader as a ONE-LINE body, so the honest arrival of a
+  // second line inside it (the message's own BEFORE, taken at the same read)
+  // reported the snapshot as gone. The property is: one lazy read, through
+  // the three-state reader, remembered.
+  const snap = CODE.slice(at(CODE, "const editParts = async () => {", "editParts"), at(CODE, "let pendingPublish = null;", "editParts end"));
+  assert.match(snap, /if \(!ePartsRead\)/, "the components read is no longer remembered, so two rungs can disagree about the site");
+  assert.match(snap, /ePartsRead = await readSiteParts\(env, ownerSlug\)/,
+    "the message-wide components snapshot is gone, or no longer reads the three-state reader");
+  // AND THE MESSAGE'S OWN BEFORE IS TAKEN AT THAT SAME READ (2026-09-20).
+  // Every outcome the reply reports about the site's pictures is a
+  // comparison, and a comparison taken per rung answers about a version a
+  // later rung may replace — `publishStep` advances both `eSrc` and
+  // `ePartsRead`, so the only stable end is the one captured here.
+  assert.match(snap, /ePartsAt0 = ePartsRead\.ok \? ePartsRead\.parts : \[\]/,
+    "the message's own component BEFORE is gone, so the picture outcomes are per-rung again");
+  assert.match(CODE, /const eSrcAt0 = eSrc;/, "the message's own page BEFORE is gone");
   // AND THE ONE PUBLISH BELOW THE LOOP SPREADS IT, so the spine receives them:
   // the first spine call after the final-publish landmark spreads `pendingPublish`.
   const fin = at(CODE, "let finalPub = null;", "final publish");

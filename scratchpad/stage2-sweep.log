@@ -1,0 +1,28 @@
+spec scratchpad/stage2-sweep.json — 16 mutants + 1 controls, over worker.js, public/chat.js, scripts/addon-sweep.mjs
+tests: test/edit-page-photos.test.mjs test/edit-page-context.test.mjs test/edit-browser-reply.test.mjs test/site-apply.test.mjs test/site-addon.test.mjs test/edit-parts.test.mjs test/addon-sweep.test.mjs test/free-identifiers.test.mjs
+
+baseline…
+baseline green
+
+  ok  CONTROL: a comment-only change beside the picture readers (must SURVIVE)
+  killed    the prompt goes back to the bare zero
+  killed    the inventory is pages-only, so a photograph in a component is invisible
+  killed    an unreadable component store claims a count anyway
+  killed    the rung starts promising the picture rung a slot it cannot fill
+  SURVIVED  the BEFORE is read from the pages alone
+  killed    the AFTER is the writer's answer rather than the publication
+  killed    a lost photograph is no longer detected
+  killed    a lost photograph is detected and never named on the reply
+  killed    the empty-frame count goes back to the token counter alone
+  killed    the frame counter takes its own reading of the site
+  killed    THE REFUSAL THE EDIT PATH MUST NOT HAVE: a lost photograph 422s
+  killed    the browser stops drawing the loss
+  SURVIVED  the browser stops naming a component it left alone
+  killed    the browser stops saying the component store could not be read
+  killed    the edit screen reader runs the ADDON composer
+  killed    the edit screen reader stops refusing a status nobody recorded
+
+16 mutants, 14 killed, 2 survived, 0 never applied, 1 comment-only controls
+SURVIVORS:
+  - the BEFORE is read from the pages alone
+  - the browser stops naming a component it left alone

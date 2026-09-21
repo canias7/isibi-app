@@ -1,0 +1,105 @@
+[
+  {
+    "label": "CONTROL: a comment-only change beside the picture readers (must SURVIVE)",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "              // ── WHAT THIS CHANGE DID TO THE SITE'S PICTURES ──────────────",
+    "to": "              // ── WHAT THIS CHANGE DID TO THE SITE'S PICTURES (control) ────"
+  },
+  {
+    "label": "the prompt goes back to the bare zero",
+    "files": ["worker.js"],
+    "from": "                  images: {\n                    shown: shownPhotos(photoInventory(eSrc, pStoredParts, pPartsRead.ok), ownerSlug),\n                    place: false,\n                  },",
+    "to": "                  images: 0,"
+  },
+  {
+    "label": "the inventory is pages-only, so a photograph in a component is invisible",
+    "files": ["worker.js"],
+    "from": "                    shown: shownPhotos(photoInventory(eSrc, pStoredParts, pPartsRead.ok), ownerSlug),",
+    "to": "                    shown: shownPhotos(eSrc, ownerSlug),"
+  },
+  {
+    "label": "an unreadable component store claims a count anyway",
+    "files": ["worker.js"],
+    "from": "                    shown: shownPhotos(photoInventory(eSrc, pStoredParts, pPartsRead.ok), ownerSlug),\n                    place: false,",
+    "to": "                    shown: shownPhotos(photoInventory(eSrc, pStoredParts, true), ownerSlug),\n                    place: false,"
+  },
+  {
+    "label": "the rung starts promising the picture rung a slot it cannot fill",
+    "files": ["worker.js"],
+    "from": "                    place: false,\n                  },",
+    "to": "                    place: true,\n                  },"
+  },
+  {
+    "label": "the BEFORE is read from the pages alone",
+    "files": ["worker.js"],
+    "from": "              const pPicsBefore = imageSources(eSrc, pPartsRead.ok ? pPartsRead.parts : []);",
+    "to": "              const pPicsBefore = imageSources(eSrc, []);"
+  },
+  {
+    "label": "the AFTER is the writer's answer rather than the publication",
+    "files": ["worker.js"],
+    "from": "              const pPicsAfter = imageSources(pPages, pParts || (pPartsRead.ok ? pPartsRead.parts : []));",
+    "to": "              const pPicsAfter = imageSources(pValid.pages, pValid.parts);"
+  },
+  {
+    "label": "a lost photograph is no longer detected",
+    "files": ["worker.js"],
+    "from": "              const pKept = keptImages(pPicsBefore, pPicsAfter, ownerSlug);",
+    "to": "              const pKept = { ok: true, lost: [] };"
+  },
+  {
+    "label": "a lost photograph is detected and never named on the reply",
+    "files": ["worker.js"],
+    "from": "                photosRemoved: pKept.ok ? undefined : pKept.lost.length,",
+    "to": "                photosRemoved: undefined,"
+  },
+  {
+    "label": "the empty-frame count goes back to the token counter alone",
+    "files": ["worker.js"],
+    "from": "                photos: pNewSlots || pSlots,",
+    "to": "                photos: pSlots,"
+  },
+  {
+    "label": "the frame counter takes its own reading of the site",
+    "files": ["worker.js"],
+    "from": "              const pNewSlots = newEmptySlots(pPicsBefore, pPicsAfter);",
+    "to": "              const pNewSlots = newEmptySlots(imageSources(eSrc, []), imageSources(pPages, []));"
+  },
+  {
+    "label": "THE REFUSAL THE EDIT PATH MUST NOT HAVE: a lost photograph 422s",
+    "files": ["worker.js"],
+    "from": "              const pPub = await publishStep(env, {\n                slug: ownerSlug, pages: pPages,\n                parts: pParts || undefined,\n                label: versionLabel({ revise: true, changeNote: eInstruction }),\n              });",
+    "to": "              if (!pKept.ok) return Response.json({ ok: false, error: \"lost-pix\", cost: 0, msg: \"that would lose a photograph\" }, { status: 422 });\n              const pPub = await publishStep(env, {\n                slug: ownerSlug, pages: pPages,\n                parts: pParts || undefined,\n                label: versionLabel({ revise: true, changeNote: eInstruction }),\n              });"
+  },
+  {
+    "label": "the browser stops drawing the loss",
+    "files": ["public/chat.js"],
+    "from": "    const lostPix = Number(e.photosRemoved) || 0;",
+    "to": "    const lostPix = 0;"
+  },
+  {
+    "label": "the browser stops naming a component it left alone",
+    "files": ["public/chat.js"],
+    "from": "    const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];",
+    "to": "    const kept = [];"
+  },
+  {
+    "label": "the browser stops saying the component store could not be read",
+    "files": ["public/chat.js"],
+    "from": "    const unseen = Array.isArray(e.unseenParts) ? e.unseenParts.filter(Boolean) : [];",
+    "to": "    const unseen = [];"
+  },
+  {
+    "label": "the edit screen reader runs the ADDON composer",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "        + EDIT_BROWSER_FNS.map(cut).join(\"\\n\") + \"\\nreturn editAnswer;\",",
+    "to": "        + BROWSER_FNS.map(cut).join(\"\\n\") + \"\\nreturn addonAnswer;\","
+  },
+  {
+    "label": "the edit screen reader stops refusing a status nobody recorded",
+    "files": ["scripts/addon-sweep.mjs"],
+    "from": "  if (httpOk !== true && httpOk !== false) {\n    return { ok: false, text: \"\", actions: [], why: \"the response status was not recorded, and the browser's own selection reads it\" };\n  }",
+    "to": "  if (false) {\n    return { ok: false, text: \"\", actions: [], why: \"the response status was not recorded, and the browser's own selection reads it\" };\n  }"
+  }
+]

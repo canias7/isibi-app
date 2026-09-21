@@ -9014,6 +9014,43 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
  * about the reply: a stored 422 says the edit did not compile exactly as an
  * inline 422 does.
  */
+/**
+ * "NOTHING CHANGED" IS A CLAIM ABOUT THE REQUEST, AND THIS IS THE ONE READER
+ * THAT CAN MAKE IT (2026-09-21).
+ *
+ * ⚠ THE DEFECT IT CLOSES, owner: *"Partial-success wording makes whole-site
+ * claims."* REPRODUCED — the picture step takes the window photograph off as
+ * asked, the page step withholds a second change it could not make safely, and
+ * the screen read
+ *
+ *     ✅ Took the picture off “the window”. ⚠️ … so I left your site exactly
+ *     as it was.
+ *
+ * A picture HAD just come off. The rung's sentence was true about the rung and
+ * false about the site, and `editOutcomes` prints it verbatim — correctly, for
+ * the reason that clause states: the rung is the only side that knows why it
+ * stopped. What the rung does NOT know is what ran beside it.
+ *
+ * SO THE SERVER'S SENTENCES STOPPED SAYING IT (`withheldPhotosMsg` and the
+ * three beside it now end at *"so I didn't make it"*) AND IT IS ADDED HERE,
+ * where `ok` is false for the WHOLE reply. That is not a guess: the merge sets
+ * `ok` from `ranOk.length > 0`, so a reply that reaches this branch had no rung
+ * succeed and therefore published nothing — which is exactly what makes both
+ * halves of the sentence true.
+ *
+ * TWO CONDITIONS, EACH DOING ITS OWN JOB. `e.ok` is the property — this may
+ * never fire on a reply that shipped something, and it is asked here rather
+ * than trusted from the caller, because a composer that is only safe at one
+ * call site is one the next call site breaks. `error === 'withheld'` is the
+ * SCOPE: those are the sentences written to be completed this way, and every
+ * other refusal on this route already carries its own wording, so firing on
+ * them would print the reassurance twice.
+ */
+function wholeRequestNote(e) {
+  if (!e || e.ok || e.error !== 'withheld') return '';
+  return ' Nothing on your site changed and you haven’t been charged.';
+}
+
 function editAnswer(httpOk, e, o) {
   const clearFlight = o.clearFlight || function () {};
   // A body we cannot read is not a refusal — it is us not knowing, and the
@@ -9029,7 +9066,9 @@ function editAnswer(httpOk, e, o) {
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
     if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
-    if (e.msg) { o.finish('⚠️ ' + e.msg); return; }
+    // THE RUNG'S OWN SENTENCE, THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE.
+    // `wholeRequestNote` is empty for every refusal that already says it.
+    if (e.msg) { o.finish('⚠️ ' + e.msg + wholeRequestNote(e)); return; }
     // NO SENTENCE AND NO ASK IS NOT A REASON TO SPEND. A watch resumed after a
     // refresh has no `fallback` to fall to, and inventing a ~25-credit rewrite
     // there would charge for a message nobody re-typed.
@@ -9933,14 +9972,178 @@ function problemNote(list) {
 //
 // NAMES WHAT MOVED. A customer who asks for one thing and gets four changed
 // cannot see that from the site, and "done" tells them nothing they can check.
+/**
+ * WHAT A CHANGE DID BESIDE WHAT WAS ASKED FOR — one writer, every layer.
+ *
+ * ⚠ THESE CLAUSES LIVED INSIDE THE `page` BRANCH AND VANISHED ON EVERY
+ * MULTI-RUNG MESSAGE. `components` and `tsx` both dispatch to the page rung,
+ * so one sentence runs it twice — and the merged reply's `layer` is then
+ * `"look"`, because two rungs ran and no single one of them is the answer.
+ * MEASURED: a reply carrying `photosRemoved: 1` came back on screen as
+ * "✅ Updated the look." and nothing else. The facts were on the wire the
+ * whole way and the composer that reads them was never reached — a value
+ * computed and never forwarded, one hop from the screen.
+ *
+ * SO THE LAYER DOES NOT DECIDE WHETHER THEY ARE SAID. Every field here is
+ * absent on an ordinary edit, so calling this from a branch that never has
+ * them appends "" and the sentence is byte-identical to what it was.
+ *
+ * ONE FUNCTION RATHER THAN TWO COPIES, for this file's own recorded reason:
+ * `escalatedEdit` and `applyEditResult` were each duplicated once and both
+ * copies had silently drifted before anybody looked.
+ */
+function editOutcomes(e) {
+  var out = '';
+  // ── A COMPONENT THE CHANGE DID NOT TOUCH, AND WHY ──────────────────────
+  //
+  // Two fields because they are two sentences, and collapsing them would
+  // tell somebody to try again over a component that is simply too big to
+  // show a model. `keptParts` is "I would not rewrite it without seeing it";
+  // `unseenParts` is "I could not read this site's sections at all".
+  //
+  // NAMED, because a component the customer asked to change and did not get
+  // changed is the one thing they must hear — the server's own rule, and a
+  // field the screen never renders is a value computed and never forwarded.
+  const kept = Array.isArray(e.keptParts) ? e.keptParts.filter(Boolean) : [];
+  if (kept.length) {
+    out += ' I left ' + kept.join(' and ') + ' alone — ' + (kept.length === 1 ? 'it is' : 'they are') +
+      ' too long to show the builder in one go, and rewriting ' + (kept.length === 1 ? 'it' : 'them') +
+      ' unseen would risk losing what ' + (kept.length === 1 ? 'it does' : 'they do') + '.';
+  }
+  const unseen = Array.isArray(e.unseenParts) ? e.unseenParts.filter(Boolean) : [];
+  if (unseen.length) {
+    out += ' I could not read this site’s sections just then, so I left ' + unseen.join(' and ') +
+      ' exactly as ' + (unseen.length === 1 ? 'it was' : 'they were') + '. Ask again and I’ll try once more.';
+  }
+  // ── A PHOTOGRAPH THE CHANGE WOULD HAVE TAKEN OFF, AND DIDN'T ───────────
+  //
+  // The protection's own receipt. The builder emptied a picture this message
+  // never mentioned and the attribute was put back from the page's own
+  // previous source — so the customer's site is unchanged in that respect,
+  // which is only obvious to somebody who knows it nearly wasn't.
+  const heldPix = Number(e.photosKept) || 0;
+  if (heldPix > 0) {
+    out += ' ' + (heldPix === 1 ? 'The photograph' : 'The ' + heldPix + ' photographs') +
+      ' already on ' + (heldPix === 1 ? 'that page is' : 'those pages are') +
+      ' still there — I only changed what you asked about.';
+  }
+  // ── AND ONE THAT REALLY DID COME OFF ───────────────────────────────────
+  //
+  // ⚠ THIS CLAUSE IS ABOUT A LOSS THAT SHIPPED, AND SINCE 2026-09-20 THAT IS
+  // A NARROWER SET THAN IT WAS. A loss the protection could not put back
+  // safely now REFUSES the whole change on the server (409 `withheld`), and
+  // that answer never reaches this branch at all — it goes through the
+  // refusal arm with its own sentence. What still lands here is a removal the
+  // picture rung really made: "take the window photo off the front page" is
+  // an ordinary request, so the change ships and the customer is told, the
+  // way `reordered` is told — reported, never rewritten.
+  //
+  // SAID WHEN A REMOVAL WAS AUTHORISED TOO, deliberately. This side does not
+  // know which it was; the field is a fact about the publication and the
+  // intent lives in a sentence nobody parsed here. An unasked-for loss with
+  // no sentence is the failure this closes; a sentence on an asked-for one
+  // costs a line that reads as confirmation.
+  //
+  // THE COUNT, NEVER THE URLS. A storage key tells somebody nothing —
+  // `lostPhotosMsg`'s own rule, one path over.
+  //
+  // ⚠ `photosRemoved` IS THE EDIT PATH'S OWN FIELD, and the addon's
+  // `lostPhotos` is a LIST of urls on a refusal that published nothing.
+  // `Number([…])` is NaN, so reading that one here would answer 0 and this
+  // clause would never fire — one name over two shapes, which is why they
+  // are two names.
+  const lostPix = Number(e.photosRemoved) || 0;
+  if (lostPix > 0) {
+    out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') +
+      ' no longer on the site. If that was not what you wanted, say “put the ' +
+      (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
+  }
+  // ── AND A RUNG THAT DID NOT LAND, IN ITS OWN WORDS ─────────────────────
+  //
+  // ⚠ `partial` HAD NO READER ANYWHERE IN THIS FILE, and my own change is
+  // what made that matter. The merge has written it for weeks — one entry per
+  // rung that tried and failed — and nothing rendered it, so a message whose
+  // second half did not happen opened with a green tick and said nothing
+  // about the half that did not.
+  //
+  // MEASURED through the real route: "take the window photo off and rewrite
+  // the cards", where the picture rung succeeds and the page rung WITHHOLDS a
+  // photograph it could not put back, came back as
+  // `"✅ Took the picture off “the window”."` and nothing else. The site was
+  // correct — the bench survived, the window went, the withheld half
+  // published nothing — but the customer had no way to know half their
+  // sentence was refused.
+  //
+  // THE SERVER'S OWN SENTENCE, VERBATIM, which is what `lookNote`, `cssNote`
+  // and the refusal branch all already do: the rung is the only side that
+  // knows why it stopped. **NOT** re-composed here from `error`, which would
+  // be a second copy of every refusal's wording in a second language.
+  //
+  // ⚠ AND IT OPENS WITH A WARNING, inside a reply whose first character is a
+  // green tick. Part of what was asked did not happen; a clause that reads
+  // like the rest of the success line is the silent partial one sentence
+  // longer.
+  const stopped = Array.isArray(e.partial) ? e.partial : [];
+  const said = stopped.map(function (p) { return p && typeof p.msg === 'string' ? p.msg.trim() : ''; }).filter(Boolean);
+  if (said.length) {
+    out += ' ⚠️ ' + said.slice(0, 2).join(' ');
+    // BOUNDED, AND THE REMAINDER IS COUNTED RATHER THAN DROPPED. A message
+    // can run several rungs, and three refusals pasted end to end is a wall
+    // of text; a silent drop is the defect this clause exists to close.
+    if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
+  } else if (stopped.length) {
+    // A RUNG THAT FAILED WITHOUT A SENTENCE IS STILL SAID. `msg` is optional
+    // on that record, and *nothing at all* is the outcome this whole clause
+    // is about — so the count goes out even when the words did not.
+    out += ' ⚠️ ' + (stopped.length === 1 ? 'One part' : stopped.length + ' parts') +
+      ' of that message didn’t go through. Ask for ' + (stopped.length === 1 ? 'it' : 'them') + ' again on ' +
+      (stopped.length === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
+  }
+  return out;
+}
+
+/**
+ * ONE READING OF AN EDIT REPLY, AND `partial` REACHES IT FROM EVERY BRANCH.
+ *
+ * ⚠ THE WRAPPER IS 2026-09-20 AND IT CLOSES A SILENT PARTIAL. `editReplyBody`
+ * has ELEVEN branches, one per layer, and a message that runs several rungs
+ * lands on whichever layer SUCCEEDED — so a rung that failed beside it was
+ * reported on `partial` and rendered by nobody. `editOutcomes` was called
+ * from two of the eleven, which covered the case the previous round drove
+ * (`layer: "look"`, several page rungs) and nothing else.
+ *
+ * MEASURED through the real route: "take the window photo off and rewrite the
+ * cards" — the picture rung succeeds, the page rung WITHHOLDS a photograph it
+ * could not put back — answered `layer: "picture"`, and the screen read
+ * `"✅ Took the picture off “the window”."` with no mention of the half that
+ * was refused. The SITE was right (the bench survived, the window went,
+ * nothing was published for the withheld half); the sentence was not.
+ *
+ * SO THE OUTCOMES ARE APPENDED ONCE, ABOVE THE SWITCH, and the two branches
+ * that appended them themselves no longer do. Every clause inside is absent
+ * on a reply that does not carry its field, so every other branch's sentence
+ * is byte-identical to what it was — the widening costs nothing where there
+ * is nothing to say, which is what makes one hop safer than eleven.
+ *
+ * ⚠ THE RECOVERED REPLY IS EXEMPT, because it is not an outcome at all: a job
+ * that committed and died has no layer, no pages and no fields, and appending
+ * to its sentence would be describing work nobody can read.
+ */
 function editReply(e) {
-  // THE SWEEP'S REPLY, BEFORE ANY LAYER (stage 2a, 2026-09-05). A job that
-  // committed and died before storing its reply is finalized by the sweep
-  // with `{ ok, recovered }` and nothing else: no layer, no pages, no words.
-  // Read past this, the switch below would say '✅ Done.' — true, and not
-  // the half the customer needs, which is that the details were lost. The
-  // decision lives in edit-poll.js so a test can drive it.
   if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
+  return editReplyBody(e) + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+}
+
+function editReplyBody(e) {
+  // ⚠ THE SWEEP'S REPLY IS ANSWERED IN THE WRAPPER ABOVE, not here (moved
+  // 2026-09-20). A job that committed and died before storing its reply is
+  // finalized with `{ ok, recovered }` and nothing else: no layer, no pages,
+  // no words. Read past that, the switch below would say '✅ Done.' — true,
+  // and not the half the customer needs, which is that the details were
+  // lost. It sits in the wrapper because the recovered sentence must not
+  // gain the outcome clauses either: there is nothing to say about a change
+  // whose record is gone. A SECOND copy here would be unreachable — the
+  // wrapper has already returned — and dead by construction.
   if (e.layer === 'text') {
     // NAMES WHAT IT NOW SAYS. "Updated the wording in 3 places" is a number the
     // owner cannot check — the same class as the two silent partials this file
@@ -10084,7 +10287,7 @@ function editReply(e) {
         (ign.length === 1 ? ' was' : ' were') + ' left alone. Ask again naming ' +
         (ign.length === 1 ? 'it' : 'them') + ' if you want the same change there.';
     }
-    return out + photoNote(e.photos) + problemNote(e.problems);
+    return out;
   }
   if (e.layer === 'logo') {
     // THE SERVER'S OWN SENTENCE. It is the only side that knows whether the
@@ -10149,7 +10352,14 @@ function editReply(e) {
     for (const n of [e.styleNote, e.tokenNote, e.cssNote]) {
       if (typeof n === 'string' && n.trim()) out += ' ' + n.trim();
     }
-    return out + problemNote(e.problems);
+    // ── AND THIS IS WHERE A MULTI-RUNG MESSAGE LANDS ─────────────────────
+    //
+    // `layer` is `"look"` whenever more than one rung ran — the merge says so
+    // in as many words — so this branch composes for page edits, component
+    // edits and everything else that shares a sentence with them. Without
+    // these the withheld component, the protected photograph and the empty
+    // frame were all on the wire and none of them on the screen.
+    return out;
   }
   return '✅ Done.';
 }

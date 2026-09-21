@@ -155,6 +155,347 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — The cheap rung had no protection at all, and a refusal spoke for the whole site
+
+Two more, both yours, both reproduced before anything moved.
+
+**1. The protection was on the wrong rung.** You asked for *"make the heading
+bigger and keep both photographs"*; the cheap step answered with the bigger
+heading and one picture emptied, published it, and told you about the loss
+afterwards. That is the behaviour the last two rounds closed — still live,
+because I had put the guard on the step that runs SECOND.
+
+There are two steps here. A cheap one tries first and answers most messages; an
+expensive rewrite picks up what it cannot do. Every guard I wrote went on the
+rewrite. **And every test I wrote forced the cheap step to decline**, so all of
+them exercised the fallback and not one exercised the path your message
+actually takes. Your instruction said exactly that — *"test this with
+write_tweak succeeding; forcing it to decline misses the defect"* — and it
+names a fault in my test file rather than in the product.
+
+Both steps are on one contract now, asked before anything is published: put the
+picture back where it can be put back, and refuse the change where it cannot
+(nothing published, nothing charged, and it does NOT fall through to the
+expensive rewrite — that would charge you for a whole-page regeneration because
+our cheap step mangled a photograph).
+
+**One thing I measured rather than assumed**, because it decided what the tests
+could even show: a picture's description counts as words on the page. So of the
+three ways a picture can go missing, two — deleting the element, renaming its
+description — are already refused one layer earlier and never reach this step
+at all. Only *substituting a different picture* gets through, and that is what
+the refusal case drives. A test built on a deletion would have been green about
+a path it never took.
+
+**2. A refusal spoke for the whole site.** The picture step took the window
+photograph off as you asked; the page step withheld a different change it could
+not make safely; and the screen read
+
+> ✅ Took the picture off "the window". ⚠️ … so I left your site exactly as it
+> was.
+
+A picture had just come off. Both halves were true of their own step and the
+second was false about your request.
+
+The cause is that a step cannot know. It is one part of a message that may run
+several, its neighbours run after it, and the screen prints its sentence word
+for word beside whatever shipped. So the steps' sentences now stop at *"so I
+didn't make it"* — true whether the step stood alone or beside six others — and
+*"Nothing on your site changed and you haven't been charged"* is added by the
+browser only when the whole reply refused, which is the one place it is true.
+
+**Four of my own guards were pinned to the old wording** and went red. They
+were asserting the right thing in the wrong way — the words rather than the
+property — which is this codebase's most repeated own-goal, met four times in
+one correction.
+
+**What I checked and did not do.** Widening the test that catches an unwired
+sentence looked obvious, and I measured it before believing it: rooting it at
+the entry point demands 36 more functions that the harness deliberately does
+NOT cut, because it replaces them with recorders so the tests can see what the
+screen would do without doing it. A check demanding those be cut would assert
+the opposite of the design. It watches the entry point's own three calls
+instead.
+
+**Measured.** Focused files 138 green. Red checks: 14 one-line mutations, 11
+killed on the first pass, comment-only control survived, nothing failed to
+apply — and **all three survivors were real gaps in my tests, not harmless
+mutations**: no case put a photograph in a component on the cheap path, no case
+had a non-withheld refusal to prove the new clause stays off it, and no case
+asserted that a step's own half of the sentence is scoped. Three cases added;
+all three now die.
+
+**The remaining CI gate has landed and it is green.** The container harness —
+the one that builds real sites in a real container with a real browser, and is
+the slow one — finished at 23 minutes 40 seconds with all twenty steps passing.
+I read all twelve of its counts out of the run's own log rather than taking the
+conclusion's word for it, and every one matches what this repo has recorded
+before: the build suite at 382, the unit step at 397, and the ten others
+unchanged. Both halves of the gate are now read on the code that is on the
+branch.
+
+One thing worth knowing when you look at that run yourself: **GitHub marks two
+lines in it red, and the run is still correct.** The harness deliberately builds
+a page with a type error to prove the rule you set — *ship it even if the
+compiler complains* — and GitHub flags any compiler-shaped line as an error
+wherever it appears. Both sit immediately above their own passing result.
+
+Nothing merged, deployed or dispatched; no paid run. The live check remains
+your press.
+
+---
+
+## 2026-09-21 — The photo protection, third time, and the first two were mine
+
+You sent back three more on the same fix, and the honest summary is that all
+three were defects in **my** fix rather than in the original problem. The
+mechanism was right each time; what was wrong was who it applied to, what it
+claimed, and how many places it looked.
+
+**1. "Remove only the window photograph; keep the bench photograph" published
+both missing.** I had made the permission a single yes/no over the whole
+message — *did the customer mention photographs at all?* — and the answer
+turned the protection off for **every** picture on the site. A rung that
+cannot see which picture was meant has no business deciding that.
+
+It is the state now, not a question about the sentence. When the picture rung
+really takes a photograph off, it publishes that change, so by the time the
+page step runs, that photograph is already gone from the site it is comparing
+against — there is nothing to put back. The bench is still there, was never
+mentioned, and goes back. One is removed, one is kept, from exactly the same
+model answer.
+
+**You were also right about the test.** Mine expected both photographs to
+disappear on a message that named only the window, which is the defect written
+down as an expectation — so it could never have found it. Corrected.
+
+**2. Putting a photograph back only worked when the description still
+matched.** If the builder deleted the picture element outright, renamed its
+description, or swapped in a different file, the restoration simply never
+fired — and the old code then published the loss and mentioned it afterwards,
+which is the thing you objected to in the first place. From outside, a match
+that never happened looks identical to a file that had nothing to protect.
+
+So the builder now works out what it could **not** put back, and if anything
+is left it **refuses the whole change**: nothing is compiled, nothing is
+saved, nothing is charged, and the reply says *"I couldn't make that change
+without taking a photograph off your site, and I couldn't put it back safely
+— so I left your site exactly as it was. Say 'take that photo off' if you did
+want it gone."* Deliberately **not** an escalation, because escalating is what
+buys the ~25-credit rewrite of every page — spending that to protect one
+photograph is the opposite of the point.
+
+The cost, stated plainly: the customer's own wording change is held back with
+it. That is the rule doing what you asked rather than an oversight, and one
+sentence from them releases it.
+
+**3. Moving a photograph from the page into a section published it twice.**
+The guard ran once for pages and once for sections, so each run's "is it still
+somewhere on the site?" question was only half the site. The pages run saw an
+empty slot, could not see the section that now carried the picture, and put
+the old copy back next to it. It is one call over both lists now, asked of
+exactly what is about to ship.
+
+**What I did not break.** The plain empty-`src` restoration, intended removal
+and replacement, the multi-step warnings from last round, and the
+blocked-component refusal are all still driven through the real route and all
+still green.
+
+**How it was checked.** Every one of these is reproduced through the real edit
+route with the model wire stubbed — no model call, no credits — and each case
+reads four things: what went to the compiler, what ended up in storage, the
+reply, and the sentence your browser would actually draw. The focused files
+are 128 green. The full suite is 7,038.
+
+I also ran a red check: 18 one-line mutations that each undo half of this
+round's work, 17 killed, and a comment-only control that survived. **Three of
+them survived the first time and all three were real gaps in my own tests** —
+the running order means the picture step usually runs *after* the page step,
+so the scope fix was never exercised in the direction that matters; one
+refusal sentence had no case at all; and nothing had ever put a photograph
+back into a *section*. Three new cases, and all three mutants now die.
+
+**And one more I found myself, which is the same complaint a third time.**
+Making the builder refuse a change opened a new way for it to go quiet. On a
+message with two parts — *"take the window photo off and rewrite the cards"* —
+the photo half succeeds and the card half is refused, and the screen said
+**only** *"✅ Took the picture off 'the window'."* Your site was right either
+way (the bench stayed, the window went, the refused half published nothing),
+but you would have had no idea half your sentence was turned down.
+
+The cause is the same shape you sent back before: the reply has eleven
+different sentences, one per kind of change, and the warnings were being
+added to two of them. They are added once now, above all eleven, so it does
+not matter which half of a message succeeds. The refused half's own sentence
+is printed under a ⚠️, inside a reply that opens with a tick.
+
+**Not proven live.** Nothing here has run against a real site — no paid run,
+no merge, no deploy.
+
+---
+
+## 2026-09-20 — Three more on the edit path, and the first one was a real miss
+
+You came back with three gaps, and the first is the one I should have got right
+the first time. I made the builder **report** that it had taken a photograph off
+a page. You were right that that is not preservation — the picture was already
+gone by the time anybody read the sentence.
+
+**It puts the photograph back now.** If a change empties a picture the message
+never mentioned, the address of that picture is copied back out of the page's
+own previous version. It can only ever restore a picture your site was already
+showing in that exact spot — there is nothing it could invent. It matches them
+up by the description written on each picture, which is the same thing the
+"change that photo" step already matches on.
+
+It refuses to guess in four places, each of which I drove: a slot the builder
+put a *different* picture in is an answer, so it is left alone; a picture your
+site's own data chooses is left alone; two pictures sharing one description are
+left alone, because nothing can say which is which; and a picture the builder
+simply **moved** somewhere else is never put back, or you would end up with two
+of it.
+
+**And asking to remove one still removes it.** That is the half that makes this
+a protection rather than a rule that gets in the way. The builder decides by
+what your message was about — read off the step that picks which part of the
+site you meant, never by looking for words like "photo" in your sentence, which
+would get *"keep the photo of the window and redo the columns"* exactly
+backwards. I proved both with the same builder answer and two different
+messages: one keeps the pictures, one removes them.
+
+**Second: the warnings were disappearing.** When one sentence makes the builder
+do two things — which happens whenever you mention a section and a component —
+the reply came back saying "Updated the look." and nothing else, while the
+record underneath it said a photograph had gone and a section had been left
+alone. Everything was there; the screen just never read it. One writer now, and
+both kinds of message use it.
+
+While fixing that I found the counting was wrong in the same way: each step
+counted the pictures against its *own* output, so a picture the first step moved
+and the second step put back was reported as lost on a site that has it. It is
+counted once now, against what actually gets published.
+
+**Third: a refusal was buying you a full rewrite.** If a section was too long to
+show the builder safely, it declined to rewrite it blind — correct — and then
+reported "nothing changed", which the app reads as *try the expensive way*. So a
+guard that exists to avoid rewriting one section unseen was buying a rewrite of
+every page, with no explanation on screen. It answers for itself now: it names
+the section, says your site is untouched, charges nothing and **starts nothing**.
+A genuine "your site already does that" still climbs, and I kept a test for that
+so the fix cannot quietly delete the ladder.
+
+### Proof
+
+- All three reproduced through the real route first, then fixed. Ten one-line
+  reverts, each run against the six test files that can see the change: every
+  one goes red on exactly the case it is about.
+- **7,033 unit tests pass, 0 fail.** CI has not read this number yet.
+- Six older assertions re-anchored rather than appeased. Two of them had been
+  asserting the old behaviour as correct — they now drive the case the
+  reporting really exists for, which is a picture whose description the builder
+  rewrote, leaving nothing to match on. That is a real limit of the protection
+  and it is written down rather than glossed.
+- **Not proven live.** Nothing here has run against a real site.
+
+---
+
+## 2026-09-20 — The edit path: four ways a change ate things nobody asked about
+
+You asked me to move to the edit path, keep it separate from build and addon,
+and make one rule hold: **change what the customer asked for and leave the rest
+alone.** An independent review named four defects. Every one is reproduced
+first, through the real route, before a line of the fix was written — the
+failing versions of the tests are in git at `ad30cc44` and `b9353187`.
+
+**Nothing was spent.** No model call, no credit, no container, no paid run.
+
+### What was wrong, in plain terms
+
+**1. A blip reading your sections deleted the rest of them.** A site's sections
+live in one file. The code asked for it, and when that read FAILED it got back
+the same answer as "this site has no sections at all". So a momentary storage
+hiccup during a section edit published the ONE section the model rewrote and
+quietly dropped every other one — none of them mentioned in your message.
+
+**2. Two changes in one sentence, and the first one vanished.** "Change the
+hours and reword the address card" runs the page step twice. Each run started
+from the site as it was when you pressed send, so the second one's answer
+overwrote the first one's. The first change ran, was charged for, said it
+worked, and shipped nothing.
+
+**3. The same blip, one lane over, was WORSE — and I only found it because of
+the trap in your own notes** ("when an infrastructure limit is found on one
+route, list every route under it"). A one-word **wording** change on a site
+whose sections could not be read rewrote the sections file to EMPTY. Measured:
+reply "done", and every section gone. It refuses now, before spending anything,
+and says why.
+
+**4. The builder was being told your site had no photographs.** Word for word:
+*"PHOTOGRAPHS: none on this site… every picture is a placeholder — that is the
+intended look here."* On a site with photographs that is false, and the last
+part is an instruction to take them off. Driven on a two-photograph site, on a
+message that asked in as many words to KEEP them: both came back blank, and the
+reply said nothing about it.
+
+There was a fifth, smaller one underneath: the page step was the blindest
+caller of the builder we have. It never saw your sections' actual code, your
+theme, your stylesheet, or the props of the kit components on the page it was
+rewriting — all five of which the function it calls has accepted for weeks.
+
+### What it does now
+
+- A failed read is **its own answer**, never "you have none". Nothing is written
+  over your sections while we cannot see them, and the reply says so.
+- **One reading per message**, carried forward between steps exactly the way the
+  pages already were.
+- The wording lane **refuses and spends nothing** rather than publishing over
+  your sections.
+- The builder is told **what the site really shows** — read, not assumed — plus
+  your sections' real code, your theme, your stylesheet and the kit props for
+  that page.
+- **A lost photograph is reported, never refused.** ⚠ **Corrected the next day
+  — see the 2026-09-21 entry above.** You sent this back: a picture the
+  builder could not safely put back was still being published with a note
+  about it, which is the thing you objected to in the first place. It now
+  refuses that case outright and leaves your site untouched. What is still
+  true of this bullet is the *reason* it was written: a removal you really
+  asked for still ships and is still named on the reply — *"One photograph is
+  no longer on the site. If that was not what you wanted, say 'put the photo
+  back'."*
+- **An empty picture space is counted properly.** It was counting the wrong
+  thing and answered zero every time the builder behaved, so you were never told
+  about a frame your change left.
+- Three things the reply knew and the screen never said now reach the screen: a
+  lost photograph, a section too long to show the builder, and a section we
+  could not read.
+
+### One thing I got wrong and corrected
+
+The harness that checks "what did the customer actually see" was running the
+**addon** screen's wording over an **edit** reply. It does not crash — it
+answers something plausible — so my first round of assertions was pinning a
+sentence this path never writes. Measured: a reply naming a page, a lost
+photograph and two picture spaces came back as three words. There are two
+readers now, and a guard that keeps them apart.
+
+### Proof
+
+- 7,026 unit tests, 0 fail — **and CI has now read it too**, on the same
+  commit: 7,026 tests, 7,022 pass, 0 fail, 4 skipped (the four are cases that
+  need things a GitHub machine has not got). The totals agree, 7,026 both
+  sides, which is the number that matters. `site build` is green as well, all
+  twenty steps, every count the same as the last time anybody read them.
+- Two mutation sweeps, 37 deliberate sabotages of the new code in total: 34
+  died. Three of the survivors I measured INERT (identical behaviour over four
+  scenarios) rather than arguing they were; two were real gaps in my own tests
+  and I wrote the missing cases, after which both died. One survivor corrected a
+  comment I had written: I claimed an argument was doing the scoping and it was
+  the index.
+- **Not proven live.** Nothing here has run against a real site. The next thing
+  worth a real run is an edit on a site that has photographs and sections.
+
+---
+
 ## 2026-09-20 — Merged and deployed, then CLAUDE.md cut by three quarters
 
 **Both CI runs were green on the exact sha before I merged anything**, which is

@@ -1,0 +1,35 @@
+spec scratchpad/stage1-sweep.json — 21 mutants + 1 controls, over worker.js
+tests: test/edit-page-context.test.mjs test/edit-parts.test.mjs test/site-files.test.mjs test/edit-path.test.mjs test/edit-matrix.test.mjs test/site-edit.test.mjs test/wiring.test.mjs test/free-identifiers.test.mjs
+
+baseline…
+baseline green
+
+  ok  CONTROL: a comment-only change in the page rung (must SURVIVE)
+  SURVIVED  the page rung goes back to the collapsed reader
+  killed    partsSent is never told the store was unreadable
+  killed    the merge drops its ok gate — mergeParts(null, [one]) deletes the rest
+  killed    the merge reads the RETURNED list rather than the accepted one
+  SURVIVED  the wall stops refusing a component the writer never saw
+  killed    the wall stops refusing a WITHHELD component
+  killed    partMoved goes back to reading presence rather than readability
+  killed    the components snapshot is re-read per rung, not carried
+  killed    publishStep stops advancing the components snapshot
+  killed    the brief stops carrying the site's own component source
+  killed    the brief stops saying the store was unreadable
+  killed    the brief stops carrying the theme
+  killed    the brief stops carrying the stylesheet
+  killed    the brief stops carrying the kit signatures
+  killed    the kit plan takes the EXPORT names rather than the module names
+  SURVIVED  the kit plan is taken from the WHOLE site rather than the target page
+  killed    a refused component is no longer named on the reply
+  killed    an unseen component is no longer named on the reply
+  killed    the text rung stops refusing an unreadable store
+  killed    the text rung's refusal charges the customer
+  SURVIVED  the text rung refuses AFTER the model call
+
+21 mutants, 17 killed, 4 survived, 0 never applied, 1 comment-only controls
+SURVIVORS:
+  - the page rung goes back to the collapsed reader
+  - the wall stops refusing a component the writer never saw
+  - the kit plan is taken from the WHOLE site rather than the target page
+  - the text rung refuses AFTER the model call

@@ -144,7 +144,22 @@ test("the text lane reads BOTH stores, and both halves are published", () => {
   const lane = WORKER.slice(at, end);
   assert.ok(lane.length > 200 && lane.length < 8000, "re-derive this window");
   assert.match(lane, /editableFiles\(eSrc, eParts\)/, "the lane no longer shows the rung the site's components");
-  assert.match(lane, /loadSiteParts\(env, ownerSlug\)/, "the lane never reads the components");
+  // RE-ANCHORED 2026-09-20, and the move is the fix rather than a rename.
+  // `loadSiteParts` COLLAPSES "this site has no components" and "the read
+  // threw" into one `null`, and on this lane the second was the expensive
+  // one: `editableFiles(eSrc, null)` presents the pages alone, `splitEditable`
+  // answers `parts: []`, and both the spine's preference and its save take an
+  // empty array at face value — so a one-word wording change REWROTE
+  // `source/<slug>/parts.json` to `[]`. Measured through the real route
+  // before the fix. `editParts()` is the message-wide three-state snapshot.
+  assert.match(lane, /const eTextParts = await editParts\(\);/, "the lane never reads the components");
+  assert.match(lane, /if \(!eTextParts\.ok\)/, "an unreadable components store is not refused, so the publish empties the inventory");
+  assert.match(lane, /"parts-unreadable"/, "the refusal does not name itself");
+  // AND IT REFUSES ABOVE THE MODEL CALL, so a retry a minute later has paid
+  // for neither attempt. Driven for cost and call count in
+  // `test/edit-page-context.test.mjs`; the property here is the ORDER.
+  assert.ok(lane.indexOf("const eTextParts") < lane.indexOf("runTextEdit("),
+    "the components store is read after the model call it should refuse before");
   assert.match(lane, /splitEditable\(out\.pages\)/, "what came back is published without being split — a component would be stored as a page");
   // BOTH HALVES TO THE PUBLISH, and the parts EVERY time rather than only when
   // one changed: `recompileAndPublish` stores the list it is handed, so handing
