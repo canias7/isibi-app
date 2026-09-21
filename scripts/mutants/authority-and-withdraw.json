@@ -94,8 +94,8 @@
   "files": [
    "public/chat.js"
   ],
-  "from": "      agentApprovalsErr = j.verdict === 'revoked'\n        ? 'That request was taken back before anybody answered it, so it won’t run.'\n        : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';",
-  "to": "      agentApprovalsErr = 'Somebody already answered that one — it was ' + String(j.verdict) + '.';"
+  "from": "      agentApprovalActErr = j.verdict === 'revoked'\n        ? 'That request was taken back before anybody answered it, so it won’t run.'\n        : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';",
+  "to": "      agentApprovalActErr = 'Somebody already answered that one — it was ' + String(j.verdict) + '.';"
  },
  {
   "label": "the verdict is drawn as the database's word rather than as English",
@@ -294,5 +294,53 @@
   ],
   "from": "  if (agentEditing === null) return;\n  const name = document.getElementById('agName');",
   "to": "  const name = document.getElementById('agName');"
+ },
+ {
+  "label": "a press's refusal goes back into the read's holder, so the re-read wipes it",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  agentApprovalBusy = id;\n  agentApprovalActErr = '';",
+  "to": "  agentApprovalBusy = id;\n  agentApprovalsErr = '';"
+ },
+ {
+  "label": "a press's refusal is never drawn",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "        (agentApprovalActErr ? '<div class=\"ag-err ag-aps-err\">' + esc(agentApprovalActErr) + '</div>' : '') +",
+  "to": "        ('') +"
+ },
+ {
+  "label": "a refusal outlives the conversation it was made on",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (!quiet) { agentMsgs = null; agentMsgsErr = ''; agentApprovalActErr = ''; }",
+  "to": "  if (!quiet) { agentMsgs = null; agentMsgsErr = ''; }"
+ },
+ {
+  "label": "the scope stops saying what taking a tool away does NOT undo",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  + 'Anything it has already done with that tool has already happened: this does not undo it, '\n  + 'and a call that was already on its way is not called back. It is not the '",
+  "to": "  + 'It is not the '"
+ },
+ {
+  "label": "the tool picker is not read back, so a re-render forgets which one was chosen",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  const pick = document.getElementById('agRevPick');\n  if (pick) agentRevokePick = pick.value || '';",
+  "to": "  const pick = null;\n  if (pick) agentRevokePick = pick.value || '';"
+ },
+ {
+  "label": "the picker is drawn with nothing selected, so a press takes away the first tool",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "                            (t.name === agentRevokePick ? ' selected' : '') + '>' +",
+  "to": "                            ('') + '>' +"
  }
 ]
