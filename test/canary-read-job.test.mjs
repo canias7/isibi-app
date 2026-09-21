@@ -197,11 +197,16 @@ test("the reader collects the row, the ledger and the trace candidates", async (
   assert.equal(rec.row.id, "JOBID");
   assert.equal(rec.ledger.length, 1);
   assert.equal(rec.traces.length, 1);
-  // THE LEDGER IS MATCHED ON THE JOB ID INSIDE THE REF, not on equality: a
-  // debit's ref carries a `:<step>` suffix, so an equality match finds none of
-  // them and a prefix match finds none of the ones that are prefixed.
+  // THE LEDGER IS MATCHED ON THE JOB ID INSIDE THE REF, not on equality. Read
+  // out of the RPCs: a RESERVE's ref is `<job>#<seq>` and a REFUND's is the
+  // bare `<job>`, so an equality match finds the refunds and none of the
+  // holds — **a refund with no debit beside it**, which reads as credits
+  // appearing from nowhere. A build's is `build:<job>:<step>`, which a prefix
+  // match would miss in the other direction.
   assert.ok(s.asked.some((p) => p.startsWith("credit_events") && p.includes("JOBID")));
   assert.ok(s.asked.some((p) => p.startsWith("credit_events") && p.includes("like.")));
+  const q = s.asked.find((p) => p.startsWith("credit_events"));
+  assert.doesNotMatch(q, /ref=eq\./, "an equality match would find the refunds and none of the reserves");
   // THE TRACES ARE BY SLUG AND WINDOW, which is not a join.
   assert.ok(s.asked.some((p) => p.startsWith("edit_traces") && p.includes("slug=eq.fretwork-1")));
   assert.ok(rec.notes.some((n) => /CANDIDATES rather than a join/.test(n)));

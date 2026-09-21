@@ -105,9 +105,18 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
   out.row = (jr.rows || [])[0] || null;
   if (!out.row) { out.notes.push("no edit_jobs row with that id — the job never existed, or it has been pruned"); return out; }
 
-  // THE LEDGER, MATCHED ON THE JOB ID INSIDE THE REF. `debitRef` names each
-  // debit `<something>:<job>:<step>`, so a prefix match would miss the step
-  // suffix and an equality match would miss every one of them.
+  // THE LEDGER, MATCHED ON THE JOB ID INSIDE THE REF — AND A `like` IS THE
+  // ONLY MATCH THAT WORKS, read out of the RPCs rather than guessed:
+  //
+  //   RESERVE  ref = p_id || '#' || p_seq   (`<job>#1`, `#2`, …) — one request
+  //                                          makes SEVERAL sequenced holds
+  //   REFUND   ref = p_id                   (the bare job id)
+  //   BUILDS   ref = "build:" + jobId + ":" + step
+  //
+  // So an EQUALITY match finds the refunds and none of the reserves, which is
+  // the worst answer this instrument could give: **a refund with no debit
+  // beside it**, which reads as credits appearing from nowhere. A PREFIX match
+  // has the mirror problem on the build path. The `like` finds all three.
   const lr = await sb(`credit_events?ref=like.*${encodeURIComponent(job)}*&select=*&order=at.asc`);
   if (lr && lr.status === 200) out.ledger = lr.rows || [];
   else out.notes.push(`credit_events read failed (${lr && lr.status})`);

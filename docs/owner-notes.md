@@ -306,6 +306,18 @@ is the 576-second question.
    site and time window. If two edits ran on `fretwork-1` inside that window
    they are not distinguishable — the account says so rather than picking one.
 
+**And one thing that might not answer at all, said before the press rather
+than after.** The job row and the trace rows are read the same way other
+scripts here already read them against the live database, so those are known
+to work. **The ledger rows are the one read nothing has ever done** — those
+rows are only ever written from inside the database's own functions, so no
+code here has ever asked for them over the wire. They should answer; they have
+not been asked. If they don't, the output says `credit_events read failed`
+with the status **instead of printing an empty ledger** — which matters,
+because "no rows" and "we couldn't look" are exactly the two things that must
+not be confused here. Tell me the status and I'll fix the read; it costs
+nothing either way.
+
 20 new tests, 5 mutants killed, comment-only control survived. Suite **7,110**.
 
 ### The places-left retry — prepared, not dispatched

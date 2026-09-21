@@ -1510,10 +1510,26 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   answers `charged: null`** with the value NAMED — never the most reassuring
   branch.
 - **THE LEDGER IS MATCHED ON THE JOB ID INSIDE THE REF** (`ref=like.*<job>*`),
-  because `debitRef` names each debit `<…>:<job>:<step>`: an equality match
-  finds none of them and a prefix match finds none of the suffixed ones.
+  and a `like` is the ONLY match that works — **read out of the RPCs rather
+  than guessed**. A **reserve** writes `ref = p_id || '#' || p_seq`
+  (`<job>#1`, `#2`, … — one request makes SEVERAL sequenced holds, which this
+  file already records); a **refund** writes the **bare** `p_id`; a build
+  writes `build:<job>:<step>`. **So an equality match finds the refunds and
+  none of the reserves** — a refund with no debit beside it, which reads as
+  credits appearing from nowhere — and a prefix match has the mirror problem
+  on the build path.
 - **A FAILED LEDGER READ IS NAMED, NEVER FOLDED INTO "NO ROWS"** — the two
   answer identically as `[]` and only one of them licenses a claim about money.
+- **⚠ AND THE `credit_events` READ IS THE ONE HOP NOTHING HAS EVER DRIVEN.**
+  `edit_jobs` over PostgREST with the service key is proven —
+  `scripts/gap-sweep.mjs` has done exactly that against the live database —
+  and `edit_traces` is written that way by `worker.js`. **`credit_events` is
+  only ever touched from INSIDE the SECURITY DEFINER RPCs**, so no code
+  anywhere has read it over the wire. RLS is on with no policies and
+  `service_role` carries BYPASSRLS, so it *should* answer; it has not been
+  asked. **The failure mode is benign and named**: a refusal prints
+  `credit_events read failed (<status>)` rather than an empty ledger, which is
+  the whole reason that branch exists.
 - **`edit_traces` HAS NO JOB COLUMN**, so its rows are found by slug and time
   window and are reported as **CANDIDATES rather than a join**; a second edit
   on the same site inside the window is indistinguishable.
