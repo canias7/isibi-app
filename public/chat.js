@@ -1075,6 +1075,25 @@ let agentMsgs = null;
 let agentApprovals = null;     // what this account has waiting, as the server last said
 let agentApprovalsFor = null;  // the agent it was read for
 let agentApprovalsErr = '';
+/**
+ * ⚠ **A PRESS'S REFUSAL IS ITS OWN, AND KEEPING IT IN THE READ'S HOLDER LOSES IT —
+ * MEASURED.** Every press re-reads this list afterwards, deliberately, so that what is drawn
+ * is the server's answer rather than what the press hoped for. That read then SUCCEEDS and
+ * clears its own error — so a refusal written into the same field was wiped by the very
+ * re-read that followed it, and somebody whose press was refused saw nothing at all.
+ *
+ * **This banner is the worst place on the screen for that**, because the refusals here are
+ * the ones that decide whether the work goes ahead: a request that ran out of time, one
+ * somebody else took back, one whose permission was taken away while it waited. A person who
+ * cannot read the refusal presses the same dead button again.
+ *
+ * Two facts, two holders: this one is *what your press did*, `agentApprovalsErr` is *whether
+ * we can tell you what is waiting at all*. It is cleared by a fresh open of a conversation and
+ * deliberately NOT by the press's own quiet re-read — which is the whole point. The
+ * revocation section below and the automations screen keep the same two apart for the same
+ * reason (`agentRevokeActErr`, `agentAutoActErr`).
+ */
+let agentApprovalActErr = '';
 let agentApprovalBusy = '';    // the id of the request a press is in flight for
 let agentMsgsFor = null;
 let agentMsgsErr = '';
@@ -1652,7 +1671,10 @@ async function agentThreadLoad(id, quiet) {
   // "loading" every two and a half seconds would make a running conversation
   // unreadable — and a scroll position is lost with it. Only a first open, or a
   // deliberate retry, shows the loading state.
-  if (!quiet) { agentMsgs = null; agentMsgsErr = ''; }
+  // ⚠ AND A FRESH OPEN IS WHAT CLEARS A PRESS'S REFUSAL, which is why it is here rather
+  // than in the press: the press's own re-read is QUIET, so the refusal it just wrote survives
+  // the read that follows it, and changing conversation is what takes it off the screen.
+  if (!quiet) { agentMsgs = null; agentMsgsErr = ''; agentApprovalActErr = ''; }
   agentMsgsFor = id;
   agentPollStop();
   renderAgents();
@@ -1779,7 +1801,7 @@ async function agentApprovalAct(id, act) {
   const bound = agentBind();
   const forAgent = agentMsgsFor;
   agentApprovalBusy = id;
-  agentApprovalsErr = '';
+  agentApprovalActErr = '';
   renderAgents();
   try {
     const res = await apiFetch(door.path, {
@@ -1796,7 +1818,7 @@ async function agentApprovalAct(id, act) {
     agentApprovalBusy = '';
     if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;
     if (!res.ok || !j.ok) {
-      agentApprovalsErr = (j && j.error) || 'Couldn’t record that.';
+      agentApprovalActErr = (j && j.error) || 'Couldn’t record that.';
     } else if (j.repeat === true) {
       // ⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS. Two people pressing at once is
       // one decision, and showing the loser their own verdict would be this screen saying
@@ -1807,13 +1829,13 @@ async function agentApprovalAct(id, act) {
       // and wrong about what happened: nobody decided it, it was taken back. It is the
       // exact case a stale tab produces, pressing Approve on a request that has since been
       // withdrawn, and the one thing that must never read as an approval.
-      agentApprovalsErr = j.verdict === 'revoked'
+      agentApprovalActErr = j.verdict === 'revoked'
         ? 'That request was taken back before anybody answered it, so it won’t run.'
         : 'Somebody already answered that one — it was ' + agentVerdictWord(j.verdict) + '.';
     }
   } catch {
     agentApprovalBusy = '';
-    if (agentMsgsFor === forAgent) agentApprovalsErr = 'Couldn’t reach the server.';
+    if (agentMsgsFor === forAgent) agentApprovalActErr = 'Couldn’t reach the server.';
   }
   agentApprovalBusy = '';
   // RE-READ BOTH, and in this order: the decision put the run back on the queue, so the
@@ -1918,7 +1940,15 @@ const AGENT_AP_SCOPE = 'Taking it back cancels just this request — the agent i
  */
 const AGENT_REV_SCOPE = 'This is this agent and one tool — not your other agents, and not '
   + 'anything else this one may use. It stops the tool mid-job: a run already going cannot '
-  + 'use it again, and anything waiting to be approved for it is taken back. It is not the '
+  + 'use it again, and anything waiting to be approved for it is taken back. '
+  // ⚠ **AND WHAT IT DOES NOT REACH IS SAID IN THE SAME BREATH, POSITIVELY.** A sentence
+  // that lists only what a restriction stops reads as though it stopped everything, and the
+  // one thing this must never imply is that work already done was undone — the engine
+  // re-reads the revocation before the NEXT call, so a call already dispatched is not recalled
+  // and a completed one stays completed. Saying so here is cheaper than somebody discovering
+  // it from a mailbox.
+  + 'Anything it has already done with that tool has already happened: this does not undo it, '
+  + 'and a call that was already on its way is not called back. It is not the '
   + 'ticks above, which decide what the agent is allowed next time it starts. To stop it '
   + 'reaching one connected account, disconnect that account instead.';
 
@@ -6470,6 +6500,10 @@ function renderAgentsNow() {
         (agentApprovalsFor === a.id && (agentApprovals || []).length
           ? '<div class="ag-aps">' + (agentApprovals || []).map(agentApprovalHtml).join('') + '</div>'
           : '') +
+        // BOTH, because they answer different questions: one is what your press did, the
+        // other is whether we can tell you what is waiting at all. The press's is first —
+        // it is the one somebody is looking for, having just pressed something.
+        (agentApprovalActErr ? '<div class="ag-err ag-aps-err">' + esc(agentApprovalActErr) + '</div>' : '') +
         (agentApprovalsErr ? '<div class="ag-err ag-aps-err">' + esc(agentApprovalsErr) + '</div>' : '') +
         // THE TYPED TEXT SURVIVES A FAILED SEND, and it is THIS conversation's.
         // `agentMsgDrafts` is keyed by agent and written back into the box,

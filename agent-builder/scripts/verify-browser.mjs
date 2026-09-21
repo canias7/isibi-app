@@ -2404,9 +2404,60 @@ try {
       const r = await fetch("/api/agent/tool-approvals", { headers: { authorization: "Bearer " + (await Auth.accessToken()) } });
       return (await r.json()).approvals || [];
     });
+    /**
+     * ⚠ **DID THE GATED CALL REALLY RUN — BY NAME, AND ONLY WHEN IT SUCCEEDED.**
+     *
+     * The first draft counted EVERY tool entry on the run and read 1, which is the run being
+     * right: a withdrawal puts the run back, the model is told the authority was withdrawn,
+     * and it goes on to do something else — which is another tool entry and is not this call
+     * happening. So the question is asked about the tool this journey is about, and about a
+     * SUCCESSFUL outcome, exactly as journey 8's own later checks already did.
+     */
+    const ranPause = (runId) => Number(stack.q(`select count(*) from agent.run_entries
+       where run_id = '${runId}' and body ->> 'kind' = 'tool'
+         and body ->> 'name' = 'pause_automation'
+         and (body -> 'value' -> 'ok')::text = 'true';`).trim());
+    /** Every tool entry on a run, for a failure that can name itself. */
+    const toolsOn = (runId) => stack.q(`select coalesce(string_agg(
+         (body ->> 'name') || '=' || coalesce((body -> 'value' -> 'ok')::text, '?'), ','), '') from agent.run_entries
+       where run_id = '${runId}' and body ->> 'kind' = 'tool';`).trim();
+    /** Is the automation the gated call names still on? The effect, rather than the journal. */
+    const stillOn = () => stack.q(`select enabled::text from agent.automations where id = '${AU8}';`).trim();
 
+    /**
+     * ⚠ **WAIT FOR THE BANNER'S OWN CONTROL, NOT FOR WORDS — `Waiting for you` is said by the
+     * RUN ROW too.** `agentRunHtml` draws a waiting run with those words inside the
+     * conversation, so a text wait was satisfied by the run appearing and the checks below
+     * then read a screen whose banner had not arrived. The banner is the only thing that draws
+     * `agent-tool-withdraw`, so that is the honest signal.
+     */
+    const waitBanner = async (p, ms = 25_000) => {
+      await p.waitForSelector('[data-act="agent-tool-withdraw"]', { timeout: ms });
+    };
+    /**
+     * ⚠ **WHAT A PRESS ON THAT BANNER SAID, READ OFF ITS OWN LINE rather than off the
+     * panel.** Two reasons, both recorded traps. The panel carries prose that EXPLAINS
+     * approving and taking back — the scope sentence beside the buttons — so a needle over
+     * the whole text is satisfied by our own explanation: *prose contains the thing it
+     * forbids*. And the PRESS's outcome and the READ's failure are two facts with two holders,
+     * so reading "the screen says something" cannot tell which of them spoke.
+     */
+    const pressSaid = (p) => p.$eval(".ag-aps-err", (el) => el.textContent || "").catch(() => "");
+    /** Wait for the press's own line to say something, and on a timeout say what the screen does. */
+    const waitPress = async (p, re, what, ms = 20_000) => {
+      try {
+        await p.waitForFunction(
+          (src) => new RegExp(src).test(document.querySelector(".ag-aps-err")?.textContent || ""),
+          re.source, { timeout: ms });
+        return true;
+      } catch {
+        const said = (await text(p)).replace(/\s+/g, " ").slice(0, 400);
+        check(`(waiting for ${what} on its own line — the press said "${(await pressSaid(p)).trim()}", the screen says: ${said})`, false);
+        return false;
+      }
+    };
     await ask8(page, `use pause_automation id=${AU8} enabled=false`);
-    await waitText(page, /Waiting for you/, "the banner to show the gated call", 25_000);
+    await waitBanner(page);
     const first8 = (await waiting8())[0];
     check("8b. ⚠ the agent asks, and the banner above the box is what waits",
       !!first8 && first8.tool === "pause_automation", JSON.stringify(first8 && { tool: first8.tool, run: first8.run }));
@@ -2427,45 +2478,51 @@ try {
     // person — and it is the only way to press a control over a request that has since moved.
     const stale8 = await openApp(A, "J8-stale");
     await openAgent(stale8.page, agentId);
-    await waitText(stale8.page, /Waiting for you/, "the second tab to show the same request", 25_000);
+    await waitBanner(stale8.page);
     check("8e. a second tab is looking at the same waiting request",
       await has(stale8.page, `[data-act="agent-tool-approve"][data-id="${first8.id}"]`));
 
     // ── 1. TAKE IT BACK, AND THE STALE APPROVAL CANNOT EXECUTE IT ───────────
     await press(page, "agent-tool-withdraw", "id", first8.id);
+    // ⚠ THE PRESS IS A FETCH, so the row it changes is not changed when `click` returns. The
+    // honest signal is the row leaving the banner, which is the screen's own re-read landing.
+    await page.waitForFunction(
+      (id) => !document.querySelector(`[data-act="agent-tool-withdraw"][data-id="${id}"]`),
+      first8.id, { timeout: 15_000 });
     await disp.drain();
-    const w8 = JSON.parse(stack.q(
-      `select coalesce(to_json((select json_build_object('v', verdict, 'ran',
-         (select count(*) from agent.run_entries e where e.run_id = a.run_id and e.body ->> 'kind' = 'tool')::int)
-         from agent.tool_approvals a where a.id = '${first8.id}'))::text, 'null');`));
+    const w8 = stack.q(`select coalesce(verdict, 'pending') from agent.tool_approvals where id = '${first8.id}';`).trim();
     check("8f. ⚠ ONE REQUEST IS TAKEN BACK, and the call it was for never ran",
-      w8?.v === "revoked" && w8?.ran === 0, JSON.stringify(w8));
+      w8 === "revoked" && ranPause(first8.run) === 0 && stillOn() === "true",
+      `${w8} · tools=[${toolsOn(first8.run)}] · automation enabled=${stillOn()}`);
     check("8g. ...and it is off the screen that took it back", (await waiting8()).length === 0);
     // THE STALE TAB PRESSES APPROVE over a request that has since been withdrawn.
     await press(stale8.page, "agent-tool-approve", "id", first8.id);
-    await stale8.page.waitForFunction(
-      () => /taken back/i.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 15_000 });
+    await waitPress(stale8.page, /taken back/i, "the withdrawal");
     await disp.drain();
-    const staleSaid8 = await text(stale8.page);
+    // ⚠ **RE-ANCHORED, NOT APPEASED: this read the WHOLE panel and forbade the word
+    // `approved`.** That is the recorded *prose contains the thing it forbids* — the scope
+    // sentence beside those buttons explains what approving does, and the settings form's own
+    // hint says "anything waiting to be approved for it is taken back". The property is that
+    // THIS PRESS is not reported as an approval, so it is asked of the press's own line: the
+    // withdrawal in words, and the database's raw verdict token absent from it.
+    const staleSaid8 = await pressSaid(stale8.page);
     check("8h. ⚠ A STALE APPROVAL CANNOT EXECUTE IT, and the tab is told it was taken back",
-      /taken back/i.test(staleSaid8) && !/approved/i.test(staleSaid8),
-      staleSaid8.replace(/\s+/g, " ").slice(0, 200));
-    const after8 = JSON.parse(stack.q(
-      `select coalesce(to_json((select json_build_object('v', verdict, 'ran',
-         (select count(*) from agent.run_entries e where e.run_id = a.run_id and e.body ->> 'kind' = 'tool')::int)
-         from agent.tool_approvals a where a.id = '${first8.id}'))::text, 'null');`));
+      /taken back/i.test(staleSaid8) && !/\bapproved\b/i.test(staleSaid8) && !/\brevoked\b/i.test(staleSaid8),
+      JSON.stringify(staleSaid8.replace(/\s+/g, " ")));
+    const after8 = stack.q(`select coalesce(verdict, 'pending') from agent.tool_approvals where id = '${first8.id}';`).trim();
     check("8i. ⚠ ...and the database still says withdrawn, with the call still never run",
-      after8?.v === "revoked" && after8?.ran === 0, JSON.stringify(after8));
+      after8 === "revoked" && ranPause(first8.run) === 0 && stillOn() === "true",
+      `${after8} · tools=[${toolsOn(first8.run)}] · automation enabled=${stillOn()}`);
 
     // ── 2. REVOKE WHILE A NEW REQUEST WAITS ─────────────────────────────────
     await ask8(page, `use pause_automation id=${AU8} enabled=false please`);
-    await waitText(page, /Waiting for you/, "a second gated call to wait", 25_000);
+    await waitBanner(page);
     const second8 = (await waiting8())[0];
     check("8j. a second request is waiting, with its tool still permitted",
       !!second8 && second8.tool === "pause_automation", JSON.stringify(second8 && { id: second8.id }));
     const stale2 = await openApp(A, "J8-stale2");
     await openAgent(stale2.page, agentId);
-    await waitText(stale2.page, /Waiting for you/, "a tab holding the second request", 25_000);
+    await waitBanner(stale2.page);
 
     // TAKEN AWAY FROM THE SETTINGS FORM, which is the control this milestone added. The pencil
     // is drawn inside the CONVERSATION, so that is where a person presses it from.
@@ -2474,33 +2531,84 @@ try {
     await page.waitForSelector("#agRevPick", { timeout: 10_000 });
     await page.selectOption("#agRevPick", "pause_automation");
     await type(page, "agRevWhy", "not while we are checking");
+    // ⚠ **WHAT THE PICKER REALLY HOLDS, READ BACK BEFORE THE PRESS.** The handler takes the
+    // tool off this control at the moment it is pressed, and the form is rebuilt from
+    // `innerHTML` on every render with no `selected` option — so anything that redrew between
+    // the selection and the press would send the FIRST tool in the list instead. That would
+    // take a different permission away and every check below would fail about the wrong thing.
+    const picked8 = await page.$eval("#agRevPick", (el) => el.value);
+    check("8k0. the control really holds the tool that is about to be taken away", picked8 === "pause_automation", picked8);
     await press(page, "agent-revoke-take");
     await page.waitForFunction(
       () => /cannot use that again/i.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 15_000 });
     await disp.drain();
     const revSaid = await text(page);
+    // ⚠ **AND THE SENTENCE IS ASKED FOR IN WORDS ONLY THE SERVER SAYS.** A first draft also
+    // demanded `/taken back/`, which the scope hint on that very form says in nearly the same
+    // words — an ambiguous needle satisfied by our own explanation rather than by the answer.
+    // What the DATABASE recorded is asserted separately, below, where it cannot be confused.
     check("8k. ⚠ THE TOOL IS TAKEN AWAY FROM ITS SETTINGS, and the server's own sentence says what that reached",
-      /cannot use that again/i.test(revSaid) && /taken back/i.test(revSaid),
-      revSaid.replace(/\s+/g, " ").slice(0, 200));
+      /cannot use that again/i.test(revSaid), revSaid.replace(/\s+/g, " ").slice(0, 200));
+    // ⚠ **THE TYPED REASON REALLY LEFT THE BROWSER**, which is the one thing that makes that
+    // box a control rather than a decoration: `revoke_agent_tool` stores it on the revocation
+    // and the engine reads it back to the model as *"the authority for this was withdrawn:
+    // …"*. Read off the row rather than off the screen, because the screen never shows it again.
+    const revRow = JSON.parse(stack.q(`select coalesce(to_json((select json_build_object('n', note, 'by', revoked_by)
+       from agent.tool_revocations where agent_id = '${agentId}' and tool = 'pause_automation'))::text, 'null');`));
+    check("8k1. ⚠ ...and the reason somebody typed is what was recorded, not a default",
+      /not while we are checking/.test(String(revRow?.n)), JSON.stringify(revRow));
+    // ⚠ **THE ROW IS FOUND BY ITS CHECKBOX, NOT BY THE TOOL'S NAME IN THE TEXT.** A first
+    // draft searched every `.ag-tool` for the word "pause", and `pause_automation`'s LABEL is
+    // *"Turn an automation on or off"* — the platform being right, and the needle matching
+    // nothing. `data-tool` is the identifier, so the row is the one holding that checkbox and
+    // the question is whether THAT row says the permission is gone.
+    const tickSaid = await page.evaluate(() => {
+      const box = document.querySelector('[data-tool="pause_automation"]');
+      const row = box ? box.closest(".ag-tool") : null;
+      return { found: !!row, ticked: !!(box && box.checked), said: row ? (row.textContent || "").trim() : "" };
+    });
     check("8l. ⚠ ...and the tick it disagrees with is marked rather than quietly unticked",
-      (await page.$$eval(".ag-tool", (els) => els.map((e) => (e.textContent || "").trim())))
-        .some((t) => /pause|Pause/.test(t) && /taken away/.test(t)),
-      (await page.$$eval(".ag-tool .ag-chip", (els) => els.map((e) => e.textContent))).join("|"));
+      tickSaid.found && tickSaid.ticked && /taken away/.test(tickSaid.said),
+      JSON.stringify({ ...tickSaid, said: tickSaid.said.replace(/\s+/g, " ").slice(0, 120) }));
+    /**
+     * ⚠ **WHAT A REVOCATION REACHES DEPENDS ON THE RUN'S OWN STATE, and the state is
+     * MEASURED rather than assumed.** `agent.revoke_agent_tool` withdraws a pending request
+     * only while its run is still going — `not exists (… kind = 'stopped')` — and that
+     * condition is deliberate and documented: a run the expiry sweep has already ended still
+     * has an undecided request, and withdrawing it would record a person deciding a call that
+     * was already dealt with AND put a finished run back on the queue for ever.
+     *
+     * So this asserts the FUNCTION'S CONTRACT with the run's state as its input, rather than
+     * one half of it. A first draft demanded the withdrawal unconditionally and read
+     * `{v: null}` — the product being right about a run that had ended.
+     */
     const gone8 = JSON.parse(stack.q(
-      `select coalesce(to_json((select json_build_object('v', verdict, 'n', note)
-         from agent.tool_approvals where id = '${second8.id}'))::text, 'null');`));
-    check("8m. ⚠ ...and the request that was waiting for it was taken back WITH it, carrying the reason",
-      gone8?.v === "revoked" && /not while we are checking/.test(String(gone8?.n)), JSON.stringify(gone8));
+      `select coalesce(to_json((select json_build_object(
+           'v', a.verdict, 'n', a.note,
+           'ended', exists (select 1 from agent.run_entries e
+                             where e.run_id = a.run_id and e.body ->> 'kind' = 'stopped'))
+         from agent.tool_approvals a where a.id = '${second8.id}'))::text, 'null');`));
+    const revs8 = stack.q(`select coalesce(string_agg(tool || '=' || coalesce(note, '-'), ','), '')
+       from agent.tool_revocations where agent_id = '${agentId}';`).trim();
+    const withdrew8 = gone8?.v === "revoked" && /not while we are checking/.test(String(gone8?.n));
+    check("8m. ⚠ ...and a request still waiting for it is taken back WITH it, carrying the reason",
+      gone8?.ended === true ? gone8?.v === null : withdrew8,
+      `${JSON.stringify(gone8)} · revocations=[${revs8}]`);
     // THE STALE TAB PRESSES APPROVE over a request whose permission has gone.
+    //
+    // ⚠ **AND THIS IS THE WALL WHATEVER 8m MEASURED, which is why the milestone's own bullet
+    // is here rather than there.** Withdrawn, the press meets the first decision standing;
+    // still pending, it meets `decide_tool_approval`'s own revocation check — the DECLARED
+    // second wall for exactly this row. Either way the call may not be approved, and the
+    // sentence says which of the two it was.
     await press(stale2.page, "agent-tool-approve", "id", second8.id);
-    await stale2.page.waitForFunction(
-      () => /taken back|permission/i.test(document.getElementById("viewAgents")?.textContent || ""), { timeout: 15_000 });
+    const said2 = (await waitPress(stale2.page, /taken back|permission/i, "the refusal"))
+      ? await pressSaid(stale2.page) : await pressSaid(stale2.page);
     await disp.drain();
     check("8n. ⚠ APPROVING THE OLD REQUEST CANNOT BYPASS THE RESTRICTION",
-      Number(stack.q(`select count(*) from agent.run_entries
-         where run_id = '${second8.run}' and body ->> 'kind' = 'tool'
-           and (body -> 'value' -> 'ok')::text = 'true';`).trim()) === 0,
-      (await text(stale2.page)).replace(/\s+/g, " ").slice(0, 160));
+      ranPause(second8.run) === 0 && stillOn() === "true" &&
+      /taken back|permission/i.test(said2) && !/\bapproved\b/i.test(said2),
+      `${JSON.stringify(said2.replace(/\s+/g, " "))} · tools=[${toolsOn(second8.run)}] · automation enabled=${stillOn()}`);
     await shot(page, "j8-taken-away");
 
     // ── 3. RELOADING PRESERVES THE RECORDED STATE ───────────────────────────
@@ -2552,7 +2660,7 @@ try {
            and (body -> 'value' -> 'ok')::text = 'true';`).trim()) === 0);
     // ── AND A FRESH ASK IS ALLOWED AGAIN, answered, and really runs ──────────
     await ask8(page, `use pause_automation id=${AU8} enabled=false now`);
-    await waitText(page, /Waiting for you/, "a fresh request after the restriction was lifted", 25_000);
+    await waitBanner(page);
     const fresh8 = (await waiting8())[0];
     check("8t. ⚠ A FRESH AUTHORIZED REQUEST PROCEEDS — the tool can be asked for again",
       !!fresh8 && fresh8.id !== first8.id && fresh8.id !== second8.id, JSON.stringify(fresh8 && { id: fresh8.id }));

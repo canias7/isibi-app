@@ -4988,7 +4988,7 @@ test("⚠ A PRESS WHOSE ANSWER LANDS AFTER THE SCREEN MOVED WRITES NOTHING", asy
   // NEITHER RE-READ HAPPENED, because both would be about a conversation nobody is on.
   assert.equal(asked.filter((p) => p.startsWith("/api/agent/messages")).length, 0,
     "A's conversation was re-read into B's screen");
-  assert.equal(w.ev("agentApprovalsErr"), "", "A's outcome was announced into B's screen");
+  assert.equal(w.ev("agentApprovalActErr"), "", "A's outcome was announced into B's screen");
 });
 
 test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS", async () => {
@@ -5003,14 +5003,14 @@ test("⚠ THE LOSER OF A RACE IS TOLD WHOSE ANSWER STANDS", async () => {
   await w.ev('agentApprovalAct("ap-1", "approved")');
   // Somebody else's verdict, in their words — not a silent success that shows this
   // person their own answer standing when it is not.
-  assert.match(w.ev("agentApprovalsErr"), /already answered/);
+  assert.match(w.ev("agentApprovalActErr"), /already answered/);
   // ⚠ **RE-ANCHORED, NOT APPEASED: this demanded the word `rejected`, which was the
   // DATABASE's token rather than the property.** The property is that the loser is told what
   // the winner's answer WAS; the token is not English about a decision, and the third one
   // (`revoked`) is not even an answer. So the sentence is asserted in the words a person
   // reads, and the raw token is asserted ABSENT — which is the half a spelling could not say.
-  assert.match(w.ev("agentApprovalsErr"), /turned down/);
-  assert.ok(!/\brejected\b/.test(w.ev("agentApprovalsErr")),
+  assert.match(w.ev("agentApprovalActErr"), /turned down/);
+  assert.ok(!/\brejected\b/.test(w.ev("agentApprovalActErr")),
     "the raw verdict token reached the sentence");
   // AND THE READER IS DRIVEN over every verdict the database can answer, plus one it cannot:
   // an unknown word is passed through rather than dropped, or a newer deployment's fourth
@@ -5084,10 +5084,10 @@ test("a press whose FAILURE lands after the screen moved says nothing into the n
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
   const pressing = w.ev('agentApprovalAct("ap-1", "approved")');
-  w.ev('agentThread = "B"; agentMsgsFor = "B"; agentApprovalsErr = "";');
+  w.ev('agentThread = "B"; agentMsgsFor = "B"; agentApprovalActErr = "";');
   gate.release();
   await pressing;
-  assert.equal(w.ev("agentApprovalsErr"), "", "A's failure was announced into B's screen");
+  assert.equal(w.ev("agentApprovalActErr"), "", "A's failure was announced into B's screen");
 
   // THE CONTROL, without which "it says nothing" is satisfied by a press that never
   // reports anything: the same failure, landing on the screen it was pressed from, IS said.
@@ -5101,7 +5101,57 @@ test("a press whose FAILURE lands after the screen moved says nothing into the n
   const p2 = w2.ev('agentApprovalAct("ap-1", "approved")');
   gate2.release();
   await p2;
-  assert.match(w2.ev("agentApprovalsErr"), /waiting/, "the failure was swallowed on its own screen");
+  assert.match(w2.ev("agentApprovalActErr"), /waiting/, "the failure was swallowed on its own screen");
+});
+
+test("⚠ A PRESS'S REFUSAL SURVIVES THE RE-READ THAT FOLLOWS IT", async () => {
+  // ⚠ **THE DEFECT, MEASURED: a refused press flashed and disappeared.** Every press
+  // re-reads this list afterwards — deliberately, so what is drawn is the server's answer
+  // rather than what the press hoped for — and that read sets `agentApprovalsErr = ''` on
+  // success. The refusal was written into the SAME field, so the re-read wiped it: somebody
+  // whose Approve was refused because the request had run out of time, or because the
+  // permission was taken away while it waited, saw nothing at all and pressed again.
+  //
+  // ⚠ **AND THE CASES ABOVE COULD NOT SEE IT, which is why this one exists.** They await
+  // `agentApprovalAct` alone, and the re-read is fired without being awaited — so the clear
+  // happened after the assertion, in the real screen and not in the test. This one DRAINS the
+  // queue first, which is what a browser does.
+  const asked = [];
+  const w = loadScreen({
+    answer: (p) => {
+      asked.push(p);
+      return p === "/api/agent/tool-approve"
+        ? badRes("that request ran out of time", 409)
+        : okRes({ agents: [], approvals: [], messages: [] });
+    },
+  });
+  setRows(w);
+  w.ev('agentThread = "A"; agentMsgs = []; agentMsgsFor = "A";');
+  w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
+  await w.ev('agentApprovalAct("ap-1", "approved")');
+  // THE RE-READ REALLY HAPPENED AND REALLY SUCCEEDED — without which this case is about
+  // nothing: a press followed by no read cannot have its sentence wiped by one.
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(asked.some((q) => q.startsWith("/api/agent/tool-approvals")), "the list was not re-read");
+  assert.equal(w.ev("agentApprovalsErr"), "", "the successful re-read did not clear its own error");
+  // AND THE PRESS'S OWN SENTENCE IS STILL THERE, and on screen.
+  assert.match(w.ev("agentApprovalActErr"), /ran out of time/, "the refusal was wiped by the re-read");
+  w.ev("renderAgents();");
+  assert.match(w.s.document.getElementById("viewAgents").innerHTML, /ran out of time/,
+    "the refusal was held and never drawn");
+
+  // ⚠ BOTH CAN BE TRUE AT ONCE, and they are two sentences rather than one: a press that
+  // was refused AND a list we can no longer read are different facts, and collapsing them
+  // would tell somebody their press failed because the server is down, or the reverse.
+  w.ev(`agentApprovalsErr = "Couldn’t check what is waiting."; renderAgents();`);
+  const both = w.s.document.getElementById("viewAgents").innerHTML;
+  assert.match(both, /ran out of time/);
+  assert.match(both, /what is waiting/);
+
+  // ⚠ AND A FRESH OPEN OF A CONVERSATION CLEARS IT, which is what takes it off the screen:
+  // the press's own re-read is quiet and must not, so this is the one door that does.
+  await w.ev('agentThreadLoad("A")');
+  assert.equal(w.ev("agentApprovalActErr"), "", "a refusal outlived the screen it was made on");
 });
 
 test("an argument that is not text is shown as what it is, not as [object Object]", () => {
@@ -6979,7 +7029,7 @@ test("⚠ A STALE TAB APPROVING A WITHDRAWN REQUEST IS TOLD IT WAS TAKEN BACK, N
   w.ev('agentThread = "A"; agentMsgsFor = "A";');
   w.ev(`agentApprovals = ${JSON.stringify(WAITING)}; agentApprovalsFor = "A";`);
   await w.ev('agentApprovalAct("ap-1", "approved")');
-  const said = w.ev("agentApprovalsErr");
+  const said = w.ev("agentApprovalActErr");
   assert.match(said, /taken back/, "a withdrawn request read as something else");
   assert.match(said, /won’t run/, "nothing said the call will not happen");
   // ⚠ AND IT IS NOT THE ANSWERED SENTENCE: a withdrawal is not an answer, so saying
