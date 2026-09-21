@@ -1561,6 +1561,16 @@ pressed for and never sent.
   `/api/site/build-health` rather than a deploy log — the platform answering,
   not Wrangler reporting on itself. **A merge invalidates them**, and a stale
   pair refuses the run: the safe direction, and still a wasted press.
+- **⚠ AND THE READ MODE IS NOT PRESSABLE FROM A SESSION EITHER — RE-TESTED
+  2026-09-21 RATHER THAN ASSUMED.** `run_workflow` on `edit-canary.yml` with
+  `read_job` filled in and `spend: no` answers **403 Resource not accessible
+  by integration**, on a token whose `actions` READS answer 200 in the same
+  minute. **So the wall is the `actions: write` permission and NOT the cost**,
+  which is worth separating: the standing rule was written about PAID
+  harnesses and reads as though spending were what blocks a session, and it is
+  not — a free, read-only, zero-spend dispatch is refused identically. *A
+  stated impossibility nobody re-tested is how a route ships throwing*, and
+  the re-test is what licenses the claim here.
 - **⚠ THE DISPATCH MUST NAME THE BRANCH.** GitHub reads a `workflow_dispatch`
   form's inputs from the file on the SELECTED ref and, with an unpinned
   checkout, runs that ref's script — so a dispatch from `main` offers no

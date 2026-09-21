@@ -352,9 +352,11 @@ something new) — that distinction is exactly what the router fix earlier today
 addressed, and this sentence is the one that tests it. **I am not promising a
 layer**; the router stays under test.
 
-**I cannot press it, and that hasn't changed.** The paid workflows are
-run-by-hand only, and this session's GitHub app can read Actions but not start
-them — so both of these are yours to press.
+**I cannot press either of them, and I checked rather than assumed.** I tried
+to start the *free* lookup myself — nothing to spend, nothing to change — and
+GitHub answered **403, not accessible**, on a token that reads Actions fine in
+the same minute. So the block is the permission, not the money: I can't start
+any workflow here, free or paid. Both presses are yours.
 
 ## 2026-09-21 — The paid retry never finished, and the scary line in its report was my own instrument
 **⚠ SUPERSEDED BY THE ENTRY ABOVE — kept for the record, and wrong in three
