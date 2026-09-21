@@ -250,7 +250,11 @@ validator parses a non-file image with `new URL("https://" + image)` and a bare
 **THE TIMING BAND, AND WHY NO INFERENCE FROM THE DIFF IS AVAILABLE.** Before
 the skip: 14–15 minutes per deploy. After: a docs/test-only push is a
 one-minute deploy that rolls nothing (**47 seconds** on deploy 2019, image step
-1.4 s, both `reused`); a push that changes an image input is **~2m05s of image
+1.4 s, both `reused`; **reproduced to the second on deploy 2140, 2026-09-21 —
+46-second job, image step 1 s, Wrangler 16 s**, on a merge touching only
+`.github/workflows/**`, `scripts/`, `test/` and the two documents, so the band
+for this shape has two readings a month apart and is as tight as the rebuild
+band below); a push that changes an image input is **~2m05s of image
 and ~3m of deploy at best** (2044) and **~3m ordinarily** — **deploy 2138
 (2026-09-20) sits exactly on that band: image step 2m06s, Wrangler 19s, whole
 run 2m55s**, on a merge whose image inputs really moved, and **deploy 2139
@@ -271,8 +275,21 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality TWELVE times**, and the twelfth
-adds a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
+whole reader. **Cross-checked against reality THIRTEEN times, and the
+thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
+MOVE and watched it happen, which cannot distinguish a working predictor from
+one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
+predicted the id would NOT move**: `origin/main` and the branch tip both
+answered `82bccb3bee50e4fd` from 184 inputs, none of the merge's changed files
+was in the input set, and the log answered **`IMAGE SiteBuildContainer: reused
+isibi-app-sitebuildcontainer:82bccb3bee50e4fd (registry answered 200; ***84
+inputs off ./Dockerfile)`** — the id, the word `reused`, and the input count on
+its own channel. **A predictor that can only ever say "it moved" is half an
+instrument**; this is the other half, and it is what licenses *"if the id does
+not move, nothing an image is built from moved"* as a reading rather than a
+hope. **`***` IS A MASKED RUN OF `1`s**, so `***84` is 184.
+The twelfth
+added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
 `origin/main`'s `c371e27cf3060255`, and the log confirmed BOTH**: `- …:c37***e27cf3060255`
 → `+ …:82bccb3bee50e4fd` under `SUCCESS Modified application`. **And the INPUT
@@ -328,7 +345,25 @@ deploy that uploads an asset makes it fetchable with no token, byte-comparable
 to the merged tree, and a **cheap discriminator** is an identifier the change
 introduces (0 occurrences before, N after). When `public/` did not change,
 Wrangler answers `No updated asset files to upload` and **there is no
-served-file check at all** — say so rather than glossing it.
+served-file check at all** — say so rather than glossing it. (Met on deploy
+2140.)
+
+**AND `DEPLOY_ID` MOVES ON A MERGE THAT CHANGES NO WORKER CODE AT ALL** —
+settled by reading deploy 2140's log rather than reasoned about, because the
+answer decides whether `expect_deploy` can be filled in before a harness runs.
+It is `${{ github.sha }}`, a VAR, so a changed value is a configuration change
+and Wrangler uploads a new version whatever the code did: 2140 merged only
+`.github/workflows/**`, `scripts/`, `test/` and two documents, and the log
+answers **`Uploaded isibi-app`, `Deployed isibi-app triggers`, a fresh
+`Current Version ID`** — beside `No updated asset files to upload` and
+`no changes isibi-app-sitebuildcontainer`, which are the OTHER two halves
+holding still. **The three move independently and a deploy names each one
+separately**: the assets, the container app, and the Worker version. Reading
+one as the others is how a harness gets pointed at the wrong build.
+**AND THIS IS STILL WRANGLER REPORTING ON ITSELF** — the live Worker's own sha
+needs `/api/site/build-health` and a Supabase token, so the honest label on a
+value derived this way is *deployed, not runtime-confirmed*, and the thing that
+confirms it is the next authenticated read.
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the
 discriminator alone.** The before reading was taken 1m30s after the push and
 3m before the deploy finished — served `/chat.js` **719,958 bytes, 0
@@ -1035,6 +1070,29 @@ before-record.
   where the paid half BEGINS — what every case below it actually means. Proved
   LOUD rather than vacuous: removing the heading fails five cases instead of
   passing a window over nothing.
+- **⚠ AND THE FIRST PRESS DIED IN ONE SECOND, BECAUSE THE WORKFLOW DID NOT
+  INSTALL WHAT THE SCRIPT IMPORTS (run 6, 2026-09-21).**
+  `ERR_MODULE_NOT_FOUND: Cannot find package 'qrcode-generator' imported from
+  builder/site-qr.mjs`. `edit-canary.yml` had **no `npm ci` step and had never
+  needed one** — the canary imported `node:https` and nothing else for months.
+  Then it gained `editBrowserReply` from `addon-sweep.mjs`, so the customer's
+  own screen is EXECUTED rather than re-composed, and **that one line pulled a
+  44-file closure wanting two real packages**. **THE VERIFICATION WAS THE TRAP'S
+  OWN SHAPE**: the import was driven LOCALLY, where `node_modules` exists,
+  which proves an import works in an environment that is not the one that runs
+  it. *A CI step that does not install what the script imports — true when
+  written and false the moment a module gained a dependency.*
+  **IT COST NOTHING AND THAT IS NOT THE SAME AS BEING HARMLESS**: it died
+  before the preflight, before any network call, so no credit moved — and the
+  harness tested nothing at all, on a press somebody made.
+  **THE GUARD IS THE ENVIRONMENT-VERSUS-CODE COMPARISON, NOT THE TWO NAMES**:
+  it walks the real transitive imports, and if the closure reaches ANY bare
+  specifier the workflow must carry an install step AND `package.json` must
+  declare it (`npm ci` on a lockfile without it installs nothing and the step
+  still passes). Pinned to today's two packages it would go quiet on the third,
+  which is exactly how the step came to be missing. The walk **proves its own
+  observer alive** before believing any absence.
+
 - **THE GUARD IS WHAT WAS MISSING, and it is the reusable part**: the harness
   had six cases and not one of them read the control, which is exactly why the
   constant could rot in plain sight. Four cases now, all four red-checked

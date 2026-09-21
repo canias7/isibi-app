@@ -69,6 +69,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # ── THE SCRIPT'S IMPORTS NEED INSTALLING, AND THAT BECAME TRUE ON
+      # 2026-09-21 WITHOUT ANYONE NOTICING ────────────────────────────────
+      #
+      # This step did not exist, and for months it did not need to: the canary
+      # imported `node:https` and nothing else. Then it gained
+      # `editBrowserReply` from `addon-sweep.mjs` — so that the customer's own
+      # screen is EXECUTED rather than re-composed here — and that one line
+      # pulled a 44-file closure behind it, two of which want real packages
+      # (`qrcode-generator` via `builder/site-qr.mjs`, `@neondatabase/serverless`
+      # via `site-db.mjs`).
+      #
+      # Run 6 died in ONE SECOND on `ERR_MODULE_NOT_FOUND`, before the
+      # preflight, before a single network call, having spent nothing. The
+      # import was "verified" locally, where `node_modules` exists — which
+      # proves the import works in an environment that is not this one. This
+      # repo's own trap, verbatim: *a CI step that does not install what the
+      # script imports; true when written and false the moment a module gained
+      # a dependency.* `test/edit-canary.test.mjs` now walks the closure and
+      # fails if a bare specifier appears with no install step beside it, so
+      # the next widening cannot ship silent.
+      - name: install what the canary imports
+        run: npm ci
       # ASK deploy.yml FOR ITS OWN RUNS — a find-by-name over
       # `actions/runs?head_sha=` silently stops finding the deploy once a push
       # fires more workflows than fit on one page. This repo lost a run to that.

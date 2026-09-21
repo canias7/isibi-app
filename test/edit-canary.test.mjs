@@ -20,7 +20,7 @@
 // landmarks proved, never on an argument list.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import fs, { readFileSync } from "node:fs";
 
 const RAW = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
 
@@ -199,6 +199,57 @@ test("an unreadable control is outstanding coverage, never a refusal to spend", 
   // The readable arm is still a real wall: a mismatch there IS a defect.
   assert.match(free.slice(free.indexOf("} else {", at)), /check\(`\$\{CONTROL\}/,
     "the readable control stopped asserting anything");
+});
+
+// ⚠ THE WORKFLOW MUST INSTALL WHAT THE SCRIPT IMPORTS, AND THIS IS THE ONE
+// GUARD THAT COMPARES THE CONSUMER'S ENVIRONMENT WITH THE CODE.
+//
+// For months the canary imported `node:https` and nothing else, so the
+// workflow needed no install step and had none. Then it gained
+// `editBrowserReply` from `addon-sweep.mjs` — one line — and pulled a 44-file
+// closure behind it wanting `qrcode-generator` and `@neondatabase/serverless`.
+// Run 6 (2026-09-21) died in ONE SECOND on `ERR_MODULE_NOT_FOUND`, before the
+// preflight and before any network call.
+//
+// THE PROPERTY, NOT THE INSTANCE: walk the real transitive imports, and if the
+// closure reaches ANY bare specifier, the workflow that runs it must install.
+// A test pinned to the two package names today would go quiet the moment a
+// third arrives — which is exactly how the step came to be missing.
+test("the workflow installs what the canary's import closure needs", () => {
+  const ROOT = new URL("../", import.meta.url).pathname;
+  const seen = new Set(); const bare = new Map();
+  const tryPaths = (p) => [p, p + ".mjs", p + ".js"].find((c) => fs.existsSync(c) && fs.statSync(c).isFile());
+  (function walk(file) {
+    if (!file || seen.has(file)) return;
+    seen.add(file);
+    const src = fs.readFileSync(file, "utf8");
+    for (const m of src.matchAll(/(?:^|\n)\s*import[^;]*?from\s*["']([^"']+)["']/g)) {
+      const spec = m[1];
+      if (spec.startsWith("node:")) continue;
+      if (spec.startsWith(".")) walk(tryPaths(new URL(spec, "file://" + file).pathname));
+      else if (!bare.has(spec)) bare.set(spec, file.slice(ROOT.length));
+    }
+  })(ROOT + "scripts/edit-canary.mjs");
+
+  // THE OBSERVER IS PROVED ALIVE FIRST — a walk that resolved nothing would
+  // find no bare specifier and pass about an empty set.
+  assert.ok(seen.size >= 2, `the import walk only reached ${seen.size} file(s)`);
+
+  const wf = fs.readFileSync(new URL("../.github/workflows/edit-canary.yml", import.meta.url), "utf8");
+  const installs = /\bnpm\s+(ci|install)\b/.test(wf);
+  if (bare.size) {
+    assert.ok(installs,
+      `the canary's closure needs ${[...bare.keys()].join(", ")} (via ${[...bare.values()].join(", ")}) ` +
+      "and edit-canary.yml has no npm install step — the run dies on ERR_MODULE_NOT_FOUND before it checks anything");
+  }
+  // AND EVERY ONE MUST REALLY BE DECLARED, or `npm ci` installs a lockfile
+  // that does not contain it and the step passes while the script still throws.
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const declared = new Set([...Object.keys(pkg.dependencies || {}), ...Object.keys(pkg.devDependencies || {})]);
+  for (const [spec, from] of bare) {
+    const name = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
+    assert.ok(declared.has(name), `${from} imports ${name}, which package.json does not declare`);
+  }
 });
 
 test("the free checks still cost nothing, and the paid one is still opt-in", () => {
