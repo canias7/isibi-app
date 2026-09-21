@@ -138,10 +138,22 @@ if (READ_JOB) {
     // has no verb to reach for: it cannot route, edit, replay, cancel or
     // retry, because none of those is in scope for it. A promise in a comment
     // would be the weaker form of the same claim.
+    // ⚠ THE BODY GOES OVER AS IT CAME, AND THE COERCION THAT USED TO BE HERE
+    // WAS THE WHOLE DEFECT. This read `Array.isArray(rows) ? rows : []`, so a
+    // PostgREST error object at HTTP 200 arrived at `readJobRecords` already
+    // wearing the shape that means "no rows" — and its `Array.isArray` check,
+    // written for exactly that case, could never fire from the one caller that
+    // runs in production. The guards drove the module through an injected
+    // store and were green about a branch the press cannot reach.
+    //
+    // This repo's own wiring trap, in the fix for the class it belongs to:
+    // *the module perfect, one hop cutting it, and from outside "the body was
+    // a list" and "we made it one" are the same value.* The decision is the
+    // module's; this is transport.
     sb: async (path) => {
       const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: svc });
       const rows = await r.json().catch(() => null);
-      return { status: r.status, rows: Array.isArray(rows) ? rows : [] };
+      return { status: r.status, rows };
     },
     poll: () => call("GET", `/api/site/edit/${encodeURIComponent(READ_JOB)}`),
   });

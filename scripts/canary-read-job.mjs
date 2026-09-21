@@ -124,6 +124,17 @@ export function oldWatchWouldHaveSeen(row) {
  * `poll()` performs one owner-session GET of the poll route and answers
  * `{status, headers, json, text}`. Both are INJECTED, which is what makes this
  * drivable and what makes the read-only bound structural.
+ *
+ * ⚠ `sb` MUST HAND THE PARSED BODY OVER AS IT CAME — it may not coerce a
+ * non-array to `[]` on its way past. Every list check below is the caller's to
+ * make reachable: a getter that normalises first answers the question this
+ * module exists to ask, and answers it with the one shape that means "no
+ * rows". The first cut of this module shipped with exactly that pair — a
+ * correct `Array.isArray` check here and a coercing getter in
+ * `scripts/edit-canary.mjs` — so the malformed-200 branch was unreachable in
+ * the only place it would ever have fired, while the guards drove it happily
+ * through an injected store. `test/canary-read-job.test.mjs` censuses the real
+ * getter now, because a check nothing can reach is not a check.
  */
 export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 1000 }) {
   // `ledgerRead` TRAVELS WITH `ledger` AND IS NEVER OPTIONAL. It opens as a
@@ -132,9 +143,17 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
   // charged". The one state that licenses a money claim has to be EARNED.
   const out = { job, row: null, poll: null, traces: [], ledger: [], ledgerRead: { ok: false, why: "not read" }, notes: [] };
 
+  // A 200 CARRYING A NON-LIST IS NOT A READ HERE EITHER, and the wrong
+  // sentence is the expensive one: `(notAList)[0] || null` is `null`, which
+  // this function goes on to report as "the job never existed, or it has been
+  // pruned" — a positive claim about a job, made from a body nobody could
+  // parse. The two are told apart before the row is taken.
   const jr = await sb(`edit_jobs?id=eq.${encodeURIComponent(job)}&select=*`);
-  if (!jr || jr.status !== 200) { out.notes.push(`edit_jobs read failed (${jr && jr.status})`); return out; }
-  out.row = (jr.rows || [])[0] || null;
+  if (!jr || jr.status !== 200 || !Array.isArray(jr.rows)) {
+    out.notes.push(`edit_jobs read failed (${jr && jr.status}${jr && jr.status === 200 ? ", body is not a list" : ""}) — the job's own record is UNREADABLE, which is not the same as absent`);
+    return out;
+  }
+  out.row = jr.rows[0] || null;
   if (!out.row) { out.notes.push("no edit_jobs row with that id — the job never existed, or it has been pruned"); return out; }
 
   // THE LEDGER, MATCHED ON THE JOB ID INSIDE THE REF — AND A `like` IS THE
@@ -151,9 +170,10 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
   // has the mirror problem on the build path. The `like` finds all three.
   //
   // AND A 200 WITH A BODY THAT IS NOT A LIST IS NOT A READ EITHER. PostgREST
-  // answers an error as an OBJECT, and `sb` normalises a non-array to `[]` —
-  // so `status === 200` alone would let a malformed answer through wearing the
-  // one shape that means "no rows".
+  // answers an error as an OBJECT, so `status === 200` alone would let a
+  // malformed answer through wearing the one shape that means "no rows" — and
+  // this is the read where that matters most, because the shape it would wear
+  // is the one that licenses "nothing was charged".
   const lr = await sb(`credit_events?ref=like.*${encodeURIComponent(job)}*&select=*&order=at.asc`);
   if (lr && lr.status === 200 && Array.isArray(lr.rows)) {
     out.ledger = lr.rows;
@@ -172,8 +192,11 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
     const from = new Date(out.row.created_at).toISOString();
     const to = new Date(new Date(out.row.updated_at || out.row.created_at).getTime() + traceWindowMs).toISOString();
     const tr = await sb(`edit_traces?slug=eq.${encodeURIComponent(out.row.slug)}&ended_at=gte.${from}&ended_at=lte.${to}&select=*&order=ended_at.asc`);
-    if (tr && tr.status === 200) out.traces = tr.rows || [];
-    else out.notes.push(`edit_traces read failed (${tr && tr.status})`);
+    // `Array.isArray` HERE IS ALSO A CRASH GUARD, not only an honesty one:
+    // `describeJob` does `for (const t of rec.traces)`, and an object put in
+    // that field throws rather than printing anything at all.
+    if (tr && tr.status === 200 && Array.isArray(tr.rows)) out.traces = tr.rows;
+    else out.notes.push(`edit_traces read failed (${tr && tr.status}${tr && tr.status === 200 ? ", body is not a list" : ""}) — no trace candidate is claimed either way`);
     out.notes.push("edit_traces has no job column — the rows above are matched by slug and time window, so they are CANDIDATES rather than a join");
   }
 

@@ -1520,6 +1520,41 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   on the build path.
 - **A FAILED LEDGER READ IS NAMED, NEVER FOLDED INTO "NO ROWS"** — the two
   answer identically as `[]` and only one of them licenses a claim about money.
+  **⚠ AND THE FIRST CUT DID FOLD IT, on the one line anybody reads.** Reported
+  and reproduced: a 503 from `credit_events` printed `LEDGER  no ledger rows
+  name this job — nothing was debited under it` and then a failed-read note
+  UNDERNEATH it. Both halves were defensible alone — the note was true, the
+  verdict was the right sentence for an empty list — and **nothing looked at
+  the text they produced together**, which is where the defect lived. The read's
+  own state is an ARGUMENT to `ledgerVerdict` now rather than a note beside it:
+  on a read that did not answer, `charged`/`refunded`/`debits`/`refunds` are
+  **`null`**, `readable` is false, and the line is **`BILLING UNKNOWN — … so
+  whether this job was charged is not established either way`** with the status
+  named. A read that ANSWERED and found nothing says **`READ CLEAN`**. Two
+  facts, two sentences. **`ledgerRead` fails CLOSED** (it opens as `not read`),
+  and **no rows are printed under a refusal** — rows in hand do not rescue a
+  read that did not answer.
+- **THE JOB'S OWN `billing` FIELD AND THE LEDGER ARE PRINTED AS TWO LINES THAT
+  NEVER BORROW FROM EACH OTHER**, and that is what makes a disagreement a
+  finding. **DRIVEN**: under a failed ledger read the account still prints
+  `billing  refunded  cost 20  ->  the edit WAS charged and the charge was
+  reversed` beside `LEDGER  BILLING UNKNOWN`. Either reader alone can settle
+  the money question; neither is derived from the other.
+- **⚠ AND THE MALFORMED-200 CHECK WAS UNREACHABLE FROM THE ONLY CALLER THAT
+  RUNS.** PostgREST answers an error as an OBJECT, so `status === 200` alone
+  lets it through wearing the one shape that means "no rows" — the module's
+  `Array.isArray` check is exactly right and **`scripts/edit-canary.mjs`'s
+  getter read `Array.isArray(rows) ? rows : []`**, coercing before the module
+  ever saw the body. So the branch could never fire in production while the
+  guard drove it happily through an injected store. **This repo's own wiring
+  trap, met inside the fix for the class it belongs to**: the module perfect,
+  one hop cutting it, and from outside *"the body was a list"* and *"we made it
+  one"* are the same value. The getter is TRANSPORT now — `{status, rows}` as
+  the body came — and the decision is the module's. **All THREE reads demand a
+  list**, because each has its own wrong sentence: the job read would report a
+  job as *"never existed, or pruned"*, the ledger read as *nothing charged*,
+  and the trace read puts a non-iterable in a field `describeJob` LOOPS over,
+  which throws rather than printing anything at all.
 - **⚠ AND THE `credit_events` READ IS THE ONE HOP NOTHING HAS EVER DRIVEN.**
   `edit_jobs` over PostgREST with the service key is proven —
   `scripts/gap-sweep.mjs` has done exactly that against the live database —
@@ -1537,17 +1572,28 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   `worker.js` stores the whole request body in R2 at `editJobKey(<job>)`, which
   is a Worker binding — no Supabase read and no existing route reaches it.
   Recovering it would need a new owner route, which is a product change.
-- **EVIDENCE**: `test/canary-read-job.test.mjs`, **20 cases**, the decisions
+- **EVIDENCE**: `test/canary-read-job.test.mjs`, **28 cases**, the decisions
   DRIVEN over injected stores and the wiring a census. **5 mutants killed, a
-  comment-only control survived** (each mutant restores one defect: the ledger
-  reading a net zero as never charged, a failing stored reply reading as one
-  the old watch would have ended on, a failed ledger read folding into no-rows,
-  the mode not exiting, and a stale spend arming the paid half).
+  comment-only control survived** on the first round (each mutant restores one
+  defect: the ledger reading a net zero as never charged, a failing stored
+  reply reading as one the old watch would have ended on, a failed ledger read
+  folding into no-rows, the mode not exiting, and a stale spend arming the
+  paid half), and **3 more killed with the control surviving** on the wiring
+  round — the real getter's coercion restored verbatim, and each of the job
+  and trace reads dropping its list check. Both files restored byte-identical
+  from a SCRATCHPAD backup, never `git checkout`.
   **⚠ THE CONTROL'S FIRST ANCHOR NEVER APPLIED** — it carried a `── ` the real
   comment does not have — and a control that did not apply is a check with no
   control. Re-run with the anchor COUNTED first (1 before, 1 after), it
   survived. This file's own recorded trap, met while writing the check for
   another one.
+- **⚠ THE PRINTED ACCOUNT IS WHAT IS ASSERTED, because that is where the
+  defect lived.** Six of the cases drive `describeJob` to its finished text
+  rather than reading `ledgerVerdict`'s fields: a failed-read case that
+  asserts `BILLING UNKNOWN` **and** that the string *"nothing was debited
+  under it"* occurs NOWHERE in the whole account, and a successful-empty
+  CONTROL that asserts the opposite pair. *Two lines that are each defensible
+  alone produce one paragraph that is not, and only the paragraph is read.*
 
 **THE PLACES-LEFT RETRY IS PREPARED AND NOT DISPATCHED.** `edit-canary.yml`,
 `spend: yes`, `site: fretwork-1`, `control: washhouse-3`, `read_job` EMPTY, and
@@ -4355,16 +4401,25 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,116 LOCALLY, and the CI half of THAT reading is UNREAD at the
-  moment of writing** (2026-09-21, the unreadable-ledger correction) —
-  `# tests 7116 / # pass 7116 / # fail 0 / # skipped 0`, `duration_ms 113,677`.
-  **The +6 is the difference between two measured readings**, 7,110 → 7,116:
-  `test/canary-read-job.test.mjs` goes 20 → 26 cases, the six being the
-  unreadable-read loop (three shapes), the missing-read argument, the
-  non-list-200, the PRINTED ACCOUNT under a failed read, the
-  successful-empty CONTROL, and the no-rows-listed-under-a-refusal case.
-  **Say which half is taken**: a local number beside an unread CI run is ONE
-  reading, and the stamp is completed below once the run is read.
+- **Unit suite: 7,118 LOCALLY, and the CI half of THAT reading is UNREAD at the
+  moment of writing** (2026-09-21, the reader's own wiring hole) —
+  `# tests 7118 / # pass 7118 / # fail 0 / # skipped 0`, `duration_ms 112,388`.
+  **The +2 is the difference between two measured readings**, 7,116 → 7,118:
+  the census over the REAL Supabase getter, and the case driving all three
+  reads against a non-list body. **Say which half is taken**; the stamp is
+  completed once the run is read.
+- **Unit suite: 7,116, BOTH HALVES TAKEN** (2026-09-21, the unreadable-ledger
+  correction) — locally `# tests 7116 / # pass 7116 / # fail 0 / # skipped 0`,
+  `duration_ms 113,677`, and CI run **`35665789941` on `04f1897c`** at
+  **`# tests 7116 / # pass 7112 / # fail 0 / # skipped 4`**, `duration_ms
+  106,086`. **THE TOTAL IS WHAT MATCHES** — 7,116 both sides, `pass` differing
+  by exactly CI's own four skips, which is this file's standing reading of that
+  gap and not a regression. **The +6 is the difference between two measured
+  readings**, 7,110 → 7,116: `test/canary-read-job.test.mjs` goes 20 → 26
+  cases, the six being the unreadable-read loop (three shapes), the
+  missing-read argument, the non-list-200, the PRINTED ACCOUNT under a failed
+  read, the successful-empty CONTROL, and the no-rows-listed-under-a-refusal
+  case.
 - **Unit suite: 7,110, BOTH HALVES TAKEN** (2026-09-21, the read-only job
   lookup) — locally `# tests 7110 / # pass 7110 / # fail 0 / # skipped 0`,
   `duration_ms 112,947`, and CI run **`35659172717` on `f662d68d`** at

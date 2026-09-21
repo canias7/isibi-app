@@ -354,6 +354,32 @@ The tests assert the **finished printed account**, not just the helper — which
 is where the defect lived: both halves were defensible alone, and nothing
 looked at the text they produced together.
 
+### ⚠ And reading the wiring found that one of those five fixes could never fire
+
+The "a 200 carrying something that is not a list" check was correct in the
+module and **unreachable from the only caller that runs**. The bit of the
+canary that actually talks to the database was written as
+
+> `rows: Array.isArray(rows) ? rows : []`
+
+— so it flattened the malformed answer into an empty list **before** the
+module ever saw it, and the check written for exactly that case could never
+fire on a real press. The tests were green because they hand the module a
+fake database directly, which does not flatten anything.
+
+This is the failure shape that has cost this project a dozen features: the
+part doing the thinking is right, one hop in front of it quietly answers the
+question first, and from the outside *"the answer was a list"* and *"we turned
+it into one"* look identical. Found by reading the wire, not by a test.
+
+Now the database reader is plain transport — it hands over what came back —
+and **all three reads** (the job, the ledger, the traces) each demand a list,
+because each has its own wrong sentence if one slips through: the job read
+would report your job as *never having existed*, the ledger read as *nothing
+charged*, and the trace read would crash the printer outright. Three more
+mutants killed with a control surviving, and both files restored byte for
+byte afterwards.
+
 ### The places-left retry — prepared, not dispatched
 
 Same workflow, the paid half. Every box filled in, nothing pressed:

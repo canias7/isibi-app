@@ -279,9 +279,8 @@ test("a failed ledger read is NAMED, never folded into 'no rows'", async () => {
 });
 
 test("A 200 CARRYING A NON-LIST IS NOT A READ EITHER", async () => {
-  // PostgREST answers an error as an OBJECT and `sb` normalises a non-array to
-  // `[]`, so `status === 200` alone lets a malformed answer through wearing
-  // the one shape that means "no rows".
+  // PostgREST answers an error as an OBJECT, so `status === 200` alone lets a
+  // malformed answer through wearing the one shape that means "no rows".
   const sb = async (p) => p.startsWith("edit_jobs") ? { status: 200, rows: [ROW] }
     : p.startsWith("credit_events") ? { status: 200, rows: { message: "permission denied" } }
       : { status: 200, rows: [] };
@@ -289,6 +288,62 @@ test("A 200 CARRYING A NON-LIST IS NOT A READ EITHER", async () => {
   assert.equal(rec.ledgerRead.ok, false);
   assert.equal(rec.ledgerRead.why, "not a list");
   assert.match(describeJob(rec), /BILLING UNKNOWN/);
+});
+
+// ── ⚠ AND THE CASE ABOVE WAS GREEN ABOUT A BRANCH THE PRESS COULD NOT REACH ──
+//
+// It drives an INJECTED store, and the injected store hands the object over.
+// The REAL getter in `scripts/edit-canary.mjs` — the only one that ever runs
+// in production — read `Array.isArray(rows) ? rows : []`, so the malformed
+// answer arrived already wearing the shape that means "no rows" and the check
+// could never fire. The module was perfect and one hop cut it: this repo's
+// own recorded wiring trap, met inside the fix for the class it belongs to.
+//
+// So the property is asserted at BOTH ends. The module half is the case above;
+// this is the transport half, and it is a census because a getter cannot be
+// driven from here without a network.
+
+test("the REAL getter hands the body over as it came — the module makes the list decision", () => {
+  const src = blankLineComments(CANARY);
+  const at = src.indexOf("sb: async (path) =>");
+  assert.ok(at > 0, "the read mode's Supabase getter is gone from edit-canary.mjs");
+  // CLOSED ON THE NEXT SIBLING PROPERTY, never a byte window: this file puts
+  // its reasoning in comments and any byte bound is outrun by the next one.
+  const end = src.indexOf("poll:", at);
+  assert.ok(end > at, "the getter's closing landmark is gone, so the window below is unbounded");
+  const win = src.slice(at, end);
+  assert.ok(win.trim().length > 0, "the window is empty — the scan below would pass over nothing");
+  assert.match(win, /return \{ status: r\.status, rows \}/, "the getter no longer hands the parsed body straight over");
+  assert.doesNotMatch(
+    win,
+    /Array\.isArray\([^)]*\)\s*\?/,
+    "the getter coerces a non-array before the module can see it, which makes every list check below unreachable from the one caller that runs",
+  );
+});
+
+test("all THREE reads demand a list, so no read can be answered by its transport", async () => {
+  // Each of the three is a different wrong sentence when a non-list slips
+  // through: the job read reports the job as never having existed, the ledger
+  // read reports nothing charged, and the trace read puts a non-iterable in a
+  // field `describeJob` loops over — which THROWS rather than printing.
+  const bad = { message: "permission denied" };
+
+  const jobBad = await readJobRecords({ job: "JOBID", sb: async () => ({ status: 200, rows: bad }) });
+  assert.equal(jobBad.row, null);
+  assert.ok(jobBad.notes.some((n) => /UNREADABLE, which is not the same as absent/.test(n)));
+  assert.doesNotMatch(describeJob(jobBad), /never existed/, "an unparseable body is reported as a missing job");
+
+  const traceBad = await readJobRecords({
+    job: "JOBID",
+    sb: async (p) => p.startsWith("edit_jobs") ? { status: 200, rows: [ROW] }
+      : p.startsWith("edit_traces") ? { status: 200, rows: bad }
+        : { status: 200, rows: [] },
+  });
+  assert.deepEqual(traceBad.traces, [], "a non-list reached the traces field");
+  assert.ok(traceBad.notes.some((n) => /edit_traces read failed .*body is not a list/.test(n)));
+  // THE CRASH HALF, DRIVEN: without the list check this call throws rather
+  // than answering, so the account nobody reads is the whole failure.
+  assert.match(describeJob(traceBad), /JOB JOBID/);
 });
 
 // ── THE PRINTED ACCOUNT IS WHAT ANYBODY READS, SO IT IS WHAT IS ASSERTED ──
