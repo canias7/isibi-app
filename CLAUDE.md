@@ -1387,65 +1387,138 @@ own `- "image"`/`+ "image"` pair and an input count of 184). **The deploy said
 what Wrangler sent; run 13 is the live Worker answering**, and this file's
 standing rule is that those are two claims.
 
-**RUN 14 (2026-09-21) WAS THE ONE PAID RETRY OF THE COMPONENT-EDIT TEST AND IT
-DID NOT COMPLETE. THE RECORD IS A STALL, NOT A CAPABILITY FINDING.**
-`fretwork-1`, *"The 'Space on a preferred day' box counts bookings. Make it
-count down the places left instead — six lesson slots a day, so an empty day
-reads six places left."* POST **202 in 0.9 s**, then `claimed` 4→108 s,
-**`routing` 121→563 s**, `? / verify` 576→836 s, and **settled after 845.2 s
-with NO TERMINAL ANSWER**. Balance **77 → 75, moved 2** — the routing call
-alone; the edit was never billed. Nothing published.
+**RUN 14 (2026-09-21) TESTED A REQUEST NOBODY MADE, AND THEN COULD NOT READ ITS
+OWN RESULT. BOTH HALVES WERE THE HARNESS (corrected 2026-09-21 from the run's
+own log and artifact, after the owner read them).** The first write-up of this
+entry reported a routing finding about the places-left ask and a stalled job.
+**Neither is true, and the corrected account is shorter than the wrong one.**
 
-- **IT ROUTED `look`, NOT `rules` AND NOT `page`** — `intent=edit layer=look
-  page=- cost=2` in 24.3 s. So the distinction the corrections were pressed to
-  test (backend recovery against completing the display change) **did not
-  arise**, and one wording on one run is all that says. The router stayed under
-  test; no layer was forced.
-- **NONE OF THE THREE CORRECTIONS WAS EXERCISED.** The job stalled before any
-  terminal answer, so the ownership gate, the catalog-aware schema read and the
-  scoped cost sentence were never reached. **This run neither confirms nor
-  contradicts them** — it is outstanding coverage, not evidence.
+**1. `CANARY_INSTRUCTION` WAS BLANK AND THE HARNESS SUBSTITUTED ITS OWN ASK.**
+The run's log prints the env block verbatim: `CANARY_SPEND: 1` beside
+`CANARY_INSTRUCTION:` with nothing after it. `edit-canary.mjs` read that field
+through a fallback to a hardcoded CTA-colour request, so **what was really
+submitted was a button-colour change** — and `intent=edit layer=look cost=2` is
+the CORRECT route for one.
+
+- **SO THE `look` RESULT IS EVIDENCE ABOUT A BUTTON COLOUR AND NOTHING ELSE.**
+  It says nothing about how the places-left wording routes; that ask was never
+  sent. Every sentence the first write-up built on it — that the
+  recovery-versus-display distinction "did not arise", that the router "stayed
+  under test" on this wording — is withdrawn.
+- **THE WORST-SHAPED FAILURE AVAILABLE, and that is the general lesson**: a
+  substituted ask produces a complete, plausible, internally consistent run.
+  Nothing in the artifact disagreed with anything else, because everything in
+  it was true of the request the harness invented. **The bundle recorded the
+  routing answer, the terminal body and the customer's screen — and nowhere
+  the one input that decides all three.**
+- **AND THE REFUSAL IT NEEDED WAS ALREADY THERE, ONE FIELD OVER.** Eight lines
+  below the fallback sits *"REFUSE TO SPEND BLIND. A blank layer costs nothing
+  and proves nothing, and the whole danger is that it PASSES"* — the identical
+  argument, applied to the layer and not to the ask.
+
+**2. THE HARNESS COULD NOT ESTABLISH A STALL, AND 845.2 s IS ITS OWN LOOP.**
+The watch ended only on HTTP 200: `for (let i = 0; i < 260; i++)` with a
+3-second wait. **260 × 3 s = 780 s, plus request latency = 845.2 s** — it ran
+to exhaustion and then printed *"the job did not finish inside the watch"*,
+which is a claim about the JOB made from a fact about the HARNESS.
+
+- **A COMPLETED FAILURE ANSWERS 503, AND THE POLL ROUTE'S OWN FAILURE ANSWERS
+  503.** `EditPoll.readPoll` exists to tell them apart and its comment says so:
+  a stored reply keeps its own status and arrives under **`x-gf-edit: final`**,
+  while *"by number alone a stored 503 is a transient one, and gets retried
+  until the client gives up on an edit that finished minutes ago."* The harness
+  re-derived the question as `status === 200` and met exactly that.
+- **THE LOG CANNOT SETTLE WHAT REALLY HAPPENED, BECAUSE IT NEVER PRINTED THE
+  HTTP STATUS.** The tick line logged `q.json.status`, not `q.status`. What it
+  does show is a **shape change at 576 s**: `claimed` → `routing` (cost 2) →
+  `? / verify` with cost **0** and no `status` field at all. A stored reply has
+  no job-state field — that is `readPoll`'s whole premise — so that is
+  *consistent with* the job having finished and the harness having polled past
+  it, and is **not proof of it**. Recorded as unresolved rather than
+  attributed; the corrected harness would answer it in one press.
 - **⚠ AND THE RECORDED "THE BROWSER WOULD START THE FULL ~25-CREDIT REWRITE" IS
-  A HARNESS ARTIFACT, NOT A CLAIM ABOUT A CUSTOMER'S SCREEN.**
-  `scripts/edit-canary.mjs:457` is `const rb = done && done.json ? done.json :
-  null;` — with no terminal answer the browser reader is handed **`null`**, and
-  `editAnswer`'s very first branch (`public/chat.js:9058`) is `if (!e) { … return
-  o.fallback() }`, whose own comment says *a body we cannot read is not a
-  refusal*. **A real browser polling a job that is still running shows
-  `running`; it never receives `null`.** The composer is correct, the harness's
-  own watch gave up, and from outside *"the page would fall through"* and *"we
-  stopped looking"* are the same absence. This file's recorded shape — **read
-  what the instrument DID, not what the product would do** — met on the
-  instrument built to read the product.
-- **THE LATE-PUBLISH RE-CHECK IS NEGATIVE AND IT IS THE STRONG READING.** At
-  **20:40:27Z**, 11.4 hours after the POST and long past `CONTAINER_EDIT_JOB_MS`
-  (50 min), the live site serves **`x-site-version: 01789972018761-6tng48`** —
-  minted **06:26:58.761Z**, inside run 11's window (06:21:38 → 06:30:36Z).
-  **The pointer has not moved since run 11.** `mintVersion` runs BEFORE the
-  compile, so a late publish would carry a version minted around 09:16Z; there
-  is none. Reconciled against a curl capture from 2026-09-20: **58,670 b / 2
-  `testimonial-grid` → 54,453 b / 1**, which is run 11's change and nothing
-  else, with the component's sentence byte-identical on both sides (*"Pick a
-  day to see how many bookings already sit on it…"*) and **zero occurrences of
-  `places left`, `lesson slots` or `slots left` on either.**
-  **⚠ THE 72,649-BYTE FIGURE IN RUN 11'S ENTRY IS A BROWSER POST-HYDRATION DOM
-  READING AND IS NOT COMPARABLE TO A CURL** — two instruments, two numbers; the
-  curl-to-curl pair above is the one that reconciles.
-- **THE ARITHMETIC WAS CHECKED SIMULATED AND IS UNCHANGED**: controlled RPC
-  responses (no rows created) give 0 → *"No bookings on this day yet — it still
-  has space."*, 2 → `2 bookings already on this day.`, 6 → `6 bookings already
-  on this day.` **Still counting UP**; the requested 6/4/0 inversion has not
-  happened.
-- **THE COMPONENT ITSELF STILL WORKS, WHICH IS THE BEFORE BEHAVIOUR AND NOT A
-  PASS**: NAV 200, `POST /api/db/fretwork-1/data/rpc/bookings_on_day` → **200,
-  body `0`**, 0 console errors, 0 failed requests — an empty day verified by the
-  RPC's own answer.
-- **WHY THE JOB STALLED IS UNKNOWN AND STAYS UNKNOWN.** 442 s in `routing` and
-  260 in `? / verify`, past run 11's comparable 8m58s end to end and still not
-  terminal at 845 s. Whether it later completed, was swept lost, or is still
-  held needs an owner-scoped poll of `/api/site/edit/<job>`, which a session
-  cannot read. **One run is not a diagnosis** — recorded as an open question,
-  not attributed.
+  A HARNESS ARTIFACT.** With no terminal answer the reply reader was handed
+  **`null`**, and `editAnswer`'s very first branch (`public/chat.js:9058`) is
+  `if (!e) { … return o.fallback() }`, whose own comment says *a body we cannot
+  read is not a refusal*. **A real browser polling a running job shows
+  `running`; it never receives `null`.** The composer is correct and the
+  instrument gave up. `terminal.json` recorded `{status: 0, body: null}`, which
+  reads identically for a completed failure, a lost job and a watch that
+  stopped looking.
+
+**WHAT THE RUN DOES ESTABLISH.** Balance **77 → 75, moved 2** — the routing
+call alone; the edit was never billed. Nothing published: at **20:40:27Z**, 11.4
+hours later, the live site still serves **`x-site-version: 01789972018761`**,
+minted **06:26:58.761Z**, inside run **11**'s window (06:21:38 → 06:30:36Z).
+`mintVersion` runs BEFORE the compile, so a late publish would carry a version
+from ~09:16Z and there is none. Reconciled against a curl capture from
+2026-09-20: **58,670 b / 2 `testimonial-grid` → 54,453 b / 1**, which is run
+11's change and nothing since.
+**⚠ RUN 11'S 72,649-BYTE FIGURE IS A BROWSER POST-HYDRATION DOM READING AND IS
+NOT COMPARABLE TO A CURL** — two instruments, two numbers.
+
+- **NONE OF THE THREE CORRECTIONS WAS EXERCISED**, and now for two reasons
+  rather than one: the ask was not theirs, and no outcome was read. Outstanding
+  coverage, not evidence.
+- **THE `day-space-lookup` ARITHMETIC IS UNCHANGED** — simulated with
+  controlled RPC responses, no rows created: 0 → *"No bookings on this day yet
+  — it still has space."*, 2 → `2 bookings already on this day.`, 6 → `6
+  bookings already on this day.` Still counting UP.
+- **THE COMPONENT STILL WORKS, WHICH IS THE BEFORE BEHAVIOUR AND NOT A PASS**:
+  NAV 200, `POST /api/db/fretwork-1/data/rpc/bookings_on_day` → **200, body
+  `0`**, 0 console errors, 0 failed requests.
+- **AND THE JOB RECORD ITSELF IS STILL UNREAD.** `fa4fef0ff88b4d0a2bb3cb79be44004f`
+  needs `/api/site/edit/<job>` with the building account's token, which is a
+  GitHub Actions secret; a session cannot read it. The log and the artifact are
+  what this account is built on, and they are enough for everything above and
+  not enough for the 576-second question.
+
+### THE HARNESS PATCH RUN 14 BOUGHT (2026-09-21)
+
+**THE ASK IS DEMANDED, ABOVE EVERY PAID CALL.** `readInstruction`
+(`scripts/canary-watch.mjs`) refuses a missing, whitespace-only or non-string
+instruction and **there is no default anywhere** — a census over the blanked
+source holds it. The gate sits **above the routing call**, because routing is
+billed on its own: run 14 moved the balance by 2 for it and published nothing,
+so a gate below it is a gate that has already spent. A **free** dispatch still
+needs no ask, exiting on `CANARY_SPEND` first. The exact submitted instruction
+is written to `request.json` before the POST.
+
+**THE WATCH IS THE BROWSER'S.** `watchEdit` asks `EditPoll.readPoll` rather
+than re-deriving it, so the harness and the customer's screen can never
+disagree about what a response meant. Four outcomes, and the fourth is the
+point: `reply` (a stored reply, **whatever its status**), `ended` (a terminal
+job with nothing stored — the browser's own `outcomeMessage` is printed),
+`gone` (404), and **`timeout` — reported as *outcome unknown*, never as a claim
+about the job.** `call` keeps `res.headers`, which is the wiring hop that makes
+the rest reachable at all. The composer runs **on a stored reply or not at
+all**, so a null body can never again be recorded as a paid action.
+
+- **`retries` IS COUNTED AND PRINTED**, because a watch spent retrying a 503 and
+  one spent waiting on a running job log identically without it — which is why
+  run 14's `? / verify` rows cannot be read either way today.
+- **THE HEADER'S KEYS ARE FOLDED, NOT THE NEEDLE.** Folding the needle alone
+  looks like a fix and answers `undefined` for `X-GF-Edit` just the same.
+- **EVIDENCE**: 12 new cases in `test/canary-watch.test.mjs`, **DRIVEN** against
+  literal poll sequences and a fake clock — `edit-canary.mjs` has top-level
+  await and spends money, so a test cannot import it, which is why the two
+  decisions live in their own module. **5 mutants killed, a comment-only
+  control survived**; each mutant restores one half of run 14 verbatim (the
+  instruction default, a blank accepted, the final header ignored, a timeout
+  reported as the job not finishing, the headers dropped from `call`). Suite
+  7,078 → **7,090**.
+- **⚠ AND A PRE-EXISTING GUARD WENT RED ON THE FIX** — `edit-canary.test.mjs`'s
+  capture case was anchored on `const said = editBrowserReply(`, which is a
+  claim about HOW the composer is reached, so making that call conditional
+  reported the capture as gone. Re-anchored on `const said =`, the declaration,
+  with the observer still asserting `editBrowserReply(` is inside the window.
+  **Four rounds running, in guards written by earlier sessions of this work.**
+- **⚠ AND THE CENSUS TRIPPED ON ITS OWN PROSE.** The first cut of
+  `canary-watch.mjs` explained the defect in a comment that spelled it, and the
+  guard forbidding that spelling failed on the paragraph arguing for the rule.
+  Comments are blanked before the scan now, with the blanker's own observer
+  proved alive. **Tenth-plus recorded instance, and this one was inside the
+  guard written for the trap.**
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the
@@ -4047,8 +4120,8 @@ landed text IS the written text.
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 75** at run 14's end (2026-09-21, read by the canary at both
-ends: 77 → 75, moved 2 — the routing call alone, on a message that never
-reached a terminal answer; see run 14 below). Run 12 ended at 77 (79 → 77,
+ends: 77 → 75, moved 2 — the routing call alone, on a run whose outcome the
+harness could not read; see run 14 below). Run 12 ended at 77 (79 → 77,
 moved 2 — again the routing call alone, on a message that escalated
 `no-backend` and published nothing). Run 11 ended at 79 (101 → 79, moved 22)
 and run 9 at 101 (105 → 101, moved 4). It was 119 at run 52's end on
@@ -4152,7 +4225,15 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,078 LOCALLY, and the CI half of THIS reading is UNREAD** —
+- **Unit suite: 7,090 LOCALLY, and the CI half of THIS reading is UNREAD** —
+  `# tests 7090 / # pass 7090 / # fail 0 / # skipped 0`, `duration_ms 117,987`,
+  taken 2026-09-21 on the run-14 harness corrections. **The +12 is the
+  difference between two measured readings**: `test/canary-watch.test.mjs`
+  arriving with twelve cases. The re-anchored `edit-canary` guard added none —
+  it is the same case asserting the same property through a wider landmark.
+  **Say which half is taken**: a local number beside an unread CI run is ONE
+  reading.
+- **Unit suite: 7,078 LOCALLY, and the CI half of THAT reading is UNREAD** —
   `# tests 7078 / # pass 7078 / # fail 0 / # skipped 0`, `duration_ms 111,643`,
   taken 2026-09-21 on the three bounded corrections. **The +7 is the difference
   between two measured readings**: `edit-rules-backend` goes 8 → 15 cases.

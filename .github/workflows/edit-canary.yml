@@ -33,7 +33,13 @@ on:
         required: false
         default: 'no'
       instruction:
-        description: 'What to change, if spending'
+        # REQUIRED WHEN SPENDING, AND THE SCRIPT IS WHERE THAT IS ENFORCED.
+        # `required: true` here would demand an ask for every FREE dispatch
+        # too, which is the run whose whole job is to cost nothing. The demand
+        # belongs where the spend is: `edit-canary.mjs` refuses a blank one
+        # above the routing call. Run 14 was pressed with this box empty and
+        # the script substituted a default, so it spent on an ask nobody made.
+        description: 'What to change. REQUIRED when spend=1 — there is no default, and a blank one refuses.'
         required: false
         default: ''
       site:

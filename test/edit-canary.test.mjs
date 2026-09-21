@@ -288,7 +288,17 @@ test("the reply capture reads the browser's ACTIONS, not only its text", () => {
   // "THE CUSTOMER'S OWN SCREEN" — the obvious landmark, and the one this case
   // was first written against — is whitespace by the time it is searched for.
   // This file's own recorded trap, met writing the guard for it.
-  const at = SRC.indexOf("const said = editBrowserReply(");
+  //
+  // ⚠ AND IT IS ANCHORED ON THE DECLARATION, NOT ON ITS INITIALIZER
+  // (re-anchored 2026-09-21). This was `const said = editBrowserReply(`, which
+  // is a claim about HOW the composer is reached — so it went red the moment
+  // run 14's correction made that call conditional on there being a stored
+  // reply to compose from, reporting an honest fix as the capture going away.
+  // What this case is actually about is the block where the screen is
+  // composed and recorded, and `const said =` is where that begins however
+  // the composer is called. The observer below proves `editBrowserReply` is
+  // still really in it, so widening the landmark costs no coverage.
+  const at = SRC.indexOf("const said =");
   assert.ok(at > 0, "the reply-capture block's opening landmark is gone");
   // CLOSED ON THE NEXT CODE SIBLING, not on the section heading under it, for
   // the same reason — and searched FROM the opening one so the two cannot

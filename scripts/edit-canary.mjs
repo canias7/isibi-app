@@ -25,6 +25,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // outward arms injected as recorders, which is the only way a harness can
 // report what the customer would read rather than a second copy of it.
 import { editBrowserReply } from "./addon-sweep.mjs";
+// THE INSTRUCTION WALL AND THE WATCH, lifted out so they can be driven. This
+// file is a script with top-level await that spends money, so a test cannot
+// import it to reach a function — see the header of `canary-watch.mjs`.
+import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport } from "./canary-watch.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -81,7 +85,12 @@ function call(method, path, { body, headers } = {}) {
       res.on("end", () => {
         let json = null;
         try { json = JSON.parse(text); } catch { /* not JSON */ }
-        resolve({ status: res.statusCode, ms: Date.now() - t0, json, text: text.slice(0, 400) });
+        // THE HEADERS RIDE ALONG, because `x-gf-edit: final` is the ONLY thing
+        // that separates a stored reply from a poll that failed — the body
+        // cannot carry it (it is the synchronous reply unchanged) and neither
+        // can the status (a stored 503 and a transient 503 are the same
+        // number). Dropping them here is what made run 14's watch blind.
+        resolve({ status: res.statusCode, ms: Date.now() - t0, json, headers: res.headers || {}, text: text.slice(0, 400) });
       });
     });
     req.on("error", (e) => resolve({ status: 0, ms: Date.now() - t0, why: e.code || e.message }));
@@ -366,6 +375,25 @@ if (failed) {
   process.exit(1);
 }
 
+// ── AND THE ASK ITSELF IS DEMANDED, ABOVE EVERY PAID CALL ──────────────────
+//
+// ⚠ RUN 14 (2026-09-21) WAS DISPATCHED WITH THIS FIELD EMPTY AND SPENT ANYWAY.
+// The read was `process.env.CANARY_INSTRUCTION || "<a CTA-colour ask>"`, so a
+// blank form field became a real paid request for something nobody had asked
+// for — and it routed correctly, which is the worst available outcome: the run
+// produced a complete, plausible routing answer about a request that was never
+// made, and it was written up as evidence about the one that was.
+//
+// THE REFUSAL SITS ABOVE THE ROUTING CALL, not beside the edit POST. Routing
+// is billed on its own — run 14 moved the balance by 2 for it and published
+// nothing — so a gate below it is a gate that has already spent.
+const ASKED = readInstruction(process.env.CANARY_INSTRUCTION);
+if (!ASKED.ok) {
+  console.error(instructionRefusal(ASKED.why));
+  process.exit(1);
+}
+const INSTRUCTION = ASKED.instruction;
+
 // ── THE ONE PAID EDIT ──────────────────────────────────────────────────────
 
 console.log("PAID CANARY EDIT — exactly one\n");
@@ -375,7 +403,15 @@ console.log("PAID CANARY EDIT — exactly one\n");
 const before = await balanceNow();
 console.log(`  balance before: ${before}`);
 
-const INSTRUCTION = process.env.CANARY_INSTRUCTION || "make the main call-to-action button background a deeper green";
+// WHAT WAS REALLY SENT, WRITTEN DOWN BEFORE ANYTHING IS SPENT. The evidence
+// bundle recorded the routing answer, the terminal body and the customer's
+// screen, and nowhere in it the one input that decides all three. From outside,
+// a run that asked for X and a run that asked for Y are indistinguishable.
+console.log(`  instruction: ${JSON.stringify(INSTRUCTION)}`);
+writeFileSync(`${EVID}/request.json`, JSON.stringify({
+  slug: CANARY, control: CONTROL, instruction: INSTRUCTION,
+  instructionChars: INSTRUCTION.length, source: "CANARY_INSTRUCTION",
+}, null, 2));
 
 // ── ROUTE FIRST, BECAUSE THAT IS WHERE THE LAYER COMES FROM ────────────────
 //
@@ -431,17 +467,41 @@ console.log(`  POST returned ${p.status} in ${(p.ms / 1000).toFixed(1)}s: ${p.te
 if (p.status !== 202 || !p.json || !p.json.job) { console.error("  the POST did not queue a job"); process.exit(1); }
 const job = p.json.job;
 
-let done = null;
-for (let i = 0; i < 260; i++) {
-  await new Promise((r) => setTimeout(r, 3000));
-  const q = await call("GET", `/api/site/edit/${job}`);
-  if (q.status === 200) { done = q; break; }
-  if (q.json && (i % 4 === 0)) {
-    console.log(`  ${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s  ${q.json.status || "?"}${q.json.phase ? " / " + q.json.phase : ""}  cost=${q.json.cost ?? "?"}`);
-  }
-}
-console.log(`\n  settled after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-console.log("  " + (done ? done.text.slice(0, 600) : "NO TERMINAL ANSWER — the job did not finish inside the watch"));
+// ── THE WATCH IS THE BROWSER'S, NOT A SECOND IDEA OF IT ────────────────────
+//
+// ⚠ THIS LOOP USED TO END ONLY ON HTTP 200, AND RUN 14 IS WHAT THAT COSTS.
+// A finished edit hands back its STORED REPLY under `x-gf-edit: final`, and
+// that reply keeps its OWN status — 422 for a compile failure, 503 for a model
+// outage. By number alone a stored 503 is a transient one, which is the exact
+// sentence `EditPoll.readPoll`'s comment already carried; reading it that way
+// polls past the thing being waited for. Run 14 ran all 260 iterations
+// (260 × 3s + latency = 845.2s), then reported "the job did not finish inside
+// the watch" — a claim about the JOB made from a fact about the HARNESS.
+//
+// `readPoll` is the browser's own four-way answer and it is asked here rather
+// than re-derived, so the harness and the customer's screen can never disagree
+// about what a given response meant.
+const watch = await watchEdit((i) => call("GET", `/api/site/edit/${job}`), {
+  onTick: (i, q, act) => {
+    if (i % 4 !== 0) return;
+    const b = q.json || {};
+    // THE HTTP STATUS AND THE ACT ARE ON THE LINE. Without them a run that
+    // spent its whole watch retrying a 503 logs identically to one that waited
+    // on a job still genuinely running — and run 14's log is the proof: its
+    // `? / verify` rows cannot be read either way, because the status was
+    // never printed.
+    console.log(`  ${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s  ${q.status}  ${act.act.padEnd(5)}  ${b.status || "?"}${b.phase ? " / " + b.phase : ""}  cost=${b.cost ?? "?"}`);
+  },
+});
+const rep = watchReport(watch);
+// `done` IS A STORED REPLY OR NOTHING. Every downstream reader of it — the
+// evidence write, the execution-path print, the customer's composer — is a
+// reader of the EDIT'S answer, and a job-state row is not that.
+const done = watch.kind === "reply" ? watch.q : null;
+console.log(`\n  settled after ${((Date.now() - t0) / 1000).toFixed(1)}s — ${rep.headline}`);
+console.log(`  polls ${watch.polls}, transient read failures ${watch.retries}`);
+if (done) console.log("  " + done.text.slice(0, 600));
+else if (rep.message) console.log("  the browser would say: " + rep.message);
 
 const after = await balanceNow();
 console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})`);
@@ -455,8 +515,23 @@ console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})
 // refusal, a lane that never reached the page rung, an escalate and a
 // failure. Print all of it and let the reader judge.
 const rb = done && done.json ? done.json : null;
-writeFileSync(`${EVID}/routing.json`, JSON.stringify({ status: rt.status, ms: rt.ms, body: rd }, null, 2));
-writeFileSync(`${EVID}/terminal.json`, JSON.stringify({ status: done ? done.status : 0, body: rb, text: done ? done.text : "" }, null, 2));
+writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, status: rt.status, ms: rt.ms, body: rd }, null, 2));
+// THE STATUS AND THE FINAL HEADER SURVIVE INTO THE RECORD, because they are
+// what separates the three outcomes that used to write the same file: a
+// completed failure (a stored reply at 422/503), a terminal job with nothing
+// stored, and a watch that simply ran out. Run 14 wrote `{status: 0, body:
+// null}` for the third and the bundle could not say which it had been.
+writeFileSync(`${EVID}/terminal.json`, JSON.stringify({
+  watch: watch.kind,
+  outcome: watch.outcome || null,
+  headline: rep.headline,
+  polls: watch.polls,
+  transientReadFailures: watch.retries,
+  status: done ? done.status : null,
+  finalHeader: done ? (done.headers || {})[EditPoll.FINAL_HEADER] || null : null,
+  body: rb,
+  text: done ? done.text : "",
+}, null, 2));
 
 console.log("\nEXECUTION PATH");
 console.log(`  router      intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}`);
@@ -486,10 +561,20 @@ if (rb && Array.isArray(rb.partial) && rb.partial.length) console.log(`  partial
 //
 // NOTHING IS DONE. The two arms that reach outside are injected recorders and
 // `siteById` answers `null`, so this costs nothing and posts nothing.
-const said = editBrowserReply(rb, done ? done.status >= 200 && done.status < 300 : false);
-const sActs = Array.isArray(said.actions) ? said.actions : [];
+//
+// ⚠ AND IT RUNS ON A STORED REPLY OR NOT AT ALL (2026-09-21, run 14).
+// `editAnswer`'s FIRST branch is `if (!e) … return o.fallback()`, under its own
+// comment that a body we cannot read is not a refusal — so composing over a
+// null body records the ~25-credit rewrite as the action the page would take.
+// Run 14's watch gave up, handed this `null`, and the bundle reported that
+// fallback as a finding about the product. A real browser polling a running
+// job shows `running`; it is never handed null. So `watchReport` decides
+// whether there is anything to compose FROM, and an unknown outcome says so.
+const said = rep.compose ? editBrowserReply(rb, done.status >= 200 && done.status < 300) : null;
+const sActs = said && Array.isArray(said.actions) ? said.actions : [];
 console.log("\nWHAT THE CUSTOMER READS");
-if (!said.ok) console.log(`  (could not compose: ${said.why})`);
+if (!said) console.log(`  (not composed — ${rep.headline})${rep.message ? "\n  the browser's own sentence: " + rep.message : ""}`);
+else if (!said.ok) console.log(`  (could not compose: ${said.why})`);
 else if (said.text) console.log("  " + said.text);
 else console.log(said.shown
   ? "  (the composer answered an empty string — the screen shows nothing)"
@@ -498,7 +583,12 @@ if (sActs.length) {
   console.log(`\n  and the browser would then (NOT done here — recorded only), ${sActs.length}:`);
   for (const a of sActs) console.log(`    -> ${a}`);
 }
-writeFileSync(`${EVID}/customer-reply.txt`, said.ok
+writeFileSync(`${EVID}/customer-reply.txt`, !said
+  // NOT "" AND NOT A GUESS. An unknown outcome has no customer screen to
+  // record, and a blank file here reads identically to a composer that
+  // answered nothing — which is the pair run 12 already had to split apart.
+  ? `not composed — ${rep.headline}${rep.message ? "\n\nthe browser's own sentence for this outcome:\n  " + rep.message : ""}`
+  : said.ok
   ? [said.text || (said.shown ? "(the composer answered an empty string)" : "(nothing shown — this reply ACTS instead of printing)"),
      ...(sActs.length ? ["", `the browser would then (NOT done here — recorded only), ${sActs.length}:`, ...sActs.map((a) => "  -> " + a)] : [])].join("\n")
   : `could not compose: ${said.why}`);
@@ -548,7 +638,12 @@ if (!partsBefore.length) {
 // paid half stopped before the thing under test.
 const body = done && done.json ? done.json : null;
 const published = !!(body && body.ok === true);
-if (!done) console.error("\nCANARY FAILED: no terminal answer inside the watch.");
+// ⚠ AND THE THREE NON-REPLY OUTCOMES GET THREE SENTENCES, NOT ONE. "No
+// terminal answer inside the watch" was written for every one of them and is
+// only true of the last — a completed failure DID answer, and a lost job DID
+// reach a terminal state. Saying it of a timeout also overstates it: what ran
+// out was this watch, not the job.
+if (!done) console.error(`\nCANARY FAILED: ${rep.headline}.`);
 else if (!published) {
   console.error(`\nCANARY FAILED: the edit did not publish — ${body && body.escalate ? "escalated on `" + body.reason + "`" : "answered " + JSON.stringify(body && body.error)}.`);
   console.error("This is a completed round trip that changed nothing. Do not read it as a pass.");

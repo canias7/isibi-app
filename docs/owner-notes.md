@@ -155,7 +155,98 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — You were right on both counts: run 14 tested the wrong request, and then couldn't read its own answer
+
+**I have to withdraw most of yesterday's run-14 write-up.** Both things you
+pointed at check out against the run's own log and artifact, which I have now
+downloaded and read.
+
+### 1. It never sent your request
+
+The workflow log prints the environment verbatim, and it says:
+
+```
+CANARY_SPEND: 1
+CANARY_INSTRUCTION:
+```
+
+Empty. And the harness read that field with a fallback to a hardcoded
+button-colour request, so **what actually got submitted was "make the main
+call-to-action button background a deeper green"** — not the places-left ask.
+
+So `layer=look` was **correct**. It is the right route for a button colour. It
+is evidence about a button colour and about nothing else, and **everything I
+said about how your places-left wording routes is withdrawn** — that sentence
+was never sent to the router.
+
+**What makes this the worst kind of failure is that it looked fine.** The run
+produced a complete, consistent result; nothing in it disagreed with anything
+else, because it was all true of the request the harness made up. And the
+evidence bundle recorded the routing answer, the final body and the customer's
+screen — and nowhere the one input that decides all three.
+
+**The maddening part**: eight lines below that fallback the same file already
+says *"refuse to spend blind — a blank layer costs nothing and proves nothing,
+and the whole danger is that it passes."* Exactly the right argument, applied
+to one field and not the one next to it.
+
+### 2. It couldn't have found a stall
+
+The watch ended only on HTTP 200. A **finished** edit that failed hands back its
+stored reply with its own status — often 503 — under a header (`x-gf-edit:
+final`) that exists precisely so the two 503s can be told apart. The browser
+gets this right. My harness re-invented the question as "is it 200?" and so
+read every completed failure as a read that failed.
+
+**And the 845 seconds was my own loop.** 260 tries × 3 seconds = 780s, plus
+request time = 845.2s. It ran out and then printed "the job did not finish" —
+which is a statement about the harness, not the job.
+
+**What I still cannot tell you, and won't guess at**: the log never printed the
+HTTP status of a poll, only the body's. What it does show is that at 576
+seconds the body changed shape — the job-state field disappeared and the cost
+went from 2 to 0, which is what a *stored reply* looks like. That is
+**consistent with** the job having finished at 576s and my harness polling past
+it for another four minutes. It is not proof, and I am leaving it as an open
+question rather than writing a story around it.
+
+**And the job record itself is still unread.** Reading
+`fa4fef0ff88b4d0a2bb3cb79be44004f` needs the building account's token, which
+lives as a GitHub Actions secret — a session can't read it. Everything above
+comes from the run's own log and uploaded artifact, which I could download.
+
+### What the run does still establish
+
+Balance **77 → 75** — the routing call only, the edit was never billed. And
+nothing published: eleven hours later the site still serves the build run 11
+made this morning (version stamp `01789972018761`, minted 06:26:58Z). So your
+box still counts up, and none of the three corrections was exercised.
+
+### The fix
+
+**No default instruction anywhere.** Blank, whitespace-only or unreadable now
+refuses *before* the routing call — because routing is billed on its own, so a
+gate after it has already spent. A **free** run still needs no instruction. And
+the exact text submitted is written into the evidence, so a future run can
+never again be ambiguous about what it asked.
+
+**The watch uses the browser's own polling logic** rather than a second copy of
+it. A completed failure is now read as the answer it is; a genuine read failure
+is retried and counted separately; a job that ended with nothing stored prints
+the browser's own sentence; and a watch that runs out says **"outcome
+unknown"** rather than claiming the job didn't finish. Nothing null ever
+reaches the customer's message composer again — that is what invented the
+"~25-credit rewrite" line in yesterday's report.
+
+12 new tests, all driven against real poll sequences rather than reading the
+source. 5 mutants killed, comment-only control survived. Suite 7,090.
+
+**No re-run pressed, nothing deployed, no product code touched.**
+
 ## 2026-09-21 — The paid retry never finished, and the scary line in its report was my own instrument
+**⚠ SUPERSEDED BY THE ENTRY ABOVE — kept for the record, and wrong in two
+places: the run did not submit the places-left request, and the harness could
+not establish that anything stalled.**
 
 **The short version: it cost 2 credits, nothing published, and the one alarming
 thing in the output turned out to be the harness rather than the product.**
