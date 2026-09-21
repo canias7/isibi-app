@@ -14017,3 +14017,61 @@ one number off another in my head.
 the outside it looks exactly like one that passed.** And understating what has been
 checked is as misleading as overstating it — a note saying "not driven" sends the next
 person to write the same twelve checks again.
+
+## Two small things that were quietly wrong on the agents screen (2026-09-21)
+
+Both were about an identifier that already existed and got dropped one step short of where it
+was needed, which is the commonest way something here breaks: nothing errors, nothing logs,
+and the screen looks perfectly sensible while telling you the wrong thing.
+
+### "Open the run" opened the automation and not the run
+
+When something arrives at one of your addresses and starts an automation, the arrivals list
+offers to open that run. The record of the arrival has always known both halves — which
+automation, and which of its runs — and the button only carried the automation. So two
+deliveries a minute apart, starting two runs of the same automation, gave you two buttons that
+opened the same list with nothing saying which of the rows was the one you pressed.
+
+It carries both now. The run's own row is marked *From that arrival*, so you can find it in a
+list of fifty; and when the run genuinely is not there any more, the screen says so and marks
+nothing, rather than leaving another run sitting there looking like the one you asked for.
+
+**That last part needed a little more than a label.** The history shows the most recent fifty
+runs, so an arrival from last month names one that has dropped off the end. The server now
+fetches that one run by name when the page does not hold it, and puts it last — where it
+belongs, because it is older than everything else on the list.
+
+### A slow reply from one address form landed on the next one
+
+If you saved an address, cancelled while it was still saving, opened a new form and started
+typing, the first reply arrived and took over: it closed the form you were typing into, threw
+away what you had typed, and put the FIRST address's signing key up in its place.
+
+Now a reply knows which form it belongs to — which opening of the form, and which words were
+sent — so it cannot write over a later one. And because that first address really was created,
+it is not just dropped: the screen tells you it was made and offers its signing key behind one
+press, because that key exists in exactly one reply from the server and there is no way to ask
+for it again. The key is not printed on screen until you ask for it, it is never written into
+the browser's storage, and it is only ever offered to the account and the agent it was made
+for. Reloading the page or signing out ends the offer, and the screen says so.
+
+**A refusal is handled the same way and names which address it was about**, rather than
+appearing under a form holding different words and looking like that form's problem.
+
+### What I actually checked
+
+Twenty-five separate properties, each broken on purpose one at a time to make sure the test
+would catch it. Four of those proofs came back green, which means the test was not really
+checking what I thought — all four were gaps in the new tests rather than in the fixed code,
+and all four are closed. One was a comment of mine that claimed a line was doing more than it
+was; that is corrected rather than left to mislead the next reader.
+
+Three test fixtures turned out to be less capable than the real thing, and each one was hiding
+this round's own subject — the worst of them meant every existing test that "saved the address
+form" was saving an empty one, and the words in that form are exactly what the fix turns on.
+
+The whole site test suite is **6,934 and nothing fails**. The real-browser run now presses
+those arrival buttons for real: two deliveries, two runs, and each button opening its own.
+
+**Nothing is applied, deployed or merged**, no paid call was made, and no real account or
+provider was touched.

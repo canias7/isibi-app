@@ -11182,3 +11182,100 @@ this is a table rather than a claim:
   journey 7, and the control is that the button really was drawn there while the run was waiting.
   It answers **200**, because the first answer stands and nothing went wrong; the refusal is
   asserted on the SENTENCE and on the mailbox rather than on a status code.
+
+### ⚠ TWO DEFECTS IN THAT SCREEN, BOTH ABOUT AN ID THAT EXISTED AND WAS DROPPED (2026-09-21)
+
+Owner, on the arrivals and endpoint screens: *"'Open the run' must open the specific execution…
+Carry both IDs through the action"*, and *"A delayed endpoint-creation response must preserve a
+newer form… Bind the response to the specific form instance and submitted values."* Both were
+reproduced before anything was touched, and both are this repository's own recorded shapes.
+
+**1. AN ARRIVAL NAMES A RUN AND THE BUTTON CARRIED ONLY ITS AUTOMATION.** `list_events` has
+answered `{id, automation}` per run since it was written — the pair exists *because* an execution
+is only readable through its automation's history — and the markup carried `data-auto` alone. So
+two deliveries a moment apart, starting two runs of ONE automation, gave two buttons that opened
+the same page with nothing saying which of the rows was the one pressed. *A value computed and
+never forwarded*, in the one control the arrivals list has.
+
+- **AND THE PAGE IS A PAGE, which is why carrying the id needed a route.** `MAX_EXECUTIONS` is 50
+  ordered `created_at.desc`, so an arrival from last month names a run that has fallen off the
+  end; `run=` is that id coming back and the route reads **that one** by name when the page lacks
+  it. **ASKED ONLY WHEN THE PAGE REALLY LACKS IT**, so the ordinary case costs what it did before.
+- **`EXECUTION_SELECT` IS ONE CONSTANT, and that is the `&select=` defect not recurring.**
+  `executionRow` fails closed on every field it cannot read, so two readers naming different
+  columns is a run fetched by name arriving with its steps, decisions and stop silently absent.
+  The guard asserts the two column lists are EQUAL on the wire, and that the page carries its own
+  `limit=` and `order=` — without which "outside the newest page" is a phrase rather than a state.
+- **APPENDED, NEVER PREPENDED**: anything outside a newest-first page is older than every row in
+  it, so last is where it belongs, and prepending would claim a month-old run was the newest thing
+  that happened. **The tenant AND the automation are in the single read's filter** — `service_role`
+  bypasses row level security, so by id alone it would read any execution on the platform — and
+  `null` is a real answer the screen SAYS (*"that arrival's run isn't in this history"*), never a
+  stand-in row, because marking a different row leaves somebody reading the wrong execution.
+- **⚠ AND THE ROUTE STOPPED WRITING INTO THE STORE'S OWN ARRAY.** `runs.push(one)` is safe today
+  because `store.executions` answers a fresh `rows(r).map(...)` — which is exactly *a rule true
+  because of a layer below it*, and it cost a fixture a false failure the hour it was written: one
+  shared array meant a later arm arrived with the run it was about already in the page.
+
+**2. A DELAYED ENDPOINT ANSWER CLOSED A NEWER FORM, ATE ITS WORDS, AND SHOWED THE OLD ADDRESS'S
+KEY IN ITS PLACE.** `whSame` compares the account and the agent, and `agentWhNew` is a BOOLEAN —
+so after save → cancel → open a new form → type, the first answer passed every wall there was.
+
+- **`agentWhOpen` COUNTS OPENINGS AND THE ANSWER CARRIES THE VALUES IT SENT.** Two questions,
+  because neither catches the other: the count catches a cancel and a reopen (a different form,
+  however identical it looks), the values catch newer typing in the SAME form. **MEASURED: with
+  only the values asked, nothing drove a reopened form holding the same words — so the count and
+  its check could both be deleted with the suite green.** That case exists now.
+- **`agentWhOpenForm` IS THE SINGLE WRITER of whether the form is open**, so a door added next
+  month carries the count by construction rather than by being added to a list.
+- **⚠ A SUPERSEDED ANSWER TOUCHES NOTHING BELONGING TO THE FORM — and the address it made is
+  still dealt with honestly.** It is HELD in memory, bound to the account and the agent, and its
+  one-time key is offered as a PRESS: `agent.create_webhook` takes the secret and does not answer
+  it, `list_webhooks` never selects the column and there is no rotate, so dropping it silently
+  leaves somebody with a live endpoint they cannot sign for. **The key is not in the notice's
+  markup**, which keeps it out of every render until it is asked for; nothing stores it; and both
+  walls are asked at DRAW time and again at PRESS time, because the button that was drawn stays in
+  the DOM until the next render.
+- **ONE PRESS FOR BOTH OUTCOMES, because a refusal's button must not be a dead control.** A made
+  address hands its key to the one panel that shows one; a refusal is acknowledged, and it NAMES
+  which address it was about — drawn in the form's own slot it would blame the newer form for the
+  older one's problem.
+- **THE HOLD OUTLIVES A SCREEN CHANGE AND THE PANEL DOES NOT, which is deliberate and the sentence
+  says so.** Every door clears `agentWhSecret`; losing a live address's only key to a stray click
+  is the harm the hold exists to prevent. What ends it is showing it, signing out, or a reload.
+  **AND A LATER SAVE NEVER CLEARS IT** — two presses can make two addresses and each key exists in
+  exactly one answer. One slot is enough because Save is `disabled` while busy, so two creates can
+  never be in flight at once.
+
+**⚠ THREE FIXTURES WERE LESS CAPABLE THAN WHAT THEY STAND IN FOR, and each was hiding this round's
+own subject.** The arrivals form's element answered `null` to `querySelector`, so `agentWhFormRead`
+wrote `{name:"",event:""}` on every call and every case that saved from that form was saving an
+EMPTY one — and the values are what the answer is bound to, so with no values there is nothing for
+a binding to be wrong about. The history fixture ignored `run=` and answered `id: body.id` on a
+GET, which is `undefined`. And the page fixture handed back one shared array, above.
+
+**⚠ AND `const owner` IS CLARITY, NOT A WALL — corrected after a red proof came back green.** An
+argument is evaluated before the call it is passed to, so `agentAutomations(agentWh)` reads the
+same value; the comment claimed otherwise. **The `!owner` REFUSAL is the load-bearing half** and
+now has a case: with no agent's arrivals open there is nobody to open the automations for.
+
+**⚠ THE WANT HAS TWO WALLS AND NEITHER MUTANT DIES ALONE — MEASURED, declared, and swept as a
+PAIR.** A fresh open replaces `agentAutoRunsWant` (so nothing stale exists) and the want carries
+`of`, whose history it is about (so a stale one could not be read). With either in place the suite
+is green. **That needed `also` in `scripts/mutate.mjs`**: a pair was only expressible where the two
+sites were CONTIGUOUS, and two walls on one property are usually two functions apart — so this
+repository's own pair rule was unexpressible for exactly the shape it is about. Every edit in an
+`also` gets the same checks the single one gets, and one refusal makes the whole mutant NEVER
+APPLIED rather than a half-applied one reported as a kill.
+
+**Guards**: `test/agent-automations.test.mjs` **58 → 61** (the two-arrivals route case with its
+no-extra-read control, a full page at the real `MAX_EXECUTIONS` ceiling, the payload join's
+ordering, and the store-level `null`), `test/agent-binding.test.mjs` **167 → 178** (six delayed-
+answer cases and five arrival-to-run cases, every one driven through the real handlers with the
+answer held open). The store-request census grew to **ten** operations and is **DERIVED from the
+store's own keys** now — it was a hand-kept literal asserted only to EXIST, which is how
+`readAutomation` once came to be the one of nine nothing drove.
+
+**MEASURED: twenty-five properties red-proofed one at a time from a committed tree, and the four
+gaps they found were all in the new guards rather than the product** — the same-words reopen, the
+by-hand-open case pressing from the wrong screen, `const owner`, and the want's pair.
