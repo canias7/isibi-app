@@ -253,7 +253,12 @@ one-minute deploy that rolls nothing (**47 seconds** on deploy 2019, image step
 1.4 s, both `reused`); a push that changes an image input is **~2m05s of image
 and ~3m of deploy at best** (2044) and **~3m ordinarily** — **deploy 2138
 (2026-09-20) sits exactly on that band: image step 2m06s, Wrangler 19s, whole
-run 2m55s**, on a merge whose image inputs really moved. Layer reuse depends
+run 2m55s**, on a merge whose image inputs really moved, and **deploy 2139
+(2026-09-21) reproduced it to the second: image step 2m07s, Wrangler 21s, whole
+run 3m03s**, on a merge moving ~5,800 lines across 22 files. **Two merges a day
+apart, both rebuilding, agreeing within a second on each of the three** — so
+the band is tight for this shape and a reading outside it is worth asking about
+rather than shrugging at. Layer reuse depends
 on the GitHub runner's LOCAL Docker cache, and a runner is ephemeral with no
 registry cache import — so **a cold runner rebuilds everything whatever the diff
 touched** (2053: 2m56s, every layer rebuilt, on 2044's exact shape) and a FAST
@@ -266,9 +271,22 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality ELEVEN times**, and the eleventh
-is the strongest shape available — **deploy 2138 (2026-09-20) was PREDICTED
-BEFORE THE PUSH**: the id was computed over the local merge commit
+whole reader. **Cross-checked against reality TWELVE times**, and the twelfth
+adds a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
+push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
+`origin/main`'s `c371e27cf3060255`, and the log confirmed BOTH**: `- …:c37***e27cf3060255`
+→ `+ …:82bccb3bee50e4fd` under `SUCCESS Modified application`. **And the INPUT
+COUNT matched too** — the predictor answered `inputs=184` and the image step
+printed `***84 inputs off ./Dockerfile`, which is a different quantity from the
+id and agrees independently, so a hash collision cannot be what is being
+observed. **RE-RUN THE PREDICTOR OVER THE MERGE COMMIT ITSELF, never only over
+the branch tip**: a merge's tree also carries whatever main added, and the
+branch's id standing in for it is an assumption, not a reading. (Here they were
+equal, because main's five commits touched one `docs/` file — which is the
+POSITIVE form of the same rule: two docs-only commits on the branch, `f6b377de`
+and `1bb178bc`, also left the id exactly where the code commit put it.)
+The eleventh — **deploy 2138 (2026-09-20)** — is the same shape one channel
+narrower: the id was computed over the local merge commit
 (`28fd02a1`) as `c371e27cf3060255` while main still stood at `7ee5226b`, and
 the deploy's own log then recorded `- …:94a380843efd95e1` → `+ …:c371e27cf3060255`
 with `SUCCESS Modified application` under it. **BOTH ends of that diff were
@@ -310,7 +328,17 @@ deploy that uploads an asset makes it fetchable with no token, byte-comparable
 to the merged tree, and a **cheap discriminator** is an identifier the change
 introduces (0 occurrences before, N after). When `public/` did not change,
 Wrangler answers `No updated asset files to upload` and **there is no
-served-file check at all** — say so rather than glossing it. **And the Worker's
+served-file check at all** — say so rather than glossing it.
+**DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the
+discriminator alone.** The before reading was taken 1m30s after the push and
+3m before the deploy finished — served `/chat.js` **719,958 bytes, 0
+occurrences of `wholeRequestNote`** — and the after reading is **732,238 bytes,
+3 occurrences, and BYTE-IDENTICAL to `git show <merge>:public/chat.js`**
+(sha256 prefix `903d9ff39b7d4b1d` on both sides). Wrangler's own log agrees
+from the other end: `+ /chat.js`, one file, `85 already uploaded`. **Take the
+BEFORE reading before the deploy lands** — after it, "0 occurrences" and "never
+looked" are the same absence — and **byte-compare rather than grepping**, since
+a count is satisfied by a partial upload and an identical sha is not. **And the Worker's
 own deploy sha is not session-readable**, so the Worker half rests on
 Wrangler's own report plus the gate discriminator (`/api/site/build-health`
 **401**, `/api/site/runtime` **401**, `/api/site/job-probe` **401**,
@@ -4248,10 +4276,20 @@ git revert --no-commit <base>..<candidate>   # the complete introduced change
 git commit                                    # one reviewed commit
 ```
 
+- **WHEN THERE IS A MERGE COMMIT, `git revert -m 1 <merge>` IS THE WHOLE
+  ROLLBACK** — and main only gets one when the branch is genuinely behind, which
+  it will be whenever main moved during the work. **Deploy 2139's merge
+  (`28e46e91`) was not a fast-forward**: main had five commits the branch lacked,
+  so the range form and the `-m 1` form are both available and the second is one
+  reviewed commit instead of fifteen reverts.
 - **PREPARE AND VERIFY IT RATHER THAN DESCRIBING IT**: apply it in a throwaway
   worktree and check the resulting tree is byte-identical to the base (same tree
   object). Then the image step says `reused` because the inputs really are the
-  base's, not because anybody predicted it.
+  base's, not because anybody predicted it. **DONE FOR `28e46e91`**:
+  `git revert -m 1` in a detached worktree answered tree
+  `2e682b79b306eb20a14c339a192dd53ea683f885`, **equal to `8b760d6f`'s** — so the
+  rollback is a tree the registry already holds. Verified BEFORE it was needed,
+  which is the only time the verification is free.
 - **IT PRESERVES LATER WORK**, which is why it is a revert and not a
   `reset --hard` + force push. **The cost is stated**: a later commit touching
   the same lines makes it conflict, and the resolution is a judgement about

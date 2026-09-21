@@ -155,6 +155,47 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — Merged and deployed
+
+You said merge it and deploy, and it is done. **Deploy 2139 finished green in
+three minutes and three seconds.**
+
+**What went out.** The whole edit-path preservation round — eleven defects on
+the page rung, the last two being the cheap-rung protection and the refusal
+that spoke for the whole site. Main had moved five commits while the work was
+going on, so this was a real merge rather than a fast-forward; it went in
+without a single conflict.
+
+**The container really rolled, and it was predicted before the push.** I worked
+out what the new container's fingerprint would be while main was still on the
+old one, wrote both numbers down, and the deploy's own log then printed exactly
+those two — the old one out, the new one in. That is the twelfth time that
+arithmetic has been checked against reality, and the first time a second,
+independent number agreed as well.
+
+**And the new code is confirmed live, not just reported as sent.** I read the
+app's own JavaScript off the live site a minute after the push — old file, none
+of the new code in it — then read it again after the deploy and it is
+**byte-for-byte the file that is now on main**. That is the site answering, not
+the deploy talking about itself. The one thing I still cannot read from here is
+the Worker's own version stamp, which needs a signed-in account; for that half
+I have Cloudflare's own report that it uploaded and applied.
+
+**A rollback is ready and tested, not just described.** I applied it in a
+scratch copy and checked the result is identical to what main held before the
+merge, so undoing this would be one reviewed commit and a fast deploy. Tested
+before it was needed, which is the only time testing it is free.
+
+**Before anything runs against the new build, give it fifteen to twenty
+minutes** from 04:11Z — that is the standing rule, because a container already
+running can still be on the previous image for a while after the Worker has
+moved.
+
+Nothing paid was pressed. The live edit test is still yours to fire whenever
+you want it.
+
+---
+
 ## 2026-09-21 — The cheap rung had no protection at all, and a refusal spoke for the whole site
 
 Two more, both yours, both reproduced before anything moved.
