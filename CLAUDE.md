@@ -11533,6 +11533,27 @@ property both of them hold up.
   need a run and every run would be invalidated by the note recording it. `node --test` over
   exactly those thirteen files reads **303 / 303, 0 failed** in 34 s, which is the instrument for
   this class — the whole suite adds only files that cannot see a document.
+- **CI HAS READ THE PUSHED HEAD `de47d78`, BOTH WORKFLOWS GREEN.** `unit tests` run **2885** —
+  the suite step 23:06:06→23:07:52Z (106 s) — `# tests 6958 / # pass 6954 / # fail 0 /
+  # skipped 4`, against local `6958 / 6956 / 0 / 2`: the TOTAL is what matches and the two extra
+  are the recorded environment skips. `agent deploy` run **137** — the `agent checks` step
+  **9 s** against a 45-minute timeout — `# tests 603 / # pass 602 / # fail 0 / # skipped 1`
+  against local `603 / 603 / 0 / 0`, **the one skip the predicted privilege-drop case** (it has
+  to BE root in order to stop being root, and a runner is the user `runner`), with steps 6
+  through 13 all `skipped` and the log reading *"Not armed. The checks above are all this push
+  does."* — **NOTHING WAS DEPLOYED.**
+- **`site build` WAS NOT DUE AND DID NOT RUN, checked PER PATH from run 1240's own sha rather
+  than from the last commit.** Nothing in `3b1e2a7..de47d78` matches that workflow's `paths`:
+  the ten files are three documents, `public/chat.js`, `public/styles.css`, a mutant spec, three
+  guards and `agent-builder/scripts/verify-browser.mjs` — and **`*.mjs` there is a ROOT glob**,
+  so a nested script is outside it, which is exactly where an `fnmatch` matcher answers DUE and
+  is wrong. **The matcher was proved alive in both directions** (a root `.mjs` matches, a nested
+  one does not) before the absence was believed, so run **1240**'s green still covers this tip by
+  the recorded ancestor rule.
+- **⚠ AND THE API READ STALE WHILE 2885 WAS RUNNING**, which is the recorded tell — `updated_at`
+  sitting at 23:05:56 behind the run's own progress. `date -u` settled it in one command: 23:07:45
+  is under two minutes into a run whose suite step alone takes ~106 s, so it was genuinely still
+  going. *The cheap check before calling an instrument stale is the clock.*
 
 ### Journey 8, and what it proves that a route test cannot
 

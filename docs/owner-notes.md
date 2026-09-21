@@ -14167,5 +14167,9 @@ corrected once it is pushed, so the right figure is written in the notes instead
 happened to be right, which is luck rather than diligence. The rule is written in my own notes:
 measure, then stamp.
 
+**GitHub has checked the pushed branch and both checks are green** — the whole site suite and
+the agent engine's own — and nothing was deployed by either: the deploy half of that second
+workflow is switched off for an ordinary push and its log says so in as many words.
+
 **Nothing is applied, deployed or merged**, no paid call was made, and no real account or
 provider was touched.
