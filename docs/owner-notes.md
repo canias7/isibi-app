@@ -13841,3 +13841,12 @@ none failed. The other twelve demonstrations are all green and all re-run on thi
 
 **Nothing is merged, deployed or migrated** — that is where you asked me to stop. Cancellation and
 the inbound-endpoint controls are still backend-only, unchanged.
+
+**CI read it and all three workflows are green** on `9bfeba6`. The site suite is 6,902 with
+nothing failing; the engine suite is 602, the one skipped check being the one that can only run
+as root and GitHub's machine is not; and the container harness ran its full twenty steps with
+**382 passed, 0 failed**. That last one was genuinely due rather than incidental — this change
+touches a file it watches — and I read every figure out of its own step's output and then checked
+the other way round that none was left over, so a step that quietly dropped out would not look
+like a step with nothing to say. Nothing was deployed: the deploy steps all say `skipped`, and the
+log says so in as many words.

@@ -10875,3 +10875,29 @@ approval screen is either the resolved message or nothing.
 own bounds. **Cancellation and inbound-endpoint controls remain route-only**, as before: neither
 has a screen, and `test/agent-builder-view.test.mjs`'s `NO_SCREEN_YET` list is where that is
 recorded.
+
+#### CI has read `9bfeba6`, all three workflows green
+
+- **`unit tests` 2854** — the suite step 03:23:17→03:25:03Z (106 s) — `# tests 6902 / # pass 6898 /
+  # fail 0 / # skipped 4`, against local `6902 / 6900 / 0 / 2`. **The TOTAL is what matches**, the
+  two extra being the recorded environment skips, which is why the total is the number carried.
+- **`agent deploy` 128** — `agent checks` 10 s — `# tests 602 / # pass 601 / # fail 0 /
+  # skipped 1`, against local `602 / 602 / 0 / 0`; **the one skip is the predicted
+  privilege-drop case** (it has to BE root in order to stop being root, and a runner is the user
+  `runner`). Steps 6 through 13 all `skipped` and the log says *"Not armed. The checks above are
+  all this push does."* — **NOTHING WAS DEPLOYED**, read off the log rather than inferred.
+- **`site build` 1236 — GREEN, all twenty steps, and `site-build.mjs` `382 passed, 0 failed`**
+  (03:23:05→03:47:39Z; the harness step 03:25:17→03:43:10Z, 17m53s), beside TAP `# tests 390 /
+  # pass 390 / # fail 0`, kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and `all passed` on kit-render, kit-a11y, kit-effects and
+  kit-paint. **IT WAS DUE rather than incidental**: this push carries root `agent-store.mjs`,
+  which that workflow's `paths` names as `*.mjs`.
+- **⚠ EVERY FIGURE BOUNDED TO ITS OWN STEP, AND THE OBSERVER ALIVE BOTH WAYS**: each region runs
+  from its own `endgroup` to the next `##[group]Run ` (the pair itself wraps only the command
+  ECHO, so the output follows the `endgroup`), and the parse then asserts that **no figure falls
+  outside any region — 14 attributed, 0 loose.** Without that second half a bound that silently
+  dropped a step would read as a step with nothing to report.
+  **⚠ AND 14 IS NOT COMPARABLE WITH THE 15 THE LAST RUN'S NOTE RECORDS.** The count is of lines
+  the PARSE's own pattern matched, so it moves with the pattern rather than with the run; the
+  per-step figures are what to compare. Saying so beats reading an instrument change as a
+  change in the harness.
