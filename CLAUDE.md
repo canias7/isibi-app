@@ -10589,3 +10589,114 @@ Both are the recorded shape and both were mine, not the product's:
    broken. It types into a step that already exists.
 
 **NOT MERGED AND NOT DEPLOYED, no migration applied, and no sweep run** — the round's own bounds.
+
+---
+
+## ⚠ A REAL BROWSER FOUND TWO DEFECTS IN THIS SIDE THAT NO ROUTE TEST COULD (2026-09-21)
+
+Owner: *"complete customer journeys through a real local browser, backed by the actual routes,
+PostgreSQL, queue handlers, and engine."* **The whole of M15 is in
+`agent-builder/CLAUDE.md`** — the local site fixture, the six journeys, the rollout check and
+the engine's own defect. What belongs here is the two that are this side's, and the reason
+they were invisible until Chromium pressed the buttons.
+
+**EVERY `verify:*` UNTIL THIS ROUND DROVE ROUTES.** A route test builds a request and hands it
+to the real handler, which proves what a request DOES and says nothing about whether a person
+can make that request by pressing the thing on screen. This repository has paid for that gap
+five times — a dead control that answers, a field with no control, a `<select>` with no
+`selected` option, an `&select=` naming ten of fourteen columns, a hook nothing was bound to —
+and not one of the five was found by a route test.
+
+### ⚠ DEFECT 1 — AN EVENT-STARTED EXECUTION READ "Run now", IN TWO LAYERS
+
+`executionRow` answered `r?.trigger === "schedule" ? "schedule" : "manual"`, and the column's
+own CHECK admits **three** words. So an execution started by a signed webhook delivery — the
+one thing in journey 3 that arrives from outside the platform — told the customer it had been
+started by hand, in the history that exists to say what happened.
+
+- **BOTH LAYERS, because either alone leaves the other wrong.** `AUTOMATION_TRIGGERS` is
+  exported and `executionRow` admits exactly the three; `chat.js` gained `AUTO_TRIGGER_WORDS`
+  and `autoHow`, which answers **`Started`** for a word it does not know rather than one it
+  does. Fail closed at both ends.
+- **THE GUARD CENSUSES THE VOCABULARY AGAINST THE COLUMN'S OWN CHECK**, read out of
+  `20260918050000_agent_triggers.sql` — two copies of one list in two languages is what let
+  this drift, so the check is that they cannot.
+
+### ⚠ DEFECT 2 — `/api/agent/webhooks` WAS DEAD BY CONSTRUCTION, AND A STUB HID IT
+
+`listWebhooks` read through `answerOf`, which is for a SCALAR, and `agent.list_webhooks`
+answers a `setof`. So the one route that lists a customer's inbound endpoints **threw on every
+call it has ever had.** `listOf` is its sibling now — a refusal when the answer is not a list,
+by name — and the guard drives it against the shape PostgREST really sends with five malformed
+ones each refused.
+
+**⚠ IT WAS FOUND ONLY BECAUSE A STUB'S `log: () => {}` WAS REPLACED WITH A PRINTER.** The check
+above it asked `!/secret/` of the answer, **and a 502 body satisfies that** — so the route was
+reported as correctly not leaking a secret while it was answering nothing at all. *A negative
+assertion is only worth what its observer is worth*, and here the observer had been silenced
+by a fixture. The check finds the endpoint first now.
+
+### ⚠ AND A THIRD THING, WHICH IS A GUARD MY OWN FIX BROKE AND NOBODY RAN
+
+`test/agent-builder-view.test.mjs` asserts every write goes through `apiFetch`, so the bearer
+rides and a 401 re-opens the sign-in gate. It did that by requiring each path LITERAL to sit
+inside an `apiFetch(` call — and journey 2's own fix introduced `agentAutoDoor`, which picks
+between the two approval doors and hands `door.path` to `apiFetch`. **So two working,
+token-carrying calls came back as bare**, and the site suite has been RED on this branch for
+five commits.
+
+**THE PROCESS FAULT IS THE FINDING, and it is one this repository already records.** I ran the
+three agent test files whose NAMES matched what I had touched and not the suite; a change to
+`chat.js` puts every browser guard in scope whatever its filename says. *Re-run the thing the
+change is asserted by* — the same fault, the same file, one milestone after the last time.
+
+**RE-ANCHORED, NOT APPEASED, AND THE REPLACEMENT IS STRICTLY STRONGER.** The literal census was
+a spelling; the property needs no dataflow at all — **`public/chat.js` contains exactly ONE
+`fetch(` call and it is the one inside `apiFetch`**, which means every request the screen makes
+carries the bearer however the path got there: a literal, a ternary, a chooser or a variable.
+Beside it: no `XMLHttpRequest`, no `sendBeacon`, no `EventSource`, no `new Request(`, or the
+claim would be about one door of several. A path not found at a call site is now REPORTED
+rather than refused, with a ceiling so a fifth indirection is a sentence.
+
+**⚠ AND ONE OF MY OWN THREE REPLACEMENTS WAS A SPELLING TOO, caught by red-proofing it.**
+`inside.includes("'Bearer '")` stayed GREEN when the headers were dropped from the `fetch(...)`
+call, because the line that BUILDS the header is three lines above and still there. The
+property is that the bearer is built AND that what was built reaches the call, so both are
+asserted. **Four breakages driven one at a time, all red**: a bare `fetch` added, the headers
+dropped from the call, the header built under another name, and the 401 gate removed.
+
+### The browser's own half, and what it is honest about
+
+`agent-builder/scripts/lib/local-site.mjs` serves `public/` byte for byte and dispatches
+`/api/agent/*` through the real `AGENT_ROUTES`, `AGENT_POST_ROUTES`, `agentBodyMax`,
+`handleAgentApi` and `makeAgentStore` — **a transcription of `worker.js`'s own block, not a
+second implementation of it.**
+
+- **⚠ ONE STEP IS SIMULATED: the token→tenant lookup.** `authUser` verifies a bearer against
+  GoTrue over the network and there is no GoTrue on a laptop, so a token is read out of a Map.
+  **What that substitutes is the PROOF that a token belongs to an account; it substitutes
+  nothing the tenant then does** — which is what makes handing two browser contexts two
+  different tokens a real two-account test. `public/auth.js` is the one file replaced.
+- **JOURNEY 5 PROVED THE TWO-SESSION PROPERTY IN A BROWSER FOR THE FIRST TIME**: session one
+  renames an automation, session two saves a steps change from a form drawn BEFORE that
+  rename, and the rename survives — in both orders. That is the patch-only edit of two rounds
+  ago, measured from the screen rather than from a route.
+- **AND FOURTEEN OUTSIDER ATTEMPTS ALL ANSWER 404 with nothing written**, with the owner then
+  approving the very same request as the control — without which "all refused" is satisfied by
+  a platform that refuses everybody.
+
+### Measured
+
+- **`agent-automations` 51 → 53** and **`agent-binding` 149 → 150**; every new assertion was
+  proved RED against the defect it forbids.
+- **Site suite 6,893 → 6,897** (6,895 pass, 2 skipped, 0 fail), and the arithmetic closes
+  exactly: `agent-automations` 51 → **53** and `agent-binding` 148 → **150**, nothing else.
+  **⚠ BOTH ENDS OF THAT WERE STAMPED BEFORE THEY WERE MEASURED AND BOTH WERE WRONG** — the
+  line first read `6,878 → 6,881`, taking a four-round-old figure for the baseline and adding
+  three cases in my head. The baseline was measured at `db55835` in a clean worktree (6,893,
+  0 failed), and the head by running it. *Stamp measured numbers only AFTER the run*, and read
+  the LATEST recorded number rather than the one that catches the eye.
+- **`verify:browser` 115 checks, 0 failed** — six journeys, and the browser never leaves
+  loopback.
+
+**NOT MERGED AND NOT DEPLOYED, no migration applied, and no paid call made.**

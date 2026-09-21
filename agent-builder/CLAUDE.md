@@ -8485,3 +8485,179 @@ commit, so `site build` was again not due and did not run, and nothing was deplo
 `updated_at` sitting behind the run's own progress. `date -u` settled it in one command: 106
 seconds into a run whose suite step alone takes ~110, so it was genuinely still going rather
 than stale. *The cheap check before calling an instrument stale is the clock.*
+
+---
+
+## M15: the same journeys through a REAL BROWSER, and the three defects that found (2026-09-21)
+
+Owner: *"complete customer journeys through a real local browser, backed by the actual routes,
+PostgreSQL, queue handlers, and engine… If part of the local browser setup is unavailable,
+identify the exact gap and distinguish route-level verification from browser verification."*
+
+**THE DISTINCTION IS THE WHOLE ROUND.** Every `verify:*` in this folder builds a request and
+hands it to the real handler. That proves what a request DOES and says **nothing about whether
+a person can make that request by pressing the thing on screen** — which is the gap this
+repository has paid for again and again: a dead control that answers, a field with no control,
+a control whose hook nothing is bound to, a `&select=` naming ten of fourteen columns. Five of
+those were found by a browser or by a person, and none by a route test.
+
+### `scripts/lib/local-site.mjs` — the half nothing served
+
+`local-stack.mjs` stands up the database and the engine's handlers; `serve.mjs` puts the
+ENGINE's Worker on a port. Neither serves the half a PERSON touches. This does: `public/`
+byte for byte, and the site Worker's own `/api/agent/*` block.
+
+- **THE DISPATCH IS A TRANSCRIPTION, NOT A SECOND IMPLEMENTATION** — the real `AGENT_ROUTES`
+  membership test, the real `AGENT_POST_ROUTES` body rule, the real `agentBodyMax` allowance,
+  the real `handleAgentApi`, the real `makeAgentStore`.
+- **⚠ ONE STEP IS SIMULATED AND IT IS THE TOKEN→TENANT LOOKUP, nothing else.** `worker.js`
+  calls `authUser`, which verifies a bearer against GoTrue over the network; there is no
+  GoTrue on a laptop and no account of anybody's, so a token is read out of a Map the caller
+  supplies. **What that substitutes is the PROOF that a token belongs to an account; it
+  substitutes nothing the tenant then does** — every filter, every ownership refusal and every
+  404 below it is the real one, **which is exactly what makes handing two browser contexts two
+  different tokens a real two-account test.**
+- **`public/auth.js` IS THE ONE FILE REPLACED**, through `ctx.route("**/auth.js")`, because it
+  is the one file that talks to GoTrue. Everything else the browser loads is the tree's.
+
+### Six journeys, one command
+
+`npm run verify:browser` — Chromium at `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`
+(never `playwright install`), loading `public/index.html`, running the real `chat.js` against
+the real `styles.css`, every `/api/agent/*` call reaching the real route, the real store, a
+real PostgreSQL and the real engine.
+
+| journey | what a person does |
+|---|---|
+| 1 | create an agent, save its instructions, permissions, timezone, reference material and memory, RELOAD, read every part back |
+| 2 | connect an account, build the worked example, run it, read the held approval, approve it, and find the message in the mailbox |
+| 3 | run it by hand, then through the real scheduled dispatcher, then from a signed event — with a duplicate delivery and a disabled automation |
+| 4 | reload while it waits, RESTART the engine, then approve or reject; state and history correct, nothing run twice |
+| 5 | two browser sessions of ONE account, then the account next door |
+| 6 | type and add a step while Save is pending; correct a workflow while Check is pending |
+
+- **`RESTS_ON` REFUSES A SELECTION NOBODY CAN SATISFY.** Journey 1 creates the agent, its
+  reference material and its memory; 2–4 are that customer carrying on. `verify:browser 2` is
+  refused BY NAME rather than timing out on `[data-id="null"]`.
+- **A BROWSER CONTEXT IS A SESSION AND A TOKEN IS AN ACCOUNT**, which is the distinction
+  journey 5 exists for and why it needs three contexts rather than two.
+- **⚠ A RESTART IS A BRAND-NEW `dispatcher`** — new doorbell, new env, no memory of anything —
+  which is the same state a deploy leaves behind, and the old doorbell is asserted EMPTY first
+  so nothing is held open across it.
+
+### ⚠ THREE PRODUCT DEFECTS, each reproduced before it was fixed
+
+**1. AN EVENT-STARTED EXECUTION READ "Run now", IN TWO LAYERS.** `executionRow` answered
+`r?.trigger === "schedule" ? "schedule" : "manual"`, so a webhook delivery's own execution —
+the one thing in journey 3 that arrives from outside — reported the wrong origin in the
+customer's history. `AUTOMATION_TRIGGERS` is exported and both readers fail closed: the store
+admits the three the column's own CHECK admits, and `chat.js`'s `autoHow` answers `Started`
+for a word it does not know rather than one it does. **Two layers, because either alone leaves
+the other wrong.**
+
+**2. `/api/agent/webhooks` WAS DEAD BY CONSTRUCTION.** `listWebhooks` read `answerOf`, which
+is for a SCALAR, and `agent.list_webhooks` answers a `setof` — so the one route that lists a
+customer's inbound endpoints threw on every call. **It was found only because `siteApi`'s
+`log: () => {}` was replaced with a printer**: the check above it asked `!/secret/` of the
+answer, and a 502 body satisfies that. *A negative assertion is only worth what its observer
+is worth*, and here the observer had been silenced by a stub.
+
+**3. `agent.cancel_run` REPORTED `completedSteps: 0` FOR EVERY AUTOMATION EXECUTION.** It
+counted `kind='model'` and `kind='tool'` — the agent loop's vocabulary — and a workflow
+execution writes neither. So *"what had already run"*, the one thing a cancellation must say
+because **it must never claim completed effects were undone**, was zero on every single one.
+The first fix read the journal's newest `step` entry and over-counted to **2**, because `done`
+includes the paused step's own `waiting` outcome; the second counts the execution's own
+outcomes excluding `waiting` → **1**. **The check was tightened from `>= 1` to exactly 1**,
+because a floor would have passed both wrong answers.
+
+### The rollout check — `npm run verify:rollout`, 44 checks
+
+`docs/rollout.md` carries it in full. **Ten migrations pending**, the set derived TWO ways and
+required to agree (the live project's own last version, and this folder's round-number naming
+convention). A fresh database: **576 objects**. An upgrade from the deployed schema, **SEEDED
+through the real functions** and applied one file at a time — every row survived, the journal
+byte for byte, each of the 13 new defaulted columns holding its own default. **The two
+converge object for object**, which is what says the set is correctly ordered. Applied
+BACKWARDS it refuses at `20260918120000` with `column a.inputs does not exist` — migration
+1's column, so it stopped for the ordering's own reason.
+
+- **THE SHARED FIXTURE GAINED `upTo` AND A ONE-FILE APPLY, and the default is unchanged.**
+  `standUp({ upTo })` REFUSES when it names no migration, because applying every file instead
+  would report the check it is about as green having stood up the wrong database. `MIGRATIONS`
+  and `applyMigration` are exported so nothing has a second copy of "read the folder and sort
+  it". **The refusal needs no guard of its own and that is declared**: the rollout check
+  asserts `up.applied.length === APPLIED.length`, which is 11 against 21, so an ignored `upTo`
+  is a red run.
+- **⚠ AND A LITERAL GREP READ SIXTEEN CORRECT FUNCTIONS AS DEAD.** The capability store
+  reaches every write as a COMPOSED name (`` `${CAPABILITY_RPC[op]}_once` ``), so
+  `save_memory_once` appears nowhere in the source and is called on every write. Reading that
+  list without the correction says the opposite of the truth about the money path — derived
+  from `CAPABILITY_RPC` rather than by matching the suffix, because a suffix is a spelling.
+- **WHAT IT FOUND: `agent.run_approvals` HAS NO PRODUCT CALLER AT ALL.** Exactly one of the 62
+  new functions. It is defined, granted, driven by `pg-schema.mjs` and mutated by the SQL
+  sweep, and **neither Worker nor any other SQL function calls it** — the run-states round put
+  `run_open_calls`/`run_awaiting` on the thread view, which is what the site really reads. The
+  report tells *a check drives it* apart from *nothing touches it*, because collapsing those
+  would call tested code untested. Shipping it is not wrong, so it is **recorded rather than
+  removed**.
+
+### ⚠ Eight instrument faults of my own, and every one the product being right
+
+Worth the list because they are one shape — an expectation written from a guess about a
+producer rather than from the producer:
+
+1. **`at` IS `"09:00"`, NOT `"09:00:00"`.** `automationRow` slices the seconds deliberately,
+   which is what lets the form's box and `agent.patch_automation`'s `^HH:MM$` agree.
+2. **A SAVE LEAVES THE AUTOMATION FORM OPEN** (recorded, deliberate), so the list beneath it
+   is not on screen and `waitText(/Scheduled/)` times out. `closeAutoForm` first.
+3. **A DECISION DOES NOT CHANGE AN EXECUTION'S STATE BY ITSELF** — it records a verdict and
+   calls `requeue_run`; the row still reads `waiting` until a DELIVERY. So `waitRung` +
+   `refreshHistory`, and `attempts` is not the evidence either (`requeue_run` sets it to 0
+   deliberately) — the recorded outcome is.
+4. **THE HISTORY ROW IS A TOGGLE**, so pressing it twice closes it.
+5. **`agent-auto-reload` IS THE ERROR SCREEN'S "Try again"**, drawn only where the list failed
+   to load.
+6. **TWO OF MY OUTSIDER ROUTES DID NOT EXIST** (`automation-read`, `thread`), so their 404s
+   came from the STATIC FILE SERVER and proved nothing about isolation. Every entry is checked
+   against `AGENT_ROUTES` before the journey starts, **and that wall caught the second one the
+   hour it was written**.
+7. **THREE ROUTES ANSWERED 400 RATHER THAN 404 because my BODIES were wrong** — `messages`
+   reads `id` from the QUERY, `update` requires a name AND an instruction, `send` reads `id`
+   and not `agent`.
+8. **A NEEDLE THAT FORBADE THE WORD `undone` WENT RED ON THE HONEST SENTENCE**, which says the
+   completed work was *not* undone. Asserted positively, exactly as `verify:send` already had
+   to be.
+
+### Measured
+
+- **`verify:browser`: 115 checks, 0 failed** — journey 1: 16 · 2: 26 · 3: 18 · 4: 25 · 5: 19 ·
+  6: 11. **⚠ AND THIS LINE FIRST READ `21 · 18 · 18 · 25 · 22 · 11`, wrong on three of the
+  six**, because it was written from a recollection of the journeys rather than from the run's
+  own output — the totals matched, which is exactly what makes it a good instance of *stamp
+  measured numbers only AFTER the run* rather than a harmless one. Counted by parsing the
+  run's own banners.
+- **`verify:rollout`: 44 checks, 0 failed** (new).
+- **Engine suite 602 → 602**, 0 failed — unchanged, which is the control for a round whose
+  product changes are the site's and one migration's.
+- **AND ALL SIXTEEN DEMONSTRATIONS RE-RUN AT THIS HEAD, every one green at its recorded
+  count**, which is the control the shared-fixture change needs: `rollout` **44** (new) ·
+  `local` 69 · `chat` 126 · `auto` 70 · `wf` 159 · `tools` 154 · `ops` 75 · `controls` 89 ·
+  `connections` 76 · `triggers` 111 · `send` 97 · `integration` 89 · `conversation` 79 ·
+  `edits` 107 · `journeys` 67 · `browser` **115**. **`FAIL` counted on the LEADING token**,
+  because `grep -c FAIL` matches check LABELS containing the word and has reported green runs
+  as failing here twice.
+- **Real PostgreSQL (`npm run test:pg`): 1,158 → 1,163**, 0 failed: the cancellation's
+  completed-work count over an execution holding at its approval, with its own observer (it
+  really holds two outcomes, one `ran` and one `waiting`) and the finished step's outcome
+  asserted untouched.
+- **Site: `agent-automations` 51 → 53** (the trigger vocabulary, censused against the column's
+  own CHECK read out of the migration; and `listWebhooks` driven against the shape PostgREST
+  really sends, with five malformed ones each refused) and **`agent-binding` 149 → 150** (the
+  renderer's three words and its fail-closed fallback, with `ag-chip-done` as the observer).
+- **REFUSALS ARE ASSERTED PER SESSION LABEL, not globally.** Each journey asserts that no
+  `/api/agent/` call IT made was refused — a global assertion goes red in journey 6 on journey
+  5's fourteen deliberate 404s, reporting a working platform as broken.
+
+**NOT APPLIED, NOT DEPLOYED, NOT MERGED**, and no paid call was made: the browser never leaves
+loopback, the model is the scripted one and the provider is `fakemail`.

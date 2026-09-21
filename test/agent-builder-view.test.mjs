@@ -542,10 +542,57 @@ test("every write goes through apiFetch, so the token rides and a 401 opens the 
   // THE OBSERVER, PROVED ALIVE IN BOTH DIRECTIONS: the matcher finds a route the
   // screen really does call, and refuses one that only shares a prefix with it.
   assert.ok(called("/api/agent/messages"), "the path matcher cannot see a call the screen makes");
-  for (const path of paths) {
-    assert.ok(called(path), `the client never calls ${path}`);
-    assert.ok(viaApiFetch.has(path), `${path} is not inside an apiFetch call, so it carries no token`);
+  // ⚠ **THE TOKEN PROPERTY IS ASKED OF THE FILE'S TRANSPORT, NOT OF EACH PATH'S
+  // NEIGHBOURS — RE-ANCHORED, NOT APPEASED (2026-09-21).** It used to demand each path
+  // literal sit inside an `apiFetch(` chunk, and a browser journey's own fix broke that
+  // premise honestly: `agentAutoDoor` picks between two approval doors and hands
+  // `door.path` to `apiFetch`, so neither literal is at the call site and two working,
+  // token-carrying calls came back as bare. The recorded *a route reached through a helper
+  // has no literal there*, met for the third time in this repository.
+  //
+  // What replaces it is STRICTLY STRONGER and needs no dataflow: **`public/chat.js`
+  // contains exactly ONE `fetch(` call and it is the one inside `apiFetch`.** If that
+  // holds, every request the screen makes carries the bearer and opens the gate on a 401
+  // — however the path got there, through a literal, a ternary, a chooser or a variable.
+  // No other transport may exist either, or the claim would be about one door of several.
+  const fetches = [...code.matchAll(/\bfetch\s*\(/g)]
+    .filter((m) => !/apiFetch\s*$/.test(code.slice(Math.max(0, m.index - 12), m.index)))
+    .filter((m) => !/\.\s*$/.test(code.slice(Math.max(0, m.index - 2), m.index)));
+  assert.equal(fetches.length, 1,
+    `chat.js should have exactly one fetch() — the one inside apiFetch — and has ${fetches.length}`
+    + ` at line(s) ${fetches.map((m) => code.slice(0, m.index).split("\n").length).join(", ")}`);
+  const inside = code.slice(code.indexOf("async function apiFetch("),
+                            code.indexOf("async function apiFetch(") + 700);
+  assert.ok(inside.includes("await fetch("), "the one fetch() is not the one inside apiFetch");
+  // ⚠ ASKED OF THE CALL, NOT OF THE FILE — a red proof caught this as a spelling. Dropping
+  // the headers from the `fetch(...)` while leaving `headers['Authorization'] = 'Bearer '`
+  // three lines above it left the old assertion GREEN over a transport that sends no token.
+  // The property is that the bearer is BUILT and that what was built REACHES the call.
+  assert.ok(/headers\['Authorization'\]\s*=\s*'Bearer '/.test(inside),
+    "apiFetch stopped building the bearer header");
+  const call = inside.slice(inside.indexOf("await fetch("));
+  assert.ok(/await fetch\([^;]*\bheaders\b[^;]*\)/.test(call.slice(0, call.indexOf(";") + 1)),
+    "apiFetch builds the bearer header and does not hand it to fetch");
+  assert.ok(inside.includes("401") && inside.includes("showAuthGate"),
+    "apiFetch stopped opening the gate on a 401");
+  // AND NO SECOND TRANSPORT, because "the only fetch" says nothing about the others.
+  for (const other of ["XMLHttpRequest", "sendBeacon", "EventSource", "new Request("]) {
+    assert.ok(!code.includes(other), `chat.js reaches the network another way: ${other}`);
   }
+  // THE OBSERVER, so the two assertions above are not satisfied by a scan that matched
+  // nothing: the chunker really found `apiFetch` calls, and enough of them to be reading
+  // this file rather than an empty string.
+  assert.ok(chunks.length >= 20, `the apiFetch chunker found only ${chunks.length} calls`);
+  assert.ok(viaApiFetch.size >= 6, `the path reader found only ${viaApiFetch.size} paths`);
+
+  for (const path of paths) assert.ok(called(path), `the client never calls ${path}`);
+  // A path NOT found as a literal at an `apiFetch` call site is REPORTED rather than
+  // refused: the one-fetch property above already covers it, and the ordinary shape is
+  // still worth knowing about, because it is where a new bare `fetch` would appear first.
+  const chosen = paths.filter((p) => !viaApiFetch.has(p));
+  assert.ok(chosen.length <= 4,
+    `${chosen.length} paths reach apiFetch through an indirection (${chosen.join(", ")})`
+    + " — that is more than this screen is known to have, so check them by hand");
   // Every path the client names is one this module really handles — a typo would be a
   // 404 the customer reads as "couldn't save".
   //

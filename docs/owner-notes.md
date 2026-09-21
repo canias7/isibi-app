@@ -13701,3 +13701,60 @@ that was right; and one used "add a step" as the ordinary keystroke, which clear
 purpose, so it measured the wrong thing.
 
 **Nothing is applied, deployed or merged**, and this round adds no database change at all.
+
+---
+
+## 2026-09-21 — the same journeys, in a real browser this time
+
+You asked for complete customer journeys through a real local browser, and the important part
+is what that changed rather than that it passed.
+
+**Everything I have verified until now drove ROUTES.** I built a request, handed it to the real
+code, and read the answer. That proves what a request does and proves nothing about whether a
+person can make that request by pressing the thing on screen. This repository has paid for that
+gap five times now — a button that answers and does nothing, a field with no control, a dropdown
+that saved a value nobody chose, a query asking for ten of the fourteen things it reads, a
+control whose handler nothing was wired to. **None of the five was found by a route test.** So
+this round stands the real screen up locally and drives Chromium through it.
+
+**Six journeys, 115 checks, all passing.** Create and configure an agent and reload; build and
+run the worked workflow through to the fake mailbox; run it by hand, on a schedule and from a
+signed event; reload and restart the engine while it waits, then approve; two browser windows on
+one account and then the account next door; and the two fixes from last round, typed into a
+real form.
+
+**It found three defects that nothing else had.**
+
+1. **An automation started by an incoming event said "Run now"** in the history that exists to
+   say what happened. The reader only knew two of the three words the database allows.
+2. **The route that lists a customer's inbound endpoints threw on every call it has ever had** —
+   it read the answer as a single value where the database sends a list. **It was hidden by a
+   test of my own**: the check above it asked "does the answer leak the secret?", and an error
+   page satisfies that. A check is only worth as much as what it is looking at.
+3. **Cancelling an automation reported that nothing had already run, every time** — on a
+   feature whose whole job is to be honest about what it cannot undo. My first fix over-counted
+   to two (it counted the step that was paused), so the check is now for exactly one rather than
+   "at least one", because a floor would have passed both wrong answers.
+
+**And one more, which is mine rather than the product's, and worth telling you plainly.** A test
+that checks every request carries your sign-in token broke when I fixed journey 2 — not because
+the fix was wrong, but because the test looked for the web address in a particular place and I
+moved it. **I did not run the whole suite afterwards**, so it has been failing on this branch for
+five commits. It is fixed, and the replacement is stronger than what it replaced: instead of
+checking each address, it now checks that the whole file has exactly one place where it talks to
+the server at all — so every request carries the token however the address got there.
+
+**The rollout checklist you asked for is `agent-builder/docs/rollout.md`, and `npm run
+verify:rollout` is the check behind it — 44 checks, all passing.** Ten database changes are
+waiting. It builds two throwaway databases from scratch: one fresh with everything, one with
+only what is live today, **filled with real rows**, and then the ten applied one at a time. Every
+row survived, nothing was silently rewritten, **and the two end up identical** — which is what
+says the ten are in the right order. Applied backwards they refuse, so the order is a
+requirement and not a preference. Then: **database first, then the agent engine, then the
+website** — and the checklist says what breaks if you swap any two.
+
+**One thing it found in passing**: one database function has no caller anywhere — it was
+superseded by a better one and never removed. Harmless, recorded, not touched.
+
+**Nothing is applied, deployed or merged**, no real message was sent, no model was paid for, and
+the browser never left this machine.
