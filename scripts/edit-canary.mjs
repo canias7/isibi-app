@@ -337,6 +337,24 @@ for (const [r, v] of Object.entries(BEFORE.render)) {
   console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
 }
 check("the source read is complete (reads all true)", BEFORE.readsComplete === true, JSON.stringify(BEFORE.reads));
+
+// ── THE BALANCE, READ ON EVERY RUN ─────────────────────────────────────────
+//
+// It used to be read inside the paid half, so a FREE dispatch — the one whose
+// whole job is to say whether the paid one is worth pressing — never printed
+// the one number that decides it. `buildFloor` refuses before spending and
+// that refusal reads as a broken build, so *"read the ledger; do not trust
+// this line"* wants a reader on the free path too.
+//
+// THE NUMBER ONLY. The service key is in the header and never in the output,
+// and nothing here prints a token, a url with credentials in it, or a row.
+async function balanceNow() {
+  return fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
+    .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
+}
+const BAL = await balanceNow();
+console.log(`  balance ${BAL < 0 ? "UNREADABLE" : BAL}`);
+check("the balance is readable", BAL >= 0, String(BAL));
 console.log("");
 
 if (!SPEND) {
@@ -351,8 +369,10 @@ if (failed) {
 // ── THE ONE PAID EDIT ──────────────────────────────────────────────────────
 
 console.log("PAID CANARY EDIT — exactly one\n");
-const before = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
-  .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
+// RE-READ RATHER THAN REUSE `BAL`: the free half runs a whole job between
+// them, and the number this run is measured against is the one immediately
+// before the spend. One reader, asked twice.
+const before = await balanceNow();
 console.log(`  balance before: ${before}`);
 
 const INSTRUCTION = process.env.CANARY_INSTRUCTION || "make the main call-to-action button background a deeper green";
@@ -423,8 +443,7 @@ for (let i = 0; i < 260; i++) {
 console.log(`\n  settled after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 console.log("  " + (done ? done.text.slice(0, 600) : "NO TERMINAL ANSWER — the job did not finish inside the watch"));
 
-const after = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
-  .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
+const after = await balanceNow();
 console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})`);
 
 // ── WHAT ACTUALLY HAPPENED, AND WHAT THE CUSTOMER WOULD READ ───────────────

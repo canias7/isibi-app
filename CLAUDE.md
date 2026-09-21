@@ -1020,6 +1020,21 @@ before-record.
   route is owner-scoped, so a control the building account does not own answers
   the 404 a missing site gets — a fact about a DIFFERENT site. Cannot-tell
   refuses in the preflight's own demands and must not refuse here.
+- **THE BALANCE IS READ ON EVERY RUN.** It sat inside the paid half, so a FREE
+  dispatch — the one whose whole job is to say whether the paid one is worth
+  pressing — never printed the one number that decides it. `balanceNow()` is
+  ONE reader asked twice, because the free half runs a whole job between the
+  two and the number a spend is measured against is the one immediately before
+  it. The NUMBER only: the service key is in a header and never in the output.
+- **⚠ AND `paidHalf()` WAS ANCHORED ON A LINE OF CODE, so five cases went red
+  about a change that touched none of what they assert.** The landmark was
+  `const before = await fetch(`, the balance read — which stopped being a
+  `fetch(` the moment that read was lifted into a function. **A landmark that
+  is a line of code is a claim about how that line is spelled**; it is anchored
+  on the section's own heading now (`PAID CANARY EDIT`), which is a claim about
+  where the paid half BEGINS — what every case below it actually means. Proved
+  LOUD rather than vacuous: removing the heading fails five cases instead of
+  passing a window over nothing.
 - **THE GUARD IS WHAT WAS MISSING, and it is the reusable part**: the harness
   had six cases and not one of them read the control, which is exactly why the
   constant could rot in plain sight. Four cases now, all four red-checked

@@ -51,9 +51,20 @@ test("the comment blanker leaves strings alone", () => {
   assert.equal(out.length, sample.length, "the blanker no longer preserves offsets");
 });
 
-/** The paid half only — the free checks legitimately post an empty instruction. */
+/**
+ * The paid half only — the free checks legitimately post an empty instruction.
+ *
+ * ⚠ ANCHORED ON THE SECTION'S OWN HEADING, NOT ON A LINE OF CODE. This used to
+ * open at `const before = await fetch(`, the balance read — which stopped being
+ * a `fetch(` the moment that read was lifted into a function so the FREE half
+ * could print the balance too, and five cases went red about a change that
+ * touched none of what they assert. A landmark that is a line of code is a
+ * claim about how that line is spelled; the heading is a claim about where the
+ * paid half begins, which is what every case below actually means.
+ */
+const PAID_MARK = "PAID CANARY EDIT";
 function paidHalf() {
-  const at = SRC.indexOf("const before = await fetch(");
+  const at = SRC.indexOf(PAID_MARK);
   assert.ok(at > 0, "the paid half's opening landmark is gone");
   return SRC.slice(at);
 }
@@ -193,7 +204,7 @@ test("an unreadable control is outstanding coverage, never a refusal to spend", 
 test("the free checks still cost nothing, and the paid one is still opt-in", () => {
   // The four confirmations lean on `escalate("empty")`, which answers cost 0
   // before any model call — so they must keep posting an EMPTY instruction.
-  const free = SRC.slice(SRC.indexOf("ZERO-COST CONFIRMATIONS"), SRC.indexOf("const before = await fetch("));
+  const free = SRC.slice(SRC.indexOf("ZERO-COST CONFIRMATIONS"), SRC.indexOf(PAID_MARK));
   assert.ok(free.length > 400, "the free half came out empty");
   assert.ok((free.match(/instruction: ""/g) || []).length >= 3,
     "a free check stopped sending an empty instruction, so it now costs money");
