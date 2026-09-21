@@ -14,7 +14,10 @@
 // gets all of it without knowing how any of it is implemented.
 //
 // `db` throughout is a Neon connection string (see ./site-db.mjs).
-import { sqlQuery, sqlQuery as realSqlQuery } from "./site-db.mjs";
+// `scrubSecrets` because a driver error's MESSAGE can quote the connection
+// string it was handed — the recorded live-credential rule, and `readSiteSchema`
+// below is the first thing here to KEEP an error rather than swallow it.
+import { sqlQuery, sqlQuery as realSqlQuery, scrubSecrets } from "./site-db.mjs";
 import { policiesFor, grantsFor, writableColumns, publicViewSql, functionSql, fnLanguage, FN_LANGUAGES, FN_SEARCH_PATH, SESSION_JWT_EXT, SESSION_JWT_GRANTS, APP_TEAM_FN, APP_USER_FN_NATIVE, APP_USER_FN_FALLBACK } from "./site-rls.mjs";
 import { normalizePayment, PAYMENT_COLUMNS } from "./site-payments.mjs";
 
@@ -1929,16 +1932,58 @@ const _schemaCache = makeCache({ ttlMs: SCHEMA_TTL_MS, max: 200 });
 
 export function invalidateSiteSchema(uuid) { _schemaCache.delete(uuid); }
 
-export async function loadSiteSchema(uuid) {
+/**
+ * THE SAME READ, SAYING WHICH OF THREE THINGS HAPPENED.
+ *
+ * ⚠ `loadSiteSchema` HAS A BARE `catch {}` AND ANSWERS `{tables: []}` EITHER
+ * WAY, which is this repository's own recorded collapse for the third time in
+ * one path: an unreadable `_meta` and a database with genuinely no tables are
+ * different facts and they arrived as one value. The comment below the catch
+ * already knew — it refuses to CACHE the empty answer precisely because a
+ * transient failure must not serve "no tables" — so the distinction was
+ * understood and then thrown away one line above.
+ *
+ * WHAT IT COST: the `rules` edit rung read this, saw a falsy spec and
+ * escalated `no-meta`, which the browser turns into the ~25-credit rewrite of
+ * every page — for a database that is up and could not be read this second. A
+ * rewrite does not repair an unreadable `_meta`.
+ *
+ * `{ok, spec, why}`:
+ *   ok: true  — the read succeeded. `spec` is what was stored, or `{tables:[]}`
+ *               when the row is genuinely absent, which is a REAL answer.
+ *   ok: false — the query threw. `spec` is still `{tables:[]}` so a caller that
+ *               ignores `ok` behaves exactly as it did, and `why` names it.
+ *
+ * ONE READER, TWO DOORS. `loadSiteSchema` is a wrapper over this rather than a
+ * second copy of the query, so the cache, the TTL and the never-cache-an-empty
+ * rule cannot drift between them.
+ */
+export async function readSiteSchema(uuid) {
   const hit = _schemaCache.get(uuid);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) return { ok: true, spec: hit, why: "cached" };
   try {
     const rows = await sqlQuery(uuid, "SELECT v FROM _meta WHERE k='schema'");
-    if (rows[0] && rows[0].v) return _schemaCache.set(uuid, JSON.parse(rows[0].v));
-  } catch {}
+    if (rows[0] && rows[0].v) return { ok: true, spec: _schemaCache.set(uuid, JSON.parse(rows[0].v)), why: "stored" };
+  } catch (e) {
+    // NAMED, NOT SWALLOWED. The message can quote the connection string it was
+    // handed, so it goes through the one scrubber before it is kept.
+    return { ok: false, spec: { tables: [] }, why: "meta-unreadable", detail: scrubSecrets(String((e && e.message) || e)).slice(0, 200) };
+  }
   // An empty result is NOT cached: a site whose _meta read failed transiently
   // would otherwise serve "no tables" for the whole TTL, 404ing every read.
-  return { tables: [] };
+  return { ok: true, spec: { tables: [] }, why: "no-row" };
+}
+
+/**
+ * The tolerant door, unchanged for every caller it already had.
+ *
+ * Every serve-path reader wants a spec and has nothing useful to do with a
+ * reason, so this keeps answering one — and the callers that DO need to tell
+ * a failure from an empty site ask `readSiteSchema` instead. Same query, same
+ * cache, one definition.
+ */
+export async function loadSiteSchema(uuid) {
+  return (await readSiteSchema(uuid)).spec;
 }
 
 // Starter content for the tables a visitor READS.

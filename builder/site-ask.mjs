@@ -335,9 +335,37 @@ export const ASK_TOOL = {
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
           "let two people book the same slot\", \"only twenty places\", \"one review per customer\"). NOTHING A " +
-          "VISITOR CAN SEE CHANGES, which is why it is nearly free — so prefer it whenever the change is honestly " +
-          "about behaviour rather than appearance. If the ask ALSO needs something new on a page — a button, a form " +
-          "field — that is \"addon\", not this.\n" +
+          "VISITOR CAN SEE CHANGES, which is why it is nearly free. If the ask ALSO needs something new on a page — " +
+          "a button, a form field — that is \"addon\", not this.\n" +
+          // ── ⚠ ENFORCEMENT AGAINST DISPLAY, AND IT IS NOT A WORD LIST ────────
+          //
+          // This description used to end "so prefer it whenever the change is
+          // honestly about behaviour rather than appearance", which is false in
+          // a way that is easy to read past: a component on a page has
+          // BEHAVIOUR too. It counts, it filters, it subtracts, it decides what
+          // to say when a number is zero — and every one of those is a change
+          // to a file a page writer edits, not to anything Postgres enforces.
+          //
+          // MEASURED: run 12 (2026-09-21) asked for a change to what a stored
+          // component DISPLAYS from a count it already receives, and this layer
+          // answered — then met a site whose backend reference was missing and
+          // stopped the whole message for 2 credits with nothing published.
+          //
+          // The line is WHAT MUST CHANGE, never which nouns the sentence uses.
+          // "Bookings", "capacity", "places" and "slots" appear on both sides
+          // of it, so matching on them is how a display change is routed into
+          // the database.
+          "⚠ THE LINE IS ENFORCEMENT AGAINST DISPLAY, AND THE WORDS IN THE MESSAGE DO NOT DECIDE IT. \"Bookings\", " +
+          "\"capacity\", \"places\", \"slots\" and \"limit\" turn up in BOTH kinds of ask, so ignore them and ask " +
+          "what actually has to change.\n" +
+          "IT IS THIS LAYER WHEN THE SITE MUST START ACCEPTING OR REFUSING SOMETHING DIFFERENT — \"reject bookings " +
+          "after six places are taken\", \"stop taking orders once we're full\", \"don't let anyone book twice\". " +
+          "The database is what has to change; a visitor who submits gets a different answer than before.\n" +
+          "IT IS \"page\" WHEN AN EXISTING PART OF THE SITE MUST CALCULATE OR SHOW SOMETHING DIFFERENTLY FROM DATA " +
+          "IT IS ALREADY GIVEN — \"show six minus the booking count\", \"say how many places are left instead of how " +
+          "many are taken\", \"show the count as a bar\". Nothing about what the site ACCEPTS changes; a section on " +
+          "a page does its arithmetic differently. That is a file a page writer edits, and it is NOT this layer " +
+          "however much the sentence sounds like a rule.\n" +
           "\"picture\" — A PHOTOGRAPH ON A PAGE: swapping one for another, putting one in a space that has none, " +
           "taking one off, or CHANGING WHICH PART OF IT YOU SEE. \"Use my own photo of the shop instead\", \"the " +
           "picture of the chairs is wrong\", \"add a photo to the about page\". This is about the IMAGE ITSELF and " +
@@ -382,6 +410,18 @@ export const ASK_TOOL = {
           "above.\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
+          // ── A SECTION'S OWN ARITHMETIC IS THIS LAYER ────────────────────────
+          //
+          // The other half of the enforcement/display line stated under
+          // "rules". It is said in BOTH places on purpose: a model reading
+          // downwards meets whichever description its candidate answer is, and
+          // one of the two sentences is always the one that would have caught
+          // the mistake. Run 12 read the `rules` description and stopped.
+          "WHAT A SECTION CALCULATES OR SHOWS FROM DATA IT ALREADY RECEIVES IS THIS LAYER — \"show six minus the " +
+          "booking count\", \"say how many are left rather than how many are taken\", \"round the total up\", " +
+          "\"show nothing instead of zero\". A part of a page counts, subtracts and decides what to say; changing " +
+          "that is changing a file, and it is this layer even when the sentence is all about bookings, places or " +
+          "capacity. It is \"rules\" ONLY if the site must start ACCEPTING or REFUSING something different.\n" +
           "THIS IS ALSO WHERE A PAGE IS DELETED. \"Remove the gallery page\" is this layer, that page in `page`, and " +
           "`remove` true — not a rewrite of the site and not a question back. Deleting costs almost nothing precisely " +
           "because it comes here.\n" +

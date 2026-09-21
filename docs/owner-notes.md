@@ -155,6 +155,76 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-21 — Three fixes for what that run exposed, and the third one was hiding under the second
+
+**Everything that went wrong was the same mistake three times**: two different
+facts arriving as one value, and then being treated as the same fact.
+
+**1. The router preferred the database for anything "behavioural", which is
+wrong about your own pages.** The instructions literally said to prefer the
+database rung *whenever the change is about behaviour rather than appearance* —
+and a section on a page has behaviour too. It counts, it subtracts, it decides
+what to say when a number is zero. The line is now what must CHANGE:
+
+- *"Reject bookings after six places are taken"* → the database. The site
+  starts refusing something it used to accept.
+- *"Show six minus the booking count"* → the page. Nothing about what the site
+  accepts changes; a section does its arithmetic differently.
+
+**And the words in the message deliberately do not decide it.** "Bookings",
+"capacity" and "places" turn up on both sides — I checked that they really do,
+because an instruction to ignore them is worthless if the examples no longer
+show the problem. Both descriptions now say the line, because the router reads
+whichever one its candidate answer is, and last time that was the database one.
+
+**⚠ And I am not claiming this fixes the routing.** What I changed is the
+instructions we ship. Which rung the model actually picks for a sentence is
+settled by a live run and by nothing else — I have put a check in the test file
+that fails if anyone ever fakes a model answer here and calls it proof.
+
+**2. The database rung could not tell four different things apart.** "No
+database", "the database is real but we lost the note of its name", and "we
+couldn't reach anything just now" all arrived as one blank. There has been a
+proper four-way answer in the codebase since mid-September and the *add* path
+uses it; this rung never moved over. It does now — and for the middle case it
+works out the name, opens the connection and **tests it** before using it,
+because a name that looks right is not a database that answers.
+
+**It never creates a database.** That stays the add step's job, and there is a
+check that fails if this rung ever grows one.
+
+**3. Failing to find a database bought a full rewrite of the whole site.** That
+is the expensive one, and it cannot possibly help: rewriting every page does
+not repair a missing database reference. Now — if we genuinely cannot tell, it
+stops, says so plainly, charges nothing, and starts nothing. If the site really
+has no database, it goes to the step that can make one, by name.
+
+**⚠ And fixing that exposed the same bug one line further down, then one layer
+below that.** The check I wrote got past the gate I had just fixed and landed
+straight in the next one, which had the identical flaw. Fixing *that* one led
+to the actual root: the function that reads a site's database settings swallows
+its own errors and returns "no tables" either way. Its own comment showed the
+author knew the difference mattered — and the code threw it away one line
+above. One reader, two doors now; nothing else that uses it changed.
+
+**One thing I found and deliberately did not fix.** When Supabase itself can't
+be read, the server does everything right — no model call, no charge, nothing
+touched — and the *browser* still falls through to the expensive rewrite,
+because that particular refusal doesn't carry the fields the screen reads. It
+comes from one shared gate used by about a dozen routes, so changing it touches
+all of them. That is your call, not mine. I have written a test that asserts
+the current behaviour, so the day it changes, we find out.
+
+**Evidence**: 14 new checks, 9 deliberate breakages all caught, a harmless
+comment change correctly ignored, every touched file verified back to
+byte-identical. **Two older checks went red on honest changes and I re-anchored
+them rather than quietly making them pass** — one was pinned to an exact line
+of code, the other to a count that was right the day it was typed.
+
+**The chord-diagram test stays parked. Nothing paid has run.**
+
+---
+
 ## 2026-09-21 — The component test never reached the component: it stopped at a missing database, and cost 2
 
 **Nothing was published and nothing was written.** I pointed the harness at

@@ -369,10 +369,25 @@ test("DRIVEN: the removal branches answer with a real HTTP status, not one burie
     assert.ok(!("status" in a) && !("status" in b), "the HTTP status is copied into the body as well");
     assert.equal(a.error, "not-removable");
     assert.equal(b.msg, "nothing to take off");
-    // BOTH CALL SITES, counted — a helper with one caller means one branch is
+    // BOTH REMOVAL CALL SITES — a helper with one caller means one branch is
     // still reaching for a name that is not there.
-    assert.equal((src.match(/return eAnswer\(\{/g) || []).length, 2,
-      "the removal branches no longer both answer through eAnswer");
+    //
+    // ⚠ A FLOOR, NOT AN EXACT COUNT (corrected 2026-09-21). This asserted
+    // `=== 2`, which was a census of the call sites that existed the day it
+    // was written and NOT the property it describes. The `rules` rung's
+    // backend fix added two honest callers — a 503 for an unreadable database
+    // and one for an unreadable schema — and this went red reporting the
+    // removal branches as broken by a change that never touched them. This
+    // repo's recorded "a hand-typed constant in a check is a second copy of
+    // something" trap, and its quietest form: the number was RIGHT when typed.
+    //
+    // THE PROPERTY IS THE TWO REMOVAL BRANCHES, so they are named by what
+    // makes them those branches rather than by how many there happen to be.
+    const calls = (src.match(/return eAnswer\(\{/g) || []).length;
+    assert.ok(calls >= 2, "fewer than two branches answer through eAnswer: " + calls);
+    for (const mark of ["not-removable", "moved: []"]) {
+      assert.ok(src.includes(mark), "a removal branch's own marker is gone from worker.js: " + mark);
+    }
     assert.ok(!/\beditAnswer\(/.test(src), "worker.js is calling the browser's editAnswer again");
   });
 });

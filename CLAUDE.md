@@ -1450,6 +1450,106 @@ tweak fallback is promised.**
   **unpinned**, so the corrected capture takes effect from the branch without a
   merge.
 
+### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
+
+Run 12 cost 2 credits and published nothing, and every one of its causes is a
+COLLAPSE — two different facts arriving as one value, then acted on as if they
+were the same fact. Three fixes, and the third was found by the guard written
+for the second.
+
+**1. THE ROUTER PREFERRED `rules` FOR ANYTHING "BEHAVIOURAL", WHICH IS FALSE OF
+A PAGE.** The layer description ended *"so prefer it whenever the change is
+honestly about behaviour rather than appearance"* — and **a component on a page
+has behaviour too**: it counts, it subtracts, it decides what to say when a
+number is zero, and every one of those is a file a page writer edits.
+
+- **THE LINE IS ENFORCEMENT AGAINST DISPLAY, AND THE WORDS DO NOT DECIDE IT.**
+  *"Reject bookings after six places are taken"* is `rules` — the site must
+  start accepting or refusing something different. *"Show six minus the booking
+  count"* is `page` — a section calculates differently from data it already
+  receives. **`bookings`, `capacity`, `places`, `slots` and `limit` occur on
+  BOTH sides**, which is asserted rather than claimed, so matching on them is
+  how a display change is routed into the database.
+- **SAID IN BOTH DESCRIPTIONS, DELIBERATELY.** A model reading downwards meets
+  whichever description its candidate answer is, and run 12's candidate was
+  `rules` — the `page` block alone would not have caught it.
+- **⚠ AND NO GUARD HERE CLAIMS A ROUTING OUTCOME.**
+  `test/ask-router-display.test.mjs` asserts a property of the INSTRUCTIONS THIS
+  REPOSITORY SHIPS and nothing else; it reaches no model, and a stubbed answer
+  would be a fixture agreeing with itself. **Which layer grok picks for a given
+  sentence is settled by a live run and by nothing else** — a census in the file
+  fails if anybody adds a stub, so the claim and the code cannot drift.
+
+**2. THE `rules` RUNG READ ONE `null` FOR FOUR FACTS.** It asked
+`siteBackendBySlug` and escalated on a falsy answer — the collapse
+`site-backend-state.mjs` has argued apart since 2026-09-15, and which the ADDON
+path was fixed for then. This rung was not.
+
+- **`siteBackendDetail` IS THE READER NOW**, the same one the addon uses:
+  `ready` · `none` · `incomplete` · `unreadable`. It **resolves and then
+  PROVES** — for `incomplete` the name derives and the project row carries the
+  credential, so a connection is built and probed with one query before it is
+  used, because a name that derives is not a database that answers. A reference
+  that was missing is recorded on the way past, from a database known good.
+- **AND THE TWO LAYERS DISAGREED SILENTLY, which is the half worth keeping.**
+  `siteBackendBySlug` checks the `SITE_ROUTES` KV cache FIRST and the container
+  has no such binding — so in the Worker an `incomplete` site resolved out of
+  the cache and everything looked fine, while the container met the blank
+  column. One rung, two answers, depending on where it ran.
+- **NOTHING HERE PROVISIONS.** `none` is the only state in which a site
+  genuinely has no database, and making one is the addon step's job. Asserted
+  as a census over `ensureSiteBackend`/`createSiteDatabase`/`createSiteProject`.
+
+**3. AN UNRESOLVED BACKEND BOUGHT A REWRITE OF EVERY PAGE.** `escalate(...)`
+carries no `layer`, so `escalateAction` fell to `up` — **and a full-site rewrite
+does not repair a missing database reference.**
+
+- **CANNOT-TELL STOPS.** `unreadable` answers 503, `cost: 0`, `ours: true`, a
+  NAMED reason, and no `escalate` field at all. Driven: **0 paid actions
+  recorded by the browser's own handler.**
+- **GENUINELY-NOTHING-THERE KEEPS ITS FALLBACK, BY NAME.** `none` escalates
+  with **`layer: "addon"`**, so `escalateAction`'s addon branch fires and the
+  ask reaches the one step whose first backend kind provisions a database. The
+  legitimate fallback is kept and the wrong one is closed — measured through
+  the real handler: `["post a PAID request to the addon route"]`.
+
+**⚠ AND THE SAME DEFECT WAS ONE LINE DOWN, AND THEN ONE LAYER DOWN AGAIN.**
+The guard written for (2) got past the fixed gate and straight into
+`escalate("no-meta")` — same shape, same wrong remedy. Fixing THAT exposed the
+root: **`loadSiteSchema` has a bare `catch {}` and answers `{tables: []}`
+either way**, so a `_meta` read that threw and a database with no tables were
+one value. Its own comment already knew — it refuses to CACHE the empty answer
+precisely because a transient failure must not serve "no tables" — *the
+distinction was understood and thrown away one line above it.*
+
+- **`readSiteSchema` ANSWERS `{ok, spec, why}`** and `loadSiteSchema` is a
+  WRAPPER over it, not a second copy of the query, so the cache, the TTL and
+  the never-cache-an-empty rule cannot drift. Every existing caller is
+  untouched.
+- **THE SECOND WALL IS REAL AND DELIBERATE, AND A SWEEP IS WHAT SHOWED IT.**
+  Cutting the resolution gate SURVIVED: an unresolved backend hands `null`
+  down, the schema read throws, and the next gate refuses with the same status
+  and the same cost. **Redundancy is fine; a refusal that cannot say WHICH link
+  failed is not**, so the guard is on the named REASON — the one thing the two
+  walls do not share. The PAIR mutated together dies.
+
+**WHAT WAS FOUND AND NOT FIXED, on purpose.** A 503 from `assertOwner` carries
+only `{error}` — no `ok`, no `msg` — so the browser's `editAnswer` reaches its
+catch-all and calls `fallback()`: **the same class, one layer up.** The server
+is right (no model, no query, no charge); the browser is not.
+**`assertOwner` is ONE gate shared by a dozen owner routes**, so changing its
+body shape is a change to every one of them — a reporting redesign rather than
+this round's fix. **Asserted AS IT IS** in `edit-rules-backend.test.mjs`, so
+the day it changes the case says so rather than going quiet. Owner's call.
+
+**THE EVIDENCE**: 14 new cases (8 backend, 6 router), **9 mutants killed with a
+comment-only control surviving**, all three touched files restored
+byte-identical. **Two pre-existing guards were re-anchored rather than
+appeased** — `site-apply`'s pinned to the spelling
+`if (!rdb) return escalate("no-backend")` and `site-delete`'s to an EXACT COUNT
+of `eAnswer` call sites (`=== 2`, right the day it was typed). Both reported an
+honest change as the feature going away; both now assert the property.
+
 **AND A SESSION CANNOT PRESS THE BUTTON.** Every paid harness is
 `workflow_dispatch` only; a dispatch needs GitHub's **`actions: write`**, and
 the session's App does not have it — the MCP tool and a direct REST POST both
@@ -3904,13 +4004,25 @@ free.
 - **THE JOB HAS TWENTY STEPS AND THE API ANSWERS 23** — three are GitHub's own
   (two `Post …` and **`Complete job`**, which is not named like one), so
   `len(steps)` and a `startsWith("Post ")` filter both answer wrongly.
-- **Unit suite: 7,057 LOCALLY, and the CI half of THIS reading is UNREAD** —
+- **Unit suite: 7,071 LOCALLY, and the CI half of THIS reading is UNREAD** —
+  `# tests 7071 / # pass 7071 / # fail 0 / # skipped 0`, `duration_ms 111,743`,
+  taken 2026-09-21 on the run-12 product fixes. **The +14 is the difference
+  between two measured readings, never arithmetic off a paragraph**:
+  7,057 → 7,071 is this round's own fourteen — eight in `edit-rules-backend`
+  and six in `ask-router-display`. **Say which half is taken**: a local number
+  beside an unread CI run is ONE reading.
+  **⚠ AND THE FIRST RUN OF IT WAS 7,070/1.** Two PRE-EXISTING guards went red
+  on honest changes, and neither was appeased: `site-apply`'s was pinned to the
+  spelling `if (!rdb) return escalate("no-backend")` and `site-delete`'s to an
+  EXACT COUNT of `eAnswer` call sites (`=== 2`). Both re-anchored on the
+  property they describe. *A guard pinned to a spelling reports an honest
+  change as the feature going away* — twice in one round, in guards written by
+  earlier sessions of this same work.
+- **Unit suite: 7,057 LOCALLY, and the CI half of that reading is UNREAD** —
   `# tests 7057 / # pass 7057 / # fail 0 / # skipped 0`, `duration_ms 111,992`,
-  taken 2026-09-21 on run 12's docs-and-guards commit. **The +4 is the
-  difference between two measured readings, never arithmetic off a paragraph**:
-  7,053 → 7,057 is this round's own four cases — three escalate-action cases in
-  `edit-browser-reply` and one capture-wiring case in `edit-canary`. **Say
-  which half is taken**: a local number beside an unread CI run is ONE reading.
+  taken 2026-09-21 on run 12's docs-and-guards commit. 7,053 → 7,057 was that
+  round's own four cases — three escalate-action cases in `edit-browser-reply`
+  and one capture-wiring case in `edit-canary`.
 - **Unit suite: 7,053, BOTH HALVES TAKEN, AND THE DOCS COMMIT MOVED IT BY ZERO**
   (2026-09-21, run 11's docs). **CI runs 2862 (the parent) and 2864 (the
   current) BOTH read `7,053 total / 7,049 passed / 0 failed / 4 skipped`** —

@@ -133,7 +133,7 @@ import { drainRebuild, BATCH as REBUILD_BATCH, BUSY_DEFER_SEC as REBUILD_BUSY_SE
 // The litter under `jobs/` (stage 9): what the unhappy paths leave behind.
 import { sweepJobObjects } from "./builder/job-retention.mjs";
 import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, createSiteProject, enableNeonAuth, enableDataApi, createSiteDatabase, dropSiteDatabase, dropUserProject, connForDatabase, dbNameForSite } from "./site-db.mjs";
-import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
+import { applySiteSchema, loadSiteSchema, readSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier, withJobDeps, storedJobFns } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
 import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, sceneOn, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
@@ -21460,12 +21460,98 @@ async function handleRequest(request, env, ctx) {
               // here is enforced in Postgres or read out of `_meta` on the
               // request path, so no page source changes and no visitor
               // re-downloads anything.
-              const rdb = await siteBackendBySlug(env, ownerSlug);
-              if (!rdb) return escalate("no-backend");
-              let rSpec = null;
-              try { rSpec = await loadSiteSchema(rdb); }
-              catch (e) { console.error("rules edit schema read failed:", ownerSlug, e && e.message); }
-              if (!rSpec || !Array.isArray(rSpec.tables) || !rSpec.tables.length) return escalate("no-meta");
+              // ── ⚠ FOUR STATES, NOT ONE `null` (2026-09-21, run 12) ───────
+              //
+              // This read `siteBackendBySlug` and escalated on a falsy answer,
+              // which is the collapse `site-backend-state.mjs` exists to end —
+              // met here a second time, on the rung the addon path had already
+              // been fixed for. MEASURED: `fretwork-1`, whose database is real
+              // and whose `site_backends.neon_db` is blank, answered
+              // `escalate("no-backend")` for 2 credits with nothing published.
+              //
+              // AND THE TWO LAYERS DISAGREED SILENTLY, which is the half worth
+              // stating: `siteBackendBySlug` checks `env.SITE_ROUTES` FIRST, so
+              // in the Worker an `incomplete` site resolves out of the KV cache
+              // and everything looks fine, while the container — where
+              // `SITE_ROUTES` is absent — reads Supabase and meets the blank
+              // column. One rung, two answers, depending on where it ran.
+              // `siteBackendDetail` reads Supabase directly and never the
+              // cache, so both sides now get the same four-way answer.
+              //
+              // IT RESOLVES AND THEN PROVES. For `incomplete` the name derives
+              // and the project row carries the credential, so a connection is
+              // BUILT and probed with one trivial query before it is used — a
+              // name that derives is not a database that answers. Nothing here
+              // provisions anything: `none` is the only state in which this
+              // site genuinely has no database, and making one is the addon
+              // step's job, never this rung's.
+              const rBack = await siteBackendDetail(env, ownerSlug);
+              const rdb = rBack.conn;
+              // ⚠ CANNOT-TELL IS ITS OWN ANSWER AND IT DOES NOT ESCALATE.
+              // Supabase down, an unreadable project row and a derived database
+              // that will not answer are three things to fix and none of them
+              // is "this site needs rewriting" — so this stops here, cost 0,
+              // rather than handing the browser an escalate whose `fallback`
+              // starts the ~25-credit rewrite of every page. A full-site
+              // rewrite cannot repair a missing database reference.
+              if (rBack.state === "unreadable") {
+                console.error("rules edit backend unreadable:", ownerSlug, rBack.why, rBack.detail || "");
+                return eAnswer({
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rBack.why,
+                  msg: "I couldn't reach your site's database just now, so I've stopped rather than guess at what's in it — this is on us, nothing on your site changed and you haven't been charged. Try again in a few minutes.",
+                });
+              }
+              // A SITE THAT REALLY HAS NO DATABASE ESCALATES TO THE STEP THAT
+              // CAN MAKE ONE — BY NAME. `escalateAction` reads `e.layer`, and
+              // with no layer on the reply it falls to `up`: the full rewrite,
+              // which cannot provision a database either. Naming `addon` sends
+              // it to the one step whose first backend kind DOES provision, so
+              // the legitimate fallback is kept and the wrong one is closed.
+              if (rBack.state === "none") {
+                return escalate("no-backend", { layer: "addon", backend: rBack.why });
+              }
+              // A REFERENCE THAT WAS MISSING IS RECORDED ON THE WAY PAST, the
+              // addon path's own shape. `siteBackendDetail` has already proved
+              // this database answers, so what is written is a name known good
+              // rather than one derived and hoped for. Best-effort: the rung
+              // proceeds either way, because the connection in hand is the same
+              // one whether or not the row learns its name.
+              if (rBack.state === "incomplete") {
+                try { await healSiteBackendDb(env, ownerSlug, rBack.uid || ou.id, rBack.db); }
+                catch (e) { console.error("rules edit reference heal failed:", ownerSlug, e && e.message); }
+              }
+              // ⚠ THE SCHEMA READ HAS THE SAME TWO OUTCOMES, ONE LINE DOWN —
+              // found by the guard written for the resolution above, which got
+              // past the fixed gate and straight into this one.
+              //
+              // `escalate("no-meta")` carries no layer either, so a schema read
+              // that THREW bought the ~25-credit rewrite of every page for a
+              // database that is up and simply could not be read this second. A
+              // rewrite does not repair an unreadable `_meta` any more than it
+              // repairs a missing reference. The two are split the way the four
+              // backend states are: cannot-tell stops, genuinely-nothing-there
+              // escalates to the step that can make something.
+              // ⚠ AND `loadSiteSchema` COULD NOT TELL EITHER — it has a bare
+              // `catch {}` and answers `{tables: []}` whichever happened, which
+              // is the same collapse a THIRD time in one path. `readSiteSchema`
+              // is the same query saying which of the two it was; the tolerant
+              // door is unchanged for every other caller.
+              const rRead = await readSiteSchema(rdb);
+              const rSpec = rRead.spec;
+              if (!rRead.ok) {
+                console.error("rules edit schema read failed:", ownerSlug, rRead.why, rRead.detail || "");
+                return eAnswer({
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: "schema-unreadable",
+                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us, nothing on your site changed and you haven't been charged. Try again in a few minutes.",
+                });
+              }
+              // NO TABLES AND A READ THAT SUCCEEDED is a real answer: there is
+              // nothing here to make a rule about. The addon step is where a
+              // table is made, so it is named — the same legitimate fallback
+              // the `none` state keeps, and not the full rewrite.
+              if (!rSpec || !Array.isArray(rSpec.tables) || !rSpec.tables.length) {
+                return escalate("no-meta", { layer: "addon" });
+              }
 
               // EVERY TABLE, unlike the data layer's `display`-only list. A rule
               // is about who may reach a table and what it refuses, and the

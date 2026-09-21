@@ -667,10 +667,35 @@ test("the CSS and logo lanes serve a site with NO database — the default kind"
   // THE LANES THAT REALLY DO NEED ONE STILL ASK. `data` reads rows and `rules`
   // enforces them in Postgres; a fix that relaxed those would be a wrong answer
   // in the other direction, so the negative above is paired with a positive.
-  for (const v of ["ddb", "rdb"]) {
-    assert.match(b, new RegExp("if \\(!" + v + "\\) return escalate\\(\"no-backend\"\\)"),
-      "the " + v + " lane stopped requiring a database it actually queries");
-  }
+  //
+  // ⚠ AND THE TWO ARE NO LONGER SPELLED THE SAME WAY (2026-09-21). This read
+  // `if (!<v>) return escalate("no-backend")` for both and went RED on the
+  // `rules` rung's four-state fix — a guard pinned to a SPELLING reporting an
+  // honest change as the feature going away, which is this repository's single
+  // most repeated own-goal and is why the property is written out here instead.
+  //
+  // THE PROPERTY IS THE SAME FOR BOTH: the lane establishes a database before
+  // it queries one, and does not proceed without it. What differs is how each
+  // says so.
+  assert.match(b, new RegExp("if \\(!ddb\\) return escalate\\(\"no-backend\"\\)"),
+    "the ddb lane stopped requiring a database it actually queries");
+
+  // `rules` ASKS THE FOUR-STATE RESOLVER. A truthiness test on one connection
+  // could not tell an absent database from a REFERENCE that was missing, so it
+  // refused sites whose database is real — run 12, 2 credits, nothing
+  // published. The three properties, each of which the old one-liner held by
+  // accident and this must hold on purpose:
+  const rulesAt = b.indexOf('if (eLayer === "rules")');
+  assert.ok(rulesAt > 0, "the rules lane is gone or was renamed — this scan has no subject");
+  const rulesEnd = b.indexOf("runRulesEdit({", rulesAt);
+  assert.ok(rulesEnd > rulesAt, "the rules lane's closing landmark moved above its opening one");
+  const rulesLane = b.slice(rulesAt, rulesEnd);
+  assert.match(rulesLane, /siteBackendDetail\(env, ownerSlug\)/,
+    "the rules lane no longer resolves a database before querying one");
+  assert.match(rulesLane, /state === "unreadable"/,
+    "the rules lane no longer stops when the database cannot be reached");
+  assert.match(rulesLane, /state === "none"/,
+    "the rules lane no longer has an answer for a site that genuinely has no database");
 });
 
 test("a LAYOUT change is escalated, never silently stored", () => {
