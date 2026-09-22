@@ -123,6 +123,27 @@ export async function runAgent(opts = {}) {
     throw new TypeError("runAgent: connections must be an object of operations, already scoped");
   }
   /**
+   * ⚠ WHAT THIS RUN MAY ASK OTHER AGENTS OF ITS OWN ACCOUNT TO DO — a THIRD seam, and
+   * three absences that need three different sentences.
+   *
+   * `capabilities` is this account's own records, `connections` is somebody else's system,
+   * and this is the account's other AGENTS. A deployment can honestly have any one of the
+   * three and not the others, and they fail differently: a record is ours to correct, an
+   * outbound call may have landed and cannot be recalled, and a child is durable work
+   * somebody has to wait for or stop. Folded together, "there is no store", "there is
+   * nothing outside" and "work cannot be handed on" would be one refusal about three
+   * different absences — and a model told the wrong one looks in the wrong place.
+   *
+   * Scoped by the caller exactly as the other two are: `forTenant(t).forRun({runId,
+   * agentId})` already applied, from the claim and the run's own journal snapshot, so not one
+   * operation on it takes a tenant, a run id or an agent id. **A run with no authored agent
+   * gets no seam at all**, which is the store's own refusal rather than this line's care.
+   */
+  const delegation = opts.delegation ?? null;
+  if (delegation !== null && typeof delegation !== "object") {
+    throw new TypeError("runAgent: delegation must be an object of operations, already scoped");
+  }
+  /**
    * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — already bound to THIS run.
    *
    * Handed in for the same reason `capabilities` is: a loop that could open a database is
@@ -404,7 +425,7 @@ export async function runAgent(opts = {}) {
         // ⚠ THE SAME ARGUMENTS THE DECISION WAS READ WITH, off the slot itself — and the
         // identity below is derived from them, so a redelivery of this call asks the
         // database for the row it already made rather than making a second one.
-        const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, newId, operationSeed, argsKey: await operationKey(p.args) }));
+        const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, delegation, newId, operationSeed, argsKey: await operationKey(p.args) }));
         // ⚠ **THE SAME PAIR, ON THE RESUME PATH, AND IT IS NOT REDUNDANT WITH THE LIVE
         // ONE.** This is the delivery a settling child woke, so the ordinary answer here is
         // that the wait is over and a real value gets written. But a spurious delivery — a
@@ -609,7 +630,7 @@ export async function runAgent(opts = {}) {
       if (argsKey === null) {
         throw new Error(`${String(call?.name ?? "(unnamed)")}: these arguments cannot be recorded, so the call was not made — send plain JSON values`);
       }
-      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, newId, operationSeed, argsKey }));
+      return tool.run(call?.args, toolContext({ tenant, agent, limits, step: stepNo, index: i, id: call?.id ?? null, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, delegation, newId, operationSeed, argsKey }));
     }, { limit: limits.parallelTools, now });
 
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
@@ -706,7 +727,7 @@ function requireEntries(from) {
 }
 
 /** What a tool is told. One builder, so the live path and the resume path agree. */
-function toolContext({ tenant, agent, limits, step, id, room, capabilities, connections, newId, operationSeed, index, argsKey }) {
+function toolContext({ tenant, agent, limits, step, id, room, capabilities, connections, delegation, newId, operationSeed, index, argsKey }) {
   return Object.freeze({
     tenant: tenant ?? null, agent: agent.name, step, toolCallId: id,
     toolMs: capMs(limits.toolMs, room()),
@@ -735,6 +756,17 @@ function toolContext({ tenant, agent, limits, step, id, room, capabilities, conn
      * lives and dies inside that call.
      */
     connections: connections ?? null,
+    /**
+     * ⚠ WHICH OTHER AGENTS OF THIS ACCOUNT THIS RUN MAY HAND WORK TO, already scoped —
+     * and `null` is a real answer.
+     *
+     * Every delegating tool refuses BY NAME without it (`no-delegation`, which is neither
+     * `no-backend` nor `no-connections`), so a deployment that can reach its own database
+     * and cannot hand work on says which of the three is missing. **The bounds are inside
+     * this object rather than on it**: the store read them from the deployment and closed
+     * over them, so there is no argument on any operation here for a ceiling to arrive in.
+     */
+    delegation: delegation ?? null,
     /**
      * ⚠ THE IDENTITY OF THIS CALL, or `null` where the caller could not give one.
      *

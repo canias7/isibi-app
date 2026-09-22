@@ -31,6 +31,35 @@ import { delegationBounds } from "./delegation.mjs";
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
+/**
+ * THE RUN-BOUND SEAM'S OWN OPERATIONS, as NAMES, so a census can walk what a TOOL can
+ * reach without knowing what any of them does.
+ *
+ * ⚠ **IT NAMES THE RUN-BOUND SEAM AND DELIBERATELY NOT THE FLAT OPERATIONS BELOW.**
+ * `delegate`, `settle`, `cancel`, `progress` and `overdue` each take a tenant and are the
+ * RUNNER's and the platform sweep's; nothing reachable from a tool can call one. A census
+ * over the union would be a census over a surface no model has, which is the shape that
+ * makes a guard read as covering more than it does.
+ *
+ * `bounds` and `refusedBounds` are VALUES rather than operations — the deployment's ceilings,
+ * read once and closed over — so they are not here and the census below tells them apart by
+ * asking for the function-valued keys.
+ */
+export const DELEGATION_OPS = Object.freeze(["open", "specialists", "look"]);
+
+/**
+ * WHICH OF THEM CHANGE SOMETHING, declared beside the list rather than inferred from a name.
+ *
+ * ⚠ **`open` IS THE ONLY WRITE A TOOL CAN REACH, AND IT IS ONE ACT RATHER THAN TWO.** It
+ * files this step's children or reads back the ones already filed — the unique index on
+ * `(parent, step, position)` absorbs a redelivery — so asking is the same act as filing and
+ * there is no separate `file` for a caller to reach without it. **Settling a child, stopping
+ * them and sweeping overdue parents are not on this seam at all**: a tool that could settle
+ * one could write its sibling's answer, and one that could sweep could reach every account's
+ * trees.
+ */
+export const DELEGATION_WRITES = Object.freeze(["open"]);
+
 export function makeDelegationStore(opts = {}) {
   const doFetch = opts.fetch;
   if (typeof doFetch !== "function") throw new TypeError("makeDelegationStore: fetch must be a function");

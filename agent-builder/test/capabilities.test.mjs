@@ -14,8 +14,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { makeCapabilities, CAPABILITIES, CAPABILITY_RPC, CAP_MEMORIES, CAP_AUTOMATIONS, CAPABILITY_WRITES } from "../src/capabilities.mjs";
 import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOLS,
-         MAX_TOOL_INPUTS, FORGET_REACH, SPENT_SAY } from "../src/capability-tools.mjs";
+         DELEGATION_TOOLS, MAX_TOOL_INPUTS, FORGET_REACH, SPENT_SAY,
+         TASK_MAX } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
+import { DELEGATION_OPS, DELEGATION_WRITES } from "../src/delegation-store.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
@@ -422,6 +424,12 @@ const NEEDS_NO_BACKEND = Object.freeze(["list_actions", "check_workflow"]);
  */
 const NO_STORE = "no-backend";
 const NO_OUTSIDE = "no-connections";
+// ⚠ RE-ANCHORED A THIRD TIME 2026-09-22: A THIRD SEAM, AND THREE ABSENCES NEED THREE
+// SENTENCES. `ctx.delegation` is what an agent may ask OTHER AGENTS of its own account to do
+// — durable work somebody has to wait for or stop, which is neither this account's records
+// nor somebody else's system. A deployment can honestly have any one of the three, so a
+// refusal covering two of them names the wrong absence and sends a reader to the wrong place.
+const NO_HANDOFF = "no-delegation";
 
 test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as though it worked", async () => {
   // RE-ANCHORED, NOT APPEASED. This once ran over every capability tool, which was the
@@ -440,29 +448,50 @@ test("⚠ A TOOL WITH NO BACKEND REFUSES BY NAME — it does not answer as thoug
   // refusal would say "there is no store" about a missing PROVIDER and send whoever reads it
   // to look at the wrong thing. The three tools that reach outside are declared in the engine
   // (`CONNECTION_TOOLS`) rather than listed here, so a fourth carries this by existing.
-  for (const name of CONNECTION_TOOLS) {
+  for (const name of [...CONNECTION_TOOLS, ...DELEGATION_TOOLS]) {
     assert.ok(CAPABILITY_TOOLS.some((t) => t.name === name), `${name} is not a tool`);
   }
-  assert.notEqual(NO_STORE, NO_OUTSIDE, "the two absences answer the same error");
-  let asked = 0, outside = 0;
+  // AND NO TOOL IS ON TWO SEAMS, which is what makes the three groups a PARTITION rather
+  // than three lists that happen not to overlap today.
+  for (const name of DELEGATION_TOOLS) {
+    assert.equal(CONNECTION_TOOLS.includes(name), false, `${name} is on two seams`);
+    assert.equal(NEEDS_NO_BACKEND.includes(name), false, `${name} is on two seams`);
+  }
+  // THE THREE REFUSALS ARE THREE DIFFERENT WORDS, asked as a SET so a pair collapsing is
+  // caught whichever two it is.
+  assert.equal(new Set([NO_STORE, NO_OUTSIDE, NO_HANDOFF]).size, 3,
+    "two of the three absences answer the same error");
+  // WHICH SEAM EACH TOOL NEEDS, AND WHAT IT SAYS WITHOUT IT — one table, so a fourth seam is
+  // a row rather than another branch.
+  const SEAMS = [
+    { key: "capabilities", tools: null, error: NO_STORE, say: /no store behind it/ },
+    { key: "connections", tools: CONNECTION_TOOLS, error: NO_OUTSIDE, say: /cannot reach anything outside/ },
+    { key: "delegation", tools: DELEGATION_TOOLS, error: NO_HANDOFF, say: /cannot hand work to other agents/ },
+  ];
+  const seen = new Map(SEAMS.map((s) => [s.key, 0]));
   for (const t of CAPABILITY_TOOLS) {
     if (NEEDS_NO_BACKEND.includes(t.name)) continue;
-    const reachesOut = CONNECTION_TOOLS.includes(t.name);
-    if (reachesOut) outside++; else asked++;
-    // ⚠ THE LAST TWO SHAPES ARE THE ONES THAT MATTER: a tool given the OTHER seam and not
-    // its own must still refuse, or it is reading whichever object happens to be there.
-    for (const ctx of [undefined, {}, { capabilities: null, connections: null },
-                       { capabilities: "nope", connections: "nope" },
-                       reachesOut ? { capabilities: {} } : { connections: {} }]) {
+    const mine = SEAMS.find((s) => s.tools?.includes(t.name)) ?? SEAMS[0];
+    seen.set(mine.key, seen.get(mine.key) + 1);
+    // ⚠ THE LAST SHAPES ARE THE ONES THAT MATTER: a tool given EVERY OTHER seam and not its
+    // own must still refuse, or it is reading whichever object happens to be there.
+    const others = Object.fromEntries(SEAMS.filter((s) => s.key !== mine.key).map((s) => [s.key, {}]));
+    const allNull = Object.fromEntries(SEAMS.map((s) => [s.key, null]));
+    const allJunk = Object.fromEntries(SEAMS.map((s) => [s.key, "nope"]));
+    for (const ctx of [undefined, {}, allNull, allJunk, others]) {
       const out = await t.run({ query: "x", id: AG, name: "n", value: "v", automation: AG,
-        enabled: true, connection: AG, to: "a@b.test", body: "hello" }, ctx);
+        enabled: true, connection: AG, to: "a@b.test", body: "hello",
+        tasks: [{ specialist: AG, task: "do it" }] }, ctx);
       assert.equal(out.ok, false, `${t.name} answered ok with no backend`);
-      assert.equal(out.error, reachesOut ? NO_OUTSIDE : NO_STORE, `${t.name}: ${JSON.stringify(out)}`);
-      assert.match(out.say, reachesOut ? /cannot reach anything outside/ : /no store behind it/);
+      assert.equal(out.error, mine.error, `${t.name}: ${JSON.stringify(out)}`);
+      assert.match(out.say, mine.say, `${t.name}: ${out.say}`);
     }
   }
-  assert.equal(asked + outside, CAPABILITY_TOOLS.length - NEEDS_NO_BACKEND.length);
-  assert.ok(asked > 0 && outside > 0, `the census asked about ${asked} and ${outside}`);
+  assert.equal([...seen.values()].reduce((a, b) => a + b, 0),
+    CAPABILITY_TOOLS.length - NEEDS_NO_BACKEND.length);
+  // EVERY SEAM REALLY HAD A TOOL DRIVEN AGAINST IT, or the equality above is satisfied by two
+  // of the three groups being empty and one refusal never asked at all.
+  for (const s of SEAMS) assert.ok(seen.get(s.key) > 0, `no tool was censused for ${s.key}`);
   // ⚠ AND THE OTHER HALF, which is what makes the exemption a property rather than a hole:
   // the two really DO work with no backend, so a `pureTool` that quietly went back through
   // `withBackend` is a red run rather than a silently refused catalog.
@@ -515,9 +544,13 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
   assert.ok(CAPABILITY_WRITES.length >= 6, `only ${CAPABILITY_WRITES.length} writes named`);
   assert.equal(CONNECTION_WRITES.every((n) => CONNECTION_OPS.includes(n)), true,
     "a connection write is named that is not an operation at all");
+  assert.equal(DELEGATION_WRITES.every((n) => DELEGATION_OPS.includes(n)), true,
+    "a delegation write is named that is not an operation at all");
+  assert.ok(DELEGATION_WRITES.length >= 1, "no delegation write is named at all");
 
   const touched = new Map();
   const outsideSeen = new Map();
+  const handedOn = new Map();
   for (const t of CAPABILITY_TOOLS) {
     const asked = [];
     // Every operation, answering the shape its caller reads, and recording its own name.
@@ -577,6 +610,42 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
       outsideSeen.set(t.name, reached);
       continue;
     }
+    /**
+     * ⚠ **THE TWO THAT HAND WORK TO OTHER AGENTS ARE CENSUSED THE SAME WAY AGAINST THE
+     * THIRD SEAM.** Neither reaches `capabilities` at all, so without this they fall to the
+     * assertion below and read as tools whose flag is unproved — which is what a broken tool
+     * looks like, and is exactly what caught them the day they arrived.
+     *
+     * **AND THE SEAM'S OWN KEYS ARE COMPARED WITH THE DECLARED LIST, BOTH WAYS.** An
+     * operation added to `forRun` and not to `DELEGATION_OPS` is one this census would walk
+     * past; one named and not offered is a list describing a surface that is not there. The
+     * function-valued keys are what is asked for, because `bounds` and `refusedBounds` are
+     * VALUES — the deployment's ceilings, closed over rather than callable.
+     */
+    if (DELEGATION_TOOLS.includes(t.name)) {
+      assert.equal(asked.length, 0, `${t.name} reached a capability, so it is on the wrong seam`);
+      const reached = [];
+      const to = {
+        // The bounds are on the seam and are NOT an operation, which is the distinction the
+        // key census below turns on.
+        bounds: { waitMs: 60_000 },
+        refusedBounds: [],
+        open: async () => { reached.push("open"); return { ok: true, made: 1, children: [] }; },
+        specialists: async () => { reached.push("specialists"); return [{ id: AG, name: "s", status: "active", tools: [] }]; },
+        look: async () => { reached.push("look"); return []; },
+      };
+      const offered = Object.keys(to).filter((k) => typeof to[k] === "function").sort();
+      assert.deepEqual(offered, [...DELEGATION_OPS].sort(),
+        "the seam's operations and DELEGATION_OPS disagree");
+      await t.run({ tasks: [{ specialist: AG, task: "do it" }] },
+                  { delegation: to, operation: OP() });
+      assert.equal(reached.length > 0, true, `${t.name} reached no delegation operation`);
+      const wrote = reached.some((op) => DELEGATION_WRITES.includes(op));
+      assert.equal(t.writes, wrote,
+        `${t.name} reached [${reached.join(", ")}] and declares writes: ${t.writes}`);
+      handedOn.set(t.name, reached);
+      continue;
+    }
     assert.equal(asked.length > 0, true, `${t.name} reached no capability, so its flag is unproved`);
     touched.set(t.name, asked);
     const writes = asked.some((op) => CAPABILITY_WRITES.includes(op));
@@ -584,9 +653,16 @@ test("⚠ `writes` IS A CENSUS OVER WHAT EACH TOOL REALLY TOUCHES, NOT A LABEL",
       `${t.name} touched [${asked.join(", ")}] and declares writes: ${t.writes}`);
   }
   // EVERY TOOL WAS LOOKED AT, derived from the catalog rather than pinned to a number.
-  assert.equal(touched.size + outsideSeen.size + 2, CAPABILITY_TOOLS.length,
-    `${touched.size} + ${outsideSeen.size} out of ${CAPABILITY_TOOLS.length}, with 2 platform-only`);
+  assert.equal(touched.size + outsideSeen.size + handedOn.size + 2, CAPABILITY_TOOLS.length,
+    `${touched.size} + ${outsideSeen.size} + ${handedOn.size} out of ${CAPABILITY_TOOLS.length}, with 2 platform-only`);
   assert.equal(outsideSeen.size, CONNECTION_TOOLS.length, "a connection tool was not censused");
+  assert.equal(handedOn.size, DELEGATION_TOOLS.length, "a delegation tool was not censused");
+  // AND BOTH DIRECTIONS ON THE THIRD SEAM TOO, or "the flag matches what it reached" is
+  // satisfied by every delegation tool being a read.
+  assert.ok([...handedOn.values()].some((r) => r.some((op) => DELEGATION_WRITES.includes(op))),
+    "no delegation tool reached a write");
+  assert.ok([...handedOn.values()].some((r) => !r.some((op) => DELEGATION_WRITES.includes(op))),
+    "no delegation tool was a pure read");
   // AND BOTH DIRECTIONS ARE REALLY EXERCISED, or the equality above is satisfied by every
   // tool being a read.
   const writers = [...touched.keys()].filter((n) => CAPABILITY_TOOLS.find((t) => t.name === n).writes);

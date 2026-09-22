@@ -70,8 +70,15 @@ import { defineTool, PUBLIC } from "./define.mjs";
 // ⚠ `approvals.mjs` IS THE IDENTITY MODULE as well as the approval store: `argsHash`
 // and `uuidFrom` are both "the same call always reads the same way", and splitting
 // them into two files would be two answers to one question.
-import { uuidFrom } from "./approvals.mjs";
+import { splitOperation, uuidFrom } from "./approvals.mjs";
 import { readSearch, searchOutcome } from "./knowledge-search.mjs";
+// ⚠ THE DELEGATION READING IS THE MODULE'S AND NOT THIS FILE'S. `src/delegation.mjs`
+// holds every rule about a task tree that is not the database's — what a context entry may
+// be, how a grant narrows, what one child's row adds up to, what a roster of states means
+// under a policy, and one sentence per refusal the door already reached. Two readings of any
+// of those is how a screen and a model come to disagree about the same tree.
+import { CONTEXT_KINDS, POLICY_NAMES, WAITING_MARK, childState, combineResults,
+  narrowDelegatedTools, sayDelegation, selectContext, waitVerdict } from "./delegation.mjs";
 // ⚠ THE STEP CATALOG AND THE VALIDATOR ARE THE PLATFORM'S OWN, imported rather than
 // described: a model reads what `AUTOMATION_STEPS` really holds and its workflow goes
 // through the same `readWorkflow` a person's save does. Two descriptions of one catalog is
@@ -81,6 +88,15 @@ import { AUTOMATION_STEPS, AUTOMATION_SCHEDULES, WEEKDAYS, MAX_WORKFLOW_STEPS, V
 
 /** How long a piece of text a tool may be handed, so a schema states its own bound. */
 export const TOOL_TEXT_MAX = 4000;
+
+/**
+ * How long a delegated task may be, and it is the COLUMN's own bound rather than a number
+ * chosen here. `agent.delegations.task` is `check (length(btrim(task)) between 1 and 4000)`,
+ * so a schema stating anything else would be a promise the database refuses — and the
+ * refusal would arrive as a raise from inside the filing transaction rather than as a
+ * sentence a model can act on.
+ */
+export const TASK_MAX = 4000;
 
 /**
  * The one door to the backend, and the one refusal when there is none.
@@ -1861,6 +1877,285 @@ const sendMessage = actTool({
   },
 });
 
+// ── handing work to a specialist agent of the same account ──────────────────
+//
+// ⚠ **THE DELEGATION SEAM IS ITS OWN, FOR THE REASON `ctx.connections` IS.**
+// `ctx.capabilities` is what an agent may do to its own account's RECORDS; this is what it
+// may ask other AGENTS of that account to do. They fail differently (a record is ours to
+// fix, a child is durable work somebody has to wait for or stop), they are configured
+// differently (this one needs the parent run's own id and the asking agent's), and a
+// deployment can honestly have one and not the other — so a tool that asked `capabilities`
+// for a delegation would answer `no-backend` for a reason that has nothing to do with what
+// is missing.
+const NO_DELEGATION = Object.freeze({
+  ok: false, error: "no-delegation",
+  say: "this deployment cannot hand work to other agents, so that could not be done",
+});
+
+const delegating = (fn) => async (args, ctx) => {
+  const to = ctx?.delegation;
+  if (!to || typeof to !== "object") return NO_DELEGATION;
+  return fn(args && typeof args === "object" ? args : {}, to, ctx);
+};
+
+const delTool = (spec) => defineTool({ ...spec, scope: PUBLIC, run: delegating(spec.run) });
+
+const listSpecialists = delTool({
+  name: "list_specialists",
+  description:
+    "List the other agents of this account that work can be handed to — each one's id, what " +
+    "it is called, what it is for, which tools it has and whether it is taking work. Never " +
+    "this agent itself.",
+  input: { type: "object", properties: {} },
+  // ⚠ **THIS IS THE READ THAT MAKES THE WRITE USABLE.** `delegate` requires a specialist's
+  // id, and a model cannot know an id it was never told — so without this the tool is a
+  // control whose one required argument nobody can supply.
+  repeatable: true,
+  run: async (_args, to) => {
+    const rows = await to.specialists();
+    const taking = rows.filter((r) => r?.status === "active").length;
+    return { ok: true, count: rows.length, specialists: rows,
+      say: rows.length === 0
+        ? "this account has no other agents, so there is nobody to hand work to"
+        : `${rows.length} specialist(s), ${taking} taking work` };
+  },
+});
+
+/**
+ * ⚠ **`delegate` — AND IT RUNS NOTHING ITSELF.** It files one child run per task on the
+ * durable queue and answers the waiting marker; an ORDINARY consumer claims each child, and
+ * a later delivery of THIS run reads what they left. **So the parent holds no open request
+ * while its specialists work**, which is the requirement rather than an optimisation — and
+ * it is why the tool declares `waits: true`.
+ *
+ * ⚠ **IT TAKES NO BOUND OF ANY KIND, AND THERE IS NOWHERE TO PUT ONE.** How many children,
+ * how many at once, how deep and how long to wait are the deployment's: they are read into
+ * the store's closure from `DELEGATION_DEFAULTS` and recorded at the tree's root by its
+ * first writer, FIRST WRITER WINS — so a child cannot widen what its own tree was started
+ * with, and a model cannot widen anything at all. The one thing a caller states is the
+ * POLICY, which is not a permission: it decides only whether the PARENT's own step may go
+ * on, and `waitVerdict` reads an unknown one as `all`, the strictest.
+ *
+ * ⚠ **AND IT IS DELIBERATELY NOT `approval: true`, which is the one design decision here
+ * worth arguing.** The line this repository draws is what a call changes OUTSIDE the
+ * conversation, and a child cannot do anything the parent could not have done itself: its
+ * tools are `specialist ∩ granted − revoked`, the revocations subtracted by the database
+ * inside the filing transaction, and **a child is an ordinary agent run, so a gated tool it
+ * calls is gated for the child exactly as it would be for the parent.** That is what
+ * "delegation cannot bypass approvals or revocations" really rests on — the gate travels
+ * with the TOOL rather than with who calls it — and gating the fan-out itself would put a
+ * person in front of every parallel step while moving no wall at all.
+ */
+const delegate = delTool({
+  name: "delegate",
+  description:
+    "Hand bounded pieces of this task to specialist agents of this account and wait for " +
+    "their answers. Give each one the id of a specialist from list_specialists and a task in " +
+    "its own words. They work at the same time and you get every answer back together. " +
+    "Nothing you pass here can give a specialist a tool it does not already have.",
+  input: {
+    type: "object",
+    properties: {
+      tasks: {
+        type: "array",
+        description: "One entry per specialist to ask. They run at the same time.",
+        items: {
+          type: "object",
+          properties: {
+            specialist: { type: "string", description: "The specialist's id, from list_specialists." },
+            task: { type: "string", description: "What this one is to do, in its own words.", maxLength: TASK_MAX },
+            tools: {
+              type: "array", items: { type: "string" },
+              description:
+                "Which of that specialist's own tools it may use for this. Leave it out to " +
+                "give it none. A name it does not already have is dropped and named back to you.",
+            },
+            context: {
+              type: "array",
+              description:
+                "What to tell this specialist, by name. Nothing is passed on unless it is here.",
+              items: {
+                type: "object",
+                properties: {
+                  kind: { type: "string", enum: [...CONTEXT_KINDS], description: "What sort of thing this is." },
+                  name: { type: "string", description: "What to call it." },
+                  value: { type: "string", description: "The text itself." },
+                },
+                required: ["kind", "name", "value"],
+              },
+            },
+          },
+          required: ["specialist", "task"],
+        },
+      },
+      policy: {
+        type: "string", enum: [...POLICY_NAMES],
+        description:
+          "What to do if not every specialist delivers: all (the default — every one has to), " +
+          "any (one delivered answer is enough), best_effort (carry on with whoever answered).",
+      },
+    },
+    required: ["tasks"],
+  },
+  /**
+   * ⚠ **BOTH, AND NEITHER IS SUFFICIENT.** `waits` is what lets `run.mjs` hold this run
+   * when the answer says it is unfinished; `repeatable` is what lets a later delivery ask
+   * again — which is the ORDINARY case rather than the exception, because every delivery
+   * after the first is a repeat of this same call. And the repeat is safe because the
+   * identity is the SLOT's: the unique index on `(parent, step, position)` absorbs it, so
+   * asking is the same act as filing.
+   */
+  waits: true,
+  repeatable: true,
+  /**
+   * ⚠ **`writes` SAYS WHAT A FAILURE MEANS.** The children may be filed and the answer
+   * lost, so a throw here is `unresolved` rather than `ok: false` and the model is told to
+   * CHECK rather than invited to ask again — and checking is exactly what a redelivery
+   * does, because `open` absorbs.
+   */
+  writes: true,
+  run: async (args, to, ctx) => {
+    /**
+     * ⚠ **THE IDENTITY IS THE CALL'S OWN, AND WITHOUT ONE NOTHING IS FILED.** Each child's
+     * ids are derived from it, so a redelivery asks about the same children instead of
+     * making a second set — and a server-minted id would be a fresh one on every delivery
+     * by construction. The `no-id` shape `run_automation` already takes.
+     */
+    const at = splitOperation(typeof ctx?.operation === "string" ? ctx.operation : "");
+    if (!at) {
+      return { ok: false, error: "no-id",
+        say: "this call has no identity, so nothing was delegated — ask again" };
+    }
+    /**
+     * ⚠ **THE STEP KEY IS SHORT BY NECESSITY.** `agent.delegations.step` is capped at 64
+     * characters and `ctx.operation` is a uuid, a position and a hash — well past it. The
+     * POSITION half is what makes it the same key on every redelivery, so the derivation
+     * takes that and nothing else: `d<step>.<index>`.
+     */
+    const step = `d${at.key.slice(at.key.indexOf(":") + 1).replace(":", ".")}`;
+
+    const asked = Array.isArray(args.tasks) ? args.tasks : null;
+    if (!asked) {
+      return { ok: false, error: "no-tasks",
+        say: "say which specialists to ask and what each one is to do" };
+    }
+    const roster = await to.specialists();
+    const byId = new Map(roster.map((r) => [String(r?.id), r]));
+
+    const children = [];
+    const refused = [];
+    const dropped = [];
+    asked.forEach((t, n) => {
+      if (!t || typeof t !== "object" || Array.isArray(t)) { refused.push({ at: n, why: "not-an-entry" }); return; }
+      const who = text(t.specialist);
+      const task = text(t.task);
+      if (!who) { refused.push({ at: n, why: "no-specialist" }); return; }
+      if (!task) { refused.push({ at: n, why: "no-task" }); return; }
+      if (task.length > TASK_MAX) { refused.push({ at: n, why: "task-too-long" }); return; }
+      const spec = byId.get(who);
+      // ⚠ NOT FOUND AND NOT THIS ACCOUNT'S ARE ONE ANSWER, because the roster IS the
+      // account's — and the door refuses it again inside the transaction, which is the wall.
+      // This is the sentence, so a model reads which of its own arguments was wrong.
+      if (!spec) { refused.push({ at: n, why: "unknown-specialist" }); return; }
+      if (spec.status !== "active") { refused.push({ at: n, why: "specialist-paused" }); return; }
+      // CONTEXT IS THIS TOOL'S OWN WALL AND THE ONLY ONE THERE IS. `delegate_children`
+      // stores it verbatim, so "passed by name, never by default, and a secret not at all"
+      // lives here or nowhere.
+      const chosen = selectContext(t.context);
+      if (chosen.refused.length) {
+        for (const r of chosen.refused) refused.push({ at: n, why: r.why, name: r.name });
+        return;
+      }
+      /**
+       * ⚠ **THE NARROWING HAPPENS TWICE AND THE TWO ARE NOT ONE WALL.** The DATABASE's,
+       * inside the transaction, is authoritative and also subtracts this account's
+       * revocations — which this tool cannot see at all. This one exists to SAY what the
+       * grant asked for and the specialist has not got: a filter is a silent drop, a check
+       * is a sentence. So `withheld` is deliberately NOT reported from here, because with no
+       * revocations to read it could only ever be empty — an absence wearing a value's
+       * clothes.
+       */
+      const narrowed = narrowDelegatedTools({
+        specialist: Array.isArray(spec.tools) ? spec.tools : [],
+        granted: Array.isArray(t.tools) ? t.tools : [],
+        revoked: [],
+      });
+      // NAMED AND DROPPED, NOT REFUSED. A grant naming a tool the specialist has not got
+      // asks for LESS than it meant to, which is the safe direction — so the child runs with
+      // what it really may use and the caller is told the rest. Refusing a whole batch over
+      // one mistyped name would leave a model unable to delegate at all.
+      for (const name of narrowed.unknown) dropped.push({ at: n, tool: name, specialist: who });
+      children.push({
+        id: uuidFrom(`delegation:${ctx.operation}:${n}`),
+        run_id: uuidFrom(`child:${ctx.operation}:${n}`),
+        agent_id: who,
+        task,
+        tools: [...narrowed.tools],
+        context: chosen.context.map((c) => ({ kind: c.kind, name: c.name, value: c.value })),
+      });
+    });
+
+    // ⚠ **REFUSED WHOLE, NEVER AS A PREFIX** — the rule the door itself keeps in a
+    // subtransaction, and kept here too rather than left to it: a batch this can name is one
+    // nothing needs to be filed for. A context entry quietly dropped would be a specialist
+    // asked to do a job without the thing it was meant to be told.
+    if (refused.length) {
+      return { ok: false, error: "bad-tasks", refused,
+        say: `nothing was delegated — ${refused.map((r) => `task ${r.at + 1}: ${r.why}`).join("; ")}` };
+    }
+
+    const filed = await to.open({ step, children });
+    if (!filed || filed.ok !== true) {
+      const e = typeof filed?.error === "string" ? filed.error : "";
+      return { ok: false, error: e || "not-delegated",
+        say: sayDelegation(e, filed && typeof filed === "object" ? filed : {}) };
+    }
+
+    /**
+     * ⚠ **THE ANSWER IS READ FROM THE ROWS, NEVER FROM WHAT WAS JUST FILED.** On a
+     * redelivery the children may have settled, been cancelled or run out of time since, and
+     * `filed` says only what is on record about the ASKING. One reader, so a first delivery
+     * and a fiftieth take the same path.
+     */
+    const rows = await to.look();
+    const waitMs = to.bounds?.waitMs;
+    const states = rows.map((r) => childState(r, { waitMs }));
+    const verdict = waitVerdict(states, text(args.policy) || undefined);
+
+    if (!verdict.over) {
+      return {
+        [WAITING_MARK]: true,
+        policy: verdict.policy,
+        counts: verdict.counts,
+        working: verdict.blocking,
+        ...(dropped.length ? { dropped } : {}),
+        say: `${verdict.counts.done} of ${verdict.total} specialist(s) have answered; waiting for the rest`,
+      };
+    }
+
+    const { results, roster: seen } = combineResults(rows.map((r, i) => ({
+      index: Number.isInteger(r?.idx) ? r.idx : i,
+      agent: typeof r?.agent_name === "string" ? r.agent_name : null,
+      task: typeof r?.task === "string" ? r.task : null,
+      state: states[i],
+      result: r?.outcome?.result,
+    })));
+    return {
+      ok: verdict.ok,
+      ...(verdict.ok ? {} : { error: verdict.why }),
+      policy: verdict.policy,
+      counts: verdict.counts,
+      results,
+      specialists: seen,
+      ...(dropped.length ? { dropped } : {}),
+      say: verdict.ok
+        ? `${results.length} of ${verdict.total} specialist(s) answered`
+        : `${verdict.counts.done} of ${verdict.total} specialist(s) answered, and `
+          + (verdict.policy === "all" ? "this step needs every one" : "none delivered anything to carry on with"),
+    };
+  },
+});
+
 export const CAPABILITY_TOOLS = Object.freeze([
   searchReference, listReference, readReference,
   listMemory, remember, forget,
@@ -1870,6 +2165,7 @@ export const CAPABILITY_TOOLS = Object.freeze([
   listExecutions, readExecution, cancelExecution,
   listEventEndpoints, setEventEndpoint,
   listConnections, readMessages, sendMessage,
+  listSpecialists, delegate,
 ]);
 
 /**
@@ -1883,3 +2179,17 @@ export const CAPABILITY_TOOLS = Object.freeze([
  * make is a connection nobody granted. Connecting is a PERSON's act, through the site.
  */
 export const CONNECTION_TOOLS = Object.freeze(["list_connections", "read_messages", "send_message"]);
+
+/**
+ * ⚠ **THE TWO THAT REACH OTHER AGENTS, DECLARED AS A LIST so a census can tell them from
+ * the rest.** They need `ctx.delegation` rather than `ctx.capabilities` or
+ * `ctx.connections`, and a guard that drove them against the wrong seam would report the
+ * refusal as working — which is why the three absences say three different things.
+ *
+ * **AND FILING A CHILD IS THE ONLY WRITE ON IT.** Settling one, stopping them and sweeping
+ * overdue parents are the RUNNER's and the cron's, in `delegation-store.mjs`' flat
+ * operations, and none of them is on this seam at all: a tool that could settle a child
+ * could write its sibling's answer, and one that could sweep could reach every account's
+ * trees.
+ */
+export const DELEGATION_TOOLS = Object.freeze(["list_specialists", "delegate"]);
