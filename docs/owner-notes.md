@@ -155,6 +155,100 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-22 — You broke it a fifth time, and the parser was right — its join wasn't
+
+You wrapped the lookup in a loading guard and swapped the two arms:
+
+```
+before:  bookingCount === undefined ? <p>Checking availability</p> : <DaySpaceLookup …/>
+after:   bookingCount === undefined ? <DaySpaceLookup …/> : <p>Checking availability</p>
+```
+
+Every statement, every declaration, every hook, every prop expression —
+byte-identical. Through the real route: `ok`, `tweak`, no full writer, wrong
+source in the compiler payload and in the store. **The page advertises
+availability exactly while the data is missing, and shows the loading line once
+it arrives.** That is the same failure as the first four, arrived at from a
+direction none of them could reach.
+
+**This one is different from the other four, and it matters.** Those were each
+"the reader is the wrong kind of reader." This one wasn't — the parser is the
+right instrument, and you told me to keep it. What was wrong was where its two
+halves met.
+
+### Why it was blind, and both halves were blind on their own
+
+- Every JSX node answered the **same placeholder string**, so a ternary over
+  two bits of markup could not tell its arms apart.
+- The prop expressions rode in **one bag for the whole file**, so both arms'
+  props sat in the same pool wherever they stood.
+
+Either one alone is enough to miss it. That is why the fix is the join and not
+a new rule.
+
+### The fix
+
+Each bit of markup now carries **its own** sorted bag, and that bag rides back
+into the ordered structure **at the place the markup stood**. Swap the arms and
+the ordered string moves, even though both arms and every expression in them
+are still on the page.
+
+**And it collapsed two signatures into one.** Once each site's bag sits in
+place, the whole-file bag is implied by the string — keeping it would be two
+copies of one thing, which is exactly the kind of drift this repo keeps
+recording. One signature, one refusal reason.
+
+**Ordinary tweaks are untouched.** A `<section>` wrapper carries no expression;
+re-ordering siblings sorts to the same list; moving a band between wrappers
+never leaves the tree; a quoted `className` never enters at all.
+
+**What it costs, measured rather than guessed.** One case gets dearer: a
+component with a braced prop moved *between two separate render functions* in
+one file. Over your 324 real page files, **316 (97.5%) have only one such
+place**, so it cannot arise in them; seven have two and one has six.
+
+### Both things you asked for are in
+
+The route-level regression is there, on its own before-source (the guarded
+page) — handing it the ordinary one would have been an easier question. And the
+same-component control: both arms render the **same** component and differ only
+in the value it gets, which is the one shape where "which components appear"
+and "which expressions appear" both answer *the same*.
+
+**A note on the first four route cases.** None of their checks can see this
+one — the swapped page still carries `bookingCount={Number(bookingCount ?? 0)}`
+and none of the four arithmetic spellings. So the shared body of assertions
+passes on the very page this case has to refuse. It names the ternary itself.
+
+### The sweep found two real holes in my own tests
+
+Two mutants survived the first pass, and neither was a false alarm — I measured
+both rather than guessing:
+
+- I had a case for "a value swapped between two components", but it used
+  `count` and `total` on **two of the same component**, so it proved the
+  attribute key and was silent on the tag.
+- I had a case for "re-ordering elements stays cheap", but neither element
+  carried a braced prop, so it was silent on the sort.
+
+Two fixtures too shallow to separate the readings they were named for. Both
+closed; second pass **8 killed, 0 survived, the comment-only control survived.**
+
+Suite **7,139**, all green, up 2 for the two new cases. The gap-closing
+assertions went into cases that already existed, so they moved the count by
+zero — saying that out loud so it doesn't read as though nobody ran them.
+
+**Still true and worth repeating**: the corrected component in these tests is a
+supplied answer. What's proven is that a request like this **is not published
+by the rung that can't finish it** and **reaches the writer that can open both
+files** — not that a real model writes it correctly once it gets there.
+
+**And none of the five fixes is deployed.** The branch is well ahead of main; a
+live press today runs the code main holds, which is what all five bypasses were
+reproduced against.
+
+---
+
 ## 2026-09-22 — You broke it a fourth time, and this time the whole approach was wrong
 
 You sent `Number(0 ?? bookingCount)`. Same bag of tokens as

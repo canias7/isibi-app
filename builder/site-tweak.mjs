@@ -467,23 +467,43 @@ export function readTweak(reply, { source, inPart, parse } = {}) {
  *     component is settled by code this rung cannot read the other half of, so
  *     a change there is one it cannot know it has finished.
  *
- * TWO SIGNATURES, AND THEY DIVIDE EXACTLY ALONG THAT LINE:
+ * ONE SIGNATURE, IN TWO REGISTERS, AND THE JOIN BETWEEN THEM IS THE POINT:
  *
- *   `outside` — the ORDERED structure of every construct that is not JSX
- *     markup, with a JSX element standing as one opaque leaf. Statements,
- *     declarations, hooks and their arguments are all here, in source order, so
- *     the upstream and reassignment shapes differ and so does a renamed RPC.
- *   `embedded` — a MULTISET of every expression the markup carries, each keyed
- *     by its element's tag and the attribute it feeds. A multiset because
- *     reordering or re-wrapping elements must stay free; keyed by tag and
- *     attribute because a value swapped between two components is a change even
- *     when the same expressions are still on the page.
+ *   OUTSIDE MARKUP it is the ORDERED structure of every construct — statements,
+ *     declarations, hooks and their arguments, in source order — so the upstream
+ *     and reassignment shapes differ and so does a renamed RPC.
+ *   INSIDE MARKUP a JSX subtree collapses to a sorted MULTISET of every
+ *     expression it carries, each keyed by its element's tag and the attribute
+ *     it feeds. A multiset because re-ordering and re-wrapping elements must
+ *     stay free; keyed by tag and attribute because a value swapped between two
+ *     components is a change even when the same expressions are still there.
  *
- * A QUOTED attribute value never enters `embedded`: it is a CHOICE the
+ * ⚠ AND THE JOIN IS WHERE THE FIFTH BYPASS LIVED. A JSX subtree used to collapse
+ * to the SAME OPAQUE LEAF wherever it stood, so the two arms of a ternary were
+ * two identical placeholders and swapping them moved nothing — a loading state
+ * and a live component exchanged, reported through the real route as a published
+ * `tweak: true`. The multiset goes IN PLACE now, so each site's own contents are
+ * part of the ordered structure around it, and branch position is associated
+ * with what that branch renders and with the props it receives.
+ *
+ * WHY THAT LEAVES THE CHEAP PATH ALONE: a subtree's multiset is invariant under
+ * exactly the changes a layout tweak makes. A new `<section>` wrapper carries no
+ * braced expression, so it adds nothing; re-ordering siblings re-sorts to the
+ * same list; moving a band between two wrappers inside one tree does not leave
+ * the tree. A QUOTED attribute value never enters at all — it is a CHOICE the
  * receiving file already distinguishes, which is what keeps `className="text-xl"`
- * → `"text-3xl"` — the repository's own encoding of *make the heading bigger* —
- * on the cheap path. A BRACED value always does, because that is where
- * computation lives.
+ * → `"text-3xl"` on the cheap path. A BRACED value always does, because that is
+ * where computation lives.
+ *
+ * ⚠ WHAT IT COSTS, MEASURED RATHER THAN GUESSED. Associating a site with what it
+ * renders necessarily makes MOVING a braced-prop element BETWEEN two executable
+ * sites visible, and that is the one case this is dearer than the opaque leaf —
+ * moving a component from one local render function to another. **Over the
+ * 100-site corpus, 316 of 324 files (97.5%) have exactly ONE executable JSX
+ * site**, so the case cannot arise in them at all; the other 8 have two (seven
+ * of them) or six (one), and it needs a braced-prop element to cross between.
+ * Against publishing a loading state where a live component belongs, that is the
+ * direction to be wrong in.
  *
  * ⚠ CANNOT-TELL FAILS CLOSED, AND THE PARSER IS THE CANNOT-TELL. The parser is
  * `typescript`, which the container resolves from the template's own install
@@ -528,47 +548,45 @@ export function partEligible(before, after, { inPart, parse } = {}) {
     // A source neither side can parse is one this rung cannot reason about.
     return { ok: false, parts: names, why: "unparsed" };
   }
-  if (a.outside !== b.outside) return { ok: false, parts: names, why: "code" };
-  if (a.embedded !== b.embedded) return { ok: false, parts: names, why: "value" };
+  if (a.shape !== b.shape) return { ok: false, parts: names, why: "compute" };
   return { ok: true };
 }
 
 /**
- * THE TWO SIGNATURES, read off the real syntax tree.
+ * ONE SIGNATURE, read off the real syntax tree — `{shape}`.
+ *
+ * `sig` walks every construct IN ORDER; where it meets JSX it hands over to
+ * `markup`, which collapses that whole subtree to a SORTED multiset of the
+ * expressions it carries and hands the string straight back into the ordered
+ * signature at the position the subtree stood in. That one join is what ties
+ * executable context and branch position to the JSX they render.
+ *
+ * ⚠ IT USED TO RETURN TWO SIGNATURES AND A JSX SUBTREE WAS AN OPAQUE LEAF —
+ * `"<jsx/>"` wherever it stood — with the multiset pooled across the whole file
+ * beside it. That is exactly the fifth bypass: `cond ? <p>Checking</p> :
+ * <DaySpaceLookup …/>` and its two arms swapped are two identical leaves in the
+ * ordered half and one identical pool in the other, so a loading state and a
+ * live component could be exchanged and published as a `tweak`. The pool is not
+ * kept as a second value: once each site's own multiset rides in place, the
+ * whole-file union is implied by this string, and a second copy of an implied
+ * thing is this repository's own recorded drift.
  *
  * ⚠ `forEachChild` STOPS ON A TRUTHY CALLBACK RETURN, and the first cut of this
  * walked exactly one child of every node because `kids.push(…)` answers the new
- * LENGTH. Every one of the four bypasses read as eligible against a comparison
- * that was structurally correct and simply had not looked. The callback returns
+ * LENGTH. Every one of the bypasses read as eligible against a comparison that
+ * was structurally correct and simply had not looked. The callback returns
  * nothing on purpose, and the guard drives a shape whose difference is in the
  * SECOND operand so a re-introduction cannot pass.
- *
- * ⚠ THE TWO CALLBACKS BELOW ARE SPELLED ALIKE AND ONLY ONE IS LOAD-BEARING,
- * which is why both are braced and why this says so. `sig`'s pushes an array
- * LENGTH — truthy, so a concise body halts the walk. `walk`'s answers
- * `undefined`, so a concise body there changes nothing: MEASURED over run 17's
- * real 26 KB page and seven other shapes, identical on all eight, while the
- * same harness with `sig`'s concise body differs on all eight. A sweep cannot
- * tell the two apart — it reports the `walk` one as a guard gap — so the
- * asymmetry is recorded here rather than left for the next reader to
- * "simplify" the wrong one.
  */
 export function computeShape(source, parse) {
   const { file, k, isJsx, tagOf, openOf, attrsOf, childrenOf, exprOf, isSpread } = parse(String(source ?? ""));
 
-  const sig = (node) => {
-    if (isJsx(node)) return "<jsx/>";
-    const kids = [];
-    node.forEachChild((c) => {
-      kids.push(sig(c));
-    });
-    if (!kids.length) return k(node) + ":" + (node.getText ? node.getText() : "");
-    return k(node) + "(" + kids.join(",") + ")";
-  };
-
-  const bag = [];
-  const walk = (node) => {
-    if (isJsx(node)) {
+  // A JSX subtree, as the sorted multiset of every expression it carries.
+  // SORTED so re-ordering and re-wrapping markup answer the same string; KEYED
+  // by tag and attribute so a value swapped between two components does not.
+  const markup = (root) => {
+    const bag = [];
+    const take = (node) => {
       const tag = tagOf(node);
       for (const attr of attrsOf(openOf(node))) {
         // A SPREAD carries whatever the object holds, so it is a value by any
@@ -582,18 +600,28 @@ export function computeShape(source, parse) {
       }
       for (const child of childrenOf(node)) {
         const braced = exprOf(child);
-        if (braced) bag.push(tag + "\u0000{}\u0000" + sig(braced));
-        walk(child);
+        // A BRACED child goes through `sig`, which encodes any JSX inside it in
+        // ORDER — so a ternary written as markup is positioned exactly as one
+        // written as a return value. Descending as well would count it twice.
+        if (braced) { bag.push(tag + "\u0000{}\u0000" + sig(braced)); continue; }
+        if (isJsx(child)) take(child);
       }
-      return;
-    }
-    node.forEachChild((c) => {
-      walk(c);
-    });
+    };
+    take(root);
+    return bag.sort().join(",");
   };
-  walk(file);
 
-  return { outside: sig(file), embedded: bag.sort().join("\n") };
+  const sig = (node) => {
+    if (isJsx(node)) return "<jsx:" + markup(node) + ">";
+    const kids = [];
+    node.forEachChild((c) => {
+      kids.push(sig(c));
+    });
+    if (!kids.length) return k(node) + ":" + (node.getText ? node.getText() : "");
+    return k(node) + "(" + kids.join(",") + ")";
+  };
+
+  return { shape: sig(file) };
 }
 
 /**

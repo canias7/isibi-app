@@ -225,6 +225,77 @@ const HOME_OPERAND = (() => {
 })();
 
 /**
+ * AND THE FIFTH SPELLING — A CONDITIONAL BRANCH POSITION, reported through the
+ * real edit route against the parser-based check, which is why a JSX subtree is
+ * no longer an opaque leaf.
+ *
+ * The page gains a loading guard, and the tweak SWAPS its two arms:
+ *
+ *     bookingCount === undefined ? <p>Checking…</p> : <DaySpaceLookup …/>
+ *     bookingCount === undefined ? <DaySpaceLookup …/> : <p>Checking…</p>
+ *
+ * Every statement, declaration and hook is untouched; every prop expression is
+ * untouched; the file's tokens are a permutation of themselves. What moves is
+ * WHICH BRANCH RENDERS WHICH COMPONENT — so the page advertises availability
+ * exactly while the data is missing, and shows the loading line once it
+ * arrives.
+ *
+ * ⚠ THE OLD READER WAS BLIND TO IT BY CONSTRUCTION, TWICE OVER: every JSX node
+ * answered the SAME placeholder, so the ternary's own shape could not move; and
+ * the props rode in a FILE-WIDE bag, so both arms' expressions were in one pool
+ * wherever they stood. Each half alone is sufficient to miss this, which is why
+ * the fix is the JOIN — each JSX site's sorted multiset now rides IN PLACE
+ * inside the ordered signature.
+ */
+const HOME_LOOKUP_EL = "          <DaySpaceLookup\n            preferredDay={preferredDay}\n            bookingCount={Number(bookingCount ?? 0)}\n            onPreferredDay={setPreferredDay}\n          />";
+const HOME_CHECKING = "            <p>Checking availability</p>";
+
+/** The BEFORE side: the guard as a writer would sensibly have written it. */
+const HOME_GUARDED = once(
+  HOME_BEFORE,
+  HOME_LOOKUP_EL,
+  "          {bookingCount === undefined ? (\n" + HOME_CHECKING + "\n          ) : (\n" + HOME_LOOKUP_EL + "\n          )}",
+  "the DaySpaceLookup element run 17's page renders",
+);
+
+/** The AFTER side: the accepted tweak, with the two arms swapped and nothing else. */
+const HOME_BRANCH_SWAPPED = (() => {
+  const s = once(
+    HOME_BEFORE,
+    HOME_LOOKUP_EL,
+    "          {bookingCount === undefined ? (\n" + HOME_LOOKUP_EL + "\n          ) : (\n" + HOME_CHECKING + "\n          )}",
+    "the DaySpaceLookup element run 17's page renders",
+  );
+  // ⚠ THE TWO SIDES DIFFER ONLY IN BRANCH POSITION, ASSERTED RATHER THAN
+  // INTENDED. A fixture whose token bags differed would be one of the four
+  // earlier cases wearing this one's name, and the case would pass for the
+  // wrong reason. The bag is over the WHOLE file, so the guard itself is
+  // untouched by markup nesting.
+  const bag = (t) => (t.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w$]/g) ?? []).sort().join("\u0000");
+  assert.equal(bag(s), bag(HOME_GUARDED),
+    "the branch fixture moved a token, so it is not the reported case");
+  assert.notEqual(s, HOME_GUARDED, "the branch fixture swapped nothing at all");
+  return s;
+})();
+
+/**
+ * AND THE SAME SWAP WITH ONE COMPONENT ON BOTH SIDES — the owner's own control,
+ * and the harder half. Here the two arms render the SAME component and differ
+ * only in the VALUE it is passed, so a reader keyed on which components appear
+ * answers "the same two" and a reader keyed on which expressions appear answers
+ * "the same two". Only a reader that keeps each expression AT ITS POSITION can
+ * tell them apart, which is exactly the property this round installed.
+ */
+const SAME_COMPONENT_BEFORE = "import DaySpaceLookup from \"@/routes/-parts/day-space-lookup\"\n"
+  + "function Panel({ count }){\n"
+  + "  return <div>{count === undefined ? <DaySpaceLookup bookingCount={0} /> : <DaySpaceLookup bookingCount={Number(count)} />}</div>\n"
+  + "}\n";
+const SAME_COMPONENT_AFTER = "import DaySpaceLookup from \"@/routes/-parts/day-space-lookup\"\n"
+  + "function Panel({ count }){\n"
+  + "  return <div>{count === undefined ? <DaySpaceLookup bookingCount={Number(count)} /> : <DaySpaceLookup bookingCount={0} />}</div>\n"
+  + "}\n";
+
+/**
  * THE CORRECTED PAGE. The count keeps its meaning — the subtraction moves to
  * the component, beside the words that name its result — and the two states
  * that must never read as free space travel with it.
@@ -250,10 +321,10 @@ const HOME_FIXED = (() => {
   );
 })();
 
-function bucket(slug) {
+function bucket(slug, home = HOME_BEFORE) {
   const store = new Map([
     [SRC_KEY(slug), JSON.stringify([
-      { path: "index.tsx", source: HOME_BEFORE },
+      { path: "index.tsx", source: home },
       { path: "gear.tsx", source: GEAR },
       { path: "prices.tsx", source: PRICES },
     ])],
@@ -517,11 +588,22 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
   }
 
   // AND THE SAME VALUE MOVED BETWEEN TWO COMPONENTS IS A CHANGE, which is why
-  // the embedded half is keyed by tag and attribute rather than pooled: the
-  // bag of expressions is equal and each component now receives the other's.
+  // a subtree's bag is keyed by tag and attribute rather than pooled: the bag
+  // of expressions is equal and each component now receives the other's.
   const two = (x, y) => page(D, `<Band count={${x}} /><Band total={${y}} />`);
   assert.equal(partEligible(two("n", "6"), two("6", "n"), { inPart: false, parse: PARSE }).ok, false,
     "two components swapping the values they receive was accepted");
+
+  // ⚠ AND THAT PAIR PROVES THE ATTRIBUTE HALF ALONE — a red check said so, not
+  // the design. `count` and `total` are already two keys, so dropping the TAG
+  // from the key changes nothing about it. The tag is load-bearing exactly when
+  // two DIFFERENT components are fed the SAME attribute name, which is the only
+  // shape that separates the two readings and is therefore the one asserted.
+  const named = (x, y) => page(D, `<Band count={${x}} /><Other count={${y}} />`);
+  assert.equal(partEligible(named("n", "6"), named("6", "n"), { inPart: false, parse: PARSE }).ok, false,
+    "two components swapping one attribute's values was accepted");
+  assert.equal(partEligible(named("n", "6"), named("n", "6"), { inPart: false, parse: PARSE }).ok, true,
+    "the tag case's own control refused an untouched page");
 
   // ⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COMPUTATION — the red
   // check found this, not the design: reading the file fully masked dropped
@@ -534,14 +616,37 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
     "a page calling a different database function was accepted");
   // …while the attribute whose value is quoted is still dropped whole, which
   // is what keeps the visual tweak above cheap. Both halves, one instrument.
-  const shape = (t) => { const x = computeShape(t, PARSE); return x.outside + "\u0001" + x.embedded; };
+  const shape = (t) => computeShape(t, PARSE).shape;
   assert.equal(shape('<h1 className="a">x</h1>'), shape('<h1 className="bbbb">x</h1>'));
 
-  // AND THE EMBEDDED HALF IS A MULTISET, so reordering elements is a change to
-  // none of it — `sameProse`'s own rule, one step over — while the OUTSIDE half
-  // is ORDERED, which is what the multiset could not be and why it fell.
+  // AND INSIDE MARKUP IT IS A MULTISET, so reordering elements is a change to
+  // none of it — `sameProse`'s own rule, one step over — while OUTSIDE markup
+  // it is ORDERED, which is what the multiset could not be and why it fell.
   assert.equal(shape(page(D, "<p>a</p><Band />")), shape(page(D, "<Band /><p>a</p>")));
   assert.notEqual(shape(page(D, "<Band count={n} />")), shape(page(D, "<Band count={6 - n} />")));
+
+  // ⚠ AND THAT REORDER PAIR CARRIES NO BRACED PROP AT ALL, so the SORT it is
+  // meant to prove is invisible to it — a red check found that, not the design,
+  // and it is this repository's own fixture-too-shallow trap. Re-ordering two
+  // elements that each DO carry one is the shape the two readings differ on,
+  // and it must stay cheap: a layout tweak is exactly this.
+  assert.equal(shape(page(D, "<Band count={n} /><Other total={6} />")),
+    shape(page(D, "<Other total={6} /><Band count={n} />")),
+    "re-ordering two elements that carry braced props stopped being a cheap tweak");
+
+  // ⚠ AND THE TWO REGISTERS MEET AT EVERY JSX SITE, which is the fifth bypass's
+  // own property and the reason there is ONE signature rather than two. A
+  // subtree's bag rides IN PLACE, so swapping the arms of a ternary moves the
+  // ordered string even though both arms, and every expression in them, are
+  // still on the page.
+  const arms = (a, b) => page(D, `{n === undefined ? ${a} : ${b}}`);
+  assert.notEqual(shape(arms("<p>Checking</p>", "<Band count={n} />")),
+    shape(arms("<Band count={n} />", "<p>Checking</p>")),
+    "a JSX subtree is still an opaque leaf, so branch position is invisible");
+  // …and the same two arms, unswapped, are equal — without this the assertion
+  // above is satisfied by a reader that calls every pair of pages different.
+  assert.equal(shape(arms("<p>Checking</p>", "<Band count={n} />")),
+    shape(arms("<p>Checking</p>", "<Band count={n} />")));
 });
 
 test("a page that renders none of the site's own components is not asked at all", () => {
@@ -555,7 +660,7 @@ test("a page that renders none of the site's own components is not asked at all"
     "a page with no local components was refused for changing its own logic");
   // And the two readings really do differ — without this the case above passes
   // for the wrong reason.
-  const sh = (t) => computeShape(t, PARSE).outside;
+  const sh = (t) => computeShape(t, PARSE).shape;
   assert.notEqual(sh(plain(1)), sh(plain("6 - rows.length")));
 });
 
@@ -666,8 +771,8 @@ test("`inPart` really travels from runTweak into readTweak", async () => {
  * writer able to open both files — and never that a real model produces a
  * correct component when it gets there.
  */
-async function doesNotPublish(slug, tweakSource) {
-  const store = bucket(slug);
+async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []) {
+  const store = bucket(slug, home);
   const c = installCompiler();
   try {
     await withWire({
@@ -707,6 +812,12 @@ async function doesNotPublish(slug, tweakSource) {
         "the publish carried the operand-order change, which always answers zero");
       assert.ok(sentHome.includes("bookingCount={Number(bookingCount ?? 0)}"),
         "the count stopped being the booking count");
+      // A SPELLING THE SHARED NEGATIVES CANNOT SEE gets its own, because the
+      // branch swap leaves every expression above byte-identical — the shared
+      // checks would pass on the very page it publishes.
+      for (const [needle, why] of absent) {
+        assert.ok(!sentHome.includes(needle), why);
+      }
       assert.ok(sentPart.includes("placesLeft"), "the compiled component is not the corrected one");
       assert.ok(!/already on this day/.test(sentPart), "the compiled component still words the count as bookings");
 
@@ -751,6 +862,56 @@ test("THE OPERAND ORDER does not publish either — through the route, same sour
   // answers zero. No exception for `??` was added — a real syntax tree reads
   // operand POSITION, so this is the same answer the other three get.
   await doesNotPublish("contract-repro-operand", HOME_OPERAND);
+});
+
+test("THE CONDITIONAL BRANCH SWAP does not publish either — through the route, same sources", async () => {
+  // THE FIFTH REPORTED SPELLING, and the one that killed the opaque JSX leaf.
+  // Every statement, declaration, hook and prop expression is byte-identical;
+  // what moves is which ARM of a ternary renders the component, so the page
+  // advertises availability exactly while the data is missing.
+  //
+  // ⚠ THE BEFORE-SOURCE IS THIS CASE'S OWN. The guard is what the tweak is
+  // swapping, so the store has to hold the guarded page — handing this case the
+  // ordinary before-source would compare the swap against a page with no
+  // ternary at all, which is a different and much easier question.
+  //
+  // ⚠ AND THE SHARED NEGATIVES CANNOT SEE THIS ONE. `HOME_BRANCH_SWAPPED` still
+  // carries `bookingCount={Number(bookingCount ?? 0)}` and none of the four
+  // arithmetic spellings, so every check the other cases lean on passes on the
+  // very page this one must refuse. The ternary is named here instead.
+  await doesNotPublish(
+    "contract-repro-branch",
+    HOME_BRANCH_SWAPPED,
+    HOME_GUARDED,
+    [["bookingCount === undefined ?", "the publish carried the branch-swapped guard"]],
+  );
+});
+
+test("A SWAP BETWEEN TWO ARMS OF ONE COMPONENT IS CAUGHT TOO — the harder half", async () => {
+  // THE OWNER'S OWN CONTROL. Both arms render the SAME component, so a reader
+  // keyed on WHICH components appear answers "the same one twice"; both values
+  // appear on both sides, so a reader keyed on WHICH expressions appear answers
+  // "the same two". Only a reader that keeps each expression AT ITS POSITION
+  // separates them — which is what a real tree, with each site's bag inlined in
+  // source order, does.
+  assert.ok(PARSE, "no parser: this case cannot establish anything");
+
+  // The two sides really do carry the same components and the same values,
+  // asserted rather than intended — a fixture that differed some other way
+  // would be a case about something else.
+  const names = (t) => (t.match(/<DaySpaceLookup\b/g) ?? []).length;
+  assert.equal(names(SAME_COMPONENT_BEFORE), 2, "the control does not render the component twice");
+  assert.equal(names(SAME_COMPONENT_AFTER), 2, "the control does not render the component twice");
+  for (const v of ["bookingCount={0}", "bookingCount={Number(count)}"]) {
+    assert.ok(SAME_COMPONENT_BEFORE.includes(v) && SAME_COMPONENT_AFTER.includes(v),
+      "both values must appear on both sides, or the case is not about position");
+  }
+  assert.notEqual(SAME_COMPONENT_BEFORE, SAME_COMPONENT_AFTER, "the control swapped nothing");
+
+  const r = partEligible(SAME_COMPONENT_BEFORE, SAME_COMPONENT_AFTER, { parse: PARSE });
+  assert.equal(r.ok, false, "a value swapped between two arms of one component read as eligible");
+  assert.equal(r.why, "compute", "the refusal did not name the computation");
+  assert.deepEqual(r.parts, ["day-space-lookup"], "the refusal did not name the component");
 });
 
 test("AN ORDINARY VISUAL TWEAK STILL TAKES THE CHEAP PATH — the positive control", async () => {

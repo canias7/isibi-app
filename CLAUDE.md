@@ -1896,14 +1896,14 @@ by moving the calculation one line up the page.
 **THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
 `restoreVersion` to the previous version — this file's own restore path, free.
 
-### THE DOOR, BUILT — AND REBUILT THREE TIMES BEFORE IT HELD (2026-09-22)
+### THE DOOR, BUILT — AND REBUILT FOUR TIMES BEFORE IT HELD (2026-09-22)
 
 `partEligible` in `site-tweak.mjs`, gated inside `readTweak` **below
 `sameProse` and above `tweakLint`** so each refusal keeps its own name.
 **`sameProse` IS UNTOUCHED** — this is a second question asked beside it.
 
 **⚠ THE FIRST THREE SHAPES WERE APPROXIMATE READERS AND EACH WAS BEATEN BY A
-SPELLING, all four reported by the owner through the real edit route.** The
+SPELLING, all five reported by the owner through the real edit route.** The
 record of that is the value here, because the lesson is general:
 
 1. **Compare the prop's TEXT.** Beaten by moving the arithmetic one line up:
@@ -1918,6 +1918,45 @@ record of that is the value here, because the lesson is general:
    **has the identical bag of tokens and always answers zero** — so a fully
    booked day again advertised space, through the real route, `ok: true`,
    `tweak: true`, zero full-writer calls.
+4. **A real syntax tree, with a JSX subtree as ONE OPAQUE LEAF.** Beaten by
+   BRANCH POSITION: wrap the element in a loading guard and swap the two arms,
+   `cond ? <p>Checking availability</p> : <DaySpaceLookup …/>` becoming
+   `cond ? <DaySpaceLookup …/> : <p>Checking availability</p>`. **Every
+   statement, declaration, hook and prop expression byte-identical**, and the
+   published page advertises availability exactly while the data is missing and
+   shows the loading line once it arrives. `ok`, `tweak`, zero full-writer
+   calls, the wrong source in both the compiler payload and the store.
+
+**⚠ THE FOURTH IS THE ONE THAT SAYS THE DESIGN WAS RIGHT AND ITS JOIN WAS
+NOT** (owner: *"Keep the parser. Preserve the association between executable
+context, branch position and rendered JSX, including the props it receives"*).
+Three earlier rounds each replaced a reader; this one kept it and fixed where
+its two halves met. **Both halves were independently blind and either alone is
+sufficient to miss this**: `sig` answered the identical string `"<jsx/>"` for
+every JSX node, so a `ConditionalExpression` over two markup arms was unchanged
+by swapping them; and the expressions rode in a MULTISET POOLED ACROSS THE
+WHOLE FILE, so both arms' props sat in one bag wherever they stood.
+
+**THE FIX IS THE JOIN, AND IT COLLAPSED TWO SIGNATURES INTO ONE.** Each JSX
+site's own sorted multiset now rides **IN PLACE** inside the ordered signature
+— `sig(jsxNode)` is `"<jsx:" + markup(node) + ">"` — so a subtree's contents
+are recorded at the position the subtree stood in. **The whole-file union is
+then strictly IMPLIED by that string**, which is why the second signature was
+deleted rather than kept beside it: two copies of one thing is this
+repository's own recorded drift, and a sweep would have called the survivor.
+One signature `{shape}`, one refusal reason `compute`.
+
+- **WHY THE CHEAP PATH IS UNTOUCHED**: a subtree's bag is invariant under
+  exactly what a layout tweak does. A `<section>` wrapper carries no braced
+  expression; re-ordering siblings re-sorts to the same list; moving a band
+  between wrappers inside one tree never leaves that tree; a QUOTED attribute
+  value never enters at all.
+- **⚠ WHAT IT COSTS, MEASURED OVER THE REAL CORPUS RATHER THAN GUESSED.** The
+  one case that becomes dearer is a BRACED-PROP element moved BETWEEN two
+  executable JSX sites — two local render functions, say. **316 of the 324
+  corpus files (97.5%) have exactly ONE executable JSX site**, so the case
+  cannot arise in them at all; of the other eight, seven have two and one has
+  six (`crm/records.tsx`).
 
 **THE THIRD FAILURE SETTLES THE DESIGN, AND IT IS NOT AN EDGE CASE: A BAG OF
 TOKENS CANNOT SEE ORDER, AND ORDER IS THE SEMANTICS.** `a ?? 0` and `0 ?? a`
@@ -1937,7 +1976,7 @@ rather than an analysis of code.
 JAVASCRIPT** (owner: *"use established parsing tooling if needed; don't build
 another approximate JavaScript scanner"*). `ts.createSourceFile` — the same
 parser the compile step already runs over these files — builds the real syntax
-tree, and two signatures are read off it.
+tree, and ONE signature is read off it.
 
 - **THE QUESTION IS ELIGIBILITY, NOT DETECTION, and it is settled by what the
   rung IS.** `runTweak` takes ONE page's source and answers ONE page's source.
@@ -1946,15 +1985,23 @@ tree, and two signatures are read off it.
   may not change what the page COMPUTES.** Everything in the first half is
   settled inside the one file it holds, which is exactly what `sameProse` and
   `tweakLint` already cover.
-- **TWO SIGNATURES, DIVIDING EXACTLY ALONG THAT LINE.** `outside` is the
-  ORDERED structure of every construct that is not JSX markup, **a JSX element
-  standing as one opaque leaf** — so statements, declarations, hooks and their
-  arguments are all in it, in source order. `embedded` is a MULTISET of every
-  expression the markup carries, **each keyed by its element's tag and the
-  attribute it feeds**. A multiset because re-ordering or re-wrapping elements
-  must stay free — `sameProse`'s own reason, one step over; keyed by tag and
-  attribute because a value SWAPPED BETWEEN two components is a change even
-  when the same expressions are still on the page.
+- **ONE SIGNATURE IN TWO REGISTERS, DIVIDING EXACTLY ALONG THAT LINE.**
+  **OUTSIDE MARKUP** it is the ORDERED structure of every construct —
+  statements, declarations, hooks and their arguments, in source order.
+  **INSIDE MARKUP** a JSX subtree collapses to a sorted MULTISET of every
+  expression it carries, **each keyed by its element's tag and the attribute it
+  feeds**, and that string rides back into the ordered signature **at the
+  position the subtree stood in**. A multiset because re-ordering or
+  re-wrapping elements must stay free — `sameProse`'s own reason, one step over;
+  keyed by tag and attribute because a value SWAPPED BETWEEN two components is
+  a change even when the same expressions are still on the page; **in place**
+  because otherwise branch position is invisible, which is the fourth bypass.
+  **⚠ AND THE TWO KEYS ARE SEPARATELY LOAD-BEARING AND A RED CHECK HAD TO SAY
+  SO.** The obvious pair — `<Band count={n} /><Band total={6} />` with the
+  values swapped — proves the ATTRIBUTE half alone, since `count` and `total`
+  are already two keys; the TAG is load-bearing exactly when two DIFFERENT
+  components are fed the SAME attribute name. A mutant dropping the tag
+  survived the whole guard until that shape was written.
 - **ORDER IS RECORDED BY CONSTRUCTION, which is why the reported case needed no
   rule of its own** — and why two shapes nobody enumerated fall out free: a
   flipped ternary and a swapped argument list are caught by the same code, with
@@ -1966,15 +2013,12 @@ tree, and two signatures are read off it.
   failure available, since nothing disagreed with anything. The guard drives a
   shape whose difference is in the SECOND operand, so a re-introduction cannot
   pass.
-- **⚠ AND THE TWO CALLBACKS ARE SPELLED ALIKE WHILE ONLY ONE IS LOAD-BEARING —
-  A RED-CHECK SURVIVOR SAID SO, AND IT WAS THE MUTANT AND NOT A GUARD GAP.**
-  `walk(c)` answers `undefined`, so a concise body there halts nothing.
-  **MEASURED over run 17's real 26 KB page and seven other shapes: identical
-  on all eight**, while the same harness with `sig`'s concise body **differs on
-  all eight** — the observer proved alive before the zero was believed. A sweep
-  cannot tell them apart, so the asymmetry is stated in the code rather than
-  left for somebody to "simplify" the wrong one.
-- **A QUOTED ATTRIBUTE VALUE NEVER ENTERS `embedded`**, which is what keeps
+  **AND THE SECOND CALLBACK IS GONE WITH THE POOL** — `walk` was the file-wide
+  bag's own walker, and the recorded "two callbacks spelled alike while only
+  one is load-bearing" trap went with it. What survives from that finding is
+  the rule: `kids.push(…)` answers a LENGTH, so a concise body in a
+  `forEachChild` callback halts the walk after one child.
+- **A QUOTED ATTRIBUTE VALUE NEVER ENTERS THE BAG**, which is what keeps
   `className="text-xl"` → `"text-3xl"` — this repository's own encoding of
   *make the heading bigger* — on the cheap path. **A BRACED value always
   does**, because that is where computation lives. Asserted in both
@@ -2012,7 +2056,10 @@ tree, and two signatures are read off it.
   computation really moves, including a rewritten BRACED value anywhere in the
   markup (`className={cn(…)}`), at the rewrite plus ~1 credit. **Renaming a
   QUOTED attribute stays invisible** — the same class the old rule called a
-  choice, so consistent rather than newly blind.
+  choice, so consistent rather than newly blind. **AND THE FOURTH ROUND MOVED
+  IT ONCE MORE, IN THE OTHER DIRECTION**: a braced-prop element moved BETWEEN
+  two executable JSX sites now escalates, which **316 of 324 corpus files
+  (97.5%) cannot exhibit at all**, having exactly one such site.
 - **⚠ `inPart` IS ALWAYS FALSE ON THE ROUTE TODAY — MEASURED, AND SAID IN THE
   CODE.** `target` is found in `eSrc`, which is `loadSiteSourceForEdit` → the
   PAGES store, so no reachable `target.path` is a `-parts/` file. It is
@@ -2026,19 +2073,27 @@ tree, and two signatures are read off it.
   difference invisible to anything but a real tree, so it cannot pass by
   accident on a comparison that never ran — with an ordinary visual tweak
   through the same hop as its control.
-- **ALL FOUR SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
-  (`doesNotPublish(slug, tweakSource)`): did-not-publish, reached the
-  component-capable writer, that writer was SHOWN the component's wording, the
-  compiler payload (which carries **neither** arithmetic spelling **nor**
+- **ALL FIVE SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
+  (`doesNotPublish(slug, tweakSource, home, absent)`): did-not-publish, reached
+  the component-capable writer, that writer was SHOWN the component's wording,
+  the compiler payload (which carries **neither** arithmetic spelling **nor**
   `Number(0 ?? bookingCount)`), the stored source, the untouched neighbours.
-  Written out four times they drift, and the one that drifts is the one nobody
+  Written out five times they drift, and the one that drifts is the one nobody
   reads again.
+  **⚠ THE FIFTH NEEDED TWO PARAMETERS THE OTHER FOUR DID NOT, AND BOTH ARE THE
+  SAME FACT.** Its BEFORE-SOURCE is the guarded page, not the ordinary one —
+  the tweak is swapping a ternary, so a store holding a page with no ternary
+  would be a different and much easier question. And **none of the shared
+  negatives can see it**: the swapped page still carries
+  `bookingCount={Number(bookingCount ?? 0)}` and none of the four arithmetic
+  spellings, so every check the other cases lean on PASSES on the very page
+  this one must refuse. `absent` names the ternary.
 - **⚠ AND THE CLAIM IS SCOPED: SUPPLIED MODEL OUTPUT PROVES THE EXECUTION PATH,
   NOT THE ANSWER** (owner). The corrected pair is a stubbed answer, so what is
   established is that a request of this class is **not published by the rung
   that cannot finish it** and **reaches the writer that can open both files** —
   never that a real model writes a correct component once it gets there.
-- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **18 cases**, on run 17's
+- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **20 cases**, on run 17's
   OWN artifact — `index.before.tsx` **26,276 chars / 26,288 bytes, sha
   `129b54600bd30720`** and `day-space-lookup.before.tsx` **1,466 / 1,468, sha
   `5330fca7b88e5ac1`**, the published answer DERIVED from the before-source by
@@ -2049,18 +2104,37 @@ tree, and two signatures are read off it.
   COUNT, NOT A BYTE COUNT** — the page carries em dashes, so `String.length`
   reads 26,276 where `wc -c` reads 26,288; one reader is used on both sides, so
   every comparison is sound and only the LABEL was ever wrong.
-  **THE OPERAND FIXTURE ASSERTS ITS OWN BAG IS UNCHANGED**, so it cannot drift
-  into testing something else: a fixture whose multiset moved would not be the
-  reported case.
-  **8 mutants killed, a comment-only control survived, and the ninth was
-  MEASURED INERT** (above); both files restored byte-identical from a
-  SCRATCHPAD backup, never `git checkout`.
-- **SUITE 7,137, BOTH HALVES TAKEN** — locally `# tests 7137 / # pass 7137 /
-  # fail 0 / # skipped 0`, `duration_ms 111,873`, and CI run **`35742915576`
-  on `70b9a041`** at **`# tests 7137 / # pass 7133 / # fail 0 / # skipped 4`**,
-  `duration_ms 116,877`. **THE TOTAL IS WHAT MATCHES** — 7,137 both sides,
-  `pass` differing by exactly CI's own four skips, which is this file's
-  standing reading of that gap and not a regression.
+  **THE OPERAND AND BRANCH FIXTURES EACH ASSERT THEIR OWN BAG IS UNCHANGED**,
+  so neither can drift into testing something else: a fixture whose multiset
+  moved would be one of the other four wearing its name.
+  **8 mutants killed, a comment-only control survived** on the fourth round,
+  restored byte-identical from a SCRATCHPAD backup, never `git checkout`.
+  **⚠ AND THE FIRST PASS OF THAT ROUND WAS 6 KILLED AND 2 SURVIVED, AND BOTH
+  SURVIVORS WERE REAL GUARD GAPS RATHER THAN INERT MUTANTS — MEASURED, WHICH IS
+  THE RULE.** Dropping the TAG from the bag's key, and dropping the `.sort()`,
+  each survived because the fixture standing for it could not tell the two
+  readings apart: the value-swap pair used `count` and `total` on **two of the
+  SAME component**, so the attribute key alone separated them; and the reorder
+  control used two elements carrying **NO braced prop at all**, so the sort was
+  invisible to it. One measurement named each discriminator — the same
+  attribute name on two DIFFERENT components, and two BRACED-PROP elements
+  re-ordered — and both close with one assertion. *A fixture too shallow to
+  separate the two readings*, twice in one file, found by the sweep and not by
+  reading the code.
+- **SUITE 7,139, BOTH HALVES TAKEN** — locally `# tests 7139 / # pass 7139 /
+  # fail 0 / # skipped 0`, `duration_ms 109,603`, and CI run **`<unread>`**.
+  **The +2 is the difference between two measured readings**, 7,137 → 7,139,
+  and it is exactly the two new CASES — the branch-swap route case and the
+  same-component control. **The two gap-closing assertions moved the count by
+  ZERO**, going into cases that already existed, which is stated rather than
+  left to look like nobody ran them.
+  **THE PREVIOUS ROUND'S READING IS KEPT: 7,137, BOTH HALVES TAKEN** — locally
+  `# tests 7137 / # pass 7137 / # fail 0 / # skipped 0`, `duration_ms 111,873`,
+  and CI run **`35742915576` on `70b9a041`** at **`# tests 7137 / # pass 7133 /
+  # fail 0 / # skipped 4`**, `duration_ms 116,877`. **THE TOTAL IS WHAT
+  MATCHES** — 7,137 both sides, `pass` differing by exactly CI's own four
+  skips, which is this file's standing reading of that gap and not a
+  regression.
   **AND `site build` RUN `35742915892` READ ALL TWELVE COUNTS GREEN**
   (14:48:47 → 15:15:08Z, **26m21s**, all twenty steps): TAP **397/397/0/0**,
   kit-typecheck 4, site-build **382**, contrast-cases 16, theme-seam 11,
