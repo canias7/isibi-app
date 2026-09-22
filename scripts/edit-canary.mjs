@@ -33,6 +33,9 @@ import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport }
 // makes about billing and about what the old watch would have seen are worth
 // driving, and they cannot be reached through a script that spends money.
 import { readJobRecords, describeJob } from "./canary-read-job.mjs";
+// THE RESTORE MODE. Its own module for the same reason: what it will and will
+// not post is worth driving, and it cannot be reached through this script.
+import { readRestoreId, restoreFlow, describeRestore } from "./canary-restore.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -55,6 +58,10 @@ const EVID = String(process.env.CANARY_EVIDENCE_DIR || "docs/edits/canary").trim
 // READ ONE EXISTING JOB AND STOP. Set, everything below the sign-in is skipped
 // — see the branch above the preflight.
 const READ_JOB = String(process.env.CANARY_READ_JOB || "").trim();
+// PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP. Set, the free checks run,
+// the version is restored, the inventory reads the restored site, and nothing
+// past the inventory runs — see the branch above the inventory.
+const RESTORE = String(process.env.CANARY_RESTORE || "").trim();
 
 // THE READ MODE DOES NOT NEED A SLUG, and demanding one would be a false
 // demand with a real cost: the job row CARRIES its slug, so asking the caller
@@ -63,6 +70,15 @@ const READ_JOB = String(process.env.CANARY_READ_JOB || "").trim();
 if (!EMAIL || !SERVICE_KEY || (!CANARY && !READ_JOB)) {
   console.error("OWNER_EMAIL, SUPABASE_SERVICE_KEY and CANARY_SLUG are required (CANARY_SLUG is not needed with CANARY_READ_JOB)");
   process.exit(1);
+}
+
+// A MALFORMED VERSION REFUSES BEFORE ANYTHING IS SIGNED IN OR READ: the id is
+// what the caller can fix, and nothing about the platform is needed to say so.
+// The read mode ignores every input below it, this one included.
+const RESTORE_ASK = RESTORE && !READ_JOB ? readRestoreId(RESTORE) : null;
+if (RESTORE_ASK && !RESTORE_ASK.ok) {
+  console.error(`REFUSING TO RESTORE: ${RESTORE_ASK.msg}`);
+  process.exit(2);
 }
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
@@ -311,6 +327,41 @@ if (JOB) {
 
 console.log(`\n${failed ? "FAILED — " + failed + " check(s)" : "ALL FREE CHECKS PASSED"}\n`);
 
+// ── RESTORE ONE SAVED VERSION, THEN READ WHAT IS LIVE ──────────────────────
+//
+// BELOW THE FREE CHECKS, so a Worker that is not the expected build — or a
+// platform failing its own round trip — never has a version put back through
+// it. ABOVE THE INVENTORY, so the source read that follows is of the restored
+// site. A restore that did not take STOPS the run: an inventory taken after it
+// would be a perfectly good record of the WRONG site, read as the restored one.
+if (RESTORE_ASK) {
+  if (failed) {
+    console.log("REFUSING TO RESTORE: a free check failed, so the platform is not the one this run expected.");
+    process.exit(1);
+  }
+  const rs = await restoreFlow({
+    id: RESTORE_ASK.id,
+    listVersions: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/versions`),
+    // THE APP'S OWN CALL: the Versions panel posts `{ id }` to this route.
+    postRestore: (id) => call("POST", `/api/site/${encodeURIComponent(CANARY)}/versions/restore`, { body: { id } }),
+    // THE SITE ITSELF, not the route: `x-site-version` is what the live script
+    // bakes, so it is the one reading that says what a visitor is served.
+    readLive: async () => {
+      try {
+        const r = await fetch(`https://${CANARY}.gofarther.app/?restore-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+        return String(r.headers.get("x-site-version") || "");
+      } catch { return ""; }
+    },
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  });
+  const told = describeRestore(rs, CANARY);
+  console.log(told + "\n");
+  mkdirSync(EVID, { recursive: true });
+  writeFileSync(`${EVID}/restore.json`, JSON.stringify(rs, null, 2));
+  writeFileSync(`${EVID}/restore.txt`, told + "\n");
+  if (!rs.ok) process.exit(1);
+}
+
 // ── THE INVENTORY, CAPTURED BEFORE ANYTHING IS SPENT ───────────────────────
 //
 // Two halves, and they answer different questions:
@@ -426,6 +477,14 @@ console.log(`  balance ${BAL < 0 ? "UNREADABLE" : BAL}`);
 check("the balance is readable", BAL >= 0, String(BAL));
 console.log("");
 
+// THE RESTORE MODE STOPS HERE WHATEVER `spend` SAYS. The workflow already holds
+// `CANARY_SPEND` at 0 while a version is named; this is the second wall, in the
+// script, because a restore that went on to spend would be an edit against a
+// site nobody has compared yet.
+if (RESTORE_ASK) {
+  console.log("RESTORE MODE — stopping before the paid edit. Nothing was charged.");
+  process.exit(failed ? 1 : 0);
+}
 if (!SPEND) {
   console.log("CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was charged.");
   process.exit(failed ? 1 : 0);

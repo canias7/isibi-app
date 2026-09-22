@@ -184,8 +184,8 @@ under "reported, not part of the pass". Both were wrong, and both are fixed
 below.
 
 Same site, same page source, **the same sentence byte for byte** — 159
-characters, fingerprint `622547386217ef0c…7193`. I can't press or restore from
-here, and nothing happens until you approve it.
+characters, fingerprint `622547386217ef0c…7193`. I can't press anything from
+here, and nothing happens until you press it.
 
 **The exact version to go back to is `01789972018761-6tng48`**, found in the
 saved evidence rather than by a time: it's what the live site reported in its
@@ -195,22 +195,35 @@ every saved copy of the site's source from run 11's finish, through runs 12 and
 14, to run 17's own "before" is identical, file for file. Nothing that could
 publish ran in between.
 
-1. **Restore it** — free, when you're happy to. Cloud → Versions → the row
-   **"The home page shows nine beginner quotes in three stacked…"**, dated
-   **21 Sep, 06:26 UTC** (the panel shows it in your own time). It should be the
-   row right under "Live now". The panel doesn't show version ids, so:
-2. **Tell me** — I'll read the site's version header (free). It must say exactly
-   `01789972018761-6tng48`, or we stop there.
-3. **Free press** — `edit-canary` on `main`: `spend: no`, instruction blank,
-   `read_job` blank, `site: fretwork-1`, `control: washhouse-3`,
-   `expect_deploy: a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image:
-   be869f142e052c8c`. It confirms which code and which container are really
-   live, and it reads the site's whole source — and I compare **every page and
-   every component, byte for byte**, against run 17's "before". All six must
-   match; a matching sentence on the page isn't enough. Then I take the
-   "before" reading of the box.
-4. **Paid press** — the same form, `spend: yes`, and the instruction pasted
-   exactly:
+**Your first press (run 18, 22 Sep) did two useful things and couldn't do the
+third.** It confirmed that the merged code `a208a86a` and the container
+`be869f142e052c8c` are really what's live (the Worker answering for itself,
+not just the deploy's report), and that the balance is 65. But the site hadn't
+been restored yet, so the source it read is exactly what run 17 left behind:
+all six files match run 17's result, and `index.tsx` is the one file that
+differs from where we want to start.
+
+**So the restore now happens inside the same workflow.** You asked me to do it,
+and the restore needs you signed in, which the workflow already is. That makes
+it one press:
+
+1. **Restore + read.** Open `edit-canary` and switch **"Use workflow from"** to
+   the branch **`claude/help-needed-ehlwlj`**. Fill in only three boxes:
+   `restore_version: 01789972018761-6tng48`, `expect_deploy:
+   a208a86a32eb0a048013fc401e94f01080a69059` and `expect_image:
+   be869f142e052c8c`. Leave everything else as it comes. It runs the free
+   checks, finds that version in your site's own version list, and puts it back
+   the same way the app's Restore button does. It waits until the site itself
+   reports that version, then reads the whole source. It never spends: naming a
+   version switches the paid half off. It also prints your whole version list
+   with each build's "parent", which should settle the one thing the saved
+   evidence couldn't: whether anything was published between run 11 and run 17.
+2. **I check.** First the version header, then **every page and every
+   component, byte for byte**, against run 17's "before". All six must match; a
+   matching sentence on the page isn't enough. Then I take the "before" reading
+   of the box.
+3. **Paid press.** Back on **`main`**, the same form as before, with `spend:
+   yes` and the instruction pasted exactly:
 
    > The "Space on a preferred day" box counts bookings. Make it count down the places left instead — six lesson slots a day, so an empty day reads six places left.
 

@@ -55,6 +55,19 @@ on:
         description: 'READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes nothing, and ignores every input below.'
         required: false
         default: ''
+      restore_version:
+        # A MODE, NOT A FLAG, like read_job. Filled in, the script runs the
+        # free checks, puts that ONE saved version back through the same route
+        # the app's Versions panel calls — only after finding it in the site's
+        # own version list — waits until the site itself reports it, reads the
+        # restored source, and STOPS. `spend` is off while it is set.
+        #
+        # It exists because the restore is owner-gated: a session holding no
+        # Supabase token cannot press it, and this workflow already signs in as
+        # the owner.
+        description: 'PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP: a version id (14 digits, a dash, up to 6 letters/digits). Free. Never spends.'
+        required: false
+        default: ''
       site:
         description: 'The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.'
         required: false
@@ -153,7 +166,11 @@ jobs:
           # dispatch filling in a job id has asked for a lookup; a `spend: yes`
           # left over from the previous press is not a second request.
           CANARY_READ_JOB: ${{ github.event.inputs.read_job }}
-          CANARY_SPEND: ${{ github.event.inputs.read_job == '' && github.event.inputs.spend == 'yes' && '1' || '0' }}
+          # AND THE RESTORE MODE BEATS IT THE SAME WAY: a dispatch naming a
+          # version has asked for that version back, and an edit on top of it
+          # before anybody has compared the restored source is not that request.
+          CANARY_RESTORE: ${{ github.event.inputs.restore_version }}
+          CANARY_SPEND: ${{ github.event.inputs.read_job == '' && github.event.inputs.restore_version == '' && github.event.inputs.spend == 'yes' && '1' || '0' }}
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}

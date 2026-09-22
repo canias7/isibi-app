@@ -2477,14 +2477,19 @@ property the product owes.
 
 **THE ORDER, AND WHO PRESSES WHAT:**
 
-1. **RESTORE — the owner, free, only when approved.** Cloud → Versions → that
-   row → Restore.
+1. **RESTORE AND READ — ONE PRESS, the owner, free** (owner, 2026-09-22: *"You
+   do it and tell me what to run again"*). `edit-canary.yml` dispatched from
+   **branch `claude/help-needed-ehlwlj`** — the mode exists there only — with
+   `restore_version` `01789972018761-6tng48`, `expect_deploy`
+   `a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image`
+   `be869f142e052c8c`, everything else at its default. It runs the free
+   checks, finds the id in the site's own version list, posts the app's own
+   restore call, waits for the site's `x-site-version` to read the id, and only
+   then takes the inventory — see *the restore mode*, below. (Cloud → Versions
+   → Restore in the app is the same call by hand.)
 2. **THE HEADER — the session, free, no token.** `x-site-version` must read
    **exactly `01789972018761-6tng48`**; anything else stops the test.
-3. **THE FREE PRESS — the owner.** `edit-canary.yml` on `main`: `spend` `no`,
-   `instruction` blank, `read_job` blank, `site` `fretwork-1`, `control`
-   `washhouse-3`, `expect_deploy` `a208a86a32eb0a048013fc401e94f01080a69059`,
-   `expect_image` `be869f142e052c8c`. **Its preflight is the runtime
+3. **THE BODIES — the session, free.** **The press's preflight is the runtime
    confirmation of the SHA and the image** (both deploy readers,
    `async`/`runner` true), and **its artifact's `before/source.json` is the
    existing workflow's complete source read**: every page and component body is
@@ -2501,8 +2506,9 @@ property the product owes.
    already on this day."*, 6 → *"6 bookings already on this day."*, and
    **every unknown state → *"No bookings on this day yet — it still has
    space."*** — the very defect the loading criterion names.
-5. **THE PAID PRESS — the owner.** The same form with `spend` `yes` and the
-   instruction pasted verbatim. **~22–30 credits**; balance **65** at run 17's
+5. **THE PAID PRESS — the owner.** The same form on `main` — or on the branch
+   with `restore_version` blank, since a named version turns spending off —
+   with `spend` `yes` and the instruction pasted verbatim. **~22–30 credits**; balance **65** at run 17's
    end, and the free press prints the current one. **The run's OWN
    `before/source.json`, taken seconds before its POST, is compared too** — it
    is the edit's real starting source, and a mismatch makes the run something
@@ -2590,6 +2596,72 @@ model changes the calculation and the wording together, which is what was
 asked; that the DOOR is what declined stays evidenced by the contract tests
 alone. Putting the reason on the wire would settle it, and it is a product
 change that would need its own deploy before the press.
+
+### RUN 18, AND THE RESTORE THAT MOVED INTO THE CANARY (2026-09-22)
+
+**RUN 18 IS DEPLOY 2143'S RUNTIME CONFIRMATION** (`35780055225`, dispatched on
+`main` at 20:24:12Z, free, canary step 23 s): `build-health 200
+deploy=a208a86a32eb image=be869f142e052c8c`, `runtime 200 … async=true
+runner=true`, both readers agreeing and both expectations matching. **The live
+Worker answering, not Wrangler reporting on itself** — so 2143 is deployed AND
+runtime-confirmed now. Balance **65**, unchanged since run 17.
+
+**⚠ AND IT RAN BEFORE THE RESTORE, SO IT CANNOT BE THE STARTING-SOURCE CHECK.**
+The site still reported `01790040384165-wl5it5` (three reads, 20:25:57 →
+20:26:54Z), and the press's `before/source.json` is **byte-identical to run
+17's AFTER on all six bodies** and **differs from run 17's before at `index.tsx`
+alone** (26,276 → 26,280 chars, `129b5460…` → `fbbb0de0…`, run 17's one line).
+Two facts rather than one: nothing on the site has moved since run 17, and the
+comparator sees a difference when there is one — a live control in both
+directions, on a real artifact.
+
+**THE RESTORE MOVED INTO THE CANARY** (owner: *"You do it and tell me what to
+run again"*). `POST /api/site/<slug>/versions/restore` is owner-gated and a
+session holds no Supabase token; the canary already signs in as the owner. So
+**`restore_version` is a MODE, like `read_job`** — `scripts/canary-restore.mjs`,
+handed its three readers and holding no transport of its own:
+
+- **ORDER IS THE SAFETY ARGUMENT.** Free checks first, so a Worker that is not
+  the expected build — or a platform failing its own round trip — never has a
+  version put back through it (`if (failed)` refuses above the call). Then the
+  restore. Then the inventory, so the source read is of the restored site.
+  **A restore that did not take STOPS the run above the inventory**: a read
+  taken after it would be a perfectly good record of the WRONG site, read as
+  the restored one.
+- **IT POSTS ONLY WHAT THE SITE'S OWN LIST CARRIES.** An unreadable list — a
+  503 CARRYING a list included, which is why the status is asked and not just
+  the shape — an id the list does not carry, and a version saved without its
+  script (`restorable: false`) all stop BEFORE the post. A site already on the
+  version gets **no post**.
+- **"DONE" IS THE SITE'S OWN HEADER, NEVER THE ROUTE'S `ok`.** `worker: false`
+  (files back, script not up) is its own outcome, never folded into a slow
+  roll; an answer naming another version is `wrong-id`; a header that never
+  moves is `live-unmoved` after 40 reads 3 s apart. `x-site-version` is what
+  the live script bakes, so it is the one reading that says what a visitor is
+  served.
+- **IT NEVER SPENDS.** The workflow holds `CANARY_SPEND` at 0 while a version is
+  named — the read mode's own wall, one clause wider — and the script stops
+  above `if (!SPEND)` too. A malformed id refuses with exit 2 **before the
+  sign-in**, through the platform's own `isVersionId`, never a second copy of
+  the shape, and nothing is repaired: a restore of "roughly that one" is the
+  approximate-timestamp mistake this mode exists to close.
+- **THE LIST CARRIES EVERY BUILD'S `parent`**, so the press also reads the
+  residual recorded above — run 17's manifest parent — as a side effect: row 1
+  should be `01790040384165-wl5it5` with parent `01789972018761-6tng48`, row 2
+  the target. **Stated before the press; the press settles it.**
+- **THE DISPATCH MUST NAME THE BRANCH.** The mode exists on
+  `claude/help-needed-ehlwlj` only; a dispatch from `main` offers no box and
+  runs the ordinary free checks. A branch dispatch runs the branch's script
+  against main's Worker, which is exactly what the preflight checks.
+- **EVIDENCE**: `test/canary-restore.test.mjs`, **19 cases** — the decisions
+  DRIVEN over recording readers, the wiring a census over blanked comments.
+  **18 mutants killed, 0 survived, 0 never applied, 2 comment-only controls
+  surviving**, over the module, the canary and the workflow
+  (`scripts/mutants/canary-restore.json`, the four canary guard files); all
+  three files byte-identical to a SCRATCHPAD backup afterwards. **Suite 7,162
+  locally** (`# tests 7162 / # pass 7162 / # fail 0 / # skipped 0`,
+  `duration_ms 108,727`) — **+19 against the last measured reading of 7,143**,
+  exactly this file's cases. The CI half is the push's own run.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
