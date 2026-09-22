@@ -894,30 +894,153 @@ function entryKeysIn(sql) {
   return keys;
 }
 
-test("THE SQL BUILDS THE SAME ENTRY SHAPE `startedEntry` DOES", () => {
-  // Two producers of one entry shape, which the journal's own rules say is how a
-  // resumed conversation stops being the one the run would have had. The SQL path
-  // exists because the app may not decide a bound; this is what holds the shapes
-  // equal. A field added to `startedEntry` and not to the migration would make
-  // every authored run's log quietly short of it.
-  const at = SQL.indexOf("v_entry := jsonb_build_object(");
-  assert.ok(at > 0, "the entry build is not in the migration");
-  const end = SQL.indexOf("v_accept :=", at);
-  assert.ok(end > at, "the entry build does not end where the accept begins");
-  const named = new Set(entryKeysIn(SQL.slice(at, end)));
-  assert.ok(named.size >= 4, `the reader found ${named.size} fields, so it is not reading the build`);
-  // `agent`, `model` and `limits` are merged in from `agent.authored_run()` rather
-  // than named here — the other half of the same transaction, censused above.
-  for (const k of ["agent", "model", "limits"]) named.add(k);
+/**
+ * EVERY SQL PRODUCER OF AN AUTHORED RUN'S FIRST ENTRY, and the keys each one names.
+ *
+ * ⚠ **DERIVED, BECAUSE THE FIRST VERSION OF THIS WAS A LIST OF ONE.** It read
+ * `agent.send_to_agent`'s build alone, so when `agent.delegate_children` became a THIRD
+ * producer of this shape — building a child's first entry inside the transaction that
+ * files the row — the census could not see it at all, and the field it was missing
+ * (`agent.authored_run()`'s own merge) would have made every delegated child answer
+ * `no-agent`. So the set is asked of the migrations rather than written out here: a
+ * fourth producer is censused by existing.
+ *
+ * **MERGING `agent.authored_run()` IS WHAT MAKES A BUILD ONE OF THESE, and it is the
+ * database's own definition rather than this reader's taste.** That function is what says
+ * what an authored run executes under, and `agent.project_entry` reads `agent`, `model`
+ * and `limits` off THIS entry and nowhere else — so a build without it is not a producer
+ * of this shape, it is a run with no agent. `agent.accept_automation_run` builds an entry
+ * too and does not merge it, which is right: an automation execution runs no model and
+ * reads `agent: 'automation'`, `model: 'none'`.
+ *
+ * **THE LATEST DEFINITION WINS, per function name.** `create or replace` supersedes, so a
+ * census over every occurrence would be a census over dead code — this directory's own
+ * recorded "a position is not an identity" trap, which has cost the SQL sweep three
+ * rounds.
+ */
+function authoredEntryBuilds() {
+  const dir = new URL("../supabase/migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  assert.ok(files.length > 0, "there are no migrations to read");
+  const latest = new Map();
+  for (const f of files) {
+    const text = readFileSync(new URL(f, dir), "utf8");
+    // ⚠ BLANKED FIRST, LENGTH-PRESERVING, because this directory's most repeated own goal
+    // is prose containing the thing it forbids — and these bodies explain the merge in
+    // comments that sit directly above it. Every offset below still indexes the real body.
+    const body = text.replace(/^(\s*)--.*$/gm, (m2, lead) => lead + " ".repeat(m2.length - lead.length));
+    const re = /create or replace function (agent\.[a-z_]+)\s*\(/g;
+    let m;
+    while ((m = re.exec(body))) {
+      const open = body.indexOf("$$", m.index);
+      if (open < 0) continue;
+      const close = body.indexOf("$$", open + 2);
+      if (close < 0) continue;
+      latest.set(m[1], { file: f, body: body.slice(open + 2, close) });
+    }
+  }
+  const out = [];
+  for (const [fn, { file, body }] of latest) {
+    const merge = body.indexOf("|| agent.authored_run() ||");
+    if (merge < 0) continue;
+    const assign = body.lastIndexOf(":=", merge);
+    const end = body.indexOf(";", merge);
+    assert.ok(assign > 0 && end > merge, `${fn}: the entry build has no readable bounds`);
+    out.push({ fn, file, keys: new Set(entryKeysIn(body.slice(assign, end))) });
+  }
+  return out;
+}
 
+test("EVERY SQL PRODUCER OF A STARTED ENTRY BUILDS THE SHAPE `startedEntry` DOES", () => {
+  // Several producers of one entry shape, which the journal's own rules say is how a
+  // resumed conversation stops being the one the run would have had. The SQL paths exist
+  // because the app may not decide a bound and because the transaction that files a child
+  // must be one transaction; this is what holds every shape equal to the JS producer's.
+  const builds = authoredEntryBuilds();
+  // ⚠ THE OBSERVER, and it is a floor rather than a count. A reader that found nothing
+  // would pass every claim below it, and a reader pinned to "exactly two" would go red the
+  // day an honest fourth producer arrives — which is the failure mode this census replaced.
+  assert.ok(builds.length >= 2,
+    `the reader found ${builds.length} SQL producers of a started entry, so it is not reading the migrations`);
+
+  // What the JS producer can express when it is given everything.
   const js = new Set(Object.keys(startedEntry({
     at: NOW, tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in", prompt: "p",
     limits: limitsToJson(AUTHORED[AUTHORED_AGENT].limits),
     instructions: WROTE, history: [], tools: [], authoredAgent: "a-1", message: "m-1",
+    delegatedBy: "r-1", delegation: "d-1", depth: 1, context: [],
   })));
 
-  assert.deepEqual([...named].sort(), [...js].sort(),
-    "the two producers of a started entry do not agree about its fields");
+  const union = new Set();
+  for (const { fn, file, keys } of builds) {
+    // `agent`, `model` and `limits` are MERGED IN rather than named in the build — the
+    // other half of the same transaction, censused above — so they are what the merge
+    // contributes and every producer that has one contributes all three.
+    for (const k of ["agent", "model", "limits"]) keys.add(k);
+    assert.ok(keys.size >= 4, `${fn} (${file}): the reader found ${keys.size} fields, so it is not reading its build`);
+    // ── ONE DIRECTION: nothing a producer names may be unexpressible in JS ──
+    for (const k of keys) {
+      assert.ok(js.has(k),
+        `${fn} (${file}) names "${k}" and \`startedEntry\` cannot produce it — two producers of one shape`);
+    }
+    for (const k of keys) union.add(k);
+  }
+  // ── AND THE OTHER: a field on `startedEntry` that no producer names is one a run
+  // accepted through SQL would quietly be short of. Both halves, because either alone
+  // lets the shapes drift in the direction it does not look.
+  assert.deepEqual([...union].sort(), [...js].sort(),
+    "the SQL producers and `startedEntry` do not agree about this shape's fields");
+});
+
+test("⚠ EVERY AUTHORED RUN'S ENTRY MERGES `agent.authored_run()`, or its run has no agent", () => {
+  // **THE DEFECT THIS IS WRITTEN FOR SHIPPED AND WAS MEASURED.**
+  // `agent.delegate_children` built a child's first entry without the merge, and
+  // `agent.project_entry` reads `agent` and `model` off that entry and nowhere else — so
+  // `agent.runs.agent_name` was null, the runner's `open.run.agent_name ?? open.state.agent`
+  // was nothing, and every perfectly filed child was refused `no-agent`.
+  //
+  // So this asks the migrations the other way round: every function that hands
+  // `agent.accept_run` an entry it BUILT must either merge it or be a declared exception.
+  const dir = new URL("../supabase/migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+  const latest = new Map();
+  for (const f of files) {
+    const text = readFileSync(new URL(f, dir), "utf8")
+      .replace(/^(\s*)--.*$/gm, (m2, lead) => lead + " ".repeat(m2.length - lead.length));
+    const re = /create or replace function (agent\.[a-z_]+)\s*\(/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const open = text.indexOf("$$", m.index);
+      const close = open < 0 ? -1 : text.indexOf("$$", open + 2);
+      if (close > 0) latest.set(m[1], text.slice(open + 2, close));
+    }
+  }
+  // ⚠ **ONE DECLARED EXCEPTION, AND IT IS A DIFFERENT KIND OF RUN RATHER THAN AN
+  // OVERSIGHT.** An automation execution calls no model at all: its entry reads
+  // `agent: 'automation'`, `model: 'none'` and `limits: null`, so merging what an AUTHORED
+  // run executes under would put a model and eight bounds on a run that has neither.
+  const NOT_AUTHORED = new Set(["agent.accept_automation_run"]);
+  const callers = [...latest].filter(([, body]) =>
+    /agent\.accept_run\(/.test(body) && /jsonb_build_object\(/.test(body));
+  assert.ok(callers.length >= 3,
+    `the reader found ${callers.length} functions building an entry for \`accept_run\`, so it is not reading the migrations`);
+  let merged = 0;
+  for (const [fn, body] of callers) {
+    if (NOT_AUTHORED.has(fn)) {
+      assert.ok(!body.includes("agent.authored_run()"),
+        `${fn} is declared as not an authored run and merges what one executes under`);
+      continue;
+    }
+    assert.ok(body.includes("|| agent.authored_run() ||"),
+      `${fn} builds a started entry and does not merge \`agent.authored_run()\` — its runs answer \`no-agent\``);
+    merged += 1;
+  }
+  // The observer again: an exception list that grew to cover everything would satisfy
+  // every claim above it.
+  assert.ok(merged >= 2, `only ${merged} producers were really checked for the merge`);
+  for (const fn of NOT_AUTHORED) {
+    assert.ok(latest.has(fn), `${fn} is declared an exception and is not a function any migration defines`);
+  }
 });
 
 // ════════════════════════════════════════════════════════════════════════════
