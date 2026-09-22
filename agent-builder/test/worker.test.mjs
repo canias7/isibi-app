@@ -1090,6 +1090,109 @@ test("...AND A SIBLING'S CONNECTION IS NOT THIS AGENT'S, through the real delive
   });
 });
 
+const DG_PARENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const DG_SPEC = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+
+test("⚠ A DELIVERY'S TOOLS REACH THIS ACCOUNT'S OTHER AGENTS — the same hop, the third seam", async () => {
+  // **THE WIRING LAYER at the only place both halves exist at once**, and this is the third
+  // of three seams `parts` builds and `buildRunner` hands over. Drop the ONE key and every
+  // delegation tool answers `no-delegation`, the run completes, the queue acks, and the
+  // customer is told this account has no other agents. The same mutant survived for
+  // `capabilities` and then for `connections` until a case like this existed for each, which
+  // is why this one is written now rather than assumed to ride along.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(DG_PARENT, { id: DG_PARENT, tenant_id: "t1", status: "active",
+                                 name: "Front desk" });
+    rest.agents.set(DG_SPEC, { id: DG_SPEC, tenant_id: "t1", status: "active",
+                               name: "Researcher", instructions: "You read things up." });
+
+    const runId = "run-dg-1";
+    const accepted = await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-22T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use list_specialists and tell me who work can be handed to",
+          limits: limitsToJson({ steps: 2 }),
+          instructions: "You answer about the shop.", history: [],
+          authoredAgent: DG_PARENT, message: "msg-dg", tools: ["list_specialists"],
+        }),
+      }),
+    });
+    assert.equal(accepted.status, 200, await accepted.text());
+
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    assert.deepEqual(batch.acked, [0], "the delivery was retried rather than finished");
+
+    // ⚠ THE ASSERTION IS ON WHAT THE TOOL GOT BACK. A run with no seam finishes just as
+    // happily, with `no-delegation` in the tool result — which is what the mutant produces.
+    const log = [...rest.entries.get(runId).values()];
+    const tools = log.filter((e) => e.kind === "tool");
+    assert.equal(tools.length, 1, JSON.stringify(log.map((e) => e.kind)));
+    assert.equal(tools[0].name, "list_specialists");
+    assert.equal(tools[0].value?.ok, true, `the tool refused: ${JSON.stringify(tools[0].value)}`);
+    assert.equal(tools[0].value.count, 1, JSON.stringify(tools[0].value));
+    assert.equal(tools[0].value.specialists[0].id, DG_SPEC);
+    assert.equal(tools[0].value.specialists[0].name, "Researcher");
+
+    // AND IT WAS SCOPED TO THE AUTHORED AGENT — the tenant from the claim, the agent from the
+    // run's own snapshot, neither ever through a model. **BOTH ARE ON THE WIRE**, because the
+    // roster's whole content is decided by them: the tenant says whose agents, and the agent
+    // says which one is asking, which is what "OTHER" is answered against.
+    const asked = rest.fetch.calls.filter((c) => c.url.includes("/rpc/list_specialists"));
+    assert.equal(asked.length, 1, JSON.stringify(rest.fetch.calls.map((c) => c.url)));
+    // ⚠ THE RECORDER PARSES THE BODY ALREADY (`memoryRest`'s `counted`), so this reads its
+    // own producer's shape rather than re-parsing a string that is not there.
+    const sent = asked[0].body;
+    assert.equal(sent.p_tenant, "t1", JSON.stringify(sent));
+    assert.equal(sent.p_agent, DG_PARENT, JSON.stringify(sent));
+  });
+});
+
+test("...AND THE ASKING AGENT IS NOT ITS OWN SPECIALIST, through the real delivery", async () => {
+  // THE CONTROL that makes the case above about the wiring rather than about the fake: an
+  // account whose ONLY agent is the one asking answers an empty roster, so "it came back with
+  // a specialist" cannot be satisfied by a store that answers every agent it holds.
+  //
+  // ⚠ AND IT IS THE STRONGER CONTROL AVAILABLE HERE, because it also proves the ONE argument
+  // a sibling-owned row could not: with the roster scoped by tenant alone this account really
+  // does have an agent, and the answer would be the parent itself — a specialist a model could
+  // then hand work to, which `delegate` refuses as `self-delegation` two layers down.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    rest.agents.set(DG_PARENT, { id: DG_PARENT, tenant_id: "t1", status: "active",
+                                 name: "Front desk" });
+    // A SECOND ACCOUNT'S AGENT, so the roster has something to wrongly include if the tenant
+    // ever stopped reaching the wire — the other half of the pair on the answer above.
+    rest.agents.set(DG_SPEC, { id: DG_SPEC, tenant_id: "t2", status: "active",
+                               name: "Somebody else's" });
+    const runId = "run-dg-2";
+    await rest.fetch("https://p.supabase.co/rest/v1/rpc/accept_run", {
+      method: "POST", headers: { "content-profile": "agent" },
+      body: JSON.stringify({
+        p_run_id: runId, p_tenant: "t1", p_kind: "start",
+        p_entry: startedEntry({
+          at: "2026-09-22T00:00:00Z", tenant: "t1", agent: AUTHORED_AGENT, model: "stand-in",
+          prompt: "use list_specialists and tell me who work can be handed to",
+          limits: limitsToJson({ steps: 2 }), instructions: "x", history: [],
+          authoredAgent: DG_PARENT, message: "msg-dg2", tools: ["list_specialists"],
+        }),
+      }),
+    });
+    const batch = batchOf([{ runId }]);
+    await worker.queue(batch, env, ctx);
+    const tools = [...rest.entries.get(runId).values()].filter((e) => e.kind === "tool");
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].value?.ok, true, JSON.stringify(tools[0].value));
+    assert.equal(tools[0].value.count, 0, "the asking agent, or another account's, was listed");
+  });
+});
+
 test("...AND A SIBLING'S MEMORY IS NOT THIS AGENT'S, through the real delivery", async () => {
   // THE CONTROL that makes the case above about the wiring rather than about the fake:
   // the same run against an agent that owns nothing answers an empty list, so "it came
