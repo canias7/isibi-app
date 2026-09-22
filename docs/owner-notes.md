@@ -155,6 +155,89 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-22 — You broke it a sixth time, on a component with no props
+
+You wrapped a prop-free component in a guard and swapped the arms:
+
+```
+before:  preferredDay ? <TrialBookingForm /> : <p>Choose a day first</p>
+after:   preferredDay ? <p>Choose a day first</p> : <TrialBookingForm />
+```
+
+Through the real route: `ok`, `tweak`, no full writer, wrong source in the
+compiler payload and in the store.
+
+**And yesterday's fix was working perfectly.** Each bit of markup carries its
+own bag, in place, so branch position really was being recorded. The problem is
+that the bag holds **expressions**, and `<TrialBookingForm />` has none — so
+both arms were the same empty bag. A correct mechanism positioning nothing.
+
+### The fix
+
+The bag carries **identities** as well as expressions. Every one of your own
+components now puts its own name in the bag wherever it is rendered, so which
+branch renders it survives **whether or not it takes props** — which is exactly
+what you asked for.
+
+**Only your own components, not every one.** The quick rung holds one page's
+file, so what it can't finish is a change whose meaning lives in a file it can't
+open. A kit component is settled inside the file it already has — and keying
+every capitalised tag would make adding a `<Button>` an escalation, which is an
+ordinary visual tweak. There's a control for that, and a mutant that widens it
+dies on that control.
+
+**How it knows which is which.** Two readers, each asked the one thing it knows:
+the existing path reader says which imports are your components, the parser says
+what each import binds. They join on the literal import string, so neither half
+re-implements the other. All three import forms count — default, `* as`, and
+`{ named }` — because a form left out is a component the rung is free to move,
+and each has its own case.
+
+**What it reaches: none of your 324 corpus pages.** The identity entry is only
+added where a file imports one of your own components, and the corpus imports
+none — it predates components. So the blast radius is exactly the pages that
+render a `-parts/` component, and nothing else changed at all.
+
+**What got dearer, and it's narrow**: adding or removing a **prop-free** local
+component now escalates, as adding a propped one already did. Re-ordering two of
+them, wrapping one, adding plain markup and swapping a `className` all stay
+cheap — the bag is sorted and none of those leaves the tree.
+
+### The sweep caught me making the same mistake inside the fix
+
+First pass: 7 killed, 1 survived. The survivor was **my design being wrong**,
+not a missing test.
+
+I had written the own-component reader to *catch* a parser that couldn't answer
+and carry on with an empty set — reasoning that the expression half still works,
+so only this one wall is lost. Cutting that catch survived the whole guard. And
+reading what the mutant actually does: swallowing it means **the identity half
+is silently off**, which is precisely the class of defect this whole round is
+about, one layer down. Your own standing rule — cannot-tell fails closed — and I
+broke it inside the fix for a defect of the same shape.
+
+It throws now, and the caller turns that into a refusal. Both shapes are driven:
+a reader that's missing and one that throws are the same absence from here.
+Second pass: **8 killed, 0 survived, comment-only control survived.**
+
+### Numbers
+
+24 cases in the contract file (was 20), the five edit-path guards **70/70**,
+suite **7,143** all green — up 4 for the four new cases; the clause-form and
+cannot-tell assertions went into existing cases and moved it by zero.
+
+And the previous round's CI both landed green: unit **7,139 / 7,135 / 0 / 4**
+and `site build` **24m16s**, all twenty steps, all twelve counts matching.
+
+**Same caveats as before.** The corrected component in these tests is a supplied
+answer — what's proven is that a request like this isn't published by the rung
+that can't finish it and reaches the writer that can open both files, not that a
+real model writes it right. And **none of the six fixes is deployed**; the branch
+is well ahead of main, which is the code every one of these was reproduced
+against.
+
+---
+
 ## 2026-09-22 — You broke it a fifth time, and the parser was right — its join wasn't
 
 You wrapped the lookup in a loading guard and swapped the two arms:

@@ -426,7 +426,15 @@ const SIBLING_SPEC = /^\.\/([^/]+)$/;
 
 /**
  * EVERY COMPONENT OF THIS SITE'S OWN THAT THIS SOURCE IMPORTS — `[{name,
- * clause, kind}]`, read off the SPECIFIER rather than off a stored list.
+ * clause, kind, spec}]`, read off the SPECIFIER rather than off a stored list.
+ *
+ * `spec` IS THE SPECIFIER EXACTLY AS WRITTEN, extension and all, because it is
+ * a JOIN KEY. `partEligible` has to learn which JSX tag names one of these
+ * components, and the binding is in the import clause — which a real parser
+ * already reads. Carrying the raw string lets that join be an equality against
+ * the parser's own `moduleSpecifier`, instead of a SECOND reader of the
+ * `-parts/` convention sitting beside the two regexes below. `name` is still
+ * the extension-stripped answer every existing caller reads.
  *
  * WHY OFF THE FILE AND NOT OFF `parts.json`: the store answers what the SITE
  * has, and the question every caller here asks is what THIS FILE depends on. A
@@ -451,7 +459,7 @@ export function localParts(src, inPart) {
     const q = p ? null : (inPart === true ? SIBLING_SPEC.exec(s) : null);
     const name = p ? p[1] : (q ? q[1] : "");
     if (!name) continue;
-    out.push({ name, clause: m.clause, kind: m.kind });
+    out.push({ name, clause: m.clause, kind: m.kind, spec: m.spec });
   }
   return out;
 }

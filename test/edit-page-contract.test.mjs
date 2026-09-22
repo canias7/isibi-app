@@ -296,6 +296,80 @@ const SAME_COMPONENT_AFTER = "import DaySpaceLookup from \"@/routes/-parts/day-s
   + "}\n";
 
 /**
+ * AND THE SIXTH SPELLING — A PROP-FREE CUSTOM COMPONENT, reported through the
+ * real edit route against the branch-position fix, which is why the bag now
+ * carries identities as well as expressions.
+ *
+ * The page gains a guard around a component that takes NO PROPS, and the tweak
+ * swaps its arms:
+ *
+ *     preferredDay ? <TrialBookingForm /> : <p>Choose a day first</p>
+ *     preferredDay ? <p>Choose a day first</p> : <TrialBookingForm />
+ *
+ * ⚠ THE FIFTH FIX WORKED EXACTLY AS DESIGNED AND STILL MISSED IT. Each JSX
+ * site's multiset rides in place, so branch position IS recorded — but the
+ * multiset is of EXPRESSIONS, and this component carries none, so both arms
+ * collapsed to the same EMPTY bag. A correct mechanism over a subtree with
+ * nothing in it.
+ *
+ * `<TrialBookingForm />` IS THE RUN'S OWN PROP-FREE RENDER, not one invented
+ * for this fixture: the real page renders three of its own components and this
+ * is the one that takes no props, asserted below.
+ */
+const HOME_TRIAL_EL = "<TrialBookingForm />";
+
+/** The BEFORE side: the guard as a writer would sensibly have written it. */
+const HOME_PROPFREE = once(
+  HOME_BEFORE,
+  HOME_TRIAL_EL,
+  "{preferredDay ? <TrialBookingForm /> : <p>Choose a day first</p>}",
+  "the prop-free component run 17's page renders",
+);
+
+/** The AFTER side: the accepted tweak, arms swapped and nothing else. */
+const HOME_PROPFREE_SWAPPED = (() => {
+  const s = once(
+    HOME_BEFORE,
+    HOME_TRIAL_EL,
+    "{preferredDay ? <p>Choose a day first</p> : <TrialBookingForm />}",
+    "the prop-free component run 17's page renders",
+  );
+  // ⚠ THE COMPONENT REALLY CARRIES NO PROPS, ASSERTED RATHER THAN INTENDED.
+  // With a single braced prop this case would be round five wearing this one's
+  // name, and would have passed against the very reader it is here to falsify.
+  assert.ok(HOME_BEFORE.includes(HOME_TRIAL_EL), "the page stopped rendering the component prop-free");
+  const bag = (t) => (t.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w$]/g) ?? []).sort().join("\u0000");
+  assert.equal(bag(s), bag(HOME_PROPFREE),
+    "the prop-free fixture moved a token, so it is not the reported case");
+  assert.notEqual(s, HOME_PROPFREE, "the prop-free fixture swapped nothing at all");
+  return s;
+})();
+
+/**
+ * AND THE OWNER'S OWN CONTROL: TWO DIFFERENT prop-free custom components
+ * exchanged between the branches. Neither arm gains or loses a component, and
+ * neither carries a prop — so a reader keyed on *which components appear*
+ * answers "the same two" and one keyed on *which expressions appear* answers
+ * "none, both times". Only identity AT ITS POSITION separates them.
+ *
+ * BOTH NAMES ARE THE PAGE'S OWN IMPORTS, asserted, so the fixture cannot drift
+ * into naming a component this site has not got.
+ */
+const CONTROL_PAIR = (() => {
+  const names = localParts(HOME_BEFORE, false).map((p) => p.name);
+  for (const n of ["trial-booking-form", "day-space-lookup"]) {
+    assert.ok(names.includes(n), "the control names a component the page does not import: " + n);
+  }
+  const mk = (a, b) => once(
+    HOME_BEFORE,
+    HOME_TRIAL_EL,
+    `{preferredDay ? <${a} /> : <${b} />}`,
+    "the prop-free component run 17's page renders",
+  );
+  return { before: mk("TrialBookingForm", "DaySpaceLookup"), after: mk("DaySpaceLookup", "TrialBookingForm") };
+})();
+
+/**
  * THE CORRECTED PAGE. The count keeps its meaning — the subtraction moves to
  * the component, beside the words that name its result — and the two states
  * that must never read as free space travel with it.
@@ -649,6 +723,127 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
     shape(arms("<p>Checking</p>", "<Band count={n} />")));
 });
 
+test("THE BAG CARRIES IDENTITIES TOO, and only the site's own", () => {
+  // ⚠ THE SIXTH BYPASS'S OWN PROPERTY. A multiset of EXPRESSIONS is empty for a
+  // component that takes no props, so both arms of a ternary over one collapsed
+  // to the same empty bag — the fifth fix working exactly as designed over a
+  // subtree with nothing in it. Each of the site's own components contributes
+  // its own tag now, so identity and occurrence survive in the branch that
+  // renders it whether or not it carries props.
+  assert.ok(PARSE, "no parser: this case cannot establish anything");
+
+  // TWO OF THE SITE'S OWN AND ONE OF THE KIT'S. A fixture carrying only one
+  // kind could not tell the two apart, which is the whole question here.
+  const page = (el) => "import Band from \"@/routes/-parts/band\"\n"
+    + "import Other from \"@/routes/-parts/other\"\n"
+    + "import { Button } from \"@/components/ui/button\"\n"
+    + `function H(){const n = rows.length; return <div>${el}</div>}\n`;
+  assert.deepEqual(localParts(page(""), false).map((p) => p.name).sort(), ["band", "other"],
+    "the fixture does not import exactly the two local components it claims");
+  const shape = (t) => computeShape(t, PARSE).shape;
+
+  // A PROP-FREE component swapped between the arms of a ternary.
+  const bare = (a, b) => page(`{n === undefined ? ${a} : ${b}}`);
+  assert.notEqual(shape(bare("<p>Checking</p>", "<Band />")), shape(bare("<Band />", "<p>Checking</p>")),
+    "a PROP-FREE component swapped between branches is invisible");
+  // …and the same two arms unswapped are equal, or the line above is satisfied
+  // by a reader that calls every pair of pages different.
+  assert.equal(shape(bare("<p>Checking</p>", "<Band />")), shape(bare("<p>Checking</p>", "<Band />")));
+  // TWO DIFFERENT prop-free components exchanged — neither arm gains or loses
+  // one, so nothing but position separates the two pages.
+  assert.notEqual(shape(bare("<Band />", "<Other />")), shape(bare("<Other />", "<Band />")),
+    "two different prop-free components exchanged between branches is invisible");
+
+  // ⚠ ONLY THE SITE'S OWN ARE KEYED, AND THAT LINE IS THE WHOLE REASON ADDING
+  // MARKUP STAYS CHEAP. A kit component is settled inside the one file this
+  // rung already holds, so keying every capitalised tag would make `<Button>`
+  // an eligibility question — an ordinary visual tweak, dearer for nothing.
+  // Asserted in both directions from one instrument.
+  assert.equal(shape(page("<Band />")), shape(page("<Button>Book</Button><Band />")),
+    "adding a KIT component stopped being a cheap tweak");
+  assert.notEqual(shape(page("<Band />")), shape(page("<Other /><Band />")),
+    "adding one of the SITE'S OWN components is invisible");
+  // And re-ordering two of the site's own is still free: the bag is SORTED, so
+  // occurrence is preserved and position within one tree is not.
+  assert.equal(shape(page("<Band /><Other />")), shape(page("<Other /><Band />")),
+    "re-ordering two of the site's own components stopped being a cheap tweak");
+
+  // ⚠ ALL THREE CLAUSE FORMS, because a form left out reads as a component
+  // this rung is free to move between branches — the defect, wearing the shape
+  // of an import nobody wrote a fixture for. The default form is above.
+  const named = (a, b) => "import { Band } from \"@/routes/-parts/band\"\n"
+    + `function H(){const n = rows.length; return <div>{n ? ${a} : ${b}}</div>}\n`;
+  assert.notEqual(shape(named("<Band />", "<p>a</p>")), shape(named("<p>a</p>", "<Band />")),
+    "a NAMED import's component is invisible, so it can be moved between branches");
+
+  // A NAMESPACE import binds one name and renders many components under it, so
+  // the ROOT decides membership and the WHOLE tag is what is stored.
+  const ns = (a, b) => "import * as Parts from \"@/routes/-parts/band\"\n"
+    + `function H(){const n = rows.length; return <div>{n ? ${a} : ${b}}</div>}\n`;
+  assert.notEqual(shape(ns("<Parts.Form />", "<p>a</p>")), shape(ns("<p>a</p>", "<Parts.Form />")),
+    "a NAMESPACE import's component is invisible");
+  assert.notEqual(shape(ns("<Parts.Form />", "<Parts.Note />")), shape(ns("<Parts.Note />", "<Parts.Form />")),
+    "two components under one namespace collapse to a single identity");
+});
+
+test("THE OWN-COMPONENT SET IS A JOIN, AND `inPart` REALLY REACHES IT", () => {
+  // ⚠ THE FORWARDING HOP, DRIVEN. `inPart` decides which specifiers
+  // `localParts` admits, so a cut between `partEligible` and `computeShape`
+  // leaves every module case above passing while the identity half is silently
+  // off for a component source. It is NOT observable from the route — `inPart`
+  // is always false there, which this file records and derives — so it is
+  // driven here or nowhere.
+  assert.ok(PARSE, "no parser: this case cannot establish anything");
+
+  // A SIBLING specifier (`./x`, no `-parts/` in it) is admitted ONLY from
+  // inside a component, which is what makes this pair a discriminator.
+  const sib = (a, b) => "import TrialBookingForm from \"./trial-booking-form\"\n"
+    + `export default function H(){const n = rows.length; return <div>{n ? ${a} : ${b}}</div>}\n`;
+  const A = sib("<TrialBookingForm />", "<p>a</p>");
+  const B = sib("<p>a</p>", "<TrialBookingForm />");
+
+  assert.deepEqual(localParts(A, false), [], "a sibling specifier is admitted from a PAGE, which it must not be");
+  assert.equal(localParts(A, true).length, 1, "a sibling specifier is not admitted from a COMPONENT");
+
+  // From inside a component the swap is a computation change and is refused.
+  const inside = partEligible(A, B, { inPart: true, parse: PARSE });
+  assert.equal(inside.ok, false, "inPart never reached the own-component set");
+  assert.equal(inside.why, "compute");
+  assert.deepEqual(inside.parts, ["trial-booking-form"]);
+
+  // From a PAGE the same pair renders none of the site's own components, so
+  // the question is never asked at all — the scope, not a second answer.
+  assert.equal(partEligible(A, B, { inPart: false, parse: PARSE }).ok, true,
+    "a page that imports no local component was asked the question anyway");
+
+  // AND THE JOIN IS ON THE LITERAL SPECIFIER, which is why `localParts` carries
+  // it: a second reader of the `-parts/` convention is the drift this repo
+  // keeps recording. Every entry answers one.
+  for (const p of localParts(A, true)) {
+    assert.equal(typeof p.spec, "string", "localParts dropped the specifier the join needs");
+    assert.ok(p.spec.includes(p.name), "the specifier and the name disagree");
+  }
+
+  // ⚠ A PARSER THAT CANNOT NAME WHAT AN IMPORT BINDS IS CANNOT-TELL, AND IT
+  // REFUSES — the RED CHECK's own finding, not the design's. The first cut
+  // caught the failure and carried on with an EMPTY own-set, which is the
+  // identity half silently off: exactly the class of defect this round exists
+  // to close, one layer down. Both shapes, because a reader that is missing and
+  // one that throws are the same absence from here.
+  const noNames = (t) => { const p = PARSE(t); delete p.importsOf; return p; };
+  const throws = (t) => ({ ...PARSE(t), importsOf: () => { throw new Error("nope"); } });
+  for (const [what, bad] of [["a missing reader", noNames], ["a throwing reader", throws]]) {
+    const r = partEligible(A, B, { inPart: true, parse: bad });
+    assert.equal(r.ok, false, what + " was treated as a page with no components of its own");
+    assert.equal(r.why, "unparsed", what + " did not answer cannot-tell");
+  }
+  // …and the CONTROL: the same two readers on a page that imports none of the
+  // site's own components are never asked, so they cost nothing there.
+  const none = "export default function H(){return <p>a</p>}\n";
+  assert.equal(partEligible(none, none, { inPart: true, parse: noNames }).ok, true,
+    "a page with no local components was refused for a reader it never needed");
+});
+
 test("a page that renders none of the site's own components is not asked at all", () => {
   // THE SCOPE, AND IT IS MOST OF THE PLATFORM. Without this the change would
   // read as "every tweak now compares code tokens", which would refuse
@@ -884,6 +1079,39 @@ test("THE CONDITIONAL BRANCH SWAP does not publish either — through the route,
     HOME_BRANCH_SWAPPED,
     HOME_GUARDED,
     [["bookingCount === undefined ?", "the publish carried the branch-swapped guard"]],
+  );
+});
+
+test("THE PROP-FREE COMPONENT SWAP does not publish either — through the route, same sources", async () => {
+  // THE SIXTH REPORTED SPELLING, and the one that killed an expressions-only
+  // bag. `<TrialBookingForm />` takes no props, so the fifth fix's multiset was
+  // EMPTY on both arms and the swap was invisible to a mechanism that was
+  // otherwise doing exactly what it was designed to do.
+  //
+  // Its before-source is the guarded page, for round five's reason: the tweak
+  // swaps a ternary, so a store holding a page with no ternary asks an easier
+  // question. And the shared negatives cannot see it — every arithmetic
+  // spelling is absent from both sides — so the swapped arm is named here.
+  await doesNotPublish(
+    "contract-repro-propfree",
+    HOME_PROPFREE_SWAPPED,
+    HOME_PROPFREE,
+    [["<p>Choose a day first</p> : <TrialBookingForm />", "the publish carried the swapped prop-free guard"]],
+  );
+});
+
+test("TWO DIFFERENT PROP-FREE COMPONENTS EXCHANGED does not publish — the owner's control", async () => {
+  // Both arms render one of the site's own components, NEITHER carries a prop,
+  // and the two are exchanged. Nothing is added and nothing is removed, so a
+  // reader keyed on which components appear answers "the same two" and one
+  // keyed on which expressions appear answers "none, both times". Only
+  // identity AT ITS POSITION separates them — and the writer this must reach
+  // is the one shown BOTH component files.
+  await doesNotPublish(
+    "contract-repro-twoparts",
+    CONTROL_PAIR.after,
+    CONTROL_PAIR.before,
+    [["<DaySpaceLookup /> : <TrialBookingForm />", "the publish carried the exchanged components"]],
   );
 });
 

@@ -542,8 +542,12 @@ export function partEligible(before, after, { inPart, parse } = {}) {
   let a = null;
   let b = null;
   try {
-    a = computeShape(before, parse);
-    b = computeShape(after, parse);
+    // `inPart` IS FORWARDED, not defaulted. It decides which specifiers
+    // `localParts` admits, so dropping it here would compute every shape
+    // against an empty own-set from inside a component — the identity half
+    // silently off, with every module case still passing.
+    a = computeShape(before, parse, inPart);
+    b = computeShape(after, parse, inPart);
   } catch {
     // A source neither side can parse is one this rung cannot reason about.
     return { ok: false, parts: names, why: "unparsed" };
@@ -571,6 +575,22 @@ export function partEligible(before, after, { inPart, parse } = {}) {
  * whole-file union is implied by this string, and a second copy of an implied
  * thing is this repository's own recorded drift.
  *
+ * ⚠ AND THE SIXTH BYPASS IS WHY THE BAG CARRIES IDENTITIES AS WELL AS
+ * EXPRESSIONS. A multiset of EXPRESSIONS is empty for a component that takes no
+ * props, so `preferredDay ? <TrialBookingForm /> : <p>Choose a day first</p>`
+ * and its two arms swapped answered the same empty bag on both sides — the
+ * fifth fix working exactly as designed over a subtree with nothing in it. Each
+ * of the site's OWN components now contributes its own tag to the bag wherever
+ * it is rendered, so identity and occurrence are preserved in the branch that
+ * renders it WHETHER OR NOT it carries props.
+ *
+ * WHY ONLY THE SITE'S OWN, and not every capitalised tag: this rung holds ONE
+ * page's source, so what it cannot finish is a change whose meaning lives in a
+ * file it cannot open. A kit component is settled inside the one file it
+ * already has — and keying every component would make ADDING a `<Button>` a
+ * computation change, which is an ordinary visual tweak and must stay cheap.
+ * Measured both ways; the kit control asserts it.
+ *
  * ⚠ `forEachChild` STOPS ON A TRUTHY CALLBACK RETURN, and the first cut of this
  * walked exactly one child of every node because `kids.push(…)` answers the new
  * LENGTH. Every one of the bypasses read as eligible against a comparison that
@@ -578,16 +598,24 @@ export function partEligible(before, after, { inPart, parse } = {}) {
  * nothing on purpose, and the guard drives a shape whose difference is in the
  * SECOND operand so a re-introduction cannot pass.
  */
-export function computeShape(source, parse) {
-  const { file, k, isJsx, tagOf, openOf, attrsOf, childrenOf, exprOf, isSpread } = parse(String(source ?? ""));
+export function computeShape(source, parse, inPart) {
+  const text = String(source ?? "");
+  const { file, k, isJsx, tagOf, openOf, attrsOf, childrenOf, exprOf, isSpread, importsOf } = parse(text);
+  const own = ownComponentTags(text, file, importsOf, inPart);
 
-  // A JSX subtree, as the sorted multiset of every expression it carries.
+  // A JSX subtree, as the sorted multiset of every expression it carries, and
+  // of every one of the site's own components it renders.
   // SORTED so re-ordering and re-wrapping markup answer the same string; KEYED
   // by tag and attribute so a value swapped between two components does not.
   const markup = (root) => {
     const bag = [];
     const take = (node) => {
       const tag = tagOf(node);
+      // THE IDENTITY ENTRY. Its own namespace (`\u0002`), so it can never
+      // collide with the `tag\u0000attr\u0000…` entries beside it, and the
+      // WHOLE tag, so `<Parts.Form/>` and `<Parts.Note/>` stay two components
+      // under one namespace import.
+      if (own.has(String(tag).split(".")[0])) bag.push("\u0002" + tag);
       for (const attr of attrsOf(openOf(node))) {
         // A SPREAD carries whatever the object holds, so it is a value by any
         // reading and is keyed as one rather than skipped.
@@ -622,6 +650,48 @@ export function computeShape(source, parse) {
   };
 
   return { shape: sig(file) };
+}
+
+/**
+ * WHICH JSX TAGS NAME ONE OF THE SITE'S OWN COMPONENTS — a Set of binding
+ * names, joined on the literal module specifier.
+ *
+ * TWO READERS, EACH ASKED THE ONE THING IT KNOWS. `localParts` owns the
+ * `-parts/` path convention and answers WHICH specifiers name a component of
+ * this site's; the PARSER owns the language and answers WHAT each import
+ * binds. The join between them is an equality on the raw specifier, so nothing
+ * here re-implements either half — which is the whole reason `localParts`
+ * carries `spec`.
+ *
+ * ALL THREE CLAUSE FORMS COUNT. A default import binds one name, `* as Parts`
+ * binds a namespace, and `{ Form }` binds each element; a form left out reads
+ * as a component this rung is free to move between branches, which is the
+ * defect this exists to close. The namespace case is why the caller compares
+ * the tag's ROOT and stores the WHOLE tag.
+ *
+ * ⚠ AND A PARSER THAT CANNOT ANSWER THROWS, WHICH A RED CHECK HAD TO SAY. The
+ * first cut caught the failure and answered an EMPTY SET, reasoning that the
+ * expression half still holds so the rung keeps the four earlier walls and
+ * loses only this one. That is the defect this whole round is about, one layer
+ * down: the identity half silently off, and a prop-free component free to move
+ * between branches again — with nothing anywhere saying so. The throw becomes
+ * `partEligible`'s `unparsed`, which REFUSES. It costs a rewrite, never a
+ * wrong publish.
+ *
+ * THE EMPTY-SPEC RETURN IS NOT THAT CASE. A source importing none of the
+ * site's own components has no identity to record, so there is no question to
+ * ask the parser and nothing a missing reader could hide.
+ */
+export function ownComponentTags(source, file, importsOf, inPart) {
+  const out = new Set();
+  const specs = new Set(localParts(source, inPart).map((p) => p.spec));
+  if (!specs.size) return out;
+  if (typeof importsOf !== "function" || !file) throw new Error("tweak: the parser cannot name what an import binds");
+  for (const imp of importsOf(file) ?? []) {
+    if (!specs.has(imp?.spec)) continue;
+    for (const n of imp?.names ?? []) if (n) out.add(n);
+  }
+  return out;
 }
 
 /**
@@ -737,6 +807,27 @@ export async function tweakParser() {
       attrsOf: (open) => open?.attributes?.properties ?? [],
       childrenOf: (n) => n.children ?? [],
       isSpread: (a) => a.kind === ts.SyntaxKind.JsxSpreadAttribute,
+      // WHAT EACH IMPORT BINDS — `[{spec, names}]`, so a JSX tag can be tied
+      // back to the module it came from. All three clause forms are read
+      // (default, `* as`, named), because a page may render one of its own
+      // components under any of them and a form left out reads as a component
+      // this rung is free to move.
+      importsOf: (file) => {
+        const out = [];
+        for (const st of file?.statements ?? []) {
+          if (st.kind !== ts.SyntaxKind.ImportDeclaration) continue;
+          const spec = st.moduleSpecifier?.text;
+          if (typeof spec !== "string") continue;
+          const names = [];
+          const clause = st.importClause;
+          if (clause?.name?.text) names.push(clause.name.text);
+          const bound = clause?.namedBindings;
+          if (bound?.kind === ts.SyntaxKind.NamespaceImport && bound.name?.text) names.push(bound.name.text);
+          for (const e of bound?.elements ?? []) if (e.name?.text) names.push(e.name.text);
+          out.push({ spec, names });
+        }
+        return out;
+      },
       // A QUOTED value answers null: it is a choice, not a computation.
       exprOf: (n) =>
         n?.kind === ts.SyntaxKind.JsxExpression

@@ -1896,7 +1896,7 @@ by moving the calculation one line up the page.
 **THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
 `restoreVersion` to the previous version — this file's own restore path, free.
 
-### THE DOOR, BUILT — AND REBUILT FOUR TIMES BEFORE IT HELD (2026-09-22)
+### THE DOOR, BUILT — AND REBUILT FIVE TIMES BEFORE IT HELD (2026-09-22)
 
 `partEligible` in `site-tweak.mjs`, gated inside `readTweak` **below
 `sameProse` and above `tweakLint`** so each refusal keeps its own name.
@@ -1926,6 +1926,50 @@ record of that is the value here, because the lesson is general:
    published page advertises availability exactly while the data is missing and
    shows the loading line once it arrives. `ok`, `tweak`, zero full-writer
    calls, the wrong source in both the compiler payload and the store.
+5. **The same tree, each site's bag in place, but a bag of EXPRESSIONS.**
+   Beaten by a component that takes NO PROPS: `preferredDay ?
+   <TrialBookingForm /> : <p>Choose a day first</p>` with its arms swapped.
+   Branch position really was recorded — and both arms collapsed to the same
+   EMPTY bag, because there was no expression in either to record. `ok`,
+   `tweak`, zero full-writer calls, the wrong source in both stores.
+
+**⚠ AND THE FIFTH IS THE MECHANISM WORKING EXACTLY AS DESIGNED OVER A SUBTREE
+WITH NOTHING IN IT** (owner: *"Preserve custom-component identity and
+occurrence within its executable branch independently of whether it carries
+props"*). Nothing about the fourth fix was wrong; what was wrong was that a
+multiset of expressions is EMPTY for a prop-free component, so the thing being
+positioned had no content to position. **THE BAG CARRIES IDENTITIES AS WELL AS
+EXPRESSIONS NOW**: each of the site's OWN components contributes its own tag
+wherever it is rendered, so identity and occurrence survive in the branch that
+renders it whether or not it carries props.
+
+- **ONLY THE SITE'S OWN, AND THAT LINE IS WHY ADDING MARKUP STAYS CHEAP.** The
+  rung holds ONE page's source, so what it cannot finish is a change whose
+  meaning lives in a file it cannot open. A kit component is settled inside the
+  one file it already has — and keying every capitalised tag would make adding
+  a `<Button>` a computation change, which is an ordinary visual tweak. The
+  kit control asserts it and a mutant that widens the key dies on it.
+- **TWO READERS, EACH ASKED THE ONE THING IT KNOWS, JOINED ON THE LITERAL
+  SPECIFIER.** `localParts` owns the `-parts/` path convention and answers
+  WHICH specifiers name a component of this site's; the PARSER owns the
+  language and answers WHAT each import binds (`importsOf`, a ninth injected
+  reader). The join is an equality on the raw specifier — which is the whole
+  reason `localParts` now carries `spec` — so nothing re-implements either
+  half. **ALL THREE CLAUSE FORMS COUNT**, default, `* as` and named: a form
+  left out reads as a component this rung is free to move, and each has its
+  own case. A namespace binds one name over many components, so MEMBERSHIP is
+  the tag's root and the STORED identity is the whole tag.
+- **⚠ WHAT IT REACHES, MEASURED: ZERO OF THE 324 CORPUS FILES.** The identity
+  entry is added only where a source imports one of the site's own components,
+  and the corpus imports none — it predates components, which this file
+  already records. So every corpus file answers byte-identically under both
+  readers, and the change's blast radius is exactly the pages that render a
+  `-parts/` component.
+- **THE NEWLY-DEARER CASE IS NARROW AND IS THE CONSISTENCY THAT WAS ASKED
+  FOR**: adding or removing a PROP-FREE local component now escalates, as
+  adding a propped one already did. Re-ordering two of them, wrapping one,
+  adding plain markup and swapping a quoted attribute all stay cheap, because
+  the bag is sorted and none of those leaves the tree.
 
 **⚠ THE FOURTH IS THE ONE THAT SAYS THE DESIGN WAS RIGHT AND ITS JOIN WAS
 NOT** (owner: *"Keep the parser. Preserve the association between executable
@@ -2005,7 +2049,7 @@ tree, and ONE signature is read off it.
 - **ORDER IS RECORDED BY CONSTRUCTION, which is why the reported case needed no
   rule of its own** — and why two shapes nobody enumerated fall out free: a
   flipped ternary and a swapped argument list are caught by the same code, with
-  nothing written about either. **All four spellings are ONE answer.**
+  nothing written about either. **All six spellings are ONE answer.**
 - **⚠ `forEachChild` STOPS ON A TRUTHY CALLBACK RETURN, and the prototype
   walked exactly ONE CHILD of every node** because `kids.push(…)` answers the
   new LENGTH. **All four bypasses read as ELIGIBLE against a comparison that
@@ -2044,9 +2088,9 @@ tree, and ONE signature is read off it.
   **an unparsable source is its own reason (`unparsed`) rather than wearing the
   runtime's** — two facts, two names, because only one is about the runtime.
   A namespace import still counts as rendering the site's own component.
-- **THE PARSER IS INJECTED AND `computeShape` KNOWS NO TypeScript API** — eight
-  small readers are handed in, so the decision stays in the module and the
-  dependency sits at its edge.
+- **THE PARSER IS INJECTED AND `computeShape` KNOWS NO TypeScript API** — NINE
+  small readers are handed in (`importsOf` joined them for the sixth bypass),
+  so the decision stays in the module and the dependency sits at its edge.
 - **⚠ WHAT IT COSTS, AND THE COST MOVED — AN IMPROVEMENT RECORDED RATHER THAN
   A SILENT ONE.** Under the multiset, **ADDING markup escalated**: a bag cannot
   tell a JSX tag from an identifier. A real tree can, so **wrapping in a
@@ -2073,15 +2117,15 @@ tree, and ONE signature is read off it.
   difference invisible to anything but a real tree, so it cannot pass by
   accident on a comparison that never ran — with an ordinary visual tweak
   through the same hop as its control.
-- **ALL FIVE SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
+- **ALL SIX SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
   (`doesNotPublish(slug, tweakSource, home, absent)`): did-not-publish, reached
   the component-capable writer, that writer was SHOWN the component's wording,
   the compiler payload (which carries **neither** arithmetic spelling **nor**
   `Number(0 ?? bookingCount)`), the stored source, the untouched neighbours.
-  Written out five times they drift, and the one that drifts is the one nobody
+  Written out six times they drift, and the one that drifts is the one nobody
   reads again.
-  **⚠ THE FIFTH NEEDED TWO PARAMETERS THE OTHER FOUR DID NOT, AND BOTH ARE THE
-  SAME FACT.** Its BEFORE-SOURCE is the guarded page, not the ordinary one —
+  **⚠ THE FIFTH AND SIXTH NEED TWO PARAMETERS THE FIRST FOUR DID NOT, AND BOTH
+  ARE THE SAME FACT.** Its BEFORE-SOURCE is the guarded page, not the ordinary one —
   the tweak is swapping a ternary, so a store holding a page with no ternary
   would be a different and much easier question. And **none of the shared
   negatives can see it**: the swapped page still carries
@@ -2093,7 +2137,7 @@ tree, and ONE signature is read off it.
   established is that a request of this class is **not published by the rung
   that cannot finish it** and **reaches the writer that can open both files** —
   never that a real model writes a correct component once it gets there.
-- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **20 cases**, on run 17's
+- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **24 cases**, on run 17's
   OWN artifact — `index.before.tsx` **26,276 chars / 26,288 bytes, sha
   `129b54600bd30720`** and `day-space-lookup.before.tsx` **1,466 / 1,468, sha
   `5330fca7b88e5ac1`**, the published answer DERIVED from the before-source by
@@ -2107,9 +2151,25 @@ tree, and ONE signature is read off it.
   **THE OPERAND AND BRANCH FIXTURES EACH ASSERT THEIR OWN BAG IS UNCHANGED**,
   so neither can drift into testing something else: a fixture whose multiset
   moved would be one of the other four wearing its name.
-  **8 mutants killed, a comment-only control survived** on the fourth round,
-  restored byte-identical from a SCRATCHPAD backup, never `git checkout`.
-  **⚠ AND THE FIRST PASS OF THAT ROUND WAS 6 KILLED AND 2 SURVIVED, AND BOTH
+  **8 mutants killed, a comment-only control survived** on the FIFTH round
+  (the identity entry, the join cut at either end, `inPart` unforwarded,
+  `localParts` dropping `spec`, default-imports-only, the namespace root, the
+  widened key, and the swallowed cannot-tell), both files restored
+  byte-identical from a SCRATCHPAD backup, never `git checkout`.
+  **⚠ AND THAT ROUND'S FIRST PASS WAS 7 KILLED AND 1 SURVIVED, AND THE
+  SURVIVOR WAS THE DESIGN BEING WRONG RATHER THAN A GUARD GAP.**
+  `ownComponentTags` CAUGHT a parser that could not answer and returned an
+  EMPTY SET, on the reasoning that the expression half still holds so only
+  this one wall is lost. Cutting the catch survived — and reading what the
+  mutant DID rather than what it was meant to do says the mutant is better:
+  swallowing it is the identity half **silently off**, which is the exact
+  class of defect this round exists to close, one layer down. It THROWS now
+  and `partEligible` answers `unparsed`, which refuses. *Cannot-tell fails
+  closed* was already this file's law and the first cut broke it inside the
+  fix for a defect of the same shape. Both shapes are driven — a reader that
+  is missing and one that throws are the same absence — with a page that
+  imports no local component as the control, since it never needed the reader.
+  **⚠ AND THE FOURTH ROUND'S FIRST PASS WAS 6 KILLED AND 2 SURVIVED, AND BOTH
   SURVIVORS WERE REAL GUARD GAPS RATHER THAN INERT MUTANTS — MEASURED, WHICH IS
   THE RULE.** Dropping the TAG from the bag's key, and dropping the `.sort()`,
   each survived because the fixture standing for it could not tell the two
@@ -2121,13 +2181,38 @@ tree, and ONE signature is read off it.
   re-ordered — and both close with one assertion. *A fixture too shallow to
   separate the two readings*, twice in one file, found by the sweep and not by
   reading the code.
-- **SUITE 7,139, BOTH HALVES TAKEN** — locally `# tests 7139 / # pass 7139 /
-  # fail 0 / # skipped 0`, `duration_ms 109,603`, and CI run **`<unread>`**.
-  **The +2 is the difference between two measured readings**, 7,137 → 7,139,
-  and it is exactly the two new CASES — the branch-swap route case and the
-  same-component control. **The two gap-closing assertions moved the count by
-  ZERO**, going into cases that already existed, which is stated rather than
-  left to look like nobody ran them.
+- **SUITE 7,143 LOCALLY, and the CI half of THAT reading is UNREAD** —
+  `# tests 7143 / # pass 7143 / # fail 0 / # skipped 0`, `duration_ms
+  109,853`. **The +4 is the difference between two measured readings**,
+  7,139 → 7,143, and it is exactly the four new CASES: the prop-free route
+  case, the two-different-components control, the identity instrument case and
+  the `inPart` join case. **The clause-form and cannot-tell assertions moved
+  the count by ZERO**, going into cases that already existed.
+- **THE PREVIOUS ROUND'S READING, BOTH HALVES TAKEN: 7,139** — locally
+  `# tests 7139 / # pass 7139 / # fail 0 / # skipped 0`, `duration_ms
+  109,603`, and CI run **`35749485697` on `2318d4ce`** at **`# tests 7139 /
+  # pass 7135 / # fail 0 / # skipped 4`**, `duration_ms 116,213`. **THE TOTAL
+  IS WHAT MATCHES** — 7,139 both sides, `pass` differing by exactly CI's own
+  four skips.
+  **AND `site build` RUN `35749485669` READ ALL TWELVE COUNTS GREEN**
+  (15:45:20 → 16:09:36Z, **24m16s**, all twenty steps): TAP **397/397/0/0**,
+  kit-typecheck 4, site-build **382**, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47, and kit-render /
+  kit-a11y / kit-effects / kit-paint `all passed`. **The shape census closes**
+  — `N passed` 7 + `all passed` 4 + TAP 1 = **12**. Every figure matches what
+  is on record, so that round moved none of them. **`site-build.mjs` alone is
+  1,052 s — 17m32s, 72% of the job**, inside the band the last three rounds
+  read (17m06s · 17m57s · 19m35s) and recorded rather than explained.
+  **⚠ AND THE TWO `##[error]` ANNOTATIONS WERE READ FOR WHAT THEY SIT BESIDE
+  RATHER THAN COUNTED**: `index.tsx(50,13) TS2322` and `menu.tsx(27,17)
+  TS2339`, each immediately followed by its own `ok` line — *"A TYPE ERROR NO
+  LONGER STOPS THE SITE"* and *"a site with one bad page still reports the
+  type error"* — inside the step that ends `382 passed, 0 failed`.
+  **⚠ AND A READER COUNTING `tsc`-FORMAT LINES ANSWERS NINE WHERE THIS FILE
+  SAYS SEVEN, AND SEVEN IS RIGHT**: GitHub emits each annotated line TWICE,
+  once plain and once `##[error]`-prefixed, so a regex that does not exclude
+  the prefix double-counts the two annotated ones. Measured: 9 total, 2
+  prefixed, **7 plain**.
   **THE PREVIOUS ROUND'S READING IS KEPT: 7,137, BOTH HALVES TAKEN** — locally
   `# tests 7137 / # pass 7137 / # fail 0 / # skipped 0`, `duration_ms 111,873`,
   and CI run **`35742915576` on `70b9a041`** at **`# tests 7137 / # pass 7133 /
