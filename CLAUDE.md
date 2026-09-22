@@ -2661,7 +2661,11 @@ handed its three readers and holding no transport of its own:
   three files byte-identical to a SCRATCHPAD backup afterwards. **Suite 7,162
   locally** (`# tests 7162 / # pass 7162 / # fail 0 / # skipped 0`,
   `duration_ms 108,727`) — **+19 against the last measured reading of 7,143**,
-  exactly this file's cases. The CI half is the push's own run.
+  exactly this file's cases. **AND THE CI HALF MATCHES**: unit run
+  **`35783295262` on `0f6c3903`** reads **`# tests 7162 / # pass 7158 / # fail 0 /
+  # skipped 4`**, `duration_ms 115,660` — **the TOTAL is what matches**, `pass`
+  differing by exactly CI's own four skips. **The stamp chain ends here**: every
+  commit after it is documents only.
 
 ### RUNS 19–21 — THE RESTORE, AND THE REPLAY'S VERDICT (2026-09-22)
 
