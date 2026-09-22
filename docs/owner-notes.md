@@ -15683,3 +15683,9 @@ workflow is switched off for an ordinary push and its log says so in as many wor
 
 **Nothing is applied, deployed or merged**, no paid call was made, and no real account or
 provider was touched.
+
+- **2026-09-22** — Stage 1b: a parent run now shows what its specialists are doing, in the
+  conversation it belongs to. `GET /api/agent/run-children` over `agent.delegation_progress`,
+  read with `listOf` (a jsonb array, which `answerOf` refuses by design); the count rides on the
+  settled states too, so the results stay reachable once the parent has answered. Ten breakages
+  driven, two of them real gaps in my own guards. Suite 7,066. NOT merged, NOT deployed.

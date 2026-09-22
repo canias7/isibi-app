@@ -14293,3 +14293,67 @@ running.
 **NOT MERGED AND NOT DEPLOYED**, no migration applied, no paid call made, and no real account or
 provider touched: the browser never leaves loopback, the model is the scripted one and the
 provider is `fakemail`.
+
+### A PARENT'S SPECIALISTS, IN THE CONVERSATION THEY BELONG TO (2026-09-22)
+
+Stage 1b's detail half. The COUNT half shipped with `cde8f75`; what was missing is that
+`agent.delegation_progress` had no caller on this side, so a run could say it had asked three
+agents and no screen could say what any of them was doing.
+
+**`GET /api/agent/run-children` IS THE 38th `/api/agent/*` ROUTE AND `worker.js` NEEDED NO
+CHANGE AGAIN** — the block dispatches on `Object.hasOwn(AGENT_ROUTES, url.pathname)`, so this is
+one entry on one object, behind the gate every other one is behind.
+
+- **⚠ `listOf`, NOT `answerOf`, AND NOT `rows`.** The function answers a single `jsonb` whose
+  value is an ARRAY, and `answerOf` refuses an array BY DESIGN — which is exactly how
+  `/api/agent/webhooks` came to throw on every call it ever had. Nor `rows()`, which answers
+  `[]` for anything it cannot read: *"that run asked nobody"* is a claim a failed read is not
+  entitled to make.
+- **⚠ THERE IS DELIBERATELY NO OWNERSHIP CHECK ABOVE IT.** The function puts the tenant in its
+  own `where`, so another account's run and a run that asked nobody are ONE answer and ONE empty
+  list — *not found, never forbidden*. A check above it would be a second wall whose only effect
+  is telling a stranger the id they guessed is real. Asserted as the store calls the route
+  really makes.
+- **THE COUNT RIDES ON THE SETTLED STATES TOO, and the split is the reason.** `children` is an
+  INVENTORY — true for ever, and the only thing that makes the results reachable once the parent
+  has answered — where `childrenOpen`/`childrenDone` are PROGRESS, which on a finished run would
+  read `0` and `3` for ever. So the pair stays on `delegating` alone.
+- **⚠ THE DEADLINE A CHILD IS READ AGAINST IS THE ROW'S OWN.** The engine has a
+  `created_at + waitMs` fallback for a row a caller built itself; this side does not know the
+  deployment's `waitMs` and must not guess one, so it falls through to `claimed_at`. The
+  divergence is DRIVEN rather than described: a guess shorter than the recorded bound reports
+  work the database is still waiting for as abandoned.
+- **⚠ `context` IS NOT A FIELD, and a fixed key set is what makes that structural.** That column
+  is the selected context a parent handed its child — *pass context deliberately* — so a
+  projection carrying it would put one child's working material in front of every reader of the
+  parent's conversation. A value smuggled into a row cannot reach a screen nobody wrote.
+- **A NAME IS `null` RATHER THAN THE UUID**, because a screen drawing an id where a name belongs
+  says something it does not know; the id is on the row for anyone who needs to open the child.
+- **THE PANEL'S FOUR BODIES ARE THE THREE DIFFERENT NOTHINGS AND THE ROWS**: not read yet, could
+  not be read, and a count with no rows to show for it — which is the two halves disagreeing and
+  is said out loud rather than drawn as an empty list. A FAILED READ KEEPS THE ROWS IT HAD.
+- **A FOLD IS A PREFERENCE AND NEVER A QUESTION FOR THE SERVER** — the code explorer's own
+  recorded rule one screen over — and the refresh is bounded by what is EXPANDED and still
+  `delegating`, because a progress panel that does not move is the dead control again.
+- **⚠ `Number.isInteger` ON THE PANEL'S COUNT, matching `runView`'s own reader.** `isFinite`
+  admits 2.5 and offers to open a fan-out that does not exist; `agentHelpers` is deliberately
+  left as it is, with its own recorded reason (refusing a string in a sentence).
+
+**Measured**: suite **7,066** (7,064 pass, 2 skipped, 0 fail), and the arithmetic closes per file
+— `agent-send` 79 → **80**, `agent-automations` 61 → **64**, `agent-binding` 200 → **203**,
+`agent-api` 56 → **56** (its fake store gained `runChildren` and `execution`, and both censuses'
+queries gained `run`). The three per-file deltas are measured at both ends; the baseline suite
+figure is derived from them and is not a run of its own.
+
+**TEN BREAKAGES DRIVEN ONE AT A TIME FROM A COMMITTED TREE** — committed FIRST, because a hand
+red-proof loop restores with `git checkout` and that restores to HEAD, which has cost this
+repository a fix already. **⚠ TWO CAME BACK GREEN and both were real gaps in my own guards**:
+nothing drove a failed REFRESH of a panel that already had rows, and nothing drove
+`agentKidsRefresh` at all — so the poll could have re-read every run in a conversation for ever.
+Both closed, both now red. **⚠ AND ONE ANCHOR WAS AMBIGUOUS THREE WAYS** and the pre-check
+refused it rather than letting the breakage land in whichever copy came first.
+
+**⚠ AND `childRow.length` IS ONE, NOT TWO.** A DEFAULT parameter does not count toward it, so an
+arity assertion reports a correct reader as having gained an argument — the recorded trap, and it
+was the one failure this round opened on. The property is asserted as the declared parameter list
+plus a third argument moving no answer.
