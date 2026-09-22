@@ -17000,3 +17000,17 @@ way before believing either.
 Suite **7,131** locally, nothing failing. **Not done, on purpose**: no merge, no
 deploy, no paid retry, and `fretwork-1`'s page is still live in the state run 17
 left it — reverting it is your call, and free through the restore path.
+
+**CI read, both halves.** Unit tests on the pushed commit: **7,131 total, 0
+failing** — the same total as locally, with CI's own four skips accounting for
+the whole difference in the pass count. `site build` is still running as I write
+this and I'll report it rather than assume it. And one thing only CI could
+answer: the render driver needs `typescript` and `react` installed there, and
+`npm ci` took four seconds and succeeded — so it is not the canary trap where a
+script imported something the workflow never installed.
+
+**One label corrected.** The page sizes I have been quoting — 26,276 → 26,280 —
+are character counts, not byte counts, and the page carries em dashes, so in
+bytes it is 26,288 → 26,292. Every comparison in the record used one reader on
+both sides, so nothing was measured wrongly; the word "bytes" was wrong. Both
+numbers are written down now.

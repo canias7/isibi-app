@@ -1943,13 +1943,22 @@ question asked beside it, not a stricter version of it.
   precedent — and **the FORWARDING hop is what a guard can drive**, so it is
   driven at the module.
 - **EVIDENCE**: `test/edit-page-contract.test.mjs`, **12 cases**, on run 17's
-  OWN artifact — `index.before.tsx` **26,276 b sha `129b54600bd30720`** and
-  `day-space-lookup.before.tsx` **1,466 b sha `5330fca7b88e5ac1`**, with the
-  published answer DERIVED from the before-source by its one line and pinned at
-  **26,280 b sha `fbbb0de00096c3b2`**, and **the instruction's own sha
-  (`622547386217ef0c`, 159 chars, one U+2014)** asserted — run 14's correction,
-  since a paraphrase of this ask is a different ask. **6 mutants killed, a
-  comment-only control survived.**
+  OWN artifact — `index.before.tsx` **26,276 chars / 26,288 bytes, sha
+  `129b54600bd30720`** and `day-space-lookup.before.tsx` **1,466 / 1,468, sha
+  `5330fca7b88e5ac1`**, with the published answer DERIVED from the before-source
+  by its one line and **verified BYTE-IDENTICAL against the run's own
+  `after/source.json`** at **26,280 chars / 26,292 bytes, sha
+  `fbbb0de00096c3b2`**, and **the instruction's own sha (`622547386217ef0c`,
+  159 chars, one U+2014)** asserted — run 14's correction, since a paraphrase of
+  this ask is a different ask. **6 mutants killed, a comment-only control
+  survived.**
+  **⚠ EVERY LENGTH THIS SECTION AND RUN 17'S QUOTE — 26,276 → 26,280 — IS A
+  CHARACTER COUNT, NOT A BYTE COUNT**, and the two differ here because the page
+  carries em dashes: `String.length` counts UTF-16 code units and `wc -c` counts
+  bytes, so the same page reads 26,276 one way and 26,288 the other. The
+  harness uses one reader on both sides, so every comparison in the record is
+  sound; what was wrong was the LABEL. *A unit convention stated only in prose
+  is one somebody reads past* — this file's own trap, so both numbers are given.
 - **⚠ TWO OF THOSE MUTANTS DID NOT APPLY ON THE FIRST ROUND, THROUGH PERL.**
   Inside `\Q…\E` a `\n` literalises as backslash-n and `\u` is still read as a
   case-fold escape — so a multi-line anchor and an anchor containing `\u0000`
@@ -1977,9 +1986,23 @@ question asked beside it, not a stricter version of it.
   it fails, and zero is the fullest-sounding answer this box has, so an outage
   would otherwise read as six places going spare. The word *booking* is gone
   from the box, asserted rather than assumed.
-- **SUITE 7,119 → 7,131 LOCALLY** (`# tests 7131 / # pass 7131 / # fail 0 /
-  # skipped 0`, `duration_ms 106,383`) — the +12 is this file's own twelve
-  cases, stated as the difference between two measured readings.
+- **SUITE 7,131, BOTH HALVES TAKEN** — locally `# tests 7131 / # pass 7131 /
+  # fail 0 / # skipped 0`, `duration_ms 106,383`, and CI run **`35681903468` on
+  `a6bf1a2b`** at **`# tests 7131 / # pass 7127 / # fail 0 / # skipped 4`**,
+  `duration_ms 115,482`. **THE TOTAL IS WHAT MATCHES** — 7,131 both sides,
+  `pass` differing by exactly CI's own four skips, which is this file's standing
+  reading of that gap and not a regression. **The +12 is the difference between
+  two measured readings**, 7,119 → 7,131: this round's own twelve cases.
+  **AND `npm ci` TOOK 4 SECONDS AND SUCCEEDED**, which is the half of the
+  render driver's precondition that only CI can answer — `typescript`, `react`
+  and `react-dom` really install there, so the driver is not the canary run-6
+  trap over again.
+- **⚠ `site build` FIRED AND ITS READING IS OUTSTANDING**, named rather than
+  omitted. Run **`35681903439` on `a6bf1a2b`**; it fires because `builder/**`
+  and `worker.js` are both in its `paths`, and at the time this was written it
+  was on step 11 of 20 (`site-build.mjs`) with steps 1–10 green. **An absent
+  reading and a green one are not the same thing**, so nothing here claims its
+  twelve counts.
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the

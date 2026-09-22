@@ -111,6 +111,12 @@ const HOME_TWEAKED = once(
  * THE CORRECTED PAGE. The count keeps its meaning — the subtraction moves to
  * the component, beside the words that name its result — and the two states
  * that must never read as free space travel with it.
+ *
+ * `isPending` AND `isError` ARE THE KIT'S OWN, not invented for this fixture:
+ * `useRpc` (`src/lib/rows.ts:875`) returns TanStack Query's `useQuery` result,
+ * which carries both. A fixture that named fields the real hook does not have
+ * would be a page no writer could produce — this repository's own
+ * fixture-in-a-shape-reality-has-not trap.
  */
 const HOME_FIXED = (() => {
   let s = once(
@@ -497,6 +503,12 @@ test("THE CORRECTED PAIR, RENDERED: places left, and never a free day we could n
   // SUPPLIED COUNTS, NOT CREATED BOOKINGS. `bookingCount` is an argument here,
   // exactly as the live RPC's answer is an argument on the page — so nothing is
   // written to any site and no booking-enforcement rule is involved.
+  // AND THIS IS A CLAIM ABOUT WHAT SHIPS, not about a fixture standing beside
+  // it: the route case above asserts the compiled payload AND the stored
+  // component are `LOOKUP_AFTER` by equality, and this case renders that same
+  // constant — so the wording read here is the wording the publish carried.
+  // The tie is named rather than left for a reader to infer, because the two
+  // halves are three hundred lines apart.
   const DAY = "2026-11-14";
   const at = (n, extra) => said(LOOKUP_AFTER, { preferredDay: DAY, bookingCount: n, ...extra });
 
