@@ -420,6 +420,200 @@ export function partUse(src, name, inPart) {
   return partUses(src, [n], inPart).get(n) || "none";
 }
 
+/** `specNames` RUN BACKWARDS: the two spellings it admits, as capture groups. */
+const PART_SPEC = new RegExp("(?:^|/)" + esc(PART_DIR) + "([^/]+)$");
+const SIBLING_SPEC = /^\.\/([^/]+)$/;
+
+/**
+ * EVERY COMPONENT OF THIS SITE'S OWN THAT THIS SOURCE IMPORTS — `[{name,
+ * clause, kind}]`, read off the SPECIFIER rather than off a stored list.
+ *
+ * WHY OFF THE FILE AND NOT OFF `parts.json`: the store answers what the SITE
+ * has, and the question every caller here asks is what THIS FILE depends on. A
+ * caller holding no store read — and the cheap tweak rung is one deliberately,
+ * because it costs nothing when it works — would otherwise have to fetch one to
+ * ask, and an UNREADABLE store would become a cannot-tell in a decision whose
+ * answer is sitting in the source it is already holding.
+ *
+ * IT IS `specNames` RUN BACKWARDS, and the guard DRIVES that identity rather
+ * than asserting it in prose: every name this answers for a specifier,
+ * `specNames` must accept for that same specifier and that same `inPart`, or
+ * two readers of one path convention have drifted — this repository's most
+ * repeated defect. The two regexes are built from `PART_DIR` itself for the
+ * same reason.
+ */
+export function localParts(src, inPart) {
+  const out = [];
+  for (const m of importSpecs(src).specs) {
+    const s = String(m.spec == null ? "" : m.spec).trim().replace(EXT, "");
+    if (!s) continue;
+    const p = PART_SPEC.exec(s);
+    const q = p ? null : (inPart === true ? SIBLING_SPEC.exec(s) : null);
+    const name = p ? p[1] : (q ? q[1] : "");
+    if (!name) continue;
+    out.push({ name, clause: m.clause, kind: m.kind });
+  }
+  return out;
+}
+
+/** A value whose meaning is fixed by its own text, with nothing computed. */
+const LITERAL_VALUE = /^(?:'[^']*'|"[^"]*"|-?\d+(?:\.\d+)?|true|false|null|undefined)$/;
+
+/** The `}` closing the `{` at `at`, or -1. Reads a copy with strings blanked. */
+function closeBrace(mask, at, limit) {
+  let depth = 0;
+  for (let i = at; i < limit; i++) {
+    const c = mask[i];
+    if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+/**
+ * THE OPENING TAGS OF `<Binding …>` IN THIS SOURCE — `[{from, to}]` spanning
+ * each one's props, or `null` when a tag cannot be read to its end.
+ *
+ * `null` IS CANNOT-TELL AND EVERY CALLER TREATS IT AS MAKING NO CLAIM. An
+ * unterminated tag means the props were never enumerated, which is a different
+ * thing from a tag that has none.
+ *
+ * THE TERMINATOR IS A `>` AT DEPTH ZERO, and the depth count is what makes it
+ * safe: `onPick={() => go()}` and `count={a > b}` both hold a `>` that is not
+ * the end of a tag, and both sit inside braces. Read off the MASKED copy, so a
+ * `>` inside a string cannot end a tag either.
+ */
+function openTags(mask, binding) {
+  const out = [];
+  const head = new RegExp("<\\s*" + esc(binding) + "(?![\\w$])", "g");
+  let m;
+  while ((m = head.exec(mask))) {
+    const from = m.index + m[0].length;
+    let depth = 0, end = -1, i = from;
+    for (; i < mask.length; i++) {
+      const c = mask[i];
+      if (c === "{" || c === "(" || c === "[") depth++;
+      else if (c === "}" || c === ")" || c === "]") depth--;
+      else if (c === ">" && depth <= 0) { end = i; break; }
+    }
+    if (end === -1) return null;
+    out.push({ from, to: mask[end - 1] === "/" ? end - 1 : end });
+    head.lastIndex = end + 1;
+  }
+  return out;
+}
+
+/**
+ * THE PROPS IN ONE OPENING TAG — `[{prop, value, literal}]`, or `null` when the
+ * span holds a shape this cannot enumerate.
+ *
+ * TWO COPIES, ONE OFFSET, AND WHICH ONE ANSWERS WHAT IS THE WHOLE CARE HERE —
+ * the asymmetry `partUses` above already records, for the same reason:
+ *
+ *   the BOUNDARIES come from the MASKED copy — a quote or a brace inside a
+ *     string is not a boundary, and reading them off the plain source is how a
+ *     prop value swallows the rest of the tag;
+ *   the VALUE comes from the CODE copy — masked, `tone="light"` and
+ *     `tone="dark"` are the same four blanks, so a comparison built on the
+ *     masked text would call every literal swap identical and this whole check
+ *     would go quiet on exactly the changes it is meant to wave through;
+ *   whether the value is LITERAL is decided on the MASKED inner text, so a `+`
+ *     or a `?` inside somebody's sentence cannot make a string read as a
+ *     computation.
+ */
+function propsIn(code, mask, from, to) {
+  const out = [];
+  let i = from;
+  while (i < to) {
+    if (/\s/.test(mask[i])) { i++; continue; }
+    // A SPREAD IS A PROP LIST THIS CANNOT ENUMERATE, so it is recorded as one
+    // un-named, non-literal binding rather than skipped: `{...props}` really
+    // can carry a computed value into the component, and dropping it would be
+    // a silent hole in the one question this function exists to answer.
+    if (mask[i] === "{") {
+      const close = closeBrace(mask, i, to);
+      if (close === -1) return null;
+      out.push({ prop: "...", value: code.slice(i, close + 1), literal: false });
+      i = close + 1;
+      continue;
+    }
+    const nm = /^[A-Za-z_$][\w$:.-]*/.exec(mask.slice(i, to));
+    if (!nm) return null;
+    const prop = nm[0];
+    let j = i + prop.length;
+    while (j < to && /\s/.test(mask[j])) j++;
+    // A BARE PROP IS `true` AND CARRIES NOTHING COMPUTED.
+    if (mask[j] !== "=") { out.push({ prop, value: "", literal: true }); i = j; continue; }
+    j++;
+    while (j < to && /\s/.test(mask[j])) j++;
+    const q = mask[j];
+    if (q === '"' || q === "'") {
+      const close = mask.indexOf(q, j + 1);
+      if (close === -1 || close >= to) return null;
+      out.push({ prop, value: code.slice(j, close + 1), literal: true });
+      i = close + 1;
+      continue;
+    }
+    if (q === "{") {
+      const close = closeBrace(mask, j, to);
+      if (close === -1) return null;
+      out.push({
+        prop,
+        value: code.slice(j, close + 1),
+        literal: LITERAL_VALUE.test(mask.slice(j + 1, close).trim()),
+      });
+      i = close + 1;
+      continue;
+    }
+    return null;
+  }
+  return out;
+}
+
+/**
+ * WHAT THIS SOURCE PASSES INTO EACH OF ITS OWN COMPONENTS — a Map of component
+ * name → `{props, readable}`, where `props` is every prop on every element of
+ * it and `readable` is false when nothing about its props was established.
+ *
+ * WHY THE PROPS AND NOT THE ELEMENTS: a value's MEANING is settled in the
+ * component that receives it, and this is the only place a page's source states
+ * which values those are. A caller comparing two versions of one page can then
+ * ask whether an edit changed something whose interpretation lives in a file it
+ * never opened — which no reading of the page alone can answer.
+ *
+ * `readable: false` IS CANNOT-TELL AND MAKES NO CLAIM EITHER WAY, which is the
+ * standing rule for every reader in this module: a clause whose bindings cannot
+ * be read (`* as N`, a re-export, a dynamic import), a tag that does not
+ * terminate, or a prop shape this cannot enumerate all land there. A caller
+ * must not read an unreadable component as one whose props did not move.
+ */
+export function partProps(src, inPart) {
+  const out = new Map();
+  const mine = localParts(src, inPart);
+  if (!mine.length) return out;
+  const { code, mask } = importSpecs(src);
+  for (const { name, clause, kind } of mine) {
+    const prev = out.get(name);
+    if (prev && !prev.readable) continue;
+    const bound = bindingsOf(clause, kind);
+    if (bound === null || !bound.length) { out.set(name, { props: [], readable: false }); continue; }
+    const props = prev ? prev.props.slice() : [];
+    let ok = true;
+    for (const b of bound) {
+      const tags = openTags(mask, b);
+      if (tags === null) { ok = false; break; }
+      for (const t of tags) {
+        const got = propsIn(code, mask, t.from, t.to);
+        if (got === null) { ok = false; break; }
+        props.push(...got);
+      }
+      if (!ok) break;
+    }
+    out.set(name, ok ? { props, readable: true } : { props: [], readable: false });
+  }
+  return out;
+}
+
 /**
  * The pages and the parts as ONE list of `{path, source}`.
  *

@@ -22945,9 +22945,28 @@ async function handleRequest(request, env, ctx) {
               // the answer away if the prose moved. Calibrated over the corpus —
               // 1,657 real tweaks across 329 pages moved the words 0 times, and
               // a deliberate rewording was caught on 329 of 329.
+              // ⚠ `inPart` IS THE ONE THING THE RUNG CANNOT DERIVE FOR ITSELF,
+              // and it decides which specifiers name one of this site's own
+              // components: from a PAGE that is the `-parts/` form, and from
+              // inside `-parts/` a bare `./x` is a sibling too. `partContract`
+              // needs it to see what this file passes into a component whose
+              // wording it cannot read — run 17, 2026-09-22.
+              //
+              // AND IT IS ALWAYS FALSE TODAY — MEASURED, NOT ASSUMED, and said
+              // out loud because this repository has been bitten by a comment
+              // claiming a wall fires when it cannot. `target` is found in
+              // `eSrc`, which is `loadSiteSourceForEdit` → the PAGES store, and
+              // a component lives in `parts.json` under a `name` rather than a
+              // path — so no `target.path` reachable from here is a `-parts/`
+              // file. It is DERIVED rather than written as `false` deliberately:
+              // a literal would be a latent wrong answer the day a component
+              // becomes a tweak target, and the derivation is correct by
+              // construction whether or not it can fire. The FORWARDING hop is
+              // what a guard can drive, and it is driven at the module.
               const tw = await runTweak({
                 instruction: eInstruction, path: target.path, source: target.source,
                 model: eQuickModel,
+                inPart: !!partNameOf(target.path),
                 send: eQuick(),
               });
               if (tw.ok) {

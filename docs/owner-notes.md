@@ -16940,3 +16940,63 @@ unexplained entries were always separate facts about the same run.
 earlier today and am not softening.
 
 Documentation only: no code, no tests, no sweep, no paid run.
+
+## 2026-09-22 — the writer selection run 17 exposed, fixed
+
+You asked for the door rather than a prompt, and that is what this is. One new
+question, asked beside `sameProse` and never instead of it.
+
+**Why run 17 could pass every check and still ship a lie.** `sameProse` is the
+cheap rung's whole promise and it is a promise about ONE FILE — the page it was
+handed. Since a page's sections became their own files, the sentences that
+interpret a number live in the component, so a change to what a component is
+*passed* is a change whose consequence that promise does not cover. Zero words
+moved is exactly what a perfect pass looks like, and on this ask it was the
+shape of the failure.
+
+**The line I drew, and it is not about this request.** A prop written as a
+plain value — `tone="dark"`, `columns={3}`, a flag on or off — is a CHOICE the
+component already knows how to draw, so the cheap rung keeps it. A prop written
+as a calculation is a COMPUTATION, and what a calculated number *means* is
+settled inside the component. Rewriting one of those without being able to open
+that file is a change the rung cannot know it has finished, so it declines and
+the ask goes up to the writer that does open the file, shows it to the model,
+and folds the answer back.
+
+**It is not "turn tweaks off on pages with components", which I think was the
+obvious wrong fix.** `fretwork-1`'s home page imports three components and
+binds eleven of their props; a heading, a spacing or a band-order tweak touches
+none of their calculations and stays cheap exactly as before. I kept that as a
+test on that same page through the real route, so if a later change breaks it,
+it fails loudly rather than getting quietly expensive.
+
+**What a decline costs, stated plainly**: the rewrite the customer would have
+had anyway, plus about one credit for the refusal. A tweak that merely tidied a
+calculation the component already handles pays that for nothing. Against
+publishing a full day as having space, that is the direction to be wrong in.
+
+**How the wording is checked.** The corrected component is RENDERED with real
+React and read, rather than the test re-doing the arithmetic — two copies of one
+decision disagreeing is precisely what run 17 was. Against the counts you gave
+me, with the numbers supplied as arguments so no booking is created and no
+booking rule is touched: 0 → **six places left**, 2 → **four places left**, 6 →
+**no places left**, and seven or more gives the same answer instead of "minus
+one". Loading and failed both say so and neither advertises places — that was
+the state the old box could not express at all, because a failed read arrives as
+zero and zero was its most available-sounding answer.
+
+**Reproduced on the run's own files, not on a fixture.** The 26,276-byte page
+and the 1,466-byte component out of run 17's evidence bundle, the published
+answer derived from that page by its own one line, and the instruction pinned by
+hash — after run 14 I am not letting a remembered sentence stand in for a given
+one.
+
+Six deliberate breakages of the fix, each one restoring a piece of run 17: all
+six caught, and a comment-only control untouched. **Two of them didn't apply the
+first time round** — my own tooling, not the guards — and a breakage that
+doesn't apply looks exactly like a gap in the tests, so I re-ran both a different
+way before believing either.
+
+Suite **7,131** locally, nothing failing. **Not done, on purpose**: no merge, no
+deploy, no paid retry, and `fretwork-1`'s page is still live in the state run 17
+left it — reverting it is your call, and free through the restore path.

@@ -1887,11 +1887,99 @@ whole 26 KB page; that is what the 445.8-second fire-to-terminal is made of.
 **THE FIX IS NOT A PROMPT.** The rung that answers first cannot express this
 change, so the lever is the DOOR, not the wording: either a tweak whose target
 page passes a component's props must decline when the ask is about what those
-props MEAN, or the reply must say which file it could not open. **Owner's
-call**, and nothing here is fixed.
+props MEAN, or the reply must say which file it could not open.
 
 **THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
 `restoreVersion` to the previous version — this file's own restore path, free.
+
+### THE DOOR, BUILT (2026-09-22) — `partContract`
+
+The first of those two levers, shipped as `partContract` in `site-tweak.mjs`,
+gated inside `readTweak` **below `sameProse` and above `tweakLint`** so each
+refusal keeps its own name. **`sameProse` IS UNTOUCHED** — this is a second
+question asked beside it, not a stricter version of it.
+
+- **THE LINE IS *CAN THIS RUNG SEE WHAT THE VALUE MEANS*, read off the
+  page/component relationship and never off the request.** A **LITERAL** prop
+  is a CHOICE the component already distinguishes (`tone="dark"`,
+  `columns={3}`, a flag added or dropped) — the component's own file decides
+  what each looks like and the tweak has not changed what any of them MEANS, so
+  these stay cheap. A **BRACED EXPRESSION** is a COMPUTATION whose meaning is
+  settled by the receiving component, so rewriting one is a change this rung
+  cannot know it has finished. Nothing about this request is hardcoded.
+- **READ OFF THE PAGE'S OWN IMPORTS, NEVER FROM `parts.json`.**
+  `localParts(src, inPart)` is **`specNames` RUN BACKWARDS** — the same two
+  spellings, as capture groups — so the two readers of the `PART_DIR`
+  convention cannot drift, and the rung needs no store read to ask this.
+- **THE MULTISET, NOT THE POSITIONS**, which is `sameProse`'s own rule for
+  `sameProse`'s own reason: moving a band down the page moves every component
+  element in it, so anything positional would refuse the feature this rung
+  exists for. **A sweep proved it load-bearing in BOTH directions** — keying by
+  position instead of by prop name kills the finding case AND the positive
+  control.
+- **CANNOT-TELL MAKES NO CLAIM** (`readable: false`): an unreadable import
+  clause (`* as N`), a tag that does not terminate, a prop shape `partProps`
+  cannot enumerate. Skipped on either side, **and the cost is stated** — such a
+  component's prop really could move and be accepted, which is the status quo
+  rather than a regression.
+- **IT IS NOT A BAN ON PAGES WITH COMPONENTS**, which is the thing the fix must
+  not be. `fretwork-1`'s home page imports three components and binds eleven
+  props; a heading, spacing or band-order tweak touches none of their prop
+  expressions and is accepted exactly as before — asserted as a POSITIVE
+  CONTROL on that same page through the real route.
+- **WHAT A REFUSAL COSTS, STATED.** It escalates like every other refusal here,
+  so the customer gets the rewrite they would have had plus ~1 credit — and the
+  rewrite is the rung that SHOWS the writer the component source (`partsSent`)
+  and folds its answer back (`mergeParts`), which is exactly the writer this ask
+  needed. Against publishing a full day as available, that is the direction to
+  be wrong in.
+- **⚠ `inPart` IS ALWAYS FALSE ON THE ROUTE TODAY — MEASURED, AND SAID IN THE
+  CODE.** `target` is found in `eSrc`, which is `loadSiteSourceForEdit` → the
+  PAGES store, and a component lives in `parts.json` under a `name` rather than
+  a path, so no reachable `target.path` is a `-parts/` file. It is **DERIVED
+  (`!!partNameOf(target.path)`) rather than written as `false`** deliberately: a
+  literal would be a latent wrong answer the day a component becomes a tweak
+  target. A belt that cannot fire, named as one — the `PART_DIR`-filter
+  precedent — and **the FORWARDING hop is what a guard can drive**, so it is
+  driven at the module.
+- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **12 cases**, on run 17's
+  OWN artifact — `index.before.tsx` **26,276 b sha `129b54600bd30720`** and
+  `day-space-lookup.before.tsx` **1,466 b sha `5330fca7b88e5ac1`**, with the
+  published answer DERIVED from the before-source by its one line and pinned at
+  **26,280 b sha `fbbb0de00096c3b2`**, and **the instruction's own sha
+  (`622547386217ef0c`, 159 chars, one U+2014)** asserted — run 14's correction,
+  since a paraphrase of this ask is a different ask. **6 mutants killed, a
+  comment-only control survived.**
+- **⚠ TWO OF THOSE MUTANTS DID NOT APPLY ON THE FIRST ROUND, THROUGH PERL.**
+  Inside `\Q…\E` a `\n` literalises as backslash-n and `\u` is still read as a
+  case-fold escape — so a multi-line anchor and an anchor containing `\u0000`
+  both silently matched nothing. **A mutant that did not apply reads exactly
+  like a guard gap**; re-run through a mutator that takes its strings base64 and
+  refuses a no-op, both died. This file's own recorded trap, met in the red
+  check for another one.
+- **THE WORDING IS VERIFIED BY RENDERING, NOT BY RE-DERIVING THE ARITHMETIC.**
+  `test/fixtures/render-part.mjs` transpiles a `.tsx` with `ts.transpileModule`
+  and renders it through `react-dom/server`, kit primitives stubbed to elements
+  that **carry no words of their own**. Re-computing the ternary in the test
+  would be a second copy of the component's own decision, and run 17 is exactly
+  the class where two copies of one decision disagreed. **`typescript`, `react`
+  and `react-dom` are root devDependencies AND in the lockfile**, checked rather
+  than assumed — the canary run-6 trap. **The reader proves itself alive** by
+  answering the SHIPPED pair's defect: `6 - 0` → *"6 bookings already on this
+  day."* and `6 - 6` → *"No bookings on this day yet — it still has space."*
+- **THE CORRECTED PAIR, MEASURED AGAINST THE OWNER'S OWN TABLE** with SUPPLIED
+  counts (arguments, so no rows are created and no booking-enforcement rule is
+  touched): 0 → **6 places left**, 2 → **4 places left**, 6 → **no places
+  left**, and 7 and 99 the same answer rather than a negative one — run 17's
+  arithmetic rendered `-1 bookings` at seven. **LOADING AND FAILED NEVER
+  ADVERTISE PLACES**, which is the state the old component could not express at
+  all: `bookingCount` arrives as 0 both while the request is in flight and when
+  it fails, and zero is the fullest-sounding answer this box has, so an outage
+  would otherwise read as six places going spare. The word *booking* is gone
+  from the box, asserted rather than assumed.
+- **SUITE 7,119 → 7,131 LOCALLY** (`# tests 7131 / # pass 7131 / # fail 0 /
+  # skipped 0`, `duration_ms 106,383`) — the +12 is this file's own twelve
+  cases, stated as the difference between two measured readings.
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the

@@ -32,6 +32,10 @@
 // Plain module with no I/O, like `site-ask.mjs` and `site-rules.mjs`: the model
 // call is injected, so every decision here is tested without a Worker.
 import { extractText } from "./site-text.mjs";
+// The page/component relationship, read off the page's own source — see
+// `partContract` below for why this rung needs it and why it may not ask a
+// store for it.
+import { partProps } from "./site-files.mjs";
 // The runtime-correctness check. Imported rather than injected because it is
 // pure — no Worker, no container, no network — so importing it costs this
 // module none of the properties above, and injecting it would put the one thing
@@ -335,7 +339,7 @@ export function tweakLint(before, after) {
  * ordinary request is impossible, on a rung they never asked to be routed to.
  * So there is no `ok: false` here that a customer ever sees.
  */
-export function readTweak(reply, { source } = {}) {
+export function readTweak(reply, { source, inPart } = {}) {
   const before = String(source == null ? "" : source);
   // The raw API reply, read the way every other lane reads one — a forced tool
   // can still come back without a `tool_use` block when the call is cut short,
@@ -372,6 +376,21 @@ export function readTweak(reply, { source } = {}) {
   // real tweaks, and it catches a rewording on 329 of 329 pages.
   if (!sameProse(before, after)) return { ok: false, reason: "reworded" };
 
+  // ⚠ AND THE PROMISE ABOVE ONLY COVERS THIS FILE. A tweak that rewrote what a
+  // local component is PASSED changed something whose wording lives in a file
+  // this rung never opened, so `sameProse` passing says nothing about it — run
+  // 17 shipped a full day advertising space that way. Sits BELOW `sameProse` so
+  // a rewording keeps its own name, and ABOVE `tweakLint` because it is the
+  // more specific finding of the two and the one with a customer-visible
+  // consequence. See `partContract`.
+  const contract = partContract(before, after, { inPart });
+  if (!contract.ok) {
+    return {
+      ok: false, reason: "part-contract",
+      part: contract.part, prop: contract.prop, was: contract.was, now: contract.now,
+    };
+  }
+
   // WHAT IT BROKE. Last, so the cheaper and more specific refusals above keep
   // their own names — a rewording reported as a lint problem sends whoever
   // reads it at the wrong thing.
@@ -392,6 +411,112 @@ export function readTweak(reply, { source } = {}) {
   if (problems.length) return { ok: false, reason: "lint", problems };
 
   return { ok: true, source: after };
+}
+
+/**
+ * ⚠ DID THIS TWEAK CHANGE A VALUE WHOSE MEANING LIVES IN A FILE IT CANNOT
+ * OPEN — `{ok}` or `{ok: false, part, prop, was, now}` (run 17, 2026-09-22).
+ *
+ * WHAT IT COST TO LEARN. Asked to make the *"Space on a preferred day"* box
+ * count down the places left instead of the bookings, the cheap rung changed
+ * ONE line of the page:
+ *
+ *     - bookingCount={Number(bookingCount ?? 0)}
+ *     + bookingCount={6 - Number(bookingCount ?? 0)}
+ *
+ * …and nothing else. Four bytes, `sameProse` perfect (ZERO tokens lost, two
+ * gained), `tweakLint` clean, published as a success. The sentences that
+ * interpret that number are in `-parts/day-space-lookup.tsx`, which the rung
+ * never opened: the live box then read **"6 bookings already on this day"** on
+ * an EMPTY day, and — because the component words zero as *"it still has
+ * space"* — **"No bookings on this day yet — it still has space"** on a FULL
+ * one. A full day advertising space, shipped, reported done.
+ *
+ * `sameProse` IS A PAGE-SCOPED GUARANTEE AND THE PAGE IS NO LONGER THE WHOLE OF
+ * WHAT A VISITOR READS. That is the defect stated exactly, and it is why this
+ * is a separate question rather than a stricter `sameProse`: the promise *"the
+ * words did not move"* was kept, over the only file the rung was given. Since
+ * the band split the words that render a value live in the component, so a
+ * change to what a component is PASSED is a change whose consequence the
+ * promise does not cover. Zero tokens lost is what a perfect pass looks like
+ * and here it is the shape of the failure.
+ *
+ * SO THE LINE IS *CAN THIS RUNG SEE WHAT THE VALUE MEANS*, and it is answered
+ * off the page/component relationship rather than off the request:
+ *
+ *   a LITERAL prop is a CHOICE the component already distinguishes.
+ *     `tone="light"` → `tone="dark"`, `columns={4}` → `columns={3}`, a bare
+ *     flag added or dropped: the component's own file decides what each of
+ *     those looks like and the tweak has not changed what any of them MEANS.
+ *     These stay cheap, which is the whole point of the rung.
+ *   an EXPRESSION prop is a COMPUTATION, and what a computed value means is
+ *     settled by the component that receives it. Rewriting one without being
+ *     able to read that file is a change this rung cannot know it has finished.
+ *
+ * WHY IT IS NOT A BAN ON PAGES WITH COMPONENTS. `fretwork-1`'s home page
+ * imports three and renders eleven elements of them; a heading, a spacing or a
+ * band-order tweak touches none of their prop expressions and is accepted
+ * exactly as before. Only a tweak whose own diff lands on a braced prop of a
+ * local component is refused, and it is refused by NAME.
+ *
+ * THE MULTISET, NOT THE POSITIONS — `sameProse`'s own rule, for `sameProse`'s
+ * own reason. Moving a band down the page moves every component element in it,
+ * so anything positional would refuse the feature this rung exists for; the
+ * bindings compare as a bag, so a pure reorder differs by nothing.
+ *
+ * CANNOT-TELL MAKES NO CLAIM. An unreadable import clause, a tag that does not
+ * terminate, a prop shape `partProps` cannot enumerate: none of those is
+ * evidence that a contract moved, and refusing on them would send every page
+ * carrying one to the rewrite for ever. `readable: false` is skipped on either
+ * side, and the cost of that direction is stated: a tweak really could change
+ * such a component's prop and be accepted, which is the status quo rather than
+ * a regression.
+ *
+ * WHAT A REFUSAL COSTS, STATED. It escalates like every other refusal here, so
+ * the customer gets the rewrite they would have got anyway plus ~1 credit — and
+ * the rewrite is the rung that shows the writer the component source
+ * (`partsSent`) and folds its answer back (`mergeParts`), which is precisely
+ * the writer this ask needed. A tweak that merely tightened an expression the
+ * component already handles pays that escalation for nothing; against
+ * publishing a full day as available, this is the direction to be wrong in.
+ */
+export function partContract(before, after, { inPart } = {}) {
+  const A = partProps(before, inPart);
+  const B = partProps(after, inPart);
+  for (const name of new Set([...A.keys(), ...B.keys()])) {
+    const a = A.get(name), b = B.get(name);
+    // Either side unreadable — no evidence about this component either way.
+    if ((a && !a.readable) || (b && !b.readable)) continue;
+    const bag = (side) => {
+      const m = new Map();
+      for (const p of (side ? side.props : [])) {
+        const key = p.prop + "\u0000" + p.value;
+        const e = m.get(key);
+        if (e) e.n++; else m.set(key, { n: 1, prop: p.prop, value: p.value, literal: p.literal });
+      }
+      return m;
+    };
+    const mb = bag(a), ma = bag(b);
+    // The entries on one side and not the other, both directions. Only a
+    // COMPUTED one is a finding: a literal that came or went is a choice.
+    const only = (x, y) => [...x.values()].filter((e) => {
+      const o = y.get(e.prop + "\u0000" + e.value);
+      return !o || o.n < e.n;
+    });
+    const gone = only(mb, ma), came = only(ma, mb);
+    const moved = [...came, ...gone].find((e) => !e.literal);
+    if (!moved) continue;
+    const was = gone.find((e) => e.prop === moved.prop);
+    const now = came.find((e) => e.prop === moved.prop);
+    return {
+      ok: false,
+      part: name,
+      prop: moved.prop,
+      was: was ? was.value : "",
+      now: now ? now.value : "",
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -416,7 +541,7 @@ export function tweakable(source) {
  * exception escaping would turn "the cheap rung was unavailable" into "the edit
  * failed", which is strictly worse than not having built it.
  */
-export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL }) {
+export async function runTweak({ instruction, path, source, send, rules, heading, model = TWEAK_MODEL, inPart }) {
   const can = tweakable(source);
   if (!can.ok) return { ok: false, reason: can.reason, usage: null };
   let reply = null;
@@ -431,7 +556,11 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   // happened and the customer is charged for what was used, which is the rule
   // the whole billing tier is built on. A refusal is ~1 credit; hiding it would
   // be a small silent undercharge on the commonest failure there is.
-  return { ...readTweak(reply, { source }), usage: tweakUsage(reply, model) };
+  // `inPart` IS FORWARDED, not re-derived: which spellings name a sibling
+  // component depends on where the edited file itself lives, and the caller is
+  // the only side that knows. Dropping it here is the wiring trap this
+  // repository records twelve times over, so the guard drives the hop.
+  return { ...readTweak(reply, { source, inPart }), usage: tweakUsage(reply, model) };
 }
 
 /**
