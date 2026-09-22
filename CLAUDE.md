@@ -2055,10 +2055,13 @@ tree, and two signatures are read off it.
   **8 mutants killed, a comment-only control survived, and the ninth was
   MEASURED INERT** (above); both files restored byte-identical from a
   SCRATCHPAD backup, never `git checkout`.
-- **SUITE 7,137 LOCALLY — `# tests 7137 / # pass 7137 / # fail 0 /
-  # skipped 0`, `duration_ms 111,873` — AND THE CI HALF OF THIS READING IS
-  UNREAD.** Say which half is taken: a local number beside an unread CI run is
-  ONE reading. **The +3 is the difference between two measured readings**,
+- **SUITE 7,137, BOTH HALVES TAKEN** — locally `# tests 7137 / # pass 7137 /
+  # fail 0 / # skipped 0`, `duration_ms 111,873`, and CI run **`35742915576`
+  on `70b9a041`** at **`# tests 7137 / # pass 7133 / # fail 0 / # skipped 4`**,
+  `duration_ms 116,877`. **THE TOTAL IS WHAT MATCHES** — 7,137 both sides,
+  `pass` differing by exactly CI's own four skips, which is this file's
+  standing reading of that gap and not a regression.
+  **The +3 is the difference between two measured readings**,
   7,134 → 7,137, and it is exactly the three new CASES — the operand-order
   route case, the no-parser case and the `parse` forwarding case. The other
   assertions this round added (four order-only pairs, the value-swapped pair,
