@@ -64,11 +64,23 @@ test("⚠ NO STORE DECIDES THE PROFILE FOR ITSELF — a census over every one th
   // for what the FUNCTION does (`write`) rather than for what the REQUEST is. Comments are
   // blanked first: several of these files explain this very rule, which is this
   // repository's own most-repeated scanning trap.
-  const STORES = ["store.mjs", "work.mjs", "approvals.mjs", "capabilities.mjs", "automation-store.mjs"];
+  // ⚠ **THE LIST IS DERIVED, AND IT WAS HAND-KEPT UNTIL IT MISSED ONE.** It named five
+  // stores; `connections.mjs` has spoken PostgREST since the connection round and was in
+  // neither the list nor the count, so the one file holding a customer's credential was
+  // outside the census that exists because each store deciding for itself is how the
+  // defect happened. A hand-typed list in a census is one of two copies of it, and this is
+  // the half that goes stale in silence — **a census that does not read a file reports
+  // nothing about it, and reports it as a pass.** So the subject is now "every file under
+  // `src/` that speaks PostgREST", which a store added next month joins by existing.
+  const speaks = (code) => /\/rest\/v1\//.test(code);
+  const blank = (src) => src.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+  const STORES = fs.readdirSync(SRC)
+    .filter((f) => f.endsWith(".mjs"))
+    .filter((f) => speaks(blank(fs.readFileSync(path.join(SRC, f), "utf8"))))
+    .sort();
   let read = 0;
   for (const f of STORES) {
-    const src = fs.readFileSync(path.join(SRC, f), "utf8");
-    const code = src.split("\n").map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l)).join("\n");
+    const code = blank(fs.readFileSync(path.join(SRC, f), "utf8"));
     assert.match(code, /profileFor\(/, `${f} does not ask the one rule`);
     // AND IT IMPORTS IT. Two of the five used it WITHOUT importing it and the modules
     // still LOADED — the reference is inside a function, so `node --check` passes and the
@@ -81,8 +93,16 @@ test("⚠ NO STORE DECIDES THE PROFILE FOR ITSELF — a census over every one th
     read++;
   }
   // A NEGATIVE ASSERTION MUST PROVE ITS OBSERVER IS ALIVE: a census that read no file
-  // passes every "does not contain" above.
-  assert.equal(read, 5, "the census read no file");
+  // passes every "does not contain" above. A FLOOR rather than an equality now, because an
+  // equality is the hand-kept count wearing a derivation's clothes — it would go red on an
+  // honest seventh store and tell somebody a working one is broken. What it must not do is
+  // go quiet, so the floor is what the directory really had when this was derived, and the
+  // stores it names by hand are the ones whose absence would mean the needle stopped
+  // matching rather than the store having gone.
+  assert.ok(read >= 6, `the census read ${read} files, which is fewer than the directory had`);
+  for (const f of ["store.mjs", "work.mjs", "approvals.mjs", "capabilities.mjs", "automation-store.mjs", "connections.mjs"]) {
+    assert.ok(STORES.includes(f), `${f} speaks PostgREST and the census did not find it`);
+  }
 });
 
 /**
