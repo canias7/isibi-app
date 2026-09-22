@@ -29,6 +29,7 @@ import { planLimits, narrowLimits, stoppedBy, leftOf, capMs } from "./limits.mjs
 import { toolsFor, wireTools } from "./define.mjs";
 import { runFanout } from "./fanout.mjs";
 import { approvalRefusal, toolRevoked, argsHash } from "./approvals.mjs";
+import { isWaiting } from "./delegation.mjs";
 import { addMeter, usageTokens } from "./meters.mjs";
 import {
   replay, startedEntry, modelEntry, toolEntry, stoppedEntry,
@@ -373,6 +374,7 @@ export async function runAgent(opts = {}) {
     // REPLAY AGAIN. Re-replaying rather than patching the message list is what
     // keeps ONE composer of the conversation: the gaps are filled in the log and
     // the log is the thing that builds the messages.
+    const stillWaits = [];
     for (const [i, p] of prior.pending.entries()) {
       // A CALL A PERSON REFUSED IS ANSWERED, NOT RUN. Its result is a refusal the model
       // can read and act on — `ok: true` because the tool did not fail, with the refusal
@@ -403,6 +405,18 @@ export async function runAgent(opts = {}) {
         // identity below is derived from them, so a redelivery of this call asks the
         // database for the row it already made rather than making a second one.
         const value = await tool.run(p.args, toolContext({ tenant, agent, limits, step: p.step, index: p.index, id: p.id, room: () => leftOf(limits.wallMs, now() - startedAt), capabilities, connections, newId, operationSeed, argsKey: await operationKey(p.args) }));
+        // ⚠ **THE SAME PAIR, ON THE RESUME PATH, AND IT IS NOT REDUNDANT WITH THE LIVE
+        // ONE.** This is the delivery a settling child woke, so the ordinary answer here is
+        // that the wait is over and a real value gets written. But a spurious delivery — a
+        // duplicate, the cron, a sibling's own wake — arrives with children still working,
+        // and the tool answers the marker again. Recording that would close the slot on a
+        // call that has not finished, which is the defect the live rule exists to prevent,
+        // arriving through the door that resumes.
+        if (tool.waits === true && isWaiting(value)) {
+          stillWaits.push({ tool: p.name, step: p.step, index: p.index,
+                            ...(typeof value?.why === "string" ? { why: value.why } : {}) });
+          continue;
+        }
         done = toolEntry({ at, step: p.step, index: p.index, name: p.name, ms: now() - at, ok: true, value });
       } catch (error) {
         // ⚠ A WRITE THAT THREW IS UNRESOLVED, NOT FAILED. See `defineTool`'s `writes`.
@@ -411,6 +425,13 @@ export async function runAgent(opts = {}) {
       }
       entries.push(done);
       if (!(await write(done))) return record(ended("journal-failed", { error: journalError, step: p.step }));
+    }
+    // ⚠ HELD AGAIN, AND EVERY OTHER PENDING CALL OF THAT BATCH IS STILL FINISHED FIRST —
+    // the loop above wrote them. So a redelivery that arrives early costs the run nothing
+    // and loses nothing: what it leaves behind is exactly the one slot whose work is still
+    // out with somebody else.
+    if (stillWaits.length) {
+      return record(ended("awaiting-children", { step: prior.step, waiting: stillWaits }));
     }
     prior = replay(entries);
 
@@ -594,8 +615,29 @@ export async function runAgent(opts = {}) {
     // EACH RESULT IS RECORDED AS IT LANDS, which is what makes a half-finished
     // batch readable later: `replay` can then say exactly which calls have
     // answers and which do not.
+    // ⚠ **A CALL WHOSE ANSWER HAS NOT ARRIVED GETS NO RESULT, and that absence IS the
+    // record of it.** A `waits: true` tool starts work that finishes somewhere else, so its
+    // answer is not an answer at all — it is a receipt. Writing it would close the slot, and
+    // `replay` reads a closed slot as a finished call: the delivery after the children
+    // settle would find nothing pending, hand the model a step it never answered, and the
+    // work's real result would reach nobody.
+    //
+    // **THE PAIR IS THE WALL AND NEITHER HALF IS SUFFICIENT.** The tool must have DECLARED
+    // `waits` and its answer must carry the marker — so a tool that happens to answer a
+    // `waiting` key cannot suspend a run, and a delegation whose children had all settled by
+    // the time it looked answers an ordinary value and is recorded ordinarily.
+    //
+    // ⚠ AND THE SIBLINGS IN THE SAME BATCH ARE STILL WRITTEN. A model may call this beside
+    // another tool; those really did finish, their results cost money, and dropping them
+    // would make the next delivery run them again.
+    const waited = [];
     for (const r of results) {
       const call = asked[r.index];
+      if (callable.get(call?.name)?.waits === true && r.ok && isWaiting(r.value)) {
+        waited.push({ tool: call?.name ?? null, step: stepNo, index: r.index,
+                      ...(typeof r.value?.why === "string" ? { why: r.value.why } : {}) });
+        continue;
+      }
       const e = toolEntry({
         at: r.startedAt, step: stepNo, index: r.index, name: call?.name ?? null,
         ms: r.ms, ok: r.ok, value: r.value, error: r.ok ? undefined : String(r.error?.message ?? r.error),
@@ -618,7 +660,17 @@ export async function runAgent(opts = {}) {
       ok: r.ok, value: r.ok ? r.value : undefined,
       error: r.ok ? undefined : String(r.error?.message ?? r.error),
       ...(r.ok || callable.get(asked[r.index]?.name)?.writes !== true ? {} : { unresolved: true }),
-    }));
+    })).filter((s) => !waited.some((w) => w.index === s.index));
+
+    if (waited.length) {
+      steps.push(Object.freeze(step));
+      // ⚠ RECORDED, NOT FINISHED — no `stopped` entry, exactly as `awaiting-approval` is.
+      // The log still reads as a run in progress with that call pending, which is what the
+      // delivery after the children settle resumes from; `agent.settle_delegation` puts the
+      // parent back through `requeue_run`, the same function a person pressing "try again"
+      // already uses. There is no second queue and no poller.
+      return record(ended("awaiting-children", { step: stepNo, waiting: waited }));
+    }
     steps.push(Object.freeze(step));
 
     messages.push(assistantMessage(text, asked));

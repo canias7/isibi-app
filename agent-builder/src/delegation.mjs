@@ -412,3 +412,32 @@ export function combineResults(children) {
   }
   return Object.freeze({ results: Object.freeze(results), roster: Object.freeze(roster) });
 }
+
+// ── the one marker that can suspend a run ────────────────────────────────────────────
+
+/**
+ * `WAITING_MARK` — the key a `waits: true` tool's answer carries to say *this call has not
+ * finished and its result will arrive in a later delivery*.
+ *
+ * ⚠ **IT IS HALF OF A PAIR AND NEITHER HALF IS SUFFICIENT.** `run.mjs` holds a run only
+ * where the tool DECLARED `waits: true` AND its answer carries this — so an ordinary tool
+ * that happens to answer a `waiting` key cannot suspend a run by accident, and a tool that
+ * declares it and answers an ordinary value is answered ordinarily. A declaration alone
+ * would suspend every call of that tool, including the ones that really did finish (a
+ * delegation whose children had all settled by the time it looked), and a value alone would
+ * put the decision in the hands of whatever a tool's own code returned.
+ */
+export const WAITING_MARK = "waiting";
+
+/**
+ * `isWaiting(value)` → whether a tool's answer claims to be unfinished.
+ *
+ * **REFUSED, NEVER COERCED.** `Boolean("false")` is `true` and `String(["x"])` is `"x"`, so
+ * only the boolean `true` counts: a string out of a JSON round trip must not be what
+ * suspends somebody's run. Everything else — absent, `null`, `"true"`, `1` — is an ordinary
+ * answer, which is the direction that FINISHES a step rather than leaving it open for ever.
+ */
+export function isWaiting(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return value[WAITING_MARK] === true;
+}

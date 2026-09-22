@@ -216,5 +216,74 @@ export function makeDelegationStore(opts = {}) {
       if (!Array.isArray(rows)) throw new Error("sweep_delegations: the answer is not a list");
       return rows;
     },
+
+    /**
+     * ── THE RUN-BOUND SEAM, and it is the only part of this module a TOOL may reach ──
+     *
+     * `forTenant(t).forRun({ runId })` hands back the two operations a delegating tool
+     * needs, with the account and the parent already applied: **neither takes a tenant and
+     * neither takes a run id**, so there is nowhere for a model-written argument to become
+     * authority. It is the shape `approvals.mjs`' `forTenant(t).forRun({ runId })` already
+     * takes, for the same reason and with the same obligation on the caller — the tenant
+     * must come from `claim_run`'s answer and the run id from the delivery.
+     *
+     * The five flat operations above stay as they are, because the RUNNER and the platform
+     * sweep are their callers and a tenant argument is correct there.
+     */
+    forTenant(tenant) {
+      if (!isText(tenant)) throw new TypeError("forTenant: tenant must be a non-empty string, from the claim");
+      return {
+        forRun({ runId } = {}) {
+          if (!isText(runId)) throw new TypeError("forRun: runId must be a non-empty string");
+          return Object.freeze({
+            /**
+             * File this step's children, or find the ones already filed.
+             *
+             * **ONE METHOD RATHER THAN A `file` AND A `find` THAT CAN DISAGREE**, which is
+             * the shape `ask` takes one module over: the unique index is on
+             * `(parent, step, position)`, so a redelivery ABSORBS and reads back what is
+             * there. So asking is the same act as filing, and a tool needs no branch for
+             * which delivery it is on.
+             *
+             * ⚠ **THE PARENT'S CLAIM IS DELIBERATELY NOT HANDED OVER, and the reason is a
+             * correction to the migration's own comment.** `delegate_children` CAN release
+             * the parent inside its transaction, which is what would make a child settling
+             * in the next microsecond wake it with no delay — and the cost of that is that
+             * NOTHING MAY WRITE TO THE JOURNAL AFTERWARDS, because every write presents the
+             * claim and the fence refuses a released one. A model can call this alongside
+             * another tool in one batch, and those siblings' results are written after the
+             * fanout returns: with the claim gone they would all be refused, the delivery
+             * would answer `journal-failed`, and every redelivery would do the same until
+             * the attempt ceiling. So the RUNNER releases, exactly as it does for an
+             * approval, and the race is bounded by the cron rather than by the deadline —
+             * see `sweep_delegations`' second arm.
+             */
+            async open({ step, children, bounds, waitMs } = {}) {
+              return rpc("delegate_children", {
+                p_tenant: tenant, p_parent: runId, p_step: step, p_children: children,
+                ...(bounds === undefined ? {} : { p_bounds: bounds }),
+                ...(waitMs === undefined ? {} : { p_wait_ms: waitMs }),
+              });
+            },
+
+            /**
+             * Every child of this parent in position order, with what it was told, what it
+             * was allowed, its run's status and its outcome.
+             *
+             * ⚠ **AN UNREADABLE ANSWER IS RAISED, NEVER READ AS "no children".** An empty
+             * list is what a parent that delegated to nobody looks like, and `waitVerdict`
+             * answers `no-children` for it — which is a real refusal. Reading an OUTAGE as
+             * that same shape would turn a database blip into a step reporting that its
+             * specialists were never asked for anything.
+             */
+            async look() {
+              const rows = await rpc("delegation_progress", { p_tenant: tenant, p_parent: runId });
+              if (!Array.isArray(rows)) throw new Error("delegation_progress: the answer is not a list");
+              return rows;
+            },
+          });
+        },
+      };
+    },
   };
 }
