@@ -262,7 +262,10 @@ run 2m55s**, on a merge whose image inputs really moved, and **deploy 2139
 run 3m03s**, on a merge moving ~5,800 lines across 22 files. **Two merges a day
 apart, both rebuilding, agreeing within a second on each of the three** — so
 the band is tight for this shape and a reading outside it is worth asking about
-rather than shrugging at. Layer reuse depends
+rather than shrugging at. **Deploy 2143 (2026-09-22) is a third reading inside
+it: image step 2m16s, Wrangler 20s, job 3m03s** — nine seconds slower on the
+image step and identical on the whole job — on a fast-forward whose image inputs
+really moved (3 of 184). Layer reuse depends
 on the GitHub runner's LOCAL Docker cache, and a runner is ephemeral with no
 registry cache import — so **a cold runner rebuilds everything whatever the diff
 touched** (2053: 2m56s, every layer rebuilt, on 2044's exact shape) and a FAST
@@ -275,7 +278,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality THIRTEEN times, and the
+whole reader. **Cross-checked against reality FOURTEEN times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -288,6 +291,15 @@ its own channel. **A predictor that can only ever say "it moved" is half an
 instrument**; this is the other half, and it is what licenses *"if the id does
 not move, nothing an image is built from moved"* as a reading rather than a
 hope. **`***` IS A MASKED RUN OF `1`s**, so `***84` is 184.
+**The fourteenth — deploy 2143 (2026-09-22) — predicted BOTH ends before the
+push and was confirmed on both channels.** `origin/main` answered
+`6b14851c0cd0c1c1`, which is also what run 13 read LIVE off
+`/api/site/build-health`, so the predictor agrees with the platform on the FROM
+side as well; the fast-forward tip `a208a86a` answered `be869f142e052c8c`, both
+from 184 inputs, three of the push's files among them. The log answered
+`built isibi-app-sitebuildcontainer:be869f***42e052c8c (registry answered 404;
+***84 inputs off ./Dockerfile)` and `- …:6b***485***c0cd0c***c***` →
+`+ …:be869f***42e052c8c` under `SUCCESS Modified application`.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -2181,9 +2193,31 @@ tree, and ONE signature is read off it.
   re-ordered — and both close with one assertion. *A fixture too shallow to
   separate the two readings*, twice in one file, found by the sweep and not by
   reading the code.
-- **SUITE 7,143 LOCALLY, and the CI half of THAT reading is UNREAD** —
-  `# tests 7143 / # pass 7143 / # fail 0 / # skipped 0`, `duration_ms
-  109,853`. **The +4 is the difference between two measured readings**,
+- **SUITE 7,143, BOTH HALVES TAKEN** — locally `# tests 7143 / # pass 7143 /
+  # fail 0 / # skipped 0`, `duration_ms 109,853`, and CI on `a208a86a` at
+  **`# tests 7143 / # pass 7139 / # fail 0 / # skipped 4`** on BOTH unit runs,
+  **`35764802081`** (116,373 ms) and **`35764804869`** (115,978 ms). **THE
+  TOTAL IS WHAT MATCHES**, `pass` differing by exactly CI's own four skips.
+  **AND `site build` RAN TWICE AND BOTH READ ALL TWELVE COUNTS GREEN,
+  IDENTICAL LINE FOR LINE** — runs **`35764802100`** (19m45s) and
+  **`35764804818`** (25m54s): TAP 397/397/0/0, kit-typecheck 4, site-build 382,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all
+  passed`, the census closing 7 + 4 + 1 = **12** on each. The two known
+  annotations sit directly above their own `ok` lines on both, and `tsc`-format
+  lines read 9 / 2 prefixed / **7** plain on both.
+  **⚠ GITHUB FIRED EACH WORKFLOW TWICE FOR ONE PUSH**, two seconds apart, both
+  `event: push`, `run_attempt: 1`, with ONE remote ref at the sha — the push
+  before it got one of each. **The cause is not visible from here**, and it is
+  recorded rather than explained.
+  **AND THAT DUPLICATE IS THE CONTROL THIS FILE'S TIMING RECORD NEVER HAD.**
+  Same tree, runners started three seconds apart, and **`site-build.mjs` took
+  846 s on one and 1,122 s on the other — 14m06s against 18m42s, 4m36s
+  apart**, wider than the whole 17m06s–19m35s range four earlier rounds wrote
+  down as "recorded rather than explained". **So that step's duration is a fact
+  about the runner and says nothing about the change**, which is now a
+  measurement rather than an inference; 14m06s is also the shortest reading of
+  the step on record. **The +4 is the difference between two measured readings**,
   7,139 → 7,143, and it is exactly the four new CASES: the prop-free route
   case, the two-different-components control, the identity instrument case and
   the `inPart` join case. **The clause-form and cannot-tell assertions moved
@@ -2353,24 +2387,135 @@ tweak fallback is promised.**
   shapes and leaves the letters standing satisfies every placement check), and
   **something must have been drawn in their place** (or "no letters" is
   satisfied by an empty row).
-- **⚠ THE PREFLIGHT PAIR RECORDED HERE IS STALE, AND THIS ENTRY SAID IT WAS
-  VALID (corrected 2026-09-22 by asking git, not by remembering).** It read
-  *"`origin/main` is unmoved at `0e5ee09d`, so
-  `expect_deploy=0e5ee09d9a3a35c123ba9cf5a8a62f3ee111693b` … remains valid"*.
-  **`origin/main` is `3b555acf09de5e078ef6e7930ea041a32824bbba`**, so a press
-  carrying the old sha refuses in the preflight — the SAFE direction, and still
-  a wasted press. `expect_image=82bccb3bee50e4fd` is separately **UNVERIFIED**:
-  run 13's live `/api/site/build-health` read `6b14851c0cd0c1c1` after deploy
-  2142, and nothing in this session has re-read it. **Take BOTH numbers live
-  off `/api/site/build-health` immediately before the dispatch** — they are the
-  platform answering, and a value copied out of this file is a claim about
-  whenever it was written. `edit-canary.yml`'s checkout is **unpinned**, so the
-  corrected capture takes effect from the branch without a merge; the
-  EXPECTATIONS are not, and a merge invalidates them again.
-  **⚠ AND THE FOUR EDIT-PATH FIXES OF 2026-09-21/22 ARE UNMERGED, SO NONE OF
-  THEM IS DEPLOYED.** The branch is well ahead of `origin/main`; a live press
-  today exercises the code main holds, which is the version all four reported
-  bypasses were reproduced against.
+- **THE PREFLIGHT PAIR MOVED WITH DEPLOY 2143** (2026-09-22): the deploy
+  itself reports `DEPLOY_ID` `a208a86a32eb0a048013fc401e94f01080a69059` and
+  image `be869f142e052c8c`. **That is Wrangler reporting on itself, not the
+  platform answering**, so the rule stands: **take BOTH numbers live off
+  `/api/site/build-health` immediately before a dispatch** — the free half of
+  the canary prints them — and a later merge invalidates them again. The
+  places-left replay below is the next press and uses the same pair.
+  **THE EDIT-PATH FIXES OF 2026-09-21/22 ARE MERGED AND DEPLOYED** (the entry
+  below), so a live press now exercises the door as it stands after the sixth
+  reproduction, rather than the code every one of them was reproduced against.
+
+### MERGED, DEPLOYED, AND THE PLACES-LEFT REPLAY PREPARED (2026-09-22)
+
+**THE MERGE WAS A FAST-FORWARD** (owner: *"merge and deploy this reviewed
+patch"*): `main` `3b555acf` → **`a208a86a`** at **18:44:52Z**, 26 commits, 17
+files. **Asked before pushing, not assumed**: `main` had not moved (the branch
+fast-forwarded onto it), GitHub listed **zero** runs in progress or queued, and
+the image id was predicted over both ends (above, the fourteenth cross-check).
+**THE ROLLBACK WAS VERIFIED BEFORE IT COULD BE NEEDED**: `git revert --no-commit
+3b555acf..a208a86a` in a throwaway worktree gives tree **`5c99f4e8…` — `main`'s
+own tree, byte for byte** — so a rollback is a tree the registry already holds
+and its image step would say `reused 6b14851c0cd0c1c1`. **No prerequisite**:
+no migration, no stored-state format, and `worker.js`'s only functional line is
+the `inPart` forward.
+
+**DEPLOY 2143 (`35769231051`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** 3m03s; the
+image rebuilt and ROLLED (both ends as predicted, 184 inputs on its own
+channel); **`No updated asset files to upload`**, so there is **no served-file
+check** for this deploy — `public/` did not change; `Uploaded isibi-app`, a
+fresh Worker version, `Deployed isibi-app triggers`. The unauthenticated gates
+answered **401 / 401 / 401 / 404** at 18:48Z, which proves the Worker is up and
+routing and says nothing about which code answers. **The runtime confirmation
+is the canary's free press** (`/api/site/build-health`), the owner's press.
+
+**THE REPLAY IS RUN 17 WITH ONLY THE CODE CHANGED** (owner: *"That remains
+necessary to prove the real model changes the calculation and wording correctly
+together"*). Same site, same stored source, **the same instruction byte for
+byte** — `test/edit-page-contract.test.mjs`'s `ASK`, 159 characters, sha
+**`622547386217ef0c`**, one U+2014 at index 95. **PREPARED AND NOT DISPATCHED**:
+a session can neither press (403, `actions: write`) nor restore (no token).
+
+1. **RESTORE THE BEFORE-STATE, FREE** — `fretwork-1` is live on run 17's own
+   answer (`01790040384165-wl5it5`). Cloud → **Versions** → the entry dated
+   **21 Sep, about 06:27–06:31 UTC** → Restore. That is run 11's version,
+   minted `06:26:58.761Z`, id beginning **`01789972018761`**, whose state is
+   run 17's before-source. **⚠ Pick it BY TIME, not by position**: run 14's two
+   `publish:N` attempts may have staged builds that appear between it and "Live
+   now". `restoreVersion` copies `pages.json`/`parts.json` back, and stage 6's
+   repair-on-claim re-copies them from the pointer before any job reads.
+2. **VERIFY IT, FREE** — `x-site-version` must begin `01789972018761`, and the
+   probe (below) must read the ORIGINAL counting-up wording: 0 → *"No bookings
+   on this day yet — it still has space."*, 2 → *"2 bookings already on this
+   day."*, 6 → *"6 bookings already on this day."* — run 14's reading of this
+   exact state. **This reading is also the BEFORE half of the test**, and it has
+   to be taken before the paid run publishes.
+3. **THE FREE PRESS** — `edit-canary.yml` on `main`, `spend: no`, `site:
+   fretwork-1`, `control: washhouse-3`, `expect_deploy:
+   a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image: be869f142e052c8c`.
+   It confirms the runtime (both deploy readers, `async`/`runner` true), prints
+   the balance, and its artifact's `source.json` must carry run 17's before
+   bytes: `index.tsx` **`129b54600bd30720`** (26,276 chars), `day-space-lookup`
+   **`5330fca7b88e5ac1`**, `chord-diagram` **`d0c20d52f91d69d2`**,
+   `trial-booking-form` **`4b66386c0ad46092`**, `gear` **`d580389f971cdd31`**,
+   `prices` **`0d2d72dee56a2a71`**.
+4. **THE PAID PRESS** — the same form with `spend: yes` and the instruction
+   pasted verbatim. **Not before ~19:05Z** (15–20 minutes after the 18:47:57Z
+   roll). **~22–30 credits**: run 11's rung was 20 on this page with the tweak
+   attempt's tokens folded in, route ~2, plus a translation call per language
+   if the new wording is translated; balance **65** at run 17's end.
+
+**THE INSTRUMENT IS BUILT AND PROVEN ALIVE BEFORE IT IS NEEDED.** A Chromium
+probe answers `bookings_on_day` itself — **no row is ever written** — and reads
+what the LIVE shipped bundle renders for 0, 1, 2, 5, 6 and 7 bookings, plus an
+answer that never comes (in flight) and a 503 on every try (failed). **It finds
+the box by BEHAVIOUR** — every date input on the page is filled and the one
+whose fill fires `bookings_on_day` is the box — **because the edit under test
+may rename the heading and the id.** Proven on today's broken page before any
+test depends on it: it reads run 17's recorded table exactly (0 → *"6 bookings
+already"*, 6 → *"No bookings on this day yet — it still has space."*, 7 →
+*"-1 bookings"*), plus two states never read before — **in flight and failed
+both render "6 bookings already on this day."** — with 0 console errors and 0
+failed requests. It lives in the session scratchpad (`places-probe.mjs`); what
+it does is the paragraph above, so any session can rebuild it.
+
+**THE ACCEPTANCE, WRITTEN BEFORE THE PRESS.** A pass needs every one of:
+
+- **Published**: a stored reply, `ok: true`, and `x-site-version` moved to a
+  version minted inside the run's window.
+- **The one-file rung did not publish**: `tweak` is not `true`.
+- **The box, read by the probe after the publish, against the owner's own
+  table**: 0 → six places left · 2 → four · 5 → **one place** · **6 → full,
+  and NOT "it still has space"** · 7 → never negative and never "has space".
+  The count is of PLACES: *"… bookings already on this day"* is gone.
+- **Scope, compared as BODIES out of the artifact, never off `preserved`**:
+  `chord-diagram`, `trial-booking-form`, `gear.tsx` and `prices.tsx`
+  byte-identical to the shas above. The wording must change in
+  `day-space-lookup` **or** the page must stop rendering it — **the table
+  decides, and the choice is recorded**; `index.tsx` changes are INSPECTED,
+  not auto-failed.
+- **Still working**: NAV 200, 0 console errors, 0 failed requests, and one
+  UNINTERCEPTED `bookings_on_day` answering 200.
+
+**Reported, not a pass condition**: what the box says in flight and on failure
+(the contract fixture's standard is *"never advertise places"*; a naive count
+down shows six places left in both); what `/es` and `/fr` say (the open
+*"strings outside the page source are never translated"* item); the cost
+against the band; and the router's layer. **A routing prediction is a
+prediction about wording**: this sentence went to `page` on run 17 and that is
+not promised — a `rules` answer could change the site's database rules, and it
+would be recorded as what it is.
+
+**WHAT EACH FAILURE WOULD MEAN, SO THE RESULT CANNOT BE READ BACKWARDS.**
+`tweak: true` with the page's computation changed is **the door failing live**
+— the top finding. `tweak: true` with only rendering changed passed the door
+legitimately and did not do the work: a different gap, since nothing asks a
+tweak whether it fulfilled the request. The rewrite ran and the wording did not
+change: the real model's miss, with the component shown to it. Right wording
+and a doubled subtraction (the page's `6 −` and the component's): the table
+catches it at 0 → *"0 places left"*.
+
+**⚠ WHAT THE REPLAY CANNOT SHOW, SAID BEFORE IT RUNS.** `readTweak`'s `reason`
+is on **neither the reply nor the trace** — the route reads it only to decide
+`twSpent`, and the trace has no mark for the tweak at all, only for the
+publish — so `tweak` absent beside `tweakUsage` present establishes that **a
+tweak was tried and declined**, never **why**. A pass therefore proves the real
+model changes the calculation and the wording together, which is what was
+asked; that the DOOR is what declined stays evidenced by the contract tests
+alone. Putting the reason on the wire would settle it, and it is a product
+change that would need its own deploy before the press.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

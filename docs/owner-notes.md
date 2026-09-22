@@ -155,6 +155,71 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
+
+**Merged.** `main` fast-forwarded to `a208a86a` — 26 commits — at 18:44Z.
+Checked first rather than assumed: `main` hadn't moved, and GitHub had nothing
+running or queued. **The rollback was verified before the push**: reverting the
+26 commits in a throwaway copy gives back `main`'s exact tree, so undoing this is
+one revert and the old image is already in the registry.
+
+**Deployed.** Deploy 2143, 3m03s, green. The container image rebuilt and rolled
+from `6b14851c0cd0c1c1` to `be869f142e052c8c`, and **I computed both of those
+before pushing** — the log matched on the id and on the input count (184). No
+file in `public/` changed, so there is no served-file check this time. **It's
+"deployed", not "confirmed running"**: the deploy only reports on itself, and
+the free canary press is what asks the live Worker which code answers.
+
+**CI, both halves.** Unit 7,143 / 7,139 / 0 / 4 and `site build` all twelve
+counts — on **two** runs of each, because GitHub fired every workflow twice for
+the one push (I can't see why; one ref, one push). The accident was useful: the
+same code took **14m06s** on one runner and **18m42s** on the other in the long
+step, so that step's time says nothing about a change — it's the runner.
+
+### The live test — run 17 replayed, with only the code different
+
+Same site, same page source, **the same sentence byte for byte**. Four steps,
+two of them free, and I can't do any of them from here (no press, no restore):
+
+1. **Put fretwork-1 back to its pre-run-17 version** — free. Cloud → Versions →
+   the entry from **21 Sep, about 06:27–06:31 UTC** → Restore. **Pick it by the
+   time**, not by position: run 14 may have left entries in between.
+2. **Tell me** — I'll check it landed (the version header, and the box going
+   back to "No bookings on this day yet — it still has space." for an empty
+   day). That reading is also the "before" of the test.
+3. **Free press** — `edit-canary` on `main`, `spend: no`, `site: fretwork-1`,
+   `control: washhouse-3`, `expect_deploy:
+   a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image: be869f142e052c8c`.
+   It proves which code is live and records the exact starting source.
+4. **Paid press** — the same, `spend: yes`, and the instruction pasted exactly:
+
+   > The "Space on a preferred day" box counts bookings. Make it count down the places left instead — six lesson slots a day, so an empty day reads six places left.
+
+   About **22–30 credits**, and **not before ~19:05Z** (the container needs its
+   15–20 minutes after the roll). Balance was 65 at run 17's end.
+
+**A pass means all of these**: it publishes; the quick one-file rung does **not**
+publish it; the live box reads **six places left** for an empty day, **four**
+for two booked, **one place** for five, and **full — not "still has space"** —
+for six, and never goes negative; the other two components and the other two
+pages come back byte-identical; and nothing on the page breaks. I'll check the
+box the same way as before: my browser answers the booking count itself, so no
+test bookings ever touch your database — and that instrument has already
+reproduced run 17's broken table exactly on today's page.
+
+**Reported but not part of the pass**: what the box says while the count is
+still loading or if it fails (today both say "6 bookings already"); the Spanish
+and French pages; the cost; and which layer the router picks.
+
+**What it can't show, said before it runs**: *why* the quick rung declined.
+The reason isn't on the reply or in the trace. So a pass proves the real model
+changes the calculation and the wording together — what you asked for — and
+that the door itself is what said no stays proven by the tests only. Putting
+the reason on the reply would settle it; that's a product change and would need
+another deploy first.
+
+---
+
 ## 2026-09-22 — You broke it a sixth time, on a component with no props
 
 You wrapped a prop-free component in a guard and swapped the arms:
