@@ -7741,3 +7741,48 @@ test("⚠ OPENING ONE READS ONCE; A FOLD ASKS NOBODY; AND A LATE ANSWER WRITES I
   assert.deepEqual(JSON.parse(state()).rows, [], "a late answer wrote into the screen that had moved on");
   assert.equal(b.w.ev("agentRunKidsBusy"), "", "the busy mark was left behind");
 });
+
+test("⚠ A FAILED REFRESH KEEPS THE ROWS IT HAD, and the poll re-reads only what is OPEN and still going", async (t) => {
+  let fail = false;
+  const b = sending(t, {
+    kids: () => (fail ? badRes("couldn’t reach the server") : okRes({ children: [KID()] })),
+  });
+  const settle = async () => { for (let i = 0; i < 3; i += 1) await new Promise((r) => setTimeout(r, 0)); };
+  const rows = () => b.w.ev('JSON.stringify([...agentRunKids].map(([k, v]) => [k, v === null ? null : v.length]))');
+
+  b.w.ev('agentRunKidsOpen.add("run-delegating"); 1');
+  b.w.ev('agentKidsLoad("run-delegating")');
+  await settle();
+  assert.deepEqual(JSON.parse(rows()), [["run-delegating", 1]]);
+
+  // ⚠ **`null` WOULD TAKE A LIST THAT WAS CORRECT OFF THE SCREEN because a later refresh did
+  // not come back.** What the customer is told is that the refresh failed; what they keep is
+  // the last answer anybody really had.
+  fail = true;
+  b.w.ev('agentKidsLoad("run-delegating")');
+  await settle();
+  assert.deepEqual(JSON.parse(rows()), [["run-delegating", 1]], "a failed refresh threw away the rows");
+  assert.match(b.w.ev('agentRunKidsErr.get("run-delegating")'), /couldn’t reach the server/i);
+  // AND A PANEL THAT HAS NEVER BEEN READ STAYS `null` RATHER THAN `[]`, because "it asked
+  // nobody" is a claim a read that failed is not entitled to make.
+  b.w.ev('agentKidsLoad("run-other")');
+  await settle();
+  assert.equal(b.w.ev('agentRunKids.get("run-other")'), null, "a first read that failed said the run asked nobody");
+
+  // ⚠ **THE REFRESH IS BOUNDED BY WHAT IS EXPANDED AND STILL GOING.** Re-reading every run in
+  // a conversation would fetch a settled fan-out's answers every 2.5 seconds for ever, and a
+  // panel nobody opened is a request nobody wanted; a panel that IS open under a live run is
+  // the whole reason to open one.
+  fail = false;
+  const before = b.kidReads.length;
+  b.w.ev(`agentKidsRefresh(${JSON.stringify([
+    { id: "m1", run: run("delegating", { id: "run-delegating", children: 1 }) },
+    { id: "m2", run: run("answered", { id: "run-settled", children: 1 }) },
+    { id: "m3", run: run("delegating", { id: "run-shut", children: 1 }) },
+    { id: "m4", run: null },
+  ])}); 1`);
+  await settle();
+  const asked = b.kidReads.slice(before).map((u) => decodeURIComponent(u.split("run=")[1] || ""));
+  assert.deepEqual(asked, ["run-delegating"],
+    "the refresh asked about a settled run, a closed panel, or a message with no run");
+});
