@@ -178,38 +178,70 @@ step, so that step's time says nothing about a change — it's the runner.
 
 ### The live test — run 17 replayed, with only the code different
 
-Same site, same page source, **the same sentence byte for byte**. Four steps,
-two of them free, and I can't do any of them from here (no press, no restore):
+**Corrected the same day, on your two points.** I'd told you to pick the version
+"by the time, about 06:27–06:31", and I'd filed the loading and error states
+under "reported, not part of the pass". Both were wrong, and both are fixed
+below.
 
-1. **Put fretwork-1 back to its pre-run-17 version** — free. Cloud → Versions →
-   the entry from **21 Sep, about 06:27–06:31 UTC** → Restore. **Pick it by the
-   time**, not by position: run 14 may have left entries in between.
-2. **Tell me** — I'll check it landed (the version header, and the box going
-   back to "No bookings on this day yet — it still has space." for an empty
-   day). That reading is also the "before" of the test.
-3. **Free press** — `edit-canary` on `main`, `spend: no`, `site: fretwork-1`,
-   `control: washhouse-3`, `expect_deploy:
-   a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image: be869f142e052c8c`.
-   It proves which code is live and records the exact starting source.
-4. **Paid press** — the same, `spend: yes`, and the instruction pasted exactly:
+Same site, same page source, **the same sentence byte for byte** — 159
+characters, fingerprint `622547386217ef0c…7193`. I can't press or restore from
+here, and nothing happens until you approve it.
+
+**The exact version to go back to is `01789972018761-6tng48`**, found in the
+saved evidence rather than by a time: it's what the live site reported in its
+own version header at 20:40Z on 21 Sep, the last reading before run 17; the id
+itself says it was made at 06:26:58 on 21 Sep, in the middle of run 11; and
+every saved copy of the site's source from run 11's finish, through runs 12 and
+14, to run 17's own "before" is identical, file for file. Nothing that could
+publish ran in between.
+
+1. **Restore it** — free, when you're happy to. Cloud → Versions → the row
+   **"The home page shows nine beginner quotes in three stacked…"**, dated
+   **21 Sep, 06:26 UTC** (the panel shows it in your own time). It should be the
+   row right under "Live now". The panel doesn't show version ids, so:
+2. **Tell me** — I'll read the site's version header (free). It must say exactly
+   `01789972018761-6tng48`, or we stop there.
+3. **Free press** — `edit-canary` on `main`: `spend: no`, instruction blank,
+   `read_job` blank, `site: fretwork-1`, `control: washhouse-3`,
+   `expect_deploy: a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image:
+   be869f142e052c8c`. It confirms which code and which container are really
+   live, and it reads the site's whole source — and I compare **every page and
+   every component, byte for byte**, against run 17's "before". All six must
+   match; a matching sentence on the page isn't enough. Then I take the
+   "before" reading of the box.
+4. **Paid press** — the same form, `spend: yes`, and the instruction pasted
+   exactly:
 
    > The "Space on a preferred day" box counts bookings. Make it count down the places left instead — six lesson slots a day, so an empty day reads six places left.
 
-   About **22–30 credits**, and **not before ~19:05Z** (the container needs its
-   15–20 minutes after the roll). Balance was 65 at run 17's end.
+   About **22–30 credits**; the balance was 65 at run 17's end, and the free
+   press prints today's. I compare that run's own "before" source too — it's
+   taken seconds before the edit, so it's the real starting point.
 
-**A pass means all of these**: it publishes; the quick one-file rung does **not**
-publish it; the live box reads **six places left** for an empty day, **four**
-for two booked, **one place** for five, and **full — not "still has space"** —
-for six, and never goes negative; the other two components and the other two
-pages come back byte-identical; and nothing on the page breaks. I'll check the
-box the same way as before: my browser answers the booking count itself, so no
-test bookings ever touch your database — and that instrument has already
-reproduced run 17's broken table exactly on today's page.
+**A pass needs every one of these**: it publishes; the quick one-file rung does
+**not** publish it; the box reads **six places left** for an empty day, **four**
+for two booked, **one place** (singular) for five, and **full — not "still has
+space"** — for six, seven and ninety-nine, never negative; **while the count is
+loading, if it fails, if it comes back empty, and before a day is picked, the
+box never says there are places** — no number of places, no "has space"; the
+other two components and the other two pages come back byte-identical; nothing
+on the page breaks; and the reply you'd see is accurate.
 
-**Reported but not part of the pass**: what the box says while the count is
-still loading or if it fails (today both say "6 bookings already"); the Spanish
-and French pages; the cost; and which layer the router picks.
+**One thing worth knowing before you spend**: your sentence doesn't mention the
+loading and error states, and the version we're restoring gets them wrong (it
+says "it still has space" while it's still loading). So a pass needs the
+builder to protect those states without being told — which is exactly what you
+asked me to hold it to.
+
+I check the box the same way as before: my browser answers the booking count
+itself, so no test bookings touch your database. The new version of the check
+has already run against today's page, and every count and every loading and
+error state fails exactly as run 17's broken table predicts. It only ever says
+"fail", "match" or "read it" — it never passes a loading or error line by
+itself; I read those lines word for word.
+
+**Reported but not part of the pass**: the Spanish and French pages; the cost;
+and which layer the router picks.
 
 **What it can't show, said before it runs**: *why* the quick rung declined.
 The reason isn't on the reply or in the trace. So a pass proves the real model
@@ -557,7 +589,7 @@ steps. The records that separate them are the job row's own `billing` field and
 the ledger rows filed under the job, and nothing had ever read either.
 
 What is unaffected: nothing published. Eleven hours later the site still serves
-the build run 11 made this morning (version stamp `01789972018761`, minted
+the build run 11 made this morning (version stamp `01789972018761-6tng48`, minted
 06:26:58Z). So your box still counts up, and none of the three corrections was
 exercised.
 
@@ -936,7 +968,7 @@ a few days ago: *a blank from a blind instrument reads exactly like a finding.*
 
 **I checked again eleven hours later, free, in case it published late. It did
 not.** The strongest evidence is not the wording — it is the version stamp the
-site serves: **`01789972018761`, minted at 06:26:58Z**, which is inside run
+site serves: **`01789972018761-6tng48`, minted at 06:26:58Z**, which is inside run
 11's window this morning. The version is minted *before* the compile, so a late
 publish would carry a new one from around 09:16Z. There is none. Comparing
 yesterday's capture with today's, the only change to that page is **run 11's**

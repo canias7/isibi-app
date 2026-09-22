@@ -1469,7 +1469,7 @@ same shape as every other cannot-tell-read-as-a-value in this file. **What
 separates them is `edit_jobs.billing` and the `credit_events` rows, neither of
 which anything here had ever read**; the read mode below exists for exactly that
 and has not been pressed. Nothing published: at **20:40:27Z**, 11.4
-hours later, the live site still serves **`x-site-version: 01789972018761`**,
+hours later, the live site still serves **`x-site-version: 01789972018761-6tng48`**,
 minted **06:26:58.761Z**, inside run **11**'s window (06:21:38 → 06:30:36Z).
 `mintVersion` runs BEFORE the compile, so a late publish would carry a version
 from ~09:16Z and there is none. Reconciled against a curl capture from
@@ -2424,88 +2424,162 @@ is the canary's free press** (`/api/site/build-health`), the owner's press.
 **THE REPLAY IS RUN 17 WITH ONLY THE CODE CHANGED** (owner: *"That remains
 necessary to prove the real model changes the calculation and wording correctly
 together"*). Same site, same stored source, **the same instruction byte for
-byte** — `test/edit-page-contract.test.mjs`'s `ASK`, 159 characters, sha
-**`622547386217ef0c`**, one U+2014 at index 95. **PREPARED AND NOT DISPATCHED**:
-a session can neither press (403, `actions: write`) nor restore (no token).
+byte** — `test/edit-page-contract.test.mjs`'s `ASK`: **159 characters, 161
+UTF-8 bytes, sha256
+`622547386217ef0cb7b4151358ffa1c3421ac91e7206b90612d342d7441b7193`**, one
+U+2014 at index 95, straight double quotes at 4 and 29, byte-identical to run
+17's own `request.json`. **PREPARED AND NOT DISPATCHED**: a session can neither
+press (403, `actions: write`) nor restore (no token), and nothing is restored,
+pressed or retried without the owner's approval.
 
-1. **RESTORE THE BEFORE-STATE, FREE** — `fretwork-1` is live on run 17's own
-   answer (`01790040384165-wl5it5`). Cloud → **Versions** → the entry dated
-   **21 Sep, about 06:27–06:31 UTC** → Restore. That is run 11's version,
-   minted `06:26:58.761Z`, id beginning **`01789972018761`**, whose state is
-   run 17's before-source. **⚠ Pick it BY TIME, not by position**: run 14's two
-   `publish:N` attempts may have staged builds that appear between it and "Live
-   now". `restoreVersion` copies `pages.json`/`parts.json` back, and stage 6's
-   repair-on-claim re-copies them from the pointer before any job reads.
-2. **VERIFY IT, FREE** — `x-site-version` must begin `01789972018761`, and the
-   probe (below) must read the ORIGINAL counting-up wording: 0 → *"No bookings
-   on this day yet — it still has space."*, 2 → *"2 bookings already on this
-   day."*, 6 → *"6 bookings already on this day."* — run 14's reading of this
-   exact state. **This reading is also the BEFORE half of the test**, and it has
-   to be taken before the paid run publishes.
-3. **THE FREE PRESS** — `edit-canary.yml` on `main`, `spend: no`, `site:
-   fretwork-1`, `control: washhouse-3`, `expect_deploy:
-   a208a86a32eb0a048013fc401e94f01080a69059`, `expect_image: be869f142e052c8c`.
-   It confirms the runtime (both deploy readers, `async`/`runner` true), prints
-   the balance, and its artifact's `source.json` must carry run 17's before
-   bytes: `index.tsx` **`129b54600bd30720`** (26,276 chars), `day-space-lookup`
-   **`5330fca7b88e5ac1`**, `chord-diagram` **`d0c20d52f91d69d2`**,
-   `trial-booking-form` **`4b66386c0ad46092`**, `gear` **`d580389f971cdd31`**,
-   `prices` **`0d2d72dee56a2a71`**.
-4. **THE PAID PRESS** — the same form with `spend: yes` and the instruction
-   pasted verbatim. **Not before ~19:05Z** (15–20 minutes after the 18:47:57Z
-   roll). **~22–30 credits**: run 11's rung was 20 on this page with the tweak
-   attempt's tokens folded in, route ~2, plus a translation call per language
-   if the new wording is translated; balance **65** at run 17's end.
+**⚠ CORRECTED THE SAME DAY (owner), TWO POINTS.** The first cut named the
+restore target by an APPROXIMATE TIME (*"about 06:27–06:31 UTC … pick it by
+time"*) and filed the loading and error states under *"reported, not a pass
+condition"*. **Both were wrong**: *"Identify the intended pre-run-17 version
+from the saved evidence, not an approximate timestamp"*, and *"Missing, pending
+or failed booking data must never advertise available places. Do not downgrade
+these to observations outside the pass."* A time describes a row; it is not the
+row's identity. And a property the fixed instruction does not state is still a
+property the product owes.
 
-**THE INSTRUMENT IS BUILT AND PROVEN ALIVE BEFORE IT IS NEEDED.** A Chromium
-probe answers `bookings_on_day` itself — **no row is ever written** — and reads
-what the LIVE shipped bundle renders for 0, 1, 2, 5, 6 and 7 bookings, plus an
-answer that never comes (in flight) and a 503 on every try (failed). **It finds
-the box by BEHAVIOUR** — every date input on the page is filled and the one
-whose fill fires `bookings_on_day` is the box — **because the edit under test
-may rename the heading and the id.** Proven on today's broken page before any
-test depends on it: it reads run 17's recorded table exactly (0 → *"6 bookings
-already"*, 6 → *"No bookings on this day yet — it still has space."*, 7 →
-*"-1 bookings"*), plus two states never read before — **in flight and failed
-both render "6 bookings already on this day."** — with 0 console errors and 0
-failed requests. It lives in the session scratchpad (`places-probe.mjs`); what
-it does is the paragraph above, so any session can rebuild it.
+**THE STARTING VERSION IS `01789972018761-6tng48`, FROM SAVED EVIDENCE:**
 
-**THE ACCEPTANCE, WRITTEN BEFORE THE PRESS.** A pass needs every one of:
+- **READ VERBATIM off the live `x-site-version` header at
+  2026-09-21T20:40:27Z** — the last reading of it before run 17 posted. A
+  version id's first 14 digits are its mint time in ms: **06:26:58.761Z**,
+  inside run 11 (06:21:38 → 06:30:36Z), whose own log shows the job turning
+  from `claimed` to `routing cost=20` between 06:26:43 and 06:26:57 — the
+  reserve just before the compile, which is where `mintVersion` runs.
+- **THE BODY CHAIN IS UNBROKEN.** The six saved complete source reads since run
+  11 published — run 11's after (06:30:31Z), run 12's before and after
+  (07:01Z, 07:02Z), run 14's before and after (09:16Z, 09:30Z) and run 17's
+  before (01:23:38Z, 22 Sep) — are **byte-identical on all six bodies** (three
+  pages, three components). **The control**: run 11's own before-read DIFFERS,
+  at `index.tsx` (28,002 → 26,276 chars), so the comparison sees a change when
+  there is one.
+- **NOTHING THAT PUBLISHES RAN IN BETWEEN.** The only dispatches were run 15
+  (the read-only lookup, 18 s) and run 16 (cancelled 15 s into its canary step,
+  its instruction blank, so it filed only the zero-cost empty jobs); the
+  balance read **75** at run 14's end and at run 17's start.
+- **THE RESIDUAL, STATED.** Saved evidence cannot exclude a ZERO-COST republish
+  in that 4h43m window that left all six bodies identical. The platform's own
+  record that would close it is run 17's manifest `parent`, which the
+  owner-only Versions route returns and nothing in the existing workflow reads.
+  It does not weaken the replay: the starting SOURCE is re-verified after the
+  restore, body by body.
+- **IN THE VERSIONS PANEL, which shows a label and a LOCAL time and never the
+  id**: the row labelled **"The home page shows nine beginner quotes in three
+  stacked…"** (`versionLabel` over run 11's instruction as run 11's own log
+  records it), **21 Sep, 06:26 UTC** in the viewer's own zone. It should sit
+  directly under "Live now" (run 17's, *"The "Space on a preferred day" box
+  counts bookings."*): **run 14's two refused publishes left no row**, because
+  the zero-match refusal returns before `stageBuild` writes anything.
 
+**THE ORDER, AND WHO PRESSES WHAT:**
+
+1. **RESTORE — the owner, free, only when approved.** Cloud → Versions → that
+   row → Restore.
+2. **THE HEADER — the session, free, no token.** `x-site-version` must read
+   **exactly `01789972018761-6tng48`**; anything else stops the test.
+3. **THE FREE PRESS — the owner.** `edit-canary.yml` on `main`: `spend` `no`,
+   `instruction` blank, `read_job` blank, `site` `fretwork-1`, `control`
+   `washhouse-3`, `expect_deploy` `a208a86a32eb0a048013fc401e94f01080a69059`,
+   `expect_image` `be869f142e052c8c`. **Its preflight is the runtime
+   confirmation of the SHA and the image** (both deploy readers,
+   `async`/`runner` true), and **its artifact's `before/source.json` is the
+   existing workflow's complete source read**: every page and component body is
+   compared against run 17's before-read by a comparator that answers
+   IDENTICAL, DIFFERS or UNREADABLE and was proven alive both ways — `index.tsx`
+   `129b54600bd30720` (26,276 chars), `prices.tsx` `0d2d72dee56a2a71`,
+   `gear.tsx` `d580389f971cdd31`, `chord-diagram` `d0c20d52f91d69d2`,
+   `day-space-lookup` `5330fca7b88e5ac1`, `trial-booking-form`
+   `4b66386c0ad46092`, and the same path set. **A matching visible sentence
+   alone is insufficient.**
+4. **THE BEFORE READING — the session, free.** The probe on the restored page,
+   predicted from the before-source through the contract test's renderer: 0 →
+   *"No bookings on this day yet — it still has space."*, 2 → *"2 bookings
+   already on this day."*, 6 → *"6 bookings already on this day."*, and
+   **every unknown state → *"No bookings on this day yet — it still has
+   space."*** — the very defect the loading criterion names.
+5. **THE PAID PRESS — the owner.** The same form with `spend` `yes` and the
+   instruction pasted verbatim. **~22–30 credits**; balance **65** at run 17's
+   end, and the free press prints the current one. **The run's OWN
+   `before/source.json`, taken seconds before its POST, is compared too** — it
+   is the edit's real starting source, and a mismatch makes the run something
+   other than the replay, whatever it shows.
+
+**THE INSTRUMENT, v2, PROVEN ALIVE BEFORE IT IS NEEDED.** A Chromium probe
+answers `bookings_on_day` itself — **no row is ever written** — for 0, 2, 5, 6,
+7 and 99 bookings, an answer that never comes, a 503 on every try (past the
+site's two retries), a 404 and a 200 `null`; reads the box before a day is
+chosen; and lets the real function through once, untouched, which is a read.
+**It finds the box by BEHAVIOUR** — the date input whose fill fires the call;
+the trial form's own date input is self-contained, and `useRpc` has no
+`enabled` flag, so the call also fires on load with an empty day. **What a state
+says** is the box's lines minus the lines present in every state (heading, lead,
+label). **The classifier answers FAIL, MATCH or READ, and an unknown state can
+never MATCH**: "does not advertise places" is an absence, and a pattern list
+cannot prove one, so those lines are read verbatim. Proven both ways before any
+live reading leans on it — 25 table lines and 22 states rendered through the
+contract test's own renderer, the corrected fixture MATCHING all six counts and
+the pre-run-17 and run-17 components FAILING all six — then live on today's
+page (`01790040384165-wl5it5`, 19:31Z): **FAIL 10 · MATCH 0 · READ 1**, every
+count and every unknown state failing exactly as run 17's recorded table
+predicts, the no-day line READ, the real function **200 body `0`**, 0 console
+errors, 0 failed requests. It lives in the session scratchpad
+(`places-probe.mjs`, `places-classify.mjs` and its self-test,
+`bodies-compare.mjs`); what it does is this paragraph, so any session can
+rebuild it.
+
+**THE ACCEPTANCE — EVERY ITEM MANDATORY, WRITTEN BEFORE THE PRESS:**
+
+- **The request**: `request.json` carries the instruction whose sha256 is the
+  one above, with `source: "CANARY_INSTRUCTION"`.
 - **Published**: a stored reply, `ok: true`, and `x-site-version` moved to a
   version minted inside the run's window.
 - **The one-file rung did not publish**: `tweak` is not `true`.
-- **The box, read by the probe after the publish, against the owner's own
-  table**: 0 → six places left · 2 → four · 5 → **one place** · **6 → full,
-  and NOT "it still has space"** · 7 → never negative and never "has space".
-  The count is of PLACES: *"… bookings already on this day"* is gone.
+- **The wording, English `/`, against the owner's table**: 0 → six places left
+  · 2 → four · 5 → **one place, singular** · 6 → full, **not** "still has
+  space" · 7 and 99 → full, **never negative**. The count is of PLACES: *"…
+  bookings already on this day"* appears in no state.
+- **LOADING AND ERRORS**: pending, failed (503 and 404), missing (`null`) and
+  no day chosen — **none may advertise available places**: no count of places
+  of one or more, no "has space" or "available", no negative, no booking-count
+  wording. **⚠ The instruction does not ask for this and the before-state fails
+  it**, so a pass needs the writer to protect those states unprompted — which
+  is the property the owner named, not a flaw in the test.
 - **Scope, compared as BODIES out of the artifact, never off `preserved`**:
   `chord-diagram`, `trial-booking-form`, `gear.tsx` and `prices.tsx`
-  byte-identical to the shas above. The wording must change in
-  `day-space-lookup` **or** the page must stop rendering it — **the table
-  decides, and the choice is recorded**; `index.tsx` changes are INSPECTED,
-  not auto-failed.
-- **Still working**: NAV 200, 0 console errors, 0 failed requests, and one
-  UNINTERCEPTED `bookings_on_day` answering 200.
+  byte-identical to the shas above; a file added or removed is inspected; the
+  wording must change in `day-space-lookup` **or** the page must stop rendering
+  it — the table decides and the choice is recorded; `index.tsx` changes are
+  INSPECTED, not auto-failed.
+- **Still working**: NAV 200, 0 console errors, 0 failed requests, and the
+  UNINTERCEPTED `bookings_on_day` answering 200 with the box reading correctly
+  for the real count.
+- **An accurate customer reply**: `customer-reply.txt` — the browser's own
+  composer, executed — with every claim checked against the artifact and the
+  job record (the read-only lookup is free). *"Updated /"* beside a changed
+  component is true; the problem list's three-of-N cut is a known quirk.
 
-**Reported, not a pass condition**: what the box says in flight and on failure
-(the contract fixture's standard is *"never advertise places"*; a naive count
-down shows six places left in both); what `/es` and `/fr` say (the open
-*"strings outside the page source are never translated"* item); the cost
-against the band; and the router's layer. **A routing prediction is a
-prediction about wording**: this sentence went to `page` on run 17 and that is
-not promised — a `rules` answer could change the site's database rules, and it
-would be recorded as what it is.
+**Reported, not a pass condition**: what `/es` and `/fr` say (the open
+*"strings outside the page source are never translated"* item; the probe reads
+them with the classifier off); the cost against the band; and the router's
+layer. **A routing prediction is a prediction about wording**: this sentence
+went to `page` on run 17 and that is not promised — a `rules` answer could
+change the site's database rules, and it would be recorded as what it is.
 
 **WHAT EACH FAILURE WOULD MEAN, SO THE RESULT CANNOT BE READ BACKWARDS.**
 `tweak: true` with the page's computation changed is **the door failing live**
 — the top finding. `tweak: true` with only rendering changed passed the door
 legitimately and did not do the work: a different gap, since nothing asks a
 tweak whether it fulfilled the request. The rewrite ran and the wording did not
-change: the real model's miss, with the component shown to it. Right wording
-and a doubled subtraction (the page's `6 −` and the component's): the table
-catches it at 0 → *"0 places left"*.
+change: the real model's miss, with the component shown to it. **The rewrite
+ran, the six counts MATCH and an unknown state advertises places: the writer's
+miss on a property the instruction did not state** — a naive
+`6 - Number(x ?? 0)` does exactly that, showing six places while the count is
+still loading. Right wording and a doubled subtraction (the page's `6 −` and the
+component's): the table catches it at 0 → *"0 places left"*.
 
 **⚠ WHAT THE REPLAY CANNOT SHOW, SAID BEFORE IT RUNS.** `readTweak`'s `reason`
 is on **neither the reply nor the trace** — the route reads it only to decide
