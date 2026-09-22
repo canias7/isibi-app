@@ -17185,3 +17185,19 @@ above, so the fix is stricter than the version I would have shipped.
 Suite **7,134** locally, nothing failing. Still untouched, deliberately: no
 broad sweep, no merge, no deploy, no paid retry, and `fretwork-1`'s page is live
 in the state run 17 left it.
+
+**CI, both halves, on the reassignment fix (`be0b9cee`).** Unit **7,134 /
+7,130 / 0 failing / 4 skipped** (run 35714595824) — the total identical to the
+local run and to the closure round's, with `pass` differing by exactly CI's own
+four skips, which is the usual gap and not a regression. `site build` **24m32s,
+all twenty steps green** (run 35714595795), every one of the twelve counts
+matching: 397, 4, 382, 16, 11, 29, 14, 47 and four steps that report `all
+passed` without a number. The shape census closes at twelve, which is what says
+none went missing quietly rather than assuming it.
+
+Two readings worth keeping. `site-build.mjs` alone was **17m57s of the 24m32s**
+against the 17m06s on record — every count matched, so that is the runner being
+slower rather than work skipped, and I am recording it rather than explaining
+it. And the green run carries **two red-looking error annotations**, which are
+the harness compiling a deliberately broken page to prove the compiler reports
+rather than refuses; a scan for red words answers two on a run that passed.

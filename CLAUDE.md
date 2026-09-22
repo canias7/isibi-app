@@ -2007,9 +2007,22 @@ specifiers is the page/component RELATIONSHIP rather than an analysis of code.
   every comparison is sound and only the LABEL was ever wrong.
   **8 mutants killed, a comment-only control survived**, all three files
   restored byte-identical from a SCRATCHPAD backup, never `git checkout`.
-- **SUITE 7,134 LOCALLY AND THE TOTAL DID NOT MOVE, WHICH IS ITSELF A
-  MEASUREMENT.** `# tests 7134 / # pass 7134 / # fail 0 / # skipped 0`,
-  `duration_ms 122,130` — **equal to the closure round's**, because
+- **SUITE 7,134, BOTH HALVES TAKEN, AND THE TOTAL DID NOT MOVE — WHICH IS
+  ITSELF A MEASUREMENT.** Locally `# tests 7134 / # pass 7134 / # fail 0 /
+  # skipped 0`, `duration_ms 122,130`, and CI run **`35714595824` on
+  `be0b9cee`** at **`# tests 7134 / # pass 7130 / # fail 0 / # skipped 4`**,
+  `duration_ms 107,956`. **THE TOTAL IS WHAT MATCHES** — 7,134 both sides,
+  `pass` differing by exactly CI's own four skips.
+  **AND `site build` RUN `35714595795` READ ALL TWELVE COUNTS GREEN**
+  (10:11:19 → 10:35:51Z, **24m32s**, all twenty steps): TAP **397/397/0/0**,
+  kit-typecheck 4, site-build **382**, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47, and kit-render /
+  kit-a11y / kit-effects / kit-paint `all passed`. **The shape census closes**
+  — `N passed` 7 + `all passed` 4 + TAP 1 = **12**. **`site-build.mjs` alone is
+  1,077 s — 17m57s, 73% of the job**, against the 17m06s this file records for
+  the same step; every count matched, so that ~50 s is runner speed rather than
+  work skipped, and it is recorded rather than explained.
+  **The reading is the same four numbers as the closure round's**, because
   `edit-page-contract.test.mjs` holds **15 cases on both sides**, counted at
   `d94eefdd` and here rather than assumed: three route cases were rewritten in
   place and the new cases replaced the ones the deletion made meaningless. **A
@@ -2019,11 +2032,16 @@ specifiers is the page/component RELATIONSHIP rather than an analysis of code.
   the same absence one layer over: `d94eefdd` reads **`# tests 7134 / # pass
   7130 / # fail 0 / # skipped 4`** on unit run **`35708117349`**, and `site
   build` run **`35708117472`** came back **20m33s, all twenty steps green, all
-  twelve counts matching** (TAP 397, kit-typecheck 4, site-build **382**,
-  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
-  site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint `all
-  passed`). **THE TOTAL IS WHAT MATCHES** — 7,134 both sides, `pass` differing
-  by exactly CI's own four skips.
+  twelve counts matching**. **So the two rounds agree on every figure and
+  differ only in the job's wall time** (20m33s against 24m32s) — a
+  parent-and-current pair off CI, which is the strongest available form of
+  *this change moved the suite by zero*.
+  **⚠ AND A GREEN `site build` CARRIES TWO `##[error]` ANNOTATIONS, MET AGAIN
+  HERE**: `index.tsx(50,13) TS2322` and `menu.tsx(27,17) TS2339` are two of
+  seven `tsc`-format lines inside the case that deliberately compiles a broken
+  page to prove *"tsc REPORTS; only `vite` refuses"*. A scan for red words
+  answers two on a run whose conclusion is `success`, so read what an
+  annotation sits beside rather than counting it.
 - **THE WORDING IS VERIFIED BY RENDERING, NOT BY RE-DERIVING THE ARITHMETIC.**
   `test/fixtures/render-part.mjs` transpiles a `.tsx` with `ts.transpileModule`
   and renders it through `react-dom/server`, kit primitives stubbed to elements
