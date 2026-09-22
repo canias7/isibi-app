@@ -302,6 +302,66 @@ empty, so it ran as an ordinary free check.)
 page and the box changed. Your options: another edit that spells it out, a
 product change, or a free restore back. I haven't done any of them.
 
+### The finished check, and why the builder missed it (22 Sep, later)
+
+**Two results, kept apart, as you asked.** The component edit worked: a real
+model changed the box's calculation and wording together, only that file
+changed, and every answered count reads right (7 of 7, singular included).
+**The acceptance stays open**, because every "don't know" state advertises
+places.
+
+**The full browser check** (read-only: the probe answered the lookup itself, no
+booking written):
+
+- **While the count is loading**, the box says "6 places left on this day." It
+  says that at 1, 4 and 10 seconds. It also says it every time you pick a new
+  day, **even right after a full day read "0 places left"**.
+- **When the lookup fails**, after the site has given up retrying (503, 500,
+  502, 504 or a dropped connection, 3 tries each; 404 or 403, 1 try), it says
+  "6 places left".
+- **When the lookup answers with nothing** (empty, `null`, 204, `[]`), it says
+  "6 places left". When it answers `{}`, it says **"NaN places left"**.
+- With no day picked, it says "Choose a day to check space." That's fine.
+
+**Why the builder did this, found in the code:**
+
+1. **The builder's rules never say that a single number from the database can
+   be "not known yet".** Lists have that rule, and so do outside services, the
+   member sign-in and the basket. A count from a function has nothing. The rules
+   even give "the slots left on a day" as that function's main use, and a code
+   comment claims skipping the wait on a database read "looks fine". For a
+   count it doesn't look blank. It looks like a real answer.
+2. **On fretwork-1 the page writer is told the site has no database.** Your
+   site is one of the four with a missing database reference. On that path the
+   writer gets the "no database, no useRpc" rules, with the function rule taken
+   out, while it edits a page that uses the database. So a new rule would not
+   even have reached this site. Two things point that way: the code path, and
+   the warnings on your reply, which match that empty setup word for word. The
+   prompt itself wasn't captured.
+
+**I've proposed a fix and built nothing.** It needs your go. There's no paid
+retry, repair, merge or deploy. Here it is in short:
+
+1. **One rule where every page writer reads it.** Rule 11 (the `useRpc` rule)
+   gets a paragraph: a function's answer isn't a number until it arrives. Never
+   turn "loading", "failed" or "empty" into 0. Give each state its own words,
+   and pass the whole query into any component that shows the answer, not a
+   bare number. The same rule block reaches the build, section, component, edit
+   and add-on writers. Sites with no database don't get it, and the first-build
+   design tool doesn't move.
+2. **Stop telling the edit writer a database site has no database.** The page
+   step would read the database with the same four-state reader the rules step
+   switched to on 21 Sep. Without this, change 1 never reaches fretwork-1. The
+   free alternative: run the existing backend repair on the four sites
+   (two presses each).
+3. **A report-only check where pages are published.** It flags any page that
+   keeps only a function's answer and throws away whether the call finished.
+   It's kept out of the quick writer's lint, so that guard isn't touched.
+4. **Proof before any spend:** tests that the rule reaches each writer, that
+   the edit writer gets the full rules on a site like fretwork-1, and that the
+   check fires on run 21's own page and not on a correct one. Then one paid
+   replay of run 21's exact sentence, which is your press.
+
 ---
 
 ## 2026-09-22 — You broke it a sixth time, on a component with no props

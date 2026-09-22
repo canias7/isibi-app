@@ -2692,76 +2692,110 @@ booking-count wording exactly as predicted, the real RPC 200 body `0`, 0 console
 errors, 0 failed requests.
 
 **RUN 21 (`35787164840`, `main` at `a208a86a`, 21:31:30 → 21:40:35Z) IS THE
-REPLAY, AND IT FAILS ONE MANDATORY ITEM.**
+REPLAY. IT IS TWO RESULTS AND THEY ARE KEPT APART (owner): a real component
+edit that succeeded, and an acceptance that stays OPEN.**
+
+**1. THE SUCCESSFUL LIVE COMPONENT EDIT — recorded on its own.**
 
 - **The request** ✓: 159 chars, sha256 `622547386217ef0c…`, `source:
   CANARY_INSTRUCTION`. **The run's own before-read** ✓: byte-identical to run
-  17's before on all six.
+  17's before on all six (checked independently by the owner too).
 - **The preflight** ✓, immediately before the spend: `build-health 200
   deploy=a208a86a32eb image=be869f142e052c8c`, `runtime 200 async=true
   runner=true`, both deploy readers agreeing, and BOTH expectations set on the
-  form (`a208a86a…`, `be869f142e052c8c`) and matched — the live Worker
-  answering, not Wrangler. **The harness's own `CANARY PASSED` is a verdict on
-  the transport** (published, photographs and component NAMES kept) and not on
-  the acceptance list, which is read below.
+  form and matched — the live Worker answering, not Wrangler. **The harness's
+  own `CANARY PASSED` is a verdict on the transport** (published, photographs
+  and component NAMES kept), never on the acceptance list.
 - **Routed** `intent=edit layer=page page=/` in 34.6 s, cost 2 — run 17's layer.
 - **The one-file rung did not publish** ✓: `tweak` absent, `tweakUsage` `{in
-  8314, out 53}`. **53 output tokens cannot hold a page** (run 17's tweak
-  re-emitted the 26 KB page in 7,627), so the tweak returned no rewritten page
-  for the door to judge; **its stated reason is not on the wire and stays
-  unverified** (owner).
+  8314, out 53}`. 53 output tokens is far too few to hold the 26 KB page (run
+  17's re-emission took 7,627), which is CONSISTENT WITH the tweak returning no
+  page at all. **Its decline reason was not observed and is not claimed** — it
+  is on neither the reply nor the trace. **The quick-writer guard is NOT
+  reopened** by this run: nothing here is a new reproduction against it.
 - **Published** ✓: a stored reply, HTTP 200 under `x-gf-edit: final`, after
   443.3 s (134 polls, 0 transient failures); the live header moved to
   **`01790112998238-ew6e7z`, minted 21:36:38.238Z**, inside the window. Job
   states `claimed` (cost 0) to ~229 s, `routing` (cost 15) from ~242 s,
   `publishing` at ~440 s — intervals, not attributed.
 - **Cost: route 2 + edit 15 = 17, balance 65 → 48, the arithmetic closing
-  exactly — BELOW the 22–30 band quoted before the press.** Two usage records
-  on the terminal body, `8,314 in / 53 out` (the tweak's) and `20,208 in /
-  9,249 out`; `langs` fr and es `cached: true, missing: 0`, nothing translated.
-- **WHAT CHANGED IS `day-space-lookup` ALONE** (1,466 → 1,488 chars,
-  `5330fca7…` → `eccf4acc56f67a85`): `SLOTS_PER_DAY = 6`, `placesLeft =
-  Math.max(0, SLOTS_PER_DAY - bookingCount)`, the lead now *"how many places are
-  left on it"*, the line `1 place left` / `${placesLeft} places left on this
-  day.` **`index.tsx` is BYTE-IDENTICAL** (`129b5460…`) and still passes
-  `Number(bookingCount ?? 0)`; `chord-diagram`, `trial-booking-form`,
-  `gear.tsx` and `prices.tsx` are byte-identical ✓.
-- **The wording, English `/`, measured live with browser-answered counts** ✓
-  **six of six**: 0 → *"6 places left on this day."*, 2 → *"4 places left…"*,
-  5 → *"1 place left…"* (singular), 6/7/99 → *"0 places left on this day."*
-  (full, never negative); no day → *"Choose a day to check space."*; *"…
-  bookings already on this day"* in no state.
-- **⚠ LOADING AND ERRORS FAIL — the mandatory item.** Pending, 503 on every
-  try, 404 and 200 `null` **all read *"6 places left on this day."*** The
-  component cannot tell unknown from zero because the PAGE collapses it
-  (`Number(bookingCount ?? 0)`) before the component sees it, and the writer
-  changed only the component. **Exactly the failure the acceptance named before
-  the press** — a naive `6 − Number(x ?? 0)` showing six places while the count
-  is loading: the writer's miss on a property the instruction did not state.
-  **FAIL 4 · MATCH 6 · READ 1.**
-- **Still working** ✓: NAV 200, 0 console errors, 0 failed requests, and the
-  UNINTERCEPTED `bookings_on_day` 200 body `0` reading *"6 places left on this
-  day."*, correct for the real count.
-- **The customer reply**: *"✅ Updated /."* — true of what `/` shows, though the
-  page FILE is unchanged — then run 11's four pre-existing schema warnings
-  (three printed, the known cut), **including *"the request is a 404"* for
-  `bookings_on_day`, which the live call contradicts (200)** — pre-existing lint
-  wording, not this edit's — and *"2 pages threw an error and 4 pages reads
-  something the check can't reach"*, the render check's `/` and `/es` phone #418
-  plus four `unmet`: run 11's own findings, unresolved in both directions.
-  **Nothing in it claims the loading states are safe, and nothing in it could
-  know.**
-- **Reported, not a pass condition**: `/es` and `/fr` draw the box ENTIRELY IN
-  ENGLISH, the same lines in every state, unknown ones included — the open
-  *"strings outside the page source are never translated"* item, met on a
-  component.
-- **SO THE REPLAY ESTABLISHES** that the real model, shown the component,
-  changes the calculation and the wording together — six of six, which run 17's
-  rung could not do — **and does NOT protect unknown data**, a mandatory pass
-  criterion. **The page is live in that state.** A fix needs both files (the
-  page must stop collapsing unknown into 0, the component must say something
-  neutral for it), so it is a second request, a product change, or a free
-  restore to `01789972018761-6tng48` — none taken without the owner.
+  exactly — BELOW the 22–30 band quoted before the press.** Two usage records,
+  `8,314 in / 53 out` (the tweak's) and `20,208 in / 9,249 out`; `langs` fr and
+  es `cached: true, missing: 0`, nothing translated.
+- **ONLY `day-space-lookup` CHANGED** (1,466 → 1,488 chars, `5330fca7…` →
+  `eccf4acc56f67a85`): `SLOTS_PER_DAY = 6`, `placesLeft = Math.max(0,
+  SLOTS_PER_DAY - bookingCount)`, the lead *"how many places are left on it"*,
+  the line `1 place left` / `${placesLeft} places left on this day.`
+  **`index.tsx` is BYTE-IDENTICAL** (`129b5460…`); `chord-diagram`,
+  `trial-booking-form`, `gear.tsx`, `prices.tsx` byte-identical ✓.
+- **The wording, measured live with browser-answered counts, SEVEN of seven**:
+  0 → *"6 places left on this day."*, 1 → *"5 places left"*, 2 → *"4"*, 5 →
+  *"1 place left"* (singular), 6/7/99 → *"0 places left"* (never negative); the
+  unintercepted `bookings_on_day` → **200 body `0`** → *"6 places left"*,
+  correct for the real count; *"… bookings already on this day"* in no state.
+- **So a real model, shown the component, changed the calculation and the
+  wording together** — which run 17's rung could not do. That is the whole of
+  what this half establishes.
+
+**2. THE ACCEPTANCE STAYS OPEN: UNKNOWN DATA ADVERTISES PLACES (the finished
+read-only verification, probe v3, 2026-09-22 ~22:00Z, `01790112998238-ew6e7z`,
+28 page loads, every answer given by the probe in the browser, no row
+written).** Four groups, reported apart:
+
+| group | readings | verdict |
+|---|---|---|
+| successful counts (0, 1, 2, 5, 6, 7, 99) | 7 | **MATCH 7** |
+| held: never answers (read at 1 s, 4 s, 10 s), answers after 4 s, a day switch whose new day is held | 8 | **FAIL 6** (every pending reading: *"6 places left on this day."*) · MATCH 2 (the answered phases) |
+| upstream failures, read AFTER the site stopped retrying: 503/500/502/504/dropped connection (**3 calls each**, the router's 1 + 2 retries), 404 and 403 (**1 call each**) | 7 | **FAIL 7** — all *"6 places left on this day."* |
+| empty responses: 200 `null`, 200 empty body, 204, 200 `[]`, 200 `{}` | 5 | **FAIL 5** — four read *"6 places left"*, `{}` reads **"NaN places left on this day."** |
+| no day chosen | 1 | READ — *"Choose a day to check space."* |
+
+- **THE DAY SWITCH IS THE EVERYDAY FORM OF IT**: a full day reads *"0 places
+  left"*, and choosing another day shows *"6 places left on this day."* for as
+  long as that day's count is loading, because `useRpc` has no placeholder and
+  every new day is a new query.
+- **THE CAUSE, RENDERED OFFLINE AS WELL** (`renderPart` over the SAVED
+  component, fed the page's own `Number(bookingCount ?? 0)`): `undefined`
+  (pending, failed), `null` (a 200 null, and a 200 with an empty body, which
+  the kit's `send()` turns into `null`), `[]` and `""` all become `0` → *"6
+  places left"*; `{}` becomes `NaN`. The component cannot tell unknown from
+  zero because the page has already made it zero.
+- **THE CONSOLE LISTENER WAS PROVEN LIVE** (one load answered 503: it saw the
+  browser's own three `Failed to load resource … 503` lines), so "no other
+  console error on 28 desktop loads" is a reading — and **settles nothing about
+  the render check's phone-width #418 findings, which stay UNRESOLVED.**
+
+**3. WHY THE WRITER DID NOT PROTECT THE STATES — two findings, both read out of
+the code, and the second explains why a rules fix alone would not have reached
+this site.**
+
+- **THE STATE CONTRACT STOPS SHORT OF A SINGLE VALUE.** Lists have it
+  (`GENERATOR.md` "Every list must handle four states", and the kit's
+  `DataList`, which takes the QUERY rather than its data); outside connections
+  have it (the digest's *"EVERY ONE OF THESE HAS THREE STATES"*, `useApi`
+  only); members and the cart have it (`useMember` "render neither view until
+  it settles", `cart.ready`). **A single value from `useRpc` has nothing** —
+  while rule 11 names *"the slots left on a day"* as that hook's use. And the
+  digest's own comment states the premise that failed here: *"A database read
+  is local and fast enough that a page ignoring the wait looks fine"*. **For a
+  count it does not look blank, it looks like a real answer.**
+- **ON AN `incomplete` SITE THE PAGE REWRITE IS TOLD THE SITE HAS NO
+  DATABASE.** The page rung resolves the database with `siteBackendBySlug`,
+  which answers `null` for an `incomplete` site in the container (no
+  `SITE_ROUTES`), so `eSpec = { tables: [] }` → `siteHasBackend` false →
+  `pageRulesFor` returns the FRONTEND rules — **29,077 chars opening "THIS SITE
+  HAS NO DATABASE … no useRpc", with rule 11 dropped** — for a writer rewriting
+  a pair that calls `useRpc`. **Evidence**: that code path, and run 21's four
+  wire problems are **byte-identical** to `lintPages` over the same page with
+  `{ tables: [] }` (driven locally). **Not directly observed**: the prompt
+  itself is not captured. The rules rung moved to the four-state reader on
+  2026-09-21; the page rung did not. **Consequence: a rule added to
+  `PAGE_RULES` alone never reaches fretwork-1's writer**, nor the other three
+  `incomplete` sites'.
+
+**THE PAGE IS LIVE IN THIS STATE**, and a bounded builder correction is
+PROPOSED and NOT BUILT (owner-notes, 22 Sep) — no fix, restore, retry, merge
+or deploy without the owner.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
