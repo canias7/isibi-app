@@ -274,6 +274,9 @@ empty, so it ran as an ordinary free check.)
 
 **The paid run (21) passed everything except one required item.**
 
+- It checked it was talking to the right build before spending: the live
+  Worker answered `a208a86a` and the container image `be869f142e052c8c`,
+  both exactly what the form asked for.
 - It sent your exact sentence, started from the exact same source, and
   published. The quick one-file rung did **not** publish it. It cost **17**
   (routing 2 + edit 15), and the balance went **65 → 48**. That's less than the

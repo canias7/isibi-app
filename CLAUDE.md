@@ -2697,6 +2697,13 @@ REPLAY, AND IT FAILS ONE MANDATORY ITEM.**
 - **The request** ✓: 159 chars, sha256 `622547386217ef0c…`, `source:
   CANARY_INSTRUCTION`. **The run's own before-read** ✓: byte-identical to run
   17's before on all six.
+- **The preflight** ✓, immediately before the spend: `build-health 200
+  deploy=a208a86a32eb image=be869f142e052c8c`, `runtime 200 async=true
+  runner=true`, both deploy readers agreeing, and BOTH expectations set on the
+  form (`a208a86a…`, `be869f142e052c8c`) and matched — the live Worker
+  answering, not Wrangler. **The harness's own `CANARY PASSED` is a verdict on
+  the transport** (published, photographs and component NAMES kept) and not on
+  the acceptance list, which is read below.
 - **Routed** `intent=edit layer=page page=/` in 34.6 s, cost 2 — run 17's layer.
 - **The one-file rung did not publish** ✓: `tweak` absent, `tweakUsage` `{in
   8314, out 53}`. **53 output tokens cannot hold a page** (run 17's tweak
