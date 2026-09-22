@@ -1888,6 +1888,10 @@ whole 26 KB page; that is what the 445.8-second fire-to-terminal is made of.
 change, so the lever is the DOOR, not the wording: either a tweak whose target
 page passes a component's props must decline when the ask is about what those
 props MEAN, or the reply must say which file it could not open.
+**⚠ AND "WHAT THOSE PROPS MEAN" IS NOT A QUESTION ABOUT THE CALL SITE, which
+the first door assumed and the owner disproved through the real route the next
+day** — see the closure correction below. A door built on prop TEXT is opened
+by moving the calculation one line up the page.
 
 **THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
 `restoreVersion` to the previous version — this file's own restore path, free.
@@ -1907,6 +1911,45 @@ question asked beside it, not a stricter version of it.
   these stay cheap. A **BRACED EXPRESSION** is a COMPUTATION whose meaning is
   settled by the receiving component, so rewriting one is a change this rung
   cannot know it has finished. Nothing about this request is hardcoded.
+- **⚠ AND THE FIRST CUT COMPARED A PROP'S TEXT, WHICH IS A CLAIM ABOUT ITS
+  SPELLING (owner, 2026-09-22, reproduced through the real edit route).** Move
+  the arithmetic one line UP the page — `const { data: rawBookingCount } =
+  useRpc(…); const bookingCount = 6 - Number(rawBookingCount ?? 0);` — and leave
+  `bookingCount={Number(bookingCount ?? 0)}` **byte-identical**: every prop
+  expression matched, `sameProse` was perfect, `ok: true`, `tweak: true`, **zero
+  full-writer calls**, and the wrong page reached both the compiler and the
+  stored source with the component's old wording untouched. **THE VALUE A
+  COMPONENT RECEIVES IS ITS EXPRESSION PLUS THE DEFINITION OF EVERY PAGE NAME
+  THAT EXPRESSION READS, transitively**, so the bag is keyed on `prop \0 value
+  \0 closure` and `partProps` computes the closure. **THE WALK IS TRANSITIVE
+  BECAUSE THE BYPASS IS** — stop at the first name and the same trick two names
+  upstream is invisible again, which a mutant proves by dying on exactly that
+  case.
+- **THE CHOICE-VERSUS-COMPUTATION LINE MOVED WITH THE FIX RATHER THAN BEING
+  REPLACED BY *ANY CLOSURE CHANGE REFUSES*.** A plain name bound once to a
+  literal is the literal one indirection out: `columns={cols}` over `const cols
+  = 3` is `columns={3}`, so changing that 3 to a 4 stays cheap **and the
+  fingerprint carries the 3, so the change is still SEEN**; `const cols = rows +
+  1` is a computation and refuses, naming `cols`. **The blunt version is a
+  MUTANT and it dies** — refusing on any closure change kills the
+  literal-indirection case, which is what says this is not a blunt instrument.
+- **THE REFUSAL NAMES THE DECLARATION THAT MOVED (`via`), or `""` when the
+  prop's own expression is the change.** A refusal pointing at a prop whose text
+  is identical on both sides reads as an instrument fault; the binding's name is
+  the whole difference between that and a finding somebody can act on.
+- **NO PATTERN FOR WHERE A SUBTRACTION APPEARS, and no ban on pages with
+  components** — the owner's two explicit exclusions, both held: nothing about
+  arithmetic occurs anywhere in it, and `fretwork-1`'s home page (three
+  components, eleven prop bindings) takes the cheap path for a heading tweak
+  exactly as before.
+- **⚠ THE CLOSURE ENDS AT THE PAGE'S OWN EDGE, AND THE COST IS STATED.** A name
+  the page does not declare — `Number`, a callback's own parameter, a binding
+  from a file this rung was never given — contributes nothing, so a value whose
+  meaning moves ONLY through one of those moves unseen. That is the edge of what
+  a one-page READER can answer, and it is also the edge of what a one-page
+  WRITER can move. **`readsIn` and the declaration reader OVER-COLLECT on
+  purpose**: an extra closure entry whose text does not move changes no answer,
+  while a missed read is the bypass itself.
 - **READ OFF THE PAGE'S OWN IMPORTS, NEVER FROM `parts.json`.**
   `localParts(src, inPart)` is **`specNames` RUN BACKWARDS** — the same two
   spellings, as capture groups — so the two readers of the `PART_DIR`
@@ -1942,7 +1985,18 @@ question asked beside it, not a stricter version of it.
   target. A belt that cannot fire, named as one — the `PART_DIR`-filter
   precedent — and **the FORWARDING hop is what a guard can drive**, so it is
   driven at the module.
-- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **12 cases**, on run 17's
+- **BOTH SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
+  (`doesNotPublish(slug, tweakSource)`), which is deliberate and not tidiness:
+  did-not-publish, reached the component-capable writer, that writer was SHOWN
+  the component's wording, the compiler payload, the stored source and the
+  untouched neighbours are the SAME claim about both, and written out twice they
+  drift — the half that drifts being the one nobody reads again.
+- **⚠ AND THE CLAIM IS SCOPED: SUPPLIED MODEL OUTPUT PROVES THE EXECUTION PATH,
+  NOT THE ANSWER** (owner). The corrected pair is a stubbed answer, so what is
+  established is that a request of this class is **not published by the rung
+  that cannot finish it** and **reaches the writer that can open both files** —
+  never that a real model writes a correct component once it gets there.
+- **EVIDENCE**: `test/edit-page-contract.test.mjs`, **15 cases**, on run 17's
   OWN artifact — `index.before.tsx` **26,276 chars / 26,288 bytes, sha
   `129b54600bd30720`** and `day-space-lookup.before.tsx` **1,466 / 1,468, sha
   `5330fca7b88e5ac1`**, with the published answer DERIVED from the before-source
@@ -1950,8 +2004,22 @@ question asked beside it, not a stricter version of it.
   `after/source.json`** at **26,280 chars / 26,292 bytes, sha
   `fbbb0de00096c3b2`**, and **the instruction's own sha (`622547386217ef0c`,
   159 chars, one U+2014)** asserted — run 14's correction, since a paraphrase of
-  this ask is a different ask. **6 mutants killed, a comment-only control
-  survived.**
+  this ask is a different ask. **6 mutants killed on the first round and 7 on
+  the closure correction, a comment-only control surviving in each.**
+  **⚠ AND THE CORRECTION ROUND RE-RAN THREE OF ITS OWN MUTANTS RATHER THAN
+  COUNTING THEM**: two named the wrong FILE (the literal rule lives in
+  `site-files.mjs`, not `site-tweak.mjs`) and one mutated the bag's KEY without
+  its LOOKUP, so it refused every prop instead of restoring the defect —
+  **a mutant that did not apply and one that applied too widely both read as
+  results and are neither**, which is this file's own recorded trap met twice
+  in one check.
+  **⚠ AND ONE EXISTING CASE'S FIXTURE STOPPED SAYING WHAT IT NAMED.** It stood
+  `count={n}` over `const n = 3` in for *an expression*, true while the check
+  read the call site's text and FALSE under the closure rule, where that is a
+  literal one indirection out. **The fixture was corrected, never the rule**:
+  the declaration is a parameter now and the same five shapes are driven under
+  both a literal and a computed `n`. *Read what a thing DOES* — the behaviour
+  change was intended and the fixture was under-specified.
   **⚠ EVERY LENGTH THIS SECTION AND RUN 17'S QUOTE — 26,276 → 26,280 — IS A
   CHARACTER COUNT, NOT A BYTE COUNT**, and the two differ here because the page
   carries em dashes: `String.length` counts UTF-16 code units and `wc -c` counts
@@ -1986,6 +2054,14 @@ question asked beside it, not a stricter version of it.
   it fails, and zero is the fullest-sounding answer this box has, so an outage
   would otherwise read as six places going spare. The word *booking* is gone
   from the box, asserted rather than assumed.
+- **SUITE 7,134 LOCALLY ON THE CLOSURE CORRECTION, AND THE CI HALF OF THAT
+  READING IS UNREAD AT THE TIME OF WRITING** — `# tests 7134 / # pass 7134 /
+  # fail 0 / # skipped 0`, `duration_ms 121,539`. **The +3 is the difference
+  between two measured readings**, 7,131 → 7,134: the upstream form at the
+  module, the closure reader's own case, and the upstream form through the
+  route. The transitivity and literal-indirection assertions went into existing
+  cases and moved the count by zero. **Say which half is taken** — a local
+  number beside an unread CI run is ONE reading.
 - **SUITE 7,131, BOTH HALVES TAKEN** — locally `# tests 7131 / # pass 7131 /
   # fail 0 / # skipped 0`, `duration_ms 106,383`, and CI run **`35681903468` on
   `a6bf1a2b`** at **`# tests 7131 / # pass 7127 / # fail 0 / # skipped 4`**,

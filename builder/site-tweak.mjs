@@ -388,6 +388,7 @@ export function readTweak(reply, { source, inPart } = {}) {
     return {
       ok: false, reason: "part-contract",
       part: contract.part, prop: contract.prop, was: contract.was, now: contract.now,
+      via: contract.via,
     };
   }
 
@@ -453,11 +454,37 @@ export function readTweak(reply, { source, inPart } = {}) {
  *     settled by the component that receives it. Rewriting one without being
  *     able to read that file is a change this rung cannot know it has finished.
  *
+ * ⚠ AND A PROP'S TEXT IS NOT ITS VALUE — the first cut of this check compared
+ * the call site's spelling, and the same defect was reproduced through the real
+ * route by moving the arithmetic one line UP the page:
+ *
+ *     const { data: rawBookingCount } = useRpc(…);
+ *     const bookingCount = 6 - Number(rawBookingCount ?? 0);
+ *     …
+ *     <DaySpaceLookup bookingCount={Number(bookingCount ?? 0)} … />
+ *
+ * Every prop expression byte-identical, `sameProse` perfect, `tweak: true`,
+ * published. THE VALUE A COMPONENT RECEIVES IS ITS EXPRESSION PLUS THE
+ * DEFINITION OF EVERY PAGE NAME THAT EXPRESSION READS, transitively — so the
+ * comparison is keyed on the expression AND that closure, which `partProps`
+ * computes. A name is followed only as far as the PAGE's own declarations; one
+ * this file does not declare is cannot-tell and makes no claim, which is the
+ * stated edge of what a one-page reader can answer and also the edge of what a
+ * one-page WRITER can move.
+ *
+ * THE CHOICE-VERSUS-COMPUTATION LINE MOVED WITH IT, rather than being replaced
+ * by "any closure change refuses". A plain name bound once to a literal is the
+ * literal one indirection out, so `columns={cols}` over `const cols = 3` is
+ * `columns={3}`: changing that 3 to a 4 is a choice and stays cheap, and the
+ * fingerprint carries the value so the change is still SEEN. `const cols = 3`
+ * → `const cols = rows + 1` is a computation and refuses, naming `cols`.
+ *
  * WHY IT IS NOT A BAN ON PAGES WITH COMPONENTS. `fretwork-1`'s home page
  * imports three and renders eleven elements of them; a heading, a spacing or a
- * band-order tweak touches none of their prop expressions and is accepted
- * exactly as before. Only a tweak whose own diff lands on a braced prop of a
- * local component is refused, and it is refused by NAME.
+ * band-order tweak touches none of their prop expressions and none of the
+ * declarations those expressions read, and is accepted exactly as before. Only
+ * a tweak whose own diff reaches what a local component is PASSED is refused,
+ * and it is refused by NAME — the prop, and the declaration that moved.
  *
  * THE MULTISET, NOT THE POSITIONS — `sameProse`'s own rule, for `sameProse`'s
  * own reason. Moving a band down the page moves every component element in it,
@@ -465,12 +492,12 @@ export function readTweak(reply, { source, inPart } = {}) {
  * bindings compare as a bag, so a pure reorder differs by nothing.
  *
  * CANNOT-TELL MAKES NO CLAIM. An unreadable import clause, a tag that does not
- * terminate, a prop shape `partProps` cannot enumerate: none of those is
- * evidence that a contract moved, and refusing on them would send every page
- * carrying one to the rewrite for ever. `readable: false` is skipped on either
- * side, and the cost of that direction is stated: a tweak really could change
- * such a component's prop and be accepted, which is the status quo rather than
- * a regression.
+ * terminate, a prop shape `partProps` cannot enumerate, a name the page does
+ * not declare: none of those is evidence that a contract moved, and refusing on
+ * them would send every page carrying one to the rewrite for ever.
+ * `readable: false` is skipped on either side, and the cost of that direction is
+ * stated: a tweak really could change such a component's prop and be accepted,
+ * which is the status quo rather than a regression.
  *
  * WHAT A REFUSAL COSTS, STATED. It escalates like every other refusal here, so
  * the customer gets the rewrite they would have got anyway plus ~1 credit — and
@@ -487,12 +514,19 @@ export function partContract(before, after, { inPart } = {}) {
     const a = A.get(name), b = B.get(name);
     // Either side unreadable — no evidence about this component either way.
     if ((a && !a.readable) || (b && !b.readable)) continue;
+    // THE KEY IS THE VALUE AND ITS CLOSURE, because the value a component
+    // receives is its expression PLUS the definition of every page name that
+    // expression reads. Keyed on the text alone, the upstream form of run 17's
+    // defect matches itself: move the arithmetic into a `const` one line up and
+    // the call site is byte-identical while what arrives is six minus what
+    // arrived before. `partProps` computes the fingerprint; this only compares.
     const bag = (side) => {
       const m = new Map();
       for (const p of (side ? side.props : [])) {
-        const key = p.prop + "\u0000" + p.value;
+        const key = p.prop + "\u0000" + p.value + "\u0000" + p.closure;
         const e = m.get(key);
-        if (e) e.n++; else m.set(key, { n: 1, prop: p.prop, value: p.value, literal: p.literal });
+        if (e) e.n++;
+        else m.set(key, { n: 1, prop: p.prop, value: p.value, closure: p.closure, reads: p.reads, literal: p.literal });
       }
       return m;
     };
@@ -500,7 +534,7 @@ export function partContract(before, after, { inPart } = {}) {
     // The entries on one side and not the other, both directions. Only a
     // COMPUTED one is a finding: a literal that came or went is a choice.
     const only = (x, y) => [...x.values()].filter((e) => {
-      const o = y.get(e.prop + "\u0000" + e.value);
+      const o = y.get(e.prop + "\u0000" + e.value + "\u0000" + e.closure);
       return !o || o.n < e.n;
     });
     const gone = only(mb, ma), came = only(ma, mb);
@@ -514,9 +548,32 @@ export function partContract(before, after, { inPart } = {}) {
       prop: moved.prop,
       was: was ? was.value : "",
       now: now ? now.value : "",
+      // WHICH DECLARATION MOVED, or "" when the prop's own text is the change.
+      // A refusal naming a prop whose text is identical on both sides reads as
+      // an instrument fault; the name of the binding is the whole difference
+      // between that and a finding somebody can act on.
+      via: viaBinding(was, now),
     };
   }
   return { ok: true };
+}
+
+/**
+ * THE FIRST PAGE-LOCAL DECLARATION WHOSE DEFINITION DIFFERS between the two
+ * sides of one prop, or `""` when none does.
+ *
+ * `""` IS A REAL ANSWER AND NOT AN ABSENCE: it means the prop's own expression
+ * is what changed, which is run 17's inline shape and needs no second name.
+ * Sorted by `partProps`, so the two sides are compared name by name and a
+ * reordering of the page cannot decide which one is reported.
+ */
+function viaBinding(was, now) {
+  const a = new Map((was && was.reads ? was.reads : []).map((r) => [r.name, r.text]));
+  const b = new Map((now && now.reads ? now.reads : []).map((r) => [r.name, r.text]));
+  for (const name of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+    if (a.get(name) !== b.get(name)) return name;
+  }
+  return "";
 }
 
 /**

@@ -459,6 +459,12 @@ export function localParts(src, inPart) {
 /** A value whose meaning is fixed by its own text, with nothing computed. */
 const LITERAL_VALUE = /^(?:'[^']*'|"[^"]*"|-?\d+(?:\.\d+)?|true|false|null|undefined)$/;
 
+/** A value that is one name and nothing else, so its meaning is that name's. */
+const ONE_NAME = /^[A-Za-z_$][\w$]*$/;
+
+/** How many page-local names one prop's closure may reach before it is unread. */
+const MAX_CLOSURE = 64;
+
 /** The `}` closing the `{` at `at`, or -1. Reads a copy with strings blanked. */
 function closeBrace(mask, at, limit) {
   let depth = 0;
@@ -468,6 +474,191 @@ function closeBrace(mask, at, limit) {
     else if (c === "}") { depth--; if (depth === 0) return i; }
   }
   return -1;
+}
+
+/**
+ * THE FIRST OF `stops` AT DEPTH ZERO FROM `from`, or `limit`. A closing bracket
+ * at depth zero stops too: it is the end of whatever block the scan began in,
+ * and running past it would read the next declaration as part of this one.
+ */
+function depthStop(mask, from, limit, stops) {
+  let d = 0;
+  for (let i = from; i < limit; i++) {
+    const c = mask[i];
+    if (c === "{" || c === "(" || c === "[") d++;
+    else if (c === "}" || c === ")" || c === "]") { if (d === 0) return i; d--; }
+    else if (d === 0 && stops.includes(c)) return i;
+  }
+  return limit;
+}
+
+/**
+ * THE NAMES AN EXPRESSION READS — every identifier in it that is not a MEMBER
+ * name, as a Set.
+ *
+ * IT OVER-COLLECTS ON PURPOSE AND THE ASYMMETRY IS THE WHOLE ARGUMENT. Reading
+ * a name that is not really a read (an object-literal key, a label, a callback
+ * parameter that happens to share a page name) can only ADD an entry to a
+ * closure, and an entry whose text does not move changes no answer. MISSING a
+ * real read is the other direction, and it is precisely the hole this module is
+ * being asked to close: a value whose meaning moved through a name nobody
+ * followed. So there is no key filter and no keyword list — a keyword resolves
+ * to no page-local declaration and drops out by itself.
+ *
+ * A MEMBER NAME IS THE ONE THING EXCLUDED, because `a.b` and `a?.b` really do
+ * read `a` and never `b`, and `b` there can collide with a page name for
+ * reasons that have nothing to do with the value.
+ *
+ * READ THE MASKED COPY: a name inside somebody's sentence is not a read.
+ */
+function readsIn(masked) {
+  const out = new Set();
+  const re = /[A-Za-z_$][\w$]*/g;
+  let m;
+  while ((m = re.exec(masked))) {
+    let k = m.index - 1;
+    while (k >= 0 && /\s/.test(masked[k])) k--;
+    if (k >= 0 && masked[k] === ".") continue;
+    out.add(m[0]);
+  }
+  return out;
+}
+
+/** Every name a binding pattern introduces — over-collecting, for `readsIn`'s reason. */
+function patternNames(masked) {
+  return [...readsIn(masked)].filter((n) => IDENT.test(n));
+}
+
+/**
+ * EVERY NAME THIS SOURCE DECLARES FOR ITSELF, AND THE TEXT THAT DECIDES WHAT
+ * EACH ONE MEANS — a Map of name → `{texts, masks, literal}`.
+ *
+ * ⚠ WHY THIS EXISTS, AND IT IS A DEFECT REPORT RATHER THAN A DESIGN NOTE. The
+ * prop reader below used to compare a prop's own TEXT, which is a claim about
+ * how the value is SPELLED and not about what it MEANS. Reproduced through the
+ * real edit route: a tweak asked to count places left moved the arithmetic one
+ * line up the page —
+ *
+ *     const { data: rawBookingCount } = useRpc(…);
+ *     const bookingCount = 6 - Number(rawBookingCount ?? 0);
+ *
+ * — and left `bookingCount={Number(bookingCount ?? 0)}` byte-identical. Every
+ * prop expression matched, the contract was satisfied, and the page shipped
+ * telling a full day it had six places going spare. THE VALUE A COMPONENT
+ * RECEIVES IS ITS EXPRESSION PLUS THE DEFINITION OF EVERY PAGE NAME THAT
+ * EXPRESSION READS, transitively; anything short of that is a spelling check.
+ *
+ * WHAT COUNTS AS A DECLARATION: an import (the module a name comes from is what
+ * it means), a `function` declaration with its whole body, and every
+ * `const`/`let`/`var` declarator with its binder AND its initialiser — the
+ * binder included, because `const { data: a }` and `const { total: a }` are two
+ * different values wearing one name.
+ *
+ * SCOPE IS NOT RESOLVED AND THAT IS DELIBERATE — there is no parser here, so a
+ * declaration anywhere in the file is a candidate for a name used anywhere else.
+ * It is `readsIn`'s asymmetry one layer up: over-collecting can only add a
+ * closure entry, and a name declared twice keeps BOTH texts (`texts` is a list)
+ * so a change to either is visible and neither reads as literal.
+ *
+ * `literal` IS THE EXISTING CHOICE-VERSUS-COMPUTATION LINE, ONE INDIRECTION
+ * OUT: a plain name bound once to a literal is a choice the receiving component
+ * already distinguishes, exactly as an inline `columns={3}` is.
+ */
+export function localBindings(src) {
+  const { specs, code, mask } = importSpecs(src);
+  return bindingsIn(specs, code, mask);
+}
+
+function bindingsIn(specs, code, mask) {
+  const out = new Map();
+  const add = (name, at, to, literal) => {
+    if (!IDENT.test(name)) return;
+    const text = code.slice(at, to).trim();
+    const e = out.get(name);
+    if (!e) { out.set(name, { texts: [text], masks: [mask.slice(at, to).trim()], literal }); return; }
+    if (e.texts.includes(text)) return;
+    e.texts.push(text);
+    e.masks.push(mask.slice(at, to).trim());
+    e.literal = false;
+  };
+
+  for (const m of specs) {
+    const names = bindingsOf(m.clause, m.kind);
+    if (names === null) continue;
+    for (const n of names) add(n, m.start, m.end + 1, false);
+  }
+
+  const fn = /\bfunction\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  let f;
+  while ((f = fn.exec(mask))) {
+    const body = mask.indexOf("{", f.index + f[0].length);
+    const end = body === -1 ? -1 : closeBrace(mask, body, mask.length);
+    add(f[1], f.index, end === -1 ? mask.length : end + 1, false);
+  }
+
+  const dec = /\b(?:const|let|var)\s+/g;
+  let d;
+  while ((d = dec.exec(mask))) {
+    let i = d.index + d[0].length;
+    for (let n = 0; n < 16 && i < mask.length; n++) {
+      const eq = depthStop(mask, i, mask.length, "=,;");
+      const binder = mask.slice(i, eq);
+      const end = mask[eq] === "=" ? depthStop(mask, eq + 1, mask.length, ",;") : eq;
+      const init = mask[eq] === "=" ? mask.slice(eq + 1, end).trim() : "";
+      const one = ONE_NAME.test(binder.trim());
+      for (const name of patternNames(binder)) {
+        add(name, i, end, one && LITERAL_VALUE.test(init));
+      }
+      if (mask[end] !== ",") break;
+      i = end + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * WHAT ONE PROP VALUE REALLY DEPENDS ON — `{reads, fingerprint, allLiteral}`,
+ * the page's own declarations its free names resolve to, TRANSITIVELY.
+ *
+ * A NAME THIS FILE DOES NOT DECLARE CONTRIBUTES NOTHING, and that is
+ * cannot-tell making no claim rather than an answer: `Number`, a callback's own
+ * parameter and a name from a module this reader could not read all land there.
+ * THE COST IS STATED because it is real — a value whose meaning moves ONLY
+ * through such a name moves invisibly to this check. What is closed is every
+ * hop that is written down in the page itself, which is where the reproduced
+ * defect lived and where a one-page writer is able to move something at all.
+ *
+ * THE FINGERPRINT IS SORTED BY NAME, never by the order the walk met them, or
+ * moving a band down the page would re-order the closure of a prop nothing
+ * touched — the same reason the comparison below is a multiset and not a list.
+ *
+ * THE CAP IS CANNOT-FINISH AND READS AS A COMPUTATION (`allLiteral: false`): a
+ * dependency chain too tangled to walk to its end is not a choice the receiving
+ * component already distinguishes.
+ */
+function closureOf(masked, binds) {
+  const seen = new Map();
+  const queue = [masked];
+  let all = true;
+  while (queue.length) {
+    for (const name of readsIn(queue.shift())) {
+      if (seen.has(name)) continue;
+      const b = binds.get(name);
+      if (!b) continue;
+      if (seen.size >= MAX_CLOSURE) { all = false; queue.length = 0; break; }
+      seen.set(name, b);
+      if (!b.literal) all = false;
+      for (const t of b.masks) queue.push(t);
+    }
+  }
+  const reads = [...seen.keys()].sort().map((n) => ({
+    name: n, text: seen.get(n).texts.join(" | "), literal: seen.get(n).literal,
+  }));
+  return {
+    reads,
+    fingerprint: reads.map((r) => r.name + "\u0001" + r.text).join("\u0002"),
+    allLiteral: all,
+  };
 }
 
 /**
@@ -533,7 +724,7 @@ function propsIn(code, mask, from, to) {
     if (mask[i] === "{") {
       const close = closeBrace(mask, i, to);
       if (close === -1) return null;
-      out.push({ prop: "...", value: code.slice(i, close + 1), literal: false });
+      out.push({ prop: "...", value: code.slice(i, close + 1), inner: mask.slice(i + 1, close), literal: false });
       i = close + 1;
       continue;
     }
@@ -543,14 +734,14 @@ function propsIn(code, mask, from, to) {
     let j = i + prop.length;
     while (j < to && /\s/.test(mask[j])) j++;
     // A BARE PROP IS `true` AND CARRIES NOTHING COMPUTED.
-    if (mask[j] !== "=") { out.push({ prop, value: "", literal: true }); i = j; continue; }
+    if (mask[j] !== "=") { out.push({ prop, value: "", inner: "", literal: true }); i = j; continue; }
     j++;
     while (j < to && /\s/.test(mask[j])) j++;
     const q = mask[j];
     if (q === '"' || q === "'") {
       const close = mask.indexOf(q, j + 1);
       if (close === -1 || close >= to) return null;
-      out.push({ prop, value: code.slice(j, close + 1), literal: true });
+      out.push({ prop, value: code.slice(j, close + 1), inner: "", literal: true });
       i = close + 1;
       continue;
     }
@@ -560,6 +751,7 @@ function propsIn(code, mask, from, to) {
       out.push({
         prop,
         value: code.slice(j, close + 1),
+        inner: mask.slice(j + 1, close),
         literal: LITERAL_VALUE.test(mask.slice(j + 1, close).trim()),
       });
       i = close + 1;
@@ -586,12 +778,24 @@ function propsIn(code, mask, from, to) {
  * be read (`* as N`, a re-export, a dynamic import), a tag that does not
  * terminate, or a prop shape this cannot enumerate all land there. A caller
  * must not read an unreadable component as one whose props did not move.
+ *
+ * ⚠ A PROP IS ITS EXPRESSION AND ITS CLOSURE, NEVER ITS TEXT (2026-09-22). Each
+ * prop carries `closure` — a fingerprint of every page-local declaration the
+ * value reads, transitively, from `closureOf` — and `literal` is now the
+ * CHOICE-versus-COMPUTATION line asked of that whole dependency rather than of
+ * the spelling at the call site. The two together are what a comparison needs:
+ * an edit that moves arithmetic one line up the page leaves the call site
+ * byte-identical and changes what the component receives, and a reader that
+ * compares only the text calls that unchanged. `reads` is the same closure in
+ * full, so a refusal can NAME the declaration that moved instead of pointing at
+ * a prop whose text is the same on both sides.
  */
 export function partProps(src, inPart) {
   const out = new Map();
   const mine = localParts(src, inPart);
   if (!mine.length) return out;
-  const { code, mask } = importSpecs(src);
+  const { specs, code, mask } = importSpecs(src);
+  const binds = bindingsIn(specs, code, mask);
   for (const { name, clause, kind } of mine) {
     const prev = out.get(name);
     if (prev && !prev.readable) continue;
@@ -605,7 +809,23 @@ export function partProps(src, inPart) {
       for (const t of tags) {
         const got = propsIn(code, mask, t.from, t.to);
         if (got === null) { ok = false; break; }
-        props.push(...got);
+        for (const p of got) {
+          const cl = closureOf(p.inner, binds);
+          props.push({
+            prop: p.prop,
+            value: p.value,
+            closure: cl.fingerprint,
+            reads: cl.reads,
+            // A NAME STANDING ALONE MEANS WHAT ITS DECLARATION MEANS, so a prop
+            // bound once to a literal through one name is the same CHOICE an
+            // inline literal is — `columns={cols}` over `const cols = 3` is
+            // `columns={3}` one indirection out, and the fingerprint carries
+            // the 3, so changing it to a 4 is still seen. Anything with an
+            // operator in it is a computation whatever its parts are.
+            literal: p.literal || (ONE_NAME.test(p.inner.trim()) && cl.reads.length > 0 && cl.allLiteral),
+          });
+        }
+        if (!ok) break;
       }
       if (!ok) break;
     }

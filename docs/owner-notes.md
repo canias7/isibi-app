@@ -17031,3 +17031,78 @@ better evidence than comparing against my own machine.
 That is the whole of what I was asked for: the fix, and the CI results. Still
 untouched, deliberately: no broad sweep, no merge, no deploy, no paid retry,
 and `fretwork-1`'s page is live in the state run 17 left it.
+
+## The door had a second way round it, and you found it (2026-09-22)
+
+You reproduced the same failure through the real edit route by moving the
+calculation upstream:
+
+```
+const { data: rawBookingCount } = useRpc(...);
+const bookingCount = 6 - Number(rawBookingCount ?? 0);
+```
+
+with the component call left exactly as it was —
+`bookingCount={Number(bookingCount ?? 0)}`. `ok: true`, `tweak: true`, no full
+writer, the wrong page in the compiler and in the store, and the component still
+saying "bookings" and reading zero as space. The check I built compares what the
+page passes each component; it compared the TEXT of that, and the text never
+moved.
+
+**What was wrong with it, in one sentence.** The value a component receives is
+its expression *plus the definition of every name on the page that expression
+reads*. Comparing the expression alone is a check on spelling.
+
+**What it does now.** Each prop is compared together with the definitions it
+depends on, followed through the page's own declarations for as far as they go —
+so the shape above differs, and the refusal names `bookingCount` as the thing
+that moved rather than pointing at a prop that is identical on both sides. One
+hop further is the same trick, so the walk is transitive: change something two
+names upstream and it is still seen.
+
+**Neither of the two things you told me not to do.** There is no pattern for
+where a subtraction appears — nothing about arithmetic is named anywhere in it —
+and it is not a ban on pages that have components. `fretwork-1`'s home page
+imports three and binds eleven props; the heading tweak in the tests goes
+through the cheap path exactly as before.
+
+**And the cheap path kept the case it should.** A name bound once to a plain
+value is that value one step out: `columns={cols}` over `const cols = 3` is
+`columns={3}`, so changing that 3 to a 4 is still a cheap choice — and the
+comparison carries the 3, so the change is seen rather than ignored. `const cols
+= 3` becoming `const cols = rows + 1` is a calculation and refuses, naming
+`cols`. One of the deliberate breakages below is exactly the blunt version of
+this fix — refuse on any change at all — and it fails the tests, which is what
+says the fix is not blunt.
+
+**Where it stops, said plainly.** A name the page does not declare — a browser
+built-in, something from a file this rung was never given — contributes nothing,
+and a value whose meaning moves only through one of those moves unseen. That is
+the edge of what a reader with one page in its hands can answer, and it is also
+the edge of what a writer with one page in its hands can move.
+
+**Both spellings now go through the route, sharing one body of assertions** —
+did not publish, reached the writer that can open the component, that writer was
+shown the component's own wording, the compiler payload, the stored source, the
+untouched neighbours. Written out twice they would drift, and the half that
+drifts is the half nobody reads again. The four things you asked me to keep are
+all still asserted: the ordinary visual tweak on the cheap path, unrelated pages
+and components byte-identical, the four wording rows (0 → six places left, 2 →
+four, 6 → none, 7 → none rather than minus one), and loading and failed never
+advertising places.
+
+**Scoped, as you asked.** The corrected pair in these tests is an answer I
+supply. What that proves is the path — that a request of this class is not
+published by the rung that cannot finish it, and reaches the writer that can
+read both files. It does not prove a real model writes a correct component when
+it gets there.
+
+**Seven deliberate breakages, all seven caught, a comment-only control untouched
+in each round.** Two of them named the wrong file the first time and one of them
+broke more than it meant to, so I re-ran all three rather than counting them —
+a breakage that didn't apply, or that applied too widely, reads exactly like a
+result and is not one.
+
+Suite **7,134** locally, nothing failing — three more cases than last time.
+Still untouched, deliberately: no broad sweep, no merge, no deploy, no paid
+retry, and `fretwork-1`'s page is live in the state run 17 left it.

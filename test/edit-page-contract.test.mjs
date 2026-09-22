@@ -17,24 +17,47 @@
 // on this day yet — it still has space"** on a FULL one. A full day
 // advertising space, shipped, reported done.
 //
+// ⚠ AND IT HAS A SECOND SPELLING, REPORTED FROM THE REAL ROUTE AFTER THE FIRST
+// FIX SHIPPED. Move the arithmetic one line UP the page —
+//
+//     const { data: rawBookingCount } = useRpc(…);
+//     const bookingCount = 6 - Number(rawBookingCount ?? 0);
+//
+// — and leave `bookingCount={Number(bookingCount ?? 0)}` byte-identical, and a
+// check that compares prop EXPRESSIONS matches itself: `ok: true`, `tweak:
+// true`, the wrong page in the compiler and in the store, the component's old
+// wording untouched. The value a component receives is its expression PLUS the
+// definition of every page name that expression reads, so the comparison is
+// keyed on the expression and that closure. Both spellings are driven here,
+// through the route, against the same sources.
+//
 // WHAT IS ASSERTED, AND WHY EACH HALF IS NEEDED:
 //
 //   1. THE REFUSAL IS BESIDE THE PASS. `sameProse` still answers true on the
-//      real diff and `partContract` refuses it BY NAME. Both readings in one
-//      case, because the finding is precisely that the promise was kept and
-//      the change was still incomplete.
-//   2. THROUGH THE ROUTE. The stubbed `write_tweak` returns the exact source
-//      run 17 published — derived from the before-source by its own one-line
-//      edit, with the anchor asserted to occur exactly once — and the route
-//      must NOT publish it.
+//      real diff — on BOTH spellings — and `partContract` refuses each BY
+//      NAME. Both readings in one case, because the finding is precisely that
+//      the promise was kept and the change was still incomplete.
+//   2. THROUGH THE ROUTE, TWICE. The stubbed `write_tweak` returns the exact
+//      source run 17 published, and then the upstream form — each derived from
+//      the before-source by its own stated edit, with the anchor asserted to
+//      occur exactly once — and the route must publish NEITHER. One shared
+//      body, so the two cannot drift.
 //   3. THE POSITIVE CONTROL, on the SAME page, which carries three components
 //      and eleven prop bindings: an ordinary visual tweak still takes the
 //      cheap path. Without this the fix would read as "disable tweaks wherever
-//      a page has components", which is not the fix.
+//      a page has components", which is not the fix. Beside it, at the module,
+//      a literal bound to a name stays a choice: `columns={cols}` over
+//      `const cols = 3` → `4` is a literal swap one indirection out.
 //   4. THE CORRECTED PAIR, VERIFIED TOGETHER — the compiler payload, the
 //      stored source, and the wording a visitor really reads, rendered with
 //      real React against SUPPLIED booking counts. No rows are created and no
 //      booking-enforcement rule is touched: the counts are arguments.
+//
+// ⚠ WHAT THE ROUTE CASES DO NOT ESTABLISH. The corrected pair is a SUPPLIED
+// model answer, so what is proven is the EXECUTION PATH — that a request of
+// this class is not published by the rung that cannot finish it, and reaches
+// the writer that can open both files — and never that a real model produces a
+// correct component once it gets there.
 //
 // Nothing here reaches a model and nothing is spent.
 
@@ -48,7 +71,7 @@ import { renderPart } from "./fixtures/render-part.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { TWEAK_TOOL, sameProse, partContract, readTweak, runTweak } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
-import { localParts, partProps, PART_DIR } from "../builder/site-files.mjs";
+import { localBindings, localParts, partProps, PART_DIR } from "../builder/site-files.mjs";
 
 const USER = { id: "u-contract-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -106,6 +129,34 @@ const HOME_TWEAKED = once(
   "bookingCount={6 - Number(bookingCount ?? 0)}",
   "the tweak's one line",
 );
+
+/**
+ * THE SAME DEFECT SPELLED UPSTREAM — reported from a real edit-route run, and
+ * the reason the check below reads a closure rather than a prop's text.
+ *
+ * The cheap rung moves the arithmetic into a page-local binding one line above
+ * the element and leaves `bookingCount={Number(bookingCount ?? 0)}` BYTE-
+ * IDENTICAL. Every prop expression matches, `sameProse` is perfect, and the
+ * component still words the number as bookings — the same live page, reached by
+ * a spelling no comparison of call sites can see.
+ *
+ * DERIVED FROM THE SAME BEFORE-SOURCE, through `once`, so it is the run's own
+ * artifact with one stated edit and not a second hand-written page.
+ */
+const HOME_UPSTREAM = (() => {
+  const s = once(
+    HOME_BEFORE,
+    "  const { data: bookingCount } = useRpc(\"bookings_on_day\", {\n    preferred_day: preferredDay,\n  });",
+    "  const { data: rawBookingCount } = useRpc(\"bookings_on_day\", {\n    preferred_day: preferredDay,\n  });\n  const bookingCount = 6 - Number(rawBookingCount ?? 0);",
+    "the useRpc read run 17's page makes",
+  );
+  // THE PROP IS UNTOUCHED, ASSERTED RATHER THAN INTENDED — without this the
+  // fixture could drift into the inline shape and every case would still pass.
+  assert.ok(s.includes("bookingCount={Number(bookingCount ?? 0)}"),
+    "the upstream fixture moved the prop, which is the other case");
+  assert.ok(s.includes("6 - Number(rawBookingCount ?? 0)"), "the upstream fixture computes nothing");
+  return s;
+})();
 
 /**
  * THE CORRECTED PAGE. The count keeps its meaning — the subtraction moves to
@@ -334,10 +385,18 @@ test("localParts is specNames run backwards — the two readers of one path conv
 });
 
 test("a literal prop is a choice and stays cheap; an expression is a computation and does not", () => {
-  const page = (el) => "import { createFileRoute } from '@tanstack/react-router'\n"
+  // ⚠ THE DECLARATION IS A PARAMETER AND THAT IS THE POINT. `n` used to be
+  // `const n = 3` here, which made `count={n}` stand in for "an expression" —
+  // true while the check read the call site's TEXT and false now that it reads
+  // the closure: a name bound once to a literal IS the literal one indirection
+  // out. Driving the same five shapes under BOTH declarations is what keeps
+  // this case saying what it names, and it is why the split is here rather than
+  // a sixth entry in the list.
+  const page = (el, decl) => "import { createFileRoute } from '@tanstack/react-router'\n"
     + "import Band from \"@/routes/-parts/band\"\n"
     + "export const Route = createFileRoute('/')({ component: H })\n"
-    + `function H(){const n = 3; return <div>${el}</div>}\n`;
+    + `function H(){${decl} return <div>${el}</div>}\n`;
+  const LIT = "const n = 3;", COMPUTED = "const n = rows.length - 1;";
   // A literal swap, a literal added, a bare flag added: all choices the
   // component already distinguishes.
   for (const [a, b, what] of [
@@ -347,10 +406,11 @@ test("a literal prop is a choice and stays cheap; an expression is a computation
     ['<Band tone="light" />', '<Band tone="light" columns={2} />', "a literal prop added"],
     ['<Band a="x" b="y" />', '<Band b="y" a="x" />', "the same props reordered"],
   ]) {
-    assert.equal(partContract(page(a), page(b), { inPart: false }).ok, true,
+    assert.equal(partContract(page(a, LIT), page(b, LIT), { inPart: false }).ok, true,
       "a visual tweak was refused: " + what);
   }
-  // An expression, either direction.
+  // An expression, either direction — the same five shapes, over a name whose
+  // own definition is a computation.
   for (const [a, b, what] of [
     ['<Band count={n} />', '<Band count={6 - n} />', "an expression rewritten"],
     ['<Band count={n} />', '<Band count={2} />', "an expression replaced by a literal"],
@@ -358,10 +418,82 @@ test("a literal prop is a choice and stays cheap; an expression is a computation
     ['<Band />', '<Band count={n} />', "an expression prop added"],
     ['<Band {...{}} />', '<Band />', "a spread dropped"],
   ]) {
-    const r = partContract(page(a), page(b), { inPart: false });
+    const r = partContract(page(a, COMPUTED), page(b, COMPUTED), { inPart: false });
     assert.equal(r.ok, false, "a contract change was accepted: " + what);
     assert.equal(r.part, "band");
   }
+  // AND THE LINE REALLY IS THE DECLARATION AND NOT THE SPELLING: one element,
+  // one unchanged prop, and the two answers differ only by what `n` is.
+  const el = '<Band count={n} />';
+  assert.equal(
+    partContract(page(el, LIT), page(el, "const n = 4;"), { inPart: false }).ok, true,
+    "a literal bound to a name was refused — `count={n}` over `const n = 3` is `count={3}`",
+  );
+  const moved = partContract(page(el, LIT), page(el, COMPUTED), { inPart: false });
+  assert.equal(moved.ok, false, "a literal that became a computation was accepted");
+  assert.equal(moved.via, "n", "the refusal did not name the declaration that moved");
+  assert.equal(moved.was, moved.now, "this is the upstream shape: the prop's own text never moved");
+});
+
+test("THE UPSTREAM FORM: the arithmetic moves into a binding and the prop text never moves", () => {
+  const UP = HOME_UPSTREAM;
+
+  // THE OLD READER CALLED THIS UNCHANGED, and the guard says so in its own
+  // terms rather than in prose: keyed on `prop + value`, both sides are one
+  // bag and nothing is gone or came.
+  const propText = (src) => [...partProps(src, false).get("day-space-lookup").props]
+    .map((p) => p.prop + "=" + p.value).sort().join("\n");
+  assert.equal(propText(HOME_BEFORE), propText(UP),
+    "the fixture does not reproduce the defect: the prop text really did move");
+
+  const r = partContract(HOME_BEFORE, UP, { inPart: false });
+  assert.equal(r.ok, false, "the upstream calculation was accepted");
+  assert.equal(r.part, "day-space-lookup");
+  assert.equal(r.prop, "bookingCount");
+  assert.equal(r.via, "bookingCount", "the refusal did not name the declaration that moved");
+  assert.equal(r.was, r.now, "the prop's own text moved after all");
+
+  // AND `sameProse` LETS IT THROUGH, so this really is a second question and
+  // not a stricter version of the first — the page's own words never moved.
+  assert.equal(sameProse(HOME_BEFORE, UP), true,
+    "the upstream form is caught by the prose promise, so it proves nothing about this check");
+
+  // ⚠ AND ONE HOP FURTHER IS THE SAME TRICK. Leave the prop AND the binding it
+  // names both byte-identical, and move what THAT one reads: a walk that stops
+  // at the first name accepts it, for the same reason a comparison of call
+  // sites accepts the shape above. The closure is transitive because the
+  // bypass is.
+  const deep = (raw) => "import Band from \"@/routes/-parts/band\"\n"
+    + `export default function H(){const raw = ${raw}; const n = Number(raw);\n`
+    + "  return <Band count={n} />}\n";
+  const d = partContract(deep("useRpc('a', {})"), deep("6 - Number(useRpc('a', {}))"), { inPart: false });
+  assert.equal(d.ok, false, "a change two names upstream of the prop was accepted");
+  assert.equal(d.via, "raw", "the refusal named the wrong link in the chain");
+});
+
+test("the closure is the page's own declarations, and an unresolvable name makes no claim", () => {
+  const binds = localBindings(HOME_BEFORE);
+  // THE READER IS ALIVE before any absence it reports is believed.
+  assert.ok(binds.has("preferredDay"), "the page's own state binding was not read");
+  assert.ok(binds.has("DaySpaceLookup"), "an imported name is a declaration too");
+  assert.ok(!binds.has("Number"), "a global is not one of this page's declarations");
+
+  // A DESTRUCTURE'S BOUND NAME IS THE BINDING, and the whole declarator is what
+  // decides its meaning — `const { data: a }` and `const { total: a }` are two
+  // values wearing one name.
+  const b = localBindings("const { data: bookingCount } = useRpc('x', {});");
+  assert.ok(b.has("bookingCount"), "a destructured name was not read as a binding");
+  assert.ok(b.get("bookingCount").texts[0].includes("useRpc"), "the declarator's initialiser was dropped");
+  assert.equal(b.get("bookingCount").literal, false, "a destructure is not a literal choice");
+
+  // CANNOT-TELL MAKES NO CLAIM. A value whose only moving part is a name this
+  // page does not declare is not evidence of anything, so it is accepted — the
+  // cost of the closure ending at the page's own edge, stated as a case.
+  const page = (v) => "import Band from \"@/routes/-parts/band\"\n"
+    + `export default function H(){return <Band count={${v}} />}\n`;
+  assert.equal(partContract(page("useOutside()"), page("useOutside()"), { inPart: false }).ok, true);
+  assert.ok(!localBindings(page("useOutside()")).has("useOutside"),
+    "an undeclared name resolved to something, so the case above proves nothing");
 });
 
 test("cannot-tell makes no claim, in either half", () => {
@@ -395,14 +527,28 @@ test("`inPart` really travels from runTweak into readTweak", async () => {
   assert.ok(typeof send === "function");
 });
 
-test("the arithmetic-only tweak does not publish — through the route, on run 17's own sources", async () => {
-  const slug = "contract-repro";
+/**
+ * ONE ROUTE CASE, DRIVEN TWICE — once for each spelling of the same defect.
+ *
+ * ⚠ IT IS A SHARED BODY AND NOT TWO CASES, deliberately. The two differ only in
+ * what the cheap rung answers; everything that must hold — did not publish,
+ * reached the component-capable writer, the writer was SHOWN the component's
+ * wording, the payload, the store, the untouched neighbours — is the same claim
+ * about both. Written out twice they drift, and the half that drifts is the one
+ * nobody reads again.
+ *
+ * ⚠ AND THE CLAIM IS SCOPED: the corrected pair here is a SUPPLIED answer, so
+ * what this establishes is the EXECUTION PATH — that the request reaches a
+ * writer able to open both files — and never that a real model produces a
+ * correct component when it gets there.
+ */
+async function doesNotPublish(slug, tweakSource) {
   const store = bucket(slug);
   const c = installCompiler();
   try {
     await withWire({
-      // The cheap rung answers exactly what run 17's did.
-      [TWEAK_TOOL.name]: { source: HOME_TWEAKED },
+      // The cheap rung answers what the reported run's did.
+      [TWEAK_TOOL.name]: { source: tweakSource },
       // And the writer that CAN read components answers the corrected pair.
       [SITE_PAGES_TOOL.name]: {
         pages: [{ path: "src/routes/index.tsx", source: HOME_FIXED }],
@@ -426,11 +572,13 @@ test("the arithmetic-only tweak does not publish — through the route, on run 1
         "the writer was not shown the component's own wording");
 
       // (c) THE COMPILER PAYLOAD carries the corrected pair, and the page no
-      //     longer holds the misleading arithmetic.
+      //     longer holds the misleading arithmetic — in EITHER spelling.
       const sentHome = sentOne(c, /index\.tsx$/);
       const sentPart = sentOne(c, /day-space-lookup\.tsx$/);
-      assert.ok(!sentHome.includes("6 - Number(bookingCount"),
+      assert.ok(!/6 - Number\((?:raw)?bookingCount/.test(sentHome),
         "the publish carried the arithmetic-only change");
+      assert.ok(!sentHome.includes("rawBookingCount"),
+        "the publish carried the upstream binding the tweak invented");
       assert.ok(sentHome.includes("bookingCount={Number(bookingCount ?? 0)}"),
         "the count stopped being the booking count");
       assert.ok(sentPart.includes("placesLeft"), "the compiled component is not the corrected one");
@@ -452,6 +600,17 @@ test("the arithmetic-only tweak does not publish — through the route, on run 1
       }
     });
   } finally { c.uninstall(); }
+}
+
+test("the arithmetic-only tweak does not publish — through the route, on run 17's own sources", async () => {
+  await doesNotPublish("contract-repro", HOME_TWEAKED);
+});
+
+test("THE UPSTREAM CALCULATION does not publish either — through the route, same sources", async () => {
+  // THE SAME REQUEST AND THE SAME ROUTE; only the cheap rung's answer differs.
+  // It moves the six-minus into a page-local binding and leaves the prop
+  // byte-identical, which is the spelling a check on call-site text cannot see.
+  await doesNotPublish("contract-repro-upstream", HOME_UPSTREAM);
 });
 
 test("AN ORDINARY VISUAL TWEAK STILL TAKES THE CHEAP PATH — the positive control", async () => {
