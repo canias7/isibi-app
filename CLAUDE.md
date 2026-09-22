@@ -2061,6 +2061,22 @@ tree, and two signatures are read off it.
   `duration_ms 116,877`. **THE TOTAL IS WHAT MATCHES** — 7,137 both sides,
   `pass` differing by exactly CI's own four skips, which is this file's
   standing reading of that gap and not a regression.
+  **AND `site build` RUN `35742915892` READ ALL TWELVE COUNTS GREEN**
+  (14:48:47 → 15:15:08Z, **26m21s**, all twenty steps): TAP **397/397/0/0**,
+  kit-typecheck 4, site-build **382**, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47, and kit-render /
+  kit-a11y / kit-effects / kit-paint `all passed`. **The shape census closes**
+  — `N passed` 7 + `all passed` 4 + TAP 1 = **12**. Every figure matches what
+  is on record, so this round moved none of them.
+  **⚠ `site-build.mjs` ALONE IS 1,175 s — 19m35s, 74% of the job — AND THAT
+  IS THE LONGEST READING OF THAT STEP ON RECORD**, against 17m57s the previous
+  round and the 17m06s this file carries. **Recorded rather than explained**:
+  every count matched, so it is runner speed rather than work skipped, and
+  there is no per-step baseline from the earlier runs to attribute it to.
+  The two `##[error]` annotations are present again and are the harness doing
+  its job — `index.tsx(50,13) TS2322` and `menu.tsx(27,17) TS2339`, two of
+  seven `tsc`-format lines inside the case that deliberately compiles a broken
+  page, both sitting inside the step that ends `382 passed, 0 failed`.
   **The +3 is the difference between two measured readings**,
   7,134 → 7,137, and it is exactly the three new CASES — the operand-order
   route case, the no-parser case and the `parse` forwarding case. The other
