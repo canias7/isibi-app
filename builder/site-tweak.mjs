@@ -34,8 +34,10 @@
 import { extractText } from "./site-text.mjs";
 // The page/component relationship, read off the page's own source — see
 // `partEligible` below for why this rung needs it and why it may not ask a
-// store for it. `codeOnly` is the same lexer every other reader here uses.
-import { codeOnly, localParts } from "./site-files.mjs";
+// store for it. It reads the page's own import specifiers — the page/component
+// RELATIONSHIP — and is not an analysis of what the code does; that question
+// belongs to the parser `partEligible` is handed.
+import { localParts } from "./site-files.mjs";
 // The runtime-correctness check. Imported rather than injected because it is
 // pure — no Worker, no container, no network — so importing it costs this
 // module none of the properties above, and injecting it would put the one thing
@@ -339,7 +341,7 @@ export function tweakLint(before, after) {
  * ordinary request is impossible, on a rung they never asked to be routed to.
  * So there is no `ok: false` here that a customer ever sees.
  */
-export function readTweak(reply, { source, inPart } = {}) {
+export function readTweak(reply, { source, inPart, parse } = {}) {
   const before = String(source == null ? "" : source);
   // The raw API reply, read the way every other lane reads one — a forced tool
   // can still come back without a `tool_use` block when the call is cut short,
@@ -384,8 +386,8 @@ export function readTweak(reply, { source, inPart } = {}) {
   // rewording keeps its own name, and ABOVE `tweakLint` because it is the more
   // specific finding of the two and the one with a customer-visible
   // consequence. See `partEligible`.
-  const fit = partEligible(before, after, { inPart });
-  if (!fit.ok) return { ok: false, reason: "needs-parts", parts: fit.parts };
+  const fit = partEligible(before, after, { inPart, parse });
+  if (!fit.ok) return { ok: false, reason: "needs-parts", parts: fit.parts, why: fit.why };
 
   // WHAT IT BROKE. Last, so the cheaper and more specific refusals above keep
   // their own names — a rewording reported as a lint problem sends whoever
@@ -411,11 +413,10 @@ export function readTweak(reply, { source, inPart } = {}) {
 
 /**
  * ⚠ IS THIS RUNG ELIGIBLE FOR THIS REQUEST AT ALL — `{ok}` or
- * `{ok: false, parts}` (run 17 and the two reproductions after it).
+ * `{ok: false, parts, why}` (run 17 and the THREE reproductions after it).
  *
- * WHAT IT COST TO LEARN, AND WHY THIS IS THE THIRD SHAPE OF THE CHECK. Asked to
- * make the *"Space on a preferred day"* box count down the places left, the
- * cheap rung changed ONE line of the page and nothing else:
+ * WHAT IT COST TO LEARN. Asked to make the *"Space on a preferred day"* box
+ * count down the places left, the cheap rung changed ONE line of the page:
  *
  *     - bookingCount={Number(bookingCount ?? 0)}
  *     + bookingCount={6 - Number(bookingCount ?? 0)}
@@ -426,123 +427,173 @@ export function readTweak(reply, { source, inPart } = {}) {
  * EMPTY day and **"No bookings on this day yet — it still has space"** on a
  * FULL one.
  *
- * THE FIRST TWO FIXES WERE SCANNERS AND BOTH WERE BEATEN BY A SPELLING.
- * Comparing the prop's TEXT was beaten by moving the arithmetic one line up
- * into a `const`; comparing the prop's text PLUS the declarations it reads was
- * beaten by a reassignment:
+ * ⚠ THREE SUCCESSIVE FIXES WERE APPROXIMATE READERS AND EACH WAS BEATEN BY A
+ * SPELLING, ALL THREE REPORTED THROUGH THE REAL EDIT ROUTE:
  *
- *     let { data: bookingCount } = useRpc(…);
- *     bookingCount = 6 - Number(bookingCount ?? 0);
+ *   1. Compare the prop's TEXT. Beaten by moving the arithmetic one line up
+ *      into a `const`, leaving the call site byte-identical.
+ *   2. Compare the prop's text PLUS the declarations it transitively reads.
+ *      Beaten by a REASSIGNMENT — the call site untouched, the declaration
+ *      untouched, a later statement changing the value.
+ *   3. Compare the whole file's code tokens as a MULTISET. Beaten by operand
+ *      order: `Number(bookingCount ?? 0)` → `Number(0 ?? bookingCount)` has the
+ *      IDENTICAL multiset and always returns zero, so a fully booked day again
+ *      advertised space.
  *
- * — the call site untouched, the declaration untouched, the value changed. The
- * lesson is not "add assignments to the scanner" (owner: *stop extending this
- * into a homemade JavaScript analysis engine one syntax case at a time*). It is
- * that **no page-local reading of the diff can answer this**: what a component
- * receives is decided at RUN time, and a change arbitrarily far from the call
- * site can move it. A scanner will lose to the next syntax, for ever.
+ * THE THIRD FAILURE IS THE ONE THAT SETTLES THE DESIGN, because it is not an
+ * edge case: **a bag of tokens cannot see order, and order is the semantics.**
+ * `a ?? 0` and `0 ?? a` are the same tokens and different programs, and so are
+ * `f(x, y)` / `f(y, x)`, `a ? b : c` / `a ? c : b`, `a - b` / `b - a`. No
+ * refinement of an unordered comparison can express what an operand position
+ * means, so the multiset is GONE rather than patched (owner: *remove that
+ * assumption rather than add another exception for this expression*).
  *
- * SO THE QUESTION IS ELIGIBILITY, NOT DETECTION, and it is settled by what this
- * rung IS rather than by what a particular answer did. `runTweak` takes ONE
- * page's source and answers ONE page's source. On a page that renders the
- * site's own components, therefore:
+ * SO THE COMPARISON IS THE LANGUAGE'S OWN PARSER, AND NOTHING HERE PARSES
+ * JAVASCRIPT. `ts.createSourceFile` builds the real syntax tree — the same
+ * parser the compile step already runs over these files — and the two
+ * signatures below are read off that tree. Operand order, argument order and
+ * ternary arms are all recorded by construction, which is why the operand-order
+ * case needed no rule of its own and why two shapes nobody enumerated (a
+ * flipped ternary, a swapped argument list) are caught by the same code.
  *
- *   IT MAY CHANGE WHAT THE PAGE RENDERS — markup, ordering, styling, spacing,
- *     the classes on an element. All of that is settled inside the one file it
- *     holds, so `sameProse` plus `tweakLint` really do cover it.
+ * THE LINE IS WHAT THIS RUNG *IS*, not what a particular answer did. `runTweak`
+ * takes ONE page's source and answers ONE page's source. On a page that renders
+ * the site's own components, therefore:
+ *
+ *   IT MAY CHANGE WHAT THE PAGE RENDERS — element nesting, element order, a new
+ *     wrapper, spacing, and any QUOTED attribute value. All of that is settled
+ *     inside the one file it holds, so `sameProse` plus `tweakLint` cover it.
  *   IT MAY NOT CHANGE WHAT THE PAGE COMPUTES. Every value flowing into a
- *     component is settled by code, and this rung cannot read the file that
- *     gives that value meaning. A change there is one it cannot know it has
- *     finished — whatever syntax it is written in.
+ *     component is settled by code this rung cannot read the other half of, so
+ *     a change there is one it cannot know it has finished.
  *
- * THAT LINE IS MEASURED AS A TOKEN MULTISET, WHICH IS `sameProse`'s OWN
- * INSTRUMENT ONE STEP OVER — and the multiset rather than the positions for
- * `sameProse`'s own reason: moving a band down the page moves every token after
- * it and is precisely the change this rung exists to allow. Read off `codeOnly`
- * with string CONTENTS blanked, so `className="text-xl"` → `className="text-3xl"`
- * is not a change to what the page computes, while `6 - Number(x)` is. It knows
- * nothing about declarations, assignments, hooks or any other construct, which
- * is the entire point: there are no syntax cases to keep up with.
+ * TWO SIGNATURES, AND THEY DIVIDE EXACTLY ALONG THAT LINE:
+ *
+ *   `outside` — the ORDERED structure of every construct that is not JSX
+ *     markup, with a JSX element standing as one opaque leaf. Statements,
+ *     declarations, hooks and their arguments are all here, in source order, so
+ *     the upstream and reassignment shapes differ and so does a renamed RPC.
+ *   `embedded` — a MULTISET of every expression the markup carries, each keyed
+ *     by its element's tag and the attribute it feeds. A multiset because
+ *     reordering or re-wrapping elements must stay free; keyed by tag and
+ *     attribute because a value swapped between two components is a change even
+ *     when the same expressions are still on the page.
+ *
+ * A QUOTED attribute value never enters `embedded`: it is a CHOICE the
+ * receiving file already distinguishes, which is what keeps `className="text-xl"`
+ * → `"text-3xl"` — the repository's own encoding of *make the heading bigger* —
+ * on the cheap path. A BRACED value always does, because that is where
+ * computation lives.
+ *
+ * ⚠ CANNOT-TELL FAILS CLOSED, AND THE PARSER IS THE CANNOT-TELL. The parser is
+ * `typescript`, which the container resolves from the template's own install
+ * and which a Worker bundle may not carry, so it is loaded through
+ * `tweakParser()` and INJECTED. With no parser this rung cannot establish that
+ * the computation is unchanged — so on a component-bearing page it is not
+ * eligible, and the request goes to the writer that can open both files. That
+ * is the safe direction: it costs a rewrite, never a wrong publish.
  *
  * IT IS NOT A BAN ON PAGES WITH COMPONENTS, which is the thing this fix must
- * not be. `fretwork-1`'s home page renders three of them; a heading, a spacing
- * or a band-order tweak leaves the code tokens exactly as they were and takes
- * the cheap path as it always has. A page that renders NONE of the site's own
- * components is not asked this question at all, so every tweak on most of the
- * platform behaves byte for byte as before.
+ * not be. `fretwork-1`'s home page renders three of them; a heading tweak, a
+ * band reorder, a new `<section>` wrapper and added plain markup all leave both
+ * signatures untouched and take the cheap path — asserted as positive controls
+ * through the real route. A page that renders NONE of the site's own components
+ * is not asked this question at all.
  *
  * WHAT IT COSTS, STATED. A tweak that legitimately changes a component-bearing
- * page's logic — and nothing else — escalates and pays the rewrite it would
- * otherwise have skipped, roughly one credit over the tweak's own. So does one
- * that ADDS markup carrying new code tokens. Against publishing a full day as
- * having space, that is the direction to be wrong in; and the rung it escalates
- * to is the one that is SHOWN the component source (`partsSent`) and folds its
- * answer back (`mergeParts`), which is exactly the writer such a request needs.
+ * page's computation escalates and pays the rewrite it would otherwise have
+ * skipped, roughly one credit over the tweak's own; so does one that rewrites a
+ * BRACED value anywhere in the markup, including `className={cn(…)}`. Against
+ * publishing a full day as having space, that is the direction to be wrong in —
+ * and the rung it escalates to is the one SHOWN the component source
+ * (`partsSent`) which folds its answer back (`mergeParts`), which is exactly
+ * the writer such a request needs.
  */
-export function partEligible(before, after, { inPart } = {}) {
+export function partEligible(before, after, { inPart, parse } = {}) {
   const parts = localParts(before, inPart).concat(localParts(after, inPart));
   const names = [...new Set(parts.map((p) => p.name))].sort();
   // A page that renders none of the site's own components keeps every word of
-  // its old contract: there is no file this rung cannot open.
+  // its old contract: there is no file this rung cannot open, so nothing here
+  // can be a change it is unable to finish.
   if (!names.length) return { ok: true };
-  if (computeOf(before) === computeOf(after)) return { ok: true };
-  return { ok: false, parts: names };
+  // THE PARSER IS THE EVIDENCE. Without it there is no claim to make, and the
+  // absence of a claim is not a pass.
+  if (typeof parse !== "function") return { ok: false, parts: names, why: "no-parser" };
+  let a = null;
+  let b = null;
+  try {
+    a = computeShape(before, parse);
+    b = computeShape(after, parse);
+  } catch {
+    // A source neither side can parse is one this rung cannot reason about.
+    return { ok: false, parts: names, why: "unparsed" };
+  }
+  if (a.outside !== b.outside) return { ok: false, parts: names, why: "code" };
+  if (a.embedded !== b.embedded) return { ok: false, parts: names, why: "value" };
+  return { ok: true };
 }
 
 /**
- * WHAT THIS SOURCE COMPUTES, as a sorted multiset of its code tokens.
+ * THE TWO SIGNATURES, read off the real syntax tree.
  *
- * THE STRING CONTENTS ARE BLANKED AND THAT IS THE WHOLE OF WHY A VISUAL TWEAK
- * STAYS CHEAP: a class name, a route id and a column name all live inside
- * quotes, so re-styling an element moves no token here. What does move is an
- * operator, a number, an identifier — the things a value is made of.
+ * ⚠ `forEachChild` STOPS ON A TRUTHY CALLBACK RETURN, and the first cut of this
+ * walked exactly one child of every node because `kids.push(…)` answers the new
+ * LENGTH. Every one of the four bypasses read as eligible against a comparison
+ * that was structurally correct and simply had not looked. The callback returns
+ * nothing on purpose, and the guard drives a shape whose difference is in the
+ * SECOND operand so a re-introduction cannot pass.
  *
- * ⚠ THE SPLIT IS LEXICAL AND NOT ON WHITESPACE, which is a correction the
- * guard made: `<p>a</p><Band />` carries no space between its elements, so
- * splitting on whitespace glues a whole run into one token and a reorder of two
- * elements on ONE LINE reads as a change. A word, a number, or a single
- * punctuation character — then the multiset does not care where the line breaks
- * fell, which is what `sameProse` means by ignoring positions.
- *
- * ⚠ AN ATTRIBUTE WITH A QUOTED VALUE IS DROPPED WHOLE, AND THE GUARD IS WHAT
- * FOUND IT: `<h1>` → `<h1 className="text-5xl">` is the repository's own
- * encoding of *make the heading bigger*, and the only tokens it moves are
- * `className`, `=` and a pair of quotes — measured, not guessed. Counting them
- * refused the one tweak this rung most exists for. Dropping the whole
- * `name="…"` run is the SHIPPED rule restated: a quoted value is a CHOICE the
- * receiving file already distinguishes, so changing, adding or removing one
- * cannot change what a value MEANS. A braced value is not dropped, because that
- * is where computation lives.
- *
- * THE COST OF THAT, STATED: renaming a quoted attribute — `tone="dark"` to
- * `variant="dark"` — is invisible here. It is the same class the old prop check
- * called a choice, so this is consistent rather than newly blind, and the
- * direction is the cheap one: such a tweak publishes where it used to escalate.
- *
- * ⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COUNTED — a survivor in the
- * red check is what said so, and it was a question about the code rather than
- * about the guards. Reading the whole file MASKED dropped every string's
- * contents, so `useRpc("bookings_on_day")` → `useRpc("bookings_two")` moved no
- * token: a change to which data a component receives, invisible. `sameProse`
- * does not cover it either, because `extractText` correctly reads an
- * identifier-shaped string as an identifier and not as words a visitor reads.
- *
- * SO THE TWO VIEWS ARE USED AS THEY WERE DESIGNED TO BE, which is the pattern
- * `scanSource` exists for: the attribute SPANS are found on the MASKED copy —
- * where an escaped quote inside a sentence cannot end a string and derail the
- * match — and the tokens are read off the CODE copy, which still carries what
- * every other string says. Both are length-preserving, so one offset means the
- * same thing in either.
+ * ⚠ THE TWO CALLBACKS BELOW ARE SPELLED ALIKE AND ONLY ONE IS LOAD-BEARING,
+ * which is why both are braced and why this says so. `sig`'s pushes an array
+ * LENGTH — truthy, so a concise body halts the walk. `walk`'s answers
+ * `undefined`, so a concise body there changes nothing: MEASURED over run 17's
+ * real 26 KB page and seven other shapes, identical on all eight, while the
+ * same harness with `sig`'s concise body differs on all eight. A sweep cannot
+ * tell the two apart — it reports the `walk` one as a guard gap — so the
+ * asymmetry is recorded here rather than left for the next reader to
+ * "simplify" the wrong one.
  */
-const QUOTED_ATTR = /[A-Za-z_$][\w$:.-]*\s*=\s*(?:"[^"]*"|'[^']*')/g;
-const CODE_TOKEN = /[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|[^\sA-Za-z0-9_$]/g;
+export function computeShape(source, parse) {
+  const { file, k, isJsx, tagOf, openOf, attrsOf, childrenOf, exprOf, isSpread } = parse(String(source ?? ""));
 
-export function computeOf(source) {
-  const mask = codeOnly(source, true);
-  const code = codeOnly(source, false).split("");
-  for (let m; (m = QUOTED_ATTR.exec(mask)); ) {
-    for (let i = m.index; i < m.index + m[0].length; i++) code[i] = " ";
-  }
-  return (code.join("").match(CODE_TOKEN) || []).sort().join(" ");
+  const sig = (node) => {
+    if (isJsx(node)) return "<jsx/>";
+    const kids = [];
+    node.forEachChild((c) => {
+      kids.push(sig(c));
+    });
+    if (!kids.length) return k(node) + ":" + (node.getText ? node.getText() : "");
+    return k(node) + "(" + kids.join(",") + ")";
+  };
+
+  const bag = [];
+  const walk = (node) => {
+    if (isJsx(node)) {
+      const tag = tagOf(node);
+      for (const attr of attrsOf(openOf(node))) {
+        // A SPREAD carries whatever the object holds, so it is a value by any
+        // reading and is keyed as one rather than skipped.
+        if (isSpread(attr)) {
+          bag.push(tag + "\u0000...\u0000" + sig(attr.expression));
+          continue;
+        }
+        const braced = exprOf(attr);
+        if (braced) bag.push(tag + "\u0000" + (attr.name?.getText?.() ?? "?") + "\u0000" + sig(braced));
+      }
+      for (const child of childrenOf(node)) {
+        const braced = exprOf(child);
+        if (braced) bag.push(tag + "\u0000{}\u0000" + sig(braced));
+        walk(child);
+      }
+      return;
+    }
+    node.forEachChild((c) => {
+      walk(c);
+    });
+  };
+  walk(file);
+
+  return { outside: sig(file), embedded: bag.sort().join("\n") };
 }
 
 /**
@@ -586,7 +637,15 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   // component depends on where the edited file itself lives, and the caller is
   // the only side that knows. Dropping it here is the wiring trap this
   // repository records twelve times over, so the guard drives the hop.
-  return { ...readTweak(reply, { source, inPart }), usage: tweakUsage(reply, model) };
+  // THE PARSER IS LOADED AT THIS EDGE because `readTweak` is synchronous and
+  // twelve callers' worth of async would be the wrong change to make for one
+  // gate. `tweakParser` caches, so this is one resolution per isolate; it
+  // answers `null` where there is none and `partEligible` decides what that
+  // absence means. `parse` IS FORWARDED, not re-derived — dropping it here is
+  // the wiring trap this repository records twelve times over, so the guard
+  // drives the hop and a mutant cutting it dies.
+  const parse = await tweakParser();
+  return { ...readTweak(reply, { source, inPart, parse }), usage: tweakUsage(reply, model) };
 }
 
 /**
@@ -600,4 +659,66 @@ export async function runTweak({ instruction, path, source, send, rules, heading
 export function tweakReply(page) {
   const where = String(page || "").trim();
   return "✅ Done" + (where ? " on " + where : "") + " — I changed only that, and left your wording exactly as it was.";
+}
+
+/**
+ * THE PARSER, LOADED OPTIONALLY AND CACHED — `null` when there is none.
+ *
+ * ⚠ THE SPECIFIER IS ASSEMBLED AT RUNTIME ON PURPOSE. `typescript` is a
+ * DEVELOPMENT dependency of this package: the container resolves it from the
+ * template's own `node_modules` (the template is a TypeScript project and
+ * installs it), while the Worker's runtime is `npm ci --omit=dev` and its
+ * bundle is built by Wrangler. A literal `import("typescript")` would ask a
+ * bundler to pull a ~9 MB compiler into a Worker to run one gate; an assembled
+ * specifier cannot be resolved statically, so it stays a runtime import that
+ * either answers or throws. Both outcomes are handled and neither is a guess.
+ *
+ * A FAILURE HERE IS NOT AN ERROR, it is an absence — `partEligible` turns that
+ * absence into an escalation on the pages where it matters and into nothing at
+ * all on the pages where it does not. The result is cached including the
+ * `null`, so a Worker isolate pays the failed resolution once.
+ *
+ * THE ADAPTER IS WHAT KEEPS THE RULE PARSER-AGNOSTIC: `computeShape` is handed
+ * eight small readers and knows no TypeScript API, so the decision stays in
+ * this module and the dependency stays at its edge.
+ */
+let PARSER = undefined;
+
+export async function tweakParser() {
+  if (PARSER !== undefined) return PARSER;
+  PARSER = null;
+  try {
+    const name = ["type", "script"].join("");
+    const mod = await import(/* @vite-ignore */ name);
+    const ts = mod?.default ?? mod;
+    if (!ts?.createSourceFile) return PARSER;
+    const J = new Set([
+      ts.SyntaxKind.JsxElement,
+      ts.SyntaxKind.JsxSelfClosingElement,
+      ts.SyntaxKind.JsxFragment,
+    ]);
+    PARSER = (text) => ({
+      file: ts.createSourceFile("page.tsx", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
+      k: (n) => ts.SyntaxKind[n.kind],
+      isJsx: (n) => J.has(n.kind),
+      openOf: (n) => (n.kind === ts.SyntaxKind.JsxSelfClosingElement ? n : n.openingElement),
+      tagOf: (n) => {
+        const o = n.kind === ts.SyntaxKind.JsxSelfClosingElement ? n : n.openingElement;
+        return o?.tagName?.getText?.() ?? "#fragment";
+      },
+      attrsOf: (open) => open?.attributes?.properties ?? [],
+      childrenOf: (n) => n.children ?? [],
+      isSpread: (a) => a.kind === ts.SyntaxKind.JsxSpreadAttribute,
+      // A QUOTED value answers null: it is a choice, not a computation.
+      exprOf: (n) =>
+        n?.kind === ts.SyntaxKind.JsxExpression
+          ? n.expression ?? null
+          : n?.initializer?.kind === ts.SyntaxKind.JsxExpression
+            ? n.initializer.expression ?? null
+            : null,
+    });
+  } catch {
+    // No parser in this runtime. Named by its consumer, never swallowed.
+  }
+  return PARSER;
 }

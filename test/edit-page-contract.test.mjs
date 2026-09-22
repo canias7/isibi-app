@@ -69,7 +69,15 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { TWEAK_TOOL, sameProse, partEligible, computeOf, readTweak, runTweak } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, sameProse, partEligible, computeShape, tweakParser, readTweak, runTweak } from "../builder/site-tweak.mjs";
+
+// ⚠ THE PARSER IS LOADED ONCE AND PROVED ALIVE, because every eligibility case
+// below is VACUOUS without it: with no parser `partEligible` refuses a
+// component-bearing page unconditionally, so the four bypass cases would pass
+// for the wrong reason and the four controls would fail loudly enough to be
+// noticed — which is the safe half. This file asserts the half that is not
+// self-announcing: that a real syntax tree is what the refusals are read off.
+const PARSE = await tweakParser();
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { localParts, PART_DIR } from "../builder/site-files.mjs";
 
@@ -181,6 +189,38 @@ const HOME_REASSIGN = (() => {
     "the reassignment fixture moved the prop, which is the inline case");
   assert.ok(s.includes("bookingCount = 6 - Number(bookingCount ?? 0);"),
     "the reassignment fixture reassigns nothing");
+  return s;
+})();
+
+/**
+ * AND THE SAME DEFECT SPELLED AS OPERAND ORDER — reported through the real edit
+ * route against the TOKEN MULTISET, which is why that instrument is gone.
+ *
+ * `Number(bookingCount ?? 0)` and `Number(0 ?? bookingCount)` carry the SAME
+ * BAG OF TOKENS. Only their ORDER differs, and order is the whole of what `??`
+ * means: the second always answers zero, so a fully booked day reads "No
+ * bookings on this day yet — it still has space."
+ *
+ * ⚠ A BAG CANNOT EXPRESS POSITION, so no refinement of an unordered comparison
+ * could have caught this — which is why the multiset was DELETED rather than
+ * given a rule for `??`. The same argument covers `f(x,y)` against `f(y,x)`,
+ * `a?b:c` against `a?c:b`, and `a-b` against `b-a`; all four are ONE answer
+ * now, from a real syntax tree, and only this one needed a fixture.
+ */
+const HOME_OPERAND = (() => {
+  const s = once(
+    HOME_BEFORE,
+    "bookingCount={Number(bookingCount ?? 0)}",
+    "bookingCount={Number(0 ?? bookingCount)}",
+    "the prop run 17's page passes the component",
+  );
+  // THE TOKEN MULTISET IS EQUAL, ASSERTED RATHER THAN ARGUED — this is the
+  // property that made the old instrument blind, and a fixture whose bags
+  // differed would be testing something else entirely.
+  const bag = (t) => (t.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w$]/g) ?? []).sort().join("\u0000");
+  assert.equal(bag(s), bag(HOME_BEFORE),
+    "the operand fixture moved a token, so it is not the reported case");
+  assert.notEqual(s, HOME_BEFORE, "the operand fixture changed nothing at all");
   return s;
 })();
 
@@ -355,7 +395,7 @@ test("the promise was KEPT and the change was still incomplete — both readings
   assert.equal(sameProse(HOME_BEFORE, HOME_TWEAKED), true,
     "the real diff moved the page's words, so this is not run 17's shape");
 
-  const c = partEligible(HOME_BEFORE, HOME_TWEAKED, { inPart: false });
+  const c = partEligible(HOME_BEFORE, HOME_TWEAKED, { inPart: false, parse: PARSE });
   assert.equal(c.ok, false, "the arithmetic-only tweak still qualified as completion");
   assert.ok(c.parts.includes("day-space-lookup"),
     "the refusal does not name the component whose file this rung cannot open: " + JSON.stringify(c));
@@ -419,19 +459,24 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
     ['<Band tone="light" />', '<Band tone="dark" />', "a literal prop swapped"],
     ['<p>a</p><Band />', '<Band /><p>a</p>', "two elements reordered"],
   ]) {
-    assert.equal(partEligible(page(D, a), page(D, b), { inPart: false }).ok, true,
+    assert.equal(partEligible(page(D, a), page(D, b), { inPart: false, parse: PARSE }).ok, true,
       "a visual tweak was refused: " + what);
   }
 
-  // ⚠ THE COST, ASSERTED RATHER THAN HIDDEN. The instrument cannot tell a JSX
-  // tag from an identifier — that distinction is the parser this check exists
-  // to avoid — so ADDING markup to a component-bearing page moves the token
-  // multiset and escalates. It is one extra credit and a correct result, on a
-  // page that renders a file this rung cannot open; a case asserting it is
-  // worth more than a comment claiming it, because the day somebody narrows
-  // the instrument this is the line that says what changed.
-  assert.equal(partEligible(page(D, "<Band />"), page(D, "<section><Band /></section>"), { inPart: false }).ok,
-    false, "adding markup no longer escalates — the stated cost has moved, which is a decision, not a fix");
+  // ⚠ THE STATED COST MOVED WITH THE PARSER, AND THAT IS AN IMPROVEMENT
+  // RECORDED RATHER THAN A SILENT ONE. Under the token multiset this check
+  // replaces, ADDING markup escalated: a bag of tokens cannot tell a JSX tag
+  // from an identifier, so a new `<section>` read as new computation. A real
+  // syntax tree can, so wrapping and adding plain markup are now cheap. The
+  // assertion is kept pointing the other way so the day somebody narrows the
+  // instrument, this line says what changed.
+  for (const [a, b, what] of [
+    ["<Band />", "<section><Band /></section>", "wrapping in a section"],
+    ["<Band />", "<p>Pick a day.</p><Band />", "adding plain markup"],
+  ]) {
+    assert.equal(partEligible(page(D, a), page(D, b), { inPart: false, parse: PARSE }).ok, true,
+      "markup-only change escalated: " + what);
+  }
 
   // COMPUTATION DOES NOT — wherever in the file it is written.
   for (const [ad, ae, bd, be, what] of [
@@ -440,10 +485,43 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
     [D, "<Band count={n} />", "let n = rows.length; n = 6 - n;", "<Band count={n} />", "in a later assignment"],
     [D, "<Band />", D, "<Band count={n} />", "as a new computed prop"],
   ]) {
-    const r = partEligible(page(ad, ae), page(bd, be), { inPart: false });
+    const r = partEligible(page(ad, ae), page(bd, be), { inPart: false, parse: PARSE });
     assert.equal(r.ok, false, "a computation change was accepted: " + what);
     assert.deepEqual(r.parts, ["band"], "the refusal did not name the component it cannot open");
   }
+
+  // ⚠ AND ORDER IS THE HALF A BAG OF TOKENS CANNOT HOLD — the fourth reported
+  // bypass and the reason the token multiset is gone. Each pair below carries
+  // an IDENTICAL multiset and means something different, which is asserted
+  // here rather than argued: a check that passed these would be reading the
+  // same bag twice. None of them has a rule of its own — a syntax tree reads
+  // operand POSITION, so all four are one answer.
+  //
+  // ⚠ THE SECOND-OPERAND CASES ARE ALSO THIS CHECK'S OWN REGRESSION GUARD.
+  // The prototype walked children with `forEachChild((c) => kids.push(...))`,
+  // and `forEachChild` STOPS on a truthy return while `push` answers the new
+  // length — so the walk halted after every node's FIRST child and all four
+  // bypasses read as eligible against a comparison that had simply not looked.
+  // A difference that lives in the second operand is what fails loudly there.
+  const bag = (t) => (t.match(/[A-Za-z_$][\w$]*|\d+|[^\s\w$]/g) ?? []).sort().join("\u0000");
+  for (const [a, b, what] of [
+    ["{Number(n ?? 0)}", "{Number(0 ?? n)}", "?? operands swapped — the reported case"],
+    ["{pick(a, b)}", "{pick(b, a)}", "two arguments swapped"],
+    ["{ok ? a : b}", "{ok ? b : a}", "a ternary's branches flipped"],
+    ["{n - 6}", "{6 - n}", "a subtraction reversed"],
+  ]) {
+    const A = page(D, "<Band count=" + a + " />"), B = page(D, "<Band count=" + b + " />");
+    assert.equal(bag(A), bag(B), "the fixture is not an order-only change: " + what);
+    assert.equal(partEligible(A, B, { inPart: false, parse: PARSE }).ok, false,
+      "an order-only computation change was accepted: " + what);
+  }
+
+  // AND THE SAME VALUE MOVED BETWEEN TWO COMPONENTS IS A CHANGE, which is why
+  // the embedded half is keyed by tag and attribute rather than pooled: the
+  // bag of expressions is equal and each component now receives the other's.
+  const two = (x, y) => page(D, `<Band count={${x}} /><Band total={${y}} />`);
+  assert.equal(partEligible(two("n", "6"), two("6", "n"), { inPart: false, parse: PARSE }).ok, false,
+    "two components swapping the values they receive was accepted");
 
   // ⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COMPUTATION — the red
   // check found this, not the design: reading the file fully masked dropped
@@ -452,16 +530,18 @@ test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rul
   // identifier-shaped string is correctly not words a visitor reads.
   const rpc = (fn) => "import Band from \"@/routes/-parts/band\"\n"
     + `function H(){const n = useRpc("${fn}"); return <div><Band count={n} /></div>}\n`;
-  assert.equal(partEligible(rpc("bookings_on_day"), rpc("bookings_two"), { inPart: false }).ok, false,
+  assert.equal(partEligible(rpc("bookings_on_day"), rpc("bookings_two"), { inPart: false, parse: PARSE }).ok, false,
     "a page calling a different database function was accepted");
   // …while the attribute whose value is quoted is still dropped whole, which
   // is what keeps the visual tweak above cheap. Both halves, one instrument.
-  assert.equal(computeOf('<h1 className="a">x</h1>'), computeOf('<h1 className="bbbb">x</h1>'));
+  const shape = (t) => { const x = computeShape(t, PARSE); return x.outside + "\u0001" + x.embedded; };
+  assert.equal(shape('<h1 className="a">x</h1>'), shape('<h1 className="bbbb">x</h1>'));
 
-  // AND THE INSTRUMENT IS THE MULTISET, so a pure reorder of computation is
-  // still a change to none of it — `sameProse`'s own rule, one step over.
-  assert.equal(computeOf(page(D, "<p>a</p><Band />")), computeOf(page(D, "<Band /><p>a</p>")));
-  assert.notEqual(computeOf(page(D, "<Band count={n} />")), computeOf(page(D, "<Band count={6 - n} />")));
+  // AND THE EMBEDDED HALF IS A MULTISET, so reordering elements is a change to
+  // none of it — `sameProse`'s own rule, one step over — while the OUTSIDE half
+  // is ORDERED, which is what the multiset could not be and why it fell.
+  assert.equal(shape(page(D, "<p>a</p><Band />")), shape(page(D, "<Band /><p>a</p>")));
+  assert.notEqual(shape(page(D, "<Band count={n} />")), shape(page(D, "<Band count={6 - n} />")));
 });
 
 test("a page that renders none of the site's own components is not asked at all", () => {
@@ -471,11 +551,72 @@ test("a page that renders none of the site's own components is not asked at all"
   const plain = (n) => "export const Route = createFileRoute('/')({ component: H })\n"
     + `function H(){const n = ${n}; return <p>{n}</p>}\n`;
   assert.deepEqual(localParts(plain(1), false), [], "the fixture renders a local component after all");
-  assert.equal(partEligible(plain(1), plain("6 - rows.length"), { inPart: false }).ok, true,
+  assert.equal(partEligible(plain(1), plain("6 - rows.length"), { inPart: false, parse: PARSE }).ok, true,
     "a page with no local components was refused for changing its own logic");
   // And the two readings really do differ — without this the case above passes
   // for the wrong reason.
-  assert.notEqual(computeOf(plain(1)), computeOf(plain("6 - rows.length")));
+  const sh = (t) => computeShape(t, PARSE).outside;
+  assert.notEqual(sh(plain(1)), sh(plain("6 - rows.length")));
+});
+
+test("NO PARSER IS CANNOT-TELL, and it fails closed on a component page alone", () => {
+  // ⚠ THE PARSER IS THE CANNOT-TELL, and the two runtimes really differ.
+  // `typescript` is a devDependency: the CONTAINER resolves it from the
+  // template's own node_modules, and the Worker is bundled from `npm ci
+  // --omit=dev`, so `tweakParser()` answers `null` there. That is not a
+  // hypothetical — it is the ordinary state of one of the two places this
+  // module runs, which is why it is driven rather than reasoned about.
+  const page = (v) => "import Band from \"@/routes/-parts/band\"\n"
+    + `export default function H(){const n=${v}; return <Band count={n} />}`;
+  const plain = (v) => `export default function H(){const n=${v}; return <p>{n}</p>}`;
+
+  // On a page that renders one of the site's own components: NOT eligible, and
+  // the refusal NAMES why rather than wearing another reason's name.
+  const shut = partEligible(page("1"), page("1"), { inPart: false, parse: null });
+  assert.equal(shut.ok, false, "with no parser a component-bearing page stayed eligible");
+  assert.equal(shut.why, "no-parser", "the refusal did not name the missing parser");
+  assert.deepEqual(shut.parts, ["band"]);
+  // ⚠ AND THE INPUTS ARE IDENTICAL, which is the whole point: it refuses
+  // because it CANNOT LOOK, never because it looked and saw a difference.
+
+  // On a page with no local components the question is never asked, so a
+  // runtime with no parser behaves byte for byte as it always did.
+  assert.equal(partEligible(plain("1"), plain("6 - rows.length"), { inPart: false, parse: null }).ok, true,
+    "a page with no local components was refused for want of a parser");
+
+  // AND A SOURCE THE PARSER CHOKES ON IS ITS OWN REASON, not the missing-parser
+  // one — two facts, two names, because only one of them is about the runtime.
+  const boom = partEligible(page("1"), page("1"), {
+    inPart: false,
+    parse: () => { throw new Error("no"); },
+  });
+  assert.equal(boom.ok, false);
+  assert.equal(boom.why, "unparsed", "an unparsable source reported the runtime as the cause");
+});
+
+test("`parse` really travels from runTweak into readTweak", async () => {
+  // THE SECOND WIRING HOP, DRIVEN — `runTweak` loads the parser and hands it
+  // down, and a cut there leaves `partEligible` looking at `undefined` on
+  // every real call while every module case goes on passing. This repository's
+  // most repeated defect, in the hop this round added.
+  const before = "import Band from \"@/routes/-parts/band\"\n"
+    + "export default function H(){const n=rows.length; return <Band count={n} />}";
+  // THE ORDER-ONLY SHAPE, deliberately: a reply that differs only in operand
+  // position is invisible to anything but a real tree, so this case cannot
+  // pass by accident on a comparison that never ran.
+  const after = before.replace("count={n}", "count={0 ?? n}");
+  const reply = async () => ({ content: [{ type: "tool_use", input: { source: after } }], usage: {} });
+  const r = await runTweak({ instruction: "x", path: "index.tsx", source: before, send: reply, inPart: false });
+  assert.equal(r.ok, false, "parse never reached readTweak: an order-only change was accepted");
+  assert.equal(r.reason, "needs-parts");
+  assert.deepEqual(r.parts, ["band"]);
+  // AND THE CONTROL: the same route, a change to the markup alone, still cheap.
+  const visual = before.replace("<Band count={n} />", "<section><Band count={n} /></section>");
+  const ok = await runTweak({
+    instruction: "x", path: "index.tsx", source: before, inPart: false,
+    send: async () => ({ content: [{ type: "tool_use", input: { source: visual } }], usage: {} }),
+  });
+  assert.equal(ok.ok, true, "an ordinary visual tweak was refused through the same hop: " + ok.reason);
 });
 
 test("cannot-tell fails CLOSED here, which is the opposite of the old check", () => {
@@ -488,7 +629,7 @@ test("cannot-tell fails CLOSED here, which is the opposite of the old check", ()
   const ns = (v) => "import * as N from \"@/routes/-parts/band\"\n"
     + `export default function H(){const n=${v}; return <N.Band count={n} />}`;
   assert.deepEqual(localParts(ns("1"), false).map((p) => p.name), ["band"]);
-  assert.equal(partEligible(ns("1"), ns("6 - 1"), { inPart: false }).ok, false,
+  assert.equal(partEligible(ns("1"), ns("6 - 1"), { inPart: false, parse: PARSE }).ok, false,
     "an unreadable clause let a computation change through");
 });
 
@@ -562,6 +703,8 @@ async function doesNotPublish(slug, tweakSource) {
         "the publish carried the arithmetic-only change");
       assert.ok(!sentHome.includes("rawBookingCount"),
         "the publish carried the upstream binding the tweak invented");
+      assert.ok(!sentHome.includes("Number(0 ?? bookingCount)"),
+        "the publish carried the operand-order change, which always answers zero");
       assert.ok(sentHome.includes("bookingCount={Number(bookingCount ?? 0)}"),
         "the count stopped being the booking count");
       assert.ok(sentPart.includes("placesLeft"), "the compiled component is not the corrected one");
@@ -600,6 +743,14 @@ test("THE UPSTREAM CALCULATION does not publish either — through the route, sa
   // It moves the six-minus into a page-local binding and leaves the prop
   // byte-identical, which is the spelling a check on call-site text cannot see.
   await doesNotPublish("contract-repro-upstream", HOME_UPSTREAM);
+});
+
+test("THE OPERAND ORDER does not publish either — through the route, same sources", async () => {
+  // THE FOURTH REPORTED SPELLING, and the one that killed the token multiset:
+  // `Number(0 ?? bookingCount)` carries the identical BAG of tokens and always
+  // answers zero. No exception for `??` was added — a real syntax tree reads
+  // operand POSITION, so this is the same answer the other three get.
+  await doesNotPublish("contract-repro-operand", HOME_OPERAND);
 });
 
 test("AN ORDINARY VISUAL TWEAK STILL TAKES THE CHEAP PATH — the positive control", async () => {

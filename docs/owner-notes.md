@@ -155,6 +155,92 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-22 — You broke it a fourth time, and this time the whole approach was wrong
+
+You sent `Number(0 ?? bookingCount)`. Same bag of tokens as
+`Number(bookingCount ?? 0)`, and it always answers zero, so a fully booked day
+goes back to advertising space. It went straight through: `ok:true`,
+`tweak:true`, no full writer, wrong page stored.
+
+**You were right that this is not another exception to add.** I had built three
+readers in three days and you beat all three:
+
+1. compare the prop's text → you moved the sum one line up;
+2. compare the prop plus its declarations → you reassigned it afterwards;
+3. compare the file's tokens as a bag → you swapped the operands.
+
+The third one is the one that settles it. **A bag of tokens cannot see order,
+and order is what the code MEANS.** `a ?? 0` and `0 ?? a` are the same tokens
+and different programs. So are `f(x,y)` and `f(y,x)`, and `a ? b : c` and
+`a ? c : b`, and `a - b` and `b - a`. There is no version of an unordered
+comparison that can tell any of those apart, so I deleted it rather than
+teaching it about `??`.
+
+### What it does instead
+
+**It uses the TypeScript parser** — the same one the compile step already runs
+over these files — as you said to. No more homemade scanner. It builds the real
+syntax tree and reads two things off it:
+
+- everything that is **not** markup, **in order**;
+- every expression **inside** the markup, keyed to the tag and the attribute it
+  feeds (unordered, so moving a band around stays free).
+
+A page renders one of your own components → the cheap rung may change **what the
+page shows** (nesting, order, wrappers, spacing, `className="text-xl"` →
+`"text-3xl"`) and may **not** change **what the page computes**. That's the
+whole rule, and it comes from what the rung *is*: it holds one file and answers
+one file, so it can never finish a change that also needs the other half.
+
+All four of your spellings are now **one answer** rather than four cases. And
+two shapes neither of us listed — a flipped ternary, a swapped argument list —
+are caught by the same code with nothing written about them.
+
+**Ordinary tweaks got CHEAPER, not just safer.** Under the old bag, adding a
+`<section>` wrapper escalated, because a bag can't tell a JSX tag from an
+identifier. A real parser can. Wrapping and adding plain markup are cheap now.
+
+### The bug I nearly shipped inside the fix
+
+The first working version said all four of your bypasses were fine. Not because
+the idea was wrong — because of one line. `forEachChild` **stops walking** if
+the callback returns something truthy, and `array.push()` returns the new
+length. So it looked at exactly one child of every node and then stopped. The
+comparison was correct and had simply not looked. Found it, fixed it, and the
+test now drives a change that lives in the *second* operand so it can't come
+back.
+
+Then the red check flagged a second, identical-looking line as unguarded. It
+isn't — I measured both versions over your real 26 KB page and seven other
+shapes: identical all eight times, while the genuinely dangerous one differs all
+eight times. Two lines spelled the same, one load-bearing and one not; that's
+written into the code now so nobody "tidies" the wrong one.
+
+### Honest limits
+
+- **This proves the route, not the writing.** The tests feed a supplied answer,
+  so what's established is that a request like yours **doesn't get published by
+  the rung that can't finish it** and **does reach the writer that can open both
+  files**. Whether a real model then writes the component correctly is a
+  different question and a paid run.
+- **On the Worker there is no parser.** `typescript` is a dev dependency; the
+  container has it, the deployed Worker bundle doesn't. With no parser it
+  **refuses** on a component page rather than guessing — costs a rewrite, never
+  a wrong publish.
+- **None of the four fixes is deployed.** The branch is a long way ahead of
+  main. A live press today runs the code all four bypasses were found against.
+- **⚠ And the preflight pair I left armed for the `chord-diagram` test is
+  stale** — I wrote that main was unmoved and it isn't. Take both numbers live
+  off `/api/site/build-health` immediately before pressing; the old ones just
+  refuse.
+
+Focused tests only, as you asked. 18 cases on the contract file, 64 across the
+five edit-path files, suite **7,137** locally (up 3, the three new cases). Red
+check: **8 killed, control survived, 1 measured inert**. No sweep campaign, no
+merge, no deploy, no paid retry, nothing touched on the live site.
+
+---
+
 ## 2026-09-21 — You were right on both counts: run 14 tested the wrong request, and then couldn't read its own answer
 
 **I have to withdraw most of yesterday's run-14 write-up.** Both things you
