@@ -286,6 +286,33 @@ export const AGENT_TOOLS = Object.freeze([
       + "one, cannot delete one and is never shown the signing secret. You are asked before "
       + "it happens.",
   }),
+  // ── what it may hand to this account's OTHER agents ───────────────────────
+  //
+  // ⚠ **THE WORDS HERE SAY WHAT IT CANNOT GIVE AWAY, because that is the whole of what
+  // somebody deciding needs.** Handing work to another agent sounds like handing over
+  // authority and is the opposite: a specialist can only ever use tools IT already has, and
+  // is told only what this one names. Both walls are the engine's, and both are the reason a
+  // person can allow this without allowing anything new.
+  //
+  // **AND NEITHER OF THESE ASKS YOU BEFORE IT HAPPENS, which is stated rather than left to
+  // be noticed.** A specialist is an ordinary agent run, so a tool that asks you when this
+  // agent calls it asks you when a specialist calls it too — the question travels with the
+  // TOOL rather than with who is calling. Asking again for the handing-over itself would put
+  // you in front of every piece of work while moving no wall at all.
+  Object.freeze({
+    name: "list_specialists",
+    label: "See which other agents can help",
+    does: "Lists this account's other agents — what each is called, what it is for, which "
+      + "tools it has and whether it is taking work. Never itself, and it changes nothing.",
+  }),
+  Object.freeze({
+    name: "delegate",
+    label: "Hand pieces of a task to other agents",
+    does: "Splits the work up and asks this account's other agents to do the pieces at the "
+      + "same time, then waits for their answers. It cannot give any of them a tool it does "
+      + "not already have, and it cannot pass on anything from this conversation unless it "
+      + "names it. Anything one of them does that would normally ask you still asks you.",
+  }),
 ]);
 
 /** The catalog's names, DERIVED, so nothing holds a second copy of the list. */
