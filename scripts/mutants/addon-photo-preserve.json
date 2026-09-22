@@ -1,0 +1,316 @@
+[
+  {
+    "label": "CONTROL: a comment in site-images changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": " * REPLACEMENT IS REMOVAL HERE, deliberately:",
+    "to": " * REPLACEMENT IS REMOVAL HERE (comment-only control), deliberately:"
+  },
+  {
+    "label": "CONTROL: a comment in worker.js changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN ─────────",
+    "to": "            // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN (control) ──"
+  },
+  {
+    "label": "the wall never fires — the reported defect",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aKeptPics.ok) {",
+    "to": "            if (false && !aKeptPics.ok) {"
+  },
+  {
+    "label": "a refused change publishes anyway",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                ok: false, error: \"lost-photos\", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),",
+    "to": "                ok: true, error: \"lost-photos\", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),"
+  },
+  {
+    "label": "a refused change is charged",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                msg: lostPhotosMsg(aKeptPics.lost),\n              }, { status: 422 });",
+    "to": "                msg: lostPhotosMsg(aKeptPics.lost),\n              }, { status: 200 });"
+  },
+  {
+    "label": "the wall reads the pages and not the components",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aSrc, aPartsRead.parts),\n              imageSources(aMerge.pages, aParts || aPartsRead.parts),\n              ownerSlug,",
+    "to": "              aSrc,\n              aMerge.pages,\n              ownerSlug,"
+  },
+  {
+    "label": "the wall compares the change against itself",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              imageSources(aSrc, aPartsRead.parts),\n              imageSources(aMerge.pages, aParts || aPartsRead.parts),\n              ownerSlug,\n            );",
+    "to": "              imageSources(aMerge.pages, aParts || aPartsRead.parts),\n              imageSources(aMerge.pages, aParts || aPartsRead.parts),\n              ownerSlug,\n            );"
+  },
+  {
+    "label": "the paid call goes back to the bare list, with no inventory",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                images: {\n                  buy: aShots.length ? aShots : null,",
+    "to": "                images: aShots.length ? aShots : {\n                  buy: null,"
+  },
+  {
+    "label": "the page call stops saying what the site already shows",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),",
+    "to": "                  shown: undefined,"
+  },
+  {
+    "label": "the omission's count is dropped from the reply",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  unaffordable: Math.max(0, aFold.photos.length - aShots.length),",
+    "to": "                  unaffordable: 0,"
+  },
+  {
+    "label": "the reply stops telling imageNote what really survived",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  frames: aSlots,",
+    "to": "                  frames: undefined,"
+  },
+  {
+    "label": "keptImages answers ok whatever it is handed",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const lost = [...had].filter((u) => !now.has(u));",
+    "to": "  const lost = [];"
+  },
+  {
+    "label": "keptImages stops looking once the before is read",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (!had.size) return { ok: true, lost: [] };",
+    "to": "  return { ok: true, lost: [] };"
+  },
+  {
+    "label": "an unreadable after is read as everything surviving",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  for (const p of Array.isArray(after) ? after : []) {",
+    "to": "  for (const p of Array.isArray(after) ? after : Array.from(had, (u) => ({ source: '\"' + u + '\"' }))) {"
+  },
+  {
+    "label": "photoUrls takes in every /u/ url, whosever it is",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1]);",
+    "to": "    out.add(m[1]);"
+  },
+  {
+    "label": "photoUrls folds the R2 key's case, so a re-cased url reads as the same picture",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1]);",
+    "to": "    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1].toLowerCase());"
+  },
+  {
+    "label": "photoUrls throws on a source that is not a string",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (typeof source !== \"string\" || !slug) return out;\n  const mark = sitePhotoUrl(slug);\n  for (const m of source.matchAll(",
+    "to": "  if (!slug) return out;\n  const mark = sitePhotoUrl(slug);\n  for (const m of String(source).matchAll("
+  },
+  {
+    "label": "the paid tail invites the strip again — the reported defect",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      \"Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with an EMPTY \" +\n      \"src, which renders this theme's own placeholder.\" + keepClause(n.shown);",
+    "to": "      \"Do NOT invent an extra token: any other picture stays a <SafeImage> with no src, which renders this \" +\n      \"theme's own placeholder — that is the intended look for the rest of the site.\";"
+  },
+  {
+    "label": "the paid form stops saying what the site already shows",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      \"src, which renders this theme's own placeholder.\" + keepClause(n.shown);",
+    "to": "      \"src, which renders this theme's own placeholder.\";"
+  },
+  {
+    "label": "the paid form asks for a missing src rather than an empty one",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      \"Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with an EMPTY \" +\n      \"src, which renders this theme's own placeholder.\"",
+    "to": "      \"Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with no \" +\n      \"src, which renders this theme's own placeholder.\""
+  },
+  {
+    "label": "keepClause invents a sentence about an inventory nobody read",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (!s) return \"\";\n  const has = s.known",
+    "to": "  if (!s) return \" Leave every picture already on this site exactly as it is.\";\n  const has = s.known"
+  },
+  {
+    "label": "the site's own photographs are counted and not protected",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      \", and they stay exactly as they are — do not replace one, and do not remove it.\";",
+    "to": "      \".\";"
+  },
+  {
+    "label": "the zero form reads an absent inventory as a site with none",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    lines.push(keepClause(n.shown || { known: false }).trim());",
+    "to": "    lines.push(keepClause(n.shown || { known: true, count: 0 }).trim());"
+  },
+  {
+    "label": "the bare-array door stops composing the list form at all",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (Array.isArray(n)) return imageDirective({ buy: n });",
+    "to": "  if (Array.isArray(n)) return imageDirective(n.length);"
+  },
+  {
+    "label": "an unusable list throws the inventory away",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (!shots.length) return imageDirective(n.shown ? { ...n, buy: null } : 0);",
+    "to": "    if (!shots.length) return imageDirective(0);"
+  },
+  {
+    "label": "the omission is never counted",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const unaffordable = Math.max(0, Number(i.unaffordable) || 0);",
+    "to": "  const unaffordable = 0;"
+  },
+  {
+    "label": "the omission is inferred from planned minus budget, double-counting the overflow",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  const unaffordable = Math.max(0, Number(i.unaffordable) || 0);",
+    "to": "  const unaffordable = Math.max(0, planned - budget);"
+  },
+  {
+    "label": "the clause never reaches the sentence about the picture that WAS made",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      (over ? \"; the other \" + over + \" \" + (over === 1 ? \"picture is a placeholder\" : \"pictures are placeholders\") + \".\" : \".\") +\n      short;",
+    "to": "      (over ? \"; the other \" + over + \" \" + (over === 1 ? \"picture is a placeholder\" : \"pictures are placeholders\") + \".\" : \".\");"
+  },
+  {
+    "label": "the clause never reaches the provider-failure sentence",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  return \"Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.\" + short;",
+    "to": "  return \"Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.\";"
+  },
+  {
+    "label": "the omitted picture is called a placeholder",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "      (one ? \"it isn't\" : \"they aren't\") + \" on the site — top up and ask for \" + (one ? \"it\" : \"them\") +",
+    "to": "      (one ? \"it is\" : \"they are\") + \" a placeholder — top up and ask for \" + (one ? \"it\" : \"them\") +"
+  },
+  {
+    "label": "the reason for the omission is dropped",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    ? \" There weren't enough credits for the other \" + (one ? \"one\" : unaffordable) + \", so \" +",
+    "to": "    ? \" The other \" + (one ? \"one\" : unaffordable) + \" isn't there, so \" +"
+  },
+  {
+    "label": "the clause reads its plural off the pictures rather than the credits",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    ? \" There weren't enough credits for the other \"",
+    "to": "    ? \" There \" + (one ? \"wasn't\" : \"weren't\") + \" enough credits for the other \""
+  },
+  {
+    "label": "a request cut to nothing goes silent",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (!planned && !made && !unaffordable) return \"\";",
+    "to": "  if (!planned && !made) return \"\";"
+  },
+  {
+    "label": "the placeholder is promised whether or not a frame survived",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (Number(i.frames) === 0) {",
+    "to": "    if (false) {"
+  },
+  {
+    "label": "the frame test is inverted",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (Number(i.frames) === 0) {",
+    "to": "    if (Number(i.frames) !== 0) {"
+  },
+  {
+    "label": "a caller that said nothing is read as having said zero",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "    if (Number(i.frames) === 0) {",
+    "to": "    if (!Number(i.frames)) {"
+  },
+  {
+    "label": "the refusal stops saying nothing was charged",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    \"Nothing was published and nothing was charged — ask again and I'll add the new part and leave \" +",
+    "to": "    \"Ask again and I'll add the new part and leave \" +"
+  },
+  {
+    "label": "the refusal counts every lost photograph as one",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const what = n === 1 ? \"one of the photographs\" : (n ? n + \" of the photographs\" : \"photographs\");",
+    "to": "  const what = \"one of the photographs\";"
+  },
+  {
+    "label": "a request that was planned and produced nothing goes silent",
+    "files": [
+      "builder/site-images.mjs"
+    ],
+    "from": "  if (!planned && !made && !unaffordable) return \"\";",
+    "to": "  if (!made && !unaffordable) return \"\";"
+  }
+]

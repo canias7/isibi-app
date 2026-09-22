@@ -4,9 +4,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
+import { CASES, chooseCases, sitePathOf, watchJob, blindBackend, crashedRoutes, stopsRun, casesFor, askCase, shipped, askVerdict, ignoredNote, askLines, photoLines, customerLines, browserReply, httpOkOf, BROWSER_FNS, inventoryOf, inventoryDiff, inventoryLines, inventoryRefusals, IMAGE_READING, qrOpens, qrPublished, codeRefusals, expectedCode } from "../scripts/addon-sweep.mjs";
+import { qrSvg } from "../builder/site-qr.mjs";
 import { healthImage } from "../builder/build-lane.mjs";
-import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
+import { ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, addLayer, MAX_MESSAGE, shownSchema } from "../builder/site-add.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 // The served page's bands, one copy shared with test/copy-design.test.mjs.
@@ -240,10 +241,20 @@ test("the refusal cases are driven to refusals the route really emits, and the h
     assert.ok(EDIT_LAYERS.includes(c.hop), c.name + ": hops to a layer the edit route does not have");
     assert.equal(addLayer(c.name), c.hop, c.name + ": the harness expects a different layer from the step's own");
   }
-  // The dispatched kinds are exactly the hop cases, both ways.
-  assert.deepEqual(CASES.filter((x) => x.hop).map((x) => x.name).sort(), [...DISPATCHED_ADDS].sort());
-  // And the refusal cases are own kinds the sweep's site cannot take.
-  for (const c of CASES.filter((x) => Array.isArray(x.mayRefuse))) assert.ok(OWN_ADDS.includes(c.name));
+  // ── RE-ANCHORED 2026-09-17: THE HOP CASES ARE THE KINDS THAT HOP ALONE ───
+  //
+  // Each harness case posts ONE ask, so what it exercises is a kind on its own
+  // — and `PLACING_ADDS` joined `DISPATCHED_ADDS` in that answer: a photograph
+  // by itself is still the picture rung's, and one beside a page or a component
+  // is designed here because this step makes the slot. `addLayer` above is the
+  // right reader for exactly that reason (it answers what the KIND is), and
+  // `DISPATCHED_ADDS` alone is empty today, so pinning to it would have made
+  // this a comparison of two empty lists.
+  assert.deepEqual(CASES.filter((x) => x.hop).map((x) => x.name).sort(), [...DISPATCHED_ADDS, ...PLACING_ADDS].sort());
+  assert.ok(CASES.some((x) => x.hop), "no case hops any more — this block asserts nothing");
+  // And the refusal cases are kinds this step designs, which the sweep's site
+  // cannot take.
+  for (const c of CASES.filter((x) => Array.isArray(x.mayRefuse))) assert.ok(OWN_ADDS.includes(c.name) || PLACING_ADDS.includes(c.name));
 });
 
 test("the harness posts to the addon route, follows one hop to the edit route, and never touches the build route", () => {
@@ -516,24 +527,62 @@ test("the free-text verdict reports every outcome, and fails only the hollow one
   const after = (build, len = 100) => ({ build, text: "x".repeat(len), routes: ["/"] });
   // A PUBLISH THAT MADE SOMETHING: reported, and the note carries the database,
   // the pages and the coverage.
+  // RE-ANCHORED, NOT APPEASED (2026-09-18): `tables` was `[{ name: … }]` here
+  // and the route sends NAMES — `mergeAddonSchema` does `added.push(copy.name)`,
+  // driven. It passed because the harness's `names()` tolerates both shapes, and
+  // it was the BROWSER's composer (`a.tables.join(', ')`) that exposed it, the
+  // moment this report started printing the customer's real screen: the sentence
+  // read "now storing [object Object]". A fixture in a shape the route never
+  // sends, found by a reader that had never looked — *derive a fixture from its
+  // real producer*, met in the guard for a reader of the producer's output.
   const made = c.check(before, after("b2", 400), {
-    ok: true, added: ["src/routes/account.tsx"], changed: [], tables: [{ name: "saved_lessons" }],
+    ok: true, added: ["src/routes/account.tsx"], changed: [], tables: ["saved_lessons"],
     coverage: { total: 3, covered: 2, elsewhere: 1, unsupported: 0, unreadable: 0 },
     requirements: [{ need: "a member sees only their own saved lessons", status: "elsewhere", step: "page" }],
     coverNote: "Still to do: a member sees only their own saved lessons.",
-  }, { askKinds: ["table", "page"] });
+    // RE-ANCHORED AGAIN (2026-09-18): `x` carries the POST's own `status` now,
+    // because the browser's selection reads it before it reads the body, and a
+    // `check` that never receives it can only report NOT COMPOSED. That is the
+    // WIRE, and driving it here is what makes the hop drivable at all — this
+    // file's own recorded "a value computed and never forwarded".
+  }, { askKinds: ["table", "page"], status: 200 });
   assert.equal(made.ok, true);
   assert.match(made.note, /tables \["saved_lessons"\]/);
   assert.match(made.note, /routed to: \["table","page"\]/);
   assert.match(made.note, /coverage 2\/3 covered, 1 handed on, 0 unsupported, 0 unreadable/);
   assert.match(made.note, /STILL OWED: "a member sees only their own saved lessons" \(elsewhere → page\)/);
-  assert.match(made.note, /the customer was told:/);
+  // RE-ANCHORED TWICE, NOT APPEASED. It was `/the customer was told:/`, which
+  // was the property "the coverage sentence reaches the report" only while
+  // `coverNote` was the ONLY sentence printed; then "sentence by sentence",
+  // which was the per-field breakdown. The property now is STRICTLY STRONGER
+  // and is two claims: the customer's real screen — the browser's own
+  // `addonReplyText`, EXECUTED — and the server's sentence carried whole and
+  // NAMED beneath it. Neither substitutes for the other: the first is what a
+  // person sees, the second is which field it came from.
+  //
+  // AND A THIRD TIME (2026-09-18), onto `addonAnswer` — the browser SELECTS
+  // before it composes, and the harness ran the success composer on every
+  // outcome. The status the reader was handed is asserted with it, or a
+  // hardcoded 200 inside `customerLines` satisfies this exactly.
+  assert.match(made.note, /the customer's screen \(the browser's own addonAnswer, executed, HTTP 200\)/);
+  assert.match(made.note, /▸ .*Still to do: a member sees only their own saved lessons\./,
+    "the browser's composition never reaches the report — " + made.note);
+  assert.match(made.note, /▸ .*now storing saved_lessons/,
+    "the customer's own sentence does not name the table this change made");
+  assert.match(made.note, /server sentences carried whole \(1\):/);
+  assert.match(made.note, /· coverNote: "Still to do: a member sees only their own saved lessons\."/);
   assert.match(made.note, /build moved/);
   // AN HONEST REFUSAL IS REPORTED, NOT FAILED — refusing with a reason is the
   // product working, which the canary entry records as a decision.
   const refused = c.check(before, after("b1"), { ok: false, error: "already", msg: "your site already has one" }, {});
   assert.equal(refused.ok, true, "a named refusal is being read as a failure");
   assert.match(refused.note, /refused: already/);
+  // …AND ITS SENTENCE IS THE ONE THE CUSTOMER REALLY GOT. A refusal's whole
+  // reply is `msg`, and until this the report printed `coverNote` or nothing —
+  // so the one outcome whose entire customer-facing text lives in one field was
+  // the outcome that lost it.
+  assert.match(refused.note, /· msg: "your site already has one"/,
+    "a refusal's own sentence never reaches the report");
   // THE ONE FALSIFIABLE CLAUSE: success, and nothing made, changed or said.
   const hollow = c.check(before, after("b1"), { ok: true }, {});
   assert.equal(hollow.ok, false, "a success that did nothing and said nothing is passing");
@@ -681,6 +730,689 @@ test("an ignored case list is a sentence, never a silent drop", () => {
     "main says it inline again, where nothing can drive it");
 });
 
+test("the photograph numbers reach the report on every outcome, and absent is not zero", () => {
+  // *"Add the photo response fields to the harness output, including failure
+  // responses."* (owner, 2026-09-18). MEASURED before this was written:
+  // `pictures`, `pictureNote`, `photos` and `lostPhotos` occurred ZERO times in
+  // the harness, so a run bought to prove a photograph was bought, preserved
+  // and placed came back with no reading of any of it.
+  const bought = photoLines({ ok: true, pictures: 1, photos: 0, pictureNote: "Made 1 photograph for the site." }).join("\n");
+  assert.match(bought, /bought 1;/);
+  assert.match(bought, /empty frames left 0;/);
+  assert.match(bought, /existing ones LOST 0/);
+  assert.match(bought, /the picture sentence: "Made 1 photograph for the site\."/);
+  // ABSENT IS NOT ZERO, AND THE TWO READINGS ARE THE POINT. `photos` rides
+  // every success; `pictures` rides only a change that really bought one — so
+  // "it shipped and bought none" and "the request never reached the purchase"
+  // are different facts, and a bare 0 for either collapses them.
+  const none = photoLines({ ok: true, photos: 2 }).join("\n");
+  assert.match(none, /bought \(not said\);/, "a success that bought none is being reported as a zero purchase");
+  assert.match(none, /empty frames left 2;/);
+  const refused = photoLines({ ok: false, error: "lost-photos", lostPhotos: ["/u/fw/a1.jpg", "/u/fw/b2.jpg"] }).join("\n");
+  assert.match(refused, /bought \(not said\); empty frames left \(not said\);/,
+    "a refusal's absent counts read as zeroes — 'bought none' and 'never got there' are one line");
+  assert.match(refused, /existing ones LOST 2 — \["\/u\/fw\/a1\.jpg","\/u\/fw\/b2\.jpg"\]/,
+    "the photographs a refusal says would have been lost are not named");
+  // AND A REPLY WITH NOTHING IN IT STILL SAYS SO, every field, rather than
+  // printing nothing — a blank line and "no photograph was involved" are two
+  // readings this run cannot afford to collapse.
+  for (const shape of [{}, null, undefined, "nonsense", []]) {
+    const lines = photoLines(shape);
+    assert.equal(lines.length, 2, JSON.stringify(shape) + " prints " + JSON.stringify(lines));
+    assert.match(lines[0], /photographs: bought \(not said\)/);
+    assert.match(lines[1], /the picture sentence: \(none/);
+  }
+  // THE PICTURE SENTENCE IS PRINTED VERBATIM AND NEVER SUMMARISED. It is the
+  // one thing that can tell four identical blank frames apart — bought,
+  // unaffordable, refused by the provider, none asked for — so a word of our
+  // own in its place would be the harness deciding which of the four it was.
+  const sorry = "Couldn’t make the photographs this time, so the pictures are placeholders — the site is otherwise fine.";
+  assert.ok(photoLines({ ok: true, photos: 1, pictureNote: sorry }).join("\n").includes(sorry),
+    "the provider-failure sentence is being reworded rather than quoted");
+});
+
+test("the whole customer reply is reported, not one sentence of it, and the set is discovered from the reply", () => {
+  // *"Capture the complete customer reply as well as pictureNote."* `coverNote`
+  // alone was printed, which is one sentence of several — and a REFUSAL's whole
+  // reply is `msg`, so the one outcome whose entire customer-facing text lives
+  // in a single field was the outcome that lost it.
+  const many = customerLines({
+    ok: true,
+    coverNote: "I've set that up, but I can't confirm from here that …",
+    pictureNote: "Made 1 photograph for the site.",
+    keptPartsNote: "I've left tide-chart as it was.",
+  }).join("\n");
+  assert.match(many, /server sentences carried whole \(3\):/, many);
+  for (const k of ["coverNote", "pictureNote", "keptPartsNote"]) assert.match(many, new RegExp("· " + k + ": \""));
+  const refused = customerLines({ ok: false, error: "qr-dependency", msg: "I haven't put the code up — it opens /gallery, which didn't make it." }).join("\n");
+  assert.match(refused, /· msg: "I haven't put the code up/, refused);
+  // ── THE SCREEN ITSELF, EXECUTED (2026-09-18) ───────────────────────────────
+  //
+  // *"customerLines currently reports 'NOTHING' for a response whose browser
+  // formatter produces the success sentence, placeholder explanation and missing
+  // link warning. Reuse or execute the existing formatter; don't create another
+  // composition."* (owner). The per-field breakdown above is complete for what
+  // the browser prints VERBATIM — the census below proves that rule — and says
+  // nothing about what it COMPOSES, which is most of what a customer reads.
+  const composed = customerLines({
+    ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"],
+    photos: 1, unlinked: ["/gallery"],
+  }, 200).join("\n");
+  assert.match(composed, /the customer's screen \(the browser's own \w+, executed, HTTP 200\)/, composed);
+  assert.match(composed, /▸ ✅ Done — added \/gallery, updated \/\./, "the success sentence is missing — " + composed);
+  assert.match(composed, /upload yours in the Data panel/, "the placeholder explanation is missing — " + composed);
+  assert.match(composed, /Nothing links to \/gallery yet/, "the missing-link warning is missing — " + composed);
+  // …and the reply it was composed from carries NOT ONE of the `*Note` fields,
+  // so this is exactly the shape that used to read "NOTHING". Asserted rather
+  // than assumed, or the case above could be passing on a sentence it quoted.
+  assert.match(composed, /server sentences carried whole: NONE/,
+    "this case no longer isolates the composed half — " + composed);
+  // NOTHING AT ALL IS STILL A SENTENCE, not a blank: a reply the browser
+  // composes to nothing but "✅ Done." carries no server sentence, and saying
+  // which half is empty is the reading.
+  assert.match(customerLines({ ok: true }).join("\n"), /server sentences carried whole: NONE/);
+  assert.match(customerLines().join("\n"), /server sentences carried whole: NONE/);
+  // AN EMPTY STRING IS NOT A SENTENCE EITHER — the route writes `undefined` for
+  // an absent note, and a `""` that slipped through would print as a quoted
+  // nothing and read as the customer having been told something.
+  assert.match(customerLines({ coverNote: "", pictureNote: "   " }).join("\n"), /server sentences carried whole: NONE/);
+  // AND THE COMPOSER IS THE PAGE'S OWN, not a copy: `browserReply` loads
+  // `public/chat.js` and executes `addonReplyText` out of it, so a change to the
+  // browser's wording changes this report with no second edit — which is the
+  // owner's *"don't create another composition"* as a property rather than a
+  // promise. A composer that could not be loaded says so and never guesses.
+  const got = browserReply({ ok: true, added: ["src/routes/gallery.tsx"] }, true);
+  assert.equal(got.ok, true, "the browser's composer did not load: " + got.why);
+  assert.match(got.text, /added \/gallery/);
+  // A FILE PATH IN, A ROUTE OUT — `sitePathOf` is the page's own reader and the
+  // report inherits it by executing the page rather than re-implementing it.
+  assert.ok(!got.text.includes("src/routes/"), "a raw file path reached the customer's screen: " + got.text);
+  // AND THE PAGE'S TAIL IS PART OF THE SCREEN. `renderTail` prints `renderNote`
+  // — what the render check found, which the route puts on every reply that has
+  // one — and it is the half a person reads as "and here is what is wrong with
+  // it". A composer that ran `addonReplyText` alone would look right on every
+  // clean reply and lose exactly the ones worth reading; nothing had a
+  // `renderNote` in it until a sweep mutant dropped the tail and survived.
+  const tailed = browserReply({ ok: true, added: ["src/routes/gallery.tsx"], renderNote: "  /gallery threw on load.  " }, true);
+  assert.match(tailed.text, /\/gallery threw on load\./, "the render note never reaches the screen: " + tailed.text);
+  assert.match(customerLines({ ok: true, added: ["src/routes/gallery.tsx"], renderNote: "/gallery threw on load." }, 200).join("\n"),
+    /▸ \/gallery threw on load\./, "the render note is not a line of the customer's screen");
+  // ── THE CENSUS, BOTH WAYS ──────────────────────────────────────────────────
+  //
+  // The set is DISCOVERED from the reply (`msg`, then every `*Note` carrying a
+  // string) rather than typed here, because a second list of the server's
+  // sentence fields is the recorded two-copies trap and the copy that drifts is
+  // always the reader's. This is what makes the discovery rule sufficient: every
+  // sentence the BROWSER prints verbatim must be a field that rule reaches.
+  const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const at = chat.indexOf("function addonReplyText(a) {");
+  assert.ok(at > 0, "the browser's addon composer moved — this census is reading nothing");
+  const body = chat.slice(at, chat.indexOf("\nfunction ", at + 10));
+  const verbatim = [...body.matchAll(/out \+= . . \+ a\.(\w+);/g)].map((m) => m[1]);
+  assert.ok(verbatim.length >= 3, "the census found " + verbatim.length + " verbatim sentence prints — it is reading the wrong window");
+  for (const f of verbatim) {
+    assert.ok(f === "msg" || /Note$/.test(f),
+      `the browser prints a.${f} verbatim to the customer and the harness's discovery rule (msg + *Note) cannot reach it`);
+    // …and each is really picked up, driven rather than reasoned about.
+    assert.match(customerLines({ [f]: "a sentence" }).join("\n"), new RegExp("· " + f + ": \"a sentence\""));
+  }
+});
+
+test("the browser's own selection decides which screen a reply gets, status included, and no external action runs", () => {
+  // Owner, 2026-09-18: *"browserReply invokes the success formatter on refusals.
+  // For {ok:false, error:"lost-photos", msg:"…"} the harness labels '✅ Done.' as
+  // the customer's screen. The browser's addonAnswer instead displays the warning
+  // plus msg. Respect the browser's actual response selection, including HTTP
+  // status… Drive a refusal and a successful response through the real browser
+  // handling, with no external actions."*
+  //
+  // THE ROUND BEFORE THIS FIXED COMPOSITION AND LEFT SELECTION RE-IMPLEMENTED.
+  // `addonReplyText` is the SUCCESS composer and was run unconditionally, which
+  // is the two-copies trap one layer up from where it was just closed: the
+  // browser SELECTS first (escalate / no body / non-2xx-or-ok:false / applied)
+  // and only the last branch composes.
+
+  // ── 1. THE REPORTED REFUSAL, DRIVEN ────────────────────────────────────────
+  const REF = { ok: false, error: "lost-photos", msg: "Nothing was published and nothing was charged." };
+  const refused = browserReply(REF, httpOkOf(422));
+  assert.equal(refused.ok, true, "the browser's handling did not load: " + refused.why);
+  assert.equal(refused.text, "⚠️ Nothing was published and nothing was charged.",
+    "a refusal is not getting the browser's own refusal screen: " + JSON.stringify(refused.text));
+  assert.ok(!/✅ Done/.test(refused.text), "THE REPORTED DEFECT: the success composer ran on a refusal — " + refused.text);
+  // …and through the reader the run really uses, where the label has to say which
+  // function was executed — a report headed `addonReplyText` over a refusal is
+  // the defect wearing the fix's own words.
+  const refLines = customerLines(REF, 422).join("\n");
+  assert.match(refLines, /the customer's screen \(the browser's own addonAnswer, executed, HTTP 422\)/, refLines);
+  assert.match(refLines, /▸ ⚠️ Nothing was published and nothing was charged\./, refLines);
+  assert.ok(!/✅ Done/.test(refLines), "the reported defect, through customerLines — " + refLines);
+
+  // ── 2. A SUCCESS, THROUGH THE SAME HANDLING ────────────────────────────────
+  //
+  // The control: the same entry point, the same seams, the branch that DOES
+  // compose. Without it, "refusals no longer say Done" is satisfied by a reader
+  // that says nothing about anything.
+  const OK = { ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"], unlinked: ["/gallery"] };
+  const won = browserReply(OK, httpOkOf(200));
+  assert.equal(won.ok, true, won.why);
+  assert.match(won.text, /^✅ Done — added \/gallery, updated \/\./, won.text);
+  assert.match(won.text, /Nothing links to \/gallery yet/, won.text);
+  assert.match(customerLines(OK, 200).join("\n"), /▸ ✅ Done — added \/gallery/);
+
+  // ── 3. THE STATUS IS LOAD-BEARING, and only one pair proves it ─────────────
+  //
+  // `{ok:false}` reaches the refusal branch at ANY status (`!httpOk || !a.ok`),
+  // so the reported pair cannot show the status being read at all. A body that
+  // claims success at a failing status is the shape where the two disagree —
+  // and it is the real one: a 422 is what this route answers when a publish did
+  // not land, and reading a stale `ok:true` off it would report a change that
+  // never happened as done.
+  const CLAIMS = { ok: true, added: ["src/routes/gallery.tsx"] };
+  assert.match(browserReply(CLAIMS, httpOkOf(200)).text, /✅ Done — added \/gallery/,
+    "the control failed: a 200 with ok:true must reach the success composer");
+  const atFail = browserReply(CLAIMS, httpOkOf(422));
+  assert.ok(!/✅ Done/.test(atFail.text),
+    "the HTTP status is not being read — a body claiming success at 422 reached the success composer: " + atFail.text);
+  assert.equal(atFail.shown, false, "nothing is shown on that branch; the browser falls instead");
+  // AND `msg` WINS OVER THE BODY'S OWN `ok` at a failing status, which is the
+  // half a customer actually sees.
+  assert.equal(browserReply({ ok: true, msg: "the body says both", added: ["src/routes/gallery.tsx"] }, httpOkOf(422)).text,
+    "⚠️ the body says both");
+
+  // ── 4. CANNOT-TELL REFUSES, in both directions ─────────────────────────────
+  //
+  // `undefined` is an answer the browser never has and this harness can. Reading
+  // it as `false` reports a refusal screen over a successful change; as `true`
+  // it is the reported defect. Three states, and the third is a refusal.
+  assert.equal(httpOkOf(200), true);
+  assert.equal(httpOkOf(299), true);
+  assert.equal(httpOkOf(300), false);
+  assert.equal(httpOkOf(199), false);
+  assert.equal(httpOkOf(422), false);
+  for (const junk of [undefined, null, NaN, "200", Infinity, {}]) {
+    assert.equal(httpOkOf(junk), null, "a status of " + JSON.stringify(String(junk)) + " is cannot-tell, never a branch");
+  }
+  const blind = browserReply(OK, httpOkOf(undefined));
+  assert.equal(blind.ok, false, "a reply with no status was composed anyway");
+  assert.equal(blind.text, "", "a refusal to compose must carry no text");
+  assert.match(blind.why, /status was not recorded/);
+  assert.match(customerLines(OK).join("\n"), /the customer's screen: NOT COMPOSED/);
+
+  // ── 5. NO EXTERNAL ACTION, AND THE TWO EXPENSIVE ONES ARE RECORDED ─────────
+  //
+  // The browser's other two branches do not print — they ACT: an escalate posts
+  // a SECOND paid request to the edit route, and a fall starts the ~25-credit
+  // rewrite. Both are injected recorders here, so a harness reading a reply can
+  // never spend; and both are REPORTED, because a run that printed only the text
+  // would be silent about the expensive half of what the browser would do.
+  const hop = browserReply({ escalate: true, layer: "picture" }, httpOkOf(200));
+  assert.equal(hop.ok, true, hop.why);
+  assert.equal(hop.shown, false, "an escalate shows nothing — it hops");
+  assert.equal(hop.text, "", "an escalate must not compose a screen");
+  assert.equal(hop.actions.length, 1, JSON.stringify(hop.actions));
+  assert.match(hop.actions[0], /SECOND, PAID request to the edit route \(layer "picture"\)/, hop.actions[0]);
+  const fell = browserReply({ ok: false, error: "qr-dependency" }, httpOkOf(422));
+  assert.equal(fell.shown, false, "a refusal with no msg shows nothing — it falls to the rewrite");
+  assert.deepEqual(fell.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"], JSON.stringify(fell.actions));
+  assert.deepEqual(browserReply(null, httpOkOf(500)).actions,
+    ["start the FULL ~25-credit rewrite (the browser's `fallback`)"], "a body that would not parse falls too");
+  // …and both are on the report, labelled as NOT having happened.
+  const hopLines = customerLines({ escalate: true, layer: "picture" }, 200).join("\n");
+  assert.match(hopLines, /the browser would then \(NOT done here — recorded only\), 1:/, hopLines);
+  assert.match(hopLines, /↳ post a SECOND, PAID request/, hopLines);
+  assert.match(hopLines, /nothing was shown — this reply takes a branch that acts instead of printing/, hopLines);
+  // A SUCCESS RECORDS THE CREDIT REFRESH AND NOTHING ELSE. `siteById` answers
+  // null here — the harness holds no browser record — so the whole local-record
+  // mutation block is skipped and `sitesSave` is unreachable, which is what
+  // makes "no external action" a property of the seams rather than of care.
+  assert.deepEqual(won.actions, ["refresh the credit balance"], JSON.stringify(won.actions));
+  for (const r of [refused, atFail, fell, hop]) {
+    assert.ok(!r.actions.some((a) => /stored site list/.test(a)),
+      "the browser's own site list was written from a harness read: " + JSON.stringify(r.actions));
+  }
+
+  // ── 6. THE ENTRY POINT IS THE BROWSER'S, and the cut set is closed ─────────
+  //
+  // Every branch above returned `ok: true`, which is the closure proof: the cut
+  // functions are evaluated in a scope holding nothing but the five injected
+  // seams, so a bare call to anything else is a ReferenceError caught into
+  // `ok: false` — this file's own free-identifier trap, answered by driving
+  // rather than by a grep. What a name census adds is the ENTRY: the selection
+  // must be `addonAnswer`, or a later edit could quietly point this back at the
+  // success composer with every branch still loading.
+  assert.ok(BROWSER_FNS.includes("addonAnswer"), "the browser's selection is not in the executed set");
+  assert.ok(BROWSER_FNS.includes("applyAddonResult"), "the applied branch is not in the executed set");
+  assert.ok(BROWSER_FNS.includes("alsoTail"), "the real call site's third term is missing");
+  const chatSrc = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  for (const n of BROWSER_FNS) {
+    assert.ok(chatSrc.includes("function " + n + "("), "the executed set names " + n + ", which is gone from chat.js");
+  }
+  // AND THE BROWSER REALLY HANDS ITS RESPONSE'S `ok` TO IT — read at the call
+  // site, so the harness's `httpOk` is the same thing the page's is.
+  assert.match(chatSrc, /return addonAnswer\(r && r\.ok, a, \{/,
+    "the browser's addon call no longer hands addonAnswer its response's own ok — the harness's status is modelling something else");
+  // AND A BODY THAT WOULD NOT PARSE IS `null` THERE, which is why it is `null`
+  // here. That coercion is MEASURED INERT today — every non-success branch of
+  // `addonAnswer` converges on the fall — so this is what pins it to the page's
+  // own reader rather than to a choice somebody made: the correspondence is the
+  // claim, and the sweep mutates the line as a pair with it.
+  assert.match(chatSrc, /const a = await r\.json\(\)\.catch\(\(\) => null\);/,
+    "the browser no longer reads an unparseable body as null — the harness is modelling something else");
+  assert.match(CODE, /\(reply && typeof reply === "object"\) \? reply : null/,
+    "the harness no longer hands on what the browser's own reader would");
+
+  // ── 7. AND THE STATUS IS REALLY PUT ON THE WIRE ────────────────────────────
+  //
+  // The reader above is proved by driving; the PRODUCER is one line in the
+  // runner that no module test can reach — `extra` is built beside the POST —
+  // and a reader handed nothing answers NOT COMPOSED on every case of a paid
+  // run. A value computed and never forwarded is this repository's most
+  // repeated defect, and the run this instrument exists for is the one place
+  // it would cost money to discover.
+  assert.match(CODE, /const extra = \{ status: p && p\.status \}/,
+    "the POST's status is not carried to the check — every reply would read NOT COMPOSED");
+});
+
+test("the report reads the photographs and the reply on a refusal, which is the outcome that used to lose them", () => {
+  // The free-text branch runs `check` on EVERY outcome — that is asserted
+  // elsewhere — so the property here is that these two readers are asked
+  // UNCONDITIONALLY and never behind `r.ok`. A 422 is where it matters: it
+  // carries `lostPhotos` and `msg` and nothing else about what happened.
+  const c = askCase("add a gallery page with a photo of the workshop");
+  const before = { build: "b1", text: "x".repeat(100), routes: ["/"] };
+  const after = { build: "b1", text: "x".repeat(100), routes: ["/"] };
+  const lost = c.check(before, after, {
+    ok: false, error: "lost-photos", cost: 0,
+    lostPhotos: ["/u/ag/86833f9a21022de9a22d55cd6bc3ba0d.jpg"],
+    msg: "I'd have taken a photograph off your site doing that, so I've left it alone.",
+  }, { status: 422 });
+  assert.equal(lost.ok, true, "a named refusal is being read as a failure");
+  assert.match(lost.note, /existing ones LOST 1 — \["\/u\/ag\/86833f9a21022de9a22d55cd6bc3ba0d\.jpg"\]/,
+    "the refusal's own lost-photograph list never reaches the report");
+  assert.match(lost.note, /· msg: "I'd have taken a photograph off your site/);
+  assert.match(lost.note, /refused: lost-photos/);
+  // AND THE SCREEN IS THE REFUSAL'S OWN (2026-09-18, re-anchored not appeased —
+  // this guard is about the refusal outcome, so it is where the refusal SCREEN
+  // belongs). The harness ran the SUCCESS composer here and labelled a 422 that
+  // published nothing `✅ Done.`; the browser shows the warning and the `msg`.
+  assert.match(lost.note, /▸ ⚠️ I'd have taken a photograph off your site doing that, so I've left it alone\./, lost.note);
+  assert.ok(!/✅ Done/.test(lost.note), "the success composer ran on a 422 — " + lost.note);
+  // AND ON A SUCCESS, the numbers and the sentence both.
+  const ok = c.check(before, { build: "b2", text: "x".repeat(400), routes: ["/", "/gallery"] }, {
+    ok: true, added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"],
+    pictures: 1, photos: 0, pictureNote: "Made 1 photograph for the site.",
+    coverNote: "I've set that up, but I can't confirm from here that …",
+  }, { askKinds: ["page", "photo"], status: 200 });
+  assert.match(ok.note, /photographs: bought 1; empty frames left 0; existing ones LOST 0/);
+  assert.match(ok.note, /the picture sentence: "Made 1 photograph for the site\."/);
+  // RE-ANCHORED, NOT APPEASED: "sentence by sentence" was the per-field
+  // breakdown's own wording. Both halves are asserted now — the screen a person
+  // sees, and the two server sentences named beneath it.
+  assert.match(ok.note, /▸ ✅ Done — added \/gallery, updated \/\..*Made 1 photograph for the site\./, ok.note);
+  assert.match(ok.note, /server sentences carried whole \(2\):/, ok.note);
+  // THE WIRING, by the branch rather than by position: a `check` that computed
+  // these and left them off the note is the recorded value-never-forwarded
+  // defect, which is exactly how the harness came to be photograph-blind.
+  assert.match(CODE, /const pics = photoLines\(r\)/, "the check no longer reads the photograph fields");
+  // THE STATUS IS PART OF THAT WIRE. Re-anchored onto the property rather than
+  // the old spelling `customerLines(r)`: the reader must be handed the POST's
+  // own status, and the two cases above — 422 and 200, two screens from one
+  // reader — are what prove it arrives rather than being hardcoded.
+  assert.match(CODE, /const told = customerLines\(r, x && x\.status\)/, "the check no longer hands the reader the response's status");
+  assert.match(CODE, /\\n {6}\$\{pics\}/, "the photograph lines are computed and never printed");
+  assert.match(CODE, /\\n {6}\$\{told\}/, "the customer's sentences are computed and never printed");
+});
+
+test("the before/after inventory is the stored source, and a lost thing is said loudly", () => {
+  // *"Record a fresh before-inventory of routes, QR codes and existing image
+  // references… Don't treat guessed filenames or sitemap entries alone as a
+  // complete inventory."* (owner, 2026-09-18). `GET /api/site/source` IS the
+  // store: the page list, the components, and `assets`, which carries each
+  // code's file name AND the drawing the build bakes.
+  const src = (over = {}) => ({
+    ok: true,
+    pages: [{ path: "src/routes/index.tsx", source: '<SafeImage src="/u/ag/a1.jpg" alt="the bench"/>' }],
+    parts: [{ name: "gallery-band", source: '<SafeImage src="/u/ag/b2.jpg" alt="a chair"/>' }],
+    assets: [{ path: "public/icon.svg", source: "<svg/>" }, { path: "public/qr-wifi.svg", source: qrSvg("https://ag.gofarther.app/").svg }],
+    ...over,
+  });
+  const before = inventoryOf(src(), "ag");
+  assert.deepEqual(before.routes, ["/"]);
+  assert.deepEqual(before.qrFiles, ["qr-wifi.svg"], "a code is not being found by the emitter's own naming");
+  // A PHOTOGRAPH INSIDE A COMPONENT IS A PHOTOGRAPH — reading only the pages is
+  // the defect this repository fixed one milestone ago, and an inventory that
+  // repeated it would report a component's picture as newly lost.
+  assert.deepEqual(before.photos, ["/u/ag/a1.jpg", "/u/ag/b2.jpg"]);
+  // …AND THE LEGACY SINGLE CODE IS `qr.svg`, with no name in it at all: a
+  // `qr-` prefix typed here would miss it on exactly the oldest sites.
+  assert.deepEqual(inventoryOf(src({ assets: [{ path: "public/qr.svg", source: "x" }] }), "ag").qrFiles, ["qr.svg"]);
+  // ANOTHER SITE'S UPLOADS ARE NOT OURS.
+  assert.deepEqual(inventoryOf(src(), "other").photos, [], "the inventory counts a different site's pictures as this one's");
+
+  const after = inventoryOf(src({
+    pages: [
+      { path: "src/routes/index.tsx", source: '<SafeImage src="/u/ag/a1.jpg" alt="the bench"/>' },
+      { path: "src/routes/gallery.tsx", source: '<SafeImage src="/u/ag/c3.jpg" alt="new"/><img src="/qr-gallery.svg"/>' },
+    ],
+    // THE COMPONENT IS GONE, AND ITS PICTURE WITH IT — which is the shape the
+    // loss line exists for. `src()` SPREADS over its base, so leaving `parts`
+    // out would have kept the component and the case would have asserted
+    // nothing; measured as `photosLost: []` before this line was written.
+    parts: [],
+    assets: [
+      { path: "public/icon.svg", source: "<svg/>" },
+      { path: "public/qr-wifi.svg", source: qrSvg("https://ag.gofarther.app/").svg },
+      { path: "public/qr-gallery.svg", source: qrSvg("https://ag.gofarther.app/gallery").svg },
+    ],
+  }), "ag");
+  const d = inventoryDiff(before, after);
+  assert.deepEqual(d.routesAdded, ["/gallery"]);
+  assert.deepEqual(d.qrsAdded, ["qr-gallery.svg"]);
+  assert.deepEqual(d.photosAdded, ["/u/ag/c3.jpg"]);
+  // THE LOSS IS THE FINDING THIS EXISTS FOR, and it must not be something a
+  // reader has to spot by comparing two lists of paths.
+  assert.deepEqual(d.photosLost, ["/u/ag/b2.jpg"], "the component's picture went with the component and nothing noticed");
+  const lines = inventoryLines(before, after, {}).join("\n");
+  assert.match(lines, /⚠ THIS CHANGE LOST 1: \["photograph \/u\/ag\/b2\.jpg"\]/, lines);
+  // A READ THAT FAILED IS NOT AN EMPTY DIFF. `null` on either side has to say so
+  // — an inventory nobody took and a change that moved nothing print the same
+  // zeroes otherwise.
+  for (const [b, a] of [[null, after], [before, null], [null, null]]) {
+    assert.match(inventoryLines(b, a, {}).join("\n"), /inventory: NOT TAKEN/, `${!b}/${!a} reported a comparison it could not make`);
+  }
+  assert.deepEqual(inventoryLines(null, after, {}).length, 1, "a missing inventory still printed a diff");
+});
+
+test("a QR's destination is read off the drawing, against every address the site has", () => {
+  // *"Decode the generated QR and assert that it opens the actual new gallery
+  // URL. Discover its name from the result instead of assuming 'gallery'."*
+  // The NAME comes from whichever file appeared in the diff; the DESTINATION is
+  // established by re-encoding each candidate and comparing module for module —
+  // `qrEncodes`, the guard's own comparison, shared so the live check and the
+  // guard cannot disagree about our own artwork.
+  const origin = "https://ag.gofarther.app";
+  const urls = [origin + "/", origin + "/gallery", origin + "/about"];
+  const hit = qrOpens(qrSvg(origin + "/gallery").svg, urls);
+  assert.equal(hit.ok, true, JSON.stringify(hit));
+  assert.equal(hit.url, origin + "/gallery", "the code's own address is not the one reported");
+  // THE OBSERVER PROVED ALIVE IN THE OTHER DIRECTION — a code for an address
+  // the site has NOT got is not a match, and saying so is the whole point: a
+  // code for /galery is perfectly scannable and opens a 404.
+  const miss = qrOpens(qrSvg(origin + "/galery").svg, urls);
+  assert.equal(miss.ok, false, "a code for an address this site has not got is being read as a match");
+  assert.match(miss.why, /opens none of the 3 address/, miss.why);
+  // AN UNREADABLE DRAWING IS ITS OWN ANSWER, never "the wrong address": one is
+  // a broken picture and the other is a wrong destination, and they need
+  // different fixes.
+  assert.match(qrOpens("<svg/>", urls).why, /could not be read/);
+  assert.match(qrOpens(qrSvg(origin + "/").svg, []).why, /no candidate address/, "an empty candidate list passed for free");
+  // AND THE REPORT NAMES THE ADDRESS THAT WAS WANTED, both ways round, so a
+  // code that opens a real page which is not the NEW one is still a finding.
+  // THE FIXTURES ARE `inventoryOf`'S OWN OUTPUT, not hand-built shapes: a
+  // hand-built one carries no `complete`, which this reader has an answer for,
+  // and the recorded rule is to derive a fixture from its real producer.
+  const inv = (assets, pages) => inventoryOf({
+    ok: true, reads: { pages: true, parts: true, assets: true },
+    pages: pages.map((p) => ({ path: "src/routes/" + p, source: "" })), parts: [], assets,
+  }, "ag");
+  const lines = (want) => inventoryLines(
+    inv([], ["index.tsx"]),
+    inv([{ path: "public/qr-g.svg", source: "<svg/>" }], ["index.tsx", "gallery.tsx"]),
+    { opens: { "qr-g.svg": hit }, want },
+  ).join("\n");
+  assert.match(lines(origin + "/gallery"), /STORED settings: opens https:\/\/ag\.gofarther\.app\/gallery {2}✓/);
+  assert.match(lines(origin + "/about"), /✗ the address asked for was https:\/\/ag\.gofarther\.app\/about/);
+  // A COMPLETE PAIR SAYS NOTHING ABOUT PRESERVATION BEING UNVERIFIED — the
+  // control for the ⚠ line, without which that warning could be unconditional.
+  assert.ok(!lines(origin + "/gallery").includes("PRESERVATION UNVERIFIED"), lines(origin + "/gallery"));
+  // A BROWSER THAT NEVER LOOKED IS NOT A PAGE WITH NO PICTURES.
+  const blind = inv([], []);
+  assert.match(inventoryLines(blind, blind, { drew: null }).join("\n"), /NOBODY LOOKED/);
+  // ── LOADED AND PLACED ARE TWO QUESTIONS (2026-09-18) ──────────────────────
+  //
+  // RE-ANCHORED, NOT APPEASED: "1 of them rendering NOTHING" folded two
+  // failures into one count. A file that never arrived and a file that arrived
+  // into a box of no size need different fixes, and only the first is what a
+  // 404 on the image produces — so they are counted apart, and the second was
+  // invisible to `naturalWidth` altogether.
+  const drew = inventoryLines(blind, blind, { drew: [
+    { src: "/u/ag/c3.jpg", alt: "new", w: 1600, h: 1200, box: { w: 720, h: 540 }, y: 1180, under: "Our work" },
+    { src: "/qr-g.svg", alt: "", w: 0, h: 0, box: { w: 0, h: 0 }, y: 40, under: "" },
+    { src: "/u/ag/d4.jpg", alt: "hidden", w: 800, h: 600, box: { w: 0, h: 0 }, y: 90, under: "" },
+  ] }).join("\n");
+  assert.match(drew, /3 drawn, 1 whose file loaded NOTHING, 1 loaded but laid out to NO SIZE/, drew);
+  assert.match(drew, /\(BLANK\).*"\/qr-g\.svg"/, "a picture that decoded to nothing is not named: " + drew);
+  assert.match(drew, /placed 720×540 at y=1180 under "Our work"/, "the picture's real placement never reaches the report: " + drew);
+  assert.match(drew, /placed 0×0 \(NO SIZE\) at y=90 .*"\/u\/ag\/d4\.jpg"/,
+    "a picture that loaded and renders at no size is not named: " + drew);
+  // AND AN OLDER READER'S SHAPE — no `box` at all — prints the file size and no
+  // placement, rather than a fabricated one.
+  const old = inventoryLines(blind, blind, { drew: [{ src: "/u/ag/c3.jpg", alt: "", w: 1600, h: 1200 }] }).join("\n");
+  assert.match(old, /file 1600×1200 "\/u\/ag\/c3\.jpg"/, old);
+  assert.ok(!/placed/.test(old), "a placement was invented for a reading that has none: " + old);
+  // ── AND THE READING ITSELF IS DRIVEN, against a fake DOM ──────────────────
+  //
+  // It runs inside a real browser, so no unit case can call it — which is *a
+  // wall nobody can drive is a wall nobody is guarding* on a READING, where
+  // being wrong costs a report that says the picture is fine when it is not.
+  // `IMAGE_READING` is the SOURCE `page.evaluate` is handed, so `new Function`
+  // with `document` and `window` as parameters runs exactly what the browser
+  // runs — the shape `browserComposer` already uses one function over.
+  const img = (o) => ({
+    currentSrc: o.src, naturalWidth: o.nw, naturalHeight: o.nh, complete: true,
+    getAttribute: (k) => (k === "src" ? o.src : k === "alt" ? (o.alt || "") : null),
+    getBoundingClientRect: () => ({ width: o.bw, height: o.bh, top: o.top }),
+    previousElementSibling: o.prev || null, parentElement: null,
+    matches: () => false, querySelector: () => null,
+  });
+  const h2 = { matches: (s) => s.includes("h2"), querySelector: () => null, textContent: "  Our   work  ", previousElementSibling: null, parentElement: null };
+  const big = img({ src: "/u/ag/c3.jpg", alt: "new", nw: 1600, nh: 1200, bw: 719.6, bh: 540.2, top: 1180, prev: h2 });
+  const flatOne = img({ src: "/u/ag/d4.jpg", alt: "hidden", nw: 800, nh: 600, bw: 0, bh: 0, top: 90 });
+  const read = new Function("document", "window", "return (" + IMAGE_READING + ")")({ images: [big, flatOne] }, { scrollY: 0 });
+  // THE BOX IS THE RENDERED RECT AND NOT THE FILE'S OWN SIZE, which is the
+  // whole distinction: this picture's bytes are 1600×1200 and it is laid out at
+  // 720×540, and a reading that took `naturalWidth` for both could never see a
+  // container collapse.
+  assert.deepEqual(read[0].box, { w: 720, h: 540 }, "the box is not the rendered rect: " + JSON.stringify(read[0]));
+  assert.deepEqual([read[0].w, read[0].h], [1600, 1200], "the file's own size was lost");
+  assert.equal(read[0].y, 1180, "the offset down the document is wrong");
+  assert.equal(read[0].under, "Our work", "the nearest heading is not read, or its whitespace is not folded");
+  // AND THE ONE THAT MATTERS: bytes arrived, box is nothing.
+  assert.deepEqual([flatOne.naturalWidth > 0, read[1].box], [true, { w: 0, h: 0 }]);
+  assert.equal(read[1].under, "", "a picture under no heading is given one");
+  // ⚠ AND IT MUST NOT REFERENCE ANYTHING OUTSIDE ITSELF: Playwright ships the
+  // TEXT to the page, so a free identifier throws in the browser and comes back
+  // as "the image read failed" — the recorded free-identifier trap with a
+  // browser between the two halves. `new Function` with exactly two parameters
+  // is the check: anything else it reaches is a global that may not be there.
+  for (const name of ["SITE", "SLUG", "sitePathOf", "photoUrls", "require", "process"]) {
+    assert.ok(!new RegExp("\\b" + name + "\\b").test(IMAGE_READING),
+      "the reading reaches `" + name + "`, which does not exist in the page");
+  }
+  // THE WIRING, by the branch: the harness takes BOTH reads from the same route,
+  // the before one immediately before the post, and asks the browser about the
+  // page the change made. A value computed and never printed is the recorded
+  // defect this whole round is about.
+  assert.match(CODE, /const srcBefore = await call\("GET", `\/api\/site\/source\?slug=/, "the before-inventory is not read from the store");
+  const post = CODE.indexOf("/addon`, { token: TOKEN, body: { instruction: c.ask");
+  assert.ok(post > 0 && CODE.indexOf("const srcBefore =") > 0 && CODE.indexOf("const srcBefore =") < post,
+    "the before-inventory is taken after the money has gone");
+  assert.match(CODE, /extra\.qrOpens\[file\] = qrOpens\(/, "the codes this change added are never decoded");
+  assert.match(CODE, /extra\.drew = await imagesOn\(/, "nothing asks a browser whether the picture renders");
+  assert.match(CODE, /for \(const line of inventoryLines\(invBefore, extra\.invAfter, \{[^}]*\}\)\) console\.log/,
+    "the inventory is computed and never printed");
+  // AND THE ADDRESS THAT WAS WANTED IS FORWARDED. `want` was a parameter this
+  // function has always accepted and NOBODY passed, so the ✓/✗ above has never
+  // once printed in a live run — the recorded value-never-forwarded defect, in
+  // the reader for the claim the run is bought to make. It is the route THIS
+  // change added, discovered from the reply rather than typed.
+  assert.match(CODE, /const wantUrl = \(extra\.newRoutes && extra\.newRoutes\.length\)/,
+    "the expected address is not derived from the route this change added");
+  assert.match(CODE, /inventoryLines\(invBefore, extra\.invAfter, \{[^}]*want: wantUrl[^}]*\}\)/,
+    "the expected address is computed and never handed to the reader");
+});
+
+test("publication is read off the PUBLISHED file, not the stored settings", () => {
+  // *"Discover QR filenames from the inventory, then GET the actual published
+  // SVG from the public site and verify that response against the expected
+  // gallery URL. The source endpoint regenerates QR drawings from settings;
+  // comparing those does not establish publication."* (owner, 2026-09-18).
+  const origin = "https://ag.gofarther.app";
+  const urls = [origin + "/", origin + "/gallery"];
+  const svg = qrSvg(origin + "/gallery").svg;
+  const res = (over = {}) => ({ status: 200, text: svg, headers: { "content-type": "image/svg+xml" }, ...over });
+
+  // THE CLAIM: served, and it opens the address that was asked for.
+  const good = qrPublished(res(), urls);
+  assert.deepEqual(
+    { served: good.served, ok: good.ok, url: good.url, status: good.status },
+    { served: true, ok: true, url: origin + "/gallery", status: 200 },
+    JSON.stringify(good));
+  assert.equal(good.bytes, Buffer.byteLength(svg, "utf8"), "the served size is not the file's own");
+
+  // FOUR ANSWERS, AND THEY NEED FOUR DIFFERENT FIXES. Not served at all is the
+  // one this correction exists for: the settings are perfect and no visitor can
+  // scan anything, which the stored reading cannot see by construction.
+  const missing = qrPublished({ status: 404, text: "not found", headers: {} }, urls);
+  assert.equal(missing.served, false);
+  assert.match(missing.why, /answered 404 — the code is in this site's settings and is NOT published/);
+  // A 200 THAT IS NOT A DRAWING — and the test is whether the answer IS an SVG
+  // document rather than whether it CONTAINS one. MEASURED on fretwork-1's real
+  // home page: a `/<svg[\s>]/` test passes it at 58,642 bytes, because a React
+  // page is full of inline icons. That reading reports a MISSING FILE as a
+  // BROKEN DRAWING, which points at the wrong fix.
+  const page = qrPublished({ status: 200, text: `<!DOCTYPE html><html><body><svg viewBox="0 0 24 24"><path d="M0 0h24"/></svg></body></html>`, headers: { "content-type": "text/html" } }, urls);
+  assert.equal(page.served, false, "an HTML page carrying an inline icon is being read as a published drawing");
+  assert.match(page.why, /are not an SVG document \(text\/html\)/, page.why);
+  // …with its CONTROL: a real drawing with an XML prolog and a doctype in front
+  // of it is still a drawing, so the test is not "starts with `<svg`" literally.
+  const prologued = qrPublished(res({ text: `<?xml version="1.0"?>\n<!DOCTYPE svg>\n` + svg }), urls);
+  assert.equal(prologued.served, true, "a prolog is being read as something other than an SVG");
+  assert.equal(prologued.ok, true);
+  // SERVED AND OPENING THE WRONG PAGE is a third finding, distinct from both.
+  const wrong = qrPublished(res({ text: qrSvg(origin + "/").svg }), urls);
+  assert.equal(wrong.served, true);
+  assert.equal(wrong.url, origin + "/", "a published code's real destination is not being reported");
+  // AND A FETCH THAT NEVER ANSWERED ESTABLISHES NOTHING IN EITHER DIRECTION.
+  const none = qrPublished(null, urls);
+  assert.equal(none.served, false);
+  assert.match(none.why, /did not answer at all — nothing was established/);
+
+  // THE HEADERS ARRIVE IN EITHER OF THE HARNESS'S TWO SHAPES — a `Headers` from
+  // `site()`, a plain object from `call()` — so the reader asks for a `get`
+  // rather than assuming one. A fixture in only one shape would hide the other.
+  const h = new Headers({ "content-type": "text/html" });
+  assert.match(qrPublished({ status: 200, text: "<html></html>", headers: h }, urls).why, /\(text\/html\)/);
+
+  // ── THE TWO OBSERVATIONS ARE PRINTED AS TWO LINES, NEVER MERGED ───────────
+  //
+  // *"Keep the stored inventory and public-site observations distinct."*
+  const inv = (assets) => inventoryOf({
+    ok: true, reads: { pages: true, parts: true, assets: true },
+    pages: [{ path: "src/routes/index.tsx", source: "" }], parts: [], assets,
+  }, "ag");
+  const both = inventoryLines(inv([]), inv([{ path: "public/qr-g.svg", source: svg }]), {
+    opens: { "qr-g.svg": qrOpens(svg, urls) },
+    published: { "qr-g.svg": missing },
+    want: origin + "/gallery",
+  }).join("\n");
+  assert.match(both, /code qr-g\.svg — STORED settings: opens https:\/\/ag\.gofarther\.app\/gallery {2}✓/, both);
+  assert.match(both, /code qr-g\.svg — PUBLISHED file: ⚠ NOT ON THE SITE/, both);
+  // THE DISAGREEMENT IS THE FINDING, and it must be legible as one: the stored
+  // reading says ✓ and the published one says the file is not there.
+  assert.ok(both.includes("STORED settings: opens") && both.includes("PUBLISHED file: ⚠"),
+    "a code whose settings are right and which was never published reads as a pass: " + both);
+  // NOBODY FETCHED IT IS NOT "IT IS NOT THERE".
+  const unasked = inventoryLines(inv([]), inv([{ path: "public/qr-g.svg", source: svg }]), {
+    opens: { "qr-g.svg": qrOpens(svg, urls) },
+  }).join("\n");
+  assert.match(unasked, /PUBLISHED file: NOT FETCHED — nobody asked the public site for it/, unasked);
+
+  // THE WIRING: the harness really fetches it, from the PUBLIC origin, under the
+  // name the inventory diff discovered — and a check that only read the module
+  // would pass with this hop deleted.
+  assert.match(CODE, /extra\.qrPublished\[file\] = qrPublished\(await site\("\/" \+ file\), urls\)/,
+    "the published file is never fetched — only the stored settings are read");
+  assert.match(CODE, /published: extra\.qrPublished/, "the published reading is computed and never printed");
+});
+
+test("an incomplete inventory stops the run before spending, and never reads as preserved", () => {
+  // *"Make inventory completeness observable. The source endpoint currently
+  // converts failed storage reads into empty lists with HTTP 200 and ok:true. An
+  // incomplete before-read must stop this test before spending; an incomplete
+  // after-read must make preservation unverified. Checking HTTP status alone is
+  // insufficient."* (owner, 2026-09-18).
+  const src = (reads) => ({
+    ok: true, reads,
+    pages: [{ path: "src/routes/index.tsx", source: `<SafeImage src="/u/ag/a1.jpg" alt="x" />` }],
+    parts: [], assets: [],
+  });
+  const all = { pages: true, parts: true, assets: true };
+
+  // THREE STATES, AND `null` IS THE ONE THAT MATTERS MOST — an older Worker
+  // cannot say, and reading its silence as "complete" is how this instrument
+  // goes back to reporting an unread store as an empty site.
+  assert.equal(inventoryOf(src(all), "ag").complete, true);
+  assert.equal(inventoryOf(src({ ...all, parts: false }), "ag").complete, false);
+  assert.deepEqual(inventoryOf(src({ ...all, parts: false }), "ag").missing, ["parts"]);
+  assert.equal(inventoryOf(src(undefined), "ag").complete, null, "a Worker that says nothing is being read as having said yes");
+  assert.deepEqual(inventoryOf(src(undefined), "ag").missing, []);
+  // A NON-BOOLEAN IS NOT A YES: `reads: {pages: "true"}` is cannot-tell.
+  assert.equal(inventoryOf(src({ ...all, assets: "true" }), "ag").complete, false);
+
+  // THE GATE. `[]` means go, and every other answer names its own fix.
+  assert.deepEqual(inventoryRefusals(inventoryOf(src(all), "ag"), { status: 200 }), []);
+  const stops = (inv, status = 200) => inventoryRefusals(inv, { status }).join(" | ");
+  assert.match(stops(inventoryOf(src({ ...all, pages: false }), "ag")), /INCOMPLETE — \["pages"\]/);
+  assert.match(stops(inventoryOf(src(undefined), "ag")), /does not say which of its stores it really read/);
+  assert.match(stops(null, 0), /could not be read at all — \/api\/site\/source answered nothing/);
+  assert.match(stops(null, 401), /answered 401/);
+  // THE THREE REASONS ARE THREE SENTENCES, because they point at three fixes: a
+  // route that did not answer, a Worker that cannot say, and a store that
+  // failed. Collapsing them is how a person retries the wrong thing.
+  const three = [stops(null, 500), stops(inventoryOf(src(undefined), "ag")), stops(inventoryOf(src({ ...all, parts: false }), "ag"))];
+  assert.equal(new Set(three).size, 3, "two of the three refusals say the same thing: " + JSON.stringify(three));
+
+  // AN INCOMPLETE AFTER-READ MAKES PRESERVATION UNVERIFIED, and the ± counts are
+  // said NOT to be evidence — an empty list from a store that failed reads
+  // exactly like a site with none.
+  const before = inventoryOf(src(all), "ag");
+  const after = inventoryOf({ ...src({ ...all, parts: false }), pages: [] }, "ag");
+  const lines = inventoryLines(before, after, { drew: null }).join("\n");
+  assert.match(lines, /⚠ PRESERVATION UNVERIFIED — the after read is INCOMPLETE \(\["parts"\] could not be read\)/, lines);
+  assert.match(lines, /NOT evidence that nothing was lost/);
+  // A LOSS SEEN ACROSS AN INCOMPLETE PAIR IS STILL SAID: incompleteness makes an
+  // ABSENCE untrustworthy, never a PRESENCE, so both warnings appear together.
+  assert.match(lines, /⚠ THIS CHANGE LOST 2/, lines);
+  // AN OLDER WORKER ON EITHER SIDE IS THE SAME WARNING WITH ITS OWN REASON.
+  assert.match(inventoryLines(inventoryOf(src(undefined), "ag"), before, { drew: null }).join("\n"),
+    /the before read cannot say which stores it reached/);
+  // THE CONTROL: a complete pair says none of it, or the warning is unconditional.
+  assert.ok(!inventoryLines(before, before, { drew: null }).join("\n").includes("PRESERVATION UNVERIFIED"));
+
+  // THE WIRING — and only a scan can see it, because the exit lives in `main`.
+  // BEFORE THE POST is the whole property: a refusal after the money has gone is
+  // a note, not a refusal.
+  const gate = CODE.indexOf("const invNo = inventoryRefusals(invBefore, { status: srcBefore.status })");
+  assert.ok(gate > 0, "the before-inventory is never asked whether it is good enough to spend against");
+  const post = CODE.indexOf("/addon`, { token: TOKEN, body: { instruction: c.ask");
+  assert.ok(gate < post, "the inventory gate sits after the money has gone");
+  // ⚠ THE BRANCH BY ITS OWN CONDITION, NEVER BY POSITION. `if (false) { … }`
+  // leaves `process.exit(1)` exactly where a search finds it — the recorded "a
+  // positional guard cannot see a dead branch", which is how the deploy
+  // pre-flight's own gate survived its first sweep two rounds ago and how this
+  // one survived its first. The condition is the assertion; `main` is not
+  // exported and `process.exit` is not observable without spawning the script
+  // against a live site and a token, so this is as close as a unit case gets.
+  const branch = CODE.indexOf("if (invNo.length) {", gate);
+  assert.ok(branch > gate && branch < post, "the refusal list is computed and never looked at");
+  assert.ok(CODE.indexOf("process.exit(1)", branch) > branch && CODE.indexOf("process.exit(1)", branch) < post,
+    "an unusable before-inventory prints and carries on spending");
+  assert.match(CODE.slice(branch, post), /REFUSING TO SPEND/, "the refusal does not announce itself");
+  assert.match(CODE.slice(branch, post), /nothing was posted and nothing was charged/,
+    "the refusal does not say that nothing was spent");
+});
+
 test("the coverage record reaches the developer, line by line", () => {
   // THIS IS WHAT THE RUN WAS BOUGHT FOR. Three separate mutants silenced three
   // of these lines and the whole suite stayed green.
@@ -786,22 +1518,32 @@ test("the coverage record reaches the developer, line by line", () => {
 // AND produces a complete, plausible, green-looking result about code that is
 // not under test.
 
+// RE-ANCHORED, NOT APPEASED (2026-09-18). Every case below was written when the
+// only reasons not to spend were about WHICH CODE, so each called `codeRefusals`
+// with no `queued` and expected `[]` on a match. Queued work is a separate,
+// unconditional requirement now, and a case about the deploy sha that also fails
+// for the async reason is a case about two things — so these hold `queued: true`
+// and stay about their own subject. `refusals` is that isolation spelled once;
+// the async property itself is driven directly in the case below them, which is
+// the only place that may leave it out.
+const refusals = (o = {}) => codeRefusals({ queued: true, ...o });
+
 test("a matching pair spends, and a short sha matches by prefix", () => {
   const sha = "3d7acaf5e1b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0";
   const img = "16cb42353dc4a343";
-  assert.deepEqual(codeRefusals({ deploy: sha, image: img, runtimeDeploy: sha, expectDeploy: sha, expectImage: img }), [],
+  assert.deepEqual(refusals({ deploy: sha, image: img, runtimeDeploy: sha, expectDeploy: sha, expectImage: img }), [],
     "an exact match on both halves is refusing to spend");
   // A SHORT SHA IS WHAT A PERSON TYPES INTO THE FORM. Either side may be the
   // shorter one — the answer is the full sha and the expectation is usually the
   // seven characters off a PR page, but a workflow that starts binding the full
   // one must not become a refusal.
-  assert.deepEqual(codeRefusals({ deploy: sha, runtimeDeploy: sha, expectDeploy: "3d7acaf" }), []);
-  assert.deepEqual(codeRefusals({ deploy: "3d7acaf", runtimeDeploy: "3d7acaf", expectDeploy: sha }), []);
+  assert.deepEqual(refusals({ deploy: sha, runtimeDeploy: sha, expectDeploy: "3d7acaf" }), []);
+  assert.deepEqual(refusals({ deploy: "3d7acaf", runtimeDeploy: "3d7acaf", expectDeploy: sha }), []);
   // AND SEVEN IS A FLOOR ON BOTH SIDES, or a three-character expectation
   // matches a third of every sha there is by coincidence.
-  assert.equal(codeRefusals({ deploy: sha, expectDeploy: "3d7" }).length, 1,
+  assert.equal(refusals({ deploy: sha, expectDeploy: "3d7" }).length, 1,
     "a prefix too short to be evidence is being read as a match");
-  assert.equal(codeRefusals({ deploy: "3d7", expectDeploy: sha }).length, 1,
+  assert.equal(refusals({ deploy: "3d7", expectDeploy: sha }).length, 1,
     "an answer too short to be evidence is being read as a match");
 });
 
@@ -809,22 +1551,22 @@ test("a mismatch on either half refuses, and names which half and both values", 
   const sha = "3d7acaf5", other = "a4d0f5e5";
   const img = "16cb42353dc4a343", was = "e35d9f28b49f5f2c";
   // THE WORKER HALF.
-  const d = codeRefusals({ deploy: other, image: img, expectDeploy: sha, expectImage: img });
+  const d = refusals({ deploy: other, image: img, expectDeploy: sha, expectImage: img });
   assert.equal(d.length, 1, JSON.stringify(d));
   assert.match(d[0], /worker deploy/, "the refusal does not say which half disagreed");
   assert.ok(d[0].includes(other) && d[0].includes(sha), "the refusal does not name both values: " + d[0]);
   // THE CONTAINER HALF, which is the one a clock gets wrong: the Worker rolls
   // first and an instance started seconds later is still on the old image.
-  const i = codeRefusals({ deploy: sha, image: was, expectDeploy: sha, expectImage: img });
+  const i = refusals({ deploy: sha, image: was, expectDeploy: sha, expectImage: img });
   assert.equal(i.length, 1, JSON.stringify(i));
   assert.match(i[0], /container image/, "the refusal does not say which half disagreed");
   assert.ok(i[0].includes(was) && i[0].includes(img), "the refusal does not name both values: " + i[0]);
   // BOTH AT ONCE ARE BOTH SAID — a person reading one line and fixing it would
   // otherwise buy a second run to be told about the other.
-  assert.equal(codeRefusals({ deploy: other, image: was, expectDeploy: sha, expectImage: img }).length, 2);
+  assert.equal(refusals({ deploy: other, image: was, expectDeploy: sha, expectImage: img }).length, 2);
   // AN IMAGE ID IS MATCHED WHOLE. A prefix of a hash is not a weaker claim, it
   // is a different one; the ids are sixteen hex characters by construction.
-  assert.equal(codeRefusals({ image: img, expectImage: img.slice(0, 8) }).length, 1,
+  assert.equal(refusals({ image: img, expectImage: img.slice(0, 8) }).length, 1,
     "half an image id is being read as a match");
 });
 
@@ -836,15 +1578,15 @@ test("cannot-tell refuses, and the `unstamped` case is taken from the real reade
   // answer and a second copy of it would drift.
   const unstamped = healthImage("ok tmpl-7 unstamped");
   assert.equal(unstamped, "", "healthImage no longer answers empty for an unstamped image — this case is asserting nothing");
-  const no = codeRefusals({ deploy: "3d7acaf5", image: unstamped, expectDeploy: "3d7acaf5", expectImage: "16cb42353dc4a343" });
+  const no = refusals({ deploy: "3d7acaf5", image: unstamped, expectDeploy: "3d7acaf5", expectImage: "16cb42353dc4a343" });
   assert.equal(no.length, 1);
   assert.match(no[0], /cannot tell/, "an unreadable image reads as a value: " + no[0]);
   // A ROUTE THAT ANSWERED NOTHING AT ALL is the same reading, both halves.
-  assert.match(codeRefusals({ expectDeploy: "3d7acaf5" })[0], /cannot tell/);
-  assert.match(codeRefusals({ expectImage: "16cb42353dc4a343" })[0], /cannot tell/);
+  assert.match(refusals({ expectDeploy: "3d7acaf5" })[0], /cannot tell/);
+  assert.match(refusals({ expectImage: "16cb42353dc4a343" })[0], /cannot tell/);
   // AND THE STAMPED ANSWER THE SAME READER PRODUCES IS A MATCH, which is the
   // control without which every case above passes for the wrong reason.
-  assert.deepEqual(codeRefusals({ image: healthImage("ok tmpl-7 16cb42353dc4a343"), expectImage: "16cb42353dc4a343" }), []);
+  assert.deepEqual(refusals({ image: healthImage("ok tmpl-7 16cb42353dc4a343"), expectImage: "16cb42353dc4a343" }), []);
 });
 
 test("the two readers of the deploy must agree, and that is asked with no expectation set", () => {
@@ -853,19 +1595,66 @@ test("the two readers of the deploy must agree, and that is asked with no expect
   // "which code is answering" is "both" — a fact about the platform, not about
   // what this caller wanted, so it is asked whether or not an expectation was
   // given.
-  const split = codeRefusals({ deploy: "3d7acaf5", runtimeDeploy: "a4d0f5e5" });
+  const split = refusals({ deploy: "3d7acaf5", runtimeDeploy: "a4d0f5e5" });
   assert.equal(split.length, 1, "a run mid-roll is being allowed to spend");
   assert.match(split[0], /roll is in flight/, split[0]);
   assert.ok(split[0].includes("3d7acaf5") && split[0].includes("a4d0f5e5"), "the refusal does not name both answers");
   // ONE READER THAT COULD NOT TELL IS NOT A DISAGREEMENT — it is the absence of
   // a second opinion, and with no expectation set there is nothing to refuse.
-  assert.deepEqual(codeRefusals({ deploy: "3d7acaf5", runtimeDeploy: "" }), []);
-  assert.deepEqual(codeRefusals({ deploy: "", runtimeDeploy: "a4d0f5e5" }), []);
-  // AND A RUN THAT DEMANDED NOTHING AND SAW A SETTLED PLATFORM SPENDS. Every
-  // run before today gave no expectation, and none of them may start refusing.
-  assert.deepEqual(codeRefusals({ deploy: "3d7acaf5", image: "16cb42353dc4a343", runtimeDeploy: "3d7acaf5" }), []);
-  assert.deepEqual(codeRefusals({}), []);
-  assert.deepEqual(codeRefusals(), [], "a call with no argument throws rather than answering go");
+  assert.deepEqual(refusals({ deploy: "3d7acaf5", runtimeDeploy: "" }), []);
+  assert.deepEqual(refusals({ deploy: "", runtimeDeploy: "a4d0f5e5" }), []);
+  // AND A RUN THAT DEMANDED NOTHING AND SAW A SETTLED PLATFORM SPENDS — as long
+  // as queued work is established, which is the one demand it does not get to
+  // skip.
+  assert.deepEqual(refusals({ deploy: "3d7acaf5", image: "16cb42353dc4a343", runtimeDeploy: "3d7acaf5" }), []);
+  assert.deepEqual(refusals({}), []);
+});
+
+test("queued work is required before any paid post, and it is not a box the caller can forget", () => {
+  // *"Require async=true before the paid POST for this test; false or unreadable
+  // must stop it."* (owner, 2026-09-18). `async` off means the addon runs inside
+  // the Worker's isolate, bounded by the customer's own connection at ~270 s —
+  // run 45 died at 270,025 ms with the credits gone.
+  //
+  // UNCONDITIONAL, and that is the property. The `expect*` pair asks "is this
+  // the build I meant" and has nothing to answer when nothing was demanded;
+  // this asks "can the work survive at all", which is true of every run. As a
+  // caller's flag it would be an input, and an input cannot be the wall — a
+  // forgotten box fails OPEN, which is the direction that spends.
+  assert.deepEqual(codeRefusals({ queued: true, deploy: "3d7acaf5", runtimeDeploy: "3d7acaf5" }), [],
+    "queued work is on and a settled platform is still refusing");
+  // OFF AND CANNOT-TELL ARE DIFFERENT SENTENCES. One is a switch somebody can
+  // turn on; the other is a route that did not answer, and reading the second as
+  // the first sends a person to flip a flag that is already set.
+  const off = codeRefusals({ queued: false, deploy: "3d7acaf5", runtimeDeploy: "3d7acaf5" });
+  assert.equal(off.length, 1, JSON.stringify(off));
+  assert.match(off[0], /queued work is OFF/, off[0]);
+  assert.match(off[0], /270 s/, "the refusal does not say what goes wrong: " + off[0]);
+  for (const blind of [undefined, null, "", "true", 1, {}]) {
+    const no = codeRefusals({ queued: blind, deploy: "3d7acaf5", runtimeDeploy: "3d7acaf5" });
+    assert.equal(no.length, 1, `queued=${JSON.stringify(blind)} spent: ${JSON.stringify(no)}`);
+    assert.match(no[0], /could not read whether queued work is on/,
+      `queued=${JSON.stringify(blind)} reads as the switch being off: ${no[0]}`);
+  }
+  // A CALL WITH NO ARGUMENT AT ALL still must not throw — the default argument
+  // is what lets the wrapper hand over a partial answer — and it must refuse,
+  // because nothing in it establishes anything.
+  assert.equal(codeRefusals().length, 1, "a call with no argument throws, or answers go");
+  assert.match(codeRefusals()[0], /could not read whether queued work is on/);
+  // AND THE WRAPPER REALLY HANDS THE ROUTE'S OWN ANSWER OVER, with no default
+  // between them: `runtime` is `{}` when the route failed, and `|| false` there
+  // would turn "nobody answered" into "the switch is off".
+  const open = CODE.indexOf("async function whichCode(token) {");
+  const fn = CODE.slice(open, CODE.indexOf("\n}\n", open));
+  assert.ok(open > 0, "whichCode moved");
+  // THE ANSWER IS HANDED OVER RAW — no `||`, no `=== true`, no coercion of any
+  // kind. A sweep survivor is why this is the exact expression rather than a
+  // forbidden-spelling list: `runtime.async || false` and `runtime.async ===
+  // true` are DIFFERENT spellings of one defect, and each turns "nobody
+  // answered" into "the switch is off", which is a different sentence pointing
+  // at a different fix. Anything but the bare read is a transformation.
+  assert.match(fn, /codeRefusals\(\{[^}]*\bqueued: runtime\.async,[^}]*\}\)/,
+    "the runtime route's async answer does not reach the decision unchanged");
 });
 
 test("the caller's demand is read off the environment, and both names are the ones the workflow sends", () => {

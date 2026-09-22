@@ -1190,10 +1190,62 @@ export function reconcileHandoffs(outcomes) {
     if (!answering.has(r.answers)) answering.set(r.answers, r);
   }
   if (!answering.size) return list;
+  // ── AN ANSWER THAT WAS REFUSED OVER A FINDING DOES NOT SPEAK EITHER ───────
+  //
+  // Refusing to reconcile is half the fix. The other half is that the answering
+  // entry is still `configured`, still carries the same NEED in its own words,
+  // and still reaches the prose — so the reproduction came back as *"waiting on
+  // another part that didn't work: the nightly reminder goes out"* AND
+  // *"Scheduled as you asked: the nightly reminder goes out"*, one need, two
+  // opposite sentences. Incoherent in exactly the way this whole round is
+  // about, and the worse of the two readings is the reassuring one.
+  //
+  // KEYED BY THE ECHOED ID, never by the need text. Matching the prose here
+  // would be the thing the reconciliation itself is forbidden to do, arriving
+  // one function later through the back door.
+  //
+  // ONLY OVER A PROBLEM STATE. A mismatch with no finding behind it (the step
+  // is wrong, or the reference names something else) leaves both entries
+  // speaking, which is exactly what they did before any of this existed.
+  const overruled = new Map();
+  for (const r of list) {
+    if (!r || r.status !== "elsewhere" || typeof r.id !== "string") continue;
+    if (!answering.has(r.id)) continue;
+    if (r.state === "blocked" || r.state === "failed" || r.state === "missing") overruled.set(r.id, r.state);
+  }
   return list.map((r) => {
+    if (r && r.status === "covered" && typeof r.answers === "string" && overruled.has(r.answers)) {
+      return { ...r, overruledBy: r.answers, overruledAs: overruled.get(r.answers) };
+    }
     if (!r || r.status !== "elsewhere" || typeof r.id !== "string" || !r.id) return r;
     const a = answering.get(r.id);
     if (!a) return r;
+    // ── AN ECHOED ID CANNOT OVERRIDE CONTRADICTORY EVIDENCE ─────────────────
+    //
+    // (owner, 2026-09-16, reproduced.) A hand-off naming a job the database
+    // REFUSED read `blocked`; an answering entry naming a DIFFERENT job that
+    // applied, echoing the id, overwrote it — and the customer was told
+    // "scheduled as you asked" about work that had failed. The id says which
+    // request is being answered; it says nothing about whether the answer is
+    // true, and these three walls are what keep those apart.
+    //
+    // 1. A KNOWN PROBLEM IS NEVER OVERWRITTEN. `blocked`, `failed` and
+    //    `missing` each rest on evidence about the application — a dependency
+    //    the database refused, a step that failed, a thing this layer looked
+    //    for and did not find. Reconciliation may resolve an UNCERTAINTY; it
+    //    may not resolve a finding.
+    if (r.state === "blocked" || r.state === "failed" || r.state === "missing") return r;
+    // 2. THE ANSWER MUST COME FROM THE STEP THE REQUEST WAS ADDRESSED TO. An
+    //    `elsewhere` entry names its step; an echo from any other step is a
+    //    different call answering a question it was never asked.
+    if (a.from !== r.step) return r;
+    // 3. AND IF THE REQUEST NAMED ITS OWN THING, THE ANSWER MUST BE THAT THING.
+    //    `referenceOf` answers `null` when the hand-off named nothing, which is
+    //    run 50's legitimate case and stays reconcilable — the customer named a
+    //    behaviour and neither designer named an artifact for it. Where the
+    //    hand-off DID name one, an answer about something else is not an answer.
+    const want = referenceOf(r);
+    if (want && !(a.kind === want.kind && String(a.implementedBy || "").trim().toLowerCase() === want.name)) return r;
     // CAPPED, never inherited whole — see the fourth condition above.
     const state = a.state === "delivered" ? "configured" : a.state;
     return {
@@ -1224,7 +1276,11 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
   // — which is the duplicate-reporting half of run 50's finding, surviving the
   // fix that was supposed to remove it. The RECORD keeps both; the prose says
   // it once, through the entry that names what really does the work.
-  const spoken = (r) => !(r && r.status === "elsewhere" && r.reconciledBy);
+  // …AND AN ANSWER OVERRULED BY A FINDING ON THE REQUEST IT ANSWERS is silent
+  // too: the finding is the coherent outcome, and "scheduled as you asked"
+  // beside "couldn't be created" about one sentence is the incoherence this is
+  // for. Both entries stay in the RECORD with their own states.
+  const spoken = (r) => !(r && ((r.status === "elsewhere" && r.reconciledBy) || r.overruledBy));
   const unsure = outcomes.filter(spoken).filter((r) => r.state === "unverified" || r.state === "configured");
   // …AND `unknown` IS NOT ONE OF THEM (owner, 2026-09-15): *"'I've set that up'
   // is inappropriate when implementation is unknown."* The clause below opens
@@ -1337,7 +1393,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
@@ -1411,5 +1467,22 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
     // WHAT THE ENGINE DROPPED WHOLE, PER TIER — the report that did not exist
     // above the table tier at all. `{function: ["send_reminder"], job: […]}`.
     unbuilt: unbuilt && typeof unbuilt === "object" ? unbuilt : {},
+    // ── THREE FINDINGS THAT REACHED THE REPLY AND NOT THE RECORD ──────────
+    //
+    // ⚠ THE FIRST TWO WERE PASSED IN AND DROPPED. The addon route has handed
+    // `missingPages` and `unknownKit` to this function since each was written,
+    // and neither was in the destructure — measured: `requirementRecord({…,
+    // missingPages: ["/gallery"]}).missingPages` answered `undefined`. So the
+    // reply named a page that did not survive and a kit component that is not
+    // in the kit, and the STORED record — the thing anybody comes back to —
+    // did not. This repository's own wiring trap, in the record built to
+    // outlive the reply.
+    //
+    // The third is this round's: which of the site's pages the prompt window
+    // could not carry, which is the one fact that explains a weak result on a
+    // large site.
+    missingPages: (Array.isArray(missingPages) ? missingPages : []).slice(0, MAX_REQUIREMENTS),
+    unknownComponents: (Array.isArray(unknownKit) ? unknownKit : []).slice(0, MAX_REQUIREMENTS),
+    unseenPages: (Array.isArray(unseenPages) ? unseenPages : []).slice(0, MAX_REQUIREMENTS),
   };
 }

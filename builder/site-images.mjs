@@ -237,6 +237,148 @@ export function hasBoughtPhotos(pages, slug) {
 }
 
 /**
+ * HOW MANY PHOTOGRAPHS THIS SITE REALLY SHOWS — AND WHETHER WE CAN TELL
+ * (2026-09-17).
+ *
+ * `hasBoughtPhotos` answers the SPENDING question and its unknown case is
+ * deliberately `true` — not knowing must cost nothing. That direction is
+ * exactly wrong for DESCRIBING the site to a model: read as a description,
+ * "unknown" would become "this site has photographs" when nothing was read.
+ * And the reverse is worse, which is what this exists for: the addon told
+ * every page writer *"PHOTOGRAPHS: none on this site"* whatever the site had —
+ * measured through the real route on a site showing two — so a page added to a
+ * photographed site was written by a model that believed there were none, on a
+ * step whose own `ADD_DESIGN_RULE` says to keep the site's design system.
+ *
+ * SO IT IS THREE-STATE, and `known` is the whole point: a caller that cannot
+ * tell must say nothing rather than pick a side. The same reason
+ * `readSiteParts` answers `{ok, parts, why}` rather than `null`.
+ *
+ * DISTINCT URLs, not occurrences: the same photograph repeated in two bands is
+ * one photograph, and counting the repeats would tell a designer the site is
+ * richer than it is.
+ */
+export function shownPhotos(pages, slug) {
+  if (!Array.isArray(pages) || !slug) return { known: false, count: 0 };
+  const seen = new Set();
+  for (const p of pages) for (const u of photoUrls(p && p.source, slug)) seen.add(u);
+  return { known: true, count: seen.size };
+}
+
+/**
+ * THE PHOTOGRAPHS ONE FILE SHOWS — this site's own, by exact URL (2026-09-17).
+ *
+ * ONE READER, because the COUNT a designer is told and the WALL that refuses a
+ * change which drops one are the same question asked twice, and two spellings
+ * of "an image reference this site owns" is how they come to disagree about a
+ * picture somebody paid for.
+ *
+ * SCOPED TO THIS SITE'S OWN PREFIX. A kit illustration, a data URI and another
+ * site's upload are all `src` attributes and none of them is a photograph this
+ * platform bought for this owner — `sitePhotoUrl` is the one definition of the
+ * prefix, and it is where `hasBoughtPhotos` and `makeSitePhoto` both write.
+ *
+ * THE SLUG TEST FOLDS CASE AND THE URL DOES NOT, and the asymmetry is
+ * deliberate. A slug is lowercased at every door this platform has, so folding
+ * there admits the `/u/FW/…` a model may type for `fw` — while the rest of the
+ * path is an R2 KEY, where a re-cased hash is a different object and therefore
+ * a broken image. So `/u/fw/A1.jpg` is a photograph of this site's that the
+ * wall must see LOST when it comes back as `/u/fw/a1.jpg`, which is exactly
+ * what an exact comparison says and a folded one would miss. `/u/` itself is
+ * ours to write and is matched literally.
+ */
+export function photoUrls(source, slug) {
+  const out = new Set();
+  if (typeof source !== "string" || !slug) return out;
+  const mark = sitePhotoUrl(slug);
+  for (const m of source.matchAll(/["'](\/u\/[^"']+)["']/g)) {
+    if (m[1].toLowerCase().startsWith(mark)) out.add(m[1]);
+  }
+  return out;
+}
+
+/**
+ * EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN — the wall (2026-09-17).
+ *
+ * Owner: *"prevent an addon that buys new photographs from accepting removal or
+ * replacement of existing image references in pages and custom components."*
+ *
+ * REPRODUCED THROUGH THE REAL ROUTE FIRST. The paid directive's own tail said
+ * *"any other picture stays a `<SafeImage>` with no src… that is the intended
+ * look for the rest of the site"*, which on a site showing two bought
+ * photographs is an instruction to strip them — and the writer did: the
+ * compiler payload and the stored source both came back with ZERO `/u/` urls,
+ * the customer was told *"Made 1 photograph for the site."*, and the two
+ * stripped pictures were counted as empty frames this change had ADDED. The
+ * directive is corrected above; this is the wall behind the correction, in the
+ * shape `keptProse` already has one rung over: a change that would lose one is
+ * refused before the gate and the bill.
+ *
+ * SITE-WIDE, NEVER PER FILE, and that is the whole of why this takes two LISTS
+ * rather than two strings. `keptProse` asks per page because words belong to
+ * the page they are on; a photograph does not — a writer moving a
+ * `<SafeImage>` out of the home page and into a new `-parts/gallery-grid.tsx`
+ * has kept every picture the site shows, and a per-file wall would refuse
+ * exactly that legitimate reorganisation. The question the customer has is
+ * *"does my site still show the pictures I paid for"*, and this asks it.
+ *
+ * PAGES AND COMPONENTS TOGETHER, through `imageSources` — the one definition of
+ * "every generated file that can carry a photograph" — so a component is not a
+ * second wall beside this one.
+ *
+ * REPLACEMENT IS REMOVAL HERE, deliberately: a `src` swapped for a different
+ * `/u/` url loses the first, which is what the owner's "removal or replacement"
+ * names as one thing. An ADDITION is invisible to this — the whole point of the
+ * step is that it may add.
+ */
+export function keptImages(before, after, slug) {
+  const had = new Set();
+  for (const p of Array.isArray(before) ? before : []) {
+    for (const u of photoUrls(p && p.source, slug)) had.add(u);
+  }
+  if (!had.size) return { ok: true, lost: [] };
+  const now = new Set();
+  for (const p of Array.isArray(after) ? after : []) {
+    for (const u of photoUrls(p && p.source, slug)) now.add(u);
+  }
+  const lost = [...had].filter((u) => !now.has(u));
+  return { ok: !lost.length, lost };
+}
+
+/**
+ * EVERY FILE A PHOTOGRAPH CAN BE IN — or `null` when part of it is unreadable
+ * (2026-09-17).
+ *
+ * ⚠ THE READER ABOVE WAS HANDED PAGES ONLY, AND A SITE'S PICTURES ARE NOT ALL
+ * ON ITS PAGES. Since the band split a section is a COMPONENT, so a site whose
+ * hero photograph lives in `-parts/gallery-grid.tsx` answered
+ * `{known: true, count: 0}` and every page writer was told *"This site shows no
+ * real photographs yet; every picture on it is a placeholder."* MEASURED:
+ * `shownPhotos(pages, "fw")` → 0 against `shownPhotos(imageSources(pages,
+ * parts), "fw")` → 1 on the same site.
+ *
+ * `imageSources` IS THE ONE DEFINITION OF "the files the image steps operate
+ * on", and its own comment records why it exists: five steps each read `pages`
+ * and a band-split build's photographs were never planned, bought, counted,
+ * swept or linted. This is the sixth step asking it rather than a sixth copy
+ * of the union.
+ *
+ * AND AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST — which is the
+ * whole reason this is a function and not a call site. `readSiteParts` answers
+ * `{ok, parts, why}` precisely because a read that FAILED is not a site with no
+ * components; hand the failure through as `[]` and the answer becomes *"every
+ * picture on it is a placeholder"* about a site whose pictures we could not
+ * see. `null` reaches `shownPhotos` as `known: false`, and the directive then
+ * says nothing either way. The recorded "cannot-tell must never read as a
+ * value", in the one input that decides what a model believes about the site it
+ * is editing.
+ */
+export function photoInventory(pages, parts, partsKnown) {
+  if (!Array.isArray(pages) || !partsKnown) return null;
+  return imageSources(pages, Array.isArray(parts) ? parts : []);
+}
+
+/**
  * What a build may spend on pictures, once it is known whether this is the first.
  *
  * ONE PLACE, so the two cases cannot drift: a first build gets the family's
@@ -617,16 +759,58 @@ export function imageBrief(plan, budget) {
  * writer to spend money the account has not got. The caller slices; this only
  * ever describes what it is given.
  */
+/**
+ * WHAT THE SITE ALREADY SHOWS, AND THAT IT STAYS — one sentence, two readers.
+ *
+ * Written out twice would be the recorded "two copies of one thing": the paid
+ * form and the zero form are describing the same fact about the same site, and
+ * a correction that reached one of them is how a page writer comes to hear that
+ * the pictures are protected on a change that buys nothing and not on the one
+ * that buys something — which is precisely the wrong way round, since only the
+ * buying form ever said anything that invited a strip.
+ *
+ * SILENT ON AN ABSENT INVENTORY. Nobody looked is not "there are none", and a
+ * caller with no answer must not be given a sentence that reads as one. The
+ * build path is that caller by construction and is correct to be: `budgetFor`
+ * answers 0 for a revise of a site that has photographs, so its paid forms are
+ * only ever reached on a site that has none.
+ *
+ * LEADING SPACE, so the caller concatenates rather than deciding whether to.
+ */
+function keepClause(shown) {
+  const s = shown && typeof shown === "object" && !Array.isArray(shown) ? shown : null;
+  if (!s) return "";
+  const has = s.known ? Math.max(0, Math.floor(Number(s.count)) || 0) : null;
+  if (has === null) return " Leave every picture already on this site exactly as it is.";
+  if (has > 0) {
+    return " This site already shows " + has + " real " + (has === 1 ? "photograph" : "photographs") +
+      ", and they stay exactly as they are — do not replace one, and do not remove it.";
+  }
+  return " This site shows no real photographs yet; every picture on it is a placeholder.";
+}
+
 export function imageDirective(n) {
+  // ⚠ ONE COMPOSER FOR THE LIST, REACHED THROUGH TWO DOORS (2026-09-17). A bare
+  // array is the object with nothing else known, so the build path's
+  // `imageBrief` answer and the addon's `{buy, shown, place}` produce the same
+  // sentences from the same lines — and a correction to the paid instruction
+  // cannot land on one path and miss the other. The alternative was a second
+  // list branch inside the object form, which is this repository's own "two
+  // lists of one thing" with the two hops one function apart.
+  if (Array.isArray(n)) return imageDirective({ buy: n });
   // THE LIST FORM. Anything that is not a usable array falls through to the
   // count, so a malformed value degrades to today's behaviour rather than to
   // no instruction — which is the one outcome that makes a page writer invent
   // its own tokens.
-  if (Array.isArray(n)) {
-    const shots = n
+  if (n && typeof n === "object" && Array.isArray(n.buy)) {
+    const shots = n.buy
       .filter((s) => s && typeof s === "object" && !Array.isArray(s) && String(s.describe || "").trim())
       .slice(0, IMAGE_CAP);
-    if (!shots.length) return imageDirective(0);
+    // AN UNUSABLE LIST FALLS BACK TO WHAT THE CALLER COULD OTHERWISE HAVE SAID.
+    // With an inventory in hand that is the object's own zero form, which
+    // states the zero as OURS; with none it is the bare count, which is the
+    // build path's door and is left exactly as it was.
+    if (!shots.length) return imageDirective(n.shown ? { ...n, buy: null } : 0);
     const byPage = new Map();
     for (const s of shots) {
       const page = String(s.page || "/").trim() || "/";
@@ -651,8 +835,87 @@ export function imageDirective(n) {
       "image model is paid to draw, so a word changed is a different picture bought:\n" +
       lines.join("\n") + "\n" +
       "Put each one where that page's arrangement calls for it, and write your own `alt`. " +
-      "Do NOT invent an extra token: any other picture stays a <SafeImage> with no src, which renders this " +
-      "theme's own placeholder — that is the intended look for the rest of the site.";
+      // ⚠ CORRECTED 2026-09-17, AND THIS SENTENCE WAS AN INSTRUCTION TO STRIP
+      // THE PICTURES THE OWNER HAD ALREADY PAID FOR. It read *"any other
+      // picture stays a <SafeImage> with no src, which renders this theme's own
+      // placeholder — that is the intended look for the rest of the site"*,
+      // which is true of a FIRST BUILD (nothing else on the site is real yet)
+      // and false of every addon that buys one for a site that has some.
+      // REPRODUCED through the real route on a site showing two: the writer
+      // returned both stripped, the compiler payload and the stored source came
+      // back with zero `/u/` urls, and the customer was told *"Made 1
+      // photograph for the site."*
+      //
+      // TWO HALVES, AND THE SECOND IS ONLY POSSIBLE BECAUSE THE INVENTORY IS
+      // HERE NOW. The ban is narrowed to what this change ADDS — which is all
+      // it was ever meant to cover — and `keepClause` states what the site
+      // already shows, from the same three-state reader the zero form uses.
+      // The build path supplies no inventory and is silent, correctly: a paid
+      // directive is only ever reached there on a site with no photographs,
+      // because `budgetFor` answers 0 for a revise of one that has any.
+      //
+      // AND AN EMPTY SRC RATHER THAN NO SRC, for the reason written out below:
+      // the picture rung fills a slot by rewriting a `src`, so an element with
+      // none is invisible to the one step that could later fill it.
+      "Do NOT invent an extra token. A picture this change ADDS beyond those is a <SafeImage> with an EMPTY " +
+      "src, which renders this theme's own placeholder." + keepClause(n.shown);
+  }
+  // ── THE FORM FOR A CHANGE THAT BUYS NONE (2026-09-17) ────────────────────
+  //
+  // A BUDGET OF OURS IS NOT A FACT ABOUT THE SITE, and until today the two were
+  // one sentence. The addon passes a literal `images: 0` — correct, and the
+  // rule `budgetFor` exists to keep: this step must never re-buy a set the
+  // owner already has. But it was SAID as *"PHOTOGRAPHS: none on this site"*,
+  // which is false on every site that has any. Measured through the real route
+  // on a site showing two bought photographs: identical sentence.
+  //
+  // AND IT ASKS FOR THE SLOT SHAPE THE PLATFORM ALREADY SHIPS. The zero form
+  // below says "a <SafeImage> with NO src", and the picture rung — the rung
+  // this step hands a photograph request to — fills a slot by rewriting its
+  // `src` attribute, so an element that has none is invisible to it.
+  // MEASURED, both directions: a build whose token was not bought comes out of
+  // `applyImages` as `src=""` and the picture rung sees ONE slot; the shape the
+  // addon asks for reads as ZERO. So the addon was writing the one shape its
+  // own next step cannot fill, and the customer was told to "ask for it on its
+  // own and I'll place it" — a promise the next rung could not keep in one hop.
+  // An EMPTY src and a missing one render identically (`SafeImage` branches on
+  // `!src`), so this costs nothing a visitor can see.
+  //
+  // `!Array.isArray(n)` IS A DECLARED BELT, NOT A WALL, and it is said here
+  // because a sweep cannot say it. The list form above returns on EVERY path —
+  // including its own `!shots.length` fallback — so no array can reach this
+  // line. MEASURED over ten array shapes (empty, one shot, two pages, a null
+  // entry, an entry with no `describe`, a blank `describe`, a bare string, a
+  // repeated shot): byte-identical with the test and with it cut. It stays
+  // because the PAIR is what a reader needs — *arrays are answered above* and
+  // *this branch is objects only* — and reordering the two branches is a
+  // one-line edit that reads as tidying. The sweep drives the two observable
+  // halves of the same property instead: the list branch's own guard, and this
+  // line's `typeof` test, which a number really does fall through.
+  if (n && typeof n === "object" && !Array.isArray(n)) {
+    const lines = ["PHOTOGRAPHS: this change buys none, so do not write any @@IMG:@@ token."];
+    // WHAT THE SITE HAS, said only when it was really read — and now shared
+    // with the PAID form above rather than written out twice, because "what
+    // this site already shows and may not lose" is one fact and a second copy
+    // of it is one that drifts.
+    //
+    // ABSENT IS NORMALISED TO "nobody looked" HERE AND TO SILENCE THERE, and
+    // the two are not the same want. This form's whole subject is what the site
+    // has, so a caller that supplied no inventory has to hear the third
+    // sentence — the recorded "cannot-tell must never read as a value". The
+    // paid form's subject is what to BUY, so with no inventory it says nothing
+    // about the site rather than guessing at it.
+    lines.push(keepClause(n.shown || { known: false }).trim());
+    // AND A SLOT THE NEXT STEP CAN FILL, when the customer asked for a picture.
+    if (n.place) {
+      lines.push("Where this change wants a photograph, write `<SafeImage src=\"\" alt=\"what will be here\" />` — " +
+        "an EMPTY src, never a missing one. That renders this theme's own placeholder now, and it is the slot " +
+        "the picture step fills when they ask for the photograph itself.");
+    } else {
+      lines.push("Any picture this change adds stays a <SafeImage> with an empty src, which renders this theme's " +
+        "own placeholder.");
+    }
+    return lines.join(" ");
   }
   const k = Math.max(0, Math.min(IMAGE_CAP, Math.floor(Number(n)) || 0));
   if (!k) {
@@ -690,10 +953,49 @@ export function imageNote(images) {
   const planned = Math.max(0, Number(i.planned) || 0);
   const budget = Math.max(0, Number(i.budget) || 0);
   const over = Math.max(0, Number(i.overflow) || 0);
-  if (!planned && !made) return "";
+  // ── ASKED FOR AND NEVER EVEN OFFERED TO THE PAGE (2026-09-17) ──────────────
+  //
+  // Owner: *"Carry the full requested photo list separately from the affordable
+  // purchase list. A two-photo request with credits for one must explain that
+  // one was omitted because of the balance. Do not imply a placeholder exists
+  // unless one actually survived publication."*
+  //
+  // REPRODUCED through the real route: two pictures designed, credits for one,
+  // one bought — and the customer heard *"Made 1 photograph for the site."*
+  // with `photos: 0` beside it. Nothing said the second existed, nothing said
+  // why it did not, and nothing they could act on.
+  //
+  // ⚠ IT IS NOT `overflow`, AND WIRING IT THERE WOULD HAVE BEEN THE LIE THE
+  // OWNER'S THIRD SENTENCE NAMES. `overflow` is tokens the writer WROTE beyond
+  // the budget: `applyImages` sweeps each to `src=""`, so a placeholder really
+  // is standing where the picture would have been and *"the other 2 pictures
+  // are placeholders"* is true. These were cut off the list BEFORE the writer
+  // ever saw them, so there is no token, no frame and no space — which is a
+  // different fact needing a different sentence, and the two must not share a
+  // counter.
+  //
+  // THE REASON IS THE CALLER'S TO NAME, which is why this field carries it.
+  // `imagesAffordable` is the one thing that cuts a designed list down before
+  // the page call, and the route says so where it slices; this function cannot
+  // see that and must not infer it from `planned - budget`, which on the build
+  // path is the credits clamp INSIDE the purchase and is already `overflow`.
+  const unaffordable = Math.max(0, Number(i.unaffordable) || 0);
+  if (!planned && !made && !unaffordable) return "";
+  // A SECOND CLAUSE RATHER THAN A SECOND SENTENCE, so every outcome below keeps
+  // its exact words and a change that buys nothing extra is byte-identical.
+  // "weren't enough CREDITS" whatever the count — the verb agrees with the
+  // credits, not with the pictures, and the first cut read "There wasn't enough
+  // credits for the other one."
+  const one = unaffordable === 1;
+  const short = unaffordable
+    ? " There weren't enough credits for the other " + (one ? "one" : unaffordable) + ", so " +
+      (one ? "it isn't" : "they aren't") + " on the site — top up and ask for " + (one ? "it" : "them") +
+      " and I'll add " + (one ? "it" : "them") + "."
+    : "";
   if (made) {
     return "Made " + made + " " + (made === 1 ? "photograph" : "photographs") + " for the site" +
-      (over ? "; the other " + over + " " + (over === 1 ? "picture is a placeholder" : "pictures are placeholders") + "." : ".");
+      (over ? "; the other " + over + " " + (over === 1 ? "picture is a placeholder" : "pictures are placeholders") + "." : ".") +
+      short;
   }
   if (!budget) {
     // TWO CLAMPS PRODUCE THIS ZERO AND THEY NEED OPPOSITE INSTRUCTIONS. The
@@ -722,6 +1024,25 @@ export function imageNote(images) {
     // The affordability clamp, said plainly. Not an error — a build the customer
     // could not otherwise have had is the whole reason it degrades instead of
     // refusing — but silence here reads as the feature being broken.
+    //
+    // ⚠ AND IT ONLY CLAIMS A PLACEHOLDER WHERE ONE REALLY SURVIVED (2026-09-17,
+    // the owner's own constraint). `frames` is the number of empty picture
+    // frames the change really left, counted after the merge and the publish
+    // decisions — so a caller that knows says so, and one that does not passes
+    // nothing and gets exactly the sentence it got before. It is asked HERE and
+    // nowhere else because this is the one branch a page with no token can
+    // reach: `full`, `slow`, `empty` and the error below are all reachable only
+    // once a token was written and swept, so a frame exists there by
+    // construction. The addon is the caller that can be wrong — with nothing
+    // affordable it asks the writer for `<SafeImage src="" …>` and a writer
+    // that ignores that leaves no space at all.
+    //
+    // `short` IS NOT APPENDED IN THIS BRANCH, deliberately: nothing was
+    // affordable, so `unaffordable` is the whole request and the clause would
+    // say the same thing twice in two different ways.
+    if (Number(i.frames) === 0) {
+      return "Not enough credits left over for photographs, so there's no picture there for now.";
+    }
     return "Not enough credits left over for photographs, so the pictures are placeholders for now.";
   }
   // NOBODY DESCRIBED THEM, WHICH IS NOT THE SAME AS OUR FAILING TO MAKE THEM.
@@ -737,7 +1058,7 @@ export function imageNote(images) {
   // empty count means nothing was tried, and a real failure keeps its own
   // sentence.
   if (!i.error && Math.max(0, Number(i.empty) || 0) > 0) {
-    return "The pictures weren't described, so they're placeholders — tell me what each one should show.";
+    return "The pictures weren't described, so they're placeholders — tell me what each one should show." + short;
   }
-  return "Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.";
+  return "Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine." + short;
 }

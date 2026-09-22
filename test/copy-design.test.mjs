@@ -64,8 +64,22 @@ export const Route = createFileRoute("/")({ component: Home });
 function Home() { return null; }`;
   const prices = `import { createFileRoute } from "@tanstack/react-router";\nimport { PriceList } from "@/components/ui/price-list";\nexport const Route = createFileRoute("/prices")({ component: P });\nfunction P() { return null; }`;
   const got = pageComponents([{ path: "index.tsx", source: home }, { path: "prices.tsx", source: prices }, { path: "src/routes/gear.tsx", source: "export const Route = 1;" }]);
-  assert.deepEqual(got["/"], { kit: ["SiteChrome", "TestimonialGrid", "Testimonial", "AvailabilityCalendar", "Button"], parts: ["ChordDiagram"] });
-  assert.deepEqual(got["/prices"], { kit: ["PriceList"], parts: [] });
+  // RE-ANCHORED 2026-09-17: the answer gained `modules`, the kit MODULE names,
+  // which are a different vocabulary from the EXPORT names beside them and are
+  // what `siteComponentApi`'s catalog is keyed on. Both halves are asserted, in
+  // the same call, because the whole reason the third list exists is that the
+  // first cannot stand in for it — `testimonial-grid` exports `TestimonialGrid`
+  // AND `Testimonial`, so the two lists are not even the same length.
+  assert.deepEqual(got["/"], {
+    kit: ["SiteChrome", "TestimonialGrid", "Testimonial", "AvailabilityCalendar", "Button"],
+    parts: ["ChordDiagram"],
+    modules: ["site-chrome", "testimonial-grid", "availability-calendar"],
+  });
+  assert.deepEqual(got["/prices"], { kit: ["PriceList"], parts: [], modules: ["price-list"] });
+  // A SITE'S OWN PART IS NOT A KIT MODULE — `@/routes/-parts/chord-diagram` has
+  // no signature to look up and asking for one would be a name the catalog
+  // answers nothing for.
+  assert.ok(!got["/"].modules.includes("chord-diagram"), "the site's own part was read as a kit module");
   assert.equal(got["/gear"], undefined, "a page importing nothing lists as nothing, never as a guess");
   // An alias is read as the KIT's name — that is what the designer names — and
   // `@/lib/*` is not a component.

@@ -2256,7 +2256,24 @@ test("the addon and page-edit lanes repair invented export names too", () => {
   assert.ok(/import \{[^}]*\brepairImports\b[^}]*\} from "\.\/builder\/page-gen\.mjs"/.test(worker),
     "worker.js calls repairImports without importing it, or does not call it at all");
 
-  const at = [...worker.matchAll(/\bvalidatePages\(/g)].map((m) => m.index);
+  // RE-ANCHORED 2026-09-17: THE SUBJECT IS A LANE VALIDATING WHAT A MODEL JUST
+  // WROTE, and a third call site now validates pages this route has ALREADY
+  // repaired — the addon re-asks validate over what survives when a page is
+  // withheld with a dead QR code, so a link into a withheld route is rewritten
+  // instead of published dangling.
+  //
+  // TOLD APART BY WHAT THEY ARE HANDED, which is the real distinction rather
+  // than a spelling: a fresh lane is given a generation result, the repair pass
+  // is given a `{ pages: … }` literal it built itself. And the exemption is
+  // CENSUSED both ways — exactly one such call, and a `repairImports(` must
+  // occur BEFORE it, so "already repaired" is asserted rather than claimed.
+  const all = [...worker.matchAll(/\bvalidatePages\(/g)].map((m) => m.index);
+  const overOwn = all.filter((i) => /^validatePages\(\s*\{\s*pages:/.test(worker.slice(i, i + 40)));
+  assert.equal(overOwn.length, 1,
+    "expected exactly one re-validation of pages this route already repaired, found " + overOwn.length);
+  assert.ok(worker.lastIndexOf("repairImports(", overOwn[0]) > 0,
+    "the re-validation at offset " + overOwn[0] + " is not preceded by a repair, so its pages are not already repaired");
+  const at = all.filter((i) => !overOwn.includes(i));
   assert.ok(at.length >= 2,
     "found " + at.length + " validatePages call sites in worker.js — the scan is not seeing the lanes");
   for (const i of at) {

@@ -98,7 +98,13 @@ test("rewroteMsg names the page and the words it would have lost, and says nothi
 test("THE WALL: the addon route refuses a changed page that lost words — after the merge, before the gate and the bill, for nothing", () => {
   assert.match(worker, /import \{ runTweak, keptProse \} from "\.\/builder\/site-tweak\.mjs";/, "keptProse is not the tweak rung's own reading");
   assert.match(worker, /import \{[^}]*\brewroteMsg\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "the sentence is not the add step's own");
-  const route = between(worker, "const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);", 'const aGatePub = aJob ? aJob.gate("build") : null;', "the addon's merge-to-gate stretch");
+  // RE-ANCHORED 2026-09-17, TWICE. First `const` became `let` (a dead QR code
+  // withholds a page and the route RE-MERGES what survives); then the merge
+  // gained an honest fourth argument and this went red again on a change it is
+  // not about. THE LANDMARK IS THE ASSIGNMENT — this is a window OPENER and an
+  // argument list was never part of its claim. The stretch it names is unchanged
+  // by both. Recorded: "assert the property, not the spelling".
+  const route = between(worker, "aMerge = mergeAddonPages(", 'const aGatePub = aJob ? aJob.gate("build") : null;', "the addon's merge-to-gate stretch");
   const wall = between(route, "const aWas = new Map(", "// ── MAY THIS STILL PUBLISH?", "the wall");
   // After every merge refusal and escalate, before the gate and the bill.
   assert.ok(route.indexOf("if (!aMerge.ok) return aEscalate(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");

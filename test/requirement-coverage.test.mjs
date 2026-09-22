@@ -592,6 +592,45 @@ test("HOP 6b: the browser prints the server's sentence and composes none of its 
   // server fills, and the server is still the only composer.
   assert.match(W, /coverNote: \[\n\s*requirementNote\(/, "the server sends a field the browser does not read");
   assert.match(W, /missingPagesNote\(aMissing\),/, "the missing-page sentence never reaches the field the browser prints");
+  // …AND A THIRD, 2026-09-17: what went WITH a missing page. A new QR code
+  // pointing at a page that did not survive is dropped before anything is
+  // stored, and the customer hears it beside the page's own sentence rather
+  // than discovering it by scanning the code.
+  assert.match(W, /deadQrNote\(aDeadQr\),/, "the dead-QR sentence never reaches the field the browser prints");
+  // ── AND THE SECOND SENTENCE THAT FOLLOWS THIS RULE (2026-09-17) ──────────
+  //
+  // A component the page writer was not shown and would have replaced: the
+  // decision is entirely the server's, because it is the only thing that knows
+  // which component sources fitted in the request. Asserted on BOTH sides for
+  // the reason above — either alone is half a wire — and the browser must
+  // compose nothing of its own about it, which is what the third assertion is:
+  // the only sentence in that file naming a kept component is the one it
+  // prints verbatim.
+  assert.match(C, /if \(typeof a\.keptPartsNote === 'string' && a\.keptPartsNote\) out \+= ' ' \+ a\.keptPartsNote;/,
+    "the addon reply does not say a component was kept rather than replaced");
+  // RE-ANCHORED 2026-09-17 onto the PROPERTY, because an honest second
+  // composer moved the spelling. There are two reasons a returned component is
+  // refused and they need different sentences — one named component too long
+  // to carry, and a component store that could not be read at all — so the
+  // field the browser prints is filled from either. Read as the composers
+  // reaching that one field, never as one call's exact text.
+  // …AND RE-ANCHORED AGAIN 2026-09-17, for the same reason one turn later: a
+  // THIRD composer joined it — a PAGE the window could not carry and would
+  // therefore have been replaced unseen — so the field is an array join rather
+  // than one line and a single-line window could not see it. WINDOWED TO THE
+  // NEXT SIBLING, never sized, and the three composers are asserted by name.
+  const knAt = W.indexOf("keptPartsNote: [");
+  assert.ok(knAt > 0, "the server sends no sentence for the field the browser prints");
+  const knEnd = W.indexOf("problems:", knAt);
+  assert.ok(knEnd > knAt, "the sentence block runs past the field that follows it — rescope this");
+  const kn = W.slice(knAt, knEnd);
+  assert.ok(kn.includes("keptPartsNote(aKeptParts)"), "the too-long sentence is not composed: " + kn);
+  assert.ok(kn.includes("unseenPartsNote(aUnseenParts)"), "a store that could not be read gets no sentence of its own: " + kn);
+  assert.ok(kn.includes("unseenPagesNote(aRewrote)"), "a page nobody was shown gets no sentence of its own: " + kn);
+  assert.doesNotMatch(C, /too long for me to read in one go/, "the browser composes its own kept-component sentence");
+  assert.doesNotMatch(C, /couldn't load the components/, "the browser composes its own unreadable-store sentence");
+  assert.doesNotMatch(C, /a code that opens nothing/, "the browser composes its own dead-QR sentence");
+  assert.doesNotMatch(C, /won't write over a page I haven't read/, "the browser composes its own unseen-page sentence");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1206,6 +1245,25 @@ test("the developer record keeps everything the customer is not told", () => {
   assert.deepEqual(rec.counts, { total: 2, covered: 1, elsewhere: 1, unsupported: 0, unreadable: 1,
     delivered: 0, configured: 0, unverified: 0, unknown: 2, missing: 0, blocked: 0, failed: 0 });
   assert.deepEqual(rec.requirements.map((r) => r.state), ["unknown", "unknown"]);
+
+  // ── THREE FINDINGS THAT REACHED THE REPLY AND NOT THE RECORD (2026-09-17) ──
+  //
+  // ⚠ THE FIRST TWO WERE PASSED IN AND DROPPED. The addon route has handed
+  // `missingPages` and `unknownKit` to this function since each was written and
+  // neither was in the destructure — measured, both answered `undefined`. So a
+  // page that did not survive and a kit name that is not in the kit were on the
+  // reply and absent from the thing anybody comes back to. The third is the
+  // pages a large site's prompt window could not carry.
+  const carried = requirementRecord({
+    list: [], missingPages: ["/gallery"], unknownKit: ["not-a-kit-part"], unseenPages: ["src/routes/about.tsx"],
+  });
+  assert.deepEqual(carried.missingPages, ["/gallery"], "a page that did not survive is on the reply and not the record");
+  assert.deepEqual(carried.unknownComponents, ["not-a-kit-part"], "a kit name that is not a kit name never reaches the record");
+  assert.deepEqual(carried.unseenPages, ["src/routes/about.tsx"], "what the prompt window could not carry never reaches the record");
+  // …AND AN ORDINARY CHANGE CARRIES THREE EMPTY LISTS rather than three absent
+  // keys, so a reader can tell "nothing was dropped" from "this record predates
+  // the field".
+  assert.deepEqual([rec.missingPages, rec.unknownComponents, rec.unseenPages], [[], [], []]);
   // …AND THE CONTROL THAT KEEPS `unknown` FROM BEING A NEW DEFAULT: give the
   // same `covered` entry something real to reconcile against and it moves. A
   // record where every state collapses to one is not a reader, it is a stamp.
@@ -1729,6 +1787,10 @@ test("the reconciliation clears only the requirement it names", async () => {
 test("reconciliation refuses the three shapes that would launder a verdict", async () => {
   const m = await import("../builder/site-requirements.mjs");
   const NEED = "That count runs every night at 11";
+  // EVERY ANSWER CARRIES `from: "job"`, because the hand-off names that step and
+  // an answer from anywhere else is refused before any of these three are asked.
+  // These fixtures omitted it while nothing read it, and the step check is what
+  // made the omission matter — a fake less specified than the real thing.
   const handed = { need: NEED, status: "elsewhere", step: "job", from: "function", id: "function#0" };
   const ho = (outs) => outs.find((r) => r.status === "elsewhere");
 
@@ -1739,15 +1801,15 @@ test("reconciliation refuses the three shapes that would launder a verdict", asy
   //    be skipped by the state test as well, so the implementation test would
   //    never be reached and cutting it would change nothing — which is exactly
   //    the survivor that sent this case back. One reason to skip at a time.
-  const unfound = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "configured", implementation: "absent", id: "job#0" }]);
+  const unfound = m.reconcileHandoffs([handed, { status: "covered", from: "job", answers: "function#0", state: "configured", implementation: "absent", id: "job#0" }]);
   assert.equal(ho(unfound).state, undefined, "an answer nobody could verify must not reconcile");
-  const control = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "configured", implementation: "found", implementedBy: "j", id: "job#0" }]);
+  const control = m.reconcileHandoffs([handed, { status: "covered", from: "job", answers: "function#0", state: "configured", implementation: "found", implementedBy: "j", id: "job#0" }]);
   assert.equal(ho(control).state, "configured", "…and the same entry WITH its implementation found does reconcile, or the line above forbids nothing");
 
   // 2. AN `unsupported` ANSWER — the step saying it could NOT — must not
   //    settle what it was asked for. (The cleaner drops `answers` there too,
   //    which is the belt; this is the wall.)
-  const refused = m.reconcileHandoffs([handed, { status: "unsupported", answers: "function#0", state: "failed", implementation: "found", id: "job#0" }]);
+  const refused = m.reconcileHandoffs([handed, { status: "unsupported", from: "job", answers: "function#0", state: "failed", implementation: "found", id: "job#0" }]);
   assert.equal(ho(refused).state, undefined, "a step that refused must not reconcile the hand-off it refused");
   assert.equal(m.cleanRequirements([{ need: "x", status: "unsupported", why: "no", answers: "function#0" }], "job").list[0].answers, undefined,
     "the cleaner must not keep an echo on a refusal");
@@ -1756,11 +1818,11 @@ test("reconciliation refuses the three shapes that would launder a verdict", asy
   //    entry that reached `delivered` hands the hand-off `configured`: the
   //    hand-off is evidence about what was SET UP, and behaviour is the
   //    answering entry's own claim to make.
-  const deliv = m.reconcileHandoffs([handed, { status: "covered", answers: "function#0", state: "delivered", implementation: "found", implementedBy: "j", kind: "job", id: "job#0" }]);
+  const deliv = m.reconcileHandoffs([handed, { status: "covered", from: "job", answers: "function#0", state: "delivered", implementation: "found", implementedBy: "j", kind: "job", id: "job#0" }]);
   assert.equal(ho(deliv).state, "configured", "a delivered answer must cap the hand-off at configured");
 
   // AND AN ECHO NAMING NOTHING reconciles nothing rather than matching loosely.
-  const stray = m.reconcileHandoffs([handed, { status: "covered", answers: "function#9", state: "configured", implementation: "found", id: "job#0" }]);
+  const stray = m.reconcileHandoffs([handed, { status: "covered", from: "job", answers: "function#9", state: "configured", implementation: "found", id: "job#0" }]);
   assert.equal(ho(stray).state, undefined);
 });
 
@@ -1787,4 +1849,144 @@ test("a scheduled job says the schedule is set and its automatic running is not 
   const n2 = m.requirementNote(tbl, { told: [], made: [{ kind: "table", name: "bookings", holds: ["collect"], fails: [], checked: [] }], reportable: ["table"] });
   assert.match(n2, /I've set that up, but I can't confirm/);
   assert.doesNotMatch(n2, /Scheduled as you asked/);
+});
+
+test("an echoed id cannot overwrite a known dependency failure", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  // THE OWNER'S REPRODUCTION (2026-09-16). A hand-off naming a job the database
+  // REFUSED reads `blocked`; an answering entry naming a DIFFERENT job that
+  // applied, echoing the id, overwrote it — and the customer was told
+  // "scheduled as you asked" about work that had failed.
+  const MADE = [{ kind: "job", name: "good_job", holds: ["1440", "23:00"], fails: [], checked: [] }];
+  const OPTS = { told: ["job"], made: MADE, reportable: ["job", "function"],
+                 failedItems: [{ kind: "job", name: "broken_job" }], failed: ["job"] };
+  const NEED = "The nightly reminder goes out";
+  const list = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job", item: "broken_job" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "good_job at 23:00", kind: "job", item: "good_job", answers: "function#0" }], "job").list,
+  ];
+  const out = m.requirementOutcomes(list, OPTS);
+  const ho = out.find((r) => r.status === "elsewhere");
+  assert.equal(ho.state, "blocked", "a known dependency failure must survive an echoed id");
+  assert.equal(ho.reconciledBy, undefined);
+  assert.match(ho.why, /broken_job/, "and must still name the thing that failed");
+
+  // AND THE ANSWER DOES NOT SPEAK OVER THE FINDING. Refusing to reconcile is
+  // half of it; the answering entry is still `configured` and carries the same
+  // need in its own words, so without this the customer hears both "waiting on
+  // another part that didn't work" AND "scheduled as you asked" about one
+  // sentence — and the reassuring half is the wrong one to leave standing.
+  const note = m.requirementNote(list, OPTS);
+  assert.match(note, /waiting on another part of the same change that didn't work/);
+  assert.doesNotMatch(note, /Scheduled as you asked/, "the answer must not report success over a failure it was refused against");
+  assert.equal(note.split(NEED).length - 1, 1, `one need, one sentence — got: ${note}`);
+  // THE RECORD KEEPS BOTH, which is what makes this a reporting decision rather
+  // than a deletion: the developer can still see what each designer said.
+  const ans = out.find((r) => r.status === "covered");
+  assert.equal(ans.state, "configured");
+  assert.equal(ans.overruledBy, "function#0");
+  assert.equal(ans.overruledAs, "blocked");
+
+  // ── AND THE STATE GUARD IS ISOLATED, because in the case above the REFERENCE
+  // check stops it too — two walls, and a sweep mutant proved they could not be
+  // killed one at a time. Here the hand-off names NO item, so `referenceOf` is
+  // null and that check passes; the step it was handed to failed, so the state
+  // is `blocked` and the state guard is the only thing left standing.
+  const noRef = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "good_job at 23:00", kind: "job", item: "good_job", answers: "function#0" }], "job").list,
+  ];
+  const alone = m.requirementOutcomes(noRef, { told: ["job"], made: MADE, reportable: ["job", "function"], failed: ["job"], failedItems: [{ kind: "job", name: "other_job" }] });
+  const hoAlone = alone.find((r) => r.status === "elsewhere");
+  assert.equal(m.referenceOf(noRef[0]), null, "this case is only meaningful while the hand-off names nothing to check");
+  assert.equal(hoAlone.state, "blocked", "a hand-off to a step that failed is blocked");
+  assert.equal(hoAlone.reconciledBy, undefined, "and an echo must not overwrite it, with no reference check to fall back on");
+
+  // ── THE OVERRULE IS ARMED BY A REFUSED ANSWER, NEVER BY A BLOCKED HAND-OFF ──
+  //
+  // A sweep survivor is why this is here. The silencing exists for an answer
+  // that WOULD have reconciled and was refused over a finding; an entry that
+  // could never have reconciled — its own implementation was not found — is not
+  // that answer, it is an independent `missing` finding about its OWN item, and
+  // losing it would cost the customer a "Still to do" they can act on.
+  // `answering` is what tells those apart, so the arming reads it.
+  const NEED_B = "Bookings are stored";
+  // BOTH HAND-OFFS COME OUT OF ONE `cleanRequirements` CALL, because the id is
+  // `<owner>#<position in THIS list>` — two separate calls would stamp both
+  // `function#0`, and the second echo would be a stray one. A fixture that mints
+  // its ids the way the product does is the only one whose echoes mean anything.
+  const mixed = [
+    ...m.cleanRequirements([
+      { need: NEED, status: "elsewhere", step: "job", item: "broken_job" },   // function#0 → blocked
+      { need: NEED_B, status: "elsewhere", step: "table" },                   // function#1 → answered
+    ], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "ghost_job", kind: "job", item: "ghost_job", answers: "function#0" }], "job").list,
+    ...m.cleanRequirements([{ need: NEED_B, status: "covered", by: "bookings", kind: "table", item: "bookings", answers: "function#1" }], "table").list,
+  ];
+  const MOPTS = { told: ["job", "table"], reportable: ["job", "function", "table"], failed: ["job"],
+                  failedItems: [{ kind: "job", name: "broken_job" }],
+                  made: [{ kind: "table", name: "bookings", holds: ["collect"], fails: [], checked: [] }] };
+  const mo = m.requirementOutcomes(mixed, MOPTS);
+  const ghost = mo.find((r) => r.item === "ghost_job");
+  // THIS CASE IS ABOUT THE ARMING, not about WHICH disqualifier applies — so it
+  // asserts only that the entry is disqualified, which is what keeps it out of
+  // `answering`. (Nothing here made a `ghost_job`, so its implementation is not
+  // `found` and its state is not reconcilable; either alone is enough.)
+  assert.notEqual(ghost.implementation, "found", "this case is only meaningful while that answer could never have reconciled");
+  assert.ok(!["delivered", "configured", "unverified"].includes(ghost.state), `…nor reached a reconcilable state — got ${ghost.state}`);
+  assert.equal(ghost.overruledBy, undefined, "an entry that was never an answer must not be silenced by a blocked hand-off");
+  const mnote = m.requirementNote(mixed, MOPTS);
+  assert.match(mnote, /Still to do/, "and its own finding must still reach the customer");
+  assert.equal(mnote.split(NEED_B).length - 1, 1, `the answered hand-off is still said once — got: ${mnote}`);
+});
+
+test("an answer is refused when it comes from the wrong step or names a different thing", async () => {
+  const m = await import("../builder/site-requirements.mjs");
+  // MIRRORS RUN 50: the claim names the schedule and the applied job holds it,
+  // so the answer is `configured` and the cap has something to cap.
+  const MADE = [{ kind: "job", name: "good_job", holds: ["1440", "23:00"], fails: [], checked: [] }];
+  const OPTS = { told: ["job"], made: MADE, reportable: ["job", "function"] };
+  const NEED = "X happens nightly";
+  const ho = (l) => m.requirementOutcomes(l, OPTS).find((r) => r.status === "elsewhere");
+
+  // THE ANSWER MUST COME FROM THE STEP THE REQUEST WAS ADDRESSED TO.
+  const wrongStep = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "good_job at 23:00", kind: "job", item: "good_job", answers: "function#0" }], "page").list,
+  ];
+  assert.equal(ho(wrongStep).reconciledBy, undefined, "a step that was never asked must not answer");
+
+  // AND WHERE THE REQUEST NAMED ITS OWN THING, THE ANSWER MUST BE THAT THING.
+  const wrongItem = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job", item: "other_job" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "good_job at 23:00", kind: "job", item: "good_job", answers: "function#0" }], "job").list,
+  ];
+  assert.equal(ho(wrongItem).reconciledBy, undefined, "an answer about a different item is not an answer");
+
+  // ── AND THE KIND IS HALF THE IDENTITY, which a sweep survivor is why. A name
+  // alone collides: `bookings` is the commonest thing on this platform to be a
+  // table AND the thing a job is named after, so an answer naming an applied
+  // TABLE would have settled a request for a JOB. This is the `{kind, name}`
+  // identity this file already records, met one function later.
+  // THE TWO LISTS ARE IDENTICAL AND ONLY THE ANSWER'S OWN KIND MOVES, so the
+  // control is about the kind and not about which items exist.
+  const BOTH = [
+    { kind: "table", name: "bookings", holds: ["collect"], fails: [], checked: [] },
+    { kind: "job", name: "bookings", holds: ["1440", "23:00"], fails: [], checked: [] },
+  ];
+  const kindPair = (k) => m.requirementOutcomes([
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job", item: "bookings" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "bookings at 23:00", kind: k, item: "bookings", answers: "function#0" }], "job").list,
+  ], { told: ["job"], made: BOTH, reportable: ["job", "function", "table"] }).find((r) => r.status === "elsewhere");
+  assert.equal(kindPair("table").reconciledBy, undefined, "a table named like the job must not answer a request for the job");
+  assert.equal(kindPair("job").reconciledBy, "job#0", "…and the same answer as a JOB does reconcile, or the line above forbids nothing");
+
+  // RUN 50'S LEGITIMATE CASE IS THE CONTROL AND MUST STILL WORK: the hand-off
+  // named NO item, so there is nothing to contradict and the echo stands.
+  const unnamed = [
+    ...m.cleanRequirements([{ need: NEED, status: "elsewhere", step: "job" }], "function").list,
+    ...m.cleanRequirements([{ need: NEED, status: "covered", by: "good_job at 23:00", kind: "job", item: "good_job", answers: "function#0" }], "job").list,
+  ];
+  assert.equal(ho(unnamed).reconciledBy, "job#0", "an unnamed hand-off answered by its own step must still reconcile");
+  assert.equal(ho(unnamed).state, "configured");
 });

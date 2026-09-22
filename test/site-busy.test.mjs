@@ -641,10 +641,28 @@ test("the editable copy: four editing readers read through the repairing reader,
   // copy would make a site busy for drawing a dropdown — and it is drawn on
   // every workspace render. The property is still "every read that goes on to
   // PUBLISH goes through the repairing reader"; the count is what moved.
-  const bare = [...W.matchAll(/(?<!function )\bloadSiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  assert.equal(bare.length, 6, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
-  assert.ok(bare.includes("loadSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
+  // RE-ANCHORED AGAIN 2026-09-18, AND THIS ONE IS A HOLE RATHER THAN A COUNT.
+  // The Code tab's read moved onto `readSiteSource` — the three-state reader
+  // whose `{ok, pages, why}` is what lets `/api/site/source` say which of its
+  // stores it really reached. `loadSiteSource` is now a WRAPPER over it, so
+  // there are TWO bare, non-repairing readers in the file and a census that
+  // counts only one of them is a wall a publishing read can walk around: move
+  // `let eSrc = …` onto `readSiteSource` and nothing here notices. Both are
+  // counted, and the property is unchanged — every read that goes on to PUBLISH
+  // goes through the repairing reader, and every bare one is argued for here.
+  const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
+  assert.equal(bare.length, 7, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
+  // 6 → 7 AND THE SEVENTH IS THE WRAPPER'S OWN DELEGATION, measured rather than
+  // reasoned about: `loadSiteSource` used to hold the R2 get itself and now
+  // calls `readSiteSource`, so its body is a match the census sees. It is a
+  // DEFINITION rather than a caller, which is why it is named here — a count
+  // nobody can reproduce by reading the file is a count that drifts.
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 2,
+    "the two reads through the three-state reader are not the wrapper's and the Code tab's: " + bare.join(" | "));
+  assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
+    "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");
   assert.match(wrap, /try \{ await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not repair before it reads, or a failed check costs the read");
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);

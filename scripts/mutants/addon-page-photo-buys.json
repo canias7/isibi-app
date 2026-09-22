@@ -1,0 +1,340 @@
+[
+  {
+    "label": "CONTROL: a comment only, above the photo kind's own entry",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  // ── THE PICTURE RUNG FILLS A SLOT; THIS STEP MAKES ONE (2026-09-17) ───────",
+    "to": "  // ── THE PICTURE RUNG FILLS A SLOT (control); THIS STEP MAKES ONE ─────────",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment only, above the route's purchase",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED, IN THIS SAME REQUEST ──",
+    "to": "            // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED (control), SAME REQUEST ──",
+    "control": true
+  },
+  {
+    "label": "the reported defect: a photograph beside a page is set aside again",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;",
+    "to": "  return layer;"
+  },
+  {
+    "label": "a photograph ALONE is designed here, taking the picture rung's work and its refusals",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;",
+    "to": "  return null;"
+  },
+  {
+    "label": "any company at all designs it here, so a photograph beside a table is bought",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;",
+    "to": "  return all.length > 1 ? null : layer;"
+  },
+  {
+    "label": "the placing rule reaches every dispatched kind, not the ones with a tool",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (!layer || !placing.includes(kind)) return layer;",
+    "to": "  if (!layer) return layer;"
+  },
+  {
+    "label": "a malformed kind list is read as designing here, which fails OPEN",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const all = Array.isArray(kinds) ? kinds : [];",
+    "to": "  const all = Array.isArray(kinds) ? kinds : MAKES_PAGES;"
+  },
+  {
+    "label": "a component does not make a place for a picture",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export const MAKES_PAGES = [\"page\", \"component\"];",
+    "to": "export const MAKES_PAGES = [\"page\"];"
+  },
+  {
+    "label": "the placing group takes the kinds with a tool and no layer, so a photograph is never designed here",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export const PLACING_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && ADDS[k].shape);",
+    "to": "export const PLACING_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere && ADDS[k].shape);"
+  },
+  {
+    "label": "the cleaner refuses a kind that names a layer, so the designed picture is thrown away",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (typeof kind !== \"string\" || !Object.hasOwn(ADDS, kind) || !ADDS[kind].shape) return { ok: false, why: \"no-kind\" };",
+    "to": "  if (typeof kind !== \"string\" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: \"no-kind\" };"
+  },
+  {
+    "label": "the tool is refused for a kind that names a layer, so the designer can never be asked",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (!add.shape) throw new Error(\"addTool: `\" + kind + \"` does not act here",
+    "to": "  if (add.elsewhere) throw new Error(\"addTool: `\" + kind + \"` does not act here"
+  },
+  {
+    "label": "a picture on a page nobody has is moved somewhere rather than refused",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      case \"photo\": {\n        const page = onPage(v.page);\n        if (!page) return { ok: false, why: \"no-page\" };",
+    "to": "      case \"photo\": {\n        const page = onPage(v.page) || \"/\";\n        if (!page) return { ok: false, why: \"no-page\" };"
+  },
+  {
+    "label": "an undescribed picture is kept, so a token with nothing in it reaches the spend path",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const describe = str(v.describe, MAX_PROMPT_CHARS);\n        if (!describe) return { ok: false, why: \"no-photo\" };",
+    "to": "        const describe = str(v.describe, MAX_PROMPT_CHARS);\n        if (false) return { ok: false, why: \"no-photo\" };"
+  },
+  {
+    "label": "the description is not bounded, so it disagrees with what reaches the image model",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        const describe = str(v.describe, MAX_PROMPT_CHARS);\n        if (!describe) return { ok: false, why: \"no-photo\" };",
+    "to": "        const describe = str(v.describe, 100000);\n        if (!describe) return { ok: false, why: \"no-photo\" };"
+  },
+  {
+    "label": "the photo tool's cap is its own number rather than the platform's",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      : kind === \"photo\" ? IMAGE_CAP",
+    "to": "      : kind === \"photo\" ? 12"
+  },
+  {
+    "label": "the fold drops the shot list, so the route has nothing to ask for",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    if (a.kind === \"photo\" && v.page && v.describe &&\n        !photos.some((p) => p.page === v.page && p.describe === v.describe)) {",
+    "to": "    if (false) {"
+  },
+  {
+    "label": "the fold dedupes on the PAGE alone, so a second picture on one page is lost",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "        !photos.some((p) => p.page === v.page && p.describe === v.describe)) {",
+    "to": "        !photos.some((p) => p.page === v.page)) {"
+  },
+  {
+    "label": "the shot list joins the STORED look, so the next edit re-buys the same pictures",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return { designed, components, directive: blocks.filter(Boolean).join(\"\\n\\n\"), files, requirements, photos };",
+    "to": "  if (photos.length) designed.photos = photos;\n  return { designed, components, directive: blocks.filter(Boolean).join(\"\\n\\n\"), files, requirements, photos };"
+  },
+  {
+    "label": "the photograph gets a directive block of its own, so one picture is described twice",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    case \"photo\":\n      break;",
+    "to": "    case \"photo\":\n      out.push(\"## The photograph you are adding\");\n      out.push(\"- On \" + at(v.page) + \": \" + v.describe + \".\");\n      break;"
+  },
+  {
+    "label": "the route asks the kind's own layer, so the message cannot decide it",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));",
+    "to": "            const aSkipped = aKinds.filter((k) => addLayer(k));"
+  },
+  {
+    "label": "the loop gate asks the kind's own layer, so the designed kind is reported as skipped",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (addLayerIn(k, aKinds)) continue;",
+    "to": "              if (addLayer(k)) continue;"
+  },
+  {
+    "label": "the balance is never read, so nothing is ever affordable",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);",
+    "to": "              aBalance = 0;"
+  },
+  {
+    "label": "the shot list is not cut by the balance, so the writer is shown tokens nothing will buy",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));",
+    "to": "            const aShots = aFold.photos.slice(0);"
+  },
+  {
+    "label": "the writer is never given the chosen shots, so it writes no token and nothing is bought",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                images: aShots.length\n                  ? aShots",
+    "to": "                images: false\n                  ? aShots"
+  },
+  {
+    "label": "the belt sweeps on the buying branch too, stripping the tokens the purchase is for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aShots.length) {\n              aValid.pages = applyImages(aValid.pages, {});",
+    "to": "            if (true) {\n              aValid.pages = applyImages(aValid.pages, {});"
+  },
+  {
+    "label": "the belt never sweeps, so a token written against the ban ships as text",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aShots.length) {\n              aValid.pages = applyImages(aValid.pages, {});",
+    "to": "            if (false) {\n              aValid.pages = applyImages(aValid.pages, {});"
+  },
+  {
+    "label": "nothing is ever bought, so the whole capability is unreachable from the route",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aShots.length) {\n              try {\n                aPhotos = await buySitePhotos(env, {",
+    "to": "            if (false) {\n              try {\n                aPhotos = await buySitePhotos(env, {"
+  },
+  {
+    "label": "the swept pages are thrown away, so the published page keeps the raw token",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aMerge = { ...aMerge, pages: aPhotos.pages };\n                if (aParts) aParts = aPhotos.parts;",
+    "to": "                if (aParts) aParts = aPhotos.parts;"
+  },
+  {
+    "label": "the purchase reads the answer rather than the publication, so a withheld page is paid for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],",
+    "to": "                  slug: ownerSlug, pages: aValid.pages, parts: aParts || [],"
+  },
+  {
+    "label": "the stored components are handed in for the sweep, so a file this change never touched is rewritten",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],",
+    "to": "                  slug: ownerSlug, pages: aMerge.pages, parts: aParts || aPartsRead.parts,"
+  },
+  {
+    "label": "a provider that throws leaves the token in the page",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };\n                if (aParts) aParts = applyImages(aParts, new Map());",
+    "to": "                if (aParts) aParts = applyImages(aParts, new Map());"
+  },
+  {
+    "label": "the pictures are billed on what was PLANNED rather than what arrived",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;",
+    "to": "              aPhotoBill = aShots.length ? { images: aShots.length } : null;"
+  },
+  {
+    "label": "the synchronous bill drops the pictures, so a photograph costs nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "...aRepairUsage, ...aLangUsage, aPhotoBill));",
+    "to": "...aRepairUsage, ...aLangUsage));"
+  },
+  {
+    "label": "a job's reserve is not added to the reply's cost, so the customer is told the wrong price",
+    "files": [
+      "worker.js"
+    ],
+    "from": "+ aLangCharged + aPhotoCharged;",
+    "to": "+ aLangCharged;"
+  },
+  {
+    "label": "the reply never says a picture was made",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              pictures: aPhotos && aPhotos.made ? aPhotos.made : undefined,",
+    "to": "              pictures: undefined,"
+  },
+  {
+    "label": "`pictures` is what was asked for rather than what arrived",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              pictures: aPhotos && aPhotos.made ? aPhotos.made : undefined,",
+    "to": "              pictures: aShots.length || undefined,"
+  },
+  {
+    "label": "the picture sentence is dropped, so four different outcomes read as the same silence",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              pictureNote: imageNote(aPhotos || (aFold.photos.length ? { planned: aFold.photos.length, made: 0, budget: 0 } : null)) || undefined,",
+    "to": "              pictureNote: imageNote(aPhotos) || undefined,"
+  },
+  {
+    "label": "a slot is only left for the hand-off, so an unaffordable picture publishes with nowhere to go",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    place: aSkipped.includes(\"photo\") || aKinds.includes(\"photo\"),",
+    "to": "                    place: aSkipped.includes(\"photo\"),"
+  },
+  {
+    "label": "every addon is told to leave picture slots, whether or not one was asked for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    place: aSkipped.includes(\"photo\") || aKinds.includes(\"photo\"),",
+    "to": "                    place: true,"
+  },
+  {
+    "label": "the browser drops the server's picture sentence",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (a.pictureNote) out += ' ' + a.pictureNote;",
+    "to": "  if (false) out += ' ' + a.pictureNote;"
+  },
+  {
+    "label": "the browser keeps its own copy of what a picture outcome means",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (a.pictureNote) out += ' ' + a.pictureNote;",
+    "to": "  if (a.pictures) out += ' Made ' + a.pictures + ' photograph for the site.';"
+  },
+  {
+    "label": "the placing group's default is empty, so nothing is ever designed here",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "export function addLayerIn(kind, kinds, placing = PLACING_ADDS) {",
+    "to": "export function addLayerIn(kind, kinds, placing = []) {"
+  }
+]

@@ -25,7 +25,26 @@
 // `fixtures/addon-route.mjs`.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addon, promptFor, storedAnswer, writtenPage, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+import { addon, promptFor, pagePrompt, storedAnswer, writtenPage, storedPage, addedTo, compiledPages, STORED_SCHEMA } from "./fixtures/addon-route.mjs";
+// THE BOUND THE PARTS WALL RESTS ON, taken from the product rather than typed:
+// a case that hardcoded "12001 characters is too big" would be a second copy of
+// `MAX_PART_CHARS` and would pass silently the day the real one moved.
+import { MAX_PART_CHARS, MAX_PRIOR_CHARS, validatePages } from "../builder/page-gen.mjs";
+// `routeOf` IS THE PRODUCT'S OWN, so a case naming a page's route derives it
+// the way every reader does rather than spelling it beside the file name.
+import { routeOf, addonReply } from "../builder/site-addon.mjs";
+// THE PLATFORM'S OWN PHOTOGRAPH CEILING and the add step's own cleaner, so a
+// case about "more pictures than we will buy" derives the number from the spend
+// path rather than restating it.
+import { IMAGE_CAP } from "../builder/site-images.mjs";
+import { THEME_IDS } from "../builder/site-theme-registry.mjs";
+import { cleanAdd } from "../builder/site-add.mjs";
+// REAL GENERATED PAGES, so "a site too large to show whole" is real source
+// rather than padding — the same corpus a dozen false-alarm checks measure
+// against, and the one place these files are reached from.
+import fs from "node:fs";
+import path from "node:path";
+import { CORPUS_DIR } from "./fixtures/corpus.mjs";
 import { existingFacts } from "../builder/site-add.mjs";
 import { SITE_KINDS, OPAQUE_KINDS } from "../builder/site-requirements.mjs";
 // THE REAL EMITTERS AND THE PRODUCT'S OWN READERS, so a catalog fixture below
@@ -1417,8 +1436,21 @@ test("a kind this layer cannot see is UNKNOWN, never missing and never 'set up' 
     need: "The page carries a note saying where the total comes from",
     status: "elsewhere", step: "component", item: "SourceNote",
   };
+  // RE-ANCHORED 2026-09-17: the fixture placed the section on `/status`, a
+  // route this site did not have, and the one-page shortcut swallowed the
+  // name and built it on `/`. The case is about `component` being OPAQUE, not
+  // about where it lands, so the site is given the page it names rather than
+  // the destination being quietly changed — an appeasement that keeps a check
+  // green while saying something other than what it meant.
+  // …AND RE-ANCHORED AGAIN 2026-09-17, for the second half of the same trap.
+  // With the stored pages in the shape a site really holds, this case's page
+  // is `changed` rather than a duplicate ADD — so `keptProse` arms, and the
+  // DEFAULT written page (a different site's words) loses everything the
+  // stored one said. `addedTo` is what an addon really returns: the page as it
+  // stands, plus the new thing.
   const r = await addon("fw-unseeable", "add a note under the booking total", {
-    kinds: ["function", "component"], publishes: true,
+    kinds: ["function", "component"], publishes: true, sitePages: ["/", "/status"],
+    written: [addedTo("/status", "<p>Where the total comes from.</p>")],
     answers: {
       function: { function: [{ ...COUNT_FN, internal: true, body: "BEGIN RETURN 1; END;" }], requirements: [NEEDS_SECTION] },
       component: { component: [{ page: "/status", does: "a line saying where the total comes from", components: ["card"] }] },
@@ -2258,4 +2290,2671 @@ test("BYPASS: a claim's recorded configuration comes off the item it REFERENCES,
   const note = r.body.coverNote || "";
   assert.match(note, /can't confirm from here that/, "neither claim reached the customer: " + note);
   for (const n of [TBL.need, FN.need]) assert.ok(note.includes(n), "the customer was not told about: " + n);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MILESTONE 1: FRONTEND CONTEXT AND HAND-OFFS (owner, 2026-09-17)
+//
+// *"Give addon designers and the page writer the relevant current-site
+// information … Distinguish existing custom components from new components to
+// build … Pass newly planned frontend items to subsequent designers, as we
+// already do for backend declarations."*
+//
+// And the instruction that shaped every case below: ***"Demonstrate those
+// through the real addon route with mocked external dependencies, checking
+// designer inputs, generated directives, stored results, and the response."***
+// So each of these reads the REQUEST the designer really received
+// (`promptFor`), the REQUEST the page writer really received (`pagePrompt`),
+// the stored developer record, and the reply the customer is told — never a
+// module's return value and never the source.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A page addition, in the shape `cleanAdd("page")` accepts. */
+const GALLERY = { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid of photographs"], components: ["card"] };
+
+test("a component placed on a page THIS change is adding lands on that page, and is not moved to the home page", async () => {
+  // ── REPRODUCTION A, the owner's own (2026-09-17) ────────────────────────
+  //
+  // *"New /gallery + component targeting /gallery becomes a directive placing
+  // it on the home page."* Measured at the cleaner before the fix, on the
+  // one-page site every site on this platform starts as:
+  //
+  //     component { page: "/gallery" }  ->  ACCEPTED, page "/"
+  //
+  // The section was built on the FRONT page and the customer was told it had
+  // been added. `page` runs before `component` in `ADD_KINDS` and nothing
+  // crossed between them, so the second designer had never heard of the page
+  // the first had just decided on.
+  const r = await addon("fw-plan-comp", "add a gallery page with a grid of photographs, and a caption block on it", {
+    kinds: ["page", "component"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [GALLERY] },
+      component: { component: [{ page: "/gallery", does: "a caption under the grid", components: ["card"], where: "below the grid" }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE DESIGNER'S INPUT. The component designer is told the page exists
+  //    and told it is not there YET — both halves, because a designer that
+  //    reads it as live goes looking for source to copy.
+  const seen = promptFor(r, "component");
+  assert.ok(seen, "the component designer never ran");
+  assert.match(seen.text, /ALSO adding/, "the component designer was not told about the planned page: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /\/gallery/, "the planned route never reached the component designer");
+  assert.match(seen.text, /do not exist yet/, "the planned page was presented as one the site already has");
+
+  // 2. THE GENERATED DIRECTIVE. The page call's brief is where the placement
+  //    becomes an instruction, and it is the exact thing that said "/" before.
+  const page = pagePrompt(r);
+  assert.ok(page, "the page writer never ran");
+  assert.ok(page.text.includes("On /gallery"), "the directive does not place the section on the planned page: "
+    + page.text.slice(page.text.indexOf("The component you are adding"), page.text.indexOf("The component you are adding") + 400));
+
+  // 3. THE STORED RESULT and 4. THE RESPONSE: the page really shipped, and
+  //    nothing was refused for want of a destination.
+  assert.ok((r.body.added || []).some((f) => String(f).includes("gallery")), "the gallery page was not added: " + JSON.stringify(r.body.added));
+  assert.equal(r.body.notAdded, undefined, "something was left out: " + JSON.stringify(r.body.notAdded));
+  assert.ok(!(storedAnswer(r, "fw-plan-comp").coverage.requirements || []).some((q) => q.state === "missing"));
+});
+
+test("a component placed on a route NOBODY is adding is refused by name, on a one-page site and a many-page one alike", async () => {
+  // THE CONTROL FOR THE CASE ABOVE, and it is what makes the hand-off a
+  // hand-off rather than a widening: a destination that is neither a page the
+  // site has nor a page this change is adding is still `no-page`. Without it,
+  // "the component landed on /gallery" is satisfied by a cleaner that accepts
+  // any route at all.
+  const r = await addon("fw-plan-nope", "add a gallery page, and a caption block on the prices page", {
+    kinds: ["page", "component"],
+    answers: {
+      page: { page: [GALLERY] },
+      component: { component: [{ page: "/prices", does: "a caption", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-page", JSON.stringify(r.body));
+  assert.match(r.body.msg, /which page/, "the customer was not told what was wrong: " + r.body.msg);
+});
+
+test("a QR code pointing at a page THIS change is adding is drawn, not refused as a page the site does not have", async () => {
+  // ── REPRODUCTION B, the owner's own (2026-09-17) ────────────────────────
+  //
+  // *"New /gallery + QR pointing to /gallery fails with no-such-page."* One
+  // message, one addition, the obvious thing to ask for — and the code was
+  // refused about a page the same reply was building. The ONE publish is what
+  // makes the destination real rather than hoped for: the page and the code go
+  // out together or neither does.
+  const r = await addon("fw-plan-qr", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true,
+    written: [writtenPage("/"), writtenPage("/gallery")],
+    answers: {
+      page: { page: [GALLERY] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. THE DESIGNER'S INPUT: the QR designer was told the route and the
+  //    address, which is the pair its never-invent rule needs.
+  const seen = promptFor(r, "qr");
+  assert.ok(seen, "the QR designer never ran");
+  assert.match(seen.text, /ALSO adding/, "the QR designer was not told about the planned page");
+  assert.match(seen.text, /\/gallery/, "the planned route never reached the QR designer");
+
+  // 2. THE RESPONSE: the code is on the site's look, resolved against the
+  //    site's own address rather than left as a bare route.
+  assert.ok((r.body.moved || []).includes("qr"), "the code was not stored on the look: " + JSON.stringify(r.body.moved));
+  assert.equal(r.body.notAdded, undefined, "the code was refused: " + JSON.stringify(r.body.notAdded));
+
+  // 3. THE GENERATED DIRECTIVE: the page call is told the binding exists, so
+  //    a page can actually show the code.
+  const page = pagePrompt(r);
+  assert.match(page.text, /SITE_QRS/, "the page writer was not told the code exists: " + page.text.slice(0, 1200));
+});
+
+test("a QR code pointing at a route NOBODY is adding is still refused by name", async () => {
+  // THE CONTROL for the case above — the same shape, one route different.
+  const r = await addon("fw-plan-qr-nope", "add a gallery page and a QR code for the prices page", {
+    kinds: ["page", "qr"],
+    answers: {
+      page: { page: [GALLERY] },
+      qr: { qr: { name: "prices", points: "/prices", label: "Our prices" } },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "no-such-page", JSON.stringify(r.body));
+});
+
+test("the page writer is shown this site's OWN components with their source, and is not told to write them again", async () => {
+  // Owner: *"Give … the page writer … imported custom component
+  // implementations"* and *"Distinguish existing custom components from new
+  // components to build."*
+  //
+  // MEASURED BEFORE THE FIX: `look.tsx` is the cumulative DECLARATION list, so
+  // a component written months ago and sitting in `source/<slug>/parts.json`
+  // was listed under "## Components to build — the kit does not have these and
+  // this site needs them, so you write them", with a one-line `does` and
+  // nothing else. The writer had never seen `TideChart` and was asked to
+  // produce it.
+  const SOURCE = "export default function TideChart({ rows }: { rows: number[] }) { return <svg data-slot=\"tide\">{rows.length}</svg> }";
+  const r = await addon("fw-parts-shown", "add a note under the tide chart", {
+    kinds: ["component"], publishes: true,
+    parts: [{ name: "tide-chart", source: SOURCE }],
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }, { name: "catch-log", does: "lists the day's catch", props: "entries" }] },
+    answers: { component: { component: [{ page: "/", does: "a note under the chart", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const page = pagePrompt(r);
+  assert.ok(page, "the page writer never ran");
+
+  // THE COMPONENT THAT EXISTS: its real source, under a heading that says so.
+  assert.match(page.text, /Components this site already has/, "the writer was not shown the site's own components: " + page.text.slice(0, 1500));
+  assert.ok(page.text.includes(JSON.stringify(SOURCE).slice(1, -1)), "the component's real source did not reach the writer");
+  // AND THE ONE NOBODY HAS WRITTEN: still under "to build", because it is not
+  // in the store. Both halves, or the split is a filter rather than a
+  // distinction.
+  assert.match(page.text, /Components to build/, "the undeclared component lost its block");
+  const build = page.text.slice(page.text.indexOf("Components to build"));
+  assert.ok(build.includes("catch-log"), "a declared component with no file was not offered to be built");
+  assert.ok(!build.includes("tide-chart"), "a component the site already has was offered to be written again: " + build.slice(0, 700));
+
+  // AND THE DESIGNER IS TOLD THE SAME DISTINCTION, in names rather than bytes.
+  const seen = promptFor(r, "component");
+  assert.match(seen.text, /already written: tide-chart/, "the designer was not told which components really exist: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /nothing has written yet: catch-log/, "the designer was not told which are only declared");
+});
+
+test("a returned component may replace one the writer WAS shown, and may not replace one it was not", async () => {
+  // Owner: *"Preserve unrelated components and prevent replacement of an
+  // existing component whose source the writer was never shown."*
+  //
+  // `mergeParts` replaces by name and has no wall of its own, so a returned
+  // `TideChart` overwrote the real file whatever the model had in front of it.
+  // The ordinary case is that every stored component IS in the prompt; this is
+  // the honest answer to `partsSent`'s bound, which withholds one too large to
+  // carry.
+  const BIG = "// " + "x".repeat(MAX_PART_CHARS + 10);
+  const SMALL = "export default function Small(){ return <p>small</p> }";
+  const r = await addon("fw-parts-wall", "change the chart's caption", {
+    kinds: ["component"], publishes: true,
+    parts: [{ name: "huge-thing", source: BIG }, { name: "small-thing", source: SMALL }],
+    // BOTH ARE ALSO DECLARED ON THE LOOK, which is the ordinary state of a site
+    // that has them — and it is what makes the "to build" filter observable: a
+    // filter keyed on what was SHOWN would put `huge-thing` back under
+    // "Components to build" and ask for exactly the rewrite the wall refuses.
+    look: { tsx: [{ name: "huge-thing", does: "a huge thing", props: "none" }, { name: "small-thing", does: "a small thing", props: "none" }] },
+    writtenParts: [
+      { name: "huge-thing", source: "export default function Huge(){ return <p>rewritten from a description</p> }" },
+      { name: "small-thing", source: "export default function Small(){ return <p>edited</p> }" },
+    ],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, asserted rather than assumed: the writer really was
+  // shown one and really was not shown the other. Without this the wall could
+  // be refusing everything and every assertion below would still pass.
+  const page = pagePrompt(r);
+  assert.ok(page.text.includes("small</p>"), "the small component's source was not shown — this case tests nothing");
+  assert.ok(!page.text.includes("x".repeat(200)), "the huge component's source WAS shown — this case tests nothing");
+  assert.match(page.text, /too long to include here: huge-thing/, "a withheld component was not named to the writer");
+  // AND NEITHER IS OFFERED TO BE BUILT, though both are declared on the look:
+  // one because its source is right there, the other because it exists and
+  // could not be carried. A filter keyed on what was shown would fail here.
+  const build = page.text.indexOf("Components to build");
+  assert.ok(build < 0 || !page.text.slice(build).includes("huge-thing"),
+    "a component too long to show was offered to be written from its description: " + page.text.slice(build, build + 600));
+
+  // THE WALL: the one it could not see is kept, the one it could see is taken.
+  assert.deepEqual(r.body.keptParts, ["huge-thing"], "the wall did not hold: " + JSON.stringify(r.body.keptParts));
+  const stored = JSON.parse(r.store.store.get("source/fw-parts-wall/parts.json"));
+  const by = Object.fromEntries(stored.map((p) => [p.name, p.source]));
+  assert.equal(by["huge-thing"], BIG, "a component the writer never saw was replaced from its own description");
+  assert.match(by["small-thing"], /edited/, "a component the writer WAS shown could not be changed");
+
+  // AND THE CUSTOMER IS TOLD, in the server's own sentence — composed here for
+  // `coverNote`'s reason and printed verbatim by the browser, so this IS what
+  // the person reads rather than a second composer's idea of it.
+  assert.match(r.body.keptPartsNote || "", /^I left huge-thing exactly as it is/, "the customer was not told: " + r.body.keptPartsNote);
+  assert.match(r.body.keptPartsNote, /Ask me to change it on its own/, "the sentence does not say what to do about it");
+});
+
+test("the page writer is shown the theme, the site's own stylesheet and the kit signatures its pages already use", async () => {
+  // Owner: *"theme/CSS context"* and *"required kit signatures"*. The addon
+  // rules tell every designer to keep the site's design system, and nothing in
+  // its inputs said what that system IS; `plan.components` was the union of
+  // what THIS change declares, so a writer editing a page built from
+  // `<Accordion>` got that component's props only by luck.
+  const SHEET = ".fretwork-rule { border-top: 1px solid var(--border) }";
+  // A REAL STORED PAGE that imports a kit component, because "the signatures
+  // its pages already use" is a claim about what the source IMPORTS and
+  // nothing shorter can state it.
+  //
+  // `seat-map` AND `open-now` ARE BOTH COMPONENTS THAT REALLY CARRY A
+  // SIGNATURE, which is the whole of what makes this case worth anything. The
+  // first draft used `accordion` and `card`, and BOTH are among the 72 standard
+  // shadcn primitives whose props the signature scan cannot read — so
+  // `siteComponentApi` answers "" for each, the words appear in the cached
+  // system block anyway, and every assertion passed with the fix reverted. A
+  // vacuous assertion, caught by running the case against the pre-change
+  // product rather than by reading it.
+  const HOME = {
+    path: "index.tsx",
+    source: "import { createFileRoute } from '@tanstack/react-router'\n"
+      + "import { SeatMap } from '@/components/ui/seat-map'\n"
+      + "export const Route = createFileRoute('/')({ component: Home })\n"
+      + "function Home(){ return <main><SeatMap seats={[]} onSelect={() => {}} /></main> }\n",
+  };
+  const r = await addon("fw-look", "add a note under the hero", {
+    kinds: ["component"], publishes: true, storedPages: [HOME],
+    // A DECLARATION AND NO STORED FILE — RE-ANCHORED 2026-09-17, and the old
+    // expectation was the conflation this round removes. It read: the site has
+    // no `parts.json`, `loadSiteParts` answers `null`, and the note keeps its
+    // old sentence. But "there is no such object" is a read that SUCCEEDED and
+    // found nothing, which is a fact about the site and not a cannot-tell — so
+    // the honest answer is that `tide-chart` is declared and nothing has
+    // written it, which is exactly what `look.tsx` means. The cannot-tell case
+    // is a read that THROWS, and it has its own case below.
+    look: { theme: "harbour-slate", tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] }, css: SHEET,
+    answers: { component: { component: [{ page: "/", does: "a note saying when we are open", components: ["open-now"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const page = pagePrompt(r);
+  assert.match(page.text, /theme is \*\*harbour-slate\*\*/, "the writer was not told the theme: " + page.text.slice(0, 1500));
+  assert.ok(page.text.includes("fretwork-rule"), "the writer was not shown the site's own stylesheet");
+  assert.match(page.text, /ALREADY APPLIED/, "the stylesheet was offered without saying it is already in force");
+
+  // THE KIT SIGNATURES: `card` because THIS change named it, and `accordion`
+  // because the page being edited already imports it. The second is the one
+  // that was missing — asserted with the first beside it, so a plan that
+  // carried neither could not pass either.
+  const sig = page.text.slice(page.text.indexOf("THE COMPONENTS THIS SITE NEEDS"));
+  assert.ok(sig, "the signature block is absent: " + page.text.slice(0, 600));
+  assert.ok(sig.includes("SeatMap("), "the writer was not shown the props of a component the page it is editing imports: " + sig.slice(0, 900));
+  assert.ok(sig.includes("OpenNow("), "the addition's own component lost its signature: " + sig.slice(0, 900));
+
+  // AND THE DESIGNER, in names: the theme it must keep, and that a sheet exists.
+  const seen = promptFor(r, "component");
+  assert.match(seen.text, /theme is harbour-slate/, "the designer was not told the theme: " + seen.text.slice(0, 900));
+  assert.match(seen.text, /stylesheet written for it/, "the designer was not told the site carries its own stylesheet");
+  assert.match(seen.text, /components its design declares and nothing has written yet: tide-chart/,
+    "a declaration with no file was reported as a component the site has: " + seen.text.slice(0, 900));
+  assert.doesNotMatch(seen.text, /already written/,
+    "a site with no stored component was said to have one");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TWO GAPS IN MILESTONE 1, EACH REPRODUCED THROUGH THIS ROUTE FIRST (2026-09-17)
+//
+// Owner, on the milestone: *"Component-source read failure bypasses the new
+// guard … Distinguish a successfully read empty inventory from an unreadable
+// one. Do not permit an unseen replacement because the inventory read failed.
+// Use a consistent source snapshot and demonstrate failure followed by recovery
+// through the route, asserting stored component bytes and the customer
+// response."* And: *"Planned-page dependencies need a final check … One publish
+// does not establish that both requested items exist."*
+//
+// Both were reproduced before either was touched, and a third came out of the
+// first reproduction: with BOTH reads failing, `mergeParts(null, [one])`
+// answers `[one]`, so every other component on the site was deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The real component's bytes, so "was this replaced" is an exact question. */
+const REAL_TIDE = "export default function TideChart({ rows }: { rows: number[] }) { return <svg data-slot=\"tide\">{rows.length}</svg> }";
+const REAL_LOG = "export default function CatchLog() { return <ul data-slot=\"log\" /> }";
+const REWRITE = "export default function TideChart(){ return <p>rewritten from a one-line description</p> }";
+const TWO_PARTS = [{ name: "tide-chart", source: REAL_TIDE }, { name: "catch-log", source: REAL_LOG }];
+/** What `source/<slug>/parts.json` really holds after a run, by name. */
+const storedParts = (r, slug) => {
+  const raw = r.store.store.get("source/" + slug + "/parts.json");
+  return Object.fromEntries(JSON.parse(raw || "[]").map((p) => [p.name, p.source]));
+};
+/** The stored look, as `patchSiteConfig` left it. */
+const storedLook = (r, slug) => {
+  const raw = r.store.store.get("config/" + slug + ".json");
+  try { return JSON.parse(raw).look; } catch { return null; }
+};
+/**
+ * ONE PAGE'S SOURCE AS THE SITE NOW HOLDS IT — `source/<slug>/pages.json`, the
+ * key `saveSiteSource` writes and the next revise reads.
+ *
+ * A THIRD CLAIM, not a second: `changed` is what the route SAYS it published,
+ * `compiledPages` is what it HANDED the builder, and this is what the site is
+ * left with. A change that reached the compiler and not the store is a site
+ * that serves the new page and offers the old one to the next edit.
+ *
+ * ABSENT ANSWERS `""` RATHER THAN THROWING, so a case asserting a string is
+ * NOT in it cannot pass by the file being missing — the observer has to be
+ * alive for the negative to mean anything.
+ */
+const storedSource = (r, slug, path) => {
+  const raw = r.store.store.get("source/" + String(slug).toLowerCase() + "/pages.json");
+  try {
+    const hit = JSON.parse(raw || "[]").find((p) => p && p.path === path);
+    return hit ? String(hit.source) : "";
+  } catch { return ""; }
+};
+
+test("a component store that could not be read replaces nothing, and the next request recovers", async () => {
+  // ── THE REPRODUCTION ─────────────────────────────────────────────────────
+  //
+  // The first read throws. Before the fix: `partsSent` got `null`, so `shown`
+  // and `withheld` were both empty; the writer was shown no source AND handed
+  // the stored DECLARATION under "Components to build"; the wall had nothing
+  // to refuse; and the merge's own second read — minutes later, and it
+  // succeeded — let the rewrite replace the real file with no `keptParts` and
+  // no sentence.
+  const fail = await addon("fw-unreadable", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, partsFail: 1, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(fail.body.ok, true, JSON.stringify(fail.body));
+
+  // THE BYTES, WHICH IS THE ASSERTION THAT MATTERS. The customer's own
+  // component is on disk exactly as it was, and so is the one this request
+  // never mentioned.
+  const after = storedParts(fail, "fw-unreadable");
+  assert.equal(after["tide-chart"], REAL_TIDE, "a component the writer was never shown was replaced");
+  assert.equal(after["catch-log"], REAL_LOG, "a component nobody asked about was changed");
+
+  // AND THE WRITER WAS NOT INVITED TO WRITE IT. This is the half a bytes check
+  // cannot see: the wall could refuse the rewrite and the prompt could still be
+  // telling the model that a component the site already has does not exist.
+  const page = pagePrompt(fail);
+  assert.ok(!page.text.includes("data-slot=\\\"tide\\\"") && !page.text.includes("rows.length"),
+    "source we could not read was shown anyway");
+  const build = page.text.indexOf("Components to build");
+  assert.ok(build < 0 || !page.text.slice(build).includes("tide-chart"),
+    "a component the site already has was offered to be written: " + page.text.slice(Math.max(0, build), build + 400));
+  // LINE BREAKS COLLAPSED BEFORE MATCHING, because a prompt is hand-wrapped and
+  // where a line breaks is spelling. The first draft of this assertion looked
+  // for "could not be loaded for this request" and went red on correct output:
+  // the wrap falls between "could not be" and "loaded". Assert the property,
+  // not the spelling — including the invisible half of it. `page.text` is the
+  // JSON BODY of the request, so a newline in the prompt is the two characters
+  // `\` and `n` here and `\s` does not touch it.
+  const flat = page.text.replace(/\\n/g, " ").replace(/\s+/g, " ");
+  assert.match(flat, /could not be loaded for this request/, "the writer was not told the components exist and were not loaded");
+  assert.match(flat, /You have not been shown any of them and you do not know their names/, "the writer was not told it is missing the names");
+  assert.match(flat, /do NOT return anything in `parts` at all/, "the writer was not told to return no components");
+
+  // AND THE CUSTOMER HEARS IT, IN ITS OWN WORDS. Not the too-long sentence —
+  // that one tells them to ask for the component on its own, which is advice
+  // about a bound and is wrong about a store that failed to read.
+  assert.deepEqual(fail.body.unseenParts, ["tide-chart"], "the refused component is not named on the wire");
+  assert.equal(fail.body.keptParts, undefined, "a store that could not be read was reported as a component too long to carry");
+  assert.match(fail.body.keptPartsNote || "", /^I couldn't load the components your site already has/, fail.body.keptPartsNote);
+  assert.match(fail.body.keptPartsNote, /Ask me for that bit again/, "the sentence does not say what to do about it");
+  assert.doesNotMatch(fail.body.keptPartsNote, /too long/, "the wrong refusal's sentence was used");
+
+  // AND THE DESIGNERS' NOTE DOES NOT CLAIM THE SITE HAS NONE. `siteNote` reads
+  // `parts: null` as "not asked" and keeps the sentence it has always had; an
+  // empty ARRAY there is a claim — "its design declares these and nothing has
+  // written them" — which is false of a site whose store we could not read, and
+  // is what a sweep survivor found. Cannot-tell must never read as a value, in
+  // the one input a designer is told to copy an existing component from.
+  const said = promptFor(fail, "component");
+  assert.match(said.text, /parts written for it: tide-chart/, "the designer was told which components the site has: " + said.text.slice(0, 900));
+  assert.doesNotMatch(said.text, /nothing has written yet/, "a store that could not be read was reported as a site with no components");
+  assert.doesNotMatch(said.text, /already written/, "a store that could not be read was reported as a site with components");
+
+  // ── AND THE RECOVERY, WHICH IS THE CONTROL ───────────────────────────────
+  //
+  // The same site, the same ask, the same returned rewrite — with the read
+  // working. Without this the fix could be "never accept a component" and every
+  // assertion above would still pass.
+  const ok = await addon("fw-unreadable", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  const back = storedParts(ok, "fw-unreadable");
+  assert.equal(back["tide-chart"], REWRITE, "the rewrite was refused although the store read fine");
+  assert.equal(back["catch-log"], REAL_LOG, "the component nobody mentioned did not survive the merge");
+  assert.equal(ok.body.unseenParts, undefined, "a working read reported a refusal");
+  assert.equal(ok.body.keptPartsNote, undefined, "a working read said something to the customer");
+  assert.ok(pagePrompt(ok).text.includes("rows.length"), "the writer was not shown the component it was asked to change");
+});
+
+test("a component store that fails BOTH times keeps every component the request never mentioned", async () => {
+  // THE THIRD FINDING, and it is the expensive one: `mergeParts(null, [one])`
+  // answers `[one]`, so before the fix a second failed read plus any returned
+  // component DELETED every other component on the site — none of them named
+  // in the request, and nothing anywhere saying so.
+  const r = await addon("fw-unreadable2", "change the tide chart's caption", {
+    kinds: ["component"], publishes: true, partsFail: 9, parts: TWO_PARTS,
+    look: { tsx: [{ name: "tide-chart", does: "draws the tide", props: "rows" }] },
+    writtenParts: [{ name: "tide-chart", source: REWRITE }],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const after = storedParts(r, "fw-unreadable2");
+  assert.deepEqual(Object.keys(after).sort(), ["catch-log", "tide-chart"], "a component the request never mentioned was deleted");
+  assert.equal(after["tide-chart"], REAL_TIDE, "the unseen component was replaced");
+  assert.equal(after["catch-log"], REAL_LOG, "the bystander component's bytes moved");
+});
+
+test("a new QR code that would open a page the writer did not return is not published, and is said", async () => {
+  // Owner: *"With page + QR, plan /gallery but have the writer return only the
+  // homepage. The route currently persists the QR targeting /gallery,
+  // publishes, and reports the page missing afterward."* Reproduced exactly:
+  // the code was stored pointing at `https://<site>/gallery`, `moved` claimed
+  // `qr`, and the only thing the customer heard was that the page had not made
+  // it. A QR is the one thing here somebody PRINTS.
+  //
+  // RE-ANCHORED 2026-09-17: with the stored pages in the shape a site really
+  // holds, the home page here is `changed` rather than a duplicate ADD, so
+  // `keptProse` arms and a returned page carrying another site's words is
+  // refused before any of this is reached. `addedTo` is what an addon really
+  // returns for a page that already exists.
+  const r = await addon("fw-qr-gone", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>See our gallery.</p>")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive. Without it a run where the writer quietly returned both pages
+  // would pass this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+
+  // NOTHING IS STORED. The look is written before the compile — the container
+  // bakes `/qr-gallery.svg` from it — so a code dropped here never becomes a
+  // file, never becomes a binding, and never reaches a printer.
+  const look = storedLook(r, "fw-qr-gone");
+  assert.ok(!look || !(look.qr && look.qr.length), "a QR code opening a page that is not there was published: " + JSON.stringify(look && look.qr));
+  assert.deepEqual(r.body.moved, [], "the reply claims it gave the site a QR code it did not");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  // AND NO PAGE WAS WITHHELD, which is what makes this the NARROW case: the
+  // home page does not render the code, so the only dependent thing is the
+  // code itself and the rest of the change ships. Without this the case cannot
+  // be told apart from the withholding one below.
+  assert.equal(r.body.heldPages, undefined, "a page that does not show the code was withheld anyway");
+  assert.deepEqual(r.body.changed, ["index.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.changed));
+
+  // AND BOTH SENTENCES, beside each other: the page, and what went with it.
+  assert.match(r.body.coverNote, /\/gallery didn't make it through/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /a code that opens nothing is worse than no code at all/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left/, "a page nobody withheld was reported as withheld");
+});
+
+test("a page whose only change was showing that code is withheld with it, and neither is published", async () => {
+  // ⚠ THIS CASE IS THE OPPOSITE OF THE ONE IT REPLACES, AND THAT IS THE POINT.
+  // It used to read "a QR code a shipped page really renders is kept and
+  // warned about" and it ASSERTED THE DEFECT AS CORRECT (owner, 2026-09-17:
+  // *"Remove the exception that publishes a newly added QR pointing to a
+  // missing planned page merely because a generated page renders it… A warning
+  // does not complete the dependency."*).
+  //
+  // The reasoning behind the old behaviour was sound and its conclusion was
+  // not: dropping the code alone WOULD take `SITE_QRS.gallery` out from under
+  // a page that renders it. The answer is not to ship the broken code — it is
+  // to withhold the page too, so what goes out is the version already serving.
+  // Nothing is deleted from a live page; the binding is never introduced.
+  //
+  // PROVED RED AGAINST THE PRE-CHANGE PRODUCT: before the fix this ran
+  // `ok: true` with the code stored pointing at `https://<site>/gallery`.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-held", "add a gallery page and a QR code on the home page that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/", "/about"],
+    // THE HOME PAGE SHOWS THE CODE AND `/about` DOES NOT, so the withholding
+    // can be seen to be PER PAGE rather than a whole-change refusal — which is
+    // the difference between "withhold the dependent changes together" and
+    // "throw the customer's other work away".
+    written: [shows(addedTo("/", "<p>Scan for the gallery.</p>")), addedTo("/about", "<p>Since 1998.</p>")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+
+  // THE CODE IS NOT PUBLISHED. The look is written before the compile — the
+  // container bakes `/qr-gallery.svg` from it — so nothing reaches a printer.
+  const look = storedLook(r, "fw-qr-held");
+  assert.ok(!look || !(look.qr && look.qr.length), "the broken destination was saved: " + JSON.stringify(look && look.qr));
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  assert.deepEqual(r.body.moved, [], "the reply claims it gave the site a QR code it did not");
+
+  // …AND THE HOME PAGE IS NOT BROKEN, because what ships is the version that
+  // was already serving. Read off what really went to the compiler, never off
+  // a field: `SITE_QRS` must appear nowhere in it.
+  assert.deepEqual(r.body.heldPages, ["index.tsx"], "the page that renders the dropped code was published anyway");
+  assert.ok(!(r.body.changed || []).includes("index.tsx"), "the withheld page is still reported as changed");
+  const out = compiledPages(r);
+  const home = out.find((p) => p.path === "index.tsx");
+  assert.ok(home, "the home page is not in the published site at all: " + JSON.stringify(out.map((p) => p.path)));
+  assert.doesNotMatch(home.source, /SITE_QRS/, "the published home page carries a binding for a code that does not exist");
+  assert.equal(home.source, storedPage("/").source, "the home page is not the version the site was already serving");
+
+  // …AND THE INDEPENDENT HALF STILL SHIPS. Withholding is per page, not a
+  // refusal of the whole change: `/about` never mentioned the code.
+  assert.ok((r.body.changed || []).includes("about.tsx"), "an unrelated page was withheld too: " + JSON.stringify(r.body.changed));
+  const about = out.find((p) => p.path === "about.tsx");
+  assert.match(about.source, /Since 1998/, "the independent change did not reach the published site");
+
+  // AND ALL THREE SENTENCES, because they are three facts: the page did not
+  // make it, the code went with it, and a page they expected to change did not.
+  assert.match(r.body.coverNote, /\/gallery didn't make it through/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I've left \/ as it was/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /don't print it until the page is there/,
+    "the customer was told to please not print a code we had just made — the reported defect");
+});
+
+test("a page this change never touched is not withheld, however its source reads", async () => {
+  // ⚠ `wrote` IS THE PAGES THIS CHANGE WROTE, and nothing else. A sweep mutant
+  // widening it to the whole site survived every other case, because no fixture
+  // had a STORED page mentioning a binding — and this platform really can leave
+  // one: `qr forget` and the edit lanes can take a code off a site while a page
+  // keeps the binding it was written with.
+  //
+  // Under the mutant that untouched page is withheld and NAMED, so the customer
+  // is told "I've left /flyer as it was" about a page nobody proposed to change.
+  const stale = { path: "flyer.tsx", source: storedPage("/flyer").source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") };
+  const r = await addon("fw-qr-untouched", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, storedPages: [storedPage("/"), stale],
+    written: [addedTo("/", "<p>See our gallery.</p>")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the code was published anyway");
+  // THE PRECONDITION, ASSERTED: the stale page really does carry the binding,
+  // so the only thing keeping it out of `withheld` is the scope.
+  assert.match(stale.source, /SITE_QRS\s*\.\s*gallery/, "the fixture does not render the code, so the scope is untested");
+  assert.equal(r.body.heldPages, undefined, "a page this change never touched was withheld: " + JSON.stringify(r.body.heldPages));
+  assert.doesNotMatch(r.body.coverNote, /I've left/, "a page nobody proposed to change was reported as left as it was");
+  // …AND IT IS STILL IN THE SITE, exactly as it was.
+  const live = compiledPages(r).find((p) => p.path === "flyer.tsx");
+  assert.equal(live && live.source, stale.source, "an untouched page's bytes moved");
+});
+
+test("a CUSTOM COMPONENT that shows the dead code is withheld with it, and never reaches the site", async () => {
+  // ⚠ THE DEFECT THE OWNER REPORTED STILL REPRODUCING (2026-09-17). The first
+  // cut of this withholding read `wrote` — the PAGES this change wrote — and a
+  // component is not a page: a site's own components live at
+  // `src/routes/-parts/<name>.tsx` and travel in their own list. So a change
+  // whose QR binding sat in a COMPONENT dropped the code, published the
+  // component, and the site compiled a build referencing `SITE_QRS.gallery`
+  // for a code that does not exist.
+  //
+  // MEASURED through this route before the fix: `ok: true`, `heldPages
+  // undefined`, and the stored `parts.json` carrying `SITE_QRS.gallery.src`
+  // in `qr-banner`. That is a dead build published on purpose.
+  const r = await addon("fw-qr-part", "add a gallery page and a QR banner component with a code that opens it", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>See the banner.</p>")],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive, so the code really is dead. Without it a run where the writer
+  // returned both pages passes this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+
+  // THE COMPONENT IS NAMED AND IS NOT WRITTEN. Two readers, because they are
+  // two claims: `heldParts` is what the route SAYS it withheld, and the store
+  // is what the site really holds afterwards.
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], "the component carrying the dead binding was published: " + JSON.stringify(r.body.heldParts));
+  const parts = r.store.store.get("source/fw-qr-part/parts.json");
+  assert.equal(parts, undefined, "a component list was written for a change whose only component was withheld: " + parts);
+
+  // …AND IT NEVER REACHED THE COMPILER EITHER. A route that kept the file on
+  // its list and sent it anyway satisfies every assertion about the reply.
+  const files = (r.compiles[0] && r.compiles[0].body && r.compiles[0].body.files) || {};
+  for (const [path, src] of Object.entries(files)) {
+    assert.doesNotMatch(String(src), /SITE_QRS/, "the compiled site carries a binding for a code that does not exist, in " + path);
+  }
+  assert.deepEqual(Object.keys(files).filter((k) => /-parts\//.test(k)), [], "the withheld component was handed to the compiler: " + JSON.stringify(Object.keys(files)));
+
+  // …AND THE INDEPENDENT HALF STILL SHIPS: the home page never mentioned the
+  // code, so withholding is per FILE here exactly as it is per page.
+  assert.deepEqual(r.body.changed, ["index.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.changed));
+
+  // AND THE SENTENCE IS THE ONE FOR A COMPONENT THIS CHANGE WAS ADDING —
+  // "I've left it as it was" is false of something that never existed.
+  assert.match(r.body.coverNote, /I haven't written the qr-banner section/, r.body.coverNote);
+  assert.match(r.body.coverNote, /it was there to show that code/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left the qr-banner section/, "a component that never existed was reported as left alone");
+});
+
+test("a component the SITE ALREADY HAS reverts rather than vanishing, and its importer still ships", async () => {
+  // ⚠ A SWEEP SURVIVOR, AND IT IS THE ROUTE'S WIRING RATHER THAN THE MODULE'S.
+  // `deadQrs` decides `added` from what it is HANDED, and the route is the only
+  // thing that looks the name up in `aPartsRead.parts` — so a mutant marking
+  // every returned component `added: true` lived past every module case, which
+  // hands that flag in by hand.
+  //
+  // It costs two things at once: the customer is told the section was never
+  // written, about one the site keeps serving; and the component joins the
+  // "will not exist" set, so a page importing it is withheld for a file that is
+  // right there.
+  const had = { name: "qr-banner", source: "export function QrBanner(){return <div>Scan</div>}" };
+  const posters = writtenPage("/posters");
+  const uses = {
+    ...posters,
+    source: posters.source
+      .replace("import { createFileRoute", "import { QrBanner } from '@/routes/-parts/qr-banner'\nimport { createFileRoute")
+      .replace("<h1>", "<QrBanner /><h1>"),
+  };
+  const r = await addon("fw-qr-revert", "put the gallery code in the banner and add a posters page", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"], parts: [had],
+    look: { tsx: [{ name: "qr-banner", does: "the banner", props: "none" }] },
+    written: [uses],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "print the code", sections: ["a banner"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/posters", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], JSON.stringify(r.body.heldParts));
+
+  // THE PAGE THAT IMPORTS IT SHIPS, because the component the site is serving
+  // is still there — the half that is about the publication rather than the
+  // wording, and the one a mutant marking everything `added` breaks.
+  assert.equal(r.body.heldPages, undefined, "a page importing a component that merely reverts was withheld: " + JSON.stringify(r.body.heldPages));
+  assert.ok((r.body.added || []).includes("posters.tsx"), "the importer did not ship: " + JSON.stringify(r.body.added));
+
+  // AND THE SENTENCE IS THE ONE FOR A COMPONENT THAT ALREADY EXISTED.
+  assert.match(r.body.coverNote, /The qr-banner section is unchanged for the same reason/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /haven't written the qr-banner/,
+    "a component the site keeps serving was reported as one that was never written");
+
+  // …AND ITS STORED BYTES ARE THE SITE'S OWN. Read off the store, because the
+  // reply says what the route decided and this says what the site now holds.
+  const stored = JSON.parse(r.store.store.get("source/fw-qr-revert/parts.json") || "null");
+  assert.deepEqual(stored, [had], "the withheld rewrite reached parts.json: " + JSON.stringify(stored));
+});
+
+test("a page that only exists to import the withheld component goes with it", async () => {
+  // THE CASCADE, WHICH IS WHY THE WITHHOLDING IS A FIXED POINT RATHER THAN ONE
+  // PASS. Dropping the code withholds the component that renders it; an added
+  // page that IMPORTS that component then compiles against a file that is not
+  // there, so it has to go too — and here that leaves nothing at all, which is
+  // the refusal.
+  const posters = writtenPage("/posters");
+  const uses = {
+    ...posters,
+    source: posters.source
+      .replace("import { createFileRoute", "import { QrBanner } from '@/routes/-parts/qr-banner'\nimport { createFileRoute")
+      .replace("<h1>", "<QrBanner /><h1>"),
+  };
+  const r = await addon("fw-qr-cascade", "add a gallery page, a posters page and a QR banner", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses],
+    writtenParts: [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" }],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "print the code", sections: ["a banner"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/posters", does: "a QR banner", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "qr-dependency", JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  // BOTH LISTS, because the cascade is the property: the component went for
+  // showing the code, and the page went for IMPORTING the component. A fix
+  // that stopped at the component leaves `/posters` importing a missing file.
+  assert.deepEqual(r.body.heldParts, ["qr-banner"], JSON.stringify(r.body));
+  assert.deepEqual(r.body.heldPages, ["posters.tsx"], "the page importing the withheld component shipped anyway: " + JSON.stringify(r.body.heldPages));
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
+test("a page this change invented to carry the code is not added at all, and says so in its own words", async () => {
+  // THE OTHER SHAPE OF THE SAME WITHHOLDING, and it needs its own sentence:
+  // "I've left it as it was" is FALSE of a page that has never existed, and a
+  // customer reading it would go looking for something that was never there.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-new-page", "add a gallery page, a posters page and a QR code on it that opens the gallery", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    // The writer returns `/posters` (which shows the code) and the home page,
+    // and never writes `/gallery`.
+    written: [shows(writtenPage("/posters")), addedTo("/", '<Link to="/posters">Posters</Link>')],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/posters", name: "Posters", purpose: "the printable code", sections: ["the code"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/posters" } },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  assert.deepEqual(r.body.heldPages, ["posters.tsx"], "the invented page carrying the code was published anyway");
+  // IT IS NOT IN THE SITE AT ALL — an added page withheld is not a page.
+  const out = compiledPages(r);
+  assert.ok(!out.some((p) => p.path === "posters.tsx"), "a page whose only content was a dead code was published");
+  assert.ok(!(r.body.added || []).includes("posters.tsx"), "the reply says it added a page it did not");
+  // …AND IT IS REPORTED AS ONE THAT DID NOT MAKE IT, because it was asked for.
+  assert.ok((r.body.missingPages || []).includes("/posters"),
+    "a requested page that did not ship was not reported: " + JSON.stringify(r.body.missingPages));
+  // THE OTHER SENTENCE, and not the reverting one.
+  assert.match(r.body.coverNote, /I haven't added \/posters either/, r.body.coverNote);
+  assert.doesNotMatch(r.body.coverNote, /I've left \/posters as it was/,
+    "a page that never existed was described as left as it was");
+  // AND THE HOME PAGE, which never mentioned the code, still ships its change.
+  assert.ok((r.body.changed || []).includes("index.tsx"), "an unrelated page was withheld: " + JSON.stringify(r.body.changed));
+  // ⚠ …AND ITS LINK TO THE WITHHELD PAGE IS REPAIRED, not shipped dangling.
+  // MEASURED before this was: the published home page carried
+  // `<Link to="/posters">` for a route that no longer exists, which is
+  // `TS2322` on the typecheck and a 404 for whoever clicks it — this
+  // repository's own most expensive recorded class, reintroduced by its own
+  // fix. `validatePages` owns that repair and is asked again over what
+  // survives, so the link points home and the rewrite is REPORTED.
+  const home = out.find((p) => p.path === "index.tsx");
+  assert.doesNotMatch(home.source, /\/posters/, "a link to the withheld page shipped: " + home.source.slice(-160));
+  assert.ok((r.body.problems || []).some((q) => /linked to and do not exist.*\/posters/.test(q)),
+    "the rewritten link was not reported: " + JSON.stringify(r.body.problems));
+});
+
+test("a change that was ONLY the dead code's page publishes nothing and costs nothing", async () => {
+  // THE THIRD OUTCOME: withholding can leave the change empty. Publishing then
+  // would compile a site byte-identical to itself and charge for it, so it is
+  // a refusal — cost 0, nothing stored, both sentences.
+  const shows = (p) => ({ ...p, source: p.source.replace("<h1>", "<img src={SITE_QRS.gallery.src} /><h1>") });
+  const r = await addon("fw-qr-empty", "add a gallery page and a QR code on the home page that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [shows(addedTo("/", "<p>Scan for the gallery.</p>"))],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery", page: "/" } },
+    },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "qr-dependency", JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+  const look = storedLook(r, "fw-qr-empty");
+  assert.ok(!look || !(look.qr && look.qr.length), "a refused change stored the broken code anyway");
+  assert.match(r.body.msg, /I didn't add the QR code gallery/, r.body.msg);
+  assert.match(r.body.msg, /I've left \/ as it was/, r.body.msg);
+  // NOTHING WAS COMPILED. The refusal is before the bill and before the
+  // container, so the site is exactly as it was in every respect.
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
+test("page + QR where both arrive publishes the code and says nothing — and an older code is never touched", async () => {
+  // THE CONTROL the owner asked to keep. Same ask, same shapes, the writer
+  // returning both pages: the code is stored, `moved` says so, and the
+  // customer hears nothing at all.
+  // RE-ANCHORED 2026-09-17: the home page is the site's own now, so what the
+  // writer returns for it has to be that page PLUS the link — which is what an
+  // addon really returns, and what `mergeAddonPages`' own reachability rule
+  // requires of a changed page beside an added route.
+  const ok = await addon("fw-qr-ok", "add a gallery page and a QR code that opens it", {
+    kinds: ["page", "qr"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<Link to="/gallery">Gallery</Link>'), writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  // RE-ANCHORED 2026-09-17, and this expectation MOVED rather than broke: with
+  // the stored pages in the shape a site really holds, the home page is the
+  // site's own and `/gallery` is the one thing added. It used to read
+  // `["index.tsx", "gallery.tsx"]`, which was the duplicate-ADD the prefixed
+  // fixture produced — the site ending up with TWO home pages.
+  assert.deepEqual(ok.body.added, ["gallery.tsx"], JSON.stringify(ok.body.added));
+  assert.equal(ok.body.missingPages, undefined, "a page went missing, so this is not the control it claims to be");
+  assert.deepEqual((storedLook(ok, "fw-qr-ok").qr || []).map((q) => q.name), ["gallery"], "the code was not published");
+  assert.deepEqual(ok.body.moved, ["qr"], "the reply does not say the site gained a QR code");
+  assert.equal(ok.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+  assert.equal(ok.body.heldPages, undefined, "a clean change withheld a page");
+  assert.equal(ok.body.coverNote, "", "a clean change said something: " + ok.body.coverNote);
+
+  // …AND A CODE THE SITE ALREADY HAD IS NOT THIS CHANGE'S TO REMOVE, whatever
+  // it points at. The same missing page, and a stored code aimed straight at
+  // it: untouched, unnamed, unmentioned.
+  const prior = await addon("fw-qr-prior", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/"],
+    written: [addedTo("/", "<p>Our gallery is coming.</p>")],
+    look: { qr: [{ name: "gallery", points: "https://fw-qr-prior.gofarther.app/gallery", label: "Our gallery" }] },
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } },
+  });
+  assert.equal(prior.body.ok, true, JSON.stringify(prior.body));
+  assert.deepEqual(prior.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.equal(prior.body.droppedQrs, undefined, "a code the site already had was dropped by a change that did not add it");
+  assert.equal(prior.body.heldPages, undefined, "a change that added no code withheld a page");
+  assert.deepEqual((storedLook(prior, "fw-qr-prior").qr || []).map((q) => q.name), ["gallery"], "the site's own code did not survive");
+});
+
+/**
+ * EVERY COMPONENT THE CONTAINER PAYLOAD IMPORTS, AND WHETHER THE PAYLOAD HAS
+ * IT — derived from the payload itself rather than compared against a list a
+ * case typed out, because the property is "nothing here imports a file that is
+ * not here" and a hardcoded expectation stops being that the moment a fixture
+ * gains a file.
+ *
+ * IT READS BOTH PAYLOAD HALVES, which is the whole point: pages arrive in
+ * `files` and components in `parts`, so a check that read only one of them
+ * would report a component importing a missing component as clean — which is
+ * exactly the defect this pair of cases is about.
+ */
+function danglingParts(r) {
+  const body = (r && r.compiles && r.compiles[0] && r.compiles[0].body) || null;
+  if (!body) return [];
+  const have = new Set((Array.isArray(body.parts) ? body.parts : []).map((p) => p && p.name).filter(Boolean));
+  const sources = [
+    ...Object.entries(body.files || {}).map(([k, v]) => [k, String(v)]),
+    ...(Array.isArray(body.parts) ? body.parts : []).map((p) => ["-parts/" + (p && p.name), String((p && p.source) || "")]),
+  ];
+  const out = [];
+  for (const [where, src] of sources) {
+    for (const hit of src.match(/-parts\/[\w-]+/g) || []) {
+      const want = hit.slice("-parts/".length);
+      if (!have.has(want)) out.push(where + " imports " + want);
+    }
+  }
+  return out;
+}
+
+test("a component that imports the withheld component goes with it, however deep the chain", async () => {
+  // ⚠ THE OWNER'S OWN CHAIN, REPRODUCED THROUGH THIS ROUTE BEFORE THE FIX
+  // (2026-09-17): *"homepage → panel → qr-card → QR targeting missing
+  // /gallery. The route withholds qr-card but retains panel and the homepage.
+  // The actual compiler payload contains panel importing the missing qr-card
+  // module."*
+  //
+  // MEASURED, exactly that: `heldParts ["qr-card"]`, `heldPages undefined`,
+  // `changed ["index.tsx"]`, and the container payload's `parts` carrying
+  // `panel` with `import { QrCard } from '@/routes/-parts/qr-card'` — a module
+  // nothing would write. `vite` refuses that build, which is this repository's
+  // own most expensive measured class.
+  //
+  // THE CAUSE WAS ONE MISSING TEST, not a missing idea. The PAGE loop has asked
+  // "does this import a component that will not exist" since the cascade
+  // shipped; the COMPONENT loop asked only "does this render a dead code", so
+  // the chain broke at its first hop and everything past it read as unrelated.
+  //
+  // ⚠ AND THE INDEPENDENT `/prices` IS DELIBERATE SCAFFOLDING. The owner's ask
+  // is to *"assert the actual compiler inputs"*, and the chain on its own
+  // leaves nothing to publish — a 422 whose compiler inputs are the empty set,
+  // which is a true assertion and a weak one. One unrelated page keeps the
+  // compile alive so the payload can be read directly, and the chain under test
+  // is untouched by it.
+  const QR_CARD = { name: "qr-card", source: "export function QrCard(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" };
+  const PANEL = { name: "panel", source: "import { QrCard } from '@/routes/-parts/qr-card'\nexport function Panel(){return <section><QrCard /></section>}" };
+  const home = addedTo("/", '<Panel /><Link to="/prices">Prices</Link>');
+  const uses = { ...home, source: home.source.replace("import { createFileRoute", "import { Panel } from '@/routes/-parts/panel'\nimport { createFileRoute") };
+  const r = await addon("fw-nest", "add a gallery page, a prices page, a panel section with a QR card in it, and a code that opens the gallery", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses, writtenPage("/prices")],
+    writtenParts: [QR_CARD, PANEL],
+    answers: {
+      page: { page: [
+        { path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] },
+        { path: "/prices", name: "Prices", purpose: "what it costs", sections: ["a table"], components: ["card"] },
+      ] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a panel with a QR card", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITIONS, ASSERTED RATHER THAN ASSUMED: the page really did not
+  // survive, so the code really is dead. Without these a run where the writer
+  // returned `/gallery` passes this case with the fix deleted.
+  assert.deepEqual(r.body.missingPages, ["/gallery"], "the page under test survived, so nothing here is about the fix");
+  assert.deepEqual(r.body.droppedQrs, [{ name: "gallery", route: "/gallery" }], "the dropped code is not on the wire");
+
+  // ── THE CHAIN SETTLES, ALL THREE HOPS ────────────────────────────────────
+  // `qr-card` for showing the code, `panel` for importing `qr-card`, the home
+  // page for importing `panel`. The second of those three is the fix.
+  assert.deepEqual(r.body.heldParts, ["qr-card", "panel"],
+    "the chain stopped short — a component importing the withheld one shipped: " + JSON.stringify(r.body.heldParts));
+  assert.deepEqual(r.body.heldPages, ["index.tsx"],
+    "the page at the end of the chain shipped: " + JSON.stringify(r.body.heldPages));
+
+  // ── THE ACTUAL COMPILER INPUTS ───────────────────────────────────────────
+  // What the route SAYS it withheld and what it HANDED the thing that builds
+  // the site are two claims, and only the second one is the defect. A route
+  // that named both components and sent them anyway satisfies every assertion
+  // above.
+  assert.equal(r.compiles.length, 1, "the independent page did not reach the compiler");
+  const body = r.compiles[0].body;
+  assert.deepEqual(danglingParts(r), [],
+    "the compiler was handed a file importing a module the payload does not contain: " + JSON.stringify(danglingParts(r)));
+  assert.deepEqual((body.parts || []).map((p) => p.name), [],
+    "a withheld component was handed to the compiler: " + JSON.stringify((body.parts || []).map((p) => p.name)));
+  // …AND THE HOME PAGE IN THAT PAYLOAD IS THE SITE'S OWN, not the rewrite. It
+  // is still SENT — a compile carries the whole site — so "withheld" has to be
+  // read off its bytes rather than off its absence.
+  const sent = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.ok(sent, "the home page was not sent at all: " + JSON.stringify(compiledPages(r).map((p) => p.path)));
+  assert.doesNotMatch(sent.source, /Panel/, "the reverted home page still carries the withheld component: " + sent.source);
+
+  // ── THE PRESERVED STORED FILES ───────────────────────────────────────────
+  // Nothing was written, because this change's only two components were both
+  // withheld — and a `parts.json` holding one of them is the store disagreeing
+  // with the payload.
+  assert.equal(r.store.store.get("source/fw-nest/parts.json"), undefined,
+    "a component list was written for a change whose every component was withheld: " + r.store.store.get("source/fw-nest/parts.json"));
+  // …AND THE INDEPENDENT HALF STILL SHIPS, so this is withholding a dependency
+  // set rather than refusing the request.
+  assert.deepEqual(r.body.added, ["prices.tsx"], "the independent half of the change did not ship: " + JSON.stringify(r.body.added));
+  assert.deepEqual(r.body.changed, [], "the reverted page is reported as changed: " + JSON.stringify(r.body.changed));
+
+  // ── THE CUSTOMER RESPONSE ────────────────────────────────────────────────
+  // Both components by name, the page in its own sentence, and the code in
+  // its own — three things they can act on separately.
+  assert.match(r.body.coverNote, /I haven't written the qr-card, panel sections/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I didn't add the QR code gallery/, r.body.coverNote);
+  assert.match(r.body.coverNote, /I've left \/ as it was/, r.body.coverNote);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PRESERVATION POLICY KNOWS TWO REASONS A CHANGED PAGE IS LEGITIMATE
+// (2026-09-17)
+//
+// Owner: *"Add a gallery page and add a parking note to the homepage."* The
+// component designer explicitly targets `/`, the writer returns the correct
+// homepage addition, and `mergeAddonPages` REVERTS it because the home page
+// contains no link to the newly added route. **The identical component-only
+// request succeeds.**
+//
+// MEASURED through this route before the fix: `reverted ["index.tsx"]`,
+// `changed []`, the note in NEITHER the container payload NOR the stored
+// source, and the customer told *"I left / as it was — nothing there needed to
+// change for this"* about the half of their own sentence that named that page.
+//
+// THE RULE HAD ONE REASON AND NEEDED TWO. Reachability is a guess about a page
+// nobody mentioned — the nav link a new page needs — and it is right. `asked`
+// is not a guess: it is the destination a cleaned designer answer NAMED. Both
+// are kept and they are independent; what is forbidden is inferring permission
+// from the customer's prose, or exempting a page nobody named.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PARK = "<p>There is free parking behind the shop.</p>";
+const parkNote = () => addedTo("/", PARK);
+/** The customer's own sentence, composed by the real producer from the real reply. */
+const said = (r) => addonReply(r.body || {});
+
+test("a component-only request changes the page it was asked about — the control", async () => {
+  // THE CONTROL THE OWNER NAMED, and it is what makes the case below about the
+  // ADDED PAGE rather than about components. Same site, same designer answer,
+  // same returned home page — with no new route in the change, the revert rule
+  // does not run at all and this has always worked.
+  const r = await addon("fw-park-only", "add a parking note to the homepage", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    written: [parkNote()],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+  assert.deepEqual(r.body.reverted, [], "the control reverted, so it is not a control: " + JSON.stringify(r.body.reverted));
+  const home = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.match(home.source, /free parking/, "the note never reached the compiler");
+  assert.match(storedSource(r, "fw-park-only", "index.tsx"), /free parking/, "the note never reached the store");
+  assert.doesNotMatch(said(r), /nothing there needed to change/, said(r));
+});
+
+test("a new page beside a requested homepage addition keeps both, with no link between them", async () => {
+  // ⚠ THE OWNER'S REPRODUCTION. The only difference from the control above is
+  // that a page is added in the same breath — and the home page carries no link
+  // to it, because nobody asked for one. Before the fix that alone reverted the
+  // half of the request that named `/`.
+  const r = await addon("fw-park", "add a gallery page and add a parking note to the homepage", {
+    kinds: ["page", "component"], publishes: true, sitePages: ["/"],
+    written: [parkNote(), writtenPage("/gallery")],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: a page really was added, so
+  // the revert rule really did run. Without this the case passes with the fix
+  // deleted, on a change that never reached the branch.
+  assert.deepEqual(r.body.added, ["gallery.tsx"], "no page was added, so the revert rule never ran");
+  // …AND THE HOME PAGE REALLY CARRIES NO LINK TO IT, which is the whole shape.
+  // A returned home page that happened to link `/gallery` would satisfy the old
+  // rule and prove nothing about the new one.
+  const home = compiledPages(r).find((p) => p.path === "index.tsx");
+  assert.doesNotMatch(home.source, /\/gallery/, "the home page links the new route, so reachability alone would have kept it");
+
+  assert.deepEqual(r.body.reverted, [], "the requested homepage addition was reverted: " + JSON.stringify(r.body.reverted));
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+
+  // ── COMPILER INPUTS, STORED SOURCE, CUSTOMER WORDING ─────────────────────
+  // Three claims and they are three: what was HANDED to the thing that builds
+  // the site, what the site now HOLDS, and what the customer is TOLD.
+  assert.match(home.source, /free parking/, "the compiler never saw the requested addition");
+  assert.match(storedSource(r, "fw-park", "index.tsx"), /free parking/, "the store never saw the requested addition");
+  assert.doesNotMatch(said(r), /nothing there needed to change/,
+    "the reply says nothing needed changing about a page the request named: " + said(r));
+  // ⚠ CORRECTED 2026-09-17, and this is the case that produced the wrong
+  // sentence: *"added /gallery, linked it from /. Nothing links to /gallery
+  // yet…"* — a link claim and a no-link warning four words apart. A changed page
+  // does not establish that a link was added, and here it certainly was not.
+  assert.match(said(r), /added \/gallery, updated \//, said(r));
+  assert.doesNotMatch(said(r), /linked it from/, said(r));
+  // …AND THE `unlinked` SENTENCE IS STILL THERE, because it is the one that
+  // really knows about links and it is measured rather than inferred.
+  assert.match(said(r), /Nothing links to \/gallery yet/, said(r));
+});
+
+test("a rewrite of a page nobody named is still reverted, and still said", async () => {
+  // THE PROTECTION THE FIX MUST NOT REMOVE. Same site, same added page — and a
+  // rewritten `/about` that no designer answer mentions. `asked` holds
+  // `/gallery` and nothing else, so `/about` meets the reachability rule alone
+  // and loses, exactly as before.
+  //
+  // MEASURED LIVE, first run of `edit smoke`: "add a gallery page" came back
+  // having rewritten four of the site's four pages for 28 credits. That is the
+  // defect this rule exists for, and widening the exemption to the home page —
+  // which the window's `keep` list carries as a BUDGET decision — would have
+  // reopened it for the one page every site has.
+  const about = storedPage("/about");
+  const rewrite = {
+    ...about,
+    path: "src/routes/about.tsx",
+    source: about.source.replace("<h1>about</h1>", "<h1>A COMPLETELY NEW ABOUT PAGE</h1>"),
+  };
+  const r = await addon("fw-unrel", "add a gallery page", {
+    kinds: ["page"], publishes: true, sitePages: ["/", "/about"],
+    written: [writtenPage("/gallery"), addedTo("/", '<Link to="/gallery">Gallery</Link>'), rewrite],
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.reverted, ["about.tsx"], "an unasked rewrite shipped: " + JSON.stringify(r.body.reverted));
+  // …AND THE HOME PAGE, WHICH NOBODY NAMED EITHER, IS KEPT FOR THE OTHER
+  // REASON — it carries the link. Both reasons in one reply is what says they
+  // are independent rather than one wearing two names.
+  assert.deepEqual(r.body.changed, ["index.tsx"], JSON.stringify(r.body.changed));
+
+  const out = compiledPages(r).find((p) => p.path === "about.tsx");
+  assert.match(out.source, /<h1>about<\/h1>/, "the compiler was handed the unasked rewrite");
+  assert.doesNotMatch(out.source, /COMPLETELY NEW/, "the unasked rewrite reached the compiler: " + out.source.slice(0, 200));
+  assert.doesNotMatch(storedSource(r, "fw-unrel", "about.tsx"), /COMPLETELY NEW/, "the unasked rewrite reached the store");
+  // AND HERE THE SENTENCE IS TRUE, so it is asserted PRESENT — which is what
+  // stops the fix from being "delete the sentence".
+  assert.match(said(r), /I left \/about as it was/, said(r));
+  assert.match(said(r), /nothing there needed to change/, said(r));
+});
+
+test("the same nested chain with its page present ships whole — the control", async () => {
+  // THE CONTROL THE OWNER ASKED TO KEEP, and it is what makes the case above
+  // about the MISSING PAGE rather than about nesting. Same site, same chain,
+  // same three files, the writer returning `/gallery` this time: nothing is
+  // dropped, nothing is withheld, both components reach the compiler and the
+  // customer hears nothing at all.
+  const QR_CARD = { name: "qr-card", source: "export function QrCard(){return <img src={SITE_QRS.gallery.src} alt=\"scan\" />}" };
+  const PANEL = { name: "panel", source: "import { QrCard } from '@/routes/-parts/qr-card'\nexport function Panel(){return <section><QrCard /></section>}" };
+  const home = addedTo("/", '<Panel /><Link to="/gallery">Gallery</Link>');
+  const uses = { ...home, source: home.source.replace("import { createFileRoute", "import { Panel } from '@/routes/-parts/panel'\nimport { createFileRoute") };
+  const ok = await addon("fw-nest-ok", "add a gallery page, a panel section with a QR card in it, and a code that opens the gallery", {
+    kinds: ["page", "qr", "component"], publishes: true, sitePages: ["/"],
+    written: [uses, writtenPage("/gallery")],
+    writtenParts: [QR_CARD, PANEL],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show the work", sections: ["a grid"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+      component: { component: [{ page: "/", does: "a panel with a QR card", components: ["card"] }] },
+    },
+  });
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(ok.body.missingPages, undefined, "a page went missing, so this is not the control it claims to be");
+  assert.equal(ok.body.droppedQrs, undefined, "a code whose page shipped was dropped");
+  assert.equal(ok.body.heldParts, undefined, "a clean change withheld a component: " + JSON.stringify(ok.body.heldParts));
+  assert.equal(ok.body.heldPages, undefined, "a clean change withheld a page: " + JSON.stringify(ok.body.heldPages));
+
+  // THE COMPILER INPUTS, read the same way as above — which is what proves that
+  // reader is alive in both directions rather than answering `[]` for its own
+  // reasons.
+  const body = ok.compiles[0].body;
+  assert.deepEqual((body.parts || []).map((p) => p.name), ["qr-card", "panel"],
+    "the chain's own components did not reach the compiler: " + JSON.stringify((body.parts || []).map((p) => p.name)));
+  assert.deepEqual(danglingParts(ok), [], "the clean control has a dangling import, so the reader is measuring something else");
+  const sent = compiledPages(ok).find((p) => p.path === "index.tsx");
+  assert.match(sent.source, /Panel/, "the home page's own change did not ship: " + sent.source);
+
+  // THE STORED FILES AND THE SENTENCE.
+  assert.deepEqual(JSON.parse(ok.store.store.get("source/fw-nest-ok/parts.json") || "null"), [QR_CARD, PANEL],
+    "the components the site now holds are not the ones it was sent");
+  assert.deepEqual(ok.body.moved, ["qr"], "the reply does not say the site gained a QR code");
+  assert.equal(ok.body.coverNote, "", "a clean change said something: " + ok.body.coverNote);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A SITE TOO LARGE TO SHOW WHOLE (2026-09-17)
+//
+// The addon's page window is `MAX_PRIOR_CHARS`, and over it the block fell
+// through to a branch written for a REVISE: page names and "write them again in
+// full". On a path where a returned page REPLACES the stored one that is the
+// opposite instruction, and the whole addon contract went with it.
+//
+// MEASURED OVER THE 100-SITE CORPUS BEFORE ANY OF THIS: zero sites exceed the
+// window today (max 50,646 characters, 6 pages; the mean page is 7,744, so the
+// window holds ~11.6 of them). A site reaches it by GROWING — every addon adds
+// a page or a section — so this is the shape of the platform's own future
+// rather than a state anything is in now.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Real generated pages, several sites' worth, so "too large" is real source.
+ *
+ * ⚠ IN THE SHAPE A SITE STORES THEM — bare, no `src/routes/` — because that is
+ * what `cleanPath` leaves and what `saveSiteSource` keeps. The prefixed
+ * spelling this used to produce is what made the page window's `keep` list
+ * match nothing on every real site while matching perfectly here.
+ */
+function corpusPages(sites) {
+  const out = [];
+  for (const s of sites) {
+    for (const f of fs.readdirSync(path.join(CORPUS_DIR, s)).filter((x) => x.endsWith(".tsx"))) {
+      out.push({
+        path: (s + "-" + f.replace(/\.tsx$/, "")).toLowerCase() + ".tsx",
+        source: fs.readFileSync(path.join(CORPUS_DIR, s, f), "utf8"),
+      });
+    }
+  }
+  return out;
+}
+const BIG = ["salon", "printer", "restaurant", "music-school"];
+const shownPaths = (t) => [...t.matchAll(/--- ([a-z0-9.\-]+\.tsx) ---/g)].map((m) => m[1]);
+
+test("a site too large for the window keeps the addon contract, shows what fits and names the rest", async () => {
+  const stored = corpusPages(BIG);
+  const chars = stored.reduce((n, p) => n + p.source.length, 0);
+  assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
+
+  // ⚠ THE HOME PAGE IS REAL AND IS DELIBERATELY NOT FIRST. `keep` has to bind
+  // to something the site really has, or every entry names a page it has not
+  // got and the two selections agree by accident — and it has to name a page
+  // the BUDGET would not have taken anyway, or naming it changes nothing.
+  // MEASURED: with the home page at index 0 three mutants survived (the keep
+  // order dropped, the home page unkept, the route's own reader recomputed with
+  // a different keep list), because `stored[0]` fits first either way.
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+  const r = await addon("fw-big", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+
+  // THE CONTRACT, WHICH DISAPPEARED ENTIRELY BEFORE THIS.
+  assert.match(flat, /RETURN ONLY WHAT IS NEW OR CHANGED/, "the addon contract went with the source");
+  assert.match(flat, /`remove` IS THE ONLY THING THAT DOES IT/, "the delete verb went with the source");
+  assert.match(flat, /BYTE-IDENTICAL/, "the don't-rewrite rule went with the source");
+  assert.doesNotMatch(flat, /write them again in full/,
+    "the writer was told to rewrite a site it is only adding to — the reported defect");
+
+  // WHAT FITS IS SHOWN, WHAT DOES NOT IS NAMED, AND THE TWO ARE THE WHOLE SITE.
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.length > 0, "nothing at all was shown");
+  assert.ok(shown.length < stored.length, "the fixture fitted whole, so this case is not about the window");
+  const named = flat.match(/ARE UNCHANGED: (.*?)\. Do NOT/);
+  assert.ok(named, "the pages that did not fit are not named: " + flat.slice(0, 400));
+  const unseen = named[1].split(", ");
+  assert.equal(shown.length + unseen.length, stored.length, "shown + named is not the whole site");
+  assert.equal(shown.filter((p) => unseen.includes(p)).length, 0, "a page was both shown and named as unseen");
+  // THE REASON, NOT THE VERB. "Do NOT" ends the line above the forbidding one,
+  // so a mutant that softened "…for any of them" into "…for any of them if you
+  // like" left the words "Do NOT return a file for any of them" intact across
+  // the join and survived. What cannot survive is the clause that says WHY.
+  assert.match(flat, /you have not been shown what you would be replacing/,
+    "a page named and not shown was not forbidden — returning one replaces a file nobody saw");
+  // AND THE PAGES GO OUT IN THE SITE'S OWN ORDER, whatever the budget did to
+  // the selection: which pages are shown is a budget decision, the order they
+  // are read in is the site's, and a model handed its pages in an order that
+  // moves per request reads that order as meaning something.
+  const inSite = stored.map((p) => p.path).filter((p) => shown.includes(p));
+  assert.deepEqual(shown, inSite, "the shown pages are in the budget's order rather than the site's");
+  // AND THE ASSERTION ABOVE IS NOT VACUOUS, which it would be if `keep` named
+  // the page the site's order puts first: the home page is LAST here, so the
+  // budget's order and the site's really are different lists.
+  assert.notEqual(inSite[0], "index.tsx", "the fixture cannot tell the two orders apart");
+  assert.ok(shown.includes("index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
+
+  // AND IT IS RECORDED. `ok: true` with an empty `problems` and an empty
+  // `coverNote` is exactly what this answered before, so the one fact that
+  // explains a weak result on a large site was nowhere at all.
+  assert.deepEqual(r.body.unseenPages, unseen, "the reply does not carry what the window could not hold");
+  const rec = storedAnswer(r, "fw-big");
+  assert.deepEqual(rec.coverage.unseenPages, unseen, "the stored record does not carry it");
+  // …AND NOT TO THE CUSTOMER, deliberately: they can do nothing with it, and the
+  // things they CAN act on have their own sentences.
+  assert.equal(r.body.coverNote, "", "the customer was told about the prompt window: " + r.body.coverNote);
+});
+
+test("the pages this change is about are the ones shown, whatever their stored order", async () => {
+  // `keep` is the whole of this: without it the selection is stored order and
+  // the page a section was designed to land on is exactly the one worth the
+  // budget.
+  //
+  // ⚠ THE FIRST DRAFT OF THIS CASE WAS VACUOUS AND A SWEEP SAID SO. It targeted
+  // the LAST page in stored order, on the reasoning that stored order would
+  // drop it — and `priorPagesSent` SKIPS a page too big for what is left rather
+  // than stopping, so the last page is small enough to fit in the remainder and
+  // was shown either way. Eight mutants that cut `keep` out of the chain
+  // survived it. A fixture too shallow to separate the two readings, in the
+  // case written for the thing it could not see.
+  //
+  // SO THE CASE CARRIES ITS OWN CONTROL: the same site and the same change
+  // aimed at the HOME page first, which establishes by measurement that the
+  // target really is one the budget drops — and only then is it named.
+  const stored = corpusPages(BIG);
+  // THE HOME PAGE IS LAST, deliberately: at index 0 it is shown whatever `keep`
+  // says, and the assertion below stops being about `keep` at all.
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+
+  const run = (slug, route) => addon(slug, "add a note about parking to " + route, {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    // ⚠ APPENDED, NOT `replace`d ON A NEEDLE THE SOURCE MAY NOT HAVE. With the
+    // stored paths in the site's own spelling these really MERGE, so a returned
+    // page byte-identical to the stored one is `no-change` and the whole case
+    // escalates — which is the merge being right about a fixture that changed
+    // nothing. A corpus page need not contain `</main>` at all.
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: route, does: "a parking note", components: ["card"] }] } },
+  });
+
+  // THE CONTROL: nothing names the target, so it is shown only if the budget
+  // reached it on its own.
+  // THE CONTROL NAMES THE FIRST STORED PAGE, which the budget takes anyway, so
+  // `keep` adds nothing and the answer is the budget's own. Naming "/" here
+  // would keep the HOME page and change the very selection being measured.
+  const firstRoute = "/" + stored[0].path.replace(/\.tsx$/, "");
+  const without = shownPaths(pagePrompt(await run("fw-keep-ctl", firstRoute)).text);
+  const dropped = stored.map((p) => p.path).filter((p) => !without.includes(p));
+  assert.ok(dropped.length, "the fixture fitted whole, so this case is not about the window");
+  const target = "/" + dropped[0].replace(/\.tsx$/, "");
+
+  // …AND NOW IT IS NAMED.
+  const r = await run("fw-big-keep", target);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.includes(dropped[0]),
+    "the page the change is about was not shown, and the budget does not reach it on its own: " + JSON.stringify(shown));
+  // AND THE HOME PAGE, which is the nav anchor almost every addon touches —
+  // "usually ONE new page, plus the page a visitor would look on to find it".
+  assert.ok(shown.includes("index.tsx"), "the home page was not shown: " + JSON.stringify(shown));
+  assert.ok(shown.length < stored.length, "the site fitted whole once the target was named");
+
+  // AND THE ROUTE'S OWN READER ASKS WITH THE PROMPT'S KEEP LIST, not a second
+  // one. `aUnseenPages` is `priorPagesSent` called AGAIN in the route, so the
+  // report and the prompt can disagree about which pages the writer saw —
+  // and this case is the only one where they would, which is why the
+  // assertion lives here rather than beside the other one. MEASURED on this
+  // fixture: named, the target is shown and printer-products is withheld;
+  // unnamed, exactly that pair swaps, so a reader that dropped `keep` would
+  // report the page the writer was just shown as one it never saw. The case
+  // above cannot see it — its keep list names the home page, which is small
+  // and which the budget reaches on its own in stored order, so both
+  // selections there are the same nine pages to the character.
+  const named = pagePrompt(r).text.replace(/\\n/g, " ").match(/ARE UNCHANGED: (.*?)\. Do NOT/);
+  assert.ok(named, "the pages that did not fit are not named");
+  assert.ok(!named[1].split(", ").includes(dropped[0]),
+    "the prompt names the target as unseen, so this assertion is not about the reader");
+  assert.deepEqual(r.body.unseenPages, named[1].split(", "),
+    "the reply names different pages from the prompt — the route asked the window with another keep list");
+});
+
+test("THE LIFECYCLE: one page identity from what a model writes to what the merge reports", async () => {
+  // Owner, 2026-09-17: *"aKeepPages constructs src/routes/target.tsx, but
+  // validatePages produces target.tsx and saveSiteSource preserves that path…
+  // Match page identities consistently across stored source, selection,
+  // generation and merging. Add a lifecycle case using validator-produced or
+  // previously persisted pages, not only manually prefixed fixtures."*
+  //
+  // THE REPRODUCTION, AS THE OWNER GAVE IT: three valid ~40k pages, asking to
+  // change `/target`. Before the fix it showed `index.tsx` and `middle.tsx`,
+  // WITHHELD `target.tsx` — the one page the change was about — and then
+  // accepted a returned replacement for it.
+  //
+  // ⚠ AND EVERY HOP IS THE REAL PRODUCER'S. The stored pages are not typed:
+  // they are what `validatePages` answers for pages in the shape a MODEL
+  // writes them, which is the one thing `saveSiteSource` ever stores. A
+  // hand-spelled fixture is exactly what hid this for as long as it was hidden.
+  const big = (route, n) => {
+    const name = route === "/" ? "Index" : route.slice(1).replace(/[^a-z]/g, "");
+    return {
+      // AS A MODEL WRITES IT — with the prefix, which is why the prefix is not
+      // wrong anywhere; it is wrong as a claim about what is STORED.
+      path: "src/routes/" + (route === "/" ? "index" : route.slice(1)) + ".tsx",
+      source: 'import { createFileRoute } from "@tanstack/react-router";\n'
+        + 'export const Route = createFileRoute("' + route + '")({ component: ' + name + ' });\n'
+        + "function " + name + "() {\n  return (\n    <main>\n"
+        + ("      {/* " + "x".repeat(96) + " */}\n").repeat(380)
+        + "    </main>\n  );\n}\n",
+    };
+  };
+  const born = validatePages({ pages: [big("/", 380), big("/middle", 380), big("/target", 380)] }, { partial: true });
+  assert.deepEqual(born.problems, [], "the lifecycle fixture does not survive the real validator");
+  const stored = born.pages;
+
+  // HOP 1 — THE VALIDATOR STRIPS THE PREFIX. This is the fact the defect
+  // denied, asserted here rather than assumed anywhere else.
+  assert.deepEqual(stored.map((p) => p.path), ["index.tsx", "middle.tsx", "target.tsx"],
+    "the validator no longer answers the persisted spelling: " + JSON.stringify(stored.map((p) => p.path)));
+  const chars = stored.reduce((n, p) => n + p.source.length, 0);
+  assert.ok(chars > MAX_PRIOR_CHARS, "the fixture is not over the window — " + chars + " against " + MAX_PRIOR_CHARS);
+  // …AND THE BUDGET REALLY DROPS ONE OF THE THREE, or the selection is not
+  // being tested at all.
+  assert.ok(stored[0].source.length + stored[1].source.length + stored[2].source.length > MAX_PRIOR_CHARS
+    && stored[0].source.length + stored[2].source.length <= MAX_PRIOR_CHARS,
+    "the window does not bind at exactly one page here, so the case measures nothing");
+
+  const r = await addon("fw-life", "add a note about parking to /target", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[2], source: stored[2].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/target", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // HOP 2 — THE SELECTION FINDS IT. The page the change is about is shown, and
+  // the one dropped is the one it is not about.
+  const shown = shownPaths(pagePrompt(r).text);
+  assert.ok(shown.includes("target.tsx"),
+    "the page the change is about was withheld — the reported defect: " + JSON.stringify(shown));
+  assert.ok(shown.includes("index.tsx"), "the home page was not kept: " + JSON.stringify(shown));
+  assert.deepEqual(r.body.unseenPages, ["middle.tsx"],
+    "the window dropped something other than the page nobody named: " + JSON.stringify(r.body.unseenPages));
+
+  // HOP 3 — GENERATION AND MERGE AGREE WITH BOTH. The returned page merges
+  // onto the stored one rather than sitting beside it as a second file.
+  assert.deepEqual(r.body.changed, ["target.tsx"], JSON.stringify(r.body.changed));
+  assert.deepEqual(r.body.added, [], "the returned page was added beside the stored one instead of replacing it");
+  const out = compiledPages(r);
+  assert.deepEqual(out.map((p) => p.path).sort(), ["index.tsx", "middle.tsx", "target.tsx"],
+    "the published site is not the three pages it started with: " + JSON.stringify(out.map((p) => p.path)));
+  assert.match(out.find((p) => p.path === "target.tsx").source, /Parking is free/, "the change did not reach the site");
+});
+
+test("a page the window could not carry is not replaced by a returned rewrite of it", async () => {
+  // Owner, 2026-09-17: *"Also enforce preservation of withheld existing pages
+  // at the merge boundary. Prompt wording and keptProse do not establish that
+  // an unseen rewrite preserves behavior."* Both halves are exact — the prompt
+  // NAMES every withheld page and forbids returning one, which is wording, and
+  // `keptProse` asks only whether the WORDS survived, which a rewrite that
+  // drops a form, a link or a hook passes cleanly.
+  //
+  // THIS IS `partsSent`'s WALL ONE LAYER OVER: the pages we could not SHOW are
+  // exactly the pages we cannot CHECK.
+  const stored = corpusPages(BIG);
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+
+  // WHICH PAGE THE BUDGET REALLY DROPS IS MEASURED, NEVER ASSUMED — the same
+  // control the keep-order case needs, for the same reason.
+  const probe = await addon("fw-unseen-ctl", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  const unseen = probe.body.unseenPages || [];
+  assert.ok(unseen.length, "the fixture fitted whole, so nothing here is about the window");
+  const victim = stored.find((p) => p.path === unseen[0]);
+  assert.ok(victim, "the withheld name is not one of the site's pages: " + unseen[0]);
+
+  // …AND NOW THE WRITER RETURNS A REWRITE OF EXACTLY THAT PAGE, keeping its
+  // words — so `keptProse` is satisfied and only the new wall can refuse it.
+  const rewrite = { path: victim.path, source: victim.source + "\n// rewritten from a description\n" };
+  const r = await addon("fw-unseen-page", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }, rewrite],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE STORED FILE IS WHAT SHIPS, read off the container payload rather than a
+  // reply field: a route that kept the file on its list and sent it anyway
+  // satisfies every assertion about `changed`.
+  const out = compiledPages(r);
+  const live = out.find((p) => p.path === victim.path);
+  assert.ok(live, "the withheld page left the site altogether");
+  assert.equal(live.source, victim.source, "a page nobody was shown was replaced by a rewrite of it");
+  assert.ok(!(r.body.changed || []).includes(victim.path), "the reply says it changed a page it refused: " + JSON.stringify(r.body.changed));
+
+  // …AND IT IS SAID. A withheld page dropped in silence is indistinguishable
+  // from a page the model never touched.
+  assert.deepEqual(r.body.keptPages, [victim.path], "the refusal is not on the wire: " + JSON.stringify(r.body.keptPages));
+  assert.match(r.body.keptPartsNote, /I won't write over a page I haven't read/, r.body.keptPartsNote);
+  assert.match(r.body.keptPartsNote, new RegExp(routeOf(victim.path)), r.body.keptPartsNote);
+  // THE REASON, NOT ONLY THE RULE. "I won't write over a page I haven't read"
+  // survives a sentence that has borrowed the COMPONENT wall's opening — and
+  // that opening is different advice for a different problem: there you ask for
+  // the one component on its own because it fits alone, here the SITE has
+  // outgrown one request.
+  assert.match(r.body.keptPartsNote, /big enough now that I can't hold every page at once/, r.body.keptPartsNote);
+  assert.doesNotMatch(r.body.keptPartsNote, /too long for me to read in one go/,
+    "the page sentence borrowed the component one's size-bound advice");
+
+  // THE CONTROL: the page the writer WAS shown is changed exactly as asked, so
+  // the refusal above is about the window and not about refusing everything.
+  assert.ok((r.body.changed || []).includes(stored[0].path),
+    "the shown page's own change was refused too: " + JSON.stringify(r.body.changed));
+  assert.match(out.find((p) => p.path === stored[0].path).source, /Parking is free/,
+    "the change the customer asked for did not reach the site");
+});
+
+test("a change that was ONLY a rewrite of a page nobody was shown refuses, and does not climb", async () => {
+  // THE BRANCH THE CASE ABOVE CANNOT REACH: there the home page's own change
+  // survives, so the merge is fine and this never fires. Here the writer returns
+  // NOTHING BUT the withheld page — so once it is refused the merge answers
+  // `nothing-returned`, and falling through would escalate to the ~25-credit
+  // revise: rewriting a customer's whole site because WE refused the one file it
+  // sent. This route's own "a considered refusal does not climb the ladder",
+  // met from the refusing side.
+  const stored = corpusPages(BIG);
+  stored[stored.length - 1] = { ...stored[stored.length - 1], path: "index.tsx" };
+  const probe = await addon("fw-only-ctl", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ ...stored[0], source: stored[0].source + "\n// Parking is free.\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  const unseen = probe.body.unseenPages || [];
+  assert.ok(unseen.length, "the fixture fitted whole, so nothing here is about the window");
+  const victim = stored.find((p) => p.path === unseen[0]);
+
+  const r = await addon("fw-only-unseen", "add a note about parking to /", {
+    kinds: ["component"], publishes: true, storedPages: stored,
+    written: [{ path: victim.path, source: victim.source + "\n// rewritten from a description\n" }],
+    answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "unseen-rewrite", JSON.stringify(r.body));
+  assert.notEqual(r.body.escalate, true, "a refusal we made ourselves was sent up the ladder to the full revise");
+  assert.equal(r.body.cost, 0, "a change that published nothing was charged for");
+  assert.deepEqual(r.body.keptPages, [victim.path], "the refused page is not on the wire");
+  assert.match(r.body.msg, /I won't write over a page I haven't read/, r.body.msg);
+  assert.match(r.body.msg, /big enough now that I can't hold every page at once/, r.body.msg);
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
+test("an ordinary site is byte-identical — the window changes nothing until it binds", async () => {
+  // THE CONTROL FOR THE WHOLE ROUND. Every site on the platform is under the
+  // window today, so a change here that moved the ordinary prompt would be a
+  // change to every addon that has ever run.
+  const stored = corpusPages(["salon"]);
+  assert.ok(stored.reduce((n, p) => n + p.source.length, 0) < MAX_PRIOR_CHARS, "the control fixture is over the window");
+  const r = await addon("fw-small", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const t = pagePrompt(r).text;
+  assert.equal(shownPaths(t).length, stored.length, "a site that fits was not shown whole");
+  assert.match(t.replace(/\\n/g, " "), /Below is the CURRENT source of every page/,
+    "a site that fits was told it is too large to show");
+  assert.doesNotMatch(t, /ARE UNCHANGED:/, "a site that fits named pages as unseen");
+  assert.equal(r.body.unseenPages, undefined, "a site that fits reported a window that did not bind");
+  assert.equal(storedAnswer(r, "fw-small").coverage.unseenPages.length, 0, "the record claims a window that did not bind");
+});
+
+test("a one-page site bigger than the whole window is shown that page and names nothing as unseen", async () => {
+  // THE BELT. `MAX_PAGE_CHARS` (48,000) is under `MAX_PRIOR_CHARS` (90,000), so
+  // no page `validatePages` admits can reach here — but a page stored before
+  // those caps can, and an addon prompt with no source at all is the revise
+  // fallback wearing this branch's words. The page it falls back to must not
+  // then be named among the ones it cannot see.
+  const stored = [{ path: "index.tsx", source: writtenPage("/").source + "\n// " + "x".repeat(MAX_PRIOR_CHARS + 5000) }];
+  const r = await addon("fw-one-huge", "add a page listing our opening hours", {
+    kinds: ["page"], publishes: true, storedPages: stored,
+    written: [writtenPage("/hours")],
+    answers: { page: { page: [{ path: "/hours", name: "Hours", purpose: "say when we are open", sections: ["a table"], components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const t = pagePrompt(r).text;
+  assert.deepEqual(shownPaths(t), ["index.tsx"], "the only page the site has was not shown");
+  assert.match(t.replace(/\\n/g, " "), /RETURN ONLY WHAT IS NEW OR CHANGED/, "the contract went with the window");
+  assert.doesNotMatch(t, /ARE UNCHANGED:/, "the one page shown was also named as one that could not be shown");
+  assert.equal(r.body.unseenPages, undefined, "the one page shown was reported as unseen");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A COMBINED PAGE + PHOTOGRAPH ASK (2026-09-17)
+//
+// "add a gallery page showing photos of our work" picks `page` AND `photo`.
+// `photo` is the one DISPATCHED kind, so it is set aside with a sentence —
+// *"ask for it on its own and I'll place it"* — and the page is built and
+// published. Three things were wrong with that, all measured through this
+// route before anything was touched:
+//
+//   1. The writer was told *"PHOTOGRAPHS: none on this site"* whatever the site
+//      really had. On a site showing two, identically.
+//   2. It asked for `<SafeImage>` with NO src — and the picture rung, the rung
+//      being promised, fills a slot by rewriting a `src` attribute. Measured:
+//      that shape reads as ZERO slots, and `src=""` as one. So the addon wrote
+//      the one shape its own next step cannot fill.
+//   3. `photos` counts `@@IMG:` tokens, which this step forbids, so the
+//      customer was never told the new page has empty frames they can fill.
+// ─────────────────────────────────────────────────────────────────────────────
+const PHOTO_SITE = [{
+  path: "index.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/')({ component: Home })\n"
+    + "function Home(){ return <main><h1>Fretwork</h1>\n"
+    + '  <SafeImage src="/u/fw-photo/a1b2c3d4.jpg" alt="the workshop bench" />\n'
+    + '  <SafeImage src="/u/fw-photo/e5f6a7b8.jpg" alt="a guitar being refretted" />\n'
+    + "</main> }\n",
+}];
+const galleryWith = (imgs) => ({
+  path: "src/routes/gallery.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/gallery')({ component: P })\n"
+    + "function P(){ return <main><h1>Gallery</h1>" + imgs + "</main> }\n",
+});
+const photoAsk = (slug, opts) => addon(slug, "add a gallery page showing photos of our work", {
+  publishes: true,
+  answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+    sections: ["a grid of photographs"], components: ["card"] }] } },
+  ...opts,
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PAGE + PHOTOGRAPH IN ONE REQUEST (2026-09-17)
+
+   Owner: *"proceed to completing page + photo in one request. Placeholders and
+   asking the customer to repeat the photo request do not complete that
+   capability. Start with stubbed-provider verification."*
+
+   MEASURED THROUGH THE ROUTE BEFORE ANY OF THIS EXISTED, on the ask below:
+   `kinds: ["page"] / skipped: ["photo"]`, a gallery page whose every picture
+   was `<SafeImage src="">`, nothing bought, and the customer told to ask for
+   the photograph again.
+
+   THE PROVIDER IS STUBBED IN ITS OWN TWO HOPS — `genSitePhoto` POSTs to fal
+   and then FETCHES the url fal answers with — and every prompt it is paid for
+   is recorded, because a case about buying photographs is about WHICH pictures
+   were bought and the reply's count alone cannot say that.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The gallery page as a writer that OBEYED the directive really returns it. */
+const galleryToken = (describe) => galleryWith(
+  '<SafeImage src="@@IMG:' + describe + '@@" alt="the workshop bench" />');
+
+/** The same ask, with a designed picture and a balance that can pay for it. */
+const boughtAsk = (slug, shots, opts) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits: 400,
+  written: [galleryToken(shots[0].describe)],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: shots },
+  },
+  ...opts,
+});
+
+const BENCH = "the workshop bench under the window, warm afternoon light";
+
+test("THE COMBINED REQUEST: one ask buys the photograph and puts it on the page it added", async () => {
+  const r = await boughtAsk("fw-both", [{ page: "/gallery", describe: BENCH }]);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // 1. NOTHING IS HANDED OFF. This is the whole of what the owner asked for:
+  //    the photograph rode the same request as the page.
+  assert.deepEqual(r.body.kinds, ["page", "photo"], "the photograph was not designed in this change");
+  assert.deepEqual(r.body.skipped, [], "the photograph was set aside — the hand-off is back");
+
+  // 2. THE WRITER WAS GIVEN THE EXACT TOKEN, page by page — `imageDirective`'s
+  //    list form, which is the build path's own reader rather than a second
+  //    shape beside it. The words inside a token are the prompt an image model
+  //    is PAID to draw, so this is asserted verbatim.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph, and they are ALREADY CHOSEN/,
+    "the writer was told there is nothing to buy on a change that buys one");
+  assert.ok(flat.includes('/gallery — <SafeImage src="@@IMG:' + BENCH + '@@"'),
+    "the writer was not given the exact token to write, on the page it belongs to");
+
+  // 3. THE PROVIDER WAS PAID FOR THAT PICTURE AND NO OTHER — read off what the
+  //    stub really received, not off a count on the reply.
+  assert.equal(r.shots.length, 1, "the provider was paid " + r.shots.length + " times for one picture");
+  assert.ok(r.shots[0].startsWith(BENCH), "a different picture was bought from the one designed");
+
+  // 4. THE PUBLISHED PAGE CARRIES THE PHOTOGRAPH. Read off the CONTAINER
+  //    PAYLOAD — what the route HANDED the thing that builds the site — because
+  //    a reply field is a claim and this is the artifact.
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.ok(g, "no gallery page reached the compiler");
+  assert.doesNotMatch(g.source, /@@IMG:/, "the token shipped as text — a broken image with its alt showing");
+  assert.match(g.source, /src="\/u\/fw-both\/[0-9a-f]{32}\.jpg"/,
+    "the published page has no real photograph in it: " + g.source);
+
+  // 5. AND THE CUSTOMER IS TOLD, in `imageNote`'s own words. `photos` is the
+  //    EMPTY-FRAME count and is zero, because the frame was filled — two
+  //    numbers under one name is the wrong number wearing a right one's.
+  assert.equal(r.body.pictures, 1, "the reply does not say a picture was made");
+  assert.equal(r.body.photos, 0, "a frame this change FILLED was reported as an empty space");
+  assert.match(String(r.body.pictureNote), /Made 1 photograph/, "the customer was not told the picture was made");
+  assert.doesNotMatch(String(r.body.pictureNote), /placeholder/, "the customer was told the picture is a placeholder");
+
+  // 6. AND IT IS BILLED. A photograph is $0.15 of real spend — `IMAGE_USD` —
+  //    against the few tokens that placed it, so the picture is nearly all of
+  //    this bill and a run that forgot to charge for it would be ~1.
+  assert.ok(r.body.cost >= 18, "the photograph was not billed: cost " + r.body.cost);
+});
+
+test("a photograph beside a SECTION is designed here too, and lands on the page the section did", async () => {
+  // `MAKES_PAGES` IS TWO KINDS AND BOTH HAVE TO BE DRIVEN. A component rewrites
+  // a page, so it makes a place for a picture exactly as a new page does — and
+  // with only the `page` half driven, narrowing the list to ["page"] passes
+  // every other case here.
+  const r = await addon("fw-photo-sec", "add a gallery strip to the home page with a photo of the workshop in it", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    written: [addedTo("/", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />')],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, [], "a photograph beside a section was handed off");
+  assert.equal(r.shots.length, 1, "a photograph beside a section was not bought");
+  const home = compiledPages(r).find((p) => p.path.includes("index"));
+  assert.match(home.source, /src="\/u\/fw-photo-sec\/[0-9a-f]{32}\.jpg"/,
+    "the section's picture never reached the page: " + home.source);
+});
+
+test("a picture is bought for what will be PUBLISHED, never for what the writer returned", async () => {
+  // ⚠ THE TWO LISTS PART COMPANY, AND ONLY ONE OF THEM IS THE SITE. The
+  // picture was designed for `/gallery` and the writer put its token on
+  // `/prices` instead — a page nobody asked about, carrying no link to the
+  // added route, so `mergeAddonPages` REVERTS it. Buying from `aValid.pages`
+  // spends $0.15 on a file no visitor will ever be served; buying from
+  // `aMerge.pages` does not.
+  //
+  // THE DESTINATION IS `/gallery` AND NOT `/prices` ON PURPOSE: a photograph
+  // answer naming a page puts that page on `aAskedPages`, and an asked page is
+  // KEPT — which is right, and would make this case about a page that shipped.
+  // MEASURED: written the other way round, `reverted` comes back `[]`.
+  const r = await photoAsk("fw-photo-revert", {
+    kinds: ["page", "photo"], credits: 400, sitePages: ["/", "/prices"],
+    written: [
+      // The added page, correct and with no picture on it.
+      writtenPage("/gallery"),
+      // The rewrite nobody asked for, carrying the only token in the answer.
+      { ...storedPage("/prices"), source: storedPage("/prices").source.replace(
+        "</main>", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="x" /></main>') },
+    ],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // THE PRECONDITION, MEASURED rather than assumed: the rewrite really was
+  // reverted, so this case is about a withheld page and not about a page that
+  // shipped.
+  assert.ok((r.body.reverted || []).some((p) => String(p).includes("prices")),
+    "the unasked rewrite was published after all — this case tests nothing: " + JSON.stringify(r.body.reverted));
+  assert.deepEqual(r.shots, [], "a photograph was bought for a page nobody will be served");
+  assert.equal(r.body.pictures, undefined);
+  const prices = compiledPages(r).find((p) => p.path.includes("prices"));
+  assert.doesNotMatch(prices.source, /@@IMG:|\/u\//, "the reverted page is not the stored one: " + prices.source);
+});
+
+test("a token in a component this change never touched is not bought", async () => {
+  // A STORED COMPONENT'S SOURCE IS NOT THIS CHANGE'S TO SWEEP OR TO PAY FOR.
+  // `aParts` is `null` when no component was written, and handing the STORED
+  // list to the purchase instead would plan from a file nobody asked about —
+  // money spent on a page this change is not writing, and a write-back over a
+  // component it never saw. A token can really be there: a site published
+  // before the sweep existed carries one.
+  //
+  // ⚠ TWO SHOTS AND ONE TOKEN, BECAUSE THE BUDGET IS WHAT DISCRIMINATES.
+  // MEASURED: with one shot and one token in the page, `planImages` fills its
+  // budget from the page and stops, so the stranger's token is never reached
+  // and the stored list could be handed in with nothing to show for it. With
+  // room left over, buying from the stored components buys it — the honest
+  // half of the case is the picture that IS bought, and the wall is the one
+  // that is not.
+  const r = await boughtAsk("fw-photo-stored", [
+    { page: "/gallery", describe: BENCH },
+    { page: "/gallery", describe: "the lathe with its belt guard open" },
+  ], {
+    parts: [{ name: "old-strip", source: 'export default function S(){ return <SafeImage src="@@IMG:a stranger\'s picture@@" alt="x" /> }' }],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.shots.length, 1, "a stored component's token was paid for: " + JSON.stringify(r.shots));
+  assert.ok(r.shots[0].startsWith(BENCH), "the wrong picture was bought");
+  assert.ok(!r.shots.some((s) => s.includes("stranger")), "a stranger's picture was bought: " + JSON.stringify(r.shots));
+});
+
+test("more pictures than the platform will buy are refused at the cleaner, by the platform's own cap", async () => {
+  // THE CEILING IS `IMAGE_CAP` AND IT IS THE SPEND PATH'S, not a number of the
+  // add step's: `planImages` slices there too, so a wider cap here would clean
+  // an entry nothing downstream will ever buy — and the customer would be told
+  // it was added.
+  const SITE_P = { name: "x", kind: "shopfront", pages: ["/"], tables: [], hasDatabase: false, qr: null, three: null, tsx: [] };
+  const many = Array.from({ length: IMAGE_CAP + 1 }, (_, i) => ({ page: "/", describe: "picture number " + i }));
+  const c = cleanAdd("photo", many, SITE_P);
+  assert.equal(c.value.length, IMAGE_CAP, "the cleaner kept " + c.value.length + " pictures against a cap of " + IMAGE_CAP);
+  assert.deepEqual(c.skipped, [{ why: "over-cap", name: "" }], "the ones left out were not named");
+});
+
+test("a photograph ALONE is still the picture rung's, and buys nothing here", async () => {
+  // THE PROPERTY THAT MUST NOT REGRESS. That rung fills a slot that EXISTS,
+  // prices one against the real balance and refuses honestly; this step is only
+  // right when it is the one MAKING the slot. A change that designed a picture
+  // for every `photo` ask would take that rung's work and its refusals with it.
+  const r = await addon("fw-photo-alone", "put a photo of the workshop on the home page", {
+    kinds: ["photo"], credits: 400,
+  });
+  assert.equal(r.body.ok, false);
+  assert.equal(r.body.escalate, true, JSON.stringify(r.body));
+  assert.equal(r.body.reason, "layer", "a photograph on its own no longer hops sideways");
+  assert.equal(r.body.layer, "picture", "a photograph on its own stopped naming the rung that places one");
+  assert.equal(r.body.kind, "photo");
+  assert.deepEqual(r.shots, [], "a photograph was bought on a request this step does not own");
+  assert.equal(r.compiles.length, 0, "a hand-off compiled a site");
+});
+
+test("a photograph beside a kind that writes no page is still set aside", async () => {
+  // `MAKES_PAGES` IS THE LINE AND THIS IS ITS OTHER SIDE. A table reaches the
+  // page call too, and it is no reason to put a PHOTOGRAPH on a page — so the
+  // hand-off survives for every kind that is not making the place for one.
+  const r = await addon("fw-photo-table", "add a bookings table and a photo of the workshop", {
+    kinds: ["table", "photo"], credits: 400, publishes: true,
+    answers: { table: { table: [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, ["photo"], "a photograph beside a table was designed here");
+  assert.deepEqual(r.shots, [], "a photograph was bought beside a table");
+});
+
+test("a provider that refuses costs nothing, sweeps the token, and says so", async () => {
+  // THE ARM WHERE THE MONEY IS NOT SPENT. `makeSitePhoto` answers no url, so
+  // `applyImages` sweeps the token to the empty src `SafeImage` draws its
+  // placeholder from — the one outcome that must never be the literal
+  // `@@IMG:…@@`, which is a broken image AND a leak of how the site was made.
+  const r = await boughtAsk("fw-photo-down", [{ page: "/gallery", describe: BENCH }], { shotFail: true });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.shots.length, 1, "the provider was never tried, so this case is not about it refusing");
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.doesNotMatch(g.source, /@@IMG:/, "a refused picture left its token in the published page");
+  assert.match(g.source, /src=""/, "the swept slot is not one the picture rung can fill");
+  assert.equal(r.body.pictures, undefined, "a picture that never arrived was counted as made");
+  assert.match(String(r.body.pictureNote), /Couldn't make the photographs/, "the customer was not told why the frame is empty");
+  // AND NOT BILLED. `made`, never `planned` — the build path's own rule and the
+  // picture rung's: the working balance moves on success and not on the attempt.
+  assert.ok(r.body.cost <= 2, "a photograph that did not arrive was billed: cost " + r.body.cost);
+  // …AND THE FRAME IT LEFT IS REPORTED, so the customer knows the space is
+  // theirs. This is the half `photoNote` has always had and it must survive.
+  assert.equal(r.body.photos, 1, "the empty frame a refused picture left was not counted");
+});
+
+test("a picture may land on a page this change is adding, and not on one nobody has", async () => {
+  // THE SAME DESTINATION READER EVERY PLACING KIND USES. `going` is what the
+  // site WILL have — its pages plus the ones this message is adding — so a
+  // picture on the new /gallery resolves and one on a page nobody has is
+  // refused BY NAME, never moved to the home page. A photograph is bought, so
+  // the silent substitution the owner corrected on the component tier is worse
+  // here: it spends money putting a picture where nobody asked for one.
+  const bad = await photoAsk("fw-photo-where", {
+    kinds: ["page", "photo"], credits: 400, written: [galleryToken(BENCH)],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid"], components: ["card"] }] },
+      photo: { photo: [{ page: "/prices", describe: BENCH }] },
+    },
+  });
+  assert.equal(bad.status, 422, JSON.stringify(bad.body));
+  assert.equal(bad.body.reason, "no-page", "a picture aimed at a page nobody has was placed somewhere");
+  assert.deepEqual(bad.shots, [], "a picture with no destination was paid for");
+  assert.equal(bad.body.cost, 0, "a refused addition was billed");
+
+  // THE CONTROL, one field apart: the page THIS CHANGE IS ADDING is a real
+  // destination, which is what makes the refusal above about the route rather
+  // than about pictures never being placeable.
+  const ok = await boughtAsk("fw-photo-planned", [{ page: "/gallery", describe: BENCH }]);
+  assert.equal(ok.body.ok, true, JSON.stringify(ok.body));
+  assert.equal(ok.shots.length, 1, "a picture on a page this same change adds was not bought");
+});
+
+test("the sweep belt still fires on a change that buys nothing", async () => {
+  // THE BELT THE PURCHASE MOVED, AND WHY IT COULD NOT SIMPLY GO. It used to run
+  // unconditionally and was stripping the tokens the purchase is for — measured
+  // through the route, `plan.shots` came back 0 on a run whose writer wrote the
+  // token exactly as asked. It waits for the buying branch now, so what has to
+  // be proved is that it still runs on the branch that does not: the directive
+  // forbids a token and a model can write one regardless.
+  const r = await photoAsk("fw-photo-belt", { kinds: ["page"], written: [galleryToken("a chair")] });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.shots, [], "a change with no photograph kind bought one");
+  const g = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.doesNotMatch(g.source, /@@IMG:/, "an unbought token shipped as text on a change that buys nothing");
+  assert.match(g.source, /src=""/, "the belt swept the token to something the picture rung cannot fill");
+});
+
+test("a page added to a site that has photographs is not told the site has none", async () => {
+  const r = await photoAsk("fw-photo", {
+    kinds: ["page", "photo"], storedPages: PHOTO_SITE, written: [galleryWith("")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // ── RE-ANCHORED 2026-09-17: THE SUBJECT IS THE INVENTORY, NOT THE HAND-OFF ─
+  //
+  // This asserted `skipped: ["photo"]` as the precondition, which was how a
+  // page + photograph ask behaved until this change: set aside, hand-off, ask
+  // again. That ask now DESIGNS the picture here, so the set-aside list is
+  // empty — and the sentence under test is about what the SITE already shows,
+  // which is stated on every run that buys nothing. The precondition is the
+  // real one: no purchase was made, so the object form was sent.
+  assert.deepEqual(r.body.skipped, [], "a photograph beside a page is set aside again — the hand-off is back");
+  assert.equal(r.body.pictures, undefined, "this case bought a photograph, so it is no longer about the zero budget");
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flat, /PHOTOGRAPHS: none on this site/,
+    "the writer was told this site has no photographs, on a site showing two — the reported defect");
+  assert.match(flat, /already shows 2 real photographs/, "the writer was not told what the site really has");
+  assert.match(flat, /this change buys none/, "the zero budget stopped being stated as ours");
+  // AND NAMING THEM IS ONLY HALF OF IT. A page writer edits what it is shown,
+  // and the two photographs above are on a page this change hands it back in
+  // full — so the count without the instruction tells it they are there and
+  // nothing about leaving them alone. They cost real money and the owner
+  // already paid it.
+  assert.match(flat, /do not replace one, and do not remove it/,
+    "the site's own photographs were named to the writer and not protected");
+  // THE BUDGET IS UNCHANGED AND MUST BE: this step may never re-buy a set the
+  // owner already has, which is what `budgetFor`'s zero exists for.
+  assert.match(flat, /do not write any @@IMG:@@ token/i, "the addon started inviting a purchase");
+
+  // AND THE CONTROL, so the assertion above is about the SITE and not about the
+  // wording moving for everyone: the same ask on a site with no photographs
+  // gets the other sentence, and still not the false one.
+  const none = await photoAsk("fw-photo-none", { kinds: ["page", "photo"], written: [galleryWith("")] });
+  const flatNone = pagePrompt(none).text.replace(/\\n/g, " ");
+  assert.match(flatNone, /shows no real photographs yet/, "a site with none was not told so");
+  assert.doesNotMatch(flatNone, /already shows/, "a site with none was told it has some");
+});
+
+test("a photograph inside an existing CUSTOM COMPONENT counts, and is not reported as a placeholder", async () => {
+  // ⚠ THE REPORTED BASELINE DEFECT (owner, 2026-09-17): a photograph inside an
+  // existing custom component produced *"This site shows no real photographs
+  // yet; every picture on it is a placeholder."* — which is the opposite of
+  // true, in the sentence that tells the writer what it may not touch.
+  //
+  // THE CAUSE IS THAT THE READER'S INVENTORY WAS PAGES ONLY. A site's own
+  // components live at `src/routes/-parts/<name>.tsx` and travel in their own
+  // list, and `imageSources(pages, parts)` is the one definition of the files
+  // the image steps operate on — so reading `aSrc` alone asks about part of
+  // the site and answers about all of it.
+  //
+  // MEASURED at the module before the fix: `shownPhotos(pages)` 0 against
+  // `shownPhotos(imageSources(pages, parts))` 1, on the same site.
+  const part = { name: "gallery-grid", source: 'export function GalleryGrid(){return <div><SafeImage src="/u/fw-pic/hero.jpg" alt="the workshop" /></div>}' };
+  const r = await addon("fw-pic", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    parts: [part], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flat, /shows no real photographs yet/,
+    "a site whose component holds a photograph was told every picture on it is a placeholder — the reported defect");
+  assert.match(flat, /already shows 1 real photograph/, "the photograph inside the component was not counted");
+  assert.match(flat, /do not replace one, and do not remove it/,
+    "the photograph was counted and not protected, which is the half a model reads past");
+
+  // ⚠ AND AN UNREADABLE STORE MUST NOT REPORT THE SITE'S OWN FRAMES AS SPACES
+  // THIS CHANGE MADE. That is the customer-facing end of the same symmetry: the
+  // components come off both sides of the frame count or neither, and here
+  // `readSiteParts` answers `parts: []` so both sides are already empty. A
+  // first cut wrote a flag saying so and it was dead by construction — no
+  // single mutant and no PAIR mutant could kill it, measured over seven shapes
+  // — so the flag is gone and this drives the property instead.
+  const held = await addon("fw-pic-blind-frames", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"], partsFail: true,
+    parts: [{ name: "gallery-grid", source: 'export function G(){return <div><SafeImage src="" alt="a space" /></div>}' }],
+    look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  assert.equal(held.body.photos, 0,
+    "an unreadable component store reported the site's own frames as new spaces: " + held.body.photos);
+
+  // AND AN INCOMPLETE INVENTORY IS NOT A CLAIM THAT EVERY IMAGE IS A
+  // PLACEHOLDER (the owner's own sentence). A component store that could not
+  // be read means nobody looked, so the honest answer is the third one: leave
+  // every picture alone, and claim nothing in either direction.
+  const blind = await addon("fw-pic-blind", "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"], partsFail: true,
+    parts: [part], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+  const flatBlind = pagePrompt(blind).text.replace(/\\n/g, " ");
+  assert.doesNotMatch(flatBlind, /shows no real photographs yet/,
+    "a store we could not read was reported as a site with no photographs — cannot-tell read as a value");
+  assert.match(flatBlind, /Leave every picture already on this site exactly as it is/,
+    "an unreadable component store did not get the third sentence: " + (flatBlind.match(/PHOTOGRAPHS:[^\n]{0,200}/) || [""])[0]);
+});
+
+test("an UNCHANGED component's own empty frame is not a frame this change added", async () => {
+  // ⚠ THE SECOND REPORTED BASELINE DEFECT (owner, 2026-09-17): returning an
+  // unchanged custom component containing one empty frame reported one newly
+  // added frame. `newEmptySlots` keys per FILE, so a component the site
+  // already has had no before at all and every frame in it read as new.
+  //
+  // MEASURED through this route before the fix: `photos: 1` on a change that
+  // returned the component byte-identical.
+  const EMPTY = '<SafeImage src="" alt="a space for a picture" />';
+  const part = (body) => ({ name: "gallery-grid", source: "export function GalleryGrid(){return <div>" + body + "</div>}" });
+  const ask = (slug, back) => addon(slug, "add a caption under the gallery", {
+    kinds: ["component"], publishes: true, sitePages: ["/"],
+    parts: [part(EMPTY)], look: { tsx: [{ name: "gallery-grid", does: "the grid", props: "rows" }] },
+    written: [addedTo("/", "<p>A caption.</p>")], writtenParts: [part(back)],
+    answers: { component: { component: [{ page: "/", does: "a caption", components: ["card"] }] } },
+  });
+
+  const same = await ask("fw-frame-same", EMPTY);
+  assert.equal(same.body.ok, true, JSON.stringify(same.body));
+  assert.equal(same.body.photos, 0, "a component returned byte-identical was reported as a newly added empty frame");
+
+  // THE CONTROL, and it is what makes the assertion above about the BEFORE
+  // rather than about components being ignored: the same component gaining a
+  // second frame is one new frame, not two and not none.
+  const grown = await ask("fw-frame-grown", EMPTY + EMPTY);
+  assert.equal(grown.body.photos, 1, "a real new frame inside a component was not counted: " + grown.body.photos);
+});
+
+test("a photograph asked for and not bought still leaves a slot the picture rung can fill", async () => {
+  // ── RE-ANCHORED 2026-09-17, AND THE PROPERTY GOT WIDER RATHER THAN NARROWER ─
+  //
+  // The clause was written for the HAND-OFF: a photograph set aside beside
+  // another kind, where the next rung fills a slot by rewriting a `src` and an
+  // element with none is invisible to it. A page + photograph ask is no longer
+  // a hand-off — it buys — so the trigger is now the honest one: a picture was
+  // ASKED FOR on this change and is not being bought.
+  //
+  // THIS CASE IS THAT STATE AND IT IS THE ONE THAT NEARLY SHIPPED WRONG.
+  // `photoAsk` supplies no balance, so `imagesAffordable` cuts every shot and
+  // the object form goes out. Keyed on `aSkipped` alone — which is empty here —
+  // the page would have published with no slot at all while the customer was
+  // told the pictures are placeholders. An older guard going red is what found
+  // it.
+  //
+  // THE DESIGNER REALLY ANSWERS AND THE BALANCE REALLY REFUSES, which is the
+  // only shape that separates "could not afford it" from "nobody described
+  // one": a photograph is `SITE_PHOTO_USD` / `CREDIT_USD` ≈ 19 credits, and
+  // one credit cannot buy it.
+  const r = await photoAsk("fw-photo-slot", {
+    kinds: ["page", "photo"], written: [galleryWith("")], credits: 1,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: "a refret on the bench under the window" }] } },
+  });
+  assert.deepEqual(r.body.skipped, [], "this case is the hand-off after all, not the unaffordable picture");
+  assert.deepEqual(r.shots, [], "a picture was PAID FOR on a balance that cannot afford one");
+  assert.equal(r.body.pictures, undefined, "a picture was bought, so this is not the no-purchase state");
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ");
+  assert.match(flat, /an EMPTY src, never a missing one/,
+    "the writer was not asked for a fillable slot, so the picture rung has nowhere to put one");
+  assert.match(flat, /the slot the picture step fills/, "the reason was dropped, which is the half a model reads past");
+  // AND THE CUSTOMER IS TOLD WHY, in the composer's own words rather than in a
+  // second copy of them here — silence would read as "no photograph was ever
+  // asked for", which is the one thing they know is false.
+  assert.match(String(r.body.pictureNote || ""), /Not enough credits/, "a picture nobody could afford was not explained");
+
+  // THE CONTROL: an ask that names no photograph gets no slot instruction, so
+  // the clause above is about the request rather than about every addon.
+  const plain = await photoAsk("fw-photo-plain", { kinds: ["page"], written: [galleryWith("")] });
+  assert.deepEqual(plain.body.skipped, [], "the control set a photograph aside after all");
+  assert.equal(plain.body.pictureNote, undefined, "a change nobody asked a photograph of said something about pictures");
+  assert.doesNotMatch(pagePrompt(plain).text.replace(/\\n/g, " "), /an EMPTY src, never a missing one/,
+    "a change nobody asked a photograph of was told to leave picture slots");
+});
+
+test("the empty frames a new page really has are counted and said", async () => {
+  const two = '<SafeImage src="" alt="a refret on the bench" /><SafeImage src="" alt="the finished guitar" />';
+  const r = await photoAsk("fw-photo-count", { kinds: ["page", "photo"], written: [galleryWith(two)] });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.photos, 2, "the two empty frames on the new page were not counted");
+
+  // THE CONTROL THAT NAMES THE CAUSE: the same page written the way the OLD
+  // directive asked for — `<SafeImage>` with no src — is zero, because that is
+  // not a frame the picture rung can fill and promising it would be a space
+  // nobody can use.
+  const srcless = galleryWith(two.replace(/src="" /g, ""));
+  const none = await photoAsk("fw-photo-srcless", { kinds: ["page", "photo"], written: [srcless] });
+  assert.equal(none.body.photos, 0, "a src-less SafeImage was reported to the customer as a space for a photo");
+
+  // AND AN UNTOUCHED PAGE'S OWN EMPTY FRAMES ARE NOT THIS CHANGE'S. The site
+  // here already carries two filled ones; a site carrying empty ones must not
+  // have them reported as spaces this change made.
+  const already = [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace(/src="\/u\/[^"]*"/g, 'src=""') }];
+  const kept = await photoAsk("fw-photo-kept", {
+    kinds: ["page", "photo"], storedPages: already, written: [galleryWith("")],
+  });
+  assert.equal(kept.body.photos, 0, "the home page's existing empty frames were reported as new spaces");
+
+  // AND A TOKEN THE MODEL WROTE ANYWAY IS STILL COUNTED — the half this path
+  // has always had, which must survive the half it just gained. The directive
+  // forbids `@@IMG:` and a model can write one regardless; `applyImages` then
+  // sweeps it to `src=""`, so the frame is real and the customer has to hear
+  // about it.
+  //
+  // RE-ANCHORED 2026-09-17: this assertion used to rest on TWO counters taken
+  // before that sweep, disjoint because a token is a non-empty src there.
+  // There is ONE now, taken AFTER it, and the property is why that is enough
+  // rather than a loss — a swept token IS an empty frame, so the same reader
+  // sees both shapes and nothing can be reported twice. The one thing it
+  // stops counting is a token in an element with no `alt`, which is right:
+  // the picture rung finds a slot BY its alt text, so promising that one is
+  // the missing-`src` mistake wearing another hat. `lintPages` reports it.
+  const tok = await photoAsk("fw-photo-token", {
+    kinds: ["page", "photo"],
+    written: [galleryWith('<SafeImage src="@@IMG:a refret on the bench@@" alt="a refret" />')],
+  });
+  assert.equal(tok.body.photos, 1, "a token written despite the ban was not counted as a space");
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUYING A PHOTOGRAPH MAY NOT LOSE THE ONES ALREADY THERE (2026-09-17)
+
+   Owner: *"Preserve existing photographs when buying new ones. The paid-photo
+   directive currently says every other picture should have no src. Correct
+   that instruction and prevent an addon from accepting removal or replacement
+   of existing image references in pages and custom components."*
+
+   REPRODUCED THROUGH THIS ROUTE BEFORE ANYTHING WAS TOUCHED, on the ask below.
+   The paid directive's tail read *"Do NOT invent an extra token: any other
+   picture stays a <SafeImage> with no src, which renders this theme's own
+   placeholder — that is the intended look for the rest of the site."* — true
+   of a first build and, on a site showing two bought photographs, an
+   instruction to strip them. The writer did: the compiler payload and
+   `source/<slug>/pages.json` each came back with ZERO `/u/` urls, the customer
+   was told *"Made 1 photograph for the site."*, and the two stripped pictures
+   were counted as `photos: 2` — empty frames this change had ADDED.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A site whose home page already shows two photographs it paid for. */
+const photoHome = (slug) => ({
+  path: "index.tsx",
+  source: "import { createFileRoute } from '@tanstack/react-router'\n"
+    + "import { SafeImage } from '@/components/ui/safe-image'\n"
+    + "export const Route = createFileRoute('/')({ component: Home })\n"
+    + "function Home(){ return <main><h1>Fretwork</h1>\n"
+    + '  <SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the workshop bench" />\n'
+    + '  <SafeImage src="/u/' + slug + '/e5f6a7b8.jpg" alt="a guitar being refretted" />\n'
+    + "</main> }\n",
+});
+/** The same ask on such a site, with the home page returned however the case says. */
+const keepAsk = (slug, home, opts) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits: 400, storedPages: [photoHome(slug)],
+  written: [galleryToken(BENCH), home],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+  },
+  ...opts,
+});
+/** The home page with a link to the new route, so the merge keeps the change. */
+const linkHome = (slug, body) => ({
+  path: "index.tsx",
+  source: photoHome(slug).source.replace("</main>",
+    '  <p>Also see the <a href="/gallery">gallery</a>.</p>\n</main>').replace(
+    '<SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the workshop bench" />', body),
+});
+
+test("a change that buys a photograph may not take the ones already there off the site", async () => {
+  // ── THE REPRODUCTION ─────────────────────────────────────────────────────
+  //
+  // The writer does exactly what the old tail asked for: the new token on the
+  // new page, and every OTHER picture left with no src of its own.
+  const r = await keepAsk("fw-strip",
+    linkHome("fw-strip", '<SafeImage src="" alt="the workshop bench" />'));
+
+  // 1. THE DIRECTIVE NO LONGER INVITES IT, and says what the site has instead.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph/, "this case is not about a paid directive at all");
+  assert.doesNotMatch(flat, /any other picture stays a <SafeImage> with no src/,
+    "the paid directive still tells the writer every other picture has no src — the reported defect");
+  assert.match(flat, /already shows 2 real photographs, and they stay exactly as they are/,
+    "the paid directive does not say what the site already shows: " + (flat.match(/PHOTOGRAPHS:[^|]{0,600}/) || [""])[0]);
+  assert.match(flat, /A picture this change ADDS beyond those is a <SafeImage> with an EMPTY src/,
+    "the ban stopped being scoped to what this change adds, or went back to a missing src");
+
+  // 2. AND THE WALL REFUSES THE ANSWER ANYWAY. A prompt is what should stop it;
+  //    this is what stops it reaching the customer's site if it happens anyway.
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  // `ok` AND THE STATUS, because the browser reads the field and not the code:
+  // a 422 carrying `ok: true` is rendered as a successful change.
+  assert.equal(r.body.ok, false, "a refused change reported itself as done");
+  assert.equal(r.body.error, "lost-photos");
+  assert.equal(r.body.cost, 0, "a refused change was charged");
+  assert.deepEqual(r.body.lostPhotos, ["/u/fw-strip/a1b2c3d4.jpg"], "the lost photograph was not named for the developer");
+
+  // 3. NOTHING WAS PUBLISHED AND NOTHING WAS BOUGHT — the compiler payload is
+  //    the artifact, and the provider's own record is what says no money moved.
+  assert.deepEqual(compiledPages(r), [], "a refused change reached the compiler");
+  assert.deepEqual(r.shots, [], "a refused change bought its replacement photograph anyway");
+
+  // 4. AND THE SITE IS AS IT WAS, read off `source/<slug>/pages.json` — the file
+  //    the NEXT edit works from. A change that refused at the reply and still
+  //    wrote the store would lose the picture one request later.
+  assert.match(storedSource(r, "fw-strip", "index.tsx"), /\/u\/fw-strip\/a1b2c3d4\.jpg/,
+    "the stored home page lost the photograph on a request that was refused");
+
+  // 5. AND THE CUSTOMER IS TOLD, in a sentence they can act on: what it would
+  //    have cost them, that nothing happened, and what to ask for instead.
+  assert.match(String(r.body.msg), /without taking one of the photographs already on your site off it/);
+  assert.match(String(r.body.msg), /Nothing was published and nothing was charged/);
+  assert.match(String(r.body.msg), /ask again/);
+  assert.match(String(r.body.msg), /leave it exactly where it is/, "the singular reads as the plural");
+
+  // AND THE COUNT IS A COUNT. The same ask with BOTH pictures stripped — a
+  // sentence that says "one" whatever was lost tells the owner of a
+  // photograph-led site that one picture is at stake when it is all of them.
+  const two = await keepAsk("fw-strip-2", {
+    path: "index.tsx",
+    source: linkHome("fw-strip-2", '<SafeImage src="" alt="the workshop bench" />').source
+      .replace('<SafeImage src="/u/fw-strip-2/e5f6a7b8.jpg" alt="a guitar being refretted" />',
+        '<SafeImage src="" alt="a guitar being refretted" />'),
+  });
+  assert.equal(two.status, 422, JSON.stringify(two.body));
+  assert.equal(two.body.lostPhotos.length, 2, "the second stripped photograph was not seen: " + JSON.stringify(two.body.lostPhotos));
+  assert.match(String(two.body.msg), /taking 2 of the photographs already on your site off it/,
+    "two lost photographs were reported as one: " + two.body.msg);
+  assert.match(String(two.body.msg), /leave them exactly where they are/);
+});
+
+test("the same request that keeps them buys the photograph and publishes — the control", async () => {
+  // THE CONTROL, and it is what makes the case above about the LOSS rather than
+  // about the wall refusing every purchase on a photographed site: the same ask,
+  // the same site, the same designed picture, the same page added — with the two
+  // existing photographs left where they were.
+  const r = await keepAsk("fw-keep",
+    linkHome("fw-keep", '<SafeImage src="/u/fw-keep/a1b2c3d4.jpg" alt="the workshop bench" />'));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.lostPhotos, undefined, "a change that kept every photograph was reported as losing one");
+
+  // THE COMPILER PAYLOAD: both old pictures on the home page, the new one on the
+  // page this change added.
+  const home = compiledPages(r).find((p) => p.path.includes("index"));
+  const gal = compiledPages(r).find((p) => p.path.includes("gallery"));
+  assert.deepEqual((home.source.match(/\/u\/fw-keep\/[a-z0-9]+\.jpg/g) || []),
+    ["/u/fw-keep/a1b2c3d4.jpg", "/u/fw-keep/e5f6a7b8.jpg"],
+    "the home page did not reach the compiler with both of its photographs: " + home.source);
+  assert.match(gal.source, /src="\/u\/fw-keep\/[0-9a-f]{32}\.jpg"/,
+    "the bought photograph never reached the page it was designed for: " + gal.source);
+
+  // THE STORED SOURCE — a third claim, and the one the next edit reads.
+  assert.match(storedSource(r, "fw-keep", "index.tsx"), /a1b2c3d4\.jpg[\s\S]*e5f6a7b8\.jpg/,
+    "the stored home page lost a photograph on a change that published");
+
+  // AND THE CUSTOMER HEARS ABOUT THE PURCHASE AND NOTHING ELSE.
+  assert.equal(r.shots.length, 1, "the picture was not bought, so this control proves nothing");
+  assert.equal(r.body.pictures, 1);
+  assert.match(String(r.body.pictureNote), /Made 1 photograph/);
+  assert.doesNotMatch(String(r.body.pictureNote), /credits/, "a change that could afford its picture was told about credits");
+});
+
+test("a photograph MOVED between components is kept, not refused", async () => {
+  // ⚠ THE PROPERTY THAT MAKES THIS WALL SITE-WIDE RATHER THAN PER FILE, and the
+  // one a `keptProse`-shaped copy would get wrong. The writer takes a picture
+  // out of one component and puts it in another it is adding: every photograph
+  // the site shows is still shown, and the customer has lost nothing. A
+  // per-file check sees `gallery-strip` losing one and refuses a legitimate
+  // reorganisation.
+  //
+  // ⚠ IT IS COMPONENT-TO-COMPONENT, AND MEASURING WHY IS ITSELF A FINDING. The
+  // obvious shape — a `<SafeImage>` moved off the home page into a new
+  // component — is already refused one wall earlier, by `keptProse`: an `alt`
+  // is WORDS, so the page that gave the picture up lost *"a guitar being
+  // refretted"* and the change comes back `error: "rewrote"`. Driven, before
+  // this case was rewritten. `keptProse` loops `aMerge.changed` PAGES and never
+  // the parts, so a move between two components is the shape where the two
+  // readings of this wall really differ.
+  const strip = (body) => ({
+    name: "gallery-strip",
+    source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+      + "export function GalleryStrip(){ return <div>" + body + "</div> }",
+  });
+  const HAD = '<SafeImage src="/u/fw-move/e5f6a7b8.jpg" alt="a guitar being refretted" />';
+  const r = await addon("fw-move", "add a photo wall beside the gallery strip", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    parts: [strip('<SafeImage src="/u/fw-move/a1b2c3d4.jpg" alt="the bench" />' + HAD)],
+    look: { tsx: [{ name: "gallery-strip", does: "the strip", props: "rows" }] },
+    written: [addedTo("/", "<PhotoWall />")],
+    writtenParts: [
+      // The first component gives one up…
+      strip('<SafeImage src="/u/fw-move/a1b2c3d4.jpg" alt="the bench" />'),
+      // …and the one this change adds takes it, beside the picture being bought.
+      {
+        name: "photo-wall",
+        source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+          + "export function PhotoWall(){ return <div>" + HAD
+          + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" /></div> }',
+      },
+    ],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.lostPhotos, undefined, "a photograph moved between files was reported as lost");
+
+  // MEASURED, so the case cannot pass by the move never happening: the first
+  // component really gave it up and the second really has it.
+  const after = storedParts(r, "fw-move");
+  assert.doesNotMatch(after["gallery-strip"], /e5f6a7b8/,
+    "the writer did not move the picture — this case tests nothing: " + after["gallery-strip"]);
+  assert.match(String(after["photo-wall"]), /\/u\/fw-move\/e5f6a7b8\.jpg/,
+    "the moved photograph is in neither file: " + String(after["photo-wall"]));
+  assert.equal(r.shots.length, 1, "the picture beside the move was not bought");
+});
+
+test("a CUSTOM COMPONENT that loses a photograph is refused too", async () => {
+  // ⚠ THE OTHER HALF OF THE OWNER'S SENTENCE — *"in pages and custom
+  // components"*. Since the band split a section IS a component, so a site whose
+  // photograph lives in `-parts/gallery-strip.tsx` is the ordinary case rather
+  // than an exotic one, and a wall that read only the pages would let exactly
+  // that site be stripped while reporting success.
+  const part = (body) => ({
+    name: "gallery-strip",
+    source: 'import { SafeImage } from "@/components/ui/safe-image"\n'
+      + "export function GalleryStrip(){ return <div>" + body + "</div> }",
+  });
+  const ask = (slug, back) => addon(slug, "add a photo of the workshop to the gallery strip", {
+    kinds: ["component", "photo"], credits: 400, publishes: true, sitePages: ["/"],
+    parts: [part('<SafeImage src="/u/' + slug + '/a1b2c3d4.jpg" alt="the bench" />')],
+    look: { tsx: [{ name: "gallery-strip", does: "the strip", props: "rows" }] },
+    written: [addedTo("/", "<GalleryStrip />")],
+    writtenParts: [part(back)],
+    answers: {
+      component: { component: [{ page: "/", does: "show the work", components: ["card"] }] },
+      photo: { photo: [{ page: "/", describe: BENCH }] },
+    },
+  });
+
+  // The rewrite drops the site's own photograph and puts the new token in its place.
+  const lost = await ask("fw-part-strip", '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the bench" />');
+  assert.equal(lost.status, 422, JSON.stringify(lost.body));
+  assert.equal(lost.body.ok, false, "a refused change reported itself as done");
+  assert.equal(lost.body.error, "lost-photos");
+  assert.deepEqual(lost.body.lostPhotos, ["/u/fw-part-strip/a1b2c3d4.jpg"]);
+  assert.deepEqual(lost.shots, [], "a refused change bought its replacement anyway");
+  // THE BYTES, which is the assertion that matters: the component on disk is
+  // exactly as it was.
+  assert.match(storedParts(lost, "fw-part-strip")["gallery-strip"], /\/u\/fw-part-strip\/a1b2c3d4\.jpg/,
+    "the stored component lost its photograph on a request that was refused");
+
+  // THE CONTROL: the same component keeping what it had and gaining the new one.
+  const kept = await ask("fw-part-keep",
+    '<SafeImage src="/u/fw-part-keep/a1b2c3d4.jpg" alt="the bench" />'
+    + '<SafeImage src="@@IMG:' + BENCH + '@@" alt="the new one" />');
+  assert.equal(kept.body.ok, true, JSON.stringify(kept.body));
+  assert.equal(kept.shots.length, 1, "the control bought nothing, so it proves nothing");
+  const after = storedParts(kept, "fw-part-keep")["gallery-strip"];
+  assert.match(after, /\/u\/fw-part-keep\/a1b2c3d4\.jpg/, "the control lost the old photograph: " + after);
+  assert.match(after, /\/u\/fw-part-keep\/[0-9a-f]{32}\.jpg/, "the control never got the new photograph: " + after);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE FULL REQUEST AND THE AFFORDABLE ONE ARE TWO LISTS (2026-09-17)
+
+   Owner: *"Carry the full requested photo list separately from the affordable
+   purchase list. A two-photo request with credits for one must explain that
+   one was omitted because of the balance. Do not imply a placeholder exists
+   unless one actually survived publication."*
+
+   REPRODUCED: two pictures designed, a balance covering one, one bought — and
+   the customer heard *"Made 1 photograph for the site."* with `photos: 0`
+   beside it. Nothing said the second had been asked for, nothing said why it
+   was not there, and nothing they could act on. A photograph is 18.75 credits
+   (`IMAGE_USD / CREDIT_USD`), so 30 buys exactly one of two.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const LATHE = "the lathe with its belt guard open, shavings on the floor";
+/** Two pictures asked for, with the balance the case chooses. */
+const twoAsk = (slug, credits) => photoAsk(slug, {
+  kinds: ["page", "photo"], credits,
+  written: [galleryToken(BENCH)],
+  answers: {
+    page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+      sections: ["a grid of photographs"], components: ["card"] }] },
+    photo: { photo: [{ page: "/gallery", describe: BENCH }, { page: "/gallery", describe: LATHE }] },
+  },
+});
+
+test("two photographs asked for and credits for one: the omission is explained, with its reason", async () => {
+  const r = await twoAsk("fw-half", 30);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // THE PRECONDITION, MEASURED: the balance really did cut the list, so this
+  // case is about a shortfall and not about a designer that asked for one.
+  assert.equal(r.shots.length, 1, "the balance did not cut the list — this case tests nothing");
+  assert.ok(r.shots[0].startsWith(BENCH), "the wrong picture was bought");
+
+  // AND THE WRITER WAS ONLY EVER SHOWN THE ONE IT COULD PAY FOR, which is the
+  // build path's own rule and the reason there is no frame for the second.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 1 real photograph/, "the writer was shown a token the purchase would refuse");
+  assert.ok(!flat.includes(LATHE), "the unaffordable picture's prompt was handed to the page writer");
+
+  // 1. THE CUSTOMER IS TOLD THERE WAS A SECOND, AND WHY IT IS NOT THERE.
+  const note = String(r.body.pictureNote);
+  assert.match(note, /Made 1 photograph for the site\./, "the picture that WAS made stopped being reported");
+  assert.match(note, /weren't enough credits for the other one/,
+    "the second picture was omitted in silence, or without its reason: " + note);
+  assert.match(note, /top up and ask for it/, "the customer was told what happened and not what to do about it");
+
+  // 2. AND IT DOES NOT CLAIM A PLACEHOLDER, because none survived: the second
+  //    picture was cut off the list BEFORE the writer saw it, so there is no
+  //    token, no frame and no space — which `photos` says independently.
+  assert.doesNotMatch(note, /placeholder/,
+    "the customer was told a placeholder is standing in for a picture that has no frame: " + note);
+  assert.equal(r.body.photos, 0, "a frame that does not exist was counted");
+  assert.equal(r.body.pictures, 1, "the reply's count moved off what was really made");
+});
+
+test("two photographs asked for and credits for both: no omission is invented — the control", async () => {
+  // THE CONTROL, and it is what makes the clause above about the BALANCE rather
+  // than about every two-picture request gaining a sentence.
+  const r = await twoAsk("fw-both-ok", 400);
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  // ONE TOKEN IN THE ANSWER, TWO SHOTS OFFERED: the writer was given both and
+  // wrote one, so one is bought — which is the honest half of this control.
+  const flat = pagePrompt(r).text.replace(/\\n/g, " ").replace(/\\"/g, '"');
+  assert.match(flat, /this site gets 2 real photographs/, "the balance cut a list it could afford");
+  assert.ok(flat.includes(LATHE), "the second picture was withheld from the writer on a balance that covers it");
+  const note = String(r.body.pictureNote);
+  assert.doesNotMatch(note, /enough credits/, "a request the balance covered was told about credits: " + note);
+});
+
+test("nothing affordable at all: the placeholder is claimed only where one survived", async () => {
+  // THE ZERO-BUDGET BRANCH, which is the one sentence a page with no token can
+  // reach. With nothing affordable the writer is asked for `<SafeImage src="">`
+  // — a real, fillable space — so the placeholder claim is TRUE when it writes
+  // one and false when it does not, and only the run itself can say which.
+  const broke = (slug, written) => photoAsk(slug, {
+    kinds: ["page", "photo"], credits: 2, written,
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+    },
+  });
+
+  // A writer that DID leave the space: the sentence may say so.
+  const space = await broke("fw-broke-space", [galleryWith('<SafeImage src="" alt="a space for a picture" />')]);
+  assert.equal(space.body.ok, true, JSON.stringify(space.body));
+  assert.deepEqual(space.shots, [], "a balance of 2 credits bought a photograph");
+  assert.equal(space.body.photos, 1, "the space the writer left was not counted — this case tests nothing");
+  assert.match(String(space.body.pictureNote), /Not enough credits left over for photographs, so the pictures are placeholders/,
+    "the credits sentence stopped being said where a placeholder really is standing in");
+
+  // A writer that left NONE: the same cause, and the claim must not be made.
+  const none = await broke("fw-broke-none", [galleryWith("")]);
+  assert.equal(none.body.photos, 0, "the writer left a frame after all — this half tests nothing");
+  const note = String(none.body.pictureNote);
+  assert.match(note, /Not enough credits left over for photographs/, "the reason stopped being said");
+  assert.doesNotMatch(note, /placeholder/,
+    "a placeholder was promised on a page that has no frame at all: " + note);
+  assert.match(note, /there's no picture there/, "the honest answer was not given: " + note);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   A REFUSAL CHANGES NOTHING — INCLUDING THE DESIGN SETTINGS (2026-09-17)
+
+   Owner: *"patchSiteConfig runs before keptImages. A combined gallery + photo
+   + QR request that fails with lost-photos leaves the QR persisted, although
+   the gallery was never published."*
+
+   REPRODUCED THROUGH THIS ROUTE BEFORE ANYTHING MOVED, on exactly that ask:
+   422, `cost: 0`, nothing compiled, nothing bought, `source/<slug>/pages.json`
+   untouched — and the stored look left holding
+
+       qr: [{ name: "gallery", points: "https://<slug>.gofarther.app/gallery" }]
+
+   for a route that would never exist. A QR is the one thing here somebody
+   PRINTS, so a refusal was leaving behind precisely the artifact the
+   `qr-dependency` refusal one block above exists to prevent.
+
+   THE STORE MOVED BELOW THE WALL rather than the refusal gaining a restore,
+   which was the other option and is the weaker one: a restore-on-refusal is a
+   second repair path that can itself fail, and a failed restore leaves the
+   site wrong with nothing left to try. The route's own comment already
+   claimed the invariant this keeps — *"every refusal above leaves the site
+   exactly as it was"* — while sitting one block too high to hold it.
+
+   THE WHOLE CONFIG IS THE ASSERTION, not the one field. `look.qr` was what the
+   report named, and pinning only that would pass again the day some other
+   field is written above a wall; `deepEqual` over the entire stored object
+   answers "did this refusal write ANYTHING" in one claim.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** The exact object `addon()` seeds into `config/<slug>.json`, by construction. */
+const seededConfig = (look, css) => ({
+  look: { brand: "Fretwork", pages: [], ...(look || {}) },
+  css: typeof css === "string" ? css : "",
+});
+/** The stored config WHOLE — the prior configuration, not one field of it. */
+const storedConfig = (r, slug) => {
+  try { return JSON.parse(r.store.store.get("config/" + slug + ".json")); } catch { return null; }
+};
+/** A component the request never mentions, so "parts are preserved" is real. */
+const BYSTANDER = "export default function Hours(){ return <p data-slot=\"hours\">Mon-Fri</p> }";
+/**
+ * The prior look, carrying fields a partial write would disturb.
+ *
+ * ⚠ THE THEME IS A REAL REGISTRY ID AND HAS TO BE. The first draft invented
+ * `kraft`, and `FIELD_KEEPS.theme` judges a stored theme against all 500 — so
+ * `mergeLook` dropped it to `null` and the CONTROL below failed, reporting the
+ * successful store as losing the site's theme. That is this file's own
+ * recorded trap (*a fixture naming a thing the product does not have passes
+ * until the product starts checking*), and the honest repair is a name the
+ * registry holds with the reason written down, never a quiet swap.
+ */
+const PRIOR_LOOK = { theme: THEME_IDS[0], description: "A guitar workshop in Sheffield." };
+
+/** gallery + photo + QR in one message, on a site with two photographs and a component. */
+const orderAsk = (slug, home) => addon(slug,
+  "add a gallery page with a photo of the bench, and a QR code that opens it", {
+    kinds: ["page", "photo", "qr"], publishes: true, credits: 400,
+    look: PRIOR_LOOK,
+    parts: [{ name: "hours", source: BYSTANDER }],
+    storedPages: [photoHome(slug)],
+    written: [galleryToken(BENCH), home],
+    answers: {
+      page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      photo: { photo: [{ page: "/gallery", describe: BENCH }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } },
+    },
+  });
+
+test("a refused addition leaves the whole prior configuration, its pages and its components exactly as they were", async () => {
+  // The writer strips one of the two photographs the site already paid for.
+  const r = await orderAsk("fw-order",
+    linkHome("fw-order", '<SafeImage src="" alt="the workshop bench" />'));
+
+  // 1. THE REFUSAL ITSELF, unchanged.
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, "a refused change reported itself as done");
+  assert.equal(r.body.error, "lost-photos");
+  assert.equal(r.body.cost, 0, "a refused change was charged");
+
+  // 2. NON-VACUITY, AND IT IS THE WHOLE POINT OF THE CASE. A QR really was
+  //    designed in this request — so "the config carries no QR" below means
+  //    "a designed QR was not persisted" rather than "nothing designed one".
+  //    Without this the case passes against a route that never ran the kind.
+  assert.ok(promptFor(r, "qr"), "no QR was designed, so this case cannot see the defect at all");
+
+  // 3. THE ENTIRE PRIOR CONFIGURATION, byte for byte. Before the move this
+  //    answered a 22-key merged look carrying the new `qr`; the seeded object
+  //    has two fields plus the fixture's own pair.
+  assert.deepEqual(storedConfig(r, "fw-order"), seededConfig(PRIOR_LOOK),
+    "a refused change wrote the design settings: "
+    + JSON.stringify(storedConfig(r, "fw-order")));
+  // AND THE REPORTED FIELD BY NAME, because a `deepEqual` that drifts with the
+  // fixture would stop saying anything about the QR in particular.
+  assert.equal((storedConfig(r, "fw-order").look || {}).qr, undefined,
+    "the QR for a page that was never published is on the site");
+
+  // 4. THE PAGES — both photographs still shown, and no new route stored.
+  assert.match(storedSource(r, "fw-order", "index.tsx"), /a1b2c3d4\.jpg/,
+    "the stored home page lost the photograph on a request that was refused");
+  assert.equal(storedSource(r, "fw-order", "gallery.tsx"), "",
+    "a page the customer was told was refused is in the store");
+
+  // 5. THE COMPONENTS — the bystander is exactly as it was, and nothing new.
+  assert.deepEqual(storedParts(r, "fw-order"), { hours: BYSTANDER },
+    "a refused change rewrote the site's components");
+
+  // 6. NO PURCHASE AND NO COMPILE. `compiles.length` rather than the page list:
+  //    an empty file list is also what a compile of nothing looks like, and the
+  //    claim is that the container was never asked.
+  assert.deepEqual(r.shots, [], "a refused change bought its photograph anyway");
+  assert.equal(r.compiles.length, 0, "a refused change reached the compiler");
+});
+
+test("the same request, succeeding, does store the QR, the pages, the components and the photograph", async () => {
+  // THE CONTROL — identical in every respect but the one line the writer
+  // returns, so what separates the two is the answer and not the setup. It
+  // passes on BOTH trees, which is what makes it a control rather than a
+  // second copy of the case above.
+  const r = await orderAsk("fw-order-ok", linkHome("fw-order-ok",
+    '<SafeImage src="/u/fw-order-ok/a1b2c3d4.jpg" alt="the workshop bench" />'));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+
+  // The QR reaches the store, which is what the refusal above must not do.
+  const look = (storedConfig(r, "fw-order-ok") || {}).look || {};
+  assert.equal(Array.isArray(look.qr) && look.qr.length, 1,
+    "the control stored no QR, so the refusal proves nothing: " + JSON.stringify(look.qr));
+  assert.match(String(look.qr[0].points), /^https:\/\/fw-order-ok\.gofarther\.app\/gallery$/);
+  // AND THE PRIOR FIELDS SURVIVE THE MERGE — a store that replaced the look
+  // wholesale would satisfy the line above and lose the site's own theme.
+  assert.equal(look.theme, THEME_IDS[0], "the successful store dropped the prior theme");
+
+  // The page, the component and the photograph all landed.
+  assert.match(storedSource(r, "fw-order-ok", "gallery.tsx"), /\/u\/fw-order-ok\/[0-9a-f]{32}\.jpg/,
+    "the control published no photograph, so the refusal's empty `shots` proves nothing");
+  assert.deepEqual(storedParts(r, "fw-order-ok"), { hours: BYSTANDER },
+    "the control disturbed a component nobody mentioned");
+  assert.equal(r.shots.length, 1, "the control bought nothing");
+  assert.equal(r.compiles.length, 1, "the control never compiled");
+});
+
+/* ═════════════════════════════════════════════════════════════════════════
+   …AND THE OTHER TWO THINGS THAT BLOCK DOES (2026-09-17)
+
+   THE SWEEP IS WHAT ASKED FOR THESE. Moving the store left three mutants
+   alive — the write running for a change with nothing to store, a refused
+   write read as a successful one, and the write forgetting it happened so a
+   failed publish never puts the old look back — and every one is a branch of
+   the block that moved. None had a seam to drive: the fixture's every `put`
+   succeeded and its compiler always answered ok.
+
+   ⚠ THE THIRD ONE IS THE CLAIM THIS CHANGE'S OWN COMMENT MAKES. *"The one
+   failure after this point puts the old look back."* An invariant asserted in
+   a comment and tested nowhere is exactly how the defect above shipped — the
+   store's old comment claimed *"every refusal above leaves the site as it
+   was"* while sitting above a refusal. Leaving it undrivable would repeat the
+   mistake inside the fix for it, so the fixture gained two knobs rather than
+   the survivors gaining a paragraph.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/** A page-only ask: it publishes and has no design to store. */
+const plainPage = (slug, extra) => addon(slug, "add a gallery page", {
+  kinds: ["page"], publishes: true, credits: 400, look: PRIOR_LOOK,
+  storedPages: [storedPage("/")],
+  written: [writtenPage("/gallery"), addedTo("/", '<p>Also see the <a href="/gallery">gallery</a>.</p>')],
+  answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+    sections: ["a grid of photographs"], components: ["card"] }] } },
+  ...extra,
+});
+
+test("a change with no design in it does not rewrite the design settings", async () => {
+  const r = await plainPage("fw-nolook");
+  // NON-VACUITY: it really published, so "the config is untouched" is about a
+  // change that happened rather than one that was refused on the way.
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.added, ["gallery.tsx"], "no page was added, so nothing ran");
+
+  // THE WHOLE STORED OBJECT, because the way this goes wrong is a write that
+  // NORMALISES rather than one that sets a field: `withConfig(cur, undefined)`
+  // answers a seven-key config where the site had two, so a change carrying no
+  // design would silently give the site five settings it never had. Measured
+  // — that is what the store's `if (aLookPatch)` is keeping out.
+  assert.deepEqual(storedConfig(r, "fw-nolook"), seededConfig(PRIOR_LOOK),
+    "a change with nothing to store rewrote the config: "
+    + JSON.stringify(storedConfig(r, "fw-nolook")));
+});
+
+test("a refused design write is said out loud, and nothing is published", async () => {
+  const r = await plainPage("fw-cfgfail", {
+    // A QR is what gives this change something to store at all.
+    kinds: ["page", "qr"], configFail: true,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } } },
+  });
+  assert.equal(r.status, 503, JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, "a refused write reported itself as done");
+  assert.equal(r.body.error, "config");
+  assert.equal(r.body.cost, 0, "a change that stored nothing was charged");
+  assert.match(String(r.body.msg), /your site is untouched/,
+    "the customer is not told the site is as it was: " + r.body.msg);
+
+  // AND THE SITE REALLY IS UNTOUCHED — the claim the sentence makes.
+  assert.deepEqual(storedConfig(r, "fw-cfgfail"), seededConfig(PRIOR_LOOK),
+    "the refused write landed after all: " + JSON.stringify(storedConfig(r, "fw-cfgfail")));
+  assert.equal(r.compiles.length, 0, "a change whose design could not be saved reached the compiler");
+});
+
+test("a failed publish puts the old look back", async () => {
+  const r = await plainPage("fw-pubfail", {
+    kinds: ["page", "qr"], compileFail: true,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } } },
+  });
+  assert.equal(r.body.ok, false, JSON.stringify(r.body));
+  assert.equal(r.body.error, "compile");
+
+  // NON-VACUITY: the store really ran, so the revert has something to undo.
+  // Without this the case passes against a route that never stored at all.
+  assert.equal(r.compiles.length, 1, "nothing compiled, so no publish failed and nothing was reverted");
+
+  const look = (storedConfig(r, "fw-pubfail") || {}).look || {};
+  assert.equal(look.qr, undefined,
+    "a QR for a site that never published is in the stored look: " + JSON.stringify(look.qr));
+  // AND THE SITE'S OWN SETTINGS SURVIVE THE REVERT — a revert that wiped the
+  // look would satisfy the line above and lose the theme with it.
+  assert.equal(look.theme, THEME_IDS[0], "the revert dropped the site's own theme");
+  assert.equal(look.description, PRIOR_LOOK.description, "the revert dropped the site's own description");
+  // NOT byte-identical, and saying so beats asserting something false: the
+  // revert writes the look as the route READ it, which `markOf` has already
+  // normalised — so `favicon` and `wordmark` come back as forms the seeded
+  // object did not carry. What must be true is that nothing this change
+  // DESIGNED survived, and that nothing the site had was lost.
+  assert.equal(look.three, undefined, "a scene this change designed survived a failed publish");
 });

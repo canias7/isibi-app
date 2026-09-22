@@ -26,10 +26,11 @@
 import { loadWorker, makeCtx } from "./worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./cf-containers.mjs";
 import { CONFIG_KEY } from "../../site-config.mjs";
+import { validatePages } from "../../builder/page-gen.mjs";
 
 export const USER = { id: "u-addon-route", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
-const PAGES = [{ path: "src/routes/index.tsx", source: "export default function Home(){return <h1>Fretwork</h1>}" }];
+const PAGES = [{ path: "index.tsx", source: "export default function Home(){return <h1>Fretwork</h1>}" }];
 // WHAT THE PAGE CALL ANSWERS on a case that is not pageless. A generated page
 // must export a Route — `validatePages` refuses one that does not, by
 // `createFileRoute(`, which is why this is a real page rather than the stored
@@ -46,6 +47,12 @@ const WRITTEN_PAGES = [{
  * A generated page at a route, in the shape `validatePages` accepts — so a case
  * can say "the writer returned /gallery and not /prices" without retyping the
  * route export every time.
+ *
+ * ⚠ THE `src/routes/` PREFIX IS DELIBERATE AND IS ONLY RIGHT ON THIS SIDE. It
+ * is what a MODEL really writes, and `cleanPath` strips it on the way in. What
+ * a site STORES is the stripped form, so this producer must never stand in for
+ * a stored page — `storedPage` below is that one, and it is validator-produced
+ * rather than hand-spelled.
  */
 export function writtenPage(routePath) {
   const file = routePath === "/" ? "index" : routePath.replace(/^\//, "").replace(/\//g, "-");
@@ -55,6 +62,62 @@ export function writtenPage(routePath) {
       + "export const Route = createFileRoute('" + routePath + "')({ component: Page })\n"
       + "function Page(){ return <main><h1>" + file + "</h1><p>Words for " + file + ".</p></main> }\n",
   };
+}
+
+/**
+ * THE SAME PAGE AS A SITE REALLY HOLDS IT — run through the real validator.
+ *
+ * ⚠ THIS EXISTS BECAUSE ITS ABSENCE WAS LOAD-BEARING (owner, 2026-09-17).
+ * Every stored-page fixture here was `writtenPage`, whose path carries the
+ * `src/routes/` prefix — and `cleanPath` strips it, so the site's stored
+ * `src/routes/index.tsx` and the writer's returned `index.tsx` are two
+ * different pages to every reader on the path. MEASURED through the real
+ * `mergeAddonPages`: a prefixed stored page beside a bare returned one answers
+ * `added: ["index.tsx"]` and leaves BOTH files in the site, where the real
+ * shapes answer `changed` and one. So every "the site already has this page"
+ * case in this suite was exercising a duplicate ADD, `keptProse` never fired
+ * on any of them, and the page window's `keep` list could never match.
+ *
+ * DERIVED FROM ITS REAL PRODUCER rather than spelled bare by hand: the
+ * identity is whatever `validatePages` answers, so the day that changes these
+ * fixtures change with it instead of drifting from it.
+ */
+export function storedPage(routePath) {
+  const w = writtenPage(routePath);
+  const v = validatePages({ pages: [w] }, { partial: true });
+  if (!v.pages.length) throw new Error("storedPage: the validator refused " + routePath + " — " + v.problems.join("; "));
+  return v.pages[0];
+}
+
+/**
+ * WHAT AN ADDON REALLY RETURNS FOR A PAGE THE SITE ALREADY HAS: everything the
+ * page said, plus the new thing.
+ *
+ * ⚠ AND IT IS ONLY NEEDED NOW THAT THE STORED PAGES ARE REAL. `keptProse` — the
+ * route's "an addition may only ADD" wall — reads `aMerge.changed`, which no
+ * case in this suite could ever reach while the stored path carried a prefix
+ * the returned path did not: every one of them was an ADD, so the wall was
+ * never armed. With the identities lined up it arms on every such case, which
+ * is the wall working rather than a fixture to appease.
+ */
+export function addedTo(routePath, extra) {
+  const p = storedPage(routePath);
+  return { ...p, source: p.source.replace("</main>", extra + "</main>") };
+}
+
+/**
+ * THE PAGES THAT REALLY WENT TO THE COMPILER, as `[{path, source}]`.
+ *
+ * READ OFF THE CONTAINER PAYLOAD, never off a reply field, because the two are
+ * different claims: `changed` is what the route SAYS it published, and this is
+ * what it HANDED to the thing that builds the site. A case about a page being
+ * withheld has to read the second — a route that kept the file on its list and
+ * sent it anyway satisfies every assertion about the first.
+ */
+export function compiledPages(r) {
+  const files = r && r.compiles && r.compiles[0] && r.compiles[0].body && r.compiles[0].body.files;
+  if (!files || typeof files !== "object") return [];
+  return Object.entries(files).map(([path, source]) => ({ path, source: String(source) }));
 }
 
 /**
@@ -82,7 +145,7 @@ function neonRows(rows, cols) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-function bucket(slug, stored, look) {
+function bucket(slug, stored, look, parts, css, partsFail, configFail) {
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -94,12 +157,53 @@ function bucket(slug, stored, look) {
     // able to say the site already has one. MERGED over the default rather
     // than replacing it: `brand` and `pages` are what every other case relies
     // on, and a case adding a QR code is not saying the site has no name.
-    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [], ...(look || {}) }, css: "" })],
+    [CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Fretwork", pages: [], ...(look || {}) }, css: typeof css === "string" ? css : "" })],
   ]);
+  // ── THE SITE'S OWN COMPONENTS (2026-09-17) ───────────────────────────────
+  //
+  // `source/<slug>/parts.json` — what the site really HAS a file for, as
+  // against `look.tsx`, which is the cumulative declaration list. The two are
+  // different facts and a case about either has to be able to set them apart,
+  // so this is its own seam.
+  //
+  // WRITTEN ONLY WHEN A CASE ASKS FOR ONE. `loadSiteParts` answers `null` for
+  // a missing key, which is what every site in every earlier case here is, so
+  // those read exactly as they did.
+  if (Array.isArray(parts) && parts.length) store.set("source/" + slug + "/parts.json", JSON.stringify(parts));
+  // ── A READ THAT FAILS AND THEN RECOVERS (2026-09-17) ─────────────────────
+  //
+  // `partsFail: N` throws on the FIRST N reads of `source/<slug>/parts.json`
+  // and answers normally after that — which is the shape the owner's first
+  // reproduction needs and which no other seam here can produce. The route
+  // used to read that key TWICE, minutes apart, so "the first read failed and
+  // the second succeeded" is a real state of the world and the one in which an
+  // unseen component was replaced.
+  //
+  // A THROW, NOT A `null`. R2 answers `null` for a key that is not there and
+  // THROWS for a read it could not perform, and the whole finding is that
+  // those two were being collapsed — a fixture that answered `null` would be
+  // testing the honestly-empty case under the unreadable case's name.
+  const partsKey = "source/" + slug + "/parts.json";
+  let partsReads = 0;
   return {
     store,
-    async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) }; },
-    async put(k, v) { store.set(k, String(v)); },
+    async get(k) {
+      if (k === partsKey) {
+        partsReads += 1;
+        if (partsFail && partsReads <= Number(partsFail)) throw new Error("R2 GetObject: connection reset");
+      }
+      const v = store.get(k); return v === undefined ? null : { text: async () => v, json: async () => JSON.parse(v) };
+    },
+    // `configFail` REFUSES THE CONFIG WRITE AND NOTHING ELSE. The route's
+    // store block answers a 503 on a refused write and arms the look revert on
+    // a successful one, and neither branch had a seam to drive: a fixture whose
+    // every `put` succeeds cannot tell "the write failed and we said so" from
+    // "the write failed and we carried on". A THROW, because that is what R2
+    // does when it cannot write — `saveConfig` reads a throw, not a falsy.
+    async put(k, v) {
+      if (configFail && k === "config/" + slug + ".json") throw new Error("R2 PutObject: connection reset");
+      store.set(k, String(v));
+    },
     async delete(k) { store.delete(k); },
     async list() { return { objects: [], truncated: false }; },
   };
@@ -140,7 +244,7 @@ function bucket(slug, stored, look) {
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null }) {
+function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, patched, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -243,6 +347,45 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
         return new Response("", { status: 201 });
       }
       return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // ── THE BALANCE, AND THE IMAGE PROVIDER, BOTH STUBBED (2026-09-17) ──────
+    //
+    // A combined page + photograph request asks `get_credits` before the page
+    // call and spends at `fal.run` after the merge, so BOTH have to answer or
+    // the case proves the refusal rather than the feature: with no balance
+    // `imagesAffordable` cuts every shot and the writer is never even shown a
+    // token. `credits: null` leaves the route's own `.catch(() => 0)` to
+    // answer 0, which is every case written before today — so an addon that
+    // buys nothing is byte-identical.
+    if (credits !== null && url.includes("/rpc/get_credits")) {
+      return new Response(String(credits), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // THE PROVIDER, IN ITS OWN TWO HOPS: `genSitePhoto` POSTs to fal and then
+    // FETCHES the url fal answers with, so a stub that only answers the first
+    // proves half a chain. Every prompt is RECORDED — `shots` is the list of
+    // what was really paid for, which is the one thing a case about buying
+    // photographs has to be able to assert. `shotFail: true` makes the
+    // provider refuse, which is the arm where the money is not spent and the
+    // token has to sweep back to a placeholder.
+    if (url.includes("fal.run/")) {
+      let prompt = ""; try { prompt = String(JSON.parse(String((init && init.body) || "{}")).prompt || ""); } catch { prompt = ""; }
+      if (shots) shots.push(prompt);
+      if (shotFail) return new Response(JSON.stringify({ detail: "no credit" }), { status: 402, headers: { "content-type": "application/json" } });
+      // ONE URL PER PROMPT, so two different pictures cannot collapse into one
+      // stored file — `makeSitePhoto` hashes the BYTES, so identical bytes for
+      // two prompts would store one name and the case could not tell a second
+      // purchase from a reused one.
+      const n = shots ? shots.length : 1;
+      return new Response(JSON.stringify({ images: [{ url: "https://cdn.test/shot-" + n + ".jpg" }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // REAL JPEG MAGIC, because `sniffImage` reads the bytes and refuses
+    // anything it does not recognise — the same sniff the upload route runs, on
+    // bytes nobody here chose. The tail is the shot number, so each picture
+    // hashes to its own name.
+    if (url.startsWith("https://cdn.test/shot-")) {
+      const tag = url.slice("https://cdn.test/shot-".length).replace(/\.jpg$/, "");
+      const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...Array.from(tag, (c) => c.charCodeAt(0) & 0xff), 0xff, 0xd9]);
+      return new Response(bytes, { status: 200, headers: { "content-type": "image/jpeg" } });
     }
     // A HEALTHY LEDGER, answering what it was asked for: a dead one stops the
     // route a gate short of everything under test.
@@ -351,8 +494,13 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
       // rewritten; `written` lets a case answer with the pages it wants —
       // which is the only way to drive "asked for two, got one", the shape the
       // missing-page report exists for.
+      // `writtenParts` IS HOW A CASE DRIVES THE PARTS WALL (2026-09-17): the
+      // page writer returning a file in `parts` is what `mergeParts` acts on,
+      // and "may this replace a component the writer never saw?" cannot be
+      // asked of a writer that returns none. Omitted by default, so every
+      // earlier case sends a `write_pages` answer with no `parts` key at all.
       const inputObj = asked === "pick_adds" ? { kinds }
-        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "" }
+        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "", ...(writtenParts ? { parts: writtenParts } : {}) }
         : (answers[kind] || {});
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
@@ -379,6 +527,11 @@ function stub({ kinds, answers, fnFail = false, sql, prompts, meta, registered, 
  */
 export async function addon(slug, instruction, opts) {
   const sql = [], prompts = [], registered = [], patched = [], neonCalls = [];
+  // EVERY PROMPT THE IMAGE PROVIDER WAS REALLY PAID FOR. Collected here rather
+  // than inside the stub so it comes back on the result — a case about buying
+  // photographs is about WHICH pictures were bought, and the reply's count
+  // alone cannot say that. Empty on every case that buys none.
+  const shots = [];
   // THE STORED SCHEMA IS PER CALL, not a shared module object: `meta.value`
   // moves when the apply writes, and a case that read another case's leftovers
   // would be the shared-slug trap one field over.
@@ -388,7 +541,7 @@ export async function addon(slug, instruction, opts) {
   // apart needs a site that already has something. `stored` replaces the whole
   // schema rather than merging, so a case says exactly what the site is.
   const meta = { value: JSON.stringify((opts && opts.stored) || STORED_SCHEMA) };
-  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls });
+  const restore = stub({ ...opts, sql, prompts, meta, registered, patched, neonCalls, shots });
   // ── A COMPILER ONLY WHEN THE CASE NEEDS ONE ──────────────────────────────
   //
   // `getContainer` throws by default and that default is what keeps a pageless
@@ -396,10 +549,25 @@ export async function addon(slug, instruction, opts) {
   // test that silently compiled there would be asserting about a shape it never
   // meant to produce. `publishes: true` opts in — for the two kinds that CANNOT
   // be pageless, a connection and a public function.
-  const c = (opts && opts.publishes) ? installCompiler() : null;
+  // `compileFail: true` MAKES THE PUBLISH FAIL, which is the only way to reach
+  // the look revert: the route stores the design, publishes, and puts the old
+  // look back when the publish did not land. Without a seam here that branch
+  // is a claim in a comment — which is exactly the shape of the defect the
+  // ordering fix corrects, so leaving it undrivable would repeat it.
+  const c = (opts && opts.publishes)
+    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : {})
+    : null;
   try {
     const worker = await loadWorker();
-    const store = bucket(slug, opts && opts.sitePages ? opts.sitePages.map(writtenPage) : null, opts && opts.look);
+    // `sitePages` NAMES ROUTES AND `storedPages` CARRIES WHOLE FILES, and the
+    // second is not a convenience: what a page IMPORTS is a fact about the site
+    // that only its real source can state, and `writtenPage` writes a page that
+    // imports nothing. A case about the kit signatures the writer is shown has
+    // to be able to say "this page calls <Accordion>".
+    const store = bucket(slug,
+      (opts && opts.storedPages) || (opts && opts.sitePages ? opts.sitePages.map(storedPage) : null),
+      opts && opts.look, opts && opts.parts, opts && opts.css, opts && opts.partsFail,
+      opts && opts.configFail);
     const req = new Request("https://gofarther.dev/api/site/" + slug + "/addon", {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: TOKEN },
@@ -412,12 +580,22 @@ export async function addon(slug, instruction, opts) {
     const env = { SITES_BUCKET: store, ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", SUPABASE_SERVICE_KEY: "svc-test", ...(c ? dispatchEnv() : {}) };
     const res = await worker.fetch(req, env, makeCtx());
     const body = await res.json().catch(() => null);
-    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
+    return { status: res.status, body, sql, prompts, store, registered, patched, neonCalls, shots, compiles: c ? c.calls : [], meta: () => { try { return JSON.parse(meta.value); } catch { return null; } } };
   } finally { restore(); if (c) c.uninstall(); }
 }
 
 /** The request the named kind's designer really received, or `undefined`. */
 export const promptFor = (r, kind) => r.prompts.find((p) => p.kind === kind);
+
+/**
+ * The request the PAGE WRITER received, or `undefined`.
+ *
+ * BY TOOL NAME, never by the property key `promptFor` matches on. The writer's
+ * tool answers `pages` and the add step's page DESIGNER answers `page`, which
+ * differ by one character in a file where every other lookup is by kind — so
+ * the discriminator is the tool, which cannot be confused with anything.
+ */
+export const pagePrompt = (r) => r.prompts.find((p) => p.tool === "write_pages");
 
 /** The stored developer record, as `saveAddonAnswer` left it. */
 export function storedAnswer(r, slug) {

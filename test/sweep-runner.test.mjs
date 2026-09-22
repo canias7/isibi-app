@@ -73,7 +73,7 @@ function sandbox({ slow = 0 } = {}) {
   return dir;
 }
 
-const run = (dir, onLine) => new Promise((resolve) => {
+const run = (dir, onLine, args = ["spec.json", "ok.test.mjs"]) => new Promise((resolve) => {
   // A CLEAN ENVIRONMENT, and this is the whole reason the first draft of these
   // guards reported a survivor for a mutant that is plainly killed by hand.
   // `node --test` sets NODE_TEST_CONTEXT in everything it spawns; the sweep
@@ -84,7 +84,7 @@ const run = (dir, onLine) => new Promise((resolve) => {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.NODE_OPTIONS;
-  const p = spawn(process.execPath, [RUNNER, "spec.json", "ok.test.mjs"], { cwd: dir, env });
+  const p = spawn(process.execPath, [RUNNER, ...args], { cwd: dir, env });
   let out = "";
   p.stdout.on("data", (b) => { out += b; if (onLine) onLine(String(b), p); });
   p.stderr.on("data", (b) => { out += b; });
@@ -128,6 +128,65 @@ test("DRIVEN: an ordinary sweep kills what it can, and puts the file back", asyn
     assert.equal(fs.readFileSync(path.join(dir, "target.txt"), "utf8"), "ORIGINAL\n",
       "the sweep did not put the file back");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DRIVEN: the tally says what it was run against", async () => {
+  // THE SCOPE IS PART OF THE RESULT. The test list arrives on argv and was
+  // recorded NOWHERE until 2026-09-17: the log opened on "baseline…" and closed
+  // on a count, so a clean tally read back afterwards could not be checked for
+  // what it covered. That matters for THIS runner specifically, because a narrow
+  // list is what makes a narrow sweep cheap and a narrow list can only produce a
+  // false SURVIVOR, never a false kill — so "40/40/0" and "40/40/0 against these
+  // nine files" are different claims, and only the second can be audited.
+  //
+  // It cost a real correction: a tally stamped in CLAUDE.md carried a file count
+  // that no log anywhere could confirm.
+  const dir = sandbox();
+  try {
+    const r = await run(dir);
+    assert.equal(r.code, 0, "the sweep did not finish:\n" + r.out);
+    assert.match(r.out, /spec spec\.json/, "the log does not name the spec it ran:\n" + r.out);
+    assert.match(r.out, /1 mutants \+ 0 controls/, "the header does not count the spec:\n" + r.out);
+    assert.match(r.out, /over target\.txt/, "the header does not name the files it mutates:\n" + r.out);
+    assert.match(r.out, /tests: ok\.test\.mjs/, "the log does not record the test list:\n" + r.out);
+    // BEFORE THE BASELINE, so a sweep that dies in its baseline still says what
+    // it was trying to do — the moment the scope is most worth having.
+    assert.ok(r.out.indexOf("tests: ok.test.mjs") < r.out.indexOf("baseline…"),
+      "the scope is printed after the baseline, so a refused baseline says nothing:\n" + r.out);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DRIVEN: an empty test list is SAID, not left blank", async () => {
+  // AN EMPTY LIST AND A FORGOTTEN ONE LOOK IDENTICAL in a log — a trailing
+  // "tests:" with nothing after it reads as a truncated line rather than as "the
+  // whole suite", which is this repository's own "cannot-tell must never read as
+  // a value" with the two swapped. `node --test` with no arguments discovers the
+  // sandbox's own test, so this really runs.
+  const dir = sandbox();
+  try {
+    const r = await run(dir, null, ["spec.json"]);
+    assert.equal(r.code, 0, "the sweep did not finish with no test list:\n" + r.out);
+    assert.match(r.out, /tests: \(the whole suite\)/, "an empty test list is not said:\n" + r.out);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the header's control count and the tally's are ONE number", () => {
+  // TWO `filter`s OF ONE PREDICATE ARE TWO COPIES OF ONE NUMBER, and the copy
+  // that drifts is the one nobody reads twice — a header saying "40 mutants + 2
+  // controls" over a tally saying 41 and 1 is a sweep arguing with itself about
+  // what it just did. Written as two on the first pass, which is also how the
+  // duplicate-declaration throw below was bought.
+  const filters = CODE.match(/spec\.filter\(\(m\) => m\.control\)/g) || [];
+  assert.equal(filters.length, 1,
+    "the control count is computed " + filters.length + " times — the header and the tally can disagree");
+  const decl = CODE.indexOf("const controls = ");
+  assert.ok(decl > 0, "the control count is no longer a named binding");
+  // AND IT IS DECLARED ABOVE ITS FIRST READER. The first draft hoisted the
+  // computation and left the old `const` in place: `.mjs` is parsed as a module,
+  // so the whole file threw `Identifier 'controls' has already been declared` at
+  // LOAD — caught by driving the runner, which a source read would not have.
+  assert.ok(decl < CODE.indexOf("mutants + "),
+    "the control count is declared below the header that reads it");
 });
 
 test("the loop AWAITS, which is the only reason a signal can ever be heard", () => {

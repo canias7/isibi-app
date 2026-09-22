@@ -229,6 +229,42 @@ export function isEmptySlot(slot) {
   return String(slot.value || "").trim() === "";
 }
 
+/**
+ * HOW MANY EMPTY PICTURE FRAMES THIS CHANGE ADDED (2026-09-17).
+ *
+ * `countImageSlots` answers this for a BUILD, and its own comment says exactly
+ * why it exists: *"a NEW page that wants one publishes with a placeholder and,
+ * until this, said nothing about it. The customer is left looking at an empty
+ * frame with no way to know it is theirs to fill."* It counts `@@IMG:` TOKENS —
+ * and the addon's directive forbids tokens, so on that path it is always 0 and
+ * the customer's sentence (`photoNote`) never fires. The defect that reader was
+ * written to close, reaching every path but the one that adds pages.
+ *
+ * PER PAGE, AND ONLY THE INCREASE. An addon that edits the home page to add a
+ * link must not report the home page's EXISTING empty frames as new spaces —
+ * that is a true count of the wrong thing, which reads to a customer as "your
+ * change made these". A page the change did not touch contributes nothing
+ * because it is identical on both sides; a page it created has no before.
+ *
+ * NEGATIVE NEVER SUBTRACTS. A change that FILLS a frame leaves fewer empty
+ * than it found, and letting that offset another page's new one would report a
+ * net of zero over a page that really does have an empty frame on it.
+ */
+export function newEmptySlots(before, after) {
+  const empties = (pages) => {
+    const by = new Map();
+    for (const s of imageSlots(pages)) {
+      if (!isEmptySlot(s)) continue;
+      by.set(s.page, (by.get(s.page) || 0) + 1);
+    }
+    return by;
+  };
+  const was = empties(before), now = empties(after);
+  let n = 0;
+  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));
+  return n;
+}
+
 export const PICTURE_TOOL = {
   name: "choose_pictures",
   description: "Say which of this site's picture slots the instruction is about, and what should go in each one.",

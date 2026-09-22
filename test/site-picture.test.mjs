@@ -10,7 +10,7 @@ import fs from "node:fs";
 import {
   PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
-  applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace,
+  applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace, newEmptySlots,
 } from "../builder/site-picture.mjs";
 
 const HOME = {
@@ -503,4 +503,99 @@ test("a picture chosen for a component slot is written into the prop, expression
   const fig = { path: "a.tsx", source: `<Figure src="old.jpg" alt="The workshop" />` };
   const [fs2] = imageSlots([fig]);
   assert.equal(applyPictures([fig], [{ slot: fs2, url: "new.jpg" }]).pages[0].source, `<Figure src="new.jpg" alt="The workshop" />`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HOW MANY EMPTY PICTURE FRAMES A CHANGE ADDED (2026-09-17)
+//
+// `countImageSlots` counts `@@IMG:` TOKENS and answers the same question for a
+// BUILD. Its own comment says why it exists — *"a NEW page that wants one
+// publishes with a placeholder and, until this, said nothing about it"* — and
+// the addon's directive forbids tokens, so on the one path that ADDS pages it
+// has always answered 0 and the customer's sentence never fired.
+// ─────────────────────────────────────────────────────────────────────────────
+const PG = (path, ...imgs) => ({ path, source: "function C(){ return <main>" + imgs.join("") + "</main> }" });
+const EMPTY = (alt) => '<SafeImage src="" alt="' + alt + '" />';
+const FULL = (alt) => '<SafeImage src="/u/fw/x.jpg" alt="' + alt + '" />';
+
+test("newEmptySlots counts the frames a change added, and only those", () => {
+  // A NEW PAGE: no before, so every empty frame on it is one this change made.
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", FULL("a"))],
+    [PG("src/routes/index.tsx", FULL("a")), PG("src/routes/gallery.tsx", EMPTY("b"), EMPTY("c"))],
+  ), 2, "a new page's empty frames were not counted");
+
+  // AND THE CONTROL THAT MAKES THAT NUMBER MEAN SOMETHING: a page the change
+  // did not touch contributes nothing, however many empty frames it carries.
+  // Without this, "count the empty frames" and "count the ones we added" are
+  // the same assertion, and the wrong one reads to a customer as "your change
+  // made these".
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", EMPTY("a"), EMPTY("b"))],
+    [PG("src/routes/index.tsx", EMPTY("a"), EMPTY("b"))],
+  ), 0, "an untouched page's existing frames were reported as new");
+
+  // A CHANGED page counts its INCREASE, not its total.
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", EMPTY("a"))],
+    [PG("src/routes/index.tsx", EMPTY("a"), EMPTY("b"))],
+  ), 1, "a changed page reported its total rather than what it gained");
+
+  // A FILL SOMEWHERE ELSE MUST NOT OFFSET A NEW ONE. Summing signed deltas
+  // reports 0 over a site that really does have a new empty frame on it.
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", EMPTY("a"))],
+    [PG("src/routes/index.tsx", FULL("a")), PG("src/routes/gallery.tsx", EMPTY("b"))],
+  ), 1, "filling one frame cancelled out a new one");
+
+  // …AND THE ASSERTION ABOVE CANNOT REACH THE CLAMP, which is why this one is
+  // here. Filling a page's ONLY frame takes that page out of the `after` map
+  // entirely, so the loop never visits it and there is no negative to clamp —
+  // MEASURED: the unclamped sum passes every other assertion in this case. The
+  // shape that arms it is a page that KEEPS an empty frame while losing
+  // another: signed, (1 − 2) + (1 − 0) is 0 over a site with a real new space.
+  assert.equal(newEmptySlots(
+    [PG("src/routes/index.tsx", EMPTY("a"), EMPTY("b"))],
+    [PG("src/routes/index.tsx", EMPTY("a"), FULL("b")), PG("src/routes/gallery.tsx", EMPTY("c"))],
+  ), 1, "a page that filled one of two frames cancelled out another page's new one");
+
+  // A NEW PAGE'S FILLED FRAME IS NOT A SPACE. Without this, "count the empty
+  // frames" and "count every frame" are the same assertion on every fixture
+  // above, because no page in them gains a picture — measured, the whole case
+  // passes with `isEmptySlot` never asked.
+  assert.equal(newEmptySlots([], [PG("src/routes/gallery.tsx", FULL("a"), EMPTY("b"))]), 1,
+    "a filled frame on a new page was reported as a space the customer can fill");
+
+  // AND A `src`-LESS ELEMENT IS NOT A FRAME ANYBODY CAN FILL — `imageSlots`
+  // rewrites a `src` attribute, so an element without one is invisible to the
+  // rung this count exists to hand over to. Counting it would promise a space
+  // the picture step cannot use.
+  assert.equal(newEmptySlots([], [PG("src/routes/gallery.tsx", '<SafeImage alt="b" />')]), 0,
+    "a src-less SafeImage was counted as a fillable frame");
+  // …with the control that the same page WITH an empty src is counted, so the
+  // assertion above is about the src and not about the page.
+  assert.equal(newEmptySlots([], [PG("src/routes/gallery.tsx", EMPTY("b"))]), 1,
+    "the control failed: an empty-src frame was not counted either");
+
+  // JUNK IS 0, never a throw: this rides a reply the customer reads.
+  assert.equal(newEmptySlots(null, undefined), 0, "a junk argument was not 0");
+
+  // ⚠ AND IT WALKS THE AFTER ALONE — asserted here because a line in the ADDON
+  // ROUTE rests on it (2026-09-17). That route hands this
+  // `imageSources(aMerge.pages, aParts || aPartsRead.parts)`, and the `||` is
+  // what makes the AFTER *the whole site as this change leaves it* rather than
+  // *what the model handed back*. Today the two are numerically identical
+  // BECAUSE of this property: a file present in the BEFORE and absent from the
+  // AFTER contributes nothing, exactly as an unchanged one contributes
+  // `count - count`.
+  //
+  // MEASURED through the route over seven shapes, byte-identical either way —
+  // so that line has no observable mutant, and a sweep reads it as a survivor
+  // for ever. This is its reader instead: the day removals start counting, the
+  // route's `||` stops being inert and goes from documentation to a wall, and
+  // whoever moves this line finds out here rather than in a customer's reply.
+  assert.equal(newEmptySlots([PG("src/routes/gallery.tsx", EMPTY("a"), EMPTY("b"))], []), 0,
+    "a file that left the AFTER was counted, so the addon route's `|| aPartsRead.parts` is no longer inert");
+  assert.equal(newEmptySlots([PG("src/routes/gallery.tsx", EMPTY("a"))], [PG("src/routes/index.tsx", FULL("c"))]), 0,
+    "a file absent from the AFTER contributed, so the addon route's AFTER expression now changes the answer");
 });

@@ -13924,12 +13924,14 @@ function addonReplyText(a) {
   const bits = [];
   if (added.length) bits.push('added ' + added.join(', '));
   if (removed.length) bits.push('removed ' + removed.join(', '));
-  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
-  // 2026-09-04). Beside a new page it is the nav link — "linked it from /" —
-  // and on its own it is the page the addition landed on: a section, a code,
-  // a scene or a hand-written component changes the page it sits on and adds
-  // no page, and "linked it from /" then names a link that does not exist.
-  if (changed.length) bits.push((added.length ? 'linked it from ' : 'updated ') + changed.join(', '));
+  // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
+  // does not establish that a link was added"*). This inferred the nav link
+  // from "a page was added in the same change", which was the only reason a
+  // page could legitimately change beside an addition when it was written and
+  // is false now that a page NAMED by a designer keeps its change too. It also
+  // contradicted itself: "added /gallery, linked it from /. Nothing links to
+  // /gallery yet…". The server's `addonReply` says the same, by the same rule.
+  if (changed.length) bits.push('updated ' + changed.join(', '));
   if (Array.isArray(a.tables) && a.tables.length) bits.push('now storing ' + a.tables.join(', '));
   // THE OTHER THREE TIERS OF THE BACKEND (2026-09-03): what the engine
   // really made, by name — a function a page can call, an outside service
@@ -13961,10 +13963,24 @@ function addonReplyText(a) {
   if (Array.isArray(a.needsSecrets) && a.needsSecrets.length) {
     out += ' To switch it on, add ' + a.needsSecrets.join(', ') + ' under Cloud → Secrets.';
   }
+  // WHAT THIS CHANGE BOUGHT, IN THE SERVER'S OWN WORDS, BEFORE the sentence
+  // about what is still empty — they are two different facts and the one the
+  // customer asked for comes first. Printed VERBATIM: `imageNote` is the build
+  // path's own composer and a second copy of its five sentences here is how the
+  // browser starts claiming pictures that were never made.
+  if (a.pictureNote) out += ' ' + a.pictureNote;
   out += photoNote(a.photos);
-  // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for beside a
-  // page is the picture rung's job and did not ride this addition, so the
-  // customer is told to ask for it on its own rather than left looking for it.
+  // A KIND SET ASIDE IS SAID (2026-09-02): a photograph asked for on its own is
+  // the picture rung's job and did not ride this addition, so the customer is
+  // told to ask for it there rather than left looking for it.
+  //
+  // ⚠ AND IT NO LONGER FIRES ON A PAGE OR COMPONENT REQUEST (2026-09-17). The
+  // route only puts `photo` in `skipped` when this change writes no page — so
+  // "add a gallery page with a photograph on it" now buys the picture and says
+  // so above, where it used to publish an empty frame and print this. The
+  // sentence stays for the case it is still true of, and the SERVER decides
+  // which case that is: `addLayerIn` is the one reader, and this line only
+  // prints what it was told.
   if (Array.isArray(a.skipped) && a.skipped.indexOf('photo') >= 0) {
     out += ' The photograph is a separate step — ask for it on its own and I’ll place it.';
   }
@@ -14008,6 +14024,16 @@ function addonReplyText(a) {
       ' — nothing there needed to change for this. Ask me directly if you did want ' +
       (back.length === 1 ? 'it' : 'them') + ' edited.';
   }
+  // A COMPONENT WE KEPT RATHER THAN REPLACE (2026-09-17). The writer returned
+  // a rewrite of one of this site's own components and had not been shown what
+  // it was rewriting — its source is too long to carry in one request — so the
+  // real file stayed. The page still works; a change they may have asked for
+  // did not land, and that is the half only they can judge.
+  //
+  // PRINTED VERBATIM, `coverNote`'s rule: the server composes it because the
+  // server is the only thing that knows which component sources fitted in the
+  // request, and a second composer here would be two sentences about one fact.
+  if (typeof a.keptPartsNote === 'string' && a.keptPartsNote) out += ' ' + a.keptPartsNote;
   const un = Array.isArray(a.unlinked) ? a.unlinked : [];
   if (un.length) out += ' Nothing links to ' + un.join(', ') + ' yet — say where you want the link and I’ll add it.';
   return out + problemNote(a.problems);
@@ -14282,12 +14308,18 @@ function editReply(e) {
 }
 // A PICTURE SLOT NOBODY CAN FILL, said out loud.
 //
-// Neither the edit nor the addon lane buys photographs — deliberate, because a
-// revise re-buying pictures the owner already had was a ~94-credit bug — so a
-// NEW page that wants one publishes with an empty frame. Four outcomes render
-// that same blank box and only one is a bug, which is why the build path has
-// `imageNote`; these two lanes had nothing, so the customer was left looking at
-// a gap with no way to know it was theirs to fill.
+// A FRAME NOBODY FILLED, on a page this change added.
+//
+// The EDIT lane still buys no photographs — deliberate, because a revise
+// re-buying pictures the owner already had was a ~94-credit bug — so a new
+// frame it leaves is one for the owner to fill. THE ADDON LANE BUYS THEM NOW
+// (2026-09-17) when a picture was asked for beside a page or a component, and
+// this sentence is still right for what is LEFT: a frame the change did not
+// fill, because nobody described it, because the balance would not stretch, or
+// because the page simply has more places for a picture than were asked for.
+// What was BOUGHT is `pictureNote`, composed on the server by `imageNote` —
+// four outcomes render the same blank box and only one of them is a bug, and
+// that composer is the only thing that can tell them apart.
 function photoNote(n) {
   const c = Number(n) || 0;
   if (!c) return '';

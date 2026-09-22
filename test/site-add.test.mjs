@@ -29,15 +29,16 @@ import { MAX_PAGES } from "../builder/page-gen.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
+import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
 import { MIN_EVERY_MINUTES, AT_RE as JOBS_AT_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import {
-  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
+  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, AT_RE, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
   cleanAdd, fileOfRoute, addDirective, foldAdds, addRefusal, alreadyReply, pageLabels,
-  REQUIREMENT_ADDS, tableFacts,
+  REQUIREMENT_ADDS, tableFacts, deadQrs, deadQrNote,
 } from "../builder/site-add.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
@@ -74,11 +75,72 @@ const toolReply = (name, input, extra = {}) => ({
 
 test("the kinds are two disjoint groups that cover the list, and a dispatched kind names a real edit layer", () => {
   assert.ok(ADD_KINDS.length >= 6, `only ${ADD_KINDS.length} kinds — the table has shrunk`);
-  assert.deepEqual([...OWN_ADDS, ...DISPATCHED_ADDS].sort(), [...ADD_KINDS].sort(), "a kind is in neither group or in both");
-  for (const k of OWN_ADDS) { assert.ok(!DISPATCHED_ADDS.includes(k)); assert.equal(addLayer(k), null, `${k} acts here and dispatches`); }
+  // ── THREE GROUPS SINCE 2026-09-17, STILL TOTAL AND STILL DISJOINT ────────
+  //
+  // RE-ANCHORED, NOT APPEASED. The property was never "there are two groups";
+  // it is that every kind is answered in exactly one place, so none can be
+  // designed-and-dispatched or neither. `PLACING_ADDS` is the third: a kind
+  // that names a layer AND carries a tool, because where its work happens
+  // depends on the company it keeps — a photograph alone is the picture rung's
+  // and one beside a page is this step's, since this step is what makes the
+  // slot. Adding it to `DISPATCHED_ADDS` would have been the appeasement, and
+  // it would have asserted the old defect as correct.
+  assert.deepEqual([...OWN_ADDS, ...PLACING_ADDS, ...DISPATCHED_ADDS].sort(), [...ADD_KINDS].sort(), "a kind is in no group or in more than one");
+  for (const k of OWN_ADDS) { assert.ok(!DISPATCHED_ADDS.includes(k) && !PLACING_ADDS.includes(k)); assert.equal(addLayer(k), null, `${k} acts here and dispatches`); }
   for (const k of DISPATCHED_ADDS) {
+    assert.ok(!PLACING_ADDS.includes(k), `${k} is in both dispatched groups`);
     const layer = addLayer(k);
     assert.ok(EDIT_LAYERS.includes(layer), `${k} dispatches to "${layer}", which is not an edit layer the route has`);
+  }
+  // ── AND THE PLACING GROUP IS PROVED ALIVE IN BOTH DIRECTIONS ─────────────
+  //
+  // `DISPATCHED_ADDS` IS EMPTY TODAY, so the loop above asserts nothing at all
+  // — a negative assertion with a dead observer, which this repository has
+  // recorded against it. That is exactly why this block exists: the layer
+  // vocabulary and the tool check have to be driven somewhere, and the kinds
+  // that carry both are here.
+  assert.ok(PLACING_ADDS.length >= 1, "no kind designs-here-or-dispatches — this block scans nothing");
+  for (const k of PLACING_ADDS) {
+    const layer = addLayer(k);
+    assert.ok(EDIT_LAYERS.includes(layer), `${k} dispatches to "${layer}", which is not an edit layer the route has`);
+    assert.doesNotThrow(() => addTool(k), `${k} names a layer and has no tool to be designed in`);
+    // THE TWO ANSWERS, AND WHICH COMPANY DECIDES THEM. Alone it is the layer;
+    // beside a kind that writes page source it is ours. `MAKES_PAGES` is the
+    // list, and a kind that is NOT on it leaves the dispatch alone — a table
+    // reaching the page call is no reason to place a photograph.
+    assert.equal(addLayerIn(k, [k]), layer, `${k} alone must still go to its own rung`);
+    for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null, `${k} beside ${m} must be designed here`);
+    for (const m of ADD_KINDS.filter((x) => x !== k && !MAKES_PAGES.includes(x))) {
+      assert.equal(addLayerIn(k, [m, k]), layer, `${k} beside ${m} must still dispatch — ${m} writes no page source`);
+    }
+    // FAIL-CLOSED ON A MALFORMED LIST: nothing that is not an array of strings
+    // carries a page-writing kind, so the answer is the dispatch, which is what
+    // the platform did before this group existed.
+    for (const junk of [null, undefined, "page", 3, {}, [null], [["page"]]]) {
+      assert.equal(addLayerIn(k, junk), layer, `${k} with a malformed kind list must dispatch`);
+    }
+  }
+  // AND AN OWN KIND IS UNTOUCHED BY THE COMPANY IT KEEPS: it names no layer, so
+  // there is nothing for the company to change and the answer is this module in
+  // every case. (The control that stops "beside a page it is null" being
+  // satisfied by a reader answering null for everything is above — a placing
+  // kind ALONE, and beside every kind that writes no page source, answers its
+  // layer.)
+  for (const k of OWN_ADDS) for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null);
+  // ⚠ AND THE GROUP ITSELF IS A WALL, DRIVEN IN A TWO-KIND WORLD (2026-09-17).
+  // `DISPATCHED_ADDS` is empty on the real platform, so the membership test in
+  // `addLayerIn` cannot change an answer here — MEASURED: 81 probes over every
+  // kind and nine company shapes, zero differences with it and without it. A
+  // wall nobody can drive is a wall nobody is guarding, so the group is a
+  // PARAMETER (`cleanTools(v, catalog)`'s own reason) and the rule is driven
+  // against a world where a kind dispatches and is NOT placed here: it keeps
+  // its layer whatever company it keeps, because it has no tool to answer with.
+  for (const k of PLACING_ADDS) {
+    const layer = addLayer(k);
+    assert.equal(addLayerIn(k, ["page", k], []), layer,
+      `${k} was designed here although nothing says it can be — a kind with no tool of its own would be asked for an answer and dropped`);
+    assert.equal(addLayerIn(k, ["page", k], [k]), null,
+      `${k} is in the placing group and was dispatched anyway — the observer is dead and the line above proves nothing`);
   }
   // The intent router promises these by name; a section, a form and a map
   // are components (owner, 2026-09-02: "section is just adding a new
@@ -88,6 +150,69 @@ test("the kinds are two disjoint groups that cover the list, and a dispatched ki
   // `Object.hasOwn`, never truthiness — the Stripe plan lookup's bug.
   assert.equal(addLayer("constructor"), null);
   assert.equal(addLayer(["photo"]), null);
+});
+
+test("the photograph kind designs a shot list the picture pipeline can take, and refuses what it cannot", () => {
+  // ── THE `photo` TOOL ANSWERS `imageDirective`'S OWN LIST SHAPE ───────────
+  //
+  // `{page, describe}` is what the build path's reader already takes, so the
+  // shot list crosses to the page writer through that rather than a second
+  // shape beside it. Asserted against the tool the model really sees.
+  const props = addTool("photo").input_schema.properties.photo;
+  assert.equal(props.type, "array");
+  assert.deepEqual([...props.items.required].sort(), ["describe", "page"]);
+  assert.deepEqual(Object.keys(props.items.properties).sort(), ["describe", "page"]);
+  // THE WORDS ARE THE PROMPT SOMEBODY PAYS FOR, and the description says so —
+  // this is the one field in the whole add step whose contents are billed.
+  assert.match(props.items.properties.describe.description, /PAID to draw/);
+
+  const SITE_P = { ...SITE, planned: [{ path: "/gallery" }] };
+  // A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION — `going`, the one
+  // list every placing kind resolves through.
+  const ok = cleanAdd("photo", [{ page: "/gallery", describe: "the bench under the window" }], SITE_P);
+  assert.deepEqual(ok.value, [{ page: "/gallery", describe: "the bench under the window" }]);
+  // AND A PAGE NOBODY HAS IS REFUSED BY NAME, never moved to the home page:
+  // the silent substitution the owner corrected on the component tier, and
+  // worse here because a photograph is bought.
+  assert.equal(cleanAdd("photo", [{ page: "/prices", describe: "x" }], SITE_P).why, "no-page");
+  // AN UNDESCRIBED PICTURE IS REFUSED, because `planImages` deliberately never
+  // sends a token with nothing inside it — so it would be a slot nothing fills
+  // and a customer told a photograph was added.
+  assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "   " }], SITE_P).why, "no-photo");
+  assert.match(addRefusal("no-photo"), /what's in it/);
+  // A LONG BRIEF IS SLICED AND NOT REFUSED, which is exactly what `imagePrompt`
+  // does to it one hop later: refusing here would turn a usable description
+  // into no picture at all.
+  const long = cleanAdd("photo", [{ page: "/gallery", describe: "b".repeat(MAX_PROMPT_CHARS + 80) }], SITE_P);
+  assert.equal(long.value[0].describe.length, MAX_PROMPT_CHARS);
+
+  // ── THE FOLD HANDS THE ROUTE A DEDUPED LIST ──────────────────────────────
+  //
+  // ON THE PAIR, never on the page alone: the same picture asked for twice is
+  // ONE purchase (`planImages` reuses a token's url wherever it appears), and
+  // two different pictures on one page are two.
+  const many = foldAdds([{ kind: "photo", value: cleanAdd("photo", [
+    { page: "/gallery", describe: "the bench" },
+    { page: "/gallery", describe: "the bench" },
+    { page: "/gallery", describe: "a finished guitar" },
+    { page: "/", describe: "the bench" },
+  ], SITE_P).value }], {}, SITE_P);
+  assert.deepEqual(many.photos, [
+    { page: "/gallery", describe: "the bench" },
+    { page: "/gallery", describe: "a finished guitar" },
+    { page: "/", describe: "the bench" },
+  ]);
+  // AND IT IS NOT ON `designed`, which is what `mergeLook` folds into the
+  // site's STORED look: a photograph is bought once and the site then carries
+  // the PICTURE, not the instruction — storing it would re-buy the same set on
+  // the next unrelated edit, which is the rule `budgetFor` exists for.
+  assert.equal(many.designed.photos, undefined);
+  assert.equal(many.designed.images, undefined);
+  // NO DIRECTIVE BLOCK, DELIBERATELY: `imageDirective` already names the page
+  // and hands over the exact token, and a second block saying the same thing in
+  // other words is how one picture becomes two.
+  assert.equal(addDirective("photo", { page: "/gallery", describe: "the bench" }, SITE_P), "");
+  assert.doesNotMatch(many.directive, /the bench/, "the fold describes the picture twice");
 });
 
 test("every field the edit path refuses to create has a kind here, and the route refuses a second one by name", () => {
@@ -214,7 +339,27 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // THE COST IS NAMED: `site-schema.mjs` pulls the Neon driver in, so this
     // module is no longer dependency-free at load. It carries no path's
     // wording, which is the property this test is really about.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
+    // `./site-files.mjs` (2026-09-17) is a LEAF with no imports of its own and
+    // is the platform's single answer to "where does a component live" —
+    // `PART_DIR`, `partPath`, `partNameOf`, `editableFiles`, read by the
+    // Worker and by the container through it. `deadQrs` has to answer "does
+    // this page import that component" once components joined the withheld
+    // set, and the alternative was a second literal `"-parts/"` beside the
+    // one `partNameOf` reads: the "two copies of one thing" trap, which is
+    // the same reason `MAX_FN_BODY` two entries up is imported rather than
+    // retyped. It carries VOCABULARY and no path's wording, which is the
+    // property this test is really about.
+    // `./site-images.mjs` (2026-09-17) is the platform's single answer to
+    // "how many photographs may one change buy, and how much of a description
+    // reaches the image model" — `IMAGE_CAP` and `MAX_PROMPT_CHARS`, the two
+    // numbers `planImages` and `buySitePhotos` really enforce. The `photo`
+    // kind's tool states both, and a ceiling retyped here would be a wall this
+    // tool promises and the spend path does not keep: the same "two copies of
+    // one thing" the two body caps above are imported to avoid. It imports one
+    // budget constant and nothing else, so it costs no dependency, and it
+    // carries VOCABULARY and no path's wording — the property this test is
+    // really about.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -245,7 +390,9 @@ test("the table kind asks for the ONE table shape the build asks for — by iden
 // ── NO LOW LIMITS WHILE TESTING (owner, 2026-09-02) ─────────────────────────
 test("a message may name every kind, and the kinds that come in numbers answer lists with ceilings a site can hold", () => {
   assert.equal(MAX_ADDS, ADD_KINDS.length, "a message cannot name every kind it asks for");
-  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "table"]);
+  // `photo` JOINED 2026-09-17: a message may ask for several pictures, so the
+  // answer is a list like every other kind that comes in numbers.
+  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "table"]);
   for (const k of LIST_ADDS) {
     const p = addTool(k).input_schema.properties[k];
     assert.equal(p.type, "array", k + " answers one thing, not a list");
@@ -253,9 +400,13 @@ test("a message may name every kind, and the kinds that come in numbers answer l
     // tier), and a message that adds four connections or four jobs is
     // already a site that reads as several.
     assert.ok(p.maxItems >= (k === "api" || k === "job" ? 4 : 6), k + " has a low cap: " + p.maxItems);
+    // …AND A PHOTOGRAPH'S CAP IS THE PLATFORM'S OWN, not a number of this
+    // file's: `planImages` and the design step both slice at `IMAGE_CAP`, so a
+    // wider one here would offer a picture nothing downstream will ever buy.
+    if (k === "photo") assert.equal(p.maxItems, IMAGE_CAP, "the photo tool promises a cap the spend path does not keep");
     assert.ok(Array.isArray(p.items.required) && p.items.required.length, k + "'s entries require nothing");
   }
-  for (const k of OWN_ADDS.filter((x) => !LIST_ADDS.includes(x))) assert.equal(addTool(k).input_schema.properties[k].type, "object", k + " is a list of a thing a site has one of");
+  for (const k of [...OWN_ADDS, ...PLACING_ADDS].filter((x) => !LIST_ADDS.includes(x))) assert.equal(addTool(k).input_schema.properties[k].type, "object", k + " is a list of a thing a site has one of");
   // The page cap is the page writer's own ceiling: a seventh page would be
   // dropped there, so promising it here would be a page nobody gets.
   assert.ok(MAX_ADD_PAGES <= MAX_PAGES, "the add step promises more pages than the page writer keeps");
@@ -341,16 +492,30 @@ test("one property per tool, named by the kind, nothing required at the top, the
   }
 });
 
-test("a dispatched kind has no tool, and an unknown kind is refused", () => {
-  assert.throws(() => addTool("photo"), /picture/);
+test("a kind with no tool is refused by name, and an unknown kind is refused", () => {
+  // ── RE-ANCHORED 2026-09-17, AND THE PROPERTY MOVED RATHER THAN BROKE ─────
+  //
+  // This pinned `photo` as the example of a kind with no tool, which it was
+  // until it started being designed here beside a page. What makes a tool
+  // impossible is having NO SHAPE — not naming a layer — so the refusal is
+  // asserted over the kinds that really have none, and `photo` is asserted the
+  // other way: it HAS one, and its rule composes.
+  for (const k of DISPATCHED_ADDS) {
+    assert.throws(() => addTool(k), /does not act here/, k + " has no shape and yet a tool");
+    assert.throws(() => addRule(k), /no rule/);
+  }
+  for (const k of PLACING_ADDS) {
+    assert.ok(addTool(k).input_schema.properties[k], k + " is designed here and has no tool");
+    assert.equal(addRule(k).split("\n").length, 4, k + ": the rule is not four parts");
+  }
   assert.throws(() => addTool("nope"), /no add for kind/);
   assert.throws(() => addTool(["page"]), /no add for kind/);
-  assert.throws(() => addRule("photo"), /no rule/);
+  assert.throws(() => addRule("nope"), /no add for kind/);
 });
 
 test("every kind states all four parts of its rule, and the composer refuses a missing one", () => {
   assert.deepEqual(RULE_PARTS, ["is", "yours", "wide", "keep"]);
-  for (const k of OWN_ADDS) {
+  for (const k of [...OWN_ADDS, ...PLACING_ADDS]) {
     const parts = addRule(k).split("\n");
     assert.equal(parts.length, 4, k + ": the rule is not four parts");
     for (const p of parts) assert.ok(p.trim().length > 20, k + ": a part is too short to be a rule");
@@ -569,7 +734,14 @@ test("cleanAdd: a page is repaired where it can be and refused where a guess wou
   assert.equal(cleanAdd("page", "gallery", SITE).why, "nothing");
   assert.equal(cleanAdd("page", [], SITE).why, "nothing");
   assert.equal(cleanAdd("nope", {}, SITE).why, "no-kind");
-  assert.equal(cleanAdd("photo", {}, SITE).why, "no-kind", "a dispatched kind has nothing to clean");
+  // ── RE-ANCHORED 2026-09-17: THE PROPERTY IS "NO TOOL", NOT "DISPATCHES" ──
+  //
+  // This asserted `photo` uncleanable, which was true while it had no shape.
+  // It has one now, so an empty answer is refused for the REAL reason — it
+  // named no page and described no picture — and the `no-kind` refusal is
+  // asserted over a kind that genuinely has nothing to be answered in.
+  assert.equal(cleanAdd("photo", {}, SITE).why, "no-photo", "an undescribed picture must be refused by name");
+  for (const k of DISPATCHED_ADDS) assert.equal(cleanAdd(k, {}, SITE).why, "no-kind", k + " has no tool and so nothing to clean");
 });
 
 test("cleanAdd: a list keeps every usable entry, names the rest, and refuses only when none is usable", () => {
@@ -598,9 +770,18 @@ test("cleanAdd: a list keeps every usable entry, names the rest, and refuses onl
 });
 
 test("cleanAdd: a component lands on the one page a one-page site has, is refused on a many-page site it cannot name, and IS a component", () => {
-  const one = cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
+  // RE-ANCHORED 2026-09-17, and this expectation MOVED rather than broke — it
+  // asserted the defect as correct. The answer NAMED `/testimonials`, a route
+  // this site does not have, and the one-page shortcut swallowed it and
+  // answered `/`. The shortcut's own justification is about an answer that
+  // names NOTHING ("there is exactly one place this can go"); a named route
+  // the site has not got is the silent substitution the owner ruled out, one
+  // branch over from the 2026-09-14 fix for the multi-page case.
+  const one = cleanAdd("component", { does: "quotes", components: ["testimonial"], where: "after the hero" }, SITE);
   assert.equal(one.ok, true); assert.equal(one.value[0].page, "/"); assert.equal(one.value[0].where, "after the hero");
   assert.deepEqual(one.value[0].components, ["testimonial"]);
+  assert.equal(cleanAdd("component", { page: "/testimonials", does: "quotes", components: ["testimonial"] }, SITE).why, "no-page",
+    "a named route the ONE-page site does not have silently became its home page");
   assert.equal(cleanAdd("component", { page: "/nope", does: "quotes", components: ["testimonial"] }, MULTI).why, "no-page");
   assert.equal(cleanAdd("component", { page: "about", does: "quotes", components: ["testimonial"] }, MULTI).value[0].page, "/about");
   // RE-ANCHORED 2026-09-14, and the expectation MOVED rather than broke (owner:
@@ -643,8 +824,14 @@ test("cleanAdd: a table needs a name and columns unless it gives an existing tab
 });
 
 test("cleanAdd: a code needs both halves and a name the site does not use; a scene needs a description; each lands on a page", () => {
-  const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", page: "/x", where: "contact" }, SITE);
+  // RE-ANCHORED 2026-09-17, the same expectation move as the component case:
+  // `page: "/x"` NAMES a route this one-page site has not got, and the one-page
+  // shortcut answered `/`. The shortcut is for an answer that names nothing,
+  // which this line now is; a named route the site lacks is asserted beside it.
+  const qr = cleanAdd("qr", { points: " tel:0114 ", label: "Ring", where: "contact" }, SITE);
   assert.deepEqual(qr, { ok: true, value: { name: "ring", points: "tel:0114", label: "Ring", page: "/", where: "contact" } });
+  assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/x" }, SITE).value.page, "",
+    "a named route the ONE-page site does not have silently became its home page");
   assert.equal(cleanAdd("qr", { label: "Ring" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114" }, SITE).why, "no-destination");
   assert.equal(cleanAdd("qr", { points: "tel:0114", label: "Ring", page: "/nope" }, MULTI).value.page, "", "a page it cannot name is left for the page call to decide");
@@ -779,7 +966,12 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   // eight. An empty fold carries an empty list, never an absent one, for the
   // reason every other field here is an array: a consumer that has to test for
   // undefined before it can iterate is one that will forget to.
-  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [], requirements: [] });
+  // `photos` JOINED THE FOLD'S ANSWER (2026-09-17), and it is on the EMPTY
+  // shape for the reason `requirements` is: a key that appears only when
+  // something was designed makes "nothing was asked for" and "the reader never
+  // ran" the same `undefined` at the route, and the route's own shot list is
+  // what decides whether the page writer is given tokens at all.
+  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [], requirements: [], photos: [] });
 });
 
 test("every refusal token has a sentence of its own, and the already-reply names the door that changes it", () => {
@@ -1080,11 +1272,22 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const W = blankComments(read("../worker.js"));
   const b = W.slice(at(W, "if (ad) {", "addon"), at(W, "if (tx) {", "addon end"));
   assert.ok(!/designSiteSchema\(/.test(b), "the addon still calls the build's designer");
-  for (const fn of ["pickAdds(", "runAdd(", "cleanAdd(", "foldAdds(", "addLayer(", "addRefusal(", "alreadyReply("]) assert.ok(b.includes(fn), "the addon does not call " + fn);
+  // ── RE-ANCHORED 2026-09-17: `addLayer(` BECAME `addLayerIn(` ─────────────
+  //
+  // The route asks WHERE THIS KIND'S WORK HAPPENS FOR THIS MESSAGE, which for
+  // a `PLACING_ADDS` kind depends on the company it keeps — so the reader took
+  // a second argument and the old literal stopped occurring. The property is
+  // that the route reaches the module's decision rather than re-deciding, and
+  // the stronger form of it is below: all THREE asks go through the one
+  // reader, since two of them disagreeing is a kind designed and then reported
+  // as skipped, or set aside and never designed.
+  for (const fn of ["pickAdds(", "runAdd(", "cleanAdd(", "foldAdds(", "addLayerIn(", "addRefusal(", "alreadyReply("]) assert.ok(b.includes(fn), "the addon does not call " + fn);
+  assert.ok(!/\baddLayer\(/.test(b), "the addon asks the kind's own layer somewhere the message decides it");
+  assert.equal((b.match(/addLayerIn\(/g) || []).length, 4, "the addon does not ask the one reader at the escalate, the set-aside list and the loop gate");
   assert.match(W, /import \{[^}]*\bpickAdds\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "a call to a name never imported is a ReferenceError on the addon path");
   // The order: picked, hopped, refused-by-name, designed, cleaned, folded, merged.
   const pick = at(b, "const aPicked = await pickAdds(", "pick");
-  const hop = at(b, "if (aHop && aKinds.length === 1) return aEscalate(\"layer\", { layer: addLayer(aHop), kind: aHop });", "hop");
+  const hop = at(b, "if (aHop && aKinds.length === 1) return aEscalate(\"layer\", { layer: addLayerIn(aHop, aKinds), kind: aHop });", "hop");
   // RE-ANCHORED 2026-09-03: the named refusal of a table on a site with no
   // database sat between the hop and the design. The backend is the addon's
   // now and the first tier designed MAKES the database, so what follows the
@@ -1111,7 +1314,18 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   const gen = at(b, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));
   assert.match(call, /brief: aInstruction \+ \(aFold\.directive \? "\\n\\n" \+ aFold\.directive : ""\)/, "the directive does not ride the brief");
-  assert.match(call, /plan: aFold\.components\.length \? \{ components: aFold\.components \} : null/, "the kit parts are not handed to the page call");
+  // RE-ANCHORED 2026-09-17, and the expectation is WIDER rather than moved
+  // (owner: *"required kit signatures"*). This was pinned to `aFold.components`
+  // — the union of what THIS change declares — so a writer editing a page
+  // built from `<Accordion>` got that component's props only when the addition
+  // happened to name it too. `aPlanComponents` is that union PLUS the kit
+  // components the site's existing pages import, and the property is that both
+  // sources reach the plan; the spelling of the variable is not the property.
+  const plan = call.match(/plan: ([A-Za-z]+)\.length \? \{ components: \1 \} : null/);
+  assert.ok(plan, "the kit parts are not handed to the page call: " + call);
+  const planBuild = b.slice(b.indexOf("const " + plan[1] + " = "), gen);
+  assert.match(planBuild, /aFold\.components/, "the addition's own components do not reach the page call's plan");
+  assert.match(planBuild, /pageComponents\(aSrc\)/, "the kit components the site's pages already import do not reach the page call's plan");
   // The reply says what kinds were added and what was set aside — and which
   // entries of a list were left out, with the server's own sentence.
   assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkipped,/, "the reply does not say what was added");
@@ -1324,4 +1538,498 @@ test("addRepairNote: quiet on a fix that held; a fix there was no time for, or t
   assert.match(refusedOnly, /\/gear/);
   const mixed = REPAIR.addRepairNote({ ran: true, built: { files: {} }, repaired: ["/gear"], refused: [{ route: "/prices", reason: "cannot" }] });
   assert.match(mixed, /\/prices/); assert.doesNotMatch(mixed, /\/gear/); assert.match(mixed, /published as it is/);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE PLANNED-ROUTE HAND-OFF, AT THE MODULE (2026-09-17)
+//
+// The route-level demonstrations are in `test/addon-route.test.mjs`, where each
+// of these is driven through `POST /api/site/<slug>/addon`. These are the
+// branches a route case cannot separate — the shortcut's own boundary, the
+// second-add refusal, and the two halves of the note — every one a survivor of
+// the first mutation pass rather than a case written from the code.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("a page this change is adding is a destination, is not a page the site HAS, and cannot be added twice", () => {
+  const ADDING = { ...SITE, planned: [{ path: "/gallery", name: "Gallery" }] };
+  const on = (page, site) => cleanAdd("component", [{ page, does: "a caption", components: ["card"] }], site);
+
+  // THE ONE-PAGE SHORTCUT READS THE SITE AS IT WILL BE, not as it is. Its whole
+  // justification is "there is exactly one place this can go", which expires
+  // the instant this same change adds a second page — the recorded "a rule true
+  // because of a layer below it expires when that layer moves", where the layer
+  // is this message's own earlier designer.
+  assert.equal(on("", SITE).value[0].page, "/", "a site really adding nothing lost the shortcut");
+  assert.equal(on("", ADDING).why, "no-page", "an unplaced section landed on the home page of a site that is growing a second one");
+  assert.equal(on("", { ...MULTI, planned: [] }).why, "no-page", "the multi-page refusal moved");
+
+  // A PLANNED ROUTE IS A DESTINATION, and one nobody is adding still is not.
+  assert.equal(on("/gallery", ADDING).value[0].page, "/gallery");
+  assert.equal(on("/gallery", SITE).why, "no-page");
+  assert.equal(on("/prices", ADDING).why, "no-page", "any route at all became a destination");
+
+  // …AND IT IS STILL NOT A PAGE THE SITE HAS: adding it a second time is the
+  // same refusal as adding one that is already live.
+  const pg = (path) => cleanAdd("page", [{ path, name: "G", purpose: "show the work", sections: ["a grid"] }], ADDING);
+  assert.equal(pg("/gallery").why, "page-exists", "a page this change already plans could be made a second time");
+  assert.equal(pg("/prices").ok, true, "a route nobody has and nobody is adding stopped being addable");
+
+  // THE SHAPE IS TOLERANT AT THE EDGES, because the route hands `{path, name}`
+  // and a caller with only routes is a legitimate reading of the same fact.
+  assert.equal(on("/gallery", { ...SITE, planned: ["/gallery"] }).value[0].page, "/gallery");
+  assert.equal(on("/gallery", { ...SITE, planned: [null, 7, {}, { path: "" }] }).why, "no-page");
+});
+
+test("the note says a planned page is coming, never that it is there, and tells written components from declared ones", () => {
+  const coming = siteNote({ name: "Fretwork", pages: ["/"], labels: { "/": "Guitar repairs" },
+    planned: [{ path: "/gallery", name: "Gallery" }] });
+  // TWO LINES, AND THE FIRST IS THE SITE AS IT IS. Folding the planned page in
+  // would send a designer looking for source that does not exist yet.
+  assert.match(coming, /^Its pages are: \/ \("Guitar repairs"\)\.$/m, coming);
+  assert.match(coming, /^This same change is ALSO adding a page, which do(es)? not exist yet: \/gallery \("Gallery"\)\./m, coming);
+  assert.doesNotMatch(coming, /^Its pages are: [^\n]*gallery/m, "the planned page was presented as one the site has");
+  // A SITE ADDING NOTHING READS EXACTLY AS IT ALWAYS DID.
+  assert.doesNotMatch(siteNote({ name: "Fretwork", pages: ["/"] }), /ALSO adding/);
+  assert.doesNotMatch(siteNote({ name: "Fretwork", pages: ["/"], planned: [{ path: "/" }] }), /ALSO adding/,
+    "a planned route the site already has was announced as new");
+
+  // ── WRITTEN VERSUS DECLARED ─────────────────────────────────────────────
+  //
+  // `tsx` is the cumulative DECLARATION list and says nothing about whether
+  // anything was ever written; `parts` is what has a file. Three states, and
+  // the third is why `null` is not `[]`.
+  const both = siteNote({ name: "F", pages: ["/"],
+    tsx: [{ name: "tide-chart" }, { name: "catch-log" }], parts: [{ name: "tide-chart" }] });
+  assert.match(both, /already written: tide-chart/, both);
+  assert.match(both, /nothing has written yet: catch-log/, both);
+  assert.doesNotMatch(both, /already written: [^\n;]*catch-log/, "a declaration with no file was called written");
+  assert.doesNotMatch(both, /nothing has written yet: [^\n;]*tide-chart/, "a component with a file was called unwritten");
+  // A READ THAT FAILED IS NOT A SITE WITH NO COMPONENTS: `null` leaves the old
+  // sentence, which is what every caller that passes no `parts` gets.
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }] }), /parts written for it: tide-chart/);
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }], parts: null }), /parts written for it: tide-chart/,
+    "a failed parts read was reported as a site with no components of its own");
+  assert.match(siteNote({ name: "F", pages: ["/"], tsx: [{ name: "tide-chart" }], parts: [] }), /nothing has written yet: tide-chart/,
+    "a site that really has no component files was not said to have none");
+
+  // AND THE LOOK IT IS WEARING, in names — the thing every add rule tells a
+  // designer to keep and nothing in its inputs used to state.
+  const look = siteNote({ name: "F", pages: ["/"], theme: "harbour-slate", css: true });
+  assert.match(look, /Its theme is harbour-slate/, look);
+  assert.match(look, /stylesheet written for it/, look);
+  assert.doesNotMatch(siteNote({ name: "F", pages: ["/"] }), /Its theme is/);
+  assert.doesNotMatch(siteNote({ name: "F", pages: ["/"], theme: "harbour-slate" }), /stylesheet written for it/);
+});
+
+// ── A NEW QR CODE OUTLIVING THE PAGE IT OPENS (2026-09-17) ──────────────────
+test("deadQrs drops only a code THIS change added that opens a page THIS change lost", () => {
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const code = (name, path) => ({ name, points: URL_ + path, label: name });
+  const at = (...codes) => ({ qr: codes, url: URL_ + "/" });
+
+  // THE CASE ITSELF: a code added by this change, pointing at a route this
+  // change planned and did not ship.
+  const gone = deadQrs({ ...at(code("gallery", "/gallery")), prior: [], missing: ["/gallery"], wrote: [] });
+  assert.deepEqual(gone.qr, [], "the dead code was published");
+  assert.deepEqual(gone.dropped, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(gone.withheld, []);
+
+  // A CODE THE SITE ALREADY HAD IS NOT THIS CHANGE'S TO REMOVE, whatever it
+  // opens. `prior` is the whole of that test, and it is by NAME because that is
+  // what identifies a code — `cleanAdd` refuses a second code of the same name.
+  const old = deadQrs({ ...at(code("gallery", "/gallery")), prior: [code("gallery", "/gallery")], missing: ["/gallery"], wrote: [] });
+  assert.deepEqual(old.qr.map((c) => c.name), ["gallery"], "a code the site already had was taken away");
+  assert.deepEqual(old.dropped, []);
+
+  // A CODE OPENING A PAGE THAT SHIPPED, and one opening a page nobody planned
+  // — neither is a candidate, and the second is the control that `missing` is
+  // really what decides rather than "this change added a code".
+  assert.deepEqual(deadQrs({ ...at(code("menu", "/menu")), prior: [], missing: ["/gallery"], wrote: [] }).dropped, []);
+  assert.deepEqual(deadQrs({ ...at(code("gallery", "/gallery")), prior: [], missing: [], wrote: [] }).dropped, []);
+
+  // ANOTHER SITE'S ADDRESS IS NOT OUR ROUTE. The path matches and the origin
+  // does not, so nothing is dropped — which is why the origin is compared and
+  // not just the pathname.
+  const away = deadQrs({ qr: [{ name: "gallery", points: "https://example.com/gallery", label: "x" }], prior: [], missing: ["/gallery"], wrote: [], url: URL_ + "/" });
+  assert.deepEqual(away.dropped, [], "a code pointing at somebody else's site was dropped");
+
+  // AND A PAYLOAD THAT IS NOT A PAGE AT ALL. `tel:` and `WIFI:` parse as URLs
+  // with a pathname, and reading one of those as a route is how a code nobody
+  // asked about disappears.
+  for (const points of ["tel:+441234567890", "WIFI:S:Fretwork;T:WPA;P:hello;;", "mailto:hi@fretwork.test", "not a url"]) {
+    const r = deadQrs({ qr: [{ name: "c", points, label: "x" }], prior: [], missing: ["/gallery", "/c"], wrote: [], url: URL_ + "/" });
+    assert.deepEqual(r.dropped, [], "a " + points.slice(0, 8) + " code was read as a route");
+    assert.deepEqual(r.qr.map((c) => c.name), ["c"]);
+  }
+
+  // WITH NO ADDRESS NOTHING IS DROPPED, which is the fail-safe direction: we
+  // cannot tell whose page a URL names without knowing our own origin, and a
+  // code removed on a guess cannot be put back by the customer.
+  assert.deepEqual(deadQrs({ qr: [code("gallery", "/gallery")], prior: [], missing: ["/gallery"], wrote: [] }).dropped, []);
+
+  // NOTHING TO DO IS THE ORDINARY ANSWER, and it hands the list straight back.
+  assert.deepEqual(deadQrs().qr, []);
+  assert.deepEqual(deadQrs({ ...at(code("a", "/a")), missing: [] }).qr.map((c) => c.name), ["a"]);
+});
+
+test("a page THIS change wrote that renders a dropped code is withheld with it", () => {
+  // ⚠ THIS CASE IS THE OPPOSITE OF THE ONE IT REPLACES, which read "deadQrs
+  // keeps a code a shipped page really renders, and says so instead" and
+  // ASSERTED THE DEFECT AS CORRECT (owner, 2026-09-17: *"A warning does not
+  // complete the dependency."*). Keeping the code shipped a printed thing that
+  // opens nothing, beside a sentence asking the customer not to print it.
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: URL_ + "/gallery", label: "Our gallery" }];
+  const page = (source, added) => [{ path: "index.tsx", source, added }];
+  const shows = page("export default () => <img src={SITE_QRS.gallery.src} />");
+  const blank = page("export default () => <main/>");
+
+  // THE CODE GOES, AND THE PAGE GOES WITH IT — a CHANGED page reverts, so the
+  // entry says `added: false` and the route restores the stored source.
+  const held = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: shows, url: URL_ + "/" });
+  assert.deepEqual(held.qr, [], "the code a page renders was published anyway");
+  assert.deepEqual(held.dropped, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(held.withheld, [{ path: "index.tsx", added: false }]);
+
+  // AND THE CONTROL, which is what makes the line above about the reference
+  // rather than about the code: same code, same missing page, a page that does
+  // not mention it — dropped, and nothing withheld.
+  const drop = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: blank, url: URL_ + "/" });
+  assert.deepEqual(drop.dropped, [{ name: "gallery", route: "/gallery" }]);
+  assert.deepEqual(drop.withheld, [], "a page that never mentions the code was withheld");
+
+  // THE REFERENCE READER IS `qrUnplaced`'s, INVERTED — one binding regex on the
+  // platform, not two — so the bracket form counts exactly as the dot form does.
+  const bracket = page("export default () => <img src={SITE_QRS['gallery'].src} />");
+  assert.deepEqual(deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: bracket, url: URL_ + "/" }).withheld.length, 1);
+
+  // ⚠ A `source` THAT IS NOT A STRING IS NOT A PAGE THAT RENDERS ANYTHING, and
+  // this is drivable rather than defensive: `qrUnplaced` reads
+  // `String((p && p.source) || "")`, and `String(["SITE_QRS.gallery"])` is the
+  // bare string — this repository's own recorded `String(["a"]) === "a"` trap.
+  // MEASURED over six shapes: five agree either way and this one does not, so
+  // without the filter an entry whose source is an ARRAY reads as a page
+  // rendering the code and its page is withheld for nothing.
+  const arr = deadQrs({ qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "index.tsx", source: ["SITE_QRS.gallery"] }] });
+  assert.deepEqual(arr.withheld, [], "a non-string source was coerced into a page that renders the code");
+  assert.deepEqual(arr.dropped, [{ name: "gallery", route: "/gallery" }], "the code itself still goes");
+
+  // A PAGE THIS CHANGE INVENTED IS MARKED AS ONE, because withholding it means
+  // something different — it does not go out at all, and its route goes with it.
+  const made = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: page("<img src={SITE_QRS.gallery.src}/>", true), url: URL_ + "/" });
+  assert.deepEqual(made.withheld, [{ path: "index.tsx", added: true }]);
+
+  // …AND THAT IS WHAT MAKES THE CASCADE REAL, which is why this is a fixed
+  // point and not a pass: withholding an ADDED page takes its route away, so a
+  // SECOND code pointing at that route dies too, and a third page rendering
+  // THAT code is withheld in turn. `MAX_QRS` is 6, so the chain is
+  // constructible rather than hypothetical.
+  const chain = deadQrs({
+    qr: [{ name: "gallery", points: URL_ + "/gallery", label: "a" }, { name: "posters", points: URL_ + "/posters", label: "b" }],
+    prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [
+      { path: "posters.tsx", source: "<img src={SITE_QRS.gallery.src}/>", added: true },
+      { path: "flyer.tsx", source: "<img src={SITE_QRS.posters.src}/>", added: true },
+    ],
+  });
+  assert.deepEqual(chain.dropped.map((d) => d.name).sort(), ["gallery", "posters"],
+    "the second code survived a page that is no longer there: " + JSON.stringify(chain.dropped));
+  assert.deepEqual(chain.withheld.map((w) => w.path).sort(), ["flyer.tsx", "posters.tsx"],
+    "the cascade stopped after one round: " + JSON.stringify(chain.withheld));
+
+  // ⚠ AND THE LEGACY `SITE_QR` BINDING BELONGS TO THE FIRST CODE ONLY, which is
+  // why `qrUnplaced` is asked with the WHOLE list one page at a time rather than
+  // with a one-element list per code: its legacy arm is keyed on a code's INDEX,
+  // so a one-code list makes every code look like the first. MEASURED on a page
+  // carrying a bare `SITE_QR`: the real reading answers ["gallery"] and the
+  // one-at-a-time reading answers ["gallery","posters"] — a second code read as
+  // rendered, and its page withheld over a binding that is not its.
+  const two = [{ name: "gallery", points: URL_ + "/gallery", label: "a" }, { name: "posters", points: URL_ + "/posters", label: "b" }];
+  const bare = [{ path: "flyer.tsx", source: "export default () => <img src={SITE_QR.src} />", added: false }];
+  const legacy = deadQrs({ qr: two, prior: [], missing: ["/posters"], wrote: bare, url: URL_ + "/" });
+  assert.deepEqual(legacy.dropped, [{ name: "posters", route: "/posters" }], "the second code survived its missing page");
+  assert.deepEqual(legacy.withheld, [],
+    "a page carrying the FIRST code's legacy binding was withheld over the second: " + JSON.stringify(legacy.withheld));
+  // …AND THE CONTROL, so the line above is about the INDEX and not about the
+  // legacy form being unreadable: the same page, with the FIRST code dropped.
+  const legacyFirst = deadQrs({ qr: two, prior: [], missing: ["/gallery"], wrote: bare, url: URL_ + "/" });
+  assert.deepEqual(legacyFirst.withheld, [{ path: "flyer.tsx", added: false }],
+    "the legacy binding is not read at all, so the control proves nothing");
+
+  // A CHANGED PAGE DOES NOT BREAK THE CHAIN, and that is the other half of the
+  // same rule: it reverts to a version the site is already serving, so its
+  // route is still there and a code pointing at it is untouched.
+  const kept = deadQrs({
+    qr: [{ name: "gallery", points: URL_ + "/gallery", label: "a" }, { name: "posters", points: URL_ + "/posters", label: "b" }],
+    prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "<img src={SITE_QRS.gallery.src}/>", added: false }],
+  });
+  assert.deepEqual(kept.dropped.map((d) => d.name), ["gallery"], "a reverted page's route was treated as gone");
+  assert.deepEqual(kept.qr.map((c) => c.name), ["posters"]);
+});
+
+test("a CUSTOM COMPONENT that renders a dropped code is withheld too, and the page importing it follows", () => {
+  // ⚠ THE DEFECT THE OWNER REPORTED STILL REPRODUCING (2026-09-17): the first
+  // cut read `wrote` — the PAGES — and a component is not a page, so a change
+  // whose binding sat in `src/routes/-parts/<name>.tsx` dropped the code and
+  // published the component regardless. A dead build, on purpose.
+  const URL_ = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: URL_ + "/gallery", label: "Our gallery" }];
+  const shows = [{ name: "qr-banner", source: "export function QrBanner(){return <img src={SITE_QRS.gallery.src}/>}", added: true }];
+
+  const held = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], wroteParts: shows, url: URL_ + "/" });
+  assert.deepEqual(held.qr, [], "the code a component renders was published anyway");
+  assert.deepEqual(held.withheldParts, [{ name: "qr-banner", added: true }], JSON.stringify(held.withheldParts));
+
+  // THE CONTROL, which is what makes the line above about the reference rather
+  // than about components being withheld wholesale: the same code, the same
+  // missing page, a component that never mentions it.
+  const blank = [{ name: "qr-banner", source: "export function QrBanner(){return <div/>}", added: true }];
+  const drop = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], wroteParts: blank, url: URL_ + "/" });
+  assert.deepEqual(drop.dropped, [{ name: "gallery", route: "/gallery" }], "the code itself still goes");
+  assert.deepEqual(drop.withheldParts, [], "a component that never mentions the code was withheld");
+
+  // A COMPONENT THE SITE ALREADY HAS IS MARKED AS ONE, because withholding it
+  // means something different — the site keeps the version it is serving, and
+  // no page that imports it can break.
+  const kept = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [],
+    wroteParts: [{ ...shows[0], added: false }], url: URL_ + "/" });
+  assert.deepEqual(kept.withheldParts, [{ name: "qr-banner", added: false }]);
+
+  // …AND THE CASCADE CROSSES THE TWO LISTS, which is the property this half
+  // exists for: an ADDED page importing a withheld ADDED component compiles
+  // against a file that is not there, so it goes with it. `PART_DIR` is the
+  // one definition of what that import path looks like — the same constant the
+  // container and the band split read — so there is no second spelling here.
+  const cascade = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { QrBanner } from '@/routes/-parts/qr-banner'\n<QrBanner/>", added: true }],
+    wroteParts: shows,
+  });
+  assert.deepEqual(cascade.withheldParts, [{ name: "qr-banner", added: true }]);
+  assert.deepEqual(cascade.withheld, [{ path: "posters.tsx", added: true }],
+    "the page importing the withheld component shipped anyway: " + JSON.stringify(cascade.withheld));
+
+  // AND A COMPONENT THE SITE ALREADY HAS BREAKS THE CHAIN, for the same reason
+  // a CHANGED page does: it reverts to what is serving, so the import resolves.
+  const safe = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { QrBanner } from '@/routes/-parts/qr-banner'\n<QrBanner/>", added: true }],
+    wroteParts: [{ ...shows[0], added: false }],
+  });
+  assert.deepEqual(safe.withheld, [], "a page importing a component that reverts was withheld for nothing");
+
+  // ⚠ AND A NAME IS MATCHED AT ITS BOUNDARY, never as a prefix: `qr-banner`
+  // and `qr-banner-2` are two components, and an import of the second must not
+  // read as an import of the first.
+  const near = deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source: "import { X } from '@/routes/-parts/qr-banner-2'\n<X/>", added: true }],
+    wroteParts: shows,
+  });
+  assert.deepEqual(near.withheld, [], "a longer component name matched as a prefix of the withheld one");
+
+  // A NON-STRING `source` IS NOT A COMPONENT THAT RENDERS ANYTHING, the same
+  // `String(["a"]) === "a"` trap the page half already pays for.
+  const arr = deadQrs({ qr, prior: [], missing: ["/gallery"], wrote: [], url: URL_ + "/",
+    wroteParts: [{ name: "qr-banner", source: ["SITE_QRS.gallery"], added: true }] });
+  assert.deepEqual(arr.withheldParts, [], "a non-string source was coerced into a component that renders the code");
+  assert.deepEqual(arr.dropped, [{ name: "gallery", route: "/gallery" }], "the code itself still goes");
+
+  // ⚠ AND THE LEFT EDGE IS A WALL, NOT A NICETY — a sweep survivor, then
+  // MEASURED over four real import shapes. `PART_DIR` is `-parts/`, so without
+  // `(^|["'/])` in front of it a page importing somebody else's
+  // `@/components/my-parts/qr-banner`, or merely LINKING to
+  // `https://x.test/spare-parts/qr-banner`, reads as an import of OUR
+  // `qr-banner` and is withheld for nothing. Measured: both of those ship with
+  // the edge and are withheld without it, while both real spellings of our own
+  // import — the `@/routes/-parts/x` every prompt teaches and the relative
+  // `./-parts/x` TypeScript also resolves — are withheld either way. It is the
+  // trap `partNameOf`'s own comment records (*"a PAGE legitimately called
+  // `my-parts/x.tsx` is not a component"*), met from the importing side.
+  const importer = (source) => deadQrs({
+    qr, prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wrote: [{ path: "posters.tsx", source, added: true }], wroteParts: shows,
+  }).withheld.length;
+  assert.equal(importer("import { QrBanner } from '@/routes/-parts/qr-banner'"), 1, "our own import is not read as one");
+  assert.equal(importer("import { QrBanner } from './-parts/qr-banner'"), 1, "the relative spelling TypeScript resolves is not read as one");
+  assert.equal(importer("import { X } from '@/components/my-parts/qr-banner'"), 0, "another directory's component was read as ours");
+  assert.equal(importer('<a href="https://x.test/spare-parts/qr-banner">parts</a>'), 0, "a link in the page text was read as an import");
+
+  // AND THE FIXED POINT REALLY NEEDS ITS ROUNDS — also a sweep survivor, also
+  // measured rather than argued. The bound is `codes + parts + 1`, and a
+  // THREE-link chain is what separates it from a two-pass loop: each link is a
+  // code dying, its component withheld, and the ADDED page importing that
+  // component withheld in turn, which takes a route away and kills the next
+  // code. MEASURED with the loop cut to two passes: `c` survives its missing
+  // page, `pc` publishes rendering a code that does not exist, and
+  // `leaflet.tsx` ships importing a file nothing will write.
+  const link = (n, r) => ({ name: n, points: URL_ + r, label: n });
+  const draws = (n, c) => ({ name: n, source: "<img src={SITE_QRS." + c + ".src}/>", added: true });
+  const uses = (p, n) => ({ path: p, source: "import { X } from '@/routes/-parts/" + n + "'\n<X/>", added: true });
+  const deep = deadQrs({
+    qr: [link("a", "/gallery"), link("b", "/posters"), link("c", "/flyer")],
+    prior: [], missing: ["/gallery"], url: URL_ + "/",
+    wroteParts: [draws("pa", "a"), draws("pb", "b"), draws("pc", "c")],
+    wrote: [uses("posters.tsx", "pa"), uses("flyer.tsx", "pb"), uses("leaflet.tsx", "pc")],
+  });
+  assert.deepEqual(deep.dropped.map((d) => d.name).sort(), ["a", "b", "c"],
+    "the third code survived its missing page: " + JSON.stringify(deep.dropped));
+  assert.deepEqual(deep.withheldParts.map((w) => w.name).sort(), ["pa", "pb", "pc"], JSON.stringify(deep.withheldParts));
+  assert.deepEqual(deep.withheld.map((w) => w.path).sort(), ["flyer.tsx", "leaflet.tsx", "posters.tsx"],
+    "the cascade stopped before the third link: " + JSON.stringify(deep.withheld));
+});
+
+test("deadQrs follows component-to-component imports, in both spellings and to any depth", () => {
+  // ⚠ THE OWNER'S REPORTED CHAIN AT THE MODULE (2026-09-17): *"Propagate
+  // withholding through component-to-component imports as well as
+  // page-to-component imports. Continue until dependencies settle."*
+  //
+  // The page loop has asked "does this import a component that will not exist"
+  // since the cascade shipped; the component loop asked only "does this render
+  // a dead code", so a component ONE HOP from the binding was published
+  // importing a module nothing would write. The route case has the end-to-end
+  // measurement; this is the property on its own, where the depth and the two
+  // spellings can be driven at all.
+  const SITE = "https://fretwork-1.gofarther.app";
+  const qr = [{ name: "gallery", points: SITE + "/gallery", label: "Our gallery" }];
+  const dead = { qr, prior: [], missing: ["/gallery"], url: SITE + "/" };
+  const card = { name: "qr-card", source: "<img src={SITE_QRS.gallery.src}/>", added: true };
+
+  // ── THE TWO SPELLINGS A COMPONENT REALLY USES ────────────────────────────
+  // `@/routes/-parts/x` is the one every prompt teaches. `./x` is what a
+  // SIBLING is, with no `-parts/` in it at all, and both resolve — so a
+  // propagation that admits only the taught one is incomplete by exactly the
+  // spelling a model is most likely to reach for between two files in one
+  // directory.
+  for (const [what, src] of [
+    ["the taught path", "import { QrCard } from '@/routes/-parts/qr-card'\n<QrCard/>"],
+    ["a sibling relative", "import { QrCard } from './qr-card'\n<QrCard/>"],
+    ["a sibling with its extension", "import { QrCard } from './qr-card.tsx'\n<QrCard/>"],
+  ]) {
+    const r = deadQrs({ ...dead, wrote: [], wroteParts: [card, { name: "panel", source: src, added: true }] });
+    assert.deepEqual(r.withheldParts.map((w) => w.name).sort(), ["panel", "qr-card"],
+      "a component importing the withheld one by " + what + " shipped: " + JSON.stringify(r.withheldParts));
+  }
+
+  // …AND THE SIBLING FORM IS ASKED OF COMPONENTS AND OF NOTHING ELSE, which is
+  // what keeps admitting it safe. From a PAGE, `./qr-card` means
+  // `src/routes/qr-card.tsx` — another PAGE — so reading it as a part import
+  // would withhold a page for a file it never mentioned. MEASURED both ways
+  // round, because the discriminator is the whole argument.
+  const pageSib = deadQrs({ ...dead, wroteParts: [card],
+    wrote: [{ path: "posters.tsx", source: "import { X } from './qr-card'\n<X/>", added: true }] });
+  assert.deepEqual(pageSib.withheld, [],
+    "a page importing its own sibling route was read as importing a component: " + JSON.stringify(pageSib.withheld));
+  const pageDir = deadQrs({ ...dead, wroteParts: [card],
+    wrote: [{ path: "posters.tsx", source: "import { X } from './-parts/qr-card'\n<X/>", added: true }] });
+  assert.deepEqual(pageDir.withheld.map((w) => w.path), ["posters.tsx"],
+    "the control: a page that really does import the component still goes with it");
+
+  // …AND THE THREE THINGS THAT ARE NOT AN IMPORT, each a shape a real component
+  // carries and each the discriminator for one wall in that regex. Measured:
+  // all four ship as they are and are withheld with the wall removed.
+  const part = (source) => deadQrs({ ...dead, wrote: [],
+    wroteParts: [card, { name: "panel", source, added: true }] }).withheldParts.map((w) => w.name);
+  assert.deepEqual(part("import { X } from './qr-card-2'\n<X/>"), ["qr-card"],
+    "a longer component name matched as a prefix on the sibling spelling");
+  assert.deepEqual(part("// the card is in ./qr-card\n<div/>"), ["qr-card"],
+    "a COMMENT naming the sibling was read as an import — the quote is what separates them");
+  assert.deepEqual(part('<a href="https://x.test/qr-card">the card</a>'), ["qr-card"],
+    "a link ending in the component's name was read as an import — the `./` is what separates them");
+  assert.deepEqual(part("import { X } from \"@/components/ui/qr-card\"\n<X/>"), ["qr-card"],
+    "a KIT component of the same name was read as this site's own");
+
+  // …AND THE NAME IS A NAME, NEVER A PATTERN. `validatePages` refuses anything
+  // but kebab-case, so this cannot arrive through the route — and `deadQrs` is
+  // exported and takes what it is handed, so the wall is DRIVEN here rather
+  // than left as one nobody can reach. Unescaped, `qr.card` matches `qrxcard`.
+  const meta = deadQrs({ ...dead, wrote: [],
+    wroteParts: [
+      { name: "qr.card", source: "<img src={SITE_QRS.gallery.src}/>", added: true },
+      { name: "panel", source: "import { X } from './qrxcard'\n<X/>", added: true },
+    ] });
+  assert.deepEqual(meta.withheldParts.map((w) => w.name), ["qr.card"],
+    "a component name was read as a regex, so an unrelated file matched it: " + JSON.stringify(meta.withheldParts));
+
+  // ── DEPTH, IN THE ORDER THAT COSTS THE MOST ROUNDS ───────────────────────
+  // A chain of five components listed BACKWARDS: each round the loop walks the
+  // whole list, so a forward chain settles in one pass and a reversed one needs
+  // a round per link. That is what the bound is for, and a bound that is short
+  // does not hang — it returns with the fixed point unsettled, which is the
+  // same dangling import one round later.
+  const linkPart = (n, to) => ({ name: n, source: "import { X } from '@/routes/-parts/" + to + "'\n<X/>", added: true });
+  const chain = deadQrs({ ...dead, wrote: [],
+    wroteParts: [linkPart("p5", "p4"), linkPart("p4", "p3"), linkPart("p3", "p2"), linkPart("p2", "qr-card"), card] });
+  assert.deepEqual(chain.withheldParts.map((w) => w.name).sort(), ["p2", "p3", "p4", "p5", "qr-card"],
+    "the chain settled short: " + JSON.stringify(chain.withheldParts.map((w) => w.name)));
+
+  // ── RESTORE THE EXISTING, WITHHOLD THE NEW TOGETHER ──────────────────────
+  // Owner's own sentence, and it is one rule rather than two branches: an
+  // existing component withheld REVERTS to the source the site is serving, so
+  // its importers can go on importing it and it never joins the "will not
+  // exist" set. MEASURED at depth, which is where the two could come apart: a
+  // NEW card, an EXISTING panel that this change rewrote to use it, and a page
+  // importing the panel.
+  const revert = deadQrs({ ...dead,
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: false }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual(revert.withheldParts.map((w) => w.name).sort(), ["panel", "qr-card"],
+    "the rewritten component kept an import of a file that will not exist: " + JSON.stringify(revert.withheldParts));
+  assert.deepEqual(revert.withheldParts.find((w) => w.name === "panel").added, false,
+    "an existing component was marked as one this change invented");
+  assert.deepEqual(revert.withheld, [],
+    "a page was withheld for importing a component that merely reverts: " + JSON.stringify(revert.withheld));
+
+  // …AND THE CONTROL, so that last assertion is about `added` and not about the
+  // page's import being unreadable: the same page, the same import, with the
+  // panel marked as one this change invented.
+  const gone = deadQrs({ ...dead,
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: true }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual(gone.withheld.map((w) => w.path), ["posters.tsx"],
+    "a page importing a component that will NOT exist shipped: " + JSON.stringify(gone.withheld));
+
+  // ── AND A CLEAN CHAIN IS UNTOUCHED ───────────────────────────────────────
+  // The same three files with the page present: nothing dropped, nothing
+  // withheld. Without this the whole case is satisfied by withholding
+  // everything always.
+  const ok = deadQrs({ qr, prior: [], missing: [], url: SITE + "/",
+    wroteParts: [card, { name: "panel", source: "import { QrCard } from './qr-card'\n<QrCard/>", added: true }],
+    wrote: [{ path: "posters.tsx", source: "import { Panel } from '@/routes/-parts/panel'\n<Panel/>", added: true }],
+  });
+  assert.deepEqual([ok.dropped, ok.withheld, ok.withheldParts], [[], [], []],
+    "a chain whose page is present was withheld anyway: " + JSON.stringify(ok));
+});
+
+test("deadQrNote says the two outcomes apart, and says nothing when there is nothing to say", () => {
+  assert.equal(deadQrNote(), "");
+  assert.equal(deadQrNote({ dropped: [], withheld: [] }), "");
+
+  const drop = deadQrNote({ dropped: [{ name: "gallery", route: "/gallery" }] });
+  assert.match(drop, /I didn't add the QR code gallery/, drop);
+  assert.match(drop, /Ask me for the page again/, "the sentence does not say what to do about it");
+
+  // THE WITHHELD PAGE IS A DIFFERENT FACT AND NEEDS ITS OWN WORDS: the customer
+  // asked for a change to a page and that page is exactly as it was, which is
+  // not something the code's own sentence says. NAMED BY ROUTE, not by file.
+  const kept = deadQrNote({ withheld: [{ path: "index.tsx", added: false }] });
+  assert.match(kept, /I've left \/ as it was/, kept);
+  assert.doesNotMatch(kept, /index\.tsx/, "the customer was shown a file name");
+  assert.doesNotMatch(kept, /didn't add the QR/, "a withheld page borrowed the code's sentence");
+
+  // …AND A PAGE THIS CHANGE INVENTED GETS THE OTHER ONE, because "I left it as
+  // it was" is FALSE of a page that has never existed and sends the customer
+  // looking for something that was never there.
+  const never = deadQrNote({ withheld: [{ path: "posters.tsx", added: true }] });
+  assert.match(never, /I haven't added \/posters either/, never);
+  assert.doesNotMatch(never, /left \/posters as it was/, "a page that never existed was described as left as it was");
+
+  // BOTH AT ONCE ARE BOTH SAID, and plurals hold.
+  const two = deadQrNote({ dropped: [{ name: "a" }, { name: "b" }], withheld: [{ path: "menu.tsx" }, { path: "about.tsx" }] });
+  assert.match(two, /QR codes a, b/, two);
+  assert.match(two, /I've left \/menu, \/about as they were/, two);
 });

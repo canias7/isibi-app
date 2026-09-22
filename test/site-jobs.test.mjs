@@ -692,6 +692,83 @@ test("lastDueAt is the latest occurrence of the clock time in the zone, at or be
   assert.equal(lastDueAt("09:00", "UTC", NaN), null);
 });
 
+// ── THE TWO DAYS A YEAR THE CLOCK IS NOT A LINE ──────────────────────────────
+//
+// The offset is read AT THE TARGET MINUTE, never at `now` — reading it at `now`
+// moved the occurrence the moment a zone changed, which is the owner's
+// reproduction driven end to end in `job-delivery`. Here is the arithmetic
+// itself, and the POLICY for the two local times that are not one instant: an
+// hour that happens twice, and an hour that never happens at all. Both are
+// stated in `lastDueAt`'s own comment; this is where they are true.
+test("a repeated local hour is served once, and a nonexistent one is not skipped", () => {
+  const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
+  const at = (time, zone, when) => iso(lastDueAt(time, zone, Date.parse(when)));
+  const due = (row, when) => dueJobs([row], Date.parse(when)).length === 1;
+  const daily = (time, tz, last) => ({
+    name: "n", enabled: true, schedule_minutes: 1440,
+    spec: { fn: "n", at: time, tz }, last_run: last, updated_at: "2026-01-01T00:00:00Z",
+  });
+
+  // ── REPEATED: the FIRST reading is the occurrence, and it stays the first for
+  // the whole local day. Europe/London goes back at 2026-10-25T01:00:00Z, so
+  // 01:30 local happens at 00:30Z (BST) and again at 01:30Z (GMT).
+  assert.equal(at("01:30", "Europe/London", "2026-10-25T00:29:00Z"), "2026-10-24T00:30:00.000Z", "a minute before the first reading, the 25th's occurrence has not come");
+  assert.equal(at("01:30", "Europe/London", "2026-10-25T00:30:00Z"), "2026-10-25T00:30:00.000Z", "the first 01:30 IS the occurrence");
+  assert.equal(at("01:30", "Europe/London", "2026-10-25T01:30:00Z"), "2026-10-25T00:30:00.000Z", "and the SECOND 01:30 does not become one — which is what keeps one local day to one run");
+  assert.equal(at("01:30", "Europe/London", "2026-10-25T12:00:00Z"), "2026-10-25T00:30:00.000Z", "…for the rest of that day");
+  // Driven as ticks: exactly one selection across the repeated hour.
+  const served24 = daily("01:30", "Europe/London", "2026-10-24T00:30:05Z");
+  assert.equal(due(served24, "2026-10-25T00:29:00Z"), false, "before the 25th's occurrence");
+  assert.equal(due(served24, "2026-10-25T00:30:00Z"), true, "at it");
+  const served25 = daily("01:30", "Europe/London", "2026-10-25T00:30:05Z");
+  assert.equal(due(served25, "2026-10-25T01:30:00Z"), false, "the clock reads 01:30 a second time and the job must NOT run a second time");
+  assert.equal(due(served25, "2026-10-26T01:30:00Z"), true, "and it comes round again the next day");
+
+  // ── NONEXISTENT: the occurrence is the instant the time would have had under
+  // the offset in force before the change — one hour later by the clock for
+  // that one day, and exactly 24 hours after yesterday's run. THE JOB IS NOT
+  // SKIPPED. London goes forward at 2027-03-28T01:00:00Z, so local 01:00–01:59
+  // never happens.
+  assert.equal(at("01:30", "Europe/London", "2027-03-28T00:59:00Z"), "2027-03-27T01:30:00.000Z", "before it, yesterday's still stands");
+  assert.equal(at("01:30", "Europe/London", "2027-03-28T01:29:00Z"), "2027-03-27T01:30:00.000Z", "the clock has jumped to 02:29 BST and the occurrence has still not come");
+  assert.equal(at("01:30", "Europe/London", "2027-03-28T01:30:00Z"), "2027-03-28T01:30:00.000Z", "02:30 BST is the 28th's occurrence — 24 hours after the 27th's, to the second");
+  assert.equal(at("01:30", "Europe/London", "2027-03-28T12:00:00Z"), "2027-03-28T01:30:00.000Z");
+  const gapDay = daily("01:30", "Europe/London", "2027-03-27T01:30:05Z");
+  assert.equal(due(gapDay, "2027-03-28T01:00:00Z"), false, "the jump itself is not the occurrence");
+  assert.equal(due(gapDay, "2027-03-28T01:30:00Z"), true, "the day the clock skips its time, the job still runs");
+  assert.equal(due(daily("01:30", "Europe/London", "2027-03-28T01:30:05Z"), "2027-03-28T23:00:00Z"), false, "and only once");
+
+  // ── AND THE ARITHMETIC IS THE ZONE'S, NOT AN HOUR'S. Australia/Lord_Howe
+  // shifts by THIRTY MINUTES, so a nonexistent 02:15 resolves to 02:45 local
+  // and a repeated 01:45 has its two readings half an hour apart. A fix that
+  // hardcoded an hour passes every London case above and fails both of these.
+  assert.equal(at("02:15", "Australia/Lord_Howe", "2026-10-03T16:00:00Z"), "2026-10-03T15:45:00.000Z", "02:15 does not exist on 4 October; the occurrence is 02:45 local");
+  assert.equal(at("02:15", "Australia/Lord_Howe", "2026-10-03T15:30:00Z"), "2026-10-02T15:45:00.000Z", "…and 24 hours before it, the previous day's 02:15");
+  assert.equal(at("01:45", "Australia/Lord_Howe", "2027-04-03T15:20:00Z"), "2027-04-03T14:45:00.000Z", "01:45 reads twice on 4 April; the first is the occurrence");
+
+  // ── AND THE OTHER DIRECTION OF THE SAME LINE. Reading the offset at `now` put
+  // a repeated time a whole DAY back once the clocks had gone — stranding a run
+  // rather than duplicating one. The same fix answers both.
+  assert.equal(at("01:30", "Europe/London", "2026-10-25T01:00:00Z"), "2026-10-25T00:30:00.000Z", "half an hour ago, not yesterday");
+
+  // ── A TIME THAT FALLS AFTER THE TRANSITION, ON THE TRANSITION DAY. Every
+  // case above resolves under the offset in force BEFORE the change; these two
+  // are the only shape that resolves under the one after it, so without them
+  // half of `occurrenceOn`'s candidate pair is never the answer and could be
+  // deleted with the suite green. 02:30 on the 25th is GMT (the repeat is over);
+  // 03:30 on the 28th is BST (the jump has happened).
+  assert.equal(at("02:30", "Europe/London", "2026-10-25T12:00:00Z"), "2026-10-25T02:30:00.000Z", "02:30 GMT, after the hour that ran twice");
+  assert.equal(at("03:30", "Europe/London", "2027-03-28T12:00:00Z"), "2027-03-28T02:30:00.000Z", "03:30 BST, after the hour that never happened");
+
+  // ── ORDINARY DAYS ARE UNTOUCHED, on both sides of both transitions — the
+  // control, without which every assertion above is satisfied by a function
+  // that answers nonsense whenever a zone is mentioned.
+  assert.equal(at("01:30", "Europe/London", "2026-10-24T12:00:00Z"), "2026-10-24T00:30:00.000Z", "BST, the day before");
+  assert.equal(at("01:30", "Europe/London", "2026-10-26T12:00:00Z"), "2026-10-26T01:30:00.000Z", "GMT, the day after");
+  assert.equal(at("01:30", "Europe/London", "2027-03-27T12:00:00Z"), "2027-03-27T01:30:00.000Z", "GMT, the day before");
+  assert.equal(at("01:30", "Europe/London", "2027-03-29T12:00:00Z"), "2027-03-29T00:30:00.000Z", "BST, the day after");
+});
+
 test("a clock-time job waits for its time since it was added, runs once per occurrence, and keeps its interval", () => {
   const iso = (ms) => new Date(ms).toISOString();
   const T = (h, m = 0, d = 3) => Date.UTC(2026, 8, d, h, m);   // BST: 09:00 London = 08:00Z
@@ -703,9 +780,19 @@ test("a clock-time job waits for its time since it was added, runs once per occu
   assert.equal(due(row({ updated_at: iso(T(14)) }), T(8, 1, 4)), true, "did not fire the morning after it was added");
   // No registration stamp at all: run rather than strand.
   assert.equal(due(row({}), T(14, 30)), true);
-  // Once per occurrence, and the interval on top.
+  // ONCE PER OCCURRENCE, AND THE OCCURRENCE IS THE CALENDAR'S — RE-ANCHORED
+  // 2026-09-16, not appeased. The middle line used to read `false` with the
+  // message "ran a minute early — the interval is not kept", which asserted the
+  // elapsed-interval drift as correct: a run that landed two minutes LATE
+  // (08:02Z against an 08:00Z occurrence) pushed the next morning's firing two
+  // minutes back, and a "Run now" press at any hour pushed it to that hour for
+  // ever. The property that replaces it is the one the owner asked for — a run
+  // does not move the requested occurrence — and the duplicate protection is
+  // unchanged and is the line above: having run since the latest occurrence is
+  // what refuses a second firing, whatever did the running.
   assert.equal(due(row({ last_run: iso(T(8, 2)) }), T(10)), false, "ran twice in one day");
-  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 1)), false, "ran a minute early — the interval is not kept");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(7, 59)), false, "fired before its own time");
+  assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 1)), true, "a run two minutes late moved the next morning's occurrence");
   assert.equal(due(row({ last_run: iso(T(8, 2, 2)) }), T(8, 2)), true, "did not run the next morning");
   assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 28, 8, 2)) }), T(8, 5)), false, "a weekly 09:00 ran after six days");
   assert.equal(due(row({ schedule_minutes: 10080, last_run: iso(Date.UTC(2026, 7, 27, 8, 2)) }), T(8, 5)), true, "a weekly 09:00 did not run after seven");

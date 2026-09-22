@@ -96,29 +96,118 @@ export function validTimeZone(tz) {
 }
 
 /**
+ * What the wall clock in `zone` reads at the instant `t`, as plain numbers, or
+ * null when the runtime will not say. `hour` is normalised: some runtimes spell
+ * midnight 24 under `h23`, and 24 as a number is tomorrow.
+ */
+function wallParts(zone, t) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const p = {};
+  for (const part of f.formatToParts(new Date(t))) if (part.type !== "literal") p[part.type] = Number(part.value);
+  if (!Number.isFinite(p.year) || !Number.isFinite(p.month) || !Number.isFinite(p.day) || !Number.isFinite(p.hour) || !Number.isFinite(p.minute)) return null;
+  if (p.hour === 24) p.hour = 0;
+  return p;
+}
+
+/**
+ * The zone's offset AT THE INSTANT `t` — milliseconds to add to UTC to get the
+ * wall clock — read as "the wall clock taken as if it were UTC, minus the real
+ * instant". Minute precision, which is every offset the tz database holds.
+ *
+ * THE FLOOR IS A DECLARED BELT, measured inert rather than reasoned about: every
+ * caller passes an instant `Date.UTC` built at minute precision, so flooring it
+ * changes nothing today and a sweep mutant on that line would survive. It stays
+ * because the contract above is "the offset at an instant", and a sub-minute
+ * error inside a scheduler is the kind nobody ever sees. Said here because a
+ * sweep cannot say it, and the next session deletes what nothing appears to need.
+ */
+function zoneOffsetAt(zone, t) {
+  const p = wallParts(zone, t);
+  if (!p) return null;
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(t / 60000) * 60000;
+}
+
+/**
+ * The instant on the LOCAL DATE `y-mo-d` at which the clock in `zone` reads
+ * `hh:mi` — this job's occurrence for that day, exactly one per local day.
+ *
+ * The offsets in force a day either side of the target are the only two that
+ * can apply to it, so `wall - before` and `wall - after` are the only two
+ * candidate instants. Each is VERIFIED by formatting it back: only the read-back
+ * can tell a real reading from one the clock skips over.
+ *
+ * THE TWO POLICIES, STATED, because the clock changes twice a year and both
+ * cases have to mean something:
+ *
+ *  • A REPEATED local time (autumn, the hour that runs twice) verifies TWICE,
+ *    and the occurrence is the FIRST — the job runs the first time the clock
+ *    reads its time, and `anchor >= due` in `dueJobs` then refuses the second,
+ *    so one local day is still one run. Taking the later one would leave the
+ *    earlier reading unserved for an hour and is a coin toss between two equally
+ *    true answers; the earlier one is never late.
+ *
+ *  • A NONEXISTENT local time (spring, the hour that never happens) verifies
+ *    NEITHER, and the occurrence is the LATER candidate — the instant the time
+ *    would have had under the offset in force before the change, which for a
+ *    daily job is exactly 24 hours after yesterday's run, one hour later by the
+ *    clock for that one day. The job is NOT skipped: a reminder that silently
+ *    does not go out once a year is the failure nobody notices, and running
+ *    after the time that was asked for is the safe side of running before it.
+ */
+function occurrenceOn(zone, y, mo, d, hh, mi) {
+  const wall = Date.UTC(y, mo - 1, d, hh, mi);
+  const before = zoneOffsetAt(zone, wall - DAY_MS);
+  const after = zoneOffsetAt(zone, wall + DAY_MS);
+  if (before == null || after == null) return null;
+  const cand = before === after ? [wall - before] : [wall - before, wall - after];
+  const real = cand.filter((x) => {
+    const p = wallParts(zone, x);
+    return !!p && p.year === y && p.month === mo && p.day === d && p.hour === hh && p.minute === mi;
+  });
+  return real.length ? Math.min(...real) : Math.max(...cand);
+}
+
+/**
  * The most recent instant at which the clock time `at` occurred in `tz`, at
  * or before `now`: today's, or yesterday's while today's is still ahead.
  *
  * Computed from Intl's own view of the zone, so summer time is the zone's
- * business and not ours. The one approximation is that the zone's offset is
- * read at `now` rather than at the target minute, which can misplace a run by
- * an hour on the two transition days a year — and the interval rule that runs
- * beside this in `dueJobs` means never twice. Null for an unreadable `at`.
+ * business and not ours — AND THE OFFSET IS READ AT THE TARGET MINUTE, not at
+ * `now`. (Owner, 2026-09-16, reproduced.) Reading it at `now` moved the
+ * occurrence whenever the clocks changed: a daily 00:30 Europe/London job that
+ * had served 25 October's 00:30 was selected AGAIN from 01:00Z that morning —
+ * the moment London went back — because the offset read 0 there and put
+ * "today's 00:30" an hour later than the one already served, for the rest of
+ * that day. The doc comment here used to concede the approximation and rest on
+ * "the interval rule that runs beside this in `dueJobs` means never twice",
+ * which was true until that rule came off for daily jobs: A RULE TRUE BECAUSE OF
+ * A LAYER BELOW IT EXPIRES WHEN THAT LAYER MOVES, and the layer moved because we
+ * moved it.
+ *
+ * TWO local days are asked — today's and yesterday's — and that is a complete
+ * answer rather than a sample: an occurrence carries the local date it belongs
+ * to, `now`'s local date is today, so yesterday's occurrence is always behind
+ * `now` and the search can never need the day before it. The LATEST answer at or
+ * before `now` wins rather than the first one found, so nothing rests on the two
+ * coming out in calendar order across a transition. Null for an unreadable `at`.
  */
 export function lastDueAt(at, tz, now) {
   const m = AT_RE.exec(String(at || "").trim());
   const t = Number(now);
   if (!m || !Number.isFinite(t)) return null;
   const zone = validTimeZone(tz) || "UTC";
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-  const p = {};
-  for (const part of f.formatToParts(new Date(t))) if (part.type !== "literal") p[part.type] = Number(part.value);
-  const hour = p.hour === 24 ? 0 : p.hour;
-  // The zone's offset at `now`: the wall clock read as if it were UTC, minus
-  // the real instant, both at minute precision.
-  const offset = Date.UTC(p.year, p.month - 1, p.day, hour, p.minute) - Math.floor(t / 60000) * 60000;
-  const todayAt = Date.UTC(p.year, p.month - 1, p.day, Number(m[1]), Number(m[2])) - offset;
-  return todayAt <= t ? todayAt : todayAt - DAY_MS;
+  const here = wallParts(zone, t);
+  if (!here) return null;
+  const hh = Number(m[1]);
+  const mi = Number(m[2]);
+  const midnight = Date.UTC(here.year, here.month - 1, here.day);
+  let best = null;
+  for (let back = 0; back <= 1; back++) {
+    const day = new Date(midnight - back * DAY_MS);
+    const x = occurrenceOn(zone, day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), hh, mi);
+    if (x != null && x <= t && (best == null || x > best)) best = x;
+  }
+  return best;
 }
 
 /**
@@ -160,6 +249,36 @@ export function dueJobs(rows, now) {
       if (!Number.isFinite(anchor)) return true;     // no stamp and no registration time: run, do not strand
       if (anchor >= due) return false;               // already ran this occurrence, or added after it
       if (!r.last_run) return true;                  // never run, and its time has come since it was added
+      // ── A MANUAL RUN MUST NOT MOVE THE NIGHTLY OCCURRENCE ─────────────────
+      //
+      // (owner, 2026-09-16, reproduced.) A daily 23:00 Europe/London job with
+      // `last_run` 19:29:36Z — the timestamp "Run now" left — was NOT selected
+      // at 22:00Z or 22:02Z that evening, and WAS selected at 19:30Z the next
+      // day: the elapsed-interval test below measures 24 hours from whenever
+      // the job last ran, so one press slides the whole schedule to the time of
+      // the press. The customer asked for eleven at night and would have got
+      // half past seven in the evening, for ever, drifting again on every press.
+      //
+      // FOR A DAILY-OR-FASTER CLOCK-TIME JOB THE OCCURRENCE GATE IS THE WHOLE
+      // RULE, and it already carries the duplicate protection: `anchor >= due`
+      // three lines up refuses a job that has run since the latest occurrence,
+      // whatever ran it. There is exactly one occurrence per day at `mins <=
+      // 1440`, so "has this occurrence been served" is a complete question and
+      // elapsed time adds nothing but the drift.
+      //
+      // SLOWER THAN DAILY KEEPS THE ELAPSED TEST, UNCHANGED AND DELIBERATELY.
+      // A weekly 09:00 needs to skip six occurrences, and the interval is what
+      // does that. Measuring it to the OCCURRENCE instead of to `now` was tried
+      // and is WORSE: a run that landed late (09:05 on a busy tick) then fails
+      // its own next occurrence by five minutes and slips a whole day, where
+      // measuring to `now` slips it by minutes within the same day.
+      //
+      // WHAT THIS DOES NOT FIX, STATED: a manual run still perturbs a job
+      // slower than daily, exactly as it does today — it becomes the anchor and
+      // the next occurrence can fall short of the interval. Fixing that needs
+      // the last SCHEDULED occurrence stored apart from `last_run`, which is a
+      // migration; this change leaves that case byte for byte as it was.
+      if (mins <= 1440) return true;
       return (t - anchor) >= (mins * 60000 - 30000);
     }
     if (!r.last_run) return true;                    // never run — due immediately

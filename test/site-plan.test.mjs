@@ -1074,6 +1074,11 @@ test("A SITE BUILT BEFORE THE PLAN EXISTED KEEPS ITS LAYOUT", () => {
   // than the directive. Asserted at the composer, because a revise that stopped
   // sending them would make the loss total rather than small.
   const gen = fs.readFileSync(new URL("../builder/page-gen.mjs", import.meta.url), "utf8");
-  assert.match(gen, /priorPagesBlock\(priorPages, mode, target\)/,
+  // RE-ANCHORED 2026-09-17: the call gained a fourth argument (`{ keep }`, which
+  // pages to show first on a site too large to show whole) and this pinned its
+  // exact three. The property is that the composer still HANDS the site's own
+  // pages to that block, so it is read as the first three arguments with
+  // whatever follows them.
+  assert.match(gen, /priorPagesBlock\(priorPages, mode, target[,)]/,
     "a revise no longer carries the site's own pages — the family fallback was deleted on the premise that it does");
 });

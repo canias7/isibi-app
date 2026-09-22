@@ -4402,6 +4402,104 @@ test("the full build's rewrite is unchanged by the knownRoutes option", () => {
   assert.match(v.pages[0].source, /to="\/">Back to booking/, "the full-build rewrite of a dangling link stopped working");
 });
 
+test("pageId is the one definition of which page a string names", () => {
+  // ⚠ IT IS THE IDENTITY EVERY READER ON THIS PATH ASKS AND IT HAD NO CASE AT
+  // ALL — driven from a shell while the fix was written and never written down,
+  // which a sweep said out loud: a mutant making it case-sensitive survived
+  // everything. The defect it replaces was two spellings of one page compared
+  // with `===`, which fails silently and reads as "this site has no such page".
+  //
+  // A FILE REDUCES THROUGH `routeOf`, which already accepts the `src/routes/`
+  // prefix and its absence, so one identity covers what a MODEL writes and what
+  // a SITE stores alike.
+  assert.equal(api.pageId("index.tsx"), "/");
+  assert.equal(api.pageId("src/routes/index.tsx"), "/");
+  assert.equal(api.pageId("gallery.tsx"), "/gallery");
+  assert.equal(api.pageId("src/routes/gallery.tsx"), "/gallery");
+  assert.equal(api.pageId("src/routes/about.team.tsx"), "/about/team", "the flat-route convention is routeOf's, not a second copy");
+
+  // A ROUTE IS LOWER-CASED AND LOSES A TRAILING SLASH, and THE HOME ROUTE IS
+  // ONE SLASH AND STAYS ONE — `site-add.mjs`'s own rule, because stripping it
+  // leaves "" and a section on a one-page site then has nowhere to land.
+  assert.equal(api.pageId("/"), "/");
+  assert.equal(api.pageId("/gallery"), "/gallery");
+  assert.equal(api.pageId("/gallery/"), "/gallery");
+  assert.equal(api.pageId("/Gallery/"), "/gallery");
+  assert.equal(api.pageId("gallery"), "/gallery", "a route without its slash is repaired, not refused");
+
+  // …AND THE TWO SPELLINGS MEET, which is the whole of it.
+  assert.equal(api.pageId("src/routes/gallery.tsx"), api.pageId("/gallery"));
+  assert.equal(api.pageId("index.tsx"), api.pageId("/"));
+
+  // CANNOT-TELL IS "", NEVER A ROUTE. `String(["/x"])` is "/x", so a non-string
+  // is refused rather than coerced — the recorded trap.
+  for (const junk of ["", "   ", null, undefined, 7, ["/x"], {}]) {
+    assert.equal(api.pageId(junk), "", "a non-string was coerced into a page: " + JSON.stringify(junk));
+  }
+  assert.equal(api.pageId("_layout.tsx"), "", "a file routeOf refuses is not a page");
+});
+
+test("priorPagesSent resolves a keep entry in ANY spelling, which is the one wall on that side", () => {
+  // ⚠ THE MODULE PROMISED THIS IN PROSE AND NOTHING DROVE IT. Its own comment
+  // says "`routeOf` already tolerates either file spelling", and a sweep mutant
+  // cutting the keep side's normalisation (`first = keep`) SURVIVED everything:
+  // every case anywhere hands `keep` an already-exact route, so the map that
+  // makes the promise true was never asked a question it could fail. A promise
+  // to a caller that nothing ever tested is this repository's own recorded
+  // "a wall nobody can drive is a wall nobody is guarding".
+  //
+  // AND IT IS THE ONE WALL, MEASURED RATHER THAN ASSUMED. The route applies
+  // `pageId` to its own entries before pushing them, so the two could read as a
+  // redundant pair; they are not. Driven over four spellings against three ~40k
+  // pages: with this map, every spelling selects `target.tsx`; without it, only
+  // the already-exact route does — the prefixed file, the bare file and a
+  // mixed-case route all fall back to stored order and show `middle.tsx`. So
+  // the caller's own `pageId` is what is absorbed here, not the reverse.
+  const body = (tag) => "// " + tag + "\n" + "x".repeat(40000);
+  const stored = [
+    { path: "index.tsx", source: body("index") },
+    { path: "middle.tsx", source: body("middle") },
+    { path: "target.tsx", source: body("target") },
+  ];
+  // THE OBSERVER IS ALIVE IN BOTH DIRECTIONS, and that is what makes the rows
+  // below about the keep list rather than about the budget: with no keep list
+  // at all the window really does take the first two in stored order, so
+  // `target.tsx` is withheld and each spelling below has something to prove.
+  const none = api.priorPagesSent(stored, {});
+  assert.deepEqual(none.shown.map((p) => p.path), ["index.tsx", "middle.tsx"]);
+  assert.deepEqual(none.withheld, ["target.tsx"], "stored order already shows the target, so nothing here is about keep");
+
+  for (const keep of [
+    ["/target", "/"],                              // what the route produces today
+    ["src/routes/target.tsx", "src/routes/index.tsx"], // the prefixed spelling the reported defect built
+    ["target.tsx", "index.tsx"],                   // what the site really stores, after cleanPath
+    ["/Target/", "/"],                             // a route as a MODEL may write it
+  ]) {
+    const r = api.priorPagesSent(stored, { keep });
+    assert.deepEqual(r.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+      "a keep entry spelled " + JSON.stringify(keep[0]) + " did not find its page");
+    assert.deepEqual(r.withheld, ["middle.tsx"]);
+    // IN STORED ORDER ON THE WIRE whatever keep did to the selection — the
+    // module's other rule, asserted here because this is the case that moves
+    // the selection away from stored order in the first place.
+    assert.deepEqual(r.names, ["index.tsx", "middle.tsx", "target.tsx"]);
+  }
+
+  // A KEEP ENTRY NAMING NO PAGE IS NOT AN ERROR AND TAKES NO SLOT — the
+  // ordinary case on a change whose destination is a page this same change is
+  // adding, which by construction the site does not have yet.
+  const absent = api.priorPagesSent(stored, { keep: ["/gallery", "/target"] });
+  assert.deepEqual(absent.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+    "a keep entry for a page that does not exist consumed the budget");
+
+  // AND JUNK IN THE KEEP LIST IS DROPPED RATHER THAN MATCHED. `pageId` answers
+  // "" for a non-string, and "" must never find a page — `String(["/x"])` is
+  // "/x", so the filter is what stops an array being read as a route.
+  const junk = api.priorPagesSent(stored, { keep: [null, 7, "", "   ", {}, "/target"] });
+  assert.deepEqual(junk.shown.map((p) => p.path), ["index.tsx", "target.tsx"],
+    "junk in the keep list took a slot: " + JSON.stringify(junk.shown.map((p) => p.path)));
+});
+
 test("both partial lanes hand validate the stored site's routes", () => {
   // The module fix is nothing if the lanes do not pass what they know — the
   // wiring layer, this repo's most-recorded failure. Both call sites must carry
@@ -4415,7 +4513,15 @@ test("both partial lanes hand validate the stored site's routes", () => {
     const win = worker.slice(i, i + 400);
     if (/partial:\s*true/.test(win)) wins.push(win);
   }
-  assert.equal(wins.length, 2, "expected the two partial lanes, found " + wins.length);
+  // RE-ANCHORED 2026-09-17, and the count is kept rather than loosened to a
+  // floor: it is a CENSUS — a partial lane added without `knownRoutes` must
+  // fail by existing, and `>= 2` would let a deleted call site pass. The third
+  // is the addon's REPAIR pass, which re-asks validate over what survives when
+  // a page is withheld with a dead QR code, so a link into a withheld route is
+  // rewritten rather than published dangling. It carries the same two things
+  // for the same reason, which is why it belongs in this census rather than
+  // beside it as an exemption.
+  assert.equal(wins.length, 3, "expected the two partial lanes plus the addon's withholding repair, found " + wins.length);
   for (const c of wins) {
     assert.match(c, /knownRoutes:/, "a partial lane calls validate without the site's own routes:\n" + c.slice(0, 200));
     assert.match(c, /routeOf\(/, "knownRoutes is not derived from the stored pages:\n" + c.slice(0, 200));
@@ -5231,4 +5337,134 @@ test("ZERO FALSE ALARMS ON THE REAL CORPUS — measured, not argued", () => {
   // measure nothing.
   assert.ok(withImports > 3000, "only " + withImports + " of " + files.length + " files carried an import — the scan is reading the wrong things");
   assert.deepEqual(alarms, [], "these correct files were rewritten by the duplicate-import repair:\n  " + alarms.join("\n  "));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SITE'S OWN COMPONENTS, AND THE LOOK IT IS WEARING (2026-09-17)
+//
+// The addon route's demonstrations are in `test/addon-route.test.mjs`. These are
+// the bounds a route case cannot reach — what one request may carry, and what is
+// said about what it could not — and every one of them is a survivor of the
+// first mutation pass rather than a case written from the code.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("partsSent bounds one component and the whole block, and names what it could not carry", () => {
+  const big = (n, len) => ({ name: n, source: "x".repeat(len) });
+  // ONE COMPONENT'S OWN CEILING.
+  assert.deepEqual(api.partsSent([big("a", api.MAX_PART_CHARS)]).shown.map((p) => p.name), ["a"]);
+  assert.deepEqual(api.partsSent([big("a", api.MAX_PART_CHARS + 1)]).withheld, ["a"]);
+
+  // AND THE WHOLE REQUEST'S, which is a SECOND number rather than the same one:
+  // a single enormous component must not crowd out four small ones, and forty
+  // small ones must not add up to a request nothing else fits in.
+  // THE SLICE IS DERIVED FROM BOTH BOUNDS AND THEN CHECKED, so the case cannot
+  // quietly stop separating them the day either number moves: four must overrun
+  // the block, three must fit inside it, and each must be under the per-component
+  // ceiling or the wrong bound is doing the refusing.
+  const each = Math.min(api.MAX_PART_CHARS, Math.floor(api.MAX_PARTS_CHARS / 4) + 1);
+  assert.ok(each <= api.MAX_PART_CHARS && each * 3 <= api.MAX_PARTS_CHARS && each * 4 > api.MAX_PARTS_CHARS,
+    "the probe cannot separate the two bounds — " + each + " against " + api.MAX_PART_CHARS + " / " + api.MAX_PARTS_CHARS);
+  const many = api.partsSent([big("a", each), big("b", each), big("c", each), big("d", each)]);
+  assert.deepEqual(many.shown.map((p) => p.name), ["a", "b", "c"], "the whole-request bound let a fourth component through");
+  assert.deepEqual(many.withheld, ["d"]);
+
+  // NOTHING IS DROPPED IN SILENCE: every name the site has a file for is in
+  // `names`, whichever list carried it, and that is what `tsxDirective` filters
+  // on — a component withheld for size is still one that EXISTS.
+  assert.deepEqual(many.names, ["a", "b", "c", "d"]);
+  // RE-ANCHORED 2026-09-17: the answer carries a third state. `unreadable`
+  // separates a store that was read and held nothing from one that could not be
+  // read at all, and a `null` list is the FIRST of those — the shape every
+  // caller that has no components hands in. Asserted whole rather than by the
+  // three keys, so a fourth cannot appear here unnoticed.
+  assert.deepEqual(api.partsSent(null), { shown: [], withheld: [], names: [], unreadable: false });
+  assert.deepEqual(api.partsSent([{ name: "a", source: "x" }, { name: "a", source: "y" }]).names, ["a"], "one name, twice");
+  // IN STORED ORDER AND NEVER SORTED BY SIZE, or which component is shown would
+  // depend on the others and an unrelated addition could withdraw one silently.
+  assert.deepEqual(api.partsSent([big("big", api.MAX_PART_CHARS), big("small", 10)]).shown.map((p) => p.name), ["big", "small"]);
+});
+
+test("the components a request could not carry are named, and told apart from the ones it can", () => {
+  const sent = api.partsSent([{ name: "small", source: "export default () => null" }, { name: "huge", source: "y".repeat(api.MAX_PART_CHARS + 1) }]);
+  const block = api.partsDirective(sent);
+  assert.ok(block.includes("export default () => null"), "the carried component's source is absent: " + block);
+  assert.match(block, /too long to include here: huge/, block);
+  // THE WITHHELD HALF IS ONLY WORTH ANYTHING IF IT SAYS WHAT TO DO. Naming a
+  // component and leaving it at that is an invitation to write it again, which
+  // is the defect this whole block exists to stop.
+  assert.match(block, /do NOT return a file in `parts` for/, "a withheld component was named with no instruction: " + block);
+  // AND A SITE WITH NONE SENDS NOTHING AT ALL.
+  assert.equal(api.partsDirective(api.partsSent([])), "");
+  assert.equal(api.partsDirective(null), "");
+  // BOTH LISTS FEED THE FILTER, so neither kind is offered to be built again.
+  const tsx = [{ name: "small", does: "a small thing", props: "none" }, { name: "huge", does: "a huge thing", props: "none" }, { name: "new", does: "a new thing", props: "none" }];
+  const build = api.tsxDirective(tsx, sent.names);
+  assert.ok(build.includes("new"), build);
+  assert.ok(!build.includes("small") && !build.includes("huge"), "a component the site already has was offered to be written again: " + build);
+});
+
+test("a component store that could not be read is a third state, and it offers nothing to build", () => {
+  // Owner, 2026-09-17: *"Distinguish a successfully read empty inventory from
+  // an unreadable one."* Both answer no components; only one of them means the
+  // site has none, and the difference decides whether a returned component may
+  // replace a real file nobody has seen.
+  const read = api.partsSent([]);
+  const blind = api.partsSent([], { unreadable: true });
+  assert.equal(read.unreadable, false, "a site that really has none was reported as unreadable");
+  assert.equal(blind.unreadable, true);
+
+  // NOTHING IS ENUMERATED, and that is deliberate rather than a shortcut: a
+  // site can hold a component whose name is on no declaration list, so naming
+  // what we think it has would invite the writer to replace everything else.
+  const held = api.partsSent([{ name: "tide-chart", source: "export default () => null" }], { unreadable: true });
+  assert.deepEqual(held, { shown: [], withheld: [], names: [], unreadable: true },
+    "a list handed in beside an unreadable flag was read anyway");
+
+  // THE BLOCK SAYS THE COMPONENTS EXIST AND WERE NOT LOADED, which is the one
+  // thing that stops the writer concluding they do not exist — and it must be
+  // a different block from the empty one, which sends nothing at all.
+  assert.equal(api.partsDirective(read), "", "a site with no components sent a block anyway");
+  const block = api.partsDirective(blind);
+  assert.match(block, /could not be[\s\S]{0,4}loaded for this request/, block);
+  assert.match(block, /do NOT return anything in `parts` at all/, block);
+  assert.doesNotMatch(block, /too long to include here/, "the size bound's wording leaked into the unreadable block");
+
+  // AND NOTHING IS OFFERED TO BE BUILT WHILE THE STORE IS UNREADABLE. This is
+  // the half the wall cannot cover: the wall refuses a returned component, and
+  // this stops the writer being invited to return one in the first place.
+  // `tsxDirective` filters on `names`, which is EMPTY here — so a declaration
+  // would sail past it unless `briefWithLayout` asks the question itself.
+  const tsx = [{ name: "tide-chart", does: "draws the tide", props: "rows" }];
+  const brief = api.briefWithLayout({ brief: "do a thing", tsx, parts: [{ name: "tide-chart", source: "x" }], partsUnreadable: true });
+  assert.ok(!brief.includes("Components to build"), "a component the site may already have was offered to be written: " + brief);
+  assert.match(brief, /could not be[\s\S]{0,4}loaded for this request/, brief);
+
+  // THE CONTROL, and without it the assertion above is satisfied by a
+  // `tsxDirective` that never fires at all: the same declaration, the same
+  // brief, a store that read fine and holds nothing.
+  const ok = api.briefWithLayout({ brief: "do a thing", tsx, parts: [] });
+  assert.ok(ok.includes("Components to build"), "a genuinely new component was not offered to be written: " + ok);
+});
+
+test("the stylesheet is sent as already applied, and a cut one says it was cut", () => {
+  const short = api.styleDirective({ theme: "harbour-slate", css: ".a{color:red}" });
+  assert.match(short, /theme is \*\*harbour-slate\*\*/, short);
+  assert.ok(short.includes(".a{color:red}"), short);
+  assert.match(short, /ALREADY APPLIED/, "the sheet was offered without saying it is already in force");
+  assert.doesNotMatch(short, /characters of it/, "a sheet that fitted whole was announced as cut");
+
+  // A CUT SHEET SAYS SO. A truncated stylesheet presented whole has the model
+  // conclude a selector does not exist and write the rule inline instead —
+  // where editing the stylesheet can no longer reach it.
+  const long = ".x{}".repeat(api.MAX_STYLE_CHARS);
+  const cut = api.styleDirective({ css: long });
+  assert.match(cut, new RegExp("The first " + api.MAX_STYLE_CHARS + " characters of it, of " + long.length + ":"), cut.slice(0, 500));
+  assert.ok(cut.length < long.length, "the whole sheet went out anyway");
+
+  // EACH HALF STANDS ALONE, and a site with neither sends nothing.
+  assert.match(api.styleDirective({ theme: "harbour-slate" }), /theme is/);
+  assert.doesNotMatch(api.styleDirective({ theme: "harbour-slate" }), /stylesheet/);
+  assert.equal(api.styleDirective({}), "");
+  assert.equal(api.styleDirective(), "");
+  assert.equal(api.styleDirective({ theme: "   ", css: "  " }), "");
 });

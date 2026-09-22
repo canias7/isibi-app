@@ -93,6 +93,22 @@ const runTests = () => new Promise((resolve) => {
   });
 });
 
+// ⚠ THE TALLY MUST SAY WHAT IT WAS RUN AGAINST. The test list arrives on argv
+// and, until 2026-09-17, was recorded NOWHERE: the log opened on "baseline…" and
+// closed on a count, so a clean tally read afterwards could not be checked for
+// its own SCOPE. That matters here specifically — a narrow list is what makes a
+// narrow sweep cheap, and a narrow list can only produce a false SURVIVOR, never
+// a false kill, so the list is PART OF THE RESULT rather than a way of getting
+// it. Stamping "40/40/0 against nine files" from memory is a claim ahead of its
+// evidence; this line is the evidence. `(the whole suite)` is said in as many
+// words, because an empty list and a forgotten one look identical in a log.
+// ONE count, read by the opening line and by the tally — two `filter`s of the
+// same predicate are two copies of one number, and the copy that drifts is the
+// one nobody reads twice.
+const controls = spec.filter((m) => m.control).length;
+console.log(`spec ${specPath} — ${spec.length - controls} mutants + ${controls} controls, over ${files.join(", ")}`);
+console.log(`tests: ${testFiles.length ? testFiles.join(" ") : "(the whole suite)"}\n`);
+
 console.log("baseline…");
 if (!await runTests()) { console.error("BASELINE IS NOT GREEN — a sweep from a red tree proves nothing."); restore(); process.exit(1); }
 console.log("baseline green\n");
@@ -142,7 +158,6 @@ for (const m of spec) {
 }
 
 restore();
-const controls = spec.filter((m) => m.control).length;
 console.log(`\n${spec.length - controls} mutants, ${killed.length - controls} killed, ${survived.length} survived, ${unapplied.length} never applied, ${controls} comment-only controls`);
 if (survived.length) console.log("SURVIVORS:\n" + survived.map((s) => "  - " + s).join("\n"));
 if (unapplied.length) console.log("NEVER APPLIED:\n" + unapplied.map((s) => "  - " + s).join("\n"));

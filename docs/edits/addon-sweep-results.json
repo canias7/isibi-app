@@ -1,22 +1,26 @@
 {
-  "at": "2026-09-16T19:29:37.785Z",
-  "site": "repairbench-1",
-  "start": 137,
-  "end": 134,
+  "at": "2026-09-19T00:17:54.154Z",
+  "site": "fold-lane-bakery",
+  "start": 134,
+  "end": 121,
   "results": [
     {
       "name": "ask",
       "kinds": [
-        "function",
-        "job"
+        "page",
+        "qr",
+        "photo"
       ],
       "verdict": "reported",
-      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"function\",\"job\"]\n      database: functions [\"nightly_booking_count\"]; jobs [\"nightly_booking_count\"]\n      pages: []; build UNMOVED\n      home text 5239→5239 chars\n      coverage 5/8 covered, 3 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"That count runs every night at 11\" (elsewhere → job); \"Count how many bookings we have and record the total in the job's run result\" (elsewhere → function); \"Do not delete or change any bookings\" (elsewhere → function)\n      the customer was told: \"I've set that up, but I can't confirm from here that Count how many bookings there are and record that total in the job run result; or that Bookings are not deleted or changed — have a look and tell me if it isn't right. I can't see from here whether That count runs every night at 11 — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.\"",
-      "cost": 3,
-      "wall": 173,
-      "build": "mu3wolgr-eqt2r5",
+      "note": "REPORTED, NOT JUDGED — a free-text ask has no expected answer, so read the lines below.\n      routed to: [\"page\",\"qr\",\"photo\"]\n      database: nothing\n      pages: [\"/gallery\",\"/\",\"/visit\"]; look fields moved [\"qr\"]; build moved\n      home text 771→787 chars\n      coverage 2/4 covered, 2 handed on, 0 unsupported, 0 unreadable\n      STILL OWED: \"The gallery page shows a new photograph of the bakery.\" (elsewhere → photo); \"A QR code opens the gallery page.\" (elsewhere → qr)\n      photographs: bought (not said); empty frames left 1; existing ones LOST 0\n         the picture sentence: \"Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.\"\n      the customer's screen (the browser's own addonAnswer, executed, HTTP 200), 1 line(s):\n           ▸ ✅ Done — added /gallery, updated /, /visit. Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine. There is a space for a photo — upload yours in the Data panel and it’ll fill in. I've set that up, but I can't confirm from here that A visitor can see photographs of the bakery's work.; or that A visitor can reach the gallery from the homepage. — have a look and tell me if it isn't right. I can't see from here whether The gallery page shows a new photograph of the bakery.; or whether A QR code opens the gallery page. — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.\n         and the browser would then (NOT done here — recorded only), 1:\n           ↳ refresh the credit balance\n      server sentences carried whole (2):\n           · coverNote: \"I've set that up, but I can't confirm from here that A visitor can see photographs of the bakery's work.; or that A visitor can reach the gallery from the homepage. — have a look and tell me if it isn't right. I can't see from here whether The gallery page shows a new photograph of the bakery.; or whether A QR code opens the gallery page. — nothing I can check says either way, so have a look, and ask me for it again if it isn't there.\"\n           · pictureNote: \"Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.\"; repair clean",
+      "cost": 13,
+      "wall": 485,
+      "build": "mu7mwvb6-yhwx01",
       "pickedRight": true,
-      "shots": []
+      "shots": [
+        "docs/edits/addon-01-ask.png",
+        "docs/edits/addon-01-ask-page.png"
+      ]
     }
   ]
 }

@@ -156,7 +156,7 @@ export function mergeAddonSchema(prior, designed) {
  * `src/routes` and writes what it is given, so handing it the subset would
  * publish a site consisting of the new page alone.
  */
-export function mergeAddonPages(prior, returned, remove) {
+export function mergeAddonPages(prior, returned, remove, asked) {
   const base = (Array.isArray(prior) ? prior : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
   const got = (Array.isArray(returned) ? returned : [])
@@ -240,6 +240,40 @@ export function mergeAddonPages(prior, returned, remove) {
   // home page" is an addon whose whole content is a changed page, and the prompt
   // tells the model to do exactly that; there is no route to point at, and
   // reverting there would throw away the entire request.
+  //
+  // ⚠ AND REACHABILITY IS NOT THE ONLY REASON A CHANGED PAGE IS LEGITIMATE —
+  // `asked` IS THE OTHER ONE (owner, 2026-09-17). REPRODUCED through the route:
+  // *"Add a gallery page and add a parking note to the homepage"* had the
+  // component designer target `/`, the writer return exactly that home page, and
+  // this rule REVERT it — because the note carries no link to `/gallery`. The
+  // note reached neither the compiler nor the store, and the customer was told
+  // *"I left / as it was — nothing there needed to change for this"* about the
+  // half of their sentence that named it. **The identical component-only request
+  // succeeds**, which is what makes it a rule with a hole rather than a rule.
+  //
+  // `asked` IS THE CLEANED DESIGNERS' OWN DESTINATIONS and nothing else — the
+  // `page`/`path` fields of the answers that survived `cleanAdd`, carried in by
+  // the route. Never the customer's prose, which would make a wall out of
+  // something a model paraphrases; never a blanket exemption, so a page NOBODY
+  // named is protected exactly as it was. The two reasons are independent and
+  // both are kept: reachability covers the nav link nobody asked for in as many
+  // words, `asked` covers the page somebody did.
+  //
+  // IT ARRIVES AS ROUTE IDENTITIES, not file paths, and that is a contract
+  // rather than a preference: `page-gen.mjs` imports `routeOf` FROM HERE, so
+  // importing its `pageId` back would be a cycle. The route produces the list
+  // with `pageId` — which delegates to this very `routeOf` for a file — and this
+  // side maps its own stored paths through `routeOf`, so the two normalisers are
+  // one definition with the file case shared. MEASURED equal on every real
+  // shape.
+  //
+  // THE COMPARISON IS CASE-INSENSITIVE AND THAT IS LOAD-BEARING: `SAFE_PATH` in
+  // `page-gen.mjs` carries `/i`, so `About.tsx` is stored with its capital and
+  // `routeOf` answers `/About` while `pageId` answers `/about`. Measured through
+  // `validatePages`, not assumed.
+  const named = new Set((Array.isArray(asked) ? asked : [])
+    .filter((r) => typeof r === "string" && r.trim())
+    .map((r) => r.trim().toLowerCase()));
   const reverted = [];
   if (added.length || gone.length) {
     const routes = [...added, ...gone].map(routeOf).filter(Boolean);
@@ -247,6 +281,11 @@ export function mergeAddonPages(prior, returned, remove) {
       const src = (byPath.get(path) || {}).source || "";
       const was = base.find((p) => p.path === path);
       if (!was) continue;
+      // SOMEBODY NAMED THIS PAGE, so the change to it is the request rather than
+      // a rewrite nobody asked for. Asked FIRST because it is the stronger claim
+      // — a destination out of a cleaned answer — and the reachability test below
+      // is the one that has to guess.
+      if (named.has(String(routeOf(path) || "").toLowerCase())) continue;
       // BOTH SIDES, AND THE SECOND ONE IS LOAD-BEARING RATHER THAN THOROUGH.
       // On a REMOVAL the model's new source is the one with the link taken OUT,
       // so it mentions nothing; the stored source is the one that still points
@@ -407,15 +446,117 @@ export function keptReply(kept) {
   return out;
 }
 
+/**
+ * A COMPONENT THE SITE ALREADY HAD AND THE PAGE WRITER WAS NOT SHOWN.
+ *
+ * Owner, 2026-09-17: *"prevent replacement of an existing component whose
+ * source the writer was never shown."* The writer returned a rewrite of one of
+ * this site's own components composed from a one-line description, because its
+ * real source is too long to carry in one request, and the real file was kept.
+ * The page still compiles and still works; a change the customer may have
+ * asked for did not land, and that is the half only they can judge.
+ *
+ * COMPOSED HERE AND PRINTED VERBATIM by the browser, the rule `coverNote`
+ * already follows: the decision is entirely the server's (it is the only thing
+ * that knows which sources fitted), so a second composer in `chat.js` would be
+ * two sentences about one fact and only one of them would have the facts.
+ *
+ * `""` FOR AN EMPTY LIST, so a reply with nothing to say adds nothing — which
+ * is every addon that has ever run until this shipped.
+ */
+export function keptPartsNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I left " + list.join(", ") + " exactly as " + (one ? "it is" : "they are") +
+    " — " + (one ? "that component is" : "those components are") +
+    " too long for me to read in one go, so I won't rewrite " + (one ? "it" : "them") +
+    " from a description. Ask me to change " + (one ? "it" : "them") + " on its own and I'll work on " +
+    (one ? "it" : "them") + " directly.";
+}
+
+/**
+ * …AND THE SAME REFUSAL FOR A REASON THE CUSTOMER CAN ACT ON DIFFERENTLY.
+ *
+ * `keptPartsNote` is about ONE component that is too long to carry, and it
+ * tells the customer to ask for that component on its own — which is real
+ * advice, and which would be WRONG here. This is the store of components
+ * failing to read at all: nothing was shown, so nothing may be replaced, and
+ * asking for the same thing on its own changes nothing about the store. What
+ * helps is asking again, because the next request reads it afresh.
+ *
+ * TWO SENTENCES BECAUSE THEY ARE TWO FACTS. Collapsing them into one with a
+ * `why` flag would put both wordings in one function and make the harder one —
+ * a refusal with no name behind it — the branch nobody reads.
+ *
+ * NAMES WHAT THE WRITER TRIED TO WRITE, never what the site has: with the read
+ * failed we do not know what the site has, and this sentence must not imply we
+ * do. `""` for an empty list, so an ordinary addon says nothing.
+ */
+export function unseenPartsNote(names) {
+  const list = (Array.isArray(names) ? names : []).filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "I couldn't load the components your site already has, so I left every one of them alone rather than " +
+    "write over something I hadn't seen — " + list.join(", ") + " " + (one ? "was" : "were") +
+    " part of this and " + (one ? "hasn't" : "haven't") + " changed. Everything else here is done. " +
+    "Ask me for that bit again and I'll have another go.";
+}
+
+/**
+ * A PAGE THE PROMPT WINDOW COULD NOT CARRY, RETURNED ANYWAY.
+ *
+ * Owner, 2026-09-17: *"Enforce preservation of withheld existing pages at the
+ * merge boundary. Prompt wording and `keptProse` do not establish that an
+ * unseen rewrite preserves behavior."*
+ *
+ * THIS IS `unseenPartsNote` ONE LAYER OVER and the reasoning is identical: the
+ * pages we could not SHOW are exactly the pages we cannot CHECK. The prompt
+ * names them and forbids returning one, which is wording; `keptProse` asks
+ * whether the WORDS survived, which a rewrite that quietly loses a form, a
+ * link or a hook passes cleanly. So the file is refused and the stored version
+ * kept — and SAID, because a withheld page dropped in silence reads exactly
+ * like a page the model never touched.
+ *
+ * NAMES ROUTES, NOT FILES, and the advice is the one thing that really helps:
+ * ask for that page on its own, where it is the whole of the request and fits.
+ */
+export function unseenPagesNote(paths) {
+  const list = (Array.isArray(paths) ? paths : []).map((p) => routeOf(p) || p)
+    .filter((n) => typeof n === "string" && n.trim()).slice(0, 3);
+  if (!list.length) return "";
+  const one = list.length === 1;
+  return "Your site is big enough now that I can't hold every page at once, so " + list.join(", ") + " " +
+    (one ? "wasn't" : "weren't") + " in front of me — and I won't write over a page I haven't read. " +
+    (one ? "It is" : "They are") + " exactly as " + (one ? "it was" : "they were") + ". " +
+    "Ask me for " + (one ? "that page" : "those pages") + " on " + (one ? "its" : "their") +
+    " own and I'll have the whole thing in view.";
+}
+
 export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
   if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
-  // WHAT A CHANGED PAGE MEANS DEPENDS ON WHETHER A PAGE WAS ADDED (run 35,
-  // 2026-09-04): beside a new page it is the nav link; on its own it is the
-  // page the addition landed on, and "linked it from /" names a link that does
-  // not exist. The browser's `addonReplyText` says the same, by the same rule.
-  if (changed.length) bits.push((added.length ? "linked it from " : "updated ") + changed.map(routeOf).filter(Boolean).join(", "));
+  // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
+  // does not establish that a link was added"*).
+  //
+  // THIS READ `added.length ? "linked it from " : "updated "` — an INFERENCE
+  // from "a page was added in the same change" to "this changed page is the one
+  // carrying the link to it", written for run 35 when that was the only reason
+  // a page could legitimately change beside an addition. Since the preservation
+  // policy learned its second reason it is simply false: a page changed because
+  // somebody NAMED it has nothing to do with the new route.
+  //
+  // AND IT CONTRADICTED ITSELF IN ONE SENTENCE. The parking-note case produced
+  // *"added /gallery, linked it from /. Nothing links to /gallery yet…"* — the
+  // link claim and the no-link warning, four words apart, and the composer had
+  // both facts in hand while saying them.
+  //
+  // "updated /" is true of every changed page whatever else happened, so there
+  // is no inference left to be wrong. `unlinked` below is the one that really
+  // knows about links, and it is measured rather than guessed. The browser's
+  // `addonReplyText` says the same, by the same rule.
+  if (changed.length) bits.push("updated " + changed.map(routeOf).filter(Boolean).join(", "));
   let head = bits.length ? "✅ Done — " + bits.join(", ") + "." : "✅ Done.";
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY, with the reason. Silently
   // keeping it is the silent partial this lane already had once: the owner asks

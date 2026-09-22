@@ -1,0 +1,163 @@
+[
+ {
+  "label": "CONTROL: a comment only, above shownPhotos",
+  "files": ["builder/site-images.mjs"],
+  "from": " * HOW MANY PHOTOGRAPHS THIS SITE REALLY SHOWS — AND WHETHER WE CAN TELL",
+  "to": " * HOW MANY PHOTOGRAPHS THIS SITE REALLY SHOWS (control)",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above newEmptySlots",
+  "files": ["builder/site-picture.mjs"],
+  "from": " * HOW MANY EMPTY PICTURE FRAMES THIS CHANGE ADDED (2026-09-17).",
+  "to": " * HOW MANY EMPTY PICTURE FRAMES THIS CHANGE ADDED (control).",
+  "control": true
+ },
+
+ {
+  "label": "the addon is back on the bare zero — the reported defect, restored",
+  "files": ["worker.js"],
+  "from": "                images: { buy: 0, shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },",
+  "to": "                images: 0,"
+ },
+ {
+  "label": "the site's photographs are never read, so the directive claims nothing either way",
+  "files": ["worker.js"],
+  "from": "                images: { buy: 0, shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },",
+  "to": "                images: { buy: 0, shown: { known: false, count: 0 }, place: aSkipped.includes(\"photo\") },"
+ },
+ {
+  "label": "the reader is handed the WRITTEN pages instead of the stored ones, so it describes the change rather than the site",
+  "files": ["worker.js"],
+  "from": "shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },",
+  "to": "shown: shownPhotos([], ownerSlug), place: aSkipped.includes(\"photo\") },"
+ },
+ {
+  "label": "the slot instruction is sent on every addon, whether or not a photograph was asked for",
+  "files": ["worker.js"],
+  "from": "shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },",
+  "to": "shown: shownPhotos(aSrc, ownerSlug), place: true },"
+ },
+ {
+  "label": "the slot instruction is never sent, so the hand-off's promise stays unkeepable",
+  "files": ["worker.js"],
+  "from": "shown: shownPhotos(aSrc, ownerSlug), place: aSkipped.includes(\"photo\") },",
+  "to": "shown: shownPhotos(aSrc, ownerSlug), place: false },"
+ },
+
+ {
+  "label": "shownPhotos answers a count for a source nobody read — cannot-tell as a value",
+  "files": ["builder/site-images.mjs"],
+  "from": "  if (!Array.isArray(pages) || !slug) return { known: false, count: 0 };",
+  "to": "  if (!Array.isArray(pages) || !slug) return { known: true, count: 0 };"
+ },
+ {
+  "label": "shownPhotos counts occurrences, so one photograph in two bands reads as two",
+  "files": ["builder/site-images.mjs"],
+  "from": "      if (m[1].toLowerCase().startsWith(mark)) seen.add(m[1]);",
+  "to": "      if (m[1].toLowerCase().startsWith(mark)) seen.add(m[1] + seen.size);"
+ },
+ {
+  "label": "shownPhotos counts another site's uploads as this site's photographs",
+  "files": ["builder/site-images.mjs"],
+  "from": "      if (m[1].toLowerCase().startsWith(mark)) seen.add(m[1]);",
+  "to": "      seen.add(m[1]);"
+ },
+ {
+  "label": "the directive stops saying the zero is ours and claims it about the site",
+  "files": ["builder/site-images.mjs"],
+  "from": "    const lines = [\"PHOTOGRAPHS: this change buys none, so do not write any @@IMG:@@ token.\"];",
+  "to": "    const lines = [\"PHOTOGRAPHS: none on this site. Do not write any @@IMG:@@ token.\"];"
+ },
+ {
+  "label": "an unread source is described as having none — the claim this form exists to refuse",
+  "files": ["builder/site-images.mjs"],
+  "from": "    if (has === null) {\n      lines.push(\"Leave every picture already on this site exactly as it is.\");",
+  "to": "    if (false) {\n      lines.push(\"Leave every picture already on this site exactly as it is.\");"
+ },
+ {
+  "label": "the site's own photographs are not protected, so a new page may replace one",
+  "files": ["builder/site-images.mjs"],
+  "from": "        \", and they stay exactly as they are — do not replace one, and do not remove it.\");",
+  "to": "        \".\");"
+ },
+ {
+  "label": "the directive asks for a MISSING src again, which the picture rung cannot see",
+  "files": ["builder/site-images.mjs"],
+  "from": "      lines.push(\"Where this change wants a photograph, write `<SafeImage src=\\\"\\\" alt=\\\"what will be here\\\" />` — \" +\n        \"an EMPTY src, never a missing one. That renders this theme's own placeholder now, and it is the slot \" +\n        \"the picture step fills when they ask for the photograph itself.\");",
+  "to": "      lines.push(\"Where this change wants a photograph, write `<SafeImage alt=\\\"what will be here\\\" />` — \" +\n        \"no src. That renders this theme's own placeholder now.\");"
+ },
+ {
+  "label": "`place` is ignored, so every addon is told to leave picture slots",
+  "files": ["builder/site-images.mjs"],
+  "from": "    if (n.place) {",
+  "to": "    if (true) {"
+ },
+ {
+  "label": "the object form stops forbidding the token, so a zero-budget change may buy",
+  "files": ["builder/site-images.mjs"],
+  "from": "    const lines = [\"PHOTOGRAPHS: this change buys none, so do not write any @@IMG:@@ token.\"];",
+  "to": "    const lines = [\"PHOTOGRAPHS: this change buys none.\"];"
+ },
+ {
+  "label": "the object form is never taken, so the build path's sentence answers for the addon too",
+  "files": ["builder/site-images.mjs"],
+  "from": "  if (n && typeof n === \"object\" && !Array.isArray(n)) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "a NUMBER reaches the object form, so a build's own budget is read as a budget shape",
+  "files": ["builder/site-images.mjs"],
+  "from": "  if (n && typeof n === \"object\" && !Array.isArray(n)) {",
+  "to": "  if (n && !Array.isArray(n)) {"
+ },
+ {
+  "label": "the list branch stops answering, so a build's chosen pictures fall past it",
+  "files": ["builder/site-images.mjs"],
+  "from": "  if (Array.isArray(n)) {",
+  "to": "  if (false) {"
+ },
+
+ {
+  "label": "newEmptySlots counts every empty frame, so an untouched page's own read as this change's",
+  "files": ["builder/site-picture.mjs"],
+  "from": "  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));",
+  "to": "  for (const [, count] of now) n += count;"
+ },
+ {
+  "label": "a fill on one page cancels a new frame on another",
+  "files": ["builder/site-picture.mjs"],
+  "from": "  for (const [page, count] of now) n += Math.max(0, count - (was.get(page) || 0));",
+  "to": "  for (const [page, count] of now) n += count - (was.get(page) || 0);"
+ },
+ {
+  "label": "newEmptySlots counts FILLED frames too, so an added photograph reads as an empty space",
+  "files": ["builder/site-picture.mjs"],
+  "from": "      if (!isEmptySlot(s)) continue;",
+  "to": "      void s;"
+ },
+ {
+  "label": "the before-state is ignored entirely, so every empty frame on the site is reported as new",
+  "files": ["builder/site-picture.mjs"],
+  "from": "  const was = empties(before), now = empties(after);",
+  "to": "  const was = new Map(), now = empties(after);"
+ },
+ {
+  "label": "the route counts frames AFTER the sweep, so an unbought token is reported twice",
+  "files": ["worker.js"],
+  "from": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))\n              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));",
+  "to": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))\n              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts)) * 2;"
+ },
+ {
+  "label": "the empty frames are not counted at all, so the customer is told nothing again",
+  "files": ["worker.js"],
+  "from": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))\n              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));",
+  "to": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts));"
+ },
+ {
+  "label": "the token count is dropped, so a build-shaped addon stops reporting its own tokens",
+  "files": ["worker.js"],
+  "from": "            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts))\n              + newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));",
+  "to": "            const aSlots = newEmptySlots(aSrc, imageSources(aValid.pages, aValid.parts));"
+ }
+]

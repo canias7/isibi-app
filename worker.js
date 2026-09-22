@@ -135,7 +135,7 @@ import { scrubSecrets, neonConfigured, sqlQuery, sqlExec, createUserProject, cre
 import { applySiteSchema, loadSiteSchema, parseSchemaSpec, normalizeSchema, liftBackend, sqlIdent, seedSiteRows, droppedFields, refusedFields, auditTier } from "./site-schema.mjs";
 // The page generator's rules, tool schema and deterministic checks. Plain module
 // so it can be tested outside the Worker — see test/page-gen.test.mjs.
-import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
+import { PAGE_RULES, SITE_PAGES_TOOL, pagesPrompt, briefForPages, briefWithLayout, pagesRequest, validatePages, lintPages, repairImports, mergeParts, partsSent, priorPagesSent, pageId, SITE_PAGES_MAX_TOKENS, generateSitePages as genPages } from "./builder/page-gen.mjs";
 import { splitPlan, bandRefusal, BAND_MARK, bandMarks, generateSiteBands } from "./builder/page-bands.mjs";
 // THE DESIGN STEP CUT INTO WAVES OF AGENTS (2026-09-10). Plain module, testable
 // outside the Worker: it takes the design tool and the CALLER as arguments
@@ -159,7 +159,7 @@ import { splitGraph, designInGraph, DESIGN_GRAPH } from "./builder/design-graph.
 // `publish-pages.mjs` and nothing applied it to the design charge this route
 // takes first — see the reversal beside `publishPlaceholder`.
 import { publishPages, pageCredits, schemaSettlement, buildFloor, wasKilled, ourFault, MIN_CREDITS, IMAGE_USD as SITE_PHOTO_USD } from "./builder/publish-pages.mjs";
-import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, IMAGE_ASPECT } from "./builder/site-images.mjs";
+import { budgetFor, imageBrief, imagesAffordable, planImages, applyImages, imageSources, countImageSlots, imagePrompt, photoWait, shownPhotos, photoInventory, keptImages, imageNote, IMAGE_ASPECT } from "./builder/site-images.mjs";
 import { renderNote } from "./builder/site-render.mjs";
 import { scriptNameFor } from "./builder/site-worker.mjs";
 import { uploadSiteWorker, deleteSiteWorker, confirmSiteWorker, probeSiteWorker } from "./builder/site-dispatch.mjs";
@@ -186,7 +186,7 @@ import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
-import { runPictureEdit } from "./builder/site-picture.mjs";
+import { runPictureEdit, newEmptySlots } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
@@ -206,7 +206,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -244,7 +244,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, deadQrs, deadQrNote, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -4577,8 +4577,12 @@ export async function siteWebResearch(env, brief, queries) {
 function pagesCall(env) {
   return (keys, req, budget) => callModel(keys, req, budget, modelSend(env), modelOpts(env, null));
 }
-const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined) =>
-  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env));
+// `kind` AND `keep` RIDE THE TAIL, in the module's own order. The wrapper had
+// stopped one argument short of the module's signature twice before — the
+// recorded wiring trap, where the value is computed and the hop drops it — so
+// the guard below derives this call's argument list from `genPages`' own.
+const generateSitePages = (env, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = undefined, kind = "", keep = []) =>
+  genPages(keysFrom(env), brief, spec, brand, attachments, model, priorPages, mode, target, budget, call || pagesCall(env), kind, keep);
 
 // HOW MUCH LONGER THE WORKER WAITS THAN THE CONTAINER DOES.
 //
@@ -8167,14 +8171,49 @@ async function saveSiteSource(env, slug, pages) {
   } catch (e) { console.error("source save failed:", slug, e && e.message); return false; }
 }
 
-async function loadSiteSource(env, slug) {
-  if (!env.SITES_BUCKET) return null;
+/**
+ * THE SITE'S OWN PAGES, AND WHETHER WE COULD SEE THEM (2026-09-18).
+ *
+ * `{ ok, pages, why }` — `readSiteParts`' shape one store over, for the same
+ * reason and with the same three states:
+ *
+ *   ok: true,  pages: []      the read SUCCEEDED and nothing is stored
+ *   ok: true,  pages: [...]   the read succeeded and these are the pages
+ *   ok: false, why: "read"    the read or the parse threw — we cannot see
+ *   ok: false, why: "no-store" there is no bucket to read
+ *
+ * WHY IT IS SPLIT OUT NOW (owner, 2026-09-18: *"The source endpoint currently
+ * converts failed storage reads into empty lists with HTTP 200 and ok:true…
+ * Checking HTTP status alone is insufficient."*). `/api/site/source` is what a
+ * live check reads a site's inventory from, and with the two collapsed a bucket
+ * that blew up answered **the same bytes as a site with nothing on it**: 200,
+ * `ok: true`, empty lists. A before/after comparison taken across that reads as
+ * *"this change added nothing and lost nothing"*, and a preservation check —
+ * *every photograph that was there is still there* — passes by having seen
+ * neither. Cannot-tell arriving as a value, in the one reader a paid run is
+ * bought to trust.
+ *
+ * `loadSiteSource` STAYS, as the thin wrapper its nine other callers already
+ * read through, so nothing they do changes: one reader underneath, so the two
+ * can never drift. **The wrapper's `null` still covers the EMPTY array too**,
+ * which is not a collapse being preserved by accident — every one of those
+ * callers is about "is there source to work from", and a stored `[]` and no
+ * object at all are the same answer to that question. The distinction the route
+ * needs is the one this function adds: whether the READ happened.
+ */
+async function readSiteSource(env, slug) {
+  if (!env.SITES_BUCKET) return { ok: false, pages: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
-    if (!o) return null;
+    if (!o) return { ok: true, pages: [] };
     const v = JSON.parse(await o.text());
-    return Array.isArray(v) && v.length ? v : null;
-  } catch (e) { console.error("source read failed:", slug, e && e.message); return null; }
+    return { ok: true, pages: Array.isArray(v) ? v : [] };
+  } catch (e) { console.error("source read failed:", slug, e && e.message); return { ok: false, pages: [], why: "read" }; }
+}
+
+async function loadSiteSource(env, slug) {
+  const r = await readSiteSource(env, slug);
+  return r.ok && r.pages.length ? r.pages : null;
 }
 
 /**
@@ -8498,14 +8537,41 @@ async function saveSiteParts(env, slug, parts) {
   } catch (e) { console.error("parts save failed:", slug, e && e.message); return false; }
 }
 
-async function loadSiteParts(env, slug) {
-  if (!env.SITES_BUCKET) return null;
+/**
+ * THE SITE'S OWN COMPONENTS, AND WHETHER WE COULD SEE THEM (2026-09-17).
+ *
+ * `{ ok, parts, why }` — three states, where there was one `null`:
+ *
+ *   ok: true,  parts: []      the read SUCCEEDED and the site has none
+ *   ok: true,  parts: [...]   the read succeeded and these are the components
+ *   ok: false, why: "read"    the read or the parse threw — we cannot see
+ *   ok: false, why: "no-store" there is no bucket to read
+ *
+ * WHY THE DISTINCTION IS LOAD-BEARING, measured through the addon route: with
+ * the two collapsed, a failed read gave `partsSent` nothing, the page writer
+ * was shown no source and told to WRITE a component that already existed, and
+ * the wall had an empty `withheld` so it refused nothing. The rewrite — composed
+ * from a one-line description — then replaced the real file, with no
+ * `keptParts` and no sentence. And when BOTH reads failed, `mergeParts(null,
+ * [one])` answered `[one]`: every OTHER component on the site was deleted, none
+ * of them mentioned in the request.
+ *
+ * `loadSiteParts` STAYS, as a thin wrapper, so its five other callers read
+ * exactly as they did. There is one reader underneath, so the two cannot drift.
+ */
+async function readSiteParts(env, slug) {
+  if (!env.SITES_BUCKET) return { ok: false, parts: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
-    if (!o) return null;
+    if (!o) return { ok: true, parts: [] };
     const v = JSON.parse(await o.text());
-    return Array.isArray(v) && v.length ? v : null;
-  } catch (e) { console.error("parts read failed:", slug, e && e.message); return null; }
+    return { ok: true, parts: Array.isArray(v) ? v : [] };
+  } catch (e) { console.error("parts read failed:", slug, e && e.message); return { ok: false, parts: [], why: "read" }; }
+}
+
+async function loadSiteParts(env, slug) {
+  const r = await readSiteParts(env, slug);
+  return r.ok && r.parts.length ? r.parts : null;
 }
 
 /**
@@ -18206,8 +18272,8 @@ async function handleRequest(request, env, ctx) {
       // READ, NEVER REPAIRED. `loadSiteSourceForEdit` is for the four callers
       // that go on to PUBLISH what they read; this one only shows it, so it
       // takes no lease, moves nothing, and cannot make a site busy.
-      const [sPages, sParts, sKit, sCfg] = await Promise.all([
-        loadSiteSource(env, sslug), loadSiteParts(env, sslug),
+      const [sRead, sPartsRead, sKit, sCfg] = await Promise.all([
+        readSiteSource(env, sslug), readSiteParts(env, sslug),
         // THE KIT FILES THIS SITE'S PROJECT NEEDS — empty for a site that has
         // not published since this shipped, which is every site the day it
         // does: the explorer then shows exactly what it showed before, with no
@@ -18237,13 +18303,48 @@ async function handleRequest(request, env, ctx) {
         // query in front of every explorer open.
         loadConfig(configDeps(env, sslug, null), sslug),
       ]);
-      const pages = Array.isArray(sPages) ? sPages : [];
-      const parts = Array.isArray(sParts) ? sParts : [];
+      const pages = Array.isArray(sRead.pages) ? sRead.pages : [];
+      const parts = Array.isArray(sPartsRead.parts) ? sPartsRead.parts : [];
       return Response.json({
         ok: true,
         slug: sslug,
         pages,
         parts,
+        // ── WHICH READS ACTUALLY HAPPENED (2026-09-18) ────────────────────────
+        //
+        // Owner: *"The source endpoint currently converts failed storage reads
+        // into empty lists with HTTP 200 and ok:true… Checking HTTP status
+        // alone is insufficient."* Exactly so, and the three loaders above each
+        // answer an empty list for a bucket that threw — which is the right
+        // behaviour for the EXPLORER (losing a customer's whole tree because a
+        // second read blipped is the worse answer, and the comments above say
+        // why) and is indistinguishable, from outside, from a site that has
+        // none of that thing.
+        //
+        // SO THE ANSWER SAYS WHICH IT IS, and `ok` stays `true`: the route
+        // still hands back everything it could read. What changes is that an
+        // empty `parts` now carries whether anybody looked.
+        //
+        // ONE BOOLEAN PER STORE THE INVENTORY IS BUILT FROM — pages, components
+        // and the config the asset list is derived from. `kit` and `shared` are
+        // deliberately absent: the first is a project's dependency closure and
+        // the second is compiled in, and neither is part of what a site HAS in
+        // the sense a before/after comparison is about. A flag for something
+        // nothing compares would be a promise with no reader.
+        //
+        // AND THE ABSENCE OF THIS KEY IS ITSELF AN ANSWER — a Worker older than
+        // today cannot say, which is not the same as saying yes. Every reader
+        // of it has to treat a missing `reads` as cannot-tell rather than
+        // defaulting it to complete, which is this file's most repeated law
+        // arriving one layer up from where it was just fixed.
+        reads: {
+          pages: sRead.ok === true,
+          parts: sPartsRead.ok === true,
+          // `loadConfig` HAS ANSWERED `{ok, why}` SINCE IT WAS WRITTEN and this
+          // route dropped it on the floor — the value computed and never
+          // forwarded, in the half that carries a customer's QR codes.
+          assets: !!(sCfg && sCfg.ok === true),
+        },
         // THE FILES THE BUILD MADE, AND NOT ONE NEW BYTE STORED FOR THEM
         // (owner, 2026-09-11: *"we do have a favicon but it doesnt show in the
         // code tab"*). Every one of these already lives in `config/<slug>.json`
@@ -23174,11 +23275,57 @@ async function handleRequest(request, env, ctx) {
             // The names THIS message added, per list, so the note can mark them
             // as being built rather than presenting them as already there.
             const aNewNames = { tables: [], functions: [], jobFns: [], apis: [], jobs: [] };
+            // ── AND THE FRONTEND HALF OF THE SAME FACT (2026-09-17) ───────
+            //
+            // Owner: *"Pass newly planned frontend items to subsequent
+            // designers, as we already do for backend declarations."* The
+            // backend tiers have crossed between kinds since 2026-09-14; a
+            // page decided by the `page` designer reached nobody, and the
+            // `component`, `qr` and `three` designers all run AFTER it. The
+            // two reproductions are in `cleanAdd`'s own comment.
+            //
+            // `{path, name}` rather than a bare route, because the note names
+            // each planned page the way it names a live one — a designer that
+            // cannot tell which new page is "the gallery" cannot place a
+            // section on it any better than one that never heard of it.
+            const aNewPages = [];
+            // ── THE SITE'S OWN COMPONENTS, READ ONCE (2026-09-17) ──────────
+            //
+            // `look.tsx` is the cumulative DECLARATION list and says nothing
+            // about whether anything was ever written; this is what has a
+            // FILE. Read once, here, and the same snapshot serves the
+            // designers' note, the page call's prompt, the wall that decides
+            // whether a returned component may replace a stored one, and the
+            // merge that writes the list back.
+            //
+            // ONE SNAPSHOT IS THE FIX, NOT A TIDY-UP. The route read this key
+            // TWICE — here and again at the merge, minutes apart — so the two
+            // could disagree, and the state that mattered is exactly the one
+            // that happened: the first read threw, so the writer was shown
+            // nothing and told to WRITE a component that already existed; the
+            // second succeeded, so `mergeParts` replaced the real file with a
+            // rewrite composed from a one-line description. No `keptParts`, no
+            // sentence. And with BOTH reads failing, `mergeParts(null, [one])`
+            // answers `[one]`: every other component on the site is deleted,
+            // none of them named in the request.
+            //
+            // `ok: false` IS A REFUSAL, NOT AN EMPTY SITE. Everything below
+            // reads `aPartsRead.ok`, and while it is false nothing is offered
+            // to be built, no returned component is kept, and `parts.json` is
+            // not written at all.
+            const aPartsRead = await readSiteParts(env, ownerSlug);
+            const aStoredParts = aPartsRead.ok ? aPartsRead.parts : null;
             const siteFacts = (spec) => ({
               name: aLook.brand || ownerSlug,
               url: aUrl,
               kind: aLook.kind === "tool" ? "tool" : "shopfront",
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              // THE PAGES THIS SAME CHANGE IS ADDING, KEPT APART FROM THEM.
+              // `pages` is read off the site's real source and is the current
+              // implementation; this is the plan, one call old. Folding the
+              // two would make a section land on a page with no source and
+              // tell the designer to go and copy it.
+              planned: aNewPages.map((p) => ({ ...p })),
               // WHAT EACH PAGE CALLS ITSELF (run 28): its headline out of the
               // stored source, or its plan name — so "the booking page" is
               // findable among routes that never say the word.
@@ -23219,11 +23366,29 @@ async function handleRequest(request, env, ctx) {
               qr: qrList(aLook.qr),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
               tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
+              // THE COMPONENTS THE SITE REALLY HAS, beside the declarations
+              // above. `tsx` is `look.tsx` — cumulative, a plan, and true of
+              // a component nobody ever wrote; `parts` is what has a file.
+              // `null` when the read failed, which `siteNote` prints as the
+              // old sentence rather than as "it has none".
+              parts: aStoredParts ? aStoredParts.map((p) => ({ name: p && p.name })) : null,
+              // AND THE LOOK IT IS WEARING (owner, 2026-09-17). Every add
+              // rule tells the designer to keep the site's design system;
+              // until today nothing in its inputs said what that system is.
+              // Names only — the stylesheet's BYTES go to the page writer,
+              // which is the step that emits markup it has to match.
+              theme: typeof aLook.theme === "string" ? aLook.theme : "",
+              css: !!(aCss && aCss.trim()),
               // WHICH OF THE NAMES ABOVE THIS MESSAGE IS STILL BUILDING.
               // `siteNote` marks each one, so a designer can rely on it and
               // still know it is not there yet.
               proposed: { ...aNewNames },
             });
+            // WHAT `cleanAdd` AND `siteNote` ARE HANDED IS ONE OBJECT, so the
+            // destination a designer was offered and the destination the
+            // cleaner will accept are the same list by construction. A second
+            // reader assembling its own view of the planned pages is the
+            // two-copies drift this repository has a name for.
             let aSite = siteFacts(aBaseline);
             // OUR MODEL CALL DIED — one answer for the picker and every add,
             // the edit route's `modelDown` shape: a billing refusal is on us
@@ -23265,15 +23430,29 @@ async function handleRequest(request, env, ctx) {
             // addition at all; that is the one answer the rung above is for.
             if (!aPicked.kinds.length) return aEscalate("no-add");
             const aKinds = aPicked.kinds;
-            // A PHOTOGRAPH IS THE PICTURE RUNG'S, one step sideways: it places
-            // one and prices it against the real balance, and this step never
-            // buys a photograph. Named with that layer so the browser hops
-            // there with the same sentence rather than falling to the revise.
-            // Beside another kind it is set aside and said so, because the
-            // hop carries one sentence to one rung.
-            const aHop = aKinds.find((k) => addLayer(k));
-            if (aHop && aKinds.length === 1) return aEscalate("layer", { layer: addLayer(aHop), kind: aHop });
-            const aSkipped = aKinds.filter((k) => addLayer(k));
+            // A PHOTOGRAPH ALONE IS THE PICTURE RUNG'S, one step sideways: it
+            // fills a slot, prices it against the real balance and refuses
+            // honestly. Named with that layer so the browser hops there with
+            // the same sentence rather than falling to the revise.
+            //
+            // ── BESIDE A PAGE OR A COMPONENT IT IS OURS (2026-09-17) ───────
+            //
+            // Owner: *"Placeholders and asking the customer to repeat the photo
+            // request do not complete that capability."* It used to be set
+            // aside in every message, which on *"add a gallery page with a
+            // photograph of the workshop on it"* meant a published page of
+            // empty frames and a customer told to ask again — and the rung it
+            // was handed to fills a slot that EXISTS. This change is the one
+            // writing the page, so the slot is ours to make and fill.
+            //
+            // `addLayerIn` IS THE ONE READER and all three asks below go
+            // through it, because two of them disagreeing is a kind that is
+            // designed and then reported as skipped, or set aside and never
+            // designed. `addLayer` is still right for a caller asking about
+            // the KIND rather than about this message.
+            const aHop = aKinds.find((k) => addLayerIn(k, aKinds));
+            if (aHop && aKinds.length === 1) return aEscalate("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
+            const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
             // refuses to CREATE a code or a scene the site lacks and sends the
@@ -23350,6 +23529,19 @@ async function handleRequest(request, env, ctx) {
             // really survived, so a planned file is never mistaken for a
             // delivered page.
             let aMissing = [];
+            // …AND THE QR CODES THAT WOULD HAVE OPENED ONE OF THEM (2026-09-17).
+            // Declared HERE, well above `aCoverage`'s first possible call,
+            // because that closure reads it and this route has the temporal
+            // dead zone recorded against it three times already: a `let` beside
+            // the code it belongs to is four hundred lines below a refusal that
+            // composes the coverage, and a refusal there throws `ReferenceError`
+            // that no source scan and no `node --check` can see.
+            let aDeadQr = { dropped: [], withheld: [], withheldParts: [] };
+            // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY (2026-09-17).
+            // Declared here for the reason above it: `aCoverage` reads it, and
+            // this route's first possible call to that closure is a refusal
+            // four hundred lines ahead of the page call that fills this in.
+            let aUnseenPages = [];
             // …THE SEED ROWS THAT WERE ASKED FOR AND NOT PUT IN (2026-09-15).
             // `seedSiteRows` has answered `{seeded, skipped}` all along and the
             // skip list went into the migration record and REACHED NOBODY:
@@ -23546,6 +23738,13 @@ async function handleRequest(request, env, ctx) {
                   // writer is a fact about this change whether or not anybody
                   // wrote a requirement for it.
                   missingPagesNote(aMissing),
+                  // …AND WHAT WENT WITH THEM. Beside the sentence above,
+                  // never instead of it: one says the page is not there, this
+                  // says a code that was going to open it was not added — or,
+                  // where a live page shows it, that it IS there and opens
+                  // nothing yet. A customer who hears only about the page
+                  // finds out about the code by scanning it.
+                  deadQrNote(aDeadQr),
                   // THE SEED SKIPS, SAID (2026-09-15). Joined here for exactly
                   // the reason the missing-page sentence is: it is a fact about
                   // what this change did, not a claim the designers made, and
@@ -23580,10 +23779,30 @@ async function handleRequest(request, env, ctx) {
                 // a route is the one thing about a missing page a customer can
                 // do something with.
                 missingPages: aMissing.length ? aMissing : undefined,
+                // …AND THE CODES THAT DEPENDED ON THEM, beside the pages that
+                // went with them. Two fields rather than one flagged list: a
+                // dropped CODE and a withheld PAGE are different things about
+                // different objects, and folding them would be two findings in
+                // one field — the shape this route has already had to unpick
+                // twice.
+                droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,
+                heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path).slice(0, 6) : undefined,
+                // …AND THE COMPONENTS, ON THEIR OWN FIELD FOR THE SAME REASON.
+                // A component has no route, so folding it into `heldPages`
+                // would put a name where every reader expects a path.
+                heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
                 // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
                 // the bare table list.
+                // …AND THE PAGES THE PROMPT WINDOW COULD NOT CARRY. The one
+                // fact that explains a weak result on a large site, and until
+                // this it was nowhere: a 17-page site answered `ok: true` with
+                // an empty `problems` and an empty `coverNote`, exactly as a
+                // one-page site does. Developer-facing, because a customer can
+                // do nothing with it and the things they CAN act on already
+                // have their own sentences.
+                unseenPages: aUnseenPages.length ? aUnseenPages : undefined,
                 seedSkips: aSeedSkips.length ? aSeedSkips.slice(0, 12) : undefined,
                 noPopulation: aNoFill.length ? aNoFill.slice(0, 12) : undefined,
                 // WHAT THE BACKEND LOOKUP REALLY ANSWERED, so a support read
@@ -23596,7 +23815,9 @@ async function handleRequest(request, env, ctx) {
               };
             };
             for (const k of aKinds) {
-              if (addLayer(k)) continue;
+              // THE SAME READER THE SET-ASIDE LIST USED, so a kind cannot be
+              // skipped there and designed here (or the reverse).
+              if (addLayerIn(k, aKinds)) continue;
               aMark("add:" + k, "start");
               // ── WHAT AN EARLIER STEP HANDED TO THIS ONE (2026-09-14) ──────
               //
@@ -23788,6 +24009,26 @@ async function handleRequest(request, env, ctx) {
                 }
                 aSite = siteFacts(aProposed);
               }
+              // ── AND THE FRONTEND HALF (2026-09-17) ──────────────────────
+              //
+              // The same hand-off, for the one frontend kind that creates
+              // something a later kind can point at. `page` runs before
+              // `component`, `qr` and `three` in `ADD_KINDS`, so a message
+              // asking for a gallery page and a code that opens it had the
+              // page decided and the code refused in the same reply.
+              //
+              // `SPEC_OF_KIND` HAS NO `page` ENTRY AND MUST NOT GAIN ONE —
+              // it names the four SCHEMA tiers and `proposedSpec` writes
+              // into a spec list, which a page is not. This is its own
+              // branch for that reason rather than by omission.
+              if (k === "page") {
+                for (const item of Array.isArray(clean.value) ? clean.value : []) {
+                  if (!item || typeof item.path !== "string" || !item.path) continue;
+                  if (aNewPages.some((p) => p.path === item.path)) continue;
+                  aNewPages.push({ path: item.path, name: typeof item.name === "string" ? item.name : "" });
+                }
+                aSite = siteFacts(aProposed);
+              }
               // A CLOCK TIME IS READ IN THE OWNER'S ZONE (2026-09-03): the
               // browser sends its zone with the addon, and a job with a time
               // of day is stamped with it here — the model never answers a
@@ -23817,6 +24058,13 @@ async function handleRequest(request, env, ctx) {
               made: aMade(), reportable: aReportable(), existing: aExisting(),
               unbuilt: aUnbuilt, unexpressed: [...aUnexpressed],
               unknownKit: [...aUnknownKit], missingPages: aMissing,
+              // AND WHICH OF THE SITE'S PAGES THE PROMPT WINDOW COULD NOT
+              // CARRY. On the STORED record as well as the reply, because the
+              // reply is read once and the record is what anybody comes back
+              // to — and this is the one fact that explains a weak result on a
+              // large site. The record is re-written below the publish, so it
+              // catches this whichever branch the change took.
+              unseenPages: aUnseenPages,
             });
             const aSaveAnswer = async () => {
               try { await saveAddonAnswer(env, ownerSlug, { message: aInstruction, site: aSite, kinds: aKinds, replies: aKept, coverage: aRecord() }); }
@@ -24316,12 +24564,25 @@ async function handleRequest(request, env, ctx) {
             // `css` follows the look lane's rule too: replaced when usable,
             // never merged, never stripped by an empty answer.
             const aMerged = mergeLook(aLook, aDesigned, {}, { instructed: true });
-            const aLookMoved = movedFields(aLook, aMerged);
             const aCssAsk = readCss(aDesigned && aDesigned.css);
             const aNextCss = aCssAsk.usable ? aCssAsk.css : aCss;
-            const aLookPatch = (aLookMoved.length || aNextCss !== aCss)
-              ? (aNextCss !== aCss ? { look: aMerged, css: aNextCss } : { look: aMerged })
-              : null;
+            // WHAT GETS STORED, AND WHAT THE REPLY CALLS MOVED — ASKED ONCE
+            // AND READ TWICE (2026-09-17). Below the publish, `deadQrs` can
+            // take a QR code back OFF `aMerged`: one this change added that
+            // opens a page the writer then failed to write. Both answers have
+            // to follow it — a patch storing a code that is not wanted, or a
+            // reply still saying `moved: ["qr"]` about one that is not there,
+            // is a second copy of this decision disagreeing with the first.
+            // So the expression has one home and is re-asked rather than
+            // written out again.
+            let aLookMoved = [], aLookPatch = null;
+            const aReadLook = () => {
+              aLookMoved = movedFields(aLook, aMerged);
+              aLookPatch = (aLookMoved.length || aNextCss !== aCss)
+                ? (aNextCss !== aCss ? { look: aMerged, css: aNextCss } : { look: aMerged })
+                : null;
+            };
+            aReadLook();
 
             // ONE PAGE CALL, in addon mode. `priorPages` is the whole site so
             // the model can edit a nav entry; `mode` is what makes it return
@@ -24337,6 +24598,148 @@ async function handleRequest(request, env, ctx) {
             // call took on this model, per page it wrote, is the measure of
             // what a fix of one of those pages will take (run 36, 2026-09-04).
             let aPagesMs = 0, aPagesWrote = 0;
+            // WHAT THE PAGE WRITER IS SHOWN, DECIDED ONCE, ABOVE THE CALL AND
+            // ABOVE THE WALL THAT READS IT (2026-09-17).
+            //
+            // `aSentParts` is `partsSent`'s answer over the site's own stored
+            // components: which sources fit in this request, which were too
+            // large, and every name the site has a file for. `briefWithLayout`
+            // is handed the SAME array and calls the same pure function, so
+            // the block the writer reads and the wall below cannot disagree
+            // about what it was shown — and the wall is the reason this is a
+            // `const` here rather than a value computed inside the call.
+            //
+            // AND AN UNREADABLE STORE IS NOT AN EMPTY ONE. `unreadable` is the
+            // third state `readSiteParts` answers, and it has to reach both
+            // readers as itself: to the prompt it is a paragraph saying the
+            // components exist and were not loaded, and to the wall below it
+            // is a refusal of every returned component — because the names we
+            // could not read are exactly the names we cannot check against.
+            const aSentParts = partsSent(aStoredParts, { unreadable: !aPartsRead.ok });
+            // THE KIT SIGNATURES THIS REQUEST NEEDS: what the addition
+            // declares, plus what the pages being edited already import.
+            // `modules`, NEVER `kit` — the first is `seat-map` and the second
+            // is `SeatMap`, and `siteComponentApi`'s catalog is keyed on the
+            // first. Measured: handing it the export names answers "" for
+            // every one, which from outside reads as the site importing
+            // nothing at all.
+            const aPlanComponents = [...aFold.components];
+            for (const b of Object.values(pageComponents(aSrc))) {
+              for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);
+            }
+            // ── THE PHOTOGRAPHS THIS CHANGE WILL BUY (2026-09-17) ───────────
+            //
+            // `aFold.photos` is the `photo` designer's own `{page, describe}`
+            // list — `imageDirective`'s list shape by construction, not a
+            // second one beside it — and this is where it meets the money.
+            //
+            // THE BALANCE CUTS THE LIST BEFORE THE PAGE WRITER SEES IT, which
+            // is the build path's own rule in as many words: *"printing all of
+            // them would invite a page writer to spend money the account has
+            // not got."* `imagesAffordable` is the same reader `buySitePhotos`
+            // asks later, so the writer is never shown a token the spend path
+            // will refuse — and a customer who can afford one of two gets one
+            // real photograph and one placeholder rather than two placeholders.
+            //
+            // READ ONCE, HERE, because the page call is the last thing between
+            // this point and the purchase: a balance read after generation is a
+            // balance read ten minutes later, and this is the number the writer
+            // was told about. `buySitePhotos` re-asks it at the moment of spend
+            // against the clock and the library, which is the real gate; this
+            // one only decides what to ASK for.
+            let aBalance = 0;
+            if (aFold.photos.length) {
+              aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);
+            }
+            const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));
+            // ── WHICH PAGES TO SHOW FIRST ON A SITE TOO LARGE TO SHOW WHOLE ──
+            //
+            // `priorPagesSent` fits what it can and NAMES the rest; `keep` is
+            // the order it tries. The pages this change is about come first —
+            // every add kind carries the route it lands on, and the page a
+            // section was designed for is exactly the one worth the budget —
+            // then the HOME page, which is the nav anchor almost every addon
+            // touches ("usually that is ONE new page, plus the page a visitor
+            // would look on to find it"). Everything else keeps stored order.
+            //
+            // ⚠ BY ROUTE, and this line used to say "by file path, because that
+            // is what `priorPages` really carries" and build each entry as
+            // `"src/routes/" + fileOfRoute(r)`. MEASURED through the validator:
+            // `cleanPath` strips that prefix, so every persisted path is BARE
+            // and no entry could ever match — `keep` did nothing at all and the
+            // selection was stored order on every real site. A route is the
+            // identity the stored source, the selection, the generation and the
+            // merge all really share; `priorPagesSent` resolves it through
+            // `routeOf`, which tolerates either spelling.
+            //
+            // ⚠ AND `pageId` HERE IS A SECOND APPLICATION WHOSE EFFECT THE
+            // MODULE ABSORBS — measured, and declared rather than left for the
+            // next sweep to read as a gap. `priorPagesSent` maps `pageId` over
+            // the keep list itself, so the spelling this line produces cannot
+            // change which pages are selected: driven over four spellings
+            // against three ~40k pages, the prefixed file, the bare file, a
+            // mixed-case route and an exact route all select the same two. It
+            // is kept because it says what this list HOLDS — page identities,
+            // not raw model strings — which is what makes `includes` a real
+            // de-duplication rather than a string comparison, and `aKeepPages`
+            // has no other consumer that could tell the two apart (it reaches
+            // `priorPagesSent` twice, once here and once through
+            // `priorPagesBlock`, and nothing else). THE WALL IS THE MODULE'S
+            // MAP, and it is guarded there — `test/page-gen.test.mjs`, "any
+            // spelling". Do not read a surviving mutant of this line as a gap;
+            // read the module's.
+            //
+            // ⚠ TWO LISTS OUT OF ONE WALK, AND THE DIFFERENCE IS THE `/`.
+            // `aAskedPages` is the destinations the CLEANED designers really
+            // named; `aKeepPages` is that plus the home page, which is a BUDGET
+            // decision (the nav anchor almost every addon touches) and not a
+            // claim that anybody asked for it. `mergeAddonPages` takes the first
+            // as its permission list, so handing it the second would exempt `/`
+            // from the preservation rule on EVERY addon — "remove protection
+            // from unrelated pages", which is the thing the fix must not do.
+            // One walk, two lists derived from it, so they cannot drift.
+            const aAskedPages = [];
+            const aKeepPages = [];
+            const aWantPage = (r, keepOnly) => {
+              const f = pageId(r);
+              if (!f) return;
+              if (!keepOnly && !aAskedPages.includes(f)) aAskedPages.push(f);
+              if (!aKeepPages.includes(f)) aKeepPages.push(f);
+            };
+            for (const ans of aAnswers) {
+              for (const v of (Array.isArray(ans.value) ? ans.value : [ans.value])) {
+                if (v && typeof v === "object" && typeof v.page === "string") aWantPage(v.page);
+                // ⚠ `v.path` IS MEASURED INERT ON BOTH LISTS TODAY AND IS KEPT,
+                // because what makes it inert is a NEIGHBOUR'S rule rather than
+                // this expression: only the `page` kind carries `path`, and
+                // `cleanAdd` answers `page-exists` for a path the site already
+                // has (measured; guarded four ways in `test/site-add.test.mjs`).
+                // So a cleaned `path` always names a page the site has NOT got —
+                // which can never be in `changed` (the revert loop's input) and
+                // never in `aSrc` (the window's). The day a kind extends an
+                // existing page, this line is what carries its destination, and
+                // a sweep survivor here is this note rather than a gap.
+                if (v && typeof v === "object" && typeof v.path === "string") aWantPage(v.path);
+              }
+            }
+            aWantPage("/", true);
+            // AND WHAT THE WINDOW COULD NOT CARRY IS RECORDED. `ok: true` with
+            // nothing in `problems` and nothing in `coverNote` is exactly what
+            // a 17-page site answered before this, so the one fact that would
+            // have explained a poor result was nowhere. Asked ONCE, from the
+            // same pure function the prompt is built from, so the mark and the
+            // block cannot disagree about which pages the model saw.
+            //
+            // THE TRACE AND THE DEVELOPER RECORD, NOT THE CUSTOMER. "Eleven of
+            // your pages were not shown" is not something they can act on, and
+            // on a change that worked it is alarming about nothing; what they
+            // CAN act on — a page that did not survive, a component that was
+            // not replaced — already has its own sentence.
+            const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });
+            if (aPagesSent.withheld.length) {
+              aUnseenPages = aPagesSent.withheld.slice(0, 12);
+              aMark("pages", "window", { shown: aPagesSent.shown.length, withheld: aPagesSent.withheld.length, chars: aPagesSent.chars });
+            }
             const aPagesT0 = Date.now();
             aMark("pages", "start", { kinds: aAnswers.map((a) => a.kind) });
             try {
@@ -24356,14 +24759,103 @@ async function handleRequest(request, env, ctx) {
               // goes through `plan.components` so the page call is shown their
               // exact props — the one thing the old designer's answer never
               // reached this call as.
+              // AND THE SIGNATURES OF WHAT THE SITE'S PAGES ALREADY IMPORT
+              // (2026-09-17). `plan.components` was the union of what THIS
+              // change declares, so a writer editing a page built from
+              // `<Accordion>` got `Accordion`'s props only if the addition
+              // happened to name it too. It is editing that page — every kit
+              // component on it is a component it may have to call correctly.
+              // A UNION, in the addition's order first: `siteComponentApi`
+              // drops what is already in the cached core, so the only cost is
+              // the signatures of what this site really uses.
               aGen = await generateSitePages(env, briefWithLayout({
                 brief: aInstruction + (aFold.directive ? "\n\n" + aFold.directive : ""),
-                plan: aFold.components.length ? { components: aFold.components } : null,
-                images: 0,
-                tsx: aMerged.tsx, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+                plan: aPlanComponents.length ? { components: aPlanComponents } : null,
+                // ── THE BUDGET IS STILL ZERO; THE SENTENCE IS NO LONGER A
+                // CLAIM ABOUT THE SITE (2026-09-17) ──────────────────────────
+                //
+                // This was a bare `0`, and `imageDirective` says a bare zero as
+                // *"PHOTOGRAPHS: none on this site"* — false on every site that
+                // has any, measured through this route on one showing two. The
+                // budget is unchanged and must be: this step may never re-buy a
+                // set the owner already has (`budgetFor`'s rule). What moves is
+                // that the zero is now stated as OURS, and what the site really
+                // shows is READ rather than assumed — three-state, so a source
+                // we could not read claims nothing either way.
+                //
+                // AND `place` IS WHAT MAKES THE HAND-OFF KEEPABLE. A photograph
+                // asked for beside another kind is set aside with "ask for it
+                // on its own and I'll place it" — and the picture rung fills a
+                // slot by rewriting a `src` attribute, so the `<SafeImage>`
+                // with NO src the old sentence asked for is invisible to it.
+                // `aSkipped` is that exact list, so the directive asks for an
+                // empty src precisely when the next rung is the one being
+                // promised.
+                // ⚠ AND THE INVENTORY IS PAGES *AND* COMPONENTS (2026-09-17).
+                // This was `shownPhotos(aSrc, …)` — pages only — and since the
+                // band split a section IS a component, so a site whose hero
+                // photograph lives in `-parts/` was described to every page
+                // writer as having none. MEASURED through this route: 0
+                // against 1 on the same site. `photoInventory` is the one
+                // reader of "every file a photograph can be in", and it
+                // answers `null` when the component store could not be read,
+                // so an incomplete inventory claims nothing either way rather
+                // than becoming "every picture on it is a placeholder".
+                // ⚠ AND THE LIST FORM WHEN THIS CHANGE IS BUYING (2026-09-17).
+                // `aShots` is `{page, describe}` — `imageDirective`'s own list
+                // shape — so the writer is handed the exact `@@IMG:@@` tokens
+                // to place, page by page, and `buySitePhotos` finds them in
+                // what comes back. The object form below is unchanged and is
+                // still every other addon's: a budget of OURS, said as ours,
+                // beside what the site already shows.
+                // ⚠ AND `place` IS "A PICTURE WAS ASKED FOR AND IS NOT BEING
+                // BOUGHT", which is wider than the hand-off it used to be.
+                // `aSkipped` is the set-aside list, and with a photograph
+                // designed here that list is empty on exactly the asks this
+                // clause was written for — so a picture the BALANCE refused, or
+                // one its designer could not describe, would have published a
+                // page with no slot at all while the customer was told the
+                // pictures are placeholders. Found by an existing guard going
+                // red, which is that guard being right.
+                // ⚠ AND ONE SHAPE NOW, CARRYING THE INVENTORY WHETHER OR NOT
+                // THIS CHANGE BUYS (2026-09-17). It used to send the bare list
+                // when buying — `imageDirective`'s build-path door, which has
+                // no inventory to state — so the paid directive told the writer
+                // *"any other picture stays a <SafeImage> with no src"* on a
+                // site showing two bought photographs, and the writer stripped
+                // them. `{buy, shown, place}` is one object with one composer
+                // behind it, so the protection clause reaches both forms and
+                // cannot be corrected on one and missed on the other.
+                images: {
+                  buy: aShots.length ? aShots : null,
+                  shown: shownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok), ownerSlug),
+                  // `place` IS UNREAD WHEN BUYING, and the two cannot both be
+                  // true: a kind that is set aside designs nothing, so
+                  // `aFold.photos` — and with it `aShots` — is empty on exactly
+                  // the asks that fill this. When a picture IS bought, the
+                  // token is the slot.
+                  place: aSkipped.includes("photo") || aKinds.includes("photo"),
+                },
+                // THE SITE'S OWN COMPONENTS, WITH THEIR REAL SOURCE. Until
+                // today the writer was shown `tsx` — the DECLARATIONS — under
+                // a heading telling it to write them, so a page importing a
+                // component this platform wrote months ago was edited by a
+                // model that had never seen it, and any part it returned
+                // replaced the real file by name. `aSentParts` is computed
+                // ONCE and read twice: here, and by the wall below that
+                // decides whether a returned part may replace a stored one.
+                tsx: aMerged.tsx, parts: aStoredParts, partsUnreadable: !aPartsRead.ok,
+                gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,
+                // AND THE LOOK IT IS WEARING. The stylesheet is sent as
+                // ALREADY APPLIED, never as something to reproduce: it is
+                // appended last at build time so it wins on source order, and
+                // a model shown one with no such sentence restates its rules
+                // inline, where editing the stylesheet can no longer reach
+                // them.
+                theme: aMerged.theme || aLook.theme, css: aNextCss,
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
-              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget);
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget, undefined, "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -24406,9 +24898,30 @@ async function handleRequest(request, env, ctx) {
             // the one file an addon most often writes was the one file nothing
             // swept. A token stored there publishes as a literal
             // `src="@@IMG:…@@"` and the page draws its alt text.
-            const aSlots = countImageSlots(imageSources(aValid.pages, aValid.parts));
-            aValid.pages = applyImages(aValid.pages, {});
-            aValid.parts = applyImages(aValid.parts, {});
+            //
+            // ⚠ AND IT WAITS WHEN THIS CHANGE IS BUYING (2026-09-17). This ran
+            // unconditionally, which was right for every addon before today —
+            // the step bought no photographs, so a token could only ever be a
+            // model writing one against the instruction not to. The LAYER BELOW
+            // MOVED: a picture asked for beside a page is bought here now, and
+            // this belt was stripping the very tokens the purchase is for, one
+            // hop before `buySitePhotos` went looking for them. MEASURED
+            // through the route: `plan.shots` came back 0 on a run whose
+            // directive named the picture and whose writer wrote the token
+            // exactly as asked. *A rule true because of a layer below it
+            // expires when that layer moves*, and here we are the layer.
+            //
+            // THE PROPERTY IS UNCHANGED — no `@@IMG:@@` token reaches a
+            // customer's site — and on this branch it is `buySitePhotos` that
+            // keeps it: that function ALWAYS sweeps, including every path where
+            // it buys nothing, and its own comment records the live broken
+            // image that bought that guarantee. Nothing between here and it
+            // publishes: every exit in between is a 422 or a 503 that leaves
+            // the site exactly as it was, and the buy's own catch sweeps too.
+            if (!aShots.length) {
+              aValid.pages = applyImages(aValid.pages, {});
+              aValid.parts = applyImages(aValid.parts, {});
+            }
             // AND LINTED. `validatePages` checks the SHAPE — a path, a Route
             // export, no duplicates. `lintPages` is the one that catches the
             // class of page that typechecks, bundles and then 403s or renders
@@ -24436,7 +24949,52 @@ async function handleRequest(request, env, ctx) {
             // it, so no build request changes shape. Only the addon prompt
             // explains it, and only this lane reads it.
             const aRemove = (aGen && aGen.input && Array.isArray(aGen.input.remove)) ? aGen.input.remove : [];
-            const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);
+
+            // ── A PAGE NOBODY WAS SHOWN CANNOT BE REPLACED ────────────────
+            //
+            // Owner, 2026-09-17: *"Enforce preservation of withheld existing
+            // pages at the merge boundary. Prompt wording and `keptProse` do
+            // not establish that an unseen rewrite preserves behavior."* Both
+            // halves of that are exact. The prompt names every withheld page
+            // and says not to return one — wording, which a model reads past —
+            // and `keptProse` asks only whether the WORDS survived, which a
+            // rewrite that drops a form, a link or a hook satisfies perfectly.
+            //
+            // THIS IS `partsSent`'s WALL ONE LAYER OVER, and for the same
+            // reason in the same words: the pages we could not SHOW are
+            // exactly the pages we cannot CHECK, so a returned file for one of
+            // them replaces source nobody saw. It is refused, the stored
+            // version is kept, and the customer is told which — because a
+            // withheld page silently dropped is indistinguishable from a page
+            // the model never touched.
+            //
+            // BY THE SAME IDENTITY THE SELECTION USED. `aPagesSent.withheld`
+            // carries stored paths and `aValid.pages` carries the validator's;
+            // both go through `pageId`, so the wall cannot come apart from the
+            // window that decided what to withhold.
+            const aUnseen = new Set(aPagesSent.withheld.map(pageId).filter(Boolean));
+            const aRewrote = aUnseen.size
+              ? (aValid.pages || []).filter((p) => p && aUnseen.has(pageId(p.path))).map((p) => p.path)
+              : [];
+            if (aRewrote.length) {
+              const aBlocked = new Set(aRewrote);
+              aValid.pages = (aValid.pages || []).filter((p) => !aBlocked.has(p.path));
+              aMark("pages", "unseen-rewrite", { refused: aRewrote.length, withheld: aPagesSent.withheld.length });
+            }
+
+            let aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove, aAskedPages);
+            // …AND A CHANGE THAT WAS ONLY THAT REWRITE IS A REFUSAL, NEVER A
+            // CLIMB. Falling through would escalate `nothing-returned` to the
+            // ~25-credit revise — rewriting a customer's whole site because we
+            // refused the one file it returned — which is this route's own
+            // recorded "a considered refusal does not climb the ladder", met
+            // from the refusing side.
+            if (!aMerge.ok && aRewrote.length) {
+              return Response.json({
+                ok: false, error: "unseen-rewrite", cost: 0, keptPages: aRewrote.slice(0, 6),
+                msg: unseenPagesNote(aRewrote),
+              }, { status: 422 });
+            }
             // A CONSIDERED REFUSAL DOES NOT CLIMB THE LADDER. Escalation is for
             // "this lane could not answer" — the rung above rewrites the whole
             // site, which is expensive and does work. "Remove the home page" has
@@ -24517,6 +25075,160 @@ async function handleRequest(request, env, ctx) {
             const aGatePub = aJob ? aJob.gate("build") : null;
             if (aGatePub && !aGatePub.go) return await editStopped(env, { job: aJob, why: aGatePub.why, phase: "build", trace: editTrace, ctx });
 
+            // ── WHICH REQUESTED PAGES ARE REALLY GOING OUT ────────────────
+            //
+            // Computed HERE rather than below the publish, which is where it
+            // was, and the move is the whole of the second fix. `aMerge` is
+            // settled — it is what will be compiled and shipped — so a page
+            // the writer never returned, one salvage will replace and one the
+            // merge refused all read as missing already, and the answer is the
+            // same on both sides of the publish. What it buys is a check that
+            // happens BEFORE anything of it is stored.
+            //
+            // ONE COMPUTATION, TWO READERS: `aMissing` below is this list, so
+            // the dependency check and the customer's own sentence cannot
+            // disagree about which pages made it.
+            const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
+            const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
+            let aGone = missingPages(aWanted, aFilesOut);
+
+            // ── AND NO NEW QR CODE OPENS A PAGE THAT IS NOT THERE ─────────
+            //
+            // Owner, 2026-09-17: *"One publish does not establish that both
+            // requested items exist."* `cleanAdd` admits a code pointing at a
+            // page this same change is adding — correct, and correct because
+            // the two go out in ONE publish — but the publish is not proof the
+            // page survived generation. Reproduced: plan `/gallery`, return
+            // only the home page, and the code was stored, published, and the
+            // missing page reported afterwards; the customer prints it.
+            //
+            // BEFORE THE BILL AND BEFORE THE STORE, so a dropped code costs
+            // nothing and leaves nothing behind.
+            //
+            // ⚠ AND THE DEPENDENT PAGES GO WITH IT (owner, 2026-09-17: *"A
+            // warning does not complete the dependency."*). The first cut KEPT
+            // a code a shipped page renders, so as not to pull `SITE_QRS.<name>`
+            // out from under it — and published a code that opens nothing
+            // beside a sentence asking the customer not to print it. Now the
+            // whole dependent set is withheld together: the code is dropped,
+            // and every page THIS CHANGE WROTE that renders it goes out as its
+            // PREVIOUS version (or not at all, if this change invented it).
+            // Nothing breaks, because what ships is a version that already
+            // shipped — the binding is never deleted from a live page, it is
+            // never introduced.
+            // ⚠ AND A COMPONENT IS A GENERATED FILE TOO (2026-09-17). This
+            // passed pages only, and MEASURED through the route: a change
+            // whose COMPONENT rendered the code published `ok: true` with
+            // `SITE_QRS.gallery` in `parts.json` and the code gone from the
+            // look — a binding to something that does not exist, in a file the
+            // next compile includes. `aValid.parts` is what the writer
+            // returned, and `aPartsRead.parts` is what the site already has,
+            // which is the only thing that can say whether withholding one
+            // means reverting it or never writing it.
+            aDeadQr = deadQrs({
+              qr: aMerged.qr, prior: aLook.qr, missing: aGone, url: aUrl,
+              // THE PAGES THIS CHANGE WROTE, each carrying whether it is new,
+              // because that decides what withholding it means — an added page
+              // disappears and takes its route with it, a changed one reverts.
+              wrote: (aMerge.pages || []).filter((p) => p && aFilesOut.includes(p.path))
+                .map((p) => ({ path: p.path, source: p.source, added: (aMerge.added || []).includes(p.path) })),
+              // …AND THE COMPONENTS, on the same rule. `added` is decided
+              // against the snapshot the whole request was built from — never
+              // a second read — so "this component already exists" means the
+              // same thing here as it does at the wall below.
+              wroteParts: (Array.isArray(aValid.parts) ? aValid.parts : []).map((p) => ({
+                name: p && p.name, source: p && p.source,
+                added: !(aPartsRead.ok && (aPartsRead.parts || []).some((s) => s && String(s.name).toLowerCase() === String(p && p.name).toLowerCase())),
+              })),
+            });
+            if (aDeadQr.dropped.length) {
+              aMark("qr", "dropped", { dropped: aDeadQr.dropped.length, withheld: aDeadQr.withheld.length, parts: aDeadQr.withheldParts.length, missing: aGone.length });
+              aMerged.qr = aDeadQr.qr;
+              // AND THE TWO ANSWERS FOLLOW IT. Re-asked rather than patched:
+              // dropping the only field this change moved makes the whole
+              // look store a no-op, and `moved` has to stop claiming it.
+              aReadLook();
+            }
+            // AND A WITHHELD COMPONENT LEAVES THE RETURNED LIST HERE, above
+            // everything that reads it. Filtering at the merge instead would
+            // leave the wall, the reply and the trace each reading a different
+            // idea of what this change wrote, which is how two lists of one
+            // thing come apart — and this repository has that recorded.
+            //
+            // THE MERGE THEN DOES THE REST BY ITSELF: `mergeParts` replaces by
+            // name and keeps everything else, so a component taken off this
+            // list simply keeps the source the site is already serving, and
+            // one this change invented is never written at all.
+            if (aDeadQr.withheldParts.length) {
+              // ⚠ AND THE MATCH NEEDS NO FOLDING — both sides are the SAME
+              // `p.name`. `withheldParts` is built from `wroteParts`, which is
+              // built from this very list, so a case difference cannot arise
+              // here at all. A first cut lower-cased both sides; a sweep could
+              // not kill it, MEASURED over seven shapes it changed no answer,
+              // and the PAIR mutant could not kill it either. Dead by
+              // construction, so it is gone and this sentence is what it said.
+              // `String((p && p.name) || "")` STAYS: an entry with no name is a
+              // real shape and the coercion is what stops it throwing.
+              const aHoldParts = new Set(aDeadQr.withheldParts.map((w) => String(w.name)));
+              aValid.parts = (Array.isArray(aValid.parts) ? aValid.parts : [])
+                .filter((p) => !aHoldParts.has(String((p && p.name) || "")));
+            }
+            if (aDeadQr.withheld.length) {
+              // RE-MERGED, NEVER PATCHED. Taking the withheld files out of what
+              // the writer RETURNED and asking `mergeAddonPages` again is the
+              // only way to get a merge that is internally consistent: that
+              // function owns "a changed page keeps its change only if it
+              // carries a link to a route this change added", and a hand-edited
+              // `aMerge` would satisfy none of it. A changed page reverts to the
+              // source the site is serving and an added one disappears, both as
+              // a consequence rather than as two more branches here.
+              //
+              // ONE RE-RUN, NOT A LOOP: `deadQrs` already settled its own fixed
+              // point over the codes and the pages, so the second merge cannot
+              // produce a third.
+              const aHold = new Set(aDeadQr.withheld.map((w) => w.path));
+              // ⚠ AND A LINK TO A PAGE WE JUST WITHHELD IS A DEAD BUILD — this
+              // repository's own most expensive measured class, reintroduced by
+              // its own fix if this is not here. MEASURED before it was: a home
+              // page carrying `<Link to="/posters">` for a withheld `/posters`
+              // published with that link intact, which is `TS2322` on the
+              // typecheck and a 404 for the visitor who clicks it.
+              //
+              // `validatePages` IS THE ONE OWNER OF THAT REPAIR and its own
+              // comment records the history (a cap dropped `/account` and the
+              // two pages linking to it took the build down). Asked again over
+              // what SURVIVES, so a link into a withheld route is rewritten to
+              // "/" and REPORTED — the same second chance the cap gets. It
+              // cannot refuse anything new: every page here has already been
+              // through it once.
+              const aSurvive = (aValid.pages || []).filter((p) => p && !aHold.has(p.path));
+              const aRepaired = validatePages({ pages: aSurvive }, {
+                partial: true,
+                knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
+              });
+              for (const q of aRepaired.problems) if (!aProblems.includes(q)) aProblems.push(q);
+              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove, aAskedPages);
+              // NOTHING LEFT TO PUBLISH IS A REFUSAL, NOT AN EMPTY PUBLISH. A
+              // compile and a version for a site byte-identical to itself costs
+              // the customer a build and moves nothing — and `mergeAddonPages`
+              // answering `no-change` or `nothing-returned` is exactly that,
+              // asked by the one function that can tell.
+              if (!aHeld.ok) {
+                return Response.json({
+                  ok: false, error: "qr-dependency", cost: 0,
+                  droppedQrs: aDeadQr.dropped.slice(0, 6),
+                  heldPages: aDeadQr.withheld.map((w) => w.path).slice(0, 6),
+                  heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
+                  msg: deadQrNote(aDeadQr).trim(),
+                }, { status: 422 });
+              }
+              aMerge = aHeld;
+              // AND WHAT IS STILL GOING OUT IS RE-ASKED, never patched — the
+              // customer's own missing-page sentence is composed from it, and a
+              // page withheld here really did not make it.
+              aGone = missingPages(aWanted, [...aMerge.added, ...aMerge.changed]);
+            }
+
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
             //
             // `aCharge` above says when and why. Every usage is known by this
@@ -24533,11 +25245,175 @@ async function handleRequest(request, env, ctx) {
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
             if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);
 
-            // STORED NOW, NOT EARLIER: every refusal above leaves the site
+            // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
+            // stored list by name — the page rung's own fix, one rung up.
+            //
+            // ── AND NOTHING REPLACES WHAT THE WRITER WAS NEVER SHOWN ────────
+            //
+            // Owner, 2026-09-17: *"prevent replacement of an existing
+            // component whose source the writer was never shown."*
+            // `mergeParts` replaces by name and has no wall of its own, so a
+            // returned `TideChart` overwrote the real `TideChart` whatever the
+            // model had in front of it. The ordinary case is now that every
+            // stored component's source IS in the prompt, and then this
+            // refuses nothing at all — it is the honest answer to the bound in
+            // `partsSent`, which withholds a component too large to carry.
+            //
+            // BY THE SAME `aSentParts` THE PROMPT WAS BUILT FROM, so "was this
+            // shown?" has exactly one answer. Refused rather than merged: the
+            // stored file keeps working and the page that imports it still
+            // compiles, where accepting a rewrite composed from a one-line
+            // description is a silent loss of the real implementation.
+            //
+            // NAMED, NEVER DROPPED IN SILENCE — `aKeptParts` rides the reply
+            // and the trace, because a component the customer asked to change
+            // and did not get changed is the one thing they must hear.
+            // `withheld` IS THE WHOLE TEST, and the obvious second half was
+            // DEAD BY CONSTRUCTION. The first draft also asked "…unless it was
+            // shown", which reads as a belt and cannot ever fire: `partsSent`
+            // sends each component down exactly one branch and dedupes names
+            // first, so `shown` and `withheld` are disjoint — MEASURED over
+            // five shapes, including a name given twice at both sizes and a
+            // list that overruns the whole-request bound. A sweep mutant
+            // cutting that line survived everything, which is what said so.
+            //
+            // …AND AN UNREADABLE STORE REFUSES EVERY ONE OF THEM, which is a
+            // SEPARATE list because it is a separate sentence. `withheld`
+            // names components we read and chose not to send; `unreadable`
+            // means we never learned a single name, so there is nothing to
+            // check a returned component against and no way to know what a
+            // replacement would destroy. The two can never both fire —
+            // `partsSent` answers empty lists when it cannot read — and that
+            // is by construction rather than by care here.
+            //
+            // ⚠ THIS `return false` IS A DECLARED REDUNDANCY, AND IT IS
+            // MEASURED RATHER THAN REASONED ABOUT. The merge below refuses to
+            // write anything at all while `aPartsRead.ok` is false, so keeping
+            // a returned component here changes no observable: driven through
+            // the route with one read failing and with both failing, the reply
+            // and the stored bytes are IDENTICAL either way. It stays because
+            // the two say different things — this one is "which returned
+            // components may be kept", that one is "may we write at all" — and
+            // because `aUnseenParts` is filled on this line, which is what the
+            // customer hears. The sweep mutates the PAIR, since neither half
+            // can be killed alone; said here because a sweep cannot say it and
+            // the next session deletes what nothing appears to need.
+            const aKeptParts = [], aUnseenParts = [];
+            const aFreshParts = (Array.isArray(aValid.parts) ? aValid.parts : []).filter((p) => {
+              const n = String((p && p.name) || "").toLowerCase();
+              if (aSentParts.unreadable) { aUnseenParts.push(p && p.name); return false; }
+              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;
+              aKeptParts.push(p.name);
+              return false;
+            });
+            if (aKeptParts.length || aUnseenParts.length) aMark("parts", "kept", { kept: aKeptParts.length, unseen: aUnseenParts.length, shown: aSentParts.shown.length, withheld: aSentParts.withheld.length });
+            // AND THE MERGE READS THE SAME SNAPSHOT, NEVER A SECOND READ.
+            // `mergeParts` replaces by name and keeps everything else — but
+            // only what it is HANDED: `mergeParts(null, [one])` answers
+            // `[one]`, so a second read that failed where the first succeeded
+            // would delete every component this change never mentioned.
+            // `aPartsRead.parts` is the list the prompt and the wall were both
+            // built from, and while `ok` is false nothing is written at all:
+            // `null` leaves the spine to re-send the store's own copy, which
+            // is exactly what an addon that touched no component does.
+            // A `let` BECAUSE THE PHOTOGRAPHS ARE SWEPT INTO IT BELOW — a
+            // token in a component this change wrote is a real `src` after
+            // `buySitePhotos`, and the list the publish sends has to be the
+            // swept one. `null` still means "this change touched no component,
+            // so the spine re-sends the store's own copy" and that stays true:
+            // nothing below assigns over a `null`.
+            let aParts = (aFreshParts.length && aPartsRead.ok)
+              ? mergeParts(aPartsRead.parts, aFreshParts)
+              : null;
+            // ── AND EVERY PHOTOGRAPH THE SITE SHOWED IS STILL SHOWN ─────────
+            //
+            // (2026-09-17, owner: *"Preserve existing photographs when buying
+            // new ones… prevent an addon from accepting removal or replacement
+            // of existing image references in pages and custom components."*)
+            //
+            // THE DIRECTIVE INVITED IT AND IS CORRECTED; THIS IS THE WALL.
+            // `imageDirective`'s paid tail read *"any other picture stays a
+            // <SafeImage> with no src… that is the intended look for the rest
+            // of the site"* — true of a first build and an instruction to strip
+            // on an addon. REPRODUCED through this route on a site showing two
+            // bought photographs: both came back with empty `src`, the compiler
+            // payload and `source/<slug>/pages.json` each ended with ZERO `/u/`
+            // urls, the customer was told *"Made 1 photograph for the site."*,
+            // and the two stripped pictures were counted as empty frames this
+            // change had ADDED.
+            //
+            // `keptProse` ONE FIELD OVER, and the same refusal: nothing
+            // published, nothing charged, `cost: 0` honest for the reason its
+            // sibling above states. The photographs are money the owner already
+            // spent, and an addition may only ADD.
+            //
+            // SITE-WIDE AND ACROSS BOTH LISTS, which is what makes it different
+            // in shape from `keptProse`'s per-page loop: a writer that moves a
+            // `<SafeImage>` off the home page into a new component has kept
+            // every picture the site shows, and a per-file wall would refuse
+            // that. `imageSources` is the one definition of the files a
+            // photograph can be in, and this is the SAME PAIR `newEmptySlots`
+            // is handed below — one idea of before-and-after, not two.
+            //
+            // BEFORE THE PURCHASE, so a change that would lose one does not
+            // first spend $0.15 on the replacement.
+            const aKeptPics = keptImages(
+              imageSources(aSrc, aPartsRead.parts),
+              imageSources(aMerge.pages, aParts || aPartsRead.parts),
+              ownerSlug,
+            );
+            aMark("pics", aKeptPics.ok ? "ok" : "fail", { lost: aKeptPics.lost.length });
+            if (!aKeptPics.ok) {
+              return Response.json({
+                ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),
+                msg: lostPhotosMsg(aKeptPics.lost),
+              }, { status: 422 });
+            }
+
+            // ── AND ONLY NOW IS THE DESIGN STORED ───────────────────────────
+            //
+            // STORED HERE, NOT EARLIER: every refusal above leaves the site
             // exactly as it was, and the publish below is the only thing that
-            // needs the new look — the container bakes `/qr.svg` from what is
-            // stored when it compiles. The one failure after this point puts
-            // the old look back.
+            // needs the new look — the container bakes `/qr-<name>.svg` from
+            // what is stored when it compiles. The one failure after this
+            // point puts the old look back: `aStored` has exactly ONE reader,
+            // the publish's own `if (!aPub.ok)` branch, and the only other
+            // `return` between here and it is this write's own failure, which
+            // stored nothing. Measured over that window, not reasoned about.
+            //
+            // ⚠ IT SAT ABOVE `keptImages` UNTIL 2026-09-17, and the sentence
+            // it carried already claimed this invariant while being one block
+            // too high to keep it. MEASURED: `lost-photos` is the ONLY refusal
+            // that was ever below it — `rewrote` and `qr-dependency` were both
+            // above the old position — so the defect is exactly one day old
+            // and is this change's own sibling. *A rule true because of the
+            // layer below it expires when that layer moves*, met from the
+            // other direction: the rule stood still and a refusal was added
+            // underneath it. Owner: *"A combined gallery + photo + QR request
+            // that fails with lost-photos leaves the QR persisted, although
+            // the gallery was never published."*
+            // REPRODUCED through this route on exactly that ask: 422,
+            // `cost: 0`, nothing compiled, nothing bought, `source/<slug>/
+            // pages.json` untouched — and `look.qr` left holding
+            // `{name:"gallery", points:"https://<slug>.gofarther.app/gallery"}`
+            // for a route that will never exist. A QR is the one thing here
+            // somebody PRINTS, so that is the artifact the `qr-dependency`
+            // refusal one block up exists to prevent, arriving through the
+            // refusal path instead.
+            //
+            // MOVED RATHER THAN COMPENSATED FOR, which was the other option
+            // offered and is the weaker one: a restore-on-refusal is a second
+            // repair path that can itself fail, and a failed restore leaves
+            // the site wrong with nothing left to try. Moving the write below
+            // every refusal that has no restore keeps ONE rule — *a refusal
+            // changes nothing* — instead of a rule plus an exception.
+            //
+            // NOTHING BETWEEN THE OLD POSITION AND THIS ONE READS IT: the
+            // parts wall and `keptImages` read `aSrc`, `aPartsRead`, `aMerge`
+            // and `aParts`; `aStored` is read only below. Checked rather than
+            // assumed — and the move makes the store-to-publish window
+            // strictly SMALLER, so it cannot have introduced an unreverted
+            // refusal of its own.
             let aStored = false;
             if (aLookPatch) {
               const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
@@ -24547,11 +25423,152 @@ async function handleRequest(request, env, ctx) {
               }
               aStored = true;
             }
-            // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
-            // stored list by name — the page rung's own fix, one rung up.
-            const aParts = (aValid.parts && aValid.parts.length)
-              ? mergeParts(await loadSiteParts(env, ownerSlug), aValid.parts)
-              : null;
+            // ── THE PHOTOGRAPHS ARE BOUGHT AND PLACED, IN THIS SAME REQUEST ──
+            //
+            // (2026-09-17, owner: *"completing page + photo in one request"*.)
+            //
+            // AFTER THE MERGE AND THE PARTS WALL, so what is swept is what will
+            // really be published: a page the QR dependency withheld, one the
+            // merge boundary refused and a component the writer was never shown
+            // are all already gone by this line, and buying a photograph for a
+            // file nobody will be served is money spent on nothing.
+            //
+            // BEFORE `newEmptySlots`, which is what makes the customer's
+            // sentence honest: a slot this change FILLED is not an empty frame
+            // to warn them about, and a token the balance could not buy is
+            // swept to `src=""` and counted — which is exactly what they see.
+            //
+            // `buySitePhotos` IS THE BUILD PATH'S OWN, unchanged: it re-asks
+            // the balance, the owner's upload library and the clock, plans from
+            // the tokens really in the source, buys what all three allow, and
+            // ALWAYS sweeps — so a run that can afford nothing leaves
+            // placeholders rather than the broken images an unswept token
+            // renders as. `reserve: 0` because the publish that follows is this
+            // route's own and its clock is the job's, which `clock` carries.
+            //
+            // `aParts || []` FOR THE READ, NEVER `aPartsRead.parts`: a stored
+            // component has already been through `applyImages` on its own
+            // publish and holds no token, and handing the stored list in would
+            // let a sweep write back over a file this change never touched.
+            let aPhotos = null;
+            let aPhotoCharged = 0;
+            // WHAT THE PICTURES COST, ONE EXPRESSION, TWO CONSUMERS: the job's
+            // reserve below and the synchronous collect after the publish.
+            // `made`, NEVER `planned` — a photograph that did not arrive costs
+            // the customer nothing, which is the build path's own rule and the
+            // picture rung's. Written once so the two roads cannot come to
+            // disagree about the number, which is how one of them ends up
+            // billing for a picture nobody got.
+            let aPhotoBill = null;
+            if (aShots.length) {
+              try {
+                aPhotos = await buySitePhotos(env, {
+                  slug: ownerSlug, pages: aMerge.pages, parts: aParts || [],
+                  budget: aShots.length, balance: aBalance, reserve: 0, clock: aJob && aJob.budget,
+                });
+                aMerge = { ...aMerge, pages: aPhotos.pages };
+                if (aParts) aParts = aPhotos.parts;
+                // `planned` IS THE FULL REQUEST AND `offered` IS WHAT THE
+                // BALANCE LEFT, because a trace that records the cut list as
+                // the plan cannot tell a customer who asked for one from one
+                // who asked for three and could pay for one.
+                aMark("photos", "ok", { made: aPhotos.made || 0, planned: aFold.photos.length, offered: aShots.length });
+              } catch (e) {
+                // NAMED, NEVER FATAL — the site is the product and the pictures
+                // are the decoration, which is the build path's own rule. The
+                // tokens are then still in the source, so the ones this catch
+                // leaves behind would render as broken images; `applyImages`
+                // with an empty map is the sweep `buySitePhotos` would have
+                // done, and it is what turns them back into placeholders.
+                aPhotos = { made: 0, planned: aShots.length, budget: 0, overflow: 0, error: String((e && e.message) || e).slice(0, 200) };
+                aMerge = { ...aMerge, pages: applyImages(aMerge.pages, new Map()) };
+                if (aParts) aParts = applyImages(aParts, new Map());
+                aMark("photos", "fail", { planned: aFold.photos.length, offered: aShots.length });
+              }
+              // ── AND THE PICTURES ARE BILLED ────────────────────────────────
+              //
+              // `made`, NEVER `planned`: a photograph that did not arrive costs
+              // the customer nothing, which is the build path's own rule and the
+              // picture rung's (*"the working balance moves on success and not on
+              // the attempt"*). `pageCost` prices an image at `IMAGE_USD` flat —
+              // one table, not a second copy of the rate here.
+              //
+              // UNDER A JOB IT IS RESERVED HERE, before the spine's publish gate,
+              // because that is this route's rule for everything it spends: what
+              // is charged is charged before the commit point. Its own sequence,
+              // beside the design (#1), the repair round (#2), the translations
+              // (#3) and the page call (#4) — the RPC is idempotent per sequence
+              // and asks no order of them.
+              //
+              // SYNCHRONOUSLY IT JOINS THE ONE COLLECT AFTER THE PUBLISH, so a
+              // route with no job still bills once and rounds once, which is the
+              // whole reason that line is a single `pageCredits(...)`.
+              aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;
+              if (aJob && aPhotoBill) {
+                aPhotoCharged = Number(await aCharge(pageCredits(aPhotoBill), 5)) || 0;
+              }
+            }
+            // ── AND THE EMPTY FRAMES THIS CHANGE REALLY ADDED (2026-09-17) ──
+            //
+            // `countImageSlots` counts `@@IMG:` TOKENS, and this step's own
+            // directive forbids tokens — so on the addon path it answered 0 on
+            // every obedient run and `photoNote` never once fired. Its own
+            // comment is the reason that matters: *"a NEW page that wants one
+            // publishes with a placeholder and said nothing about it. The
+            // customer is left looking at an empty frame with no way to know it
+            // is theirs to fill."* Written for the build path, and the path
+            // that ADDS pages is the one it never reached.
+            //
+            // ⚠ IT IS COMPUTED HERE, FROM WHAT SURVIVES, AND BOTH HALVES OF
+            // THAT ARE CORRECTIONS (owner, 2026-09-17: *"Calculate newly added
+            // frames from what actually survives the merge, matching files
+            // consistently."*). It used to run above the sweep over
+            // `aValid.pages` — what the writer RETURNED — with `aSrc` as the
+            // before. Two things were wrong and each was measured:
+            //
+            //   · THE BEFORE WAS PAGES ONLY. `newEmptySlots` keys per file, so
+            //     a component the site already has had no before at all and an
+            //     UNCHANGED one carrying one empty frame was reported as one
+            //     newly added frame. Measured: 1 against 0 on the same site.
+            //   · THE AFTER WAS THE ANSWER, NOT THE PUBLICATION. A page the QR
+            //     dependency withheld, or one the merge boundary refused, was
+            //     still counted — frames on files nobody will be served.
+            //
+            // ONE READER NOW, NOT A SUM. After `applyImages` a token IS an
+            // empty `src=""`, so the same reader counts a frame written as
+            // asked and a token written against the ban; adding the old token
+            // count here would report one frame twice. What it stops counting
+            // is a token in an element with no `alt` — and that is right, not a
+            // loss: the picture rung identifies a slot BY its alt text, so
+            // promising one is the same mistake as the missing `src` this
+            // round already fixed. `lintPages` reports that shape separately.
+            //
+            // AND AN UNREADABLE COMPONENT STORE TAKES COMPONENTS OFF BOTH
+            // SIDES, never one. Nothing is written to `parts.json` while
+            // `aPartsRead.ok` is false, so a symmetric omission is the exact
+            // truth about what this change did; dropping them from the BEFORE
+            // alone is the defect above, wearing the other hat.
+            //
+            // ⚠ AND THAT SYMMETRY NEEDS NO FLAG — `readSiteParts` answers
+            // `parts: []` on EVERY `ok: false`, so both sides are already empty
+            // when nobody could look. A first cut carried an `aPicParts` ternary
+            // saying so; a sweep could not kill it, MEASURED through this route
+            // over seven shapes it changed no answer, and the PAIR mutant could
+            // not kill it either — there is no input on which it differs. Dead
+            // by construction, so it is gone and this sentence is what it said.
+            // `test/addon-route` drives the unreadable store and asserts 0.
+            //
+            // `|| aPartsRead.parts` IS NOT that, and stays: it is what makes the
+            // AFTER *the whole site as this change leaves it* rather than *what
+            // the model handed back*. It is numerically inert only because
+            // `newEmptySlots` walks the AFTER alone — a property of another
+            // module, asserted in `test/site-picture` for this line's sake — so
+            // the day removals count, this stops being documentation and starts
+            // being a wall.
+            const aSlots = newEmptySlots(
+              imageSources(aSrc, aPartsRead.parts),
+              imageSources(aMerge.pages, aParts || aPartsRead.parts),
+            );
             // ── THE ADD STEP'S OWN REPAIR ROUND, handed to the spine's seam ──
             //
             // (owner, 2026-09-04: "try to fix it, if not fix, send as it is",
@@ -24737,9 +25754,14 @@ async function handleRequest(request, env, ctx) {
             // reconcile can answer `absent` for — before this line `aShipped`
             // is null and a requirement handed to `page` reads `unverified`,
             // which is the honest answer while nothing has been published.
-            const aFilesOut = [...(aMerge.added || []), ...(aMerge.changed || [])];
-            const aWanted = aAnswers.filter((a) => a.kind === "page").flatMap((a) => (Array.isArray(a.value) ? a.value : []));
-            aMissing = missingPages(aWanted, aFilesOut);
+            //
+            // …AND IT IS THE LIST `aGone`, COMPUTED ABOVE THE BILL (2026-09-17)
+            // rather than a second call here. `aMerge` is settled before
+            // either line, so the two can only ever be the same answer — and
+            // the QR dependency check needs it before anything is stored,
+            // where this needs it after the publish for `aShipped`. One
+            // computation with two readers, never one computation each.
+            aMissing = aGone;
             // ROUTES, NOT FILES, AND DERIVED FROM THE ONE READER THAT ALREADY
             // KNOWS BOTH (2026-09-15). The merge answers FILE names and a
             // requirement names a ROUTE — the customer's word, and the word
@@ -24772,8 +25794,15 @@ async function handleRequest(request, env, ctx) {
             const aRepairUsage = (aRepairRound && Array.isArray(aRepairRound.usage)) ? aRepairRound.usage : [];
             // AND THE TRANSLATIONS' (run 39): the same two roads — one rounding
             // synchronously, the spine's own reserve (#3) under a job.
-            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage));
-            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged;
+            // THE PHOTOGRAPHS JOIN THE SYNCHRONOUS BILL AND RODE THEIR OWN
+            // RESERVE UNDER A JOB (2026-09-17) — `pageCost` prices `images` at
+            // the flat `IMAGE_USD`, so a picture and the tokens that placed it
+            // round together exactly once here. `aPhotoBill` is the SAME
+            // expression the job's reserve used, computed once beside the
+            // purchase: two copies of "what the pictures cost" is how one road
+            // ends up billing for a picture nobody got.
+            if (!aJob) aCost = await aCharge(pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage, ...aRepairUsage, ...aLangUsage, aPhotoBill));
+            else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
             return Response.json({
               ok: true,
               // What was added, by kind, and what was set aside for another
@@ -24792,6 +25821,76 @@ async function handleRequest(request, env, ctx) {
               // a page" from "added a code to a page".
               moved: aLookMoved,
               photos: aSlots,
+              // ── THE PICTURES THIS CHANGE REALLY BOUGHT (2026-09-17) ────────
+              //
+              // `pictures`, NOT `photos`: that field has meant "empty frames
+              // left over" since it was written and the browser's `photoNote`
+              // reads it as one — two numbers under one name is the wrong
+              // number wearing a right one's name, which this repository has
+              // paid for before. Absent when this change bought none, so every
+              // addon that existed before today answers byte-identically.
+              pictures: aPhotos && aPhotos.made ? aPhotos.made : undefined,
+              // …AND THE SENTENCE, composed HERE and printed verbatim, exactly
+              // as `keptPartsNote` and `coverNote` are. `imageNote` is the
+              // BUILD PATH'S OWN composer — four outcomes render the same blank
+              // frame and only one of them is a bug, and it is the one thing
+              // that can tell them apart — so the addon says it in the same
+              // words rather than in a second copy of that reasoning.
+              //
+              // AND A LIST THE BALANCE CUT TO NOTHING STILL SPEAKS. When
+              // `imagesAffordable` refuses every shot there is no purchase at
+              // all, so `aPhotos` is null and silence would read as "no
+              // photograph was ever asked for" — which is the one thing the
+              // customer knows is false. `{planned, made: 0, budget: 0}` is
+              // that state written down, and `imageNote` answers it with the
+              // credits sentence.
+              // ⚠ AND THE FULL REQUEST TRAVELS SEPARATELY FROM WHAT WAS
+              // AFFORDABLE (2026-09-17, owner: *"Carry the full requested photo
+              // list separately from the affordable purchase list. A two-photo
+              // request with credits for one must explain that one was omitted
+              // because of the balance."*).
+              //
+              // REPRODUCED: two designed, credits for one, one bought — and the
+              // customer heard *"Made 1 photograph for the site."* with nothing
+              // about the second and no reason. `buySitePhotos` is TOLD WHAT TO
+              // BUY, so its own `planned` is the cut list by construction and
+              // cannot be the full one; this route is the only place holding
+              // both numbers, so it is the place that says so.
+              //
+              // `unaffordable` IS HOW THE FULL LIST TRAVELS, and it NAMES THE
+              // REASON because this line is what knows it: the one thing that
+              // cuts `aFold.photos` down to `aShots` is `imagesAffordable`
+              // against the balance read above, and no other clamp touches that
+              // slice. `imageNote` must not infer it from `planned - budget`,
+              // which inside the purchase is a different clamp with a sentence
+              // of its own.
+              //
+              // ⚠ AND `planned` IS DELIBERATELY NOT OVERRIDDEN HERE. A first
+              // cut passed `aFold.photos.length` into it, which reads as the
+              // obvious other half of "carry them separately" and is a value
+              // NOTHING ON THIS PATH READS — measured over 810 shapes, the one
+              // branch that reads `planned` is the silence guard, and
+              // `unaffordable` is non-zero on every route shape that could
+              // reach it. A value computed and forwarded to no reader is this
+              // repository's own most-recorded defect, and shipping one inside
+              // the round that is about exactly that would be the wrong way
+              // round. The distinction is carried where it is read — by
+              // `unaffordable` here and by the trace mark's `planned`/`offered`
+              // above.
+              //
+              // `frames` IS THE OBSERVATION, not a claim: the empty picture
+              // frames this change really left, after the merge, the withheld
+              // pages and the sweep. It is what keeps the zero-budget sentence
+              // from promising a placeholder that no writer wrote — *"Do not
+              // imply a placeholder exists unless one actually survived
+              // publication."*
+              pictureNote: imageNote(aFold.photos.length
+                ? {
+                  ...(aPhotos || { made: 0, budget: 0 }),
+                  unaffordable: Math.max(0, aFold.photos.length - aShots.length),
+                  frames: aSlots,
+                }
+                : null) || undefined,
               tables: aTables, altered: aAltered,
               // THE OTHER THREE TIERS (2026-09-03), what the engine really
               // made of each, a function that could not be created by name,
@@ -24822,6 +25921,33 @@ async function handleRequest(request, env, ctx) {
               seedSkipped: (aSeeded && aSeeded.skipped && aSeeded.skipped.length) ? aSeeded.skipped.slice(0, 6) : undefined,
               seedTopUp: aSeedTopUp || undefined,
               unlinked: unlinkedPages(aMerge.pages, aMerge.added),
+              // A COMPONENT THE SITE ALREADY HAD AND THE WRITER WAS NOT SHOWN
+              // (2026-09-17). It returned a rewrite of one and we kept the
+              // real file: the page still compiles and still works, and the
+              // change the customer may have asked for did not land. Named
+              // rather than dropped in silence, and absent when nothing was
+              // refused, so an ordinary addon's response is byte-identical.
+              keptParts: aKeptParts.length ? aKeptParts.slice(0, 6) : undefined,
+              // …OR ONE WE COULD NOT READ THE STORE FOR AT ALL. A separate
+              // field because it is a separate fact and a separate sentence:
+              // above, one named component was too long to carry; here nothing
+              // was read, so nothing may be replaced and we do not even know
+              // what the site has. The two are disjoint by construction.
+              unseenParts: aUnseenParts.length ? aUnseenParts.slice(0, 6) : undefined,
+              // …AND THE SAME WALL FOR A PAGE (2026-09-17). A returned file for
+              // a page the window could not carry is refused and the stored
+              // one kept — the pages we could not SHOW are the pages we cannot
+              // CHECK. Its own field beside the component one, because a page
+              // and a component are different objects with different advice.
+              keptPages: aRewrote.length ? aRewrote.slice(0, 6) : undefined,
+              // …AND THE SENTENCE, composed here and printed VERBATIM by the
+              // browser — `coverNote`'s rule, for `coverNote`'s reason: the
+              // decision is entirely the server's, since it is the only thing
+              // that knows which sources fitted in the request.
+              keptPartsNote: [
+                (keptPartsNote(aKeptParts) || unseenPartsNote(aUnseenParts)),
+                unseenPagesNote(aRewrote),
+              ].filter(Boolean).join(" ") || undefined,
               problems: aProblems.slice(0, 4),
               // THE RENDER SENTENCE IS THE FINAL BUILD'S — the repaired one
               // when the round held — and the round's own sentence rides

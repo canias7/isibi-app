@@ -11,10 +11,14 @@ import { createRequire } from "node:module";
 import {
   MAX_RETURNED, mergeAddonPages, mergeAddonSchema, ADDON_TABLE_FIELDS, ADDON_SPEC_FIELDS,
   unlinkedPages, routeOf, addonReply, keptReply, rowLists, orderingMoved } from "../builder/site-addon.mjs";
-import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
+import { priorPagesBlock, pagesRequest, pagesPrompt, validatePages, SITE_PAGES_TOOL, MAX_PAGE_CHARS, MAX_PRIOR_CHARS } from "../builder/page-gen.mjs";
 import { EDIT_RULE } from "../builder/site-edit.mjs";
 // THE ADD STEP'S OWN RULE (2026-09-02) — the addon no longer reads EDIT_RULE.
 import { addRule } from "../builder/site-add.mjs";
+// THE PICTURE SENTENCE'S OWN COMPOSER (2026-09-17) — the browser prints what
+// the server said, so the fixture below is that composer's output rather than
+// a second copy of it typed here.
+import { imageNote } from "../builder/site-images.mjs";
 
 const page = (path, source) => ({ path: "src/routes/" + path, source });
 const SITE = [
@@ -142,15 +146,22 @@ test("the reply names the pages, including the one they did not ask about", () =
   // which is how a legitimate change reads as the site being altered behind them.
   const r = addonReply({ added: ["src/routes/gallery.tsx"], changed: ["src/routes/index.tsx"] });
   assert.match(r, /\/gallery/);
-  assert.match(r, /linked it from \//);
+  // ⚠ RE-ANCHORED 2026-09-17, AND IT ASSERTED THE DEFECT AS CORRECT. This read
+  // `/linked it from \//` — the run-35 inference from "a page was added" to
+  // "this changed page carries the link to it", which was the only reason a page
+  // could legitimately change beside an addition when it was written and is
+  // false now that a page a designer NAMED keeps its change too. Owner: *"a
+  // changed page does not establish that a link was added."*
+  assert.match(r, /updated \//, r);
   assert.ok(!/undefined/.test(r));
-  // A CHANGED PAGE WITH NO PAGE ADDED IS THE PAGE THE ADDITION LANDED ON (run
-  // 35, 2026-09-04): a section, a code, a scene or a hand-written component
-  // changes the home page and adds nothing, and "linked it from /" then names
-  // a link that does not exist.
+  // A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, which is strictly
+  // stronger than the two-branch rule it replaces: there is no inference left
+  // that could be wrong. Driven with a page added and without one.
   const section = addonReply({ added: [], changed: ["src/routes/index.tsx"] });
   assert.match(section, /^✅ Done — updated \/\./, section);
-  assert.doesNotMatch(section, /linked/, section);
+  for (const [what, out] of [["beside an addition", r], ["on its own", section]]) {
+    assert.doesNotMatch(out, /linked/, "the reply claims a link " + what + ": " + out);
+  }
 });
 
 test("an unreachable page is said plainly, with the fix", () => {
@@ -199,16 +210,49 @@ test("mode reaches the request through the ONE call definition", () => {
   assert.deepEqual(addon.system, revise.system);
 });
 
-test("a site too large to inline falls back to the full rewrite in BOTH modes", () => {
-  // The degradation is deliberate: with the source not shown, "return only what
-  // changed" is an instruction the model cannot follow — it has nothing to
-  // return the rest OF.
-  const huge = [page("index.tsx", "x".repeat(400000))];
-  for (const mode of ["addon", "revise"]) {
-    const b = priorPagesBlock(huge, mode);
-    assert.match(b, /too large to show here/, mode + " must degrade rather than lie");
-    assert.ok(!/RETURN ONLY WHAT IS NEW OR CHANGED/.test(b));
-  }
+test("a site too large to inline keeps the ADDON contract and names what it could not show", () => {
+  // ⚠ RE-ANCHORED 2026-09-17, AND THE OLD EXPECTATION ASSERTED THE DEFECT AS
+  // CORRECT. It read *"falls back to the full rewrite in BOTH modes"*, with the
+  // reasoning: *"with the source not shown, 'return only what changed' is an
+  // instruction the model cannot follow — it has nothing to return the rest
+  // OF."* That is true of a REVISE, where an unreturned page is deleted, and
+  // FALSE of an addon, where an unreturned page is KEPT — so the model needs
+  // nothing in hand in order not to return it.
+  //
+  // Measured through the real route on 17 real pages (181,258 characters): the
+  // addon lost every clause of its contract and gained *"write them again in
+  // full"*, which on a path where a returned page REPLACES the stored one is
+  // the opposite instruction. So the two modes part company here.
+  const many = Array.from({ length: 12 }, (_, i) => page("p" + i + ".tsx", "y".repeat(10000)));
+
+  // THE ADDON KEEPS ITS CONTRACT AND SHOWS WHAT FITS.
+  const a = priorPagesBlock(many, "addon");
+  assert.match(a, /RETURN ONLY WHAT IS NEW OR CHANGED/, "the addon contract went with the source");
+  assert.match(a, /`remove` IS THE ONLY THING THAT DOES IT/, "the delete verb went with the source");
+  assert.doesNotMatch(a, /write them again in full/, "the addon was told to rewrite the site it is adding to");
+  assert.match(a, /THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED/, "what was dropped is not named");
+  assert.match(a, /Do NOT return a file for any of them/, "a page named and not shown was not forbidden");
+  const shown = [...a.matchAll(/--- (src\/routes\/[^ ]+) ---/g)].map((m) => m[1]);
+  assert.ok(shown.length > 0 && shown.length < many.length, shown.length + " of " + many.length + " shown");
+
+  // A REVISE STILL DEGRADES THE OLD WAY, and that is right there: an unreturned
+  // page is a DELETED page, so "return only what changed" really is unfollowable
+  // without the source in hand.
+  const r = priorPagesBlock(many, "revise");
+  assert.match(r, /too large to show here/, "revise must degrade rather than lie");
+  assert.ok(!/RETURN ONLY WHAT IS NEW OR CHANGED/.test(r));
+
+  // AND ONE PAGE BIGGER THAN THE WHOLE WINDOW IS STILL SHOWN, because an addon
+  // prompt with no source at all is the revise fallback wearing this branch's
+  // words. MEASURED AS A BELT RATHER THAN A PATH: `MAX_PAGE_CHARS` (48,000) is
+  // under `MAX_PRIOR_CHARS` (90,000), so no page `validatePages` admits can
+  // reach here — the relationship is asserted, so the day either number moves
+  // this stops being a belt loudly rather than quietly.
+  assert.ok(MAX_PAGE_CHARS < MAX_PRIOR_CHARS,
+    "a single validated page can now exceed the prompt window — the one-page fallback is a live path, not a belt");
+  const huge = priorPagesBlock([page("index.tsx", "x".repeat(400000))], "addon");
+  assert.match(huge, /RETURN ONLY WHAT IS NEW OR CHANGED/, "a one-page site over the window lost the contract");
+  assert.ok(huge.includes("--- src/routes/index.tsx ---"), "a one-page site over the window was shown nothing at all");
 });
 
 // ── the guard that stops this rotting ────────────────────────────────────────
@@ -517,10 +561,80 @@ test("neither lane can publish an unbought image token", async () => {
     assert.ok(callAt > 0, name + " no longer composes its brief through briefWithLayout");
     const call = b.slice(callAt, b.indexOf("})", callAt));
     assert.match(call, /^briefWithLayout\(\{\s*brief: \w+/, name + " does not lead the call with the brief");
-    assert.match(call, /\bimages: 0\b/, name + " does not tell the model there are no photographs");
+    // A ZERO BUDGET, IN WHATEVER SPELLING — re-anchored 2026-09-17, not
+    // appeased. This was `/\bimages: 0\b/`, and the addon's zero is now stated
+    // as `{ buy: 0, … }` so that the sentence can say what the SITE has
+    // separately from what the CHANGE buys — the bare zero was rendered as
+    // *"PHOTOGRAPHS: none on this site"*, false on every site that has any.
+    // The budget did not move and must not; the spelling did. This guard's own
+    // note already records being re-anchored twice for exactly this reason.
+    // ── RE-ANCHORED 2026-09-17: THE ADDON BUYS NOW, AND THE PROPERTY STANDS ──
+    //
+    // The property was never "neither lane buys"; it is that an UNBOUGHT token
+    // never publishes. The page rung still buys nothing and states the bare
+    // zero. The addon states the zero on every run that buys nothing and hands
+    // over the SHOT LIST when it does — so what has to be true of its call is
+    // that it is one or the other and never silence, which is what makes a
+    // model write tokens of its own.
+    //
+    // ── RE-ANCHORED AGAIN 2026-09-17 (the third time, and the last two were
+    //    for this same reason) — THE PROPERTY, NOT THE SPELLING ──────────────
+    //
+    // It pinned `images: <x>.length ? <y> : { … buy: 0 }`, which was the shape
+    // of a call that chose between the bare LIST (the build path's door, which
+    // carries no inventory) and an object. The addon sends ONE object now, so
+    // that ternary is gone and the guard went red on a correction it is not
+    // about: the paid form's own tail told the writer *"any other picture stays
+    // a <SafeImage> with no src"* on sites that already had photographs, and
+    // fixing that meant the inventory had to ride the buying call too.
+    //
+    // WHAT MUST BE TRUE IS WHAT IT ALWAYS MEANT: the addon says something about
+    // photographs on every run — a list to buy or a declared zero — because
+    // SILENCE is what makes a model write tokens of its own, and a token
+    // nothing bought publishes as its own alt text. Asserted as the two keys
+    // that carry it rather than as an expression shape, so the next honest
+    // restructuring of this call does not report the property as gone.
+    if (name === "addon") {
+      const at = call.indexOf("images: {");
+      assert.ok(at > 0, "the addon no longer states anything about photographs in its page call");
+      const images = call.slice(at, call.indexOf("},", at));
+      assert.match(images, /\bbuy: /, "the addon's page call does not say what it is buying");
+      assert.match(images, /\bshown: /, "the addon's page call does not say what the site already shows");
+    } else {
+      assert.match(call, /\bimages: 0\b/, name + " does not tell the model there is nothing to buy");
+    }
     assert.match(b, /applyImages\(\w+\.pages, \{\}\)/,
       name + " does not sweep an unbought token before publishing");
   }
+
+  // ── AND THE ADDON'S SWEEP IS TWO SWEEPS, NEITHER OF WHICH MAY GO ─────────
+  //
+  // The belt above runs only when nothing is being bought (`if (!aShots.length)`),
+  // because it was stripping the very tokens the purchase is for — measured
+  // through the real route, `plan.shots` came back 0 on a run whose writer had
+  // written the token exactly as asked. On the buying branch the sweep is
+  // `buySitePhotos`, which ALWAYS sweeps including every path where it buys
+  // nothing. Both are asserted, because a change that dropped either would
+  // publish a literal `@@IMG:…@@` for one half of the cases and pass on the
+  // other.
+  const ad = block("\n          if (ad) {", "\n          if (tx) {");
+  assert.match(ad, /if \(!aShots\.length\) \{\s*\n\s*aValid\.pages = applyImages\(aValid\.pages, \{\}\);/,
+    "the addon's belt no longer waits for the branch that buys, or no longer runs on the branch that does not");
+  assert.match(ad, /aPhotos = await buySitePhotos\(env, \{/, "the addon's buying branch does not reach the one function that sweeps");
+  assert.match(ad, /aMerge = \{ \.\.\.aMerge, pages: aPhotos\.pages \}/,
+    "the addon buys and publishes the UNSWEPT pages, so a token it could not buy ships as text");
+
+  // AND THE DIRECTIVE REALLY FORBIDS THE TOKEN IN BOTH SPELLINGS, driven
+  // rather than read: a source match on `images: { buy: 0` proves a shape was
+  // passed and says nothing about what the model is then told. The whole point
+  // of this guard is the sentence, so the sentence is what gets asserted.
+  const { imageDirective } = await import("../builder/site-images.mjs");
+  for (const [label, value] of [
+    ["the bare zero", 0],
+    ["the addon's own zero", { buy: 0, shown: { known: true, count: 2 }, place: true }],
+    ["…and on a site we could not read", { buy: 0, shown: { known: false, count: 0 }, place: false }],
+  ]) assert.match(imageDirective(value), /do not write any @@IMG:@@ token/i,
+    label + " stopped telling the model not to write one");
 
   // And the sweep really does clear one, so the assertion above is not just
   // matching a call that does nothing.
@@ -756,7 +870,34 @@ test("the route reads `remove` and hands it to the merge", () => {
   // argument nobody passes is the whole feature, silently absent.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /Array\.isArray\(aGen\.input\.remove\)/, "the route never reads what the model returned");
-  assert.match(w, /mergeAddonPages\(aSrc, aValid\.pages, aRemove\)/, "the merge is called without the removals");
+  // ⚠ RE-ANCHORED 2026-09-17, NOT APPEASED. This was pinned to the literal
+  // `mergeAddonPages(aSrc, aValid.pages, aRemove)` and went red on an honest
+  // FOURTH argument — this repository's own "assert the property, not the
+  // spelling", in the guard written for the wiring layer it is about.
+  //
+  // THE PROPERTY IS THE ARGUMENT LIST, read depth-aware so a nested call inside
+  // one of them cannot end it early — the recorded flat-scan trap. Every call
+  // must carry the removals AND the named destinations, and the count is pinned
+  // so a fifth argument added next month is a decision somebody makes rather
+  // than one that slips in.
+  const calls = [];
+  for (let at = w.indexOf("mergeAddonPages(aSrc"); at >= 0; at = w.indexOf("mergeAddonPages(aSrc", at + 1)) {
+    let i = w.indexOf("(", at), depth = 0, end = i;
+    for (; end < w.length; end++) {
+      if (w[end] === "(") depth++;
+      else if (w[end] === ")" && --depth === 0) break;
+    }
+    calls.push(w.slice(i + 1, end).split(",").map((s) => s.trim()));
+  }
+  assert.equal(calls.length, 2, "the route's merge call sites moved: " + calls.length);
+  for (const args of calls) {
+    assert.equal(args.length, 4, "a merge call carries " + args.length + " arguments: " + JSON.stringify(args));
+    assert.equal(args[2], "aRemove", "the merge is called without the removals: " + JSON.stringify(args));
+    // AND THE SAME LIST ON BOTH, because the second call is the RE-MERGE after a
+    // QR dependency is withheld: a different permission set there would revert
+    // on the second pass exactly what the first pass kept.
+    assert.equal(args[3], "aAskedPages", "the merge is called without the named destinations: " + JSON.stringify(args));
+  }
   // And the answer carries both halves back, or the client cannot tell the
   // owner what went and what was refused.
   assert.match(w, /removed: aMerge\.removed/);
@@ -848,14 +989,57 @@ test("the addon reply is DRIVEN, not grepped", () => {
   assert.match(reply({ added: [], changed: [], moved: [], jobs: [{ name: "j", everyMinutes: 60 }] }), /^✅ Done — scheduled j \(every hour\)\./, "a job alone does not read as done");
   const plain = reply({ added: ["src/routes/g.tsx"], changed: [] });
   assert.ok(!/function|connected|scheduled|database|Secrets/.test(plain), "an ordinary addition mentions the backend: " + plain);
-  // A CHANGED PAGE WITH NO PAGE ADDED (run 35, 2026-09-04): the page the
-  // addition landed on, not a link to a page that does not exist — the same
-  // rule the server's `addonReply` follows, driven on both.
+  // ⚠ A CHANGED PAGE IS "UPDATED" WHATEVER ELSE HAPPENED, and this asserted the
+  // opposite for the paired case — the run-35 inference from "a page was added"
+  // to "this changed page carries the link to it". Owner, 2026-09-17: *"a
+  // changed page does not establish that a link was added."* The browser's
+  // `addonReplyText` and the server's `addonReply` say the same, driven on both.
   const section = reply({ added: [], changed: ["src/routes/index.tsx"] });
   assert.match(section, /^✅ Done — updated \/\./, section);
-  assert.doesNotMatch(section, /linked/, section);
   const pair = reply({ added: ["src/routes/g.tsx"], changed: ["src/routes/index.tsx"] });
-  assert.match(pair, /added \/g, linked it from \//, pair);
+  assert.match(pair, /added \/g, updated \//, pair);
+  for (const [what, out] of [["on its own", section], ["beside an addition", pair]]) {
+    assert.doesNotMatch(out, /linked/, "the browser claims a link " + what + ": " + out);
+  }
+  // ── THE PHOTOGRAPH THIS CHANGE BOUGHT, AND THE FRAME IT LEFT (2026-09-17) ──
+  //
+  // TWO DIFFERENT FACTS AND THEY BOTH GET SAID, in that order: what was made
+  // comes before what is still empty, because the first is what the customer
+  // asked for. `pictureNote` is composed on the SERVER by `imageNote` — four
+  // outcomes render the same blank frame and only one of them is a bug — so
+  // this prints it verbatim rather than keeping a second copy of those five
+  // sentences in the browser.
+  //
+  // ⚠ AND THE FIXTURE IS `imageNote`'s OWN OUTPUT, NOT A SENTENCE TYPED HERE.
+  // A hand-typed note is a second copy of the composer, and a substring of it
+  // (`/Made 1 photograph/`) is satisfied by a browser that composed its own
+  // from `a.pictures` — which is the one thing this case exists to forbid. The
+  // whole string is asserted, and the whole string is the server's.
+  const noteMade = imageNote({ made: 1, planned: 1, budget: 1, overflow: 0 });
+  const noteBoth = imageNote({ made: 1, planned: 2, budget: 2, overflow: 1 });
+  assert.ok(noteMade && noteBoth && noteBoth !== noteMade,
+    "the two picture outcomes read the same, so nothing below can tell a local copy from the server's: " + noteMade);
+  const made = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 0,
+    pictureNote: noteMade });
+  assert.ok(made.includes(noteMade), "the browser drops the picture sentence the server composed: " + made);
+  assert.doesNotMatch(made, /space for a photo/, "a frame that was FILLED was reported as an empty space");
+  const both = reply({ added: ["src/routes/g.tsx"], changed: [], pictures: 1, photos: 1,
+    pictureNote: noteBoth });
+  assert.ok(both.includes(noteBoth),
+    "the browser said something of its own about pictures instead of the server's sentence: " + both);
+  assert.ok(both.indexOf("Made 1 photograph") < both.indexOf("space for a photo"),
+    "what is still empty is said before what was made: " + both);
+  // AND THE HAND-OFF SENTENCE IS THE SERVER'S DECISION, NOT THE BROWSER'S.
+  // `addLayerIn` is the one reader of whether a photograph rode this change;
+  // this line only prints what `skipped` was told.
+  assert.match(reply({ added: [], changed: [], skipped: ["photo"] }), /The photograph is a separate step/);
+  assert.doesNotMatch(reply({ added: [], changed: [], skipped: [], pictures: 1,
+    pictureNote: noteMade }), /separate step/,
+    "a photograph this change really bought was also announced as a separate step");
+  // A REPLY THAT SAYS NOTHING ABOUT PICTURES IS BYTE-IDENTICAL TO BEFORE — the
+  // control that makes every assertion above about the fields rather than about
+  // the sentence appearing on every addon there is.
+  assert.doesNotMatch(plain, /photograph|space for a photo/, "an addon with no pictures talks about pictures: " + plain);
 });
 
 test("a removed page leaves the picker", () => {
@@ -889,7 +1073,15 @@ test("the route hands a considered refusal to the customer, not to the build lan
   // refusal routed through it rebuilds the site for ~25 credits in answer to
   // "remove the home page". The branch must sit BEFORE the escalation.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(");
+  // RE-ANCHORED 2026-09-17, TWICE, AND THE SECOND TIME IS THE LESSON. First
+  // `const` became `let` (a dead QR code withholds a page and the route
+  // RE-MERGES what survives); then the merge gained an honest fourth argument
+  // and this went red again on a change it is not about. THE LANDMARK IS THE
+  // ASSIGNMENT — `aMerge = mergeAddonPages(` — because what this case needs is
+  // a place to START A WINDOW, and an argument list is not part of that claim.
+  // Pinning one is the recorded "assert the property, not the spelling", and it
+  // has now cost this file three red cases across two rounds.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge call moved");
   // TO A LANDMARK, NOT A BYTE COUNT. This read `at + 1400` and went red on a
   // correct change the moment a documented branch was added between the two
@@ -976,6 +1168,83 @@ test("reverting can never turn a real addon into a refusal", () => {
   assert.equal(alone.ok, true);
   assert.deepEqual(alone.changed, ["src/routes/book.tsx"]);
   assert.deepEqual(alone.reverted, []);
+});
+
+test("a page the designers NAMED is kept without a link, and only that page", () => {
+  // ⚠ THE OWNER'S REPRODUCTION AT THE MODULE (2026-09-17). *"Add a gallery page
+  // and add a parking note to the homepage"*: the component designer targets
+  // `/`, the writer returns exactly that page, and the reachability rule
+  // reverted it — because the note carries no link to `/gallery`. The route case
+  // has the end-to-end measurement; this is the argument on its own.
+  //
+  // `asked` IS THE DESTINATIONS THE CLEANED ANSWERS NAMED, as ROUTE identities,
+  // and both reasons are kept: reachability for the link nobody asked for in as
+  // many words, `asked` for the page somebody did.
+  const gallery = page("gallery.tsx", "export default function G(){return <p>Work</p>;}");
+  // The home page gains the note and NO link — the shape that makes this about
+  // `asked` rather than about reachability.
+  const note = { path: SITE[0].path, source: SITE[0].source + "\n// free parking behind the shop" };
+  const meddled = { path: SITE[1].path, source: 'export default function Book(){return <p>Different words</p>;}' };
+
+  const without = mergeAddonPages(SITE, [gallery, note, meddled]);
+  assert.deepEqual(without.reverted.sort(), ["src/routes/book.tsx", "src/routes/index.tsx"],
+    "the control: with nothing named, BOTH rewrites lose — which is what the fix has to change for one of them");
+
+  const r = mergeAddonPages(SITE, [gallery, note, meddled], undefined, ["/"]);
+  assert.deepEqual(r.changed, ["src/routes/index.tsx"], "the named page was reverted: " + JSON.stringify(r.reverted));
+  assert.deepEqual(r.reverted, ["src/routes/book.tsx"],
+    "naming one page removed the protection from another: " + JSON.stringify(r.reverted));
+  assert.match(r.pages.find((p) => p.path === SITE[0].path).source, /free parking/,
+    "the named page's own change did not survive");
+  assert.equal(r.pages.find((p) => p.path === SITE[1].path).source, SITE[1].source,
+    "an unnamed page's rewrite shipped");
+
+  // ── THE IDENTITY, AND WHY IT IS A CONTRACT ───────────────────────────────
+  // `asked` arrives as ROUTES because `page-gen.mjs` imports `routeOf` from
+  // this module — importing its `pageId` back would be a cycle — so the route
+  // normalises with `pageId` and this side maps its stored paths through
+  // `routeOf`. Measured equal on every real shape; driven here on the spellings
+  // that matter.
+  const keeps = (asked) => mergeAddonPages(SITE, [gallery, note], undefined, asked).reverted.length === 0;
+  assert.equal(keeps(["/"]), true, "the route spelling `pageId` produces is not recognised");
+  assert.equal(keeps(["/ "]), true, "a stray space defeated the match");
+  assert.equal(keeps(["/gallery"]), false, "naming the NEW page exempted a different one");
+  assert.equal(keeps([]), false, "an empty list exempted something");
+  assert.equal(keeps(undefined), false, "an older caller with no list changed behaviour");
+  assert.equal(keeps(["index.tsx"]), false,
+    "a FILE path matched, so the contract is looser than it says and two normalisers could drift apart unnoticed");
+  // BOTH SIDES ARE FOLDED, not one. `pageId` lower-cases at the producer, so
+  // through the route this can never fire — and the module is exported and
+  // takes what it is handed, which is the difference between a wall and a wall
+  // nobody can drive.
+  assert.equal(keeps(["/"]), true, "the ordinary spelling stopped working");
+  assert.equal(keeps(["/ABOUT"]), false, "an unrelated route matched once folded");
+  // …AND A NON-STRING IS REFUSED RATHER THAN COERCED — `String(["/"]) === "/"`,
+  // the trap this repo has shipped three times, and without the filter the
+  // `.trim()` below it throws on the array instead.
+  assert.doesNotThrow(() => mergeAddonPages(SITE, [gallery, note], undefined, [["/"], null, 7]),
+    "a non-string entry threw instead of being refused");
+  assert.equal(keeps([["/"]]), false, 'String(["/"]) === "/" exempted the home page');
+
+  // …AND THE COMPARISON IS CASE-INSENSITIVE, which is load-bearing rather than
+  // thorough: `SAFE_PATH` in `page-gen.mjs` carries `/i`, so `About.tsx` really
+  // is stored with its capital and `routeOf` answers `/About` where `pageId`
+  // answers `/about`. MEASURED through `validatePages`, not assumed.
+  const CASED = [{ path: "About.tsx", source: 'export default function A(){return <p>About us</p>;}' }, ...SITE];
+  const cased = { path: "About.tsx", source: 'export default function A(){return <p>About us, now with parking</p>;}' };
+  const up = mergeAddonPages(CASED, [gallery, cased], undefined, ["/about"]);
+  assert.deepEqual(up.reverted, [], "a mixed-case stored path defeated the match: " + JSON.stringify(up.reverted));
+
+  // …AND THE MIRROR, which is the half that makes it BOTH sides rather than one.
+  // A lowercase stored path with a MIXED-CASE entry: through the route `pageId`
+  // folds at the producer so this cannot arrive, and the module is exported and
+  // takes what it is handed — a reader should not have to know which side was
+  // folded. Without the mirror a sweep mutant cutting the asked-side fold
+  // survives every case above, because none of them needs it to MATCH.
+  const LOW = [{ path: "about.tsx", source: 'export default function A(){return <p>About us</p>;}' }, ...SITE];
+  const low = { path: "about.tsx", source: 'export default function A(){return <p>About us, now with parking</p>;}' };
+  const down = mergeAddonPages(LOW, [gallery, low], undefined, ["/About"]);
+  assert.deepEqual(down.reverted, [], "a mixed-case ASKED entry defeated the match: " + JSON.stringify(down.reverted));
 });
 
 test("a revert is reported all the way to the customer", () => {
@@ -1420,7 +1689,9 @@ test("the addon reports the model's own note instead of escalating", () => {
   // it covered our merge's refusals and not the model's, which is the commonest
   // case of it by far.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  // RE-ANCHORED 2026-09-17: the landmark is the ASSIGNMENT, not the argument
+  // list — this is a window opener and the arguments are not its claim.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
 
@@ -1443,7 +1714,10 @@ test("NOTHING SAID WHY STILL ESCALATES, which is what keeps the recovery", () =>
   // note is what separates the two, so a branch that fired without one would
   // turn every generator failure into a dead end.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = w.indexOf("const aMerge = mergeAddonPages(aSrc, aValid.pages, aRemove);");
+  // RE-ANCHORED 2026-09-17: the landmark is the ASSIGNMENT, not the argument
+  // list — this is a window opener and the arguments are not its claim.
+  const at = w.indexOf("aMerge = mergeAddonPages(");
+  assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
   assert.match(win, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
     "the unexplained-failure path no longer escalates");

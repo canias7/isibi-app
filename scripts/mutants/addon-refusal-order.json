@@ -1,0 +1,84 @@
+[
+  {
+    "label": "CONTROL: the moved block's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // ── AND ONLY NOW IS THE DESIGN STORED ───────────────────────────",
+    "to": "            // ── AND ONLY NOW IS THE DESIGN STORED (control) ─────────────────"
+  },
+  {
+    "label": "CONTROL: the reason comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "            // STORED HERE, NOT EARLIER: every refusal above leaves the site",
+    "to": "            // STORED HERE, NOT EARLIER (control): every refusal above leaves"
+  },
+  {
+    "label": "THE REPORTED DEFECT: the refusal stores the design on its way out",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aKeptPics.ok) {\n              return Response.json({",
+    "to": "            if (!aKeptPics.ok) {\n              if (aLookPatch) await patchSiteConfig(env, ownerSlug, adb, aLookPatch);\n              return Response.json({"
+  },
+  {
+    "label": "the store never runs at all, so a successful addition loses its design",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            let aStored = false;\n            if (aLookPatch) {",
+    "to": "            let aStored = false;\n            if (false && aLookPatch) {"
+  },
+  {
+    "label": "the store runs for a change that has nothing to store",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            let aStored = false;\n            if (aLookPatch) {",
+    "to": "            let aStored = false;\n            if (true || aLookPatch) {"
+  },
+  {
+    "label": "a failed design write falls through as though it had landed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);\n              if (!w.ok) {",
+    "to": "              const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);\n              if (false && !w.ok) {"
+  },
+  {
+    "label": "the store forgets it happened, so a failed publish never puts the old look back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aStored = true;",
+    "to": "              aStored = false;"
+  },
+  {
+    "label": "the photograph wall never fires, so the refusal path is unreachable",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aKeptPics.ok) {",
+    "to": "            if (false && !aKeptPics.ok) {"
+  },
+  {
+    "label": "the refusal answers ok, so the browser renders it as a change",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                ok: false, error: \"lost-photos\", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),",
+    "to": "                ok: true, error: \"lost-photos\", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),"
+  },
+  {
+    "label": "the refusal is charged",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                ok: false, error: \"lost-photos\", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),",
+    "to": "                ok: false, error: \"lost-photos\", cost: 1, lostPhotos: aKeptPics.lost.slice(0, 6),"
+  }
+]

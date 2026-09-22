@@ -155,6 +155,562 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-18 — The test kit can now see the things the test is about
+
+Your six corrections. Four were code, and all four were the same thing: **the
+harness could not see what the run is bought to prove.**
+
+**It was blind to photographs.** I grepped before assuming, and the four fields
+the route answers about pictures — how many it bought, the sentence it told
+you, how many empty frames it left, and which existing ones it would have lost
+— appeared **zero times** in the test script. So the run would have come back
+with a page and no reading of the photograph at all. It prints all four now, on
+every outcome including a refusal, which is the one that used to lose them
+entirely: a refusal's whole message to you lives in one field the script never
+read. It prints your complete reply now, sentence by sentence, labelled.
+
+**It will refuse to spend if the site's work would run in the wrong place.**
+There is a switch that decides whether an addon runs in the queue (no time
+limit) or inside the web server (~4½ minutes, then it dies with the credits
+gone — that is exactly how run 45 died). The script now checks that switch
+before the money goes, every time, and it cannot be forgotten because it is not
+a box on the form.
+
+**It reads the QR code rather than trusting it.** It redraws the code for each
+address your site really has and compares them square by square, so the answer
+is *which page this code opens* — not *does it open the one I guessed*. The
+name comes from whichever file appeared, never from assuming "gallery". Two
+real bugs turned up in the reader when I ran it, neither visible by reading it.
+
+**And it takes a proper before-and-after.** Not the sitemap (a list the publish
+composes, cached separately, and silent about codes and pictures) and not by
+guessing filenames — it reads your site's own stored source, both sides, taken
+in the second before the money goes. Plus a real browser, to say whether the
+new picture actually renders rather than just being served.
+
+### ⚠ And the measurement killed my own recommendation
+
+I told you Ashgrove was the site to use because it has a real photograph. **It
+does not show one.** Its one picture file is the social-sharing preview, and
+its page has no image tags at all. The earlier correction was right that a
+photograph had been bought; concluding from that that the site displays one was
+not, and one probe says so. A file being served is not a picture being shown.
+
+Of the 32 sites this file names — **not all ~70; I cannot list them without a
+login** — four really show a photograph on the page:
+
+| site | photographs shown | pages |
+|---|---|---|
+| **fold-lane-bakery** | 2 | 4 |
+| **oak-and-ash** | 1 | 4 |
+| shoeroom-1 | 1 | 1 |
+| forno-and-co | 1 | (empty sitemap) |
+
+**And there is a real trade here, which is yours to make.** The four with
+photographs are your older sites and have no QR codes. `fretwork-1` — the usual
+test site — has two QR codes and no photographs, and the preservation check is
+*worthless* there: the code short-circuits when there is nothing to preserve,
+so it would pass without testing anything.
+
+Nothing is merged, deployed or pressed. I also cannot read your credit balance
+or whether fal has money in it — no keys in this environment, checked rather
+than assumed — so both are a thirty-second look on your side before pressing.
+
+**CI has read it, both checks green.** The full test suite: **6,839 tests, 0
+failed** (4 skipped, all of them cases that need something this machine has not
+got). And the container harness, which builds and serves a real site end to
+end: **all twenty steps green, 382 passed / 0 failed**, plus the six render and
+routing checks beside it. That one ran because this change touches the QR
+drawing code, which the container carries — so it is the real check, not just
+the fast one.
+
+---
+
+## 2026-09-17 — Before the photograph test: a note in the file was wrong
+
+Preparing the live page + photograph + QR test, I checked a line this file's
+engineering notes have carried since **8 August**: *"fal balance is empty, so no
+generated photograph has ever been bought on a site."*
+
+**It is false, and your own site disproves it.** `ashgrove-1` — Chairmakers, the
+Bristol workshop — was built on **30 August** and the notes record it as *"one
+page, 2 photographs, 45 credits"*. I fetched the live page today: it serves a
+real **1.35 MB JPEG** at `/u/ashgrove-1/86833f9a…jpg`, HTTP 200. So fal had
+money three weeks after that line was written, a photograph was bought, and it
+is on your site right now.
+
+**What I still cannot tell you is whether fal has money TODAY.** Nothing in my
+session has a fal key, and fal's own account is the only place that knows. That
+matters more than it sounds: with an empty balance the addon does not crash — it
+publishes the page with blank picture frames and says *"Couldn't make the
+photographs this time"*. So the run would spend your credits, look finished, and
+prove nothing about the one thing it was bought to prove. **It is worth thirty
+seconds checking your fal balance before pressing anything.**
+
+The line is corrected in the engineering notes with the measurement beside it.
+
+---
+
+## 2026-09-17 — "Add a gallery page with photos of our work": three things were wrong
+
+The last item on the list you gave me. Same rules: **nothing merged, nothing
+deployed, no credits spent.**
+
+### The short version
+
+That one sentence asks for two things — a page, and photographs. The addon can
+make the page; photographs belong to a different step, so it sets that half
+aside and says *"ask for it on its own and I'll place it."* That much was right.
+
+Three things around it were not. Only the second is specific to this pairing —
+the other two are true of any addon that writes a page at all — but all three
+surface together here, which is why this combination is what found them:
+
+1. **We told the model the site has no photographs — on sites that have some.**
+   Word for word: *"PHOTOGRAPHS: none on this site."* I measured it on a site
+   showing two real ones and got the identical sentence. The model is writing a
+   new page while being told something false about the site it is writing for.
+
+2. **The promise we made couldn't be kept.** We asked the model to leave a
+   picture slot in a shape the photograph step cannot actually fill. So the
+   customer does what we told them — asks for the photo on its own — and that
+   step finds nowhere to put it. I checked both shapes against the real code:
+   the one we asked for reads as **zero** slots, the right one reads as **one**.
+
+3. **Nobody was told the new page has empty picture frames.** There is already
+   a sentence for that, written for exactly this reason — *"There are 2 spaces
+   for a photo — upload yours in the Data panel and they'll fill in."* It counts
+   something this particular step is forbidden to produce, so on the one path
+   that adds pages it has counted zero since the day it was written and that
+   sentence has never once appeared.
+
+### What it does now
+
+- It says the zero is **ours** — *"this change buys none"* — and then says
+  separately what the site really has, or nothing at all when we could not
+  read the pages. Never a guess in either direction.
+- It tells the model those photographs **stay exactly as they are**. Naming them
+  without that line tells a model they exist and nothing about leaving them
+  alone, and it edits what it is shown. You paid for those pictures.
+- It asks for the slot shape the photograph step can really fill. Looks
+  identical to a visitor — same placeholder either way.
+- It counts the empty frames the change actually **added**, per page. Frames
+  that were already on a page it touched are not reported as spaces your change
+  made, and a frame it filled somewhere else does not cancel out a new one.
+
+### Worth knowing
+
+Four of the five things my mutation sweep flagged were **holes in my own new
+tests**, not in the code — including one where the test's own comment claimed
+to check something it could not reach. I measured each one rather than guessing,
+and every new check was proved to fail against the bug it is there to catch
+before I believed it.
+
+The fifth was a line that genuinely cannot ever run. I measured that too, over
+ten cases, left it in with a note saying why, and pointed the sweep at the line
+next to it that can.
+
+**Nothing here is live.** Next time you run a real addon that asks for a page
+and a photo together, this is what changes.
+
+---
+
+## 2026-09-17 — Big sites: the addon stopped telling the writer to retype them
+
+Next on your list after the two gaps. Same rules: **nothing merged, nothing
+deployed, no credits spent.**
+
+### The short version
+
+There is a limit on how much of a site's own code we can put in front of the
+model in one request. No site of yours is anywhere near it — the biggest is
+about half — so this has never happened to a real customer. But sites only ever
+grow, one addon at a time, and I wanted to know what happens on the day one
+crosses it.
+
+What happened was bad. Over the limit, the addon quietly stopped being an addon.
+It fell through to the instructions we use for a **full rebuild**, which say
+*"write every page again in full"* — the exact opposite of what an addon means,
+where a page sent back **replaces** the one that is there. Everything that makes
+an addon safe went with it: no "only send what's new", no way to delete a page,
+no "leave the rest byte-identical". And the reply came back saying it all went
+fine, with nothing in the problems list and nothing said to the customer.
+
+I reproduced it on 17 real pages from your own corpus before changing a line.
+
+### What it does now
+
+The addon instructions are sent **every time**, whatever the size. What gives
+instead is the **source code**: it shows as many pages as fit, and then **names
+the ones it could not show** and says plainly not to touch them — because
+sending back a page you were never shown would overwrite work nobody looked at.
+
+Two details, and they are the difference between this being useful and being
+arbitrary:
+
+* **The pages your change is actually about go in first.** If a section is being
+  added to `/gallery`, `/gallery` is shown even if it is the last page on the
+  site. Then the home page, because that is where the link to a new page almost
+  always goes.
+* **A page too big to fit is skipped, not a full stop.** One enormous page does
+  not push four small ones out behind it.
+
+And whichever pages get shown, they are handed over **in the site's own order**,
+not in the order the budget happened to pick them. An order that moves from one
+request to the next reads, to a model, as if it meant something.
+
+### Two older things that were being thrown away
+
+While I was in there I found two facts we already work out reaching the **reply**
+and not the **record** — the thing anyone comes back to later: which requested
+pages did not survive, and which component names the model made up. Both had
+been computed and then dropped on the floor since the day each was written.
+They are saved now, along with this round's new one (which pages were too big to
+show).
+
+### What I did not change, and why
+
+I checked two other things that could have had the same problem and neither
+does: the site description we hand every designer caps its own lists (24 routes,
+40 components per page), so it flattens out instead of growing with the site,
+and the component list already says out loud what it left out. **The page source
+was the one dishonest limit.** Recording that rather than "I looked and it was
+fine".
+
+One correction while I was checking it: an earlier note of mine put exact
+character counts on that description. I could not reproduce them — three
+attempts measured three different things, because I kept handing the function
+the wrong shape — so I have taken the numbers out rather than repeat them. The
+part that matters is the cap, and that I can point at in the code.
+
+### The honest caveat
+
+None of this can be seen by a customer today, because no site is big enough. It
+is insurance against the first one that is — and it is the kind of insurance
+that only gets tested for real at the worst possible moment, which is why it is
+driven end to end here on real pages rather than argued about.
+
+---
+
+## 2026-09-17 — Addon milestone 1: the addon now knows what the site is
+
+You asked to keep the work on the whole ADDON path until the milestone is done,
+and to start with frontend context and hand-offs. Here is that, addon only.
+**Nothing is merged, nothing is deployed, and no credits were spent.**
+
+### Your two reproductions, and what they both were
+
+You reported these separately; they turned out to be one thing. Inside an addon,
+the steps run in a fixed order — pages first, then sections, QR codes and 3D
+scenes — and until today **nothing a later step needed to know crossed from an
+earlier one**. The backend half has worked that way since the 14th (a scheduled
+job can name a function designed a moment earlier in the same request); the
+frontend half never did.
+
+Measured on the code as it stood, before I touched anything:
+
+| what you ask for | what happened |
+|---|---|
+| a gallery page, and a caption block on it — one-page site | the block was built **on the front page**, and you were told it was added |
+| the same, on a three-page site | refused: "I couldn't tell which page that goes on" |
+| a gallery page, and a QR code that opens it | refused: "that page doesn't exist" — about the page in the same sentence |
+
+The first one is the bad one, and it is the one you called out: *"Do not
+silently substitute another destination."* The section really was built,
+somewhere you did not ask for, and the reply said done.
+
+**Fixed.** A page the same change is adding is now a real destination
+everywhere — a section may sit on it, a code may open it — and every step that
+is told about it is also told it does not exist yet, so nothing goes looking for
+a page that has not been written.
+
+**And a rule underneath it expired.** There was a shortcut: on a site with one
+page, a section with no stated destination goes on that page, because there is
+nowhere else. That is true right up until the same request adds a second page —
+and then it is a guess. It reads the site as it will be now, so it only fires
+when there really is one place to go.
+
+### The page writer had never seen your own components
+
+When a site has a component written specially for it — a tide chart, a chord
+diagram — that file lives in the project and gets compiled into every build. But
+the model that edits your pages was only ever shown its **name and a one-line
+description**, under a heading telling it to write them.
+
+So it wrote them again, from the summary, and the new version replaced the real
+one. Silently.
+
+**Fixed, and in two halves.** The writer is shown the real source of your own
+components and told to call them, not rewrite them. And if a component is too
+long to fit in one request, it is **named and ruled out** rather than left
+unmentioned — because saying nothing about it is exactly what makes a model
+write it from scratch. If it returns a rewrite of one it was never shown, we
+keep the real file and tell you:
+
+> I left tide-chart exactly as it is — that component is too long for me to read
+> in one go, so I won't rewrite it from a description. Ask me to change it on its
+> own and I'll work on it directly.
+
+### And it now knows what the site looks like
+
+Every rule the addon follows says "keep the site's design system" — and nothing
+in what it was shown said what that system *is*. It gets the theme name now, and
+the page writer gets your site's own stylesheet, marked as **already applied**
+so it uses those classes rather than writing the same rules inline. It also gets
+the exact props of the kit components on the page it is editing, which it only
+got by luck before.
+
+### Two mistakes of mine, both caught by checking rather than reading
+
+Worth saying, because both would have shipped looking fine:
+
+- One of my own fixes was **wired to nothing**. Two parts of the code name kit
+  components differently — one says `SeatMap`, the other says `seat-map` — so
+  the list I built was handed to something that answered nothing for every entry.
+  From outside it looks exactly like a site that imports no components at all.
+- One of my new tests **could not fail**. It checked for two component names
+  that happen to be mentioned elsewhere in the prompt anyway, so it passed with
+  the fix removed.
+
+Both were found by running each new test against the *old* code and requiring it
+to go red. That is the step I would skip if I were in a hurry, and it paid for
+itself twice here.
+
+### Checks
+
+- **Full suite: 6,761, all green** (6,749 + 7 new route cases + 2 + 3 module
+  cases — the arithmetic closes exactly).
+- **Mutation sweep: 36 mutants, 36 killed, 0 survived**, with the two
+  comment-only controls surviving as they must. Three passes: the first two
+  found gaps in my own new tests and **two pieces of my own code that could not
+  possibly do anything** — both measured inert rather than guessed at, and
+  deleted.
+- Every one of the seven new tests drives the real addon request end to end and
+  checks four things: what each designer was really shown, what instruction the
+  page writer was really given, what got stored, and what you would be told.
+- **CI agrees: `unit tests` 2659 green** — 6,761 tests, 0 failed, 4 skipped, and
+  the four are the usual environment ones (a case needing root, two needing the
+  template installed, one needing git history a shallow checkout does not have).
+  **`site build` 1164 is green too** — all twenty steps, the container harness
+  382 passed / 0 failed in 13m48s, and the same six counts beside it as every
+  run before. It ran because this change moves real product code, which is the
+  filter behaving. One small thing worth seeing: the harness's own unit step
+  went 390 → 393, which is exactly the three module tests I added — the numbers
+  agree two layers down.
+
+### Not done, by your instruction
+
+No merge, no deploy, no paid run. **The remaining addon work, in the order you
+asked for it, is at the end of my reply** — large-site context, page-plus-photo
+requests, media, the backend gaps, and end-to-end verification.
+
+---
+
+## 2026-09-17 — Your two gaps in that milestone, and a third I found chasing the first
+
+### 1. A failed read of your components let one get overwritten
+
+You were exactly right. The route read the file holding your site's own
+components **twice**, minutes apart, and the two could disagree. I reproduced
+the case you described: the first read fails, so the page writer is shown no
+source at all *and* is handed the old declaration under "Components to build" —
+so it writes the component again, from a one-line description. The second read
+then works, the rewrite replaces the real file, and **nothing tells you.**
+
+Reading it once is the fix. The read now answers three things rather than one —
+*here they are*, *there are none*, and *I could not look* — and the third is a
+refusal: nothing is offered to be written, nothing that comes back is kept, and
+the file is not touched at all.
+
+**And chasing that found a worse one.** When **both** reads failed, the merge was
+handed nothing and wrote back only the one component that came back — **deleting
+every other component on the site**, none of which you had mentioned. Driven
+before and after; they all survive now, byte for byte.
+
+You also get a different sentence, because it is a different problem: the old
+one told you to ask for that component on its own, which is right when it is too
+long to read and wrong when the store is down. Now it says it could not load
+them, left them alone, and to ask again.
+
+**The same shape is still live on the EDIT path** — I have written it down and
+left it, because you said to keep edit-path work separate.
+
+### 2. A QR code outliving the page it opens
+
+Also exactly as you described. Planning `/gallery` and having the writer return
+only the home page left the code stored, published and pointing at nothing, with
+the missing page mentioned afterwards. **A QR code is the one thing here you
+print**, so a dead one outlives every other kind of half-done change.
+
+It is checked now *before* anything is stored: a code this change added, aimed
+at a page this change planned and lost, is not published, and you are told —
+beside the sentence about the page, not instead of it.
+
+**One case I kept rather than dropped.** You can ask for the code to go *on* a
+page. If the writer puts it on the home page and then fails to write `/gallery`,
+taking the code away breaks the home page. So there it is **kept** and you get a
+different sentence: it is on your site, it opens a page that is not there, don't
+print it yet. A broken page everyone sees is worse than a code one person scans.
+
+The successful case is untouched and still tested: both halves arrive, the code
+is published, nothing is said.
+
+### 3. The media correction — you were right, and I checked it renders
+
+`video-embed` is in the component menu, its exact props reach the page writer,
+and **I rendered it** rather than reading the file: YouTube, `youtu.be`, an
+embed URL, and both Vimeo forms all produce a correct privacy-preserving player
+at the right shape, and an unusable URL produces a tidy "Video unavailable"
+panel. **No prompt change is needed.**
+
+One thing I found doing that and did **not** fix: the working player carries no
+`data-slot`, only the broken one does. That is the tag the styling step targets
+and the tag I use to read what a site really uses — so a site with a working
+video reads as having none. One attribute; it is a kit file, so it rolls the
+container. Your call.
+
+### Checks
+
+Suite **6,770** (6,761 + 5 + 3 + 1, closing exactly). Mutation sweep **36
+mutants, 36 killed, 0 survived, 2 controls survived** — pass 1 found three
+survivors and **not one was the product's**: one was a hole in my own new test,
+and two I measured to be harmless belts and wrote that down in the code instead
+of deleting them. Every new test was proved to FAIL against the old code first.
+
+### Not done, by your instruction
+
+No merge, no deploy, no paid run, and no demo site touched. Next, in your order:
+large-site context, then combined page + photo.
+
+---
+
+## 2026-09-17 — The clocks-going-back bug you found, and a correction to my own prediction
+
+### You were right, and here is it happening
+
+Your case, run against the code as it stands, before I touched anything. A job
+at **00:30 Europe/London**, daily, that already ran at **00:30:05 BST on 25
+October** — it has done that day. London puts its clocks back at 01:00Z that
+morning.
+
+|  | 00:58Z | 01:00Z | 23:00Z that night | next day 00:30Z |
+|---|---|---|---|---|
+| **before** | not due ✓ | **DUE** ✗ | **DUE** ✗ | DUE ✓ |
+| **after** | not due ✓ | not due ✓ | not due ✓ | DUE ✓ |
+
+**And it was worse than the two moments you named.** The wrong answer stood for
+the **rest of that day**, so every two-minute tick from 01:00Z until the next
+morning would have run it. Your two readings are the start of the window, not
+the window.
+
+**What went wrong, in one sentence.** To work out "when was the last 00:30 in
+London", the code asked the zone for its offset **at the current moment** rather
+than at the minute it was asking about. The moment London went back, "today's
+00:30" got computed an hour later than the 00:30 it had already served — and an
+hour later than 00:30 BST is **01:30 BST**, which is not a 00:30 at all.
+
+**And the code's own comment admitted it.** It said the offset was read at "now"
+rather than at the target minute, could be an hour out twice a year, and that
+this was harmless *"because the interval rule beside it means never twice"*.
+That is exactly the rule I took off for daily jobs in the last fix. **A rule
+that is only true because of something underneath it stops being true when that
+something moves** — and this time the something moved because I moved it. That
+is the fifth time this has been written down here and the second in a row.
+
+### What I changed, and the two decisions inside it
+
+The offset is now read **at the minute being asked about**. For a given day, the
+only two offsets that can apply are the ones in force a day either side, so
+there are only two possible answers — and each is **checked by reading the clock
+back**, because only that can tell a real reading from one the zone skips over.
+
+Two days a year a local time is not one moment, and each needed a decision:
+
+- **The hour that happens twice** (autumn). The job runs at the **first** one.
+  The second is then refused, so one day is still one run.
+- **The hour that never happens** (spring). The job is **not skipped** — it runs
+  at the moment that time would have had before the clocks moved, which for a
+  daily job is exactly 24 hours after yesterday and one hour later by the clock
+  for that one day. A reminder that quietly doesn't go out once a year is the
+  kind of failure nobody notices, and running after the time you asked for is
+  safer than running before it.
+
+**I did not put the elapsed-time rule back** — the Run now fix you approved is
+untouched.
+
+**And it is the zone's arithmetic, not "an hour".** Lord Howe Island shifts by
+**thirty minutes**, so there a missing 02:15 becomes 02:45 and a repeated 01:45
+has its two readings half an hour apart. A fix that assumed an hour passes every
+London test and fails both of those, so both are in the guards.
+
+**Also fixed by the same line, in the other direction**: a job at 01:30 London
+on that morning was being told its last run was **a whole day ago**, which
+strands a run instead of duplicating one.
+
+### Checks
+
+- Both new cases **proved red against the current code and green after**. The 59
+  other scheduler cases pass on **both**, which is what says I broke nothing.
+- **Mutation sweep: 25 changes introduced, 25 caught, none survived** — including
+  the exact defect put back, both policies flipped, the missing hour skipped, and
+  the read-back removed. All nine new ones were caught first time.
+- **Full suite 6,709** on the branch, and **6,749** once main was merged in.
+- **Main merged into the branch**, as you asked — nine commits, all of it the
+  agent-builder work. **Nothing it touches overlaps this fix**; the only shared
+  files are the two documents.
+- **CI has read the merged result, both workflows, green.** The unit suite ran on
+  GitHub's own machine and answered **6,749 tests, 0 failed** — the same total I
+  measured here.
+- **And the container harness ran twice, both green.** It runs when scheduler
+  code moves, and one of the two is **the merge commit itself**, so it covers
+  the merged tree directly rather than by inference: **all twenty steps green**,
+  the big one **382 checks passed, 0 failed**, and every smaller number
+  identical across the two runs. The two took 17m38s and 14m19s on trees that
+  differ by a comment — that is the runner having a good or bad day, nothing
+  about the change.
+- **Two things in those logs look worse than they are, so I am naming them.**
+  Two lines are stamped as errors — they are the harness deliberately compiling
+  a page with a type error to prove the site still ships, each followed
+  immediately by the check that says so. And five of the twelve test steps
+  report without a number at all ("all passed", or a different format), so
+  counting the numbers alone finds seven results and quietly loses five; I read
+  all three shapes rather than the one.
+
+### The correction you asked for: it will not wait until 23:00
+
+You were right about this too. I had said the next 23:00 London would be the
+first occurrence the fix picks up. **It isn't.**
+
+**Last night's 23:00 was never served.** Run now stamped the job at 19:29, two
+and a half hours before it, and the drifted schedule doesn't come round until
+**tonight at 20:29**. So the corrected rule looks back, finds an occurrence
+behind it that nobody served, and the job is **due at the first tick after the
+deploy — whatever time of day that is**.
+
+**Which means the first run you'd see is a catch-up, not the nightly one.** It
+would then run **again** that night at 23:00, because the catch-up stamps a
+daytime time and tonight's own occurrence is still ahead of it. Two runs on
+deploy day, both correct — and only the second one proves the schedule.
+
+**One thing changes that.** If the deploy lands **after 20:29 tonight**, the
+code that is live now may have fired the job first; the catch-up then disappears
+and the fix waits for 23:00 as I originally said. So the answer genuinely
+depends on when you press, which is why the baseline has to be read first.
+
+**I still can't read the Jobs panel** — re-checked, not recalled: there is no key
+for it in this session and the route answers 401 without one. What I *can* tell
+you is that **lane sweep run 50 is still the most recent** (asked of GitHub), so
+nothing has pressed Run now again, and the live schedule's next selection is
+still ahead of the clock. Both point at the row being exactly as run 50 left it —
+but that is a reason to expect a baseline, not a substitute for reading one.
+
+### Not done, by your instruction
+
+No merge to main, no deploy, no paid run, no reporting changes. The fix, the
+before-and-after, and the CI results are what this round is.
+
+---
+
 ## 2026-09-16 — Agent settings: pause it, and choose what it may use
 
 **What you can do now.** Open an agent's settings (the pencil in a conversation)
@@ -839,6 +1395,121 @@ would really be called — and a job that has lost its reference says
 
 **This one will roll the container** when merged, unlike the last change — so
 the 15–20 minute wait applies before anything paid.
+
+### You found two more, and both were exactly as you described
+
+Cron observation paused, as you said. Both reproduced first, fixed, then
+reproduced again — the before and after are below, not a summary of them.
+
+**1. "Run now" was moving your 11pm job.** On run 50's own row, with the
+timestamp the press left:
+
+```
+BEFORE   16 Sep 23:00 London  not due     ← the time you actually asked for
+         16 Sep 23:02 London  not due
+         17 Sep 20:30 London  DUE         ← half past eight, because of the press
+AFTER    16 Sep 23:00 London  DUE
+         then it fires, and is not due again until 17 Sep 23:00
+```
+
+It was counting twenty-four hours **from whenever the job last ran**, so one
+press slid the whole schedule to the hour of the press — and would have slid it
+again on every press after that. For a job that runs once a day or oftener, the
+only question that matters is *has tonight's run happened yet*, and that question
+was already being asked three lines earlier. It is the whole rule now, and it
+still refuses a second run the same night **whoever** did the first one — a
+press, a tick, or a recovered job.
+
+**Weekly and slower keep the old behaviour deliberately**: a weekly 9am has to
+skip six mornings and the interval is what does that. I tried the tidier version
+(measure the week to the occurrence rather than to now) and it is worse — a run
+that lands five minutes late then misses its own next occurrence and slips a
+whole day.
+
+**One thing it does NOT fix, and I'd rather say it than have you find it**: a
+press still nudges a job slower than daily. Fixing that properly means storing
+the last *scheduled* time separately from the last *actual* run, which is a
+database change; this change leaves that case exactly as it was.
+
+**And one of my own tests was asserting the bug as correct** — it demanded that a
+run landing two minutes late push the next morning two minutes back. I rewrote
+what it asserts rather than adjusting the number, and checked it fails against
+the old code.
+
+**2. An echoed id could overwrite a real failure.** Your reproduction, verbatim
+in behaviour:
+
+```
+BEFORE   the customer heard "Scheduled as you asked: The nightly reminder goes out."
+         …about a job the database had refused to create
+AFTER    the customer hears only "waiting on another part of the same change that
+         didn't work — the broken_job it needs could not be created"
+         and run 50's legitimate case still reads as one configured outcome
+```
+
+The id says **which request is being answered**. It says nothing about whether
+the answer is true, and three separate things now check that: a known failure is
+never overwritten; the answer has to come from the step the request was addressed
+to; and where the request named its own thing, the answer has to be that thing —
+both its kind and its name.
+
+**Refusing to reconcile turned out to be only half of it.** The answering entry
+was still sitting there saying "scheduled as you asked" in its own words, so one
+sentence came back twice with opposite verdicts — and the reassuring one is the
+worse half to leave standing. An answer whose request carries a known failure is
+now silent in the customer note. **Both entries stay in the record**, so you can
+still see what each designer said.
+
+**Checks**: full suite **6,707**, nothing failing. The mutation sweep found two
+holes in my own new tests — a name collision (`bookings` is both a table and what
+a job gets named after, and only the name was being compared) and a case where
+silencing could have eaten an unrelated "still to do". Closed both, re-ran:
+**16 of 16 caught, none survived.**
+
+**Not merged, not deployed, nothing paid.** Automatic 11pm running is still
+**unverified** — run 50's job has only ever been fired by hand.
+
+### The observation baseline — and the fix has to be live for it to mean anything
+
+**The baseline, as run 50 left it**: `nightly_booking_count()` at **23:00
+Europe/London every 1440m**, last run **2026-09-16 19:29:36Z**, last result
+**"Done — counted 3 bookings."**
+
+I drove both versions of the selector against that exact row, and they disagree
+about the live job:
+
+| code | first selects it at | in London |
+|---|---|---|
+| **what is deployed now** (`main`) | **17 Sep 19:29:06Z** | **20:29 tonight** — the drift |
+| **the fix** | 16 Sep 22:00:00Z | 23:00 **last** night — the time you asked for |
+
+The deployed number is not a guess: it is `last_run + 24h − 30s`, and the
+arithmetic closes on the second.
+
+**So the corrected schedule cannot become due until this is merged and
+deployed** — and a Worker deploy is enough for this one, because the selection
+happens in the Worker and not in a container. **That is your call and I have not
+made it.** Leave it un-merged and what fires tonight is the drifted 20:29, which
+is the defect running rather than the fix.
+
+> **⚠ CORRECTED 2026-09-17, and you spotted it: this paragraph used to end "the
+> next 23:00 London is the first occurrence the corrected code would pick up",
+> which is wrong.** Last night's 23:00 was never served, so once the fix is live
+> the job is **overdue** and runs at the first tick after the deploy, whatever
+> time of day that is. The full correction is in the 17 September entry above.
+
+**And I cannot read the Jobs panel from here.** That route is owner-gated and
+this session holds no key for it — checked, not assumed. So the read is yours,
+exactly like the workflow buttons.
+
+**How to tell an automatic run from a manual one, honestly.** The panel records
+the time and the result and **nothing about what invoked it**, so a timestamp on
+its own settles nothing. What I can tell you is that **I will press nothing** —
+that is a statement about what I do, not an inference from the row. Beyond that,
+a tick landing within a couple of seconds of the due instant is *consistent with*
+the cron and is not proof of it. And the two-minute cron is a cadence, not a
+deadline: a firing can be late or skipped, so the job not having run by 22:02
+would not establish that nothing fired it.
 
 ---
 
@@ -6177,6 +6848,20 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 ---
 
 ## Open — bugs and gaps
+
+**Open 2026-09-17 — the edit path has the same "nobody mentioned the empty
+picture frame" gap the addon just had**
+
+When an edit tweaks an existing page and that tweak leaves a picture slot, the
+customer is not told — the same sentence, the same silence, one rung along from
+the one I fixed today. I checked rather than assumed: that rung is told to buy
+no photographs in the same words, and it counts the same thing, so it counts
+zero on any ordinary answer.
+
+It is a smaller case than the addon's, because that rung changes a page rather
+than adding one. The fix is the piece I just wrote, wired in beside the existing
+count. **Left alone deliberately** — you asked for edit-path work to stay
+separate from this round.
 
 **Open 2026-09-12 — Hebden Bike Repair still has the writing across its hero,
 and one republish clears it**
@@ -11854,6 +12539,831 @@ database by reading the migration back, the engine by 71 live checks plus the sc
 run above, and the screen by the served bytes matching the code. And the one design call
 from last time is still yours: whether the automation row's four buttons should drop to
 their own line at 560px.
+
+---
+
+## 2026-09-17 — both corrections done, and the second one was hiding behind a test fixture
+
+You gave me two. I reproduced each one first, exactly as you described it, before
+touching anything.
+
+### 1. The QR exception is gone — the dependency is completed or withheld, never warned about
+
+You were right that a warning is not a fix. What I had built published a printed
+QR code that opens nothing, next to a sentence asking you please not to print it.
+I reproduced it: the broken destination really was saved, and the reply claimed
+the site had gained a code.
+
+**What happens now**: the code is dropped, *and* the page whose only change was
+showing it goes out as the version already on your site. Nothing breaks, because
+that version is already live — the binding is never deleted from a working page,
+it is simply never added. If the page was one this change invented, it is not
+added at all, and it says so in different words, because "I've left it as it was"
+is false about a page that has never existed.
+
+**Two things I want to flag, because I nearly got them wrong.**
+
+* If withholding leaves nothing at all to publish, it now **refuses** — free,
+  nothing stored — rather than compiling a site identical to itself and charging
+  you for it.
+* My own fix reintroduced an old and expensive bug for about ten minutes: a home
+  page linking to a page I had just withheld shipped with that link intact, which
+  is a dead link for anyone who clicks it. I measured it, and the repair for that
+  already exists in the platform, so I ask it again over what survives. The link
+  points home and you are told it moved.
+
+**Your successful case is kept**: a page and a QR that both arrive publishes the
+code and says nothing.
+
+### 2. Large sites: the page you asked about was the one being dropped
+
+Your reproduction was exact. Three big pages, "change /target" — and /target was
+the page held back. The cause is one line: the selection built file names with a
+`src/routes/` prefix, and the platform stores them without it. So the list of
+"pages this change is about" matched **nothing**, on every real site, and the
+selection was just stored order.
+
+**And it survived because of a test fixture.** Every "the site already has this
+page" test here wrote the stored page with that same prefix, so both sides agreed
+by accident. I measured what that really does with real code: a prefixed stored
+page and a normal returned one leave the site with **two home pages**, reported as
+an addition. Which means one of your walls — the one that refuses a change that
+lost the words already on a page — **had never once fired in any of those tests.**
+The fixtures are now produced by the real validator, so it fires, and one test
+went red immediately and needed a real fix.
+
+**A page now has one identity everywhere**: stored source, selection, generation
+and merge all ask the same question, and it is "which page is this, by its
+address" rather than "which file has this name".
+
+### 3. And a page nobody showed the model can't be replaced by it
+
+You said prompt wording and the words-preserved check don't establish that an
+unseen rewrite is safe, and both halves are right: the prompt does name every
+page it couldn't fit and tell the model not to touch them, which a model reads
+past; and the words check would pass a rewrite that quietly dropped a form or a
+link. So it is a wall now — a returned file for a page we couldn't show is
+refused, your stored one is kept, and you are told which, because a page silently
+dropped looks exactly like a page nobody touched.
+
+**Checks**: 6,788 tests green, up 8. Six of the new tests were run against the old code
+first and all six failed there — including two that only start failing once the
+fixtures are honest. Seven older tests were re-anchored onto what really moved
+rather than nudged until they passed.
+
+**And the deliberate-sabotage run came back clean: 43 out of 43 caught.** The
+useful part is what the first pass found. Nine sabotages survived it and **not
+one of them was a real hole in the two fixes** — six were gaps in the new tests,
+and three were more interesting:
+
+- **Two of them looked like the same safety check written twice**, which is
+  usually a sign one can go. I measured it instead of arguing about it, over four
+  different ways a page can be named, and they are not a pair: one of the two is
+  the only thing holding the whole fix up and the other genuinely does nothing.
+  The one that does nothing stays — it says what the list holds, which is worth
+  something to the next person reading it — but it is now labelled in the code as
+  doing nothing, so nobody wastes a day "fixing" it again. **The one that matters
+  now has a test.** It never had one, because every test in the codebase happened
+  to hand it the one input it could not fail on.
+- **The third was a genuine trap and the other codebase already records it**:
+  `"a"` and `["a"]` are the same string to JavaScript, so a page whose contents
+  arrived in the wrong shape read as a page showing a QR code, and would have had
+  its change withheld for nothing.
+
+**Nothing merged, nothing deployed, nothing paid.** Next is the combined page +
+photo work you paused this for.
+
+---
+
+## 2026-09-17 — a component is a file too, in both readers
+
+You said both defects still reproduce. **Three of the four shapes did and one
+did not**, and I ran every one of them through the real request before touching
+anything, because "still reproduces" and "reproduces in a shape the fix never
+covered" need different work.
+
+### What each shape actually did
+
+| what I asked for | what happened at the current code |
+|---|---|
+| a QR code shown inside a **custom section** | **broken** — published, code deleted, the section still referencing it. A site that would not build. |
+| a QR code shown inside a **new page** | already correct — refused, nothing published |
+| **large sites: change /target** | **could not reproduce** — /target is shown, /middle is the one held back, and you are told so |
+| a **photo inside a custom section** | **broken** — "this site shows no real photographs yet" |
+| an **unchanged section with an empty frame** | **broken** — reported as one new frame |
+
+The large-site one was fixed in the round you were reading; what your report
+describes is how it behaved before that. I have written that down rather than
+"fixing" it again — re-fixing working code is how a test ends up certifying the
+bug, and that has happened here twice.
+
+### 1. The QR fix was one file kind short
+
+Your sites are built out of **sections** now, each one its own file. The fix I
+shipped looked at pages and not at sections, so a QR code shown in a section
+slipped straight through: code deleted, section published, site broken.
+
+Same answer as before, extended: a section that already existed goes back to the
+version you are already serving, a section this change was inventing is simply
+not written, and **any new page that uses a section we just withheld goes with
+it** — publishing a page that imports a file that does not exist is the build
+failing outright. If that leaves nothing at all to publish, the whole thing is
+refused and costs nothing.
+
+You get told about it in the section's own words: *"I haven't written the
+qr-banner section — it was there to show that code."* Not "I left it as it was",
+which is untrue of something that never existed.
+
+### 2. "This site has no photographs" was counting only your pages
+
+Exactly as you found it. A photograph living inside a section was invisible to
+the count, so the model writing your page was told every picture on the site is
+a placeholder — which is the one sentence that could make it feel free to
+replace one you paid for.
+
+It counts sections now. And the part I want to flag, because it is your
+instruction and it is easy to get wrong: **when we cannot read your sections at
+all, the answer is neither number.** Not "no photographs". The model is simply
+told to leave every picture exactly as it is and nothing is claimed either way.
+
+### 3. "One new empty frame" was counting frames that were already there
+
+Two separate mistakes, both measured. The "before" picture was pages only, so a
+section that already existed had no before at all and every frame in it read as
+new — which is why returning a section **unchanged** reported one new frame. And
+the "after" was what the model handed back rather than what really gets
+published, so a page we withheld could still have its frames promised to you.
+
+Now: before and after both cover pages and sections, and the after is what the
+publish really carries. An unchanged section reports **0**; the same section
+gaining a real second frame reports **1**.
+
+### Combined page + photo is still incomplete, as you said
+
+It still sets the photograph aside and publishes a placeholder. What these two
+rounds bought is that the placeholder is now a slot the photo step can actually
+fill, and you are told the frame is there. One request still does not do both
+parts.
+
+**Checks**: 6,795 tests green, up 7. Every new test was run against the old code
+first and every one failed there. One older test was re-anchored — its rule was
+"count before the sweep", which is right for the edit path and is the opposite of
+right for this one, so it now covers the edit path alone and the addon half is
+tested on what it became.
+
+**And the deliberate-sabotage run came back clean: 29 out of 29 caught** — but
+the first pass is the part worth reading. Six sabotages survived it and **not one
+was a real hole in the fixes**. Three were walls nothing had ever pushed on, and
+all three are real:
+
+- a page that imports somebody *else's* section from a similarly-named folder
+  would have had its change withheld for nothing;
+- a long chain — code → section → page → next code → next section → next page —
+  stopped one link short, publishing a section showing a code that no longer
+  exists;
+- and the route's own "does this site already have this section" lookup, which
+  no other test could see, because every one of them answers that question by
+  hand.
+
+The other three are the interesting ones. **They could not be broken at all** —
+not by one change, not by two — which normally means a test is missing and here
+means the code does nothing. Two of them were checks whose condition can never
+be false, so they are gone, with the sentence they stood for left where they
+were. The third does nothing *today* only because another piece of the code
+happens to work a certain way, so it stays, and that other piece now has a test
+saying so — the day it changes, this one starts mattering and somebody finds out
+from a red run rather than from a customer.
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+---
+
+## 2026-09-17 — the chain broke one hop in: a section that holds the section
+
+**You reported it and it reproduced exactly.** Home page → `panel` → `qr-card` →
+a QR code pointing at a `/gallery` that never got written. The route dropped the
+code and held back `qr-card`, and then published `panel` anyway — a file whose
+first line imports `qr-card`. Nothing would have written that file, so the build
+would not have compiled at all. Measured off the real request before I touched
+anything: the payload handed to the builder carried `panel` with that import in
+it.
+
+**One missing question, not a missing idea.** The PAGE half has asked *"does this
+import a section that will not exist?"* since the day the cascade shipped. The
+SECTION half only asked *"does this show the dead code?"*, so the chain stopped
+at its first link and everything past it looked unrelated. It asks both now, and
+the whole set goes or stays together: **a section the site already had goes back
+to the version it is serving, a brand-new one is not written, and anything that
+depends on a brand-new one goes with it.**
+
+**One thing I had to decide with no evidence, so I decided it by which way being
+wrong hurts.** Two sections sitting in the same folder can refer to each other
+the short way — `./qr-card` — with none of the usual path in it. No prompt
+teaches that spelling and the 100-site sample has no sections in it at all, so
+there is genuinely nothing to measure. What settled it: the short form can only
+ever mean the file next door, so counting it can never hold something back by
+mistake, while ignoring it ships a broken build. Counted, and only ever from
+inside a section — from a page the same words mean a different file, and I check
+that both ways round.
+
+**And I put something back that I had added.** I widened a safety limit on the
+loop, then tested whether it changed anything: **6,000 random shapes, 2,621 of
+them with something really held back, zero differences.** It was doing nothing,
+for a reason I can state rather than guess, so the limit is what it was and the
+reason is now written beside it. Better a short proof than a spare part.
+
+**Checks**: 6,798 tests green, up 3. Both new tests were run against the old code
+first — one failed there, and the successful control passed on both, which is
+what makes it a control instead of a second copy of the same test.
+
+**Sabotage run: 17 out of 17 caught.** The first pass let four through and **not
+one was a hole in the fix** — three were shapes no test had pushed on (a comment
+mentioning the file, a link that ends in its name, a kit part with the same
+name), all three now covered by real examples rather than invented ones; the
+fourth was the spare part above.
+
+**Combined page + photo is still incomplete**, as you said: the same request
+still hands the photograph on rather than placing it.
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+**CI read both, and both are green.** The unit suite: 6,798 tests, 0 failures.
+The container harness: all twenty steps, the site build itself 382 checks and 0
+failures — it ran because this change touches the builder, which is what that
+workflow watches for.
+
+**One small honesty note.** This file keeps a running count of how many separate
+runs have answered "382", and the way to work it out is meant to be a search
+rather than adding one to the last number. I tried the search and it
+over-counts — it picks up a different workflow's run numbers, and two older runs
+that answered something else. So the count stays dropped and each entry names
+its own run instead. Not worth a fix; worth not publishing a wrong number.
+
+---
+
+## 2026-09-17 — "add a gallery page AND a parking note" lost the parking note
+
+**You gave the exact sentence and it reproduced first time.** The note was meant
+for the home page, the component designer said so, the writer wrote it — and the
+merge put the home page back the way it was, because the note contains no link
+to the new gallery page. Nobody asked it to. The note reached neither the
+builder nor the stored copy, and the reply said *"I left / as it was — nothing
+there needed to change for this"* about half of what you'd asked for. Ask for the
+note **on its own** and it works, which is what made it a hole rather than a
+policy.
+
+**The rule was right; it only knew one reason.** It protects pages an addon
+wasn't asked about — bought the hard way, by a run that rewrote four of four
+pages for 28 credits — and the one exception it knew was "this page carries the
+link to the new page". That's a guess about a page nobody mentioned, and a good
+one. What was missing is the case where somebody DID mention it. Now there are
+two reasons and they're separate: the link, and **being named by the designer**.
+
+**Named means named.** The list comes from what the design steps actually
+answered, not from your wording — a rule read out of prose is a rule a model can
+paraphrase around. And it deliberately does NOT include the home page as a
+freebie: the home page is on a different list, for a different job (deciding
+which pages we can afford to show the writer), and lending that list to this
+decision would have unprotected the one page every site has. Two lists, one
+pass, so they can't drift apart.
+
+**Three checks, exactly as you asked**: the note on its own; the note beside a
+new page with no link between them; and a rewrite of a page nobody mentioned,
+which is still refused. Each one checks three separate things — what went to the
+builder, what the site is left holding, and what you're told — and the "nothing
+needed to change" sentence is checked **present** on the refused one, so the fix
+can't quietly become "stop saying it".
+
+**Checks**: 6,802 tests green, up 4. All three new checks were run against the
+old code first: only the broken one failed, and both controls passed on both —
+which is what makes them controls rather than three copies of the same test.
+
+**Sabotage run: 15 out of 15 caught.** Three got through the first pass and none
+was a hole in the fix — two were checks I'd written that needed the case where
+the match has to SUCCEED rather than fail, and one was a line I proved does
+nothing today and kept anyway, with the reason written beside it.
+
+**Five older checks had to be re-pointed, and four are the same mistake.** They
+used the merge as a bookmark and pinned its whole argument list, so adding an
+honest argument broke them on a change they're not about. Three of those four had
+already been re-pointed yesterday for the same reason. They bookmark the line
+itself now.
+
+**And one mistake of mine worth recording**: my first version of a test passed
+the new list in the wrong slot, and it read as the fix not working. It was caught
+because that test asserts something POSITIVE — one that only checked "nothing bad
+happened" would have sailed through.
+
+**Combined page + photo is still the next incomplete thing.**
+
+**Nothing merged, nothing deployed, nothing paid, and no edit-path work.**
+
+**Same day, one wording fix.** You spotted that the reply claimed a link it
+hadn't made — and it contradicted itself in the same breath: *"added /gallery,
+linked it from /. Nothing links to /gallery yet…"*. It was guessing "this changed
+page must be the one carrying the link" from the fact that a page had been added,
+which was the only reason a page could change beside an addition when that line
+was written, and stopped being true the moment a page you'd named could change
+too. A changed page is **updated** now, always — nothing left to guess wrong. The
+"nothing links to it yet" sentence stays, because that one actually checks.
+
+Three tests expected the false claim, including one I'd just written. All three
+now check the stronger thing: no reply claims a link at all. No new machinery,
+and the test count didn't move.
+
+**Same day — page + photo in one request, done.** You asked for the capability
+rather than the preparation: *"Placeholders and asking the customer to repeat the
+photo request do not complete that capability."*
+
+I measured what it did first. *"Add a gallery page with a photograph of the
+workshop on it"* built the page, set the photograph aside, published a gallery of
+empty frames, and told the customer the photograph was a separate step.
+
+**The line I drew is who makes the space for the picture.** The picture rung
+fills a frame that already exists — it prices one against your real balance and
+refuses honestly, and none of that moves. But a photograph asked for beside a
+page or a section is a frame *this* change is writing, so this is the only step
+that can make it and fill it in one go. A photograph asked for on its own still
+goes to the picture rung exactly as before, and so does one asked for beside a
+table.
+
+So now: the picture is designed here, the balance decides how many we can afford
+before the page writer is even told about them, the writer is handed the exact
+description to place, and the photograph is bought and dropped into the page
+before it publishes. One request, one publish. Billed on what actually arrived,
+never on what was asked for.
+
+**Two things worth telling you about.**
+
+The first is a trap this codebase has recorded four times and I walked into
+anyway. There was a safety line that wiped any photograph marker out of the page
+before publishing — correct for years, because this step never bought pictures.
+It was quietly deleting the very markers the new purchase was looking for. A rule
+that's only true because of the layer beneath it stops being true when that layer
+moves, and this time *we* were the layer. The safety line still runs on every
+change that buys nothing, so nothing can leak.
+
+The second is a test that was already there going red and being right. It caught
+that when somebody asks for a photograph they can't afford, my change left the
+page with nowhere to put one later — worse than before. Fixed, and it now leaves
+a fillable space whenever a picture was asked for and not bought, whatever the
+reason.
+
+Stubbed the image provider end to end, as you asked, and checked the prompt it
+was really paid for rather than just counting. Eleven older tests re-pointed at
+the property that moved, never softened.
+
+**And then the mutation sweep found nine holes — in my tests, not in the
+feature.** That's what the sweep is for: it breaks the code on purpose and asks
+whether anything notices. Four were real gaps, and closing them was more
+interesting than it sounds, because three of the four tests I wrote to close
+them didn't test anything the first time round. One aimed a photograph at the
+very page it was trying to prove gets thrown away — and naming a page in a
+photograph request is exactly what keeps it. One left no room for the wrong
+picture to be bought, so it couldn't tell right from wrong. And one checked the
+browser printed "Made 1 photograph" — which is satisfied by a browser that makes
+that sentence up itself, the one thing that test existed to forbid. I only found
+all three by measuring what each test would do against the broken code, rather
+than reading it and deciding it looked right.
+
+Two more of the nine turned out to be untestable rather than untested: they
+guard a rule about a kind of request that doesn't exist on the platform yet. One
+I made testable (the list it checks is now handed in, so I can hand it a
+pretend world with two kinds in it). The other I couldn't, so I've written into
+the code why it's there and why nothing can see it — otherwise the next person
+along deletes a line that looks like it does nothing.
+
+**With all nine closed, the sweep ran again from scratch and came back clean:
+forty deliberate breakages, forty caught, and the two decoys — harmless comment
+changes that must survive, the sweep's own check on its honesty — both survived.**
+That second run is the number worth having; the first one only told me where my
+tests were thin.
+
+**And writing that number down caught something about the tool itself.** I went
+to record which tests the sweep ran against and found the answer wasn't written
+anywhere — the tool takes that list when you start it and then never mentions it
+again, so its log opens with "checking" and closes with a score. That matters
+more than it sounds: running a sweep against a short list of tests is what makes
+it cheap, and a short list can only ever make a broken thing *look* fine, never
+make a fine thing look broken. So "forty out of forty" and "forty out of forty
+against these nine files" are different claims, and only the second one can be
+checked later. I'd written the first into our notes with a file count from
+memory, which is exactly the thing this codebase keeps telling me not to do.
+
+The tool now says what it's about to do before it does it, and says "the whole
+suite" out loud when you give it no list — otherwise a blank line and a
+forgotten one look the same. Three tests for it, each checked against the old
+version first to be sure they'd have caught this.
+
+Suite 6,816, all green — 6,813 for the photograph work and three for the tool.
+
+**Nothing merged, nothing deployed, nothing paid. No real photograph has been
+generated — the first live one is your press.**
+
+---
+
+## Buying a photograph was taking the old ones off the site (2026-09-17)
+
+You asked for two more fixes and both of them turned out to be real, so I
+reproduced each one first — actually ran it and watched it go wrong — before
+touching anything.
+
+**The first one you spotted is worse than it sounds.** The instruction we send
+the page writer when we're buying a photograph ends by telling it that *every
+other picture on the site should have no image*. That's true on a brand new site
+where nothing is real yet. On a site that already has photographs you've paid
+for, it's an instruction to take them off. I set up a site showing two bought
+pictures, asked for a gallery page with a new photo on it, and the writer did
+exactly what it was told: both old pictures stripped, the page published, and
+you'd have been told "Made 1 photograph for the site." The two you lost were
+even counted as *new empty spaces this change had added*.
+
+Two things now. The instruction is corrected — it only bans a picture the change
+*adds*, and it tells the writer how many real photographs the site already has
+and that they stay. And there's a wall behind the instruction: if a change would
+leave the site showing fewer photographs than it started with, it's refused
+before anything is published and before a penny is spent. You get a sentence
+saying how many of your own pictures were at stake, that nothing was published
+and nothing charged, and to ask again.
+
+The wall looks at the whole site rather than file by file, on purpose. If the
+writer moves a picture out of one section and into another, nothing has been
+lost and it should go through — a file-by-file check would refuse a perfectly
+good reorganisation. It covers your own hand-written sections too, not just
+pages, which matters because that's where a lot of pictures actually live.
+
+**The second one: asking for two photographs with credits for one.** We bought
+the one we could afford and said "Made 1 photograph for the site." Nothing about
+the second, and nothing you could do about it. It now says: *"Made 1 photograph
+for the site. There weren't enough credits for the other one, so it isn't on the
+site — top up and ask for it and I'll add it."*
+
+And it's careful not to call the missing one a placeholder, because it isn't
+one. The second picture was cut from the list before the writer ever saw it, so
+there's no empty frame sitting there waiting — nothing at all. We already had a
+sentence for pictures that *are* placeholders, and lumping these in with it
+would have sent you looking for a space that doesn't exist. Same thinking one
+step further: when nothing is affordable at all we do ask for an empty frame, and
+the reply now only mentions a placeholder if one really made it onto the page.
+
+**What I got wrong along the way, since it's the useful part.** My first attempt
+at carrying "how many were asked for" added a number to the reply that nothing
+ever reads — which is the single most repeated mistake in this codebase, and I
+made it inside the fix that's about exactly that. The sweep caught it. I took it
+out rather than writing a paragraph defending it.
+
+Five other things the sweep found were gaps in my own new tests, not in the code.
+Two are worth repeating: a refusal has to say `ok: false` as well as returning
+the right code, because the browser reads the field and not the code — I'd
+checked the code and not the field. And a test of "junk input is ignored" has to
+include the *specific* junk that isn't ignored: in JavaScript a one-item list
+turns into that item when you treat it as text, so a list holding a picture's
+address reads as a page really showing it. That exact quirk has caused three real
+bugs here already.
+
+**The sweep then ran clean: thirty-seven deliberate breakages, thirty-seven
+caught, and both decoys survived as they should.** Suite 6,828, all green.
+
+Two more places the same wrong sentence still lives, both on the first-build
+path rather than this one, both written down and not touched: the shorter form
+of the same instruction, and the "this site has no photographs" line, which is
+false when you revise a site that *does* have some. Neither is in what you asked
+for and both change the first-build prompt, which wants its own testing.
+
+**Nothing merged, nothing deployed, nothing paid, and I haven't been near the
+edit path.**
+
+## A refused change was still saving your design settings (2026-09-17)
+
+You were right, and it's the same shape as the one before it. I reproduced it
+first — actually ran the combined "gallery page + photo + QR code" request and
+watched it go wrong — before touching anything.
+
+**What happened.** The change is refused because it would have taken one of your
+existing photographs off the site. Nothing is published, nothing is charged, your
+pages are untouched — and the QR code it had designed was already saved, pointing
+at a gallery page that does not exist and never will. A QR code is the one thing
+here somebody *prints*, so that is exactly the artifact we go to lengths to
+prevent elsewhere, arriving through the back door.
+
+**The cause was one block sitting in the wrong place, and it was mine, from
+yesterday.** The design settings were saved just after the bill, and every
+refusal that existed at the time was above that line — so the comment sitting
+right on top of it said "every refusal above leaves the site exactly as it was",
+and that was *true when it was written*. Yesterday's photograph wall is a new
+refusal, and it went in below. Nothing announced that; the sentence just quietly
+stopped being true. It is the fifth time this codebase has been bitten by a rule
+that was true because of something underneath it, and the first time I did it in
+the same day.
+
+**You offered two fixes and I took the first one, on purpose.** Moving the save
+below the wall keeps one rule — *a refusal changes nothing* — where restoring the
+old settings after a refusal would be a rule plus an exception, and the exception
+is a second repair step that can itself fail. If that restore failed there would
+be nothing left to try.
+
+**The test asserts the whole of your configuration, not the QR code.** Pinning
+just the field you named would pass again the day something else gets written
+above a wall. It now compares the entire stored settings object against what the
+site had before, so the question it answers is "did this refusal write
+*anything*". Before the fix it came back with a 22-field merged design; after, the
+two the site started with. Same for the pages and your hand-written sections, and
+it checks that no photograph was bought and the builder was never called. The
+matching successful request sits beside it as a control and passes either way.
+
+**Then the sweep asked for three more tests, and one of them is the useful
+lesson.** The block I moved does four things and only one had a test. Two of the
+others were impossible to test at all — the fake site storage always succeeded
+and the fake builder always worked — so I added two switches and wrote them:
+
+- a change with no design in it must not rewrite your settings (measured: without
+  that check it would quietly give the site five settings it never had);
+- a save that fails says so and publishes nothing;
+- and a publish that fails puts your old design back.
+
+That last one is the claim my own comment was making. An invariant written in a
+comment and tested nowhere is *precisely* how this defect shipped in the first
+place — so leaving it untested would have been the same mistake, inside the fix
+for it.
+
+**Two mistakes of mine worth recording.** Two of the deliberate breakages I wrote
+for the sweep were broken themselves: one changed nothing because the line after
+it returned anyway, and one was identical to the original on every path a test
+can reach. Both were caught by measuring what they did rather than reading what
+they were meant to do. And one test fixture invented a theme name the product
+does not have — 500 real ones exist and `kraft` is not one — so the control
+reported a working save as losing your theme. It uses a real one now, with the
+reason written beside it rather than quietly swapped.
+
+**The sweep then ran clean: eight deliberate breakages, eight caught, both decoys
+survived as they should.**
+
+**Nothing merged, nothing deployed, nothing paid, and I haven't been near the
+edit path.**
+
+---
+
+## 2026-09-18 — three corrections to the live-test instrument
+
+Your three, each of them a thing the harness was claiming and could not back up.
+
+**1. It was checking the QR code against the wrong thing.** The endpoint it read
+re-draws the code from your settings every time it answers, so it was comparing a
+drawing to itself: *"the settings say /gallery"*. That is true even if the publish
+never ran and no visitor can scan anything. It now fetches the real file from the
+live site, the way a phone would, and gives four different answers because they
+need four different fixes — not on the site at all, there but broken, there and
+opening the wrong page, there and right. Two lines per code, never merged, so a
+disagreement between what the settings say and what the site serves is the
+finding rather than something to spot by eye.
+
+I checked it against fretwork-1 before believing it: `qr-prices.svg` really is
+published and really does open `/prices`. **And my own first version of the check
+was wrong** — it asked "does this contain an SVG?", and fretwork-1's home page
+contains about sixty of them (React draws its icons that way), so a missing file
+would have been reported as a broken drawing. It asks "is this file an SVG?" now.
+
+**2. It was printing "NOTHING" for replies the customer clearly sees something
+for.** The report listed the server's sentences one by one, which is a complete
+list of what gets quoted verbatim and says nothing about what the browser
+*composes* — which is most of what you read. It now runs the browser's own
+formatter out of `chat.js` rather than writing a second one, so the report shows
+the same words your screen does, and the sentence-by-sentence list sits
+underneath as the developer's half.
+
+**3. It could not tell a failed read from an empty site, so "nothing was lost"
+was not a claim it could make.** Four readers in the endpoint turned a storage
+failure into an empty list with a perfectly happy 200 — so a before/after
+comparison taken across one said *"this change added nothing and lost nothing"*,
+and the check that every photograph survived passed by having seen none on either
+side. The endpoint now says which of its stores it really read; the harness
+**stops the run before spending** if the before-reading is incomplete, and marks
+preservation **unverified** if the after-reading is.
+
+**One consequence worth knowing: the paid test now needs this deployed first.**
+The live Worker does not yet say which stores it read, so the harness would
+refuse against it today. That is your instruction working rather than a problem —
+but it makes the order merge, then deploy, then press.
+
+**And your other half: it now checks where the picture actually landed**, not
+just that the file loaded. Those are two different questions — a photograph whose
+bytes arrive perfectly into a collapsed box renders at nothing and the old check
+called it fine. It reads the rendered size, how far down the page it sits and
+which heading it sits under.
+
+**Two things I had flagged as possible bugs turned out to be my test fixtures'
+fault, and I measured rather than guessed.** The product sends page addresses and
+table names correctly; my drivers were handing it the wrong shapes. Recorded that
+way round rather than quietly swapping them.
+
+**And the instrument found one real defect in itself**: a setting for "which
+address was this code supposed to open" has existed for as long as the check has
+and nothing ever passed it in, so the tick-or-cross against the expected page had
+never once printed in a real run.
+
+**Eight deliberate breakages became thirty-eight; all thirty-eight caught, both
+decoys survived.** The first pass found three gaps and none was in the product —
+one of them made me lift the browser check out into something a test can actually
+run, because it lived inside the browser where nothing could reach it.
+
+**Nothing merged, nothing deployed, nothing paid.**
+
+**CI has read it, both checks green.** The unit suite came back 6,842 — the same
+number I measured here — and the container harness came back all twenty steps
+green with its big one at 382 passed, 0 failed, unchanged.
+
+**And I checked the reader I use to read those logs against a second one.** I
+normally pull the counts out of one long log by drawing a window around each
+step; GitHub also ships the same run as one file per step, so I read it both ways
+and compared. They agree exactly — same twelve steps carrying a number, same
+numbers. Worth doing once, because that windowing has been wrong before and it is
+the thing every one of these reports rests on.
+
+**Still nothing merged, nothing deployed, nothing paid.**
+
+---
+
+## The last correction — and the harness is finished (2026-09-18)
+
+You found it: the report ran the *success* formatter on refusals. A reply saying
+`{ok:false, error:"lost-photos", msg:"Nothing was published and nothing was
+charged."}` came back on the report as **"✅ Done."** — a refusal that published
+nothing, shown as the change having landed. I reproduced it on your exact body
+before touching anything.
+
+**The cause is the fix before this one stopping one layer short.** Last round I
+made the report stop writing its own version of the reply and start running the
+browser's real formatter. That was right, and the thing I reached for —
+`addonReplyText` — is the *success* formatter. The browser decides **which**
+screen a reply gets before it composes anything: an escalate hops sideways, a
+reply that would not parse falls back to the full rewrite, a failing status or an
+`ok: false` shows the warning and the message, and only the last case reaches the
+success formatter. So I fixed the writing and left the *choosing* re-implemented
+as "always the success one" — the same two-copies mistake one level up from where
+I had just closed it.
+
+It runs the browser's real chooser now, so all four outcomes are the browser's.
+
+**The HTTP status is part of that choice, and it is carried rather than guessed.**
+A 200 and a 422 carrying the same body are two different screens. Interestingly
+your example alone cannot show that — a body saying `ok: false` gets the warning
+at *any* status — so the case that proves the status is really read is a body
+claiming **success** at a **failing** status: at 200 it composes "Done — added
+/gallery", at 422 it composes nothing and falls. Both driven.
+
+**And a status the harness did not record is a third answer, not a coin toss.**
+If it cannot tell, it says **NOT COMPOSED** rather than picking. Reading it as a
+success is the bug you just found; reading it as a failure would report a refusal
+screen over a change that worked.
+
+**Nothing external can happen from a read, and that is built in rather than
+careful.** Two of the browser's four outcomes don't print — they *act*: one posts
+a **second paid request** to the edit route, the other starts the **~25-credit
+full rewrite**. Both are replaced with recorders, so they are written down as
+things the browser *would* do and neither happens; the browser's own site-list
+write is unreachable by construction. And they are now **reported**, because a
+report that showed only the text would be silent about the expensive half.
+
+**Eight deliberate breakages became twenty-five; all twenty-five caught, both
+decoys survived.** The first pass left one survivor and it was not a bug — a line
+that cannot change the outcome today, because every non-success path in the
+browser ends the same way. I measured that rather than assuming it (32 probes,
+zero differences), kept the line because it matches what the browser really hands
+over, and wrote down why, so nobody deletes it later as dead.
+
+**Unit suite 6,843**, one more than last time and the arithmetic closes exactly.
+
+**Harness preparation is closed.** Nothing further is going into the instrument.
+
+### What you need for the live test
+
+**MERGED AND DEPLOYED — deploy 2134, 2026-09-18 21:09:02→21:12:54Z, green in
+3m52s**, on `main` `d826d7fb` → `ff9fce5f` (fast-forward, 60 commits, 56 files).
+The order was your own from last round — merge → deploy → press — because the
+harness refuses to spend if it cannot confirm it read the site's stores
+completely, and main's Worker could not say so until now. **Both halves are
+done; the press is yours.**
+
+**The two expectations to type into the form** — and both are now read off the
+deploy that really happened rather than predicted:
+
+| field | value |
+|---|---|
+| `expect_deploy` | **`ff9fce5f72fe1b16339a687ec0ad76d07fce3778`** — deploy 2134's own sha. `DEPLOY_ID` is `github.sha`, so this is what the Worker answers. A short sha (7+) matches as a prefix, so **`ff9fce5f` is enough** |
+| `expect_image` | **`3b93a9cae43bac41`** — and the deploy's own log names it |
+
+**The image id was computed before the merge and the deploy agreed on both
+ends** — the eighth cross-check of that technique, and the strongest form of it:
+`origin/main` hashed to `7273d2569866364f` and the candidate to
+`3b93a9cae43bac41` (183 inputs each), and the log's own diff then reads
+`- "image": …7273d2569866364f` / `+ "image": …3b93a9cae43bac41`, `EDIT
+isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied
+changes`. **The container rolled at 21:12:47.7Z** — read out of that diff, never
+inferred from how long the step took. **So the 15–20 minute hold ran to
+~21:28–21:33Z.**
+
+**And the served file proves the Worker half, which it usually cannot.**
+`public/chat.js` really changed in this merge, so `/chat.js` is fetchable with no
+token and is **byte-identical to the merged tree** — 707,785 bytes, sha256
+`4b3e8c869af12519` (705,648 / `56c3cfa2c177e6a5` before). **The cheap
+discriminator for this particular change is `pictureNote`: 0 occurrences in what
+main served before, 2 now** — the identifier the whole combined page + photo
+reply turns on, absent from every byte the platform had ever served.
+
+**Regression: byte-identical**, baseline taken 48 seconds before the push and
+compared 40 seconds after the deploy. Seven sites 200 at the same sizes
+(repairbench-1 46,358 · fretwork-1 58,642 · ashgrove-1 31,120 · northgroup-5
+1,641 · washhouse-1 52,404 · ben-crowe-guitar 52,060 · fold-lane-bakery 11,262),
+each on the same `x-site-version` and the same build — and the interactive half,
+because a 200 is an availability check and never a health check: `/status`
+**200/6,272** and `/booking-check` **200/6,290** on the same version, with
+`count_booked_repairs` and `count_existing_bookings` both **200 answering 3**.
+Gate discriminator 401/401/401/404.
+
+**The merge started exactly one workflow** — deploy 2134 and nothing else, which
+is the merge-trigger census holding in the live. **And nothing paid was in
+flight**: the last `lane sweep` was run 50, two days ago, checked before pushing
+rather than after, which is the near-miss recorded in September.
+
+**The run itself** — `lane sweep`, dispatch only, your press:
+
+| field | value |
+|---|---|
+| `confirm` | `spend` |
+| `harness` | `addon` |
+| `site` | `fold-lane-bakery` |
+| `ask` | *Add a gallery page at /gallery showing photographs of our work, with a new photograph of the bakery on it, a link to it from the homepage, and a QR code that opens the gallery page.* |
+| `picker` | `grok` |
+| `budget` | `40` — **an estimate, not a cap. It does not bound this run.** See below |
+| `expect_deploy` | `ff9fce5f` (deploy 2134 — the full sha works too) |
+| `expect_image` | `3b93a9cae43bac41` |
+| `run_job` | *(leave blank — the form's own default, and blank means do not press)* |
+| `lanes` | leave as `all` — the `ask` replaces the case list |
+
+**The baseline for `fold-lane-bakery`, taken fresh just now** (2026-09-18
+20:50:18Z, from outside with no token — so it is what a visitor is served, kept
+separate from the store, which only the run's own before-read can see):
+
+- **`/gallery` does not exist — 404**, with both controls answering: `/` is 200
+  and `/nope-not-a-route` is 404, so the 404 is a real answer and not a site
+  that is down.
+- **Three photographs, and all three are really on the pages** — not share-card
+  entries, not icons. `/` shows two (*"Harbour Loaf on a Bristol side street in
+  the early morning"*, *"A sourdough boule cooling after the morning bake"*) and
+  `/visit` shows one (*"The counter and morning board at Harbour Loaf"*). Each
+  one fetches as a real JPEG, 1.5–1.9 MB. One of them is also the share image on
+  all four pages, which is why it is worth separating the two: `/order` and
+  `/the-starter` reference it in the head and show no picture at all.
+- Its four pages are `/`, `/order`, `/the-starter`, `/visit`.
+- **This corrects my own earlier note**, which had this site at two photographs.
+  That reading came from one page; this one reads all four.
+
+**So the half that matters most is live here, not vacuous.** "Buying a new
+picture must not lose the ones already there" is the thing the last two rounds
+of work were about, and it short-circuits on a site with no photographs — which
+is why `fretwork-1` was the wrong subject for it. Here it has three real ones to
+protect, on two different pages.
+
+**The trade this way round: `fold-lane-bakery` has no QR codes at all** (no
+`qr-*.svg` on any page, and `/qr.svg` is a 404). So "a new code does not disturb
+the existing ones" is untestable here — but that was never this run's question.
+What *is* tested is the whole of the new code: that it is drawn, published, and
+really opens `/gallery`, which the report now verifies by re-encoding the
+published drawing rather than trusting the file's name.
+
+**One state change worth expecting**: the site serves no `x-site-version`, so it
+is still on the old storage layout. Its next publish — this run — moves it to the
+current one. That is the normal path and the reason every site gets there.
+
+**`budget` is an estimate and not an enforced cap, and I would rather say so than
+let the field read as a safety net.** The credits go *inside* the single addon
+request, and nothing outside that request can stop it part-way; the harness
+checks the number *between* cases, and an `ask` run has only one case, so the
+check never fires. The only thing that really bounds the spend is the account
+balance.
+
+**For scale — and this one is more than the recent runs, because it buys a
+picture.** A generated photograph is priced flat at **18.75 credits** (`$0.15`
+at `$0.008` a credit), and that lands on top of the page work, which on real
+sites has come to 12 and 13 on the two nearest runs. So **roughly 30 is what I
+would expect**, with the QR code and the homepage link on top of that — not the
+12-ish the last few runs cost. **40 leaves headroom and enforces nothing**; if
+the number matters, the balance is the thing to look at before pressing.
+
+**And the balance and fal's readiness are both unreadable from here** — no
+credential for either exists in my environment, re-checked rather than assumed.
+**Both are worth confirming before you press.** An empty fal is the one that
+would waste the run quietly: it is a *graceful* outcome, so the addon spends its
+credits, publishes placeholders, and comes back looking like a complete result
+while proving nothing about the picture. A short balance is the cheaper failure —
+it refuses.
+
+**Nothing merged, nothing deployed, nothing paid.**
+
+**CI has read it, green.** The unit suite came back **6,843** — the same number I
+measured here. No container harness run fired and none was due: this push touches
+only the harness script, its guard, a mutant spec and these two documents, none of
+which is code the container carries.
 
 ---
 

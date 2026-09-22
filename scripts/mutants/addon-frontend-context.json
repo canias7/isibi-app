@@ -1,0 +1,308 @@
+[
+ {
+  "label": "CONTROL: a comment only, above the addon's planned-route reader",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  // ── A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION (2026-09-17) ──",
+  "to": "  // ── A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION (control) ──",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment only, above the page writer's component block",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": " * THE COMPONENTS THIS SITE ALREADY HAS, WITH THEIR REAL SOURCE.",
+  "to": " * THE COMPONENTS THIS SITE ALREADY HAS, WITH THEIR REAL SOURCE (control).",
+  "control": true
+ },
+ {
+  "label": "a planned route is not a destination — the reported defect, restored",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const going = have.concat(planned);",
+  "to": "  const going = have;"
+ },
+ {
+  "label": "the planned routes are read off `pages` rather than `planned`, so a page the site HAS reads as one being added",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const planned = (Array.isArray(s.planned) ? s.planned : [])",
+  "to": "  const planned = (Array.isArray(s.pages) ? s.pages : [])"
+ },
+ {
+  "label": "a named route falls through to the one-page shortcut again",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (r) return going.includes(r) ? r : \"\";",
+  "to": "    if (r && going.includes(r)) return r;"
+ },
+ {
+  "label": "the one-page shortcut reads the site as it is rather than as it will be",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (going.length === 1) return going[0];",
+  "to": "    if (have.length === 1) return have[0];"
+ },
+ {
+  "label": "a QR code may point at a route nobody is adding",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "          if (!own || !going.includes(own)) return { ok: false, why: \"no-such-page\" };",
+  "to": "          if (!own) return { ok: false, why: \"no-such-page\" };"
+ },
+ {
+  "label": "a page this change already plans may be added a second time",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (going.includes(path) || ctx.paths.includes(path)) return { ok: false, why: \"page-exists\" };",
+  "to": "        if (have.includes(path) || ctx.paths.includes(path)) return { ok: false, why: \"page-exists\" };"
+ },
+ {
+  "label": "the route never tells a later designer about a page this change is adding",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              planned: aNewPages.map((p) => ({ ...p })),",
+  "to": "              planned: [],"
+ },
+ {
+  "label": "the planned page is not accumulated at all",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  aNewPages.push({ path: item.path, name: typeof item.name === \"string\" ? item.name : \"\" });",
+  "to": "                  void item;"
+ },
+ {
+  "label": "the facts are not rebuilt after the page kind, so the accumulation reaches nobody",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  if (aNewPages.some((p) => p.path === item.path)) continue;\n                  aNewPages.push({ path: item.path, name: typeof item.name === \"string\" ? item.name : \"\" });\n                }\n                aSite = siteFacts(aProposed);",
+  "to": "                  if (aNewPages.some((p) => p.path === item.path)) continue;\n                  aNewPages.push({ path: item.path, name: typeof item.name === \"string\" ? item.name : \"\" });\n                }"
+ },
+ {
+  "label": "the planned pages are folded into the live page list, so a designer is told a page with no source is there",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    .filter((p) => p.path && !pages.includes(p.path)).slice(0, 24);",
+  "to": "    .filter((p) => p.path).slice(0, 24);\n  for (const c of coming) if (!pages.includes(c.path)) pages.push(c.path);"
+ },
+ {
+  "label": "the planned-page sentence says they are there rather than coming",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    lines.push(\"This same change is ALSO adding \" + (coming.length === 1 ? \"a page\" : coming.length + \" pages\") + \", which do not exist yet: \" +",
+  "to": "    lines.push(\"Its pages also include \" + (coming.length === 1 ? \"a page\" : coming.length + \" pages\") + \": \" +"
+ },
+ {
+  "label": "the page writer is not shown the site's own component source",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                tsx: aMerged.tsx, parts: aStoredParts, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,",
+  "to": "                tsx: aMerged.tsx, gif: aMerged.gif, qr: aMerged.qr, three: aMerged.three,"
+ },
+ {
+  "label": "a component the site already has is offered to be written again",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const built = tsxDirective(tsx, sent.names);",
+  "to": "  const built = tsxDirective(tsx);"
+ },
+ {
+  "label": "the `to build` filter reads only what was SHOWN, so a withheld component is offered to be rewritten",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "  const sent = partsSent(parts);\n  const already = partsDirective(sent);\n  if (already) out.push(already);\n  const built = tsxDirective(tsx, sent.names);",
+  "to": "  const sent = partsSent(parts);\n  const already = partsDirective(sent);\n  if (already) out.push(already);\n  const built = tsxDirective(tsx, sent.shown.map((p) => p.name));"
+ },
+ {
+  "label": "a component too large to carry is dropped in silence rather than named",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }",
+  "to": "    if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { continue; }"
+ },
+ {
+  "label": "the whole-request bound is dropped, so forty small components crowd out the page source",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }",
+  "to": "    if (p.source.length > MAX_PART_CHARS) { withheld.push(name); continue; }"
+ },
+ {
+  "label": "the withheld block says nothing about not rewriting them",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      \"They exist and they work. Import and call them exactly as above, and do NOT return a file in `parts` for\",",
+  "to": "      \"They exist and they work.\","
+ },
+ {
+  "label": "a returned component replaces one the writer was never shown",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;",
+  "to": "              return true;"
+ },
+ {
+  "label": "the wall reads the DECLARATIONS rather than the store the prompt was built from, so it refuses nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;",
+  "to": "              if (!partsSent(aMerged.tsx).withheld.some((w) => w.toLowerCase() === n)) return true;"
+ },
+ {
+  "label": "a kept component is not named on the reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              keptParts: aKeptParts.length ? aKeptParts.slice(0, 6) : undefined,",
+  "to": "              keptParts: undefined,"
+ },
+ {
+  "label": "the customer is not told a component was kept",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              keptPartsNote: keptPartsNote(aKeptParts) || undefined,",
+  "to": "              keptPartsNote: undefined,"
+ },
+ {
+  "label": "the sentence says nothing about what to do next",
+  "files": [
+   "builder/site-addon.mjs"
+  ],
+  "from": "    \" from a description. Ask me to change \" + (one ? \"it\" : \"them\") + \" on its own and I'll work on \" +\n    (one ? \"it\" : \"them\") + \" directly.\";",
+  "to": "    \" from a description.\";"
+ },
+ {
+  "label": "the browser drops the server's sentence",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (typeof a.keptPartsNote === 'string' && a.keptPartsNote) out += ' ' + a.keptPartsNote;",
+  "to": "  void a.keptPartsNote;"
+ },
+ {
+  "label": "the page writer is not shown the theme or the stylesheet",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                theme: aMerged.theme || aLook.theme, css: aNextCss,",
+  "to": ""
+ },
+ {
+  "label": "the stylesheet is shown as something to reproduce rather than as already applied",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    out.push(\"- It also carries a stylesheet of its own, appended after the theme so it wins. It is ALREADY APPLIED —\",",
+  "to": "    out.push(\"- It also carries a stylesheet of its own:\","
+ },
+ {
+  "label": "a long stylesheet is cut without saying so, so a selector reads as one that does not exist",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      \"  effect.\" + (cut ? \" The first \" + MAX_STYLE_CHARS + \" characters of it, of \" + sheet.length + \":\" : \"\"),",
+  "to": "      \"  effect.\","
+ },
+ {
+  "label": "the designer is not told the theme it is being asked to keep",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              theme: typeof aLook.theme === \"string\" ? aLook.theme : \"\",",
+  "to": "              theme: \"\","
+ },
+ {
+  "label": "the page call's plan carries only what THIS change declares",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);",
+  "to": "              void b;"
+ },
+ {
+  "label": "the plan is handed the EXPORT names, which the signature catalog answers nothing for",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              for (const c of (b && Array.isArray(b.modules) ? b.modules : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);",
+  "to": "              for (const c of (b && Array.isArray(b.kit) ? b.kit : [])) if (!aPlanComponents.includes(c)) aPlanComponents.push(c);"
+ },
+ {
+  "label": "the addition's own components are dropped from the plan",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aPlanComponents = [...aFold.components];",
+  "to": "            const aPlanComponents = [];"
+ },
+ {
+  "label": "a site's own part is read as a kit module, so the catalog is asked for a name it has not got",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      if (!m[2].startsWith(\"routes/-parts/\")) {\n        const mod = m[2].split(\"/\").pop();",
+  "to": "      {\n        const mod = m[2].split(\"/\").pop();"
+ },
+ {
+  "label": "the components the site really has are read off the DECLARATIONS rather than the store",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              parts: aStoredParts ? aStoredParts.map((p) => ({ name: p && p.name })) : null,",
+  "to": "              parts: (Array.isArray(aLook.tsx) ? aLook.tsx : []).map((p) => ({ name: p && p.name })),"
+ },
+ {
+  "label": "a failed parts read is said to be a site with no components of its own",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              parts: aStoredParts ? aStoredParts.map((p) => ({ name: p && p.name })) : null,",
+  "to": "              parts: (aStoredParts || []).map((p) => ({ name: p && p.name })),"
+ },
+ {
+  "label": "a declaration with no file is printed as a component that is already written",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (written.length) has.push(\"components of its own, already written: \" + written.join(\", \"));",
+  "to": "    if (declared.length) has.push(\"components of its own, already written: \" + declared.join(\", \"));"
+ },
+ {
+  "label": "a component the site has is also listed as one nothing has written",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const onlyPlanned = declared.filter((n) => !lower.includes(n.toLowerCase()));",
+  "to": "    const onlyPlanned = declared;"
+ },
+ {
+  "label": "the wall asks whether the component was SHOWN rather than whether it was withheld — the disjoint pair, inverted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aSentParts.withheld.some((w) => w.toLowerCase() === n)) return true;",
+  "to": "              if (aSentParts.shown.some((w) => w.name.toLowerCase() === n)) return true;"
+ }
+]

@@ -124,7 +124,20 @@ import { SERIOUS } from "./site-render.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
 // kind ADDS one beside the others and refuses only a duplicate.
-import { qrList, qrName, readQrText, MAX_QRS } from "./site-qr-list.mjs";
+import { qrList, qrName, qrUnplaced, readQrText, MAX_QRS } from "./site-qr-list.mjs";
+// WHERE A COMPONENT LIVES, AS ONE DEFINITION (2026-09-17). `deadQrs` has to
+// answer "does this page import that component", and `PART_DIR` is the single
+// place this repository says what a component's path looks like — the same
+// constant `partNameOf` reads, whose own guard records the `my-parts/x.tsx`
+// trap a bare substring test falls into.
+import { PART_DIR } from "./site-files.mjs";
+// THE PLATFORM'S OWN BOUNDS ON A PHOTOGRAPH, never a second copy of either.
+// `IMAGE_CAP` is how many one change may buy and `MAX_PROMPT_CHARS` is how much
+// of a description reaches the image model — both are what `planImages` and
+// `buySitePhotos` really enforce, so a constant typed here would be a ceiling
+// this tool promises and the spend path does not keep. `site-images.mjs`
+// imports one budget constant and nothing else, so this costs no dependency.
+import { IMAGE_CAP, MAX_PROMPT_CHARS } from "./site-images.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -273,7 +286,7 @@ export const MAX_SECTIONS = 12;
 export const MAX_ADD_SEED_ROWS = 12;
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "function", "api", "job", "page", "component"];
+export const LIST_ADDS = ["table", "function", "api", "job", "page", "component", "photo"];
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
 export const BACKEND_ADDS = ["table", "function", "api", "job"];
@@ -845,21 +858,120 @@ const ADDS = {
         "around it are the site's own and come back untouched.",
     },
   },
-  /* ---- the one that acts on another rung ---- */
+  /* ---- the one whose home depends on who is making the place for it ---- */
+  //
+  // ── THE PICTURE RUNG FILLS A SLOT; THIS STEP MAKES ONE (2026-09-17) ───────
+  //
+  // Owner: *"Placeholders and asking the customer to repeat the photo request
+  // do not complete that capability."*
+  //
+  // `photo` dispatched ALWAYS, and beside another kind that was the one answer
+  // it could not honour. MEASURED through the real route before this changed:
+  // *"add a gallery page with a photograph of the workshop on it"* routed
+  // `kinds: ["page"] / skipped: ["photo"]`, published a gallery page whose
+  // every picture is `<SafeImage src="">`, bought nothing, and told the
+  // customer to ask for the photograph again.
+  //
+  // THE LINE IS WHO MAKES THE SLOT, and it is the same line `runPictureEdit`
+  // already draws with `needs-place`: that rung fills a `<SafeImage>` that
+  // EXISTS, and escalates when there is none. A photograph asked for beside a
+  // page or a component is a slot THIS change is writing, so this is the only
+  // step that can create it and fill it in one request — and `photo` ALONE is
+  // still the picture rung's, which prices one against the real balance and
+  // refuses honestly. `PLACING_ADDS` and `addLayerIn` below are that rule.
+  //
+  // IT ANSWERS WHAT `imageDirective` ALREADY TAKES — `{page, describe}` — so
+  // the shot list crosses to the page writer through the build path's own
+  // reader rather than a second shape beside it.
   photo: {
     hint: "A PHOTOGRAPH on a page that has none, or one more where there are some — adding a picture. Swapping or reframing one the site has is an edit, not this.",
     elsewhere: "picture",
+    shape: {
+      type: "array",
+      maxItems: IMAGE_CAP,
+      items: {
+        type: "object",
+        properties: {
+          page: {
+            type: "string",
+            description: "The page it goes on, as its route — \"/\" for the home page. One of the pages this site will " +
+              "have once this change lands, including a page this same change is adding.",
+          },
+          describe: {
+            type: "string",
+            description:
+              "WHAT THE PICTURE SHOWS, in a sentence — the subject, the light, the framing, as if briefing a " +
+              "photographer. These exact words are the prompt an image model is PAID to draw, so write the " +
+              "picture rather than the intention: \"a luthier's bench under a window, half-finished guitar " +
+              "bodies clamped along it, warm afternoon light\", not \"a nice workshop photo\". " +
+              "No words on the image, no logos, no text of any kind — it is a photograph.",
+          },
+        },
+        required: ["page", "describe"],
+      },
+    },
+    add: {
+      is: "The photographs this change buys and puts on the pages — one entry per picture: which page it goes on, and what it shows.",
+      yours:
+        "THE PICTURES THEMSELVES. Each one is really generated and really placed in this same change, on the " +
+        "page you name — including a page this change is adding, which does not exist yet and will by the " +
+        "time the picture lands.",
+      wide:
+        "AS MANY PHOTOGRAPHS AS THEY ASKED FOR, AND NOT ONE MORE. \"A photo of the workshop\" is ONE picture " +
+        "on ONE page — not a set, not one per section, and not a hero for every page while you are there. " +
+        "Each one costs the owner real money. If they said how many, that is the number; if they said \"a " +
+        "photo\", it is one. Nothing decorative, and no picture on a page they did not mention.",
+      keep:
+        "EVERY PICTURE THE SITE ALREADY HAS stays exactly as it is — this adds, it never swaps, reframes or " +
+        "removes one, and it never re-describes one that is already there. Changing a picture the site has " +
+        "is an edit and belongs on another rung; answer nothing for it here.",
+    },
   },
 };
 
 /** Every kind, in one order, and it is the order they RUN in — see `readAdds`. */
 export const ADD_KINDS = Object.keys(ADDS);
 
-/** The kinds this module designs itself. Derived, so a kind cannot be acting-but-unreachable. */
+/** The kinds this module designs itself, always. Derived, so a kind cannot be acting-but-unreachable. */
 export const OWN_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere);
 
-/** The kinds whose work lives on an edit rung. */
-export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere);
+/**
+ * The kinds this module designs ONLY when this same change is making the place
+ * for them — and dispatches otherwise (2026-09-17).
+ *
+ * DERIVED FROM THE TABLE, never typed: a kind is here when it names a layer AND
+ * carries a tool of its own, which is exactly "it can be answered here and it
+ * has somewhere else to go". `photo` alone today.
+ *
+ * ⚠ `&& ADDS[k].shape` IS MEASURED INERT AND IS KEPT — DECLARED, because a
+ * sweep cannot say so and the next session deletes what nothing appears to
+ * need. `photo` is the only kind with an `elsewhere` today, so
+ * `DISPATCHED_ADDS` is `[]` and both filters answer `["photo"]` with the clause
+ * and without it. What makes it inert is a NEIGHBOUR'S state — which kinds the
+ * table happens to hold — and not this expression, so it comes back the day a
+ * kind dispatches with no tool of its own: that kind would otherwise join the
+ * placing group, be asked for an answer it has no tool to give, and be dropped
+ * in exactly the messages this group exists for. Its PAIR is the load-time
+ * partition below (`DISPATCHED_ADDS` must carry no `requirements`, and a
+ * placing kind must have a rule), which is what states the same division twice.
+ */
+export const PLACING_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && ADDS[k].shape);
+
+/** The kinds whose work lives on an edit rung and NOWHERE here — no tool, nothing to clean. */
+export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && !ADDS[k].shape);
+
+/**
+ * THE KINDS WHOSE ANSWERS WRITE PAGE SOURCE — which is the same thing as "the
+ * kinds that make a place a photograph can go".
+ *
+ * A `page` writes a new file and a `component` rewrites one; a table, a
+ * function, a connection, a job, a QR code and a 3D scene all reach the page
+ * call too, but none of them is a reason to put a PHOTOGRAPH on a page. Listed
+ * rather than derived because there is no flag on the table that says it: what
+ * these two share is the customer's own framing — they are the two asks that
+ * change what a visitor LOOKS at.
+ */
+export const MAKES_PAGES = ["page", "component"];
 
 /**
  * The kinds whose tool carries the coverage list (owner, 2026-09-13).
@@ -886,17 +998,59 @@ export function addLayer(kind) {
   return key ? ADD_LAYER[key] || null : null;
 }
 
-// THE TWO GROUPS ARE A TOTAL PARTITION, checked at load: a kind in neither
+/**
+ * WHERE THIS KIND'S WORK REALLY HAPPENS FOR *THIS* MESSAGE — the one reader
+ * (2026-09-17).
+ *
+ * `addLayer` answers what a kind IS; this answers what it is HERE, which for a
+ * `PLACING_ADDS` kind depends on the company it keeps. Beside a kind that
+ * writes page source the answer is `""` — this step designs it — and alone it
+ * is the layer, unchanged.
+ *
+ * ONE FUNCTION AND NOT THREE CONDITIONS AT THREE CALL SITES, because the route
+ * asks this question in three places (the escalate, the set-aside list, and the
+ * loop's own gate) and two of them disagreeing is a kind that is designed and
+ * then reported as skipped, or set aside and then never designed. `addLayer`
+ * stays for every caller that is asking about the KIND rather than the message.
+ *
+ * FAIL-CLOSED ON A MALFORMED LIST: anything that is not an array of strings
+ * carries no page-writing kind, so the answer is the dispatch — which is what
+ * the platform did before this existed.
+ *
+ * ⚠ `placing` IS A PARAMETER, AND THAT IS THE RECORDED FIX FOR AN UNDRIVABLE
+ * WALL — `cleanTools(v, catalog)`'s own reason, met again. `photo` is the only
+ * kind on the platform that names a layer, so `DISPATCHED_ADDS` is `[]` and the
+ * membership test cannot change an answer: MEASURED over every kind against
+ * nine company shapes, 81 probes and ZERO differences with it and without it.
+ * A wall nobody can drive is a wall nobody is guarding, and the rule it states
+ * is real — a kind that dispatches with NO tool of its own has nothing to
+ * answer here, whatever company it keeps, so it must keep its layer. The
+ * default is the module's own group; the argument exists so that rule can be
+ * driven in a two-kind world today rather than discovered in a live one later.
+ */
+export function addLayerIn(kind, kinds, placing = PLACING_ADDS) {
+  const layer = addLayer(kind);
+  if (!layer || !placing.includes(kind)) return layer;
+  const all = Array.isArray(kinds) ? kinds : [];
+  return all.some((k) => MAKES_PAGES.includes(k)) ? null : layer;
+}
+
+// THE THREE GROUPS ARE A TOTAL PARTITION, checked at load: a kind in none
 // answers nothing and dispatches nowhere, which is a request that vanishes.
 for (const k of ADD_KINDS) {
   if (ADDS[k].elsewhere && !addLayer(k)) throw new Error("site-add: `" + k + "` dispatches nowhere");
   if (!ADDS[k].elsewhere && (!ADDS[k].shape || !ADDS[k].add)) throw new Error("site-add: `" + k + "` neither acts here nor dispatches");
+  // A PLACING KIND NEEDS BOTH HALVES: a layer to go to when it is alone, and a
+  // whole tool — shape AND rule — for the messages it is designed in. One
+  // without the other is a kind that is silently dropped in exactly one of its
+  // two cases, which is the shape this group was created to fix.
+  if (PLACING_ADDS.includes(k) && !ADDS[k].add) throw new Error("site-add: `" + k + "` has a tool and no rule");
   if (!ADDS[k].hint) throw new Error("site-add: `" + k + "` has no hint for the picker");
   // A DISPATCHED KIND HAS NO TOOL OF ITS OWN, so it has nowhere to answer a
   // coverage list and `addTool` would throw before it could. Caught at LOAD,
   // where the name is still in hand, rather than on the first customer who
   // asks for that kind.
-  if (ADDS[k].elsewhere && ADDS[k].requirements) throw new Error("site-add: `" + k + "` dispatches and cannot answer requirements");
+  if (DISPATCHED_ADDS.includes(k) && ADDS[k].requirements) throw new Error("site-add: `" + k + "` dispatches and cannot answer requirements");
 }
 
 /* --------------------------------------------------------------- the picker */
@@ -1055,7 +1209,13 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
 export function addTool(kind) {
   if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind)) throw new Error("addTool: no add for kind: " + kind);
   const add = ADDS[kind];
-  if (add.elsewhere) throw new Error("addTool: `" + kind + "` does not act here — it runs on the " + addLayer(kind) + " layer");
+  // WHAT MAKES A TOOL IMPOSSIBLE IS HAVING NO SHAPE, not naming a layer
+  // (2026-09-17). A `PLACING_ADDS` kind does both: it runs on the picture rung
+  // when it is alone and is designed here when this change writes the page it
+  // lands on, so `elsewhere` refused the tool the route had just decided to
+  // ask for. The route decides WHICH question it is asking (`addLayerIn`); this
+  // only refuses a kind with nothing to be asked.
+  if (!add.shape) throw new Error("addTool: `" + kind + "` does not act here — it runs on the " + addLayer(kind) + " layer");
   const properties = { [kind]: { ...add.shape, description: addRule(kind) } };
   // THE COVERAGE LIST IS A SIBLING OF THE KIND, NOT A FIELD INSIDE IT, and both
   // halves of that are load-bearing. Inside the kind's own shape it would be
@@ -1207,7 +1367,7 @@ export function pageComponents(sources) {
     if (!p || typeof p !== "object" || typeof p.source !== "string") continue;
     const r = routeOf(p.path);
     if (!r) continue;
-    const kit = [], parts = [];
+    const kit = [], parts = [], modules = [];
     let m;
     IMPORT.lastIndex = 0;
     while ((m = IMPORT.exec(p.source))) {
@@ -1216,8 +1376,26 @@ export function pageComponents(sources) {
         const list = m[2].startsWith("routes/-parts/") ? parts : kit;
         if (!list.includes(n)) list.push(n);
       }
+      // ── AND THE KIT MODULE NAMES, WHICH ARE A DIFFERENT VOCABULARY ────────
+      //
+      // `kit` is the EXPORT names — `SeatMap` — because that is what a
+      // designer reading the note has to write in a page. `siteComponentApi`
+      // is keyed on the MODULE name — `seat-map` — because that is what the
+      // signature catalog is keyed on, and the two differ by more than case
+      // (`faq` exports `Faq`, `footnote` exports `FootnoteRef` AND
+      // `FootnoteList`).
+      //
+      // MEASURED, and it is why this exists: handing `siteComponentApi` the
+      // export names answers `""` for every one of them — a value computed
+      // and never forwarded, which from outside is indistinguishable from the
+      // site importing nothing. ONE walk answers both, so a second parser of
+      // import lines cannot drift from this one.
+      if (!m[2].startsWith("routes/-parts/")) {
+        const mod = m[2].split("/").pop();
+        if (mod && !modules.includes(mod)) modules.push(mod);
+      }
     }
-    if (kit.length || parts.length) out[r] = { kit: kit.slice(0, 40), parts: parts.slice(0, 20) };
+    if (kit.length || parts.length) out[r] = { kit: kit.slice(0, 40), parts: parts.slice(0, 20), modules: modules.slice(0, 40) };
   }
   return out;
 }
@@ -1239,6 +1417,16 @@ export function siteNote(site) {
   lines.push(s.kind === "tool"
     ? "It is a WORKING TOOL the business uses, not a shopfront: every page is a working screen, and there are no marketing bands and no photographs."
     : "It is a shopfront: a site that persuades a visitor.");
+  // ── WHAT IS THERE AND WHAT IS BEING BUILT ARE DIFFERENT FACTS ───────────
+  //
+  // DECLARED HERE, ABOVE ITS FIRST USE, and that placement is load-bearing
+  // rather than tidy: this block used to sit below the table list and the
+  // pages line now needs it too. A `const` called above its own line parses,
+  // passes every text guard and throws at runtime — this repository's own
+  // recorded trap, met once already inside this very function.
+  const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
+  const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
+  const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
   const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
   // EACH PAGE WITH WHAT IT CALLS ITSELF (run 28, 2026-09-03), so "the booking
   // page" can be found among routes that never say the word: the page whose
@@ -1249,6 +1437,24 @@ export function siteNote(site) {
     return l ? p + " (\"" + l.replace(/"/g, "'") + "\")" : p;
   });
   lines.push(pages.length ? "Its pages are: " + named.join(", ") + "." : "It has no pages yet.");
+  // ── AND THE PAGES THIS SAME CHANGE IS ADDING (2026-09-17) ───────────────
+  //
+  // A SEPARATE LINE, NEVER FOLDED INTO THE ONE ABOVE. Owner: *"Clearly
+  // separate current implementation from the original design plan"*, and
+  // these are the two halves of exactly that — `pages` is read from the
+  // site's real page source and this is read from what the `page` designer
+  // decided a call ago. The `qr` and `component` designers need it (a code
+  // may open it, a section may sit on it) and must not be told it is there
+  // today, or a designer asked to copy a like section's design goes looking
+  // for source that does not exist yet.
+  const coming = (Array.isArray(s.planned) ? s.planned : [])
+    .map((p) => (p && typeof p === "object" ? { path: str(p.path, 120), name: str(p.name, 80) } : { path: str(p, 120), name: "" }))
+    .filter((p) => p.path && !pages.includes(p.path)).slice(0, 24);
+  if (coming.length) {
+    lines.push("This same change is ALSO adding " + (coming.length === 1 ? "a page" : coming.length + " pages") + ", which do not exist yet: " +
+      coming.map((p) => p.path + (p.name ? " (\"" + p.name.replace(/"/g, "'") + "\")" : "")).join(", ") +
+      ". A code may open one and a section may sit on one — they go live with this change. There is no source to read for them.");
+  }
   // WHAT EACH PAGE IS BUILT FROM (owner, 2026-09-04: a second one copies the
   // first's design), so a component designer can name the component a like
   // section already uses instead of another that shows the same kind of thing.
@@ -1284,16 +1490,8 @@ export function siteNote(site) {
   // FACTS, and telling a designer only the second is how it designs around a
   // table that does not exist yet — or, worse, designs a second one. `proposed`
   // is the names this same message has already decided on, per list; every one
-  // is marked so the designer can rely on it AND know it is new.
-  //
-  // DECLARED HERE, ABOVE ITS FIRST USE. The first draft put this beside
-  // `namesOf` and the table list twelve lines up already called `isNew` — a
-  // `const` called above its own line, which parses, passes every text guard
-  // and throws at runtime. This repository's own recorded trap, met writing the
-  // entry about it.
-  const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
-  const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
-  const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
+  // is marked so the designer can rely on it AND know it is new. Declared at
+  // the head of this function now, because the pages line needs it too.
   // ── AND ITS RELATIONSHIPS, PERMISSIONS AND CONSTRAINTS (owner, 2026-09-13) ─
   //
   // "Give the picker and Tables designer relevant existing-site context,
@@ -1386,9 +1584,47 @@ export function siteNote(site) {
       codes.map((c) => "`" + c.name + "` (\"" + str(c.label, 80) + "\", scanning it: " + str(c.points, 80) + ")").join(", "));
   }
   if (s.three) has.push("a 3D scene");
-  const parts = (Array.isArray(s.tsx) ? s.tsx : []).map((t) => (t && typeof t === "object" ? str(t.name, 60) : "")).filter(Boolean);
-  if (parts.length) has.push("parts written for it: " + parts.join(", "));
+  // ── A COMPONENT THAT EXISTS AND ONE THAT WAS ONLY EVER DECLARED ─────────
+  //
+  // This read `s.tsx` — the stored `look.tsx` DECLARATIONS — and printed them
+  // as "parts written for it". That list is cumulative and is a plan: a name,
+  // a sentence and a props line, which a build may have declared and never
+  // written, and which survives on the look for ever either way. `s.parts` is
+  // the names the site really has a FILE for, off `source/<slug>/parts.json`,
+  // and the two are said apart (owner, 2026-09-17: *"Distinguish existing
+  // custom components from new components to build"*). A designer told to
+  // copy a like section's component has to be able to tell a component it can
+  // point at from a description of one nobody wrote.
+  //
+  // A CALLER THAT PASSES NO `parts` GETS THE OLD SENTENCE, byte for byte —
+  // the declarations, under the old words — so every existing caller and
+  // every guard written against one reads exactly as it did.
+  const declared = (Array.isArray(s.tsx) ? s.tsx : []).map((t) => (t && typeof t === "object" ? str(t.name, 60) : "")).filter(Boolean);
+  const written = Array.isArray(s.parts)
+    ? s.parts.map((p) => str(p && typeof p === "object" ? p.name : p, 60)).filter(Boolean)
+    : null;
+  if (written === null) {
+    if (declared.length) has.push("parts written for it: " + declared.join(", "));
+  } else {
+    if (written.length) has.push("components of its own, already written: " + written.join(", "));
+    const lower = written.map((n) => n.toLowerCase());
+    const onlyPlanned = declared.filter((n) => !lower.includes(n.toLowerCase()));
+    if (onlyPlanned.length) has.push("components its design declares and nothing has written yet: " + onlyPlanned.join(", "));
+  }
   if (has.length) lines.push("It already carries " + has.join("; ") + ".");
+  // ── THE LOOK IT IS WEARING (owner, 2026-09-17) ──────────────────────────
+  //
+  // The add rules tell every designer to keep the site's design system and
+  // nothing in its inputs said what that system IS. NAMES, NOT BYTES, which
+  // is this note's own standing rule: the theme is what a designer can name
+  // and honour, and the stylesheet itself is the PAGE WRITER's to read —
+  // `styleDirective` carries that, because the writer is the one emitting
+  // markup that has to match it.
+  const theme = str(s.theme, 80);
+  const look = [];
+  if (theme) look.push("Its theme is " + theme + " — every colour, radius and font comes from that theme's tokens, never a colour of your own");
+  if (s.css) look.push("it also carries a stylesheet written for it, which is applied on top of the theme");
+  if (look.length) lines.push(look.join("; ") + ".");
   return lines.join("\n");
 }
 
@@ -1705,7 +1941,44 @@ export function fileOfRoute(r) {
 export function cleanAdd(kind, value, site) {
   const s = site && typeof site === "object" ? site : {};
   const have = (Array.isArray(s.pages) ? s.pages : []).map(route).filter(Boolean);
-  if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || ADDS[kind].elsewhere) return { ok: false, why: "no-kind" };
+  // ── A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION (2026-09-17) ──
+  //
+  // Owner: *"Pass newly planned frontend items to subsequent designers, as we
+  // already do for backend declarations."* The kinds run in `ADD_KINDS` order
+  // — `page` before `component`, `qr` and `three` — and until today nothing
+  // crossed between them, so a message asking for a gallery page AND a code
+  // that opens it met two different failures with one cause. MEASURED at this
+  // cleaner before it was fixed:
+  //
+  //   component placed on a new `/gallery`, one-page site   -> page "/"
+  //   component placed on a new `/gallery`, 3-page site     -> refused no-page
+  //   QR pointing at a new `/gallery`, either               -> refused no-such-page
+  //
+  // The first is the worse one: the section was built on the FRONT page and
+  // the customer was told it had been added, which is the silent substitution
+  // the owner named. The backend tiers have had this since 2026-09-14 (a job
+  // may name a function designed one call earlier); this is the same fact for
+  // the frontend, carried on `site.planned` and marked as not-there-yet
+  // everywhere it is shown.
+  //
+  // KEPT APART FROM `have` RATHER THAN FOLDED INTO IT. What the site HAS and
+  // what this change is ADDING are different facts and the caller is entitled
+  // to both — a page that exists may not be added again, and a page that is
+  // planned may not be added twice either, but only one of them is somewhere
+  // a visitor can go today.
+  const planned = (Array.isArray(s.planned) ? s.planned : [])
+    .map((p) => route(p && typeof p === "object" ? p.path : p))
+    .filter((p) => p && !have.includes(p));
+  // EVERY ROUTE THE SITE WILL HAVE ONCE THIS CHANGE LANDS. The one list both
+  // "where may this go" and "where may a code point" are answered from, so
+  // they cannot come apart.
+  const going = have.concat(planned);
+  // A KIND WITH NO TOOL HAS NOTHING TO CLEAN, and that is the honest test —
+  // not `elsewhere` (2026-09-17). A `PLACING_ADDS` kind names a layer AND
+  // carries a tool, so asking `elsewhere` here refused the very answer this
+  // step had just designed; what makes an answer uncleanable is having no
+  // shape to have been answered in.
+  if (typeof kind !== "string" || !Object.hasOwn(ADDS, kind) || !ADDS[kind].shape) return { ok: false, why: "no-kind" };
   // WHICH PAGE, for the kinds that land on one. Refused on a multi-page site
   // when the route is not one of its own; resolved to the one page otherwise.
   // ── A MISSING DESTINATION IS NOT THE HOME PAGE (owner, 2026-09-14) ──────
@@ -1723,10 +1996,25 @@ export function cleanAdd(kind, value, site) {
   // page has exactly one place a component can go, so resolving to it is
   // reading the site rather than picking for the model. Everything else
   // answers "" and the caller refuses by name.
+  //
+  // ── AND THE SHORTCUT READS THE POST-CHANGE SITE (2026-09-17) ────────────
+  //
+  // It read `have`, the routes the site has TODAY, and its whole
+  // justification is "there is exactly one place this can go". The moment
+  // this same change adds a page there are two, so on a one-page site adding
+  // `/gallery` an unplaced component still landed on `/` — a rule true
+  // because of a layer below it, expiring the instant that layer moved. Both
+  // halves read `going` now, so the shortcut fires only when the site really
+  // will have one page and nowhere else to put it.
+  //
+  // A NAMED ROUTE RESOLVES TO THAT ROUTE OR TO NOTHING. It used to fall
+  // through to the shortcut, so a component the designer deliberately placed
+  // on a page the site does not have was moved to the home page rather than
+  // refused — the same substitution one branch over.
   const onPage = (named) => {
     const r = route(named);
-    if (r && have.includes(r)) return r;
-    if (have.length === 1) return have[0];
+    if (r) return going.includes(r) ? r : "";
+    if (going.length === 1) return going[0];
     return "";
   };
   // ── A KIT NAME IS CHECKED AGAINST THE KIT (owner, 2026-09-14) ───────────
@@ -1763,8 +2051,11 @@ export function cleanAdd(kind, value, site) {
       case "page": {
         const path = route(v.path);
         if (!path || path === "/") return { ok: false, why: "no-path" };
-        // A PAGE THE SITE HAS, OR ONE THIS SAME ANSWER ALREADY ADDED.
-        if (have.includes(path) || ctx.paths.includes(path)) return { ok: false, why: "page-exists" };
+        // A PAGE THE SITE HAS, OR ONE THIS SAME CHANGE IS ALREADY ADDING —
+        // `ctx.paths` is this answer's own siblings and `planned` is a page
+        // decided by an earlier call of the same message. Both are the same
+        // refusal, because a route can only be made once.
+        if (going.includes(path) || ctx.paths.includes(path)) return { ok: false, why: "page-exists" };
         const name = str(v.name, 60);
         const purpose = str(v.purpose, 300);
         if (!name || !purpose) return { ok: false, why: "no-plan" };
@@ -1787,6 +2078,28 @@ export function cleanAdd(kind, value, site) {
         // corrected. Refused by name.
         if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
         return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
+      }
+      // ── A PHOTOGRAPH, WHEN THIS CHANGE IS MAKING THE PLACE FOR IT ─────────
+      //
+      // `onPage` is the SAME destination reader every other placing kind uses,
+      // so a picture on a page this change is adding resolves through `going`
+      // and a picture on a page nobody has is refused by name — never moved to
+      // the home page, which is the substitution the owner corrected on the
+      // component tier and is worse here, because a photograph is bought.
+      //
+      // `describe` IS SLICED AT `MAX_PROMPT_CHARS` AND NOT REFUSED FOR LENGTH,
+      // because that is exactly what `imagePrompt` does to it one hop later:
+      // refusing here would turn a long, usable brief into no picture at all,
+      // where the spend path's own rule is to send the first 240 characters.
+      // An EMPTY one is refused — `planImages` deliberately never sends a token
+      // with nothing inside it, so an undescribed picture is a slot nothing
+      // fills and a customer told a photograph was added.
+      case "photo": {
+        const page = onPage(v.page);
+        if (!page) return { ok: false, why: "no-page" };
+        const describe = str(v.describe, MAX_PROMPT_CHARS);
+        if (!describe) return { ok: false, why: "no-photo" };
+        return { ok: true, value: { page, describe } };
       }
       case "table": {
         const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
@@ -1917,9 +2230,16 @@ export function cleanAdd(kind, value, site) {
         // refused by name, because a QR on a live site pointing at a 404 is
         // exactly the failure the never-invent rule exists for; and a site
         // whose address could not be read refuses rather than guessing one.
+        // A PAGE THIS SAME CHANGE IS ADDING COUNTS (2026-09-17). This asked
+        // `have`, so "add a gallery page and a QR code that opens it" — one
+        // message, one addition, the obvious thing to ask for — refused the
+        // code with `no-such-page` about a page the same reply was building.
+        // The route is real by the time either is published, and the ONE
+        // publish is what makes that true rather than a hope: the page and the
+        // code go out together or neither does.
         if (points.startsWith("/")) {
           const own = route(points);
-          if (!own || !have.includes(own)) return { ok: false, why: "no-such-page" };
+          if (!own || !going.includes(own)) return { ok: false, why: "no-such-page" };
           const base = siteAddress(s.url);
           if (!base) return { ok: false, why: "no-address" };
           points = new URL(own, base).href;
@@ -1961,6 +2281,10 @@ export function cleanAdd(kind, value, site) {
   if (LIST_ADDS.includes(kind)) {
     const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES
       : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
+      // THE PLATFORM'S OWN PHOTOGRAPH CEILING, not a constant of this file's:
+      // `planImages` and the design step both slice at `IMAGE_CAP`, so a wider
+      // cap here would clean an entry nothing downstream will ever buy.
+      : kind === "photo" ? IMAGE_CAP
       : MAX_ADD_COMPONENTS;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const usable = raw.filter(isObj);
@@ -2043,6 +2367,10 @@ export function addRefusal(why, kind) {
     case "same-code": return "This site already has a QR code pointing there — ask me to change where it sits or what it says instead.";
     case "too-many": return "This site already carries as many QR codes as it can — ask me to change one of them instead.";
     case "no-scene": return "I couldn't tell what the 3D scene should show — say what it is and where it goes.";
+    // A PICTURE NOBODY DESCRIBED IS A SLOT NOTHING FILLS. The words are the
+    // prompt an image model is paid to draw, so an empty one is refused rather
+    // than sent — and the sentence asks for the one thing that unblocks it.
+    case "no-photo": return "I couldn't tell what the photograph should show — say what's in it, like \"the workshop bench under the window\", and I'll make it.";
     // THE TWO THE ENGINES USED TO DO SILENTLY. A cut body and a dropped entry
     // both used to ship as a success; they are sentences the customer can act
     // on, which is the whole point of refusing rather than slicing.
@@ -2172,6 +2500,15 @@ export function addDirective(kind, value, site) {
       out.push("- On " + at(v.page) + " — the 3D block above says what it shows and how it is built. Return that one page; nothing else on it moves.");
       break;
     }
+    // A PHOTOGRAPH HAS NO BLOCK HERE, DELIBERATELY (2026-09-17). `imageDirective`
+    // already names the page and hands over the exact token to write, VERBATIM,
+    // and it is the build path's own reader rather than a second copy of it — a
+    // block here saying the same thing in other words is how one picture becomes
+    // two, and the words inside a token are the prompt an image model is paid to
+    // draw. Explicit rather than a fall-through to `default`, so it reads as a
+    // decision somebody made.
+    case "photo":
+      break;
     default:
       return "";
   }
@@ -2211,6 +2548,18 @@ export function foldAdds(answers, priorLook, site) {
   const tables = [];
   const seed = {};
   const functions = [], apis = [], jobs = [];
+  // ── THE SHOT LIST, OUT ON ITS OWN AND NOT ON `designed` (2026-09-17) ──────
+  //
+  // `designed` is what `mergeLook` folds into the site's STORED look, and a
+  // photograph is not a stored design decision: it is bought once, lands in the
+  // page's `src` as a real URL, and the site carries the picture rather than
+  // the instruction. Putting it there would re-buy the same photographs on the
+  // next unrelated edit, which is precisely the rule `budgetFor` exists for.
+  //
+  // `{page, describe}` IS `imageDirective`'s OWN LIST SHAPE, so the route hands
+  // this straight to the page call through the build path's reader rather than
+  // a second shape beside it.
+  const photos = [];
   // THE UNIVERSAL RULE HEADS THE DIRECTIVE, once, before any addition — the
   // second of its two hops (the first is `ADD_SYSTEM`, to the designers).
   // Only when something is being added: an empty fold is an empty directive.
@@ -2230,6 +2579,15 @@ export function foldAdds(answers, priorLook, site) {
       if (i < 0) tsx.push({ ...p }); else tsx[i] = { ...tsx[i], ...p };
     }
     if (a.kind === "page" && v.file) files.push(v.file);
+    // THE CLEANER HAS ALREADY RESOLVED THE PAGE AND BOUNDED THE WORDS, so this
+    // only collects. Deduped on the PAIR: the same picture asked for twice is
+    // one purchase, and `planImages` reuses one token's url wherever it appears
+    // — but two different pictures on one page are two, so the page alone is
+    // not the key.
+    if (a.kind === "photo" && v.page && v.describe &&
+        !photos.some((p) => p.page === v.page && p.describe === v.describe)) {
+      photos.push({ page: v.page, describe: v.describe });
+    }
     if (a.kind === "table" && v.table) {
       tables.push(v.table);
       if (Array.isArray(v.seed) && v.seed.length) seed[v.table.name] = v.seed;
@@ -2274,7 +2632,7 @@ export function foldAdds(answers, priorLook, site) {
   // what it is building before it reads what the change still owes.
   const pageBrief = requirementBrief(requirements, "page");
   if (pageBrief) blocks.push(pageBrief);
-  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements };
+  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos };
 }
 
 /**
@@ -2297,6 +2655,34 @@ export function rewroteMsg(lost) {
     .map((w) => "“" + (w.length > 60 ? w.slice(0, 57).trimEnd() + "…" : w) + "”");
   return "I couldn't add that without changing what's already on " + where +
     (words.length ? " — it would have lost " + words.join(" and ") : "") + "." + tail;
+}
+
+/**
+ * The sentence for an addition that would have taken photographs OFF the site
+ * (owner, 2026-09-17: *"Preserve existing photographs when buying new ones."*).
+ *
+ * THE COUNT, NEVER THE URLS. `/u/fw/a1b2c3d4.jpg` is a storage key and tells the
+ * customer nothing they can act on; how many of their own pictures would have
+ * gone is the whole of what they need to decide what to ask for next. The urls
+ * ride the reply separately as `lostPhotos`, which is developer-facing — the
+ * same division `unknownComponents` and `changedProps` already make.
+ *
+ * MONEY, SAID AS MONEY. These are photographs this platform charged them for,
+ * and that is why the wall refuses rather than reports: a rewrite that drops one
+ * cannot be undone by asking again, because the picture is gone from the source
+ * the next edit reads.
+ *
+ * THE INVITATION IS THE OTHER HALF. A refusal with no way forward reads as the
+ * feature being broken, and the way forward here is real: the same ask, with the
+ * pictures left alone, is a change this step can make.
+ */
+export function lostPhotosMsg(lost) {
+  const n = Array.isArray(lost) ? lost.filter((u) => typeof u === "string" && u.trim()).length : 0;
+  const what = n === 1 ? "one of the photographs" : (n ? n + " of the photographs" : "photographs");
+  const it = n === 1 ? "it" : "them";
+  return "I couldn't add that without taking " + what + " already on your site off it. " +
+    "Nothing was published and nothing was charged — ask again and I'll add the new part and leave " +
+    it + " exactly where " + (n === 1 ? "it is" : "they are") + ".";
 }
 
 // ── THE ADD STEP'S OWN REPAIR (owner, 2026-09-04) ────────────────────────────
@@ -2622,6 +3008,303 @@ export function missingPagesNote(routes) {
   return list.length === 1
     ? "One page I set out to add isn't there — " + named + " didn't make it through, so nothing on your site links to it yet. Ask me for it again on its own and I'll have another go."
     : list.length + " pages I set out to add aren't there — " + named + rest + " didn't make it through. Ask me for them again and I'll have another go.";
+}
+
+/**
+ * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE.
+ *
+ * Owner, 2026-09-17: *"Check the QR's planned destination against the actual
+ * pages surviving generation and merging before publishing that dependency.
+ * Prevent a new QR from pointing at the missing page."*
+ *
+ * `cleanAdd` resolves a bare route against the site's own address, and since
+ * 2026-09-17 it counts a page THIS SAME CHANGE is adding — which is right, and
+ * right only because the page and the code go out in one publish. **One
+ * publish is not proof that both halves of it exist.** Reproduced through the
+ * route: plan `/gallery`, have the writer return only the home page, and the
+ * code was stored pointing at `https://<site>/gallery`, published, and the
+ * missing page reported afterwards. A QR is the one thing here a customer
+ * PRINTS, so a dead one outlives every other kind of partial.
+ *
+ * ONLY A CODE THIS CHANGE ADDED, and only one whose destination is a route
+ * this change PLANNED and lost. A code the site already had is never touched —
+ * whatever it points at, it is not this change's to remove — and a code
+ * pointing somewhere else entirely (a phone number, a wifi network, another
+ * site) is not a candidate at all, which is why the origin is compared and not
+ * just the path.
+ *
+ * ⚠ AND A PAGE THAT RENDERS IT IS WITHHELD WITH IT — it is not a reason to
+ * publish it (owner, 2026-09-17: *"Remove the exception that publishes a newly
+ * added QR pointing to a missing planned page merely because a generated page
+ * renders it… A warning does not complete the dependency."*).
+ *
+ * The first cut KEPT such a code, on the reasoning that dropping it takes
+ * `SITE_QRS.<name>` out from under a page that renders it. That reasoning is
+ * sound and the conclusion was wrong: it saved the page by shipping a code
+ * that opens nothing, and told the customer to please not print the thing we
+ * had just made for them. The dependency was never completed — a sentence
+ * stood in for it.
+ *
+ * SO THE DEPENDENT CHANGES ARE WITHHELD TOGETHER. The code is dropped, and
+ * every page THIS CHANGE WROTE that renders it is withheld: an existing page
+ * goes out as its previous version, a page this change invented does not go
+ * out at all. Nothing breaks, because the version that ships is one that
+ * shipped before — the binding is never deleted from a live page, it is simply
+ * never introduced. The customer hears both halves and can ask again.
+ *
+ * ⚠ AND A CUSTOM COMPONENT IS A GENERATED FILE TOO (2026-09-17, measured
+ * through the route). The first cut of this looked only at `aMerge.pages`, so
+ * a change whose COMPONENT rendered the code published `ok: true` with
+ * `SITE_QRS.gallery` stored in `parts.json` and the code gone from the look —
+ * a binding to something that does not exist, in a file the next compile
+ * includes. Reproduced: `droppedQrs` named the code, `heldPages` was absent,
+ * and `storedParts` carried the reference. The same defect one file kind over,
+ * and the same answer: a component this change rewrote goes back to the source
+ * the site is already serving, one it INVENTED is not written at all.
+ *
+ * IT IS A FIXED POINT, NOT A PASS, and that is not decoration: withholding an
+ * ADDED page takes its route away, which can kill a second code pointing at
+ * it, which can withhold a third page. `MAX_QRS` is 6, so a chain that long is
+ * constructible rather than hypothetical. The loop settles when a round drops
+ * nothing new, and it terminates because every round that continues adds to a
+ * set bounded by the codes, the pages and the components.
+ *
+ * AND THE COMPONENTS EXTEND THAT CHAIN RATHER THAN SITTING BESIDE IT. A
+ * component this change INVENTED and then withheld is a file that will not
+ * exist, so every page this change wrote that IMPORTS it is withheld too —
+ * publishing the importer without the module is `vite` refusing the build,
+ * which is this repository's own most expensive measured class. A component it
+ * merely CHANGED breaks no importer: the version that ships is the one the
+ * site is already serving.
+ *
+ * `qrUnplaced` IS THE ONE READER OF "does a page show this code" — its own
+ * binding regex, already written, already guarded — so this asks it and
+ * inverts the answer rather than owning a second copy of that correspondence.
+ * It is asked ONE PAGE AT A TIME against the WHOLE code list, because its
+ * legacy `SITE_QR` arm keys on a code's INDEX: handing it a one-element list
+ * would make every code look like the first. It reads `source` and nothing
+ * else, which is why a component can be asked the same question as a page.
+ */
+export function deadQrs({ qr, prior, missing, wrote, wroteParts, url } = {}) {
+  const codes = qrList(qr);
+  const gone = new Set((Array.isArray(missing) ? missing : []).map(route).filter(Boolean));
+  if (!gone.size || !codes.length) return { qr: codes, dropped: [], withheld: [], withheldParts: [] };
+  const base = siteAddress(url);
+  const had = new Set(qrList(prior).map((c) => c.name));
+  // WHICH ROUTE OF OURS THIS CODE OPENS, or "" for anything else. The exact
+  // inverse of `cleanAdd`'s `new URL(own, base).href`, and deliberately no
+  // wider. THREE THINGS REFUSE, each with its own job: `new URL` throws on
+  // anything unparseable; the ORIGIN comparison refuses another site's address;
+  // and `route` refuses a pathname that is not one of ours — which is what
+  // turns a `tel:` or `WIFI:` payload away, since those parse and their
+  // pathname is not a route.
+  //
+  // ⚠ `!base` IS A DECLARED BELT AND IS MEASURED INERT: with no address,
+  // `new URL("")` throws inside the try and the answer is "" anyway — 45 probes
+  // over every payload shape and four address shapes, zero differences with the
+  // check and without it. It stays because it STATES the rule (with no address
+  // we compare nothing, so nothing is dropped) where the throw states it only
+  // by accident, and because a code removed on a guess cannot be put back by
+  // the customer. The sweep mutates it as a PAIR with the origin comparison it
+  // belts.
+  const opens = (points) => {
+    if (!base || typeof points !== "string" || !points) return "";
+    try {
+      const u = new URL(points);
+      if (u.origin !== new URL(base).origin) return "";
+      return route(u.pathname);
+    } catch { return ""; }
+  };
+  // THE PAGES THIS CHANGE WROTE, and only those. A page the change did not
+  // touch cannot render a code the change just invented — it would not have
+  // compiled — and it is not ours to withhold in any case.
+  const written = (Array.isArray(wrote) ? wrote : []).filter((p) => p && typeof p.path === "string" && typeof p.source === "string");
+  // THE COMPONENTS THIS CHANGE WROTE, same rule and same reason. A component
+  // the change did not touch cannot render a code the change just invented.
+  const parts = (Array.isArray(wroteParts) ? wroteParts : []).filter((p) => p && typeof p.name === "string" && p.name && typeof p.source === "string");
+  // WHICH CODES A GIVEN PAGE RENDERS: `qrUnplaced` inverted, per page, against
+  // the whole list so its index-keyed legacy arm still means what it means.
+  const renders = (p) => {
+    const off = new Set(qrUnplaced(codes, [p]));
+    return codes.map((c) => c.name).filter((n) => n && !off.has(n));
+  };
+  // DOES THIS SOURCE IMPORT THAT COMPONENT — and WHICH spellings count depends
+  // on where the source itself lives.
+  //
+  // FROM A PAGE (`src/routes/<x>.tsx`) it is the `-parts/` form. `PART_DIR` is
+  // the one definition of where a component lives, and the leading `(^|["'/])`
+  // is what keeps a PAGE called `my-parts/x.tsx` from reading as an import of
+  // `x` — the trap `partNameOf`'s own guard records. It matches both spellings
+  // that reach a compiler: the `@/routes/-parts/x` every prompt teaches, and
+  // the relative `./-parts/x` TypeScript also resolves.
+  //
+  // ⚠ FROM A COMPONENT A SIBLING IS ALSO `./x`, WITH NO `-parts/` IN IT AT ALL,
+  // and that is the natural spelling for the one edge this test was widened to
+  // cover. MEASURED before deciding: the only spelling ANY prompt teaches is
+  // `@/routes/-parts/<name>` (`page-gen.mjs`, twice), and the 100-site corpus
+  // contains ZERO `-parts/` files at all — it predates components — so there is
+  // no evidence either way about what a model really writes between two
+  // siblings. What decides it is the asymmetry, not a guess: a relative `./x`
+  // from inside `-parts/` can resolve to NOTHING BUT `-parts/x.tsx`, so
+  // admitting it has a false-alarm rate of zero BY CONSTRUCTION, while missing
+  // it hands the compiler a component importing a module that will not exist.
+  //
+  // AND `inPart` IS THE DISCRIMINATOR THAT KEEPS IT SAFE: from a PAGE, `./x`
+  // means `src/routes/x.tsx` — another page — so the sibling form is asked of
+  // component sources and of nothing else.
+  //
+  // THE QUOTE AND THE DOT ARE BOTH WALLS, measured against the shapes a real
+  // component carries: without the quote a COMMENT saying "the card is in
+  // ./qr-card" reads as an import, and without the `./` any path ending in
+  // `/qr-card` does — a link, a kit module of the same name, a sentence about a
+  // print file. All four ship with them and are withheld without them.
+  //
+  // `esc` CANNOT FIRE THROUGH THE ROUTE and is kept anyway: `validatePages`
+  // refuses any component name that is not `^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`,
+  // so no name reaching this call can hold a regex metacharacter. This function
+  // is exported and takes whatever it is handed, and a name arriving unvalidated
+  // would become a PATTERN — `qr.card` matching `qrxcard` — so the guard drives
+  // it rather than leaving it a wall nobody can.
+  const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const importsPart = (src, name, inPart) => {
+    const s = String(src || "");
+    if (new RegExp("(^|[\"'/])" + esc(PART_DIR) + esc(name) + "(?![\\w-])").test(s)) return true;
+    return inPart === true && new RegExp("[\"']\\./" + esc(name) + "(?![\\w-])").test(s);
+  };
+  const dead = new Set(), held = new Map(), heldParts = new Map(), goneParts = new Set();
+  const dropped = [], withheld = [], withheldParts = [];
+  // THE BOUND IS ONE ROUND PER CODE AND PER COMPONENT, plus the round that
+  // finds nothing and breaks — and `!moved` is what really ends it. A chain of
+  // K components listed in REVERSE order is what makes the rounds real: the
+  // loop walks the list forwards, so a forward chain settles in one pass and a
+  // reversed one needs a round per link. A bound that is SHORT does not hang —
+  // it exits with the fixed point UNSETTLED, which is the same dangling import
+  // one round later.
+  //
+  // ⚠ THE PAGES ARE DELIBERATELY NOT IN IT, and that is a proof rather than a
+  // guess. Widening it to `+ written.length` was tried first, on the reasoning
+  // that withholding an ADDED page returns its route to `gone` and can kill a
+  // second code; A/B over 6,000 random chain shapes (2,621 with something
+  // really withheld) found ZERO differences, and the reason is structural: a
+  // round that changes neither `dead` nor `goneParts` cannot withhold a page it
+  // did not already withhold last round, because the page loop walks the WHOLE
+  // list every round against exactly those two sets. So no round is ever
+  // productive on pages alone, and `codes + parts` bounds the productive rounds
+  // however the three chains interleave.
+  for (let round = 0; round <= codes.length + parts.length + 1; round++) {
+    let moved = false;
+    for (const c of codes) {
+      if (dead.has(c.name)) continue;
+      const r = had.has(c.name) ? "" : opens(c.points);
+      if (!r || !gone.has(r)) continue;
+      dead.add(c.name); dropped.push({ name: c.name, route: r }); moved = true;
+    }
+    // THE COMPONENTS FIRST, so a page withheld for importing one is decided in
+    // the same round rather than the next — a nicety for the bound, and the
+    // fixed point is the same either way.
+    //
+    // ⚠ AND A COMPONENT IS WITHHELD FOR IMPORTING ONE TOO, not only for showing
+    // a code (owner, 2026-09-17: *"Propagate withholding through
+    // component-to-component imports as well as page-to-component imports."*).
+    // MEASURED through the route before this line existed, on the owner's own
+    // chain — homepage → panel → qr-card → a code opening a missing `/gallery`:
+    // `heldParts` was `["qr-card"]` alone, and the CONTAINER PAYLOAD carried
+    // `panel` importing `@/routes/-parts/qr-card`, a module nothing would
+    // write. The page loop had this test from the day the cascade shipped; the
+    // component loop asked only `renders`, so the chain broke at its first hop
+    // and `deadQrs` published a build that cannot compile.
+    for (const p of parts) {
+      if (heldParts.has(p.name)) continue;
+      const shows = renders(p).some((n) => dead.has(n));
+      const needs = [...goneParts].some((n) => importsPart(p.source, n, true));
+      if (!(shows || needs)) continue;
+      const entry = { name: p.name, added: p.added === true };
+      heldParts.set(p.name, entry); withheldParts.push(entry); moved = true;
+      // AND ONE THIS CHANGE INVENTED TAKES ITS MODULE WITH IT: nothing may
+      // import a file that will not be written. One it merely CHANGED reverts
+      // to the source the site is already serving, which its importers can go
+      // on importing — so it never joins this set, and that is what makes
+      // "restore the existing, withhold the new together" one rule rather than
+      // two branches.
+      if (entry.added) goneParts.add(p.name);
+    }
+    for (const p of written) {
+      const shows = renders(p).some((n) => dead.has(n));
+      const needs = [...goneParts].some((n) => importsPart(p.source, n));
+      if (held.has(p.path) || !(shows || needs)) continue;
+      const entry = { path: p.path, added: p.added === true };
+      held.set(p.path, entry); withheld.push(entry); moved = true;
+      // AND A PAGE THIS CHANGE INVENTED TAKES ITS ROUTE WITH IT — that is what
+      // makes the cascade real. One it merely CHANGED keeps its route, because
+      // the version that ships is the one the site is already serving.
+      const back = entry.added ? routeOf(p.path) : "";
+      if (back) gone.add(back);
+    }
+    if (!moved) break;
+  }
+  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld, withheldParts };
+}
+
+/**
+ * The sentence for a code that was going to open a page that is not there.
+ *
+ * SAID BESIDE `missingPagesNote`, never instead of it: that one says the page
+ * did not make it, this one says what else went with it. A customer who asked
+ * for both and hears only about the page is left to discover the code's state
+ * by scanning it.
+ *
+ * TWO OUTCOMES, TWO SENTENCES, because they are about different things and a
+ * customer can act on each separately: the code is not there, and a page they
+ * expected to change did not change. Saying only the first would leave them
+ * looking for a section on a page that is exactly as it was.
+ *
+ * AND THE SECOND SENTENCE NAMES ROUTES, not file names: `/` is what they see
+ * in the address bar, `index.tsx` is ours.
+ *
+ * A COMPONENT GETS ITS OWN SENTENCE, because it has no route to name and
+ * "I left / as it was" is not true of it. The customer asked for a section, so
+ * the section is what they hear about.
+ */
+export function deadQrNote({ dropped = [], withheld = [], withheldParts = [] } = {}) {
+  const out = [];
+  const names = (l) => l.slice(0, 3).map((d) => d && d.name).filter(Boolean).join(", ");
+  const drop = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name);
+  const held = (Array.isArray(withheld) ? withheld : []).filter((d) => d && d.path);
+  const parts = (Array.isArray(withheldParts) ? withheldParts : []).filter((d) => d && d.name);
+  if (drop.length) {
+    out.push("I didn't add the QR code" + (drop.length === 1 ? " " : "s ") + names(drop) +
+      " — " + (drop.length === 1 ? "it was" : "they were") + " going to open that page, and a code that opens nothing " +
+      "is worse than no code at all. Ask me for the page again and I'll add " + (drop.length === 1 ? "it" : "them") + " with it.");
+  }
+  // TWO SENTENCES FOR TWO KINDS OF WITHHOLDING, because "I left it as it was"
+  // is FALSE of a page this change invented — there was no "as it was" — and a
+  // customer reading it would go looking for a page that has never existed.
+  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(", ");
+  const kept = held.filter((d) => d.added !== true);
+  const never = held.filter((d) => d.added === true);
+  if (kept.length) {
+    out.push("I've left " + where(kept) + " as " + (kept.length === 1 ? "it was" : "they were") +
+      ", because the only change " + (kept.length === 1 ? "it" : "they") + " had was showing that code — putting " +
+      (kept.length === 1 ? "it" : "them") + " live would have printed a code that opens nothing.");
+  }
+  if (never.length) {
+    out.push("I haven't added " + where(never) + " either — " + (never.length === 1 ? "it was" : "they were") +
+      " there to show that code, so on " + (never.length === 1 ? "its" : "their") + " own " +
+      (never.length === 1 ? "it" : "they") + " would have been a page pointing at nothing.");
+  }
+  // AND THE SAME TWO OUTCOMES FOR A COMPONENT, in its own words. It has no
+  // route, so it is named as the customer named it, and the two are kept apart
+  // for the same reason: "left as it was" is false of one that never existed.
+  const kp = parts.filter((d) => d.added !== true), np = parts.filter((d) => d.added === true);
+  if (kp.length) {
+    out.push("The " + names(kp) + " section" + (kp.length === 1 ? " is" : "s are") +
+      " unchanged for the same reason — showing that code was the change.");
+  }
+  if (np.length) {
+    out.push("And I haven't written the " + names(np) + " section" + (np.length === 1 ? "" : "s") +
+      " — " + (np.length === 1 ? "it was" : "they were") + " there to show that code.");
+  }
+  return out.join(" ");
 }
 
 /**

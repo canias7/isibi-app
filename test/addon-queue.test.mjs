@@ -189,7 +189,12 @@ test("every model call on the addon route rides the job's clock", () => {
   assert.ok(wrapped >= 3, `only ${wrapped} small calls go through aQuick — the picker, one per kind and the seed net all must`);
   // AND THE PAGE CALL, the one call that does not go through aQuick and the
   // longest: the budget rides the argument `generateSitePages` names for it.
-  assert.match(b, /aSrc, "addon", undefined, aJob && aJob\.budget\)/, "the page call runs with no clock under a job");
+  // RE-ANCHORED 2026-09-17: the call's argument list grew a tail (`kind`,
+  // `keep` — which pages to show first on a site too large to show whole), so
+  // pinning the budget as the LAST argument was a claim about the signature's
+  // length rather than about the clock. The property is that the budget rides
+  // the argument after `target`, which is where `generateSitePages` names it.
+  assert.match(b, /aSrc, "addon", undefined, aJob && aJob\.budget[,)]/, "the page call runs with no clock under a job");
 });
 
 test("cancel and budget are re-asked before the page call and before the publish", () => {
@@ -255,7 +260,13 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // collect too (`...aLangUsage`), so the line lists one more spread. The
   // property is the reserve's usages plus the repair round's, plus whatever
   // else the publish spent — one `pageCredits`, one rounding.
-  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, \.\.\.\w+)*\)/,
+  // RE-ANCHORED 2026-09-17: the photographs joined it, as a single
+  // `{images: n}` term rather than a spread — `pageCredits` is variadic and a
+  // picture is priced at the flat `IMAGE_USD`. The property is unchanged: one
+  // `pageCredits`, one rounding, over the reserve's usages plus everything else
+  // the route spent, so a trailing non-spread term is admitted and the four
+  // named ones are still required.
+  assert.match(collectLine, /pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage(?:, (?:\.\.\.)?\w+)*\)/,
     "the synchronous collect does not bill the same usages as the reserve, plus the repair round's");
   assert.ok(bill < reserveCall && reserveCall < pub, "the reserve does not sit between the bill and the publish — the gate would read the job as unbilled and exempt it");
   assert.ok(pub < collectCall, "the synchronous charge precedes the publish, so a failed compile would cost");
@@ -270,6 +281,23 @@ test("one bill; reserved before the publish under a job, collected after it sync
   // the same sum; the landmark is the round's charge joining the job's cost.)
   const jobAdd = at(b, "else aCost += (Number(aRepairRound && aRepairRound.charged) || 0)", "the job path's repair charge");
   assert.ok(jobAdd > collectCall, "the job path adds the repair charge before the collect line — the two paths are not two branches of one decision");
+  // ⚠ AND EVERY RESERVE THIS ROUTE TAKES JOINS THAT SUM — A CENSUS, NOT A LIST
+  // (2026-09-17). Under a job each reserve is its own `aCharge(..., n)` call
+  // whose answer is kept in an accumulator; the reply's `cost` is this line and
+  // nothing else, so an accumulator that does not join it is money the customer
+  // paid and was never told about. The names are DERIVED from their own
+  // declarations rather than typed, so a sixth reserve added next month fails
+  // by existing. The job branch cannot be driven from a route guard (it needs a
+  // real queue delivery), which is why the property is read here — and reading
+  // it is what makes the reserve a wall rather than a line nobody checks.
+  const jobLine = b.slice(jobAdd, b.indexOf("\n", jobAdd));
+  const accumulators = [...b.matchAll(/let (a\w+Charged) = 0;/g)].map((m) => m[1]);
+  assert.ok(accumulators.length >= 2,
+    "no reserve accumulators found — this census is asserting nothing: " + JSON.stringify(accumulators));
+  for (const name of accumulators) {
+    assert.ok(new RegExp("\\+ " + name + "\\b").test(jobLine),
+      `the job path's cost does not add ${name}, so a customer under a job is told a price that is missing it: ${jobLine}`);
+  }
   // AND THE PAGELESS ANSWER TAKES ITS MONEY THROUGH THE SAME CLOSURE — after
   // the schema apply and before the page call. RE-ANCHORED 2026-09-05 (stage
   // 1a-ii): the closure is declared ABOVE the apply now, because the apply is

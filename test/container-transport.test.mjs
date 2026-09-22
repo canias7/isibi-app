@@ -88,7 +88,11 @@ test("EVERY long call reads the job's transport — including the PAGE call, whi
   assert.match(body, /callModel\(keys, req, budget, modelSend\(env\), modelOpts\(env, null\)\)/,
     "the page call is back on the module's default transport — exactly run 45's defect");
   // …AND IT IS THE CALL `generateSitePages` REALLY HANDS DOWN.
-  assert.match(src, /genPages\(keysFrom\(env\),[^\n]*call \|\| pagesCall\(env\)\)/,
+  // RE-ANCHORED 2026-09-17: the forwarder gained `kind` and `keep` after the
+  // call, so `call || pagesCall(env))` is no longer the end of the line. The
+  // property is that the call it hands down is composed from THIS module's
+  // readers rather than defaulted, which is what run 45 turned on.
+  assert.match(src, /genPages\(keysFrom\(env\),[^\n]*call \|\| pagesCall\(env\)[,)]/,
     "generateSitePages no longer composes its call from this module's readers");
 
   // DRIVEN, so the two readers are not merely present but composed correctly.

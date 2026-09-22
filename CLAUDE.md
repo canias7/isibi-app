@@ -7423,6 +7423,539 @@ internal function by a LATER job (hop 2) is its own follow-up, not bought here.
 
 
 
+### THE ADDON KNOWS WHAT THE SITE IS, AND ITS OWN STEPS TELL EACH OTHER (2026-09-17)
+
+Owner: *"We're keeping the work on the entire ADDON path until that milestone is
+complete. Edit comes afterwards."* Milestone 1, frontend context and hand-offs,
+addon only — and the instruction that shaped every case: ***"Demonstrate those
+through the real addon route with mocked external dependencies, checking
+designer inputs, generated directives, stored results, and the response."***
+
+**1. A PAGE THIS SAME CHANGE IS ADDING IS A REAL DESTINATION.** The backend
+tiers have crossed between kinds since 2026-09-14 — a job may name a function
+designed one call earlier — and the frontend never did. `page` runs before
+`component`, `qr` and `three` in `ADD_KINDS`, so the owner's two reproductions
+had ONE cause. **MEASURED at the cleaner before the fix:**
+
+| ask | before |
+|---|---|
+| component on a new `/gallery`, one-page site | **ACCEPTED, page `/`** |
+| component on a new `/gallery`, three-page site | refused `no-page` |
+| QR pointing at a new `/gallery`, either | refused `no-such-page` |
+
+**The first is the silent substitution the owner named**: the section was built
+on the FRONT page and the customer was told it had been added.
+`site.planned` carries `{path, name}`; **`going = have ∪ planned` is the ONE
+list** both "where may this go" and "where may a code point" are answered from,
+so they cannot come apart. `siteNote` prints the planned pages on their OWN
+line, saying they do not exist yet — folding them into "Its pages are:" would
+send a designer looking for source to copy that has not been written.
+**`SPEC_OF_KIND` HAS NO `page` ENTRY AND MUST NOT GAIN ONE** — it names the four
+SCHEMA tiers and `proposedSpec` writes into a spec list, which a page is not.
+
+**AND THE ONE-PAGE SHORTCUT NOW READS THE POST-CHANGE SITE.** Its whole
+justification is *"a site with exactly one page has exactly one place a
+component can go"*, which expires the instant this same change adds a second —
+the recorded *"a rule true because of a layer below it expires when that layer
+moves"*, where the layer is this message's own earlier designer. **A NAMED
+route also resolves to that route or to nothing**, where it used to fall through
+to the shortcut: two guards asserted THAT as correct and were re-anchored.
+
+**2. AN EXISTING COMPONENT IS NOT ONE TO BUILD.** `look.tsx` is the cumulative
+DECLARATION list — a name, a sentence and a props line, true of a component
+nobody ever wrote and kept for ever either way — and the page writer was handed
+it under *"the kit does not have these and this site needs them, so you write
+them"*. So a page importing a component this platform wrote months ago was
+edited by a model that had never seen it, and `mergeParts` replaced the real
+file by name: **a rewrite of working code from its own summary, with nothing
+anywhere saying it had happened.**
+
+- **`partsSent` DECIDES ONCE AND IS READ TWICE.** `{shown, withheld, names}`
+  over `source/<slug>/parts.json`. `partsDirective` shows the source of what
+  fits and **NAMES what does not, with an instruction** — a withheld component
+  said nothing about is indistinguishable from one that does not exist, which
+  is what makes a model write it again. `tsxDirective(tsx, names)` is filtered
+  by **every** name the site has a file for, not only the shown ones, so no
+  component is in both blocks and none is missing from both.
+- **TWO BOUNDS, NOT ONE**: `MAX_PART_CHARS` **12,000** for one component and
+  `MAX_PARTS_CHARS` **36,000** for the block, sized against `MAX_PRIOR_CHARS`
+  (90,000, the site's own PAGE source, which keeps the larger share). In stored
+  order and **never sorted by size**, or which component is shown would depend
+  on the others and an unrelated addition could withdraw one silently.
+- **THE WALL READS THE SAME OBJECT.** A returned component may replace one the
+  writer was shown and may not replace one it was not; the refusal rides
+  `keptParts` and `keptPartsNote` — composed server-side and printed VERBATIM,
+  `coverNote`'s rule, because the server is the only thing that knows which
+  sources fitted.
+- **AND THE WALL'S OBVIOUS SECOND HALF WAS DEAD BY CONSTRUCTION.** *"…unless it
+  was shown"* reads as a belt and cannot ever fire: `partsSent` sends each
+  component down exactly one branch and dedupes names first, so `shown` and
+  `withheld` are disjoint — **MEASURED over five shapes, including a name given
+  twice at both sizes and a list that overruns the block bound: zero overlap.**
+  Deleted rather than kept.
+
+**3. THE LOOK IT IS WEARING, AND THE SIGNATURES IT NEEDS.** Every add rule
+tells the designer to keep the site's design system and nothing in its inputs
+said what that system IS. The page writer gets the theme and the site's own
+stylesheet **as ALREADY APPLIED** — it is appended last at build time so it
+wins on source order, and a model shown one with no such sentence restates its
+rules inline, where editing the stylesheet can no longer reach them; a sheet
+over `MAX_STYLE_CHARS` (**16,000**) is cut and **the cut is announced**. The
+designers get the theme by NAME, which is `siteNote`'s own standing rule.
+`plan.components` gains the kit modules the pages being edited already import.
+
+**⚠ AND ONE WIRING DEFECT IN MY OWN CHANGE, caught by running the case against
+the pre-change product rather than by reading it.** `pageComponents` answers
+EXPORT names (`SeatMap`) and `siteComponentApi` is keyed on MODULE names
+(`seat-map`) — **measured, handing it the export names answers `""` for every
+one**, a value computed and never forwarded, which from outside is
+indistinguishable from the site importing nothing. One walk answers both now
+(`modules`), so a second parser of import lines cannot drift from it. **The
+first draft of that case used `accordion` and `card`, and BOTH are among the 72
+standard shadcn primitives whose props the signature scan cannot read** — so
+every assertion passed with the fix reverted. A vacuous assertion, found by the
+red-check and not by reading.
+
+**`siteNote` SEPARATES CURRENT IMPLEMENTATION FROM PLAN IN THREE PLACES NOW**
+(owner: *"Clearly separate current implementation from the original design
+plan"*): live pages against planned ones, components that have a FILE against
+declarations nothing has written, and the theme/stylesheet line. **`null` is a
+third state throughout** — a parts read that FAILED keeps the old sentence,
+because cannot-tell must never read as *"this site has no components of its
+own"*.
+
+**Guards**: `test/addon-route.test.mjs` **66 → 73**, every case driven through
+`POST /api/site/<slug>/addon` and asserted on the designer's real request, the
+generated directive, the stored result and the reply — **and every one proved
+RED against the pre-change product first, one fix reverted at a time**, which
+is what caught the vacuous assertion and the wiring defect above.
+`site-add` **37 → 39**, `page-gen` **246 → 249**, plus assertions inside
+`copy-design` and `requirement-coverage`. The fixture gains `parts`, `css`,
+`storedPages`, `writtenParts` and `pagePrompt` — **by TOOL NAME, never by the
+property key**, since the writer's tool answers `pages` and the page DESIGNER
+answers `page`.
+
+**Six older guards re-anchored, not appeased**, each naming the property that
+moved: two `site-add` expectations that **asserted the defect as correct** (a
+NAMED route swallowed by the one-page shortcut, for a component and for a QR);
+the page call's plan (pinned to `aFold.components`, now asserted as both
+sources reaching it); the parts merge (pinned to `aValid.parts`, now the
+property plus the wall); `pageComponents`' shape; and one route fixture that
+placed a section on a page its site did not have — **given the page rather than
+the destination quietly changed**, since a fixture change that appeases a check
+without asserting what changed is the same thing as deleting the check.
+
+**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-frontend-context.json`, over
+`worker.js`, `builder/page-gen.mjs`, `builder/site-add.mjs`,
+`builder/site-addon.mjs` and `public/chat.js`, against 17 test files — a narrow
+list can only produce a false SURVIVOR, never a false kill). **Three passes.**
+Pass 1 read 25/11 and **not one survivor was the product's**: ten were gaps in
+the new guards and the eleventh was the dead wall above. Pass 2 read 34/2 and
+**both of those were INERT, measured rather than hunted** — the stylesheet's
+code-block ternary (`cut ? sheet.slice(0, N) : sheet` cannot differ from
+`sheet.slice(0, N)`, since the slice is already a no-op at or under N; five
+shapes, zero bytes different) and the route's three-state parts read, which had
+a module case and no route case. Both were replaced with observable mutants of
+the same property.
+
+**Suite 6,761** — 6,749 + 7 (`addon-route`) + 2 (`site-add`) + 3 (`page-gen`),
+and the arithmetic closes exactly.
+
+**CI HAS READ IT: `unit tests` run 2659 on `4e4e2289`, green (2026-09-17
+06:11:15→06:13:15Z, the suite step 109 s) — `# tests 6761 / # pass 6757 /
+# fail 0 / # skipped 4`**, against local `6761 / 6761 / 0 / 0`. **The four are
+named rather than assumed**: the privilege-drop case (needs root and an
+unprivileged user), two RTL cases (template deps not installed) and
+`site-searchpath`'s baseline-commit case (a shallow checkout holds one commit).
+Three recorded environment skips plus the one this branch's neighbour added —
+which is why the number to carry is the TOTAL.
+
+**AND `site build` RUN 1164 IS GREEN ON THE SAME SHA (2026-09-17
+06:11:15→06:30:24Z, all twenty steps): `site-build.mjs` 382 passed / 0
+failed in 13m48s**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it — every count
+bounded to its own step window, 12 steps carrying a result and 0 before the
+first marker. **It fired because `worker.js` and `builder/**` moved**, which is
+that workflow's `paths` behaving; 1164 joins the 382 scan list.
+**AND THAT STEP'S TAP MOVED, WHICH IS THE ARITHMETIC CLOSING ONE LAYER DOWN**:
+the unit step (`page-gen` + `publish-pages`) reads `pass 393` against **390** on
+runs 1162 and 1163 — exactly the three `page-gen` cases this round added, since
+`test/page-gen.test.mjs` is in that step's own glob.
+**The docs push that followed (`fb643a8d`) started `unit tests` 2660, green, and
+NO `site build`** — two documents, which the `paths` filter does not cover.
+
+**NOT MERGED AND NOT DEPLOYED, and no paid call was made** — the owner's
+instruction for this round. Every measurement here is from driving the real
+route against stubbed seams.
+
+### …AND TWO GAPS IN IT, PLUS A THIRD THE FIRST REPRODUCTION FOUND (2026-09-17)
+
+Owner, on the milestone: *"Component-source read failure bypasses the new
+guard… Distinguish a successfully read empty inventory from an unreadable one.
+Do not permit an unseen replacement because the inventory read failed. Use a
+consistent source snapshot…"* and *"Planned-page dependencies need a final
+check… One publish does not establish that both requested items exist."*
+
+**1. THE ROUTE READ THE COMPONENT STORE TWICE, MINUTES APART, AND THE TWO COULD
+DISAGREE.** Reproduced: the first read THREW, so `partsSent` got `null` — no
+`shown`, no `withheld`, no names — the writer was shown no source AND handed the
+stored DECLARATION under *"Components to build"*, and the wall had nothing to
+refuse; the second read SUCCEEDED, so `mergeParts` replaced the real file with a
+rewrite composed from a one-line description, with no `keptParts` and no
+sentence. **`readSiteParts` answers `{ok, parts, why}`** — three states where
+there was one `null` — and the route reads it ONCE: the same snapshot serves the
+designers' note, the page prompt, the wall and the merge. `loadSiteParts` stays
+as a thin wrapper so its five other callers are byte-identical.
+
+**AND THE THIRD FINDING IS THE EXPENSIVE ONE: with BOTH reads failing,
+`mergeParts(null, [one])` answers `[one]`** — every other component on the site
+deleted, none of them named in the request, nothing anywhere saying so. Driven;
+both survive byte-identical now. **The same shape is live on the EDIT path**
+(`worker.js`'s `pStored` read) and is recorded in the backlog, not fixed here.
+
+- **`ok: false` IS A REFUSAL, NOT AN EMPTY SITE.** While it is false nothing is
+  offered to be built, every returned component is refused, and `parts.json` is
+  not written at all — `null` leaves the spine to re-send the store's own copy,
+  which is exactly what an addon that touched no component does.
+- **A DIFFERENT REFUSAL NEEDS A DIFFERENT SENTENCE.** `keptPartsNote` tells the
+  customer to ask for that one component on its own, which is advice about a
+  SIZE BOUND and is wrong about a store that failed to read. `unseenPartsNote`
+  says what happened and to ask again. Two functions, not one with a flag: the
+  harder branch — a refusal with no name behind it — would be the one nobody
+  reads. They are disjoint by construction, because `partsSent` answers empty
+  lists when it cannot read.
+- **AND A MISSING `parts.json` IS NOW HONESTLY EMPTY.** "There is no such
+  object" is a read that SUCCEEDED, so the designer hears that `tide-chart` is
+  declared and nothing has written it — which is what `look.tsx` means. The old
+  guard asserted the conflation and was re-anchored, not appeased.
+
+**2. A NEW QR CODE OUTLIVED THE PAGE IT OPENS.** `cleanAdd` admits a code
+pointing at a page this same change is adding — correct, and correct *because
+the two go out in one publish* — but **one publish is not proof the page
+survived generation**. Reproduced: plan `/gallery`, have the writer return only
+the home page, and the code was stored pointing at
+`https://<site>/gallery`, published, `moved: ["qr"]`, and the only thing the
+customer heard was that the page had not made it. **A QR is the one thing here
+somebody PRINTS.**
+
+`deadQrs` checks each code THIS change added whose destination is a route THIS
+change planned and lost — before the bill and before the look is stored, which
+is what makes a drop cost nothing and leave nothing behind (the container bakes
+`/qr-<name>.svg` from what is stored when it compiles).
+
+- **THE ORIGIN IS COMPARED, NOT JUST THE PATH**, so another site's URL at our
+  path is never a candidate; and `route()` refuses a `tel:`/`WIFI:`/`mailto:`
+  pathname, so a payload that is not a page cannot be read as one. A code the
+  site already had is never touched, whatever it opens.
+- **…AND IT IS KEPT WHEN A SHIPPED PAGE RENDERS IT.** `cleanAdd` takes `page`
+  for exactly that, so the writer can put `SITE_QRS.gallery` on the home page
+  and fail to write `/gallery`; dropping the code then takes the binding out
+  from under a live page, which is the worse of the two and visible to every
+  visitor rather than to whoever scans. Such a code is `stuck`: kept, on the
+  wire as itself, and said in its own words.
+- **`qrUnplaced` IS THE ONE READER of "does a page show this code"** — its own
+  binding regex, inverted — so there is one copy of that correspondence.
+- **THE MISSING-PAGE LIST MOVED ABOVE THE BILL and is now ONE computation with
+  two readers.** `aMerge` is settled before either, so the answer is the same on
+  both sides of the publish; what the move buys is a check that happens before
+  anything of it is stored.
+
+**MEDIA, VERIFIED RATHER THAN ASSUMED (the owner's correction: *"video-embed is
+already offered through the component path… Verify rendering before deciding
+prompt changes are necessary"*).** It is in `COMPONENT_MENU`, its signature
+reaches the writer (`VideoEmbed(url: string, title?: string = "Video", ratio?:
+string = "16/9")` through `siteComponentApi`), and **it RENDERS** — react-dom/
+server over the real kit file: `youtube.com/watch`, `youtu.be`, `/embed/`,
+`vimeo.com/N` and `vimeo.com/video/N` all produce a correct
+`youtube-nocookie`/`player.vimeo?dnt=1` iframe with the asked-for
+`aspect-ratio`, and two unparseable URLs produce the "Video unavailable" panel.
+**No prompt change is needed.** One finding recorded and NOT fixed: only the
+FALLBACK branch stamps `data-slot`, so a WORKING video is invisible to the
+`data-slot` census and to the css lane, and only a broken one shows up.
+
+**Guards**: `addon-route` **73 → 78** — both gaps and the third finding driven
+end to end through `POST /api/site/<slug>/addon`, asserting the stored component
+BYTES and the customer's own sentence, plus the recovery control (same site,
+same ask, same rewrite, a read that works) and the two the owner asked to keep
+(page + QR both arriving, and an older code untouched). `site-add` **39 → 42**,
+`page-gen` **249 → 250**. **Every new case proved RED against the pre-change
+product first**, by stashing the four product files and running against `HEAD`.
+
+**Four older guards re-anchored, not appeased**: the merge's anchor became *"the
+same snapshot the prompt and the wall were built from, and this key is read
+exactly once"* (strictly stronger than the spelling it pinned); `partsSent`'s
+shape gained its third state; `keptPartsNote`'s composer is read as a property
+because an honest second composer moved the spelling; and the no-`parts.json`
+expectation above.
+
+**Sweep: 36 mutants, 36 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived.** Pass 1 read 33/3 and **not one survivor was the
+product's**: one was a real gap in my own new guards (`aStoredParts =
+aPartsRead.parts` — the designers' note then reads an EMPTY ARRAY as *"its
+design declares these and nothing has written them"*, about a site whose store
+we could not read: **cannot-tell as a value, in the one input a designer is told
+to copy an existing component from**), and two were MEASURED inert and are
+declared in the code rather than hunted. The filter's `return false` under
+`unreadable` is belted by the merge's own `aPartsRead.ok` gate — driven through
+the route with one read failing and with both, the reply and the stored bytes
+are IDENTICAL; and `!base` in `opens` is belted by the origin comparison — 45
+probes over every payload shape and four address shapes, zero differences. Both
+became PAIR mutants. **And the second one's LABEL was wrong too**: it claimed to
+read a `tel:` payload as a route, which is `route()`'s refusal and not that
+line — *read what a mutant really does, not what it was meant to do.*
+
+**Suite 6,770** — 6,761 + 5 + 3 + 1, and the arithmetic closes exactly.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
+### A SITE TOO LARGE TO SHOW WHOLE KEEPS ITS CONTRACT, AND SAYS WHAT IT HID (2026-09-17)
+
+Owner, after the two gaps closed: *"continue with large-site context."*
+
+**MEASURED FIRST, AND THE MEASUREMENT IS WHY THIS IS THE PLATFORM'S FUTURE
+RATHER THAN ITS PRESENT: over the 100-site corpus ZERO sites exceed
+`MAX_PRIOR_CHARS` today** — the largest is 50,646 characters over 6 pages, the
+mean page is 7,744, so the window holds about 11.6 of them. A site reaches the
+wall by GROWING, one addon at a time, which is exactly what this path is for.
+
+**THE DEFECT, REPRODUCED THROUGH THE ROUTE ON 17 REAL PAGES (181,258
+characters).** Over the window `priorPagesBlock` fell through to a branch
+written for a REVISE — page names and *"write them again in full"* — and on a
+path where a returned page REPLACES the stored one that is the opposite
+instruction. Everything this lane means went with the source: no *"RETURN ONLY
+WHAT IS NEW OR CHANGED"*, no `remove` verb (whose own comment records that
+answering a deletion by returning nothing is the revise habit, and that it is
+what really happens when the sentence is missed), no byte-identical rule, no
+*"a page you do not return is KEPT"*. And `ok: true` came back with an empty
+`problems` and an empty `coverNote`: **nobody was told** — not the customer,
+not the record, not the trace.
+
+**THE CONTRACT IS UNCONDITIONAL NOW AND THE SOURCE IS WHAT GIVES.**
+`priorPagesSent` is `partsSent`'s shape one layer over, for the same reason: a
+bound that drops what it cannot carry has to NAME what it dropped, or the
+reader concludes the site does not have it. A page named and not shown is told
+it must not be returned, which is exactly what it is — returning it would
+replace a file nobody saw, and `keptProse` would refuse the whole change for it.
+
+- **`keep` IS THE PAGES THIS CHANGE IS ABOUT, then the HOME page.** Every add
+  kind carries the route it lands on, so the route fills the list from the
+  cleaned answers' own `page`/`path` fields and then adds `/` — the nav anchor
+  almost every addon touches, and the prompt's own *"usually ONE new page, plus
+  the page a visitor would look on to find it"*. Without it the selection is
+  stored order, and the page a section was designed to land on is exactly the
+  one worth the budget.
+- **A PAGE TOO BIG FOR WHAT IS LEFT IS SKIPPED, NEVER A STOP** — `partsSent`'s
+  rule, so one enormous page does not withhold four small ones behind it.
+- **THE WIRE ORDER IS THE SITE'S, WHATEVER `keep` DID TO THE SELECTION.** Which
+  pages are shown is a budget decision; the order they are read in is the
+  site's own, and a model handed its pages in an order that moves per request
+  reads that order as meaning something.
+- **ONE SELECTION, TWO READERS — and a sweep survivor is how that was found.**
+  The at-least-one fallback lived in the BLOCK, so the route's own reader did
+  not know about it: on a one-page site over the window the prompt SHOWED the
+  page and the reply reported it as unseen. It lives inside `priorPagesSent`
+  now, and the block owning a second selection is its own mutant.
+- **THE ONE-PAGE CASE IS A BELT, NOT A PATH, AND IT IS ASSERTED AS ONE.**
+  `MAX_PAGE_CHARS` (48,000) is under `MAX_PRIOR_CHARS` (90,000), so no page
+  `validatePages` admits can reach it; a page stored before those caps can. The
+  guard asserts the inequality, so the day either moves it stops being a belt
+  loudly.
+
+**A REVISE STILL DEGRADES THE OLD WAY, AND THAT IS RIGHT.** There an unreturned
+page is a DELETED page, so *"return only what changed"* really is unfollowable
+without the source in hand. The two modes part company, which is the finding
+rather than an omission.
+
+**…AND TWO OLDER FINDINGS REACHED THE REPLY AND NOT THE RECORD.**
+`requirementRecord` has been HANDED `missingPages` and `unknownKit` since each
+was written and had neither in its destructure — measured:
+`requirementRecord({…, missingPages: ["/gallery"]}).missingPages` answered
+`undefined`. So a page that did not survive generation and a kit name that is
+not in the kit were on the reply and absent from the thing anybody comes back
+to. Both land now, beside this round's `unseenPages`. **A value computed and
+never forwarded, in the record written to stop exactly that** — and nothing was
+watching, which is why each is its own mutant.
+
+**ALSO CHECKED AND NEEDING NO FIX, recorded rather than assumed**: `siteNote`
+is bounded by its OWN SLICES — the route list at 24, the coming-pages list at
+24, each page's kit at 40 and its parts at 20, read off the function — and the
+component block already names what it withholds (8 shown, 12 withheld at 20
+real components). **The page-source block was the one dishonest bound.**
+**⚠ AND THE CHARACTER FIGURE THAT USED TO SIT HERE IS WITHDRAWN RATHER THAN
+RESTATED.** The fix commit stamped *"926 at 1 page, 6,667 at 100"*; three
+attempts to reproduce it measured three different things, because `siteNote`
+takes `pages`, `tables` and `functions` as arrays of NAMES with `columns`,
+`tableInfo` and `builtFrom` keyed beside them, and every hand-built fixture got
+one of those shapes wrong — the first two answered 449 for BOTH sizes, which is
+the list never being read at all. *Derive a fixture from its real producer*, met
+three times in a row inside one check. The slice constants are the claim that
+survives; the number is not being carried forward on the strength of a fixture
+nobody can see.
+
+**⚠ A FREE-IDENTIFIER MISS, CAUGHT BY DRIVING AND BY NOTHING ELSE.**
+`fileOfRoute` was not imported into `worker.js`. `node --check` passes it and
+every source guard finds its landmarks; the route threw at its first call.
+
+**Guards**: `addon-route` 78 → 82 — the window driven end to end on real corpus
+pages (the contract, shown + named equal to the whole site with no overlap, the
+reply AND the stored record), `keep` proved against a target the budget
+provably drops, the route's own reader pinned to the prompt, and an ordinary
+site as the control, byte-identical. `requirement-coverage` 28, with the three
+record fields asserted inside the case that already drives it.
+
+**Sweep: 26 mutants, 26 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** — three passes, and **not one survivor at any point was the
+product's**. Pass 1 read 11/14 and every one of the fourteen was a guard gap;
+pass 2 read 25/1; pass 3 is the tally above. Two of those gaps are worth
+keeping as rules:
+
+- **⚠ THE `keep` CASE WAS VACUOUS AND EIGHT MUTANTS SURVIVED IT.** It targeted
+  the LAST page in stored order, on the reasoning that stored order would drop
+  it — and `priorPagesSent` SKIPS a page too big for the remainder rather than
+  stopping, so the last page fits in what is left and was shown either way. It
+  carries its own CONTROL now: the same site and the same change aimed at a
+  page the budget takes anyway, which establishes BY MEASUREMENT which page is
+  dropped, and only then is that page named.
+- **⚠ AND THE FIXTURE COULD NOT TELL THE TWO PAGE ORDERS APART.** Both
+  large-site fixtures had the home page at index 0, so the budget took it
+  whatever `keep` said and three more mutants survived. The home page is LAST
+  in both now, and the order assertion carries its own non-vacuity check.
+- **⚠ THE LAST SURVIVOR WAS THE ROUTE'S OWN READER, AND WHICH CASE CAN SEE IT
+  IS A MEASUREMENT.** `aUnseenPages` comes from `priorPagesSent` called AGAIN
+  in the route, so it must ask with the SAME keep list the prompt was built
+  from. On the FIRST case's fixture the two lists give byte-identical
+  selections — nine pages, 89,403 characters, same order — because the home
+  page is small and stored order reaches it anyway. On the SECOND's they differ
+  by exactly one pair: named, the target `printer-quote` is shown and
+  `printer-products` is withheld; unnamed, that pair swaps. So the assertion
+  lives in the second case, with its own non-vacuity check that the prompt does
+  not already name the target.
+
+**Suite 6,774** — 6,770 + 4, and the four are all `addon-route`'s (78 → 81 for
+the fix, 81 → 82 for pass 1's one-page closure). `requirement-coverage` stays
+28: the record's three fields and pass 3's reader assertion are all inside
+cases that already existed. **The counts are read out of git at each commit
+rather than recalled** — the commit that shipped the fix stamped 6,773 from a
+tree where `addon-route` was 81, and a number stamped before its last case is
+this file's own recorded trap.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
+### A COMBINED PAGE + PHOTOGRAPH ASK STOPS LYING AND LEAVES A FILLABLE SLOT (2026-09-17)
+
+Owner, after the large-site work: *"then continue with … combined page + photo."*
+
+*"Add a gallery page showing photos of our work"* picks `page` AND `photo`, and
+`photo` is the one DISPATCHED kind, so it is set aside with a sentence — *"ask
+for it on its own and I'll place it"* — and the page is built and published.
+**Three things were wrong with that, every one MEASURED through
+`POST /api/site/<slug>/addon` before anything was touched.** **Only the second
+is specific to the pairing** — the other two are true of any addon that reaches
+the page writer at all, which every `page` and `component` ask does — and all
+three surface together here, which is why this combination is what found them.
+
+**1. A BUDGET OF OURS WAS SAID AS A FACT ABOUT THE SITE.** The addon passes
+`images: 0` — correct, and the rule `budgetFor` exists to keep, since a revise
+re-buying pictures the owner already has was a ~94-credit bug. But
+`imageDirective(0)` says *"PHOTOGRAPHS: none on this site"*, which is false on
+every site that has any: measured on a site showing two bought photographs,
+**identical sentence.** The two are separated now — the zero is stated as OURS
+(*"this change buys none, so do not write any `@@IMG:@@` token"*) and what the
+site has is a second sentence.
+
+- **`shownPhotos(pages, slug)` IS THREE-STATE**, because `null` is "nobody
+  looked" and the one thing that must not happen there is a claim either way:
+  an unread source gets *"Leave every picture already on this site exactly as
+  it is."* It counts DISTINCT urls under the site's own `/u/<slug>/` mark, so
+  one photograph drawn in two bands is one, and another site's uploads are
+  none of ours.
+- **AND NAMING THEM IS ONLY HALF OF IT.** A page writer edits what it is SHOWN,
+  and those photographs sit on a page this change hands it back in full — so the
+  count without an instruction tells it they are there and nothing about leaving
+  them alone. *"…and they stay exactly as they are — do not replace one, and do
+  not remove it."* They cost real money and the owner already paid it.
+
+**2. IT ASKED FOR THE ONE SLOT SHAPE ITS OWN NEXT STEP CANNOT FILL.** The zero
+form said *"a `<SafeImage>` with NO src"*, and the picture rung — the rung this
+hand-off promises — fills a slot by rewriting a `src` ATTRIBUTE. **MEASURED both
+directions: a build whose token was not bought comes out of `applyImages` as
+`src=""` and the picture rung sees ONE slot; the shape the addon asked for reads
+as ZERO.** So the customer was told to ask again for a photograph the next rung
+had nowhere to put. It asks for `src=""` now, and **an empty src and a missing
+one render identically** — `safe-image.tsx` branches on `!src` — so it costs
+nothing a visitor can see. Sent only when a photograph was really set aside, so
+an addon nobody asked a picture of is byte-identical to what it was.
+
+**3. THE CUSTOMER WAS NEVER TOLD THE NEW PAGE HAS EMPTY FRAMES.**
+`countImageSlots` counts `@@IMG:` TOKENS, and its own comment says exactly why
+it exists — *"a NEW page that wants one publishes with a placeholder and, until
+this, said nothing about it"* — while this step's directive FORBIDS tokens. So
+its answer here is *the number of tokens a model wrote against an instruction
+not to*, which is 0 whenever the model obeys: `photoNote` has never once fired
+on this path. **The defect that reader was written to close, one rung along from
+where it was closed.**
+
+**AND THE SAME IS TRUE OF THE EDIT PATH'S `page` RUNG, checked rather than
+assumed** — it passes `images: 0` for the same reason and computes `pSlots` the
+same way, so its `photos` is 0 on every obedient answer too. **Not fixed here**:
+that rung tweaks an existing page rather than adding one, the owner's standing
+instruction is to keep edit-path work separate, and it is recorded in the
+backlog.
+
+- **`newEmptySlots(before, after)` IS PER PAGE AND ONLY THE INCREASE.** An addon
+  that edits the home page to add a link must not report the home page's
+  EXISTING empty frames as new spaces — a true count of the wrong thing, which
+  reads to a customer as *"your change made these"*.
+- **NEGATIVE NEVER SUBTRACTS.** A change that FILLS a frame leaves fewer empty
+  than it found, and letting that offset another page's new one reports zero
+  over a site that really does have a new empty frame on it.
+- **A `src`-LESS ELEMENT IS NOT A FRAME ANYBODY CAN FILL**, so it is not
+  counted: promising it is promising a space the picture step cannot use.
+- **THE TWO COUNTERS ARE DISJOINT BY ORDER, and that is what stops one frame
+  being reported twice**: both are taken BEFORE `applyImages` sweeps, where a
+  token is a non-empty `src` and therefore not an empty slot. A token a model
+  wrote despite the ban is still counted, because the sweep makes the frame
+  real.
+
+**⚠ `!Array.isArray(n)` IN THE OBJECT BRANCH IS INERT, MEASURED AND DECLARED.**
+The list branch above returns on EVERY path, its own `!shots.length` fallback
+included, so no array can reach it — **ten array shapes, byte-identical with the
+guard and with it cut.** Kept because the PAIR is what a reader needs (*arrays
+are answered above* / *this branch is objects only*) and reordering the two
+branches is a one-line edit that reads as tidying; the sweep drives the list
+branch's own guard plus an observable mutant of the same line instead.
+
+**Guards**: `addon-route` **82 → 85**, `site-images` **70 → 72**, `site-picture`
+**52 → 53**, every case driven through the real route or the real module, and
+every new assertion proved RED against the defect it forbids. **Suite 6,780** —
+6,774 + 6, and the arithmetic closes exactly.
+
+**Sweep: 24 mutants, 24 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-page-photo.json`, over `worker.js`,
+`builder/site-images.mjs` and `builder/site-picture.mjs`, against 7 test files).
+**Pass 1 read 23/18/5 and not one survivor was the product's** — four were gaps
+in this change's own guards and the fifth was the inert belt above. Two of the
+four are worth keeping as rules:
+
+- **⚠ THE CLAMP HAD NO ARMING FIXTURE, AND THE CASE'S OWN COMMENT CLAIMED
+  OTHERWISE.** It said *"a fill somewhere else must not offset a new one"* and
+  filled the page's ONLY frame — which takes that page out of the `after` map
+  entirely, so the loop never visits it and there is no negative to clamp.
+  **MEASURED: the unclamped sum passes every other assertion in the case.** The
+  shape that arms it keeps one empty frame while losing another. *A case that
+  names the property it tests is not thereby testing it.*
+- **⚠ AND NO FIXTURE HAD A PAGE GAIN A PICTURE**, so "count the empty frames"
+  and "count every frame" were the same assertion throughout — measured, the
+  whole case passes with `isEmptySlot` never asked. A new page with one filled
+  frame and one empty is the discriminator.
+
+The other two were walls nobody drove: the protection clause had **no reader
+anywhere in the tree** (one occurrence, the source), and `countImageSlots` on
+this path had no case writing a token.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction.
+
 ### THE HAND-OFF AND ITS ANSWER ARE ONE OUTCOME NOW (2026-09-16)
 
 Owner, after run 50: *"Reconcile the original handoff with the receiving
@@ -7487,6 +8020,2094 @@ found. Suite **6,703** — 6,698 + 5, closing exactly.
 
 **NOT YET DEPLOYED.** This changes `worker.js` and `builder/`, so the merge will
 roll the container and the 15–20 minute hold will apply — unlike the last one.
+
+### …AND TWO DEFECTS IN IT, BOTH REPRODUCED BEFORE AND AFTER (2026-09-16)
+
+Owner: *"1. …The elapsed-interval gate makes Run now postpone and shift the
+nightly schedule. Correct the manual-run/calendar interaction so a manual
+execution does not move the requested nightly occurrence… 2. `reconcileHandoffs`
+overwrites a blocked requirement when an answering entry names a different
+successfully applied job. Preserve known dependency failures… an echoed ID alone
+cannot override contradictory application evidence."* Plus: ***"These are
+targeted fixes, not a reporting redesign. Show the focused reproductions before
+and after."***
+
+#### 1. A MANUAL RUN MOVED THE NIGHTLY OCCURRENCE
+
+**REPRODUCED against the deployed `dueJobs`, on run 50's own row** —
+`last_run 2026-09-16T19:29:36.345Z` (the stamp "Run now" left), `everyMinutes
+1440`, `at "23:00"`, `tz "Europe/London"`:
+
+```
+BEFORE   2026-09-16T22:00:00Z  not due     ← the occurrence the customer asked for
+         2026-09-16T22:02:00Z  not due
+         2026-09-17T19:30:00Z  DUE         ← half past seven, the time of the press
+AFTER    2026-09-16T22:00:00Z  DUE
+         2026-09-16T22:02:00Z  DUE
+         …fires at 22:00:05 → not due at 22:02, 23:59 or next-day 19:30
+         2026-09-17T22:00:00Z  DUE
+```
+
+**THE ELAPSED TEST MEASURED 24 HOURS FROM WHENEVER THE JOB LAST RAN**, so one
+press slid the whole schedule to the hour of the press — and slid it again on
+every press after that. The customer asked for eleven at night and would have
+got half past seven in the evening, for ever.
+
+**FOR A DAILY-OR-FASTER CLOCK-TIME JOB THE OCCURRENCE GATE IS THE WHOLE RULE,
+AND IT ALREADY CARRIES THE DUPLICATE PROTECTION.** `anchor >= due` refuses a job
+that has run since the latest occurrence, **whatever ran it** — a cron tick, a
+press, a resumed consumer. At `mins <= 1440` there is exactly one occurrence a
+day, so *has this occurrence been served* is a complete question and elapsed time
+adds nothing but the drift.
+
+**SLOWER THAN DAILY KEEPS THE ELAPSED TEST, UNCHANGED AND DELIBERATELY** — a
+weekly 09:00 has to skip six occurrences and the interval is what does that.
+**Measuring it to the OCCURRENCE instead of to `now` was tried and is WORSE**: a
+run that landed late (09:05 on a busy tick) then fails its own next occurrence by
+five minutes and slips a whole day, where measuring to `now` slips it by minutes
+within the same day. That alternative is one of the sweep's mutants.
+
+**WHAT THIS DOES NOT FIX, STATED IN THE CODE**: a manual run still perturbs a job
+**slower than daily** — it becomes the anchor and the next occurrence can fall
+short of the interval. Fixing that needs the last SCHEDULED occurrence stored
+apart from `last_run`, which is a migration; this change leaves that case byte
+for byte as it was.
+
+**AND AN OLDER GUARD ASSERTED THE DEFECT AS CORRECT — RE-ANCHORED, NOT
+APPEASED.** `test/site-jobs.test.mjs` read
+`assert.equal(due(row({last_run: day2 08:02Z}), day3 08:01Z), false, "ran a
+minute early — the interval is not kept")`: a run that landed two minutes LATE
+pushing the next morning's firing two minutes back, pinned as the property. It
+asserts the calendar property now (that same row IS due at day 3 08:01Z), with
+the *before its own time* half added beside it (day 3 07:59Z, still false) so
+nothing early slips through. **Proved red against the pre-fix gate and green
+after.**
+
+#### 2. AN ECHOED ID OVERWROTE A KNOWN DEPENDENCY FAILURE
+
+**REPRODUCED**: a hand-off naming a job the database REFUSED (`blocked`,
+`the broken_job it needs could not be created`) and an answering `covered` entry
+naming a DIFFERENT job that applied, echoing the id.
+
+```
+BEFORE   hand-off state `configured`, reconciled by job#0 → good_job
+         the customer heard "Scheduled as you asked: The nightly reminder goes out."
+AFTER    hand-off state `blocked`
+         the customer hears only "waiting on another part of the same change
+         that didn't work… the broken_job it needs could not be created"
+         run 50's unnamed hand-off still reconciles — `configured`, said once
+```
+
+**THE ID SAYS WHICH REQUEST IS BEING ANSWERED; IT SAYS NOTHING ABOUT WHETHER THE
+ANSWER IS TRUE.** Three walls keep those apart, and each is its own question:
+
+1. **A KNOWN PROBLEM IS NEVER OVERWRITTEN.** `blocked`, `failed` and `missing`
+   each rest on evidence about the APPLICATION — a dependency the database
+   refused, a step that failed, a thing this layer looked for and did not find.
+   Reconciliation may resolve an UNCERTAINTY; it may not resolve a finding.
+2. **THE ANSWER MUST COME FROM THE STEP THE REQUEST WAS ADDRESSED TO.** An
+   `elsewhere` entry names its step; an echo from any other step is a different
+   call answering a question it was never asked.
+3. **AND IF THE REQUEST NAMED ITS OWN THING, THE ANSWER MUST BE THAT THING** —
+   `kind` AND name, which is the `{kind, name}` identity this file already
+   records, met one function later. `referenceOf` answers `null` when the
+   hand-off named nothing, **which is run 50's legitimate case and stays
+   reconcilable**: the customer named a behaviour and neither designer named an
+   artifact for it.
+
+**REFUSING TO RECONCILE IS ONLY HALF THE FIX, and the other half is what the
+reproduction found.** The answering entry was still `configured`, still carried
+the same need in its own words, and still reached the prose — so one need came
+back as *"waiting on another part that didn't work: the nightly reminder goes
+out"* **and** *"Scheduled as you asked: the nightly reminder goes out"*, two
+opposite sentences, **and the worse reading is the reassuring one**. An answer
+whose request carries a finding is silent in the note now. **KEYED BY THE ECHOED
+ID, never by the need text** — matching prose here would be the thing the
+reconciliation itself is forbidden to do, arriving through the back door.
+**ONLY OVER A PROBLEM STATE**: a mismatch with no finding behind it (the wrong
+step, or a reference naming something else) leaves both entries speaking, which
+is exactly what they did before any of this existed. **Both entries stay in the
+RECORD** with `overruledBy` / `overruledAs`.
+
+**Guards**: `test/job-delivery.test.mjs` **11 → 13** (the owner's exact sequence
+end to end, and the control that a job slower than daily keeps its interval
+unchanged); `test/requirement-coverage.test.mjs` **26 → 28** (the blocked
+overwrite with its `overruledBy` mark, an ISOLATING case for the state guard — a
+hand-off naming nothing, to a step that failed, where `referenceOf` is `null` and
+the reference check cannot stand in — and the wrong-step / wrong-item refusals
+with run 50's unnamed control, plus the KIND COLLISION and the arming pair the
+sweep asked for); `test/site-jobs.test.mjs` **46**, re-anchored in place.
+**Suite 6,707** — 6,703 + 2 + 2, and the arithmetic closes exactly, measured per
+file on both trees rather than derived.
+
+**Sweep: 16 mutants, 16 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/job-calendar.json`, over `site-jobs.mjs`
+and `builder/site-requirements.mjs`). Pass 1 killed 14 with two survivors and
+**both were gaps in my own new guards, not the product's**:
+
+- **THE REFERENCE MATCHED BY NAME ALONE.** No case drove a kind collision, which
+  is this file's own `{kind, name}` finding one function later — and `bookings`
+  is the commonest name on this platform to be a table AND the thing a job is
+  named after. Closed with a pair whose applied lists are IDENTICAL and where
+  only the answer's own `kind` moves, so the control is about the kind and not
+  about which items exist.
+- **THE OVERRULE ARMED BY A BLOCKED HAND-OFF NOBODY ANSWERED.** The silencing
+  exists for an answer that WOULD have reconciled and was refused over a finding;
+  an entry that could never have reconciled is an independent `missing` finding
+  about its OWN item, and losing it costs the customer a "Still to do" they can
+  act on. `answering` is what tells those apart, so the arming reads it — **and
+  that mutant's first LABEL was wrong** (it claimed to key the overrule on the
+  need's prose and actually changed the precondition), corrected by reading what
+  the replacement really does rather than what it was meant to do.
+- **AND THAT SECOND GUARD'S FIRST FIXTURE MINTED BOTH HAND-OFF IDS AS
+  `function#0`**, because the id is `<owner>#<position in THIS list>` and the
+  fixture called `cleanRequirements` once per entry. Every echo was a stray one
+  and the case proved nothing. **A fixture that mints its ids the way the product
+  does is the only one whose echoes mean anything** — the recorded *derive a
+  fixture from its real producer*, in the one field the whole join runs on.
+
+**CI HAS READ BOTH, ON THE BRANCH TIP `51f61f40`.** `unit tests` run **2647**,
+green (2026-09-16 21:26:04→21:28:01Z) — `# tests 6707 / # pass 6703 / # fail 0 /
+# skipped 4`, against local `6707 / 6707 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. And `site build` run **1160** (21:26:04→21:44:12Z)
+green, `site-build.mjs` **382 passed / 0 failed**, with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it — every count read out of that job's own log, bounded to its own
+step file. **It fired because `site-jobs.mjs` is in that workflow's `paths`**,
+which is the point: this change moves product code the container carries.
+**1160 joins the `382` scan list** — derive the total with the scan, never by
+taking the next ordinal in a sentence.
+
+**NOT MERGED AND NOT DEPLOYED.** The cron observation is PAUSED at the owner's
+word. Automatic execution stays **explicitly unverified**: run 50's job has only
+ever been fired by hand.
+
+#### THE OBSERVATION BASELINE, AND WHY IT NEEDS THE DEPLOY
+
+**The row as run 50 left it**: `nightly_booking_count()` · `at 23:00
+Europe/London` · `everyMinutes 1440` · `last_run 2026-09-16T19:29:36.345Z` ·
+`lastResult "Done — counted 3 bookings."`
+
+**Both selectors driven against that exact row** (the deployed one read out of
+git at `origin/main`, not recalled):
+
+| code | first selects it | London |
+|---|---|---|
+| deployed (`origin/main`) | **2026-09-17T19:29:06Z** | 20:29 — the drift |
+| the fix | **2026-09-16T22:00:00Z** | 23:00 — the asked-for time |
+
+**The deployed number is `last_run + 24h − 30s` and the arithmetic closes to the
+millisecond**, which is what makes it a prediction rather than an observation
+waiting to be explained.
+
+**⚠ AND WHAT THAT SECOND ROW MEANS FOR A DEPLOY IS NOT "IT WAITS FOR 23:00" —
+CORRECTED 2026-09-17 (owner: *"with an unserved previous occurrence, deploying
+during the day can make the job immediately eligible as overdue"*).** The 16th's
+22:00Z occurrence is in the PAST and was never served — Run now stamped
+19:29:36Z, two and a half hours before it, and the deployed selector has not
+come round — so the corrected rule finds an occurrence behind `now` with nothing
+after it and the job is **due at the first tick after the deploy, whatever time
+of day that is**. Measured at 2026-09-17T03:41Z on the real row: `lastDueAt`
+answers `2026-09-16T22:00:00Z` and the anchor is `2026-09-16T19:29:36Z`, so the
+gate opens.
+**THE FIRST RUN AFTER A DAYTIME DEPLOY IS THEREFORE A CATCH-UP, NOT THE NIGHTLY
+ONE, and only the second proves the time.** It then runs again that night: the
+catch-up stamps `last_run` in the daytime, the 17th's own occurrence
+(`2026-09-17T22:00:00Z`) is still ahead of it, and the gate opens a second time
+at 23:00 London. Two runs on deploy day, both correct — one serving a missed
+occurrence, one at the asked-for time — and reading the first as "the nightly
+schedule fired" would be reading a catch-up as the thing under test.
+**AND THE PREDICTION IS CONDITIONAL ON WHEN THE DEPLOY LANDS.** If it lands
+after **2026-09-17T19:29:06Z** the DEPLOYED selector may have fired the job
+first; `last_run` then sits past the 16th's occurrence, the catch-up is gone,
+and the corrected rule waits for 22:00Z that night. So a deploy before ~19:29Z
+and a deploy after it produce two different first observations, which is the
+whole reason the baseline has to be READ rather than assumed.
+
+**THE CORRECTED SCHEDULE CANNOT BECOME DUE UNTIL THIS IS DEPLOYED**, and a
+WORKER deploy is enough: `dueJobs` runs in the Worker's cron handler, not in a
+container, so the 15–20 minute container hold does not gate this particular
+observation (the merge still rolls the container, because `builder/` moved).
+
+**THE PANEL CANNOT BE READ FROM A SESSION** — `GET /api/site/<slug>/jobs` is
+owner-gated and no `SUPABASE_*` or `OWNER_*` credential exists in this
+environment, checked rather than assumed (the names were enumerated and their
+lengths printed; nothing was). **Re-checked 2026-09-17 and the environment is
+still empty**; the route answers **401** to an unauthenticated read, which is
+the control that it is the gate and not the route. So *"read a fresh baseline"*
+is the owner's read — the Jobs panel, or a `lane sweep` with `run_job` left at
+`none`, which prints the row and presses nothing.
+
+**WHAT CAN BE ESTABLISHED FROM HERE, AND IT IS WORTH HAVING BEFORE THE READ.**
+`lane sweep` run **50 is still the latest** (asked of the Actions API, not
+recalled), so nothing has pressed Run now again; and the deployed selector's
+first selection, `2026-09-17T19:29:06Z`, is **still ahead** of the clock as this
+is written (03:41Z). Both point at the row being exactly as run 50 left it —
+which is a reason to expect a particular baseline, never a substitute for
+reading one.
+
+**AND A TIMESTAMP DOES NOT IDENTIFY AN INVOCATION** (the owner's own correction).
+The row records the time and the result and nothing about what fired it. The one
+honest statement available is *this session pressed nothing* — a fact about what
+was done, not an inference from the row. A stamp within seconds of the due
+instant is CONSISTENT WITH the cron and is not proof of it; and **a two-minute
+cron is a cadence, not a deadline**, so a job that has not run by 22:02 has not
+thereby established that nothing fired it.
+
+### …AND THE OCCURRENCE RULE EXPOSED A DAYLIGHT-SAVING BUG UNDER IT (2026-09-17)
+
+Owner, reviewing the two fixes above: *"The new daily occurrence rule exposes a
+daylight-saving bug in `lastDueAt` … it uses the offset at 'now,' so its
+calculated occurrence shifts when the clocks change. Correct that calculation
+without restoring the elapsed-time gate that caused Run now to move the nightly
+schedule."*
+
+**REPRODUCED AGAINST THE COMMITTED SCHEDULER BEFORE ANYTHING WAS TOUCHED**, on
+the owner's own row — `everyMinutes 1440`, `at "00:30"`, `tz "Europe/London"`,
+`last_run "2026-10-24T23:30:05Z"`, which is 00:30:05 BST on the 25th and so has
+SERVED that day's occurrence. London goes back at `2026-10-25T01:00:00Z`.
+
+```
+                  lastDueAt("00:30","Europe/London")        anchor 23:30:05Z
+BEFORE  00:58:00Z  -> 2026-10-24T23:30:00Z   not due    ← correct
+        01:00:00Z  -> 2026-10-25T00:30:00Z   DUE        ← the defect
+        23:00:00Z  -> 2026-10-25T00:30:00Z   DUE        ← and all day
+AFTER   00:58:00Z  -> 2026-10-24T23:30:00Z   not due
+        01:00:00Z  -> 2026-10-24T23:30:00Z   not due
+        23:00:00Z  -> 2026-10-24T23:30:00Z   not due
+        26th 00:29Z                          not due
+        26th 00:30Z                          DUE        ← the following day, 25 hours on
+```
+
+**`2026-10-25T00:30:00Z` IS 01:30 BST, WHICH IS NOT A 00:30 READING AT ALL** —
+that is the whole of the defect. The offset was read at `now`, so the instant
+the zone moved, "today's 00:30" was computed under the new offset and landed an
+hour past the one already served. **And the owner's two readings only sample
+it**: the wrong occurrence stood for the rest of that local day, so every tick
+from 01:00Z to the next day's occurrence would have run the job.
+
+**THE DOC COMMENT CONCEDED THE APPROXIMATION AND NAMED THE RULE THAT COVERED
+IT** — *"the interval rule that runs beside this in `dueJobs` means never
+twice"* — which is exactly the rule the previous entry took off for daily jobs.
+**A rule true because of a layer below it expires when that layer moves**, fifth
+recorded instance, and the second in a row where the layer moved because we
+moved it.
+
+**THE FIX READS THE OFFSET AT THE TARGET MINUTE.** The two offsets in force a
+day either side of the target are the only two that can apply to it, so
+`wall - before` and `wall - after` are the only candidate instants; each is
+VERIFIED by formatting it back, because only the read-back can tell a real
+clock reading from one the zone skips over. Two local days are asked and the
+latest answer at or before `now` wins — **two, and that is complete rather than
+a sample**: an occurrence carries the local date it belongs to and `now`'s local
+date is today, so yesterday's is always behind `now` and the day before it can
+never be needed. **The elapsed-time gate is NOT restored.**
+
+**THE TWO POLICIES, STATED IN THE CODE AND DRIVEN** (the owner's *"an explicit
+policy for nonexistent or repeated local times"*):
+
+| the local time | the occurrence | why |
+|---|---|---|
+| **repeats** (autumn) | the **FIRST** reading | one local day stays one run — `anchor >= due` then refuses the second, where taking the later one leaves the earlier reading unserved for an hour |
+| **never happens** (spring) | the **LATER** candidate — the instant it would have had under the offset in force before the change | the job is NOT skipped; for a daily job it is exactly 24 h after yesterday's run, one hour later by the clock for that one day. A reminder that silently does not go out once a year is the failure nobody notices, and running after the time asked for is the safe side of running before it |
+
+**AND THE ARITHMETIC IS THE ZONE'S, NOT AN HOUR'S — proven on a half-hour
+transition.** `Australia/Lord_Howe` shifts by **thirty minutes**: a nonexistent
+02:15 resolves to **02:45 local** and a repeated 01:45 has its two readings half
+an hour apart. A fix that hardcoded an hour passes every London case and fails
+both of those.
+
+**THE MIRROR FAILURE IS FIXED BY THE SAME LINE, and it strands a run rather than
+duplicating one**: a job at 01:30 London on the fall-back morning answered
+`2026-10-24T01:30:00Z` at 01:00Z — a whole DAY back — because today's 01:30
+computed under the new offset was still ahead of `now`. It answers
+`2026-10-25T00:30:00Z`, half an hour ago.
+
+**Guards**: `test/job-delivery.test.mjs` **13 → 14** (the owner's exact sequence,
+the whole day it held, the following day running at the right minute, and the
+mirror failure) and `test/site-jobs.test.mjs` **46 → 47** (both policies driven
+at `lastDueAt` AND through `dueJobs`, the half-hour zone, **a time falling AFTER
+the transition on the transition day** — the only shape that resolves under the
+offset after the change, without which half of `occurrenceOn`'s candidate pair
+is never the answer and could be deleted with the suite green — and ordinary
+days on both sides of both transitions as the control). **Both proved RED
+against the committed scheduler and green after; the other 59 cases in those two
+files are green on BOTH trees**, which is what says the fix breaks nothing and
+the cases are genuinely about it.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 3 comment-only
+controls survived — and all nine new ones died on the FIRST pass.** The offset
+read at `now` again (the reported defect, the committed arithmetic restored
+verbatim); the repeat policy flipped to the later reading; the gap policy
+flipped to the earlier candidate; the gap SKIPPED; the read-back verification
+dropped; only the offset before the target tried; the offsets probed at the
+target itself rather than a day either side; only today's local date asked; and
+an occurrence still ahead of `now` accepted. Every anchor was checked to occur
+exactly once before the run, and the tree was verified restored afterwards.
+
+**ONE DECLARED BELT, measured rather than reasoned about.** `zoneOffsetAt`
+floors its instant to the minute, and every caller now passes a whole minute
+(`Date.UTC` at minute precision), so a mutant on that floor is INERT by
+construction. It stays because the function's contract is "the offset at an
+instant" and a sub-minute error in a scheduler is the kind nobody sees; it is
+said here because a sweep cannot say it and the next session deletes what
+nothing appears to need. The same applies to `best == null || x > best`: with
+two days asked in calendar order, "the latest at or before `now`" and "the first
+found" cannot differ, and the comment says so.
+
+**MAIN MERGED INTO THE CANDIDATE** (owner: *"The branch was nine commits behind
+main when reviewed"*). Nine commits, the `agent-builder` automations work plus
+`agent-store.mjs`, `public/`, guards and documents — **no product-code overlap
+with this branch at all**, so the merge cannot change what the sweep proved:
+the only two files both sides touch are `CLAUDE.md` and `docs/owner-notes.md`,
+and both merged clean with each side's sections checked present afterwards.
+
+**SUITE 6,749 ON THE MERGED TREE, AND THE ARITHMETIC CLOSES ON THREE MEASURED
+NUMBERS RATHER THAN TWO.** The merge base is 6,703; this branch measured
+**6,709** (6,703 + round 13's 4 + this round's 2) and `origin/main` measured
+**6,743** in a detached worktree at its own tip — **which is the number main's
+own CLAUDE.md stamps, so that is two independent measurements agreeing** — and
+6,703 + 40 + 6 = **6,749**, measured on the merged tree. **The worktree run
+reads 1 fail and 2 skips a repo-root run does not**, and it was identified
+rather than glossed: `render-sandbox`'s *"THE DROP IS PROVEN BY A REFUSED
+WRITE"*, which is about writing outside the repository root and is the recorded
+environment case. The TOTAL is what carries across.
+
+**CI HAS READ BOTH, ON THE MERGED TIP `91fec70a`.** `unit tests` run **2655**,
+green (2026-09-17 03:49:22→03:51:22Z) — `# tests 6749 / # pass 6745 / # fail 0 /
+# skipped 4`, against local `6749 / 6749 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. Run **2656** is green on the docs-only tip
+`6c55bc57`, and that push started **no** `site build` — `paths` covers neither
+document, which is the filter behaving.
+
+**AND `site build` RAN TWICE ON THIS BRANCH, BOTH GREEN, BOTH READ — 1162 IS
+THE MERGE COMMIT ITSELF, which is the stronger of the two.** 1163 is a
+comment-only child of it, so 1162 covers the merged tree directly rather than by
+the ancestor rule. Both fired because **`site-jobs.mjs` is in that workflow's
+`paths`** — this change moves product code the container carries. **Both join
+the `382` scan list.**
+
+| run | sha | all twenty steps | `site-build.mjs` |
+|---|---|---|---|
+| **1162** | `75e5f9a9` (the merge) | green | **382 passed / 0 failed**, 17m38s |
+| **1163** | `91fec70a` | green | **382 passed / 0 failed**, 14m19s |
+
+**Every other count is identical across the two**: kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47, and the unit step's TAP `pass 390 / fail 0`. **The two harness timings differ
+by 3m19s on trees that differ by a COMMENT** — the runner decides, exactly as the
+image-step band records, and no inference from the diff to the duration is
+available in either direction.
+
+- **⚠ AND THE `##[group]` BOUNDING DOES ATTACH — the run-1152 note said it does
+  not, and what was wrong was WHERE the window is drawn.** GitHub wraps only a
+  step's COMMAND ECHO in the group; the step's OUTPUT follows after
+  `##[endgroup]`, so reading *inside* the groups finds **zero** counts and reads
+  as "this log format has no groups". The honest window is landmark to
+  landmark — one `##[group]Run …` marker to the NEXT one — which is this file's
+  own windowing rule, met on a log instead of on source. Measured on both runs:
+  every result inside the window of the step that produced it, and **0 before
+  the first marker**. So attribution is bounded here rather than read in step
+  order, which is what 1152 had to settle for.
+- **A RESULT COMES IN THREE SHAPES AND ONLY SEVEN OF THE TWELVE TEST STEPS USE
+  THE NUMBER.** `kit-render`, `kit-a11y`, `kit-effects` and `kit-paint` end in
+  **`all passed`** with no count at all, and the unit step (`page-gen` +
+  `publish-pages`) prints **TAP**. **A census that counts only `N passed` lines
+  finds seven results and silently reports the other five as absent** — the
+  recorded "a negative assertion must prove its observer is alive", in the
+  reader for it. Ask for all three forms, or say which steps the number does not
+  cover. (The remaining eight of the twenty are setup: checkout, setup-node, two
+  `npm ci`s, the two playwright steps and the artifact upload.)
+- **The two `##[error]` lines in the log are the harness's own fixtures**, both
+  inside the `site-build.mjs` window: `[build-service] typecheck failed,
+  shipping anyway`, each followed immediately by its own `ok` line (*"A TYPE
+  ERROR NO LONGER STOPS THE SITE"*, *"a site with one bad page still reports the
+  type error"*). GitHub's renderer stamps any line containing `error TS…`; the
+  step is 382/0 and the job is green. **A red-looking line in a green job is
+  worth naming rather than glossing** — it is the recorded "the typecheck
+  REPORTS; only `vite build` refuses", visible in CI.
+
+**NOT MERGED TO MAIN AND NOT DEPLOYED** — the owner's instruction for this round,
+as for the last four. No paid call was made and no demo site was touched.
+
+### A DEPENDENCY IS COMPLETED OR WITHHELD, NEVER WARNED ABOUT — AND A PAGE HAS ONE IDENTITY (2026-09-17)
+
+Owner, on the two rounds above: *"Remove the exception that publishes a newly
+added QR pointing to a missing planned page merely because a generated page
+renders it… A warning does not complete the dependency."* And: *"Fix large-site
+selection using the actual persisted page format… Match page identities
+consistently across stored source, selection, generation and merging."*
+
+**BOTH REPRODUCED THROUGH THE REAL ROUTE BEFORE ANYTHING WAS TOUCHED**, and the
+second one exactly as the owner gave it.
+
+**1. THE `stuck` EXCEPTION IS GONE, AND THE DEPENDENT SET IS WITHHELD TOGETHER.**
+The previous round kept a code a shipped page renders, reasoning that dropping it
+takes `SITE_QRS.<name>` out from under that page. The reasoning is sound and the
+conclusion was wrong: it published a printed thing that opens nothing beside a
+sentence asking the customer please not to print it. Reproduced: `STORED QR:
+[{"name":"gallery","points":"https://<site>/gallery"}]`, `moved: ["qr"]`, `ok:
+true`. **The whole dependent set now goes together** — the code is dropped and
+every page THIS CHANGE WROTE that renders it is withheld, an existing one going
+out as its PREVIOUS version and an invented one not at all. Nothing breaks
+because what ships already shipped: the binding is never deleted from a live
+page, it is never introduced.
+
+- **IT IS A FIXED POINT, NOT A PASS**, and that is not decoration: withholding an
+  ADDED page takes its route away, which can kill a second code pointing at it,
+  which withholds a third page. `MAX_QRS` is 6, so a chain that long is
+  constructible. A CHANGED page does not break the chain — it reverts to a
+  version the site is already serving, so its route stays.
+- **RE-MERGED, NEVER PATCHED.** The route takes the withheld files out of what
+  the writer RETURNED and asks `mergeAddonPages` again, because that function
+  owns "a changed page keeps its change only if it carries a link to a route
+  this change added" and a hand-edited answer satisfies none of it. `aMerge`
+  became a `let` for this; **five older guards were anchored on the `const`**.
+- **⚠ AND THE FIX REINTRODUCED THIS REPOSITORY'S OWN MOST EXPENSIVE CLASS UNTIL
+  IT WAS MEASURED.** A home page carrying `<Link to="/posters">` for a withheld
+  `/posters` published with that link intact — `TS2322` on the typecheck, a 404
+  for whoever clicks it. `validatePages` owns that repair and its own comment
+  records the history (a cap dropped `/account` and the two pages linking to it
+  took the build down), so it is asked AGAIN over what survives: the link is
+  rewritten to "/" and REPORTED. Measured both ways.
+- **NOTHING LEFT TO PUBLISH IS A REFUSAL** — `qr-dependency`, 422, cost 0,
+  nothing stored, both sentences — because a compile and a version for a site
+  byte-identical to itself costs a build and moves nothing. Asked by
+  `mergeAddonPages` itself rather than by counting.
+- **TWO SENTENCES FOR TWO KINDS OF WITHHOLDING.** *"I've left / as it was"* is
+  FALSE of a page this change invented, and a customer reading it would go
+  looking for something that never existed.
+
+**2. A PAGE HAS ONE IDENTITY, AND `keep` HAD NEVER MATCHED ANYTHING.**
+`aKeepPages` built `"src/routes/" + fileOfRoute(r)` on a comment asserting *"that
+is what `priorPages` really carries"*. **MEASURED through the validator: it is
+not.** `cleanPath` strips the prefix, so `validatePages` answers `target.tsx` and
+`saveSiteSource` keeps exactly that — every persisted path is bare, no keep entry
+could ever match, and the large-site selection was stored order on every real
+site. The owner's reproduction, driven: three valid ~40k pages, asking to change
+`/target` showed `index.tsx` and `middle.tsx` and **withheld `target.tsx`**.
+After: shown `index.tsx` and `target.tsx`, withheld `middle.tsx`.
+
+- **`pageId` IS THE ONE DEFINITION AND IS ASKED OF BOTH SIDES.** The defect was
+  not a wrong conversion; it was two spellings of one identity compared with
+  `===`, which fails silently and reads as *"this site does not have that page"*.
+  `keep` names ROUTES now and the route passes them straight through, which
+  removes a conversion rather than fixing one.
+- **⚠ AND THE FIXTURE WAS THE WHOLE REASON IT SURVIVED.** Every stored-page
+  fixture in `test/addon-route.test.mjs` was `writtenPage`, whose path carries
+  the prefix — so the guard's two sides agreed by accident. **MEASURED through
+  the real `mergeAddonPages`: a prefixed stored page beside a bare returned one
+  answers `added: ["index.tsx"]` and leaves BOTH files in the site**, where the
+  real shapes answer `changed` and one. So every *"the site already has this
+  page"* case here was exercising a duplicate ADD, and **`keptProse` — the wall
+  that refuses an addition which lost the page's words — had never fired in any
+  of them.** `storedPage` is validator-produced and `addedTo` is what an addon
+  really returns; five route fixtures were re-anchored onto them and the wall
+  now arms on every such case. `routeOf`'s own comment already records this exact
+  trap costing the whole `page` edit layer.
+
+**3. THE MERGE BOUNDARY ENFORCES IT, because wording does not.** Owner: *"Prompt
+wording and keptProse do not establish that an unseen rewrite preserves
+behavior."* Both halves exact — the prompt NAMES every withheld page and forbids
+returning one, and `keptProse` asks only whether the WORDS survived, which a
+rewrite that drops a form, a link or a hook passes cleanly. A returned file for a
+withheld path is refused, the stored one kept, and **said** (`keptPages`,
+`unseenPagesNote`): a withheld page dropped in silence is indistinguishable from
+one the model never touched. **This is `partsSent`'s wall one layer over, for the
+same reason in the same words** — the pages we could not SHOW are the pages we
+cannot CHECK — and a change that was ONLY that rewrite refuses rather than
+climbing to the ~25-credit revise.
+
+**Guards**: `addon-route` **85 → 91** — the three QR withholding cases (the
+narrow drop, the withheld page with an independent page shipping beside it, the
+invented page, and the empty-change refusal), **THE LIFECYCLE** (validator-
+produced pages, hop by hop: the validator strips the prefix → the selection finds
+the target → the merge reports `changed` and not a second file), and the merge
+boundary with its control. `site-add` **42** (the `stuck` case REPLACED by its
+opposite, the other two re-anchored, plus the cascade and both sentences).
+**Every new case was proved RED against the pre-change product** — six of them,
+including two that had passed only because the fixture was prefixed on both
+sides: `["index.tsx","middle.tsx"]` for the lifecycle and *"a page nobody was
+shown was replaced by a rewrite of it"* for the boundary.
+
+**Seven older guards re-anchored, not appeased**, each naming the property that
+moved: `page-gen`'s partial-lane census (2 → 3, kept as a COUNT rather than
+loosened to a floor — it is a census, and `>= 2` would let a deleted call site
+pass); `publish-pages`' repair census (the subject is a lane validating what a
+MODEL wrote, so the re-validation is told apart by what it is HANDED and censused
+both ways); `requirement-coverage`'s HOP 6b (a third composer made the field an
+array join, so the window is landmark-to-landmark rather than one line); the
+three `site-addon` merge anchors and `add-second-one`'s merge-to-gate window
+(`const` → `let`).
+
+**Sweep: 43 mutants, 43 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-qr-and-identity.json`, over
+`worker.js`, `builder/site-add.mjs`, `builder/page-gen.mjs` and
+`builder/site-addon.mjs`, against 12 test files — a narrow list can only produce
+a false SURVIVOR, never a false kill). **Pass 1 read 44/35/9 and NOT ONE
+SURVIVOR WAS THE PRODUCT'S**: six were gaps in this change's own guards, two
+were mutants of mine that measured INERT, and one was a wall nobody had driven.
+Four are worth keeping as rules:
+
+- **⚠ THE "REDUNDANT PAIR" WAS NOT ONE, AND MEASURING IT IS WHAT SAID SO.** Two
+  survivors both cut a `pageId` on the keep side — the route's own
+  (`aKeepPages.push(pageId(r))`) and the module's (`keep.map(pageId)`) — which
+  reads exactly like the recorded *"two redundant defences cannot be killed one
+  at a time"*. **Driven over four spellings against three ~40k pages, it is one
+  wall and one absorbed line**: with the module's map, a prefixed file, a bare
+  file, a mixed-case route and an exact route all select the same two pages;
+  without it, only the already-exact route does and the other three fall back to
+  stored order. So the ROUTE's call is what is absorbed and the MODULE's map is
+  the wall — **guarded now, where nothing had ever asked it a question it could
+  fail**, because every case anywhere hands `keep` an exact route. The module's
+  own prose promised this (*"`routeOf` already tolerates either spelling"*) and
+  that promise had no reader: this repository's own *"a wall nobody can drive is
+  a wall nobody is guarding"*. The absorbed line is KEPT — it says the list holds
+  page identities rather than raw model strings, which is what makes its
+  `includes` a real de-duplication, and `aKeepPages` has no other consumer that
+  could tell the two apart — and it is **declared absorbed in the code**, so the
+  next sweep reads a survivor there as the record rather than as a gap.
+- **⚠ AND A MUTANT WRITTEN AS A PAIR IS NOT A PAIR MUTANT.** The first repair
+  appended the two halves as TWO spec entries, which is the inertness being fixed
+  wearing a different hat; and `scripts/mutate.mjs` applies ONE `from`/`to` per
+  entry against `m.files[0]`, so a genuine two-file pair cannot be expressed at
+  all. **Read the runner before writing a mutant shape it has to support.**
+- **`qrUnplaced` IS ASKED WITH THE WHOLE LIST, ONE PAGE AT A TIME** — never one
+  code at a time — because its legacy `SITE_QR` arm is keyed on a code's INDEX,
+  so a one-element list makes every code look like the first. MEASURED on a page
+  carrying a bare `SITE_QR`: the real reading answers `["gallery"]` and the
+  one-at-a-time reading `["gallery","posters"]`, so a second code reads as
+  rendered and its page is withheld over a binding that is not its. Closed with
+  its CONTROL — the same page with the FIRST code dropped — so the case is about
+  the index and not about the legacy form being unreadable.
+- **`String(["a"]) === "a"`, IN THE READER FOR WHAT A PAGE RENDERS.**
+  `qrUnplaced` reads `String((p && p.source) || "")`, so an entry whose `source`
+  is an ARRAY reads as a page rendering the code and its page is withheld for
+  nothing. The `typeof p.source === "string"` filter is what stops it; measured
+  over six shapes, five agree and that one does not.
+
+**Suite 6,788** — 6,780 + 6 (`addon-route` **85 → 91**) + 2 (`page-gen`
+**250 → 252**: `pageId`'s own case, and the keep-spelling contract above).
+`site-add` is **42 → 42**: the `stuck` case was REPLACED by its opposite and both
+closers are assertions inside cases that already existed, so it adds none.
+
+**⚠ AND THE FIRST STAMP OF THAT NUMBER WAS DERIVED AND WRONG — 6,785, by
+arithmetic off two remembered baselines.** The suite measured **6,788**, and the
+three baselines measured in a detached worktree at `86c45695` are what closed it:
+`addon-route` 85, `site-add` 42, `page-gen` **250** — not the 89 and 251 the
+derivation assumed. This file's own rule is *stamp measured numbers only AFTER
+the run*, and the failure mode it is warning about is exactly this: an arithmetic
+that closes against itself and against nothing else. **Measure the baseline in a
+worktree; never subtract from a number in a paragraph.**
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
+instruction for this round.
+
+**CI HAS READ IT: `unit tests` run 2668 green — `# tests 6788 / # pass 6784 /
+# fail 0 / # skipped 4`**, against local `6788 / 6788 / 0 / 0`; the four are the
+three recorded environment skips plus `site-searchpath`'s baseline-commit case.
+And **`site build` run 1171 (10:15:41→10:39:56Z), ALL TWENTY STEPS GREEN:
+`site-build.mjs` 382 passed / 0 failed** in 17m31s — the FIFTEENTH independent
+run to answer 382, read out of the job's own log with every count bounded
+landmark-to-landmark (`##[group]Run …` to the next), **0 result lines before the
+first marker**. Beside it: kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47, and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result SHAPES
+the census has to ask for. **The unit step's TAP is `# pass 396 / # fail 0`**,
+and the arithmetic closes one layer down: 393 at run 1163 + 1 (`page-gen`
+249 → 250, the large-site round) + 2 (250 → 252, this one).
+
+### …AND A COMPONENT IS A GENERATED FILE TOO, IN BOTH READERS (2026-09-17)
+
+Owner: *"The latest tip still reproduces both outstanding defects… Include
+existing pages and custom components in the relevant readers. Calculate newly
+added frames from what actually survives the merge, matching files consistently.
+Do not turn an incomplete photo inventory into a claim that every image is a
+placeholder."*
+
+**THREE OF THE FOUR REPRODUCED AND ONE DID NOT, and saying which is the first
+finding.** Every shape was driven through `POST /api/site/<slug>/addon` before
+anything was touched:
+
+| shape | measured at the tip |
+|---|---|
+| a QR binding in a **custom component** | **REPRODUCES** — `ok: true`, `heldPages` absent, `SITE_QRS.gallery` stored in `parts.json`: a dead build, published |
+| a QR binding in an **added page** | already correct — 422 `qr-dependency`, `heldPages ["posters.tsx"]` |
+| **large-site page identity** | **does NOT reproduce** — `keep ["/target","/"]` shows `["index.tsx","target.tsx"]` and withholds `middle.tsx`; the route answers `unseenPages ["middle.tsx"]`, `changed ["target.tsx"]` |
+| a photograph in a component / an unchanged component's frame | **BOTH REPRODUCE** — see below |
+
+**The identity fix landed in the previous round and the guards for it are the
+LIFECYCLE case and the `keep` case; what the report describes is the state
+before it.** Recorded rather than silently re-fixed: re-fixing working code is
+how a guard ends up asserting the defect as correct, which this file has twice.
+
+**1. THE QR WITHHOLDING READ `wrote` — THE PAGES — AND A COMPONENT IS NOT A
+PAGE.** Since the band split a section IS a component: `src/routes/-parts/<n>.tsx`,
+travelling in its own list. So the fix shipped one file kind short, and the
+answer is the same one: a component this change **rewrote** goes back to the
+source the site is already serving, one it **invented** is not written at all.
+
+- **`deadQrs` TAKES `wroteParts` AND ANSWERS `withheldParts`**, and
+  `qrUnplaced` is still the ONE reader of "does this source show that code" —
+  asked one source at a time against the WHOLE code list, because its legacy
+  `SITE_QR` arm keys on a code's INDEX. It reads `source` and nothing else,
+  which is exactly why a component can be asked a page's question.
+- **THE CASCADE CROSSES THE TWO LISTS.** An **added** component that is
+  withheld is a file that will not exist, so every page this change wrote that
+  **imports** it goes with it — publishing the importer without the module is
+  `vite` refusing the build. A **changed** component breaks no importer.
+  MEASURED end to end: `heldParts ["qr-banner"]` + `heldPages ["posters.tsx"]`,
+  and with nothing left, the 422 at cost 0.
+- **`PART_DIR` IS THE ONE DEFINITION** of where a component lives — the same
+  constant `partNameOf` reads — so there is no second spelling of the import
+  path here. The leading `(^|["'/])` is what keeps a PAGE called
+  `my-parts/x.tsx` from reading as an import of `x`, and the trailing
+  `(?![\w-])` keeps `qr-banner-2` from matching `qr-banner`: both are the trap
+  that guard already records, met on the other side.
+- **THE WITHHELD COMPONENT LEAVES `aValid.parts` AT THE ROUTE, above everything
+  that reads it** — the wall, the reply, the merge and the trace each reading a
+  different idea of what this change wrote is how two lists of one thing come
+  apart. `mergeParts` then does the rest by itself.
+- **`heldParts` IS ITS OWN FIELD**, because a component has no route and folding
+  it into `heldPages` puts a name where every reader expects a path. Its
+  sentence is its own too: *"I haven't written the qr-banner section — it was
+  there to show that code"*, since *"I've left it as it was"* is false of
+  something that never existed.
+
+**2. THE PHOTO INVENTORY WAS PAGES ONLY, AND IT SAID SO AS A FACT ABOUT THE
+SITE.** A photograph inside an existing component produced *"This site shows no
+real photographs yet; every picture on it is a placeholder."* MEASURED at the
+module: `shownPhotos(pages, "fw")` → **0** against
+`shownPhotos(imageSources(pages, parts), "fw")` → **1**, on the same site;
+through the route, the two sentences swap.
+
+- **`photoInventory(pages, parts, partsKnown)` IS THE SIXTH STEP ASKING
+  `imageSources`**, not a sixth copy of the union. That function's own comment
+  records why it exists: five steps each read `pages` and a band-split build's
+  photographs were never planned, bought, counted, swept or linted.
+- **AN INCOMPLETE INVENTORY IS `null`, NEVER A SHORTER LIST** — the owner's own
+  instruction, and the whole reason this is a function rather than a call site.
+  `readSiteParts` answers `{ok, parts, why}` precisely because a read that
+  FAILED is not a site with no components; hand the failure through as `[]` and
+  the answer becomes *"every picture on it is a placeholder"* about a site whose
+  pictures we could not see. `null` reaches `shownPhotos` as `known: false` and
+  the directive says **"Leave every picture already on this site exactly as it
+  is"** — cannot-tell as a third answer, in the one input that decides what a
+  model believes about the site it is editing.
+
+**3. THE FRAME COUNT NOW READS WHAT SURVIVES THE MERGE, AND BOTH HALVES OF THAT
+ARE THE OWNER'S CORRECTION.** It ran above the sweep over `aValid.pages` — what
+the writer RETURNED — with `aSrc` as the before. Two things were wrong and each
+was measured: **the BEFORE was pages only**, so a component the site already has
+had no before at all and an UNCHANGED one carrying one empty frame reported one
+newly added frame (**1 against 0**, through the route); and **the AFTER was the
+answer, not the publication**, so a page the QR dependency withheld or the merge
+boundary refused was still counted.
+
+- **ONE READER NOW, NOT A SUM.** After `applyImages` a token IS an empty
+  `src=""`, so the same reader counts a frame written as asked and a token
+  written against the ban; adding the old `countImageSlots` here would report
+  one frame twice. What it stops counting is a token in an element with no
+  `alt` — right, not a loss: the picture rung finds a slot BY its alt text, so
+  promising that one is the missing-`src` mistake wearing another hat, and
+  `lintPages` reports it separately.
+- **AN UNREADABLE COMPONENT STORE TAKES COMPONENTS OFF BOTH SIDES**, never one.
+  Nothing is written to `parts.json` while `aPartsRead.ok` is false, so a
+  symmetric omission is the exact truth about what this change did; dropping
+  them from the BEFORE alone is defect 3 wearing the other hat.
+- **MEASURED through the route**: an unchanged component returned byte-identical
+  is **0**, and the control — the same component gaining a second frame — is
+  **1**, where before the fix they read 1 and 2.
+
+**⚠ AND COMBINED PAGE + PHOTOGRAPH WAS STILL INCOMPLETE WHEN THIS WAS WRITTEN**
+(the owner's own words): *"it still skips photo and publishes a placeholder. The
+current work prepares a later request; it does not fulfil both parts in one
+request."* What this round and the one before it bought is that the placeholder
+is now a slot the picture rung can really fill and the customer is told it is
+there. **CLOSED by the section below (2026-09-17): the picture is bought and
+placed in the same request, and the hand-off survives only where it is still
+the right answer.**
+
+**Guards**: `addon-route` **91 → 96** (the component that shows the dead code,
+with its cascade and the 422; **a component the site ALREADY HAS reverting while
+its importer still ships**; the photograph inside a component with the
+unreadable-store control; the unchanged component's frame with its control),
+`site-add` **42 → 43** (`deadQrs`' parts half driven directly — the reference,
+its control, the two `added` markings, the cross-list cascade, the chain break,
+the name boundary, the non-string source, **the four import shapes** and **a
+three-link chain**), `site-images` **72 → 73** (`photoInventory` three ways, plus
+the assertion that it IS `imageSources` and not a second definition), and
+`site-picture` **53** with the AFTER-only property asserted for the route's
+sake. **Every new case was proved RED against the pre-change product**, one file
+at a time — and the `site-images` one goes red at IMPORT, which is honest: the
+pre-change module has no such export.
+
+**Sweep: 29 mutants, 29 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-parts-and-frames.json`, over
+`worker.js`, `builder/site-add.mjs` and `builder/site-images.mjs`, against 12
+test files). **Three passes, and pass 1 read 31/25/6 with NOT ONE SURVIVOR THE
+PRODUCT'S**: three were guard gaps and three were measured inert.
+
+- **THE THREE GAPS WERE ALL REAL WALLS NOBODY DROVE**, each settled by
+  measurement rather than reading: the import test's LEFT EDGE (over four real
+  shapes — `@/components/my-parts/qr-banner` and a `/spare-parts/` link ship
+  with it and are withheld without it, while both spellings of our own import
+  are withheld either way); the fixed point's ROUND BOUND (a three-link chain —
+  with the loop cut to two passes, `c` survives its missing page, `pc` publishes
+  a dead binding and `leaflet.tsx` ships importing a file nothing will write);
+  and the route's `added` LOOKUP, which no module case can see because they hand
+  that flag in by hand.
+- **⚠ AND THE OTHER THREE HAD NO OBSERVABLE FORM AT ALL — the PAIR mutants
+  SURVIVED TOO, which is a stronger finding than "a redundant pair".** This
+  file's rule is *measure both versions, then mutate the PAIR, which must die*.
+  Mine did not. Measured over seven route shapes, `aPicParts` and the
+  withheld-name `toLowerCase()` changed no answer in ANY form — single or
+  paired — because each is **dead by construction**: `readSiteParts` answers
+  `parts: []` on every `ok: false`, so the flag's two branches are the same
+  list; and `withheldParts` is built from the very list the filter walks, so a
+  case difference cannot arise. Both are GONE, and the sentences they stood for
+  are in the code where they were.
+- **THE THIRD IS NOT THAT, AND THE DIFFERENCE IS THE RULE.**
+  `aParts || aPartsRead.parts` is inert only because `newEmptySlots` walks the
+  AFTER alone — a property of ANOTHER MODULE, not of this expression — so it is
+  kept, declared, and given a reader in `test/site-picture`: the day removals
+  count, it stops being documentation and starts being a wall. *Dead by
+  construction goes; dead only given a neighbour's behaviour stays and is
+  guarded where that behaviour lives.*
+
+**One older guard re-anchored, not appeased, and the property MOVED rather than
+broke.** `site-apply`'s *"a photo slot nobody can fill is said out loud"* looped
+over `aSlots` and `pSlots` asserting *"counted BEFORE the sweep, or there is
+nothing left to count"*. That is true of a TOKEN counter and false of a FRAME
+counter, so the loop is the EDIT path's alone now — the one rung that really
+counts tokens — and the addon half is asserted on what it became, as three
+separate properties: it runs AFTER the sweep, it reads `aMerge.pages` and never
+`aValid.pages`, and both sides are `imageSources`. **Strictly stronger than the
+line it replaces, and red against the pre-change product for the right reason**
+(*"the addon's empty-frame count is gone"*).
+
+**Suite 6,795** — 6,788 + 5 + 1 + 1, and the arithmetic closes exactly against
+**baselines re-measured in a detached worktree at `0cc8104d`** (`addon-route`
+91, `site-add` 42, `site-images` 72, `site-apply` 87, `site-picture` 53) rather
+than subtracted from a paragraph. `site-apply` and `site-picture` stay where
+they were: both gained assertions inside cases that already existed.
+
+### …AND THE CHAIN BROKE AT ITS FIRST HOP: COMPONENT → COMPONENT (2026-09-17)
+
+Owner: *"homepage → panel → qr-card → QR targeting missing /gallery. The route
+withholds qr-card but retains panel and the homepage. The actual compiler
+payload contains panel importing the missing qr-card module."*
+
+**REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS
+TOUCHED**, exactly as reported: `heldParts ["qr-card"]`, `heldPages undefined`,
+`changed ["index.tsx"]`, `ok: true` — and the container payload's `parts`
+carrying `panel` with `import { QrCard } from '@/routes/-parts/qr-card'`, a
+module nothing would write. `vite` refuses that build, which is this
+repository's own most expensive measured class, published on purpose.
+
+**THE CAUSE WAS ONE MISSING TEST, NOT A MISSING IDEA.** The PAGE loop has asked
+*"does this import a component that will not exist"* since the cascade shipped;
+the COMPONENT loop asked only *"does this render a dead code"*. So the chain
+broke at its first hop and everything past it read as unrelated — the fix
+shipped one file kind short of its own argument, for the second round running.
+The component loop asks both questions now, in the same shape the page loop
+does, and the whole set settles together: **restore an existing component to the
+source the site is serving, withhold a new one and every file that depends on
+it.** One rule rather than two branches, because a reverted component still
+exists and therefore never joins the *will-not-exist* set.
+
+**⚠ AND A SIBLING IS `./x`, WITH NO `-parts/` IN IT AT ALL.** That is the one
+place this edge differs from the page edge, and it was decided by measurement
+rather than by preference: the only spelling ANY prompt teaches is
+`@/routes/-parts/<name>` (`page-gen.mjs`, twice), and **the 100-site corpus
+holds ZERO `-parts/` files — it predates components entirely** — so there is no
+evidence either way about what a model writes between two siblings. What
+decides it is the asymmetry: a relative `./x` from inside `-parts/` can resolve
+to NOTHING BUT `-parts/x.tsx`, so admitting it has a false-alarm rate of **zero
+by construction**, while missing it hands the compiler a dangling import.
+**`inPart` is the discriminator that keeps it safe** — from a PAGE, `./x` means
+`src/routes/x.tsx`, another page — and the three walls inside that regex are
+each measured against a shape a real component carries: without the quote a
+COMMENT saying *"the card is in ./qr-card"* reads as an import; without the
+`./` any path ending in `/qr-card` does, which is a link, a kit module of the
+same name, or a sentence about a print file. All four ship as they are.
+
+**⚠ AND THE BOUND WAS WIDENED, MEASURED INERT, AND PUT BACK — with a proof
+instead of a term.** `+ written.length` was added on the reasoning that
+withholding an ADDED page returns its route to `gone` and can kill a second
+code. **A/B over 6,000 random chain shapes (2,621 with something really
+withheld) found ZERO differences**, and the reason is structural rather than a
+sample: a round that changes neither `dead` nor `goneParts` cannot withhold a
+page it did not already withhold last round, because the page loop walks the
+WHOLE list every round against exactly those two sets. So **no round is ever
+productive on pages alone** and `codes + parts` bounds the productive rounds
+however the three chains interleave. The bound is what it was; what is new is
+that it is now written down why.
+
+**`esc(name)` CANNOT FIRE THROUGH THE ROUTE AND IS DRIVEN ANYWAY.**
+`validatePages` refuses any component name but
+`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`, so no name reaching `deadQrs` can hold a
+regex metacharacter — and the function is exported and takes what it is handed,
+where `qr.card` unescaped matches `qrxcard`. *A wall nobody can drive is a wall
+nobody is guarding*, answered by driving it at the module rather than by
+declaring it a belt.
+
+**Guards**: `addon-route` **96 → 98** — the owner's chain end to end, plus the
+matching successful control where `/gallery` exists. **The compiler inputs are
+read from a DERIVED check**, `danglingParts`, which walks BOTH payload halves
+(pages arrive in `files`, components in `parts`) and answers "does anything here
+import a file that is not here" — a hardcoded expectation stops being that
+property the moment a fixture gains a file, and a check reading only `files`
+would report a component importing a missing component as clean, which is the
+defect itself. **One unrelated `/prices` is declared scaffolding**: the chain
+alone leaves nothing to publish, and a 422's compiler inputs are the empty set
+— a true assertion and a weak one. `site-add` **43 → 44**, where the three
+spellings, the discriminator both ways round, a five-link chain listed
+BACKWARDS, the existing-component revert at depth and its `added` control all
+live. Both new cases proved RED against the pre-change product, and **the
+control passes on BOTH trees**, which is what makes it a control rather than a
+second copy of the case.
+
+**Sweep: 17 mutants, 17 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-nested-parts.json`). Pass 1 read
+18/14/4 and **not one survivor was the product's**: three were gaps in the new
+guards (the quote, the dot, and `esc` — each closed by a measured real shape
+rather than by a contrived one) and the fourth was the inert bound above, which
+was removed with its proof instead of being hunted.
+
+**Suite 6,798** — 6,795 + 2 (`addon-route`) + 1 (`site-add`), and the arithmetic
+closes exactly.
+
+**CI HAS READ BOTH, ON `b953c0fb`.** `unit tests` run **2674**, green
+(2026-09-17 19:04:41→19:06:43Z, the suite step 109 s) — `# tests 6798 /
+# pass 6794 / # fail 0 / # skipped 4`, against local `6798 / 6798 / 0 / 0`; the
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case, and **the TOTAL is what matches**. And `site build` run
+**1173** (19:04:41→19:27:07Z), **all twenty steps green**: `site-build.mjs`
+**382 passed / 0 failed** in 16m06s, with kit-typecheck 4, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47 beside it and
+kit-render / kit-a11y / kit-effects / kit-paint each `all passed` with no count
+— the three result SHAPES a census has to ask for. Every count bounded
+landmark-to-landmark (`##[group]Run …` to the next), **0 result lines before the
+first marker**. It fired because `site-add.mjs` is under `builder/**`.
+**The unit step's TAP is `# pass 396 / # fail 0`, unchanged from run 1171** —
+correct, because this round adds no `page-gen` or `publish-pages` case.
+
+**⚠ AND THE "HOW MANY RUNS HAVE ANSWERED 382" SCAN IS NOT TRUSTWORTHY AS
+WRITTEN, which is worth saying rather than quietly publishing a number.** The
+recorded instruction is to DERIVE the count with a scan of this file instead of
+taking the next ordinal — and a scan for *a run number in the same paragraph as
+a 382 claim* over-collects: it picks up the `unit tests` run quoted in the same
+breath, and it picks up **run 1065, which read 373**, and **run 1115, whose
+count is recorded as UNREAD**. So the ordinal stays dropped and each entry names
+its own run and its own counts; anyone wanting the total has to scan for `site
+build` numbers only and subtract those two by hand.
+
+**COMBINED PAGE + PHOTOGRAPH REMAINS INCOMPLETE**, in the owner's words: it
+still skips photo and publishes a placeholder, and the same request does not yet
+place the picture.
+
+### THE PRESERVATION POLICY HAD ONE REASON AND NEEDED TWO (2026-09-17)
+
+Owner: *"Add a gallery page and add a parking note to the homepage."* The
+component designer explicitly targets `/`, the writer returns the correct
+homepage addition, and `mergeAddonPages` nevertheless REVERTS `index.tsx`
+because it contains no link to the newly added route. ***The identical
+component-only request succeeds.***
+
+**REPRODUCED THROUGH THE ROUTE BEFORE ANYTHING WAS TOUCHED**: `reverted
+["index.tsx"]`, `changed []`, the note in **neither** the container payload nor
+the stored source, and the customer told *"I left / as it was — nothing there
+needed to change for this"* about the half of their own sentence that named that
+page. The component-only control: `changed ["index.tsx"]`, note published.
+
+**THE RULE WAS RIGHT AND ITS JUSTIFICATION WAS INCOMPLETE.** Reachability is a
+guess about a page NOBODY mentioned — the nav link a new page needs — and it is
+a good guess, bought by a live run where *"add a gallery page"* rewrote four of
+four pages for 28 credits. `asked` is not a guess: it is the destination a
+CLEANED designer answer NAMED. Both reasons are kept and they are independent;
+what the fix must not do is infer permission from the customer's prose, or
+exempt a page nobody named.
+
+**`aAskedPages` AND `aKeepPages` ARE TWO LISTS OUT OF ONE WALK, AND THE
+DIFFERENCE IS THE `/`.** The route has collected the cleaned answers'
+`page`/`path` fields since the large-site window shipped — and it appends the
+home page unconditionally, because that is the nav anchor almost every addon
+touches. **That is a BUDGET decision, not a claim that anybody asked**, so
+handing the window's list to the merge would exempt `/` from the preservation
+rule on every addon — *removing protection from unrelated pages*, the one thing
+forbidden. One walk, two lists derived from it, so they cannot drift; the
+`keepOnly` flag is what separates them and a mutant collapsing it is a red run.
+
+**THE IDENTITY IS A CONTRACT, NOT A PREFERENCE.** `asked` arrives as ROUTE
+identities because **`page-gen.mjs` imports `routeOf` from `site-addon.mjs`** —
+importing its `pageId` back would be a cycle. The route normalises with `pageId`
+(which delegates to that very `routeOf` for a file) and the merge maps its own
+stored paths through `routeOf`, so the two normalisers are one definition with
+the file case shared; measured equal on every real shape. **The comparison is
+case-insensitive ON BOTH SIDES and that is load-bearing**: `SAFE_PATH` in
+`page-gen.mjs` carries `/i`, so `About.tsx` really is stored with its capital
+and `routeOf` answers `/About` where `pageId` answers `/about` — measured
+through `validatePages`, not assumed.
+
+**Guards**: `addon-route` **98 → 101**, the three the owner named — the
+component-only control, the page + requested homepage component with no link
+between them, and an unrelated existing-page rewrite that must still be
+rejected. Each asserts the **compiler inputs**, the **stored source**
+(`storedSource`, reading `source/<slug>/pages.json` — a third claim, not a
+second: a change that reached the compiler and not the store leaves the next
+edit working from the old file) and the **customer wording**, composed by the
+real `addonReply` over the real reply. The false sentence is asserted ABSENT on
+the two legitimate changes and **PRESENT on the unrelated rewrite**, which is
+what stops the fix from being "delete the sentence". `site-addon` **190 → 191**
+for the contract itself. All three route cases were run against the pre-change
+product: **only the reproduction goes red, and both controls pass on both
+trees** — which is what makes them controls rather than second copies.
+
+**⚠ FIVE OLDER GUARDS RE-ANCHORED, NOT APPEASED, AND FOUR ARE ONE CLASS.** They
+used the merge call as a **window OPENER** and pinned its whole argument list,
+so an honest fourth argument turned them red on a change they are not about —
+this repository's own *assert the property, not the spelling*, four times in one
+file, **and three of the four had already been re-anchored yesterday** when
+`const` became `let`. The landmark is the ASSIGNMENT (`aMerge =
+mergeAddonPages(`) now; an argument list was never part of a window's claim. The
+fifth is the wiring census, which really IS about the arguments — it reads them
+**depth-aware** (a nested call inside one cannot end the list early) and asserts
+the count, the removals and the named destinations **on both call sites**,
+because the second is the re-merge after a withheld QR and a different
+permission set there would revert on the second pass exactly what the first kept.
+
+**Sweep: 15 mutants, 15 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-asked-pages.json`, three passes).
+**Not one survivor at any point was the product's.** Pass 1 read 16/13/3 and
+pass 2 15/14/1; the three were a non-string entry, and the fold on each side —
+each closed by the case that needs it to MATCH rather than to miss, which is the
+half that was absent. The fourth was **measured inert and kept with its reason
+rather than hunted**: `v.path` is read into both lists and only the `page` kind
+carries `path`, and `cleanAdd` answers `page-exists` for a path the site already
+has — so a cleaned `path` always names a page that is in neither `changed` nor
+`aSrc`. **That deadness rests on a NEIGHBOUR'S rule**, which is guarded four
+ways where it lives, so the line stays, says so, and carries the destination the
+day a kind extends an existing page.
+
+**⚠ AND MY OWN FIRST CASE PASSED THE LIST IN THE `remove` SLOT.**
+`mergeAddonPages(SITE, [...], ["/"])` is the third argument, not the fourth, and
+it read as the fix not working — caught because the case asserted a POSITIVE
+outcome and driving the module directly disagreed with it. A case that only
+asserted the negative would have "passed".
+
+**Suite 6,802** — 6,798 + 3 + 1, and the arithmetic closes exactly.
+
+**⚠ AND THE REPLY CLAIMED A LINK IT HAD NOT MADE — corrected the same day**
+(owner: *"a changed page does not establish that a link was added"*).
+`addonReply` and the browser's `addonReplyText` both read
+`added.length ? "linked it from " : "updated "` — an INFERENCE from *a page was
+added in this change* to *this changed page carries the link to it*, written for
+run 35 when that was the only reason a page could legitimately change beside an
+addition, and false the moment the preservation policy above learned its second.
+
+**IT CONTRADICTED ITSELF IN ONE SENTENCE**, which is how it was caught: the
+parking-note case produced *"added /gallery, linked it from /. Nothing links to
+/gallery yet…"* — the link claim and the no-link warning four words apart, from
+a composer holding both facts. It reads *"added /gallery, updated /. Nothing
+links to /gallery yet — say where you want the link and I'll add it."* now.
+
+**"updated" IS TRUE OF EVERY CHANGED PAGE WHATEVER ELSE HAPPENED**, so there is
+no inference left to be wrong; `unlinked` is the one field that really knows
+about links and it is measured rather than guessed. **THREE ASSERTIONS EXPECTED
+THE FALSE CLAIM** — two older guards and the new route case — and each is
+re-anchored onto the property rather than appeased: every one now asserts that
+NO reply claims a link, with the paired and unpaired shapes driven on both
+composers. No new reporting machinery, and the suite is unmoved at 6,802
+because all of it is assertions inside cases that already existed.
+
+**COMBINED PAGE + PHOTO WAS THE NEXT INCOMPLETE CAPABILITY** when this was
+written, in the owner's words: the same request did not yet place the photo, and
+a placeholder plus an invitation to ask again is not that capability. **CLOSED by
+the section below.**
+
+### PAGE + PHOTOGRAPH IN ONE REQUEST: IT BUYS THE PICTURE AND PLACES IT (2026-09-17)
+
+Owner: *"proceed to completing page + photo in one request. Placeholders and
+asking the customer to repeat the photo request do not complete that capability.
+Start with stubbed-provider verification."*
+
+**MEASURED THROUGH THE ROUTE BEFORE ANY OF THIS**, on *"add a gallery page with a
+photograph of the workshop on it"*: `kinds: ["page"] / skipped: ["photo"]`, a
+gallery page whose every picture was `<SafeImage src="">`, nothing bought, and
+the customer told *"The photograph is a separate step — ask for it on its own."*
+
+**THE LINE IS WHO MAKES THE SLOT, and it is the same line `runPictureEdit`
+already draws with `needs-place`.** That rung fills a `<SafeImage>` that EXISTS
+and escalates when there is none; a photograph asked for beside a page or a
+component is a slot THIS change is writing, so this is the only step that can
+create it and fill it in one request. **A photograph ALONE is still the picture
+rung's, unchanged** — it prices one against the real balance and refuses
+honestly, and a change that designed a picture for every `photo` ask would take
+that rung's work and its refusals with it.
+
+- **`photo` GAINS A TOOL ANSWERING `{page, describe}` AND KEEPS `elsewhere`.**
+  That is `imageDirective`'s own list shape, so the shot list crosses to the page
+  writer through the build path's reader rather than a second shape beside it.
+  **`PLACING_ADDS` is a third group and the partition stays total and disjoint**
+  — a kind that names a layer AND carries a tool — and
+  **`addLayerIn(kind, kinds, placing = PLACING_ADDS)` is the ONE reader** every
+  route ask goes through (**four calls**, pinned by census: the escalate twice,
+  the set-aside list and the loop gate), because two of them disagreeing is a
+  kind designed and then reported as skipped, or set aside and never designed.
+  `IMAGE_CAP` and `MAX_PROMPT_CHARS` are IMPORTED: a ceiling retyped here would
+  be a wall the tool promises and the spend path does not keep.
+  **`DISPATCHED_ADDS` IS EMPTY TODAY**, so its guard loop asserts nothing — which
+  is why the placing group is driven in both directions instead.
+- **THE BALANCE CUTS THE LIST BEFORE THE WRITER SEES IT**, which is the build
+  path's own rule in as many words: *"printing all of them would invite a page
+  writer to spend money the account has not got."* `imagesAffordable` is the same
+  reader `buySitePhotos` asks at the moment of spend, so the writer is never
+  shown a token the purchase will refuse.
+- **BOUGHT AFTER THE MERGE AND THE PARTS WALL, BEFORE `newEmptySlots`.** A page
+  the QR dependency withheld, one the merge boundary refused and a component the
+  writer was never shown are all gone by that line, so nothing is paid for on a
+  file nobody will be served; and a slot this change FILLED is not an empty frame
+  to warn the customer about. `buySitePhotos` is the build path's own function,
+  unchanged.
+- **BILLED ON `made`, NEVER `planned`** — the build path's rule and the picture
+  rung's. Its own reserve (**#5**) under a job, placed before the publish gate;
+  one more term in the one synchronous collect, which rounds once.
+- **`pictures` AND `pictureNote` ON THE REPLY.** `pictures`, never `photos`: that
+  field has meant "empty frames left over" since it was written and the browser's
+  `photoNote` reads it as one. The sentence is `imageNote`'s — the build path's
+  own composer, and the only thing that can tell four identical-looking blank
+  frames apart — printed verbatim, before the empty-frame sentence, because what
+  the customer asked for comes first.
+
+**⚠ AND THE SWEEP BELT WAS STRIPPING THE VERY TOKENS THE PURCHASE IS FOR.**
+`applyImages(aValid.pages, {})` ran unconditionally, which was right for every
+addon before today — the step bought nothing, so a token could only be a model
+writing one against the ban. *A rule true because of a layer below it expires
+when that layer moves*, and here **we are the layer**. MEASURED through the
+route: `plan.shots` came back **0** on a run whose directive named the picture
+and whose writer wrote the token exactly as asked. It waits for the buying
+branch now; the property is unchanged, because `buySitePhotos` ALWAYS sweeps
+(its own comment records the live broken image that bought that guarantee) and
+nothing between the two publishes.
+
+**⚠ AND AN EXISTING GUARD GOING RED FOUND A REAL GAP IN THE CHANGE.** `place` —
+*leave an empty `src` the picture rung can fill* — was keyed on `aSkipped`,
+which is **empty on exactly the asks that clause was written for** once a
+photograph is designed here. So a picture the BALANCE refused, or one its
+designer could not describe, would have published a page with no slot at all
+while the customer was told the pictures are placeholders. It asks
+`aKinds.includes("photo")` as well: the trigger is *a picture was asked for and
+is not being bought*, which is wider than the hand-off it replaced.
+
+**MEASURED, end to end through `POST /api/site/<slug>/addon` with the provider
+stubbed in its own two hops** (`genSitePhoto` POSTs to fal and then FETCHES the
+url fal answers): `kinds ["page","photo"]`, `skipped []`, the writer handed
+`/gallery — <SafeImage src="@@IMG:the workshop bench under the window, warm
+afternoon light@@" …>`, **exactly one prompt paid for**, the compiled gallery
+page carrying `src="/u/<slug>/<32 hex>.jpg"` and no token, `pictures: 1`,
+`photos: 0`, and **cost 19** — a photograph is `IMAGE_USD` / `CREDIT_USD` ≈ 18.75
+credits, so the picture is nearly all of that bill and a run that forgot to
+charge for it reads ~1.
+
+**What the customer hears**, driven through the browser's own `addonReplyText`:
+
+| state | the sentence |
+|---|---|
+| bought | `✅ Done — added /gallery, updated /. Made 1 photograph for the site.` |
+| unaffordable | `…Not enough credits left over for photographs, so the pictures are placeholders for now. There is a space for a photo — upload yours in the Data panel and it'll fill in.` |
+| provider refused | `…Couldn't make the photographs this time, so the pictures are placeholders — the site is otherwise fine.` + the space sentence |
+| set aside (photo alone, or beside a table) | the space sentence + `The photograph is a separate step — ask for it on its own and I'll place it.` |
+| no picture asked for | `✅ Done — added /gallery.` — byte-identical to before |
+
+**Guards**: `addon-route` **101 → 111** — the combined request end to end (the
+hand-off gone, the exact token, the prompt really paid for, the published page's
+own `src`, the three reply fields and the bill), a photograph ALONE still hopping
+and buying nothing, one beside a table still set aside, a provider that refuses
+costing nothing and sweeping, the destination rule with its control, the belt
+still firing on a change that buys none, a photograph beside a SECTION, the
+purchase reading the PUBLICATION rather than the writer's answer, a stored
+component's token left unbought, and the cap. `site-add` **44 → 45** (the tool's
+shape and its cap, the three refusals, the slice, the fold's PAIR dedupe, that
+the list is NOT on `designed` — storing it would re-buy the same set on the next
+unrelated edit, which is the rule `budgetFor` exists for — and the placing group
+driven as a PARAMETER in a two-kind world). `site-addon` **89** and `addon-queue`
+**14**, each gaining assertions inside a case that already existed: the browser's
+two sentences driven, in order, **against `imageNote`'s own output rather than a
+sentence typed in the guard**, and the job path's cost asserted as a CENSUS over
+its own accumulators. **The fixture stubs fal in its own two hops, records every
+prompt paid for, and answers real JPEG magic** — `sniffImage` reads the bytes and
+refuses anything else.
+
+**⚠ AND THREE OF THOSE FOUR CASES WERE VACUOUS IN THEIR FIRST SHAPE, each for a
+different reason and each found by MEASURING rather than by reading.**
+(1) *A picture is bought for what will be published* aimed its photograph at the
+very page it wanted reverted — and a photograph answer NAMES its destination, so
+that page joins `aAskedPages` and the merge KEEPS it. `reverted` came back `[]`
+and the case's own precondition assertion is what said so. The picture is
+designed for `/gallery` now and the writer puts its token on the unasked
+`/prices`, which is the shape where the two lists really differ.
+(2) *A stored component's token is not bought* could not discriminate at all:
+with one shot and one token in the page, `planImages` fills its budget from the
+page and never reaches the component, so handing the stored list in changes
+nothing. Two shots and one token is what leaves the room.
+(3) *The browser keeps its own copy* was pinned to `/Made 1 photograph/`, which
+a browser composing its own sentence from `a.pictures` satisfies exactly — the
+one thing that case exists to forbid. Derived from `imageNote` and asserted
+whole.
+
+**Eleven older guards re-anchored, not appeased**, each naming the property that
+moved: the two-group partition (three now, with the placing group driven in both
+directions); the `addTool`/`addRule` refusal (the property is *no shape*, not
+*dispatches*); `cleanAdd`'s `no-kind`; `LIST_ADDS`; the four-part rule census;
+`foldAdds`' empty shape; the route's `addLayer(` census (now `addLayerIn(`, with
+the count of asks pinned at 4 and the bare reader forbidden); the parts-sweep
+pairing — **`/\bparts\b/` cannot match `aParts`**, so a real part sweep read as a
+page sweep and the census reported the product unpaired over correct code; the
+hop census (`DISPATCHED_ADDS ∪ PLACING_ADDS`, because each harness case posts one
+ask); the unbought-token guard (the property was never *neither lane buys*, it is
+that an unbought token never publishes); and four bill lines whose tail is now
+open because a picture is a non-spread `{images: n}` term.
+
+**Sweep: 40 mutants, 40 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-page-photo-buys.json` — 42 entries,
+40 product and 2 controls, read back out of the spec — over `worker.js`,
+`builder/site-add.mjs` and `public/chat.js`).
+**⚠ AND THE TEST LIST THIS RAN AGAINST IS NOT RECORDED ANYWHERE, so it is not
+being stamped.** A first draft of this line said "against 9 test files" from
+memory; the runner took its list on argv and printed the spec's name nowhere,
+opening on `baseline…` and closing on a count — **so a clean tally could not be
+checked for its own SCOPE**, which is exactly the claim that matters here,
+because a narrow list is what makes a narrow sweep cheap and **a narrow list can
+only produce a false SURVIVOR, never a false kill**. `40/40/0` and `40/40/0
+against these nine files` are different claims and only the second is auditable.
+Fixed at the instrument: `scripts/mutate.mjs` now opens with the spec, the two
+counts, the files it mutates and the test list — **before the baseline**, so a
+sweep that dies in its baseline still says what it was trying to do — and an
+empty list is SAID (`(the whole suite)`), because an empty list and a forgotten
+one are identical in a log. `test/sweep-runner.test.mjs` **4 → 7**, all three
+driven as a real process in a temp directory and all three proved RED against
+the pre-change runner with the existing four green on both.
+**AND THE HEADER'S CONTROL COUNT IS THE TALLY'S, one binding**: two `filter`s of
+one predicate is a sweep arguing with itself about what it just did. It was
+written as two on the first pass, and hoisting the computation while leaving the
+old `const` in place threw `Identifier 'controls' has already been declared` at
+LOAD — `.mjs` is parsed as a module, so **driving the runner caught what a source
+read would not have**, which is this file's own recorded re-anchor trap in the
+instrument that measures re-anchors.
+**Pass 1 read 39/30/9 and NOT ONE SURVIVOR WAS THE PRODUCT'S**: seven were gaps
+in this change's own guards and two were measured INERT. The seven are the three
+vacuous cases above plus four walls nobody drove — the photo tool's cap read as
+its own number rather than the platform's, the purchase reading the answer rather
+than the publication, the stored components handed in for the sweep, and the job
+branch's reserve dropped from the reply's cost (which no route guard can see, so
+it is closed as a CENSUS in `addon-queue`).
+**⚠ AND THE TWO INERT ONES HAVE THE SAME CAUSE: `photo` IS THE ONLY KIND WITH A
+LAYER AND A TOOL, so `addLayerIn`'s membership test and `PLACING_ADDS`' `shape`
+filter cannot separate from the conditions beside them — 81 probes (every kind
+against nine company shapes), ZERO differences either way.** They are answered
+differently on purpose. The first is made DRIVABLE — `addLayerIn(kind, kinds,
+placing = PLACING_ADDS)` takes the group as a PARAMETER, the `cleanTools(v,
+catalog)` precedent, so a two-kind world exists to ask it in and the guard drives
+every member both ways; *a wall nobody can drive is a wall nobody is guarding*,
+and the answer is to build the world rather than to declare the wall. The second
+has nowhere to stand, so it is DECLARED in the code with its pair named (the
+load-time partition below it) and given an observable replacement mutant.
+
+**Suite 6,816, and it is TWO changes**: 6,813 for the capability — 6,802 + 10
+(`addon-route` 101 → 111) + 1 (`site-add` 44 → 45) — then **+ 3** for the sweep
+runner's own scope line (`sweep-runner` 4 → 7). **Both arithmetics close exactly
+and both were measured, never derived**; the baselines are from a
+detached worktree at `0f873e2c` rather than subtracted from a paragraph —
+`site-addon` and `addon-queue` stay where they were (89 and 14), because
+everything they gained is an assertion inside a case that already existed.
+**And a worktree needs `node_modules` linked into it or three of those four
+files answer `# tests 1`** — one failing "test" is a file that would not LOAD,
+which reads as a baseline of one rather than as a broken command.
+
+**CI HAS READ BOTH NUMBERS, EACH ON ITS OWN SHA.** `unit tests` run **2681** on
+`e48e7ae2` (the capability) — `# tests 6813 / # pass 6809 / # fail 0 /
+# skipped 4`; run **2683** on `7627c71e` (the runner) — `# tests 6816 /
+# pass 6812 / # fail 0 / # skipped 4`, with **all three sweep-runner cases
+present in the CI log** rather than inferred from the total. Both against local
+`… / … / 0 / 0`; the four are the three recorded environment skips plus
+`site-searchpath`'s baseline-commit case, and **the TOTAL is what matches**.
+**⚠ AND THE FIRST READ OF 2683 WAS THE WRONG RUN** — a run id kept from an
+earlier listing was run **2682**, the docs-only stamp commit, which answers
+6,813 correctly. Two shas were in flight and the number that came back was the
+right answer to a question I had not asked. *Re-resolve the run id from the sha
+when more than one push is outstanding.*
+**AND `site build` RUN 1177 IS GREEN ON `e48e7ae2` (21:09:20→21:33:55Z), ALL
+TWENTY STEPS**: `site-build.mjs` **382 passed / 0 failed**, with kit-typecheck 4,
+contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14, site-runtime
+47 beside it and kit-render / kit-a11y / kit-effects / kit-paint each `all
+passed` — the three result SHAPES. Every count bounded landmark-to-landmark,
+**0 result lines before the first marker**. It fired because `builder/site-add.mjs`
+and `worker.js` moved. **The unit step's TAP is `# pass 396 / # fail 0`,
+unchanged from 1171 and 1173** — correct, because this round adds no `page-gen`
+or `publish-pages` case. **No `site build` fired for either later push and none
+was due**: `scripts/**` and `test/sweep-runner.test.mjs` are outside that
+workflow's `paths`.
+**⚠ AND "TWENTY STEPS" NEEDS THE RIGHT FILTER, which is worth one line because
+this file already records the count.** The API answers **23**, and dropping
+everything that `startsWith("Post ")` leaves **21** — the third trailing entry is
+**`Complete job`**, which is GitHub's too and is not named like one. Twenty is
+right; a filter on the name prefix is not what establishes it.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK** — the owner's
+instruction. **NOT PROVEN LIVE**: every measurement here is from driving the real
+route with the provider stubbed, and no real photograph has been generated. The
+first live proof is a paid addon run, which is the owner's press.
+
+### …AND BUYING ONE MAY NOT LOSE THE ONES ALREADY THERE (2026-09-17)
+
+Owner: *"Preserve existing photographs when buying new ones. The paid-photo
+directive currently says every other picture should have no src. Correct that
+instruction and prevent an addon from accepting removal or replacement of
+existing image references in pages and custom components."* And: *"Carry the
+full requested photo list separately from the affordable purchase list. A
+two-photo request with credits for one must explain that one was omitted because
+of the balance. Do not imply a placeholder exists unless one actually survived
+publication."*
+
+**BOTH REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS
+TOUCHED**, which is what named the cause in each case rather than the symptom.
+
+**1. THE PAID DIRECTIVE WAS AN INSTRUCTION TO STRIP.** Its tail read *"Do NOT
+invent an extra token: any other picture stays a `<SafeImage>` with no src,
+which renders this theme's own placeholder — that is the intended look for the
+rest of the site."* True of a FIRST BUILD, where nothing else on the site is
+real; false of every addon that buys one for a site that has some. Measured on a
+site showing two bought photographs: the writer returned both stripped, the
+**compiler payload** and **`source/<slug>/pages.json`** each came back with ZERO
+`/u/` urls, the customer was told *"Made 1 photograph for the site."*, and the
+two stripped pictures were counted as **`photos: 2`** — empty frames this change
+had ADDED.
+
+- **THE BAN IS NARROWED TO WHAT THIS CHANGE ADDS, and the inventory is now in
+  the paid form too.** That needed one shape rather than two: the route sent the
+  bare LIST when buying — `imageDirective`'s build-path door, which carries no
+  inventory — so a correction could land on the zero form and miss the buying
+  one. It sends `{buy, shown, place}` always; `imageDirective`'s array door
+  delegates to the object (`imageDirective({buy: n})`), so there is ONE composer
+  and `keepClause` is one definition read by both forms.
+- **AND AN EMPTY SRC RATHER THAN NO SRC**, for the reason the zero form already
+  carried: the picture rung fills a slot by rewriting a `src`, so an element with
+  none is invisible to the one step that could later fill it.
+- **THE BUILD PATH SUPPLIES NO INVENTORY AND IS SILENT, correctly**, because
+  `budgetFor` answers 0 for a revise of a site that has photographs — so a paid
+  directive is only ever reached there on a site that has none. `keepClause`
+  answers `""` for an absent inventory and the ZERO form normalises absence to
+  `{known: false}` instead, because *this form's subject is what the site has*
+  and cannot-tell must never read as a value.
+
+**2. AND THE WALL BEHIND THE CORRECTION.** `keptImages(before, after, slug)` —
+every photograph the site showed is still shown, or the change is refused 422
+`lost-photos`, cost 0, before the purchase and before the gate. `keptProse`'s
+shape one field over, and for the same reason: these are money the owner already
+spent, and an addition may only ADD.
+
+- **SITE-WIDE, NEVER PER FILE, which is why it takes two LISTS.** A writer that
+  moves a `<SafeImage>` out of one component and into another has kept every
+  picture the site shows; a per-file wall refuses that reorganisation.
+  `imageSources` is the one definition of the files a photograph can be in, so
+  pages and components are one question — the owner's *"in pages and custom
+  components"* — and it is **the same pair `newEmptySlots` is handed**, not a
+  second idea of before-and-after.
+- **⚠ AND THE DEMONSTRATION HAD TO MOVE, WHICH IS ITSELF A FINDING.** The
+  obvious shape — a picture moved off a PAGE into a component — is already
+  refused one wall earlier by `keptProse`, because an `alt` is WORDS: driven,
+  the change comes back `error: "rewrote"` naming *"a guitar being refretted"*.
+  `keptProse` loops `aMerge.changed` PAGES and never the parts, so
+  component-to-component is the shape where the two readings really differ.
+- **`photoUrls` IS THE ONE READER** of "a photograph this site owns", shared with
+  `shownPhotos`, so the count a designer is told and the wall that refuses a
+  change cannot disagree. **The SLUG folds case and the URL does not**: a slug is
+  lowercased at every door, so `/u/FW/` is this site's — while the rest of the
+  path is an R2 KEY, where a re-cased hash is a different object and therefore a
+  broken image, so `/u/fw/A1.jpg` coming back as `/u/fw/a1.jpg` reads as LOST.
+  `/u/` itself is ours and is matched literally; the first draft of the guard
+  asserted a fold there that the reader does not do, and driving it is what said
+  so.
+- **REPLACEMENT IS REMOVAL** — a `src` swapped for a different `/u/` url loses
+  the first, which is what *"removal or replacement"* names as one thing — and an
+  ADDITION is invisible, because adding is the whole point of the step.
+- **`lostPhotosMsg` GIVES THE COUNT AND NEVER THE URLS.** `/u/fw/a1b2c3d4.jpg`
+  is a storage key and tells a customer nothing; how many of their own pictures
+  were at stake is what they can act on. The urls ride the reply as
+  `lostPhotos`, developer-facing, the division `unknownComponents` already makes.
+
+**3. THE FULL REQUEST AND THE AFFORDABLE ONE ARE TWO LISTS.** Reproduced: two
+pictures designed, a balance covering one (a photograph is `IMAGE_USD /
+CREDIT_USD` = **18.75 credits**, so 30 buys exactly one of two), one bought — and
+the customer heard *"Made 1 photograph for the site."* with `photos: 0` beside
+it. Nothing said a second had been asked for and nothing said why it was absent.
+
+- **`unaffordable` IS HOW THE FULL LIST TRAVELS, and the ROUTE names the reason**
+  because it is the only place holding both numbers: `imagesAffordable` against
+  the balance is the one thing that cuts `aFold.photos` down to `aShots`.
+  `imageNote` must not infer it from `planned - budget`, which inside the
+  purchase is a different clamp with a sentence of its own.
+- **⚠ IT IS NOT `overflow`, AND WIRING IT THERE WOULD HAVE BEEN THE LIE THE
+  OWNER'S THIRD SENTENCE NAMES.** `overflow` is tokens the writer WROTE beyond
+  the budget; `applyImages` sweeps each to `src=""`, so *"the other 2 pictures
+  are placeholders"* is TRUE there. These were cut off the list before the writer
+  saw them — no token, no frame, no space — so they get their own clause:
+  *"There weren't enough credits for the other one, so it isn't on the site —
+  top up and ask for it and I'll add it."* A second CLAUSE rather than a second
+  sentence, so every outcome keeps its exact words and a change that buys nothing
+  extra is byte-identical. **"weren't enough CREDITS" whatever the count**: the
+  verb agrees with the credits, and the first cut read *"There wasn't enough
+  credits for the other one."*
+- **AND `frames` IS THE OBSERVATION THAT KEEPS THE ZERO-BUDGET SENTENCE HONEST.**
+  With nothing affordable the writer is asked for `<SafeImage src="">` — a real,
+  fillable space — so *"the pictures are placeholders"* is true when it writes one
+  and false when it does not, and only the run itself can say which. Asked in
+  that ONE branch and nowhere else, because `full`, `slow`, `empty` and the error
+  sentence are each reachable only once a token was written and swept, so a frame
+  exists there by construction. A caller that passes nothing gets exactly the
+  sentence it got before, which is what leaves the build path untouched.
+- **⚠ AND `planned` IS DELIBERATELY NOT OVERRIDDEN AT THE REPLY.** A first cut
+  passed `aFold.photos.length` into it — the obvious other half of "carry them
+  separately" — and it is a value NOTHING ON THIS PATH READS: measured over 810
+  shapes, the one branch that reads `planned` is the silence guard, and
+  `unaffordable` is non-zero on every route shape that could reach it. A value
+  computed and forwarded to no reader is this repository's most-recorded defect,
+  and shipping one inside the round that is about exactly that would be the wrong
+  way round. **It was found as a sweep survivor and REMOVED rather than declared**;
+  the distinction is carried where it is read — `unaffordable` at the reply, and
+  `planned`/`offered` on the trace mark, which was also reporting the cut list as
+  the plan.
+
+**Guards**: `addon-route` **111 → 118** (the loss case with the corrected
+directive asserted verbatim, the successful-retention control, the
+component-to-component move, the component wall with its own control, the
+two-of-two omission, the credits-for-both control, and the survived-versus-not
+placeholder pair) — each driven through the real route and each asserting the
+**compiler payload**, the **stored source** and the **customer reply**, which are
+three different claims. `site-images` **73 → 78** (`photoUrls`, `keptImages`,
+the shared clause, `imageNote`'s two fields). **Every new case was proved RED
+against the pre-change product**, with the controls passing on BOTH trees —
+which is what makes them controls rather than second copies.
+
+**One older guard re-anchored, not appeased, and it is the THIRD time for that
+same reason** — `site-addon`'s *"neither lane can publish an unbought image
+token"* pinned `images: <x>.length ? <y> : { … buy: 0 }`, the shape of a call
+choosing between the bare list and an object. It asserts the two KEYS that carry
+the property now (`buy:` and `shown:`), which is strictly stronger: the old form
+allowed the buying branch to carry no inventory, and that was the defect.
+
+**Sweep: 37 mutants, 37 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-photo-preserve.json`, over
+`worker.js`, `builder/site-images.mjs` and `builder/site-add.mjs`, against seven
+test files — a narrow list can only produce a false SURVIVOR, never a false
+kill). **Pass 1 read 37/31/6 and NOT ONE SURVIVOR WAS THE PRODUCT'S**: five were
+gaps in this change's own guards and the sixth was the inert `planned` above.
+Two of the five are worth keeping as rules:
+
+- **A 422 SAYS `ok: false` AND THE BROWSER READS THE FIELD, NOT THE CODE.**
+  Both refusal cases asserted the status and the error and never `ok`, so a
+  mutant flipping it survived — and `chat.js` renders such a reply as a
+  successful change.
+- **`String(["…"]) === "…"` REACHED THE READER THAT DECIDES WHAT A SITE OWNS.**
+  Every junk shape the case drove (`null`, `["a"]`, `123`) answers empty either
+  way; a one-element array whose entry holds a quoted url does not. That
+  coercion has shipped as a real bug three times here, and in `photoUrls` it
+  would fire a wall over a file whose `source` is not a string at all.
+
+**Suite 6,828** — 6,816 + 7 (`addon-route`) + 5 (`site-images`), **and the
+arithmetic closes exactly against baselines measured in a detached worktree at
+`aec76dc6`** (`addon-route` 111, `site-images` 73, `site-addon` 89) rather than
+subtracted from a paragraph. `site-addon` stays 89: its change is a re-anchor
+inside a case that already existed.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
+
+**KEPT RECORDED, NOT FIXED — two more places the same sentence is wrong, both on
+the BUILD path and both out of this round's scope:**
+
+1. **The bare-COUNT paid form still says *"Every OTHER image stays a
+   `<SafeImage>` with no src."*** — the same missing-src shape the list form just
+   lost. Only the build path reaches it (the addon always sends the object), so
+   correcting it is a change to the build path's prompt with its own guards and
+   its own live-proof economics.
+2. **`imageDirective(0)` says *"PHOTOGRAPHS: none on this site"*, which is FALSE
+   on a revise of a photographed site** — `budgetFor` answers 0 there precisely
+   because the site HAS photographs. It is the reported defect, on the build
+   path, reached whenever an owner revises a site with pictures. Fixing it needs
+   the inventory threaded into the build path's call, which is where the object
+   form already knows how to say it.
+
+### …AND A REFUSAL STORED THE DESIGN ON ITS WAY OUT (2026-09-17)
+
+Owner: *"`patchSiteConfig` runs before `keptImages`. A combined gallery + photo
++ QR request that fails with `lost-photos` leaves the QR persisted, although the
+gallery was never published."*
+
+**REPRODUCED THROUGH `POST /api/site/<slug>/addon` BEFORE ANYTHING WAS TOUCHED**,
+on exactly that ask: **422 `lost-photos`, `cost: 0`, nothing compiled, nothing
+bought, `source/<slug>/pages.json` untouched** — and `look.qr` left holding
+`{name: "gallery", points: "https://<slug>.gofarther.app/gallery"}` for a route
+that will never exist. **A QR is the one thing here somebody PRINTS**, which is
+what the `qr-dependency` refusal one block up exists to prevent; it arrived
+through the refusal path instead.
+
+**THE REACH IS ONE DAY, MEASURED RATHER THAN ASSUMED.** `lost-photos` is the
+ONLY refusal that was ever below the store — `rewrote` and `qr-dependency` are
+both ABOVE the old position — so the defect is the previous entry's own sibling,
+shipped the same day. *A rule true because of the layer below it expires when
+that layer moves*, met from the other direction: **the rule stood still and a
+refusal was added underneath it.** The store's own comment read *"every refusal
+above leaves the site exactly as it was"*, which was TRUE when written, which
+nothing tested, and which is why nobody looked.
+
+**MOVED RATHER THAN COMPENSATED FOR** — the other option the owner offered, and
+the weaker one: a restore-on-refusal is a second repair path that can itself
+fail, and a failed restore leaves the site wrong with nothing left to try.
+Moving the write below every refusal keeps ONE rule — *a refusal changes
+nothing* — instead of a rule plus an exception. **And the move makes the
+store-to-publish window strictly SMALLER**, so it cannot have introduced an
+unreverted refusal of its own: measured, the only `return` in that window is the
+write's own failure, which stored nothing.
+
+**THE WHOLE CONFIG IS THE ASSERTION, NOT THE ONE FIELD.** `look.qr` is what the
+report named, and pinning only that passes again the day some other field is
+written above a wall; `deepEqual` over the entire stored object answers *did this
+refusal write ANYTHING* in one claim. Before the move it answered a 22-key merged
+look; after, the seeded two.
+
+**AND THE SWEEP ASKED FOR THREE MORE CASES — every one a branch of the block
+that moved, and not one of them drivable.** The fixture's every `put` succeeded
+and its compiler always answered `ok`, so three of the store's four behaviours
+had no seam at all:
+
+- **A change with nothing to store must not rewrite the config.**
+  `withConfig(cur, undefined)` NORMALISES — measured, it answers a seven-key
+  config where the site had two — so `if (aLookPatch)` is what keeps five
+  settings off a site that never asked for them. A page-only addon publishes
+  with the config byte-identical.
+- **A refused write is said out loud**: 503, `error: "config"`, `cost: 0`,
+  nothing compiled, and the site really as it was — the claim its own sentence
+  makes.
+- **⚠ AND A FAILED PUBLISH PUTS THE OLD LOOK BACK, WHICH IS THE CLAIM THIS
+  CHANGE'S OWN COMMENT MAKES.** An invariant asserted in a comment and tested
+  nowhere is exactly how the defect above shipped. Leaving it undrivable would
+  repeat that mistake inside the fix for it, so the fixture gained two knobs
+  (`configFail` throws on the config key alone, `compileFail` refuses the build)
+  rather than the survivors gaining a paragraph.
+
+**THE REVERT IS NOT BYTE-IDENTICAL AND THE CASE SAYS SO** rather than asserting
+something false: it writes the look as the route READ it, which `markOf` has
+already normalised, so `favicon` and `wordmark` come back as forms the seeded
+object never carried. What must be true is that nothing this change DESIGNED
+survived (`qr`, `three` absent) and nothing the site had was lost (`theme`,
+`description` intact).
+
+**⚠ TWO OF MY OWN MUTANTS WERE BADLY WRITTEN AND BOTH WERE CAUGHT BY MEASURING
+THEM, NOT BY READING THEM.** One set `aStored = true` above a `return`, so the
+503 still went out and nothing about the request changed — **inert by
+construction**. The other read `cost: aCost`, and `let aCost = 0` has its ONE
+assignment under `if (aJob)`, which the route's synchronous path never takes —
+so it *was* `cost: 0` on every path a test can reach, while being a real
+difference on the job path. Both replaced with observable forms (`if (false &&
+!w.ok)`, `cost: 1`). *Read what a mutant really does, not what it was meant to
+do.*
+
+**AND THE PRE-RUN ANCHOR CENSUS PAID FOR ITSELF**: `if (!w.ok) {` occurs **four
+times** in `worker.js`, so that mutant would have silently mutated the wrong
+site. Anchored with its neighbour — the recorded *check every anchor occurs
+exactly once BEFORE the run, rather than reading NOT APPLIED afterwards*.
+
+**Guards**: `addon-route` **118 → 123** — the regression the owner asked for
+(the whole prior configuration, its pages and its components, with no purchase
+and no compile), its control (the same request succeeding), and the three the
+sweep asked for. The regression and the control were proved RED/green against
+the pre-change product, and **the control passes on BOTH trees**, which is what
+makes it a control rather than a second copy of the case.
+
+**⚠ AND THE CONTROL FAILED FIRST ON A FIXTURE THAT NAMED A THING THE PRODUCT
+DOES NOT HAVE.** The prior look invented the theme `kraft`; `FIELD_KEEPS.theme`
+judges a stored theme against all 500 registry ids, so `mergeLook` dropped it to
+`null` and the case reported the successful store as losing the site's theme.
+It is `THEME_IDS[0]` now **with the reason written beside it** — a quiet name
+swap would have appeased the check without recording why.
+
+**Sweep: 8 mutants, 8 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/addon-refusal-order.json`, over
+`worker.js`, against 11 test files — a narrow list can only produce a false
+SURVIVOR, never a false kill). Pass 1 read 4/4 and **not one survivor was the
+product's**: two were the badly-written mutants above and two were the undriven
+branches the three new cases now cover.
+
+**Suite 6,833** — 6,830 + 3 (`addon-route` **120 → 123**), and the arithmetic
+closes exactly. **⚠ AND THE FIRST STAMP OF IT WAS DERIVED AND WRONG**: 6,835,
+from "118 → 123, so five" — but the 6,830 reading was already taken with two of
+those five in the file, so the delta is the THREE added since. Held as PENDING
+until the run answered rather than published and corrected. *Measure the
+baseline; never subtract from a paragraph* — this file's own rule, in the round
+that records it.
+
+**CI HAS READ BOTH, ON `bb7b4214`.** `unit tests` run **2691**, green
+(2026-09-17 23:27:57→23:29:50Z) — `# tests 6833 / # pass 6829 / # fail 0 /
+# skipped 4`, against local `6833 / 6833 / 0 / 0`; the four are the three
+recorded environment skips plus `site-searchpath`'s baseline-commit case, and
+**the TOTAL is what matches**. And `site build` run **1183**
+(23:27:57→23:51:56Z), **all twenty steps green**: `site-build.mjs` **382 passed
+/ 0 failed**, with kit-typecheck 4, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47 beside it, and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` with no count — the three
+result SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**. It
+fired because `worker.js` moved. **The unit step's TAP is `# pass 396 /
+# fail 0`, unchanged from runs 1171, 1173 and 1177** — correct, because this
+round adds no `page-gen` or `publish-pages` case. **THE REFUSAL-ORDER DEFECT IS
+CLOSED.**
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO EDIT-PATH WORK.**
+
+### THE INSTRUMENT FOR THE PAGE + PHOTO + QR LIVE TEST (2026-09-18)
+
+Owner, six corrections to the preparation. Four are code and all four are the
+same class — **the harness could not see what the run is bought to prove.**
+
+**1. IT WAS PHOTOGRAPH-BLIND, MEASURED RATHER THAN SUSPECTED: `pictures`,
+`pictureNote`, `photos` and `lostPhotos` occurred ZERO times in
+`scripts/addon-sweep.mjs`.** A run bought to prove a photograph was bought,
+preserved and placed would have come back with no reading of any of it — this
+repository's own recorded wiring defect (`shownSteps` was recorded by the route
+for a milestone and printed by nobody), in the instrument built to settle it.
+`photoLines` prints all four **on every outcome**, which the free-text branch
+already makes possible by running its check on refusals too.
+
+- **ABSENT IS NOT ZERO, AND THE TWO READINGS ARE THE POINT.** `photos` rides
+  every SUCCESS whatever was asked for; `pictures` rides only a change that
+  really bought one. So `photos` present with `pictures` absent is *it shipped
+  and bought none*, and BOTH absent is *the request never reached the
+  purchase*. A bare `0` collapses them.
+- **THE PICTURE SENTENCE IS PRINTED VERBATIM** — it is the one thing that can
+  tell four identical blank frames apart (bought, unaffordable, provider
+  refused, none asked for), so a word of our own in its place would be the
+  harness deciding which of the four it was.
+- **AND `coverNote` ALONE WAS "THE CUSTOMER WAS TOLD".** A refusal's whole
+  reply is `msg`, so the one outcome whose entire customer-facing text lives in
+  a single field was the outcome that lost it. `customerLines` prints `msg`
+  plus every `*Note` carrying a string, **DISCOVERED FROM THE REPLY** rather
+  than from a list typed here — and a census over `addonReplyText`'s own
+  verbatim prints proves that rule reaches all of them (measured: exactly
+  three, `pictureNote`, `coverNote`, `keptPartsNote`). Not a re-composition:
+  writing the browser's concatenation out here would be a second copy of it.
+
+**2. QUEUED WORK IS REQUIRED BEFORE ANY PAID POST, AND IT IS NOT A BOX THE
+CALLER CAN FORGET.** `async` off means the addon runs inside the Worker's
+isolate, bounded by the customer's own connection at ~270 s — run 45 died at
+270,025 ms with the credits gone. **UNCONDITIONAL, deliberately**: the
+`expect*` pair asks *is this the build I meant* and has nothing to answer when
+nothing was demanded; this asks *can the work survive at all*, which is true of
+every run. As a caller's flag it would be an input, and an input cannot be the
+wall. `!== true`, so the string `"true"` is cannot-tell and not a yes; `false`
+and cannot-tell get **different sentences**, because one is a switch somebody
+can turn on and the other is a route that did not answer. The wrapper hands
+`runtime.async` over RAW — a `|| false` there, or a `=== true`, turns *nobody
+answered* into *the switch is off*.
+
+**3. A QR'S DESTINATION IS READ OFF THE DRAWING, AGAINST EVERY ADDRESS THE SITE
+HAS.** `qrModules`/`qrEncodes` are the guard's own matrix comparison lifted
+into `builder/site-qr.mjs` — the module that EMITS the path owns the reader of
+it, so the live check and the guard cannot disagree about our own artwork.
+**Not a decoder, and that is the stronger claim**: a decoder says what a
+scanner happens to read; this says the drawing IS the canonical encoding of the
+text expected. `qrOpens` asks every candidate, so the answer is *which page
+this code opens* rather than *does it open the one somebody guessed*, and the
+NAME comes from whichever file the inventory diff shows appeared.
+**THE QUIET ZONE IS DERIVED, NOT PASSED IN** — a served file is all a live
+check has. **Two defects found by RUNNING it**: `matchAll` SKIPS what it cannot
+match, so one malformed stroke in four hundred was silently dropped and the
+drawing read as a code missing a few modules, which a comparison then blames on
+the payload; and the stroke counter's `\b` matched only the FIRST `M`, because
+`z` and `M` are both word characters, so it counted 1 stroke in a path of 295.
+
+**4. THE INVENTORY IS THE STORED SOURCE, BOTH SIDES, TAKEN IMMEDIATELY BEFORE
+THE POST.** Not the sitemap — a list the publish COMPOSES, cached as its own
+object at the edge (run 23 called a real new page a lie on it), and silent
+about codes and pictures — and not probed filenames, which answer about the
+name somebody guessed and no other. `GET /api/site/source?slug=` is the store:
+every page, every component, and `assets`, which carries each code's file name
+AND the drawing the build bakes. Routes through `sitePathOf`, photographs
+through the product's own `photoUrls` over pages AND components, codes by
+`qrFile`'s own naming (**the legacy single code is `qr.svg`, with no name in
+it — a `qr-` prefix test would miss it on exactly the oldest sites**). A read
+that FAILED is `null` and says so: an inventory nobody took and a change that
+moved nothing print the same zeroes otherwise. **And a browser answers whether
+the new picture renders** — `naturalWidth`, because a 200 on the file says the
+bytes are served and a `src` says the page asked for it, and neither says a
+visitor sees anything.
+
+**Guards**: `addon-sweep` **40 → 46**, `site-marks` re-anchored onto the shared
+reader with the observer proved alive both ways. **Suite 6,833 → 6,839**, and
+the arithmetic closes exactly. **Sweep: 29 mutants, 29 killed, 0 survived, 0
+never applied, 2 comment-only controls survived.** Pass 1 read 23/6 and **not
+one survivor was the product's** — five were walls nobody drove and one was
+measured INERT and is declared in the code (an empty reference matrix cannot
+happen through `qrcode-generator`: the finder patterns are always drawn, and
+even the EMPTY payload gives 21×21 with **234 dark modules**).
+
+**CI HAS READ BOTH, ON `361ae0fb`.** `unit tests` run **2698**, green
+(2026-09-18 00:58:59→01:00:52Z, the suite step 94.9 s) — `# tests 6839 /
+# pass 6835 / # fail 0 / # skipped 4`, against local `6839 / 6839 / 0 / 0`; the
+four are the three recorded environment skips plus `site-searchpath`'s
+baseline-commit case, and **the TOTAL is what matches**. And `site build` run
+**1187** (00:59:00→01:24:00Z), **all twenty steps green** — the API answers 23
+and three are GitHub's own (`Post` ×2 and `Complete job`): `site-build.mjs`
+**382 passed / 0 failed**, the step 01:01:15→01:19:20Z (18m05s), with
+kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47 beside it and kit-render / kit-a11y /
+kit-effects / kit-paint each `all passed` with no count — the three result
+SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**.
+It fired because `builder/site-qr.mjs` is under `builder/**` — this round moves
+product code the container carries, which the harness one is not.
+**The unit step's TAP is `# pass 396 / # fail 0`, unchanged from runs 1171,
+1173, 1177 and 1183** — correct, because this round adds no `page-gen` or
+`publish-pages` case. **The two `##[error]` lines are the harness's own
+typecheck fixtures** (`TS2322` on `index.tsx`, `TS2339` on `menu.tsx`), both
+inside the `site-build.mjs` window and each followed immediately by its own
+`ok` line — the recorded "the typecheck REPORTS; only `vite build` refuses",
+visible in CI in a green job.
+
+#### …AND THREE BOUNDED CORRECTIONS TO IT (2026-09-18)
+
+Owner, on the async stop: *"Three bounded corrections remain before the paid
+test."* Each is a claim the instrument was making and could not support.
+
+**1. PUBLICATION IS READ OFF THE PUBLISHED FILE, NOT THE STORED SETTINGS**
+(*"The source endpoint regenerates QR drawings from settings; comparing those
+does not establish publication."*). `assets` on `/api/site/source` is
+`siteAssetFiles(config)` — the drawing COMPOSED FROM THE SETTINGS at the moment
+of the read, which is what the container bakes FROM and is not a reading of what
+it baked. A publish that never ran, a build that refused, a file the sweep took:
+every one leaves the settings perfect and the site without the code.
+`qrPublished` GETs the file from the public origin with no token and answers
+**four ways, because they need four different fixes** — not served at all (the
+publish is missing), served but unreadable (a broken drawing shipped), served and
+opening the wrong page, served and opening the one asked for. **TWO LABELLED
+LINES PER ADDED CODE, NEVER MERGED** (*"Keep the stored inventory and
+public-site observations distinct."*), and the disagreement is the finding.
+
+**MEASURED LIVE on fretwork-1**: `qr-prices.svg` **200 / 3,256 B** and it
+verifies against `/prices` by re-encoding; `qr-nope.svg` **404**; `qr.svg`
+(the legacy single code) is served at 2,290 B and **opens none of the site's
+three addresses** — a real fact about that site, and the reader behaving
+correctly rather than a defect.
+
+**⚠ AND MY OWN FIRST "IS THIS A DRAWING" TEST FAILED, caught by running it.**
+`/<svg[\s>]/` passes fretwork-1's **home page at 58,642 bytes**, because a React
+page is full of inline icon SVGs — so a site answering its index document for an
+unknown path read as `served: true`, and a MISSING FILE was reported as a BROKEN
+DRAWING, which points at the wrong fix. The test is whether the answer **IS** an
+SVG document: prolog and doctype off, then `^<svg`.
+
+**2. THE CUSTOMER'S SCREEN IS THE BROWSER'S OWN COMPOSER, EXECUTED** (*"Reuse or
+execute the existing formatter; don't create another composition."*).
+`browserReply` loads `public/chat.js` and runs `addonReplyText` + `renderTail`
+out of it — the `cut()` + `new Function` pattern `test/site-addon.test.mjs`
+already uses, with `EditPoll` through `createRequire`. **WHY THE GAP EXISTED IS
+THE REUSABLE PART**: the per-field census proves its discovery rule (`msg` plus
+every `*Note`) complete for what the browser prints **VERBATIM**, and says
+nothing whatever about what it **COMPOSES** — which is most of what a customer
+reads. A reply carrying none of those fields printed `NOTHING`; it now prints
+the success sentence, the placeholder explanation and the missing-link warning.
+The per-field breakdown stays beneath it, relabelled: one is the screen, the
+other is which field carried which sentence, and they fail differently.
+
+**3. INVENTORY COMPLETENESS IS OBSERVABLE, AND AN INCOMPLETE BEFORE-READ STOPS
+THE RUN** (*"An incomplete before-read must stop this test before spending; an
+incomplete after-read must make preservation unverified. Checking HTTP status
+alone is insufficient."*). Four loaders in `/api/site/source` collapsed a failed
+read into an empty list, and **`loadConfig` had answered `{ok, why}` since it was
+written and the route dropped it on the floor** — the value computed and never
+forwarded, in the half that carries a customer's QR codes. So a bucket that threw
+answered byte-identically to a site with nothing on it, and a comparison taken
+across it said *"nothing was added and nothing was lost"*.
+
+- **`readSiteSource` IS THE THREE-STATE READER** — `readSiteParts`' shape one
+  store over — and `/api/site/source` carries **`reads`**, one boolean per store
+  the inventory is built from (`pages`, `parts`, `assets`; **not** `kit` or
+  `shared`, which nothing compares). **THE 200 AND `ok: true` STAY**: the
+  explorer is a read-only tab and must get everything readable; what was missing
+  was the ability to say so.
+- **`loadSiteSource` BECOMES A THIN WRAPPER**, so its nine callers are unchanged
+  and there is one reader underneath. **Its `null` still covers the EMPTY array
+  deliberately** — every one of those callers asks "is there source to work
+  from", where a stored `[]` and no object at all are the same answer.
+- **AN ABSENT OBJECT IS A READ THAT SUCCEEDED.** A site that has never published
+  has no `pages.json`, and reading that as a failed store would make every new
+  site look broken.
+- **`complete` IS THREE STATES AND `null` IS THE ONE THAT MATTERS.** An older
+  Worker sends no `reads` and CANNOT SAY; reading its silence as "complete" is
+  how this instrument goes back to reporting an unread store as an empty site.
+  It **REFUSES**.
+- **`inventoryRefusals` IS PURE AND EXPORTED, AND THE EXIT IS BEFORE THE POST** —
+  the only reason it can be a refusal rather than a note printed over a run
+  already under way. **Three refusals, three sentences**, because they point at
+  three different fixes: a route that did not answer, a Worker that cannot say,
+  and a store that failed.
+- **AN INCOMPLETE AFTER-READ PRINTS `PRESERVATION UNVERIFIED`** and says the ±
+  counts are not evidence. **A loss seen across an incomplete pair is still
+  said**: incompleteness makes an ABSENCE untrustworthy, never a PRESENCE.
+
+**⚠ AND THE PAID TEST NOW NEEDS THIS DEPLOYED BEFORE IT CAN RUN.** Main's
+`worker.js` has no `reads` (checked, not assumed), so the harness against the
+live Worker today answers `complete: null` and **refuses**. That is the owner's
+own instruction taken to its conclusion rather than a regression, and it makes
+the order **merge → deploy → press** rather than press.
+
+**PLUS THE PLACEMENT HALF** (*"Verify the new image loads and inspect its actual
+placement."*). `imagesOn` read `naturalWidth` — the FILE's own size — so a
+picture whose bytes arrived perfectly into a collapsed container renders at 0×0
+and was invisible to it. It reads the rendered rect, the offset down the
+document and the nearest heading above, and **the two failures are counted
+apart**: a file that never arrived and a file laid out to nothing need different
+fixes, and only the first is what a 404 on the image produces.
+
+**AND ONE DEFECT THIS ROUND FOUND IN ITS OWN READER: `want` was a parameter
+`inventoryLines` has always accepted and NOBODY passed**, so the ✓/✗ against the
+expected address had never once printed in a live run — the recorded
+value-never-forwarded defect, in the reader for the claim the run is bought to
+make. It is the route THIS change added, discovered from the reply.
+
+**TWO EARLIER OBSERVATIONS WERE MY FIXTURES' DEFECTS, NOT THE PRODUCT'S, and
+both were measured rather than claimed.** `unlinkedPages` returns `routeOf(path)`
+— routes, not file paths — so *"Nothing links to `src/routes/gallery.tsx`"* came
+from a driver handing it the wrong shape; and `mergeAddonSchema` does
+`added.push(copy.name)`, so `tables` carries NAMES and a guard's `[{name}]`
+fixture is what produced *"now storing [object Object]"*. **The browser's
+composer is what exposed the second**, the moment the report started printing the
+customer's real screen — *derive a fixture from its real producer*, in the guard
+for a reader of that producer's output.
+
+**Guards**: `addon-sweep` **46 → 48** (the published-file reader with its four
+answers, its HTML-page control and its prolog control; the gate, its three
+distinct refusals and the unverified-preservation half with its complete-pair
+control), `site-source` **72 → 73** (the `reads` field driven per store, with an
+absent object asserted as a read that SUCCEEDED). **Every new case proved RED
+against the pre-change product**: three red in `site-source`, and `addon-sweep`
+red at IMPORT — which is honest and is the weaker form, so the per-assertion
+proof is the sweep.
+
+**Five older guards re-anchored, not appeased — and one is a HOLE rather than a
+count.** `site-busy`'s bare-reader census counted only `loadSiteSource`, so
+`readSiteSource` was a **second non-repairing reader a publishing read could walk
+onto unseen**: move `let eSrc = …` across and nothing noticed. It counts both
+now, **6 → 7**, and the seventh is the wrapper's own delegation — measured, not
+predicted, because a first draft of that comment called it the sixth.
+
+**Sweep: 38 mutants, 38 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/live-test-instrument.json`, over
+`scripts/addon-sweep.mjs` and `worker.js`, against five test files — a narrow
+list can only produce a false SURVIVOR, never a false kill). **Pass 1 read
+37/34/3 and NOT ONE SURVIVOR WAS THE PRODUCT'S**; all three are worth keeping:
+
+- **THE TAIL WAS DROPPED AND NOTHING NOTICED.** `renderTail` prints
+  `renderNote` — what the render check found, which the route puts on every reply
+  that has one — and **no fixture anywhere carried one**, so a composer running
+  `addonReplyText` alone looked right on every clean reply and would have lost
+  exactly the ones worth reading.
+- **A POSITIONAL GUARD CANNOT SEE A DEAD BRANCH, and this file already records
+  the trap.** `if (false) { … }` leaves `process.exit(1)` exactly where a search
+  finds it — which is how the deploy pre-flight's own gate survived its first
+  sweep two rounds ago, and how this one survived its first. The gate is asserted
+  by its own CONDITION now.
+- **THE BROWSER READING IS LIFTED AND DRIVEN rather than declared unguardable.**
+  It ran inside `page.evaluate`, so no unit case could reach it — *a wall nobody
+  can drive is a wall nobody is guarding*, on a READING whose wrong answer is a
+  report saying the picture is fine when it is not. `IMAGE_READING` is the SOURCE
+  `page.evaluate` is handed (the shape `browserComposer` already uses), so a
+  guard `new Function`s it with `document` and `window` as parameters and drives
+  the real text: **box 720×540 from the rect against a file of 1600×1200**, the
+  offset, the folded heading, and a picture whose bytes arrived into no size.
+  **Plus the free-identifier wall** — Playwright ships the TEXT to the page, so a
+  module name in there throws in the browser and comes back as "the image read
+  failed", the recorded free-identifier trap with a browser between the halves.
+
+**THE ANCHOR CENSUS PAID FOR ITSELF AGAIN: 11 of 39 anchors were not exactly
+once** on the first write, every one caught before the run rather than read as
+NOT APPLIED afterwards.
+
+**Suite 6,842** (6,842 pass, 0 fail, 0 skipped) — **and the arithmetic closes on
+measured numbers, not subtracted ones**: the three affected files read **137** at
+`28dc6e4e` in a detached worktree and **140** now, against 6,839 → 6,842.
+`site-busy` stays 19: everything it gained is an assertion inside a case that
+already existed.
+
+**CI HAS READ BOTH, ON `20792563`.** `unit tests` run **2701**, green (2026-09-18
+02:36:58→02:39:09Z) — `# tests 6842 / # pass 6838 / # fail 0 / # skipped 4`,
+against local `6842 / 6842 / 0 / 0`; the four are the three recorded environment
+skips plus `site-searchpath`'s baseline-commit case, and **the TOTAL is what
+matches**. And `site build` run **1188** (02:36:58→02:56:53Z), **all twenty steps
+green** (the API answers 23; three are GitHub's own — two `Post` steps and
+`Complete job`): `site-build.mjs` **382 passed / 0 failed**, the step
+02:38:49→02:53:09Z (14m20s), with kit-typecheck 4, contrast-cases 16, theme-seam
+11, theme-render 29, site-routing 14, site-runtime 47 beside it and kit-render /
+kit-a11y / kit-effects / kit-paint each `all passed` with no count — the three
+result SHAPES a census has to ask for. Every count bounded landmark-to-landmark
+(`##[group]Run …` to the next), **0 result lines before the first marker**, and
+none carried over from an earlier run. **It fired because `worker.js` moved** —
+the three-state reader and the `reads` field; the push carried the code and these
+documents together, `28dc6e4e` having already gone out on its own as `unit tests`
+2700. **The unit step's TAP is `# tests 396 / # pass 396 / # fail 0 / # skipped
+0`, unchanged from runs 1171, 1173, 1177, 1183 and 1187** — correct, because this
+round adds no `page-gen` or `publish-pages` case. The two `##[error]` lines are
+the harness's own typecheck fixtures (TS2322 on `index.tsx`, TS2339 on
+`menu.tsx`), both inside the `site-build.mjs` window and each followed
+immediately by its own `ok` line.
+
+**AND THE FLAT-LOG WINDOWING WAS CHECKED AGAINST A SECOND, INDEPENDENT BOUNDING
+FOR THE FIRST TIME — they agree exactly.** The run's log archive carries **one
+file per step** (`build/11_Run node test_integration_site-build.mjs.txt`), so a
+count read there is attributed by construction rather than by a window somebody
+drew. Both readings find the same **twelve** steps carrying a result, the same
+counts, in the same steps. That is worth a line because the landmark-to-landmark
+window is the instrument this file records and revised once already (run 1152
+concluded the `##[group]` bounding "did not attach"; run 1163 falsified it), and
+until now nothing had asked a second instrument the same question.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH** — the owner's instruction, and
+every passing control was retained.
+
+#### …AND THE MEASUREMENT KILLED MY OWN RECOMMENDATION
+
+**`ashgrove-1` SHOWS NO PHOTOGRAPH, and the claim that it was the only suitable
+site is WITHDRAWN.** Its one `/u/` reference is `og:image` — the share card —
+and its page carries **zero `<img>` tags at all**. The earlier correction to
+this file was right that fal was not empty and that a photograph was bought;
+inferring from that to *"a site with existing photographs on its pages"* was
+not, and one probe says so. **A file being served is not a picture being
+shown.**
+
+**MEASURED over the 32 sites this file names** (which is NOT the ~70 the
+account has, so this is a sample and not an enumeration — the authoritative
+list needs `/api/site/list` and a token). Telling an on-page photograph from a
+share card is the whole of it: `og:image`/`twitter:image` are meta content and
+were counted separately.
+
+| site | `<img>` | on-page photographs | routes |
+|---|---|---|---|
+| `fold-lane-bakery` | 2 | **2** | `/ /order /the-starter /visit` |
+| `oak-and-ash` | 1 | **1** (`data-slot="photo"`) | `/ /make /work /workshop` |
+| `shoeroom-1` | 2 | **1** | `/` (162 KB page) |
+| `forno-and-co` | 1 | **1** | sitemap EMPTY |
+| `fretwork-1` | 3 | **0** | two QR codes: `/qr.svg`, `/qr-prices.svg` |
+| `ashgrove-1` · `repairbench-1` · 26 others | 0–3 | **0** | — |
+
+All are React sites; **none carries `x-site-version`**, so every one is still
+on the legacy prefix and its next publish moves it to the build layout.
+
+**THE TENSION IS REAL AND IS THE OWNER'S CALL: no site is strong on both
+halves.** The four with photographs are the owner's older sites and have no QR
+codes, so *"a new code does not disturb the existing ones"* is untestable
+there; `fretwork-1` is the strongest QR subject and has nothing to preserve —
+and `keptImages` SHORT-CIRCUITS on a site with no photographs (`if (!had.size)
+return {ok: true}`), so running the preservation test there is **vacuous by
+construction**, which is exactly the shape this repository keeps catching.
+
+**AND `fretwork-1`'s TWO CODES ARE THEMSELVES THE "DON'T GUESS FILENAMES"
+LESSON, live**: a probe of five plausible names found `qr.svg` and missed
+`qr-prices.svg`, which the page references and which serves perfectly well.
+The before-inventory finds both, from the store, without guessing.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH, NO BACKEND REPAIR.** The balance
+and fal's readiness are both unreadable from here — re-checked, not asserted:
+every `SUPABASE_*`, `OWNER_*` and `FAL_*` name is ABSENT from this
+environment — so both are the owner's read, and the estimate below is an
+estimate and not a cap.
+
+#### …AND THE SUCCESS COMPOSER RAN ON REFUSALS: SELECTION IS A LAYER TOO (2026-09-18)
+
+Owner: *"`browserReply` invokes the success formatter on refusals. For
+`{ok:false, error:"lost-photos", msg:"Nothing was published and nothing was
+charged."}`, the harness labels '✅ Done.' as the customer's screen. The
+browser's `addonAnswer` instead displays the warning plus `msg`. Respect the
+browser's actual response selection, including HTTP status."*
+
+**REPRODUCED BEFORE ANYTHING WAS TOUCHED, on the owner's exact body: the harness
+answered `"✅ Done."` where the browser shows `"⚠️ Nothing was published and
+nothing was charged."`** — a refusal that published nothing, reported as the
+change having landed, on the run bought to read what the product says.
+
+**THE CAUSE IS THE ROUND BEFORE THIS ONE FIXING THE LAYER ABOVE IT.** That round
+stopped the harness re-composing the reply and made it EXECUTE `addonReplyText`
+out of `public/chat.js` — correct, and `addonReplyText` is the SUCCESS composer.
+The browser SELECTS first: `addonAnswer` has four answers (an escalate hops
+sideways or falls, a null body falls, a non-2xx **or** `ok:false` shows `'⚠️ ' +
+msg` or falls, and only the last reaches `applyAddonResult` and the composer).
+So COMPOSITION was fixed and SELECTION was left re-implemented as *"always the
+success one"* — **the recorded two-copies trap one layer up from where it had
+just been closed.**
+
+**`addonAnswer` IS EXECUTED NOW, with `applyAddonResult` and `alsoTail` beside
+it**, so the real call site runs rather than two-thirds of it. `alsoTail(d)` gets
+`d: undefined` and that is honest rather than a hole: `d` is the ROUTING
+decision (`/api/site/route`'s answer) and carries `alsoAsked` alone, the harness
+posts straight to the addon route, and `alsoTail(undefined)` is `''`.
+
+**`httpOk` IS `Response.ok` AND IS NOT DERIVABLE FROM THE BODY — and the pair
+that proves it is not the reported one.** `{ok:false}` reaches the refusal branch
+at ANY status, so the owner's body cannot show the status being read. A body that
+claims success at a FAILING status is where they disagree, and it is the real
+shape: measured, `{ok:true, added:[…]}` at 200 composes `✅ Done — added
+/gallery` and the same body at 422 composes nothing and falls. The status is
+carried from the POST (`extra.status = p.status`) rather than guessed at.
+
+**`httpOkOf(status)` HAS THREE STATES AND THE THIRD REFUSES.** `null` for a
+status nobody recorded — an answer the browser never has and this harness can —
+and `browserReply` then answers `NOT COMPOSED` rather than picking a branch:
+reading it as `false` reports a refusal screen over a successful change, as
+`true` it is the reported defect.
+
+**NO EXTERNAL ACTION CAN OCCUR, AND THAT IS STRUCTURAL RATHER THAN CAREFUL.** The
+two arms that reach outside are INJECTED recorders — `siteEdit` (the sideways
+hop, a SECOND PAID POST) and `o.fallback` (the ~25-credit full rewrite) — so each
+is reported as a thing the browser WOULD do and none of them happens; `siteById`
+answers `null`, so the whole local-record mutation block is skipped and
+`sitesSave` is **unreachable**; `scheduleCreditRefresh` is recorded and does
+nothing. **And they are REPORTED**, because a run that printed only the text
+would be silent about the expensive half of what the browser would do.
+`o.instruction` and `o.fallback` are both real, because `canFall` reads them and
+the browser has both on every post this harness makes — handing in neither would
+drive the lost-the-original-message branch, a screen these posts can never
+produce, which is a fixture LESS capable than reality in the one field the
+selection turns on.
+
+**Guards**: `addon-sweep` **48 → 49**, the new case driving all four branches
+plus the status pair, the cannot-tell refusal, the recorded actions and the
+entry-point census. **PROVED RED against the real pre-change shape** — the
+success composer restored surgically so the module still loads: `"✅ Done."`
+against `"⚠️ Nothing was published and nothing was charged."`, and **two** cases
+go red, the new one and the re-anchored refusal case.
+
+**Three older guards re-anchored, not appeased.** The refusal-reader case gained
+the refusal SCREEN (it is the case about that outcome, so it is where that screen
+belongs); the free-text verdict case moved onto `addonAnswer` **with the status
+it was handed asserted** — a hardcoded 200 inside `customerLines` satisfies the
+label alone; and the wiring assertion became `customerLines(r, x && x.status)`,
+with `extra = { status: p && p.status }` asserted beside it, because a reader
+handed nothing answers NOT COMPOSED on every case of a paid run.
+
+**Sweep: 25 mutants, 25 killed, 0 survived, 0 never applied, 2 comment-only
+controls survived** (`scripts/mutants/browser-selection.json`, over
+`scripts/addon-sweep.mjs`, against `test/addon-sweep.test.mjs`).
+**Pass 1 read 24/23/1 and the one survivor was MEASURED INERT, not a guard
+gap**: the `: null` coercion. **32 probes over sixteen bodies × both statuses ×
+three coercions found ZERO differences**, because every non-success branch of
+`addonAnswer` converges on the fall. **It is KEPT, and the rule decided it**: the
+deadness is a property of a NEIGHBOUR (chat.js's convergence) rather than of the
+expression, and the line is what the page's own reader hands in — so it is
+declared with its measurement and given a READER, the browser's own
+`r.json().catch(() => null)` asserted beside it, so the two cannot drift
+silently. **A two-file pair is not expressible** — `scripts/mutate.mjs` applies
+one `from`/`to` per entry against `files[0]`, which this file already records —
+so the replacement is an observable mutant of the same line (hand on nothing at
+all) with the correspondence mutant beside it. Both killed on pass 2.
+
+**Suite 6,843** — 6,842 + 1, and the arithmetic closes exactly against a baseline
+**measured in a detached worktree** (`addon-sweep` 48) rather than subtracted
+from a paragraph.
+
+**CI HAS READ IT: `unit tests` run 2719 on `d1457ad9`, green (2026-09-18
+19:29:57→19:32:17Z, the suite step 109 s) — `# tests 6843 / # pass 6839 /
+# fail 0 / # skipped 4`**, against local `6843 / 6843 / 0 / 0`; the four are the
+three recorded environment skips plus `site-searchpath`'s baseline-commit case,
+and **the TOTAL is what matches**. **No `site build` fired and none was due** —
+the five changed files are two documents, `scripts/addon-sweep.mjs`, a mutant
+spec and `test/addon-sweep.test.mjs`, and not one is under `builder/**`,
+`worker.js`, the root `*.mjs` glob, `test/integration/**` or any other entry in
+that workflow's `paths`.
+
+**AND HARNESS PREPARATION IS CLOSED HERE.** Nothing further is added to the
+instrument.
+
+**THE IDENTIFIERS, COMPUTED BEFORE ANYTHING MOVES, AND CROSS-CHECKED AGAINST
+REALITY.** `origin/main` (`d826d7fb`, docs-only over deploy 2133) hashes to
+**`7273d2569866364f`** (183 inputs) — **which is exactly the image deploy 2133's
+own log records rolling to**, so the arithmetic is checked against the live
+container and not only against itself. The candidate tip hashes to
+**`3b93a9cae43bac41`** (183 inputs); the ids differ because `worker.js` and the
+`builder/*` modules this branch moves are in the worker's module graph, which is
+an image input. **The branch is a clean fast-forward of main** (`git merge-base
+--is-ancestor origin/main HEAD` → yes, with no main commit outside it), so
+`expect_deploy` is the branch tip itself rather than a merge commit nobody can
+name yet. **The container WILL roll, so the 15–20 minute hold applies.**
+
+**THE ORDER IS MERGE → DEPLOY → PRESS, and that is the previous round's own
+instruction taken to its conclusion**: the harness refuses to spend when it
+cannot confirm the before-inventory was complete, main's Worker sends no `reads`
+key, so a press against the live Worker today REFUSES. The live-test inputs are
+in `docs/owner-notes.md`.
+
+#### MERGED AND LIVE — deploy 2134 (2026-09-18), and the press is the owner's
+
+Owner: *"you merge it and do whatever we gotta do, i will do the spwnding part,
+the clicks"* — the merge and the deploy authorized, the paid dispatch reserved.
+
+**Deploy 2134, 21:09:02→21:12:54Z, green in 3m52s**, on `main` `d826d7fb` →
+`ff9fce5f` (fast-forward, 60 commits, 56 files, +17,961/−313). **`expect_deploy`
+is `ff9fce5f72fe1b16339a687ec0ad76d07fce3778`** — `DEPLOY_ID` is `github.sha`,
+so that is what the Worker answers, and the harness matches a 7+ prefix.
+
+**THE IMAGE ID WAS COMPUTED BEFORE THE MERGE AND THE DEPLOY AGREED ON BOTH ENDS
+— the eighth cross-check of that technique, and the strongest form of it.**
+`origin/main` → **`7273d2569866364f`** and the candidate → **`3b93a9cae43bac41`**
+(183 inputs each), both hashed before anything moved; the log's own diff then
+reads `- "image": …7273d2569866364f` / `+ "image": …3b93a9cae43bac41`, `EDIT
+isibi-app-sitebuildcontainer`, `SUCCESS Modified application`, `Applied changes`.
+**The container rolled at 21:12:47.7Z** — read out of the diff, never inferred
+from the step's duration. **So the 15–20 minute hold ran to ~21:28–21:33Z.**
+`Uploaded isibi-app (7.40 sec)`, `Worker Startup Time: 30 ms`, `Total Upload
+3569.50 KiB / gzip 962.69 KiB`, `Current Version ID: ae95b5ba-7efe-4e22-…`.
+
+**THE SERVED-FILE CHECK IS AVAILABLE AND IT DISCRIMINATES THIS DEPLOY**, because
+`public/chat.js` really moved: `/chat.js` is **byte-identical to the merged
+tree** — **707,785 bytes, sha256 `4b3e8c869af12519`** (705,648 /
+`56c3cfa2c177e6a5` before). **The cheap discriminator is `pictureNote`: 0
+occurrences in what main served before, 2 now**, with `keptPartsNote` 0 → 1 —
+identifiers the combined page + photo reply turns on, absent from every byte the
+platform had ever served.
+
+**REGRESSION: BYTE-IDENTICAL, with the baseline taken 48 seconds BEFORE the push
+and compared 40 seconds after the deploy** (the process miss of the 2124 round,
+not repeated). Seven sites 200 at the same sizes — repairbench-1 46,358 ·
+fretwork-1 58,642 · ashgrove-1 31,120 · northgroup-5 1,641 · washhouse-1 52,404 ·
+ben-crowe-guitar 52,060 · fold-lane-bakery 11,262 — each on the same
+`x-site-version` and the same build id, and the interactive half because a 200 is
+an availability check and never a health check: `/status` **200/6,272** and
+`/booking-check` **200/6,390** on the same version, with `count_booked_repairs`
+and `count_existing_bookings` both **200 answering 3**. Gate discriminator
+401/401/401/404.
+**AND `fretwork-1` IS 58,642 HERE against 58,404 at deploy 2128** — it moved
+again between the two sessions, on a days-old `x-site-version` that has not
+changed. Identical on both sides of THIS deploy, so it is not this one's; not
+explained beyond that, and not claimed to be.
+
+**THE MERGE STARTED EXACTLY ONE WORKFLOW** — deploy 2134 and nothing else, the
+merge-trigger census holding in the live. **And the in-flight check was made
+BEFORE the push rather than after**, which is the September near-miss's own
+lesson: the last `lane sweep` was run 50 on 2026-09-16, so nothing paid was
+running. Two other sessions' runs were in flight on their own branches
+(`unit tests`, `site build`, `agent deploy`) and none of them touches this
+Worker or its container.
+
+**CI HAD READ THE SHA BEFORE THE MERGE**: `unit tests` run **2725** on
+`ff9fce5f`, green — `# tests 6843 / # pass 6839 / # fail 0 / # skipped 4`,
+against local `6843 / 6843 / 0 / 0`; the four are the three recorded environment
+skips plus `site-searchpath`'s baseline-commit case, and the TOTAL is what
+matches.
+
+**NOT PRESSED.** The paid run is the owner's dispatch and nothing here spent a
+credit.
+
+**NOT MERGED, NOT DEPLOYED, NO PAID DISPATCH.**
 
 
 ## Data, auth, payments, mail
@@ -8018,9 +10639,12 @@ builds are the founder case — `exempt=true` on the owner-build log's step 5.
   all twenty steps, `site-build.mjs` **382 passed / 0 failed**, with
   kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
   site-routing 14, site-runtime 47 beside it — the TWELFTH independent run to
-  answer 382. **The per-step `##[group]` bounding did not attach on this log
-  format**, so the seven counts are read in step order and match the recorded
-  six; that is weaker attribution than bounded and is said rather than glossed).
+  answer 382. **That reading said the per-step `##[group]` bounding "did not
+  attach on this log format" and settled for step order; run 1163 FALSIFIED
+  that** — the bounding attaches, the window just has to be drawn marker to
+  marker rather than inside the group, because GitHub wraps only the command
+  echo. See the DST section for the measurement; 1152's counts are unchanged and
+  only their attribution was weaker than it needed to be.)
   Before it, **6,505** (2026-09-16, local, ON THE MERGED TREE). **Two
   sessions stamped a suite and neither number was the merged one**, which is
   this file's own "a number stamped in two places drifts when only one is
@@ -8387,6 +11011,16 @@ rule and the measurement.
 - **INERT MUTANTS.** Sixteen-plus recorded. A mutation that changes no behaviour
   reads exactly like a test gap. **Prove it inert by MEASURING both versions over
   the real corpus** before hunting.
+- **…AND A MUTANT YOU WROTE CAN BE INERT TOO — read what it DOES, not what it
+  was meant to do (2026-09-17, two in one spec).** Two shapes, both found by
+  measuring rather than by reading: a change **undone by the line after it** (it
+  set a flag above a `return`, so the same refusal went out and nothing about
+  the request moved), and a change to a value that is **provably constant on
+  every path a test can reach** (`cost: aCost` where `let aCost = 0` has its one
+  assignment under a branch the synchronous path never takes — so it *was*
+  `cost: 0` there, while being a real difference on the job path). Both read as
+  guard gaps and neither was one. **A survivor is a question about the mutant
+  first and the guards second.**
 - **TWO REDUNDANT DEFENCES CANNOT BE KILLED ONE AT A TIME.** A survivor is not
   always a missing check; sometimes it is a second wall. Measure both versions,
   then mutate the PAIR, which must die — and **say in the code that the redundancy
@@ -8433,6 +11067,15 @@ rule and the measurement.
   mutants × the full suite is ~70 minutes; the files that can see the change are
   32 seconds. **A SURVIVOR is re-checked against the whole suite before it is
   believed** — a narrow list can only produce a false survivor, never a false kill.
+  **AND THE LIST IS PART OF THE RESULT, SO THE RUNNER PRINTS IT** (2026-09-17):
+  it took the list on argv and recorded it NOWHERE, opening on `baseline…` and
+  closing on a count, so a clean tally read back later could not be checked for
+  its own SCOPE. `40/40/0` and `40/40/0 against these nine files` are different
+  claims and only the second is auditable; it cost a file count stamped here from
+  memory, which is a claim ahead of its evidence in the one instrument whose whole
+  job is evidence. The scope line goes **before the baseline** (a sweep that dies
+  in its baseline still says what it was trying to do) and an empty list is SAID —
+  an empty list and a forgotten one are identical in a log.
 - **AN AD-HOC CHECK CAN FAIL TO APPLY ITS OWN MUTATION.** An inline `node -e` whose
   quote escaping silently no-op'd the replace compared the original against itself
   and answered INERT. **Any hand-rolled mutation check must REFUSE to run when the
@@ -8565,7 +11208,15 @@ rule and the measurement.
   so a watch said LIVE about a rule the change never touched. **Count the pattern
   in the source first.**
 - **`pgrep -f` / `pkill -f` MATCH YOUR OWN SHELL.** Ten-plus instances. Kill by
-  PID; watch a log's tail.
+  PID; watch a log's tail. **AND A WAITER IS THE QUIET HALF OF IT (2026-09-17):**
+  `while pgrep -f "node scripts/mutate.mjs"; do sleep 20; done` never exits,
+  because the waiter's own `/bin/bash -c … eval '…'` command line contains that
+  string — so it waits on itself for ever and the notification never comes.
+  **A waiter that will never fire is indistinguishable from a job that never
+  finishes**, which is worse than killing the wrong process: nothing is harmed
+  and nothing is learned. **Wait on the PID** — `while kill -0 <pid>; do sleep
+  15; done` has no pattern to match — and `pgrep -af` prints the command lines,
+  which is what shows the waiter standing in its own list.
 
 ### Loading, parsing, scope
 
@@ -8910,6 +11561,47 @@ rule and the measurement.
   our rule about which tables are seeded — and it can never fire for a table
   nobody asked to seed, because the engine only records a skip against the
   design's own seed keys.
+- **THE EDIT PATH CAN STILL DELETE EVERY COMPONENT A REQUEST NEVER MENTIONED
+  (open, 2026-09-17, found while fixing the addon's copy of it).** `worker.js`'s
+  page rung reads `const pStored = (pValid.parts && pValid.parts.length) ? await
+  loadSiteParts(env, ownerSlug) : null;` and merges into it. `loadSiteParts`
+  answers `null` for a read that FAILED exactly as it does for a site with no
+  components, and `mergeParts(null, [one])` answers `[one]` — so a failed read
+  plus any returned component writes a `parts.json` holding ONE file, and every
+  other component on the site is gone. Driven on the addon path, where the same
+  shape cost the reproduction two components.
+  **The fix is the one the addon has**: `readSiteParts`'s three states, one
+  snapshot per request, and nothing written while `ok` is false. Deliberately
+  NOT done here — the owner's instruction for that round was *"Keep edit-path
+  work … separate"* — and the addon's `readSiteParts` is already exported-shaped
+  for it, so this is a wiring change rather than a design one.
+- **THE EDIT PATH'S `page` RUNG NEVER TELLS THE CUSTOMER ABOUT AN EMPTY PICTURE
+  FRAME EITHER (open, 2026-09-17, found while fixing the addon's copy of it).**
+  `worker.js:22532` computes `pSlots = countImageSlots(…)` on a rung whose
+  directive is `images: 0` — *"do not write any `@@IMG:@@` token"* — so the
+  count is the number of tokens a model wrote against an instruction not to,
+  and `photoNote` is silent on every obedient answer. A tweak that adds a
+  picture slot to an existing page publishes an empty frame the customer is
+  never told about, exactly as the addon did.
+  **The fix is the one the addon has**: `newEmptySlots(before, after)` beside
+  the token count, per page and only the increase, both taken before
+  `applyImages` sweeps so no frame is reported twice. The function is exported
+  and driven. Deliberately NOT done here — *"Keep edit-path work … separate"* —
+  and it is a wiring change rather than a design one.
+- **A WORKING `video-embed` IS INVISIBLE TO THE `data-slot` CENSUS (open,
+  2026-09-17, found by verifying the render).** The component stamps
+  `data-slot="video-embed"` on its FALLBACK branch — the "Video unavailable"
+  panel — and on nothing else, so the success branch's wrapper and iframe carry
+  no slot at all. Measured through react-dom/server over the real kit file:
+  five real URL shapes render a correct iframe with no `data-slot`, and only the
+  two unparseable ones are countable. **Two instruments go quiet on it**: `curl
+  --compressed <slug>.gofarther.app | grep -o 'data-slot="[^"]*"'`, which is how
+  "what does this site really use" is answered without auth or a publish; and
+  the css lane, which is required to target by `data-slot`. So a site with a
+  working video reads as a site with none, and a site with a BROKEN one reads as
+  having a video. One attribute on the outer `<div>` of the success branch is
+  the whole fix; it is a kit file, so it is an image input and the deploy rolls
+  the container and wants `site build`.
 - **EXISTING MODEL FUNCTIONS ARE NEVER RE-PINNED (open, 2026-09-16, kept
   SEPARATE at the owner's instruction: *"If upgrading existing functions is
   needed, propose that separately"*).** The `search_path` pin reaches a function
@@ -8962,8 +11654,27 @@ rule and the measurement.
 - **Static voice previews** — the owner drops MP3s at `public/voices/<name>.mp3`.
 - **Real background removal** — needs a fal utility wired as an orchestrator step;
   blocked on a fal top-up.
-- **fal balance is empty**, so no generated photograph has ever been bought on a
-  site. Every `SafeImage` on every published site draws its placeholder.
+- **⚠ "fal balance is empty, so no generated photograph has ever been bought on a
+  site" IS FALSIFIED AND IS CORRECTED HERE (2026-09-17).** That sentence was
+  written **2026-08-08** (`git log -S` over this file) and has been carried
+  through four prunes since; `ashgrove-1` was built on **2026-08-30** and this
+  same file records it as *"one page, 2 photographs: 45 billed"*. **MEASURED
+  today**: `https://ashgrove-1.gofarther.app/` serves
+  `/u/ashgrove-1/86833f9a21022de9a22d55cd6bc3ba0d.jpg` at **200, 1,348,708
+  bytes, `image/jpeg`** — so fal had a balance three weeks after the line was
+  written and a photograph really was bought and really is being served.
+  `fretwork-1` also serves a `/u/` url, a **150-byte PNG**, which is far too
+  small to be a photograph and is almost certainly its uploaded mark; noted
+  because `photoUrls` counts any `/u/<slug>/` url and does not tell a logo from
+  a photograph.
+  **WHAT IS TRUE TODAY IS UNKNOWN FROM HERE AND IS NOT BEING GUESSED IN EITHER
+  DIRECTION.** No session holds a fal credential, and fal's own API is the only
+  reader of its balance. **The wrong direction is the expensive one**: an empty
+  balance is a GRACEFUL outcome — `imageNote` answers *"Couldn't make the
+  photographs this time, so the pictures are placeholders"* — so a paid run
+  against an empty fal spends the addon's credits, publishes placeholders, and
+  proves nothing about placement while looking like a complete result. It is a
+  **precondition to confirm before a photograph test, never a risk to absorb.**
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
 

@@ -1956,9 +1956,18 @@ test("the translation calls are CHARGED — by the spine, before the commit poin
   const callAt = pos(w, "const aPub = await recompileAndPublish(env, {", "the addon's publish");
   assert.ok(fnAt < callAt, "the addon's funnel is declared after the publish it is handed to");
   assert.match(w.slice(callAt, w.indexOf("});", callAt)), /charge: aChargeLangs,/, "the addon's publish is handed no funnel");
-  assert.match(w, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage, \.\.\.aLangUsage\)\);/,
+  // RE-ANCHORED 2026-09-17: the photographs joined the same collect, and they
+  // are not a spread — `pageCredits` is variadic and a picture is one
+  // `{images: n}` term, priced at the flat `IMAGE_USD`. The property is ONE
+  // `pageCredits` and ONE rounding over everything this route spent, so the
+  // tail is left open rather than spelled; the translations are still required
+  // BY NAME, which is what this case is about.
+  assert.match(w, /if \(!aJob\) aCost = await aCharge\(pageCredits\(\.\.\.aDesignUsage, aGen && aGen\.usage, aSeedUsage, \.\.\.aRepairUsage, \.\.\.aLangUsage[^)]*\)\);/,
     "synchronously the translations do not join the one collect");
-  assert.match(w, /else aCost \+= \(Number\(aRepairRound && aRepairRound\.charged\) \|\| 0\) \+ aLangCharged;/,
+  // …AND UNDER A JOB IT IS THE SUM OF WHAT EACH SEQUENCE REALLY RESERVED. The
+  // photographs' own reserve (#5) joined it 2026-09-17; the tail is open for
+  // the reason above and the translations' term is still required by name.
+  assert.match(w, /else aCost \+= \(Number\(aRepairRound && aRepairRound\.charged\) \|\| 0\) \+ aLangCharged[^;]*;/,
     "under a job the reply's cost does not carry the translations' reserve");
 
   // ── THE OWNER'S WORDING EDIT: the words are free, their translation is not ──

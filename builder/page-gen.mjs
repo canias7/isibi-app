@@ -2112,7 +2112,7 @@ export function briefForPages({ brief, priorBrief } = {}) {
  * eval and every other caller that has no budget to state then sends exactly the
  * request it sent before this existed.
  */
-export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {}) {
+export function briefWithLayout({ brief, plan, images, tsx, parts, partsUnreadable, theme, css, gif, qr, three } = {}) {
   // THE AUTHORED PLAN IS THE ONLY SOURCE NOW. It briefly fell back to
   // `layoutDirective(family)` for sites built before 2026-08-20; the family
   // table went the same day, so there is nothing to fall back TO.
@@ -2130,8 +2130,12 @@ export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {
   // field until 2026-08-20 and is now gone from the platform entirely; nothing
   // ever read `family` again.
   const directive = directiveFromPlan(plan);
-  const parts = [String(brief ?? "")];
-  if (directive) parts.push(directive);
+  // `out`, NOT `parts` — this accumulator was called `parts` until 2026-09-17,
+  // when the site's own COMPONENTS became a parameter of that name. Two
+  // different things wearing one word in one scope is how a shadowed local
+  // reads as a live argument.
+  const out = [String(brief ?? "")];
+  if (directive) out.push(directive);
   // THIS SITE'S OWN COMPONENT SIGNATURES, for the reason the layout directive
   // and the photograph allowance are here: it varies per site, and the ~45,000
   // token system block is cached on its exact bytes. A component list that
@@ -2143,25 +2147,53 @@ export function briefWithLayout({ brief, plan, images, tsx, gif, qr, three } = {
   // the cached core), so a caller with neither sends exactly the request it sent
   // before this existed.
   const api = siteComponentApi(plan && plan.components);
-  if (api) parts.push(api);
+  if (api) out.push(api);
   // AND THE COMPONENTS THE KIT HAD NOT GOT, directly after the kit's own
   // signatures — the two blocks answer one question ("what may I build from"),
   // so they are read together or the second reads as unrelated.
-  const built = tsxDirective(tsx);
-  if (built) parts.push(built);
+  //
+  // WHAT IS THERE ALREADY COMES FIRST AND WHAT IS NOT YET COMES SECOND
+  // (2026-09-17), and the division is `partsSent`'s: `built` is filtered by
+  // every name the site already has a file for, so no component is ever in
+  // both blocks and none is missing from both.
+  //
+  // `parts` IS THE SITE'S STORED COMPONENTS — `[{name, source}]`, off
+  // `source/<slug>/parts.json` — and a caller that passes none sends exactly
+  // the request it sent before this existed: `partsSent([])` answers three
+  // empty lists, `partsDirective` answers "", and the filter has nothing in
+  // it. There is deliberately no second shape to pass here: the addon route
+  // calls `partsSent` on the SAME array for its own wall, and one pure
+  // function over one input cannot disagree with itself.
+  // `partsUnreadable` IS A THIRD ANSWER FOR `parts`, not a falsy one. A caller
+  // that could not read the store passes it, and BOTH blocks change: the
+  // writer is told it has been shown nothing and must return nothing, and
+  // nothing is offered to be built — because a declaration we cannot check
+  // against the store might name a component that already exists, and asking
+  // for it is asking for the rewrite the wall then has to refuse. A dead
+  // control that ANSWERS, which this repository has paid for before.
+  const sent = partsSent(parts, { unreadable: partsUnreadable });
+  const already = partsDirective(sent);
+  if (already) out.push(already);
+  const built = sent.unreadable ? "" : tsxDirective(tsx, sent.names);
+  if (built) out.push(built);
+  // AND THE LOOK IT IS ALREADY WEARING — the theme and the site's own
+  // stylesheet, which the addon designers are told to preserve and no caller
+  // could read until today.
+  const style = styleDirective({ theme, css });
+  if (style) out.push(style);
   // AND THE TWO GENERATED MARKS. Without this block the container writes
   // `public/animated.svg` and `public/qr.svg` on every build and no page ever
   // references them — a file served to nobody, which from outside is
   // indistinguishable from the design step never having answered.
   const marks = marksDirective({ gif, qr });
-  if (marks) parts.push(marks);
+  if (marks) out.push(marks);
   // AND THE SCENE. Without this the hard rule above — "write one ONLY where the
   // design step asked for it in as many words" — is a gate on a signal that
   // never arrives, so the answer is always no.
   const scene = sceneDirective(three);
-  if (scene) parts.push(scene);
-  if (images != null) parts.push(imageDirective(images));
-  return parts.join("\n\n");
+  if (scene) out.push(scene);
+  if (images != null) out.push(imageDirective(images));
+  return out.join("\n\n");
 }
 
 /**
@@ -2262,12 +2294,32 @@ export function marksDirective({ gif, qr } = {}) {
  * exactly the request it sent before this existed. That is the overwhelming
  * majority of builds.
  */
-export function tsxDirective(tsx) {
+export function tsxDirective(tsx, known) {
   const list = Array.isArray(tsx) ? tsx : [];
+  // ── A COMPONENT THE SITE ALREADY HAS IS NOT ONE TO BUILD (2026-09-17) ────
+  //
+  // Owner: *"Distinguish existing custom components from new components to
+  // build."* `look.tsx` is the DECLARATION list and it is cumulative — every
+  // part this site has ever had a declaration for stays on it — so this block
+  // said "the kit does not have these and this site needs them, so you write
+  // them" about components that were written months ago and are sitting in
+  // `source/<slug>/parts.json`. The writer then wrote each one again from a
+  // one-line `does`, and `mergeParts` replaced the real implementation by
+  // name: a rewrite of working code from its own summary, with nothing
+  // anywhere saying it had happened.
+  //
+  // `known` is EVERY name the site already has a file for — not only the ones
+  // whose source fits in the prompt. A part withheld for size is still a part
+  // that exists, and listing it here would ask for exactly the rewrite this
+  // change exists to stop; `partsDirective` names those separately and says
+  // so. The two blocks partition the site's components between them: what is
+  // there already, and what is not there yet.
+  const seen = new Set((Array.isArray(known) ? known : [])
+    .map((n) => String((n && typeof n === "object" ? n.name : n) || "").trim().toLowerCase()).filter(Boolean));
   const rows = list
     .filter((t) => t && typeof t === "object" && !Array.isArray(t))
     .map((t) => [String(t.name || "").trim(), String(t.does || "").trim(), String(t.props || "").trim()])
-    .filter(([name, does]) => name && does);
+    .filter(([name, does]) => name && does && !seen.has(name.toLowerCase()));
   if (!rows.length) return "";
   return [
     "## Components to build",
@@ -2282,6 +2334,182 @@ export function tsxDirective(tsx) {
     "uses so it belongs to the theme, import nothing that is not already a dependency, and export it as the",
     "default. A component you list here and never import from a page is one nobody will ever see.",
   ].join("\n");
+}
+
+/**
+ * HOW MUCH OF THE SITE'S OWN COMPONENT SOURCE ONE REQUEST MAY CARRY.
+ *
+ * `MAX_PART_CHARS` bounds ONE part and `MAX_PARTS_CHARS` the whole block, and
+ * they are two numbers rather than one because they answer different questions:
+ * a single enormous component must not crowd out four small ones, and forty
+ * small ones must not add up to a request nothing else fits in. Sized against
+ * `MAX_PRIOR_CHARS` (90,000, the site's own PAGE source) so the two together
+ * stay well inside a request — the page source is the thing the writer is
+ * editing and keeps the larger share.
+ */
+export const MAX_PART_CHARS = 12000;
+export const MAX_PARTS_CHARS = 36000;
+
+/**
+ * WHICH OF THE SITE'S OWN COMPONENTS THIS REQUEST CAN CARRY THE SOURCE OF.
+ *
+ * `{ shown, withheld, names }` — `shown` is `[{name, source}]`, `withheld` is
+ * the names too large to send, `names` is every one the site has a file for.
+ *
+ * ONE DECISION, READ TWICE. The page call needs this to compose its prompt and
+ * the ADDON ROUTE needs the same answer to decide whether a returned component
+ * may replace a stored one — "was this writer shown what it is replacing?" —
+ * and those two must never be able to disagree. A second copy of the bound in
+ * the route is exactly the drift this repository has a name for, so the caller
+ * takes ONE object and hands `shown` to the prompt and keeps it for the wall.
+ *
+ * IN STORED ORDER AND NEVER SORTED BY SIZE. A greedy fill by size would make
+ * which component is shown depend on the others, so a customer's unrelated
+ * addition could silently withdraw a component from the next request.
+ */
+export function partsSent(parts, opts) {
+  // ── AN INVENTORY WE COULD NOT READ IS ITS OWN ANSWER (2026-09-17) ────────
+  //
+  // `{ unreadable: true }` — the store threw rather than answering. It is NOT
+  // an empty site and it is NOT a size refusal, and collapsing it into either
+  // is what let a component be rewritten from its own description: with
+  // nothing shown and nothing withheld, the "to build" block offered every
+  // stored declaration and the wall refused nothing.
+  //
+  // THE ANSWER IS EMPTY IN EVERY LIST, AND THAT IS DELIBERATE. We cannot
+  // enumerate what is at risk — a site can hold a component whose name is on
+  // no declaration list at all (a band-split part, a declaration since
+  // removed) — so naming the ones we happen to know would be a wall with a
+  // hole in it. The caller's rule is the whole answer: while `unreadable` is
+  // true, nothing is offered to be built and no returned component is kept.
+  const unreadable = !!(opts && opts.unreadable);
+  const list = unreadable ? [] : (Array.isArray(parts) ? parts : [])
+    .filter((p) => p && typeof p === "object" && typeof p.name === "string" && typeof p.source === "string" && p.name.trim() && p.source);
+  const shown = [], withheld = [], names = [];
+  let total = 0;
+  for (const p of list) {
+    const name = p.name.trim();
+    if (names.includes(name)) continue;
+    names.push(name);
+    if (p.source.length > MAX_PART_CHARS || total + p.source.length > MAX_PARTS_CHARS) { withheld.push(name); continue; }
+    total += p.source.length;
+    shown.push({ name, source: p.source });
+  }
+  return { shown, withheld, names, unreadable };
+}
+
+/**
+ * THE COMPONENTS THIS SITE ALREADY HAS, WITH THEIR REAL SOURCE.
+ *
+ * Owner, 2026-09-17: *"Give addon designers and the page writer … imported
+ * custom component implementations."*
+ *
+ * WHAT WENT WRONG WITHOUT IT. A site's own components live in
+ * `source/<slug>/parts.json` and the spine re-sends them to the compiler on
+ * every publish, so they compile — but the page WRITER never saw one. It was
+ * handed `look.tsx`, which is the DECLARATION (a name, a sentence, a props
+ * line), under a heading telling it to write them. So a page importing
+ * `<TideChart>` was edited by a model that had never seen `TideChart`, and any
+ * part it returned replaced the real file by name.
+ *
+ * TWO LISTS, AND THE SECOND IS THE HONEST HALF OF THE BOUND. A component whose
+ * source fits is shown and may be read; one too large to carry is NAMED and
+ * explicitly ruled out, because the alternative — saying nothing — is
+ * indistinguishable from the component not existing, which is what makes a
+ * model write it again. Nothing is dropped silently.
+ *
+ * EMPTY STRING WHEN THE SITE HAS NONE, which is most sites, so a request that
+ * would not have carried this block is byte-identical to what it always sent.
+ */
+export function partsDirective(sent) {
+  const s = sent && typeof sent === "object" ? sent : {};
+  // AN UNREADABLE INVENTORY IS SAID IN ITS OWN WORDS, and they are not the
+  // size sentence: "too long to include here" names components we can see and
+  // chose not to send, which would be a lie about a store that would not
+  // answer. Nothing may be returned either way, and the reason differs.
+  if (s.unreadable) {
+    return [
+      "## Components this site already has",
+      "",
+      "This site has components of its own, written for it and living in this project — and they could not be",
+      "loaded for this request. You have not been shown any of them and you do not know their names.",
+      "",
+      "So: do NOT return anything in `parts` at all. A file you return there would replace a real component you",
+      "have never seen. Edit the pages you were asked about, calling whatever they already import exactly as they",
+      "already call it, and leave every component alone.",
+    ].join("\n");
+  }
+  const shown = (Array.isArray(s.shown) ? s.shown : [])
+    .filter((p) => p && typeof p.name === "string" && typeof p.source === "string" && p.name && p.source);
+  const withheld = (Array.isArray(s.withheld) ? s.withheld : []).filter((n) => typeof n === "string" && n.trim());
+  if (!shown.length && !withheld.length) return "";
+  const out = [
+    "## Components this site already has",
+    "",
+    "These are written and live in this project. Import one as `@/routes/-parts/<name>` and CALL it — do not",
+    "write it again. Returning a file in `parts` with one of these names REPLACES the real implementation, so",
+    "return one only when the change you were asked for is a change to that component itself.",
+  ];
+  for (const p of shown) {
+    out.push("", "### " + p.name + " — `src/routes/-parts/" + p.name + ".tsx`", "", "```tsx", p.source, "```");
+  }
+  if (withheld.length) {
+    out.push("",
+      "And " + (withheld.length === 1 ? "one more component is" : withheld.length + " more components are") +
+      " on this site whose source is too long to include here: " + withheld.join(", ") + ".",
+      "They exist and they work. Import and call them exactly as above, and do NOT return a file in `parts` for",
+      "any of them — you have not been shown what you would be replacing.");
+  }
+  return out.join("\n");
+}
+
+/**
+ * THE LOOK THIS SITE IS ALREADY WEARING — its theme, and its own stylesheet.
+ *
+ * Owner, 2026-09-17: the addon's inputs omitted the stored theme and
+ * stylesheet, so a designer told to *"keep the design system"* was given no
+ * way to read what the design system IS. The compiler preserves the CSS either
+ * way; what was missing is anything that lets a page match its conventions.
+ *
+ * THE STYLESHEET IS SENT AS ALREADY APPLIED, not as something to reproduce. It
+ * is appended LAST at build time so it wins on source order, and a model shown
+ * a stylesheet with no such sentence restates its rules inline — which then
+ * cannot be changed by editing the stylesheet, quietly undoing the one thing
+ * the layer is for.
+ *
+ * BOUNDED AND SAID. `MAX_CSS` is 60,000 characters and a page request cannot
+ * carry that beside the site's own source, so a long sheet is cut and the cut
+ * is announced — a truncated stylesheet presented whole would have the model
+ * conclude a selector does not exist.
+ */
+export const MAX_STYLE_CHARS = 16000;
+
+export function styleDirective({ theme, css } = {}) {
+  const name = typeof theme === "string" ? theme.trim().slice(0, 80) : "";
+  const sheet = typeof css === "string" ? css.trim() : "";
+  if (!name && !sheet) return "";
+  const out = ["## The look this site is already wearing", ""];
+  if (name) {
+    out.push("- Its theme is **" + name + "**. Every colour, radius and font on the page comes from the kit's own",
+      "  tokens under that theme. Write no colour of your own: a literal hex is a thing that stops matching the",
+      "  site the moment the theme changes.");
+  }
+  if (sheet) {
+    const cut = sheet.length > MAX_STYLE_CHARS;
+    out.push("- It also carries a stylesheet of its own, appended after the theme so it wins. It is ALREADY APPLIED —",
+      "  do not restate any of it inline; use the classes and custom properties it defines and it will take",
+      // `cut` DECIDES THE SENTENCE AND NOTHING ELSE. The obvious second
+      // ternary — `cut ? sheet.slice(0, N) : sheet` — is INERT, because
+      // `slice(0, N)` is already a no-op on a string of N or fewer characters:
+      // MEASURED over five shapes including both boundaries, zero bytes
+      // different. A sweep mutant cutting it survived everything, which is
+      // what said so; the slice is unconditional now and the one thing worth
+      // guarding is the announcement, because a truncated stylesheet presented
+      // whole has the model conclude a selector does not exist.
+      "  effect." + (cut ? " The first " + MAX_STYLE_CHARS + " characters of it, of " + sheet.length + ":" : ""),
+      "", "```css", sheet.slice(0, MAX_STYLE_CHARS), "```");
+  }
+  return out.join("\n");
 }
 
 /* THE PER-TRADE EXEMPLAR IS GONE (owner's call, 2026-08-20).
@@ -2345,8 +2573,115 @@ export function tsxDirective(tsx) {
  * every revise. Over the cap the pages are named but not shown, which degrades
  * to today's behaviour for the site that would have been most expensive.
  */
-const MAX_PRIOR_CHARS = 90000;
-export function priorPagesBlock(pages, mode = "revise", target = "") {
+export const MAX_PRIOR_CHARS = 90000;
+
+/**
+ * WHICH OF THE SITE'S PAGES FIT IN THIS REQUEST, AND WHICH DID NOT (2026-09-17).
+ *
+ * `partsSent`'s shape one layer over, and for the same reason: a bound that
+ * drops what it cannot carry has to NAME what it dropped, or the reader
+ * concludes the site does not have it.
+ *
+ * WHAT IT REPLACES ON THE ADDON PATH WAS WORSE THAN A SILENT DROP. Over
+ * `MAX_PRIOR_CHARS` the block fell through to a branch written for a REVISE —
+ * page names and *"write them again in full"* — which on a path where a
+ * returned page REPLACES the stored one is the opposite instruction. Measured
+ * through the real route on 17 real pages (181,258 characters): none of the
+ * addon contract survived (no *"return only what is new"*, no `remove` verb, no
+ * byte-identical rule, no "an unreturned page is KEPT"), the rewrite
+ * instruction was there instead, and `ok: true` came back with nothing in
+ * `problems` and nothing in `coverNote` — **nobody was told**.
+ *
+ * `keep` IS THE PAGES THIS CHANGE IS ABOUT, first and in its own order, then
+ * everything else in stored order. Without it the selection is arbitrary, and
+ * the page a section was designed to land on is exactly the one worth showing;
+ * the route fills it from the cleaned answers' own `page` fields plus the home
+ * page, which is the nav anchor every addon touches.
+ *
+ * ⚠ `keep` NAMES ROUTES, NOT FILES, and that is the fix for a defect that made
+ * it do nothing at all (owner, 2026-09-17). It used to be matched as a file
+ * path — `list.find((p) => p.path === k)` — and the route built each entry as
+ * `"src/routes/" + fileOfRoute(r)`, on a comment asserting "that is what
+ * `priorPages` really carries". It is not. `cleanPath` STRIPS `src/routes/` on
+ * the way in, so `validatePages` answers `target.tsx` and `saveSiteSource`
+ * keeps exactly that; MEASURED through the validator, every persisted path is
+ * bare. So no keep entry could ever match a real site's page and the whole
+ * selection was stored order. Reproduced through the route on three valid ~40k
+ * pages: asking to change `/target` showed `index.tsx` and `middle.tsx` and
+ * withheld `target.tsx`.
+ *
+ * A ROUTE IS THE IDENTITY BOTH SIDES REALLY SHARE, and `pageId` is the ONE
+ * definition of it — applied to the keep entries AND to the stored paths, so
+ * there is no side that can be normalised and a side that is not. `routeOf`
+ * already tolerates either file spelling; its own comment records the same
+ * prefix bug costing the whole `page` edit layer.
+ *
+ * A PAGE TOO BIG FOR WHAT IS LEFT IS SKIPPED, NOT A STOP — `partsSent`'s rule,
+ * so one enormous page does not withhold four small ones behind it.
+ */
+/**
+ * WHICH PAGE A STRING NAMES, whether it is a route or a file.
+ *
+ * ONE DEFINITION, ASKED OF BOTH SIDES OF EVERY COMPARISON. The defect this
+ * replaces was not a wrong conversion; it was TWO spellings of one identity
+ * being compared with `===`, which fails silently and reads as "this site does
+ * not have that page". A file is reduced through `routeOf` (which already
+ * accepts the `src/routes/` prefix and its absence); a route is lower-cased and
+ * stripped of a trailing slash, with a lone `/` kept as itself — the home route
+ * is one slash and stays one, the rule `site-add.mjs`'s own `route` records.
+ */
+export function pageId(v) {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return "";
+  if (/\.tsx$/i.test(s)) return routeOf(s);
+  const low = s.toLowerCase();
+  const cut = low === "/" ? "/" : low.replace(/\/+$/, "");
+  if (!cut) return "";
+  return cut.startsWith("/") ? cut : "/" + cut;
+}
+
+export function priorPagesSent(pages, { max = MAX_PRIOR_CHARS, keep = [] } = {}) {
+  const list = (Array.isArray(pages) ? pages : [])
+    .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
+  const first = (Array.isArray(keep) ? keep : []).map(pageId).filter(Boolean);
+  const kept = new Set();
+  const order = [];
+  for (const k of first) {
+    const p = list.find((q) => pageId(q.path) === k && !kept.has(q.path));
+    if (p) { kept.add(p.path); order.push(p); }
+  }
+  for (const p of list) if (!kept.has(p.path)) order.push(p);
+  const shown = [], withheld = [];
+  let total = 0;
+  for (const p of order) {
+    if (total + p.source.length > max) { withheld.push(p.path); continue; }
+    total += p.source.length;
+    shown.push(p);
+  }
+  // AT LEAST ONE PAGE, WHATEVER THE BUDGET SAYS — and it lives HERE rather than
+  // in the block, which is where the first cut put it. The route reads this
+  // function too, to record what the window could not carry; with the fallback
+  // in the block the two readers disagreed about a one-page site over the
+  // window — the prompt showed the page and the reply reported it as unseen.
+  // Measured through the route. One selection, one answer, two readers.
+  //
+  // WHY THERE IS A FALLBACK AT ALL: a prompt with no source is the revise
+  // fallback wearing the addon's words. One page is worse than all of them and
+  // better than none, and it is the first `keep` names, because that is the one
+  // the change is about.
+  if (!shown.length && order.length) {
+    shown.push(order[0]);
+    total = order[0].source.length;
+    withheld.splice(withheld.indexOf(order[0].path), 1);
+  }
+  // IN STORED ORDER ON THE WIRE, whatever `keep` did to the selection: which
+  // pages are SHOWN is a budget decision, and the order they are read in is the
+  // site's own. A model handed its pages in an order that moves per request
+  // reads that order as meaning something.
+  return { shown: list.filter((p) => shown.includes(p)), withheld, names: list.map((p) => p.path), chars: total };
+}
+
+export function priorPagesBlock(pages, mode = "revise", target = "", { keep = [] } = {}) {
   const list = (Array.isArray(pages) ? pages : [])
     .filter((p) => p && typeof p.path === "string" && typeof p.source === "string" && p.source.trim());
   if (!list.length) return "";
@@ -2389,9 +2724,33 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
   // declares its own CHROME with its own links, so a page nobody links to is a
   // page nobody can reach. Usually that is the home page, and usually the answer
   // is two files instead of six.
-  if (mode === "addon" && total <= MAX_PRIOR_CHARS) {
+  // ── THE ADDON CONTRACT IS SENT WHATEVER THE SITE'S SIZE (2026-09-17) ──────
+  //
+  // This branch used to be gated on `total <= MAX_PRIOR_CHARS`, and a site over
+  // it fell through to the revise fallback below — page names and *"write them
+  // again in full"*, which on a path where a returned page REPLACES the stored
+  // one is the opposite of what this lane means. Measured through the real
+  // route on 17 real pages: none of the contract survived and the rewrite
+  // instruction was there instead, with `ok: true` and nothing said to anybody.
+  //
+  // So the contract is unconditional and the SOURCE is what gives: as many
+  // pages as fit, chosen by `keep` first, and the rest NAMED. A page named and
+  // not shown reads as one the model must not return, which is exactly what it
+  // is — returning it would replace a file nobody has seen, and `keptProse`
+  // would refuse the whole change for it.
+  if (mode === "addon") {
+    // ONE SELECTION, AND THE ROUTE READS THE SAME FUNCTION. The at-least-one
+    // fallback lives inside `priorPagesSent` rather than here, so what the
+    // prompt shows and what the reply reports as unseen cannot disagree.
+    const { shown: seen, withheld: unseen } = priorPagesSent(list, { keep });
     return "\n\nTHE SITE AS IT STANDS — YOU ARE ADDING TO IT\n" +
-      "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +
+      (unseen.length
+        ? "Below is the current source of " + seen.length + " of this site's " + list.length + " pages, exactly as they " +
+          "are published right now. This site is too large to show you whole.\n\n" +
+          "THE PAGES YOU CANNOT SEE ARE STILL THERE AND ARE UNCHANGED: " + unseen.join(", ") + ". Do NOT " +
+          "return a file for any of them — you have not been shown what you would be replacing, and a page you do " +
+          "not return is kept exactly as it is, which is what you want here. You may link to them by route.\n\n"
+        : "Below is the CURRENT source of every page, exactly as it is published right now.\n\n") +
       "RETURN ONLY WHAT IS NEW OR CHANGED. A page you do not return is kept exactly as it is, so returning one " +
       "unchanged bills the customer for retyping their own site. Usually that is ONE new page, plus the page a " +
       "visitor would look on to find it — each page carries its own nav links, so a new page nobody links to is " +
@@ -2421,7 +2780,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
       "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +
       "BYTE-IDENTICAL — the same headings, the same sentences, the same sections in the same order. The customer " +
       "wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
-      list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
+      seen.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
   }
   if (total > MAX_PRIOR_CHARS) {
     return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
@@ -2438,7 +2797,7 @@ export function priorPagesBlock(pages, mode = "revise", target = "") {
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 
-export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "") {
+export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = null, mode = "revise", target = "", keep = []) {
   const name = String(brand || "").trim();
   const n = Math.max(0, Math.floor(Number(attachCount) || 0));
   return "Build the pages for this site.\n\nBRIEF\n" + String(brief || "").trim() +
@@ -2475,7 +2834,7 @@ export function pagesPrompt(brief, spec, brand, attachCount = 0, priorPages = nu
     // LAST, so the model reads the brief and the schema first and the
     // site-to-edit second. Empty on a first build, so nothing about that path
     // changes.
-    priorPagesBlock(priorPages, mode, target);
+    priorPagesBlock(priorPages, mode, target, { keep });
 }
 
 // A route path the container will accept: under src/routes, .tsx, no traversal,
@@ -3981,7 +4340,7 @@ export function pageRulesFor(spec, kind = "") {
   return String(kind) === "shopfront" ? withoutCharts(rules) : rules;
 }
 
-export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "" } = {}) {
+export function pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode = "revise", target = "", kind = "", keep = [] } = {}) {
   // THE ATTACHED FILES \u2014 images and PDFs \u2014 and where they sit is load-bearing
   // twice over.
   //
@@ -4000,7 +4359,7 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
   // caller and test already sees, so adding this feature changes no request that
   // does not use it.
   const blocks = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
-  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target);
+  const text = pagesPrompt(brief, spec, brand, blocks.length, priorPages, mode, target, keep);
   return {
     // The composer's Builder picker chooses this; `modelsFor()` with no
     // argument is the default pair, which is what the eval harness and every
@@ -4057,12 +4416,12 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
  * (the container has its own) is still a drop-in and nothing here has to know
  * which one it got.
  */
-export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "") {
+export async function generateSitePages(keys, brief, spec, brand, attachments, model, priorPages, mode, target, budget = null, call = callBuilderModel, kind = "", keep = []) {
   // One definition, shared with the eval harness — see pagesRequest. Restating
   // it here would mean the harness tunes against a different request from the
   // one production runs. Held in a const so the usage below can be stamped with
   // the model that was actually sent.
-  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind });
+  const req = pagesRequest({ brief, spec, brand, attachments, model, priorPages, mode, target, kind, keep });
   // Provider decided in ONE place — see callBuilderModel. It answers in
   // Anthropic's shape whichever one served it, so every line below this is
   // unchanged and cannot tell the difference.

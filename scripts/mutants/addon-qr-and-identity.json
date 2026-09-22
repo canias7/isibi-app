@@ -1,0 +1,364 @@
+[
+  {
+    "label": "CONTROL: a comment only, above deadQrs",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": " * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE.",
+    "to": " * A NEW QR CODE THAT WOULD OPEN A PAGE THIS CHANGE FAILED TO MAKE (control).",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment only, above pageId",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": " * WHICH PAGE A STRING NAMES, whether it is a route or a file.",
+    "to": " * WHICH PAGE A STRING NAMES (control).",
+    "control": true
+  },
+  {
+    "label": "the stuck exception is back — a code a page renders is published although it opens nothing",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      if (held.has(p.path) || !renders(p).some((n) => dead.has(n))) continue;",
+    "to": "      if (true) continue;"
+  },
+  {
+    "label": "the page is withheld and the code is published anyway",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  return { qr: codes.filter((c) => !dead.has(c.name)), dropped, withheld };",
+    "to": "  return { qr: codes, dropped, withheld };"
+  },
+  {
+    "label": "a code the site already had is dropped by a change that did not add it",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const r = had.has(c.name) ? \"\" : opens(c.points);",
+    "to": "      const r = opens(c.points);"
+  },
+  {
+    "label": "the cascade is one pass, so a code pointing at a withheld page survives",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  for (let round = 0; round <= codes.length + 1; round++) {",
+    "to": "  for (let round = 0; round < 1; round++) {"
+  },
+  {
+    "label": "a withheld ADDED page keeps its route, so nothing downstream of it dies",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const back = entry.added ? routeOf(p.path) : \"\";",
+    "to": "      const back = \"\";"
+  },
+  {
+    "label": "a withheld CHANGED page loses its route too, so a code opening it dies for nothing",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const back = entry.added ? routeOf(p.path) : \"\";",
+    "to": "      const back = routeOf(p.path);"
+  },
+  {
+    "label": "`added` is never recorded, so an invented page is described as left as it was",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "      const entry = { path: p.path, added: p.added === true };",
+    "to": "      const entry = { path: p.path, added: false };"
+  },
+  {
+    "label": "the whole site is searched for the binding, so a page nobody wrote is withheld",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const written = (Array.isArray(wrote) ? wrote : []).filter((p) => p && typeof p.path === \"string\" && typeof p.source === \"string\");",
+    "to": "  const written = (Array.isArray(wrote) ? wrote : []).filter((p) => p && typeof p.path === \"string\");"
+  },
+  {
+    "label": "`qrUnplaced` is asked with a one-code list, so every code looks like the first",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    const off = new Set(qrUnplaced(codes, [p]));\n    return codes.map((c) => c.name).filter((n) => n && !off.has(n));",
+    "to": "    return codes.map((c) => c.name).filter((n) => n && !qrUnplaced([{ name: n }], [p]).length);"
+  },
+  {
+    "label": "the withheld sentence is dropped, so a page that did not change is not mentioned",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  if (kept.length) {\n    out.push(\"I've left \" + where(kept) + \" as \"",
+    "to": "  if (false) {\n    out.push(\"I've left \" + where(kept) + \" as \""
+  },
+  {
+    "label": "an invented page borrows the reverting sentence, which is false of a page that never existed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const never = held.filter((d) => d.added === true);",
+    "to": "  const never = [];"
+  },
+  {
+    "label": "the sentence names the file rather than the address the customer sees",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "  const where = (l) => l.slice(0, 3).map((d) => routeOf(d.path) || d.path).join(\", \");",
+    "to": "  const where = (l) => l.slice(0, 3).map((d) => d.path).join(\", \");"
+  },
+  {
+    "label": "the route hands deadQrs every page, so a page the site already had can be withheld",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              wrote: (aMerge.pages || []).filter((p) => p && aFilesOut.includes(p.path))",
+    "to": "              wrote: (aMerge.pages || []).filter((p) => p)"
+  },
+  {
+    "label": "the route never says which withheld pages are new, so every one reverts",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                .map((p) => ({ path: p.path, source: p.source, added: (aMerge.added || []).includes(p.path) })),",
+    "to": "                .map((p) => ({ path: p.path, source: p.source })),"
+  },
+  {
+    "label": "the withholding never reaches the merge, so the page publishes with the binding",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aDeadQr.withheld.length) {",
+    "to": "            if (false) {"
+  },
+  {
+    "label": "the merge is patched rather than re-asked, so the reachability rule never runs again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const aHeld = mergeAddonPages(aSrc, aRepaired.pages, aRemove);",
+    "to": "              const aHeld = { ...aMerge, ok: true };"
+  },
+  {
+    "label": "a change with nothing left publishes an empty version instead of refusing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              if (!aHeld.ok) {",
+    "to": "              if (false) {"
+  },
+  {
+    "label": "the refusal charges for a publish that never happened",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  ok: false, error: \"qr-dependency\", cost: 0,",
+    "to": "                  ok: false, error: \"qr-dependency\", cost: 1,"
+  },
+  {
+    "label": "the missing-page list is not re-asked, so a withheld page is reported as shipped",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aGone = missingPages(aWanted, [...aMerge.added, ...aMerge.changed]);",
+    "to": "              aGone = aGone;"
+  },
+  {
+    "label": "the link into a withheld page is published dangling",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              const aRepaired = validatePages({ pages: aSurvive }, {",
+    "to": "              const aRepaired = { pages: aSurvive, problems: [] } || validatePages({ pages: aSurvive }, {"
+  },
+  {
+    "label": "the withheld pages are put back into the live set, so the dangling link ships",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                knownRoutes: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),\n              });\n              for (const q of aRepaired.problems)",
+    "to": "                knownRoutes: [...(aSrc || []), ...(aValid.pages || [])].map((p) => routeOf(p && p.path)).filter(Boolean),\n              });\n              for (const q of aRepaired.problems)"
+  },
+  {
+    "label": "the rewritten link is never reported, so the customer cannot see it moved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              for (const q of aRepaired.problems) if (!aProblems.includes(q)) aProblems.push(q);",
+    "to": "              for (const q of []) if (!aProblems.includes(q)) aProblems.push(q);"
+  },
+  {
+    "label": "the dropped code is not taken off the look, so the broken destination is stored",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aMerged.qr = aDeadQr.qr;",
+    "to": "              aMerged.qr = aMerged.qr;"
+  },
+  {
+    "label": "the reply keeps claiming it gave the site a QR code",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              aReadLook();\n            }\n            if (aDeadQr.withheld.length) {",
+    "to": "            }\n            if (aDeadQr.withheld.length) {"
+  },
+  {
+    "label": "the withheld pages never reach the wire, so the customer's reply says nothing about them",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path).slice(0, 6) : undefined,",
+    "to": "                heldPages: undefined,"
+  },
+  {
+    "label": "the keep list is empty, so the selection is stored order on every site",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aPagesSent = priorPagesSent(aSrc || [], { keep: aKeepPages });",
+    "to": "            const aPagesSent = priorPagesSent(aSrc || [], { keep: [] });"
+  },
+  {
+    "label": "the home page is not kept, so the nav anchor almost every addon touches goes unseen",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            aWantPage(\"/\");",
+    "to": ""
+  },
+  {
+    "label": "the selection matches on the raw spelling again, so a keep entry finds nothing",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "    const p = list.find((q) => pageId(q.path) === k && !kept.has(q.path));",
+    "to": "    const p = list.find((q) => q.path === k && !kept.has(q.path));"
+  },
+  {
+    "label": "pageId reads a file name as a route, so every stored page answers /gallery.tsx",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  if (/\\.tsx$/i.test(s)) return routeOf(s);",
+    "to": "  if (false) return routeOf(s);"
+  },
+  {
+    "label": "pageId loses the home route, so the nav anchor can never be kept",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  const cut = low === \"/\" ? \"/\" : low.replace(/\\/+$/, \"\");",
+    "to": "  const cut = low.replace(/\\/+$/, \"\");"
+  },
+  {
+    "label": "pageId is case-sensitive, so /Gallery and /gallery are two pages",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  const low = s.toLowerCase();",
+    "to": "  const low = s;"
+  },
+  {
+    "label": "one stored page can satisfy two keep entries, so the second takes the first's slot",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "    if (p) { kept.add(p.path); order.push(p); }",
+    "to": "    if (p) { order.push(p); }"
+  },
+  {
+    "label": "the pages nobody named are dropped from the order entirely",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  for (const p of list) if (!kept.has(p.path)) order.push(p);",
+    "to": "  for (const p of []) if (!kept.has(p.path)) order.push(p);"
+  },
+  {
+    "label": "a page nobody was shown is replaced by a rewrite of it — the reported defect, restored",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (aRewrote.length) {\n              const aBlocked = new Set(aRewrote);",
+    "to": "            if (false) {\n              const aBlocked = new Set(aRewrote);"
+  },
+  {
+    "label": "the wall compares raw spellings, so a withheld page is never recognised",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              ? (aValid.pages || []).filter((p) => p && aUnseen.has(pageId(p.path))).map((p) => p.path)",
+    "to": "              ? (aValid.pages || []).filter((p) => p && aUnseen.has(p.path)).map((p) => p.path)"
+  },
+  {
+    "label": "the wall reads a second window, so it can disagree with what the writer was shown",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aUnseen = new Set(aPagesSent.withheld.map(pageId).filter(Boolean));",
+    "to": "            const aUnseen = new Set(priorPagesSent(aSrc || [], { keep: [] }).withheld.map(pageId).filter(Boolean));"
+  },
+  {
+    "label": "a refused rewrite that leaves nothing climbs to the ~25-credit revise",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            if (!aMerge.ok && aRewrote.length) {",
+    "to": "            if (false) {"
+  },
+  {
+    "label": "the refused page never reaches the wire, so the customer is told nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              keptPages: aRewrote.length ? aRewrote.slice(0, 6) : undefined,",
+    "to": "              keptPages: undefined,"
+  },
+  {
+    "label": "the unseen-page sentence is dropped, so a refusal is silent",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                unseenPagesNote(aRewrote),",
+    "to": "                \"\","
+  },
+  {
+    "label": "the unseen-page sentence borrows the component one's advice, which is about a size bound",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "  return \"Your site is big enough now that I can't hold every page at once, so \" + list.join(\", \") + \" \" +",
+    "to": "  return \"One of them was too long for me to read in one go, so \" + list.join(\", \") + \" \" +"
+  },
+  {
+    "label": "the unseen-page sentence names files rather than routes",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "  const list = (Array.isArray(paths) ? paths : []).map((p) => routeOf(p) || p)",
+    "to": "  const list = (Array.isArray(paths) ? paths : []).map((p) => p)"
+  },
+  {
+    "label": "an ordinary addon gets the unseen-page sentence anyway",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "  if (!list.length) return \"\";\n  const one = list.length === 1;\n  return \"Your site is big enough now",
+    "to": "  const one = list.length === 1;\n  return \"Your site is big enough now"
+  },
+  {
+    "label": "the selection stops normalising the keep entries, so only an already-exact route can match",
+    "files": [
+      "builder/page-gen.mjs"
+    ],
+    "from": "  const first = (Array.isArray(keep) ? keep : []).map(pageId).filter(Boolean);",
+    "to": "  const first = (Array.isArray(keep) ? keep : []).filter((k) => typeof k === \"string\" && k);"
+  }
+]
