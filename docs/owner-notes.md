@@ -17034,6 +17034,10 @@ and `fretwork-1`'s page is live in the state run 17 left it.
 
 ## The door had a second way round it, and you found it (2026-09-22)
 
+> **Superseded the same day — the check described here is deleted.** You found a
+> third way round it and told me to stop building a reader one syntax case at a
+> time. What replaced it is the entry at the bottom of this file.
+
 You reproduced the same failure through the real edit route by moving the
 calculation upstream:
 
@@ -17106,3 +17110,78 @@ result and is not one.
 Suite **7,134** locally, nothing failing — three more cases than last time.
 Still untouched, deliberately: no broad sweep, no merge, no deploy, no paid
 retry, and `fretwork-1`'s page is live in the state run 17 left it.
+
+## You were right to stop me building a reader (2026-09-22)
+
+The third way round it was reassignment:
+
+```
+let { data: bookingCount } = useRpc(...);
+bookingCount = 6 - Number(bookingCount ?? 0);
+```
+
+with the component call unchanged again. My reader followed declarations and a
+reassignment is not a declaration, so it saw nothing. That is three syntaxes in
+a row, and you named the real problem before I did: I was writing a JavaScript
+analysis engine one case at a time, and there is always a next case.
+
+**So I deleted it.** About 380 lines out of `site-files.mjs` — the prop reader,
+the declaration reader, the closure walk, the whole thing. Nothing else used it.
+
+**The rule now is eligibility, not detection.** The quick writer takes one
+page's source and answers one page's source. On a page that renders the site's
+own components, it may change **what the page renders** — markup, ordering,
+styling — and it may not change **what the page computes**. It never needed to
+find your subtraction. It needs to notice that the page's calculation moved at
+all, and hand the job to the writer that can open both files.
+
+**How computation is measured: the bag of code tokens, sorted.** That is
+`sameProse` one step over — the same instrument, pointed at the code instead of
+the words. A bag rather than a sequence, because moving a band down the page
+moves every element in it and that has to stay cheap. Quoted attribute values
+come out whole before the count, so `<h1>` gaining `className="text-5xl"` moves
+nothing: a quoted value is a choice the receiving file already knows how to
+draw, which is the same line the last fix drew and the only part of it worth
+keeping.
+
+**All three of your shapes now give the same answer**, checked against run 17's
+real before-source: inline, upstream and reassignment each refuse and name all
+three of `fretwork-1`'s components. They do not get three readers; they get one
+rule they all fail. A fourth syntax I have not thought of fails it too, because
+nothing about the rule is a syntax.
+
+**What it costs, stated rather than buried.** On a page that renders one of the
+site's own components, wrapping something in a new `<section>` now goes to the
+full writer, because that is tokens the page did not have. A heading, a class, a
+reorder, a band moved — all still cheap. A page that renders none of the site's
+components is not asked the question at all, which is most of the platform. That
+is a decision, not an oversight: against publishing a full lesson day as having
+six places going spare, spending a credit or so on a wrapper is the direction to
+be wrong in.
+
+**Two things I got wrong while building it, both found by the tests rather than
+by reading.** Splitting on whitespace glued `</p><Band` into one token, so an
+inline reorder looked like a change — it is a proper lexer now. And blanking
+strings hid the inside of them, so `useRpc("bookings_on_day")` becoming
+`useRpc("bookings_two")` was invisible; the attribute spans are found on the
+blanked copy and the tokens read off the real one, which is two views of the
+file used the way each is good for.
+
+**The four controls you asked me to keep are still asserted**: the ordinary
+visual tweak on the cheap path, unrelated pages and components byte-identical,
+the four wording rows (0 → six places left, 2 → four, 6 → none, 7 → none rather
+than minus one), and loading and failed never advertising places.
+
+**Scoped, as before.** The corrected pair is an answer I supply, so what is
+proved is the path — a request of this class is not published by the rung that
+cannot finish it, and reaches the writer that can read both files. Not that a
+real model writes a correct component once it gets there.
+
+**Eight deliberate breakages, all eight caught, a comment-only control untouched
+in each round.** One of them survived the first round and was a question about
+the code rather than a gap in the tests — it showed me the blanked-strings hole
+above, so the fix is stricter than the version I would have shipped.
+
+Suite **7,134** locally, nothing failing. Still untouched, deliberately: no
+broad sweep, no merge, no deploy, no paid retry, and `fretwork-1`'s page is live
+in the state run 17 left it.

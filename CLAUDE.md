@@ -1896,101 +1896,99 @@ by moving the calculation one line up the page.
 **THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
 `restoreVersion` to the previous version — this file's own restore path, free.
 
-### THE DOOR, BUILT (2026-09-22) — `partContract`
+### THE DOOR, BUILT — AND REBUILT TWICE BEFORE IT HELD (2026-09-22)
 
-The first of those two levers, shipped as `partContract` in `site-tweak.mjs`,
-gated inside `readTweak` **below `sameProse` and above `tweakLint`** so each
-refusal keeps its own name. **`sameProse` IS UNTOUCHED** — this is a second
-question asked beside it, not a stricter version of it.
+`partEligible` in `site-tweak.mjs`, gated inside `readTweak` **below
+`sameProse` and above `tweakLint`** so each refusal keeps its own name.
+**`sameProse` IS UNTOUCHED** — this is a second question asked beside it.
 
-- **THE LINE IS *CAN THIS RUNG SEE WHAT THE VALUE MEANS*, read off the
-  page/component relationship and never off the request.** A **LITERAL** prop
-  is a CHOICE the component already distinguishes (`tone="dark"`,
-  `columns={3}`, a flag added or dropped) — the component's own file decides
-  what each looks like and the tweak has not changed what any of them MEANS, so
-  these stay cheap. A **BRACED EXPRESSION** is a COMPUTATION whose meaning is
-  settled by the receiving component, so rewriting one is a change this rung
-  cannot know it has finished. Nothing about this request is hardcoded.
-- **⚠ AND THE FIRST CUT COMPARED A PROP'S TEXT, WHICH IS A CLAIM ABOUT ITS
-  SPELLING (owner, 2026-09-22, reproduced through the real edit route).** Move
-  the arithmetic one line UP the page — `const { data: rawBookingCount } =
-  useRpc(…); const bookingCount = 6 - Number(rawBookingCount ?? 0);` — and leave
-  `bookingCount={Number(bookingCount ?? 0)}` **byte-identical**: every prop
-  expression matched, `sameProse` was perfect, `ok: true`, `tweak: true`, **zero
-  full-writer calls**, and the wrong page reached both the compiler and the
-  stored source with the component's old wording untouched. **THE VALUE A
-  COMPONENT RECEIVES IS ITS EXPRESSION PLUS THE DEFINITION OF EVERY PAGE NAME
-  THAT EXPRESSION READS, transitively**, so the bag is keyed on `prop \0 value
-  \0 closure` and `partProps` computes the closure. **THE WALK IS TRANSITIVE
-  BECAUSE THE BYPASS IS** — stop at the first name and the same trick two names
-  upstream is invisible again, which a mutant proves by dying on exactly that
-  case.
-- **THE CHOICE-VERSUS-COMPUTATION LINE MOVED WITH THE FIX RATHER THAN BEING
-  REPLACED BY *ANY CLOSURE CHANGE REFUSES*.** A plain name bound once to a
-  literal is the literal one indirection out: `columns={cols}` over `const cols
-  = 3` is `columns={3}`, so changing that 3 to a 4 stays cheap **and the
-  fingerprint carries the 3, so the change is still SEEN**; `const cols = rows +
-  1` is a computation and refuses, naming `cols`. **The blunt version is a
-  MUTANT and it dies** — refusing on any closure change kills the
-  literal-indirection case, which is what says this is not a blunt instrument.
-- **THE REFUSAL NAMES THE DECLARATION THAT MOVED (`via`), or `""` when the
-  prop's own expression is the change.** A refusal pointing at a prop whose text
-  is identical on both sides reads as an instrument fault; the binding's name is
-  the whole difference between that and a finding somebody can act on.
-- **NO PATTERN FOR WHERE A SUBTRACTION APPEARS, and no ban on pages with
-  components** — the owner's two explicit exclusions, both held: nothing about
-  arithmetic occurs anywhere in it, and `fretwork-1`'s home page (three
-  components, eleven prop bindings) takes the cheap path for a heading tweak
-  exactly as before.
-- **⚠ THE CLOSURE ENDS AT THE PAGE'S OWN EDGE, AND THE COST IS STATED.** A name
-  the page does not declare — `Number`, a callback's own parameter, a binding
-  from a file this rung was never given — contributes nothing, so a value whose
-  meaning moves ONLY through one of those moves unseen. That is the edge of what
-  a one-page READER can answer, and it is also the edge of what a one-page
-  WRITER can move. **`readsIn` and the declaration reader OVER-COLLECT on
-  purpose**: an extra closure entry whose text does not move changes no answer,
-  while a missed read is the bypass itself.
-- **READ OFF THE PAGE'S OWN IMPORTS, NEVER FROM `parts.json`.**
-  `localParts(src, inPart)` is **`specNames` RUN BACKWARDS** — the same two
-  spellings, as capture groups — so the two readers of the `PART_DIR`
-  convention cannot drift, and the rung needs no store read to ask this.
-- **THE MULTISET, NOT THE POSITIONS**, which is `sameProse`'s own rule for
-  `sameProse`'s own reason: moving a band down the page moves every component
-  element in it, so anything positional would refuse the feature this rung
-  exists for. **A sweep proved it load-bearing in BOTH directions** — keying by
-  position instead of by prop name kills the finding case AND the positive
-  control.
-- **CANNOT-TELL MAKES NO CLAIM** (`readable: false`): an unreadable import
-  clause (`* as N`), a tag that does not terminate, a prop shape `partProps`
-  cannot enumerate. Skipped on either side, **and the cost is stated** — such a
-  component's prop really could move and be accepted, which is the status quo
-  rather than a regression.
-- **IT IS NOT A BAN ON PAGES WITH COMPONENTS**, which is the thing the fix must
-  not be. `fretwork-1`'s home page imports three components and binds eleven
-  props; a heading, spacing or band-order tweak touches none of their prop
-  expressions and is accepted exactly as before — asserted as a POSITIVE
-  CONTROL on that same page through the real route.
-- **WHAT A REFUSAL COSTS, STATED.** It escalates like every other refusal here,
-  so the customer gets the rewrite they would have had plus ~1 credit — and the
-  rewrite is the rung that SHOWS the writer the component source (`partsSent`)
-  and folds its answer back (`mergeParts`), which is exactly the writer this ask
-  needed. Against publishing a full day as available, that is the direction to
-  be wrong in.
+**⚠ THE FIRST TWO SHAPES WERE SCANNERS AND EACH WAS BEATEN BY A SPELLING, in
+one day, both reported by the owner through the real edit route.** The record
+of that is the value here, because the lesson is general:
+
+1. **Compare the prop's TEXT.** Beaten by moving the arithmetic one line up:
+   `const bookingCount = 6 - Number(rawBookingCount ?? 0)` with
+   `bookingCount={Number(bookingCount ?? 0)}` byte-identical.
+2. **Compare the prop's text PLUS the declarations it transitively reads.**
+   Beaten by a reassignment: `let { data: bookingCount } = useRpc(…)` then
+   `bookingCount = 6 - Number(bookingCount ?? 0)` — the call site untouched,
+   **the declaration untouched**, the value changed.
+
+**THE OWNER'S OWN RULING IS THE LAW HERE:** *"The declaration scanner misses
+subsequent assignments. Please stop extending this into a homemade JavaScript
+analysis engine one syntax case at a time."* **NO PAGE-LOCAL READING OF A DIFF
+CAN ANSWER THIS** — what a component receives is decided at RUN time and a
+change arbitrarily far from the call site can move it, so a scanner loses to
+the next syntax for ever. **~380 lines of that engine were DELETED**
+(`partProps`, `localBindings`, `closureOf`, `openTags`, `propsIn`, the closure
+walk and both literal rules); `localParts` stays, because reading import
+specifiers is the page/component RELATIONSHIP rather than an analysis of code.
+
+- **THE QUESTION IS ELIGIBILITY, NOT DETECTION, and it is settled by what the
+  rung IS.** `runTweak` takes ONE page's source and answers ONE page's source.
+  So on a page that renders the site's own components: **it may change what the
+  page RENDERS — markup, ordering, styling — and may not change what the page
+  COMPUTES.** Everything in the first half is settled inside the one file it
+  holds, which is exactly what `sameProse` and `tweakLint` already cover.
+- **MEASURED AS A TOKEN MULTISET, WHICH IS `sameProse`'S OWN INSTRUMENT ONE
+  STEP OVER** — and a multiset rather than positions for `sameProse`'s own
+  reason: moving a band down the page moves every token after it and is the
+  feature this rung exists for. **It knows nothing about declarations,
+  assignments, hooks or any other construct**, which is the entire point:
+  there are no syntax cases to keep up with, so all three reported spellings
+  are ONE answer rather than three.
+- **⚠ THE TOKENIZER IS LEXICAL, NOT WHITESPACE — the guard found it.**
+  `<p>a</p><Band />` carries no space between its elements, so a whitespace
+  split glues a run into one token and an inline reorder of two elements reads
+  as a change. A word, a number, or ONE punctuation character.
+- **⚠ AN ATTRIBUTE WITH A QUOTED VALUE IS DROPPED WHOLE, and the guard found
+  that too.** `<h1>` → `<h1 className="text-5xl">` is this repository's own
+  encoding of *make the heading bigger*, and the only tokens it moves are
+  **`className`, `=` and a pair of quotes — measured, not guessed**. Counting
+  them refused the one tweak the rung most exists for. Dropping the run is the
+  SHIPPED rule restated: a quoted value is a CHOICE the receiving file already
+  distinguishes. **A BRACED value is not dropped**, because that is where
+  computation lives.
+- **⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COUNTED — A SURVIVOR IN
+  THE RED CHECK SAID SO, and it was a question about the code rather than the
+  guards.** Reading the whole file MASKED dropped every string's contents, so
+  `useRpc("bookings_on_day")` → `useRpc("bookings_two")` moved no token: a
+  change to which data a component receives, invisible. `sameProse` does not
+  cover it either, because `extractText` correctly reads an identifier-shaped
+  string as an identifier. **THE TWO VIEWS ARE NOW USED AS `scanSource`
+  DESIGNED THEM**: attribute SPANS found on the MASKED copy (where an escaped
+  quote inside a sentence cannot derail the match), tokens read off the CODE
+  copy. Both length-preserving, so one offset means the same thing in either.
+- **THE SCOPE IS MOST OF THE PLATFORM, AND IT IS A MUTANT.** A page that
+  renders NONE of the site's own components is not asked this question at all,
+  so every tweak on such a page behaves byte for byte as before. Cutting that
+  scope in either direction dies.
+- **⚠ CANNOT-TELL FAILS CLOSED HERE, WHICH INVERTS THE OLD CHECK, and the
+  inversion is named.** The scanner made no claim when it could not read a
+  component's props — correct there, because a reading it could not take was
+  not evidence. This asks a different question: the rung cannot open the file,
+  and an import clause it cannot parse does not make the file openable. A
+  namespace import still counts as rendering the site's own component.
+- **WHAT IT COSTS, STATED AND ASSERTED RATHER THAN CLAIMED.** A tweak that
+  legitimately changes a component-bearing page's logic escalates and pays the
+  rewrite plus ~1 credit; **so does one that ADDS markup**, since the
+  instrument cannot tell a JSX tag from an identifier — that distinction is the
+  parser this check exists to avoid. A case asserts the markup cost directly,
+  so the day somebody narrows the instrument, that line says what changed.
+  **And renaming a QUOTED attribute is invisible** — the same class the old
+  rule called a choice, so consistent rather than newly blind.
 - **⚠ `inPart` IS ALWAYS FALSE ON THE ROUTE TODAY — MEASURED, AND SAID IN THE
   CODE.** `target` is found in `eSrc`, which is `loadSiteSourceForEdit` → the
-  PAGES store, and a component lives in `parts.json` under a `name` rather than
-  a path, so no reachable `target.path` is a `-parts/` file. It is **DERIVED
-  (`!!partNameOf(target.path)`) rather than written as `false`** deliberately: a
+  PAGES store, so no reachable `target.path` is a `-parts/` file. It is
+  **DERIVED (`!!partNameOf(target.path)`) rather than written as `false`**: a
   literal would be a latent wrong answer the day a component becomes a tweak
-  target. A belt that cannot fire, named as one — the `PART_DIR`-filter
-  precedent — and **the FORWARDING hop is what a guard can drive**, so it is
-  driven at the module.
-- **BOTH SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
-  (`doesNotPublish(slug, tweakSource)`), which is deliberate and not tidiness:
-  did-not-publish, reached the component-capable writer, that writer was SHOWN
-  the component's wording, the compiler payload, the stored source and the
-  untouched neighbours are the SAME claim about both, and written out twice they
-  drift — the half that drifts being the one nobody reads again.
+  target. A belt that cannot fire, named as one, with the FORWARDING hop driven
+  at the module.
+- **ALL THREE SPELLINGS GO THROUGH THE ROUTE AND SHARE ONE BODY OF ASSERTIONS**
+  (`doesNotPublish(slug, tweakSource)`): did-not-publish, reached the
+  component-capable writer, that writer was SHOWN the component's wording, the
+  compiler payload, the stored source, the untouched neighbours. Written out
+  three times they drift, and the one that drifts is the one nobody reads again.
 - **⚠ AND THE CLAIM IS SCOPED: SUPPLIED MODEL OUTPUT PROVES THE EXECUTION PATH,
   NOT THE ANSWER** (owner). The corrected pair is a stubbed answer, so what is
   established is that a request of this class is **not published by the rung
@@ -1999,105 +1997,49 @@ question asked beside it, not a stricter version of it.
 - **EVIDENCE**: `test/edit-page-contract.test.mjs`, **15 cases**, on run 17's
   OWN artifact — `index.before.tsx` **26,276 chars / 26,288 bytes, sha
   `129b54600bd30720`** and `day-space-lookup.before.tsx` **1,466 / 1,468, sha
-  `5330fca7b88e5ac1`**, with the published answer DERIVED from the before-source
-  by its one line and **verified BYTE-IDENTICAL against the run's own
+  `5330fca7b88e5ac1`**, the published answer DERIVED from the before-source by
+  its one line and **verified BYTE-IDENTICAL against the run's own
   `after/source.json`** at **26,280 chars / 26,292 bytes, sha
   `fbbb0de00096c3b2`**, and **the instruction's own sha (`622547386217ef0c`,
-  159 chars, one U+2014)** asserted — run 14's correction, since a paraphrase of
-  this ask is a different ask. **6 mutants killed on the first round and 7 on
-  the closure correction, a comment-only control surviving in each.**
-  **⚠ AND THE CORRECTION ROUND RE-RAN THREE OF ITS OWN MUTANTS RATHER THAN
-  COUNTING THEM**: two named the wrong FILE (the literal rule lives in
-  `site-files.mjs`, not `site-tweak.mjs`) and one mutated the bag's KEY without
-  its LOOKUP, so it refused every prop instead of restoring the defect —
-  **a mutant that did not apply and one that applied too widely both read as
-  results and are neither**, which is this file's own recorded trap met twice
-  in one check.
-  **⚠ AND ONE EXISTING CASE'S FIXTURE STOPPED SAYING WHAT IT NAMED.** It stood
-  `count={n}` over `const n = 3` in for *an expression*, true while the check
-  read the call site's text and FALSE under the closure rule, where that is a
-  literal one indirection out. **The fixture was corrected, never the rule**:
-  the declaration is a parameter now and the same five shapes are driven under
-  both a literal and a computed `n`. *Read what a thing DOES* — the behaviour
-  change was intended and the fixture was under-specified.
-  **⚠ EVERY LENGTH THIS SECTION AND RUN 17'S QUOTE — 26,276 → 26,280 — IS A
-  CHARACTER COUNT, NOT A BYTE COUNT**, and the two differ here because the page
-  carries em dashes: `String.length` counts UTF-16 code units and `wc -c` counts
-  bytes, so the same page reads 26,276 one way and 26,288 the other. The
-  harness uses one reader on both sides, so every comparison in the record is
-  sound; what was wrong was the LABEL. *A unit convention stated only in prose
-  is one somebody reads past* — this file's own trap, so both numbers are given.
-- **⚠ TWO OF THOSE MUTANTS DID NOT APPLY ON THE FIRST ROUND, THROUGH PERL.**
-  Inside `\Q…\E` a `\n` literalises as backslash-n and `\u` is still read as a
-  case-fold escape — so a multi-line anchor and an anchor containing `\u0000`
-  both silently matched nothing. **A mutant that did not apply reads exactly
-  like a guard gap**; re-run through a mutator that takes its strings base64 and
-  refuses a no-op, both died. This file's own recorded trap, met in the red
-  check for another one.
+  159 chars, one U+2014)** asserted. **⚠ EVERY LENGTH HERE IS A CHARACTER
+  COUNT, NOT A BYTE COUNT** — the page carries em dashes, so `String.length`
+  reads 26,276 where `wc -c` reads 26,288; one reader is used on both sides, so
+  every comparison is sound and only the LABEL was ever wrong.
+  **8 mutants killed, a comment-only control survived**, all three files
+  restored byte-identical from a SCRATCHPAD backup, never `git checkout`.
+- **SUITE 7,134 LOCALLY AND THE TOTAL DID NOT MOVE, WHICH IS ITSELF A
+  MEASUREMENT.** `# tests 7134 / # pass 7134 / # fail 0 / # skipped 0`,
+  `duration_ms 122,130` — **equal to the closure round's**, because
+  `edit-page-contract.test.mjs` holds **15 cases on both sides**, counted at
+  `d94eefdd` and here rather than assumed: three route cases were rewritten in
+  place and the new cases replaced the ones the deletion made meaningless. **A
+  zero difference stated as a zero difference is worth more than an unstamped
+  number**, since the alternative reading — nobody re-ran it — looks identical.
+  **⚠ AND THE CLOSURE ROUND'S CI HALF WAS READ AND NEVER COMMITTED**, which is
+  the same absence one layer over: `d94eefdd` reads **`# tests 7134 / # pass
+  7130 / # fail 0 / # skipped 4`** on unit run **`35708117349`**, and `site
+  build` run **`35708117472`** came back **20m33s, all twenty steps green, all
+  twelve counts matching** (TAP 397, kit-typecheck 4, site-build **382**,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint `all
+  passed`). **THE TOTAL IS WHAT MATCHES** — 7,134 both sides, `pass` differing
+  by exactly CI's own four skips.
 - **THE WORDING IS VERIFIED BY RENDERING, NOT BY RE-DERIVING THE ARITHMETIC.**
   `test/fixtures/render-part.mjs` transpiles a `.tsx` with `ts.transpileModule`
   and renders it through `react-dom/server`, kit primitives stubbed to elements
-  that **carry no words of their own**. Re-computing the ternary in the test
-  would be a second copy of the component's own decision, and run 17 is exactly
-  the class where two copies of one decision disagreed. **`typescript`, `react`
-  and `react-dom` are root devDependencies AND in the lockfile**, checked rather
-  than assumed — the canary run-6 trap. **The reader proves itself alive** by
-  answering the SHIPPED pair's defect: `6 - 0` → *"6 bookings already on this
-  day."* and `6 - 6` → *"No bookings on this day yet — it still has space."*
+  that carry no words of their own. **`typescript`, `react` and `react-dom` are
+  root devDependencies AND in the lockfile** — the canary run-6 trap, checked.
+  **The reader proves itself alive** against the SHIPPED pair's defect:
+  `6 - 0` → *"6 bookings already on this day."* and `6 - 6` → *"No bookings on
+  this day yet — it still has space."*
 - **THE CORRECTED PAIR, MEASURED AGAINST THE OWNER'S OWN TABLE** with SUPPLIED
-  counts (arguments, so no rows are created and no booking-enforcement rule is
-  touched): 0 → **6 places left**, 2 → **4 places left**, 6 → **no places
-  left**, and 7 and 99 the same answer rather than a negative one — run 17's
-  arithmetic rendered `-1 bookings` at seven. **LOADING AND FAILED NEVER
-  ADVERTISE PLACES**, which is the state the old component could not express at
-  all: `bookingCount` arrives as 0 both while the request is in flight and when
-  it fails, and zero is the fullest-sounding answer this box has, so an outage
-  would otherwise read as six places going spare. The word *booking* is gone
-  from the box, asserted rather than assumed.
-- **SUITE 7,134 LOCALLY ON THE CLOSURE CORRECTION, AND THE CI HALF OF THAT
-  READING IS UNREAD AT THE TIME OF WRITING** — `# tests 7134 / # pass 7134 /
-  # fail 0 / # skipped 0`, `duration_ms 121,539`. **The +3 is the difference
-  between two measured readings**, 7,131 → 7,134: the upstream form at the
-  module, the closure reader's own case, and the upstream form through the
-  route. The transitivity and literal-indirection assertions went into existing
-  cases and moved the count by zero. **Say which half is taken** — a local
-  number beside an unread CI run is ONE reading.
-- **SUITE 7,131, BOTH HALVES TAKEN** — locally `# tests 7131 / # pass 7131 /
-  # fail 0 / # skipped 0`, `duration_ms 106,383`, and CI run **`35681903468` on
-  `a6bf1a2b`** at **`# tests 7131 / # pass 7127 / # fail 0 / # skipped 4`**,
-  `duration_ms 115,482`. **THE TOTAL IS WHAT MATCHES** — 7,131 both sides,
-  `pass` differing by exactly CI's own four skips, which is this file's standing
-  reading of that gap and not a regression. **The +12 is the difference between
-  two measured readings**, 7,119 → 7,131: this round's own twelve cases.
-  **AND `npm ci` TOOK 4 SECONDS AND SUCCEEDED**, which is the half of the
-  render driver's precondition that only CI can answer — `typescript`, `react`
-  and `react-dom` really install there, so the driver is not the canary run-6
-  trap over again.
-- **`site build` READ, AND ALL TWELVE COUNTS MATCH.** Run **`35681903439` on
-  `a6bf1a2b`**, 03:06:00 → 03:29:29Z, **23m29s**, all twenty steps green — it
-  fires because `builder/**` and `worker.js` are both in its `paths`. Read
-  landmark to landmark off the flat log with **all three shapes asked for
-  separately**, and the census closes exactly: **`N passed` 7 + `all passed` 4
-  + TAP 1 = 12**. TAP **397 / 397 / 0 / 0**, kit-typecheck **4**, site-build
-  **382**, contrast-cases **16**, theme-seam **11**, theme-render **29**,
-  site-routing **14**, site-runtime **47**, and kit-render / kit-a11y /
-  kit-effects / kit-paint `all passed`. **`site-build.mjs` alone is 17m06s of
-  the 23m29s.** (This entry read *"OUTSTANDING … nothing here claims its twelve
-  counts"* while the run was in flight — which is the right thing to write at
-  that moment and is now replaced by the reading, not appended to.)
-- **AND THE DOCS-AND-COMMENTS COMMIT MOVED THE SUITE BY ZERO, as a
-  parent-and-current pair off the same machine.** CI run **`35682181917` on
-  `39cae677`** reads **`# tests 7131 / # pass 7127 / # fail 0 / # skipped 4`**,
-  `duration_ms 112,908` — byte-for-byte the same four numbers as `a6bf1a2b`'s
-  run above. That pair is what settles *the two test comments added no case*,
-  and it is a stronger reading than a local baseline because both halves come
-  off CI. **And `site build` did NOT fire on `39cae677` — read out of its
-  `paths` rather than assumed**: `CLAUDE.md`, `docs/owner-notes.md` and
-  `test/edit-page-contract.test.mjs` are none of them in that list (which names
-  eleven `test/integration/` files plus `test/page-gen.test.mjs` ONE BY ONE, not
-  a `test/**` glob), so that is **NO RUN, not a fast one** — and a listing with
-  no run in it reads identically to a run that never fired, which is why the
-  file list was checked against the block.
+  counts (arguments, so no rows are created and no booking rule is touched):
+  0 → **6 places left**, 2 → **4 places left**, 6 → **no places left**, and 7
+  and 99 the same answer rather than a negative one. **LOADING AND FAILED NEVER
+  ADVERTISE PLACES**, the state the old component could not express at all:
+  `bookingCount` arrives as 0 both in flight and on failure, and zero is the
+  fullest-sounding answer that box had. The word *booking* is gone from it,
+  asserted rather than assumed.
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the

@@ -34,7 +34,7 @@
 // WHAT IS ASSERTED, AND WHY EACH HALF IS NEEDED:
 //
 //   1. THE REFUSAL IS BESIDE THE PASS. `sameProse` still answers true on the
-//      real diff — on BOTH spellings — and `partContract` refuses each BY
+//      real diff — on ALL THREE spellings — and `partEligible` refuses each BY
 //      NAME. Both readings in one case, because the finding is precisely that
 //      the promise was kept and the change was still incomplete.
 //   2. THROUGH THE ROUTE, TWICE. The stubbed `write_tweak` returns the exact
@@ -69,9 +69,9 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
-import { TWEAK_TOOL, sameProse, partContract, readTweak, runTweak } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, sameProse, partEligible, computeOf, readTweak, runTweak } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
-import { localBindings, localParts, partProps, PART_DIR } from "../builder/site-files.mjs";
+import { localParts, PART_DIR } from "../builder/site-files.mjs";
 
 const USER = { id: "u-contract-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -155,6 +155,32 @@ const HOME_UPSTREAM = (() => {
   assert.ok(s.includes("bookingCount={Number(bookingCount ?? 0)}"),
     "the upstream fixture moved the prop, which is the other case");
   assert.ok(s.includes("6 - Number(rawBookingCount ?? 0)"), "the upstream fixture computes nothing");
+  return s;
+})();
+
+/**
+ * AND THE SAME DEFECT SPELLED AS A REASSIGNMENT — reported through the real
+ * edit route against the closure check, which is why that check is gone.
+ *
+ * The call site is untouched AND so is the declaration; what moves is a
+ * statement after it. A reader that followed the prop to its declaration saw
+ * two identical declarations and accepted the page. There is no third scanner
+ * here: `partEligible` asks whether the page's COMPUTATION moved at all, so
+ * this and the two before it are one answer rather than three cases.
+ */
+const HOME_REASSIGN = (() => {
+  const s = once(
+    HOME_BEFORE,
+    "  const { data: bookingCount } = useRpc(\"bookings_on_day\", {\n    preferred_day: preferredDay,\n  });",
+    "  let { data: bookingCount } = useRpc(\"bookings_on_day\", {\n    preferred_day: preferredDay,\n  });\n  bookingCount = 6 - Number(bookingCount ?? 0);",
+    "the useRpc read run 17's page makes",
+  );
+  // BOTH the call site and the declaration are untouched, asserted rather than
+  // intended — without this the fixture could drift into one of the other two.
+  assert.ok(s.includes("bookingCount={Number(bookingCount ?? 0)}"),
+    "the reassignment fixture moved the prop, which is the inline case");
+  assert.ok(s.includes("bookingCount = 6 - Number(bookingCount ?? 0);"),
+    "the reassignment fixture reassigns nothing");
   return s;
 })();
 
@@ -329,12 +355,10 @@ test("the promise was KEPT and the change was still incomplete — both readings
   assert.equal(sameProse(HOME_BEFORE, HOME_TWEAKED), true,
     "the real diff moved the page's words, so this is not run 17's shape");
 
-  const c = partContract(HOME_BEFORE, HOME_TWEAKED, { inPart: false });
+  const c = partEligible(HOME_BEFORE, HOME_TWEAKED, { inPart: false });
   assert.equal(c.ok, false, "the arithmetic-only tweak still qualified as completion");
-  assert.equal(c.part, "day-space-lookup", "the refusal names the wrong component: " + JSON.stringify(c));
-  assert.equal(c.prop, "bookingCount", "the refusal names the wrong prop: " + JSON.stringify(c));
-  assert.equal(c.was, "{Number(bookingCount ?? 0)}");
-  assert.equal(c.now, "{6 - Number(bookingCount ?? 0)}");
+  assert.ok(c.parts.includes("day-space-lookup"),
+    "the refusal does not name the component whose file this rung cannot open: " + JSON.stringify(c));
 
   // AND `readTweak` IS WHERE IT LANDS, with its own reason rather than one of
   // the existing ones — "the cheap rung keeps rewording pages" and "the cheap
@@ -342,9 +366,9 @@ test("the promise was KEPT and the change was still incomplete — both readings
   const reply = { content: [{ type: "tool_use", input: { source: HOME_TWEAKED } }] };
   const r = readTweak(reply, { source: HOME_BEFORE, inPart: false });
   assert.equal(r.ok, false);
-  assert.equal(r.reason, "part-contract", "the refusal wears another reason's name: " + JSON.stringify(r));
-  assert.equal(r.part, "day-space-lookup");
-  assert.equal(r.prop, "bookingCount");
+  assert.equal(r.reason, "needs-parts", "the refusal wears another reason's name: " + JSON.stringify(r));
+  assert.ok(r.parts.includes("day-space-lookup"),
+    "the refusal does not name the component this rung cannot open: " + JSON.stringify(r.parts));
 });
 
 test("the page/component relationship is read off the page's own imports", () => {
@@ -352,31 +376,23 @@ test("the page/component relationship is read off the page's own imports", () =>
   // which is what lets the cheap rung ask this question at all.
   assert.deepEqual(localParts(HOME_BEFORE, false).map((p) => p.name).sort(),
     ["chord-diagram", "day-space-lookup", "trial-booking-form"]);
-  const props = partProps(HOME_BEFORE, false);
-  assert.equal(props.get("day-space-lookup").readable, true);
-  assert.deepEqual(props.get("day-space-lookup").props.map((p) => p.prop),
-    ["preferredDay", "bookingCount", "onPreferredDay"]);
-  // Every binding on this real page is an EXPRESSION, which is the measured
-  // reach of the check here: 6 expression bindings, 0 literal.
-  const all = [...props.values()].flatMap((v) => v.props);
-  assert.equal(all.length, 6);
-  assert.equal(all.filter((p) => p.literal).length, 0);
 });
 
 test("localParts is specNames run backwards — the two readers of one path convention", async () => {
   // DERIVED, NOT RESTATED. Every name `localParts` answers for a specifier,
   // `importsPart` must accept for that same specifier and the same `inPart`.
   const { importsPart } = await import("../builder/site-files.mjs");
-  const cases = [
-    ["@/routes/-parts/day-space-lookup", false],
-    ["./-parts/chord-diagram", false],
-    ["../routes/-parts/trial-booking-form.tsx", false],
-    ["./sibling", true],
+  const specs = [
+    ["@/routes/-parts/band", false],
+    ["./-parts/band", false],
+    ["@/routes/-parts/band.tsx", false],
+    ["./band", true],
+    ["../-parts/band", true],
   ];
-  for (const [spec, inPart] of cases) {
-    const src = `import X from "${spec}";\nexport default function P(){return <X/>}`;
+  for (const [spec, inPart] of specs) {
+    const src = `import X from "${spec}"\n`;
     const got = localParts(src, inPart);
-    assert.equal(got.length, 1, "localParts did not name " + spec);
+    assert.equal(got.length, 1, "no name for " + spec + " (inPart " + inPart + ")");
     assert.equal(importsPart(src, got[0].name, inPart), true,
       "the two readers disagree about " + spec + " -> " + got[0].name);
   }
@@ -384,129 +400,96 @@ test("localParts is specNames run backwards — the two readers of one path conv
   assert.deepEqual(localParts('import X from "./sibling";', false), []);
 });
 
-test("a literal prop is a choice and stays cheap; an expression is a computation and does not", () => {
-  // ⚠ THE DECLARATION IS A PARAMETER AND THAT IS THE POINT. `n` used to be
-  // `const n = 3` here, which made `count={n}` stand in for "an expression" —
-  // true while the check read the call site's TEXT and false now that it reads
-  // the closure: a name bound once to a literal IS the literal one indirection
-  // out. Driving the same five shapes under BOTH declarations is what keeps
-  // this case saying what it names, and it is why the split is here rather than
-  // a sixth entry in the list.
-  const page = (el, decl) => "import { createFileRoute } from '@tanstack/react-router'\n"
+test("WHAT THE PAGE RENDERS may move; WHAT IT COMPUTES may not — the whole rule", () => {
+  // ⚠ THIS CASE REPLACES A SCANNER. Two earlier shapes of this check read the
+  // diff — the prop's text, then the prop's text plus the declarations it
+  // reads — and each was beaten by writing the same change somewhere else. The
+  // property below knows nothing about declarations, assignments or any other
+  // construct, which is exactly why there is no next syntax to lose to.
+  const page = (decl, el) => "import { createFileRoute } from '@tanstack/react-router'\n"
     + "import Band from \"@/routes/-parts/band\"\n"
     + "export const Route = createFileRoute('/')({ component: H })\n"
     + `function H(){${decl} return <div>${el}</div>}\n`;
-  const LIT = "const n = 3;", COMPUTED = "const n = rows.length - 1;";
-  // A literal swap, a literal added, a bare flag added: all choices the
-  // component already distinguishes.
+  const D = "const n = rows.length;";
+
+  // PRESENTATION MOVES FREELY. A class, an element's order, a wrapper: all
+  // settled inside the one file this rung holds.
   for (const [a, b, what] of [
-    ['<Band tone="light" />', '<Band tone="dark" />', "a string literal swapped"],
-    ['<Band columns={4} />', '<Band columns={3} />', "a numeric literal swapped"],
-    ['<Band />', '<Band compact />', "a bare flag added"],
-    ['<Band tone="light" />', '<Band tone="light" columns={2} />', "a literal prop added"],
-    ['<Band a="x" b="y" />', '<Band b="y" a="x" />', "the same props reordered"],
+    ['<Band className="p-2" />', '<Band className="p-8" />', "a class swapped"],
+    ['<Band tone="light" />', '<Band tone="dark" />', "a literal prop swapped"],
+    ['<p>a</p><Band />', '<Band /><p>a</p>', "two elements reordered"],
   ]) {
-    assert.equal(partContract(page(a, LIT), page(b, LIT), { inPart: false }).ok, true,
+    assert.equal(partEligible(page(D, a), page(D, b), { inPart: false }).ok, true,
       "a visual tweak was refused: " + what);
   }
-  // An expression, either direction — the same five shapes, over a name whose
-  // own definition is a computation.
-  for (const [a, b, what] of [
-    ['<Band count={n} />', '<Band count={6 - n} />', "an expression rewritten"],
-    ['<Band count={n} />', '<Band count={2} />', "an expression replaced by a literal"],
-    ['<Band count={2} />', '<Band count={n} />', "a literal replaced by an expression"],
-    ['<Band />', '<Band count={n} />', "an expression prop added"],
-    ['<Band {...{}} />', '<Band />', "a spread dropped"],
+
+  // ⚠ THE COST, ASSERTED RATHER THAN HIDDEN. The instrument cannot tell a JSX
+  // tag from an identifier — that distinction is the parser this check exists
+  // to avoid — so ADDING markup to a component-bearing page moves the token
+  // multiset and escalates. It is one extra credit and a correct result, on a
+  // page that renders a file this rung cannot open; a case asserting it is
+  // worth more than a comment claiming it, because the day somebody narrows
+  // the instrument this is the line that says what changed.
+  assert.equal(partEligible(page(D, "<Band />"), page(D, "<section><Band /></section>"), { inPart: false }).ok,
+    false, "adding markup no longer escalates — the stated cost has moved, which is a decision, not a fix");
+
+  // COMPUTATION DOES NOT — wherever in the file it is written.
+  for (const [ad, ae, bd, be, what] of [
+    [D, "<Band count={n} />", D, "<Band count={6 - n} />", "at the call site"],
+    [D, "<Band count={n} />", "const n = 6 - rows.length;", "<Band count={n} />", "in the declaration"],
+    [D, "<Band count={n} />", "let n = rows.length; n = 6 - n;", "<Band count={n} />", "in a later assignment"],
+    [D, "<Band />", D, "<Band count={n} />", "as a new computed prop"],
   ]) {
-    const r = partContract(page(a, COMPUTED), page(b, COMPUTED), { inPart: false });
-    assert.equal(r.ok, false, "a contract change was accepted: " + what);
-    assert.equal(r.part, "band");
+    const r = partEligible(page(ad, ae), page(bd, be), { inPart: false });
+    assert.equal(r.ok, false, "a computation change was accepted: " + what);
+    assert.deepEqual(r.parts, ["band"], "the refusal did not name the component it cannot open");
   }
-  // AND THE LINE REALLY IS THE DECLARATION AND NOT THE SPELLING: one element,
-  // one unchanged prop, and the two answers differ only by what `n` is.
-  const el = '<Band count={n} />';
-  assert.equal(
-    partContract(page(el, LIT), page(el, "const n = 4;"), { inPart: false }).ok, true,
-    "a literal bound to a name was refused — `count={n}` over `const n = 3` is `count={3}`",
-  );
-  const moved = partContract(page(el, LIT), page(el, COMPUTED), { inPart: false });
-  assert.equal(moved.ok, false, "a literal that became a computation was accepted");
-  assert.equal(moved.via, "n", "the refusal did not name the declaration that moved");
-  assert.equal(moved.was, moved.now, "this is the upstream shape: the prop's own text never moved");
+
+  // ⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COMPUTATION — the red
+  // check found this, not the design: reading the file fully masked dropped
+  // every string's contents, so changing WHICH database function a page calls
+  // moved no token at all. `sameProse` does not cover it either, because an
+  // identifier-shaped string is correctly not words a visitor reads.
+  const rpc = (fn) => "import Band from \"@/routes/-parts/band\"\n"
+    + `function H(){const n = useRpc("${fn}"); return <div><Band count={n} /></div>}\n`;
+  assert.equal(partEligible(rpc("bookings_on_day"), rpc("bookings_two"), { inPart: false }).ok, false,
+    "a page calling a different database function was accepted");
+  // …while the attribute whose value is quoted is still dropped whole, which
+  // is what keeps the visual tweak above cheap. Both halves, one instrument.
+  assert.equal(computeOf('<h1 className="a">x</h1>'), computeOf('<h1 className="bbbb">x</h1>'));
+
+  // AND THE INSTRUMENT IS THE MULTISET, so a pure reorder of computation is
+  // still a change to none of it — `sameProse`'s own rule, one step over.
+  assert.equal(computeOf(page(D, "<p>a</p><Band />")), computeOf(page(D, "<Band /><p>a</p>")));
+  assert.notEqual(computeOf(page(D, "<Band count={n} />")), computeOf(page(D, "<Band count={6 - n} />")));
 });
 
-test("THE UPSTREAM FORM: the arithmetic moves into a binding and the prop text never moves", () => {
-  const UP = HOME_UPSTREAM;
-
-  // THE OLD READER CALLED THIS UNCHANGED, and the guard says so in its own
-  // terms rather than in prose: keyed on `prop + value`, both sides are one
-  // bag and nothing is gone or came.
-  const propText = (src) => [...partProps(src, false).get("day-space-lookup").props]
-    .map((p) => p.prop + "=" + p.value).sort().join("\n");
-  assert.equal(propText(HOME_BEFORE), propText(UP),
-    "the fixture does not reproduce the defect: the prop text really did move");
-
-  const r = partContract(HOME_BEFORE, UP, { inPart: false });
-  assert.equal(r.ok, false, "the upstream calculation was accepted");
-  assert.equal(r.part, "day-space-lookup");
-  assert.equal(r.prop, "bookingCount");
-  assert.equal(r.via, "bookingCount", "the refusal did not name the declaration that moved");
-  assert.equal(r.was, r.now, "the prop's own text moved after all");
-
-  // AND `sameProse` LETS IT THROUGH, so this really is a second question and
-  // not a stricter version of the first — the page's own words never moved.
-  assert.equal(sameProse(HOME_BEFORE, UP), true,
-    "the upstream form is caught by the prose promise, so it proves nothing about this check");
-
-  // ⚠ AND ONE HOP FURTHER IS THE SAME TRICK. Leave the prop AND the binding it
-  // names both byte-identical, and move what THAT one reads: a walk that stops
-  // at the first name accepts it, for the same reason a comparison of call
-  // sites accepts the shape above. The closure is transitive because the
-  // bypass is.
-  const deep = (raw) => "import Band from \"@/routes/-parts/band\"\n"
-    + `export default function H(){const raw = ${raw}; const n = Number(raw);\n`
-    + "  return <Band count={n} />}\n";
-  const d = partContract(deep("useRpc('a', {})"), deep("6 - Number(useRpc('a', {}))"), { inPart: false });
-  assert.equal(d.ok, false, "a change two names upstream of the prop was accepted");
-  assert.equal(d.via, "raw", "the refusal named the wrong link in the chain");
+test("a page that renders none of the site's own components is not asked at all", () => {
+  // THE SCOPE, AND IT IS MOST OF THE PLATFORM. Without this the change would
+  // read as "every tweak now compares code tokens", which would refuse
+  // legitimate logic tweaks on every page there is.
+  const plain = (n) => "export const Route = createFileRoute('/')({ component: H })\n"
+    + `function H(){const n = ${n}; return <p>{n}</p>}\n`;
+  assert.deepEqual(localParts(plain(1), false), [], "the fixture renders a local component after all");
+  assert.equal(partEligible(plain(1), plain("6 - rows.length"), { inPart: false }).ok, true,
+    "a page with no local components was refused for changing its own logic");
+  // And the two readings really do differ — without this the case above passes
+  // for the wrong reason.
+  assert.notEqual(computeOf(plain(1)), computeOf(plain("6 - rows.length")));
 });
 
-test("the closure is the page's own declarations, and an unresolvable name makes no claim", () => {
-  const binds = localBindings(HOME_BEFORE);
-  // THE READER IS ALIVE before any absence it reports is believed.
-  assert.ok(binds.has("preferredDay"), "the page's own state binding was not read");
-  assert.ok(binds.has("DaySpaceLookup"), "an imported name is a declaration too");
-  assert.ok(!binds.has("Number"), "a global is not one of this page's declarations");
-
-  // A DESTRUCTURE'S BOUND NAME IS THE BINDING, and the whole declarator is what
-  // decides its meaning — `const { data: a }` and `const { total: a }` are two
-  // values wearing one name.
-  const b = localBindings("const { data: bookingCount } = useRpc('x', {});");
-  assert.ok(b.has("bookingCount"), "a destructured name was not read as a binding");
-  assert.ok(b.get("bookingCount").texts[0].includes("useRpc"), "the declarator's initialiser was dropped");
-  assert.equal(b.get("bookingCount").literal, false, "a destructure is not a literal choice");
-
-  // CANNOT-TELL MAKES NO CLAIM. A value whose only moving part is a name this
-  // page does not declare is not evidence of anything, so it is accepted — the
-  // cost of the closure ending at the page's own edge, stated as a case.
-  const page = (v) => "import Band from \"@/routes/-parts/band\"\n"
-    + `export default function H(){return <Band count={${v}} />}\n`;
-  assert.equal(partContract(page("useOutside()"), page("useOutside()"), { inPart: false }).ok, true);
-  assert.ok(!localBindings(page("useOutside()")).has("useOutside"),
-    "an undeclared name resolved to something, so the case above proves nothing");
-});
-
-test("cannot-tell makes no claim, in either half", () => {
-  // An import clause whose bindings cannot be read: no evidence about its
-  // props either way, so the check stays silent rather than refusing every
-  // page that has one.
+test("cannot-tell fails CLOSED here, which is the opposite of the old check", () => {
+  // ⚠ A DELIBERATE INVERSION, NAMED. The scanner it replaces made no claim
+  // when it could not read a component's props — correct there, because a
+  // reading it could not take was not evidence. This asks a different
+  // question: the rung cannot open the file, and an import clause it cannot
+  // parse does not make the file openable. `localParts` reads the SPECIFIER,
+  // so a namespace import still counts as rendering the site's own component.
   const ns = (v) => "import * as N from \"@/routes/-parts/band\"\n"
-    + `export default function H(){const n=1; return <N.Band count={${v}} />}`;
-  assert.equal(partProps(ns("n"), false).get("band").readable, false);
-  assert.equal(partContract(ns("n"), ns("6 - n"), { inPart: false }).ok, true,
-    "an unreadable clause was read as a contract that moved");
-  // A page that imports none of its own components is untouched.
-  assert.equal(partContract("export default function H(){return <p>hi</p>}", "export default function H(){return <p>hi</p>}", {}).ok, true);
+    + `export default function H(){const n=${v}; return <N.Band count={n} />}`;
+  assert.deepEqual(localParts(ns("1"), false).map((p) => p.name), ["band"]);
+  assert.equal(partEligible(ns("1"), ns("6 - 1"), { inPart: false }).ok, false,
+    "an unreadable clause let a computation change through");
 });
 
 test("`inPart` really travels from runTweak into readTweak", async () => {
@@ -519,7 +502,7 @@ test("`inPart` really travels from runTweak into readTweak", async () => {
   const reply = async () => ({ content: [{ type: "tool_use", input: { source: after } }], usage: { input_tokens: 1, output_tokens: 1 } });
   const inside = await runTweak({ instruction: "x", path: PART_DIR + "card.tsx", source: before, send: reply, inPart: true });
   assert.equal(inside.ok, false, "inPart never reached readTweak: a sibling contract change was accepted");
-  assert.equal(inside.reason, "part-contract");
+  assert.equal(inside.reason, "needs-parts");
   // The same answer from a PAGE, where `./spacer` is another page rather than
   // a component — so the refusal above really is `inPart` doing the work.
   const outside = await runTweak({ instruction: "x", path: "index.tsx", source: before, send: reply, inPart: false });
@@ -604,6 +587,12 @@ async function doesNotPublish(slug, tweakSource) {
 
 test("the arithmetic-only tweak does not publish — through the route, on run 17's own sources", async () => {
   await doesNotPublish("contract-repro", HOME_TWEAKED);
+});
+
+test("THE REASSIGNMENT does not publish either — through the route, same sources", async () => {
+  // The third reported spelling: neither the call site nor the declaration
+  // moves, only a statement between them. One rule answers all three.
+  await doesNotPublish("contract-repro-reassign", HOME_REASSIGN);
 });
 
 test("THE UPSTREAM CALCULATION does not publish either — through the route, same sources", async () => {

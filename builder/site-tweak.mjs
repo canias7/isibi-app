@@ -33,9 +33,9 @@
 // call is injected, so every decision here is tested without a Worker.
 import { extractText } from "./site-text.mjs";
 // The page/component relationship, read off the page's own source — see
-// `partContract` below for why this rung needs it and why it may not ask a
-// store for it.
-import { partProps } from "./site-files.mjs";
+// `partEligible` below for why this rung needs it and why it may not ask a
+// store for it. `codeOnly` is the same lexer every other reader here uses.
+import { codeOnly, localParts } from "./site-files.mjs";
 // The runtime-correctness check. Imported rather than injected because it is
 // pure — no Worker, no container, no network — so importing it costs this
 // module none of the properties above, and injecting it would put the one thing
@@ -376,21 +376,16 @@ export function readTweak(reply, { source, inPart } = {}) {
   // real tweaks, and it catches a rewording on 329 of 329 pages.
   if (!sameProse(before, after)) return { ok: false, reason: "reworded" };
 
-  // ⚠ AND THE PROMISE ABOVE ONLY COVERS THIS FILE. A tweak that rewrote what a
-  // local component is PASSED changed something whose wording lives in a file
-  // this rung never opened, so `sameProse` passing says nothing about it — run
-  // 17 shipped a full day advertising space that way. Sits BELOW `sameProse` so
-  // a rewording keeps its own name, and ABOVE `tweakLint` because it is the
-  // more specific finding of the two and the one with a customer-visible
-  // consequence. See `partContract`.
-  const contract = partContract(before, after, { inPart });
-  if (!contract.ok) {
-    return {
-      ok: false, reason: "part-contract",
-      part: contract.part, prop: contract.prop, was: contract.was, now: contract.now,
-      via: contract.via,
-    };
-  }
+  // ⚠ AND THE PROMISE ABOVE ONLY COVERS THIS FILE. On a page that renders the
+  // site's own components, a change to what the page COMPUTES is a change whose
+  // consequence lives in a file this rung never opened — run 17 shipped a full
+  // day advertising space that way, and two later reproductions moved the same
+  // change out of the call site to beat a scanner. Sits BELOW `sameProse` so a
+  // rewording keeps its own name, and ABOVE `tweakLint` because it is the more
+  // specific finding of the two and the one with a customer-visible
+  // consequence. See `partEligible`.
+  const fit = partEligible(before, after, { inPart });
+  if (!fit.ok) return { ok: false, reason: "needs-parts", parts: fit.parts };
 
   // WHAT IT BROKE. Last, so the cheaper and more specific refusals above keep
   // their own names — a rewording reported as a lint problem sends whoever
@@ -415,165 +410,139 @@ export function readTweak(reply, { source, inPart } = {}) {
 }
 
 /**
- * ⚠ DID THIS TWEAK CHANGE A VALUE WHOSE MEANING LIVES IN A FILE IT CANNOT
- * OPEN — `{ok}` or `{ok: false, part, prop, was, now}` (run 17, 2026-09-22).
+ * ⚠ IS THIS RUNG ELIGIBLE FOR THIS REQUEST AT ALL — `{ok}` or
+ * `{ok: false, parts}` (run 17 and the two reproductions after it).
  *
- * WHAT IT COST TO LEARN. Asked to make the *"Space on a preferred day"* box
- * count down the places left instead of the bookings, the cheap rung changed
- * ONE line of the page:
+ * WHAT IT COST TO LEARN, AND WHY THIS IS THE THIRD SHAPE OF THE CHECK. Asked to
+ * make the *"Space on a preferred day"* box count down the places left, the
+ * cheap rung changed ONE line of the page and nothing else:
  *
  *     - bookingCount={Number(bookingCount ?? 0)}
  *     + bookingCount={6 - Number(bookingCount ?? 0)}
  *
- * …and nothing else. Four bytes, `sameProse` perfect (ZERO tokens lost, two
- * gained), `tweakLint` clean, published as a success. The sentences that
- * interpret that number are in `-parts/day-space-lookup.tsx`, which the rung
- * never opened: the live box then read **"6 bookings already on this day"** on
- * an EMPTY day, and — because the component words zero as *"it still has
- * space"* — **"No bookings on this day yet — it still has space"** on a FULL
- * one. A full day advertising space, shipped, reported done.
+ * `sameProse` perfect, `tweakLint` clean, published. The sentences that
+ * interpret that number live in `-parts/day-space-lookup.tsx`, which this rung
+ * never opened, so the live box read **"6 bookings already on this day"** on an
+ * EMPTY day and **"No bookings on this day yet — it still has space"** on a
+ * FULL one.
  *
- * `sameProse` IS A PAGE-SCOPED GUARANTEE AND THE PAGE IS NO LONGER THE WHOLE OF
- * WHAT A VISITOR READS. That is the defect stated exactly, and it is why this
- * is a separate question rather than a stricter `sameProse`: the promise *"the
- * words did not move"* was kept, over the only file the rung was given. Since
- * the band split the words that render a value live in the component, so a
- * change to what a component is PASSED is a change whose consequence the
- * promise does not cover. Zero tokens lost is what a perfect pass looks like
- * and here it is the shape of the failure.
+ * THE FIRST TWO FIXES WERE SCANNERS AND BOTH WERE BEATEN BY A SPELLING.
+ * Comparing the prop's TEXT was beaten by moving the arithmetic one line up
+ * into a `const`; comparing the prop's text PLUS the declarations it reads was
+ * beaten by a reassignment:
  *
- * SO THE LINE IS *CAN THIS RUNG SEE WHAT THE VALUE MEANS*, and it is answered
- * off the page/component relationship rather than off the request:
+ *     let { data: bookingCount } = useRpc(…);
+ *     bookingCount = 6 - Number(bookingCount ?? 0);
  *
- *   a LITERAL prop is a CHOICE the component already distinguishes.
- *     `tone="light"` → `tone="dark"`, `columns={4}` → `columns={3}`, a bare
- *     flag added or dropped: the component's own file decides what each of
- *     those looks like and the tweak has not changed what any of them MEANS.
- *     These stay cheap, which is the whole point of the rung.
- *   an EXPRESSION prop is a COMPUTATION, and what a computed value means is
- *     settled by the component that receives it. Rewriting one without being
- *     able to read that file is a change this rung cannot know it has finished.
+ * — the call site untouched, the declaration untouched, the value changed. The
+ * lesson is not "add assignments to the scanner" (owner: *stop extending this
+ * into a homemade JavaScript analysis engine one syntax case at a time*). It is
+ * that **no page-local reading of the diff can answer this**: what a component
+ * receives is decided at RUN time, and a change arbitrarily far from the call
+ * site can move it. A scanner will lose to the next syntax, for ever.
  *
- * ⚠ AND A PROP'S TEXT IS NOT ITS VALUE — the first cut of this check compared
- * the call site's spelling, and the same defect was reproduced through the real
- * route by moving the arithmetic one line UP the page:
+ * SO THE QUESTION IS ELIGIBILITY, NOT DETECTION, and it is settled by what this
+ * rung IS rather than by what a particular answer did. `runTweak` takes ONE
+ * page's source and answers ONE page's source. On a page that renders the
+ * site's own components, therefore:
  *
- *     const { data: rawBookingCount } = useRpc(…);
- *     const bookingCount = 6 - Number(rawBookingCount ?? 0);
- *     …
- *     <DaySpaceLookup bookingCount={Number(bookingCount ?? 0)} … />
+ *   IT MAY CHANGE WHAT THE PAGE RENDERS — markup, ordering, styling, spacing,
+ *     the classes on an element. All of that is settled inside the one file it
+ *     holds, so `sameProse` plus `tweakLint` really do cover it.
+ *   IT MAY NOT CHANGE WHAT THE PAGE COMPUTES. Every value flowing into a
+ *     component is settled by code, and this rung cannot read the file that
+ *     gives that value meaning. A change there is one it cannot know it has
+ *     finished — whatever syntax it is written in.
  *
- * Every prop expression byte-identical, `sameProse` perfect, `tweak: true`,
- * published. THE VALUE A COMPONENT RECEIVES IS ITS EXPRESSION PLUS THE
- * DEFINITION OF EVERY PAGE NAME THAT EXPRESSION READS, transitively — so the
- * comparison is keyed on the expression AND that closure, which `partProps`
- * computes. A name is followed only as far as the PAGE's own declarations; one
- * this file does not declare is cannot-tell and makes no claim, which is the
- * stated edge of what a one-page reader can answer and also the edge of what a
- * one-page WRITER can move.
+ * THAT LINE IS MEASURED AS A TOKEN MULTISET, WHICH IS `sameProse`'s OWN
+ * INSTRUMENT ONE STEP OVER — and the multiset rather than the positions for
+ * `sameProse`'s own reason: moving a band down the page moves every token after
+ * it and is precisely the change this rung exists to allow. Read off `codeOnly`
+ * with string CONTENTS blanked, so `className="text-xl"` → `className="text-3xl"`
+ * is not a change to what the page computes, while `6 - Number(x)` is. It knows
+ * nothing about declarations, assignments, hooks or any other construct, which
+ * is the entire point: there are no syntax cases to keep up with.
  *
- * THE CHOICE-VERSUS-COMPUTATION LINE MOVED WITH IT, rather than being replaced
- * by "any closure change refuses". A plain name bound once to a literal is the
- * literal one indirection out, so `columns={cols}` over `const cols = 3` is
- * `columns={3}`: changing that 3 to a 4 is a choice and stays cheap, and the
- * fingerprint carries the value so the change is still SEEN. `const cols = 3`
- * → `const cols = rows + 1` is a computation and refuses, naming `cols`.
+ * IT IS NOT A BAN ON PAGES WITH COMPONENTS, which is the thing this fix must
+ * not be. `fretwork-1`'s home page renders three of them; a heading, a spacing
+ * or a band-order tweak leaves the code tokens exactly as they were and takes
+ * the cheap path as it always has. A page that renders NONE of the site's own
+ * components is not asked this question at all, so every tweak on most of the
+ * platform behaves byte for byte as before.
  *
- * WHY IT IS NOT A BAN ON PAGES WITH COMPONENTS. `fretwork-1`'s home page
- * imports three and renders eleven elements of them; a heading, a spacing or a
- * band-order tweak touches none of their prop expressions and none of the
- * declarations those expressions read, and is accepted exactly as before. Only
- * a tweak whose own diff reaches what a local component is PASSED is refused,
- * and it is refused by NAME — the prop, and the declaration that moved.
- *
- * THE MULTISET, NOT THE POSITIONS — `sameProse`'s own rule, for `sameProse`'s
- * own reason. Moving a band down the page moves every component element in it,
- * so anything positional would refuse the feature this rung exists for; the
- * bindings compare as a bag, so a pure reorder differs by nothing.
- *
- * CANNOT-TELL MAKES NO CLAIM. An unreadable import clause, a tag that does not
- * terminate, a prop shape `partProps` cannot enumerate, a name the page does
- * not declare: none of those is evidence that a contract moved, and refusing on
- * them would send every page carrying one to the rewrite for ever.
- * `readable: false` is skipped on either side, and the cost of that direction is
- * stated: a tweak really could change such a component's prop and be accepted,
- * which is the status quo rather than a regression.
- *
- * WHAT A REFUSAL COSTS, STATED. It escalates like every other refusal here, so
- * the customer gets the rewrite they would have got anyway plus ~1 credit — and
- * the rewrite is the rung that shows the writer the component source
- * (`partsSent`) and folds its answer back (`mergeParts`), which is precisely
- * the writer this ask needed. A tweak that merely tightened an expression the
- * component already handles pays that escalation for nothing; against
- * publishing a full day as available, this is the direction to be wrong in.
+ * WHAT IT COSTS, STATED. A tweak that legitimately changes a component-bearing
+ * page's logic — and nothing else — escalates and pays the rewrite it would
+ * otherwise have skipped, roughly one credit over the tweak's own. So does one
+ * that ADDS markup carrying new code tokens. Against publishing a full day as
+ * having space, that is the direction to be wrong in; and the rung it escalates
+ * to is the one that is SHOWN the component source (`partsSent`) and folds its
+ * answer back (`mergeParts`), which is exactly the writer such a request needs.
  */
-export function partContract(before, after, { inPart } = {}) {
-  const A = partProps(before, inPart);
-  const B = partProps(after, inPart);
-  for (const name of new Set([...A.keys(), ...B.keys()])) {
-    const a = A.get(name), b = B.get(name);
-    // Either side unreadable — no evidence about this component either way.
-    if ((a && !a.readable) || (b && !b.readable)) continue;
-    // THE KEY IS THE VALUE AND ITS CLOSURE, because the value a component
-    // receives is its expression PLUS the definition of every page name that
-    // expression reads. Keyed on the text alone, the upstream form of run 17's
-    // defect matches itself: move the arithmetic into a `const` one line up and
-    // the call site is byte-identical while what arrives is six minus what
-    // arrived before. `partProps` computes the fingerprint; this only compares.
-    const bag = (side) => {
-      const m = new Map();
-      for (const p of (side ? side.props : [])) {
-        const key = p.prop + "\u0000" + p.value + "\u0000" + p.closure;
-        const e = m.get(key);
-        if (e) e.n++;
-        else m.set(key, { n: 1, prop: p.prop, value: p.value, closure: p.closure, reads: p.reads, literal: p.literal });
-      }
-      return m;
-    };
-    const mb = bag(a), ma = bag(b);
-    // The entries on one side and not the other, both directions. Only a
-    // COMPUTED one is a finding: a literal that came or went is a choice.
-    const only = (x, y) => [...x.values()].filter((e) => {
-      const o = y.get(e.prop + "\u0000" + e.value + "\u0000" + e.closure);
-      return !o || o.n < e.n;
-    });
-    const gone = only(mb, ma), came = only(ma, mb);
-    const moved = [...came, ...gone].find((e) => !e.literal);
-    if (!moved) continue;
-    const was = gone.find((e) => e.prop === moved.prop);
-    const now = came.find((e) => e.prop === moved.prop);
-    return {
-      ok: false,
-      part: name,
-      prop: moved.prop,
-      was: was ? was.value : "",
-      now: now ? now.value : "",
-      // WHICH DECLARATION MOVED, or "" when the prop's own text is the change.
-      // A refusal naming a prop whose text is identical on both sides reads as
-      // an instrument fault; the name of the binding is the whole difference
-      // between that and a finding somebody can act on.
-      via: viaBinding(was, now),
-    };
-  }
-  return { ok: true };
+export function partEligible(before, after, { inPart } = {}) {
+  const parts = localParts(before, inPart).concat(localParts(after, inPart));
+  const names = [...new Set(parts.map((p) => p.name))].sort();
+  // A page that renders none of the site's own components keeps every word of
+  // its old contract: there is no file this rung cannot open.
+  if (!names.length) return { ok: true };
+  if (computeOf(before) === computeOf(after)) return { ok: true };
+  return { ok: false, parts: names };
 }
 
 /**
- * THE FIRST PAGE-LOCAL DECLARATION WHOSE DEFINITION DIFFERS between the two
- * sides of one prop, or `""` when none does.
+ * WHAT THIS SOURCE COMPUTES, as a sorted multiset of its code tokens.
  *
- * `""` IS A REAL ANSWER AND NOT AN ABSENCE: it means the prop's own expression
- * is what changed, which is run 17's inline shape and needs no second name.
- * Sorted by `partProps`, so the two sides are compared name by name and a
- * reordering of the page cannot decide which one is reported.
+ * THE STRING CONTENTS ARE BLANKED AND THAT IS THE WHOLE OF WHY A VISUAL TWEAK
+ * STAYS CHEAP: a class name, a route id and a column name all live inside
+ * quotes, so re-styling an element moves no token here. What does move is an
+ * operator, a number, an identifier — the things a value is made of.
+ *
+ * ⚠ THE SPLIT IS LEXICAL AND NOT ON WHITESPACE, which is a correction the
+ * guard made: `<p>a</p><Band />` carries no space between its elements, so
+ * splitting on whitespace glues a whole run into one token and a reorder of two
+ * elements on ONE LINE reads as a change. A word, a number, or a single
+ * punctuation character — then the multiset does not care where the line breaks
+ * fell, which is what `sameProse` means by ignoring positions.
+ *
+ * ⚠ AN ATTRIBUTE WITH A QUOTED VALUE IS DROPPED WHOLE, AND THE GUARD IS WHAT
+ * FOUND IT: `<h1>` → `<h1 className="text-5xl">` is the repository's own
+ * encoding of *make the heading bigger*, and the only tokens it moves are
+ * `className`, `=` and a pair of quotes — measured, not guessed. Counting them
+ * refused the one tweak this rung most exists for. Dropping the whole
+ * `name="…"` run is the SHIPPED rule restated: a quoted value is a CHOICE the
+ * receiving file already distinguishes, so changing, adding or removing one
+ * cannot change what a value MEANS. A braced value is not dropped, because that
+ * is where computation lives.
+ *
+ * THE COST OF THAT, STATED: renaming a quoted attribute — `tone="dark"` to
+ * `variant="dark"` — is invisible here. It is the same class the old prop check
+ * called a choice, so this is consistent rather than newly blind, and the
+ * direction is the cheap one: such a tweak publishes where it used to escalate.
+ *
+ * ⚠ AND A STRING THAT IS NOT AN ATTRIBUTE VALUE IS COUNTED — a survivor in the
+ * red check is what said so, and it was a question about the code rather than
+ * about the guards. Reading the whole file MASKED dropped every string's
+ * contents, so `useRpc("bookings_on_day")` → `useRpc("bookings_two")` moved no
+ * token: a change to which data a component receives, invisible. `sameProse`
+ * does not cover it either, because `extractText` correctly reads an
+ * identifier-shaped string as an identifier and not as words a visitor reads.
+ *
+ * SO THE TWO VIEWS ARE USED AS THEY WERE DESIGNED TO BE, which is the pattern
+ * `scanSource` exists for: the attribute SPANS are found on the MASKED copy —
+ * where an escaped quote inside a sentence cannot end a string and derail the
+ * match — and the tokens are read off the CODE copy, which still carries what
+ * every other string says. Both are length-preserving, so one offset means the
+ * same thing in either.
  */
-function viaBinding(was, now) {
-  const a = new Map((was && was.reads ? was.reads : []).map((r) => [r.name, r.text]));
-  const b = new Map((now && now.reads ? now.reads : []).map((r) => [r.name, r.text]));
-  for (const name of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-    if (a.get(name) !== b.get(name)) return name;
+const QUOTED_ATTR = /[A-Za-z_$][\w$:.-]*\s*=\s*(?:"[^"]*"|'[^']*')/g;
+const CODE_TOKEN = /[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|[^\sA-Za-z0-9_$]/g;
+
+export function computeOf(source) {
+  const mask = codeOnly(source, true);
+  const code = codeOnly(source, false).split("");
+  for (let m; (m = QUOTED_ATTR.exec(mask)); ) {
+    for (let i = m.index; i < m.index + m[0].length; i++) code[i] = " ";
   }
-  return "";
+  return (code.join("").match(CODE_TOKEN) || []).sort().join(" ");
 }
 
 /**
