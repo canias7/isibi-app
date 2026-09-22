@@ -18,6 +18,7 @@ import { CAPABILITY_TOOLS, AUTHORABLE_SCHEDULES, SCHEDULE_NEEDS, CONNECTION_TOOL
          TASK_MAX } from "../src/capability-tools.mjs";
 import { CONNECTION_OPS, CONNECTION_WRITES } from "../src/connections.mjs";
 import { DELEGATION_OPS, DELEGATION_WRITES } from "../src/delegation-store.mjs";
+import { DELEGATION_DEFAULTS, WAITING_MARK, isWaiting } from "../src/delegation.mjs";
 import { FAKE_WRITES } from "../src/fake-provider.mjs";
 import { AUTOMATION_SCHEDULES } from "../src/automations.mjs";
 import { OFFERED, OFFERED_NAMES } from "../src/agents.mjs";
@@ -2571,4 +2572,379 @@ test("⚠ A SPENT SCHEDULE IS SAID, and `next_run_at: null` alone could not say 
   // dead end for a model composing prose for somebody.
   assert.ok(/date/.test(SPENT_SAY) && /never run/.test(SPENT_SAY), SPENT_SAY);
   assert.ok(/still to come|repeating/.test(SPENT_SAY), `it does not say what would fix it: ${SPENT_SAY}`);
+});
+
+/**
+ * ── handing work to a specialist ────────────────────────────────────────────────────
+ *
+ * The two censuses above classify these tools; what is proved here is what they DO. Every
+ * fixture below is derived from its real producer — `agent.list_specialists`,
+ * `agent.delegate_children` and `agent.delegation_progress` each build their rows with a
+ * `jsonb_build_object` whose keys are copied from the migration — because a fake in a
+ * different shape from reality hides a defect exactly as well as one that is less capable,
+ * and this file has paid for that twice.
+ */
+const SPEC = "44444444-4444-4444-8444-444444444444";
+const SPEC2 = "55555555-5555-4555-8555-555555555555";
+const delegateTool = () => CAPABILITY_TOOLS.find((t) => t.name === "delegate");
+const specialistsTool = () => CAPABILITY_TOOLS.find((t) => t.name === "list_specialists");
+
+/** `agent.list_specialists`' own row shape, key for key. */
+const spec = (id, over = {}) => ({
+  id, name: `spec-${id.slice(0, 4)}`, status: "active", tools: ["remember"],
+  about: "does one thing", about_cut: false, ...over,
+});
+/** `agent.delegation_progress`' own row shape, key for key. */
+const child = (idx, over = {}) => ({
+  delegation: `d${idx}`, step: "d1.0", idx, depth: 1,
+  agent_id: SPEC, agent_name: "spec", task: `task ${idx}`, tools: [], context: [],
+  run_id: `r${idx}`, run_status: "running", run_stop: null,
+  created_at: new Date().toISOString(), admitted_at: new Date().toISOString(),
+  claimed_at: null, settled_at: null, cancelled_at: null,
+  deadline_at: new Date(Date.now() + 60_000).toISOString(), outcome: null,
+  ...over,
+});
+/** A recording seam, with `open` and `look` answerable per case. */
+function seam({ roster = [spec(SPEC)], filed, rows = [] } = {}) {
+  const calls = [];
+  const to = {
+    bounds: { ...DELEGATION_DEFAULTS, waitMs: 60_000 },
+    refusedBounds: [],
+    async specialists() { calls.push({ op: "specialists" }); return roster; },
+    async open(a) {
+      calls.push({ op: "open", ...a });
+      // `agent.delegate_children`'s own answer, key for key.
+      return filed ?? { ok: true, root: RUN, depth: 1, step: a.step, made: a.children.length,
+        absorbed: 0, deadline_at: null, concurrency: 4, running: a.children.length,
+        parent_released: true,
+        children: a.children.map((c, i) => ({ idx: i, delegation: c.id, run_id: c.run_id,
+          agent_id: c.agent_id, tools: c.tools, admitted: true })) };
+    },
+    async look() { calls.push({ op: "look" }); return typeof rows === "function" ? rows() : rows; },
+  };
+  return { to, calls, filedAt: () => calls.filter((c) => c.op === "open") };
+}
+
+test("⚠ THE STEP KEY AND THE CHILD IDS COME OFF `ctx.operation`, so a redelivery asks about the same children", async () => {
+  const t = delegateTool();
+  const op = `${RUN}:4:2:abcd1234`;
+  const first = seam();
+  await t.run({ tasks: [{ specialist: SPEC, task: "one" }, { specialist: SPEC, task: "two" }] },
+              { delegation: first.to, operation: op });
+  const [one] = first.filedAt();
+  /**
+   * ⚠ **THE POSITION HALF AND NOTHING ELSE.** `agent.delegations.step` is capped at 64
+   * characters and `ctx.operation` is a uuid, a position and a hash — well past it. What the
+   * key has to be is the SAME on every redelivery of this call and different from the step
+   * beside it, which the position is and the hash is not (a model may write the same
+   * arguments twice at different positions).
+   */
+  assert.equal(one.step, "d4.2");
+  assert.ok(one.step.length <= 64, "the step key would be refused by its own column");
+  // TWO TASKS IN ONE BATCH ARE TWO CHILDREN, so the position is part of each id.
+  assert.equal(new Set(one.children.map((c) => c.id)).size, 2);
+  assert.equal(new Set(one.children.map((c) => c.run_id)).size, 2);
+  // AND A CHILD'S OWN ids ARE NOT THE SPECIALIST'S, which is the shape a careless
+  // derivation reaches for first.
+  for (const c of one.children) {
+    assert.notEqual(c.id, SPEC);
+    assert.notEqual(c.run_id, SPEC);
+    assert.match(c.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  }
+
+  // ⚠ **THE SAME OPERATION ASKS FOR THE SAME CHILDREN** — which is what makes `open`
+  // absorbing safe, because a second delivery presents the ids the first one filed.
+  const again = seam();
+  await t.run({ tasks: [{ specialist: SPEC, task: "one" }, { specialist: SPEC, task: "two" }] },
+              { delegation: again.to, operation: op });
+  const [two] = again.filedAt();
+  assert.equal(two.step, one.step);
+  assert.deepEqual(two.children.map((c) => c.id), one.children.map((c) => c.id));
+  assert.deepEqual(two.children.map((c) => c.run_id), one.children.map((c) => c.run_id));
+
+  // THE CONTROL: a DIFFERENT call is a different set, or "derived" is satisfied by a
+  // constant — and a constant would make every delegating step in the deployment collide on
+  // one child id.
+  const other = seam();
+  await t.run({ tasks: [{ specialist: SPEC, task: "one" }] },
+              { delegation: other.to, operation: `${RUN}:5:0:abcd1234` });
+  const [third] = other.filedAt();
+  assert.equal(third.step, "d5.0");
+  assert.notEqual(third.children[0].id, one.children[0].id);
+});
+
+test("⚠ NO IDENTITY MEANS NOTHING IS FILED — and the observer is that the door was never reached", async () => {
+  const t = delegateTool();
+  for (const op of [undefined, null, "", "not-an-operation", 7, ["a:b:c:d"], `${RUN}:4:2`]) {
+    const s = seam();
+    const out = await t.run({ tasks: [{ specialist: SPEC, task: "one" }] },
+                            { delegation: s.to, operation: op });
+    assert.equal(out.ok, false, `operation ${JSON.stringify(op)} was accepted`);
+    assert.equal(out.error, "no-id");
+    // ⚠ NOTHING WAS FILED, which is the half a status code cannot carry: children filed
+    // under an invented key are children a redelivery can never find again.
+    assert.deepEqual(s.filedAt(), [], `operation ${JSON.stringify(op)} filed children`);
+    assert.ok(!out[WAITING_MARK], "a refusal suspended the run");
+  }
+  // THE CONTROL, or "nothing was filed" is satisfied by a tool that files nothing ever.
+  const good = seam();
+  await t.run({ tasks: [{ specialist: SPEC, task: "one" }] },
+              { delegation: good.to, operation: OP() });
+  assert.equal(good.filedAt().length, 1);
+});
+
+test("⚠ A PARTLY-WRONG BATCH IS REFUSED WHOLE, NEVER AS A PREFIX", async () => {
+  const t = delegateTool();
+  const s = seam({ roster: [spec(SPEC), spec(SPEC2, { status: "paused" })] });
+  const out = await t.run({
+    tasks: [
+      { specialist: SPEC, task: "this one is fine" },
+      { specialist: "nobody", task: "x" },
+      { specialist: SPEC, task: "" },
+      { specialist: SPEC2, task: "x" },
+      "not an entry",
+      { task: "no specialist named" },
+    ],
+  }, { delegation: s.to, operation: OP() });
+
+  assert.equal(out.ok, false);
+  assert.equal(out.error, "bad-tasks");
+  // ⚠ **NOTHING WAS FILED, although the first task was perfectly good.** A prefix would
+  // start real work for a step whose answer nobody can use, and the door itself keeps the
+  // same rule in a subtransaction.
+  assert.deepEqual(s.filedAt(), []);
+  // EVERY REFUSAL IS NAMED, AT ITS OWN POSITION, so a model can fix the one that is wrong
+  // rather than re-reading six tasks.
+  assert.deepEqual(out.refused, [
+    { at: 1, why: "unknown-specialist" },
+    { at: 2, why: "no-task" },
+    { at: 3, why: "specialist-paused" },
+    { at: 4, why: "not-an-entry" },
+    { at: 5, why: "no-specialist" },
+  ]);
+  // ⚠ ONE-BASED IN THE SENTENCE, because the list it names is the one the model wrote.
+  assert.match(out.say, /task 2: unknown-specialist/);
+  assert.match(out.say, /task 6: no-specialist/);
+  assert.ok(!out.say.includes("task 0"), "the sentence counts from zero");
+  // A CONTEXT ENTRY THAT CANNOT TRAVEL REFUSES THE WHOLE BATCH TOO, and its NAME is
+  // carried: dropping it means a specialist asked to do a job without the thing it was
+  // meant to be told, which is indistinguishable from a specialist that ignored it.
+  const ctxBad = seam();
+  const ctxOut = await t.run({
+    tasks: [{ specialist: SPEC, task: "fine",
+              context: [{ kind: "secret", name: "stripe", value: "sk" }] }],
+  }, { delegation: ctxBad.to, operation: OP() });
+  assert.equal(ctxOut.ok, false);
+  assert.deepEqual(ctxBad.filedAt(), []);
+  assert.deepEqual(ctxOut.refused, [{ at: 0, why: "secret-never-delegated", name: "stripe" }]);
+});
+
+test("⚠ A TASK AT `TASK_MAX` IS ACCEPTED AND ONE OVER IS REFUSED — the column's own bound", async () => {
+  const t = delegateTool();
+  // THE BOUND IS THE COLUMN'S, not a number chosen here: `agent.delegations.task` is
+  // `check (length(btrim(task)) between 1 and 4000)`, so a tool that admitted more would
+  // have the refusal arrive as a raise from inside the filing transaction rather than as a
+  // sentence a model can act on.
+  const at = seam();
+  const ok = await t.run({ tasks: [{ specialist: SPEC, task: "x".repeat(TASK_MAX) }] },
+                         { delegation: at.to, operation: OP() });
+  assert.notEqual(ok.error, "task-too-long", `a task of exactly ${TASK_MAX} was refused`);
+  assert.equal(at.filedAt().length, 1);
+  assert.equal(at.filedAt()[0].children[0].task.length, TASK_MAX);
+
+  const over = seam();
+  const no = await t.run({ tasks: [{ specialist: SPEC, task: "x".repeat(TASK_MAX + 1) }] },
+                         { delegation: over.to, operation: OP() });
+  assert.equal(no.ok, false);
+  assert.deepEqual(no.refused, [{ at: 0, why: "task-too-long" }]);
+  assert.deepEqual(over.filedAt(), []);
+  // AND THE SCHEMA SAYS SO TOO, so a model is told the bound rather than having to find it.
+  assert.equal(delegateTool().input.properties.tasks.items.properties.task.maxLength, TASK_MAX);
+});
+
+test("⚠ AN UNKNOWN TOOL NAME IS DROPPED AND NAMED, and the child still files", async () => {
+  const t = delegateTool();
+  const s = seam({ roster: [spec(SPEC, { tools: ["remember", "forget"] })] });
+  const out = await t.run({
+    tasks: [{ specialist: SPEC, task: "do it", tools: ["remember", "send_message", "delegate"] }],
+  }, { delegation: s.to, operation: OP() });
+
+  // ⚠ **NAMED AND DROPPED, NOT REFUSED.** A grant naming a tool the specialist has not got
+  // asks for LESS than it meant to, which is the safe direction — so the child runs with
+  // what it really may use, and refusing a whole batch over one mistyped name would leave a
+  // model unable to delegate at all.
+  const [filed] = s.filedAt();
+  assert.equal(filed.children.length, 1, "the child was not filed");
+  assert.deepEqual(filed.children[0].tools, ["remember"]);
+  // A FILTER IS A SILENT DROP AND A CHECK IS A SENTENCE: the caller is told which, and at
+  // which task, and for which specialist.
+  assert.deepEqual([...out.dropped].sort((a, b) => a.tool.localeCompare(b.tool)), [
+    { at: 0, tool: "delegate", specialist: SPEC },
+    { at: 0, tool: "send_message", specialist: SPEC },
+  ]);
+  // ⚠ **AND `withheld` IS DELIBERATELY NOT REPORTED FROM HERE.** This tool cannot see the
+  // account's revocations at all — the DATABASE subtracts them inside the filing
+  // transaction — so a `withheld` key here could only ever be empty, which is an absence
+  // wearing a value's clothes.
+  assert.ok(!Object.hasOwn(out, "withheld"));
+
+  // THE CONTROL: a clean grant carries no `dropped` key at all, so its presence means
+  // something rather than being a field a reader has to check for emptiness.
+  const clean = seam({ roster: [spec(SPEC, { tools: ["remember", "forget"] })] });
+  const fine = await t.run({ tasks: [{ specialist: SPEC, task: "do it", tools: ["forget"] }] },
+                           { delegation: clean.to, operation: OP() });
+  assert.ok(!Object.hasOwn(fine, "dropped"));
+  assert.deepEqual(clean.filedAt()[0].children[0].tools, ["forget"]);
+  // GRANTING NOTHING IS GIVING NOTHING, which is what the schema's own description says.
+  const none = seam({ roster: [spec(SPEC, { tools: ["remember"] })] });
+  await t.run({ tasks: [{ specialist: SPEC, task: "do it" }] },
+              { delegation: none.to, operation: OP() });
+  assert.deepEqual(none.filedAt()[0].children[0].tools, []);
+});
+
+test("⚠ THE ANSWER IS READ FROM THE ROWS, NEVER FROM WHAT WAS JUST FILED", async () => {
+  const t = delegateTool();
+  /**
+   * ⚠ **THE FIXTURE MAKES THE TWO DISAGREE ON PURPOSE.** `open` answers two children as
+   * though they had just been filed and `look` answers what is really on record — a child
+   * that has settled and one still running. A tool that composed its answer from `filed`
+   * would report both as new work every delivery, and on a redelivery would lose an answer
+   * that had arrived since.
+   */
+  const rows = [
+    child(0, { settled_at: "2026-09-22T00:00:00Z", outcome: { ok: true, result: { found: 3 } } }),
+    child(1, { claimed_at: "2026-09-22T00:00:00Z" }),
+  ];
+  const s = seam({ rows });
+  const out = await t.run({ tasks: [{ specialist: SPEC, task: "a" }, { specialist: SPEC, task: "b" }] },
+                          { delegation: s.to, operation: OP() });
+
+  // ⚠ THE WAITING MARKER, which is what lets `run.mjs` hold the run — and the parent holds
+  // NO open request while its specialists work, which is the requirement rather than an
+  // optimisation.
+  assert.equal(out[WAITING_MARK], true);
+  assert.equal(isWaiting(out), true);
+  assert.ok(!Object.hasOwn(out, "ok"), "an unfinished call answered a verdict as well");
+  // WHICH CHILDREN ARE STILL WORKING, BY INDEX, so a reader can name them: two specialists
+  // can share a name and the index is the one thing tying an answer back.
+  assert.deepEqual(out.working, [1]);
+  assert.equal(out.counts.done, 1);
+  assert.equal(out.counts.running, 1);
+  assert.match(out.say, /1 of 2 specialist\(s\) have answered/);
+  // AND `look` REALLY WAS ASKED, or the whole case is about a fixture nobody read.
+  assert.equal(s.calls.filter((c) => c.op === "look").length, 1);
+  assert.ok(s.calls.findIndex((c) => c.op === "look") > s.calls.findIndex((c) => c.op === "open"),
+    "the rows were read before the children were filed");
+});
+
+test("⚠ ONCE EVERY CHILD HAS SETTLED, THE COMBINATION IS THE ANSWER", async () => {
+  const t = delegateTool();
+  const rows = [
+    child(0, { agent_name: "reader", settled_at: "x", outcome: { ok: true, result: { found: 3 } } }),
+    child(1, { agent_name: "writer", settled_at: "x", outcome: { ok: true, result: "a draft" } }),
+  ];
+  const s = seam({ rows });
+  const out = await t.run({ tasks: [{ specialist: SPEC, task: "read" }, { specialist: SPEC, task: "write" }] },
+                          { delegation: s.to, operation: OP() });
+
+  assert.ok(!out[WAITING_MARK], "a finished delegation suspended the run");
+  assert.equal(out.ok, true);
+  assert.equal(out.policy, "all");
+  // DETERMINISTIC BY INDEX, and each specialist's own answer carried as it came — nothing
+  // here interprets it.
+  assert.deepEqual(out.results, [
+    { index: 0, agent: "reader", result: { found: 3 } },
+    { index: 1, agent: "writer", result: "a draft" },
+  ]);
+  // EVERY CHILD IS ON THE ROSTER, so the difference between what came back and what was
+  // asked for is never invisible.
+  assert.deepEqual(out.specialists.map((r) => `${r.index}:${r.agent}:${r.state}`),
+    ["0:reader:done", "1:writer:done"]);
+  assert.match(out.say, /2 of 2 specialist\(s\) answered/);
+
+  // ⚠ AND A FAILURE IS SAID RATHER THAN CARRIED AS A RESULT: under `all` the step does not
+  // go on, the roster still names the child, and `results` holds only what was delivered.
+  const partial = seam({ rows: [rows[0], child(1, { agent_name: "writer", settled_at: "x", outcome: { ok: false } })] });
+  const no = await t.run({ tasks: [{ specialist: SPEC, task: "read" }, { specialist: SPEC, task: "write" }] },
+                         { delegation: partial.to, operation: OP() });
+  assert.equal(no.ok, false);
+  assert.equal(no.error, "not-all-delivered");
+  assert.deepEqual(no.results.map((r) => r.index), [0]);
+  assert.deepEqual(no.specialists.map((r) => r.state), ["done", "failed"]);
+  assert.match(no.say, /needs every one/);
+  // AND THE POLICY IS THE CALLER'S TO STATE: with `best_effort` the same results carry on.
+  const carried = seam({ rows: [rows[0], child(1, { settled_at: "x", outcome: { ok: false } })] });
+  const on = await t.run({ policy: "best_effort",
+    tasks: [{ specialist: SPEC, task: "read" }, { specialist: SPEC, task: "write" }] },
+    { delegation: carried.to, operation: OP() });
+  assert.equal(on.ok, true);
+  assert.equal(on.policy, "best_effort");
+  assert.equal(on.counts.failed, 1, "the failure was not reported");
+});
+
+test("⚠ A REFUSAL FROM THE DOOR IS CARRIED WITH ITS OWN SENTENCE, never as a success", async () => {
+  const t = delegateTool();
+  // The bounds are the DATABASE's, so what arrives here is a verdict it already reached —
+  // and each needs a different thing done about it, which is why it is a sentence rather
+  // than a code the model has to look up.
+  for (const [filed, needle] of [
+    [{ ok: false, error: "too-deep", depth: 3, limit: 2 }, /levels deep/],
+    [{ ok: false, error: "too-many-children", asked: 9, limit: 4 }, /9 tasks/],
+    [{ ok: false, error: "tree-full", held: 32, limit: 32 }, /whole budget/],
+    [{ ok: false, error: "parent-stopped" }, /already stopped/],
+    [{ ok: false, error: "self-delegation", at: 0 }, /task 1/],
+  ]) {
+    const s = seam({ filed });
+    const out = await t.run({ tasks: [{ specialist: SPEC, task: "x" }] },
+                            { delegation: s.to, operation: OP() });
+    assert.equal(out.ok, false, `${filed.error} was read as a success`);
+    assert.equal(out.error, filed.error);
+    assert.match(out.say, needle);
+    // AND THE ROWS ARE NOT READ AFTER A REFUSAL: there is nothing to combine, and asking
+    // would report a step that filed nothing as one waiting for children.
+    assert.equal(s.calls.filter((c) => c.op === "look").length, 0);
+    assert.ok(!out[WAITING_MARK]);
+  }
+  // AN ANSWER THIS CANNOT READ AT ALL IS A REFUSAL WITH A NAME rather than a success:
+  // cannot-tell must never read as a value, and the value here is work having started.
+  for (const filed of [null, undefined, {}, { ok: "true" }, "ok", 7]) {
+    const s = seam({ filed });
+    const out = await t.run({ tasks: [{ specialist: SPEC, task: "x" }] },
+                            { delegation: s.to, operation: OP() });
+    assert.equal(out.ok, false, `${JSON.stringify(filed)} was read as a success`);
+    assert.equal(typeof out.say, "string");
+    assert.ok(out.say.length > 10);
+  }
+});
+
+test("⚠ `list_specialists` IS THE READ THAT MAKES THE WRITE USABLE", async () => {
+  const t = specialistsTool();
+  // WITHOUT IT `delegate` IS A CONTROL WHOSE ONE REQUIRED ARGUMENT NOBODY CAN SUPPLY: a
+  // model cannot know an id it was never told.
+  assert.ok(delegateTool().input.properties.tasks.items.required.includes("specialist"));
+  assert.equal(t.writes, false, "a read declares writes");
+  assert.equal(t.repeatable, true);
+
+  const s = seam({ roster: [spec(SPEC), spec(SPEC2, { status: "paused" })] });
+  const out = await t.run({}, { delegation: s.to });
+  assert.equal(out.ok, true);
+  assert.equal(out.count, 2);
+  // THE ROWS AS THEY CAME — nothing here reshapes what the database said about another
+  // agent, so a field added to that function reaches the model without a second reader.
+  assert.deepEqual(out.specialists, [spec(SPEC), spec(SPEC2, { status: "paused" })]);
+  // ⚠ A PAUSED SPECIALIST IS LISTED SO A MODEL CAN SAY WHY IT CANNOT BE ASKED, and the
+  // count of those TAKING work is said apart from the count that exist.
+  assert.match(out.say, /2 specialist\(s\), 1 taking work/);
+
+  // AN EMPTY ACCOUNT IS ITS OWN SENTENCE, not a zero a model has to interpret: "there is
+  // nobody to hand work to" is actionable and `0` is not.
+  const empty = seam({ roster: [] });
+  const none = await t.run({}, { delegation: empty.to });
+  assert.equal(none.ok, true);
+  assert.equal(none.count, 0);
+  assert.match(none.say, /no other agents/);
+  // AND A STATUS IT CANNOT READ IS NOT "taking work" — fail closed, because the other
+  // direction invites a model to ask a specialist the door will refuse.
+  const odd = seam({ roster: [spec(SPEC, { status: "ACTIVE" }), spec(SPEC2, { status: undefined })] });
+  assert.match((await t.run({}, { delegation: odd.to })).say, /2 specialist\(s\), 0 taking work/);
 });

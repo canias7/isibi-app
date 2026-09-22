@@ -2086,8 +2086,7 @@ const delegate = delTool({
       // one mistyped name would leave a model unable to delegate at all.
       for (const name of narrowed.unknown) dropped.push({ at: n, tool: name, specialist: who });
       children.push({
-        id: uuidFrom(`delegation:${ctx.operation}:${n}`),
-        run_id: uuidFrom(`child:${ctx.operation}:${n}`),
+        at: n,
         agent_id: who,
         task,
         tools: [...narrowed.tools],
@@ -2104,7 +2103,33 @@ const delegate = delTool({
         say: `nothing was delegated — ${refused.map((r) => `task ${r.at + 1}: ${r.why}`).join("; ")}` };
     }
 
-    const filed = await to.open({ step, children });
+    /**
+     * ⚠ **THE IDS ARE MINTED HERE AND NOT IN THE LOOP, and `uuidFrom` being ASYNC is why.**
+     * The validation pass is a synchronous `forEach`, so an `await` cannot live in it — and
+     * the first cut of this put the unawaited calls in the child, where a PROMISE reached
+     * `agent.delegations.id` and serialised as `{}`: every delegation refused at the door by
+     * a uuid check, with the derivation never having run. Found by driving the tool, not by
+     * reading it.
+     *
+     * Minting them AFTER the refusal gate is the better place on its own terms as well: an
+     * id for a task that is about to be refused is an id nothing will ever file.
+     *
+     * **BOTH HALVES ARE DERIVED FROM `ctx.operation` AND THE TASK'S OWN POSITION**, which is
+     * what makes a redelivery present the ids the first delivery filed — so `open` absorbs
+     * rather than making a second set of children. `at` is the position in the list the MODEL
+     * wrote, carried on the child through the loop so the two cannot come apart when a
+     * refusal is impossible but a `dropped` entry is not.
+     */
+    const minted = await Promise.all(children.map(async (c) => ({
+      id: await uuidFrom(`delegation:${ctx.operation}:${c.at}`),
+      run_id: await uuidFrom(`child:${ctx.operation}:${c.at}`),
+      agent_id: c.agent_id,
+      task: c.task,
+      tools: c.tools,
+      context: c.context,
+    })));
+
+    const filed = await to.open({ step, children: minted });
     if (!filed || filed.ok !== true) {
       const e = typeof filed?.error === "string" ? filed.error : "";
       return { ok: false, error: e || "not-delegated",

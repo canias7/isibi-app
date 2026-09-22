@@ -266,6 +266,18 @@ export function childState(row, { now = Date.now, waitMs = DELEGATION_DEFAULTS.w
   // ⚠ THE DEADLINE IS WHAT MAKES SILENCE AN ANSWER. Without it a child whose consumer died
   // between the claim and the answer leaves the parent waiting for ever, and a parent that
   // waits for ever is one nobody can tell from a parent that is working.
+  //
+  // ⚠ **`waitMs !== Infinity` IS A DECLARED SECOND WALL AND IS MEASURED INERT — it stays
+  // because it says the INTENT where the comparison only happens to be right.** `x >
+  // Infinity` is false for every finite x, for `NaN` and for `Infinity` itself, so removing
+  // it changes no answer: driven over sixteen (birth, now) shapes including
+  // `Number.MAX_SAFE_INTEGER` apart, ZERO differences. A sweep will therefore report a
+  // mutant on this line as surviving, and that is the record rather than a test gap.
+  //
+  // **THE OBSERVABLE HALF OF THE SAME PROPERTY IS ONE FUNCTION OVER**: what really makes
+  // "no deadline" reachable is `okBound` admitting `Infinity`, because a reader that refused
+  // it would send `delegationBounds` to the DEFAULT — so a deployment asking for no deadline
+  // would silently get fifteen minutes. That one is driven and goes red.
   const started = Date.parse(row.created_at ?? "");
   if (Number.isFinite(started) && okBound(waitMs) && waitMs !== Infinity && now() - started > waitMs) {
     return "unresolved";
