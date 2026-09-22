@@ -77,6 +77,15 @@ export function runView({ runId, state, run }) {
     text: stop && stop.reason === "answered" ? (stop.text ?? null) : null,
     agent: run?.agent_name ?? state.agent ?? null,
     model: run?.model ?? state.model ?? null,
+    // ⚠ **WHICH PARENT THIS RUN BELONGS TO, and the two ride together or not at all.**
+    // A delegated child is a run a customer can read like any other, and without this the
+    // link is a fact only the log holds — so a person looking at a specialist's run could
+    // not tell it apart from one they started themselves. `replay` refuses one half without
+    // the other, so there is no shape here that names a parent and not its delegation.
+    //
+    // PRESENT OR ABSENT, never `null`: every run accepted before delegation existed answers
+    // exactly what it answered before, byte for byte.
+    ...(state.delegatedBy === null ? {} : { delegatedBy: state.delegatedBy, delegation: state.delegation }),
   };
 }
 

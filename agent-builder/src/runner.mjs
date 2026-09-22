@@ -64,6 +64,7 @@ import { runAgent } from "./run.mjs";
 import { stoppedEntry } from "./journal.mjs";
 import { withInstructions, narrowTools } from "./define.mjs";
 import { runWorkflow, expandWorkflow } from "./automations.mjs";
+import { childOutcome } from "./delegation.mjs";
 
 /**
  * How long a claim is good for without a beat. **A LIVENESS CHECK, NOT A DURATION
@@ -250,6 +251,10 @@ export function makeRunner(opts = {}) {
     let held = true;
     let lostBecause = null;
     let refusal = null;   // what `agent.append_entry` refused, if it did
+    // WHICH PARENT THIS RUN OWES AN OUTCOME TO, read from the log once it is open and
+    // `null` for every run that is nobody's child. It lives out here because the catch
+    // below settles too, and `open` is scoped to the try.
+    let childOf = null;
     let misses = 0;
     let handle = null;
 
@@ -335,6 +340,66 @@ export function makeRunner(opts = {}) {
       // `lease-lost` that does not say WHICH refusal produced it is one.
       onEvent({ at: "done", runId, why, done, error });
       return { ran: why === "ran", why, runId, stop, error };
+    };
+
+    /**
+     * ⚠ **A FINISHED CHILD HANDS ITS OUTCOME TO ITS PARENT WHILE IT STILL HOLDS ITS
+     * CLAIM**, which is the whole reason this is called before `finish` rather than after
+     * it. `agent.settle_delegation` is fenced by the CHILD's own claim — the holder, the
+     * token and a live lease, the same checks every journal write presents — so a settle
+     * attempted after the release is refused `not-holder`, and the parent then waits out
+     * the deadline for a child that really answered.
+     *
+     * **WHETHER TO SETTLE IS READ FROM THE APPEND-ONLY LOG**, never from a row somebody
+     * could update and never from an argument a caller could supply: `delegatedBy` is in
+     * the child's own `started` entry, written by `agent.delegate_children` inside the
+     * transaction that filed the row. So a run that is nobody's child costs no round trip
+     * at all, and one that is cannot have the fact edited.
+     *
+     * **IT NEVER THROWS, and that is the doorbell's argument rather than laziness.** The
+     * run really has ended and its log says so; a settle that did not land leaves the
+     * delegation unsettled, so the parent reads `unresolved` at the deadline instead of a
+     * failure at once — latency, never a wrong answer. Raising here would turn a finished
+     * run into a failed delivery, and the redelivery would answer `already-finished`
+     * anyway, which is where the recovery is.
+     *
+     * ⚠ **IT RINGS NOTHING, AND THAT IS THIS WORKER'S OWN RULE RATHER THAN AN
+     * OMISSION.** The function SAYS which parent it put back and which sibling it let
+     * start, so a caller that can produce would ring them — and a consumer never
+     * produces, which is why `missingFor(env, "consume")` asks for no queue binding at
+     * all. Ringing from here would put a producer inside the consumer. The rows are
+     * already queued by `agent.requeue_run`, so `sweep_run_work` offers them on the next
+     * tick: the cost is one tick, exactly as it is for an automation a tool starts.
+     */
+    const settleChild = async (stop) => {
+      if (!childOf || !delegation) return null;
+      const outcome = childOutcome(stop);
+      try {
+        const said = await delegation.forTenant(claim.tenant)
+          .settle({ child: runId, worker, token: hold.token, outcome });
+        onEvent({
+          at: "settled", runId, delegation: childOf,
+          // A REFUSAL IS AN ANSWER AND IS REPORTED AS ONE. `settle` raises only when the
+          // request itself failed; a fenced refusal comes back as `ok: false` with its own
+          // name, and a settle nobody can tie to a reason is the shape that costs an
+          // afternoon.
+          settled: said?.ok === true,
+          ...(said?.ok === true ? {
+            ok: outcome.ok,
+            // THE FIRST ANSWER STANDS, so a redelivery says so rather than looking like a
+            // second result. Nothing was written on that path.
+            repeat: said.repeat === true,
+            outstanding: said.outstanding ?? null,
+            parent: said.parent ?? null,
+            parentQueued: said.parent_queued ?? null,
+            admitted: said.admitted ?? null,
+          } : { why: said?.error ?? "no-answer" }),
+        });
+        return said;
+      } catch (e) {
+        onError({ at: "settle", runId, error: String(e?.message ?? e) });
+        return null;
+      }
     };
 
     /**
@@ -799,9 +864,25 @@ export function makeRunner(opts = {}) {
       // the claim it is writing under.
       const open = await scoped.open(runId, { hold });
 
+      // ⚠ READ ONCE, HERE, because every terminal below has to be able to ask it. It is
+      // the PARENT's run id out of this run's own `started` entry, and `replay` refuses it
+      // unless the delegation id is readable beside it — so this is either a real link or
+      // nothing, and never half of one.
+      childOf = isText(open.state.delegatedBy) ? open.state.delegatedBy : null;
+
       // A finished run is not executed again. `runAgent` would refuse it too —
       // two walls, and this one also takes the work off the queue.
-      if (open.state.status === "stopped") return await finish(true, "already-finished", null, open.state.stop);
+      //
+      // ⚠ **AND IT IS WHERE A LOST SETTLE RECOVERS.** A child whose outcome never reached
+      // its parent — the request failed, or this process died between the stop and the
+      // settle — is offered again once its lease lapses, and this is the delivery that
+      // finds it already ended. `where settled_at is null` absorbs the attempt as a
+      // `repeat` if it really did land, so trying again costs nothing and a lost answer is
+      // bounded by the sweep rather than by the child's deadline.
+      if (open.state.status === "stopped") {
+        await settleChild(open.state.stop);
+        return await finish(true, "already-finished", null, open.state.stop);
+      }
 
       // A log that cannot be read is not resumed, and nothing is spent finding
       // out. A redelivery would read the same junk, so it comes off the queue.
@@ -1049,6 +1130,27 @@ export function makeRunner(opts = {}) {
         return await finish(true, "awaiting-approval", JSON.stringify(record.stop.waiting ?? []), record.stop);
       }
 
+      // ⚠ WAITING FOR ITS OWN CHILDREN, AND IT IS NEITHER A FAILURE NOR `ran`. The same
+      // shape as an approval and for the same reason: the work row is marked DONE because
+      // there is nothing to redeliver until the specialists answer, and the log is left
+      // with no stop, so the run still reads as in progress with that call pending.
+      //
+      // ⚠ **THIS RELEASE IS WHAT THE DELEGATION SEAM DELIBERATELY DOES NOT DO.**
+      // `agent.delegate_children` CAN let the parent go inside its own transaction — and
+      // then nothing may write to the journal afterwards, because every write presents the
+      // claim and the fence refuses a released one. A model can call `delegate` alongside
+      // another tool in one batch and those siblings' results are written after the fanout
+      // returns, so the whole delivery would answer `journal-failed` and every redelivery
+      // would do the same. So the RUNNER releases, here, once the batch is written.
+      //
+      // `agent.settle_delegation` puts it back through `agent.requeue_run` — the same
+      // function a person pressing "try again" already uses — and a child that settles
+      // inside the window before this line is what `wake_lost` and `sweep_delegations`'
+      // second arm exist for.
+      if (reason === "awaiting-children") {
+        return await finish(true, "awaiting-children", JSON.stringify(record.stop.waiting ?? []), record.stop);
+      }
+
       // NOWHERE TO ASK IS RETRYABLE, exactly as a broken journal is: the run is left
       // open and a later delivery asks again, rather than a customer's work being closed
       // over an outage in the approval store.
@@ -1063,6 +1165,10 @@ export function makeRunner(opts = {}) {
 
       // Everything else ended with a `stopped` entry in the log — answered, out of
       // steps, out of budget, a failed call. The work is over either way.
+      //
+      // ⚠ THE SETTLE IS ABOVE THE RELEASE AND NOT BELOW IT: `finish` lets the claim go,
+      // and `agent.settle_delegation` is fenced by that very claim.
+      await settleChild(record?.stop ?? null);
       return await finish(true, "ran", null, record?.stop ?? null);
     } catch (e) {
       onError({ at: "deliver", runId, error: String(e?.message ?? e) });
@@ -1077,6 +1183,13 @@ export function makeRunner(opts = {}) {
       if (last) {
         try {
           await closeWithCrash(runId, claim.tenant, hold, String(e?.message ?? e));
+          // ⚠ **ONLY ONCE THE LOG IS REALLY CLOSED, which is why this is inside the same
+          // `try` and after that line rather than beside it.** A crash whose stop could not
+          // be written is a run nothing will deliver again and that has no ending recorded:
+          // telling the parent it failed would be an answer about a run whose own log
+          // cannot say so. Unsettled, the child reads `unresolved` at its deadline, which
+          // is the true thing to say about it.
+          await settleChild({ reason: "crashed", error: String(e?.message ?? e) });
         } catch (e2) {
           onError({ at: "deliver-stop", runId, error: String(e2?.message ?? e2) });
         }

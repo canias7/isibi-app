@@ -68,6 +68,24 @@ export const startedEntry = (o) => Object.freeze({
   // or a verification builds the entry here and would silently lose them.
   ...(o.authoredAgent === undefined ? {} : { authoredAgent: o.authoredAgent }),
   ...(o.message === undefined ? {} : { message: o.message }),
+  // ── the snapshot a DELEGATED child carries ─────────────────────────────────
+  //
+  // ⚠ **`agent.delegate_children` IS A THIRD PRODUCER OF THIS SHAPE, and these four
+  // lines are what stop it being a second copy of it.** That function builds a child's
+  // first entry in SQL, inside the transaction that files the row — so without them
+  // the JS producer could not express what the SQL path writes, which is the exact
+  // thing this constructor exists to prevent and is why `authoredAgent` and `message`
+  // are here for `agent.send_to_agent`. A census holds the two shapes equal.
+  //
+  // **AND `delegatedBy` IS READ BACK TO DECIDE SOMETHING, unlike `authoredAgent`.**
+  // It is what tells a finished run that it owes its parent an outcome, so it is not
+  // merely for a reader tracing one run to another: it is the fact the settle is
+  // gated on, taken from an append-only entry nobody can edit rather than from a row
+  // somebody could update or from an argument a caller could supply.
+  ...(o.delegatedBy === undefined ? {} : { delegatedBy: o.delegatedBy }),
+  ...(o.delegation === undefined ? {} : { delegation: o.delegation }),
+  ...(o.depth === undefined ? {} : { depth: o.depth }),
+  ...(o.context === undefined ? {} : { context: o.context }),
 });
 export const modelEntry = (o) => Object.freeze({
   kind: "model", at: o.at, step: o.step, ms: o.ms, text: o.text ?? "",
@@ -337,6 +355,20 @@ export function replay(entries) {
     // tracing one back to the other. Never used to decide anything.
     authoredAgent: typeof started?.authoredAgent === "string" ? started.authoredAgent : null,
     message: typeof started?.message === "string" ? started.message : null,
+    // ⚠ WHICH PARENT THIS RUN OWES AN OUTCOME TO, and this one DECIDES something.
+    // A finished child settles its delegation while it still holds its claim, and this
+    // is what says it is a child at all — so a run with no such entry costs no round
+    // trip, and a run that has one cannot have it edited, because the log is
+    // append-only and fenced.
+    //
+    // **REFUSED, NEVER COERCED, AND BOTH HALVES OR NEITHER.** `String(["x"])` is
+    // `"x"`, and a `delegatedBy` with no readable `delegation` beside it is half a
+    // link — the settle is keyed on the CHILD's run id so it would still work, but a
+    // reader handed one and not the other cannot say which row an outcome is about.
+    delegatedBy: typeof started?.delegatedBy === "string" && typeof started?.delegation === "string"
+      ? started.delegatedBy : null,
+    delegation: typeof started?.delegatedBy === "string" && typeof started?.delegation === "string"
+      ? started.delegation : null,
   });
 }
 

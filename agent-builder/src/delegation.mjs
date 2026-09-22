@@ -286,6 +286,51 @@ export function childState(row, { now = Date.now, waitMs = DELEGATION_DEFAULTS.w
   return "queued";
 }
 
+/**
+ * `childOutcome(stop)` → what a finished child hands its parent.
+ *
+ * ⚠ **THE INVERSE OF `childState`, WHICH IS WHY IT IS HERE AND NOT IN THE RUNNER.**
+ * That function reads an outcome back out of a row and this one writes it; two modules
+ * holding the two halves is how a shape that round-trips today stops doing so, and the
+ * shape is what a parent combines.
+ *
+ * ⚠ **ONLY `answered` IS `ok: true`, and every other ending is a failure.** Out of
+ * steps, out of budget, a failed call, a crash — each is a run that stopped without
+ * answering, and reading any of them as delivered is the one direction that breaks
+ * *missing work is never success*. This is the rule `agent.automation_history` already
+ * applies to a stop that is not an answer, for the same reason: a bound-stopped run may
+ * carry partial text, and handing it on puts words in a specialist's mouth it never
+ * finished saying.
+ *
+ * `ok` IS THE BOOLEAN, never a coercion — `agent.settle_delegation` raises otherwise and
+ * `childState` refuses anything else, so all three agree about what a success looks like.
+ *
+ * **A STOP THIS CANNOT READ IS `ok: false` WITH `reason: "unrecorded"`**, never a throw and
+ * never an absence: cannot-tell must never read as a value, and the value here is a
+ * delivered result.
+ *
+ * **`result` RIDES ONLY ON THE SUCCESS.** `combineResults` contributes nothing from a child
+ * that is not `done`, so a partial text on a failure would be a value with no reader — and
+ * a trap for the next one.
+ */
+export function childOutcome(stop) {
+  const reason = typeof stop?.reason === "string" && stop.reason !== "" ? stop.reason : null;
+  if (reason === "answered") {
+    return Object.freeze({
+      ok: true, reason,
+      result: typeof stop.text === "string" ? stop.text : null,
+    });
+  }
+  return Object.freeze({
+    ok: false,
+    reason: reason ?? "unrecorded",
+    // NAMED WHEREVER THE STOP GIVES ONE, because a parent told only "it failed" has
+    // nothing to say to a customer and nothing to decide from.
+    ...(typeof stop?.bound === "string" ? { bound: stop.bound } : {}),
+    ...(typeof stop?.error === "string" ? { error: stop.error } : {}),
+  });
+}
+
 // ── what a refusal means to whoever asked ──────────────────────────────────
 
 /**

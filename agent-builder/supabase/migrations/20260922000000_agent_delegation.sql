@@ -666,8 +666,13 @@ begin
     'ok', true, 'repeat', not v_first, 'delegation', v_del.id,
     'parent', v_del.parent_run_id, 'step', v_del.step, 'idx', v_del.idx,
     'outstanding', v_live, 'parent_queued', v_state ->> 'state',
-    -- SAID, so the caller can ring the child it just let start rather than
-    -- leaving it to the next cron tick.
+    -- ⚠ SAID RATHER THAN RUNG, and which caller can ring is not this function's
+    -- business. The one that settles a child is the RUNNER, inside the queue
+    -- consumer -- and a consumer never produces, so it holds no queue binding at
+    -- all and ringing from there would put a producer inside it. Both rows are
+    -- already queued by agent.requeue_run above, so agent.sweep_run_work offers
+    -- them on the next tick: the cost of not ringing is one tick, and these
+    -- fields are what lets an operator read what a settle really moved.
     'admitted', v_next.child_run_id, 'admitted_idx', v_next.idx,
     'admitted_queued', v_woke ->> 'state');
 end; $$;

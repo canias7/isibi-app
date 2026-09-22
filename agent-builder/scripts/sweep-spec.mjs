@@ -651,9 +651,13 @@ const spec = [
     "    handle = timer.set(tick, beatEveryMs);\n\n    const assertHeld", "    void 0;\n\n    const assertHeld"),
   m("runner: the heartbeat keeps beating after the run is over", at("runner.mjs"),
     "      stopBeating();\n      // **A LOST CLAIM RELEASES NOTHING.**", "      // **A LOST CLAIM RELEASES NOTHING.**"),
+  // ⚠ RE-ANCHORED, NOT APPEASED: the property is unchanged — a finished run is not
+  // executed again — and what moved is that the branch became a block, because it is
+  // also where a child's lost settle recovers. The gate is what carries the property, so
+  // the gate is what the mutant cuts.
   m("runner: A FINISHED RUN IS EXECUTED AGAIN", at("runner.mjs"),
-    'if (open.state.status === "stopped") return await finish(true, "already-finished", null, open.state.stop);',
-    "if (false) return await finish(true, \"already-finished\");"),
+    '      if (open.state.status === "stopped") {',
+    "      if (false) {"),
   m("runner: a run whose log cannot be read is executed anyway", at("runner.mjs"),
     "      if (open.state.problems.length) {", "      if (false) {"),
   // ⚠ THE AUTOMATION BRANCH'S OWN COPY OF THAT WALL, which it did not have until `verify:send`
