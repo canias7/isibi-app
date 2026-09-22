@@ -105,9 +105,33 @@ create table if not exists agent.delegations (
   deadline_at   timestamptz not null,
 
   created_at    timestamptz not null default now(),
+
+  -- ⚠ WHEN THIS CHILD WAS LET START, which is what makes `concurrency` a bound
+  -- rather than a number in a comment. A batch wider than the bound files every
+  -- child here and lets only the first few go; the rest wait their turn with
+  -- `admitted_at` null, and `settle_delegation` admits the next as one finishes.
+  --
+  -- **A CHILD WAITING ITS TURN READS `queued`**, which is honest — it has not
+  -- started — and is why no new child state was invented for it. A screen that
+  -- wants to say "waiting its turn" has this column to say it from.
+  admitted_at   timestamptz,
+
   claimed_at    timestamptz,
   settled_at    timestamptz,
   cancelled_at  timestamptz,
+
+  -- ⚠ **A WAKE WE TRIED TO SEND AND COULD NOT.** The last child to settle rings
+  -- the parent through `agent.requeue_run`, which refuses to disturb a run
+  -- somebody is HOLDING — and the parent is held for as long as it takes its own
+  -- delivery to finish writing the rest of its batch and let go. So a fast child
+  -- can answer into that window and the wake is lost, with nothing else ever
+  -- waking the parent: the sweep's overdue arm cannot see it, because every one
+  -- of its children has settled.
+  --
+  -- Recorded as a FACT rather than inferred later — "we rang and it was held" —
+  -- and cleared by the sweep once the ring lands, so it fires once per lost wake
+  -- rather than once a minute for ever.
+  wake_lost     boolean     not null default false,
 
   -- `{ok: true, result} | {ok: false, error}`. Written ONCE.
   outcome       jsonb,
@@ -141,6 +165,11 @@ create index if not exists delegations_overdue
 -- What a tree-wide count reads.
 create index if not exists delegations_by_root
   on agent.delegations (root_run_id);
+
+-- What the sweep's SECOND arm reads: a wake that was rung and refused.
+create index if not exists delegations_wake_lost
+  on agent.delegations (parent_run_id)
+  where wake_lost;
 
 comment on table agent.delegations is
   'One delegated child: which specialist, what it was told, what it was allowed, which run carries it, and what became of it. Unique per (parent, step, position), so a redelivered request is absorbed rather than making a second child.';
@@ -213,6 +242,9 @@ declare
   v_out      jsonb := jsonb_build_array();
   v_dead     timestamptz;
   v_freed    boolean := null;
+  v_conc     integer;
+  v_admit    boolean;
+  v_running  integer := 0;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'delegate_children: tenant must be a non-empty string';
@@ -289,6 +321,22 @@ begin
       'limit', coalesce((v_bounds ->> 'treeChildren')::integer, 32));
   end if;
 
+  -- ⚠ **HOW MANY MAY BE MOVING AT ONCE, AND IT IS A STAGGER RATHER THAN A
+  -- REFUSAL.** Asking for eight with a bound of four is a legitimate ask — the
+  -- whole point of the bound is that they run four at a time — so a batch wider
+  -- than it is filed WHOLE and let go of a few at a time. Refusing here would
+  -- make the two defaults (`children` 8, `concurrency` 4) contradict each other.
+  --
+  -- At or above the batch every child is admitted at once, so a delegation that
+  -- fits behaves byte for byte as one filed before this bound existed.
+  v_conc := greatest(1, coalesce((v_bounds ->> 'concurrency')::integer, 4));
+
+  -- ⚠ **ONE DEADLINE, AND IT IS THE PARENT'S PATIENCE RATHER THAN EACH CHILD'S
+  -- TURN.** It does NOT move when a deferred child is admitted, which is a
+  -- stated trade: asking for more children than the concurrency bound can finish
+  -- inside `wait_ms` means some read `unresolved`, and that is TRUE — nobody
+  -- knows what they would have produced — and it is said rather than the wait
+  -- being silently extended a wave at a time.
   v_dead := now() + make_interval(secs => greatest(1, coalesce(p_wait_ms, 900000)) / 1000.0);
 
   -- ── one child at a time ──────────────────────────────────────────────────
@@ -341,14 +389,22 @@ begin
     -- the atomic claim — and only its WINNER goes on to file a run. A loser that
     -- had already created one would leave an orphan run in the queue, which is
     -- the whole reason the column is nullable for exactly these two statements.
+    -- ⚠ **THE POSITION DECIDES WHO STARTS, NOT THE ORDER THEY WERE WRITTEN IN.**
+    -- A redelivery re-runs this loop over the same positions, so admission has to
+    -- be a function of `idx` and the bound alone — anything counted as the loop
+    -- goes would admit a different set on a second delivery.
+    v_admit := v_i < v_conc;
+
     insert into agent.delegations (
       id, tenant_id, parent_run_id, root_run_id, depth, agent_id,
-      step, idx, task, context, tools, limits, child_run_id, deadline_at)
+      step, idx, task, context, tools, limits, child_run_id, deadline_at,
+      admitted_at)
     values (
       (v_c ->> 'id')::uuid, p_tenant, p_parent, v_root, v_depth, v_agent.id,
       btrim(p_step), v_i, v_c ->> 'task',
       coalesce(v_c -> 'context', '[]'::jsonb), v_allowed,
-      coalesce(v_c -> 'limits', '{}'::jsonb), null, v_dead)
+      coalesce(v_c -> 'limits', '{}'::jsonb), null, v_dead,
+      case when v_admit then now() else null end)
     on conflict (parent_run_id, step, idx) do nothing
     returning id into v_deleg;
 
@@ -356,7 +412,9 @@ begin
       -- ABSORBED: this slot already has a child. Read it back, so the answer is
       -- the same on the second delivery as on the first.
       v_absorbed := v_absorbed + 1;
-      select id, child_run_id into v_deleg, v_child from agent.delegations
+      select id, child_run_id, admitted_at is not null
+        into v_deleg, v_child, v_admit
+        from agent.delegations
        where parent_run_id = p_parent and step = btrim(p_step) and idx = v_i;
     else
       v_made := v_made + 1;
@@ -380,12 +438,25 @@ begin
       perform agent.accept_run(v_child, p_tenant, v_entry, 'start');
       -- NOW the run exists, so the link may be written.
       update agent.delegations set child_run_id = v_child where id = v_deleg;
+
+      if not v_admit then
+        -- ⚠ **HELD BACK THROUGH `done_at`, THE COLUMN THAT ALREADY MEANS THIS.**
+        -- Its own note reads "nothing more to deliver" rather than "the run
+        -- succeeded", which is exactly a child that has been filed and has not
+        -- been let start; `agent.requeue_run` clears it, so admitting one later
+        -- is the same statement a person pressing "try again" makes. The RUN and
+        -- its recorded configuration exist either way, so a deferred child is
+        -- readable from its own log the moment it is filed.
+        update agent.run_work set done_at = now() where run_id = v_child;
+      end if;
     end if;
 
+    if v_admit then v_running := v_running + 1; end if;
     v_out := v_out || jsonb_build_array(jsonb_build_object(
       'idx', v_i, 'delegation', v_deleg, 'run_id', v_child,
-      'agent_id', v_agent.id, 'tools', to_jsonb(v_allowed)));
-    v_deleg := null; v_child := null;
+      'agent_id', v_agent.id, 'tools', to_jsonb(v_allowed),
+      'admitted', v_admit));
+    v_deleg := null; v_child := null; v_admit := null;
   end loop;
 
   update agent.task_trees
@@ -404,6 +475,9 @@ begin
   return jsonb_build_object(
     'ok', true, 'root', v_root, 'depth', v_depth, 'step', btrim(p_step),
     'made', v_made, 'absorbed', v_absorbed, 'deadline_at', v_dead,
+    -- SAID, because a caller that asked for eight and sees four moving must be
+    -- able to tell a bound holding the rest back from four children that failed.
+    'concurrency', v_conc, 'running', v_running,
     -- ⚠ SAID RATHER THAN ASSUMED. `null` is "no claim was handed in", `false` is
     -- "the claim did not match" — and a caller that meant to let go and did not is
     -- one whose parent will never be woken, so it must be able to tell.
@@ -439,6 +513,8 @@ declare
   v_live  integer;
   v_state jsonb;
   v_first boolean := false;
+  v_next  agent.delegations%rowtype;
+  v_woke  jsonb;
 begin
   if p_outcome is null or jsonb_typeof(p_outcome) <> 'object'
      or (p_outcome -> 'ok') is null or jsonb_typeof(p_outcome -> 'ok') <> 'boolean' then
@@ -472,11 +548,41 @@ begin
     v_first := found;
   end if;
 
+  -- ── one finishes, so the next one waiting its turn may start ──────────────
+  -- ⚠ **BY POSITION, AND ONLY EVER ONE.** This is what keeps `concurrency` a
+  -- bound over time rather than only at the moment of delegation: a wave of four
+  -- becomes four again as each answers. Admitting every waiting child here would
+  -- make the bound hold once and then not at all.
+  --
+  -- `agent.requeue_run` clears the `done_at` that held it, which is the same
+  -- statement a person pressing "try again" makes — so a deferred child starts
+  -- through the door every other queued run starts through, and a duplicate ring
+  -- is harmless by `claim_run`'s own property.
+  if v_first then
+    select * into v_next from agent.delegations d
+     where d.parent_run_id = v_del.parent_run_id
+       and d.step = v_del.step
+       and d.admitted_at is null
+       and d.settled_at is null and d.cancelled_at is null
+     order by d.idx asc
+     limit 1
+     for update;
+    if v_next.id is not null then
+      update agent.delegations set admitted_at = now() where id = v_next.id;
+      if v_next.child_run_id is not null then
+        v_woke := agent.requeue_run(v_next.child_run_id, v_del.tenant_id);
+      end if;
+    end if;
+  end if;
+
   -- ── is anything of this parent's still outstanding ────────────────────────
   -- Counted rather than decremented, because a counter and the rows it is about
   -- are two things that can disagree, and the rows are the ones that matter.
   -- ⚠ AN OVERDUE CHILD IS NOT LIVE. Past its deadline it reads `unresolved`, and
   -- keeping it "live" here is exactly how a parent waits for ever.
+  -- ⚠ A CHILD WAITING ITS TURN IS OUTSTANDING, which this counts because it is
+  -- unsettled and inside its deadline — so a parent is not woken part way through
+  -- a staggered batch.
   select count(*) into v_live from agent.delegations d
    where d.parent_run_id = v_del.parent_run_id
      and d.step = v_del.step
@@ -487,12 +593,25 @@ begin
     -- ⚠ **A DUPLICATE RING IS HARMLESS BY `claim_run`'S OWN PROPERTY**, not by care
     -- here — which is why two siblings settling at once may both reach this line.
     v_state := agent.requeue_run(v_del.parent_run_id, v_del.tenant_id);
+    -- ⚠ **AND A RING THAT WAS REFUSED IS RECORDED RATHER THAN LOST.** The parent
+    -- is HELD until its own delivery finishes writing the rest of its batch and
+    -- lets go, so a fast child can answer inside that window and `requeue_run`
+    -- correctly declines to disturb a run somebody is working on. Nothing else
+    -- would ever wake it: the sweep's overdue arm cannot see a parent all of
+    -- whose children have settled. The flag is what the sweep's second arm reads.
+    if v_state ->> 'state' = 'running' then
+      update agent.delegations set wake_lost = true where id = v_del.id;
+    end if;
   end if;
 
   return jsonb_build_object(
     'ok', true, 'repeat', not v_first, 'delegation', v_del.id,
     'parent', v_del.parent_run_id, 'step', v_del.step, 'idx', v_del.idx,
-    'outstanding', v_live, 'parent_queued', v_state ->> 'state');
+    'outstanding', v_live, 'parent_queued', v_state ->> 'state',
+    -- SAID, so the caller can ring the child it just let start rather than
+    -- leaving it to the next cron tick.
+    'admitted', v_next.child_run_id, 'admitted_idx', v_next.idx,
+    'admitted_queued', v_woke ->> 'state');
 end; $$;
 
 comment on function agent.settle_delegation(uuid, text, uuid, jsonb) is
@@ -586,7 +705,8 @@ create or replace function agent.delegation_progress(
            'task', d.task, 'tools', to_jsonb(d.tools), 'context', d.context,
            'run_id', d.child_run_id,
            'run_status', r.status, 'run_stop', r.stop,
-           'created_at', d.created_at, 'claimed_at', w.claimed_at,
+           'created_at', d.created_at, 'admitted_at', d.admitted_at,
+           'claimed_at', w.claimed_at,
            'settled_at', d.settled_at, 'cancelled_at', d.cancelled_at,
            'deadline_at', d.deadline_at, 'outcome', d.outcome
          ) order by d.idx), '[]'::jsonb)
@@ -644,13 +764,56 @@ begin
   loop
     v_state := agent.requeue_run(v_row.parent_run_id, v_row.tenant_id);
     return next jsonb_build_object(
-      'parent', v_row.parent_run_id, 'step', v_row.step,
+      'parent', v_row.parent_run_id, 'step', v_row.step, 'why', 'overdue',
       'overdue_since', v_row.deadline_at, 'action', v_state ->> 'state');
+  end loop;
+
+  -- ── the second arm: a wake that was rung and refused ──────────────────────
+  -- ⚠ **THIS IS THE COMPENSATING HALF OF NOT HANDING THE PARENT'S CLAIM OVER.**
+  -- `delegate_children` can release the parent in its own transaction and
+  -- deliberately is not asked to, because every journal write presents the claim
+  -- and the rest of the parent's batch is written after the delegating tool
+  -- returns — so a release there would refuse those writes and fail the whole
+  -- delivery. The runner lets go afterwards instead, and the window that leaves
+  -- is a lost wake rather than a lost batch. This closes it.
+  --
+  -- **IT FIRES ONCE PER LOST WAKE, NOT ONCE A MINUTE.** The flag is set by the
+  -- settle that was refused and cleared here the moment a ring lands; a parent
+  -- that is genuinely running again keeps it and is tried on the next tick,
+  -- which terminates because a stopped parent is excluded.
+  for v_row in
+    select d.parent_run_id, d.tenant_id, min(d.step) as step,
+           min(d.deadline_at) as deadline_at
+      from agent.delegations d
+      join agent.runs p on p.id = d.parent_run_id
+     where d.wake_lost
+       and p.status <> 'stopped'
+       -- NOTHING OF THAT PARENT'S MAY STILL BE WORKING. Waking one whose next
+       -- wave is under way would deliver a step whose children have not answered
+       -- — the reading `settle_delegation` counts `outstanding` to prevent.
+       and not exists (
+             select 1 from agent.delegations o
+              where o.parent_run_id = d.parent_run_id
+                and o.settled_at is null and o.cancelled_at is null
+                and o.deadline_at > now()
+           )
+     group by d.parent_run_id, d.tenant_id
+     order by min(d.deadline_at) asc
+     limit greatest(1, coalesce(p_limit, 25))
+  loop
+    v_state := agent.requeue_run(v_row.parent_run_id, v_row.tenant_id);
+    if v_state ->> 'state' is distinct from 'running' then
+      update agent.delegations set wake_lost = false
+       where parent_run_id = v_row.parent_run_id and wake_lost;
+    end if;
+    return next jsonb_build_object(
+      'parent', v_row.parent_run_id, 'step', v_row.step, 'why', 'wake-lost',
+      'action', v_state ->> 'state');
   end loop;
 end; $$;
 
 comment on function agent.sweep_delegations(integer) is
-  'Put back on the queue every parent with a child past its deadline, so silence becomes an answer rather than a wait with no end. Settles nothing: unresolved is derived from the deadline, never stored.';
+  'Two arms, both requeue-only: a parent with a child past its deadline, so silence becomes an answer rather than a wait with no end; and a parent whose last child rang while it was still held, so a lost wake is retried once rather than stranding it. Settles nothing: unresolved is derived from the deadline, never stored.';
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- 8. TENANT ISOLATION AND WHO MAY RUN ANY OF IT
