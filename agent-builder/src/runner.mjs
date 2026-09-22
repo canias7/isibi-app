@@ -188,6 +188,17 @@ export function makeRunner(opts = {}) {
     ? opts.connections
     : null;
   /**
+   * ⚠ WHICH OTHER AGENTS OF THIS ACCOUNT WORK MAY BE HANDED TO — UNSCOPED HERE, for
+   * `capabilities`' own reason. **AND ITS ABSENCE IS ITS OWN SENTENCE, not `no-backend`'s:**
+   * `ctx.capabilities` is this account's own records, `ctx.connections` is somebody else's
+   * system, and this is the account's other AGENTS. A deployment can honestly have any one of
+   * the three and not the others, they fail differently, and folding them would name the
+   * wrong absence — so `no-delegation` is a third refusal rather than a reuse of a second.
+   */
+  const delegation = opts.delegation && typeof opts.delegation.forTenant === "function"
+    ? opts.delegation
+    : null;
+  /**
    * ⚠ WHERE A CALL THAT NEEDS A PERSON GOES TO ASK — UNSCOPED HERE, for `capabilities`'
    * own reason. The gate only exists once `forTenant(t).forRun({runId})` has been
    * applied, and both come from the claim, per delivery, below.
@@ -879,6 +890,21 @@ export function makeRunner(opts = {}) {
       const canReach = connections && authoredAgent
         ? connections.forTenant(claim.tenant).forAgent(authoredAgent)
         : null;
+      /**
+       * ⚠ **AND THE SAME TWO FACTS AGAIN, WITH THE AGENT LOAD-BEARING RATHER THAN MERELY
+       * REQUIRED.** A specialist is one of this account's OTHER agents, so "other" cannot be
+       * answered without knowing which one is asking — `forRun` refuses a blank agent outright
+       * rather than handing back a roster scoped to nobody. So a run with no authored agent
+       * gets no delegation at all, exactly as it gets no backend: choosing an agent for it
+       * here would be choosing whose siblings it may hand work to.
+       *
+       * **THE RUN IS THE PARENT AND IT COMES FROM THE CLAIM**, never from an argument — which
+       * is what makes the child rows' parent the run that really filed them, and what makes a
+       * redelivery of THIS run ask about the children it already has.
+       */
+      const canDelegate = delegation && authoredAgent
+        ? delegation.forTenant(claim.tenant).forRun({ runId, agentId: authoredAgent })
+        : null;
       // ⚠ THE GATE IS BOUND TO THE RUN AND THE ACCOUNT HERE, from the claim — and unlike
       // the capability backend it does NOT need an authored agent. Every run can have a
       // call that needs a person; the agent id only decides whether a screen can show
@@ -924,6 +950,7 @@ export function makeRunner(opts = {}) {
         capabilities: canDo,
         connections: canReach,
         approvals: mayCall,
+        delegation: canDelegate,
         // ⚠ THE RUN IS THE HALF THE LOOP CANNOT KNOW, and it is the claim's own id — so a
         // tool that starts work derives an identity from the CALL rather than minting one,
         // and a redelivery of this run asks the database for the same row.

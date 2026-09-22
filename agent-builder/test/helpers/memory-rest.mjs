@@ -13,6 +13,10 @@ import { makeRunStore, DUPLICATE } from "../../src/store.mjs";
 import { makeWork } from "../../src/work.mjs";
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
+// THE COLUMN'S OWN TYPE, not a rule of this fake's: `agent.delegations.id`, `.child_run_id`
+// and `.agent_id` are `uuid`, so a value that is not one is refused by the CAST rather than
+// by a named branch. Kept here so the refusal can wear Postgres's own code.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function memoryRest({ now = () => Date.now() } = {}) {
   const runs = new Map();                  // id -> { id, tenant_id, status, ... }
@@ -32,6 +36,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   // plain day. What IS here is every decision the cron reads: fresh versus stale,
   // filed versus already, disabled, paused.
   const agents = new Map();                // id -> { id, tenant_id, status }
+  const dels = new Map();                  // `<parent>\u0000<step>.<idx>` -> the child row
   const autos = new Map();                 // id -> the automations row
   const execs = new Map();                 // run id -> the automation_runs row
   const events = new Map();                // id -> the events row, for the two dispatch halves
@@ -832,6 +837,119 @@ export function memoryRest({ now = () => Date.now() } = {}) {
      * account does not own is the real function's own behaviour (the row is keyed on both), and
      * it is the fail-closed direction here: a revocation can only ever subtract.
      */
+    /** `agent.list_specialists` — this account's OTHER agents, never the one asking.
+     *
+     * ⚠ THE EXCLUSION IS THE POINT AND IS MIRRORED HERE: delegating to yourself is a loop,
+     * and a fake that answered the asking agent would make the tool's own refusal
+     * (`self-delegation`) unreachable from every case that drives it.
+     */
+    if (p.endsWith("/rpc/list_specialists") && init.method === "POST") {
+      const { p_tenant: tenant, p_agent: asking } = body;
+      const rows = [...agents.values()]
+        .filter((a) => a.tenant_id === tenant && a.id !== asking)
+        .map((a) => ({ id: a.id, name: a.name ?? a.id, status: a.status ?? "active",
+                       tools: Array.isArray(a.tools) ? a.tools : [],
+                       about: typeof a.instructions === "string" ? a.instructions : "",
+                       about_cut: false }))
+        .sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+      return res(200, rows);
+    }
+
+    /** `agent.delegate_children` — file this step's children, or read back the ones already
+     * filed.
+     *
+     * ⚠ **ABSORBING IS THE WHOLE CONTRACT AND IS MIRRORED RATHER THAN APPROXIMATED.** The
+     * real function has a unique index on `(parent, step, position)`, so a redelivery reads
+     * back what is there instead of making a second set — and a fake that inserted again
+     * would make every duplicate-delivery case pass over two sets of children.
+     */
+    if (p.endsWith("/rpc/delegate_children") && init.method === "POST") {
+      const { p_tenant: tenant, p_parent: parent, p_step: step,
+              p_children: kids, p_bounds: bounds } = body;
+      const run = runs.get(parent);
+      if (!run || run.tenant_id !== tenant) return res(200, { ok: false, error: "no-parent" });
+      if (typeof step !== "string" || !step || step.length > 64) {
+        return res(200, { ok: false, error: "bad-step" });
+      }
+      if (!Array.isArray(kids) || kids.length === 0) return res(200, { ok: false, error: "bad-child" });
+      let made = 0;
+      let absorbed = 0;
+      const out = [];
+      for (let i = 0; i < kids.length; i += 1) {
+        const c = kids[i];
+        // THE COLUMN'S OWN WALLS, so a tool that admitted more would meet a raise rather
+        // than a refusal — which is what the real door does inside its transaction.
+        if (!c || typeof c !== "object") return res(200, { ok: false, error: "bad-child" });
+        // ⚠ **THE REAL DOOR NAMES `no-ids` FOR AN ABSENT ID AND NOTHING ELSE**, and this
+        // mirrors that rather than improving on it. `agent.delegate_children` tests
+        // `(v_c ->> 'id') is null`, so a PRESENT-but-malformed id walks past that refusal
+        // and meets the column's own `::uuid` cast at the insert — which is Postgres's
+        // `22P02`, not a structured answer. A fake that refused it as `no-ids` would be
+        // STRICTER than the thing it stands in for, and a caller that had to tell the two
+        // apart could not.
+        if (c.id === null || c.id === undefined) return res(200, { ok: false, error: "no-ids" });
+        if (c.run_id === null || c.run_id === undefined) return res(200, { ok: false, error: "no-ids" });
+        const cast = (field, v) => (typeof v === "string" && UUID.test(v) ? null
+          : res(400, { code: "22P02", message: `invalid input syntax for type uuid: "${String(v)}" (${field})` }));
+        // THE ORDER IS THE REAL FUNCTION'S: `agent_id` is cast by the specialist lookup, and
+        // the other two by the INSERT below the specialist refusals — so a malformed `id`
+        // beside an unknown specialist answers `no-specialist` there and answers it here.
+        const badAgent = cast("agent_id", c.agent_id);
+        if (badAgent) return badAgent;
+        const spec = agents.get(c.agent_id);
+        if (!spec || spec.tenant_id !== tenant) return res(200, { ok: false, error: "no-specialist" });
+        if (c.agent_id === run.authored_agent) return res(200, { ok: false, error: "self-delegation" });
+        if ((spec.status ?? "active") !== "active") return res(200, { ok: false, error: "specialist-paused" });
+        const badId = cast("id", c.id) || cast("run_id", c.run_id);
+        if (badId) return badId;
+        const key = `${parent}\u0000${step}.${i}`;
+        const had = dels.get(key);
+        if (had) { absorbed += 1; out.push(had.answer); continue; }
+        const row = {
+          answer: { idx: i, delegation: c.id, run_id: c.run_id, agent_id: c.agent_id,
+                    tools: Array.isArray(c.tools) ? c.tools : [], admitted: true },
+          parent, step, idx: i, agent_id: c.agent_id, agent_name: spec.name ?? c.agent_id,
+          task: c.task, tools: Array.isArray(c.tools) ? c.tools : [],
+          context: Array.isArray(c.context) ? c.context : [],
+          run_status: "new", run_stop: null, outcome: null,
+          created_at: new Date(now()).toISOString(), admitted_at: new Date(now()).toISOString(),
+          claimed_at: null, settled_at: null, cancelled_at: null, deadline_at: null, depth: 1,
+        };
+        dels.set(key, row);
+        made += 1;
+        out.push(row.answer);
+      }
+      return res(200, { ok: true, root: parent, depth: 1, step, made, absorbed,
+                        deadline_at: null, concurrency: bounds?.children ?? 4,
+                        running: made + absorbed, parent_released: false, children: out });
+    }
+
+    /** `agent.delegation_progress` — every child of this parent, in position order. */
+    if (p.endsWith("/rpc/delegation_progress") && init.method === "POST") {
+      const { p_tenant: tenant, p_parent: parent } = body;
+      const run = runs.get(parent);
+      if (!run || run.tenant_id !== tenant) return res(200, []);
+      const rows = [...dels.entries()]
+        .filter(([k]) => k.split("\u0000")[0] === parent)
+        .map(([, r]) => r)
+        .sort((x, y) => x.idx - y.idx);
+      return res(200, rows.map((r) => {
+        const child = runs.get(r.answer.run_id);
+        return {
+          delegation: r.answer.delegation, step: r.step, idx: r.idx, depth: r.depth,
+          agent_id: r.agent_id, agent_name: r.agent_name, task: r.task,
+          tools: r.tools, context: r.context, run_id: r.answer.run_id,
+          // THE CHILD'S STATE IS THE CHILD RUN'S OWN, read here rather than copied on to the
+          // delegation row — two copies of one fact drift, and the run is the authority.
+          run_status: child ? child.status : r.run_status,
+          run_stop: child ? child.stop : r.run_stop,
+          created_at: r.created_at, admitted_at: r.admitted_at, claimed_at: r.claimed_at,
+          settled_at: r.settled_at, cancelled_at: r.cancelled_at, deadline_at: r.deadline_at,
+          outcome: r.outcome,
+        };
+      }));
+    }
+
     if (p.endsWith("/rpc/revoked_tools") && init.method === "POST") {
       const { p_tenant: tenant, p_agent_id: agentId } = body;
       const a = agents.get(agentId);
@@ -1148,7 +1266,7 @@ export function memoryRest({ now = () => Date.now() } = {}) {
   const calls = [];
   const counted = async (url, init) => { calls.push({ url, method: init.method, headers: init.headers, body: init.body ? JSON.parse(init.body) : undefined }); return fetch(url, init); };
   counted.calls = calls;
-  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals, events, conns, ops };
+  return { fetch: counted, runs, entries, work, agents, autos, execs, know, mem, approvals, events, conns, ops, dels };
 }
 
 /**

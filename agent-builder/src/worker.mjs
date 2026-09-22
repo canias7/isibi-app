@@ -34,6 +34,7 @@ import { makeRunStore } from "./store.mjs";
 import { makeAutomationStore } from "./automation-store.mjs";
 import { makeCapabilities } from "./capabilities.mjs";
 import { makeConnections } from "./connections.mjs";
+import { makeDelegationStore } from "./delegation-store.mjs";
 import { makeFakeProvider, FAKE_PROVIDER } from "./fake-provider.mjs";
 
 /**
@@ -299,10 +300,23 @@ function parts(env, { notify, fetchImpl, send } = {}) {
    */
   const connections = makeConnections({ ...wire, adapters: ADAPTERS });
 
+  /**
+   * ⚠ WHICH OTHER AGENTS OF THIS ACCOUNT WORK MAY BE HANDED TO — the same wire again, and
+   * unscoped here for the same reason as the three above: the runner binds it to the account
+   * from the CLAIM and to the agent from the run's own first journal entry, which is the one
+   * point where both are known and neither has been through a model.
+   *
+   * **IT IS ITS OWN SEAM RATHER THAN A CORNER OF `capabilities`**, because the three absences
+   * are three different sentences: no records of this account's own, no way to reach somebody
+   * else's system, and no other agents to hand work to. A deployment can honestly have any one
+   * and not the others.
+   */
+  const delegation = makeDelegationStore(wire);
+
   if (send !== undefined && typeof send !== "function") {
     throw new TypeError("send must be a function when it is supplied at all");
   }
-  return { store, work, automations, capabilities, connections, approvals,
+  return { store, work, automations, capabilities, connections, approvals, delegation,
            send: send ?? make(), ring, doFetch, modelName };
 }
 
@@ -343,10 +357,11 @@ export function buildRunner(env, { now, notify, fetchImpl, leaseTtlS, beatEveryM
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
   const parted = parts(env, { notify, fetchImpl, send });
-  const { store, work, automations, capabilities, connections, approvals } = parted;
+  const { store, work, automations, capabilities, connections, approvals, delegation } = parted;
   const sender = parted.send;
   return makeRunner({
-    work, store, automations, capabilities, connections, approvals, send: sender, agents: AGENTS, now,
+    work, store, automations, capabilities, connections, approvals, delegation,
+    send: sender, agents: AGENTS, now,
     // Passed through for a LOCAL driver only. The deployed Worker hands in neither,
     // so both fall back to `runner.mjs`'s own constants — and a test asserts that
     // this file never names a number of its own for them.

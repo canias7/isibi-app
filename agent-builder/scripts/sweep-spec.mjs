@@ -35,7 +35,7 @@ const W = at("worker.mjs");
 // moved. The four mutants below drop one dependency each from the runner's construction, and the
 // property is unchanged — what moved is the spelling of the sender's own key.
 const NEW_RUNNER_LINE =
-  "    work, store, automations, capabilities, connections, approvals, send: sender, agents: AGENTS, now,";
+  "    work, store, automations, capabilities, connections, approvals, delegation,";
 const A2 = at("agents.mjs");
 const RN = at("runner.mjs");
 const ST = at("model-standin.mjs");
@@ -1690,17 +1690,23 @@ const spec = [
   // these four names what it takes AWAY from the same current spelling. The properties are
   // unchanged; only the line they cut from moved.
   m("worker: the runner is built with no automation executor", W, NEW_RUNNER_LINE,
-    "    work, store, capabilities, connections, approvals, send: sender, agents: AGENTS, now,"),
+    "    work, store, capabilities, connections, approvals, delegation,"),
   m("worker: the runner is built with no backend for its tools to reach", W, NEW_RUNNER_LINE,
-    "    work, store, automations, connections, approvals, send: sender, agents: AGENTS, now,"),
+    "    work, store, automations, connections, approvals, delegation,"),
   m("worker: the runner is built with nowhere to ask a person", W, NEW_RUNNER_LINE,
-    "    work, store, automations, capabilities, connections, send: sender, agents: AGENTS, now,"),
+    "    work, store, automations, capabilities, connections, delegation,"),
   // ⚠ AND THE NEW HOP, which is the one this round adds: a seam built and never handed over
   // makes every connection tool answer `no-connections` while the run completes, the queue
   // acks and the customer is told the agent cannot reach anything. The wiring layer, for the
   // fourteenth-odd time in this repository.
   m("worker: the runner is built with nothing to reach outside", W, NEW_RUNNER_LINE,
-    "    work, store, automations, capabilities, approvals, send: sender, agents: AGENTS, now,"),
+    "    work, store, automations, capabilities, approvals, delegation,"),
+  // ⚠ AND THIS ROUND'S OWN HOP, which is the same class a THIRD time. A delegation seam built
+  // and never handed over makes `delegate` and `list_specialists` answer `no-delegation` while
+  // the run completes, the queue acks, and the model is told this account has no other agents —
+  // with the store, the tools, the migration and `run.mjs` all correct.
+  m("worker: the runner is built with nobody to hand work to", W, NEW_RUNNER_LINE,
+    "    work, store, automations, capabilities, connections, approvals,"),
   // ⚠ THE INJECTED SENDER IS A SEAM FOR A LOCAL DRIVER, and its three walls fail differently.
   // Ignored, a demonstration scripts a conversation that answers from somewhere else and every
   // assertion about what the model said is about the stand-in — the wiring layer, in the one
