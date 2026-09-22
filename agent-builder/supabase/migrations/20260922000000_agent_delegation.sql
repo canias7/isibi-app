@@ -245,6 +245,7 @@ declare
   v_conc     integer;
   v_admit    boolean;
   v_running  integer := 0;
+  v_self     uuid;
 begin
   if p_tenant is null or btrim(p_tenant) = '' then
     raise exception 'delegate_children: tenant must be a non-empty string';
@@ -275,6 +276,23 @@ begin
   if v_parent.status = 'stopped' then
     return jsonb_build_object('ok', false, 'error', 'parent-stopped');
   end if;
+
+  -- ⚠ **WHICH AGENT IS ASKING, READ FROM ITS OWN FIRST JOURNAL ENTRY.**
+  -- `agent.runs` carries a `agent_name` and no id — the id lives in the `started`
+  -- entry, which is append-only and fenced, so it is the one place that cannot
+  -- have been edited since. Guarded by SHAPE rather than cast blindly, because
+  -- that entry is JSON and a bad cast would raise where a refusal is wanted.
+  --
+  -- **A PARENT WHOSE OWN AGENT CANNOT BE READ IS NOT REFUSED.** Cannot-tell reads
+  -- as "no self to compare against", so the self-delegation wall simply does not
+  -- fire — and what is left is a loop the depth bound terminates. The other
+  -- direction would refuse legitimate work over an unreadable field.
+  select (e.body ->> 'authoredAgent')::uuid into v_self
+    from agent.run_entries e
+   where e.run_id = p_parent
+     and e.kind = 'started'
+     and e.body ->> 'authoredAgent' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+   limit 1;
 
   -- ── where in the tree this is ─────────────────────────────────────────────
   -- ONE HOP, NOT A RECURSIVE WALK. A parent that is itself a child carries its own
@@ -340,29 +358,63 @@ begin
   v_dead := now() + make_interval(secs => greatest(1, coalesce(p_wait_ms, 900000)) / 1000.0);
 
   -- ── one child at a time ──────────────────────────────────────────────────
+  -- ⚠ **A PARTLY-WRONG BATCH IS REFUSED WHOLE, NEVER AS A PREFIX — AND THIS
+  -- SUBTRANSACTION IS THE WHOLE OF WHAT MAKES THAT TRUE.** Each per-child refusal
+  -- below was a plain `return`, and **a plpgsql function returning normally COMMITS**:
+  -- MEASURED on a real PostgreSQL before this block existed, a batch of three whose
+  -- third child named a specialist this account does not have answered
+  -- `{"ok": false, "error": "no-specialist", "at": 2}` and left **2 delegations and 2
+  -- runnable child runs** behind it. So the parent's step read a refusal while two
+  -- specialists were already working, their answers were never going to be combined,
+  -- and `children_made` was never bumped either — which leaves the tree's own budget
+  -- under-counting for ever.
+  --
+  -- **THE BLOCK IS ROUND THE WHOLE LOOP AND THE COUNTER**, so a refusal rolls back the
+  -- children, their runs, their first journal entries and the tally together. And it is
+  -- a subtransaction rather than a validate-then-write pair deliberately: a refusal
+  -- added to this loop next month is covered by existing, where a separate validation
+  -- pass would have to be kept in step with it by somebody remembering.
+  --
+  -- **`AG010` IS CAUGHT AND NOTHING ELSE IS.** The refusal travels as its own answer
+  -- object in the message, so the catch returns it verbatim — one channel, built
+  -- exactly where the refusal is decided rather than reassembled from two. A
+  -- constraint, a bad cast or a lost lease is NOT a named refusal and propagates as
+  -- itself, because reading a real failure as `ok: false` loses work silently.
+  begin
   for v_i in 0 .. v_asked - 1 loop
     v_c := p_children -> v_i;
     if v_c is null or jsonb_typeof(v_c) <> 'object' then
-      return jsonb_build_object('ok', false, 'error', 'bad-child', 'at', v_i);
+      raise exception '%', jsonb_build_object('ok', false, 'error', 'bad-child', 'at', v_i)::text
+        using errcode = 'AG010';
     end if;
     if (v_c ->> 'run_id') is null or (v_c ->> 'id') is null then
       -- The ids are the caller's and must be DERIVED from the slot, or a
       -- redelivery makes a twin. Refused rather than minted here, because a
       -- server-minted id is a fresh one on every delivery by construction.
-      return jsonb_build_object('ok', false, 'error', 'no-ids', 'at', v_i);
+      raise exception '%', jsonb_build_object('ok', false, 'error', 'no-ids', 'at', v_i)::text
+        using errcode = 'AG010';
     end if;
 
     -- WHICH SPECIALIST, and it must be this account's own and taking work.
     select * into v_agent from agent.agents
      where id = (v_c ->> 'agent_id')::uuid and tenant_id = p_tenant;
     if v_agent.id is null then
-      return jsonb_build_object('ok', false, 'error', 'no-specialist', 'at', v_i);
+      raise exception '%', jsonb_build_object('ok', false, 'error', 'no-specialist', 'at', v_i)::text
+        using errcode = 'AG010';
+    end if;
+    if v_self is not null and v_agent.id = v_self then
+      -- ⚠ **DELEGATING TO YOURSELF IS NOT DELEGATION, IT IS A LOOP.** The depth
+      -- bound would terminate it, and "too deep" about an agent that asked itself
+      -- sends somebody looking for nesting that is not there. Refused by name.
+      raise exception '%', jsonb_build_object('ok', false, 'error', 'self-delegation', 'at', v_i)::text
+        using errcode = 'AG010';
     end if;
     if v_agent.status is distinct from 'active' then
       -- A PAUSED SPECIALIST IS "not now", not a fault — the same answer
       -- `accept_automation_run` gives, and for the same reason.
-      return jsonb_build_object('ok', false, 'error', 'specialist-paused',
-        'at', v_i, 'status', v_agent.status);
+      raise exception '%', jsonb_build_object('ok', false, 'error', 'specialist-paused',
+        'at', v_i, 'status', v_agent.status)::text
+        using errcode = 'AG010';
     end if;
 
     -- ⚠ THE NARROWING, IN THE TRANSACTION. Nothing a caller sends can widen this.
@@ -462,6 +514,12 @@ begin
   update agent.task_trees
      set children_made = children_made + v_made, updated_at = now()
    where root_run_id = v_root;
+
+  exception when sqlstate 'AG010' then
+    -- EVERY WRITE INSIDE THE BLOCK IS GONE. The answer is the one the loop built, so a
+    -- caller reads the same named refusal it always did — with nothing filed behind it.
+    return sqlerrm::jsonb;
+  end;
 
   -- ── the parent lets go ────────────────────────────────────────────────────
   -- `done_at` IS THE HONEST COLUMN, and its own note says why: it means "nothing
@@ -717,6 +775,40 @@ create or replace function agent.delegation_progress(
    where d.tenant_id = p_tenant and d.parent_run_id = p_parent;
 $$;
 
+-- ⚠ **WHO THERE IS TO DELEGATE TO, because a model cannot know an id it was never
+-- told.** Without this the `delegate` tool is a control whose one required argument
+-- nobody can supply — so it is the read that makes the write usable, in the shape
+-- `list_connections` already takes one seam over.
+--
+-- **EVERY AGENT OF THE ACCOUNT, WITH ITS STATUS, RATHER THAN ONLY THE USABLE ONES.**
+-- Listing the active ones alone would leave a model unable to say WHY the specialist
+-- a customer named is not there; `delegate_children` still refuses a paused one, so
+-- what this buys is a sentence rather than a permission.
+--
+-- **THE BRIEF IS CUT AND THE CUT IS ANNOUNCED.** A specialist's instructions are how
+-- a model chooses between two of them, and a long one would flood the parent's own
+-- context — so a bounded excerpt with `about_cut` saying so, rather than the whole
+-- thing or nothing.
+create or replace function agent.list_specialists(
+  p_tenant text,
+  p_agent  uuid
+) returns jsonb
+  language sql stable security definer set search_path = '' as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', a.id, 'name', a.name, 'status', a.status,
+           'tools', to_jsonb(a.tools),
+           'about', left(coalesce(a.instructions, ''), 240),
+           'about_cut', length(coalesce(a.instructions, '')) > 240
+         ) order by a.name asc), '[]'::jsonb)
+    from agent.agents a
+   where a.tenant_id = p_tenant
+     -- NOT ITSELF, which is the listing half of the refusal above.
+     and (p_agent is null or a.id <> p_agent);
+$$;
+
+comment on function agent.list_specialists(text, uuid) is
+  'Every other agent of one account, in name order, with its status, the tools it holds and a bounded excerpt of its brief. A paused one is listed so a model can say why it cannot be asked; delegate_children still refuses it.';
+
 comment on function agent.delegation_progress(text, uuid) is
   'Every child of one parent in position order, with what it was told, what it was allowed, its run''s status and its outcome. Ordered by position so the screen and the combination agree about which child is which.';
 
@@ -853,10 +945,12 @@ revoke all on function agent.delegate_children(text, uuid, text, jsonb, jsonb, i
 revoke all on function agent.settle_delegation(uuid, text, uuid, jsonb) from public;
 revoke all on function agent.cancel_delegations(text, uuid, text, text) from public;
 revoke all on function agent.delegation_progress(text, uuid) from public;
+revoke all on function agent.list_specialists(text, uuid) from public;
 revoke all on function agent.sweep_delegations(integer) from public;
 
 grant execute on function agent.delegate_children(text, uuid, text, jsonb, jsonb, integer, text, uuid) to service_role;
 grant execute on function agent.settle_delegation(uuid, text, uuid, jsonb) to service_role;
 grant execute on function agent.cancel_delegations(text, uuid, text, text) to service_role;
 grant execute on function agent.delegation_progress(text, uuid) to service_role;
+grant execute on function agent.list_specialists(text, uuid) to service_role;
 grant execute on function agent.sweep_delegations(integer) to service_role;

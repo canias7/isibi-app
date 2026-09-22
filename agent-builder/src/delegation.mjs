@@ -274,32 +274,51 @@ export function childState(row, { now = Date.now, waitMs = DELEGATION_DEFAULTS.w
   return "queued";
 }
 
-// ── may this delegation happen at all ────────────────────────────────────────────────
+// ── what a refusal means to whoever asked ──────────────────────────────────
 
 /**
- * `mayDelegate({ depth, asked, treeCount, bounds, parentStopped })` → `{ ok, error, ... }`
+ * `sayDelegation(error, { at, limit, asked, depth, held })` → one sentence.
  *
- * Every refusal NAMES ITSELF, because each one needs a different thing done about it: a
- * depth refusal is a workflow to restructure, a `children` refusal is a step to split, a
- * tree refusal is a budget to raise, and a stopped parent is not a fault at all.
+ * ⚠ **THE BOUNDS ARE THE DATABASE'S AND THERE IS NO SECOND COPY OF THEM HERE.** A
+ * `mayDelegate({depth, asked, treeCount, bounds})` stood in this place and had ZERO
+ * callers: `agent.delegate_children` counts the tree, reads the depth and compares both
+ * against the bounds stored at the tree's root, INSIDE the transaction that writes the
+ * children — so a check up here could only ever be a second implementation of that block,
+ * in a second language, and the copy that drifts is the one deciding whether a customer's
+ * work runs. What is wanted above the database is the opposite: not a re-decision, but a
+ * SENTENCE for each verdict it already reached, which is the shape `sayStart` takes one
+ * module over.
+ *
+ * Every refusal has its own words because each needs a different thing done about it: a
+ * depth refusal is a workflow to restructure, a child cap is a step to split, a full tree
+ * is a budget to raise, a paused specialist is a setting to change, and a stopped parent is
+ * not a fault at all.
+ *
+ * **THE POSITION IS NAMED WHEREVER THE DATABASE GIVES ONE**, because a batch of eight
+ * refused with no `at` is eight tasks to re-read rather than one to fix.
  */
-export function mayDelegate({ depth = 0, asked = 0, treeCount = 0, bounds = DELEGATION_DEFAULTS, parentStopped = false } = {}) {
-  // ⚠ ASKED FIRST, because a parent that has been cancelled must start NOTHING, whatever
-  // the bounds would otherwise allow. Reading the bounds first would let a cancelled
-  // parent's refusal read as "too many children", sending somebody to raise a limit.
-  if (parentStopped) return Object.freeze({ ok: false, error: "parent-stopped" });
-  if (!Number.isInteger(depth) || depth < 0) return Object.freeze({ ok: false, error: "bad-depth" });
-  if (!Number.isInteger(asked) || asked < 1) return Object.freeze({ ok: false, error: "nothing-asked" });
-  // `depth` is how deep THIS parent already is. A tree bounded at depth 2 allows a
-  // delegating step at depth 0 and 1, and refuses one at 2 — so `depth >= bounds.depth`
-  // rather than `>`, and a bound of 0 means "may not delegate at all", which is a real
-  // setting somebody may want.
-  if (depth >= bounds.depth) return Object.freeze({ ok: false, error: "too-deep", depth, limit: bounds.depth });
-  if (asked > bounds.children) return Object.freeze({ ok: false, error: "too-many-children", asked, limit: bounds.children });
-  if (treeCount + asked > bounds.treeChildren) {
-    return Object.freeze({ ok: false, error: "tree-full", held: treeCount, asked, limit: bounds.treeChildren });
-  }
-  return Object.freeze({ ok: true, concurrency: Math.max(1, Math.min(bounds.concurrency, asked)) });
+export function sayDelegation(error, { at = null, limit = null, asked = null, depth = null, held = null } = {}) {
+  // A POSITION IS ZERO-BASED IN THE ANSWER AND ONE-BASED IN THE SENTENCE, because the list
+  // it names is the one a person or a model wrote, and nobody counts their own list from 0.
+  const which = Number.isInteger(at) && at >= 0 ? `task ${at + 1}` : "one of the tasks";
+  const n = (v) => (Number.isInteger(v) ? String(v) : "the limit");
+  return {
+    "nothing-asked": "no tasks were named, so nothing was delegated",
+    "no-parent": "this run cannot delegate",
+    "parent-stopped": "this run has already stopped, so nothing new was started",
+    "no-tree": "the work already delegated could not be counted, so nothing was started",
+    "too-deep": `this is already ${n(depth)} levels deep and ${n(limit)} is as far as delegation goes, `
+      + "so nothing was started",
+    "too-many-children": `${n(asked)} tasks were named and ${n(limit)} at a time is the most one step may `
+      + "delegate, so nothing was started — split it across steps",
+    "tree-full": `this task already has ${n(held)} delegated pieces and ${n(limit)} is the whole budget, `
+      + "so nothing was started",
+    "bad-child": `${which} could not be read, so nothing was started`,
+    "no-ids": `${which} carried no identity, so nothing was started`,
+    "no-specialist": `${which} names a specialist this account does not have, so nothing was started`,
+    "self-delegation": `${which} asks this agent to delegate to itself, so nothing was started`,
+    "specialist-paused": `${which} names a specialist that is paused, so nothing was started`,
+  }[error] ?? "the tasks could not be delegated";
 }
 
 // ── what a set of children adds up to ────────────────────────────────────────────────

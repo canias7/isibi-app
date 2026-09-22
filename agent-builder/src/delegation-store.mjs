@@ -27,6 +27,7 @@
  * to those correctly and to read their refusals the right way round.
  */
 import { profileFor } from "./rest-profile.mjs";
+import { delegationBounds } from "./delegation.mjs";
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
@@ -37,6 +38,20 @@ export function makeDelegationStore(opts = {}) {
   if (!isText(opts.key)) throw new TypeError("makeDelegationStore: key must be a non-empty string");
   const base = opts.url.replace(/\/+$/, "");
   const schema = isText(opts.schema) ? opts.schema : "agent";
+
+  /**
+   * ⚠ **THE BOUNDS ARE THE STORE'S, WHICH IS WHY A TOOL HAS NOWHERE TO PUT ONE.**
+   * `delegate` takes no bound argument of any kind — not a ceiling, not a deadline, not a
+   * width — because a model writes tool arguments and a ceiling a model can widen is not a
+   * ceiling. They are read ONCE here, out of the deployment, and closed over; the migration
+   * then records them at the tree's root and FIRST WRITER WINS, so a child cannot hand in
+   * wider ones than the tree it belongs to was started with either.
+   *
+   * An unreadable override is DROPPED AND NAMED rather than silently taken — `refused` is
+   * carried out so a deployment that set a bound wrongly is told rather than quietly
+   * running on the defaults.
+   */
+  const { bounds, refused: refusedBounds } = delegationBounds(opts.bounds);
 
   // ⚠ THE PROFILE COMES FROM THE METHOD, THROUGH `rest-profile.mjs` — one rule for every
   // store, because the defect it closed was each store deciding for itself behind a flag
@@ -233,9 +248,18 @@ export function makeDelegationStore(opts = {}) {
     forTenant(tenant) {
       if (!isText(tenant)) throw new TypeError("forTenant: tenant must be a non-empty string, from the claim");
       return {
-        forRun({ runId } = {}) {
+        forRun({ runId, agentId } = {}) {
           if (!isText(runId)) throw new TypeError("forRun: runId must be a non-empty string");
+          // ⚠ BOTH, AND A RUN WITH NO AUTHORED AGENT GETS NO SEAM AT ALL — the rule the
+          // capability surface already follows. A specialist belongs to an ACCOUNT and is
+          // told apart from its siblings only by the agent id, so a seam built without one
+          // could neither list them nor refuse a sibling's.
+          if (!isText(agentId)) throw new TypeError("forRun: agentId must be a non-empty string");
           return Object.freeze({
+            /** The bounds this tree runs under, read from the deployment and not from a call. */
+            bounds,
+            refusedBounds,
+
             /**
              * File this step's children, or find the ones already filed.
              *
@@ -258,12 +282,26 @@ export function makeDelegationStore(opts = {}) {
              * approval, and the race is bounded by the cron rather than by the deadline —
              * see `sweep_delegations`' second arm.
              */
-            async open({ step, children, bounds, waitMs } = {}) {
+            async open({ step, children } = {}) {
               return rpc("delegate_children", {
                 p_tenant: tenant, p_parent: runId, p_step: step, p_children: children,
-                ...(bounds === undefined ? {} : { p_bounds: bounds }),
-                ...(waitMs === undefined ? {} : { p_wait_ms: waitMs }),
+                p_bounds: bounds, p_wait_ms: bounds.waitMs,
               });
+            },
+
+            /**
+             * Which other agents of this account there are to ask, with their status.
+             *
+             * ⚠ **THIS IS THE READ THAT MAKES THE WRITE USABLE.** `delegate` requires a
+             * specialist's id, and a model cannot know an id it was never told — so without
+             * this the tool is a control whose one required argument nobody can supply.
+             *
+             * Never itself: delegating to yourself is a loop, and the door refuses it too.
+             */
+            async specialists() {
+              const rows = await rpc("list_specialists", { p_tenant: tenant, p_agent: agentId });
+              if (!Array.isArray(rows)) throw new Error("list_specialists: the answer is not a list");
+              return rows;
             },
 
             /**
