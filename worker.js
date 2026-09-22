@@ -23076,8 +23076,66 @@ async function handleRequest(request, env, ctx) {
               // same way and say so properly.
               const twSpent = tw.reason === "send" ? null : tw.usage;
 
-              const eDb = await siteBackendBySlug(env, ownerSlug);
-              let eSpec = null, eLook2 = null, eCss2 = "";
+              // ⚠ A `null` FROM `siteBackendBySlug` IS FOUR FACTS, AND ON THIS
+              //    RUNG ONE OF THEM COST THE WRITER ITS RULES (run 21,
+              //    2026-09-22). `fretwork-1`'s database is real and its
+              //    `site_backends.neon_db` is blank — `incomplete` — and in the
+              //    container, which has no `SITE_ROUTES`, that reader answers
+              //    `null`. `eSpec` then became `{ tables: [] }`, `pageRulesFor`
+              //    handed the rewrite the FRONTEND rules ("THIS SITE HAS NO
+              //    DATABASE … no useRpc", rule 11 dropped), and the writer
+              //    rewrote a page and component that read the database while
+              //    being told there was none — so no rule about a function's
+              //    answer could ever reach it. Run 21's four wire problems are
+              //    byte-identical to `lintPages` over `{ tables: [] }`.
+              //
+              //    THE FAST READER STAYS THE FIRST QUESTION, so every site it
+              //    answers is handled exactly as before. Only its `null` — the
+              //    one answer that collapses four facts — is asked again, of the
+              //    four-state reader the rules rung and the addon already use:
+              //      incomplete / ready → the proven connection, and the spec
+              //                           read the catalog-aware way below
+              //      none               → no database: `{ tables: [] }`, as before
+              //      unreadable         → stop, cost 0: never rewrite a page as if
+              //                           its database did not exist
+              //    `ready` REACHES HERE ONLY IN A RACE: the fast read saw a blank
+              //    reference and this one, a moment later, a recorded one — a
+              //    backend repair landing mid-message (the per-site claim keeps
+              //    two JOBS off one site; the repair script runs outside it).
+              //    ⚠ NOT THROUGH A CACHE, which the first cut of this comment
+              //    claimed and a sweep survivor disproved: `makeCache` refuses
+              //    to store a `null` ("never cache absence"), so the fast reader
+              //    re-asks every message and finds a new database itself. A
+              //    `ready` row whose connection cannot be built at all falls
+              //    through exactly as before — the fast reader answered `null`
+              //    for it too, and changing that is a different decision.
+              //    NOTHING IS WRITTEN HERE: this rung needs the connection for one
+              //    message and no more. Recording the reference is not its job —
+              //    and from inside the container it may be nobody's, since
+              //    `healSiteBackendDb` is a PATCH and the job gateway admits no
+              //    PATCH for any table (read, not driven).
+              let eDb = await siteBackendBySlug(env, ownerSlug);
+              let eResolved = false;
+              if (!eDb) {
+                const eBack = await siteBackendDetail(env, ownerSlug);
+                if (eBack.state === "unreadable") {
+                  console.error("page edit backend unreadable:", ownerSlug, eBack.why, eBack.detail || "");
+                  return eAnswer({
+                    status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: eBack.why,
+                    msg: "I couldn't reach your site's database just now, so I've stopped rather than rewrite your page as if it had none — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
+                  });
+                }
+                // A CONNECTION IS THE ANSWER. `siteBackendDetail` hands one back
+                // for `incomplete` and `ready` and never for `none` or
+                // `unreadable`, so re-asking the state here would be a second
+                // copy of that rule — and a sweep showed the copy could not be
+                // driven: its `ready` arm is only reachable in the race above.
+                if (eBack.conn) {
+                  eDb = eBack.conn;
+                  eResolved = true;
+                }
+              }
+              let eSpec = null, eLook2 = null, eCss2 = "", eSpecStop = "";
               try {
                 const cfg = await readSiteConfig(env, ownerSlug, eDb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
@@ -23111,7 +23169,18 @@ async function handleRequest(request, env, ctx) {
                 // never read as nothing-there: rewriting those pages against an
                 // empty schema would silently drop every control that reads a
                 // row. Same reasoning as `loadConfig`, one layer down.
-                if (eDb) {
+                if (eDb && eResolved) {
+                  // A SITE RESOLVED ABOVE IS READ THE CATALOG-AWARE WAY — the
+                  // reader the rules rung and the addon use for this very
+                  // state. Its `_meta` is the one most likely to disagree with
+                  // its database, and a missing schema row is not an empty
+                  // database. Read-only: nothing is written back.
+                  try {
+                    const eRead = await specForAddon(eDb);
+                    if (eRead.ok) eSpec = eRead.spec;
+                    else eSpecStop = String(eRead.why || "spec-unreadable");
+                  } catch (e) { eSpecStop = "spec-read-threw"; }
+                } else if (eDb) {
                   const rows = await sqlQuery(eDb, "SELECT v FROM _meta WHERE k = 'schema'");
                   const row = (rows || [])[0];
                   if (row && row.v) eSpec = JSON.parse(row.v);
@@ -23119,6 +23188,17 @@ async function handleRequest(request, env, ctx) {
                   eSpec = { tables: [] };
                 }
               } catch (e) { console.error("page edit meta read failed:", ownerSlug, e && e.message); }
+              // CANNOT-TELL STOPS HERE TOO, and does not escalate: `no-meta`
+              // carries no layer, so the browser would answer it with the
+              // ~25-credit rewrite of every page — which cannot repair a schema
+              // this rung could not read.
+              if (eSpecStop) {
+                console.error("page edit schema read failed:", ownerSlug, eSpecStop);
+                return eAnswer({
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: eSpecStop,
+                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
+                });
+              }
               if (!eSpec || !eLook2) return escalate("no-meta");
 
               const eModels = modelsFor(eb && eb.picker);

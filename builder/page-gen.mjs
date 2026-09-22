@@ -1099,6 +1099,16 @@ or an access level — anything not in the schema below does not exist.
     and \`useRpcAction("fn")\` to act. This is how a site does what a filter cannot — a
     total across tables, the slots left on a day, one row out of a write-only table. Only
     call functions the digest actually lists.
+    A FUNCTION'S ANSWER DOES NOT EXIST UNTIL IT ARRIVES. \`useRpc\` returns a query, and its
+    \`data\` is \`undefined\` while the call is waiting and after it has failed, and \`null\`
+    when the function answers nothing. None of those is zero, and none is empty. So never
+    give \`data\` a default before it is shown — no \`data ?? 0\`, \`data || 0\`, \`data ?? []\`,
+    \`Number(data)\`, \`{ data = 0 }\` — because while the count is still loading that prints
+    a real-looking answer, "six places left", about a day that may be full. Keep the query
+    and give each state its own words: waiting ("Checking…"), failed ("Couldn't check —
+    try again"), nothing ("Not available"). Only a real answer may state a number, "none
+    left" or "has space". A component that shows the answer takes the query itself —
+    \`{ isPending, isError, data }\` — as its prop, never the bare number.
 
 12. A CHART COMES FROM "@/components/charts/lib/<domain>", never from a file named
     \`chart-something\`. The \`charts/chart-*.tsx\` files are DEMOS — each one wraps a
@@ -1875,11 +1885,20 @@ export function schemaDigest(spec) {
       }).join("\n") +
       // A THIRD-PARTY READ IS SLOW, CAN BE UNCONFIGURED AND CAN FAIL, and no
       // rule anywhere said so — measured, the word "loading" did not occur in
-      // this file at all. A database read is local and fast enough that a page
-      // ignoring the wait looks fine; this one crosses the internet, answers
-      // 503 until the owner's key is in the vault, and answers 502/504 when the
-      // service is down. A page with no branch for those renders a blank where
-      // the data should be and gives the visitor nothing to read.
+      // this file at all. This one crosses the internet, answers 503 until the
+      // owner's key is in the vault, and answers 502/504 when the service is
+      // down. A page with no branch for those renders a blank where the data
+      // should be and gives the visitor nothing to read.
+      //
+      // ⚠ AND "A DATABASE READ IS LOCAL, SO IGNORING THE WAIT LOOKS FINE" —
+      // which this comment used to say — IS FALSE FOR A COUNT (run 21,
+      // 2026-09-22). A page that ignores the wait on `useRpc` does not render a
+      // blank: it renders `Number(count ?? 0)` as a real answer, so a booking
+      // box read "6 places left" while loading, after every failure and on an
+      // empty answer — measured live, all of them. The single-value rule is in
+      // RULE 11 of `PAGE_RULES`, not here, because this digest lists functions
+      // only when the stored spec declares them, and the rule must hold for a
+      // function the page calls either way.
       "\n  EVERY ONE OF THESE HAS THREE STATES AND THE PAGE MUST DRAW ALL THREE: `isLoading` while it waits, " +
       "`error` when the service is unreachable or this site's key is not in the vault yet, and the answer itself. " +
       "Say something human in the first two — never a blank space where the data goes."

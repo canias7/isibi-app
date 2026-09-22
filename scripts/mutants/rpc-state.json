@@ -1,0 +1,132 @@
+[
+ {
+  "label": "CONTROL: the page rung's read-only note changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              //    NOTHING IS WRITTEN HERE: this rung needs the connection for one\n",
+  "to": "              //    NOTHING IS WRITTEN HERE (control): this rung needs the connection for one\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: the digest's run-21 note changes nothing",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "      // ⚠ AND \"A DATABASE READ IS LOCAL, SO IGNORING THE WAIT LOOKS FINE\" —\n",
+  "to": "      // ⚠ (control) AND \"A DATABASE READ IS LOCAL, SO IGNORING THE WAIT LOOKS FINE\" —\n",
+  "control": true
+ },
+ {
+  "label": "P-1: the state paragraph is gone from rule 11",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    A FUNCTION'S ANSWER DOES NOT EXIST UNTIL IT ARRIVES. \\`useRpc\\` returns a query, and its\n    \\`data\\` is \\`undefined\\` while the call is waiting and after it has failed, and \\`null\\`\n    when the function answers nothing. None of those is zero, and none is empty. So never\n    give \\`data\\` a default before it is shown — no \\`data ?? 0\\`, \\`data || 0\\`, \\`data ?? []\\`,\n    \\`Number(data)\\`, \\`{ data = 0 }\\` — because while the count is still loading that prints\n    a real-looking answer, \"six places left\", about a day that may be full. Keep the query\n    and give each state its own words: waiting (\"Checking…\"), failed (\"Couldn't check —\n    try again\"), nothing (\"Not available\"). Only a real answer may state a number, \"none\n    left\" or \"has space\". A component that shows the answer takes the query itself —\n    \\`{ isPending, isError, data }\\` — as its prop, never the bare number.\n\n12. A CHART COMES FROM",
+  "to": "\n12. A CHART COMES FROM"
+ },
+ {
+  "label": "P-2: the paragraph moves one rule down, out of rule 11",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    A FUNCTION'S ANSWER DOES NOT EXIST UNTIL IT ARRIVES. \\`useRpc\\` returns a query, and its\n    \\`data\\` is \\`undefined\\` while the call is waiting and after it has failed, and \\`null\\`\n    when the function answers nothing. None of those is zero, and none is empty. So never\n    give \\`data\\` a default before it is shown — no \\`data ?? 0\\`, \\`data || 0\\`, \\`data ?? []\\`,\n    \\`Number(data)\\`, \\`{ data = 0 }\\` — because while the count is still loading that prints\n    a real-looking answer, \"six places left\", about a day that may be full. Keep the query\n    and give each state its own words: waiting (\"Checking…\"), failed (\"Couldn't check —\n    try again\"), nothing (\"Not available\"). Only a real answer may state a number, \"none\n    left\" or \"has space\". A component that shows the answer takes the query itself —\n    \\`{ isPending, isError, data }\\` — as its prop, never the bare number.\n\n12. A CHART COMES FROM \"@/components/charts/lib/<domain>\", never from a file named\n",
+  "to": "\n12. A CHART COMES FROM \"@/components/charts/lib/<domain>\", never from a file named\n    A FUNCTION'S ANSWER DOES NOT EXIST UNTIL IT ARRIVES. \\`useRpc\\` returns a query, and its\n    \\`data\\` is \\`undefined\\` while the call is waiting and after it has failed, and \\`null\\`\n    when the function answers nothing. None of those is zero, and none is empty. So never\n    give \\`data\\` a default before it is shown — no \\`data ?? 0\\`, \\`data || 0\\`, \\`data ?? []\\`,\n    \\`Number(data)\\`, \\`{ data = 0 }\\` — because while the count is still loading that prints\n    a real-looking answer, \"six places left\", about a day that may be full. Keep the query\n    and give each state its own words: waiting (\"Checking…\"), failed (\"Couldn't check —\n    try again\"), nothing (\"Not available\"). Only a real answer may state a number, \"none\n    left\" or \"has space\". A component that shows the answer takes the query itself —\n    \\`{ isPending, isError, data }\\` — as its prop, never the bare number.\n"
+ },
+ {
+  "label": "P-3: `Number(data)` is no longer forbidden",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "data ?? []\\`,\n    \\`Number(data)\\`, \\`{ data = 0 }\\`",
+  "to": "data ?? []\\`,\n    \\`{ data = 0 }\\`"
+ },
+ {
+  "label": "P-4: the component is no longer told to take the query",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "left\" or \"has space\". A component that shows the answer takes the query itself —\n    \\`{ isPending, isError, data }\\` — as its prop, never the bare number.\n",
+  "to": "left\" or \"has space\".\n"
+ },
+ {
+  "label": "W-1: the four-state fallback is gone (run 21's rung verbatim)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!eDb) {\n                const eBack = await siteBackendDetail(env, ownerSlug);",
+  "to": "              if (false) {\n                const eBack = await siteBackendDetail(env, ownerSlug);"
+ },
+ {
+  "label": "W-2: an unreadable backend is read as none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (eBack.state === \"unreadable\") {\n                  console.error(\"page edit backend unreadable:\"",
+  "to": "                if (false) {\n                  console.error(\"page edit backend unreadable:\""
+ },
+ {
+  "label": "W-3: an incomplete site's connection is refused, so it reads as none",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (eBack.conn) {\n                  eDb = eBack.conn;\n",
+  "to": "                if (eBack.conn && eBack.state === \"ready\") {\n                  eDb = eBack.conn;\n"
+ },
+ {
+  "label": "W-4: a resolved site reads `_meta` bare instead of the catalog-aware reader",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (eDb && eResolved) {\n",
+  "to": "                if (false) {\n"
+ },
+ {
+  "label": "W-5: a schema that cannot be read no longer stops the rung",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (eSpecStop) {\n                console.error(\"page edit schema read failed:\"",
+  "to": "              if (false) {\n                console.error(\"page edit schema read failed:\""
+ },
+ {
+  "label": "W-6: the unreachable-database stop escalates to the paid rewrite",
+  "files": [
+   "worker.js"
+  ],
+  "from": "status: 503, ok: false, error: \"backend\", cost: 0, ours: true, backend: eBack.why,",
+  "to": "status: 503, ok: false, escalate: true, error: \"backend\", cost: 0, ours: true, backend: eBack.why,"
+ },
+ {
+  "label": "W-7: the schema-read stop wears the probe's reason",
+  "files": [
+   "worker.js"
+  ],
+  "from": "ours: true, backend: eSpecStop,",
+  "to": "ours: true, backend: \"derived-database-unreachable\","
+ },
+ {
+  "label": "W-8: the rung writes the missing reference back",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  eDb = eBack.conn;\n                  eResolved = true;\n",
+  "to": "                  eDb = eBack.conn;\n                  eResolved = true;\n                  await healSiteBackendDb(env, ownerSlug, eBack.uid, eBack.db);\n"
+ },
+ {
+  "label": "G-1: a failed tweak answers instead of falling through to the rewrite",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const twSpent = tw.reason === \"send\" ? null : tw.usage;\n",
+  "to": "              if (!tw.ok) return Response.json({ ok: false, error: \"tweak\", cost: 0 }, { status: 503 });\n              const twSpent = tw.reason === \"send\" ? null : tw.usage;\n"
+ },
+ {
+  "label": "G-2: the rename branch reads the backend",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (wantRename) {\n                const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);\n",
+  "to": "              if (wantRename) {\n                await siteBackendBySlug(env, ownerSlug);\n                const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);\n"
+ }
+]

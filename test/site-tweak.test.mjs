@@ -240,7 +240,16 @@ test("a failed cheap attempt FALLS THROUGH rather than answering", () => {
   // answering "that didn't work" here would refuse the customer a path that
   // still works.
   const at = worker.indexOf("const tw = await runTweak(");
-  const win = worker.slice(at, worker.indexOf("const eDb = await siteBackendBySlug", at));
+  // ⚠ RE-ANCHORED 2026-09-22 ON THIS RUNG'S OWN LAST STATEMENT. The window
+  // closed on `const eDb = await siteBackendBySlug` — the NEXT section's first
+  // line, not this one's — and when that line became `let eDb` (the page
+  // rung's four-state backend read), `indexOf` answered -1, `slice(at, -1)`
+  // swallowed the rest of the file, and this counted 145 answers. This repo's
+  // own recorded trap: a missing END landmark widens a window instead of
+  // failing. Both landmarks are proved present before the window is believed.
+  const spentAt = worker.indexOf("const twSpent", at);
+  assert.ok(at > 0 && spentAt > at, "the tweak window's landmarks are gone — re-derive it");
+  const win = worker.slice(at, worker.indexOf("\n", spentAt));
   assert.ok(win.length > 400, "the tweak window is empty — the anchor moved");
   // ⚠ RE-ANCHORED 2026-09-21, AND THE PROPERTY IS SHARPER THAN THE COUNT WAS.
   // This asserted exactly ONE `return`, which stood for *"a failure falls

@@ -2793,9 +2793,134 @@ this site.**
   `PAGE_RULES` alone never reaches fretwork-1's writer**, nor the other three
   `incomplete` sites'.
 
-**THE PAGE IS LIVE IN THIS STATE**, and a bounded builder correction is
-PROPOSED and NOT BUILT (owner-notes, 22 Sep) — no fix, restore, retry, merge
-or deploy without the owner.
+**THE PAGE IS LIVE IN THIS STATE.** The correction below is built on the
+branch and is **NOT merged, NOT deployed and NOT proven by a paid run** — no
+restore, retry, merge or deploy without the owner.
+
+### THE CORRECTION, BUILT (2026-09-22, owner: *"Can you just fix what i told you to fix"*)
+
+One change per finding, and **neither works without the other**: a rule that
+reaches no writer is inert, and a writer reached without the rule is run 21
+again.
+
+**1. RULE 11 SAYS WHAT A FUNCTION'S ANSWER IS BEFORE IT ARRIVES.** One
+paragraph inside rule 11 of `PAGE_RULES`: `useRpc`'s `data` is `undefined`
+while the call waits and after it fails, and `null` when the function answers
+nothing — none of them zero, none empty; never default it (`data ?? 0`,
+`data || 0`, `data ?? []`, `Number(data)`, `{ data = 0 }`); waiting, failed
+and nothing each get their own words; only a real answer may state a number,
+"none left" or "has space"; and **a component that shows the answer takes the
+QUERY (`{ isPending, isError, data }`) as its prop, never the bare number** —
+run 21's defect lived in exactly that hand-off.
+
+- **INSIDE RULE 11 IS LOAD-BEARING.** `hardRulesWithoutData` drops rule 11 as a
+  unit, so the paragraph leaves the frontend prompt WITH the rule it belongs
+  to. One rule over, it would reach every first build or none.
+- **ONE BLOCK, EVERY WRITER THAT HAS A BACKEND.** `pageRulesFor` feeds the page
+  call, a band and a component byte for byte, and the build, the edit rewrite
+  and the addon all reach it. **The quick writer (`runTweak`) reads none of it
+  and is untouched**, as instructed.
+- **THE DIGEST'S OWN COMMENT WAS THE PREMISE THAT FAILED** — *"a database read
+  is local and fast enough that a page ignoring the wait looks fine"* — and is
+  corrected in place: for a count, ignoring the wait does not look blank, it
+  looks like an answer.
+
+**2. THE PAGE RUNG ASKS THE FOUR-STATE READER WHEN THE FAST ONE ANSWERS
+`null`.** `siteBackendBySlug` stays the first question, so every site it
+answers is handled exactly as before; only its `null` — the one answer that
+collapses four facts — is asked again, of `siteBackendDetail`, the reader the
+rules rung and the addon already use.
+
+- **`incomplete` / `ready`** → the proven connection, and the spec read through
+  `specForAddon` — the CATALOG first, so a missing `_meta` row is recovered
+  READ-ONLY rather than read as an empty database. **`none`** → `{ tables: [] }`,
+  as before. **`unreadable`** → 503, cost 0, `ours`, `backend:
+  "derived-database-unreachable"`, and no writer call.
+- **A CATALOG THAT CANNOT BE READ STOPS TOO** (503, cost 0, `backend:
+  "unreadable:catalog-unreadable"`). It used to leave `eSpec` null and escalate
+  `no-meta`, which the browser turns into the ~25-credit rewrite of every page.
+- **⚠ THE FIRST CUT ASKED THE STATE AGAIN — `incomplete || ready` — AND A
+  SWEEP SURVIVOR SAID WHY THAT WAS WRONG.** Its comment claimed the `ready` arm
+  was reached when the fast reader held a cached `null` from before a database
+  existed. **`makeCache` refuses to store a `null`** (*"never cache absence"*),
+  so the fast reader re-asks every message and finds a new database itself:
+  cutting the arm survived every case, and the case written for it was testing
+  the fast reader. `ready` reaches the fallback only in a RACE — a backend
+  repair landing between the two reads — and `siteBackendDetail` hands a
+  connection back for `incomplete` and `ready` and never otherwise, so the check
+  is `eBack.conn` alone now. *A comment describing a cache is not evidence the
+  cache exists* — the `/changes?sync=` shape from the backlog, met on this
+  change's own comment.
+- **NOTHING IS WRITTEN.** The reference stays blank, and recording it is not
+  this rung's job. The four `incomplete` sites' backend repair is still the
+  owner's two presses each — this rung simply stopped depending on it. **⚠ AND
+  THE HEAL THE OTHER RUNGS CALL MAY NEVER LAND FROM INSIDE THE CONTAINER** (read,
+  not driven): `healSiteBackendDb` is a `PATCH`, and the job gateway's
+  `SB_TABLES` admits no `PATCH` for any table — *"`PATCH` is nowhere, because no
+  job patches a row"* — so from a job it answers a refusal that its own
+  never-throw contract turns into a quiet `healed: false`. In the backlog.
+- **AND A SIDE EFFECT IN THE RIGHT DIRECTION**: this rung's `lintPages` now
+  reads the real schema, so on an `incomplete` site the reply stops calling the
+  site's own function *"undeclared … the request is a 404"* — run 11's and run
+  21's wire wording. Asserted, with the lint first proved to flag the same page
+  over `{ tables: [] }`.
+
+**⚠ AND ONE WRITER IS STILL TOLD THESE SITES HAVE NO DATABASE — the full
+revise (read out of the code, NOT driven).** The build route's revise takes
+`ownerConn` from `siteBackendRowFresh`, which answers `conn: null` for an
+`incomplete` site, so `needsDb` is `!!spec.tables.length` alone: a revise whose
+design declares no table (a colour change, a wording change) keeps `db` null,
+`pageSpec = spec`, `siteHasBackend` false, and the FRONTEND rules — for a
+rewrite of EVERY page. That is the browser's `up` fallback, the ~25-credit one.
+**Not fixed here**: it is outside the approved correction, and the obvious fix
+(ask `siteBackendDetail` when the row carries no connection) makes `needsDb`
+true and so reaches `ensureSiteBackend`, which TRIES to heal the reference — a
+write the owner has not approved, and one the job gateway may refuse anyway (the
+next backlog entry). In the backlog.
+
+**NOT BUILT, and said so**: the optional kit component, and the report-only
+publish check (the proposal's item 3). **NOT ESTABLISHED**: that a real model
+obeys the rule — every model answer in the guards is SUPPLIED, so what they
+prove is that the rule is in the prompt and the prompt reaches the writer. **The
+acceptance stays OPEN** until the owner's paid replay of run 21's exact
+sentence, after a merge and a deploy.
+
+**⚠ TWO PRE-EXISTING GUARDS WERE PINNED TO THE LINE THIS CHANGED, AND THEY
+FAILED IN THE TWO DIRECTIONS THIS FILE RECORDS.** `site-tweak`'s window closed
+on `const eDb = await siteBackendBySlug`; that line became `let eDb`, `indexOf`
+answered -1, `slice(at, -1)` swallowed the rest of `worker.js` and the guard
+**counted 145 answers** — and the sweep refused to start on the red baseline,
+which is the runner doing its job. `site-ask`'s NEGATIVE check searched for the
+same string and **went on passing about a string that existed nowhere**, the
+silent half. Both re-anchored on what they assert, with their landmarks proved
+present first, and each has its own mutant in the sweep (G-1, G-2).
+
+**EVIDENCE.** `test/edit-page-rpc-state.test.mjs`, **8 cases**: the paragraph's
+wording and its placement inside rule 11 (whitespace folded, since where a
+hard-wrapped line breaks is layout), its presence in the full rules for both
+kinds and a function-only spec and its absence from both frontend variants, its
+reach through `pagesRequest`, `bandRequest` and `partRequest` as ONE block, and
+five cases through `POST /api/site/<slug>/edit` with the tweak declining
+(`incomplete`; a missing `_meta` row; `none` then a database; an unreachable
+database; an unreadable catalog). **Red 8 of 8 against the pre-fix code**, run
+in a throwaway worktree so the working tree was never touched.
+**Sweep `scripts/mutants/rpc-state.json`: 14 mutants, 14 killed, 0 survived, 0
+never applied, 2 comment-only controls surviving**, over `worker.js` and
+`builder/page-gen.mjs`, against 15 files (`edit-page-rpc-state`,
+`edit-page-context`, `edit-page-protect`, `edit-page-photos`, `edit-parts`,
+`edit-page-contract`, `edit-rules-backend`, `edit-nobackend`, `page-gen`,
+`page-bands`, `page-parts`, `frontend-build`, `wiring`, `site-tweak`,
+`site-ask`); both swept files byte-identical to a SCRATCHPAD backup afterwards.
+**The first attempt refused on a red baseline** (the `site-tweak` window above)
+and **the second had one survivor** (the `ready` arm above); the third is the
+tally. **Rules measured**: full **41,534 → 42,409** (+875, the paragraph
+exactly), shopfront full **27,034 → 27,909**, frontend **29,077** and
+**14,073** unchanged. **Suite 7,170 locally, taken twice** (`# tests 7170 /
+# pass 7170 / # fail 0 / # skipped 0`, `duration_ms` 106,720 and then 106,382
+on the committed tree, after a comment-only rewording proved comment-only by a
+diff against the swept copy) — **+8 against the last measured reading of
+7,162**, exactly this file's cases; the two re-anchored guards added
+assertions, not cases. **The CI half is UNREAD** until the push.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -6309,7 +6434,33 @@ does name one — moved up to the supported list on 2026-09-20.)*
 - **FOUR SITES ARE STILL `incomplete`** — `ashgrove-1`, `fretwork-1`,
   `northgroup-5`, `washhouse-1`. Fixed in code (no new site can enter the state)
   and the repair is two presses each: `backend repair --apply-reference` then
-  `--verify`. `repairbench-1` is repaired and verified.
+  `--verify`. `repairbench-1` is repaired and verified. **The rules rung, the
+  addon and (since 2026-09-22, on the branch) the page rung resolve these sites
+  themselves**, so the blank column no longer costs an edit its rules; the
+  repair is still the clean state. **⚠ THE FULL REVISE DOES NOT** — it reads
+  `ownerConn` off `siteBackendRowFresh` (`conn: null` here), so a revise that
+  declares no table rewrites every page of these four sites under the
+  no-database rules. Read out of the code, not driven; the obvious fix reaches
+  `ensureSiteBackend`'s heal, which is the owner's call.
+- **A JOB CANNOT HEAL A BLANK REFERENCE, BY ITS OWN GATEWAY'S RULE (read, not
+  driven, recorded 2026-09-22).** `healSiteBackendDb` — called by the rules
+  rung, the addon and `ensureSiteBackend` — is a `PATCH` on `site_backends`.
+  Inside the container every service-key call goes through `gatewayFetch`, and
+  `SB_TABLES` in `builder/job-gateway.mjs` lists no `PATCH` for any table. So
+  from a job the heal is refused, and `healSiteBackendDb`'s never-throw contract
+  turns that into a quiet `{ok: false, healed: false, status}`. **If that
+  reading holds, only the `backend repair` workflow can heal these sites** — which
+  matches all four still being blank. Settle it with one route test through the
+  gateway before building on it.
+- **THE BAND AND COMPONENT PROMPTS ASK A DIFFERENT QUESTION FROM THEIR OWN
+  RULES (latent, recorded 2026-09-22).** `bandPrompt` and `partPrompt` choose
+  the digest with `siteHasTables`, while the system block beside them comes from
+  `pageRulesFor` → `siteHasBackend` — the 2026-09-14 correction `pagesPrompt`
+  got and these two did not. A site with a function and no table would be told
+  *"There is none"* under rules that say to call the functions the digest lists.
+  **Unreachable today**: the split runs only on a first build (`bands:revise`),
+  and a first build's design tool carries no `backend`, so its spec has no
+  function. It becomes live the day either of those moves.
 - **AN ADDON DESIGNS A TABLE THAT NOTHING CAN EVER FILL (reported, not
   refused).** `repairs` was declared `read:"none", write:"none"` — the `admin`
   pair — so no client grant is emitted **and `seedSiteRows` skips it**, that

@@ -339,7 +339,7 @@ booking written):
    the warnings on your reply, which match that empty setup word for word. The
    prompt itself wasn't captured.
 
-**I've proposed a fix and built nothing.** It needs your go. There's no paid
+**I've proposed a fix and built nothing.** *(Built since — see the next section.)* It needs your go. There's no paid
 retry, repair, merge or deploy. Here it is in short:
 
 1. **One rule where every page writer reads it.** Rule 11 (the `useRpc` rule)
@@ -361,6 +361,65 @@ retry, repair, merge or deploy. Here it is in short:
    the edit writer gets the full rules on a site like fretwork-1, and that the
    check fires on run 21's own page and not on a correct one. Then one paid
    replay of run 21's exact sentence, which is your press.
+
+### The fix, built (22 Sep, later still)
+
+You said "just fix what I told you to fix", so I built the two parts that do
+the work and dropped the extras.
+
+1. **The rule.** The builder's database-function rule (rule 11) now says it
+   plainly: a function's answer isn't there until it arrives. While it's
+   loading, after it fails, or when it comes back empty, it is **not 0**, so
+   never turn it into a number. Each of those states gets its own words
+   ("Checking…", "Couldn't check — try again", "Not available"). Only a real
+   answer can say "6 places left", "full" or "has space". And a component that
+   shows the answer gets the whole query, not a bare number. That hand-off is
+   exactly where run 21 went wrong.
+2. **The edit writer now knows fretwork-1 has a database.** When the quick
+   lookup says "no database", the page step asks the proper four-way check,
+   the same one the rules step and the add-on already use. A site like yours
+   gets the full rules and its real schema. If the database can't be reached,
+   or its schema can't be read, it stops and charges nothing. Before, it
+   rewrote your page as if there were no database, or bought the big rewrite.
+
+**A bonus:** on sites like yours the reply stops saying your booking lookup
+"is a 404". That warning came from the same "no database" mix-up.
+
+**Not built:** the extra kit component and the report-only check. Nothing is
+merged or deployed, and there was no paid run.
+
+**Proof, all free:** 8 new tests. They check the rule's wording, that every
+page writer gets it, and five real trips through the edit route: your site's
+exact situation, a missing schema row, a site with no database (it still gets
+the plain rules), a site that gains a database between two edits, and the two
+"can't read it" cases. All 8 fail on the old code. The mutation sweep: 14
+deliberate breakages, all 14 caught, and both harmless controls left alone.
+The full test suite: 7,170 tests, all passing (8 more than before, which are
+the new ones).
+
+**The sweep caught me claiming a cache that doesn't exist.** My code comment
+said the quick lookup remembers "no database" for five minutes. It doesn't: the
+cache refuses to store a "no". So one extra check I'd written could never be
+reached, and a test I'd written for it was really testing something else. The
+check is gone, and the comment and test now say what's true.
+
+**Two old tests were pinned to the exact line I changed.** One went red: its
+window swallowed the rest of the file and counted 145 answers. The other went
+quiet: it kept passing while looking for a line that no longer existed. Both
+now check what they're actually about, and each has its own mutant.
+
+**What this does NOT prove:** the tests hand the builder a made-up answer, so
+they show the rule reaches the writer, not that a real model follows it. Your
+acceptance stays open until the paid replay of run 21's exact sentence. That
+needs a merge and a deploy first, and both are yours to call.
+
+**One more thing I found and did NOT fix:** the big full rewrite (the
+~25-credit one the app falls back to) still thinks your site has no database,
+unless your request adds a table. The obvious fix would also try to repair
+the missing database reference on your four sites, which is a live repair, so
+it's your call. And that repair may not even work from where the jobs run: the
+job's safety gate refuses that kind of write. Both are written up in the open
+list in CLAUDE.md. I read these in the code and haven't run them.
 
 ---
 
