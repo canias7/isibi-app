@@ -421,6 +421,44 @@ it's your call. And that repair may not even work from where the jobs run: the
 job's safety gate refuses that kind of write. Both are written up in the open
 list in CLAUDE.md. I read these in the code and haven't run them.
 
+### Merged and deployed; the retest is ready (22 Sep, late)
+
+You said: *"merge and deploy this bounded patch, then prepare the live test
+without spending yet."*
+
+**Done:**
+- `main` fast-forwarded to `33126616` at 23:28 UTC. That brought the fix, the
+  canary's restore tool (the one runs 19 and 20 used from the branch) and the
+  notes. No database migration, nothing in `public/`.
+- Before pushing I checked that nothing was running, worked out the new image
+  id in advance, and confirmed that undoing the merge gives back `main` exactly.
+- Deploy 2144 went green in 3m43s. The new image (`962824ede93e7706`) was built
+  and swapped in, as predicted. The unit tests (7,170) and the site build (all
+  12 counts) were already green on this exact commit.
+- **Deployed, not yet confirmed by the live Worker.** Your first free press
+  confirms that.
+
+**The retest — three steps, nothing pressed yet:**
+1. **Free, you:** edit canary from `main` with `restore_version`
+   `01789972018761-6tng48`, `expect_deploy`
+   `331266164a17c952b40807eeea8bcb43623cbbb5` and `expect_image`
+   `962824ede93e7706`. It puts fretwork-1 back where run 21 started.
+2. **Free, me:** I check the version, that all six files match run 17's start
+   byte for byte, and read the box in a browser. It should show the old booking
+   wording everywhere.
+3. **Paid, you, after about 23:50 UTC:** the same form with `restore_version`
+   blank, `spend` yes and the instruction pasted exactly as before. About
+   **18–20 credits** (run 21 was 17), ~30 at worst. If the new database lookup
+   fails, it stops and costs only the routing call's 2. Your balance was 48.
+
+**What to watch:** the four *"the schema does not declare…"* warnings in the
+reply should disappear. That's the sign the writer got your real database
+rules. The test passes only if no loading, error or empty state advertises
+places and the counts still read right.
+
+**Still not proven:** that the model follows the new rule. That's exactly what
+step 3 tests.
+
 ---
 
 ## 2026-09-22 — You broke it a sixth time, on a component with no props

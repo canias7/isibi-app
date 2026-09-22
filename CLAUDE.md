@@ -268,7 +268,9 @@ image step and identical on the whole job — on a fast-forward whose image inpu
 really moved (3 of 184). Layer reuse depends
 on the GitHub runner's LOCAL Docker cache, and a runner is ephemeral with no
 registry cache import — so **a cold runner rebuilds everything whatever the diff
-touched** (2053: 2m56s, every layer rebuilt, on 2044's exact shape) and a FAST
+touched** (2053: 2m56s, every layer rebuilt, on 2044's exact shape; **2144
+reproduced it to the second — 2m56s, 0 `CACHED` layers of 21, Wrangler 17s, job
+3m43s**) and a FAST
 step is no more evidence of a small diff than a slow one is of a large one
 (2091: the template's `package.json` moved — as far above the worker tree as an
 input gets — and it came in at 2m27s / 3m13s). Whether to import a registry
@@ -278,7 +280,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality FOURTEEN times, and the
+whole reader. **Cross-checked against reality FIFTEEN times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -300,6 +302,13 @@ from 184 inputs, three of the push's files among them. The log answered
 `built isibi-app-sitebuildcontainer:be869f***42e052c8c (registry answered 404;
 ***84 inputs off ./Dockerfile)` and `- …:6b***485***c0cd0c***c***` →
 `+ …:be869f***42e052c8c` under `SUCCESS Modified application`.
+**The fifteenth — deploy 2144 (2026-09-22) — the same shape again**:
+`origin/main` `be869f142e052c8c` (what runs 18–21 read LIVE) and the tip
+`33126616` `962824ede93e7706`, both from 184 inputs, `builder/page-gen.mjs` and
+`worker.js` the two of the push's 13 files among them; the log answered
+`built …:962824ede93e7706 (registry answered 404; ***84 inputs …)` and
+`- …:be869f***42e052c8c` → `+ …:962824ede93e7706` under `SUCCESS Modified
+application`.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -2392,8 +2401,9 @@ tweak fallback is promised.**
   image `be869f142e052c8c`. **That is Wrangler reporting on itself, not the
   platform answering**, so the rule stands: **take BOTH numbers live off
   `/api/site/build-health` immediately before a dispatch** — the free half of
-  the canary prints them — and a later merge invalidates them again. The
-  places-left replay below is the next press and uses the same pair.
+  the canary prints them — and a later merge invalidates them again. **It
+  moved again with deploy 2144** — `33126616…` and `962824ede93e7706`, see
+  *the replay prepared again* below.
   **THE EDIT-PATH FIXES OF 2026-09-21/22 ARE MERGED AND DEPLOYED** (the entry
   below), so a live press now exercises the door as it stands after the sixth
   reproduction, rather than the code every one of them was reproduced against.
@@ -2793,9 +2803,9 @@ this site.**
   `PAGE_RULES` alone never reaches fretwork-1's writer**, nor the other three
   `incomplete` sites'.
 
-**THE PAGE IS LIVE IN THIS STATE.** The correction below is built on the
-branch and is **NOT merged, NOT deployed and NOT proven by a paid run** — no
-restore, retry, merge or deploy without the owner.
+**THE PAGE IS LIVE IN THIS STATE.** The correction below is **merged and
+deployed (deploy 2144, 2026-09-22) and NOT proven by a paid run** — no restore,
+retry or paid press without the owner.
 
 ### THE CORRECTION, BUILT (2026-09-22, owner: *"Can you just fix what i told you to fix"*)
 
@@ -2883,7 +2893,7 @@ publish check (the proposal's item 3). **NOT ESTABLISHED**: that a real model
 obeys the rule — every model answer in the guards is SUPPLIED, so what they
 prove is that the rule is in the prompt and the prompt reaches the writer. **The
 acceptance stays OPEN** until the owner's paid replay of run 21's exact
-sentence, after a merge and a deploy.
+sentence — merged and deployed since, and prepared below.
 
 **⚠ TWO PRE-EXISTING GUARDS WERE PINNED TO THE LINE THIS CHANGED, AND THEY
 FAILED IN THE TWO DIRECTIONS THIS FILE RECORDS.** `site-tweak`'s window closed
@@ -2920,7 +2930,120 @@ exactly), shopfront full **27,034 → 27,909**, frontend **29,077** and
 on the committed tree, after a comment-only rewording proved comment-only by a
 diff against the swept copy) — **+8 against the last measured reading of
 7,162**, exactly this file's cases; the two re-anchored guards added
-assertions, not cases. **The CI half is UNREAD** until the push.
+assertions, not cases. **AND THE CI HALF MATCHES**: unit run **`35794535805`
+on `33126616`** reads **`# tests 7170 / # pass 7166 / # fail 0 / # skipped
+4`**, `duration_ms 116,210` — the TOTAL is what matches, `pass` differing by
+exactly CI's own four skips — and `site build` run **`35794535816`** (24m05s,
+all twenty steps) read all twelve counts green out of its per-step files: TAP
+397/397/0/0, kit-typecheck 4, site-build 382, contrast-cases 16, theme-seam 11,
+theme-render 29, site-routing 14, site-runtime 47, kit-render / kit-a11y /
+kit-effects / kit-paint `all passed`, census 7 + 4 + 1 = **12**; the two known
+`##[error]` annotations each directly above their own `ok` line, `tsc`-format
+lines 9 / 2 / 7, `site-build.mjs` 17m25s. **The stamp chain ends here.**
+
+### MERGED, DEPLOYED, AND THE REPLAY PREPARED AGAIN (2026-09-22, late)
+
+Owner: *"merge and deploy this bounded patch, then prepare the live test
+without spending yet."*
+
+**A FAST-FORWARD**: `main` `a208a86a` → **`33126616`** at **23:28:42Z** — 8
+commits, 13 files: the correction, the canary's restore mode (runs 19–20 used
+it from the branch; **a dispatch from `main` now offers `restore_version`**) and
+the two documents. No migration, no `public/`, no build config. **Asked before
+the push**: `main` unmoved, zero runs in progress or queued, the image id
+predicted over both ends (the fifteenth cross-check), and the rollback
+verified — `git revert --no-commit a208a86a..33126616` in a throwaway worktree
+gives tree `d9bf69b5…`, `main`'s own, so a rollback reuses `be869f142e052c8c`.
+
+**DEPLOY 2144 (`35797598989`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** 3m43s, cold
+runner; image **built `962824ede93e7706`** (404, 184 inputs) and **rolled from
+`be869f142e052c8c`** (`SUCCESS Modified application`); **`No updated asset
+files to upload`**, so there is no served-file check; `Uploaded isibi-app`, a
+fresh Worker version. Gates **401 / 401 / 401 / 404** at 23:34:27Z. fretwork-1
+still serves `01790112998238-ew6e7z`. **The runtime confirmation is press 1's
+preflight.**
+
+**THE PRESSES**, all on `edit-canary.yml` **from `main`**, with
+`expect_deploy` **`331266164a17c952b40807eeea8bcb43623cbbb5`** and
+`expect_image` **`962824ede93e7706`**:
+
+1. **RESTORE AND READ — free, the owner.** `restore_version`
+   `01789972018761-6tng48`, everything else default. Predicted: both deploy
+   readers at `33126616…`/`962824ede93e7706`, `async`/`runner` true, balance
+   **48** unless something else spent; the version list's row 1
+   `01790112998238-ew6e7z` with **parent `01789972018761-6tng48`** — the
+   target is that parent, which is why run 21's prune kept it
+   (`MAX_VERSIONS` 10 never takes the pointer's version or its parent); POST
+   `worker: true`; the header reads the id.
+2. **THE SESSION — free.** The header exact; `before/source.json`
+   byte-identical to run 17's before on all six bodies (the comparator
+   re-proved alive both ways on 2026-09-22: run 20's read IDENTICAL, run 21's
+   after DIFFERS at `day-space-lookup` alone); probe v3 on the restored page —
+   every count and every unknown state in the old booking-count wording, the
+   no-day line READ — run 20's reading again.
+3. **THE REPLAY — paid, the owner, no earlier than ~23:50Z** (15–20 minutes
+   after the deploy finished at 23:32:27Z). `spend` yes, the instruction
+   **verbatim** (sha256 `622547386217ef0c…`, 159 chars), `site` fretwork-1,
+   `control` washhouse-3, `restore_version` and `read_job` blank. The run's own
+   `before/source.json` is compared too.
+
+**WHAT IS NEW IN THIS PRESS, AND THE ONE READING THAT SHOWS IT.** The writer
+now gets the full rules (**42,409** chars, the new paragraph inside rule 11)
+and a digest of fretwork-1's real schema, where run 21's got the frontend rules
+(**29,077**). The prompt is not captured, so the evidence is a PROXY: **run
+21's four "does not declare" problems should be GONE**, because this rung's
+lint now reads the same spec the writer is handed. Still there means the spec
+did not reach the writer, and that is its own finding.
+
+**AND IT IS THE FIRST LIVE RUN OF THE LOOKUP.** `siteBackendDetail` resolving
+an `incomplete` site inside the container has only ever run against fakes.
+Read before the press: the job gateway admits both reads (GET on
+`site_backends` and `site_project`, slug-bound, no embeds), and the addon's
+runs 47–53 applied their schema to Neon from inside the container. **If it
+fails**, the reply is a 503, cost 0, `backend: <reason>` — from the lookup
+(`derived-database-unreachable`, `no-derivable-connection`, a failed read) or
+from the spec read (`unreadable:<why>`, `permissions-unreadable`,
+`unrecoverable-tables`) — so the routing call's 2 is the whole spend and
+nothing publishes.
+
+**THE ACCEPTANCE IS RUN 21'S LIST, EVERY ITEM MANDATORY**: the request's sha;
+published, a version minted inside the window; `tweak` not true; the table (0 →
+six, 1 → five, 2 → four, 5 → one singular, 6/7/99 → full, never negative, no
+booking-count wording); **every unknown state and no day chosen never advertise
+places** (held at 1/4/10 s, slow then answered, a day switch while held; 503,
+500, 502, 504 and a dropped connection after the retries; 404; 403; 200
+`null`, an empty body, 204, `[]`, `{}`); `chord-diagram`, `trial-booking-form`,
+`gear.tsx` and `prices.tsx` byte-identical, `day-space-lookup` and `index.tsx`
+inspected — **`index.tsx` is now EXPECTED to change**, the rule telling the
+page to hand the component the query; NAV 200, 0 console errors, 0 failed
+requests, the real function 200 and the box right for the real count; an
+accurate reply.
+
+- **THE INSTRUMENT CANNOT FAIL THE RULE'S OWN WORDS — measured**: *"Checking…"*
+  and *"Couldn't check — try again"* classify READ with no advertisement;
+  *"Not available"* classifies READ with the note *"claims the day is full
+  while the count is not known"* — it advertises nothing, so it passes the
+  mandatory item, and whether it reads well is a person's call.
+- **WHAT EACH OUTCOME WOULD MEAN**: a 503 `backend` → the lookup, not the
+  writer. `tweak: true` with the computation changed → the door failing live.
+  The rewrite ran, the warnings are gone, an unknown state still advertises →
+  **the writer had the rule and did not follow it**. The rewrite ran and the
+  warnings are still there → the spec did not reach the writer. A count wrong
+  (0 → *"0 places left"*) → a doubled subtraction. Every reading passes → the
+  acceptance closes **for this sentence on this site**, and says nothing about
+  other wording.
+- **COST, FROM MEASURED NUMBERS.** Run 21's edit was 15: the quick writer
+  8,314 in / 53 out (~2.1), the full writer 20,208 in / 9,249 out (~12.0),
+  rounded once. This press adds **+13,332 characters of rules** (~4,400
+  tokens, ~1.1 credits) and a schema digest of unmeasured size; the output is
+  about the same, because run 21's writer already re-emitted the whole page.
+  **So route 2 + edit ~16–18 ≈ 18–20.** Dearer: the quick writer re-emitting
+  the page before it declines (run 17's 7,627 output tokens, ~+5.7), or new
+  page wording that needs French and Spanish (≥1 each) — ~30 at worst.
+  Cheaper: the lookup stops — 2. Balance **48**.
+- **THE SAME LIMITS AS RUN 21**: the tweak's decline reason is on neither the
+  reply nor the trace, the writer's prompt is not captured, and the guards'
+  supplied answers prove the path, never the model.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -6435,7 +6558,7 @@ does name one — moved up to the supported list on 2026-09-20.)*
   `northgroup-5`, `washhouse-1`. Fixed in code (no new site can enter the state)
   and the repair is two presses each: `backend repair --apply-reference` then
   `--verify`. `repairbench-1` is repaired and verified. **The rules rung, the
-  addon and (since 2026-09-22, on the branch) the page rung resolve these sites
+  addon and (since 2026-09-22, deploy 2144) the page rung resolve these sites
   themselves**, so the blank column no longer costs an edit its rules; the
   repair is still the clean state. **⚠ THE FULL REVISE DOES NOT** — it reads
   `ownerConn` off `siteBackendRowFresh` (`conn: null` here), so a revise that
