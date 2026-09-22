@@ -130,6 +130,29 @@ export function defineTool(spec) {
   if (spec.writes === true && spec.repeatable !== true) {
     throw new TypeError(`${where}: a tool that writes must be repeatable — a write that cannot be repeated can never finish after an interruption`);
   }
+  // ⚠ `waits` SAYS THIS CALL CANNOT BE ANSWERED IN THE DELIVERY THAT MAKES IT — the tool
+  // starts work that finishes somewhere else, and the model's answer arrives in a LATER
+  // delivery. It is the shape delegation needs and nothing else here has: an approval is
+  // held BEFORE the dispatch, and this is held AFTER it, because the work really did
+  // start and its result is what is missing.
+  //
+  // **IT IS A DECLARATION AND NOT A SHAPE THE VALUE CAN CLAIM.** `run.mjs` holds a run
+  // only where this flag AND the answer's own marker agree, so an ordinary tool that
+  // happens to answer a `waiting` key cannot suspend a run by accident — and a tool that
+  // declares this and answers an ordinary value is answered ordinarily.
+  //
+  // Refused if it is not a boolean, for `repeatable`'s own reason.
+  if (Object.hasOwn(spec, "waits") && typeof spec.waits !== "boolean") {
+    throw new TypeError(`${where}: waits must be true or false — Boolean("false") is true, so it is not coerced`);
+  }
+  // **AND A WAITING TOOL MUST BE REPEATABLE**, which is the same implication `writes` has
+  // and for a sharper reason: a waiting call is resumed BY DEFINITION — that is the whole
+  // of what waiting means here — so one that is not safe to repeat is refused by the
+  // resume and named, for ever. The tool would be a control that holds and never
+  // completes, which is the one shape this product refuses to ship.
+  if (spec.waits === true && spec.repeatable !== true) {
+    throw new TypeError(`${where}: a tool that waits must be repeatable — a call that cannot be repeated can never be answered by the delivery that resumes it`);
+  }
   return Object.freeze({
     kind: "tool",
     name: spec.name,
@@ -139,6 +162,7 @@ export function defineTool(spec) {
     repeatable: spec.repeatable === true,
     approval: spec.approval === true,
     writes: spec.writes === true,
+    waits: spec.waits === true,
     run: spec.run,
   });
 }

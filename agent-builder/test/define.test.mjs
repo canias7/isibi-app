@@ -209,3 +209,27 @@ test("`repeatable` DEFAULTS TO PROTECT, and is refused rather than coerced", () 
   }
   assert.equal(Boolean("false"), true, "the fact the refusal rests on");
 });
+
+test("⚠ `waits` IS A DECLARATION, AND A WAITING TOOL MUST BE REPEATABLE", () => {
+  // It says this call cannot be answered in the delivery that makes it: the tool starts
+  // work that finishes somewhere else, and the model's answer arrives LATER. An approval
+  // is held BEFORE the dispatch; this is held AFTER it, because the work really did start
+  // and its RESULT is what is missing.
+  assert.equal(defineTool(goodTool()).waits, false, "a tool waits only if it says so");
+  assert.equal(defineTool({ ...goodTool(), waits: true, repeatable: true }).waits, true);
+  assert.equal(defineTool({ ...goodTool(), waits: false }).waits, false);
+  // Refused rather than coerced, for `repeatable`'s own reason.
+  for (const bad of ["false", "true", 1, 0, null, [], {}, "yes"]) {
+    assert.throws(() => defineTool({ ...goodTool(), waits: bad }), { name: "TypeError" },
+      `waits accepted ${JSON.stringify(bad) ?? String(bad)}`);
+  }
+  // ⚠ AND THE IMPLICATION IS SHARPER THAN `writes`': a waiting call is resumed BY
+  // DEFINITION — that is the whole of what waiting means here — so one that is not safe to
+  // repeat is refused by the resume and NAMED, for ever. The tool would be a control that
+  // holds and never completes.
+  assert.throws(() => defineTool({ ...goodTool(), waits: true }), /must be repeatable/,
+    "a waiting tool that says nothing about repeating was accepted");
+  assert.throws(() => defineTool({ ...goodTool(), waits: true, repeatable: false }), /must be repeatable/);
+  // The CONTROL: the pair really is what is refused, not the flag.
+  assert.equal(defineTool({ ...goodTool(), waits: true, repeatable: true }).repeatable, true);
+});

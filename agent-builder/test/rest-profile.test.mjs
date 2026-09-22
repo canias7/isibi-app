@@ -100,6 +100,25 @@ test("⚠ NO STORE DECIDES THE PROFILE FOR ITSELF — a census over every one th
   // stores it names by hand are the ones whose absence would mean the needle stopped
   // matching rather than the store having gone.
   assert.ok(read >= 6, `the census read ${read} files, which is fewer than the directory had`);
+  // ⚠ **AND THE NEEDLE'S OWN BLIND SPOT IS CLOSED BY A WIDER ONE RATHER THAN STATED.** A
+  // store that built its path in pieces would not contain `/rest/v1/` and would drop out of
+  // the list in silence — which is the hand-kept list's fault arriving through a regex. So
+  // the WIDER question is asked too: every file that takes a project URL at all
+  // (`opts.url`) either speaks PostgREST or is named here as one that does not. There is
+  // exactly one, `auth.mjs`, which talks to GoTrue's `/auth/v1/user` and therefore has no
+  // schema to name — so a new store is caught by the wide needle and has to be explained,
+  // rather than being missed by the narrow one.
+  const NOT_POSTGREST = ["auth.mjs"];
+  const takesUrl = fs.readdirSync(SRC)
+    .filter((f) => f.endsWith(".mjs"))
+    .filter((f) => /opts\.url/.test(blank(fs.readFileSync(path.join(SRC, f), "utf8"))))
+    .sort();
+  assert.ok(takesUrl.length > STORES.length, "the wide needle found no more than the narrow one, so it is not wider");
+  assert.deepEqual(
+    takesUrl.filter((f) => !STORES.includes(f)),
+    NOT_POSTGREST,
+    "a file takes a project URL and neither speaks PostgREST nor is declared as not speaking it",
+  );
   for (const f of ["store.mjs", "work.mjs", "approvals.mjs", "capabilities.mjs", "automation-store.mjs", "connections.mjs"]) {
     assert.ok(STORES.includes(f), `${f} speaks PostgREST and the census did not find it`);
   }
