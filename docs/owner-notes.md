@@ -295,14 +295,76 @@ and refunded. Your screen would have read:
 That is the right answer. Nothing was ever published (the record shows no
 publish at all), and the site was left alone.
 
-One thing worth knowing from the timings: of the 565 seconds it ran, **about
-350 were spent waiting for a container** — 192 seconds before the first publish
-and 159 before the second. That's queueing, not work.
+**⚠ And I got one thing wrong in that write-up, which you caught.** I said
+about 350 of the 565 seconds were "spent waiting for a container — that's
+queueing, not work." The two numbers behind it (192 s and 159 s) are the gap
+between a publish starting and the container answering, and **that gap
+contains the compile and the publish itself**, not only a wait. So they are
+two real intervals of 192 and 159 seconds, and nothing in the record says how
+much of either was queueing. Corrected: the durations stand, the word
+"queueing" does not.
 
 **And the fix from an hour ago is what made the money arithmetic readable.**
 Without the transaction lines the account would have said "charged 2 and
 refunded 2" with nothing underneath — no times, no balances — and 77 → 75 → 73
 → 75 could not have been checked.
+
+### Run 17 — it worked, and the page now says the opposite of the truth
+
+You pressed the places-left retry (run 17, 8m47s, **passed**). Everything
+mechanical about it is right and the result on your site is wrong, so both
+halves are worth reading.
+
+**The right half.** Your exact sentence went this time — 159 characters,
+recorded in the evidence before the request was sent, no substituted default.
+It routed to the page layer in 36 seconds for 2 credits, the page rung cost 8,
+and your balance moved **75 → 65**, which is 2 + 8 exactly. Nothing else on
+the site moved: both other pages and all three components came back
+byte-identical, no photograph was touched, nothing in the database changed.
+
+**The wrong half.** The builder made a four-byte change to one line of the
+home page:
+
+```
+bookingCount={Number(bookingCount ?? 0)}   ->   bookingCount={6 - Number(bookingCount ?? 0)}
+```
+
+It did the subtraction and **changed none of the words**. The box's own
+sentences live in a separate file it did not touch, and they still say
+"bookings". So on your live site right now, with a real empty day:
+
+> the database says **0 bookings** — and the box reads **"6 bookings already
+> on this day."**
+
+The six is correct. It is labelled as bookings instead of places left. I drove
+this in a real browser against your live site and the real database answer, so
+it is what a visitor sees, not a guess.
+
+**And the bad one.** On a day with all six slots taken, the subtraction gives
+zero, and zero is the case the box words as *"No bookings on this day yet — it
+still has space."* **A full day now advertises that it has space.** I proved
+that by controlling what the database answered rather than by making six real
+bookings on your site — same page, same code, only the number mine.
+
+| really booked | the box says |
+|---|---|
+| 1 | 5 bookings already on this day. |
+| 5 | 1 booking already on this day. |
+| **6 — full** | **No bookings on this day yet — it still has space.** |
+
+**Why it happened, and it is not the model being careless.** The cheap rung
+that answered has a hard rule: *if it changes any of the words, its answer is
+thrown away*. So the only rung that ran was the one rung that is not allowed
+to do what you asked — your request is a relabelling and nothing else. It did
+the only part it was permitted to do and reported success. The words it needed
+are in a component file that rung cannot even open.
+
+**So the fix is a door, not a prompt.** Either that rung has to decline when
+the ask is about what a number *means*, or it has to say which file it
+couldn't open. I have not changed anything — that is your call.
+
+**Your page is live in this state.** Putting it back is either one more paid
+edit, or a free restore to the previous version.
 
 ### Reading an existing job — built, not pressed
 

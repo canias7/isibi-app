@@ -1513,9 +1513,17 @@ the only one, ending 0.4 s before the row's `updated`): `pick_lanes` 1.3→7.1 s
 "cost":0,"refunded":2}` — **the css lane's zero-match rule refusing twice and
 refunding**, which is correct for the CTA-colour request the harness invented.
 **`publish started -, published -`**, confirming the version reading
-independently. **~350 s of the 565 was waiting for a container** (192 s and
-159 s before the two publishes), which is a fact about the queue rather than
-the work.
+independently.
+**⚠ AND THE FIRST WRITE-UP CALLED THE TWO `publish:N → container:ok` GAPS
+QUEUEING, WHICH THE TRACE CANNOT ESTABLISH (owner, 2026-09-22).** It read
+*"~350 s of the 565 was waiting for a container … a fact about the queue
+rather than the work"* — and the 192 s and 159 s those numbers come from are
+**`publish` to `container:ok`**, which spans the compile and the whole publish
+composition as well as any wait for a lane. **That interval is build
+processing plus whatever queueing there was, and nothing in the trace splits
+them.** What is measured is the two durations; *queueing* is a reading of them
+that no mark supports. Recorded as two unattributed intervals — the same
+cannot-tell rule this file applies everywhere else, met on its own timing.
 
 - **`credit_events` HAS NOW BEEN READ OVER THE WIRE**, the one hop this file
   records as never driven by anything. It answered with the service key.
@@ -1658,9 +1666,9 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   CONTROL that asserts the opposite pair. *Two lines that are each defensible
   alone produce one paragraph that is not, and only the paragraph is read.*
 
-**THE PLACES-LEFT RETRY IS PREPARED AND NOT DISPATCHED.** `edit-canary.yml`,
-`spend: yes`, `site: fretwork-1`, `control: washhouse-3`, `read_job` EMPTY, and
-the instruction **verbatim**:
+**THE PLACES-LEFT RETRY WAS DISPATCHED AND IS RUN 17 — see below.** It was
+prepared here as `edit-canary.yml`, `spend: yes`, `site: fretwork-1`,
+`control: washhouse-3`, `read_job` EMPTY, and the instruction **verbatim**:
 
 > The "Space on a preferred day" box counts bookings. Make it count down the
 > places left instead — six lesson slots a day, so an empty day reads six
@@ -1753,6 +1761,137 @@ all**, so a null body can never again be recorded as a paid action.
   Comments are blanked before the scan now, with the blanker's own observer
   proved alive. **Tenth-plus recorded instance, and this one was inside the
   guard written for the trap.**
+
+### RUN 17 — THE TWEAK DID THE ARITHMETIC AND NONE OF THE WORDING (2026-09-22)
+
+The places-left retry, pressed at last (`35675546785`, 01:23:01 → 01:31:48Z,
+8m47s, **CANARY PASSED**). It published, it cost what it should, it preserved
+everything it was supposed to — **and it shipped a live page that tells the
+customer the opposite of the truth.** The harness is right and the product is
+wrong, which is the first time round these two have come apart that way.
+
+**THE ASK REALLY WENT THIS TIME**, which is run 14's own correction working:
+`request.json` records 159 characters, sha256 `622547386217ef0c`, one non-ASCII
+codepoint (U+2014 at index 95), `source: "CANARY_INSTRUCTION"`, and the run's
+env block prints the same sentence. No default, no substitution.
+
+**WHAT THE TWEAK DID, in full — ONE LINE of `src/routes/index.tsx`:**
+
+```diff
+           <DaySpaceLookup
+             preferredDay={preferredDay}
+-            bookingCount={Number(bookingCount ?? 0)}
++            bookingCount={6 - Number(bookingCount ?? 0)}
+             onPreferredDay={setPreferredDay}
+```
+
+26,276 → **26,280 bytes**, token multiset **6,990 → 6,992, ZERO lost, two
+gained (`-` and `6`)**. `day-space-lookup.tsx` — the component that owns the
+box, its heading and every sentence in it — is **byte-identical**
+(`5330fca7b88e5ac1` on both sides), and so are `chord-diagram`
+(`d0c20d52f91d69d2`), `trial-booking-form` (`4b66386c0ad46092`), `gear.tsx`
+(`d580389f971cdd31`) and `prices.tsx` (`0d2d72dee56a2a71`).
+
+**SO THE NUMBER IS RIGHT AND EVERY WORD AROUND IT IS NOW FALSE.** The
+component still reads `bookingCount === 0 ? "No bookings on this day yet — it
+still has space." : "${bookingCount} booking(s) already on this day."`
+**Measured in a real Chromium against the live site** (`x-site-version
+01790040384165-wl5it5`, minted 01:26:24.165Z, inside the run's window; NAV 200,
+**0 console errors, 0 failed requests**), with the REAL RPC answering:
+
+> `POST /api/db/fretwork-1/data/rpc/bookings_on_day` → **200, body `0`** — and
+> the box renders **"6 bookings already on this day."**
+
+**AND THE FULL-DAY CASE IS THE DANGEROUS ONE.** It cannot be measured by making
+bookings (that writes rows to a customer's site), so it was measured by
+controlling what the RPC answers and reading what the LIVE shipped bundle
+renders — same page, same JavaScript, same component, only the number ours:
+
+| real bookings | `6 − n` | what the live box says |
+|---|---|---|
+| 1 | 5 | `5 bookings already on this day.` |
+| 2 | 4 | `4 bookings already on this day.` |
+| 5 | 1 | `1 booking already on this day.` |
+| **6 (full)** | **0** | **`No bookings on this day yet — it still has space.`** |
+| 7 | −1 | `-1 bookings already on this day.` |
+
+**A FULL DAY NOW ADVERTISES SPACE.** The component's own lead paragraph —
+*"Pick a day to see how many bookings already sit on it, so you can tell if it
+still has space"* — is untouched and now describes something the box does not
+do.
+
+- **`sameProse` IS THE GUARANTEE AND HERE IT IS THE DEFECT.** The tweak rung's
+  whole contract is *a tweak that moved the words is thrown away*, so the one
+  rung that answered was **constitutionally incapable of relabelling text** —
+  and this ask is nothing but a relabelling. Zero tokens lost is what a perfect
+  `sameProse` pass looks like, and it is exactly the shape of the failure.
+  *A guard that passes while the thing is broken*, in its purest recorded form.
+- **AND THE WORDS IT NEEDED ARE IN A FILE THE RUNG CANNOT OPEN.** `runTweak`
+  takes ONE page's source and answers ONE page's source; the sentences live in
+  `-parts/day-space-lookup.tsx`. So the rung could not have completed this
+  request by any answer it is able to give — **it reported success on work it
+  was structurally unable to do.** This file already records *"a tweak cannot
+  touch a component at all"* as a property of the transport; run 17 is what
+  that property costs when the ask is aimed at a component.
+- **THE ROUTER WAS RIGHT AND THE RUNG WAS WRONG, and those are two questions.**
+  `intent=edit layer=page page=/ cost=2` in 36.3 s is the correct layer — the
+  display-versus-enforcement fix worked, and this is its first live reading:
+  run 12's identical-in-spirit sentence went to `rules`, this one went to
+  `page`. **The defect is one rung below the routing decision.**
+- **⚠ `changed: []` AND `moved: []` ARE NOT A CLAIM THAT NOTHING MOVED.** The
+  tweak's success reply (`worker.js:23041`) carries **neither key**, and the
+  merge builds both with `flat("changed")`/`flat("moved")` — an empty union
+  over a body that never set them. `index.tsx` really moved. A reader taking
+  those arrays as an inventory gets the opposite of the truth, which is the
+  same cannot-tell-read-as-a-value shape as everything else here.
+
+**WHAT IT COST, and the arithmetic closes exactly.** Route **2** + rung **8**
+= **10**, and the balance moved **75 → 65**. `tweak: true`, `files: 37`,
+`photos: 0`, `photosKept` absent, `photosRemoved` absent, `langs` both `fr` and
+`es` `cached: true` with `missing: 0`, so no translation was charged. The one
+usage record is `{model: "grok-4.6", in: 8314, out: 7627, cacheRead: 512}` —
+7,627 output tokens for a four-byte change, because `runTweak` re-emits the
+whole 26 KB page; that is what the 445.8-second fire-to-terminal is made of.
+
+- **THE WATCH READ ITS OWN ANSWER**, which is the other half of run 14's patch
+  proven live: *"settled after 445.8 s — a stored reply arrived (HTTP 200,
+  `x-gf-edit: final`)"*, **polls 132, transient read failures 0**. The old
+  `status === 200` watch would have ended here too (this reply is a 200), so
+  **run 17 does not exercise the stored-503 case**; what it does prove is that
+  `retries` is counted and printed and that the composer ran on a real body.
+- **THE JOB'S OWN STATE SEQUENCE**: `claimed` (cost 0) to ~126 s, `routing`
+  (cost 8) from ~140 s to ~422 s, `publishing` at ~436 s. **Recorded as
+  intervals and NOT attributed** — the run-14 correction one day old is
+  exactly about reading a gap like the 126 s as queueing when it also contains
+  work.
+- **NOTHING BACKEND MOVED.** `layers: ["page"]`, `lanes: []`, and the terminal
+  body carries no schema, migration or backend field of any kind; the three
+  components and two unrelated pages are byte-identical; `/`, `/gear` and
+  `/prices` each `photos 0→0` with identical headings and identical word counts
+  (474 / 63 / 46). The `bookings_on_day` RPC still answers 200. `fretwork-1` is
+  still one of the four `incomplete` sites and this run did not touch that.
+- **THE RENDER CHECK'S FINDINGS ARE DIFFERENT FROM RUN 11'S AND ARE NOT
+  RESOLVED.** `checked 3, pages 3, partial: true`: `/` [phone] **`slow`**
+  (`page.goto: Timeout 6000ms exceeded`) and `/prices` [phone] **`unmet`** (an
+  outside connection). Run 11's `/` [phone] finding was React #418; this is a
+  navigation timeout, a different kind. A separate browser load of `/`
+  answered 200 with zero console errors, and **that settles neither** — there
+  is still no before-render baseline, because the free half takes no render
+  check. `deadSelectors` were the same two as run 11, 2 of 2 looked at.
+- **⚠ WHAT THIS RUN DOES NOT ESTABLISH.** Whether the REWRITE rung would have
+  got it right is untested — the tweak held, so the full writer never ran, and
+  the `tsx` lane (the one that can open a component) was never reached. The
+  photograph restoration and refusal behaviour is untouched again, this site
+  serving none.
+
+**THE FIX IS NOT A PROMPT.** The rung that answers first cannot express this
+change, so the lever is the DOOR, not the wording: either a tweak whose target
+page passes a component's props must decline when the ask is about what those
+props MEAN, or the reply must say which file it could not open. **Owner's
+call**, and nothing here is fixed.
+
+**THE PAGE IS LIVE IN THIS STATE NOW.** Reverting it is one more paid edit, or
+`restoreVersion` to the previous version — this file's own restore path, free.
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the
@@ -4353,9 +4492,11 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 75** at run 14's end (2026-09-21, read by the canary at both
-ends: 77 → 75, **a NET movement of 2**, on a run whose outcome the harness
-could not read; see run 14 below). **⚠ A NET MOVEMENT IS NOT A CHARGE
+build. **Balance 65** at run 17's end (2026-09-22, read by the canary at both
+ends: **75 → 65, moved 10** — route 2 + the page rung's 8, the arithmetic
+closing exactly, on a run that published). Before it, **balance 75** at run
+14's end (2026-09-21: 77 → 75, **a NET movement of 2**, on a run whose outcome
+the harness could not read; see run 14 below). **⚠ A NET MOVEMENT IS NOT A CHARGE
 HISTORY** (owner, 2026-09-21): 2 is equally consistent with a routing call of 2
 and with a routing call of 2 beside an edit charged 20 and refunded 20, and
 only `edit_jobs.billing` and the `credit_events` rows separate them. **Every
