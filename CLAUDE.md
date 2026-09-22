@@ -1997,12 +1997,31 @@ question asked beside it, not a stricter version of it.
   render driver's precondition that only CI can answer — `typescript`, `react`
   and `react-dom` really install there, so the driver is not the canary run-6
   trap over again.
-- **⚠ `site build` FIRED AND ITS READING IS OUTSTANDING**, named rather than
-  omitted. Run **`35681903439` on `a6bf1a2b`**; it fires because `builder/**`
-  and `worker.js` are both in its `paths`, and at the time this was written it
-  was on step 11 of 20 (`site-build.mjs`) with steps 1–10 green. **An absent
-  reading and a green one are not the same thing**, so nothing here claims its
-  twelve counts.
+- **`site build` READ, AND ALL TWELVE COUNTS MATCH.** Run **`35681903439` on
+  `a6bf1a2b`**, 03:06:00 → 03:29:29Z, **23m29s**, all twenty steps green — it
+  fires because `builder/**` and `worker.js` are both in its `paths`. Read
+  landmark to landmark off the flat log with **all three shapes asked for
+  separately**, and the census closes exactly: **`N passed` 7 + `all passed` 4
+  + TAP 1 = 12**. TAP **397 / 397 / 0 / 0**, kit-typecheck **4**, site-build
+  **382**, contrast-cases **16**, theme-seam **11**, theme-render **29**,
+  site-routing **14**, site-runtime **47**, and kit-render / kit-a11y /
+  kit-effects / kit-paint `all passed`. **`site-build.mjs` alone is 17m06s of
+  the 23m29s.** (This entry read *"OUTSTANDING … nothing here claims its twelve
+  counts"* while the run was in flight — which is the right thing to write at
+  that moment and is now replaced by the reading, not appended to.)
+- **AND THE DOCS-AND-COMMENTS COMMIT MOVED THE SUITE BY ZERO, as a
+  parent-and-current pair off the same machine.** CI run **`35682181917` on
+  `39cae677`** reads **`# tests 7131 / # pass 7127 / # fail 0 / # skipped 4`**,
+  `duration_ms 112,908` — byte-for-byte the same four numbers as `a6bf1a2b`'s
+  run above. That pair is what settles *the two test comments added no case*,
+  and it is a stronger reading than a local baseline because both halves come
+  off CI. **And `site build` did NOT fire on `39cae677` — read out of its
+  `paths` rather than assumed**: `CLAUDE.md`, `docs/owner-notes.md` and
+  `test/edit-page-contract.test.mjs` are none of them in that list (which names
+  eleven `test/integration/` files plus `test/page-gen.test.mjs` ONE BY ONE, not
+  a `test/**` glob), so that is **NO RUN, not a fast one** — and a listing with
+  no run in it reads identically to a run that never fired, which is why the
+  file list was checked against the block.
 
 **THE NEXT FIXTURE IS `chord-diagram`, PREPARED AND NOT DISPATCHED.** The gap
 run 11 left open is *deliberate component MODIFICATION* — run 11 proved the

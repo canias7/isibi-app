@@ -17014,3 +17014,20 @@ are character counts, not byte counts, and the page carries em dashes, so in
 bytes it is 26,288 → 26,292. Every comparison in the record used one reader on
 both sides, so nothing was measured wrongly; the word "bytes" was wrong. Both
 numbers are written down now.
+
+**`site build` is green too, and I read its counts rather than its badge.**
+Run 1242 on the fix commit, 23m29s, all twenty steps: the big one (382 cases)
+**382 passed, 0 failed**, and the other eleven all at their usual numbers. I
+asked for all three of the shapes those steps report in — some print "N
+passed", some just "all passed", one prints TAP — and they add to twelve, which
+is the number of steps that report anything. If that sum came to eleven it
+would mean I had silently lost one.
+
+**And the docs commit moved the suite by zero, proved the strong way.** Its own
+CI run reads the same four numbers as the fix commit's — 7,131 total, 0
+failing — so the two test comments added no case. Both halves off CI, which is
+better evidence than comparing against my own machine.
+
+That is the whole of what I was asked for: the fix, and the CI results. Still
+untouched, deliberately: no broad sweep, no merge, no deploy, no paid retry,
+and `fretwork-1`'s page is live in the state run 17 left it.
