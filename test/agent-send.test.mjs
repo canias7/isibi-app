@@ -33,6 +33,7 @@ import {
   MAX_KNOWLEDGE, KNOWLEDGE_TITLE_MAX, KNOWLEDGE_BODY_MAX, KNOWLEDGE_FORMATS,
   MAX_WEBHOOKS,
   AGENT_PROVIDERS, MAX_CONNECTIONS, CONNECTION_TROUBLE,
+  CHILD_STATES, CHILD_LIVE, childRow,
 } from "../agent-store.mjs";
 // ⚠ THE ENGINE'S OWN REGISTRY, IMPORTED HERE AND NOWHERE ELSE. `agent-store.mjs`
 // may not import it — the two are separate products in separate Workers — so the
@@ -58,6 +59,15 @@ import {
   FAKE_PROVIDER, FAKE_SCOPES, FAKE_ACTIONS, FAKE_WRITES,
 } from "../agent-builder/src/fake-provider.mjs";
 import { MAX_CONNECTIONS as ENGINE_MAX_CONNECTIONS } from "../agent-builder/src/connections.mjs";
+// ⚠ THE ENGINE'S OWN WORDS FOR WHAT ONE SPECIALIST IS DOING, and its own reader of them. The
+// parent's conversation draws what this side reads out of `delegation_progress`, and the engine
+// reads the same rows to decide whether to wait — so the two are one vocabulary and one verdict
+// or they are two, and the census below is the only place both can be loaded at once.
+import {
+  CHILD_STATES as ENGINE_CHILD_STATES, CHILD_LIVE as ENGINE_CHILD_LIVE,
+  CHILD_SETTLED as ENGINE_CHILD_SETTLED, CHILD_DELIVERED,
+  childState as engineChildState,
+} from "../agent-builder/src/delegation.mjs";
 import {
   AUTOMATION_STEPS as ENGINE_STEPS, STEP_TYPES as ENGINE_STEP_TYPES,
   MAX_WORKFLOW_STEPS as ENGINE_MAX_STEPS, MAX_NOTE as ENGINE_MAX_NOTE,
@@ -463,18 +473,179 @@ test("⚠ A PARENT WAITING ON ITS SPECIALISTS IS NOT A STRANDING, and the order 
     assert.equal(v.childrenDone, 3);
   }
 
-  // THE THREE RIDE ONLY ON THE STATE THEY ARE ABOUT, and are left OFF the others rather than
-  // sent as 0 — which would invite a screen to draw a fan-out for a run that never had one.
-  for (const key of ["children", "childrenOpen", "childrenDone"]) {
+  // ⚠ **RE-ANCHORED, NOT APPEASED: THE PROGRESS PAIR RIDES ONLY ON `delegating` AND THE
+  // INVENTORY RIDES ON EVERY STATE THAT HAS ONE.** This loop used to ask the same question of
+  // all three, which was the property while the counts existed to draw a progress line — and
+  // it stopped being the property when the RESULTS became readable. `children` is an
+  // INVENTORY: *this run asked three specialists* stays true for ever, and it is the only
+  // thing that makes their answers reachable once the parent has answered, so a screen that
+  // lost it would take the toggle off exactly when somebody wants to read them.
+  // `childrenOpen`/`childrenDone` are PROGRESS, and on a finished run the pair would be `0`
+  // and `3` for ever — a live count that has stopped moving.
+  for (const key of ["childrenOpen", "childrenDone"]) {
     assert.ok(Object.hasOwn(three, key), `${key} is not answered for a fan-out`);
     assert.ok(!Object.hasOwn(kids({ run_awaiting: true }), key), `${key} rode on a waiting run`);
     assert.ok(!Object.hasOwn(kids({}), key), `${key} rode on a stranding`);
     assert.ok(!Object.hasOwn(runView(row({ run_step: 1 })), key), `${key} rode on a working run`);
   }
+  assert.ok(Object.hasOwn(three, "children"), "a fan-out does not say how many it asked");
+  assert.ok(!Object.hasOwn(kids({ run_awaiting: true }), "children"), "children rode on a waiting run");
+  assert.ok(!Object.hasOwn(kids({}), "children"), "children rode on a stranding");
+  assert.ok(!Object.hasOwn(runView(row({ run_step: 1 })), "children"), "children rode on a working run");
+
+  // ⚠ **AND IT OUTLIVES THE DELEGATION, on every settled state.** Driven over all three,
+  // because each composes its own answer and a fourth would have to be added here rather
+  // than inheriting it — and each with the OPPOSITE case beside it, so "it rides" cannot be
+  // satisfied by a reader that puts it on every run whether it asked anybody or not.
+  const settled = {
+    answered: { run_status: "stopped", run_step: 2, run_stop: { reason: "answered", text: "nine" } },
+    cancelled: { run_status: "stopped", run_step: 2,
+                 run_stop: { reason: "cancelled", cancelledBy: T1, completedSteps: 2 } },
+    failed: { run_status: "stopped", run_step: 2, run_stop: { reason: "spent", bound: "steps" } },
+  };
+  for (const [state, over] of Object.entries(settled)) {
+    const asked = runView(row({ ...over, run_children: 3, run_children_open: 0 }));
+    assert.equal(asked.state, state, `${state} is not the state this shape reads as`);
+    assert.equal(asked.children, 3, `${state} lost how many specialists it asked`);
+    // THE PROGRESS PAIR IS STILL NOT THERE, because there is none left to make.
+    assert.ok(!Object.hasOwn(asked, "childrenOpen"), `${state} carries a live count`);
+    assert.ok(!Object.hasOwn(asked, "childrenDone"), `${state} carries a live count`);
+    const alone = runView(row(over));
+    assert.ok(!Object.hasOwn(alone, "children"),
+      `${state} says it asked somebody when the view answered no count`);
+    // AND A COUNT IT CANNOT READ IS NOTHING TO SAY HERE TOO, never an invented fan-out.
+    for (const junk of [null, "3", 0, -1, 1.5, NaN, ["3"], {}, true]) {
+      assert.ok(!Object.hasOwn(runView(row({ ...over, run_children: junk })), "children"),
+        `${state}: ${JSON.stringify(junk)} became a fan-out`);
+    }
+  }
   // AND `open` IS NOT SENT FOR A FAN-OUT: the open slot is the parent's own `delegate` call,
   // which nobody is being asked to answer, so reporting it would be the stranding's number on
   // a healthy run.
   assert.ok(!Object.hasOwn(three, "open"), "a fan-out was given the stranding's count");
+});
+
+test("⚠ WHAT ONE SPECIALIST IS DOING IS ONE VOCABULARY AND ONE VERDICT, censused both ways", () => {
+  /**
+   * ⚠ **A DECLARED COPY, AND THIS IS THE ONE FILE THAT MAY LOAD BOTH PRODUCTS.** Neither may
+   * import the other — `worker.js`'s module graph is a container image input, so an import in
+   * `agent-store.mjs` would put the agent product inside the site's container image — so the
+   * two hold the same seven words and a census is what keeps them honest. The precedent is
+   * `AGENT_TOOLS`, `AUTOMATION_STEPS`, `AGENT_PROVIDERS`, `AUTOMATION_TRIGGERS`, `FORGET_REACH`
+   * and `SEND_ACTION`; what is new here is that the two also hold the same READER, so the
+   * agreement asserted below is about the VERDICT and not only about the names.
+   *
+   * **WHY BOTH HALVES MATTER.** The engine reads these rows to decide whether the parent may
+   * carry on; the site reads them to draw what a customer sees. A word on one side and not the
+   * other is a state one half cannot express, and a reader that answered differently would put
+   * *"it answered"* on screen for a child the engine is refusing to combine.
+   */
+  assert.deepEqual([...CHILD_STATES], [...ENGINE_CHILD_STATES],
+    "the two products disagree about what a specialist can be doing");
+  assert.deepEqual([...CHILD_LIVE], [...ENGINE_CHILD_LIVE],
+    "the two products disagree about which states move on their own");
+  // ⚠ **AND THE COMPLEMENT IS THE ENGINE'S OWN DERIVED SET**, so a state added to either list
+  // is forced onto one side or the other rather than silently being neither — the partition
+  // rule `RUN_TOTALS` and `LIMIT_NAMES` already follow one product over.
+  assert.deepEqual(CHILD_STATES.filter((x) => !CHILD_LIVE.includes(x)), [...ENGINE_CHILD_SETTLED],
+    "a state is in neither the live set nor the settled one");
+  for (const w of CHILD_LIVE) assert.ok(CHILD_STATES.includes(w), `${w} is live and is not a state`);
+  // **EXACTLY ONE SETTLED STATE COUNTS AS WORK DELIVERED**, which is why `failed` is not "done
+  // badly": a parent that counted a failure as an answer would combine it into its own.
+  assert.ok(CHILD_STATES.includes(CHILD_DELIVERED));
+  assert.ok(!CHILD_LIVE.includes(CHILD_DELIVERED), "the delivered state is still moving");
+
+  const NOW = 1_700_000_000_000;
+  const clock = () => NOW;
+  const when = (ms) => new Date(NOW + ms).toISOString();
+  const both = (r) => [childRow(r, clock).state, engineChildState(r, { now: clock })];
+
+  /**
+   * ⚠ **EVERY SHAPE `agent.delegation_progress` REALLY PRODUCES, and every state DRIVEN.**
+   * `agent.delegations.deadline_at` is `not null`, so a row out of that function always carries
+   * one — which is what makes the agreement below about the whole reader rather than about the
+   * arms a fixture happened to reach. The census at the end is what stops a state being added
+   * and never exercised.
+   */
+  const shapes = [
+    ["queued", { deadline_at: when(60_000) }],
+    ["running", { deadline_at: when(60_000), claimed_at: when(-1_000) }],
+    ["done", { deadline_at: when(60_000), settled_at: when(-1_000),
+               outcome: { ok: true, reason: "answered", result: "nine" } }],
+    ["failed", { deadline_at: when(60_000), settled_at: when(-1_000),
+                 outcome: { ok: false, reason: "spent" } }],
+    ["cancelled", { deadline_at: when(60_000), cancelled_at: when(-1_000) }],
+    ["unresolved", { deadline_at: when(-1_000), claimed_at: when(-2_000) }],
+    ["unreadable", { deadline_at: when(60_000), settled_at: when(-1_000), outcome: { ok: "false" } }],
+  ];
+  for (const [state, r] of shapes) {
+    const [site, engine] = both(r);
+    assert.equal(site, state, `the screen reads ${JSON.stringify(r)} as ${site}`);
+    assert.equal(engine, state, `the engine reads ${JSON.stringify(r)} as ${engine}`);
+  }
+  assert.equal(new Set(shapes.map(([x]) => x)).size, CHILD_STATES.length,
+    "not every state was driven, so the agreement is about the arms a fixture reached");
+
+  /**
+   * ⚠ **`ok` MUST BE THE BOOLEAN, IN BOTH READERS.** `"false"` is truthy, so a coercing reader
+   * would draw a failed specialist as one that delivered — the one direction that makes a
+   * combined answer wrong. And an outcome that is not a plain object is UNREADABLE rather than
+   * either: cannot-tell must never read as a value, and here the value would be work done.
+   */
+  for (const outcome of [null, undefined, [], "ok", 7, true, { ok: "false" }, { ok: "true" },
+                         { ok: 1 }, { ok: 0 }, { }]) {
+    const [site, engine] = both({ deadline_at: when(60_000), settled_at: when(-1_000), outcome });
+    assert.equal(site, "unreadable", `the screen read ${JSON.stringify(outcome)} as ${site}`);
+    assert.equal(engine, "unreadable", `the engine read ${JSON.stringify(outcome)} as ${engine}`);
+  }
+  // AND A ROW THAT IS NOT A ROW, which is what a reader asking for fewer columns or an answer
+  // that did not parse arrives as. Said out loud rather than drawn as a queued child.
+  for (const junk of [null, undefined, "", "row", 7, [], [{ }], true]) {
+    const [site, engine] = both(junk);
+    assert.equal(site, "unreadable", `the screen read ${JSON.stringify(junk)} as ${site}`);
+    assert.equal(engine, "unreadable", `the engine read ${JSON.stringify(junk)} as ${engine}`);
+  }
+
+  // ⚠ **THE ORDER IS THE MEANING AND IT IS THE SAME ORDER.** A cancellation outranks
+  // everything, because the parent being stopped is the primary fact about the child; a settled
+  // row outranks the clock, because it already answered and a deadline that has since passed
+  // says nothing about it.
+  assert.deepEqual(both({ deadline_at: when(60_000), cancelled_at: when(-1_000),
+                          settled_at: when(-2_000), outcome: { ok: true, result: "nine" } }),
+    ["cancelled", "cancelled"], "a stopped child was read by its outcome");
+  assert.deepEqual(both({ deadline_at: when(-60_000), settled_at: when(-90_000),
+                          outcome: { ok: true, result: "nine" } }),
+    ["done", "done"], "a child that answered before its deadline passed reads as abandoned");
+
+  /**
+   * ⚠ **THE SITE HAS NO DEADLINE OF ITS OWN, AND THE ONE PLACE THE TWO DIVERGE IS DECLARED
+   * RATHER THAN ASSERTED AWAY.** `deadline_at` is the platform's ONE deadline — it is what
+   * `delegations_overdue`, the sweep's own index, selects on — so an ancient birth with a live
+   * deadline is a child the database is still waiting for, and both readers say so.
+   *
+   * What the ENGINE has beside that is a `created_at + waitMs` FALLBACK for a row a caller
+   * built itself; this side does not know the deployment's `waitMs` and must not guess one, so
+   * it falls through to what `claimed_at` says. **MEASURED, and the divergence is the point**:
+   * a guess shorter than the recorded bound reports work the database is still waiting for as
+   * abandoned, and a longer one reports an abandoned child as running for ever.
+   */
+  const old = { created_at: when(-10 * 3_600_000), deadline_at: when(60_000), claimed_at: when(-1_000) };
+  assert.deepEqual(both(old), ["running", "running"], "a live deadline was overruled by a birth");
+  const noDeadline = { created_at: when(-10 * 3_600_000), claimed_at: when(-1_000) };
+  assert.equal(childRow(noDeadline, clock).state, "running",
+    "this side invented a deadline for a row that has none");
+  assert.equal(engineChildState(noDeadline, { now: clock }), "unresolved",
+    "the engine's own fallback is gone — re-read why this side has none");
+  // AND THE READER TAKES THE ROW AND THE CLOCK AND NOTHING ELSE, so there is no bound for a
+  // caller to pass and none for this side to get wrong. Asserted as the PROPERTY and never as
+  // `childRow.length`, which is ONE — a DEFAULT parameter does not count toward it — so the
+  // arity reading would report a correct reader as having gained an argument.
+  const src = String(childRow);
+  const params = src.slice(src.indexOf("(") + 1, src.indexOf(")"));
+  assert.deepEqual(params.split(",").map((one) => one.trim().split("=")[0].trim()), ["r", "now"],
+    "childRow declares a third parameter — is one of them a bound?");
+  assert.deepEqual(childRow(noDeadline, clock, 60_000), childRow(noDeadline, clock),
+    "a third argument moved the answer, so a caller can hand this reader a bound after all");
 });
 
 test("⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED, and it says how far it got", () => {

@@ -5292,6 +5292,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .ag-chip-running { color: #1a6bb8; border-color: #1a6bb8; }
 .ag-chip-cancelled { color: var(--muted); }
 .ag-chip-unresolved { color: #9a6700; border-color: #9a6700; }
+/* AND ONE MORE, WHICH IS THE ONLY STATE THAT IS ABOUT THIS SCREEN RATHER THAN ABOUT THE WORK.
+   `unreadable` means a row could not be read at all — a settled child with no outcome, a shape
+   from a deployment this does not know — so it is MUTED rather than amber: cannot-tell is not a
+   thing to go and look at, and drawing it as a fault would blame a customer's specialist for
+   our own inability to read its row. */
+.ag-chip-unreadable { color: var(--muted); }
 
 /* WHAT AN EXECUTION IS WAITING FOR, and the one control that helps. Set apart from the
    rest of the run because it is the only part of a history somebody can act on. */

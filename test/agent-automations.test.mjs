@@ -21,6 +21,7 @@ import {
   EXAMPLE_AUTOMATION,
   cleanWorkflow, cleanSchedule, validTimeZone, automationRow, executionRow, makeAgentStore,
   AUTOMATION_TRIGGERS, webhookRow, withWaitingPayloads, toolApprovalRow,
+  CHILD_STATES, CHILD_LIVE, childRow,
   eventRow, AGENT_EVENT_STATES, MAX_EVENT_LOG,
   // ── an edit changes only what it names ───────────────────────────────────────
   AUTOMATION_PATCH_FIELDS, fieldNamed, patchNeedsStored, cleanPatch, sayPatch,
@@ -65,6 +66,11 @@ function fakeStore(over = {}) {
       { ok: true, id: C1, enabled: false, next_run_at: "2026-09-20T08:00:00+00:00" }),
     removeAutomation: of("removeAutomation", true),
     runAutomation: of("runAutomation", { ok: true, repeat: false, run_id: R1, occurrence: null, trigger: "manual", state: "queued" }),
+    // ⚠ **A FAKE MISSING AN OPERATION MAKES THE ROUTE THROW**, and the tenant census above
+    // then reads a 502 and reports a gated route as open — which this repository has paid for
+    // seven times. It answers a LIST because `agent.delegation_progress` returns a `jsonb`
+    // whose value is an array, which is also why the store reads it with `listOf`.
+    runChildren: of("runChildren", []),
     executions: of("executions", []),
     /**
      * ⚠ AS CAPABLE AS THE REAL STORE, for the SIXTH recorded time in this file — and the
@@ -3021,4 +3027,146 @@ test("a check is scoped to its own agent, and another account's is the missing-a
   });
   assert.deepEqual(mine.calls.map((c) => c.name).filter((n) => n !== "ownsAgent").sort(),
     ["list", "listAutomations", "listConnections"]);
+});
+
+// ── what one specialist is doing ─────────────────────────────────────────────
+
+test("⚠ A CHILD'S ROW CARRIES WHAT A SCREEN NEEDS AND NOTHING A SCREEN MUST NOT HAVE", () => {
+  /**
+   * The VOCABULARY and the verdict are censused against the engine's in
+   * `test/agent-send.test.mjs` — the one file that may load both products. What is asserted
+   * here is what this side puts ON THE WIRE, which that census cannot see.
+   *
+   * ⚠ **`context` IS DELIBERATELY NOT A FIELD.** `agent.delegations` holds the selected
+   * context a parent handed its child, and *"pass context deliberately"* is the whole point of
+   * that column — so a projection that carried it would put one child's working material into
+   * every reader of the parent's conversation, including one that only wanted a progress bar.
+   * A fixed key set is what makes that structural rather than a habit: a value smuggled into a
+   * row cannot reach a screen nobody has written.
+   */
+  const at = "2026-09-22T10:00:00.000Z";
+  const done = childRow({
+    delegation: R1, step: 2, idx: 1, depth: 1, agent_id: A1, agent_name: "Reader",
+    task: "read the brief", run_id: C1, settled_at: at,
+    outcome: { ok: true, result: "three findings" },
+    context: { secret: "the parent's own notes" }, claimed_at: at, deadline_at: at,
+  });
+  assert.deepEqual(Object.keys(done).sort(),
+    ["agent", "at", "depth", "id", "idx", "name", "result", "run", "state", "step", "task", "why"],
+    "the child projection's key set moved — is a new field a screen nobody wrote can read?");
+  assert.equal(JSON.stringify(done).includes("the parent's own notes"), false,
+    "a child's selected context reached the wire");
+  assert.deepEqual(done, {
+    id: R1, step: 2, idx: 1, depth: 1, agent: A1, name: "Reader", task: "read the brief",
+    run: C1, state: "done", result: "three findings", why: null, at: Date.parse(at),
+  });
+
+  // A RESULT RIDES ONLY ON `done` AND A REASON ONLY ON `failed`, because each is a claim about
+  // what happened: a `result` on a failed child is words nobody produced, and a `why` on a
+  // finished one invites a screen to draw a failure beside an answer.
+  const failed = childRow({ delegation: R1, settled_at: at, outcome: { ok: false, reason: "no brief" } });
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.result, null, "a failed child carried a result");
+  assert.equal(failed.why, "no brief");
+  const both = childRow({ delegation: R1, settled_at: at,
+    outcome: { ok: true, result: "done", reason: "leftover" } });
+  assert.equal(both.why, null, "a finished child carried a reason");
+
+  // ⚠ **THE NAME IS `null` RATHER THAN THE UUID.** A screen drawing an id where a name should
+  // be is a screen saying something it does not know; the id is already on the row for anyone
+  // who needs to open the child.
+  const nameless = childRow({ delegation: R1, agent_id: A1, claimed_at: at, deadline_at: at });
+  assert.equal(nameless.name, null, "a nameless child's agent id was drawn as its name");
+  assert.equal(nameless.agent, A1);
+  assert.equal(childRow({ delegation: R1, agent_name: "" }).name, null,
+    "an empty name is not a name");
+  assert.equal(childRow({ delegation: R1, agent_name: ["Reader"] }).name, null,
+    "String([\"Reader\"]) is \"Reader\" — a non-string name was coerced");
+
+  // AND THE NUMBERS FAIL CLOSED, so a row this deployment cannot read draws at the top rather
+  // than at a position it invented.
+  const junk = childRow({ delegation: R1, step: "2", idx: null, depth: 1.5, task: 7 });
+  assert.deepEqual([junk.step, junk.idx, junk.depth, junk.task], [0, 0, 0, ""]);
+  assert.equal(childRow(null).state, "unreadable", "a row that is not a row read as work");
+  assert.equal(childRow(null).id, "", "an unreadable row was given an id");
+
+  // The two lists are what the screen draws from, so a state added to one and not the other is
+  // a chip with no rule or a poll that never stops.
+  for (const one of CHILD_LIVE) assert.ok(CHILD_STATES.includes(one), `${one} is live and not a state`);
+  assert.equal(CHILD_LIVE.includes("done"), false, "a settled child counts as live work");
+});
+
+test("⚠ READING A PARENT'S CHILDREN: the REQUEST on the wire, and a list or nothing", async () => {
+  /**
+   * ⚠ **`listOf`, NOT `answerOf`.** `agent.delegation_progress` answers a single `jsonb` whose
+   * value is an ARRAY, and `answerOf` refuses an array by design — which is how
+   * `/api/agent/webhooks` came to throw on every call it ever had. And not `rows()` either:
+   * that answers `[]` for anything it cannot read, and *"that run asked nobody"* is a claim a
+   * failed read is not entitled to make.
+   */
+  const seen = [];
+  const answer = (body) => async (url, opts) => {
+    seen.push({ url: String(url), method: opts.method, headers: opts.headers,
+                body: opts.body ? JSON.parse(opts.body) : undefined });
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const store = (body) => makeAgentStore({ url: "https://db.example", key: "k", fetch: answer(body) });
+
+  const kids = await store([{ delegation: R1, agent_name: "Reader", claimed_at: "x" }]).runChildren(T1, C1);
+  assert.equal(seen.length, 1, "reading a parent's children made no request");
+  assert.equal(seen[0].method, "POST");
+  assert.match(seen[0].url, /rpc\/delegation_progress/);
+  assert.deepEqual(Object.keys(seen[0].body).sort(), ["p_parent", "p_tenant"],
+    "the read's arguments are not the function's own");
+  assert.equal(seen[0].body.p_tenant, T1, "the tenant is not in the read");
+  assert.equal(seen[0].body.p_parent, C1);
+  // ⚠ A POST CARRIES `content-profile`. `Accept-Profile` is honoured on GET and HEAD only, and
+  // every PostgREST RPC is a POST however purely the function behind it reads — so the read
+  // header on this call would name no schema at all and resolve against the default one.
+  const head = Object.fromEntries(
+    Object.entries(seen[0].headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
+  assert.equal(head["content-profile"], "agent", "the write header does not name the schema");
+  assert.equal("accept-profile" in head, false, "a POST carried the READ profile header");
+  assert.equal(kids.length, 1);
+  assert.equal(kids[0].name, "Reader", "the answer is not read through childRow");
+
+  // A read that came back as anything but a list REFUSES. Driven for each shape a broken
+  // answer really takes, with the empty list beside them as the observer: without it, "it
+  // throws" is satisfied by a store that refuses every answer there is.
+  assert.deepEqual(await store([]).runChildren(T1, C1), [], "an empty list is a real answer");
+  for (const bad of [null, {}, { ok: true }, "[]", 0]) {
+    await assert.rejects(() => store(bad).runChildren(T1, C1), /read run children/,
+      `${JSON.stringify(bad)} was read as a list of children`);
+  }
+});
+
+test("⚠ `/api/agent/run-children`: the tenant is the wall, and one answer for two absences", async () => {
+  /**
+   * ⚠ **THERE IS DELIBERATELY NO OWNERSHIP CHECK ABOVE THIS.** `agent.delegation_progress`
+   * puts the tenant in its own `where`, so another account's run and a run that asked nobody
+   * are ONE answer and ONE empty list — *not found, never forbidden*. An `ownsRun` check above
+   * it would be a second wall whose only effect is telling a stranger the id they guessed is
+   * real.
+   */
+  const f = fakeStore();
+  const r = await call("/api/agent/run-children", { store: f.store, query: new URLSearchParams({ run: C1 }) });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { ok: true, run: C1, children: [] });
+  const read = f.calls.filter((c) => c.name === "runChildren");
+  assert.equal(read.length, 1, "the read did not reach the store exactly once");
+  assert.deepEqual(read[0].args, [T1, C1], "the handler's own tenant is not what was asked");
+  assert.equal(f.calls.some((c) => c.name.startsWith("owns")), false,
+    "an ownership check crept above the read — two accounts now answer differently");
+
+  // WHICH RUN IS REQUIRED, and a missing one is a 400 rather than a read of everything.
+  for (const q of [{}, { run: "" }, { run: "not-a-uuid" }]) {
+    const bad = await call("/api/agent/run-children",
+      { store: fakeStore().store, query: new URLSearchParams(q) });
+    assert.equal(bad.status, 400, JSON.stringify(q));
+    assert.match(bad.body.error, /which run/);
+  }
+
+  // It is a GET and reads the run from the QUERY: a body here would be a second place to say
+  // which run, and the family's own body census forbids one.
+  assert.equal(AGENT_ROUTES["/api/agent/run-children"], "GET");
 });

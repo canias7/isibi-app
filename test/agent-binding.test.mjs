@@ -23,7 +23,7 @@ import vm from "node:vm";
  * so the census over what a conversation draws is derived rather than transcribed, and a
  * state added to `runView` next month fails here by existing rather than by being noticed.
  */
-import { RUN_STATES, AUTOMATION_SCHEDULES, toolApprovalRow } from "../agent-store.mjs";
+import { RUN_STATES, AUTOMATION_SCHEDULES, toolApprovalRow, CHILD_STATES } from "../agent-store.mjs";
 
 /**
  * ⚠ **A WAITING REQUEST IN THE SHAPE THE ROUTE REALLY ANSWERS, because it comes OUT OF
@@ -1346,9 +1346,11 @@ const run = (state, over = {}) =>
  * counted rather than inferred, and `thread` is what the next read answers — which
  * is how a run is moved from queued to answered without waiting for anything.
  */
-function sending(t, { thread = [], sendAnswer = null, uid = "acct-A", approvals = [] } = {}) {
+function sending(t, { thread = [], sendAnswer = null, uid = "acct-A", approvals = [],
+                      kids = null } = {}) {
   const sends = [];
   const reads = [];
+  const kidReads = [];
   let rows = thread;
   const w = loadScreen({
     uid,
@@ -1365,6 +1367,14 @@ function sending(t, { thread = [], sendAnswer = null, uid = "acct-A", approvals 
         if (sendAnswer) return sendAnswer(body, sends.length);
         return okRes({ id: body.id, repeat: sends.length > 1, queued: sends.length === 1,
                        message: msg("m" + sends.length, body.body), runId: "run-queued" });
+      }
+      // ⚠ **WHAT THE SPECIALISTS UNDER A PARENT ARE DOING.** Without a route here the
+      // fallback answers `{agents: ROWS}`, so `j.children` is `undefined`, the reader stores
+      // `[]` and every panel draws the count-says-N sentence — a fixture LESS CAPABLE than the
+      // screen, in the one read whose absence draws a plausible sentence rather than nothing.
+      if (path.startsWith("/api/agent/run-children")) {
+        kidReads.push(path);
+        return kids ? kids(path, kidReads.length) : okRes({ children: [] });
       }
       if (path.startsWith("/api/agent/messages")) { reads.push(path); return okRes({ messages: rows }); }
       return okRes({ agents: ROWS });
@@ -1385,7 +1395,7 @@ function sending(t, { thread = [], sendAnswer = null, uid = "acct-A", approvals 
   // minutes on a mutant it had correctly killed, and the sweep read a hang instead of
   // a kill. A hook runs on the failing path too.
   if (t && typeof t.after === "function") t.after(() => { try { w.ev("agentPollStop();"); } catch { /* the page may be gone */ } });
-  return { w, sends, reads, serve: (next) => { rows = next; } };
+  return { w, sends, reads, kidReads, serve: (next) => { rows = next; } };
 }
 
 /**
@@ -7612,4 +7622,122 @@ test("⚠ THE DOOR FILES WHAT IT READS UNDER THE FORM'S OWN AGENT, never whoever
   w.s.document.getElementById("agName").value = "A, half renamed";
   w.ev("renderAgents();");
   assert.match(hydrate(w).html, /A, half renamed/, "the door stopped reading its own form");
+});
+
+// ── the specialists under a parent ──────────────────────────────────────────
+
+const KID = (over = {}) => ({
+  id: "d1", step: 0, idx: 0, depth: 1, agent: "ag-1", name: "Reader",
+  task: "read the brief", run: "kid-1", state: "running", result: null, why: null, at: 0, ...over,
+});
+
+test("⚠ A TOGGLE ONLY WHERE THE RUN ASKED ANYBODY, and four bodies under it", (t) => {
+  const b = sending(t);
+  const draw = (run) => b.w.ev(`agentRunHtml(${JSON.stringify(run)})`);
+  const kids = (id, rows) => b.w.ev(
+    `agentRunKids.set(${JSON.stringify(id)}, ${JSON.stringify(rows)}); 1`);
+
+  // ⚠ **A RUN THAT DELEGATED TO NOBODY GETS NO CONTROL AT ALL.** Every conversation written
+  // before delegation existed is that shape, and a toggle there is the dead control exactly:
+  // it opens, reads, and says the count is zero. The count is what makes the results reachable
+  // once the parent has ANSWERED, so it is asked of the run rather than of the state.
+  assert.equal(draw(run("answered")).includes("agent-run-kids"), false,
+    "a run that asked nobody drew a toggle");
+  assert.equal(draw(run("delegating", { children: 0 })).includes("agent-run-kids"), false,
+    "a count of zero drew a toggle");
+  for (const bad of [null, "2", 2.5, NaN]) {
+    assert.equal(draw(run("answered", { children: bad })).includes("agent-run-kids"), false,
+      `${JSON.stringify(bad)} was read as a fan-out — Number("2") is 2`);
+  }
+
+  // AND THE LABEL COUNTS, on `answered` as on `delegating`, because the results are what a
+  // person comes back for.
+  const shut = draw(run("answered", { children: 2 }));
+  assert.match(shut, /Show the 2 specialists/);
+  assert.match(shut, /aria-expanded="false"/);
+  assert.match(draw(run("delegating", { children: 1 })), /Show the 1 specialist(?!s)/);
+
+  // FOUR BODIES, AND THREE OF THEM ARE THE THREE DIFFERENT NOTHINGS. Open the panel and give
+  // the reader each state it really has.
+  b.w.ev('agentRunKidsOpen.add("run-delegating"); 1');
+  const of = () => draw(run("delegating", { children: 2 }));
+  assert.match(of(), /Reading…/, "a panel that has not been read yet said something else");
+  assert.match(of(), /Hide the specialists/);
+
+  kids("run-delegating", []);
+  const none = of();
+  assert.match(none, /The count says 2, and there is nothing to show for it/,
+    "a count with no rows drew an empty list");
+  assert.equal(none.includes("Reading…"), false);
+
+  kids("run-delegating", [KID(), KID({ idx: 1, name: null, state: "done", result: "three findings" })]);
+  const rows = of();
+  assert.match(rows, /Reader/);
+  assert.match(rows, /read the brief/);
+  assert.match(rows, /ag-chip-running/);
+  assert.match(rows, /ag-chip-done/);
+  assert.match(rows, /three findings/);
+  // ⚠ A SPECIALIST WITH NO NAME IS SAID, NOT FILLED IN WITH ITS ID: a uuid where a name
+  // belongs reads as a different agent rather than as a missing one.
+  assert.match(rows, /no longer here/);
+  assert.equal(rows.includes("ag-1"), false, "an agent id was drawn where a name belongs");
+  assert.equal(rows.includes("The count says"), false);
+
+  // A READ THAT FAILED IS ITS OWN SENTENCE, and it outranks the rows — because a panel
+  // showing rows with no word about the refresh having failed is a panel claiming to be live.
+  b.w.ev('agentRunKidsErr.set("run-delegating", "Couldn’t reach the server."); 1');
+  const bad = of();
+  assert.match(bad, /Couldn’t reach the server/);
+  assert.equal(bad.includes("Reader"), false, "a failed read drew its stale rows as current");
+
+  // EVERY STATE THE READER CAN ANSWER HAS A CHIP RULE, or a control is drawn with no colour.
+  const sheet = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  for (const one of CHILD_STATES) {
+    assert.ok(sheet.includes(`.ag-chip-${one}`), `no rule for .ag-chip-${one}`);
+  }
+});
+
+test("⚠ OPENING ONE READS ONCE; A FOLD ASKS NOBODY; AND A LATE ANSWER WRITES INTO NO OTHER SCREEN", async (t) => {
+  const gate = held(okRes({ children: [KID()] }));
+  let holdIt = false;
+  const b = sending(t, {
+    thread: [msg("m1", "go", run("delegating", { children: 1 }))],
+    kids: () => (holdIt ? gate.p : okRes({ children: [KID()] })),
+  });
+  const press = (id) => b.w.ev(
+    `CLICK_ACTIONS['agent-run-kids'](null, { dataset: { run: ${JSON.stringify(id)} } }); 1`);
+  const state = () => b.w.ev("JSON.stringify({ open: [...agentRunKidsOpen], busy: agentRunKidsBusy, " +
+    "rows: [...agentRunKids].map(([k, v]) => [k, v === null ? null : v.length]) })");
+  // Three macrotask turns, because the load awaits its request and then its body: a single
+  // turn leaves it in flight and the case would read a state that is about to change.
+  const settle = async () => { for (let i = 0; i < 3; i += 1) await new Promise((r) => setTimeout(r, 0)); };
+
+  press("run-delegating");
+  await settle();
+  assert.equal(b.kidReads.length, 1, "opening a panel did not read once");
+  assert.match(b.kidReads[0], /run=run-delegating/, "the read did not name the run that was pressed");
+  assert.deepEqual(JSON.parse(state()), { open: ["run-delegating"], busy: "", rows: [["run-delegating", 1]] });
+
+  // ⚠ **A FOLD IS A PREFERENCE AND NEVER A QUESTION FOR THE SERVER** — the code explorer's own
+  // recorded rule one screen over. Closing asks nobody, and re-opening rows that were read and
+  // have not been invalidated draws them again with no request.
+  press("run-delegating");
+  await settle();
+  press("run-delegating");
+  await settle();
+  assert.equal(b.kidReads.length, 1, "folding a panel cost a request");
+  assert.deepEqual(JSON.parse(state()).open, ["run-delegating"]);
+
+  // ⚠ A LATE ANSWER AFTER THE CONVERSATION MOVED WRITES NOTHING — one parent's specialists
+  // appearing under another's is a screen saying something nobody asked it.
+  b.w.ev('agentRunKidsOpen.clear(); agentRunKids.clear(); 1');
+  holdIt = true;
+  press("run-delegating");
+  await settle();
+  assert.equal(b.w.ev("agentRunKidsBusy"), "run-delegating", "the read was not in flight");
+  b.w.ev('agentMsgsFor = "B"; 1');
+  gate.release();
+  await settle();
+  assert.deepEqual(JSON.parse(state()).rows, [], "a late answer wrote into the screen that had moved on");
+  assert.equal(b.w.ev("agentRunKidsBusy"), "", "the busy mark was left behind");
 });

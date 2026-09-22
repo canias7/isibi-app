@@ -1726,6 +1726,10 @@ async function agentThreadLoad(id, quiet) {
   // and a banner that only appeared on a deliberate reload would leave them watching a
   // run that has stopped and will not start again until they press something.
   if (!agentMsgsErr) agentApprovalsLoad(id);
+  // ⚠ AND AN OPEN SPECIALISTS PANEL IS RE-READ ON THE SAME LINE, for the same reason and with
+  // the same bound: a fan-out finishes WHILE somebody is watching it, and a panel that only
+  // moved on a deliberate reload would show one specialist still going long after it answered.
+  if (!agentMsgsErr) agentKidsRefresh(agentMsgs);
 }
 
 /**
@@ -2190,7 +2194,207 @@ function agentPollSoon(id) {
  * the other: the chrome is visible before you read a word, and the text survives
  * being copied into an email. Both are asserted by their own guards.
  */
+/**
+ * ⚠ **WHAT EACH SPECIALIST IS DOING AND WHAT IT SAID, behind one press per run.**
+ *
+ * **THE COUNT IS ON THE THREAD AND THE DETAIL IS BEHIND A PRESS, which is the approvals
+ * banner's own division** — `agent_thread` answers `children` and `childrenOpen` for free, so
+ * every conversation can say *2 of 3 answered* on every poll, and the tasks, the names and the
+ * answers cost a request only when somebody opens one. Folding them into the thread would
+ * fetch eight tasks and eight answers per delegating run every 2.5 seconds to draw a number.
+ *
+ * `agentRunKids` is runId → the rows, or `null` for a read that FAILED — three states, because
+ * *"that run asked nobody"* is a claim and a read that did not come back is not entitled to
+ * make it. **A run with nothing under it is `[]`**, which is a real answer and reads as one.
+ */
+const agentRunKids = new Map();
+/** Which runs are expanded. A preference, and never a question for the server. */
+const agentRunKidsOpen = new Set();
+/** The one run whose children are being read, so a second press does nothing. */
+let agentRunKidsBusy = '';
+/** Why a read did not come back, runId → the sentence. Its own holder, per run. */
+const agentRunKidsErr = new Map();
+
+/**
+ * THE TOGGLE, AND THE ROWS WHEN IT IS OPEN — its own bubble under the run's.
+ *
+ * ⚠ **`agentRunHtml` IS A WRAPPER OVER `agentRunRow` RATHER THAN EIGHT EDITED BRANCHES.** Every
+ * state's branch returns a whole `<div class="ag-msg ag-msg-bot">…</div>`, so splicing a block
+ * in before its close would be a string edit that the next branch added breaks in silence.
+ *
+ * **IT IS DRAWN FOR EVERY STATE THAT SAYS IT ASKED ANYBODY, not only `delegating`** — which is
+ * why `children` rides on the settled states too. A toggle that disappeared the moment the
+ * answers arrived would take the results off the screen exactly when somebody wants to read
+ * them.
+ *
+ * **NO CLASS IS INVENTED.** The rows are the execution history's own (`ag-run-steps`,
+ * `ag-run-step`, `ag-step-n`, `ag-step-w`, `ag-step-o`, `ag-step-d`, `ag-step-msg`) and the
+ * chips are the ones every other state list uses, because these are the same kind of fact one
+ * screen over and a customer must not read two vocabularies for one thing.
+ */
+function agentKidsHtml(run) {
+  // ⚠ `Number.isInteger`, NEVER `isFinite`: `run_children` is an integer column and `runView`
+  // already reads it with `Number.isInteger`, so a fractional count is a reading the wire
+  // cannot produce — and two readers of one fact must not disagree about what a count IS. A
+  // toggle drawn for 2.5 specialists offers to open a fan-out that does not exist.
+  // `agentHelpers` above is deliberately left on `isFinite`: it composes a SENTENCE and its
+  // own note says what that guard is for there, which is refusing a string.
+  var total = run && Number.isInteger(run.children) ? run.children : 0;
+  if (!(total > 0)) return '';
+  var id = run.id || '';
+  var open = agentRunKidsOpen.has(id);
+  var busy = agentRunKidsBusy === id;
+  var kids = agentRunKids.has(id) ? agentRunKids.get(id) : undefined;
+  var err = agentRunKidsErr.get(id) || '';
+  var label = busy ? 'Reading…'
+    : open ? 'Hide the specialists'
+    : 'Show the ' + esc(String(total)) + ' specialist' + (total === 1 ? '' : 's');
+  var body = '';
+  if (open) {
+    if (err) {
+      body = '<div class="ag-run-why">' + esc(err) + '</div>';
+    } else if (kids === undefined || kids === null) {
+      // ⚠ **NOT YET READ AND COULD NOT BE READ ARE TWO DIFFERENT SENTENCES, and neither is
+      // "it asked nobody".** The second is `err` above; this is the first, and drawing `[]`'s
+      // sentence here would say the run delegated to nobody while the request is in flight.
+      body = '<div class="ag-run-why">Reading…</div>';
+    } else if (!kids.length) {
+      // A COUNT WITHOUT ROWS. The thread said this run asked somebody and the detail read
+      // answers nothing, so the two disagree — said out loud rather than drawn as an empty
+      // list, which reads as a screen that failed to render.
+      body = '<div class="ag-run-why">The count says ' + esc(String(total)) +
+        ', and there is nothing to show for it.</div>';
+    } else {
+      body = '<div class="ag-run-steps">' + kids.map(agentKidHtml).join('') + '</div>';
+    }
+  }
+  return '<div class="ag-msg ag-msg-bot">' +
+    '<div class="ag-run">' +
+      '<button class="ag-auto-btn" data-act="agent-run-kids" data-run="' + esc(id) + '"' +
+        (busy ? ' disabled' : '') + ' aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        label + '</button>' +
+      body +
+    '</div></div>';
+}
+
+/**
+ * ONE SPECIALIST'S ROW.
+ *
+ * **THE NAME IS THE SPECIALIST'S AND `null` IS SAID RATHER THAN FILLED IN WITH ITS ID.** A
+ * specialist deleted since the delegation was filed answers no name, and a uuid in a name's
+ * place reads as a different agent rather than as a missing one.
+ *
+ * **THE CHIP CLASS IS DERIVED FROM THE STATE**, so every one of `CHILD_STATES` needs a rule in
+ * the sheet — asserted, because a class with no rule is a control nobody can see.
+ *
+ * **ONE OF `result` AND `why`, NEVER BOTH AND NEVER INVENTED.** A `done` child that answered
+ * with nothing is a thing that happened; composing words for it is the dead control that
+ * ANSWERS, wrongly.
+ */
+function agentKidHtml(c) {
+  if (!c || typeof c !== 'object') return '';
+  var state = typeof c.state === 'string' ? c.state : 'unreadable';
+  var said = typeof c.result === 'string' && c.result
+    ? '<div class="ag-step-msg">' + esc(c.result) + '</div>'
+    : typeof c.why === 'string' && c.why
+      ? '<div class="ag-step-msg"><em>' + esc(c.why) + '</em></div>'
+      : '';
+  return '<div class="ag-run-step">' +
+      '<span class="ag-step-n">' + esc(String(Number.isFinite(c.idx) ? c.idx + 1 : 0)) + '</span>' +
+      '<span class="ag-step-w">' + esc(c.name || 'a specialist that is no longer here') + '</span>' +
+      '<span class="ag-chip ag-chip-' + esc(state) + '">' + esc(state) + '</span>' +
+      '<span class="ag-step-d">' + esc(typeof c.task === 'string' ? c.task : '') + '</span>' +
+    '</div>' + said;
+}
+
+/**
+ * A PRESS. Closing costs nothing; opening reads, unless the rows are already in hand.
+ *
+ * **A FOLD IS A PREFERENCE AND NEVER A QUESTION FOR THE SERVER**, which is the code
+ * explorer's own recorded rule one screen over. So closing draws and nothing else, and
+ * re-opening a run whose rows were read and have not been invalidated draws them again with
+ * no request.
+ */
+function agentRunKidsPress(id) {
+  if (!id || agentRunKidsBusy) return;
+  if (agentRunKidsOpen.has(id)) { agentRunKidsOpen.delete(id); renderAgents(); return; }
+  agentRunKidsOpen.add(id);
+  if (agentRunKids.has(id) && agentRunKids.get(id) !== null) { renderAgents(); return; }
+  agentKidsLoad(id);
+}
+
+/**
+ * READ ONE RUN'S CHILDREN.
+ *
+ * ⚠ **BOUND TO THE CONVERSATION AND THE ACCOUNT, asked AFTER the request.** Between the press
+ * and the answer somebody can open another conversation or sign in as somebody else, and an
+ * answer written then is one screen's rows appearing under another's — which for an ACCOUNT
+ * change is one customer's tasks on another's screen.
+ *
+ * **A FAILED READ KEEPS THE ROWS IT HAD AND SAYS WHY.** `null` would take a list that was
+ * correct off the screen because a later refresh did not come back.
+ */
+async function agentKidsLoad(id) {
+  const bound = agentBind();
+  const forAgent = agentMsgsFor;
+  agentRunKidsBusy = id;
+  agentRunKidsErr.delete(id);
+  renderAgents();
+  try {
+    const res = await apiFetch('/api/agent/run-children?run=' + encodeURIComponent(id));
+    const j = await res.json().catch(() => ({}));
+    agentRunKidsBusy = '';
+    if (agentMsgsFor !== forAgent || bound.uid !== agentUid()) return;
+    if (!res.ok || !j.ok) {
+      if (!agentRunKids.has(id)) agentRunKids.set(id, null);
+      agentRunKidsErr.set(id, (j && j.error) || 'Couldn’t read what the specialists are doing.');
+    } else {
+      agentRunKids.set(id, Array.isArray(j.children) ? j.children : []);
+      agentRunKidsErr.delete(id);
+    }
+  } catch {
+    agentRunKidsBusy = '';
+    if (agentMsgsFor === forAgent && bound.uid === agentUid()) {
+      if (!agentRunKids.has(id)) agentRunKids.set(id, null);
+      agentRunKidsErr.set(id, 'Couldn’t reach the server.');
+    }
+  }
+  agentRunKidsBusy = '';
+  renderAgents();
+}
+
+/**
+ * ⚠ **AN OPEN PANEL UNDER A LIVE RUN IS RE-READ ON EVERY THREAD READ, and a settled one is
+ * not.** A progress panel that does not move is the dead control again: the whole reason to
+ * open one is to watch which specialist is still going. So the bound is what somebody has
+ * EXPANDED and whether that run is still `delegating` — not every run in the conversation,
+ * which would fetch a settled fan-out's answers every 2.5 seconds for ever.
+ *
+ * **IT DOES NOT ARM THE POLL AND CANNOT.** `agentLive` is what decides whether to ask again,
+ * off the run states in a SUCCESSFUL thread read; this rides on that decision rather than
+ * making one of its own.
+ */
+function agentKidsRefresh(msgs) {
+  if (agentRunKidsBusy) return;
+  (Array.isArray(msgs) ? msgs : []).forEach((m) => {
+    const r = m && m.run;
+    if (r && r.state === 'delegating' && r.id && agentRunKidsOpen.has(r.id)) agentKidsLoad(r.id);
+  });
+}
+
+/**
+ * THE RUN'S ROW AND, WHEN IT ASKED ANYBODY, THE SPECIALISTS UNDER IT.
+ *
+ * ⚠ **A WRAPPER RATHER THAN A BLOCK SPLICED INTO EIGHT BRANCHES.** Each state below returns a
+ * whole message bubble, so a toggle inserted before one's closing tags would be a string edit
+ * the next state added silently breaks — and the kids panel is its own bubble because it is
+ * its own thing: the run's row says what the run is doing, this says what its specialists are.
+ */
 function agentRunHtml(run) {
+  return agentRunRow(run) + agentKidsHtml(run);
+}
+
+function agentRunRow(run) {
   if (!run) return '';
   var tag = run.simulated
     ? '<span class="ag-sim" title="No model is connected yet. This is a stand-in test result, not an answer from an AI.">Simulated</span>'
@@ -16190,6 +16394,10 @@ const CLICK_ACTIONS = {
   // ⚠ NOT THE TWO ABOVE. Those answer an approval STEP in a workflow; these answer one
   // TOOL CALL a model made in a conversation. Two different things, and a screen that
   // sent one where the other was meant would answer somebody else's question.
+  // ⚠ THE RUN COMES OFF THE ROW'S OWN ATTRIBUTE, never a re-read of the thread: the poll can
+  // land between the drawing and the press, and a toggle that re-read would open whichever run
+  // the newest answer happens to have put there.
+  'agent-run-kids': (e, el) => agentRunKidsPress(el.dataset.run),
   'agent-tool-approve': (e, el) => agentApprovalAct(el.dataset.id, 'approved'),
   'agent-tool-reject': (e, el) => agentApprovalAct(el.dataset.id, 'rejected'),
   'agent-tool-withdraw': (e, el) => agentApprovalAct(el.dataset.id, 'withdrawn'),

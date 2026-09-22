@@ -122,6 +122,14 @@ function fakeStore(over = {}) {
       return { ok: true, repeat: false, run_id: RID, occurrence: null, trigger: "manual", state: "queued" };
     },
     executions: async (...a) => { calls.push({ name: "executions", args: a }); return []; },
+    // ⚠ AND THE ONE-EXECUTION READ BESIDE IT, which the history route asks for only when the
+    // newest page does NOT hold the run somebody named — the arrival-to-run hop. A fake
+    // without it made the route THROW the moment `run` reached the query, so this census read
+    // a 502: the same trap `listEvents` and six others above it record, arriving through the
+    // query rather than through the body. **`null` is a REAL answer** — a run that is not this
+    // automation's is simply absent from the answer rather than marked on something else — so
+    // driving it needs a row, and a row is what proves the branch was really entered.
+    execution: async (...a) => { calls.push({ name: "execution", args: a }); return null; },
     // ── inbound endpoints ──────────────────────────────────────────────────
     // ⚠ AND THE SAME RULE A FOURTH TIME: the answer shapes are the ones
     // `agent.list_webhooks`, `create_webhook`, `set_webhook_enabled` and `delete_webhook`
@@ -144,6 +152,14 @@ function fakeStore(over = {}) {
     // times: the route throws, the census reads the status, and the failure names the wrong
     // thing entirely. Sixth time it would have.
     listEvents: async (...a) => { calls.push({ name: "listEvents", args: a }); return []; },
+    // ⚠ AND THE SEVENTH TIME. `/api/agent/run-children` reads one run's specialists, so a fake
+    // without `runChildren` makes the route THROW and this census reads a 502 — which names the
+    // wrong thing entirely and reads exactly like a route that forgot its tenant. **It answers a
+    // LIST, because `agent.delegation_progress` returns a single `jsonb` whose value is an
+    // array**: a fake answering an object would be one more capable than the store, in the
+    // reader whose `answerOf`-versus-`listOf` mistake made `/api/agent/webhooks` a route that
+    // had never once worked.
+    runChildren: async (...a) => { calls.push({ name: "runChildren", args: a }); return []; },
     createWebhook: async (...a) => {
       calls.push({ name: "createWebhook", args: a });
       return { ok: true, id: A1, event_name: "order.paid" };
@@ -244,7 +260,10 @@ test("every operation is scoped by the tenant the handler was given", async () =
     const f = fakeStore();
     const r = await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: f.store,
-      query: new URLSearchParams({ id: A1, agent: A1 }),
+      // ⚠ AND `run` IS IN THE QUERY AS WELL AS THE BODY, because `/api/agent/run-children` is a
+      // GET and reads it from there — driven without it, a census reads the 400 that route
+      // correctly gives and proves nothing about it at all.
+      query: new URLSearchParams({ id: A1, agent: A1, run: A1 }),
       // `key` is the import's identity and is REQUIRED — a census that omitted
       // it drove a 400 for that route and proved nothing about its scoping.
       // ⚠ GROWN FOR THE AUTOMATION ROUTES, not exempted for them. Each needs its own
@@ -657,7 +676,10 @@ test("the service key reaches a header and nothing else", async () => {
   for (const path of Object.keys(AGENT_ROUTES)) {
     answers.push(await handleAgentApi({
       path, method: AGENT_ROUTES[path], tenant: T1, store: rec.store,
-      query: new URLSearchParams({ id: A1, agent: A1 }),
+      // ⚠ AND `run` IS IN THE QUERY AS WELL AS THE BODY, because `/api/agent/run-children` is a
+      // GET and reads it from there — driven without it, a census reads the 400 that route
+      // correctly gives and proves nothing about it at all.
+      query: new URLSearchParams({ id: A1, agent: A1, run: A1 }),
       // ⚠ GROWN FOR THE AUTOMATION ROUTES, not exempted for them. Each needs its own
       // arguments, and a census that drove them without would prove nothing about
       // their scoping — it would just read the 400 every one of them correctly gives.

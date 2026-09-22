@@ -708,12 +708,22 @@ export function runView(r) {
       ...(state === "delegating" ? { children: kids, childrenOpen: kidsOpen, childrenDone: kids - kidsOpen } : {}),
     };
   }
+  // ⚠ **HOW MANY IT ASKED RIDES ON EVERY SETTLED STATE TOO, AND THE PROGRESS PAIR DOES NOT —
+  // two different kinds of fact, which is why one outlives the delegation and the other
+  // cannot.** `children` is an INVENTORY: *this run asked three specialists* stays true for
+  // ever, and it is the only thing that makes their results reachable once the parent has
+  // answered — without it the toggle disappears at the moment the answers arrive, which is
+  // when somebody most wants to read them. `childrenOpen`/`childrenDone` are PROGRESS, and
+  // progress is only meaningful while there is any to make: on a finished run the pair would
+  // be `0` and `3` for ever, which reads as a live count that has stopped moving.
+  const settledKids = Number.isInteger(r && r.run_children) && r.run_children > 0 ? r.run_children : 0;
+  const asked = settledKids > 0 ? { children: settledKids } : {};
   if (stop && stop.reason === "answered") {
     // The text is whatever the run produced. It is NOT trimmed, coerced or
     // defaulted to a sentence of ours: an answered run with an empty answer is a
     // thing that happened, and inventing words for it would be the dead control
     // that ANSWERS, wrongly.
-    return { id, state: "answered", step, simulated, text: typeof stop.text === "string" ? stop.text : "", why: "", at };
+    return { id, state: "answered", step, simulated, text: typeof stop.text === "string" ? stop.text : "", why: "", at, ...asked };
   }
   // STOPPED WITHOUT AN ANSWER. `why` is the engine's own reason — `spent`,
   // `call-failed`, `unmeasured` — and `"unknown"` where there is no stop to read,
@@ -740,9 +750,122 @@ export function runView(r) {
       note: cancelledFacts(stop).note || "",
       completedSteps: cancelledFacts(stop).steps ?? 0,
       completedCalls: cancelledFacts(stop).calls ?? 0,
+      ...asked,
     };
   }
-  return { id, state: "failed", step, simulated, text: "", why, at };
+  return { id, state: "failed", step, simulated, text: "", why, at, ...asked };
+}
+
+/**
+ * WHAT ONE SPECIALIST IS DOING, in the seven words the engine has for it.
+ *
+ * ⚠ **A DECLARED COPY OF `agent-builder/src/delegation.mjs`'s `CHILD_STATES`, censused BOTH
+ * WAYS in `test/agent-send.test.mjs`** — the one file that may load both products. Neither may
+ * import the other: `worker.js`'s module graph is a container image input, so an import here
+ * would put the agent product inside the site's container image. So it is a copy, declared as
+ * one, and a word added on either side fails by existing rather than by somebody remembering.
+ *
+ *   `queued`     — filed, nobody has picked it up.
+ *   `running`    — a consumer has it.
+ *   `done`       — it answered. **The ONLY state that delivered anything**, which is
+ *                  `CHILD_DELIVERED` on the engine's side and is why `failed` is not "done
+ *                  badly": a parent that counted a failure as an answer would combine it.
+ *   `failed`     — it stopped without answering, with its own reason.
+ *   `cancelled`  — the parent was stopped, so this was too. Nothing went wrong.
+ *   `unresolved` — its deadline passed with nothing recorded. **NOT a failure**: nobody knows
+ *                  whether it did its work, which is a different thing to tell somebody.
+ *   `unreadable` — this row cannot be read at all. Cannot-tell said out loud.
+ */
+export const CHILD_STATES = Object.freeze([
+  "queued", "running", "done", "failed", "cancelled", "unresolved", "unreadable",
+]);
+
+/** The ones still worth watching, so the screen knows whether to ask again. */
+export const CHILD_LIVE = Object.freeze(["queued", "running"]);
+
+/**
+ * One child of a delegating run, in the shape the conversation draws.
+ *
+ * ⚠ **THE DEADLINE IS THE ROW'S OWN AND THIS READER HAS NO BOUND OF ITS OWN — which is the
+ * whole reason the engine's own reader stopped recomputing one.** `agent.delegations.deadline_at`
+ * is written when the child is filed and is what `delegations_overdue` — the sweep's index —
+ * selects on, so it is the platform's ONE deadline. **This side does not know the deployment's
+ * `waitMs` and must not guess it**: a guess shorter than the recorded one reports work the
+ * database is still waiting for as abandoned, and a longer one reports an abandoned child as
+ * running for ever. There is nothing to get wrong here because there is nothing to compute.
+ *
+ * **A ROW WITH NO READABLE DEADLINE FALLS THROUGH TO WHAT `claimed_at` SAYS**, which is a real
+ * shape rather than a belt — a delegation filed before that column existed — and is the same
+ * "an older deployment reads as nothing-to-say" idiom `runView` takes for the two child counts.
+ * It is NOT cannot-tell wearing a value's clothes: the row really does say claimed-and-unsettled,
+ * and what it cannot say is whether a deadline has passed, because it has none.
+ *
+ * ⚠ **`ok` MUST BE THE BOOLEAN.** `"false"` is truthy, so a coercing reader would draw a failed
+ * specialist as one that delivered — the one direction that makes a combined answer wrong.
+ *
+ * **`context` IS DELIBERATELY NOT ON THE WIRE.** What was handed to a child is the delegation's
+ * own record and is bounded by `CONTEXT_NEVER` at the point it is built; a screen showing it
+ * would be a second reading of the customer's own memory and reference material, which they
+ * already have two screens for. What a parent's conversation is about is progress and results.
+ */
+export function childRow(r, now = Date.now) {
+  const row = r && typeof r === "object" && !Array.isArray(r) ? r : null;
+  const out = row && row.outcome && typeof row.outcome === "object" && !Array.isArray(row.outcome)
+    ? row.outcome : null;
+  const state = childState(row, out, now);
+  return {
+    id: cleanId(row && row.delegation) || "",
+    step: Number.isInteger(row && row.step) ? row.step : 0,
+    idx: Number.isInteger(row && row.idx) ? row.idx : 0,
+    depth: Number.isInteger(row && row.depth) ? row.depth : 0,
+    agent: cleanId(row && row.agent_id) || "",
+    /**
+     * ⚠ **THE SPECIALIST'S NAME IS `null` RATHER THAN ITS ID WHEN IT CANNOT BE READ.**
+     * `delegation_progress` LEFT JOINs `agent.agents`, so a specialist deleted since the
+     * delegation was filed answers no name — and putting the uuid there instead would draw
+     * a uuid where a person expects a name, which reads as a different agent rather than as
+     * a missing one.
+     */
+    name: typeof row?.agent_name === "string" && row.agent_name ? row.agent_name : null,
+    task: typeof row?.task === "string" ? row.task : "",
+    run: cleanId(row && row.run_id) || "",
+    state,
+    /**
+     * WHAT IT SAID, OR WHY IT DID NOT — one of the two, never both.
+     *
+     * **A `done` CHILD'S `result` IS WHATEVER IT PRODUCED, not defaulted to a sentence of
+     * ours**: a specialist that answered with nothing is a thing that happened, and inventing
+     * words for it is the dead control that ANSWERS, wrongly.
+     *
+     * **AND `why` RIDES ON `failed` ALONE.** `cancelled` is a person's own decision and
+     * `unresolved` is nobody knowing, so a reason there would be this reader composing one —
+     * the engine records none for either.
+     */
+    result: state === "done" && typeof out?.result === "string" ? out.result : null,
+    why: state === "failed" && typeof out?.reason === "string" && out.reason ? out.reason : null,
+    at: ms(row && (row.settled_at || row.cancelled_at)),
+  };
+}
+
+/**
+ * The state alone, so `childRow` reads it once and the census can drive it.
+ *
+ * **THE ORDER IS THE MEANING, exactly as the engine's is.** Cancelled outranks everything
+ * because the parent being stopped is the primary fact about the child; then a settled row's
+ * own outcome; and only for a row that is neither is the clock asked.
+ */
+function childState(row, out, now) {
+  if (!row) return "unreadable";
+  if (row.cancelled_at) return "cancelled";
+  if (row.settled_at) {
+    if (!out) return "unreadable";
+    if (out.ok === true) return "done";
+    if (out.ok === false) return "failed";
+    return "unreadable";
+  }
+  const due = typeof row.deadline_at === "string" ? Date.parse(row.deadline_at) : NaN;
+  if (Number.isFinite(due)) return now() > due ? "unresolved" : (row.claimed_at ? "running" : "queued");
+  return row.claimed_at ? "running" : "queued";
 }
 
 /**
@@ -1002,6 +1125,37 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
         `&order=seq.desc&limit=${MAX_THREAD}`);
       if (!r.ok) throw storeFail("read messages", r);
       return rows(r).map(threadRow).reverse();
+    },
+
+    /**
+     * EVERY SPECIALIST ONE RUN ASKED, in the order it asked them.
+     *
+     * ⚠ **THE COUNT IS ON THE THREAD AND THE DETAIL IS HERE, which is the approvals banner's
+     * own division.** `agent_thread` already carries `run_children` and `run_children_open`, so
+     * every glance at a conversation says *3 of 3 answered* for free; the tasks, the names and
+     * the results are a second read, made only when somebody opens one. Folding them into the
+     * thread view would fetch every child of every message on every poll — eight tasks and
+     * eight answers per delegating run, 2.5 seconds apart, for a screen that is drawing a
+     * count.
+     *
+     * **`listOf`, NOT `answerOf`, AND NOT `rows`.** `agent.delegation_progress` returns a single
+     * `jsonb` whose value is an array, so PostgREST answers a bare JSON array — which is the
+     * shape `answerOf` refuses BY DESIGN and which made `/api/agent/webhooks` a route that had
+     * never once worked. And `rows()` answers `[]` for anything it cannot read, which is right
+     * for a table read and wrong here: *"that run asked nobody"* is a claim, and a read that
+     * failed is not entitled to make it.
+     *
+     * **THE TENANT IS AN ARGUMENT AND IS ALWAYS IN THE FILTER.** The function bypasses RLS like
+     * every other one here, so this is the wall — and it is the whole wall: another account's
+     * run and one that does not exist both answer an empty list, which is *not found, never
+     * forbidden* for a caller that cannot otherwise tell the two apart.
+     */
+    async runChildren(tenant, runId) {
+      const r = await req("POST", "rpc/delegation_progress", {
+        body: { p_tenant: tenant, p_parent: runId },
+      });
+      if (!r.ok) throw storeFail("read run children", r);
+      return listOf(r, "read run children").map((c) => childRow(c));
     },
 
     /** NO `role` IS SENT. The column's default and its check decide. */
@@ -4221,6 +4375,12 @@ export const AGENT_ROUTES = Object.freeze({
   "/api/agent/tool-restore": "POST",
   "/api/agent/revoked-tools": "GET",
   "/api/agent/run-cancel": "POST",
+  // ⚠ ITS OWN ROUTE RATHER THAN A FIELD ON THE THREAD, and the division is the approvals
+  // banner's: the COUNT rides on `agent_thread` so every glance at a conversation can say
+  // *3 of 3 answered*, and the tasks, the names and the results are read only when somebody
+  // opens one. On the thread they would be fetched for every message on every 2.5-second
+  // poll, which is eight tasks and eight answers to draw a number nobody clicked.
+  "/api/agent/run-children": "GET",
 });
 
 /** Approve, or reject. Nothing else, and never a default. */
@@ -5497,6 +5657,21 @@ export async function handleAgentApi({ path, method, query, body, tenant, store,
         catch (e) { if (typeof log === "function") log("agent withdrawal: the queue was not rung", String(e?.message ?? e)); }
       }
       return ok({ notified, id: d.id, withdrawn: true, repeat: d.repeat === true });
+    }
+
+    if (path === "/api/agent/run-children") {
+      const runId = cleanId(q.get("run"));
+      if (!runId) return no(400, "which run?");
+      /**
+       * ⚠ **NO OWNERSHIP CHECK ABOVE THIS, AND THAT IS THE FUNCTION'S OWN WALL RATHER THAN A
+       * GAP.** `agent.delegation_progress` puts the tenant in its own `where`, so another
+       * account's run answers an EMPTY LIST — which is the same answer a run that asked
+       * nobody gets, and deliberately: *not found, never forbidden*, so a stranger cannot
+       * learn from this route that a run id they guessed is real. An `ownsRun` check here
+       * would be a second reading of the same fact, and the only thing it could add is the
+       * ability to tell those two apart.
+       */
+      return ok({ run: runId, children: await store.runChildren(who, runId) });
     }
 
     if (path === "/api/agent/revoked-tools") {
