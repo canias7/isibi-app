@@ -475,11 +475,24 @@ begin
       -- ENTRY, which is append-only and fenced. So what a child was told and
       -- allowed is readable from the child's own log rather than only from a row
       -- somebody could later update.
+      --
+      -- ⚠ **`agent.authored_run()` IS MERGED IN, AND WITHOUT IT EVERY CHILD ANSWERS
+      -- `no-agent`.** It is the one function that says what an authored run executes
+      -- under — `agent`, `model` and all eight bounds — and `agent.project_entry`
+      -- projects the first two onto `agent.runs.agent_name` and `.model` off THIS
+      -- entry and nowhere else. So an entry without it leaves `agent_name` null, the
+      -- runner reads `open.run.agent_name ?? open.state.agent` as nothing, and a
+      -- perfectly filed child is refused as an agent that is not registered here.
+      -- MEASURED before this line existed; `agent.send_to_agent` merges it for the
+      -- same reason, and a child IS an authored agent's run with a task as its
+      -- prompt. The object BELOW wins on conflicts, which is what keeps `tools` the
+      -- narrowed set rather than the catalog.
       v_entry := jsonb_build_object(
         'kind',   'started',
         'at',     (extract(epoch from clock_timestamp()) * 1000)::bigint,
         'tenant', p_tenant,
-        'prompt', v_c ->> 'task',
+        'prompt', v_c ->> 'task'
+      ) || agent.authored_run() || jsonb_build_object(
         'instructions', v_agent.instructions,
         'tools',  to_jsonb(v_allowed),
         'authoredAgent', v_agent.id,

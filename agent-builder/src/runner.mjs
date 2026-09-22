@@ -375,8 +375,14 @@ export function makeRunner(opts = {}) {
       if (!childOf || !delegation) return null;
       const outcome = childOutcome(stop);
       try {
-        const said = await delegation.forTenant(claim.tenant)
-          .settle({ child: runId, worker, token: hold.token, outcome });
+        // ⚠ **NO TENANT, AND THAT IS THE OPERATION'S OWN DESIGN RATHER THAN AN OMISSION
+        // HERE.** `settle` is FENCED by the child's own claim — the holder, the token and a
+        // live lease, against the work row the function locks — so the worker and the token
+        // ARE the authority, and a tenant beside them would be a second one that can
+        // disagree with the row. It is one of the store's flat operations for exactly that
+        // reason; `forTenant(t).forRun(...)` is the seam a TOOL reaches, where a run id and
+        // an account really do have to be applied before a model can write an argument.
+        const said = await delegation.settle({ child: runId, worker, token: hold.token, outcome });
         onEvent({
           at: "settled", runId, delegation: childOf,
           // A REFUSAL IS AN ANSWER AND IS REPORTED AS ONE. `settle` raises only when the

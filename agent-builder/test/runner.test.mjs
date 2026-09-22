@@ -7,6 +7,7 @@ import { defineAgent, defineTool, PUBLIC } from "../src/define.mjs";
 import { startedEntry, limitsToJson } from "../src/journal.mjs";
 import { makeRunStore } from "../src/store.mjs";
 import { liveStore } from "./helpers/memory-rest.mjs";
+import { AUTHORED, AUTHORED_AGENT } from "../src/agents.mjs";
 
 const NOW = 1_800_000_000_000;
 
@@ -53,10 +54,15 @@ const wants = (...names) => ({ text: "", usage: { inputTokens: 1, outputTokens: 
  * waited for.
  */
 function bench({ answers = [says("ok")], tools = [], limits = {}, maxAttempts, onError = () => {} } = {}) {
+  const events = [];
   let clock = NOW;
   const timer = fakeTimer();
-  const { rest, store, work } = liveStore({ now: () => clock });
-  const agents = { support: defineAgent({ name: "support", model: "m", instructions: "help", tools, limits }) };
+  const { rest, store, work, delegation } = liveStore({ now: () => clock });
+  // ⚠ `AUTHORED` IS IN THE REGISTRY BECAUSE A DELEGATED CHILD IS ONE OF ITS RUNS. The child's
+  // `started` entry names that agent — `agent.delegate_children` merges `agent.authored_run()`
+  // into it — so a bench without it answers `no-agent` for every child and no case about a
+  // child could reach the loop at all.
+  const agents = { ...AUTHORED, support: defineAgent({ name: "support", model: "m", instructions: "help", tools, limits }) };
 
   const calls = [];
   const send = async (req) => {
@@ -68,7 +74,8 @@ function bench({ answers = [says("ok")], tools = [], limits = {}, maxAttempts, o
 
   let w = 0;
   const runner = makeRunner({
-    work, store, send, agents, timer, maxAttempts, onError,
+    work, store, send, agents, timer, maxAttempts, onError, delegation,
+    onEvent: (e) => { events.push(e); },
     now: () => clock, nameWorker: () => `worker-${++w}`,
   });
 
@@ -97,7 +104,7 @@ function bench({ answers = [says("ok")], tools = [], limits = {}, maxAttempts, o
   }))).json();
 
   return {
-    rest, store, work, runner, timer, queue, api, accept, resume, view, calls,
+    rest, store, work, runner, timer, queue, api, accept, resume, view, calls, delegation, events,
     at: (ms) => { clock = ms; },
     advance: (ms) => { clock += ms; },
     get clock() { return clock; },
@@ -896,4 +903,89 @@ test("A CONFLICTING ENTRY IS ITS OWN OUTCOME, and leaves the work redeliverable"
   // abandoned.
   assert.equal(b.rest.work.get(runId).done_at, null, "a conflict took the run off the queue");
   assert.match(b.rest.work.get(runId).last_error, /another writer/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// A FINISHED CHILD HANDS ITS OUTCOME OVER WHILE IT STILL HOLDS ITS CLAIM
+// ════════════════════════════════════════════════════════════════════════════
+
+test("⚠ A CHILD SETTLES ITS DELEGATION BEFORE IT RELEASES, or the parent waits out the deadline", async () => {
+  // **THE ORDERING IS THE WHOLE PROPERTY AND IT IS OBSERVABLE HERE RATHER THAN NARRATED.**
+  // `agent.settle_delegation` is fenced by the CHILD's own claim — the holder, the token and
+  // a live lease, the same three checks every journal write presents — so a settle attempted
+  // after `finish` has released comes back `not-holder` and NOTHING is recorded. So
+  // `ok: true` on the settle IS the evidence that it happened above the release; a recorder
+  // seam could only ever have said that `settle` was called.
+  //
+  // ⚠ **AND THE FIXTURE IS THE REAL DELEGATION STORE OVER THE PROVEN FAKE**, not a stand-in
+  // that agrees: the fake implements that fence, so a runner that settled afterwards would
+  // fail this case for the reason the deployment would.
+  const b = bench({ answers: [says("the tide table")] });
+  const parent = await b.accept("t1");
+  const specialist = crypto.randomUUID();
+  b.rest.agents.set(specialist, {
+    id: specialist, tenant_id: "t1", status: "active",
+    name: "charts", instructions: "read the charts",
+  });
+
+  const child = crypto.randomUUID();
+  const filed = await b.delegation.delegate({
+    tenant: "t1", parent: parent.runId, step: "s1",
+    children: [{ id: crypto.randomUUID(), run_id: child, agent_id: specialist, task: "the tide table", tools: [] }],
+  });
+  assert.equal(filed.ok, true, `the children were not filed: ${filed.error}`);
+  // ⚠ THE PARENT IS PUT INTO THE STATE THE RUNNER'S OWN RELEASE LEAVES, THROUGH
+  // `claim_run` AND `release_run` RATHER THAN INTO THE MAPS. It is `awaiting-children`, so
+  // `finish(true, …)` has marked the row done and let the claim go — and that is what makes
+  // the requeue below observable: a parent nobody released is already on the queue, so
+  // `done_at === null` afterwards would be true whatever the settle did.
+  const heldParent = await b.work.claim({ runId: parent.runId, worker: "w-parent", ttlS: LEASE_TTL_S });
+  assert.equal(heldParent.claimed, true, "the parent could not be claimed");
+  assert.equal(
+    await b.work.release({ runId: parent.runId, worker: "w-parent", token: heldParent.token, done: true }),
+    true, "the parent was not released",
+  );
+  assert.ok(b.rest.work.get(parent.runId).done_at, "the parent is still on the queue before the settle");
+
+  const out = await b.runner.deliver(child);
+  assert.equal(out.why, "ran", `the child did not run: ${out.why} ${out.error ?? ""}`);
+
+  // ── the settle really landed, which only a live claim can do ──────────────
+  const said = b.events.filter((e) => e.at === "settled");
+  assert.equal(said.length, 1, `${said.length} settle events`);
+  assert.equal(said[0].settled, true, `the settle was refused: ${said[0].why}`);
+  assert.equal(said[0].runId, child);
+  assert.equal(said[0].ok, true, "a delivered answer was recorded as a failure");
+  assert.equal(said[0].repeat, false, "a first settle read as a repeat");
+
+  // ── and the outcome is on the row, read back through the real store ───────
+  const rows = await b.delegation.progress({ tenant: "t1", parent: parent.runId });
+  assert.equal(rows.length, 1, `${rows.length} children`);
+  assert.ok(rows[0].settled_at, "the delegation was never settled");
+  assert.deepEqual(rows[0].outcome, { ok: true, reason: "answered", result: "the tide table" });
+
+  // ── nothing of that step is outstanding, so the parent is back on the queue ──
+  assert.equal(said[0].outstanding, 0, `${said[0].outstanding} still outstanding`);
+  assert.equal(said[0].parentQueued, "queued", `the parent was not put back: ${said[0].parentQueued}`);
+  assert.equal(b.rest.work.get(parent.runId).done_at, null, "the parent is still off the queue");
+
+  // ── and the child's own claim is released, AFTER the settle ───────────────
+  assert.ok(b.rest.work.get(child).done_at, "the child kept its work row");
+  assert.equal(b.rest.work.get(child).claim_token, null, "the child kept its claim");
+});
+
+test("A RUN THAT IS NOBODY'S CHILD ASKS NOTHING AT ALL — the control", async () => {
+  // **WITHOUT THIS THE CASE ABOVE IS SATISFIED BY A RUNNER THAT SETTLES EVERY RUN IT
+  // FINISHES**, which would be a round trip per delivery for every run on the platform and
+  // an answer about a delegation that does not exist. `delegatedBy` is read out of the
+  // APPEND-ONLY LOG, so a run accepted through the API has none and the question is never
+  // put.
+  const b = bench({ answers: [says("on my own")] });
+  const { runId } = await b.accept("t1");
+  const before = b.rest.fetch.calls.length;
+  const out = await b.runner.deliver(runId);
+  assert.equal(out.why, "ran");
+  assert.equal(b.events.filter((e) => e.at === "settled").length, 0, "a settle was reported");
+  const asked = b.rest.fetch.calls.slice(before).filter((c) => String(c.url).includes("settle_delegation"));
+  assert.equal(asked.length, 0, `${asked.length} settle requests went out`);
 });

@@ -11,6 +11,15 @@
  */
 import { makeRunStore, DUPLICATE } from "../../src/store.mjs";
 import { makeWork } from "../../src/work.mjs";
+import { makeDelegationStore } from "../../src/delegation-store.mjs";
+// ⚠ THE CHILD'S FIRST JOURNAL ENTRY IS BUILT BY THE ENGINE'S OWN PRODUCER, not typed out
+// here. `agent.delegate_children` builds it in SQL and merges `agent.authored_run()` into
+// it; `startedEntry` is the JS producer of that same shape and `AUTHORED` is the registry
+// entry the census in `test/authored-run.test.mjs` pins the SQL's model and bounds to, both
+// ways. So a field added on either side reaches this fixture rather than leaving it a
+// capable-looking stand-in for a shape that has moved.
+import { startedEntry, limitsToJson } from "../../src/journal.mjs";
+import { AUTHORED, AUTHORED_AGENT } from "../../src/agents.mjs";
 
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 // THE COLUMN'S OWN TYPE, not a rule of this fake's: `agent.delegations.id`, `.child_run_id`
@@ -137,6 +146,39 @@ export function memoryRest({ now = () => Date.now() } = {}) {
     }
   };
 
+  /**
+   * `agent.accept_run`'s own effect — the run, its first journal entry and its queue row,
+   * together or not at all.
+   *
+   * ⚠ **LIFTED OUT BECAUSE TWO THINGS FILE A RUN AND THE REAL SCHEMA HAS ONE DOOR.**
+   * `agent.delegate_children` does not repeat those three inserts either: it calls
+   * `agent.accept_run(v_child, p_tenant, v_entry, 'start')`. A second copy here would be
+   * a second definition of "accepted", and the copy that drifts is the one that leaves a
+   * child with a log and nothing to run it.
+   */
+  const fileRun = ({ id, tenant, entry, kind }) => {
+    if (!runs.has(id)) {
+      runs.set(id, { id, tenant_id: tenant, status: "new", agent_name: null, model: null, limits: null, stop: null, created_at: "2026-09-15T00:00:00Z" });
+      entries.set(id, new Map());
+    }
+    if (runs.get(id).tenant_id !== tenant) return null;
+    const log = entries.get(id);
+    if (!log.has(0) && ![...log.values()].some((b) => b.kind === "started")) {
+      log.set(0, entry);
+      project(id, entry);
+    }
+    if (!work.has(id)) {
+      // `executor` CARRIES THE COLUMN'S OWN DEFAULT, exactly as the migration writes
+      // it: a row accepted through this door is the agent loop's until something
+      // says otherwise, and the only thing that says otherwise is
+      // `accept_automation_run`, in the same transaction.
+      work.set(id, { run_id: id, tenant_id: tenant, kind: kind ?? "start", enqueued_at: now(), attempts: 0,
+        claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null, done_at: null, last_error: null,
+        executor: "agent" });
+    }
+    return work.get(id);
+  };
+
   const fetch = async (url, init) => {
     const u = new URL(url);
     const p = u.pathname;
@@ -206,28 +248,10 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       const { p_run_id: id, p_tenant: tenant, p_entry: entry, p_kind: kind } = body;
       if (typeof tenant !== "string" || tenant.trim() === "") return res(400, { message: "accept_run: tenant must be a non-empty string" });
       if (!entry || entry.kind !== "started") return res(400, { message: "accept_run: the first entry must be a \"started\" entry" });
-      if (!runs.has(id)) {
-        runs.set(id, { id, tenant_id: tenant, status: "new", agent_name: null, model: null, limits: null, stop: null, created_at: "2026-09-15T00:00:00Z" });
-        entries.set(id, new Map());
-      }
       // A retry must never attach to another tenant's run: the primary key is the
       // id ALONE, so without this the same id from a stranger would be absorbed.
-      if (runs.get(id).tenant_id !== tenant) return res(403, { code: "42501", message: `accept_run: run ${id} is not this tenant's` });
-      const log = entries.get(id);
-      if (!log.has(0) && ![...log.values()].some((b) => b.kind === "started")) {
-        log.set(0, entry);
-        project(id, entry);
-      }
-      if (!work.has(id)) {
-        // `executor` CARRIES THE COLUMN'S OWN DEFAULT, exactly as the migration writes
-        // it: a row accepted through this door is the agent loop's until something
-        // says otherwise, and the only thing that says otherwise is
-        // `accept_automation_run`, in the same transaction.
-        work.set(id, { run_id: id, tenant_id: tenant, kind: kind ?? "start", enqueued_at: now(), attempts: 0,
-          claimed_by: null, claimed_at: null, lease_expires_at: null, claim_token: null, done_at: null, last_error: null,
-          executor: "agent" });
-      }
-      const w = work.get(id);
+      const w = fileRun({ id, tenant, entry, kind });
+      if (!w) return res(403, { code: "42501", message: `accept_run: run ${id} is not this tenant's` });
       return res(200, { run_id: id, tenant_id: tenant, state: stateOf(w), attempts: w.attempts });
     }
 
@@ -872,6 +896,15 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         return res(200, { ok: false, error: "bad-step" });
       }
       if (!Array.isArray(kids) || kids.length === 0) return res(200, { ok: false, error: "bad-child" });
+      // ⚠ THE DEPTH IS THE PARENT'S OWN PLUS ONE, and a parent that is nobody's child is
+      // the ROOT at depth 0 — read from the delegation rows rather than assumed, because a
+      // fixture that hardcoded 1 could not tell a grandchild from a child and the bound is
+      // about the chain.
+      const asChild = [...dels.values()].find((r) => r.answer.run_id === parent);
+      const root = asChild ? asChild.parent : parent;
+      const depth = asChild ? (asChild.depth ?? 0) + 1 : 0;
+      const conc = Math.max(1, Number.isInteger(bounds?.concurrency) ? bounds.concurrency : 4);
+      const deadline = now() + Math.max(1, Number.isInteger(body.p_wait_ms) ? body.p_wait_ms : 900000);
       let made = 0;
       let absorbed = 0;
       const out = [];
@@ -905,23 +938,145 @@ export function memoryRest({ now = () => Date.now() } = {}) {
         const key = `${parent}\u0000${step}.${i}`;
         const had = dels.get(key);
         if (had) { absorbed += 1; out.push(had.answer); continue; }
+        // ⚠ **`concurrency` IS A BOUND OVER TIME, so a child past it is FILED AND HELD
+        // BACK rather than left unmade.** The real function admits `v_i < v_conc` and holds
+        // the rest through `done_at` — the column that already means "nothing more to
+        // deliver" — so the run and its recorded configuration exist either way and
+        // `settle_delegation` admits the next one by position as each answers.
+        const admit = i < conc;
+        const tools = Array.isArray(c.tools) ? c.tools : [];
+        const context = Array.isArray(c.context) ? c.context : [];
         const row = {
           answer: { idx: i, delegation: c.id, run_id: c.run_id, agent_id: c.agent_id,
-                    tools: Array.isArray(c.tools) ? c.tools : [], admitted: true },
+                    tools, admitted: admit },
           parent, step, idx: i, agent_id: c.agent_id, agent_name: spec.name ?? c.agent_id,
-          task: c.task, tools: Array.isArray(c.tools) ? c.tools : [],
-          context: Array.isArray(c.context) ? c.context : [],
+          task: c.task, tools, context,
           run_status: "new", run_stop: null, outcome: null,
-          created_at: new Date(now()).toISOString(), admitted_at: new Date(now()).toISOString(),
-          claimed_at: null, settled_at: null, cancelled_at: null, deadline_at: null, depth: 1,
+          created_at: new Date(now()).toISOString(),
+          admitted_at: admit ? new Date(now()).toISOString() : null,
+          claimed_at: null, settled_at: null, cancelled_at: null,
+          deadline_at: new Date(deadline).toISOString(), depth,
+          tenant, wake_lost: false,
         };
+        // ⚠ **THE CHILD IS A RUN, AND FILING IT IS WHAT MAKES ITS CHILDHOOD READABLE.** The
+        // real function calls `agent.accept_run` with an entry carrying `delegatedBy`,
+        // `delegation`, `depth` and `context`, so a consumer reads whose child this is out
+        // of the APPEND-ONLY LOG rather than off a row somebody could update or an argument
+        // a caller could supply. A fixture that filed only the delegation row would leave
+        // every case about a child running against a run that does not exist.
+        fileRun({
+          id: c.run_id, tenant, kind: "start",
+          entry: startedEntry({
+            at: now(), tenant, prompt: c.task ?? null,
+            agent: AUTHORED[AUTHORED_AGENT].name,
+            model: AUTHORED[AUTHORED_AGENT].model,
+            limits: limitsToJson(AUTHORED[AUTHORED_AGENT].limits),
+            instructions: spec.instructions ?? "",
+            tools, authoredAgent: c.agent_id,
+            delegatedBy: parent, delegation: c.id, depth, context,
+          }),
+        });
+        // HELD BACK THROUGH `done_at`, exactly as the migration writes it.
+        if (!admit) work.get(c.run_id).done_at = now();
         dels.set(key, row);
         made += 1;
         out.push(row.answer);
       }
-      return res(200, { ok: true, root: parent, depth: 1, step, made, absorbed,
-                        deadline_at: null, concurrency: bounds?.children ?? 4,
-                        running: made + absorbed, parent_released: false, children: out });
+      // ⚠ **THE PARENT LETS GO HERE OR NOT AT ALL.** `p_worker`/`p_token` are optional in
+      // the real signature and a delegation that hands them over releases the parent in the
+      // SAME transaction that filed the children — so a fixture that ignored them would
+      // leave the parent holding a claim no child could ever settle around.
+      let released = false;
+      if (isText(body.p_worker) && body.p_token !== null && body.p_token !== undefined) {
+        const pw = work.get(parent);
+        if (pw && pw.claimed_by === body.p_worker && pw.claim_token === body.p_token && pw.lease_expires_at > now()) {
+          pw.claimed_by = null; pw.claimed_at = null; pw.lease_expires_at = null; pw.claim_token = null;
+          pw.done_at = now(); pw.last_error = null;
+          released = true;
+        }
+      }
+      return res(200, { ok: true, root, depth, step, made, absorbed,
+                        deadline_at: new Date(deadline).toISOString(), concurrency: conc,
+                        running: out.filter((o) => o.admitted).length,
+                        parent_released: released, children: out });
+    }
+
+    /** `agent.settle_delegation` — one child's outcome, FENCED BY ITS OWN CLAIM.
+     *
+     * ⚠ **THE FENCE IS THE WHOLE REASON THIS IS MIRRORED RATHER THAN RECORDED.** The holder,
+     * the token and a live lease are the same three checks every journal write presents, and
+     * they are what make the runner's settle have to happen BEFORE it releases: a settle
+     * attempted after the release is `not-holder`, and the parent then waits out the deadline
+     * for a child that really answered. A fixture that accepted any caller would make that
+     * ordering unobservable.
+     */
+    if (p.endsWith("/rpc/settle_delegation") && init.method === "POST") {
+      const { p_child: child, p_worker: worker, p_token: token, p_outcome: outcome } = body;
+      // ⚠ `ok` MUST BE THE BOOLEAN — the real function RAISES otherwise, because `"false"`
+      // is truthy and a coercing reader records a failed specialist as having delivered.
+      if (!outcome || typeof outcome !== "object" || Array.isArray(outcome) || typeof outcome.ok !== "boolean") {
+        return res(400, { message: "settle_delegation: an outcome must carry ok as true or false" });
+      }
+      const found = [...dels.entries()].find(([, r]) => r.answer.run_id === child);
+      if (!found) return res(200, { ok: false, error: "no-delegation" });
+      const [, del] = found;
+      const w = work.get(child);
+      if (!w) return res(200, { ok: false, error: "no-work" });
+      if (w.claimed_by !== worker) return res(200, { ok: false, error: "not-holder" });
+      if (w.claim_token !== token) return res(200, { ok: false, error: "bad-token" });
+      if (!(w.lease_expires_at > now())) return res(200, { ok: false, error: "lease-expired" });
+
+      let first = false;
+      if (del.settled_at === null && del.cancelled_at === null) {
+        del.settled_at = new Date(now()).toISOString();
+        del.outcome = outcome;
+        first = true;
+      }
+      // ONE FINISHES, SO THE NEXT ONE WAITING ITS TURN MAY START — by position, and only
+      // ever one, which is what keeps `concurrency` a bound over time.
+      let woke = null;
+      let admitted = null;
+      let admittedIdx = null;
+      if (first) {
+        const next = [...dels.values()]
+          .filter((r) => r.parent === del.parent && r.step === del.step
+            && r.admitted_at === null && r.settled_at === null && r.cancelled_at === null)
+          .sort((x, y) => x.idx - y.idx)[0];
+        if (next) {
+          next.admitted_at = new Date(now()).toISOString();
+          next.answer.admitted = true;
+          admitted = next.answer.run_id;
+          admittedIdx = next.idx;
+          const nw = work.get(admitted);
+          if (nw && !(nw.claimed_by !== null && nw.lease_expires_at > now())) {
+            nw.kind = "resume"; nw.done_at = null; nw.enqueued_at = now(); nw.last_error = null; nw.attempts = 0;
+            woke = "queued";
+          } else if (nw) { woke = "running"; }
+        }
+      }
+      // COUNTED RATHER THAN DECREMENTED, and an OVERDUE child is not live — keeping one
+      // "live" past its deadline is exactly how a parent waits for ever.
+      const live = [...dels.values()].filter((r) => r.parent === del.parent && r.step === del.step
+        && r.settled_at === null && r.cancelled_at === null
+        && Date.parse(r.deadline_at ?? "") > now()).length;
+      let parentQueued = null;
+      if (live === 0) {
+        const pw = work.get(del.parent);
+        if (!pw) { parentQueued = "not-found"; }
+        else if (pw.claimed_by !== null && pw.lease_expires_at > now()) {
+          parentQueued = "running";
+          // ⚠ A RING THAT WAS REFUSED IS RECORDED RATHER THAN LOST: the parent is held
+          // until its own delivery lets go, so a fast child can answer inside that window.
+          del.wake_lost = true;
+        } else {
+          pw.kind = "resume"; pw.done_at = null; pw.enqueued_at = now(); pw.last_error = null; pw.attempts = 0;
+          parentQueued = "queued";
+        }
+      }
+      return res(200, { ok: true, repeat: !first, delegation: del.answer.delegation,
+                        parent: del.parent, step: del.step, idx: del.idx,
+                        outstanding: live, parent_queued: parentQueued,
+                        admitted, admitted_idx: admittedIdx, admitted_queued: woke });
     }
 
     /** `agent.delegation_progress` — every child of this parent, in position order. */
@@ -1280,7 +1435,16 @@ export const liveStore = (opts = {}) => {
   const rest = memoryRest(opts);
   const wire = { fetch: rest.fetch, url: "https://p.supabase.co/", key: "svc" };
   const work = makeWork(wire);
-  return { rest, store: makeRunStore({ ...wire, appendEntry: work.append }), work };
+  return {
+    rest, store: makeRunStore({ ...wire, appendEntry: work.append }), work,
+    // ⚠ THE REAL DELEGATION STORE OVER THE SAME FAKE, because the hop under test is the
+    // runner handing a finished child's outcome over WHILE IT STILL HOLDS ITS CLAIM — and a
+    // recorder seam could only ever say that `settle` was called, never that the fence
+    // admitted it. Over this fake, `ok: true` IS that ordering: `settle_delegation` refuses
+    // a caller who is not the holder, so a settle attempted after the release comes back
+    // `not-holder`.
+    delegation: makeDelegationStore(wire),
+  };
 };
 
 /**

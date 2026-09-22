@@ -17,7 +17,7 @@ import {
   WAIT_POLICIES, POLICY_NAMES,
   DELEGATION_DEFAULTS, DELEGATION_LIMIT_NAMES, okBound, delegationBounds,
   CONTEXT_KINDS, CONTEXT_NEVER, selectContext,
-  narrowDelegatedTools, childState, sayDelegation, waitVerdict, combineResults,
+  narrowDelegatedTools, childState, childOutcome, sayDelegation, waitVerdict, combineResults,
   WAITING_MARK, isWaiting,
 } from "../src/delegation.mjs";
 
@@ -242,6 +242,75 @@ test("⚠ THE DEADLINE IS WHAT MAKES SILENCE AN ANSWER", () => {
   // A ROW WITH NO BIRTH TIME CANNOT BE AGED, so it is read as what it is rather than as
   // expired — cannot-tell must never read as a value.
   assert.equal(childState({ claimed_at: born }, { now: at(t0 + 1e12), waitMs: 1 }), "running");
+});
+
+test("⚠ `childOutcome` IS THE INVERSE OF `childState`, AND ONLY `answered` IS DELIVERED", () => {
+  // THE ROUND TRIP IS WHY THIS FUNCTION LIVES BESIDE `childState` RATHER THAN IN THE RUNNER.
+  // The settle writes what this answers and the parent reads it back with that one, so the
+  // two halves of one shape are asserted to agree rather than assumed to: a shape that
+  // round-trips today stops doing so the first time one half is edited alone.
+  const asRow = (stop) => ({ settled_at: "2026-09-22T00:00:00Z", outcome: childOutcome(stop) });
+  assert.equal(childState(asRow({ reason: "answered", text: "the tide table" })), "done");
+
+  // A CHILD THAT ANSWERED HANDS OVER ITS WORDS, and `result` is the field `combineResults`
+  // reads once the row has been projected.
+  const done = childOutcome({ reason: "answered", text: "the tide table" });
+  assert.deepEqual(done, { ok: true, reason: "answered", result: "the tide table" });
+  assert.deepEqual(
+    combineResults([{ index: 0, state: childState(asRow({ reason: "answered", text: "the tide table" })), result: done.result }]).results,
+    [{ index: 0, agent: null, result: "the tide table" }],
+  );
+
+  // ⚠ EVERY OTHER ENDING IS A FAILURE AND CARRIES ITS OWN REASON. Out of steps, out of
+  // budget, a failed call, a crash — each is a run that stopped without answering, and
+  // reading any of them as delivered is law 1 inverted. A reason this has never heard of
+  // falls the same way, so a stop kind added next month is a failure rather than a success.
+  for (const reason of ["spent", "unmeasured", "call-failed", "crashed", "cancelled", "next-months-word"]) {
+    const out = childOutcome({ reason, text: "half a sentence" });
+    assert.equal(out.ok, false, `${reason} read as delivered`);
+    assert.equal(out.reason, reason, `${reason} lost its reason`);
+    // `result` RIDES ONLY ON THE SUCCESS: a bound-stopped run may carry partial text, and
+    // handing it on puts words in a specialist's mouth it never finished saying. There is
+    // no reader for it either — `combineResults` contributes nothing from a child that is
+    // not `done` — so a key here would be a value with a trap in it for the next reader.
+    assert.ok(!("result" in out), `${reason} carried a result`);
+    assert.equal(childState({ settled_at: "x", outcome: out }), "failed");
+  }
+
+  // ⚠ A STOP THIS CANNOT READ IS `ok: false` WITH `reason: "unrecorded"` — never a throw,
+  // never an absence, and above all never `ok: true`. Cannot-tell must never read as a
+  // value, and the value here is work delivered.
+  for (const bad of [null, undefined, 7, "answered", ["answered"], {}, { reason: "" }, { reason: 1 }, { ok: true }]) {
+    const out = childOutcome(bad);
+    assert.equal(out.ok, false, `${JSON.stringify(bad)} read as delivered`);
+    assert.equal(out.reason, "unrecorded", `${JSON.stringify(bad)} invented a reason`);
+    assert.equal(childState({ settled_at: "x", outcome: out }), "failed");
+  }
+
+  // AND `answered` WITH NOTHING TO SAY IS STILL AN ANSWER, with `result: null` rather than
+  // a missing key: a specialist that ran to its end and produced no text delivered nothing,
+  // which is a different fact from not having delivered — and `combineResults` has a reader
+  // for the null already. A text this cannot read is that same null, never the raw value.
+  assert.deepEqual(childOutcome({ reason: "answered" }), { ok: true, reason: "answered", result: null });
+  assert.deepEqual(childOutcome({ reason: "answered", text: ["a"] }), { ok: true, reason: "answered", result: null });
+
+  // A BOUND AND AN ERROR ARE NAMED WHEREVER THE STOP GIVES ONE, because a parent told only
+  // "it failed" has nothing to say to a customer and nothing to decide from — and they are
+  // ABSENT rather than `undefined` when it does not, so the settle writes no key a reader
+  // could take for a value.
+  assert.deepEqual(childOutcome({ reason: "spent", bound: "steps" }),
+    { ok: false, reason: "spent", bound: "steps" });
+  assert.deepEqual(childOutcome({ reason: "call-failed", error: "socket hang up" }),
+    { ok: false, reason: "call-failed", error: "socket hang up" });
+  for (const junk of [7, ["steps"], null, {}]) {
+    assert.ok(!("bound" in childOutcome({ reason: "spent", bound: junk })),
+      `bound: ${JSON.stringify(junk)} was carried`);
+    assert.ok(!("error" in childOutcome({ reason: "crashed", error: junk })),
+      `error: ${JSON.stringify(junk)} was carried`);
+  }
+
+  // IT IS FROZEN, so nothing between the settle and the wire can edit a verdict.
+  assert.ok(Object.isFrozen(done));
 });
 
 test("⚠ `over` AND `ok` ARE TWO QUESTIONS, and the module turns on not conflating them", () => {
