@@ -53,6 +53,14 @@ const FP = at("fake-provider.mjs");
 /** The inbound delivery surface: who a delivery belongs to, and whether it is one at all. */
 const WH = at("webhooks.mjs");
 /**
+ * ⚠ **READING ONE CHILD, AND THIS MODULE CARRIED NO MUTANT AT ALL UNTIL NOW.** Found by a
+ * COUNT PER FILE over the generated spec rather than by a survivor, which is the only
+ * instrument that can see it: a clean tally is the same sentence whether a module is covered
+ * or missing from the denominator entirely. `delegation-store.mjs` is still at zero and is
+ * recorded as outstanding rather than implied covered.
+ */
+const DG = at("delegation.mjs");
+/**
  * THE TWO FILES OUTSIDE `src/` THAT DECIDE WHETHER A DEPLOYMENT CAN BE IDENTIFIED —
  * the workflow that mints the version id and the script that holds the Worker to it.
  * They are swept because the defect they close was invisible from `src/`: every module
@@ -2751,6 +2759,33 @@ const spec = [
     "    return { ok: true, found: passages.length, passages,\n      searched: read.searched, sources: read.sources, say };",
     "    return { ok: true, found: passages.length, passages, say };"),
 
+  // ── ⚠ WHOSE DEADLINE A CHILD IS READ AGAINST ────────────────────────────────
+  //
+  // `agent.delegations.deadline_at` is written when the child is filed and is what the
+  // SWEEP's own index selects on, so a parent that recomputes one holds a belief the cron
+  // does not. The two disagree in OPPOSITE directions and the worse one does not terminate:
+  // with a longer bound the parent reads `running` and pauses, the sweep requeues it on the
+  // recorded deadline, and the cron does that to it once a minute for ever.
+  m("⚠ delegation: the deadline is recomputed from the bound instead of read off the row", DG,
+    "  const due = stamp(row.deadline_at);\n  if (Number.isFinite(due)) return now() > due ? \"unresolved\" : (row.claimed_at ? \"running\" : \"queued\");",
+    "  const due = NaN;"),
+  // AND AN OVERDUE CHILD READ AS LIVE IS THE SAME LOOP THROUGH THE COMPARISON rather than
+  // through the lookup — the parent waits on work the database has already given up on.
+  m("⚠ delegation: an overdue child reads as still working, so the parent never stops waiting", DG,
+    '  if (Number.isFinite(due)) return now() > due ? "unresolved" : (row.claimed_at ? "running" : "queued");',
+    '  if (Number.isFinite(due)) return row.claimed_at ? "running" : "queued";'),
+  // AND THE TWO LIVE STATES MUST STAY TWO: collapsing them leaves `delegating` unable to tell
+  // a child nobody has started from one that is working, which is the count the parent shows.
+  m("delegation: a child nobody has claimed yet reads as working", DG,
+    '  if (Number.isFinite(due)) return now() > due ? "unresolved" : (row.claimed_at ? "running" : "queued");',
+    '  if (Number.isFinite(due)) return now() > due ? "unresolved" : "running";'),
+  // ⚠ `Date.parse` COERCES WITH `String()`, AND TWO SHAPES A COLUMN CAN REALLY HOLD GET
+  // THROUGH: `["2026-09-22T00:00:00Z"]` is that very instant, and a bare `7` is **2001-07-01**
+  // — a deadline twenty-five years past, so every child under it is `unresolved` on arrival.
+  // Found by the case written for the lookup above, in the fix's own reader.
+  m("⚠ delegation: a timestamp that is not a string is coerced rather than refused", DG,
+    '  return typeof v === "string" ? Date.parse(v) : NaN;',
+    "  return Date.parse(v);"),
 ];
 
 // THE PRE-CHECK. Every anchor must occur EXACTLY once in its file, and the

@@ -288,6 +288,23 @@ const mOverview = (label, from, to, control = false) =>
 const mLink = (label, from, to, control = false) =>
   ({ label, files: [lastDefining("add column if not exists run_id uuid")], from, to, control });
 /**
+ * ⚠ **A GRANT ON `agent.tool_approvals` IS NOT THE THREAD VIEW'S DDL EITHER — the same class
+ * a THIRD time, and this one arrived through a sibling migration of my own.**
+ * `grant select on agent.tool_approvals to service_role` is made ONCE, by the run-states
+ * migration, and is what lets that view's approvals lateral be read under
+ * `security_invoker`; a `create or replace view` does not touch it, so it is not restated
+ * when the view is. It rode on `mThread` — the FILE that last defines the view — until the
+ * delegation migration restated that view to append its two `run_children` columns, at which
+ * point the anchor moved to a file that has never contained it. *A position is not an
+ * identity*, and the reason the two look alike is exactly that they were introduced together.
+ *
+ * Caught by the generator's own anchor census (`ANCHOR NOT FOUND`) rather than by a survivor,
+ * which is what that pre-check is for: after the run it reads as a test gap, and before it as
+ * nothing at all.
+ */
+const mApprovalGrant = (label, from, to, control = false) =>
+  ({ label, files: [lastDefining("grant select on agent.tool_approvals to service_role")], from, to, control });
+/**
  * THE AUTOMATIONS MIGRATION, found by what it defines rather than by its position —
  * the same rule `lastDefining` exists for. `claim_run` is redefined THERE, so
  * `mClaim` above already points at this file for anything it touches; these are the
@@ -1436,7 +1453,7 @@ const spec = [
     "  coalesce(open.calls, 0) as run_open_calls", "  coalesce(prog.step, 0) as run_open_calls"),
   mThread("⚠ SQL/states: `waiting` is computed from the open calls, so an unresolved run reads as waiting",
     "  coalesce(ask.waiting, false) as run_awaiting", "  coalesce(open.calls > 0, false) as run_awaiting"),
-  mThread("⚠ SQL/states: the server cannot read the approvals the view reaches, so every conversation fails",
+  mApprovalGrant("⚠ SQL/states: the server cannot read the approvals the view reaches, so every conversation fails",
     "grant select on agent.tool_approvals to service_role;", "-- no grant"),
   mPending("⚠ SQL/lists: an expired request is offered as something to answer, and then refused",
     "       and (a.expires_at is null or a.expires_at > now())", "       and true"),

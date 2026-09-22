@@ -215,7 +215,12 @@ test("⚠ READING ONE CHILD FAILS CLOSED, AND THE ORDER IS THE MEANING", () => {
   assert.equal(childState({ settled_at: "x" }), "unreadable");
 });
 
-test("⚠ THE DEADLINE IS WHAT MAKES SILENCE AN ANSWER", () => {
+test("⚠ THE DEADLINE IS WHAT MAKES SILENCE AN ANSWER — the FALLBACK, for a row carrying none", () => {
+  // ⚠ RE-ANCHORED, NOT APPEASED: every row here carries NO `deadline_at`, so what it drives is
+  // the `created_at + waitMs` arithmetic — which since the fix is the FALLBACK rather than the
+  // main path. The properties are unchanged and the path is real: this function is exported and
+  // takes a row, so a caller can hand it one it built itself. The recorded deadline is the case
+  // below, and it is the one every row out of `delegation_progress` really takes.
   const born = "2026-09-22T00:00:00Z";
   const t0 = Date.parse(born);
   const row = { created_at: born, claimed_at: born };
@@ -242,6 +247,81 @@ test("⚠ THE DEADLINE IS WHAT MAKES SILENCE AN ANSWER", () => {
   // A ROW WITH NO BIRTH TIME CANNOT BE AGED, so it is read as what it is rather than as
   // expired — cannot-tell must never read as a value.
   assert.equal(childState({ claimed_at: born }, { now: at(t0 + 1e12), waitMs: 1 }), "running");
+});
+
+test("⚠ THE RECORDED DEADLINE IS THE ONE ASKED, AND THE BOUND CANNOT OVERRULE IT", () => {
+  // ⚠ REPRODUCED THREE WAYS BEFORE THIS CASE EXISTED, against the committed function, which
+  // recomputed `created_at + waitMs` and ignored the row. `agent.delegations.deadline_at` is
+  // written by `delegate_children` and is what `delegations_overdue` — the SWEEP's own index —
+  // selects on, so the two disagreeing is not a discrepancy in a report: it is the parent and
+  // the cron holding opposite beliefs about the same child.
+  const born = "2026-09-22T00:00:00Z";
+  const t0 = Date.parse(born);
+  // The row the database really writes: born, claimed, and due fifteen minutes on.
+  const due = new Date(t0 + 900000).toISOString();
+  const row = { created_at: born, claimed_at: born, deadline_at: due };
+
+  // ⚠ **A LONGER BOUND CANNOT KEEP AN OVERDUE CHILD ALIVE — this is the non-terminating loop.**
+  // Read the old way, the recomputed window is still open, so the parent answers `running` and
+  // pauses again; the sweep requeues it on the RECORDED deadline a minute later, and the two do
+  // that to each other for ever. Measured: both of these answered `running` before the fix.
+  assert.equal(childState(row, { now: at(t0 + 900001), waitMs: 86400000 }), "unresolved");
+  // AND `Infinity` REACHES IT BY CONSTRUCTION rather than by a bound somebody changed:
+  // `JSON.stringify(Infinity)` is `"null"`, so `coalesce(p_wait_ms, 900000)` writes a
+  // fifteen-minute deadline for a deployment that asked for none.
+  assert.equal(childState(row, { now: at(t0 + 1e12), waitMs: Infinity }), "unresolved");
+
+  // ⚠ **AND A SHORTER ONE CANNOT DECLARE A LIVE CHILD DEAD** — the other direction, where the
+  // parent gives up on work the database says is still worth waiting for. Measured: this
+  // answered `unresolved` before the fix, on a row with fifteen minutes left on its record.
+  assert.equal(childState(row, { now: at(t0 + 1001), waitMs: 1000 }), "running");
+  // Inside its own window an unclaimed child is still `queued`, so the recorded deadline does
+  // not collapse the two live states into one — without which `delegating` could never tell a
+  // child nobody has started from one that is working.
+  assert.equal(childState({ created_at: born, deadline_at: due }, { now: at(t0 + 1001), waitMs: 1000 }), "queued");
+
+  // A DEADLINE THIS CANNOT READ FALLS THROUGH TO THE ARITHMETIC rather than being taken as
+  // expired — cannot-tell must never read as a value, and the value here is a live specialist
+  // declared dead. Driven over every shape a stored column can arrive as.
+  //
+  // ⚠ **AND TWO OF THESE FOUND A REAL DEFECT IN THE FIX THEY WERE WRITTEN FOR.**
+  // `Date.parse` coerces with `String()`, so `Date.parse(["2026-09-22T00:00:00Z"])` is that
+  // very instant — `String(["x"])` is `"x"`, this repository's most-repeated value trap — and
+  // `Date.parse(7)` is **2001-07-01**, because a bare number reads as a YEAR. So a column
+  // holding `7` was a deadline twenty-five years past and every child under it read
+  // `unresolved` on arrival. `stamp` asks the type first; both readers go through it.
+  for (const bad of [null, undefined, "", "soon", ["2026-09-22T00:00:00Z"], {}, 7, true, [7]]) {
+    assert.equal(
+      childState({ created_at: born, claimed_at: born, deadline_at: bad }, { now: at(t0 + 500), waitMs: 1000 }),
+      "running",
+      `a deadline of ${JSON.stringify(bad)} was read as a value`,
+    );
+    assert.equal(
+      childState({ created_at: born, claimed_at: born, deadline_at: bad }, { now: at(t0 + 1001), waitMs: 1000 }),
+      "unresolved",
+      `a deadline of ${JSON.stringify(bad)} stopped the fallback being asked`,
+    );
+  }
+
+  // AND THE SAME COERCION REACHED THE BIRTH TIME, which is the fallback's own half: a
+  // `created_at` of `7` reads as the year 2001, so the child is older than any bound and is
+  // aged out at once — the property the case above states ("a row with no birth time cannot
+  // be aged") defeated by a value that is not a timestamp at all.
+  for (const bad of [["2026-09-22T00:00:00Z"], 7, [7], {}, true]) {
+    assert.equal(
+      childState({ created_at: bad, claimed_at: born }, { now: at(t0 + 1e12), waitMs: 1000 }),
+      "running",
+      `a birth time of ${JSON.stringify(bad)} was read as a value`,
+    );
+  }
+
+  // AND THE ORDER ABOVE IT IS UNTOUCHED: a settled or cancelled child is read for what it is
+  // whatever its deadline says, because a decision and an outcome both outrank silence.
+  assert.equal(childState({ ...row, cancelled_at: born }, { now: at(t0 + 1e12) }), "cancelled");
+  assert.equal(
+    childState({ ...row, settled_at: born, outcome: { ok: true, reason: "answered" } }, { now: at(t0 + 1e12) }),
+    "done",
+  );
 });
 
 test("⚠ `childOutcome` IS THE INVERSE OF `childState`, AND ONLY `answered` IS DELIVERED", () => {

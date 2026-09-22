@@ -244,12 +244,33 @@ export function narrowDelegatedTools({ specialist, granted, revoked } = {}) {
 // ── reading one child ────────────────────────────────────────────────────────────────
 
 /**
+ * `stamp(v)` → the instant a stored timestamp names, or `NaN` for anything that is not one.
+ *
+ * ⚠ **`Date.parse` COERCES WITH `String()`, AND TWO SHAPES A COLUMN CAN REALLY ARRIVE AS GET
+ * THROUGH IT — MEASURED, and found by the case written for the recorded deadline.**
+ * `Date.parse(["2026-09-22T00:00:00Z"])` is that very instant, because `String(["x"])` is
+ * `"x"` — this repository's most-repeated value trap. And `Date.parse(7)` is **2001-07-01**,
+ * because a bare number reads as a YEAR, so a column holding `7` becomes a deadline
+ * twenty-five years in the past and every child under it is `unresolved` on arrival.
+ *
+ * So the type is asked FIRST: refuse, never coerce. Both readers below go through this, so
+ * there is one rule rather than two `Date.parse` calls that agree until one is edited.
+ */
+function stamp(v) {
+  return typeof v === "string" ? Date.parse(v) : NaN;
+}
+
+/**
  * `childState(row, { now, waitMs })` → one of `CHILD_STATES`
  *
  * ⚠ **FAILS CLOSED, AND THE ORDER IS THE MEANING.** Cancellation is read first because it
  * is a decision somebody made and outranks whatever the work was doing; then a settled
  * outcome; then the deadline, which is what turns silence into `unresolved` rather than
  * leaving a parent waiting for ever. A row this cannot read at all is `unreadable` — law 4.
+ *
+ * **THE DEADLINE ASKED IS THE ROW'S OWN (`deadline_at`), which is the one the sweep selects
+ * on**; `created_at + waitMs` is the fallback for a row that carries none, and the two can
+ * disagree in both directions — see the block below.
  */
 export function childState(row, { now = Date.now, waitMs = DELEGATION_DEFAULTS.waitMs } = {}) {
   if (!row || typeof row !== "object" || Array.isArray(row)) return "unreadable";
@@ -267,18 +288,45 @@ export function childState(row, { now = Date.now, waitMs = DELEGATION_DEFAULTS.w
   // between the claim and the answer leaves the parent waiting for ever, and a parent that
   // waits for ever is one nobody can tell from a parent that is working.
   //
-  // ⚠ **`waitMs !== Infinity` IS A DECLARED SECOND WALL AND IS MEASURED INERT — it stays
-  // because it says the INTENT where the comparison only happens to be right.** `x >
-  // Infinity` is false for every finite x, for `NaN` and for `Infinity` itself, so removing
-  // it changes no answer: driven over sixteen (birth, now) shapes including
-  // `Number.MAX_SAFE_INTEGER` apart, ZERO differences. A sweep will therefore report a
-  // mutant on this line as surviving, and that is the record rather than a test gap.
+  // ⚠ **AND THE DEADLINE IS THE ROW'S OWN — `created_at + waitMs` IS ONLY THE FALLBACK.
+  // REPRODUCED THREE WAYS before this line existed.** `agent.delegations.deadline_at` is
+  // written by `delegate_children` when the child is filed and is what `delegations_overdue`
+  // — the sweep's own index — selects on, so it is the platform's ONE deadline. This function
+  // recomputed one instead, which agrees with it only while the bound has not moved since,
+  // and MEASURED it can disagree in both directions:
+  //
+  //   • a SHORTER bound reads a child with fifteen minutes left on its record as
+  //     `unresolved`, so the parent gives up on work the database says is still worth
+  //     waiting for;
+  //   • a LONGER one is worse, because the two then disagree in OPPOSITE directions: the
+  //     SWEEP requeues the parent on the recorded deadline, the parent reads `running` and
+  //     waits again, and the cron does that once a minute for ever.
+  //
+  // **AND `waitMs: Infinity` REACHES THE SECOND CASE BY CONSTRUCTION, not by a bound
+  // somebody changed.** `p_wait_ms` is an `integer` and `JSON.stringify(Infinity)` is
+  // `"null"`, so `coalesce(p_wait_ms, 900000)` writes a FIFTEEN-MINUTE deadline for a
+  // deployment that asked for none — measured — and then `okBound(Infinity)` here read it as
+  // never expiring. A non-terminating loop, in the money path, on the one setting whose
+  // whole point is that there is no deadline.
+  const due = stamp(row.deadline_at);
+  if (Number.isFinite(due)) return now() > due ? "unresolved" : (row.claimed_at ? "running" : "queued");
+
+  // **THE ARITHMETIC STAYS FOR A ROW THAT HAS NOT GOT ONE, and that is a real shape rather
+  // than a belt**: this function is exported and takes a row, so a caller can hand it one it
+  // built itself, and `delegation_progress` is only one of the ways a row can arrive.
+  //
+  // ⚠ **`waitMs !== Infinity` IS A DECLARED SECOND WALL ON THIS FALLBACK AND IS MEASURED
+  // INERT — it stays because it says the INTENT where the comparison only happens to be
+  // right.** `x > Infinity` is false for every finite x, for `NaN` and for `Infinity` itself,
+  // so removing it changes no answer: driven over sixteen (birth, now) shapes including
+  // `Number.MAX_SAFE_INTEGER` apart, ZERO differences. A sweep will therefore report a mutant
+  // on this line as surviving, and that is the record rather than a test gap.
   //
   // **THE OBSERVABLE HALF OF THE SAME PROPERTY IS ONE FUNCTION OVER**: what really makes
   // "no deadline" reachable is `okBound` admitting `Infinity`, because a reader that refused
   // it would send `delegationBounds` to the DEFAULT — so a deployment asking for no deadline
   // would silently get fifteen minutes. That one is driven and goes red.
-  const started = Date.parse(row.created_at ?? "");
+  const started = stamp(row.created_at);
   if (Number.isFinite(started) && okBound(waitMs) && waitMs !== Infinity && now() - started > waitMs) {
     return "unresolved";
   }
