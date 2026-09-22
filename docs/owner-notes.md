@@ -263,6 +263,42 @@ that the door itself is what said no stays proven by the tests only. Putting
 the reason on the reply would settle it; that's a product change and would need
 another deploy first.
 
+### The result (run 21, 22 Sep): the wording is right, and loading still says "6 places left"
+
+**The restore (run 20) worked exactly as planned.** Your site's own version list
+showed run 17's build started from `01789972018761-6tng48`, with nothing
+published in between. The site switched to that version on the first check,
+and every page and component came back byte-identical to run 17's starting
+point. (Run 19, just before it, restored nothing: the version box arrived
+empty, so it ran as an ordinary free check.)
+
+**The paid run (21) passed everything except one required item.**
+
+- It sent your exact sentence, started from the exact same source, and
+  published. The quick one-file rung did **not** publish it. It cost **17**
+  (routing 2 + edit 15), and the balance went **65 → 48**. That's less than the
+  22–30 I estimated.
+- It changed **only the booking box** (`day-space-lookup`). The home page file
+  and the other four files are byte-identical.
+- The wording matches your table exactly, measured live on the site: an empty
+  day reads **"6 places left"**, 2 booked **"4"**, 5 booked **"1 place left"**,
+  and 6, 7 or 99 booked **"0 places left"**. It never goes negative and never
+  says "still has space" on a full day. The real lookup works, with 0 errors.
+- **It failed the loading/error rule.** While the count is loading, when the
+  lookup fails (503 or 404), or when it comes back empty, the box says **"6
+  places left on this day."** The page turns "don't know yet" into 0 before
+  the box sees it, and the builder only changed the box. It's the exact miss we
+  wrote down before pressing.
+- Your reply said "✅ Updated /", which is true of what the page shows, plus the
+  same old database warnings as run 11. One of them ("the request is a 404") is
+  wrong about the live site, but it isn't new.
+- The Spanish and French pages show the whole box in English. That's the known
+  "text inside a component isn't translated" gap.
+
+**The site is live in that state now.** Fixing loading and errors needs both the
+page and the box changed. Your options: another edit that spells it out, a
+product change, or a free restore back. I haven't done any of them.
+
 ---
 
 ## 2026-09-22 — You broke it a sixth time, on a component with no props

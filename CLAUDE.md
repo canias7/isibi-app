@@ -2663,6 +2663,95 @@ handed its three readers and holding no transport of its own:
   `duration_ms 108,727`) — **+19 against the last measured reading of 7,143**,
   exactly this file's cases. The CI half is the push's own run.
 
+### RUNS 19–21 — THE RESTORE, AND THE REPLAY'S VERDICT (2026-09-22)
+
+**RUN 19 (`35785143379`) RESTORED NOTHING, AND THE ENV BLOCK IS WHAT SAID SO.**
+Dispatched from the branch with both expect boxes filled and `restore_version`
+EMPTY (`CANARY_RESTORE:` blank), so it ran as an ordinary free press — a second
+runtime confirmation (`a208a86a` / `be869f142e052c8c`, balance 65). **A blank
+box and a mode that failed to run end the same way**; the missing `RESTORE`
+section plus the env block is what separates them.
+
+**RUN 20 (`35785850097`) IS THE RESTORE, AND EVERY PREDICTION CLOSED.** 14
+versions listed; row 1 `01790040384165-wl5it5` with **parent
+`01789972018761-6tng48`**; row 2 the target, labelled *"The home page shows nine
+beginner quotes in three stacked…"*; **zero builds minted between the two** — so
+the residual the saved evidence could not close is closed by the platform's own
+record: nothing published between run 11 and run 17. POST 200 `{ok, id,
+files: 37, swept: 0, worker: true}`, and the site reported the id on the FIRST
+read (the session's own header poll agreed at 21:19:29Z). Then **all six bodies
+byte-identical to run 17's before-read**, same path set (the control against
+run 17's after DIFFERS at `index.tsx` alone), headings identical, words
+474/63/46, photos 0, balance 65. **The before reading on the restored page:
+FAIL 10 · MATCH 0 · READ 1**, every count and every unknown state in the old
+booking-count wording exactly as predicted, the real RPC 200 body `0`, 0 console
+errors, 0 failed requests.
+
+**RUN 21 (`35787164840`, `main` at `a208a86a`, 21:31:30 → 21:40:35Z) IS THE
+REPLAY, AND IT FAILS ONE MANDATORY ITEM.**
+
+- **The request** ✓: 159 chars, sha256 `622547386217ef0c…`, `source:
+  CANARY_INSTRUCTION`. **The run's own before-read** ✓: byte-identical to run
+  17's before on all six.
+- **Routed** `intent=edit layer=page page=/` in 34.6 s, cost 2 — run 17's layer.
+- **The one-file rung did not publish** ✓: `tweak` absent, `tweakUsage` `{in
+  8314, out 53}`. **53 output tokens cannot hold a page** (run 17's tweak
+  re-emitted the 26 KB page in 7,627), so the tweak returned no rewritten page
+  for the door to judge; **its stated reason is not on the wire and stays
+  unverified** (owner).
+- **Published** ✓: a stored reply, HTTP 200 under `x-gf-edit: final`, after
+  443.3 s (134 polls, 0 transient failures); the live header moved to
+  **`01790112998238-ew6e7z`, minted 21:36:38.238Z**, inside the window. Job
+  states `claimed` (cost 0) to ~229 s, `routing` (cost 15) from ~242 s,
+  `publishing` at ~440 s — intervals, not attributed.
+- **Cost: route 2 + edit 15 = 17, balance 65 → 48, the arithmetic closing
+  exactly — BELOW the 22–30 band quoted before the press.** Two usage records
+  on the terminal body, `8,314 in / 53 out` (the tweak's) and `20,208 in /
+  9,249 out`; `langs` fr and es `cached: true, missing: 0`, nothing translated.
+- **WHAT CHANGED IS `day-space-lookup` ALONE** (1,466 → 1,488 chars,
+  `5330fca7…` → `eccf4acc56f67a85`): `SLOTS_PER_DAY = 6`, `placesLeft =
+  Math.max(0, SLOTS_PER_DAY - bookingCount)`, the lead now *"how many places are
+  left on it"*, the line `1 place left` / `${placesLeft} places left on this
+  day.` **`index.tsx` is BYTE-IDENTICAL** (`129b5460…`) and still passes
+  `Number(bookingCount ?? 0)`; `chord-diagram`, `trial-booking-form`,
+  `gear.tsx` and `prices.tsx` are byte-identical ✓.
+- **The wording, English `/`, measured live with browser-answered counts** ✓
+  **six of six**: 0 → *"6 places left on this day."*, 2 → *"4 places left…"*,
+  5 → *"1 place left…"* (singular), 6/7/99 → *"0 places left on this day."*
+  (full, never negative); no day → *"Choose a day to check space."*; *"…
+  bookings already on this day"* in no state.
+- **⚠ LOADING AND ERRORS FAIL — the mandatory item.** Pending, 503 on every
+  try, 404 and 200 `null` **all read *"6 places left on this day."*** The
+  component cannot tell unknown from zero because the PAGE collapses it
+  (`Number(bookingCount ?? 0)`) before the component sees it, and the writer
+  changed only the component. **Exactly the failure the acceptance named before
+  the press** — a naive `6 − Number(x ?? 0)` showing six places while the count
+  is loading: the writer's miss on a property the instruction did not state.
+  **FAIL 4 · MATCH 6 · READ 1.**
+- **Still working** ✓: NAV 200, 0 console errors, 0 failed requests, and the
+  UNINTERCEPTED `bookings_on_day` 200 body `0` reading *"6 places left on this
+  day."*, correct for the real count.
+- **The customer reply**: *"✅ Updated /."* — true of what `/` shows, though the
+  page FILE is unchanged — then run 11's four pre-existing schema warnings
+  (three printed, the known cut), **including *"the request is a 404"* for
+  `bookings_on_day`, which the live call contradicts (200)** — pre-existing lint
+  wording, not this edit's — and *"2 pages threw an error and 4 pages reads
+  something the check can't reach"*, the render check's `/` and `/es` phone #418
+  plus four `unmet`: run 11's own findings, unresolved in both directions.
+  **Nothing in it claims the loading states are safe, and nothing in it could
+  know.**
+- **Reported, not a pass condition**: `/es` and `/fr` draw the box ENTIRELY IN
+  ENGLISH, the same lines in every state, unknown ones included — the open
+  *"strings outside the page source are never translated"* item, met on a
+  component.
+- **SO THE REPLAY ESTABLISHES** that the real model, shown the component,
+  changes the calculation and the wording together — six of six, which run 17's
+  rung could not do — **and does NOT protect unknown data**, a mandatory pass
+  criterion. **The page is live in that state.** A fix needs both files (the
+  page must stop collapsing unknown into 0, the component must say something
+  neutral for it), so it is a second request, a product change, or a free
+  restore to `01789972018761-6tng48` — none taken without the owner.
+
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
@@ -5190,7 +5279,10 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 65** at run 17's end (2026-09-22, read by the canary at both
+build. **Balance 48** at run 21's end (2026-09-22, the places-left replay:
+**65 → 48, moved 17** — route 2 + the page rung's 15, closing exactly, on a run
+that published; runs 18–20 were free and read 65 each). **Balance 65** at run
+17's end (2026-09-22, read by the canary at both
 ends: **75 → 65, moved 10** — route 2 + the page rung's 8, the arithmetic
 closing exactly, on a run that published). Before it, **balance 75** at run
 14's end (2026-09-21: 77 → 75, **a NET movement of 2**, on a run whose outcome
