@@ -569,7 +569,7 @@ export const STANDIN_MODEL = "stand-in";
  * and no "unknown" that reads as a blank bubble.
  */
 /**
- * ⚠ **SEVEN STATES, AND FOUR OF THEM USED TO BE ONE WORD.**
+ * ⚠ **EIGHT STATES, AND FIVE OF THEM USED TO BE ONE WORD.**
  *
  * `working` covered a run really thinking, a run waiting for a person, a run that can never
  * move again, and a run somebody stopped — the last two for EVER, which is the one thing the
@@ -579,6 +579,11 @@ export const STANDIN_MODEL = "stand-in";
  *   `queued`   — accepted, nothing done yet.
  *   `working`  — a step is under way.
  *   `waiting`  — a person can still answer a request; the screen's banner is the thing to do.
+ *   `delegating` — it asked this account's other agents and is waiting for them. **It is the
+ *                one of the eight that is idle here and busy somewhere else**, which is why it
+ *                needs its own word: there is nothing to do about it and nothing is wrong, and
+ *                it carries how many were asked and how many have answered, because that is
+ *                the only thing a customer can be told while the conversation is quiet.
  *   `unresolved` — tool calls with no result and NOBODY able to answer. It will not move on
  *                its own, and nothing about it is a failure: it is a run that needs a person
  *                to decide, and until this existed it read as *working*.
@@ -593,7 +598,7 @@ export const STANDIN_MODEL = "stand-in";
  * can already see.
  */
 export const RUN_STATES = Object.freeze([
-  "queued", "working", "waiting", "unresolved", "answered", "cancelled", "failed",
+  "queued", "working", "waiting", "delegating", "unresolved", "answered", "cancelled", "failed",
 ]);
 
 /**
@@ -663,15 +668,44 @@ export function runView(r) {
     // rather than as a stranding.
     const awaiting = (r && r.run_awaiting) === true;
     const open = Number.isInteger(r && r.run_open_calls) && r.run_open_calls > 0 ? r.run_open_calls : 0;
-    // THE ORDER IS THE MEANING. A person who CAN answer is the thing to do, whatever else is
-    // true; only when nobody can does an unanswered call become a stranding.
-    const state = awaiting ? "waiting" : open > 0 ? "unresolved" : step > 0 ? "working" : "queued";
+    // ⚠ **AND A RUN WAITING ON ITS OWN SPECIALISTS IS NOT STRANDED, which is a defect
+    // delegation created and this line closes.** A `delegate` call that is still waiting gets
+    // NO tool result — the absence is what lets the delivery after the children settle find
+    // it pending — so `open` counts it and `awaiting` is false, because nobody is being asked
+    // to decide anything. MEASURED before this: such a run read `unresolved`, and the
+    // conversation drew *"It stopped part-way and can't carry on by itself"* in the warning
+    // colour over a fan-out that was working, and then stopped watching, because `unresolved`
+    // is not a live state.
+    //
+    // REFUSED, NEVER COERCED, on both, exactly as the two above: a view that answered `null`
+    // (an older deployment, a reader asking for fewer columns) must read as nothing-to-say —
+    // which falls through to what this read said before, rather than inventing a delegation
+    // over a run that has none.
+    const kids = Number.isInteger(r && r.run_children) && r.run_children > 0 ? r.run_children : 0;
+    const kidsOpen = Number.isInteger(r && r.run_children_open) && r.run_children_open > 0 ? r.run_children_open : 0;
+    // ⚠ **THE ORDER IS THE MEANING, AND IT IS NOW THREE DEEP.** A person who CAN answer is the
+    // thing to do whatever else is true; then a run whose children are the reason it is idle is
+    // DELEGATING; and only when neither is so does an unanswered call become a stranding.
+    // Putting `delegating` after `unresolved` is the defect back, because the delegate slot is
+    // itself the open call — and putting it before `awaiting` would hide a decision somebody
+    // could make behind work they cannot hurry.
+    const state = awaiting ? "waiting"
+      : kids > 0 ? "delegating"
+      : open > 0 ? "unresolved"
+      : step > 0 ? "working" : "queued";
     // `open` RIDES ON THE ANSWER for the two states it is about, because "one call" and "four
     // calls" are different things for somebody deciding what to do — and it is left off the
     // ordinary states rather than sent as 0, which would invite a reader to draw it.
+    //
+    // ⚠ **AND THE TWO CHILD COUNTS RIDE ONLY ON `delegating`, AS A PAIR.** `3 of 3 answered`
+    // and `1 of 3 answered` are the whole of the parent's progress, so neither number means
+    // anything without the other — and `done` is DERIVED rather than a third column, because a
+    // count of the answered ones beside a count of the outstanding ones is two ways to say one
+    // thing and they can disagree.
     return {
       id, state, step, simulated, text: "", why: "", at: 0,
       ...(state === "waiting" || state === "unresolved" ? { open } : {}),
+      ...(state === "delegating" ? { children: kids, childrenOpen: kidsOpen, childrenDone: kids - kidsOpen } : {}),
     };
   }
   if (stop && stop.reason === "answered") {
@@ -964,7 +998,7 @@ export function makeAgentStore({ fetch: doFetch, url, key, schema = AGENT_SCHEMA
       // is plain SQL and the schema check drives it on a real PostgreSQL.
       const r = await req("GET",
         `agent_thread?agent_id=eq.${agentId}` +
-        `&select=id,body,created_at,seq,run_id,run_status,run_stop,run_step,run_model,run_stopped_at,run_open_calls,run_awaiting` +
+        `&select=id,body,created_at,seq,run_id,run_status,run_stop,run_step,run_model,run_stopped_at,run_open_calls,run_awaiting,run_children,run_children_open` +
         `&order=seq.desc&limit=${MAX_THREAD}`);
       if (!r.ok) throw storeFail("read messages", r);
       return rows(r).map(threadRow).reverse();

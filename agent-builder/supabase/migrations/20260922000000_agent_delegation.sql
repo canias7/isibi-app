@@ -972,3 +972,114 @@ grant execute on function agent.cancel_delegations(text, uuid, text, text) to se
 grant execute on function agent.delegation_progress(text, uuid) to service_role;
 grant execute on function agent.list_specialists(text, uuid) to service_role;
 grant execute on function agent.sweep_delegations(integer) to service_role;
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 9. THE CONVERSATION — a parent waiting on its children is not stranded
+--
+-- ⚠ **THIS CLOSES A DEFECT THE REST OF THIS FILE CREATED, and it is the M9 class
+-- exactly: one word doing a job it is wrong about.** A `waits: true` tool gets NO
+-- tool result entry — the absence IS the record, which is what lets the delivery
+-- after the children settle find the call still pending — so `run_open_calls`
+-- counts the open `delegate` slot and `run_awaiting` is false, because nobody is
+-- being asked to decide anything. MEASURED through the site's own reader before
+-- this section existed: a parent running three specialists in parallel read
+-- **`unresolved`**, which means *nobody can move it*.
+--
+-- **WHAT THAT COSTS A CUSTOMER, in the words their screen really draws**: *"It
+-- stopped part-way and can't carry on by itself. 1 action was started and never
+-- answered, so it can't be confirmed either way. Check before asking for it again
+-- — it may already have gone."* — in the warning colour, over a fan-out that is
+-- working. **And `unresolved` is not a live state**, so the conversation stops
+-- re-reading itself: even once the children answer and the parent finishes, the
+-- screen never says so until somebody reloads.
+--
+-- **TWO COUNTS RATHER THAN A FLAG, because the requirement is the PARENT'S
+-- PROGRESS.** A boolean would tell a reader the run is delegating and leave "3
+-- specialists, 1 has answered" unsayable — which is the whole thing a customer
+-- wants while nothing appears to be happening. So: how many children this run
+-- has, and how many are still outstanding.
+--
+-- **OUTSTANDING IS NEITHER SETTLED NOR CANCELLED**, which is the delegations
+-- table's own definition of finished rather than a third idea of it — an outcome
+-- is written by `settle_delegation` and a stop by `cancel_delegations`, and a
+-- child that has one of those is done whichever it is.
+--
+-- **AND `children > 0` WITH NONE OUTSTANDING IS A REAL AND USEFUL STATE**: every
+-- specialist has answered and the parent is waiting for the delivery
+-- `settle_delegation` already queued. It reads as delegating with `3 of 3
+-- answered`, which is honest and is still LIVE — a delivery really is coming — so
+-- the screen keeps watching. Reading it as `unresolved` is the defect one instant
+-- later in the same run.
+--
+-- ⚠ **APPENDED, AND POSTGRES REQUIRES IT**: `create or replace view` may only ADD
+-- columns at the end, so the whole definition is restated here with two more on
+-- the end. Tidying the order is a broken deploy — the same rule the two columns
+-- above these were added under. **The COALESCE is the belt the two above it are**,
+-- inert today for the same reason and declared there rather than argued again.
+-- ══════════════════════════════════════════════════════════════════════════
+
+create or replace view agent.agent_thread
+  with (security_invoker = true) as
+select
+  m.id,
+  m.agent_id,
+  m.seq,
+  m.body,
+  m.created_at,
+  m.run_id,
+  r.status     as run_status,
+  r.stop       as run_stop,
+  r.model      as run_model,
+  r.started_at as run_started_at,
+  r.stopped_at as run_stopped_at,
+  prog.step    as run_step,
+  coalesce(open.calls, 0) as run_open_calls,
+  coalesce(ask.waiting, false) as run_awaiting,
+  coalesce(kids.total, 0) as run_children,
+  coalesce(kids.outstanding, 0) as run_children_open
+from agent.agent_messages m
+left join agent.runs r on r.id = m.run_id
+left join lateral (
+  select max(e.step) as step from agent.run_entries e where e.run_id = m.run_id
+) prog on true
+left join lateral (
+  select greatest(
+           coalesce(sum(jsonb_array_length(coalesce(e.body -> 'toolCalls', '[]'::jsonb)))
+                      filter (where e.kind = 'model'), 0)
+           - count(*) filter (where e.kind = 'tool'), 0) as calls
+    from agent.run_entries e where e.run_id = m.run_id
+) open on true
+left join lateral (
+  select exists (
+           select 1 from agent.tool_approvals a
+            where a.run_id = m.run_id and a.verdict is null
+              and (a.expires_at is null or a.expires_at > now())) as waiting
+) ask on true
+left join lateral (
+  -- ⚠ **HOW MANY SPECIALISTS THIS RUN ASKED, AND HOW MANY HAVE NOT ANSWERED.**
+  --
+  -- **THE CHILDREN ARE FOUND BY THE PARENT'S RUN AND NOT BY THE TENANT**, which is
+  -- not a missing filter: the message is already the caller's, so its run's children
+  -- are its run's. RLS on `agent.delegations` applies to a customer reading this view
+  -- as itself, and the server reaches it as `service_role`, which is exactly how the
+  -- `tool_approvals` lateral above already works.
+  --
+  -- **AND A CHILD OF A CHILD IS NOT COUNTED HERE**, which is the right reading of
+  -- "this run's progress": a grandchild belongs to its own parent's row and shows in
+  -- that conversation. The tree's own totals are `agent.task_trees`', for the bounds
+  -- rather than for a screen.
+  select count(*) as total,
+         count(*) filter (where d.settled_at is null and d.cancelled_at is null) as outstanding
+    from agent.delegations d where d.parent_run_id = m.run_id
+) kids on true;
+
+comment on view agent.agent_thread is
+  'One row per message with the state of the run it started: how many tool calls have no result, whether a person can still answer one, and how many specialists it asked and is still waiting for. security_invoker, so RLS on every relation it reads applies to whoever reads it.';
+
+-- The grants do not move, and are restated because the view was replaced: a
+-- customer may READ its own rows (RLS decides which), the server reads through
+-- `service_role`, `anon` is refused. `service_role` already holds SELECT on
+-- `agent.delegations` from section 8, which is what the new lateral needs under
+-- `security_invoker` — the grant the `tool_approvals` lateral had to be given.
+grant select on agent.agent_thread to authenticated, service_role;
+revoke all on agent.agent_thread from anon;

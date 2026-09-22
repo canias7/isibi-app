@@ -1482,8 +1482,22 @@ test("⚠ EVERY RUN STATE IS CLASSIFIED LIVE OR NOT, and a reload while waiting 
   const b = sending(t, { thread: [] });
   const live = (state) => b.w.ev(`agentLive([{ run: ${JSON.stringify({ id: "r", state })} }])`);
   const yes = RUN_STATES.filter((s) => live(s));
-  assert.deepEqual(yes, ["queued", "working"],
+  // ⚠ **A LITERAL, AND IT IS THE PROPERTY RATHER THAN A SPELLING OF ONE.** Whether a state
+  // moves on its own is a DECISION about what the platform does next, and nothing in the code
+  // can be asked it — so pinning the set is the only way to make an addition come through
+  // this case and meet the reasoning above it. `delegating` is the one addition since, and it
+  // is live because a child settling calls `requeue_run` and a dead child is put back by the
+  // cron's delegation sweep: the parent really does move with nobody touching it, and a
+  // screen that stopped asking would go quiet at the fan-out and stay quiet through every
+  // answer.
+  assert.deepEqual(yes, ["queued", "working", "delegating"],
     `the live set is ${JSON.stringify(yes)} — every other state must have a reason not to be`);
+  // AND EVERY STATE WAS REALLY ASKED, which is what makes the exclusions an assertion rather
+  // than a list that happens to be short: a `RUN_STATES` this loop could not read would leave
+  // a state classified by nobody and the set above still exactly right.
+  assert.equal(RUN_STATES.length >= 8, true, "the state vocabulary shrank — re-read the reasons");
+  assert.deepEqual(RUN_STATES.filter((s) => !live(s)).concat(yes).sort(), [...RUN_STATES].sort(),
+    "a state is in neither the live set nor the excluded one");
   // AND THE OBSERVER: a message with no run, and a row that is not one, are not live either.
   assert.equal(b.w.ev("agentLive([{ run: null }, {}, null])"), false);
   assert.equal(b.w.ev('agentLive("not a list")'), false);
@@ -1739,6 +1753,31 @@ test("WHAT EACH RUN STATE DRAWS, and what a message with no run draws", (t) => {
   assert.match(stranded, /may already have gone/, "it does not say to check before asking again");
   assert.notEqual(stranded, shown.get("waiting"),
     "stranded and waiting read the same, which is the defect this case exists for");
+
+  // ⚠ **THE STATE THAT USED TO BE DRAWN AS A STRANDING, and it is the one this branch exists
+  // for.** Before `runView` told the two apart, a parent with three specialists working read
+  // *"It stopped part-way and can’t carry on by itself"* in the warn colour, with an
+  // invitation to go and check whether the work had already happened — every word of it false
+  // about a healthy fan-out. So the facts are: it says somebody else is working, it says how
+  // far, and it is NOT a failure.
+  const helping = draw(run("delegating", { children: 3, childrenOpen: 1, childrenDone: 2 }));
+  const helpWords = helping.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  assert.match(helpWords, /Asked 3 other agents/, "it does not say how many were asked");
+  assert.match(helpWords, /2 of 3 answered/, "it does not say how many have answered");
+  assert.ok(!/ag-run-fail/.test(helping), "a working fan-out is drawn as a failure");
+  assert.ok(!/can’t carry on/.test(helpWords), "a working fan-out says it cannot carry on");
+  // ONE agent asked, so the pluralisation is a property rather than a happy number.
+  const one = draw(run("delegating", { children: 1, childrenOpen: 1, childrenDone: 0 }))
+    .replace(/<[^>]*>/g, " ");
+  assert.match(one, /Asked 1 other agent /, "it does not say a single agent was asked");
+  assert.ok(!/1 other agents/.test(one), "1 other agents");
+  // AND A COUNT IT CANNOT READ SAYS ONLY WHAT IS TRUE EITHER WAY, never a wrong number: the
+  // shapes are a view that has not got the columns yet, and a string where an integer belongs.
+  for (const over of [{}, { children: "3", childrenDone: "2" }]) {
+    const vague = draw(run("delegating", over)).replace(/<[^>]*>/g, " ");
+    assert.match(vague, /Other agents are working on this/, `${JSON.stringify(over)}: no sentence`);
+    assert.ok(!/\d/.test(vague.replace(/step \d+/, "")), `${JSON.stringify(over)}: invented a number`);
+  }
 
   const stopped = shown.get("cancelled");
   assert.match(stopped, /Stopped/, "a cancellation does not say it was stopped");

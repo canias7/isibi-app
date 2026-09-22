@@ -1879,6 +1879,30 @@ function agentCalls(n, before, after) {
 }
 
 /**
+ * ⚠ **HOW MANY SPECIALISTS WERE ASKED AND HOW MANY HAVE ANSWERED, in one sentence.**
+ *
+ * Its own function beside `agentCalls` for the same reason that one exists: the pluralisation
+ * is said in more than one place the moment anything else draws this, and two copies drift
+ * into *"1 specialists"*.
+ *
+ * **THE NUMBERS ARE READ, NEVER RECOMPUTED.** `childrenDone` comes from the server, which
+ * derives it from the two columns the view answers — so a screen subtracting for itself would
+ * be a second arithmetic that can disagree with the one the counts came from.
+ *
+ * **A COUNT IT CANNOT READ IS A SENTENCE WITHOUT NUMBERS rather than a sentence with wrong
+ * ones.** `Number.isFinite` refuses a string, and `'3'` would render `3 of 3` for
+ * `childrenDone: '3'` while comparing false everywhere else — so cannot-tell says only that
+ * other agents are working on it, which is the part that is true either way.
+ */
+function agentHelpers(run) {
+  var total = run && Number.isFinite(run.children) ? run.children : 0;
+  var done = run && Number.isFinite(run.childrenDone) ? run.childrenDone : 0;
+  if (!(total > 0)) return 'Other agents are working on this';
+  return 'Asked ' + esc(String(total)) + ' other agent' + (total === 1 ? '' : 's') +
+    ' \u2014 ' + esc(String(done)) + ' of ' + esc(String(total)) + ' answered';
+}
+
+/**
  * ⚠ **CAN THESE ARGUMENTS BE PUT IN FRONT OF A PERSON AT ALL.** One test, asked by the
  * banner above the message box AND by the automation history, because the two screens draw
  * the same fact and two copies of the question drift into two different answers about one
@@ -2088,6 +2112,13 @@ function agentToolLabel(name) {
  *                            act on, and it is re-read with the thread; pressing Approve
  *                            reloads it, after which the run is `queued` again and polling
  *                            resumes on its own;
+ *   • `delegating`         — YES, and it is the one addition since this list was written. A
+ *                            child settling calls `requeue_run`, and a child that dies is put
+ *                            back by the cron's own delegation sweep — so the parent really
+ *                            does move on its own and the screen has to keep asking. Left out,
+ *                            the conversation would go quiet at the fan-out and stay quiet
+ *                            through every answer, which is the defect one layer up wearing a
+ *                            poll's clothes;
  *   • `unresolved`         — no: nobody can move it, which is the whole meaning of the word;
  *   • `answered`, `cancelled`, `failed` — no: they have ended.
  * A poll armed for any of the five would ask the same question for as long as the screen
@@ -2095,7 +2126,7 @@ function agentToolLabel(name) {
  * state in `RUN_STATES` to be classified, so an eighth forces this decision rather than
  * defaulting to "not live".
  */
-const AGENT_LIVE_STATES = ['queued', 'working'];
+const AGENT_LIVE_STATES = ['queued', 'working', 'delegating'];
 const agentLive = (msgs) =>
   (Array.isArray(msgs) ? msgs : []).some((m) => m && m.run && AGENT_LIVE_STATES.indexOf(m.run.state) >= 0);
 
@@ -2174,6 +2205,28 @@ function agentRunHtml(run) {
     return '<div class="ag-msg ag-msg-bot">' +
       '<div class="ag-run ag-run-wait">' + tag +
         '<span class="ag-run-t">Working\u2026 step ' + esc(String(run.step)) + '</span>' +
+      '</div></div>';
+  }
+  // ⚠ **THE ONE STATE THAT IS IDLE HERE AND BUSY SOMEWHERE ELSE, and it had to have its own
+  // sentence for the reason the three below did.** Before `runView` told it apart, a parent
+  // running three specialists in parallel fell to the `unresolved` branch and read *"It
+  // stopped part-way and can't carry on by itself"* in the warn colour, with an invitation to
+  // go and check whether the work had already happened. MEASURED, and every word of it false.
+  //
+  // **IT IS `ag-run-wait`, WHICH IS THE POINT RATHER THAN A CHOICE OF COLOUR**: this is
+  // ordinary progress, so it reads like `working` and `waiting` and not like a fault. No class
+  // is invented — the conversation has two treatments and a plain row, and a new one would be
+  // a design decision nobody made.
+  //
+  // **AND THE PROGRESS IS THE WHOLE OF WHAT IT SAYS.** `2 of 3 answered` is the only thing a
+  // customer can be told while the conversation is quiet, and it is what makes the quiet
+  // legible rather than worrying. The counts are the SERVER's — `childrenDone` is derived
+  // there from the two the view answers, so this draws one fact rather than doing arithmetic
+  // of its own that could disagree with it.
+  if (run.state === 'delegating') {
+    return '<div class="ag-msg ag-msg-bot">' +
+      '<div class="ag-run ag-run-wait">' + tag +
+        '<span class="ag-run-t">' + agentHelpers(run) + '\u2026</span>' +
       '</div></div>';
   }
   // ⚠ **THREE STATES THE BACKEND ANSWERS AND THIS FUNCTION DREW AS FAILURES — MEASURED,

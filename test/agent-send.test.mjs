@@ -346,7 +346,7 @@ const row = (over = {}) => ({
   run_model: STANDIN_MODEL, run_stopped_at: null, ...over,
 });
 
-test("THE SEVEN STATES ARE A PARTITION, and every run is exactly one of them", () => {
+test("THE EIGHT STATES ARE A PARTITION, and every run is exactly one of them", () => {
   // ⚠ RE-ANCHORED, NOT APPEASED, AND BY THREE STATES RATHER THAN BY A COUNT. `working` used
   // to cover a run really thinking, a run waiting for a person, a run nobody can move again,
   // and a run somebody stopped — the last two FOR EVER. Each wants something different done
@@ -357,6 +357,10 @@ test("THE SEVEN STATES ARE A PARTITION, and every run is exactly one of them", (
     [row({ run_step: 1 }), "working"],
     // A person can still answer: the thing to do is on their screen.
     [row({ run_step: 1, run_awaiting: true, run_open_calls: 1 }), "waiting"],
+    // ⚠ A PARENT WHOSE SPECIALISTS ARE WORKING, which used to read as the stranding below it:
+    // a `waits` tool gets no result entry until its children settle, so the open slot is real
+    // and nobody has to answer it. The children are what separate the two.
+    [row({ run_step: 1, run_open_calls: 1, run_children: 3, run_children_open: 1 }), "delegating"],
     // Calls with no result and NOBODY able to answer — the stranding. Not a failure.
     [row({ run_step: 1, run_awaiting: false, run_open_calls: 2 }), "unresolved"],
     [row({ run_status: "stopped", run_step: 1, run_stopped_at: SENT,
@@ -371,7 +375,7 @@ test("THE SEVEN STATES ARE A PARTITION, and every run is exactly one of them", (
     assert.ok(RUN_STATES.includes(state));
   }
   assert.deepEqual([...RUN_STATES],
-    ["queued", "working", "waiting", "unresolved", "answered", "cancelled", "failed"]);
+    ["queued", "working", "waiting", "delegating", "unresolved", "answered", "cancelled", "failed"]);
   assert.equal(new Set(cases.map(([, s]) => s)).size, RUN_STATES.length, "not every state was driven");
 });
 
@@ -401,6 +405,76 @@ test("⚠ A RUN NOBODY CAN MOVE DOES NOT READ AS WORKING, and the order of the t
   assert.equal(runView(row({ run_step: 1, run_awaiting: true, run_open_calls: 3 })).open, 3);
   assert.ok(!Object.hasOwn(runView(row({ run_step: 1 })), "open"));
   assert.ok(!Object.hasOwn(runView(row({ run_status: "stopped", run_stop: { reason: "answered", text: "x" } })), "open"));
+});
+
+test("⚠ A PARENT WAITING ON ITS SPECIALISTS IS NOT A STRANDING, and the order of the three facts is the meaning", () => {
+  // ⚠ **REPRODUCED BEFORE ANYTHING WAS CHANGED, through this reader.** A `waits: true` tool
+  // gets NO tool result entry — `run.mjs` pushes to `waited` and continues, which is what
+  // leaves the slot open so the delivery after the children settle finds the call pending. So
+  // `run_open_calls` counts it and `run_awaiting` is false, and this reader said `unresolved`:
+  // MEASURED, `{"state":"unresolved","open":1}` for a parent with three specialists working.
+  // What the conversation then drew: *"It stopped part-way and can’t carry on by itself"*
+  // in the warn colour, with an invitation to check whether the work had already happened —
+  // and `unresolved` is not a live state, so the poll was never armed and the screen stayed
+  // that way through every answer.
+  const kids = (over) => runView(row({ run_step: 1, run_open_calls: 1, ...over }));
+
+  // ⚠ **THE ORDER, AND BOTH WRONG ONES ARE WORTH NAMING.** A person who CAN answer is the
+  // thing to do whatever else is true, so `waiting` is asked first — put `delegating` above it
+  // and a decision somebody could make is hidden behind a progress line. And only once nobody
+  // can answer does an open call become a stranding, so `delegating` is asked before
+  // `unresolved` — the other way round is the defect back.
+  assert.equal(kids({ run_awaiting: true, run_children: 3, run_children_open: 1 }).state, "waiting",
+    "a decision somebody can make is hidden behind the fan-out");
+  assert.equal(kids({ run_children: 3, run_children_open: 1 }).state, "delegating");
+  assert.equal(kids({ run_children: 0, run_children_open: 0 }).state, "unresolved",
+    "a run with no children stopped reading as a stranding");
+
+  // THE PROGRESS IS THE SERVER'S ARITHMETIC, done once, beside the inputs it came from — so a
+  // screen subtracting for itself cannot disagree with the counts it was handed.
+  const three = kids({ run_children: 3, run_children_open: 1 });
+  assert.equal(three.children, 3);
+  assert.equal(three.childrenOpen, 1);
+  assert.equal(three.childrenDone, 2);
+
+  // ⚠ **EVERY CHILD SETTLED AND THE PARENT NOT YET COLLECTED IS A REAL STATE**, not an ended
+  // one: the last child’s `requeue_run` is what brings the parent back, and until that
+  // delivery lands there is nothing else to say. So `children > 0` with none outstanding still
+  // reads `delegating`, and it says 3 of 3.
+  const all = kids({ run_children: 3, run_children_open: 0 });
+  assert.equal(all.state, "delegating");
+  assert.equal(all.childrenDone, 3);
+
+  // ⚠ **REFUSED, NEVER COERCED, AND CANNOT-TELL FALLS THROUGH TO WHAT THIS READER SAID
+  // BEFORE.** A view that has not got the columns yet, and a reader asking for fewer, both
+  // answer no column at all — so a junk count must not invent a fan-out, and must not invent
+  // one for a run that really is stranded either.
+  for (const junk of [undefined, null, "3", 1.5, -1, 0, NaN, ["3"], {}, true]) {
+    assert.equal(kids({ run_children: junk }).state, "unresolved",
+      `${JSON.stringify(junk)} became a fan-out`);
+  }
+  // AND AN UNREADABLE OUTSTANDING COUNT LEAVES THE STATE ALONE and says nothing it cannot
+  // read: 3 asked, nought known to be outstanding, so 3 answered is the honest reading of
+  // what arrived rather than a subtraction from a value nobody sent.
+  for (const junk of [undefined, null, "1", -1, NaN, ["1"]]) {
+    const v = kids({ run_children: 3, run_children_open: junk });
+    assert.equal(v.state, "delegating", `${JSON.stringify(junk)} lost the fan-out`);
+    assert.equal(v.childrenOpen, 0, `${JSON.stringify(junk)} reached the screen`);
+    assert.equal(v.childrenDone, 3);
+  }
+
+  // THE THREE RIDE ONLY ON THE STATE THEY ARE ABOUT, and are left OFF the others rather than
+  // sent as 0 — which would invite a screen to draw a fan-out for a run that never had one.
+  for (const key of ["children", "childrenOpen", "childrenDone"]) {
+    assert.ok(Object.hasOwn(three, key), `${key} is not answered for a fan-out`);
+    assert.ok(!Object.hasOwn(kids({ run_awaiting: true }), key), `${key} rode on a waiting run`);
+    assert.ok(!Object.hasOwn(kids({}), key), `${key} rode on a stranding`);
+    assert.ok(!Object.hasOwn(runView(row({ run_step: 1 })), key), `${key} rode on a working run`);
+  }
+  // AND `open` IS NOT SENT FOR A FAN-OUT: the open slot is the parent's own `delegate` call,
+  // which nobody is being asked to answer, so reporting it would be the stranding's number on
+  // a healthy run.
+  assert.ok(!Object.hasOwn(three, "open"), "a fan-out was given the stranding's count");
 });
 
 test("⚠ A RUN SOMEBODY STOPPED IS NOT A RUN THAT FAILED, and it says how far it got", () => {
@@ -1945,7 +2019,7 @@ test("⚠ THE CONVERSATION READ REALLY ASKS FOR THE TWO FACTS, or every state fa
   const read = r.seen.at(-1);
   assert.match(read.url, /agent_thread/);
   const select = decodeURIComponent(new URL(read.url).searchParams.get("select") || "");
-  for (const col of ["run_open_calls", "run_awaiting"]) {
+  for (const col of ["run_open_calls", "run_awaiting", "run_children", "run_children_open"]) {
     assert.ok(select.split(",").includes(col), `the read did not ask for ${col}: ${select}`);
   }
   // THE CONTROL: the columns the reader has always needed are still asked for, so a select
