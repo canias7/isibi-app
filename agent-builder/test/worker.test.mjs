@@ -14,6 +14,8 @@ import { makeStandIn } from "../src/model-standin.mjs";
 import { runAgent } from "../src/run.mjs";
 import { memoryRest } from "./helpers/memory-rest.mjs";
 import { LEASE_TTL_S, BEAT_EVERY_MS } from "../src/runner.mjs";
+import { makeWork } from "../src/work.mjs";
+import { makeDelegationStore } from "../src/delegation-store.mjs";
 import { AUTHORED_AGENT } from "../src/agents.mjs";
 import { startedEntry, limitsToJson } from "../src/journal.mjs";
 
@@ -2363,5 +2365,306 @@ test("⚠ A SCRIPTED SENDER REACHES THE REAL QUEUE HANDLER, and a deployment has
     await worker.queue(batchOf([{ runId: deployed }]), env, ctx);   // three, as Cloudflare calls it
     assert.doesNotMatch(String(await answerOf(deployed)), /scripted here/,
       "a three-argument delivery reached a scripted sender");
+  });
+});
+
+// ── job six: the two silences nothing else can end ───────────────────────────
+
+/**
+ * A parent holding children, filed through the REAL `delegate_children`.
+ *
+ * ⚠ **DERIVED FROM ITS PRODUCER RATHER THAN TYPED INTO `rest.dels`.** A hand-built
+ * delegation row is a fixture in a different shape from the thing under test — this
+ * directory's most repeated fault — and here it would be worse than usual, because the
+ * sweep's own reading turns on fields the producer sets and a hand-written row would not
+ * have (`deadline_at`, `wake_lost`, the parent's own tenant).
+ *
+ * ⚠ **THE PARENT IS CLAIMED FIRST AND ITS CLAIM IS HANDED OVER, which is the order the
+ * runner really takes.** `delegate_children` files the children and releases the parent in
+ * ONE transaction, so filing and letting go cannot come apart. `release: false` is the
+ * store's own OTHER shape — "a caller with more to do before it waits keeps its claim" —
+ * and it is the state the lost-wake arm is about, so it is an option here rather than a
+ * second helper doing the same thing by hand and getting the order wrong.
+ *
+ * ⚠ **A DEADLINE ALREADY GONE IS NOT SOMETHING A CALLER CAN ASK FOR, and asking for one is
+ * how a fixture here became flaky rather than wrong.** `delegate_children` clamps with
+ * `greatest(1, …)`, so `waitMs: -60_000` is ONE MILLISECOND IN THE FUTURE — it is not a
+ * deadline in the past — and a tick that ran inside that millisecond found nothing to sweep.
+ * MEASURED: two failures and a pass in three runs. `overdue: true` asks for the smallest wait
+ * the product will take and then really waits it out, so the row is past its deadline for ever
+ * rather than probably. **The clamp is the product being right**: a tree overdue the instant it
+ * is filed is a tree nothing could ever deliver.
+ */
+async function holdingChildren(rest, { parent, step = "s1", waitMs = 900_000, kids = 1, release = true, overdue = false } = {}) {
+  const wire = { fetch: rest.fetch, url: "https://p.supabase.co/", key: "svc" };
+  const store = makeDelegationStore(wire);
+  const work = makeWork(wire);
+  const specialist = crypto.randomUUID();
+  rest.agents.set(specialist, {
+    id: specialist, tenant_id: "t1", status: "active", name: "charts", instructions: "read the charts",
+  });
+  const children = Array.from({ length: kids }, () => ({
+    id: crypto.randomUUID(), run_id: crypto.randomUUID(), agent_id: specialist, task: "the tide table", tools: [],
+  }));
+  const hold = await work.claim({ runId: parent, worker: "w-parent", ttlS: LEASE_TTL_S });
+  assert.equal(hold.claimed, true, "the parent could not be claimed");
+  const filed = await store.delegate({
+    tenant: "t1", parent, step, children, waitMs: overdue ? 1 : waitMs,
+    ...(release ? { worker: "w-parent", token: hold.token } : {}),
+  });
+  assert.equal(filed.ok, true, `the children were not filed: ${filed.error}`);
+  if (overdue) {
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(Date.parse(filed.deadline_at) < Date.now(), `the deadline is still ahead: ${filed.deadline_at}`);
+  }
+  // ⚠ AND THE PARENT'S STATE IS ASSERTED EITHER WAY, because both are premises the cases
+  // below rest on. A parent nobody released is ALREADY on the queue, so every
+  // `done_at === null` assertion under the overdue arm would be true whatever the sweep did.
+  assert.equal(filed.parent_released, release ? true : null, JSON.stringify(filed));
+  if (release) assert.ok(rest.work.get(parent).done_at, "the parent is still on the queue before the sweep");
+  else assert.equal(rest.work.get(parent).done_at, null, "the parent was let go before it had waited");
+  return { store, work, children, hold };
+}
+
+/** Accept a run through the real door, and answer its id. */
+async function acceptRun(env, ctx, token, prompt = "wait for the charts") {
+  const res = await worker.fetch(new Request("https://x/runs", {
+    method: "POST", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ agent: "support", prompt }),
+  }), env, ctx);
+  assert.equal(res.status, 202, `starting a run answered ${res.status}`);
+  return (await res.json()).runId;
+}
+
+/**
+ * One cron tick, with job six's own log line read back.
+ *
+ * ⚠ **THE PER-ARM TALLY IS THE ONLY THING THAT SEPARATES THE TWO SILENCES, and reading it
+ * here is what makes it guarded rather than decorative.** The doorbell belongs to all six
+ * jobs — the FIRST of them offers every unheld work row, which each parent's own CHILD is —
+ * so a count of rings cannot say which job rang, and one total cannot tell a dead child from
+ * a slow parent. This product has twice shipped a log line whose numbers could not move.
+ */
+async function tickSaying(env, ctx) {
+  const said = [];
+  const keep = console.log;
+  console.log = (...a) => { said.push(a.map((x) => String(x)).join(" ")); };
+  try { await worker.scheduled({}, env, ctx); } finally { console.log = keep; }
+  const line = said.find((s) => s.startsWith("agent-delegation "));
+  assert.ok(line, `job six said nothing: ${JSON.stringify(said)}`);
+  return JSON.parse(line.slice("agent-delegation ".length));
+}
+
+test("⚠ A PARENT WAITING ON A CHILD PAST ITS DEADLINE IS PUT BACK, and one still in time is not", async () => {
+  // **THIS IS THE ONLY THING THAT ENDS A WAIT FOR A CHILD THAT WILL NEVER ANSWER.** A parent
+  // holding children has its work row marked done — there is nothing to redeliver until a
+  // child settles — so a child whose process died leaves the parent reading as `running` for
+  // ever with nobody to put it back. The sweep SETTLES NOTHING: it requeues the parent, which
+  // re-reads its own delegations and decides what silence adds up to, which is never success.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+
+    const cold = await acceptRun(env, ctx, token);
+    const warm = await acceptRun(env, ctx, token);
+    // A DEADLINE ALREADY GONE, and one still an hour off. The second is the control: without
+    // it, "the sweep put a parent back" is satisfied by a sweep that puts every parent back.
+    const late = await holdingChildren(rest, { parent: cold, overdue: true });
+    const soon = await holdingChildren(rest, { parent: warm, waitMs: 3_600_000 });
+    // ⚠ AND THE DOORBELLS THE ACCEPTS RANG ARE NOT THIS TICK'S. Counting from zero here would
+    // read two ordinary accepts as the sweep having rung them.
+    const before = env[QUEUE_BINDING].sent.length;
+
+    const six = await tickSaying(env, ctx);
+
+    // ONE PARENT, BY THE ARM THAT IS ABOUT IT — `overdue` rather than the total, because the
+    // other arm ringing this parent would be the same `rung` and an entirely different
+    // finding.
+    assert.deepEqual(six, { stuck: 1, rung: 1, overdue: 1 }, JSON.stringify(six));
+    // ⚠ AND EVERY RING IS NAMED RATHER THAN FILTERED. The sweeper runs FIRST and offers every
+    // unheld work row, which each parent's own child is — so a filter here would hide job six
+    // ringing a child, which is not its business at all.
+    const rung = env[QUEUE_BINDING].sent.slice(before).map((m) => m.runId).sort();
+    assert.deepEqual(rung, [cold, late.children[0].run_id, soon.children[0].run_id].sort(),
+      `the tick rang ${JSON.stringify(rung)}`);
+    assert.equal(rest.work.get(cold).done_at, null, "the stranded parent was not put back");
+    assert.equal(rest.work.get(cold).kind, "resume");
+    assert.notEqual(rest.work.get(warm).done_at, null, "a parent still in time was put back");
+    // AND NOTHING WAS SETTLED. `unresolved` is DERIVED from the deadline, so an outcome
+    // written by a sweep would be a second source of truth beside it — and it would be OUR
+    // verdict on work somebody's specialist may yet answer.
+    for (const r of rest.dels.values()) {
+      assert.equal(r.settled_at, null, "the sweep settled a child");
+      assert.equal(r.outcome, null, "the sweep invented an outcome");
+    }
+  });
+});
+
+test("⚠ A PARENT WHOSE LAST CHILD RANG WHILE IT WAS HELD IS RETRIED, once", async () => {
+  // **THE COMPENSATING HALF OF NOT HANDING THE PARENT'S CLAIM TO `delegate_children`.** A
+  // child that finishes inside the parent's own delivery rings a parent that cannot be
+  // claimed; `settle_delegation` records that (`wake_lost`) and this is what retries it.
+  // Without it the parent waits for ever on children that have ALL answered — which the
+  // overdue arm cannot rescue, because none of them is overdue.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    const parent = await acceptRun(env, ctx, token);
+    // ⚠ THE PARENT KEEPS ITS CLAIM, which is the whole state this arm is about. Handing it
+    // over releases the parent INSIDE the filing transaction, and then there is no held
+    // parent for a fast child to ring and nothing for the flag to record.
+    const { store, work, children, hold } =
+      await holdingChildren(rest, { parent, waitMs: 3_600_000, release: false });
+
+    const kid = await work.claim({ runId: children[0].run_id, worker: "w-kid", ttlS: LEASE_TTL_S });
+    assert.equal(kid.claimed, true, "the child could not be claimed");
+    const settled = await store.settle({
+      child: children[0].run_id, worker: "w-kid", token: kid.token,
+      outcome: { ok: true, reason: "answered", result: "the tide table" },
+    });
+    assert.equal(settled.ok, true, `the settle was refused: ${settled.error}`);
+    // ⚠ THE STORE ANSWERS THE FUNCTION'S OWN BODY, so this is `parent_queued`. `runner.mjs`
+    // is where it becomes `parentQueued`, and asserting the camel-cased name here would be
+    // asserting a shape this seam does not have — which passes as `undefined !== "running"`
+    // would not, but would pass the moment somebody asserted absence.
+    assert.equal(settled.parent_queued, "running", "the parent was not held, so no wake was lost");
+    assert.ok([...rest.dels.values()].some((r) => r.wake_lost === true), "no lost wake was recorded");
+
+    // THE PARENT LETS GO, which is what a real delivery does at its end.
+    assert.equal(await work.release({ runId: parent, worker: "w-parent", token: hold.token, done: true }), true);
+    const before = env[QUEUE_BINDING].sent.length;
+
+    const six = await tickSaying(env, ctx);
+
+    assert.deepEqual(six, { stuck: 1, rung: 1, "wake-lost": 1 }, JSON.stringify(six));
+    assert.deepEqual(env[QUEUE_BINDING].sent.slice(before).map((m) => m.runId), [parent],
+      "the lost wake was never retried");
+    assert.equal(rest.work.get(parent).done_at, null, "the parent was not put back");
+    /**
+     * ⚠ **ONCE PER LOST WAKE, NOT ONCE A MINUTE.** The flag is cleared the moment a ring
+     * lands, so a second tick has nothing to do — and without that this parent would be
+     * requeued every minute for as long as its delegations exist.
+     *
+     * The flag is the property; the second tick's TALLY is how it is observed, because the
+     * parent is queued and unheld now and the SWEEPER offers it again — correctly, and for a
+     * reason that is nothing to do with this arm. A doorbell count here would be red about
+     * job one.
+     */
+    assert.ok(![...rest.dels.values()].some((r) => r.wake_lost === true), "the flag was not cleared");
+    assert.deepEqual(await tickSaying(env, ctx), { stuck: 0, rung: 0 },
+      "the second tick found the same lost wake again");
+  });
+});
+
+test("a parent that has already stopped wants nothing", async () => {
+  // A STOPPED PARENT IS WORK NOTHING WILL EVER CLAIM, and without this it would be offered
+  // once a minute for ever. It is also what makes the wake-lost arm TERMINATE rather than
+  // retrying a run whose answer nobody is waiting for.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    const done = await acceptRun(env, ctx, token);
+    const { children } = await holdingChildren(rest, { parent: done, overdue: true });
+    rest.runs.get(done).status = "stopped";
+    const before = env[QUEUE_BINDING].sent.length;
+
+    assert.deepEqual(await tickSaying(env, ctx), { stuck: 0, rung: 0 },
+      "a parent that has already stopped was swept");
+    // ⚠ AND THE OBSERVER IS THE CHILD. The sweeper offers it, because it is unheld work — so
+    // the tick really did ring, which is what stops "the stopped parent was not rung" being
+    // satisfied by a tick that rang nothing at all.
+    assert.deepEqual(env[QUEUE_BINDING].sent.slice(before).map((m) => m.runId), [children[0].run_id],
+      "the stopped parent was rung");
+    assert.notEqual(rest.work.get(done).done_at, null, "the stopped parent was put back on the queue");
+  });
+});
+
+test("the delegation tick's failure cannot take the other five down", async () => {
+  // **SIX JOBS, SIX BLOCKS**: the sweeper is the recovery for every dropped run in the
+  // deployment, and this is the newest and least load-bearing of the six — a throw here must
+  // not cost the deployment its sweeper, its schedule, its resumes, its expiries or its
+  // events.
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    seedAutomation(rest);
+    const real = rest.fetch;
+    let broke = 0;
+    const patched = async (url, init) => {
+      if (String(url).includes("sweep_delegations")) { broke += 1; throw new Error("the delegation sweep went"); }
+      return real(url, init);
+    };
+    patched.calls = real.calls;
+    globalThis.fetch = patched;
+    await assert.doesNotReject(() => worker.scheduled({}, env, ctx));
+    assert.equal(broke, 1, "the delegation sweep never ran, so this proves nothing");
+    assert.equal(env[QUEUE_BINDING].sent.length, 1,
+      "a broken delegation sweep took the scheduler down with it");
+  });
+});
+
+test("⚠ A PARENT THAT MEANT TO LET GO AND DID NOT IS LOOKED AT, and job six says it could not act", async () => {
+  /**
+   * **`parent_released` HAS THREE ANSWERS AND THE MIDDLE ONE IS THE EXPENSIVE ONE.** `null`
+   * is "no claim was offered", `true` is "it let go", and `false` is "a claim was offered and
+   * it did not match" — a caller that MEANT to wait and is still holding its own work row, so
+   * no child settling can ever wake it. The migration's own comment is why it is said rather
+   * than folded into the other two.
+   *
+   * ⚠ **AND JOB SIX CANNOT RESCUE IT, WHICH IS THE POINT OF THE PER-ARM TALLY.** The parent is
+   * held, so `requeue_run` refuses to disturb it: the arm found the parent (`stuck`) and rang
+   * nobody (`rung`). One total would read that as a quiet minute — and this product has twice
+   * shipped a log line whose numbers could not move.
+   */
+  await onFakeProject(async (rest) => {
+    const env = good({ SUPABASE_JWT_SECRET: "s3cret" });
+    const ctx = { waitUntil() {} };
+    const token = await signFor("t1");
+    const parent = await acceptRun(env, ctx, token);
+    const wire = { fetch: rest.fetch, url: "https://p.supabase.co/", key: "svc" };
+    const store = makeDelegationStore(wire);
+    const work = makeWork(wire);
+    const specialist = crypto.randomUUID();
+    rest.agents.set(specialist, {
+      id: specialist, tenant_id: "t1", status: "active", name: "charts", instructions: "read the charts",
+    });
+    const hold = await work.claim({ runId: parent, worker: "w-parent", ttlS: LEASE_TTL_S });
+    assert.equal(hold.claimed, true, "the parent could not be claimed");
+
+    const filed = await store.delegate({
+      // THE SMALLEST WAIT THERE IS, waited out below — a negative one is clamped to a
+      // millisecond AHEAD, which is the flakiness `holdingChildren`'s own note records.
+      tenant: "t1", parent, step: "s1", waitMs: 1,
+      children: [{ id: crypto.randomUUID(), run_id: crypto.randomUUID(), agent_id: specialist, task: "the tide table", tools: [] }],
+      // THE CLAIM IS OFFERED AND IT IS NOT THIS ONE — a stale token, which is what a displaced
+      // worker holds. The children are still filed: the release is the LAST thing that
+      // transaction does, and refusing the whole ask over it would throw away work that ran.
+      worker: "w-parent", token: crypto.randomUUID(),
+    });
+    assert.equal(filed.ok, true, `the children were not filed: ${filed.error}`);
+    assert.equal(filed.made, 1, JSON.stringify(filed));
+    assert.equal(filed.parent_released, false, JSON.stringify(filed));
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(Date.parse(filed.deadline_at) < Date.now(), `the deadline is still ahead: ${filed.deadline_at}`);
+    assert.equal(rest.work.get(parent).done_at, null, "a mismatched token released the parent");
+    assert.equal(rest.work.get(parent).claimed_by, "w-parent", "the parent lost its own claim");
+
+    const before = env[QUEUE_BINDING].sent.length;
+    const six = await tickSaying(env, ctx);
+
+    // LOOKED AT, AND NOT ACTED ON. `stuck` counts the parents the arm read and `rung` the ones
+    // it could really put back, so the two coming apart is the instrument working rather than
+    // a silence to be read as nothing having happened.
+    assert.deepEqual(six, { stuck: 1, rung: 0, overdue: 1 }, JSON.stringify(six));
+    // ⚠ AND THE CHILD IS THE OBSERVER, read off the filing's own answer. The sweeper runs
+    // FIRST and offers every unheld work row, so the tick really did ring — which is what
+    // stops "the held parent was not rung" being satisfied by a tick that rang nothing.
+    assert.deepEqual(env[QUEUE_BINDING].sent.slice(before).map((m) => m.runId),
+      [filed.children[0].run_id],
+      "a held parent was rung, which is a doorbell for a delivery the claim refuses");
+    assert.equal(rest.work.get(parent).claimed_by, "w-parent", "the sweep took the parent's claim");
   });
 });

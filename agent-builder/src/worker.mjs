@@ -193,6 +193,23 @@ export const APPROVAL_SWEEP_LIMIT = 50;
  */
 export const EVENT_DISPATCH_LIMIT = 50;
 
+/**
+ * How many stuck parents one tick may put back.
+ *
+ * ⚠ **ITS OWN NUMBER FOR THE REASON THE THREE ABOVE HAVE ONE, and it bounds the population
+ * that grows FASTEST under trouble.** Every one of these is a parent whose child died or
+ * whose wake arrived while it was still held, so the count rises exactly when the platform
+ * is least well, which is when the scheduler and the event dispatcher must not be starved
+ * out of their own ticks by it.
+ *
+ * **IT IS ONE ROW PER PARENT AND NOT PER CHILD** — `agent.sweep_delegations` groups, so a
+ * parent with eight overdue children spends one of these rather than eight — and the backlog
+ * is safe by construction, as the events one is: a parent that is still stuck is still stuck
+ * at the next tick, so what this does not reach the next one does. It decides latency and
+ * never loss.
+ */
+export const DELEGATION_SWEEP_LIMIT = 25;
+
 const isText = (v) => typeof v === "string" && v.trim() !== "";
 
 /**
@@ -422,6 +439,25 @@ export function buildApprovals(env, { fetchImpl } = {}) {
   const missing = missingFor(env, "consume");
   if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
   return parts(env, { fetchImpl }).approvals;
+}
+
+/**
+ * The delegation store, for the ONE operation on it that is not tenant-scoped.
+ *
+ * ⚠ **ITS OWN BUILDER FOR THE REASON `buildApprovals` HAS ONE**, and the reason is worth
+ * repeating rather than pointing at: folding a store onto another builder's return is how
+ * one of them quietly stops being built, and the failure is a cron job that silently does
+ * nothing rather than a red run.
+ *
+ * `consume` is the right configuration demand. This reads rows and re-queues runs and
+ * produces nothing itself — **the RINGING is the caller's**, which is `scheduled`, and that
+ * asks for the whole deployment already. So it cannot accidentally become a second producer,
+ * which is the same wall `buildDelivery` and `buildApprovals` stand behind.
+ */
+export function buildDelegation(env, { fetchImpl } = {}) {
+  const missing = missingFor(env, "consume");
+  if (missing.length) throw new TypeError(`not configured: ${missing.join(", ")}`);
+  return parts(env, { fetchImpl }).delegation;
 }
 
 const configGap = (e) => new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
@@ -789,6 +825,65 @@ export default {
       console.log("agent-events", JSON.stringify({ events: dispatched.length, filed, woke, rung }));
     } catch (e) {
       console.error("agent-events", String(e?.message ?? e));
+    }
+
+    /**
+     * ── job six: put back every parent whose tree has stopped moving ─────────
+     *
+     * ⚠ **ITS OWN `try`, FOR THE REASON THE FIVE ABOVE HAVE ONE**: six jobs, six blocks, and
+     * none may silence another. This is the newest, so it is last — a throw here must not
+     * cost the deployment its sweeper.
+     *
+     * **IT IS THE ONLY THING THAT ENDS A WAIT FOR A CHILD THAT WILL NEVER ANSWER.** A parent
+     * holding children has its work row marked done — there is nothing to redeliver until a
+     * child settles — so a child whose process died leaves the parent reading as `running`
+     * for ever with nobody to put it back. `agent.sweep_delegations` settles nothing: it
+     * requeues the parent, which re-reads its own delegations and decides what silence adds
+     * up to under its stated policy, which is never success.
+     *
+     * **AND ITS SECOND ARM IS THE COMPENSATING HALF OF NOT HANDING THE PARENT'S CLAIM OVER.**
+     * A child that finishes while the parent is still held rings a parent that cannot be
+     * claimed; the settle records that (`wake_lost`) and this is what retries it. So the two
+     * arms close two different silences and are deliberately one function: a parent can be
+     * in both states at once, and two statements would wake it twice.
+     *
+     * **ONLY A ROW IT REALLY RE-QUEUED IS RUNG**, exactly as the four jobs above: a parent
+     * somebody is holding answers `running`, and a doorbell for that is a delivery
+     * `claim_run` refuses — latency spent to learn nothing.
+     */
+    try {
+      /**
+       * ⚠ **BUILT INSIDE THE `try`, UNLIKE `buildAutomations` ABOVE, and the difference is
+       * real rather than a style.** That one is built outside its block because TWO jobs
+       * share it, so a failure there has to stop both; this store has one caller, so a build
+       * that throws is the same failure as a read that throws and wants the same sentence. A
+       * separate branch here would be a second way to say one thing — and with this job last,
+       * an early `return` from it is indistinguishable from falling through, which is a
+       * distinction no test could ever drive.
+       */
+      const stuck = await buildDelegation(env).overdue({ limit: DELEGATION_SWEEP_LIMIT });
+      let rungParents = 0;
+      /**
+       * ⚠ **PER ARM, BECAUSE THE TWO ARE DIFFERENT FACTS ABOUT THE PLATFORM.** `overdue` is
+       * work somebody's specialist never finished; `wake-lost` is our own ring arriving while
+       * the parent was still held. One total cannot tell a deployment full of dead children
+       * from one whose parents are simply slow to let go — and this product has already paid
+       * for a log line whose numbers could not move (`agent-expired`, one job over, and
+       * `agent-events` above it).
+       */
+      const why = {};
+      for (const row of stuck) {
+        const reason = typeof row?.why === "string" ? row.why : "?";
+        why[reason] = (why[reason] ?? 0) + 1;
+        const parent = row?.parent;
+        if (row?.action === "queued" && isText(parent)) {
+          try { await env[QUEUE_BINDING].send({ runId: parent }); rungParents += 1; }
+          catch (e) { console.error("agent-delegation", JSON.stringify({ runId: parent, ring: String(e?.message ?? e) })); }
+        }
+      }
+      console.log("agent-delegation", JSON.stringify({ stuck: stuck.length, rung: rungParents, ...why }));
+    } catch (e) {
+      console.error("agent-delegation", String(e?.message ?? e));
     }
   },
 };

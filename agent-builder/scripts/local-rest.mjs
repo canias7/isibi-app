@@ -215,6 +215,33 @@ const RPCS = {
   revoke_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_why"], shape: "value" },
   lease_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_scopes::text[]"], shape: "value" },
   refresh_connection: { args: ["p_tenant", "p_agent_id::uuid", "p_id::uuid", "p_secret", "p_refresh", "p_expires::timestamptz"], shape: "value" },
+  // ── work handed to other agents of the same account ───────────────────────
+  //
+  // ⚠ **AN OMITTED ARGUMENT ARRIVES HERE AS NULL AND IN PRODUCTION AS ITS DEFAULT, AND
+  // THESE FOUR TOLERATE BOTH — which is a property of the FUNCTIONS and not of this shim.**
+  // PostgREST calls by NAME and sends only the keys a body carried, so a parameter the
+  // caller left out takes the `default` written in the migration; this shim calls
+  // POSITIONALLY, so the same omission is a SQL NULL. `agent.delegate_children` coalesces
+  // `p_bounds` to `'{}'` and `p_wait_ms` to its own 900000, and asks `p_worker is not null
+  // and p_token is not null` before releasing anything — so both callers agree, and the
+  // store's rule that it never writes a bound the migration already holds is honoured
+  // locally as well as live. **A parameter added to any of these WITHOUT that treatment
+  // would diverge silently**, which is the one thing to check before extending this list.
+  delegate_children: { args: ["p_tenant", "p_parent::uuid", "p_step", "p_children::jsonb", "p_bounds::jsonb", "p_wait_ms::integer", "p_worker", "p_token::uuid"], shape: "value" },
+  // ⚠ **NO TENANT, AND THE SHIM MUST NOT INVENT ONE.** This is fenced by the child's own
+  // claim — the holder, the token and a live lease — so the worker and the token ARE the
+  // authority; a tenant argument beside them would be a second one that can disagree with
+  // the row, and a shim that added it would be serving a function the database has not got.
+  settle_delegation: { args: ["p_child::uuid", "p_worker", "p_token::uuid", "p_outcome::jsonb"], shape: "value" },
+  cancel_delegations: { args: ["p_tenant", "p_parent::uuid", "p_by", "p_reason"], shape: "value" },
+  delegation_progress: { args: ["p_tenant", "p_parent::uuid"], shape: "value" },
+  list_specialists: { args: ["p_tenant", "p_agent::uuid"], shape: "value" },
+  // ⚠ **`set`, LIKE THE OTHER FOUR PLATFORM SWEEPS.** It answers `setof jsonb` and the
+  // store REFUSES an answer that is not a list rather than reading it as an empty sweep, so
+  // a shape of `value` here would hand back one object and the refusal would fire on a
+  // working database — this product's own "a stand-in less capable than the thing it stands
+  // in for reports the product as broken", which it has paid for six times.
+  sweep_delegations: { args: ["p_limit::integer"], shape: "set" },
 };
 
 /**

@@ -986,8 +986,15 @@ export function memoryRest({ now = () => Date.now() } = {}) {
       // the real signature and a delegation that hands them over releases the parent in the
       // SAME transaction that filed the children — so a fixture that ignored them would
       // leave the parent holding a claim no child could ever settle around.
-      let released = false;
+      // ⚠ **THREE ANSWERS, AND COLLAPSING TWO OF THEM IS WHAT THIS FIXTURE FIRST DID.**
+      // `v_freed` in the real function is only ASSIGNED inside the branch below, so it stays
+      // SQL NULL when nothing was handed in — `null` is "no claim was offered", `false` is
+      // "the claim did not match", and the migration's own comment says why a caller must be
+      // able to tell: one that MEANT to let go and did not is one whose parent will never be
+      // woken. Starting at `false` reported that as an ordinary no-op.
+      let released = null;
       if (isText(body.p_worker) && body.p_token !== null && body.p_token !== undefined) {
+        released = false;
         const pw = work.get(parent);
         if (pw && pw.claimed_by === body.p_worker && pw.claim_token === body.p_token && pw.lease_expires_at > now()) {
           pw.claimed_by = null; pw.claimed_at = null; pw.lease_expires_at = null; pw.claim_token = null;
@@ -1103,6 +1110,82 @@ export function memoryRest({ now = () => Date.now() } = {}) {
           outcome: r.outcome,
         };
       }));
+    }
+
+    /**
+     * `agent.sweep_delegations` — the two silences nothing else can end.
+     *
+     * ⚠ **BOTH ARMS, BECAUSE A PARENT CAN BE IN BOTH STATES AT ONCE AND THE REAL FUNCTION IS
+     * ONE STATEMENT PAIR FOR EXACTLY THAT REASON.** A fake serving only the overdue arm would
+     * leave the cron's second reading undrivable — and that is the arm that exists because
+     * this engine deliberately does NOT hand the parent's claim to `delegate_children`, so a
+     * child answering inside the parent's own delivery rings a parent nobody can claim.
+     *
+     * **IT SETTLES NOTHING AND INVENTS NO OUTCOME**, mirrored rather than improved on:
+     * `unresolved` is DERIVED from the deadline, so a sweep that wrote one would be a second
+     * source of truth beside it — and it would be OUR verdict on work somebody's specialist
+     * may yet answer.
+     *
+     * ONE ROW PER PARENT, so a parent with eight overdue children is woken once; the `step`
+     * and the deadline are the LOWEST of that parent's, which is what the real function's
+     * `min()` answers.
+     */
+    if (p.endsWith("/rpc/sweep_delegations") && init.method === "POST") {
+      const limit = Math.max(1, Number.isInteger(body?.p_limit) ? body.p_limit : 25);
+      const out = [];
+      // A PARENT THAT HAS ALREADY STOPPED WANTS NOTHING — requeueing one is work nothing will
+      // ever claim, offered once a minute for ever.
+      const wanted = (parent) => {
+        const r = runs.get(parent);
+        return !!r && r.status !== "stopped";
+      };
+      const group = (rows) => {
+        const by = new Map();
+        for (const r of rows) {
+          const g = by.get(r.parent);
+          const dead = Date.parse(r.deadline_at ?? "") || 0;
+          if (!g) by.set(r.parent, { parent: r.parent, tenant: r.tenant, step: r.step, dead });
+          else {
+            if (String(r.step) < String(g.step)) g.step = r.step;
+            if (dead < g.dead) g.dead = dead;
+          }
+        }
+        return [...by.values()].sort((x, y) => x.dead - y.dead).slice(0, limit);
+      };
+      const requeue = (parent, tenant) => {
+        const w = work.get(parent);
+        if (!w || w.tenant_id !== tenant) return "not-found";
+        if (liveLease(w)) return "running";
+        w.kind = "resume"; w.done_at = null; w.enqueued_at = now(); w.last_error = null; w.attempts = 0;
+        return "queued";
+      };
+
+      for (const g of group([...dels.values()].filter((r) =>
+        r.settled_at === null && r.cancelled_at === null
+        && (Date.parse(r.deadline_at ?? "") || 0) <= now() && wanted(r.parent)))) {
+        out.push({ parent: g.parent, step: g.step, why: "overdue",
+                   overdue_since: new Date(g.dead).toISOString(),
+                   action: requeue(g.parent, g.tenant) });
+      }
+
+      // ⚠ NOTHING OF THAT PARENT'S MAY STILL BE WORKING. Waking one whose next wave is under
+      // way would deliver a step whose children have not answered — the reading
+      // `settle_delegation` counts `outstanding` to prevent.
+      const stillWorking = (parent) => [...dels.values()].some((r) =>
+        r.parent === parent && r.settled_at === null && r.cancelled_at === null
+        && (Date.parse(r.deadline_at ?? "") || 0) > now());
+      for (const g of group([...dels.values()].filter((r) =>
+        r.wake_lost === true && wanted(r.parent) && !stillWorking(r.parent)))) {
+        const action = requeue(g.parent, g.tenant);
+        // CLEARED THE MOMENT A RING LANDS, so this fires once per lost wake rather than once
+        // a minute; a parent that is genuinely running again keeps its flag and is tried next
+        // tick, which terminates because a stopped parent is excluded above.
+        if (action !== "running") {
+          for (const r of dels.values()) if (r.parent === g.parent && r.wake_lost) r.wake_lost = false;
+        }
+        out.push({ parent: g.parent, step: g.step, why: "wake-lost", action });
+      }
+      return res(200, out);
     }
 
     if (p.endsWith("/rpc/revoked_tools") && init.method === "POST") {
