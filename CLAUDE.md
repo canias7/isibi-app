@@ -4031,6 +4031,23 @@ text); the three swept files byte-identical to a scratchpad backup afterwards.
 118,875`) — the TOTAL is what matches, `pass` differing by exactly CI's four
 skips — with all five cases found passing BY NAME (`ok 1807`–`ok 1811`) and
 zero `not ok` lines in the downloaded log.
+**AND `site build` run `35904011369` on `807d88b8`** (18:39:48 → 19:05:25Z,
+**25m37s**, all twenty steps) read all twelve counts green out of its per-step
+files, the flat log agreeing line for line: TAP 397/397/0/0, kit-typecheck 4,
+site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47, kit-render / kit-a11y / kit-effects /
+kit-paint `all passed`, census 7 + 4 + 1 = **12**; the two known `##[error]`
+annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) inside the
+case that compiles a broken page on purpose, `tsc`-format lines 9 / 2 / 7;
+`site-build.mjs` **18m22s**. **⚠ THE SECOND ANNOTATION IS NOT DIRECTLY ABOVE
+ITS `ok` LINE THIS TIME**: the two known `SSR stream transform exceeded maximum
+lifetime` lines landed between them, where run `35854168288` printed them after
+the `ok` lines. That is the order asynchronous output reached the log, not a
+change in what passed — its own `ok` (*"a site with one bad page still reports
+the type error"*) follows two lines later — so read what an annotation sits
+INSIDE rather than what line happens to follow it. `dc3f8efc` fires no site
+build (the two documents only), so this run is the reading for the branch.
+**The stamp chain ends at `807d88b8`.**
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED, so this proves a
 page the router names is carried to the writer and published there — never that
 a real router names it. The router's instructions changed; whether the model

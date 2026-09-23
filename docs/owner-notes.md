@@ -198,7 +198,10 @@ isn't tested on its own.
 - Nine deliberate breaks — dropping the page at each step it passes through,
   garbling the "no such page" sentence, or taking the router's new instruction
   back out: all nine were caught.
-- The whole suite passes: 7,219 (the 5 new cases on top of 7,214).
+- The whole suite passes: 7,219 (the 5 new cases on top of 7,214), both here and
+  on GitHub. GitHub's slower site-build check (26 minutes, twelve separate
+  result counts, real sites compiled and opened in a browser) passed in full
+  too.
 - **Not proven:** that the real router fills the page in. That needs a live run.
 
 ---
