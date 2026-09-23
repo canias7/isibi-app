@@ -68,7 +68,41 @@ stay. **`home` IS AN ALIAS FOR `sites`, NOT A VIEW** — `KNOWN_VIEWS` is
 `['sites','settings','agents']` and anything else falls back to the builder.
 **The landing page still carries the media side's CRT channel selector and its
 model pipeline**, deliberately: rewriting it is a design job the owner directs.
-Both landing doors open the builder and the non-website channels are inert.
+The non-website channels are inert.
+
+**THE LANDING'S CHATBOX IS THE BUILDER'S BOX (2026-09-23; the owner held the
+two side by side: "change to the one that looks different").** It wears the
+builder composer's own classes (`st-new` / `st-in` / `st-new-foot` / `st-gen`),
+so one set of rules draws both and they cannot drift again — the landing's
+pencil-drawn copy was how they came apart. **A landing rule may PLACE the box
+and never restyle it**: 720px, no top margin, the builder's 16px / normal text
+context, a cap for its grow-as-you-type. **The ids stay the landing's**:
+`renderSites` binds `stPrompt` / `stGen` by getElementById and `#marketing`
+comes FIRST in the document, so a shared id hands the builder's handlers to
+the landing. `.st-hero .st-in` became `.st-new .st-in` — a composer rule scoped
+by the builder's PAGE can only ever reach the builder's copy. **Measured on a
+local render: 30 of 30 computed properties identical, 720 × 151.25px both**;
+the last 2.34px was the landing's 17px / 1.55 context reaching an inline-block
+field's line box, which no source check can see. `test/landing-chatbox.test.mjs`
+holds all four properties in 7 cases (red 5 of 7 against `33126616`), and its
+Chromium one SKIPS in CI (no browser there). **Sweep
+`scripts/mutants/landing-chatbox.json`: 9 mutants, 9 killed, 0 survived, 0
+never applied, 2 comment-only controls surviving**, the swept files
+byte-identical to a scratchpad backup afterwards. **Suite 7,177 locally**
+(`7177 / 7175 / 0 / 2`, `duration_ms` 109,653) — +7 against 7,170, exactly the
+new cases.
+**Then the owner deleted the Video / App doors** (and `.mkt-ghost`, which only
+the App door wore) **and set the placeholder to "hey"** — a fixed line from
+`paintCrt`, its one writer. The box now sits 31.3px under the headline, the
+builder page's 32px. **Enter and ↑ do nothing on the landing, by the owner's
+choice** ("leave it as is"): the box submits only on the WEBSITE channel, the
+channel list is hidden, and the channel tuned at load is the first.
+**THE SELF-TYPING PROMPT LINE NEVER RAN, and is gone.** It stopped itself
+whenever `#marketing` was hidden, and boot started it inside `initCrt()` BEFORE
+`showMarketing()` had first shown the landing — so on every fresh load it
+stopped at once and the box sat empty in production (the owner's own
+screenshots). *A loop that stops when its element is hidden also stops before
+the element is first shown.*
 
 **THE DEAD-CODE DELETION (2026-09-13)** took ~1,400 lines of `worker.js` and
 `public/chat.js`, four modules, a 1.5 MB wasm dependency, and **2,280 lines of
@@ -2793,9 +2827,11 @@ this site.**
   `PAGE_RULES` alone never reaches fretwork-1's writer**, nor the other three
   `incomplete` sites'.
 
-**THE PAGE IS LIVE IN THIS STATE.** The correction below is built on the
-branch and is **NOT merged, NOT deployed and NOT proven by a paid run** — no
-restore, retry, merge or deploy without the owner.
+**THE PAGE IS LIVE IN THIS STATE.** The correction below is **MERGED AND
+DEPLOYED — deploy 2144, green, 2026-09-22 23:28Z, from `33126616`** (read off
+the deploy list on 2026-09-23; this line said "not merged, not deployed" until
+then). **Deployed, not runtime-confirmed**, and **NOT proven by a paid run** —
+no restore, retry or paid replay without the owner.
 
 ### THE CORRECTION, BUILT (2026-09-22, owner: *"Can you just fix what i told you to fix"*)
 
@@ -6001,6 +6037,14 @@ rule and the measurement.
   from a CSP render that read BROKEN both ways, and **a limitation nobody
   re-tested is a false negative about our own instruments**: it sat here long
   enough that a live-browser check went unattempted rather than unavailable.
+  **AND ON 2026-09-23 A SESSION'S CHROMIUM REFUSED THE EGRESS PROXY'S
+  CERTIFICATE** (`ERR_CERT_AUTHORITY_INVALID` on `gofarther.dev`, the full
+  build and the headless shell alike) — so whether a browser can reach a live
+  host varies by SESSION: ask it, never recall it. The way round that needs
+  nothing live: serve `public/` from a local server and fulfil
+  `fonts.googleapis.com` / `fonts.gstatic.com` through `page.route` from files
+  `curl` fetched (curl trusts the proxy). That is the landing as the deploy
+  serves it, real fonts included, for any file under `public/`.
   The CSP reading it came from is still the blind one;
   a fake `sqlQuery` injected where none is accepted answered **0 statements**,
   which reads exactly like "no constraint anywhere". **A `net::` error in a CSP

@@ -155,6 +155,54 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — The landing's chatbox is the builder's box now, and it says "hey"
+
+**What you asked for, in order.** You put three screenshots side by side: the
+landing signed out, the landing signed in, and the builder's "What are we
+building?" screen. You asked for the landing's box to look like the builder's.
+You chose **look only** (no Attach, no Builder picker) and **Enter stays doing
+nothing**. Then: **delete the Video and App buttons, put "hey" in the box, and
+leave the builder's box as it is.**
+
+**What changed on the landing** (signed in and out share the page):
+
+- The box now uses the builder box's own styling, so one set of rules draws
+  both and they can't drift apart again. The landing used to have its own
+  pencil-drawn copy, which is how the two came to look different.
+- **Measured on a local render with the real fonts: 30 of 30 style properties
+  identical**, both boxes 720 × 151px. The last 2px was the landing's bigger
+  base font leaking into the box, and is fixed.
+- **The Video and App buttons are gone.** The App button was the last thing
+  using the empty-outline button style, so that style went too. The box moved
+  up to sit 31px under the headline; the builder page uses 32px.
+- **The box says "hey"** (the grey text that disappears when you type).
+- **Enter and the ↑ button still do nothing**, as you chose. Sign up and the
+  footer's "Websites & apps" still open the builder.
+
+**A correction I owe you.** I told you the landing box "types out example
+prompts". It never did: the page started the typing before the landing was on
+screen, saw it hidden, and stopped for good. That's why the box is empty in
+both of your screenshots. "hey" replaced it, and the typing code is deleted.
+
+**Proof.** A new test file keeps the two boxes identical: 7 checks, including a
+real-browser comparison of the two boxes. That one skips in GitHub's checks,
+which have no browser; the other 6 run there. Against the old code, 5 of the 7
+fail. **The sweep: 9 deliberate breaks, all 9 caught, and both harmless
+controls left alone.** Full test suite: **7,177 tests, all
+passing** (2 skipped, as usual), which is 7 more than before, the new ones.
+
+**Where it is.** Pushed to the branch `claude/zealous-carson-nj6sha`. **Not
+merged, not deployed** — gofarther.dev still shows the old box until you say
+merge.
+
+**One fact from the start of the session.** Your rule-11 / fretwork-1 fix from
+22 Sep did go to `main`, and **deploy 2144 finished green at 23:28 UTC** that
+night. So "nothing is merged or deployed" in the entry below is out of date.
+It's deployed but not confirmed running, and the paid replay is still yours to
+press. CLAUDE.md is corrected too.
+
+---
+
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
 
 **Merged.** `main` fast-forwarded to `a208a86a` — 26 commits — at 18:44Z.
