@@ -3455,6 +3455,8 @@ correction round. Nothing enforces a per-request limit; the balance is the only
 bound. **Balance 22 at run 24's end**: if press 1 prints under ~30, top up
 first — a reservation refused partway stops the edit, and that tests nothing.
 
+### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
+
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
 COLLAPSE — two different facts arriving as one value, then acted on as if they
 were the same fact. Three fixes, and the third was found by the guard written
