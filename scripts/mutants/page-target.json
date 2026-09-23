@@ -1,0 +1,83 @@
+[
+ {
+  "label": "CONTROL: a comment in the look door's new check changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // to become the home page. The page rung's own check, key and\n              // sentence, asked one door earlier.\n",
+  "to": "              // to become the home page. The page rung's own check, key and\n              // sentence, asked one door earlier (control).\n",
+  "control": true
+ },
+ {
+  "label": "P-1: readEdit drops the page on a look answer again (the defect)",
+  "files": [
+   "builder/site-ask.mjs"
+  ],
+  "from": "    return { intent: \"edit\", answer: \"\", layer, ...(named ? { page: named } : {}) };",
+  "to": "    return { intent: \"edit\", answer: \"\", layer };"
+ },
+ {
+  "label": "P-2: readEdit keeps a look page in whatever spelling the model wrote",
+  "files": [
+   "builder/site-ask.mjs"
+  ],
+  "from": "    const named = normalizePagePath(input && input.page);",
+  "to": "    const named = String((input && input.page) || \"\");"
+ },
+ {
+  "label": "P-3: the routing reply forwards a page only for the page layer",
+  "files": [
+   "worker.js"
+  ],
+  "from": "        page: routed.intent === \"edit\" ? routed.page : undefined,",
+  "to": "        page: routed.intent === \"edit\" && routed.layer === \"page\" ? routed.page : undefined,"
+ },
+ {
+  "label": "P-4: the browser posts a page only for the page layer",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      page: d.page ? String(d.page) : '',\n      // THE ROUTER DECIDES A DELETION",
+  "to": "      page: d.page && d.layer === 'page' ? String(d.page) : '',\n      // THE ROUTER DECIDES A DELETION"
+ },
+ {
+  "label": "P-5: the look door no longer checks a named page before anything runs",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (ePage && !eRoutes().includes(ePage.trim().toLowerCase())) {",
+  "to": "              if (false) {"
+ },
+ {
+  "label": "P-6: the dispatcher ignores the named page and falls back to the home page",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes(\"/\") ? \"/\" : routes[0] || \"\"));",
+  "to": "              const fallbackPage = (routes.length === 1 ? routes[0] : (routes.includes(\"/\") ? \"/\" : routes[0] || \"\"));"
+ },
+ {
+  "label": "P-7: the missing-page sentence is told the look change is a removal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                return explain(\"page/no-page\", { page: ePage.trim().toLowerCase(), verb: \"\", routes: eRoutes() });",
+  "to": "                return explain(\"page/no-page\", { page: ePage.trim().toLowerCase(), verb: \"remove\", routes: eRoutes() });"
+ },
+ {
+  "label": "P-8: the missing-page sentence loses the site's real pages",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                return explain(\"page/no-page\", { page: ePage.trim().toLowerCase(), verb: \"\", routes: eRoutes() });",
+  "to": "                return explain(\"page/no-page\", { page: ePage.trim().toLowerCase(), verb: \"\", routes: [] });"
+ },
+ {
+  "label": "P-9: the router is no longer told a look answer may name its page",
+  "files": [
+   "builder/site-ask.mjs"
+  ],
+  "from": "          \"When layer is \\\"look\\\": the page they SAID the change is on, copied the same way — \\\"move the market times up \" +\n          \"on the gallery page\\\" and \\\"take the 3D thing off the gallery page\\\" are both \\\"/gallery\\\". Leave it out when \" +\n          \"they named no page, and for a change to the whole site. Never guess one: the page named here is the page \" +\n          \"that gets changed.\\n\" +\n",
+  "to": ""
+ }
+]

@@ -331,6 +331,8 @@ export const ASK_TOOL = {
           "THE ONE EXCEPTION IS A WHOLE PAGE. \"Remove the gallery page\", \"we don't need the about page any more\" " +
           "is layer \"page\" with `remove` — a page is deleted there and nowhere else. Taking a SECTION, a picture, a " +
           "band or anything else OFF a page that stays is this layer.\n" +
+          "WHEN THEY SAY WHICH PAGE IT IS ON, NAME IT IN `page` — for a colour, a section, a band or a scene alike. " +
+          "Without it, a change to a section is made on the home page.\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
@@ -448,10 +450,25 @@ export const ASK_TOOL = {
       },
       page: {
         type: "string",
+        // ── AND FOR `look`, THE PAGE THEY SAID (2026-09-23) ─────────────────
+        //
+        // This read "Only when layer is page", and `readEdit` agreed by
+        // returning before it looked — so "move the market times up on the
+        // gallery page", answered `look` (the lanes dispatch a section change
+        // to the page rung), reached the edit route with no page and was made
+        // on the HOME page. The routing reply, the browser and the dispatcher
+        // all forwarded a page already; this field was the only thing that
+        // could not carry one. Reproduced through the real route, the real
+        // browser POST and the real edit route: `test/edit-page-target.test.mjs`.
         description:
-          "Only when layer is \"page\". The route path of the page being changed, copied EXACTLY from the list of pages " +
+          "When layer is \"page\": the route path of the page being changed, copied EXACTLY from the list of pages " +
           "above — \"/\" for the home page, \"/menu\", \"/book\". If the change is about a page that is not in that list, the " +
-          "site does not have it yet and the intent is \"addon\", not \"edit\".",
+          "site does not have it yet and the intent is \"addon\", not \"edit\".\n" +
+          "When layer is \"look\": the page they SAID the change is on, copied the same way — \"move the market times up " +
+          "on the gallery page\" and \"take the 3D thing off the gallery page\" are both \"/gallery\". Leave it out when " +
+          "they named no page, and for a change to the whole site. Never guess one: the page named here is the page " +
+          "that gets changed.\n" +
+          "For every other layer, leave it out.",
       },
       remove: {
         type: "boolean",
@@ -889,6 +906,31 @@ export function readEdit(input, pages) {
   // dead features start. Combines with `remove` — "take the favicon off" is
   // both, and the pair is what makes that removal hit the right slot.
   const tab = layer === "logo" && input && input.tab === true ? { tab: true } : {};
+  // ── A LOOK CHANGE CARRIES THE PAGE IT NAMED (2026-09-23) ──────────────────
+  //
+  // THIS RETURNED BEFORE THE PAGE WAS READ, for every layer but `page` — and
+  // `look` is the door whose lanes dispatch a section, a band or a scene to the
+  // page rung. So "move the market times up on the gallery page" arrived with
+  // no page, and the edit route's fallback made it on the home page: the
+  // routing reply, the browser and the dispatcher all forward a page, and this
+  // was the one hop that dropped it.
+  //
+  // ABSENT STAYS ABSENT — no key at all — so a change to the whole site is
+  // byte-identical to what it was. The spelling is `normalizePagePath`'s, the
+  // same one the page layer resolves with.
+  //
+  // A PAGE THE SITE DOES NOT HAVE IS KEPT, NOT TURNED INTO AN ADD-ON as the page
+  // layer's is below. A colour or a section aimed at a missing page is not an
+  // addition — "take the 3D thing off the menu page" must not design a menu
+  // page — so the edit route answers it with the site's real pages, at no cost
+  // for the edit, before any lane runs. A layer with no use for a page (every
+  // other one) still carries none, which is the scoping `remove` and `tab`
+  // already have for the same reason: a field nothing can act on is one
+  // nothing reads.
+  if (layer === "look") {
+    const named = normalizePagePath(input && input.page);
+    return { intent: "edit", answer: "", layer, ...(named ? { page: named } : {}) };
+  }
   if (layer !== "page") return { intent: "edit", answer: "", layer, ...tab, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
   const want = normalizePagePath(input.page);
   if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };

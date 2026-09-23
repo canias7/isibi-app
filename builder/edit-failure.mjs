@@ -126,7 +126,7 @@ export const EDIT_FAILURES = Object.freeze([
 
   // ── THE PAGE RUNG ───────────────────────────────────────────────────────
   { key: "page/no-page", reason: "no-page", cls: "explain",
-    why: "The page named is not on the site. Removal: already true. Move: nothing to move. An edit: which page was meant is unknown, and the sentence lists the real ones — wrong-page targeting is its own task." },
+    why: "The page named is not on the site. Removal: already true. Move: nothing to move. An edit: which page was meant is unknown, and the sentence lists the real ones. Asked by the page rung and, since 2026-09-23, by the look door before any lane runs, for a page the router named on a look answer." },
   { key: "page/removal-no-change", reason: "no-change", cls: "explain",
     why: "The removal changed nothing without saying why (unreachable: a page that exists is either kept, with a sentence, or removed)." },
   { key: "page/no-look", reason: "no-look", cls: "up",

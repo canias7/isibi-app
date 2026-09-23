@@ -155,6 +155,71 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — A change aimed at a named page is made on that page
+
+When a message named a page — *"on the gallery page, put the market times above
+the photos"* — and the router sent it through the look door, the page was
+thrown away at the very first step: the router's instructions said a page is
+only for page-layer answers, and the code dropped it for every other layer. So
+the change was made on the **home page**, and the reply said *"✅ Updated /."*
+A page the site doesn't have went the same way. **Fixed on the branch. Not
+merged, not deployed, no paid run.**
+
+### What happens now
+
+- The router is told it may name the page on a look answer, and the code keeps
+  it all the way to the page writer.
+- The page named is the page that changes. The home page stays byte for byte as
+  it was.
+- A page the site doesn't have is said before anything runs: *"Your site doesn't
+  have a /menu page. Its pages are / and /gallery. Say which one you meant, or
+  ask me to add a /menu page."* Nothing changes and the edit costs nothing; only
+  the routing call is charged, as before.
+- A message that names **no** page still goes to the home page — that is the
+  existing default and I left it. Say if you'd rather those were asked "which
+  page?".
+
+### One knock-on worth knowing
+
+If the lane picker says "take a page off" without saying which one, it now acts
+on the page the router named. Before, it fell back to the home page, which can't
+be removed, so it was refused. It's the same rule applied everywhere, but it
+isn't tested on its own.
+
+### Proof (made-up model answers, free)
+
+- A new test file, 5 cases, runs the whole chain for real: the routing step, the
+  browser's own code that sends the edit, the edit step, and the reply on screen.
+  The page writer changes whatever page it is shown — so shown the wrong page, it
+  changes the wrong page, which is exactly what the old code made it do.
+- Before the fix, 4 of the 5 failed, showing the home page edited and *"✅
+  Updated /."* After it, all 5 pass. The one that passed both times is the
+  no-page-named default.
+- Nine deliberate breaks, one for each step the page passes through: all nine
+  were caught.
+- The whole suite passes: 7,219 (the 5 new cases on top of 7,214).
+- **Not proven:** that the real router fills the page in. That needs a live run.
+
+---
+
+## 2026-09-23 — The failure-handling fixes are live
+
+Merged and deployed, as you asked. **Deployed, not runtime-confirmed** — reading
+which code the live Worker runs needs a signed-in press.
+
+- `main` is now `3c0a2533` (10 commits, 20 files). Nothing newer was on main,
+  so it was a straight fast-forward and nothing needed preserving.
+- Deploy 2146 passed in 3m14s. The site container moved from
+  `ce67f25d132667d0` to **`fd3355f0b71af621`**, exactly as predicted before the
+  push.
+- The browser file the fix changed (`chat.js`) is live and byte-for-byte what
+  was merged: 0 of the new lines before the deploy, 3 after.
+- To confirm it from the live Worker, press the canary with no spend:
+  `expect_deploy` `3c0a25335c4f6fbd3ae506999e51c1ff3e29d357`, `expect_image`
+  `fd3355f0b71af621`.
+
+---
+
 ## 2026-09-23 — A refused part with no reason is no longer hidden
 
 You found this one in the browser's reply code: when one refused part of a

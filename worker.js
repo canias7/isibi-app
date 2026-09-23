@@ -20412,8 +20412,9 @@ async function handleRequest(request, env, ctx) {
             let eLayer = String((eb && eb.layer) || "");
             // WHICH PAGE, read through one name so the router can supply one.
             // The `page` layer took this straight off the body, which was right
-            // while the client was its only caller; a lane dispatched here has
-            // no `eb.page` to offer and would find nothing to edit.
+            // while the client was its only caller. Since 2026-09-23 the router
+            // also names one on a `look` answer ("…on the gallery page"), and
+            // the look door resolves it before any lane runs, below.
             let ePage = String((eb && eb.page) || "");
             // THE PAGE VERBS, READ THROUGH ONE NAME EACH, for the reason `ePage`
             // is: the `page` branch took them straight off the body, which was
@@ -21059,6 +21060,20 @@ async function handleRequest(request, env, ctx) {
             // would otherwise climb to the revise.
             const eRemovalDoor = eLooking && eLayer !== "look";
             if (eLooking) {
+              // ── A NAMED PAGE IS FOUND BEFORE ANYTHING RUNS (2026-09-23) ──
+              //
+              // The router can name the page a look change is about — "move
+              // the market times up on the gallery page" — and every step below
+              // reads it: a page-shaped lane lands on it (`fallbackPage`), a
+              // page verb falls back to it, the QR is placed on it. So a page
+              // the site does not have is answered HERE, with the real list,
+              // before the picker is paid for or any lane runs: never left for
+              // a site-wide lane to change the whole site, and never allowed
+              // to become the home page. The page rung's own check, key and
+              // sentence, asked one door earlier.
+              if (ePage && !eRoutes().includes(ePage.trim().toLowerCase())) {
+                return explain("page/no-page", { page: ePage.trim().toLowerCase(), verb: "", routes: eRoutes() });
+              }
               editTrace.mark("pick_lanes", "start");
               const picked = await pickLanes(
                 { send: eQuick("pick_lanes") },
@@ -21209,12 +21224,21 @@ async function handleRequest(request, env, ctx) {
               // `asked` rule now: a design step that VOLUNTEERS a mark leaves
               // an uploaded one alone, a lane the customer named does not.
 
-              // A PAGE-SHAPED LANE NEEDS A PAGE, and a dispatched one carries no
-              // `eb.page`. The site's only page is the answer when it has one —
-              // most sites, since the PLAN caps a new build at one — otherwise
-              // the home page, which is where a request naming no page means.
-              // `routeOf` is the same function the page layer resolves with, so
-              // there is no second opinion about what a file is called.
+              // A PAGE-SHAPED LANE NEEDS A PAGE. The one the router NAMED comes
+              // first — it was checked against the site at the top of this door
+              // — and only a message naming none falls back: to the site's only
+              // page when it has one (most sites, since the PLAN caps a new
+              // build at one), otherwise the home page, which is where a
+              // request naming no page means. `routeOf` is the same function
+              // the page layer resolves with, so there is no second opinion
+              // about what a file is called.
+              //
+              // ⚠ UNTIL 2026-09-23 NOTHING COULD NAME ONE HERE. The router's
+              // `page` field was for the `page` layer alone and `readEdit`
+              // dropped it for `look`, so "…on the gallery page" was made on
+              // the home page of every multi-page site and the reply said
+              // "Updated /". The default below is unchanged; it is simply no
+              // longer the answer to a page somebody named.
               const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
               const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || ""));
 

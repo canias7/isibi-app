@@ -317,6 +317,15 @@ among the push's 11 files; the log answered `built …:ce67f25d***32667d0
 `+ …:ce67f25d***32667d0` under `SUCCESS Modified application`. **0 `CACHED`
 lines, every layer rebuilt, in 2m01s** — a cold build inside the warm band, so
 a fast step is not evidence of a warm runner either.
+**The seventeenth — deploy 2146 (2026-09-23)**: `origin/main`
+`ce67f25d132667d0` (what run 25 read LIVE) and the tip `3c0a2533`
+`fd3355f0b71af621`, **from 185 inputs where every earlier reading was 184** —
+`builder/edit-failure.mjs` joined the Dockerfile's worker COPY line in that
+push, so the input COUNT moved as well as the id, and both were predicted. The
+log answered `built …:fd3355f0b7***af62*** (registry answered 404; ***85 inputs
+…)` and `- …:ce67f25d***32667d0` → `+ …:fd3355f0b7***af62***` under `SUCCESS
+Modified application`. **0 `CACHED` lines** again; image step 2m28s, Wrangler
+19s, job 3m14s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3560,8 +3569,9 @@ change works, unrelated content survives, and the reply describes the result.
 
 **HOW THE PATH REALLY ROUTES, read out of the code rather than the docs.** The
 router answers ONE layer (text · data · rules · look · picture · logo · nav ·
-page · rename, or `addon`), and `readEdit` keeps a page ONLY for the page layer
-(`site-ask.mjs:872`). Only `look` runs several steps (`pick_lanes`, ≤4 lanes,
+page · rename, or `addon`), and `readEdit` kept a page ONLY for the page layer
+(`site-ask.mjs:872`; **`look` keeps one too since the wrong-page fix, below**).
+Only `look` runs several steps (`pick_lanes`, ≤4 lanes,
 five of which — purpose, components, shape, three, tsx — dispatch to the page
 rung). **Every `escalate` with no `layer` is answered `up` by `escalateAction`
 and starts `go()` = `reactSend(…, 'revise')`: the full rewrite of every page,
@@ -3592,7 +3602,9 @@ only; nothing added to the repo.
    `21157-21160` pushes one step per page lane with no dedup.
 6. **a section change routed through look on a two-page site lands on `/`**
    whatever page the message named (`fallbackPage`, `21153`): stored
-   `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."*
+   `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."* **Fixed on
+   the branch for a page the router NAMES** — *a named page reaches the page it
+   names*, below.
 7. **the page rung's full writer drops an unrelated section** → published,
    *"✅ Updated /."* Nothing compares the sections or words that survived
    (the addon's `keptProse` is not used here), and `chat.js:10274` never reads
@@ -3882,7 +3894,9 @@ separate next tasks"*):
 1. **Wrong-page targeting.** Review #6 (a section change through `look` lands on
    `/` via `fallbackPage`) and run 23's `/book` (the router naming a page from
    the sentence). A missing page is now SAID; choosing the right one is not
-   fixed.
+   fixed. **STARTED 2026-09-23 — the NAMED half is fixed on the branch** (*a
+   named page reaches the page it names*, below); a message naming no page on a
+   multi-page site still goes to the home page by the documented default.
 2. **Duplicate execution.** Review #5: two page lanes (`components`+`tsx`,
    `shape`+`components`) push two page steps for one sentence — the all-refused
    reproduction still calls `write_tweak`/`write_pages` twice.
@@ -3906,6 +3920,116 @@ separate next tasks"*):
    add-only wall or page-verb answer in the look door ends the WHOLE message —
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
+
+### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
+
+Owner: *"Close this correction. Merge and deploy the reviewed failure-handling
+changes, preserving anything newer on main. Report the actual deployed SHA and
+container image. No paid replay is needed for this deterministic reporting
+correction."*
+
+- **A FAST-FORWARD, BECAUSE NOTHING NEWER WAS ON MAIN**: `main` `0d5137f0` →
+  **`3c0a2533`**, 10 commits, 20 files (+3,079 / −210): the classification
+  table, the browser's refusal handling, the mixed-partial count, their guards
+  and the documents. Asked before the push: zero runs in progress or queued,
+  the image id predicted over both ends (the seventeenth cross-check, above),
+  and the rollback verified in a throwaway worktree — reverting the range gives
+  tree `3ccf15bf…`, **main's own**, so a rollback reuses `ce67f25d132667d0`.
+- **DEPLOY 2146 (`35901168665`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Success,
+  18:15:12 → 18:18:29Z. `DEPLOY_ID` `3c0a25335c4f6fbd3ae506999e51c1ff3e29d357`
+  (masked in the log as `…e5***c***ff3e29d357`); image **built
+  `fd3355f0b71af621`** (404, 185 inputs) and **rolled from
+  `ce67f25d132667d0`**; `Uploaded isibi-app`, a fresh Worker version,
+  `Deployed isibi-app triggers`.
+- **THE SERVED-FILE CHECK, BOTH READINGS TAKEN**: `public/` changed, so
+  Wrangler answered `+ /chat.js`, 1 file, 85 already uploaded. **Before**
+  (taken before the deploy landed): 732,238 bytes, sha256 `903d9ff39b7d4b1d`,
+  0 occurrences of `unreadEditMsg`. **After**: 736,749 bytes, sha256
+  `bf745e7118484cad`, 3 occurrences — **byte-identical to `git show
+  3c0a2533:public/chat.js`**. Gates **401 / 401 / 401 / 404** at 18:20:15Z.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  `3c0a25335c4f6fbd3ae506999e51c1ff3e29d357` and `expect_image`
+  `fd3355f0b71af621` — both routes that answer the sha and the image ask
+  `authUser` first, and a session holds no token.
+
+### A NAMED PAGE REACHES THE PAGE IT NAMES (2026-09-23, on the branch)
+
+Owner: *"Reproduce a request explicitly targeting /gallery on a two-page site
+that passes through look → page. Trace where the requested page is lost and
+why the dispatcher falls back to /. Preserve the explicit target through
+routing and dispatch. A named page must resolve to that page or produce a
+clear missing/ambiguous-target response; it must not silently become the
+homepage."* **Not merged, not deployed, no paid run.**
+
+**THE PAGE WAS LOST AT THE FIRST OF FOUR HOPS, AND THE OTHER THREE WERE
+STARVED.** `route_message`'s `page` field said *"Only when layer is page"*, and
+`readEdit` returned for every other layer before it read the field — so a
+`look` answer arrived with no page whatever the model wrote. `/api/site/route`
+forwards `routed.page` for ANY edit, `siteEdit` posts `d.page` for ANY layer,
+and the look door already preferred a named page (`fallbackPage = ePage || …`);
+with `ePage` always empty the fallback chose the site's only page, else `/`.
+**Reproduced through all four hops with supplied model answers, red**: the
+router named `/gallery`, the routing reply had no page, the browser posted
+`page: ''`, the writer was shown `index.tsx`, the home page changed, the gallery
+did not, and the screen said *"✅ Updated /."* A page the site does not have
+(`/menu`) went the same way — made on the home page, reported as done.
+
+**THE FIX IS THREE SMALL CHANGES:**
+1. **The router may name the page on `look`** — the field's description says
+   when (the page they SAID, copied from the list; never guessed; absent for a
+   whole-site change), and the look layer's description says to fill it.
+2. **`readEdit` keeps it for `look`**, in `normalizePagePath`'s spelling; absent
+   stays absent (no key), and every other non-page layer still carries none.
+   **A page the site does not have is KEPT, not turned into an add-on** as the
+   page layer's is — a colour or a section aimed at a missing page is not an
+   addition, and *"take the 3D thing off the menu page"* must not design one.
+3. **The look door checks a named page before anything runs** — before the
+   picker is paid for or any lane acts — and answers a missing one with the page
+   rung's own `page/no-page` key and sentence and the site's real pages: 422,
+   cost 0, `unchanged`, nothing compiled, no follow-up. So no site-wide lane can
+   quietly change the whole site for a page that is not there, and no page-shaped
+   lane can land on the home page instead.
+
+- **THE DEFAULT IS KEPT AND PINNED**: a look message naming NO page on a
+  multi-page site still goes to the home page (`fallbackPage`'s documented
+  rule). The owner's rule is about a named page; a control asserts the default so
+  the fix cannot pass by refusing every unnamed page change.
+- **⚠ ONE CONSEQUENCE BEYOND THE REPRODUCED CASE**: the `pages` verb's step used
+  `pv.name || fallbackPage`, and the fold for a `removes: ["pages"]` answer
+  names `ePage`. Both were written to take a named page and never received one;
+  now a page verb the picker answers WITHOUT naming a page acts on the page the
+  router named, where it used to fall to `/` (whose removal is refused). That is
+  the rule applied consistently and it is NOT separately tested — the picker's
+  own `pageName` still wins when it gives one.
+- **WHAT DID NOT MOVE**: the css lane (and every other own lane) ignores the
+  page, so a colour change *"for one page"* is still written into the site-wide
+  sheet exactly as before; the page layer's own unknown-page → add-on rule; the
+  routing reply, `siteEdit` and the dispatcher, all unchanged.
+
+**EVIDENCE.** `test/edit-page-target.test.mjs`, **5 cases**, every hop DRIVEN:
+the real `/api/site/route`, the real `siteEdit` cut out of `chat.js` and run
+with a recording `apiFetch`, the real edit route on the exact body `siteEdit`
+posted, and the real browser composer. The writer stub **obeys whatever file it
+is shown**, which is what makes a wrong target visible. Asserted: the routing
+reply's page, the posted page, the writer's file AND its whole source (and the
+home page absent from its prompt), the model calls, the compiler payload, the
+stored pages, the edit's debits against its reported cost, the screen, and the
+home page **byte-identical** in both the payload and the store. Controls: `/`
+named explicitly (the positive homepage edit), and no page named (the default).
+**Red 4 of 5 against unfixed `3c0a2533`** in a throwaway worktree — only the
+unnamed-default control passes on both. **Focused mutation check
+`scripts/mutants/page-target.json`: 9 mutants, 9 killed, 0 survived, 0 never
+applied, the comment-only control surviving**, one mutant per hop or fact (the
+router dropping the page, its spelling, the routing reply, the browser POST, the
+door check, the dispatcher, the sentence's verb and its page list, the tool
+text); the three swept files byte-identical to a scratchpad backup afterwards.
+**Suite 7,219 locally, taken twice** (`# tests 7219 / # pass 7219 / # fail 0 /
+# skipped 0`, `duration_ms` 116,888 and then 116,312 on the committed tree) —
+**+5 against 7,214**, exactly this file's cases.
+**⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED, so this proves a
+page the router names is carried to the writer and published there — never that
+a real router names it. The router's instructions changed; whether the model
+fills the field is unproven until a live run.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
