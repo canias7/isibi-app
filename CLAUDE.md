@@ -4213,6 +4213,20 @@ that can see the change (the new file, `edit-failure`, `edit-page-context`,
 afterwards. **Suite 7,227 locally** (`# tests 7227 / # pass 7227 / # fail 0 /
 # skipped 0`, `duration_ms 117,122`) — **+8 against 7,219**, exactly this
 change's cases: seven in the new file and one in `edit-failure`.
+**AND THE CI UNIT HALF MATCHES**: run **`35912468500` on `7ee2e427`** reads
+**`# tests 7227 / # pass 7223 / # fail 0 / # skipped 4`** (`duration_ms
+119,331`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all nine new or renamed cases found passing BY NAME (`ok
+1632`–`1633` in `edit-failure`, `ok 1766`–`1772` in the new file) and zero
+`not ok` lines in the downloaded log. **AND `site build` run `35912468693` on
+`7ee2e427`** (19:55:00 → 20:19:35Z, **24m35s**, all twenty steps) read all
+twelve counts green out of its per-step files: TAP 397/397/0/0, kit-typecheck
+4, site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+site-routing 14, site-runtime 47, kit-render / kit-a11y / kit-effects /
+kit-paint `all passed`, census 7 + 4 + 1 = **12**; the two known `##[error]`
+annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) each
+directly above its own `ok` line this time, `tsc`-format lines 9 / 2 / 7;
+`site-build.mjs` **17m58s**. **The stamp chain ends at `7ee2e427`.**
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and every writer is
 a stub that applies the ask to what it is shown, so this proves the route runs
 ONE page operation, publishes both changes and bills once — never that a real

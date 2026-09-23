@@ -207,8 +207,10 @@ its own next task (number 6 below).
 - Eight deliberate breaks to the new rule — joining across a photo step,
   joining a step that has its own instruction, dropping one of the two lanes,
   and so on: all eight caught.
-- The whole suite passes locally: 7,227 (the 8 new cases on top of 7,219).
-  GitHub's run is next.
+- The whole suite passes: 7,227 (the 8 new cases on top of 7,219), both here
+  and on GitHub, where all 9 new or reworked cases were found passing by name.
+  GitHub's slower site-build check (25 minutes, twelve separate result counts,
+  real sites compiled and opened in a browser) passed in full too.
 - **Not proven:** that a real model makes two changes correctly in one call.
 
 ---
