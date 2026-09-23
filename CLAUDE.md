@@ -4549,7 +4549,19 @@ re-anchors added assertions, not cases.
 skips — with all seventeen cases found passing BY NAME (`ok 1823`–`1839`) and
 zero `not ok` lines in the downloaded log. The docs-only `9dd117df` reads the
 same four numbers on run `35930280497`, so the pair off CI says that commit
-moved the suite by zero.
+moved the suite by zero. **AND `site build` run `35930143439` on `9ca86137`**
+(22:46:16 → 23:11:56Z, **25m40s**, all twenty steps) read all twelve counts
+green out of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+**382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all passed`,
+census 7 + 4 + 1 = **12**; the two known `##[error]` annotations
+(`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) inside the case that
+compiles a broken page on purpose, the second followed by the two SSR-stream
+lines and then its own `ok`; `tsc`-format lines 9 / 2 / 7, **the same nine
+lines as run `35921456542`'s** (counted over any `.tsx(l,c): error TS` line — a
+reader limited to `src/routes/` answers 8 / 2 / 6, missing the kit's
+`chart-bar-label.tsx` line); `site-build.mjs` **18m34s**. The documents-only
+commits after it fire no site build. **The stamp chain ends at `9ca86137`.**
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and the page writer
 is a stub that applies the layout to the file it is shown, so this proves the
 route scopes each verb to its own step and target — never that a real picker

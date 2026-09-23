@@ -226,6 +226,9 @@ new one.
 - A focused mutation check: 7 of 7 deliberate breakages caught, the harmless
   control not flagged.
 - The whole suite: 7,247 tests, all passing.
+- CI agrees: the unit tests read the same 7,247 (four skipped on CI, as
+  always), with all 17 new tests found passing by name; the site build passed
+  all twenty steps with every one of its twelve counts unchanged.
 - Screenshots of all five cases, before and after, are in the chat.
 - **The limit:** the tests supply the model's answers, so this proves the edit
   step keeps each instruction with its own step — not that a real model picks
