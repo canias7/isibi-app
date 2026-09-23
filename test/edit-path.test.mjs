@@ -824,7 +824,9 @@ test("`pages` remove really deletes the page — not just routes to the rung", a
   // A SWEEP FOUND THIS ONE. Cutting `if (pv.verb === "remove") eRemove = true;`
   // survived the whole suite: every guard checked that the ask ROUTED to the
   // page rung and none checked that the page went. That is a guard watching the
-  // layer below the break — the plumbing asserted, the connection not.
+  // layer below the break — the plumbing asserted, the connection not. (That
+  // line is gone since 2026-09-23 — the verb rides on the `pages` step itself —
+  // and this case is still what proves the removal lands.)
   //
   // WHAT THE CUSTOMER ASKED FOR IS THE ASSERTION: the page is gone from what
   // gets published. Read off the ONE compile, which is the last thing that

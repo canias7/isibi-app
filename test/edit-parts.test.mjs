@@ -271,7 +271,11 @@ test("the look branch adds a page step to place the QR codes no page shows, name
 test("a step's own ask replaces the customer's sentence for that step only", () => {
   const loop = CODE.slice(at(CODE, "for (const step of steps) {", "steps loop"), at(CODE, "let finalPub = null;", "publish") );
   const set = loop.indexOf("eInstruction = step.instruction || eMessage;");
-  const run = loop.indexOf("await runLayer(step.layer, step.page, step.fields)");
+  // RE-ANCHORED 2026-09-23 ON THE CALL, NOT ITS WHOLE ARGUMENT LIST: the call
+  // gained the step's own page verbs (a removal or a move rides on the step it
+  // was given to), and this case is about WHERE the call sits — between the
+  // step's ask being set and the customer's sentence being put back.
+  const run = loop.indexOf("await runLayer(step.layer, step.page, step.fields");
   const restore = loop.indexOf("eInstruction = eMessage;");
   assert.ok(set > 0 && run > set && restore > run, "the step's ask must be set before the rung runs and restored after");
   assert.match(CODE, /let eInstruction = String\(\(eb && eb\.instruction\)/, "eInstruction must be assignable");

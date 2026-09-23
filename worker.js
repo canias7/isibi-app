@@ -20416,13 +20416,25 @@ async function handleRequest(request, env, ctx) {
             // also names one on a `look` answer ("…on the gallery page"), and
             // the look door resolves it before any lane runs, below.
             let ePage = String((eb && eb.page) || "");
-            // THE PAGE VERBS, READ THROUGH ONE NAME EACH, for the reason `ePage`
-            // is: the `page` branch took them straight off the body, which was
-            // right while the client was its only caller. The `pages` lane
-            // decides them from the customer's sentence and has no body fields
-            // to put them in.
-            let eRemove = eb && eb.remove === true;
-            let eRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
+            // THE ROUTER'S PAGE VERBS — its own decision, read off the body. They
+            // belong to the ROUTER'S step and to nothing else: the lane door
+            // reads `eRemove` to open for a `picture` or `nav` removal, and the
+            // one step the router's answer becomes carries both (`steps.push`
+            // below). The `pages` lane's verb rides on the `pages` step itself.
+            //
+            // ⚠ THESE WERE `let`s THE `pages` STEP SET WHILE THE STEPS WERE BEING
+            // BUILT (until 2026-09-23), so every page step read them — the layout
+            // step a `shape` lane dispatched included. Reproduced through this
+            // route: "on the home page put the opening hours above the welcome,
+            // and remove the gallery page" ran no page writer, removed the
+            // gallery and answered the layout with "I left / — that is the home
+            // page"; aimed at /prices instead, the same sentence DELETED /prices
+            // with "✅ Updated the look." on the screen, and a move sent /prices
+            // to the gallery's new address. `const` now, and `runLayer` takes the
+            // STEP's verb under these two names, so no rung can read the
+            // router's flags or another step's.
+            const eRemove = eb && eb.remove === true;
+            const eRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
             // `let`, AND THE MESSAGE KEPT BESIDE IT: a step the look branch adds
             // on its own (placing the QR the qr lane just made) runs the page
             // rung with an instruction of its own, and every rung reads
@@ -21327,9 +21339,14 @@ async function handleRequest(request, env, ctx) {
                 if (pv.name && known.length && !known.includes(pv.name)) {
                   return explain("pages/no-page", { page: pv.name, verb: pv.verb, routes: known });
                 }
-                if (pv.verb === "remove") eRemove = true;
-                if (pv.verb === "move") eRename = pv.to;
-                steps.push({ layer: "page", page: pv.name || fallbackPage, fields: ["pages"] });
+                // THE VERB RIDES ON ITS OWN STEP, beside the page it names. It
+                // used to be written into the message-wide flags here, and every
+                // other page step of the message then took the removal or the
+                // move — see `eRemove` where it is declared.
+                steps.push({
+                  layer: "page", page: pv.name || fallbackPage, fields: ["pages"],
+                  remove: pv.verb === "remove", rename: pv.verb === "move" ? pv.to : "",
+                });
               }
 
               // A RUNG ABOVE THIS ROUTE DOES IT. `kind` is a rebuild — shopfront
@@ -21361,13 +21378,15 @@ async function handleRequest(request, env, ctx) {
                 // THE OTHER HALF OF THE FALL-THROUGH, and the reason is at the
                 // picker's own empty check above: a door this route opened is
                 // put back the way the router left it, never climbed.
-                if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [] });
+                if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });
                 else return explain("picker/no-lane");
               }
             } else {
               // EVERY OTHER LAYER IS THE ROUTER'S OWN DECISION, made with the
-              // whole message in front of it. One step, exactly as before.
-              steps.push({ layer: eLayer, page: ePage, fields: [] });
+              // whole message in front of it. One step, exactly as before — and
+              // the router's verbs ride on it, because it is the step they were
+              // decided for.
+              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });
             }
 
             // ── THE PERMISSION IS THE STATE, NOT A FLAG (2026-09-20) ──────
@@ -21402,7 +21421,13 @@ async function handleRequest(request, env, ctx) {
             // exactly as the variables the branches already read, so the eight
             // layers below are untouched by the change that lets several of them
             // run for one message.
-            const runLayer = async (eLayer, ePage, pickedFields) => {
+            //
+            // `eRemove` AND `eRename` ARE THE STEP'S OWN VERBS (2026-09-23),
+            // shadowing the router's under the same two names, so the page
+            // rung's removal and move branches can only ever act for the step
+            // that was given the verb. A step given none — a layout lane, a look
+            // step, the QR placement — carries `false` and `""`.
+            const runLayer = async (eLayer, ePage, pickedFields, eRemove, eRename) => {
             if (eLayer === "data") {
               // ── THE CONTENT THE SITE STORES ─────────────────────────────
               //
@@ -22337,7 +22362,11 @@ async function handleRequest(request, env, ctx) {
                   slug: ownerSlug, pages: eSrc,
                   label: versionLabel({ revise: true, changeNote: eInstruction }),
                 }),
-              }, { images: eImages, remove: eb && eb.remove === true, tab: eb && eb.tab === true });
+              // `eRemove`, THE STEP'S — not the body's. The logo rung is only ever
+              // the router's own step (no lane dispatches here), so the two are
+              // equal on every path that reaches this line today; the step's is
+              // the one that stays right if a lane ever does.
+              }, { images: eImages, remove: eRemove, tab: eb && eb.tab === true });
 
               if (!lOut.ok) {
                 // NEVER ESCALATED. The rung above is a full revise, which cannot
@@ -24106,7 +24135,7 @@ async function handleRequest(request, env, ctx) {
               // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; every other step
               // runs on the customer's sentence. Restored below the loop.
               eInstruction = step.instruction || eMessage;
-              const res = await runLayer(step.layer, step.page, step.fields);
+              const res = await runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === "string" ? step.rename : "");
               eInstruction = eMessage;
               const body = await res.clone().json().catch(() => null);
               const failed = !body || body.ok !== true;

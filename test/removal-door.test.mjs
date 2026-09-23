@@ -178,7 +178,11 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // And the bottom of the block, where an empty step list would otherwise climb.
   const tail = block.slice(block.indexOf("if (!steps.length) {"));
   assert.ok(tail.length > 100, "the no-steps branch is gone");
-  assert.match(tail, /if \(eRemovalDoor\) steps\.push\(\{ layer: eLayer, page: ePage, fields: \[\] \}\)/,
+  // RE-ANCHORED 2026-09-23: the router's own step now carries the router's
+  // page verbs, because a verb rides on the step it was decided for and no
+  // other (`test/edit-page-verb.test.mjs`). Still the router's own layer and
+  // page, with no lanes — the property this case is about.
+  assert.match(tail, /if \(eRemovalDoor\) steps\.push\(\{ layer: eLayer, page: ePage, fields: \[\], remove: eRemove, rename: eRename \}\)/,
     "an empty step list does not put the router's own step back");
   // BOTH of them, or the fall-through is half wired — which is the shape this
   // whole change exists because of.

@@ -3661,7 +3661,8 @@ text — route tests, no live run · look/css — run 14 refused twice and
 refunded, run 41 wordmark finished, route tests · page layout — live runs 9 and
 11 · custom components — live runs 17, 21, 24, 26 · pictures — route tests, no
 live picture-rung run · remove/move — live run 11 (a section), route tests for
-page delete and lane removal, no live page delete or move · rules/data — route
+page delete and lane removal, and for a layout beside a removal or a move
+(`edit-page-verb`), no live page delete or move · rules/data — route
 tests only (run 12 was blocked, since fixed) · combined — route tests and the
 driven money cases above.
 
@@ -3940,13 +3941,14 @@ separate next tasks"*):
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
 6. **The page verbs bleed into sibling page steps** (found 2026-09-23 while
-   reproducing #2; not fixed — **THE NEXT TASK**, owner, 2026-09-23). `eRemove` and `eRename` are MESSAGE-WIDE `let`s
-   the `pages` verb sets, and every page step reads them — so `shape` picked
-   beside `pages` (*"…and take the gallery page off"*) runs the `shape` step
-   down the REMOVAL branch. Reproduced through the route with supplied answers
-   (`[shape, pages]`, verb `remove`, `/gallery`, the router naming `/`): no page
-   writer ran, the `shape` step answered *"I left / — that is the home page…"*,
-   `/gallery` was removed, and the layout change was never made.
+   reproducing #2). `eRemove` and `eRename` were MESSAGE-WIDE `let`s the
+   `pages` verb set, and every page step read them — so `shape` picked beside
+   `pages` (*"…and take the gallery page off"*) ran the `shape` step down the
+   REMOVAL branch: no page writer, `/gallery` removed, the layout never made.
+   **FIXED ON THE BRANCH 2026-09-23 — not merged, not deployed** (*a page verb
+   belongs to its own step*, below): aimed at a NON-home page the same sentence
+   had DELETED that page too, with *"✅ Updated the look."* on the screen, and
+   the router's own `remove` reached a layout lane through the picture door.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -4419,6 +4421,128 @@ replay."*
   `d7890bab48828d6092399571d050eb02536973ac` and `expect_image`
   `bb412dcada44c503` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
+
+### A PAGE VERB BELONGS TO ITS OWN STEP (2026-09-23, on the branch)
+
+Owner, after reproducing it through the route: *"On the home page put the
+opening hours above the welcome, and remove the gallery page." With shape +
+pages/remove, no page writer runs. The gallery is removed, the homepage stays
+unchanged, and the reply warns that the homepage cannot be removed. Scope
+remove and move/rename instructions to their individual operation and target,
+not shared request-wide flags. An ordinary layout step must not inherit another
+step's destructive action.* **Not merged, not deployed, no paid run** — the
+owner asked for the focused fix and its CI first.
+
+**THE DEFECT, MEASURED THROUGH THE ROUTE ON HEAD `67c010fd`** (supplied
+answers; four pages — `/`, `/prices`, `/gallery`, `/visit` — none linking to
+another, so a wrong removal or move lands rather than being stopped by the
+merge's own link check; the job path identical):
+
+| message | page writers | what shipped | charged | the customer's screen |
+|---|---|---|---|---|
+| home layout + remove `/gallery` | **0** | the gallery removed, the home page unchanged | 0 | *"✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back. ⚠️ I left / — that is the home page, and removing it would leave the site with no front door."* |
+| `/prices` layout + remove `/gallery` | **0** | **`/prices` DELETED** as well as the gallery | 0 | *"✅ Updated the look."* |
+| home layout + move `/gallery` → `/photos` | **0** | the gallery moved, the home page unchanged | 0 | *"✅ Updated /gallery. ⚠️ I couldn't move that page — the home page has no address to move."* |
+| `/prices` layout + move `/gallery` → `/photos` | **0** | **`/prices` MOVED to `/photos`**; the gallery's own move refused | 0 | *"✅ Updated /prices. ⚠️ I couldn't move that page — there is already a page at /photos."* |
+| the router's `remove` (picture door) + a `/prices` layout lane | **0** | **`/prices` DELETED** | 0 | *"✅ Took /prices off the site. Every publish is kept, so say the word if you want it back. ⚠️ I couldn't find a photograph on your site that I can change. …"* |
+
+- **THE HOME PAGE'S OWN PROTECTION IS WHAT HID IT.** In the owner's
+  reproduction the layout step's inherited removal was REFUSED (the home page
+  cannot go), which is why the damage looked like a missing layout change.
+  Aimed at `/prices`, nothing refused it: the page was deleted, and the screen
+  said *"✅ Updated the look."* — **byte-identical to what the fixed code says
+  when it works**, so from the screen the deletion was invisible.
+- **"CHARGED 0" IS NOT A SAVING.** The removal and move branches are free and no
+  writer ran, so the picker call went unbilled (our cost) — the customer paid
+  nothing for a message that deleted or moved the wrong page and did not make
+  the change they asked for.
+- **TWO SOURCES OF ONE FLAG.** (1) The `pages` step WROTE the picker's verb into
+  the message-wide `let`s while the steps were being built, so every page step
+  read it. (2) The router's own `remove`, read off the body, opens the lane door
+  for `picture` and `nav` — and a page lane the picker named beside the picture
+  lane read that same flag (row five).
+
+**THE FIX: A VERB RIDES ON THE STEP IT WAS GIVEN TO.** The `pages` step carries
+`{remove, rename}` from the picker's verb and target; the router's own step
+(the non-look branch, and the removal door's fall-through) carries the
+router's; `runLayer(eLayer, ePage, pickedFields, eRemove, eRename)` takes the
+STEP's verb under the two names every branch already reads — the precedent
+`eLayer`/`ePage` set — so the router's are shadowed inside it and no rung can
+read another step's. The router's two are `const` now. **The logo rung reads the
+step's `eRemove` too** — equal to the body's on every path that reaches it (no
+lane dispatches to `logo`), so that line is argued in the code and no case can
+separate the two.
+
+- **THE DUPLICATE-EXECUTION FIX CANNOT ABSORB A VERB STEP**, measured rather
+  than assumed: `sentencePageStep` requires at least one field and every field a
+  page lane — the `pages` step's one field is not a page lane
+  (`laneLayer("pages")` is null) and the router's own step has no fields. So
+  `mergePageSteps` never joins a verb step and `pageStepDone` never skips one.
+  **`site-lanes.mjs` is untouched.**
+- **UNCHANGED, AND SAID**: a picker that folds `pages` under `removes` without a
+  `pageName` still targets the page the ROUTER named (`name: ePage || ""`) —
+  the named-page section's recorded consequence — and the picker's own
+  `pageName` still wins when it gives one.
+
+**AFTER, SAME ROUTE, SAME ANSWERS, BOTH MONEY PATHS**: each layout case runs
+**1** page writer, shown the stored target page; **1** compile carries the
+layout change AND the verb's result; the unrelated pages are byte-identical in
+the payload and the store; debits **`[3]`** (synchronous) / **reserve seq 1 = 3**
+(job), nothing refunded; `layers ["page", "page"]`, no `partial`; `removed:
+["gallery.tsx"]` or `renamedTo: "/photos"`. The picture door: `/prices` laid
+out and KEPT, `partial [picture no-slots]`, *"✅ Updated /prices. ⚠️ I couldn't
+find a photograph on your site that I can change. If you'd like one added, say
+which page it should go on and where."*
+
+- **⚠ THE COMBINED REPLY NAMES NEITHER CHANGE**: *"✅ Updated the look."* The
+  merged reply lands on the browser's look branch, which reads no `removed`, no
+  `renamedTo` and no page — review #9's reporting class (next task 3),
+  unchanged by this fix and asserted exactly as it is, so changing it is a
+  decision somebody makes on purpose. **And `renamedTo` has no reader in the
+  browser at all**: a standalone move says *"✅ Updated /gallery."* — the OLD
+  address.
+
+**EVIDENCE.** `test/edit-page-verb.test.mjs`, **17 cases**: layout + removal
+and layout + move on the home page AND on `/prices`, each on both money paths
+(8); the picture door (1); two layout lanes beside a removal — one page
+operation, the removal its own step (1); and **7 controls** — the router's own
+removal and move on both paths, the `pages` lane's removal and move alone, and
+the `/prices` layout alone. Every case asserts the writer's calls and the file
+it was shown, the compiler payload and the store page by page, the unrelated
+pages byte-identical, the money on its path, and the customer's exact sentence
+through `editBrowserReply`. **Red 10 of 17 against `67c010fd`** in a throwaway
+worktree, each on its first gate (*no page writer ran*); **with that gate cut in
+the throwaway copy every one of the ten still fails on the compiler payload**
+(the home page unchanged, or `/prices` missing from the page set), so each layer
+sees the defect alone. The 7 controls pass on both sides, and
+`edit-page-once.test.mjs` — the duplicate-execution controls — is unchanged and
+green.
+**Four pre-existing guards re-anchored to what they assert**: `edit-parts` (the
+call's POSITION between the ask being set and restored, anchored on the call
+without its whole argument list), `removal-door` (the door's fall-through is
+still the router's own layer and page, now carrying the router's verbs),
+`site-ask` (`const eRemove`, read strictly off the body) and `edit-path` (a
+comment quoting the deleted line).
+**Focused mutation check `scripts/mutants/page-verb.json`: 7 mutants, 7 killed,
+0 survived, 0 never applied, the comment-only control surviving**, against 13
+files (`edit-page-verb`, `edit-page-once`, `edit-failure`, `edit-path`,
+`removal-door`, `site-ask`, `edit-parts`, `site-delete`, `edit-lanes`,
+`edit-page-target`, `edit-page-context`, `edit-page-protect`, `site-apply`):
+the `pages` step losing its removal, losing its move, the loop forwarding the
+ROUTER's verbs, any step's verb reaching every step (the defect restored), the
+router's own step without its verbs, without its move, and `runLayer`'s
+parameter renamed so the page rung reads the router's flag. `worker.js`
+byte-identical to its scratchpad backup afterwards. **Two lines left out of the
+sweep, and said**: the door step's verbs (inert today — the `picture` and `nav`
+rungs read neither) and the logo rung's read (equivalent on every reachable
+path).
+**Suite 7,247 locally** (`# tests 7247 / # pass 7247 / # fail 0 / # skipped 0`,
+`duration_ms 117,405`) — **+17 against 7,230**, exactly this file's cases; the
+re-anchors added assertions, not cases.
+**⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and the page writer
+is a stub that applies the layout to the file it is shown, so this proves the
+route scopes each verb to its own step and target — never that a real picker
+names these lanes and this verb, nor that a real writer makes the layout change.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -5537,7 +5661,10 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
 - **1 verb lane** — `pages`: `remove` and `move` are the `page` rung, `add` is
   the addon route. **No default** — an unreadable verb refuses, and this is the
   ONE place where the bias inverts, because a wrong guess takes a page off a
-  site.
+  site. **The verb rides on the `pages` step itself** (`{remove, rename}`, and
+  the router's own step carries the router's): `runLayer` reads the STEP's, so
+  a layout lane picked beside it never inherits a removal or a move
+  (2026-09-23).
 - **1 escalates** — `kind`→`build`. A rebuild is what it IS.
 - **0 unbuilt.** The five groups are a **total, disjoint partition**. **A
   dispatched lane must never target `look`** — that is the door it came through.

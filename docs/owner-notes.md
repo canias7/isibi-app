@@ -155,6 +155,84 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — A page removal or move no longer leaks into a layout change
+
+Your reproduction was exact: *"On the home page put the opening hours above
+the welcome, and remove the gallery page"* ran no page editor, removed the
+gallery, left the home page alone and warned that the home page can't be
+removed. **Fixed on the branch — not merged, not deployed, no paid run**, as
+you asked: the fix and its CI come to you first.
+
+### What it did before (measured through the edit step, made-up model answers, free)
+
+The "remove" or "move" instruction was one flag for the whole message, so the
+layout step picked it up too and tried to remove or move **its own** page.
+
+- **Home layout + remove the gallery:** no page editor ran; the gallery went;
+  the home page was not changed. The reply: *"✅ Took /gallery off the site.
+  Every publish is kept, so say the word if you want it back. ⚠️ I left / —
+  that is the home page, and removing it would leave the site with no front
+  door."*
+- **The same on the prices page:** the home page's protection is what hid how
+  bad this was. Aimed at `/prices`, nothing stopped it — **`/prices` was
+  deleted** along with the gallery, and the reply said *"✅ Updated the look."*
+- **Home layout + move the gallery to /photos:** no page editor; the gallery
+  moved; the home page was not changed; the reply said the home page can't be
+  moved.
+- **Prices layout + move the gallery to /photos:** **`/prices` was moved to
+  `/photos`** instead, and the gallery's own move was then refused because
+  `/photos` was taken.
+- **A second way in:** "take the photo off the prices page and put the price
+  list above the introduction" **deleted `/prices`**, and the reply said so
+  (*"✅ Took /prices off the site…"*). There the remove came from the router
+  itself, and the layout step picked that up too.
+- None of these charged anything — nothing was generated — so the customer
+  paid nothing for a message that removed or moved the wrong page and didn't
+  make the change they asked for.
+
+### What happens now
+
+Each instruction stays with its own step: the "remove the gallery" step carries
+the removal and the gallery as its target, and the layout step carries neither.
+
+- In all four layout cases: **one** page edit on the page you named, the
+  layout change made, the gallery removed or moved, and every other page left
+  exactly as it was. Charged **3** (the one page edit), on both the instant path
+  and the queued path.
+- The photo case: `/prices` is kept and laid out, nothing is removed, and the
+  reply says *"✅ Updated /prices. ⚠️ I couldn't find a photograph on your site
+  that I can change…"* (this test site has no photographs).
+- Removing or moving a page on its own still works exactly as before, free.
+- The "doing it twice" fix still holds: two layout lanes beside a removal are
+  still one page edit, with the removal as its own step.
+
+### Worth knowing — not changed here
+
+When a message does two things, the reply still says only *"✅ Updated the
+look."* It doesn't say which page changed, or that a page was removed or moved.
+That's the "look + web address only reports the look" item already on the list
+(number 3 below), so I left it alone and the tests pin today's wording. Also, a
+page move on its own says *"✅ Updated /gallery."* — the old address, not the
+new one.
+
+### Proof (made-up model answers, free)
+
+- A new test file, 17 cases, through the real edit step and the browser's own
+  reply code, on both the instant path and the queued path. Each checks which
+  page the editor was shown, what the compiler received, what was saved, that
+  the other pages are untouched, the charge, and the exact reply.
+- 10 of the 17 fail on the old code; the other 7 are the "each thing on its
+  own" checks and pass on both.
+- A focused mutation check: 7 of 7 deliberate breakages caught, the harmless
+  control not flagged.
+- The whole suite: 7,247 tests, all passing.
+- Screenshots of all five cases, before and after, are in the chat.
+- **The limit:** the tests supply the model's answers, so this proves the edit
+  step keeps each instruction with its own step — not that a real model picks
+  these lanes or makes the layout change.
+
+---
+
 ## 2026-09-23 — "Doing it twice" is closed, merged and live
 
 You reviewed it (81 focused cases passing) and closed it, keeping the limit
@@ -561,8 +639,9 @@ sentence too.
    still starts a rewrite; and "add a QR code and make the footer navy" sends
    the whole message to the add-on step, so the footer never changes.
 6. **Layout plus a page removal** (found while fixing number 2): the removal
-   leaks into the layout step, so the layout step removes instead of changing
-   the layout. **This is the next task.**
+   leaked into the layout step, so the layout step removed instead of changing
+   the layout. **Fixed on the branch 2026-09-23 — not merged, not deployed**
+   (entry at the top).
 
 Translation, the phone hydration warning and the bigger architecture work stay
 parked, as you said.

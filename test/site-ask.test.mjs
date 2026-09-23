@@ -1554,12 +1554,15 @@ test("the deletion path reaches the route and calls no model", () => {
   assert.ok(at > 0, "the page layer moved");
   const branch = w.slice(at, w.indexOf('const eModels = modelsFor(', at));
   // `eRemove`, NOT `eb.remove` DIRECTLY (2026-08-29). The flag is read once at
-  // the top of the route into a name the front door can also SET, because the
-  // `pages` lane decides a removal from the customer's sentence and has no body
-  // field to put it in. The property is unchanged and is asserted in both
+  // the top of the route. The property is unchanged and is asserted in both
   // halves: the body is still `=== true` and nothing merely truthy, and the
   // branch still gates on it.
-  assert.match(w, /let eRemove = eb && eb\.remove === true;/,
+  //
+  // RE-ANCHORED 2026-09-23: `const`, no longer a `let` the front door SETS.
+  // The `pages` lane's verb rides on its own step, and `runLayer` takes the
+  // STEP's verb under this same name — so the branch below reads the removal of
+  // the step it is running and nothing wider (`test/edit-page-verb.test.mjs`).
+  assert.match(w, /const eRemove = eb && eb\.remove === true;/,
     "the route no longer reads the removal off the body, or reads it loosely");
   assert.match(branch, /if \(eRemove\) \{/, "the page branch never reads the removal");
   assert.match(branch, /mergeAddonPages\(eSrc, \[\], \[target\.path\]\)/,

@@ -1,0 +1,67 @@
+[
+ {
+  "label": "CONTROL: a comment above runLayer changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // `eRemove` AND `eRename` ARE THE STEP'S OWN VERBS (2026-09-23),\n",
+  "to": "            // `eRemove` AND `eRename` ARE THE STEP'S OWN VERBS (2026-09-23, control),\n",
+  "control": true
+ },
+ {
+  "label": "V-1: the pages step loses its removal (the verb dropped on its own step)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  remove: pv.verb === \"remove\", rename: pv.verb === \"move\" ? pv.to : \"\",\n",
+  "to": "                  remove: false, rename: pv.verb === \"move\" ? pv.to : \"\",\n"
+ },
+ {
+  "label": "V-2: the pages step loses its move",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  remove: pv.verb === \"remove\", rename: pv.verb === \"move\" ? pv.to : \"\",\n",
+  "to": "                  remove: pv.verb === \"remove\", rename: \"\",\n"
+ },
+ {
+  "label": "V-3: the loop forwards the ROUTER's verbs to every step instead of the step's",
+  "files": [
+   "worker.js"
+  ],
+  "from": "runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === \"string\" ? step.rename : \"\")",
+  "to": "runLayer(step.layer, step.page, step.fields, eRemove, eRename)"
+ },
+ {
+  "label": "V-4: any step's verb reaches every step (the message-wide flag restored)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === \"string\" ? step.rename : \"\")",
+  "to": "runLayer(step.layer, step.page, step.fields, steps.some((s) => s.remove === true), steps.map((s) => (typeof s.rename === \"string\" ? s.rename : \"\")).find(Boolean) || \"\")"
+ },
+ {
+  "label": "V-5: the router's own step carries no verbs",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // decided for.\n              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });\n",
+  "to": "              // decided for.\n              steps.push({ layer: eLayer, page: ePage, fields: [] });\n"
+ },
+ {
+  "label": "V-6: the router's own step carries its removal and not its move",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // decided for.\n              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });\n",
+  "to": "              // decided for.\n              steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove });\n"
+ },
+ {
+  "label": "V-7: runLayer's parameter renamed, so the page rung reads the router's flag",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const runLayer = async (eLayer, ePage, pickedFields, eRemove, eRename) => {\n",
+  "to": "            const runLayer = async (eLayer, ePage, pickedFields, stepRemove, eRename) => {\n"
+ }
+]
