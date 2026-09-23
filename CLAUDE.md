@@ -280,7 +280,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality FIFTEEN times, and the
+whole reader. **Cross-checked against reality SIXTEEN times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -309,6 +309,14 @@ from 184 inputs, three of the push's files among them. The log answered
 `built …:962824ede93e7706 (registry answered 404; ***84 inputs …)` and
 `- …:be869f***42e052c8c` → `+ …:962824ede93e7706` under `SUCCESS Modified
 application`.
+**The sixteenth — deploy 2145 (2026-09-23)**: `origin/main`
+`962824ede93e7706` (what run 22 read LIVE) and the tip `0d5137f0`
+`ce67f25d132667d0`, both from 184 inputs, `builder/page-gen.mjs` the one input
+among the push's 11 files; the log answered `built …:ce67f25d***32667d0
+(registry answered 404; ***84 inputs …)` and `- …:962824ede93e7706` →
+`+ …:ce67f25d***32667d0` under `SUCCESS Modified application`. **0 `CACHED`
+lines, every layer rebuilt, in 2m01s** — a cold build inside the warm band, so
+a fast step is not evidence of a warm runner either.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3226,7 +3234,7 @@ the window.
   real model, given rule 11 through the page rung on an `incomplete` site,
   produced the query hand-off and the three states — for this sentence on this
   site, and nothing wider.
-- **THE CORRECTION IS BUILT ON THE BRANCH — NOT MERGED, NOT DEPLOYED, NOT
+- **THE CORRECTION IS BUILT, MERGED AND DEPLOYED (deploy 2145, below) — NOT
   PROVEN BY A MODEL** (owner, 2026-09-23: *"Implement the bounded rule-11
   guidance correction now"*). Rule 11 already forbade `Number(data)` — as a
   DEFAULT, and the writer read it that way, converting after its null check.
@@ -3292,12 +3300,160 @@ the window.
     comparison in the guard. **The stamp chain ends here.**
   - **WHAT IT DOES NOT DO.** The live `fretwork-1` still serves run 24's
     generated code (`01790128661913-dafwjz`) and nothing here repairs it: the
-    rule reaches only a FUTURE page write, after a merge and a deploy
-    (`page-gen.mjs` is an image input, so the image rolls). **#418 stays
+    rule reaches only a FUTURE page write (merged and deployed since;
+    `page-gen.mjs` is an image input, so the image rolled). **#418 stays
     separate and unresolved.** And the acceptance stays OPEN until a paid run —
     the owner's call.
 
-### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
+### MERGED, DEPLOYED, AND THE CORRECTION TEST PREPARED (2026-09-23)
+
+Owner: *"Merge and deploy the reviewed change, preserving newer main commits
+and the corrected route-list harness. Verify the actual deployed SHA and
+container image. Then prepare the smallest live verification against Run 24's
+current state."*
+
+**A FAST-FORWARD, BECAUSE THERE WAS NOTHING NEWER ON MAIN TO PRESERVE.**
+`origin/main` was unmoved at `33126616` (`HEAD..origin/main` empty), so `main`
+`33126616` → **`0d5137f0`** at **07:33:58Z** — 7 commits, 11 files — keeps every
+main commit by construction. **The route-list harness (`cd944888`) is on main
+now**, so a dispatch from `main` routes with the site's real page list, as the
+browser does. **Asked before the push, not assumed**: zero runs in progress or
+queued; the image id predicted over both ends; and the rollback verified —
+`git revert --no-commit 33126616..0d5137f0` in a throwaway worktree gives tree
+**`bbdc2444…`, main's own**, so a rollback reuses `962824ede93e7706`.
+`builder/page-gen.mjs` is the push's one product file and its one image input.
+
+**DEPLOY 2145 (`35832383057`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Job
+**2m47s**, image step **2m01s** with **0 `CACHED` lines** (every layer rebuilt,
+and faster than 2144's cold 2m56s — the timing says nothing about the diff),
+Wrangler 18s.
+- **THE SIXTEENTH IMAGE-ID CROSS-CHECK, BOTH ENDS PREDICTED BEFORE THE PUSH**:
+  `origin/main` answered `962824ede93e7706` (the id run 22 read LIVE) and the
+  tip `ce67f25d132667d0`, both from 184 inputs. The log answered `built
+  isibi-app-sitebuildcontainer:ce67f25d***32667d0 (registry answered 404;
+  ***84 inputs off ./Dockerfile)` and `- …:962824ede93e7706` →
+  `+ …:ce67f25d***32667d0` under `SUCCESS Modified application`, `Applied
+  changes`.
+- **THE WORKER HALF**: `DEPLOY_ID: 0d5***37f0a7eba5***806d***b3063e87d57ef2092aa4`
+  (the merge sha, masked), `Uploaded isibi-app`, `Current Version ID:
+  05dc038b-…`, `Deployed isibi-app triggers`; **`No updated asset files to
+  upload`**, so there is no served-file check. Gates **401 / 401 / 401 / 404**
+  at 07:38:43Z.
+- **WHY IT STOPS AT "DEPLOYED"**: both routes that return the sha and the image
+  — `/api/site/build-health` and `/api/site/runtime` — ask `authUser` first
+  (re-read in `worker.js` today), so the live Worker's own answer needs a
+  signed-in press. **Press 1 below is that reading, and it has teeth**: the
+  form's `expect_deploy` and `expect_image` refuse on any mismatch.
+
+**THE PREPARED TEST IS A CORRECTION, AND A CORRECTION IS NOT THE GENERATION
+PROOF** (owner: *"Don't treat those as the same proof"*).
+
+- **(A) CORRECTING THIS COMPONENT — prepared.** From run 24's live state, one
+  paid edit whose instruction NAMES the defect. It can establish that the
+  deployed page rung — rule 11 in the prompt, the existing component shown to
+  the writer — repairs the answer check on request without breaking what run
+  24 got right. **It cannot establish that rule 11 did the work**, because the
+  instruction alone asks for the fix. The instruction names the defect and the
+  outcome ("only a real count") and deliberately leaves out the check, zero,
+  the integer and sign conditions and the wording, so those have to come from
+  somewhere — the rule's own example expression or zero clause appearing in
+  the answer would be EVIDENCE the rule reached the writer, never proof.
+- **(B) GENERATING A CORRECT COMPONENT FROM THE ORIGINAL REQUEST — not
+  prepared.** That is run 24 again under the corrected rule: restore
+  `01789972018761-6tng48` (free, the canary's restore mode), then replay run
+  17's sentence byte for byte (sha `622547386217ef0c…`). Only (B) says whether
+  a writer given *"count down the places left"* writes the answer check
+  unprompted, which is what rule 11 exists for. It needs a restoration, which
+  this step excludes. **~24 credits** (run 24's measured cost, band 17–30) plus
+  the free restore.
+- **A pass of (A) says nothing about (B).** A failure of (A) says the
+  correction path fails even with the defect named, which is the stronger
+  finding of the two.
+
+**THE STARTING STATE, READ FREE TODAY.** Live `x-site-version`
+**`01790128661913-dafwjz`** at 07:35:49Z — run 24's, nothing published since.
+**Probe v4** is v3 with every group unchanged plus **MALFORMED ANSWERS**
+(`false`, `""`, whitespace, `true`, `[2]`, `[0]`, `"0"`, `"3"`, `-1`, `1.5`,
+`[7]`, `"7"`, `"abc"`, a non-JSON body), a count-claim note, and a
+distinct-states line. Read twice against the live box, verdict lines identical:
+counts **MATCH 7 of 7**; pending **"Checking…"**, failures **"Couldn't check —
+try again"**, missing (null, empty body) **"Not available"** — **DISTINCT**;
+malformed **FAIL 10**, plus `[]` in the empty group, so **11 wrong-kind answers
+shown as availability**; `[7]` and `"7"` → **"None left."**, a count from a
+non-count, not availability and flagged; `{}`, `"abc"` and a non-JSON body →
+"Not available"; the real function **200 body `0`** → "Six places left.".
+**The instrument is proven alive on the defect it must see go away**: it fails
+today's box exactly where the offline render of the saved component said it
+would.
+**⚠ AND v4's FIRST CUT FILED `[]` AND `{}` AS "MISSING"**, so its
+distinct-states line read NOT DISTINCT about a box whose three states are
+distinct — the malformed `[]` was contaminating the missing category. Missing
+is a null and an empty body; `[]` and `{}` are answers of the WRONG KIND.
+Fixed in the instrument, not the product, and re-read. *A summary line is an
+instrument too, and it can be wrong while every line under it is right.*
+
+**THE PRESSES**, both `edit-canary.yml` from **`main`**, `expect_deploy`
+**`0d5137f0a7eba51806d1b3063e87d57ef2092aa4`**, `expect_image`
+**`ce67f25d132667d0`**, `site` fretwork-1, `control` washhouse-3,
+`restore_version` and `read_job` blank:
+
+1. **FREE — the runtime confirmation and the before-state.** `spend` no. The
+   preflight reads the live Worker's sha and a cold container's image and
+   refuses on a mismatch; prints `async`/`runner` and the balance; and
+   `before/source.json` must be **byte-identical to run 24's after-read on all
+   six bodies**: `index.tsx` 26,248 `e8a2a0a6fc68f6ea`, `day-space-lookup`
+   1,932 `4b162037f67df545`, `chord-diagram` 3,861 `d0c20d52f91d69d2`,
+   `trial-booking-form` 4,045 `4b66386c0ad46092`, `gear.tsx` 6,249
+   `d580389f971cdd31`, `prices.tsx` 2,144 `0d2d72dee56a2a71` (the comparator
+   re-proved both ways on run 24's artifact today).
+2. **PAID — the correction.** `spend` yes, no earlier than ~07:55Z (15–20
+   minutes after the deploy finished at 07:37:27Z), and the instruction
+   **verbatim** — 197 characters, all ASCII, sha256
+   `ab0e2144c0da4bfc0f7e597df908b13e544b9c05345985c81468d22c324ca4c2`:
+
+   > The "Space on a preferred day" box shows places left even when the booking
+   > lookup answers with something that isn't a number of bookings. Only a real
+   > count of bookings should ever show places left.
+
+**THE ACCEPTANCE — the original four, unchanged:**
+
+1. **Malformed responses never become availability** — the fourteen malformed
+   values plus `[]` and `{}`. `[7]`/`"7"` → "None left." is not availability
+   and is REPORTED as a count from a non-count, since rule 11 lets only a real
+   answer say "none left".
+2. **A successful zero stays valid**: `0` → six places, and the unintercepted
+   real function (which answers `0`) reads six.
+3. **Loading, error and missing stay distinct**: one reading each, three
+   different strings, none advertising.
+4. **Unrelated files unchanged**: `chord-diagram`, `trial-booking-form`,
+   `gear.tsx`, `prices.tsx` byte-identical; the fix belongs in
+   `day-space-lookup`; `index.tsx` inspected, expected unchanged since the page
+   already hands the component the query.
+
+Beside them, as before: counts 1, 2, 5, 6, 7, 99 read 5, 4, 1 place (singular)
+and none for the rest; the run COUNTS only if its request sha matches, its own
+before-read matches run 24's after-read and it published. **#418 is reported,
+never a pass condition.**
+
+**WHAT EACH OUTCOME WOULD MEAN.** Rewrite published and all four hold: (A)
+passes, for this component, this wording and this site. Some malformed value
+still shown as places: the correction failed with the defect named and the
+component shown. `0` → "Not available": a truthiness check, the zero clause not
+followed. `-1` or `1.5` still shown as places: a type check without the
+example's integer and sign conditions. States collapsed: a regression.
+`tweak: true`: the one-file writer published without opening the component —
+the door let it through and nothing did the work. A `rules` answer: not this
+test, and it may change the site's database rules, recorded as what it is. A 503
+`backend`: the incomplete-site lookup, not the writer. `addon`: the canary's
+intent gate refuses to spend.
+
+**COST, ESTIMATED FROM MEASURED RUNS — NOT A CAP.** Run 21 was route 2 + edit
+15 (the quick writer declined in 53 tokens), run 24 route 2 + edit 22 (it
+re-emitted the page first). This press differs by ~300 tokens of rules and a
+component 466 characters longer, so **~17–24 credits, perhaps ~30** with a
+correction round. Nothing enforces a per-request limit; the balance is the only
+bound. **Balance 22 at run 24's end**: if press 1 prints under ~30, top up
+first — a reservation refused partway stops the edit, and that tests nothing.
 
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
 COLLAPSE — two different facts arriving as one value, then acted on as if they

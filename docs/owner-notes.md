@@ -285,6 +285,64 @@ call. Nothing is merged or deployed, and **your live site still has run 24's
 box**; this change only affects the next time a page is written. The phone
 hydration warning (#418) is still open and separate.
 
+### Merged and deployed; the correction test is ready for your press (23 Sep)
+
+**Merged.** `main` moved from `33126616` to `0d5137f0` at 07:33Z — 7 commits,
+a fast-forward, because nothing newer had landed on `main` to preserve. The
+test-harness fix (it now tells the router your real pages) is on `main` too.
+Checked before pushing: nothing running, and undoing this is one revert that
+gives back `main`'s exact files.
+
+**Deployed.** Deploy 2145, 2m47s, green. The container image rebuilt from
+`962824ede93e7706` to `ce67f25d132667d0` — **both numbers worked out before the
+push**, and the deploy's log matched them. The Worker's deploy id is the merge
+commit (`0d5137f0…`). **It is "deployed", not "confirmed running"**: the deploy
+reports on itself, and only a signed-in check can read what the live Worker
+says. Your free press below is that check — it refuses if either number is
+different.
+
+**The test is a correction, and that is a different proof from the one run 24
+tested.** Two separate things:
+- **Fixing this box** (the test prepared): one paid edit on the site exactly as
+  run 24 left it, asking in plain words for the box to stop showing places when
+  the lookup's answer isn't a number of bookings. If it passes, it shows the
+  builder can correct this component when told what's wrong. It does **not**
+  show the new rule did it — the message itself asks for the fix.
+- **Getting it right first time** (not prepared): putting the old box back and
+  sending run 17's original "count down the places left" message again. Only
+  that shows whether the builder writes the safe check without being told. It
+  needs a restore, which you said not to do yet. About 24 credits plus the free
+  restore.
+
+**Today's box, checked free (nothing written):** the counts are right, zero
+shows six places, and loading, errors and missing answers each show their own
+words. But 11 kinds of wrong answer still show places — for example `true`
+shows "5 places left." and `1.5` shows "4.5 places left." Two more (`[7]`,
+`"7"`) show "None left.", which isn't claiming space but is still a count made
+from something that isn't one; I'll report those separately.
+
+**Your two presses**, both on the edit canary from `main`, with
+`expect_deploy` `0d5137f0a7eba51806d1b3063e87d57ef2092aa4` and `expect_image`
+`ce67f25d132667d0`:
+1. **Free** (`spend` no): confirms the live Worker and container are these
+   exact versions, prints your balance, and saves the site's files so I can
+   check they're exactly run 24's.
+2. **Paid** (`spend` yes), from about 07:55 UTC, with this message pasted
+   exactly:
+
+   > The "Space on a preferred day" box shows places left even when the booking
+   > lookup answers with something that isn't a number of bookings. Only a real
+   > count of bookings should ever show places left.
+
+**It passes only if:** no wrong answer shows places; zero still shows six;
+loading, errors and missing still each say something different; and the other
+pages and components are byte-for-byte unchanged.
+
+**Cost, estimated, not a cap:** about 17–24 credits, possibly around 30.
+Nothing limits a single request except your balance, which was **22** after run
+24 — if the free press shows under about 30, top up first, or the edit may stop
+halfway and test nothing. The phone hydration warning (#418) is still separate.
+
 ---
 
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
