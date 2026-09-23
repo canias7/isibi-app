@@ -3323,7 +3323,8 @@ queued; the image id predicted over both ends; and the rollback verified —
 **`bbdc2444…`, main's own**, so a rollback reuses `962824ede93e7706`.
 `builder/page-gen.mjs` is the push's one product file and its one image input.
 
-**DEPLOY 2145 (`35832383057`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Job
+**DEPLOY 2145 (`35832383057`) — DEPLOYED, AND RUNTIME-CONFIRMED BY RUN 25
+(below).** Job
 **2m47s**, image step **2m01s** with **0 `CACHED` lines** (every layer rebuilt,
 and faster than 2144's cold 2m56s — the timing says nothing about the diff),
 Wrangler 18s.
@@ -3454,6 +3455,31 @@ component 466 characters longer, so **~17–24 credits, perhaps ~30** with a
 correction round. Nothing enforces a per-request limit; the balance is the only
 bound. **Balance 22 at run 24's end**: if press 1 prints under ~30, top up
 first — a reservation refused partway stops the edit, and that tests nothing.
+
+### RUN 25 — THE FREE PRESS: 2145 CONFIRMED, THE STARTING STATE EXACT (2026-09-23)
+
+**`35842017069`, free, `main` at `0d5137f0`, 09:17:03 → 09:17:39Z, canary step
+18 s.** `build-health 200 deploy=0d5137f0a7eb image=ce67f25d132667d0`,
+`runtime 200 deploy=0d5137f0a7eb async=true runner=true`, both readers agreeing
+and both form expectations matched — **the live Worker answering, not Wrangler
+reporting on itself, so deploy 2145 is deployed AND runtime-confirmed.** The
+two zero-cost async checks settled `{"ok":false,"escalate":true,
+"reason":"empty","cost":0}`, as every free press does.
+
+- **THE STARTING SOURCE IS EXACTLY RUN 24's AFTER-READ**: the artifact's
+  `before/source.json` (`complete=true`, all three `reads` true) is
+  **IDENTICAL on all six bodies, same path set** — `index.tsx`
+  `e8a2a0a6fc68f6ea`, `day-space-lookup` `4b162037f67df545`, `chord-diagram`
+  `d0c20d52f91d69d2`, `trial-booking-form` `4b66386c0ad46092`, `gear.tsx`
+  `d580389f971cdd31`, `prices.tsx` `0d2d72dee56a2a71`. **The control**: the
+  same comparator against run 24's BEFORE-read answers DIFFERS at exactly
+  `index.tsx` and `day-space-lookup`, the two files run 24 changed.
+- **The header agrees**: `x-site-version: 01790128661913-dafwjz` at 09:19:10Z.
+  So probe v4's before-reading (this section above) still describes the live
+  box — same version, same bodies.
+- **Balance 22** — under the ~30 this section set as the top-up line, since
+  route 2 leaves 20 and run 24's edit alone was 22. **The paid press is
+  prepared and not made**; nothing has spent since run 24.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -5984,7 +6010,8 @@ landed text IS the written text.
 because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 22** at run 24's end (2026-09-23, the replay: **46 → 22,
 moved 24** — route 2 + the page rung's 22, closing exactly, on a run that
-published). **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
+published), and **run 25's free press read 22 again** (09:17Z, nothing spent
+between). **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
 routing call; the edit escalated `no-page` at `cost: 0` and nothing published;
 run 22's free restore read 48). **Balance 48** at run 21's end (2026-09-22, the places-left replay:
 **65 → 48, moved 17** — route 2 + the page rung's 15, closing exactly, on a run

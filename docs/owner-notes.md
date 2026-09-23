@@ -343,6 +343,13 @@ Nothing limits a single request except your balance, which was **22** after run
 24 — if the free press shows under about 30, top up first, or the edit may stop
 halfway and test nothing. The phone hydration warning (#418) is still separate.
 
+**Free press done (run 25, 09:17 UTC) — everything checked out.** The live
+site is running exactly this deploy: the Worker's id is `0d5137f0…` and a fresh
+container gets image `ce67f25d132667d0`, both matching what you typed in. So
+deploy 2145 is now confirmed running, not just deployed. The site's files are
+byte-for-byte what run 24 left (all six), and the live version is still run
+24's. **Balance 22** — under the ~30 line, so top up before the paid press.
+
 ---
 
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
