@@ -196,9 +196,12 @@ branch. Not merged, not deployed, no paid run, nothing live touched.**
   can't tell whether the change went through, instead of starting a rewrite on
   top of an edit that may already have landed.
 - **The two other cases you asked about:**
-  - **A price change on fretwork-1 and the other three sites with a blank
-    database link** now changes the row through the database it proves is
-    there. Nothing is written to the link itself — that repair stays yours.
+  - **Changing stored content (a price in a menu table, say) on a site whose
+    database link is blank** — fretwork-1 is one of four — now reaches the
+    database through a connection it checks first, instead of starting a
+    rewrite. Nothing is written to the link itself — that repair stays yours.
+    (Shown with made-up answers on a site set up like that; whether a given
+    site's prices live in a table or in the page wording depends on the site.)
   - **Swapping a photo that sits inside a section file** now swaps it there;
     the pages are untouched. If the section files can't be read at that moment,
     it says so ("this is on us") instead of claiming the site has no photo.
@@ -234,6 +237,9 @@ sentence too.
   new comment moved that spot; it turned out it had been looking at the wrong
   part of the file for a while anyway. It now checks by named start and end
   points, and the whole suite (7,212 tests) passes locally.
+- **CI after the fix:** the unit tests on GitHub pass (7,212, with the usual 4
+  skipped there), and the full site-build check passed all twelve of its
+  counts (382 of 382 site builds among them).
 
 ### Separate next tasks — written down, not started
 

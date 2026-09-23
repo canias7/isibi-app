@@ -3822,6 +3822,21 @@ locally** (`duration_ms 126,927`). *A focused list selected by keyword is blind
 to exactly the guards that read by position* — which is why a narrow list is
 only ever believed for a green, never for completeness.
 
+**CI, BOTH HALVES TAKEN.** Unit run **`35855079271` on `aa9728ef`** reads
+**`# tests 7212 / # pass 7208 / # fail 0 / # skipped 4`** (`duration_ms
+117,064`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips. **`site build` run `35854168288` on `1f234090`** (11:22:37 → 11:46:54Z,
+**24m17s**, all twenty steps) read all twelve counts green out of its per-step
+files: TAP 397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, kit-render /
+kit-a11y / kit-effects / kit-paint `all passed`, census 7 + 4 + 1 = **12**; the
+two known `##[error]` annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17)
+TS2339`) each directly above their own `ok` lines; `site-build.mjs` **17m40s**.
+`aa9728ef` fires no site build — it touches `test/api-auth.test.mjs` and the two
+documents, none on that workflow's `paths` — and its product tree is
+`1f234090`'s, so that run is the reading for both. **The stamp chain ends at
+`aa9728ef`.**
+
 **SEPARATE NEXT TASKS — RECORDED, NOT STARTED** (owner: *"Record wrong-page
 targeting, duplicate execution, content preservation and billing findings as
 separate next tasks"*):
