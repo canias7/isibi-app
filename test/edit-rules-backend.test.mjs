@@ -479,9 +479,16 @@ test("a table inventory that cannot be read stops; it is never an empty site", a
   assert.deepEqual(paidActions(r.said), [], "an unreadable inventory would still buy something");
   assert.equal(r.said.shown, true, "the browser printed NOTHING for an unreadable inventory");
   // THE EXACT WORDING, and it is scoped to the edit rather than the request.
+  // ⚠ SINCE 2026-09-23 THE SCOPED HALF IS THE BROWSER'S: the rung's own
+  // sentence ends at its own advice, and "nothing on your site changed, and
+  // this edit cost you nothing" is added on the refusal branch because the
+  // reply says `unchanged` — so the same rung sentence printed beside a step
+  // that shipped (this rung is reached as one step of several through the
+  // `backend` lane) no longer claims the whole site stood still.
+  assert.equal(r.body.unchanged, true, "the refusal does not say this rung wrote nothing");
   assert.equal(r.said.text,
     "⚠️ I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. "
-    + "Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.");
+    + "Try again in a few minutes. Nothing on your site changed, and this edit cost you nothing.");
 });
 
 test("a stored spec with tables passes both gates and reaches the work", async () => {
@@ -661,8 +668,29 @@ test("no refusal this round added claims the whole request was free", () => {
     // search for the ASCII form alone answers zero on text carrying the claim.
     assert.ok(!/have?n.t been charged/i.test(s),
       "a refusal still claims the whole request was free, and the routing call was billed: " + JSON.stringify(s));
-    assert.match(s, /this edit cost you nothing/i,
-      "a refusal says nothing about what it did or did not cost: " + JSON.stringify(s));
+  }
+  // ⚠ AND WHO SAYS WHAT IT COST SPLIT ON 2026-09-23. The ownership gate
+  // answers the whole request on its own — nothing runs beside it — so its
+  // sentences still say "this edit cost you nothing" themselves. The rules
+  // rung is one step of a message that may run several, so its sentences stop
+  // at their own advice and the answer carries `unchanged: true`, from which
+  // the browser says it — only when every step of the message wrote nothing.
+  // Both halves are asserted: a sentence of each kind that says NEITHER is a
+  // refusal that tells nobody what it cost.
+  const ownerMsgs = [...owner.matchAll(/[?:]\s*"([^"]{60,})"/g)].map((m) => m[1]);
+  assert.ok(ownerMsgs.length >= 3, "found only " + ownerMsgs.length + " gate sentences — this scan is over nothing");
+  for (const s of ownerMsgs) {
+    assert.match(s, /this edit cost you nothing/i, "a gate refusal says nothing about what it did or did not cost: " + JSON.stringify(s));
+  }
+  const rungMsgs = [...rung.matchAll(/msg:\s*"([^"]+)"/g)];
+  assert.ok(rungMsgs.length >= 2, "found only " + rungMsgs.length + " rung sentences — this scan is over nothing");
+  for (const m of rungMsgs) {
+    // THE ANSWER THIS SENTENCE BELONGS TO: back to its own opening, forward
+    // to the sentence. `unchanged: true` has to be in THAT object.
+    const open = Math.max(rung.lastIndexOf("eAnswer({", m.index), rung.lastIndexOf("Response.json({", m.index));
+    assert.ok(open > 0, "a rung sentence sits in no answer this scan can find: " + JSON.stringify(m[1]));
+    assert.ok(/unchanged:\s*true/.test(rung.slice(open, m.index)) || /this edit cost you nothing/i.test(m[1]),
+      "a rung refusal neither says what it cost nor lets the browser say it: " + JSON.stringify(m[1]));
   }
 });
 

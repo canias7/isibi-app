@@ -451,7 +451,13 @@ test("a router that names nothing escalates rather than guessing", async () => {
     { pick_lanes: { fields: [] }, edit_site: { css: "never{used:1}" } },
     async (calls) => {
       const { body } = await edit("wire-none", "asdfgh");
-      assert.equal(body && body.reason, "no-lane", "an unroutable message did not escalate by name: " + JSON.stringify(body));
+      // SAID BY NAME, NOT CLIMBED (2026-09-23): a picker that could not place
+      // the message is no evidence a rewrite of every page would, so this is a
+      // sentence at no cost rather than an escalate the browser turns into one.
+      assert.equal(body && body.error, "no-lane", "an unroutable message was not refused by name: " + JSON.stringify(body));
+      assert.equal(body.escalate, undefined, "an unroutable message still climbs to the rewrite");
+      assert.equal(body.cost, 0, "an unroutable message was charged for");
+      assert.ok(typeof body.msg === "string" && body.msg.length > 0, "the refusal cannot say what to do next");
       // NEVER A FALLBACK TO EVERYTHING. Answering "we could not tell" by running
       // all seventeen lanes is the most expensive possible reading of it.
       assert.deepEqual(toolsOf(calls), ["pick_lanes"], "lanes ran for a message the router could not place");
@@ -784,7 +790,10 @@ test("a `pages` ask with no readable verb refuses rather than guessing", async (
     { pick_lanes: { fields: ["pages"] }, [TWEAK_TOOL.name]: { source: "x" } },
     async (calls) => {
       const { body } = await edit("wire-pages-noverb", "do something about the pages");
-      assert.equal(body && body.reason, "page-verb", "a verbless `pages` ask was given a verb: " + JSON.stringify(body));
+      // AND NOT THE REWRITE EITHER (2026-09-23): a rewrite deciding which pages
+      // to keep is a bigger guess than the one this refuses to make.
+      assert.equal(body && body.error, "page-verb", "a verbless `pages` ask was given a verb: " + JSON.stringify(body));
+      assert.equal(body.escalate, undefined, "a verbless `pages` ask still climbs to the rewrite");
       assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for an ask nobody could read");
     },
   );
@@ -876,8 +885,11 @@ test("a verb aimed at a page the site does not have is refused, not honoured", a
   // nothing failure, on the one verb where the customer will not go back and
   // check.
   //
-  // AND IT IS AN ADDON, correctly identified without asking a model twice: a
-  // page that does not exist cannot be edited, and the rung above can make one.
+  // ⚠ AND IT IS NOT AN ADDON, WHATEVER THIS SAID. It read "an addon, correctly
+  // identified" while the route escalated with NO layer — which the browser
+  // answers with the rewrite of every page (reproduced, 2026-09-23). A removal
+  // of a page nobody has is already true and a move has nothing to move, so
+  // both are a sentence now, naming the page and listing the real ones.
   const c = installCompiler();
   try {
     for (const verb of ["remove", "move"]) {
@@ -885,9 +897,10 @@ test("a verb aimed at a page the site does not have is refused, not honoured", a
         { pick_lanes: { fields: ["pages"], pageVerb: verb, pageName: "/nope", pageTo: "/work" } },
         async (calls) => {
           const { body } = await edit("verb-ghost-" + verb, verb + " the pricing page", { store: twoPageBucket("verb-ghost-" + verb) });
-          assert.equal(body && body.reason, "no-page",
+          assert.equal(body && body.error, "no-page",
             "a " + verb + " aimed at a page the site does not have was not refused: " + JSON.stringify(body));
-          assert.equal(body && body.page, "/nope", "the refusal does not name the page it could not find");
+          assert.equal(body.escalate, undefined, "a " + verb + " of a missing page still climbs to the rewrite");
+          assert.ok(String(body.msg || "").includes("/nope"), "the refusal does not name the page it could not find: " + JSON.stringify(body.msg));
           assert.equal(body && body.cost, 0, "a free refusal charged for something");
           assert.deepEqual(toolsOf(calls), ["pick_lanes"], "work was bought for a page nobody has");
           // AND NOTHING WAS PUBLISHED. A refusal that still compiles has already

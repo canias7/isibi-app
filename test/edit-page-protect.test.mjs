@@ -620,14 +620,27 @@ test("a rung that WITHHELD beside a rung that shipped still reaches the screen",
 test("a rung that failed WITHOUT a sentence is counted rather than dropped", async () => {
   // ⚠ THE OTHER ARM OF THE PARTIAL CLAUSE, and a red check found it undriven:
   // cutting it SURVIVED, because every case here gives its failing rung a
-  // `msg`. It is reachable in the product — `escalate(...)` answers
-  // `{ok:false, escalate:true, reason, cost:0}` and carries NO sentence at
-  // all, and so does a body the route could not read.
+  // `msg`. It was reachable in the product through `escalate(...)`, which
+  // answers `{ok:false, escalate:true, reason, cost:0}` with NO sentence.
   //
-  // *NOTHING AT ALL* IS THE OUTCOME THIS WHOLE CLAUSE EXISTS TO CLOSE, so a
-  // failure with no words still has to leave a mark. The count goes out even
-  // when the sentence did not, with an instruction that gets the customer the
-  // reason: ask for that part on its own.
+  // ⚠ AND SINCE 2026-09-23 THE ROUTE NO LONGER PRODUCES ONE. Every refused
+  // step carries a sentence — its own, or, for a step that escalated, what it
+  // needs (`stepMsg`) — and this scenario's writer-sent-no-page is a sentence
+  // of its own now (`page/no-page-back`). So the ROUTE half asserts that
+  // sentence, and the count arm is driven on a reply in the shape the route
+  // wrote BEFORE that: a stored reply read back after the deploy is exactly
+  // such a reply, and *nothing at all* is still the outcome to close.
+  const legacy = editBrowserReply({
+    ok: true, layer: "picture", msg: "✅ Took the picture off “the window”.",
+    partial: [{ layer: "page", lanes: ["tsx"], error: undefined }],
+  }, true);
+  assert.equal(legacy.ok, true, "the browser could not compose a reply: " + legacy.why);
+  assert.ok(legacy.text.includes("One part of that message didn’t go through"),
+    "the wordless failure is not counted: " + JSON.stringify(legacy.text));
+  assert.ok(legacy.text.includes("on its own"),
+    "the customer is told a part failed and not how to find out why: " + JSON.stringify(legacy.text));
+  assert.deepEqual(paidActions(legacy), [], "something paid was started: " + JSON.stringify(legacy.actions));
+
   const slug = "prot-wordless";
   const store = bucket(slug, { parts: [] });
   const c = installCompiler();
@@ -644,15 +657,17 @@ test("a rung that failed WITHOUT a sentence is counted rather than dropped", asy
       assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
       assert.ok(Array.isArray(body.partial) && body.partial.length === 1,
         "the failed rung is not on `partial`: " + JSON.stringify(body.partial));
-      assert.equal(body.partial[0].msg, undefined,
-        "this case's premise is a failure with NO sentence, and it has one: " + JSON.stringify(body.partial[0]));
+      assert.equal(body.partial[0].error, "no-page-back", "the refused step lost its name: " + JSON.stringify(body.partial[0]));
+      assert.match(String(body.partial[0].msg || ""), /didn't send the \/ page back/,
+        "the refused step reached the merge with no sentence: " + JSON.stringify(body.partial[0]));
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.ok(said.text.includes("⚠️"), "a wordless failure left no mark at all: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("One part of that message didn’t go through"),
-        "the wordless failure is not counted: " + JSON.stringify(said.text));
-      assert.ok(said.text.includes("on its own"),
-        "the customer is told a part failed and not how to find out why: " + JSON.stringify(said.text));
+      assert.ok(said.text.startsWith("✅"), "the half that landed is not reported: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("⚠️ The page writer didn't send the / page back"),
+        "the refused step's own sentence never reached the screen: " + JSON.stringify(said.text));
+      // A PARTIAL SUCCESS MAY NOT CLAIM THE WHOLE REQUEST CHANGED NOTHING.
+      assert.ok(!said.text.includes("Nothing on your site changed"),
+        "a reply that published a change says nothing changed: " + JSON.stringify(said.text));
       assert.deepEqual(paidActions(said), [], "something paid was started: " + JSON.stringify(said.actions));
     });
   } finally { c.uninstall(); }
@@ -1060,15 +1075,27 @@ test("a component-only refusal answers for itself instead of buying a full rewri
   } finally { c.uninstall(); }
 });
 
-test("a GENUINE no-change still escalates, and the rewrite still starts", async () => {
-  // ⚠ THE CONTROL, AND IT IS THE HALF THAT KEEPS THE FIX HONEST. A rung that
-  // simply stopped escalating would satisfy the case above and quietly delete
-  // the ladder: a model that hands back the page it was given, with nothing
-  // withheld anywhere, is answering *"the site already does that"* — and
-  // climbing is the right response.
+test("a GENUINE no-change is said at no cost, and is told apart from a withheld change", async () => {
+  // ⚠ THIS WAS THE CONTROL THAT KEPT THE REWRITE, AND 2026-09-23 REVERSED IT
+  // DELIBERATELY. It read "a GENUINE no-change still escalates, and the
+  // rewrite still starts": a model handing back the page it was given was
+  // taken as "the site already does that", and climbing to the rewrite of
+  // every page as the right response. The owner's classification round asked
+  // the question that decides it — *can a rewrite safely solve the request?*
+  // — and here the answer is no: the page's own writer saw this page and this
+  // request and changed nothing, a rewrite of EVERY page is no evidence it
+  // would do better, and it risks the pages nobody asked about. So it is a
+  // sentence now (`page/no-change` in `builder/edit-failure.mjs`), at no cost.
   //
-  // THE ONLY DIFFERENCE FROM THE CASE ABOVE is that no component is oversized,
-  // so nothing is withheld. Same unchanged page, same instruction shape.
+  // THE LADDER IS NOT DELETED, and the control for THAT moved to where the
+  // climb is classified: `test/edit-failure.test.mjs` drives the reasons that
+  // still start the rewrite (too much wording for the text rung, a change of
+  // site kind) through the route and the browser's own handler, so a fix
+  // that simply stopped escalating everywhere fails there.
+  //
+  // THE ONLY DIFFERENCE FROM THE CASE ABOVE is still that no component is
+  // oversized, so nothing is withheld — and the two stay distinguishable: a
+  // different name and a different sentence.
   const slug = "prot-nochange";
   const store = bucket(slug, { parts: [{ name: "card-a", source: A_OLD }, { name: "card-b", source: A_OLD }] });
   const c = installCompiler();
@@ -1077,16 +1104,23 @@ test("a GENUINE no-change still escalates, and the rewrite still starts", async 
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: homeWith(slug) }], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "make the front page two columns", { store });
-      assert.equal(body && body.escalate, true, "a genuine no-change stopped escalating: " + JSON.stringify(body));
-      assert.equal(body.reason, "no-change", "the escalation lost its reason: " + JSON.stringify(body.reason));
+      const { status, body, said } = await edit(slug, "make the front page two columns", { store });
+      assert.equal(body && body.escalate, undefined, "a genuine no-change still escalates to the rewrite: " + JSON.stringify(body));
+      assert.equal(status, 422, "a refusal answered as something else: " + status);
+      assert.equal(body.error, "no-change", "the refusal lost its reason: " + JSON.stringify(body));
+      assert.notEqual(body.error, "withheld", "a genuine no-change reads as a withheld change");
+      assert.equal(body.cost, 0, "a no-change was charged for");
+      assert.equal(body.unchanged, true, "the refusal does not say it wrote nothing");
       assert.equal(c.calls.length, 0, "a no-change compiled the site");
 
-      // AND THE BROWSER REALLY STARTS THE REWRITE. Reading the reply alone
-      // would leave "escalate: true" as a word in a body nobody acts on.
+      // AND THE BROWSER SAYS IT AND STARTS NOTHING — reading the reply alone
+      // would not show what the screen does with it.
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      assert.deepEqual(said.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"],
-        "the ladder no longer climbs on a genuine no-change: " + JSON.stringify(said.actions));
+      assert.ok(said.text.startsWith("⚠️ I read the / page and couldn't find a change to make for that."),
+        "the no-change sentence never reached the screen: " + JSON.stringify(said.text));
+      assert.ok(said.text.includes("Nothing on your site changed, and this edit cost you nothing."),
+        "the whole-request note is missing: " + JSON.stringify(said.text));
+      assert.deepEqual(said.actions, [], "a no-change still started something: " + JSON.stringify(said.actions));
     });
   } finally { c.uninstall(); }
 });
@@ -1393,11 +1427,17 @@ test("a COMPLETE refusal does say nothing changed and nothing was charged", asyn
       assert.equal(storedHome(store, slug), before, "something really did change, so the sentence would be false");
 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
+      // ⚠ RE-WORDED 2026-09-23, AND THE CHANGE IS THE POINT. "You haven't been
+      // charged" was false: the routing call that chose this route is billed
+      // on its own. The note now says what THIS EDIT cost, and — when the
+      // browser still holds the routing reply — what reading the message cost,
+      // as two amounts. This harness passes no routing reply, so only the
+      // first is said; `test/edit-failure.test.mjs` drives the second.
       assert.equal(
         said.text,
         "⚠️ I couldn't make that change without taking a photograph off your site, and I couldn't put it back "
         + "safely — so I didn't make it. Say “take that photo off” if you did want it gone. "
-        + "Nothing on your site changed and you haven’t been charged.",
+        + "Nothing on your site changed, and this edit cost you nothing.",
         "the complete-refusal sentence is wrong: " + JSON.stringify(said.text),
       );
       assert.deepEqual(paidActions(said), [], "a refusal started something paid: " + JSON.stringify(said.actions));

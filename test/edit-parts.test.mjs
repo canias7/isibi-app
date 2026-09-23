@@ -84,7 +84,11 @@ test("a changed component is a change, even when the page came back byte-identic
   // that THREW read as "no components" (so anything counted as one, and the
   // merge below then deleted the rest). `pPartsRead.ok` is the real question.
   const moved = rung.indexOf("const partMoved = pPartsRead.ok && pFreshParts.some(");
-  const decide = rung.indexOf('return escalate(wrote ? "no-change" : "no-page-back"');
+  // RE-ANCHORED 2026-09-23: the decision EXPLAINS now rather than escalating
+  // (`builder/edit-failure.mjs` classifies it), so the landmark is the call
+  // that answers it — the property asserted is unchanged: the decision comes
+  // after the parts are compared.
+  const decide = rung.indexOf('if (!wrote) return explain("page/no-page-back"');
   assert.ok(moved > 0 && decide > moved, "the no-change decision is made before the parts are compared");
   // ⚠ RE-ANCHORED 2026-09-20, AND THE OLD ANCHOR WAS THIS REPOSITORY'S OWN
   // RECORDED TRAP. It read the condition as `lastIndexOf("if (", decide)` —

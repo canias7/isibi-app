@@ -707,7 +707,13 @@ if (rb && Array.isArray(rb.partial) && rb.partial.length) console.log(`  partial
 // fallback as a finding about the product. A real browser polling a running
 // job shows `running`; it is never handed null. So `watchReport` decides
 // whether there is anything to compose FROM, and an unknown outcome says so.
-const said = rep.compose ? editBrowserReply(rb, done.status >= 200 && done.status < 300) : null;
+// (And `editAnswer` no longer falls back on a null body at all — 2026-09-23 —
+// so even composed it would now read "can't tell", not a rewrite.)
+//
+// `rd` IS THE ROUTING REPLY, handed over as the browser holds it (2026-09-23):
+// its `layer` is what a sideways hop is decided against, and its `cost` is the
+// routing charge the screen now states beside the edit's own on a refusal.
+const said = rep.compose ? editBrowserReply(rb, done.status >= 200 && done.status < 300, rd) : null;
 const sActs = said && Array.isArray(said.actions) ? said.actions : [];
 console.log("\nWHAT THE CUSTOMER READS");
 if (!said) console.log(`  (not composed — ${rep.headline})${rep.message ? "\n  the browser's own sentence: " + rep.message : ""}`);

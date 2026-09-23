@@ -545,9 +545,16 @@ test("…and the direction that bites: a Grok edit with ONLY the Anthropic key s
     // The refusal has to happen HERE, before the send — a key we forgot to set
     // is a deploy to fix, and letting it through turns it into a throw that
     // reads like the provider refused us.
-    assert.equal(body.reason, "unconfigured",
+    // THE SHAPE CHANGED ON 2026-09-23 AND THE PROPERTY DID NOT: still refused
+    // here, before the send. It was an escalate — which the browser answers
+    // with the rewrite of every page, on the same picker and so the same
+    // missing key — and it is a sentence now (`builder/edit-failure.mjs`,
+    // `route/unconfigured`): ours, at no cost, with nothing climbed.
+    assert.equal(body.error, "unconfigured",
       "a Grok edit with no xAI key was allowed through to the send: " + JSON.stringify(body));
-    assert.equal(body.escalate, true, "the refusal is not the escalate shape every other gate uses");
+    assert.equal(body.escalate, undefined, "a missing key of ours still escalates to the rewrite, which would meet the same missing key");
+    assert.equal(body.cost, 0, "the refusal is charged for");
+    assert.ok(typeof body.msg === "string" && /isn't set up on our side/.test(body.msg), "the refusal cannot say what went wrong: " + JSON.stringify(body));
   });
 });
 
@@ -566,7 +573,7 @@ test("…and it reads the CUSTOMER'S picker, not the default one", async () => {
       keys: { XAI_API_KEY: "test-key-not-used" },
     });
     assert.ok(body, "the lane answered nothing at all");
-    assert.equal(body.reason, "unconfigured",
+    assert.equal(body.error, "unconfigured",
       "a Sonnet customer with only an xAI key set was allowed through to the send — the gate is reading " +
       "the default picker rather than theirs: " + JSON.stringify(body));
   });

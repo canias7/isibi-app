@@ -465,7 +465,11 @@ test("THE ROUTE FORWARDS THE HANDOFF, and the layer that decides it is the modul
   assert.ok(at > 0, "the picture branch is gone — rescope this");
   const branch = worker.slice(at, worker.indexOf("const pPub = await recompileAndPublish", at));
   assert.ok(branch.length > 400, "the picture window is empty — the anchor moved");
-  assert.match(branch, /escalate\(pOut\.reason, pOut\.layer \? \{ layer: pOut\.layer, page: pOut\.page \} : undefined\)/,
+  // RE-ANCHORED 2026-09-23: the module escalates for two reasons that are two
+  // classes, so the route names the handoff explicitly and explains the other
+  // (`picture/no-slots`). The property — the layer and page are FORWARDED —
+  // is unchanged.
+  assert.match(branch, /escalate\("needs-place", \{ layer: pOut\.layer, page: pOut\.page \}\)/,
     "the route drops the handoff — a page with no slot goes to the full revise instead of one page");
 });
 

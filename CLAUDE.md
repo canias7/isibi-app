@@ -3567,6 +3567,7 @@ rung). **Every `escalate` with no `layer` is answered `up` by `escalateAction`
 and starts `go()` = `reactSend(…, 'revise')`: the full rewrite of every page,
 with nothing shown and no price** (`edit-poll.js:469-485`, `chat.js:9151-9189`,
 `8746-8751`). A refusal body with no `msg` does the same (`chat.js:9076`).
+**⚠ Both closed on the branch the same day — the next section.**
 
 **REPRODUCED FREE THROUGH THE REAL ROUTE** — every model answer SUPPLIED, the
 browser's own composer executed through `editBrowserReply`. Scratch scripts
@@ -3643,8 +3644,9 @@ page delete and lane removal, no live page delete or move · rules/data — rout
 tests only (run 12 was blocked, since fixed) · combined — route tests and the
 driven money cases above.
 
-**THE NEXT TASK, PROPOSED AND NOT STARTED: no automatic full rewrite for a
-failure the route can name.** Every no-layer `escalate` in the edit route is
+**THE NEXT TASK — BUILT THE SAME DAY, next section; `no-lane` ended up
+`explain`, not the control named here: no automatic full rewrite for a failure
+the route can name.** Every no-layer `escalate` in the edit route is
 classified — the revise genuinely does it (`up`), another rung does (a named
 `layer`), or nothing above can (a sentence, cost 0) — and a census guard makes
 a new `escalate` declare its class. Acceptance, each through the real route
@@ -3653,6 +3655,185 @@ cases 1–4 above; an all-failed merge showing the steps' own sentences; and a
 control proving a genuine `up` (text `too-much-text`, a look `no-lane`) still
 reaches the revise. Whether a kept `up` is announced before it spends is the
 owner's call.
+
+### EVERY WAY THE EDIT ROUTE DECLINES IS CLASSIFIED, AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23)
+
+Owner, after reproducing the review's missing-page removal and all-refused
+cases independently through the route and the browser handler: *"Both produce
+no customer sentence and would start the full paid rewrite. Fix this failure
+handling first."* **On the branch — not merged, not deployed, no paid run.**
+Bounded to edit failure handling; translation, #418 and architecture parked.
+
+**THE CLASSIFICATION IS ONE TABLE**: `builder/edit-failure.mjs`
+`EDIT_FAILURES`, **40 entries, keyed `<rung>/<name>`** because one reason means
+different things on different rungs (`no-meta` is a hop on data, an add-on on
+rules, a failed read on look). **Four classes, and the class is what the
+customer's browser does**:
+
+| class | n | the browser | entries |
+|---|---|---|---|
+| `up` | **7** | the full rewrite | `route/empty` · `route/no-source` · `picker/build` · `text/too-much-text` · `look/no-look` · `look/needs-pages` · `page/no-look` |
+| `addon` | **5** | the add-on route | `picker/addon` · `pages/addon` · `rules/no-backend` · `rules/no-meta` · `rules/no-tables` |
+| `hop` | **4** | one paid hop sideways | `data/no-backend` · `data/no-meta` · `data/no-data` (→ `text`) · `picture/needs-place` (→ `page`) |
+| `explain` | **24** | a sentence, nothing bought | everything else — **11 of them ours** |
+
+- **`up` ONLY WHERE THE RUNG POSITIVELY ESTABLISHED THE CHANGE IS BEYOND IT
+  AND A WRITER THAT REGENERATES PAGES IS THE DESIGNED NEXT STEP.** Everything a
+  rewrite cannot be shown to solve is `explain`: a thing that is not there, an
+  ask nobody could place, every failure of ours. **`no-lane` is `explain`** —
+  the review's own proposed control named it a genuine `up`, and the owner
+  overruled that in as many words (*"don't assume "no-lane" … proves a rewrite
+  can safely solve the request"*). The router's *"every unclear case resolves
+  to work"* is the build/ask/clarify decision and is UNCHANGED; this is the
+  lane picker inside the edit route.
+- **THE CLASS IS CARRIED BY THE CALL, BY CONSTRUCTION**: no `layer` is `up`,
+  `layer: "addon"` is `addon`, any other layer is `hop` — the only three things
+  `EditPoll.escalateAction` can do with an escalate.
+- **THE ROUTE IS HELD TO THE TABLE BOTH WAYS** (`test/edit-failure.test.mjs`):
+  every `escalate(` and `explain(` in the edit route — window
+  `const escalate = (reason, extra) =>` → `return Response.json(merged);`,
+  **4,064 lines**, whole-line comments blanked — must have a LITERAL first
+  argument; the multiset of escalate (reason, class) pairs must EQUAL the
+  table's climbing entries (**16 call sites, 16 entries**); every explain key
+  (**29 call sites, 24 keys**) must be an `explain` entry and every `explain`
+  entry used; `escalate: true` is produced ONCE (the helper). **A new escalate
+  with no entry fails by existing**, which is exactly how the missing-page
+  removal came to buy a rewrite: its comment said "an addon" and its escalate
+  named no layer.
+- **`explain(key, facts, extra)`** answers **422, or 503 when ours**, `{ok:
+  false, error: <reason>, cost: 0, unchanged: true, ours, msg}`. The sentence
+  is the table's (`failureMsg`) and is **RUNG-SCOPED** — asserted over all 24:
+  none says *nothing on your site changed*, *haven't been charged*, *cost you
+  nothing* or *nothing was changed*; every `ours` sentence says *this is on us*
+  and no other does. **`unchanged: true` is the rung saying IT wrote nothing**;
+  a rename whose first alias write landed passes `unchanged: false`.
+
+**THE BROWSER STARTS THE REWRITE FROM AN ESCALATE AND FROM NOTHING ELSE.**
+`editAnswer`'s refusal branch **never calls `fallback`**: its own `msg`, else
+every refused step's (`partialSaid`), else `outcomeMessage('failed')`. **An
+unreadable body and a dropped connection** (`siteEdit`'s catch) say
+`unreadEditMsg()` — *"I couldn't read the answer to that change, so I can't
+tell whether it went through"* — because a rewrite on top of an edit that may
+have landed charges twice for one ask. Both used to fall to `fallback`.
+
+**THE ALL-REFUSED MERGE** (the owner's second reproduction): **422**; `cost` is
+the ledger's — `syncLedger.taken` on the synchronous path, **0 on the job path**
+(the consumer's `edit_refund` returns everything a refused reply reserved) —
+never a sum of the steps' own figures; `unchanged` **only when every step wrote
+nothing** (`stepWroteNothing`: it said so, it was withheld, or it escalated —
+every escalation returns before its rung writes); every `partial[]` entry
+carries a sentence (`stepMsg` for a step that escalated: said beside other
+steps, never acted on, since acting would do part of a message at a price
+nobody saw). The screen prints each distinct sentence ONCE (two withheld page
+steps write the same one), two at most plus a count.
+- **UNANIMOUS CLIMB IS THE ONE EXCEPTION**: every step escalated to the same
+  `layer|page` → the first step's escalate is the answer, acted on exactly as
+  one step's would be (a site from before designs were stored, where every step
+  needs the rewrite). Mixed is said step by step.
+
+**WHAT THE EDIT COST AND WHAT THE ROUTING CALL COST ARE TWO AMOUNTS.**
+`wholeRequestNote(e, d)` fires on `unchanged === true` (or the older `withheld`)
+and says *"Nothing on your site changed, and this edit cost you nothing."* (or
+*"…but this edit cost N credits."*) then, **when the browser still holds the
+routing reply**, *"Reading your message cost N credit(s)."* — `d.cost`, which is
+the routing reply's own `cost: rCost`, handed to the answer on BOTH paths
+(`siteEdit` → `editAnswer`, `watchEditJob` → `reader`). **A watch resumed after a
+refresh holds no routing reply and says nothing about it rather than a guess.**
+`editBrowserReply(reply, httpOk, d)` takes that `d` now; absent, as every
+earlier caller passes it, the screen is what it was.
+
+**THE REPORTED CASES, THROUGH AN EXISTING CAPABLE PATH:**
+- **data on an `incomplete` site** asks the four-state reader when the fast one
+  answers `null` — `incomplete`/`ready` → the PROVEN connection, **nothing
+  written** (no `PATCH site_backends`, asserted); `none` → a hop to `text`;
+  `unreadable` → explained, ours — and the catalog-first `specForAddon` when
+  `_meta` gives nothing (a confirmed-empty catalog is the same hop).
+- **a photograph only in a component**: the picture rung reads
+  `editableFiles(eSrc, parts)` and publishes `splitEditable`'s two halves — the
+  text rung's 2026-09-11 fix, one rung over — **only when the parts store
+  ANSWERED**; otherwise the pages go alone (the spine re-sends the store's copy,
+  never `parts: []`), and a photograph then not found is `parts-unreadable`
+  (ours), **never "your site has no photograph"**. A component slot is shown
+  under `partPath(name)` = `-parts/<name>.tsx`.
+- **a page that is not there** (both the lanes' `pages` verb and the page
+  rung): removal is *already true*, a move has *nothing to move*, an edit lists
+  the real pages and asks which. **Which page gets targeted is its own task.**
+- **THE SOURCE READ**: a repairing read that answers nothing is asked again of
+  the three-state reader to tell a read that THREW from an empty store — and
+  **that second read only classifies**: pages it finds mean the repairing read
+  blinked, and the answer is `route/no-source-unreadable`, never an edit of a
+  copy nothing repaired. **`site-busy`'s census caught the first cut adopting
+  them** (7 → 8 bare reads); it is argued there now, with the property asserted.
+
+**⚠ THE 2026-09-20 CONTROL IS REVERSED, DELIBERATELY.** A genuine page
+no-change was kept escalating (*"the site already does that"*, climb). It is
+`page/no-change` now, a sentence at no cost: the page's own writer saw the page
+and the request, and a rewrite of EVERY page is no evidence it would do better.
+**The ladder's control moved** to `edit-failure.test.mjs`, where
+`too-much-text`, `kind`, a unanimous `no-look` and an empty store still start
+the rewrite, `three` still reaches the add-on, `data` with no database still
+hops to `text` and `needs-place` to `page` — each through the route AND the
+browser's own handler, so a fix that stopped escalating everywhere fails there.
+
+**AND ONE MORE THAT NEVER REACHED A SCREEN**: *"your site doesn't have a QR
+code, so there was nothing to take off"* answered `ok: true` with no layer, and
+the success composer printed *"✅ Done."* over it. A refusal now
+(`picker/nothing-to-remove`).
+
+**EVIDENCE.** `test/edit-failure.test.mjs`, **33 cases**: the owner's two
+reproductions, move and edit of a missing page, the mixed all-refused, no-lane,
+look no-change, the reversed page no-change, three failures of ours (missing
+key, unreadable store, a read that blinks once), the three data states, the
+three picture states, and the controls — each asserting the stored bytes, the
+response, the screen's exact sentence and the recorded follow-ups, plus
+`sum(debits) === cost` wherever a charge is claimed. **Red 25 of 33 against the
+unfixed `a018ad3e`** in a throwaway worktree; the 8 that pass there are the six
+controls whose behaviour must not change and the two pure table checks. **One
+targeted mutation** (the classifier adopting the pages again) killed, restored
+byte-identical from a scratchpad backup. **No broad mutation campaign** (owner).
+Every model answer is SUPPLIED and every case is the synchronous path.
+**Pre-existing guards re-anchored to the property, not appeased**: `edit-path`
+(no-lane, page-verb and a missing page's verbs are refusals with sentences, no
+escalate); `edit-poll` (the refusal branch contains no `fallback(` call, its
+observer proved alive; the catch landmark no longer names `err`);
+`edit-page-protect` (a genuine no-change is said — the reversal — and the
+wordless-partial count arm driven on a legacy reply, since the route no longer
+writes one); `site-apply` (the escalating reasons that still climb, the four
+that went are `explain`ed, the data lane resolves the four states, an unreadable
+body and a dropped connection no longer buy a rewrite); `edit-rules-backend`,
+`edit-nobackend`, `edit-parts`, `removal-door`, `site-picture`; `site-busy` (the
+classifier, above).
+
+**SEPARATE NEXT TASKS — RECORDED, NOT STARTED** (owner: *"Record wrong-page
+targeting, duplicate execution, content preservation and billing findings as
+separate next tasks"*):
+1. **Wrong-page targeting.** Review #6 (a section change through `look` lands on
+   `/` via `fallbackPage`) and run 23's `/book` (the router naming a page from
+   the sentence). A missing page is now SAID; choosing the right one is not
+   fixed.
+2. **Duplicate execution.** Review #5: two page lanes (`components`+`tsx`,
+   `shape`+`components`) push two page steps for one sentence — the all-refused
+   reproduction still calls `write_tweak`/`write_pages` twice.
+3. **Content preservation.** Review #7 (the page writer drops an unrelated
+   section and publishes), #8 (the css lane drops an earlier rule), #9 (look +
+   rename both land and the screen names only the look), and the full rewrite's
+   missing photograph wall and `imageDirective(0)` on a photographed site.
+4. **Billing.** A refused rung stays charged when another step of the message
+   succeeded (job path); direct writes (rows, DDL, aliases) land before the one
+   publish and a failed publish refunds everything and says "untouched"; the
+   routing call is never refunded; **pre-existing unscoped "nothing was charged"
+   wording on other failure paths** (`modelDown`'s timeout, `compileMsg`,
+   `editStopped`, `outcomeMessage('cancelled')`, the build-lease sentences,
+   `NO_CONTAINER_MSG`); and refusals that collect a charge (nav `no-menu`, the
+   rename refusals, data/rules `no-match`, picture `no-change`) report a `cost`
+   the job path then refunds, so the stored reply disagrees with the ledger.
+5. **Found on the way, out of scope**: the rename's SECOND alias write failing
+   leaves the old name demoted and the new one unwritten (explained with
+   `unchanged: false`; the half-moved state is not repaired); `siteRoute`'s own
+   failure still falls to `go()` (the router, not the edit route); and an
+   add-only wall or page-verb answer in the look door ends the WHOLE message —
+   *"add a QR code and make the footer navy"* goes to the add-on and the css
+   lane never runs.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -3796,11 +3977,12 @@ none happened**. A source census over `editGateRefusal` and the rung's own
 window holds it, with comments blanked first (the note explaining it quotes the
 forbidden phrase) and **both apostrophes** matched.
 
-**⚠ AND `wholeRequestNote` IN `chat.js` CARRIES THE SAME UNSCOPED CLAIM** — it
-appends *"you haven't been charged"* on the `withheld` branch, where the routing
-call was billed too. **Reported, not fixed**: it is the `withheld` path's
-wording, four re-anchored guards read it, and this round is bounded to three
-corrections. Owner's call.
+**⚠ AND `wholeRequestNote` IN `chat.js` CARRIED THE SAME UNSCOPED CLAIM** — it
+appended *"you haven't been charged"* on the `withheld` branch, where the routing
+call was billed too. Reported and left that round; **FIXED 2026-09-23** (owner:
+*"distinguishing the edit from any separately charged routing call"*) — it states
+the edit's cost and the routing call's as two amounts now (the classification
+section above).
 
 **THE EVIDENCE**: the file goes 8 → **15 cases**, **6 mutants killed with a
 comment-only control surviving** and all three touched files restored
@@ -4182,7 +4364,10 @@ makes the site, then EDIT / ADDON / DELETE act on it and each publishes back
 through the one spine. **The site is the centre, not the paths.**
 
 The router picks a layer; each falls through to the one above it when it cannot
-express the change. Cheapest first:
+express the change — **but only where that climb is CLASSIFIED as one the rung
+above can do** (`builder/edit-failure.mjs`, 2026-09-23). Everything else — a
+thing that is not there, an ask nobody could place, a failure of ours — is
+said, at no cost for the edit. Cheapest first:
 
 | Layer | What it changes | Cost |
 |---|---|---|
@@ -4488,17 +4673,20 @@ off. Both halves true of their own rung and the second **false of the request**.
   beside it.
 - **SO THE SENTENCES END AT *"so I didn't make it"*** — true of the rung
   whether it stood alone or beside six others, which is what makes one string
-  safe in both places — **and *"Nothing on your site changed and you haven't
-  been charged"* is added by `wholeRequestNote` on the browser's
+  safe in both places — **and *"Nothing on your site changed, and this edit
+  cost you nothing."* is added by `wholeRequestNote` on the browser's
   complete-refusal branch**, the one reader that can see `ok: false` for the
   whole reply. That is not a guess: the merge sets `ok` from `ranOk.length > 0`,
   so a reply reaching that branch had no rung succeed and published nothing.
+  (Re-worded 2026-09-23: *"you haven't been charged"* was false beside a billed
+  routing call; the routing charge is its own sentence now.)
 - **TWO CONDITIONS, EACH WITH ITS OWN JOB**: `e.ok` is the property (it may
   never fire on a reply that shipped, asked in the composer rather than trusted
-  from the one call site), and `error === "withheld"` is the SCOPE — those are
-  the sentences written to be completed this way, and every other refusal on
-  the route carries its own wording, so firing on them would print the
-  reassurance twice.
+  from the one call site), and the SCOPE is **`unchanged === true`** — the rung
+  (or, on a merge, every step) saying it wrote nothing — **or the older
+  `error === "withheld"`**. Widened 2026-09-23 from `withheld` alone, when the
+  classification gave every explained refusal the flag; a refusal that cannot
+  say it wrote nothing still gets no whole-request claim.
 - **⚠ AND FOUR GUARDS WERE PINNED TO THE OLD SPELLING**, two in each of the
   protect and photos files: `includes("left your site exactly as it was")`.
   They assert a PROPERTY — the customer is told nothing changed — and are
@@ -4703,9 +4891,11 @@ off. Both halves true of their own rung and the second **false of the request**.
   component**; nothing compiles and neither store is written. The
   discriminator is a positive test on this route's own three lists
   (`pKeptParts`, `pUnseenParts`, `pRestored`) — all three are US declining to
-  write something. **A GENUINE no-change still escalates and the rewrite still
-  starts**, asserted as its own control, because a rung that simply stopped
-  escalating would delete the ladder.
+  write something. ~~A GENUINE no-change still escalates and the rewrite still
+  starts~~ — **REVERSED 2026-09-23**: a genuine no-change is `page/no-change`, a
+  sentence at no cost (a rewrite of every page is no evidence it would do
+  better). The control that keeps the ladder honest moved to
+  `test/edit-failure.test.mjs`, which drives the climbs that remain.
 - **⚠ THE HARNESS WAS READING THE WRONG COMPOSER.** `browserReply` runs
   `addonAnswer`, the ADD route's selection; an edit reply goes through
   `editAnswer` → `applyEditResult` → `editReply`. The add composer does not

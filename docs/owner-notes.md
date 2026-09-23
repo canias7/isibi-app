@@ -155,6 +155,104 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — A refusal no longer starts the full rewrite
+
+You reproduced two of the review's cases yourself — "take the blog page off"
+on a site with no blog page, and a message whose every part was refused — and
+both showed nothing and then started the full paid rewrite. **Fixed on the
+branch. Not merged, not deployed, no paid run, nothing live touched.**
+
+### What happens now
+
+- **Every way the edit can say no is written down in one table**
+  (`builder/edit-failure.mjs`, 40 of them), and each one does exactly one of
+  four things:
+  - **the full rewrite** — only 7, where the cheap step has shown the change
+    really needs every page rewritten (for example a site with too much
+    wording to change one line at a time, or turning a shop into a booking
+    tool);
+  - **the add-on step** — 5, when the ask adds something the site doesn't
+    have;
+  - **one cheaper step sideways** — 4 (a price on a site with no database is
+    really a wording change, so it goes to the wording step);
+  - **a plain sentence, at no cost for the edit** — the other 24: a page that
+    isn't there, a message it couldn't place, and every failure that's ours
+    (those say "this is on us").
+- **A test checks the code against the table both ways**, so a new "no" can't
+  be added that quietly starts a rewrite — which is exactly how the blog-page
+  one happened.
+- **"Take the blog page off" when there is none** now says: *"Your site doesn't
+  have a /blog page, so there was nothing to take off. Its pages are / and
+  /news."* A move says there's nothing to move; an edit of a missing page lists
+  the real ones and asks which you meant.
+- **When every part of a message is refused**, you see each part's own reason
+  (said once if two parts share it), and nothing is started.
+- **The price line tells the edit apart from the routing charge:** *"Nothing on
+  your site changed, and this edit cost you nothing. Reading your message cost
+  2 credits."* The old *"you haven't been charged"* was wrong — the routing call
+  is charged separately. After a page refresh the browser no longer knows the
+  routing charge, so it says nothing about it rather than guess.
+- **If the browser can't read the answer, or the connection drops**, it says it
+  can't tell whether the change went through, instead of starting a rewrite on
+  top of an edit that may already have landed.
+- **The two other cases you asked about:**
+  - **A price change on fretwork-1 and the other three sites with a blank
+    database link** now changes the row through the database it proves is
+    there. Nothing is written to the link itself — that repair stays yours.
+  - **Swapping a photo that sits inside a section file** now swaps it there;
+    the pages are untouched. If the section files can't be read at that moment,
+    it says so ("this is on us") instead of claiming the site has no photo.
+
+### One thing I reversed on purpose
+
+On 20 Sep I kept one case climbing to the rewrite: the page writer looks at
+the page and changes nothing. Under your rule — does a rewrite of every page
+safely solve it? — it doesn't, so it's a sentence now. The cases that should
+still start the rewrite are tested alongside, so this can't pass by simply
+turning the rewrite off. Also: the review's own plan named "couldn't place the
+message" as a real rewrite case; your instruction overruled that, so it's a
+sentence too.
+
+### Proof (made-up model answers, free)
+
+- A new test file, 33 cases, drives the real edit route and then the browser's
+  own reply handling. Each case checks what's stored, the reply, the exact
+  sentence on screen, and every follow-up the browser would start (a rewrite, a
+  second paid request, the add-on). Where a charge is claimed, it checks the
+  charge equals what was actually taken.
+- Run against the code before the fix, 25 of the 33 fail. The 8 that pass are
+  the six cases that must behave the same before and after (a normal wording
+  edit, three of the real rewrite cases, the add-on and the sideways step) plus
+  two checks on the table itself. (The fourth rewrite case — a site with no
+  stored design — reached the rewrite before too, but through the silent
+  "no sentence" route this fix closes, so its check fails there.)
+- Made-up answers show what the code does with an answer. They don't show what
+  a real model would write.
+
+### Separate next tasks — written down, not started
+
+1. **Wrong page:** a section change can still land on the home page, and the
+   router can still name a page from your sentence (run 23's `/book`). A
+   missing page is now explained; picking the right one isn't fixed.
+2. **Doing it twice:** one message can still run the page editor twice.
+3. **Keeping content:** nothing yet checks what the page writer or the
+   stylesheet writer dropped; look + web-address together still only reports
+   the look; the full rewrite still has no photo protection.
+4. **Money:** a refused part can still be charged when another part worked;
+   database and address changes land before the publish and are "refunded" as
+   untouched if it fails; the routing charge is never refunded; a few other
+   failure messages still say "nothing was charged"; and some refusals report
+   a charge the queue then refunds.
+5. **Found along the way:** a web-address change whose second save fails can
+   leave the address half-moved; if the routing call itself fails, the browser
+   still starts a rewrite; and "add a QR code and make the footer navy" sends
+   the whole message to the add-on step, so the footer never changes.
+
+Translation, the phone hydration warning and the bigger architecture work stay
+parked, as you said.
+
+---
+
 ## 2026-09-23 — The restore worked; run 23 never reached the edit, run 24 did
 
 ### The restore (run 22, free)

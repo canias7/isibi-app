@@ -650,17 +650,31 @@ test("the editable copy: four editing readers read through the repairing reader,
   // `let eSrc = …` onto `readSiteSource` and nothing here notices. Both are
   // counted, and the property is unchanged — every read that goes on to PUBLISH
   // goes through the repairing reader, and every bare one is argued for here.
+  //
+  // RE-ANCHORED 2026-09-23 — 7 → 8, AND THE EIGHTH IS A CLASSIFIER. The edit
+  // route's repairing read folds a read that THREW into the same empty answer
+  // as a store holding nothing, and the second question — "did the store even
+  // answer?" — can only be asked of the three-state reader. It is argued for
+  // here because it must NEVER go on to publish: pages it finds are the sign the
+  // repairing read blinked, and the route answers "couldn't read just now"
+  // rather than editing a copy nothing repaired. Asserted as that property,
+  // below, not as a count alone.
   const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  assert.equal(bare.length, 7, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
+  // THE CLASSIFIER NEVER BECOMES THE SOURCE: nothing assigns its pages anywhere.
+  assert.ok(W.includes("const eSrcRead = await readSiteSource(env, ownerSlug);"), "the edit route's classifying read is gone");
+  assert.doesNotMatch(W, /=\s*eSrcRead\.pages\b/, "the edit route edits pages from a bare read that skipped the repair");
+  assert.match(W, /if \(!eSrcRead\.ok \|\| eSrcRead\.pages\.length\) return explain\("route\/no-source-unreadable"\);/,
+    "pages found by the classifying read are not answered as a read that blinked");
   // 6 → 7 AND THE SEVENTH IS THE WRAPPER'S OWN DELEGATION, measured rather than
   // reasoned about: `loadSiteSource` used to hold the R2 get itself and now
   // calls `readSiteSource`, so its body is a match the census sees. It is a
   // DEFINITION rather than a caller, which is why it is named here — a count
   // nobody can reproduce by reading the file is a count that drifts.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 2,
-    "the two reads through the three-state reader are not the wrapper's and the Code tab's: " + bare.join(" | "));
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 3,
+    "the three reads through the three-state reader are not the wrapper's, the Code tab's and the edit route's classifier: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");

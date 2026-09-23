@@ -8837,11 +8837,14 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // — words, colours, the theme, the fonts, the name — and none of it runs the
     // page generator, so it costs a fraction of a revise and takes seconds.
     //
-    // EVERY FAILURE FALLS THROUGH TO `go()`, which is the revise that used to be
-    // the only answer. That is what makes trying the cheap rung first safe: the
-    // worst case is the customer waits a moment longer for the outcome they
-    // would have got anyway. So this must never surface an escalation as an
-    // error — the change still happens, one rung up.
+    // AN ESCALATION FALLS THROUGH TO `go()`, the revise that used to be the only
+    // answer — but only one the server CLASSIFIED as a job for it
+    // (`builder/edit-failure.mjs`, 2026-09-23). Every failure used to fall
+    // through, on the argument that the worst case was the outcome they would
+    // have got anyway; it was not, because a refusal a rewrite cannot fix (a
+    // page that is not there, an ask nobody could place, a failure of ours)
+    // bought ~25 credits of rewritten pages and the same unanswered request.
+    // Those are said now, for nothing, and the rewrite runs where it can help.
     if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go, imgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
@@ -8995,7 +8998,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       return;
     }
     return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, clearFlight, slug });
-  }).catch((err) => { clearFlight(); return fallback(err); });
+    // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
+    // POST may have been filed, and a rewrite on top of it would charge twice
+    // for one ask (2026-09-23). It fell to `fallback` — the full rewrite.
+  }).catch(() => { clearFlight(); finish('⚠️ ' + unreadEditMsg()); });
 }
 
 /**
@@ -9014,6 +9020,15 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
  * about the reply: a stored 422 says the edit did not compile exactly as an
  * inline 422 does.
  */
+// WHAT THE SCREEN SAYS WHEN THE EDIT'S OWN ANSWER CANNOT BE READ — a body that
+// is not JSON, or a connection that dropped with the POST in flight. Nothing is
+// claimed about the site or the money, because nothing is known about either.
+// A FUNCTION rather than a constant so the edit harness (`editBrowserReply`)
+// cuts and runs this sentence instead of keeping a second copy of it.
+function unreadEditMsg() {
+  return 'I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.';
+}
+
 /**
  * "NOTHING CHANGED" IS A CLAIM ABOUT THE REQUEST, AND THIS IS THE ONE READER
  * THAT CAN MAKE IT (2026-09-21).
@@ -9046,16 +9061,39 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
  * other refusal on this route already carries its own wording, so firing on
  * them would print the reassurance twice.
  */
-function wholeRequestNote(e) {
-  if (!e || e.ok || e.error !== 'withheld') return '';
-  return ' Nothing on your site changed and you haven’t been charged.';
+function wholeRequestNote(e, d) {
+  if (!e || e.ok) return '';
+  // THE SCOPE WIDENED ON 2026-09-23 AND THE CONDITION DID NOT LOOSEN. Every
+  // refusal the classification added carries `unchanged: true` — the rung
+  // saying it wrote nothing — and the merge sets it on a message only when
+  // EVERY step says so. `withheld` stays beside it for replies stored before.
+  if (!(e.unchanged === true || e.error === 'withheld')) return '';
+  // ⚠ "YOU HAVEN'T BEEN CHARGED" WAS FALSE, and this reader is where it was
+  // said. The routing call that chose this route is a separate POST, billed
+  // on its own and never refunded (run 12 moved the balance by 2 on a message
+  // that published nothing). So the two amounts are stated APART: what this
+  // edit cost — the reply's own `cost`, which the server sets from the ledger
+  // on a message that did nothing — and what reading the message cost, from
+  // the routing reply's own `cost` when this browser still holds it. A watch
+  // resumed after a refresh does not, and then nothing is said about it
+  // rather than a guess.
+  const cost = Number(e.cost) || 0;
+  let out = cost > 0
+    ? ' Nothing on your site changed, but this edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
+    : ' Nothing on your site changed, and this edit cost you nothing.';
+  const routed = d && Number(d.cost) > 0 ? Number(d.cost) : 0;
+  if (routed) out += ' Reading your message cost ' + routed + ' credit' + (routed === 1 ? '' : 's') + '.';
+  return out;
 }
 
 function editAnswer(httpOk, e, o) {
   const clearFlight = o.clearFlight || function () {};
-  // A body we cannot read is not a refusal — it is us not knowing, and the
-  // rung above still works.
-  if (!e) { clearFlight(); return o.fallback ? o.fallback() : o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')); }
+  // A BODY WE CANNOT READ IS US NOT KNOWING — and not knowing is not a reason
+  // to buy the full rewrite of every page (2026-09-23). It used to fall to
+  // `fallback`, on the argument that the rung above still works; but the edit
+  // may well have gone through, and a rewrite on top of it both charges again
+  // and rewrites the change it cannot see. Said, and left to the customer.
+  if (!e) { clearFlight(); o.finish('⚠️ ' + unreadEditMsg()); return; }
   if (e.escalate) return escalatedEdit(e, o);
   if (!httpOk || !e.ok) {
     // The server's own sentence when it has one. `buildDownMsg` already knows
@@ -9066,14 +9104,19 @@ function editAnswer(httpOk, e, o) {
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
     if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
-    // THE RUNG'S OWN SENTENCE, THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE.
-    // `wholeRequestNote` is empty for every refusal that already says it.
-    if (e.msg) { o.finish('⚠️ ' + e.msg + wholeRequestNote(e)); return; }
-    // NO SENTENCE AND NO ASK IS NOT A REASON TO SPEND. A watch resumed after a
-    // refresh has no `fallback` to fall to, and inventing a ~25-credit rewrite
-    // there would charge for a message nobody re-typed.
-    if (typeof o.fallback !== 'function') { o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')); return; }
-    return o.fallback();
+    // THE RUNG'S OWN SENTENCE — or, when several steps were all refused, EACH
+    // STEP'S — THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE. `wholeRequestNote`
+    // is empty for every refusal that already says it.
+    const said = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
+    if (said) { o.finish('⚠️ ' + said + wholeRequestNote(e, o.d)); return; }
+    // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
+    // `fallback` whenever the reply carried no sentence, and a message whose
+    // every step was refused carried none at the top — so the customer got a
+    // ~25-credit rewrite of every page in answer to changes that had each been
+    // refused for a reason. The rewrite is started by an ESCALATE the server
+    // chose to send (`escalatedEdit`), and by nothing else.
+    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'));
+    return;
   }
   clearFlight();
   return applyEditResult(e, o);
@@ -10083,23 +10126,45 @@ function editOutcomes(e) {
   // green tick. Part of what was asked did not happen; a clause that reads
   // like the rest of the success line is the silent partial one sentence
   // longer.
-  const stopped = Array.isArray(e.partial) ? e.partial : [];
-  const said = stopped.map(function (p) { return p && typeof p.msg === 'string' ? p.msg.trim() : ''; }).filter(Boolean);
-  if (said.length) {
-    out += ' ⚠️ ' + said.slice(0, 2).join(' ');
-    // BOUNDED, AND THE REMAINDER IS COUNTED RATHER THAN DROPPED. A message
-    // can run several rungs, and three refusals pasted end to end is a wall
-    // of text; a silent drop is the defect this clause exists to close.
-    if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
-  } else if (stopped.length) {
-    // A RUNG THAT FAILED WITHOUT A SENTENCE IS STILL SAID. `msg` is optional
-    // on that record, and *nothing at all* is the outcome this whole clause
-    // is about — so the count goes out even when the words did not.
-    out += ' ⚠️ ' + (stopped.length === 1 ? 'One part' : stopped.length + ' parts') +
-      ' of that message didn’t go through. Ask for ' + (stopped.length === 1 ? 'it' : 'them') + ' again on ' +
-      (stopped.length === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
-  }
+  const stopped = partialSaid(e.partial);
+  if (stopped) out += ' ⚠️ ' + stopped;
   return out;
+}
+
+/**
+ * WHAT THE REFUSED STEPS OF ONE MESSAGE SAY — one composer, two callers.
+ *
+ * `editOutcomes` prints it after a green tick when part of a message landed,
+ * and `editAnswer`'s refusal branch prints it when NONE did. It was inline in
+ * the first and absent from the second, and that absence is a reproduced
+ * defect (2026-09-23): a message whose every step was refused reached the
+ * refusal branch with its sentences in `partial[].msg`, found no `msg` at the
+ * top, and started the full rewrite of every page instead of saying why.
+ *
+ * THE STEPS' OWN SENTENCES, VERBATIM — the rung is the only side that knows
+ * why it stopped — each said ONCE: two page steps withheld for the same reason
+ * write the same sentence, and printing it twice reads as two problems.
+ * BOUNDED at two, the remainder COUNTED rather than dropped, and a step with no
+ * sentence at all is still counted: *nothing at all* is the outcome this
+ * exists to close. The server now gives every step a sentence, so the count is
+ * for replies stored before that.
+ */
+function partialSaid(parts) {
+  const stopped = Array.isArray(parts) ? parts : [];
+  const said = [];
+  stopped.forEach(function (p) {
+    const m = p && typeof p.msg === 'string' ? p.msg.trim() : '';
+    if (m && said.indexOf(m) < 0) said.push(m);
+  });
+  if (said.length) {
+    let out = said.slice(0, 2).join(' ');
+    if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
+    return out;
+  }
+  if (!stopped.length) return '';
+  return (stopped.length === 1 ? 'One part' : stopped.length + ' parts') +
+    ' of that message didn’t go through. Ask for ' + (stopped.length === 1 ? 'it' : 'them') + ' again on ' +
+    (stopped.length === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
 }
 
 /**

@@ -170,7 +170,10 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   const block = blank(WORKER.slice(at, WORKER.indexOf("const runLayer = async (", at)));
   assert.ok(block.length > 2000, "the look block could not be windowed");
   // The picker's own empty answer.
-  assert.match(block, /if \(!picked\.fields\.length && !eRemovalDoor\) return escalate\("no-lane"\)/,
+  // RE-ANCHORED 2026-09-23: on a door the ROUTER opened the empty picker is
+  // now EXPLAINED rather than escalated (`picker/no-lane`), and on a door this
+  // route opened it still falls through — the property this case is about.
+  assert.match(block, /if \(!picked\.fields\.length && !eRemovalDoor\) return explain\("picker\/no-lane"\)/,
     "a picker with nothing to say still climbs on a door this route opened");
   // And the bottom of the block, where an empty step list would otherwise climb.
   const tail = block.slice(block.indexOf("if (!steps.length) {"));

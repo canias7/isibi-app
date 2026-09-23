@@ -781,6 +781,9 @@ export function browserReply(reply, httpOk) {
  */
 export const EDIT_BROWSER_FNS = Object.freeze([
   "problemNote", "photoNote", "listPhotoNote", "sitePathOf", "editOutcomes",
+  // `partialSaid` IS BOTH BRANCHES' composer for refused steps (2026-09-23),
+  // and `unreadEditMsg` the refusal branch's sentence for an unreadable reply.
+  "partialSaid", "unreadEditMsg",
   "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit",
   // ⚠ `editAnswer`'s OWN COMPOSER, and the census had to widen for it. The
   // requirement was derived from `editReply`'s body alone, which cannot see a
@@ -841,7 +844,11 @@ function editBrowserSource() {
  * unreachable. `browserReply`'s own note says this and the reasoning is the
  * same one function over.
  */
-export function editBrowserReply(reply, httpOk) {
+// `d` IS THE ROUTING REPLY the browser holds while the edit runs — its `layer`
+// decides whether an escalate is a sideways hop, and its `cost` is the routing
+// charge the refusal branch states beside the edit's own (2026-09-23). Absent,
+// as every caller before that passed it, the screen is exactly what it was.
+export function editBrowserReply(reply, httpOk, d) {
   const s = editBrowserSource();
   if (!s.ok) return { ok: false, text: "", actions: [], why: "the browser's own edit handling could not be loaded — " + s.why };
   // CANNOT-TELL REFUSES, for the reason `browserReply` states: the browser's
@@ -873,7 +880,7 @@ export function editBrowserReply(reply, httpOk) {
     let text = null;
     answer(httpOk, (reply && typeof reply === "object") ? reply : null, {
       site: null,
-      d: undefined,
+      d: (d && typeof d === "object") ? d : undefined,
       origin: "",
       slug: "",
       instruction: "the ask this run posted",

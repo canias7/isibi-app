@@ -605,14 +605,27 @@ test("a failed edit publishes nothing and says the site is untouched", () => {
     "a failed compile is not reported as success");
 });
 
-test("everything the lane cannot do escalates with a 200, not a refusal", () => {
-  // This route sits BELOW addon and build on a ladder. A 4xx here shows somebody
-  // a refusal for a change that is perfectly possible one rung up.
+test("a climb the classification keeps still escalates with a 200", () => {
+  // This route sits BELOW addon and build on a ladder, and a change that is
+  // possible one rung up must not be shown as a refusal.
+  //
+  // ⚠ RE-WRITTEN 2026-09-23. This read "everything the lane cannot do
+  // escalates" and listed nine reasons — and four of them (`unconfigured`,
+  // `no-change`, `layer`, and `no-meta` on the look rung) are exactly what a
+  // rewrite of every page cannot fix, so the browser's answer to them bought
+  // ~25 credits for nothing. `builder/edit-failure.mjs` classifies every one
+  // and `test/edit-failure.test.mjs` holds the route to that table both ways;
+  // what is kept here is the half that is still this file's: the reasons that
+  // DO climb still reach the helper, and the helper still answers 200.
   const b = editBlock();
   assert.match(b, /escalate = \(reason, extra\) =>\s*\n?\s*Response\.json\(\{ ok: false, escalate: true/,
     "the escalation helper is gone or no longer answers 200");
-  for (const reason of ["empty", "unconfigured", "no-source", "no-backend", "no-meta", "no-look", "needs-pages", "no-change", "layer"]) {
+  for (const reason of ["empty", "no-source", "no-backend", "no-meta", "no-look", "needs-pages", "too-much-text", "build"]) {
     assert.ok(b.includes('escalate("' + reason + '"'), "no escalation path for: " + reason);
+  }
+  // AND THE FOUR THAT WENT ARE ANSWERED, not dropped.
+  for (const key of ["route/unconfigured", "look/no-change", "page/no-change", "route/layer"]) {
+    assert.ok(b.includes('explain("' + key + '"'), "no answer at all for: " + key);
   }
 });
 
@@ -677,8 +690,26 @@ test("the CSS and logo lanes serve a site with NO database — the default kind"
   // THE PROPERTY IS THE SAME FOR BOTH: the lane establishes a database before
   // it queries one, and does not proceed without it. What differs is how each
   // says so.
-  assert.match(b, new RegExp("if \\(!ddb\\) return escalate\\(\"no-backend\"\\)"),
-    "the ddb lane stopped requiring a database it actually queries");
+  //
+  // ⚠ AND `data` ASKS THE FOUR-STATE RESOLVER TOO, SINCE 2026-09-23. Its
+  // `if (!ddb) return escalate("no-backend")` read the fast reader's one null
+  // for four facts — and in the container, where the KV cache is absent, an
+  // `incomplete` site's real database read as none and the rewrite of every
+  // page was bought to change a row. The property is unchanged: the lane
+  // establishes a database before it queries one, and does not query without
+  // it. What moved is the answer for a site with genuinely none — a hop to the
+  // text rung, where the words then live — which is asserted beside it.
+  const dataAt = b.indexOf('if (eLayer === "data")');
+  assert.ok(dataAt > 0, "the data lane is gone or was renamed — this scan has no subject");
+  const dataEnd = b.indexOf("runDataEdit({", dataAt);
+  assert.ok(dataEnd > dataAt, "the data lane's closing landmark moved above its opening one");
+  const dataLane = b.slice(dataAt, dataEnd);
+  assert.match(dataLane, /siteBackendDetail\(env, ownerSlug\)/,
+    "the data lane no longer resolves a database before querying one");
+  assert.match(dataLane, /state === "unreadable"/,
+    "the data lane no longer stops when the database cannot be reached");
+  assert.match(dataLane, /if \(!dBack\.conn\) return escalate\("no-backend", \{ layer: "text" \}\)/,
+    "the data lane no longer has an answer for a site that genuinely has no database");
 
   // `rules` ASKS THE FOUR-STATE RESOLVER. A truthiness test on one connection
   // could not tell an absent database from a REFERENCE that was missing, so it
@@ -798,7 +829,7 @@ test("the server reads hasSite off the body, strictly", () => {
     "the route ignores hasSite, so edit and addon are unreachable for everyone");
 });
 
-test("an edit is dispatched, and every failure falls back to the build", () => {
+test("an edit is dispatched, a classified climb falls back to the build, and nothing else does", () => {
   assert.match(CHAT, /d\.intent === 'edit' && site\.slug\) return siteEdit\(/,
     "the client never routes an edit anywhere");
   const from = CHAT.indexOf("function siteEdit(");
@@ -849,11 +880,18 @@ test("an edit is dispatched, and every failure falls back to the build", () => {
     assert.match(esc, /escalateAction\(/, "the hop is decided here rather than by the module a test can drive");
     assert.match(esc, /, true\)/, "the second call is not marked as handed off, so the bound never bites");
   }
-  // AN UNREADABLE BODY IS NOT A REFUSAL — it is us not knowing, and the rung
-  // above still works. In `editAnswer` since both paths started sharing it.
-  assert.match(ans, /if \(!e\) \{[^}]*fallback/, "an unreadable body is not a refusal");
-  assert.match(b, /\}\)\.catch\(\(err\) => \{ clearFlight\(\); return fallback\(err\); \}\)/,
-    "a network drop must land on the build too");
+  // ⚠ AN UNREADABLE BODY AND A DROPPED CONNECTION ARE "I CANNOT TELL", AND
+  // SINCE 2026-09-23 NEITHER BUYS THE REWRITE. Both fell to `fallback` on the
+  // argument that the rung above still works — but the edit may already have
+  // gone through, and a rewrite on top of it charges twice for one ask and
+  // rewrites a change it cannot see. Both now SAY they cannot tell, with the
+  // same sentence (`unreadEditMsg`), and start nothing.
+  assert.match(ans, /if \(!e\) \{ clearFlight\(\); o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
+    "an unreadable body no longer says it cannot tell");
+  assert.ok(!/if \(!e\) \{[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
+  assert.match(b, /\}\)\.catch\(\(\) => \{ clearFlight\(\); finish\('⚠️ ' \+ unreadEditMsg\(\)\); \}\)/,
+    "a network drop no longer says it cannot tell");
+  assert.ok(!/\.catch\([^)]*\) => \{[^}]*fallback\(/.test(b), "a network drop still reaches the rewrite");
   // The escalate-before-failure ordering is asserted on `editAnswer` above,
   // which is where both checks now live — a second copy of it here would be one
   // more thing to re-anchor the next time either moves.
@@ -928,10 +966,19 @@ test("the page layer finds its file through routeOf, not a second mapping", () =
   assert.ok(!/\.replace\(\/\^src\\\/routes\\\//.test(b), "the handler is rolling its own path mapping");
 });
 
-test("a page the site does not have escalates to the rung that can add one", () => {
+test("a page the site does not have is said, never climbed", () => {
+  // ⚠ RE-WRITTEN 2026-09-23. This asserted `if (!target) return
+  // escalate("no-page"` under the message "asking to change a page that does
+  // not exist IS an addon" — and the escalate named NO layer, so the browser
+  // answered it with the rewrite of every page, not the add-on step. A removal
+  // of a page the site lacks is already true, a move has nothing to move, and
+  // an edit aimed at one cannot say which real page was meant; each is a
+  // sentence now, naming the page and listing the real ones. Driven through
+  // the route in `test/edit-failure.test.mjs`.
   const b = editBlock();
-  assert.match(b, /if \(!target\) return escalate\("no-page"/,
-    "asking to change a page that does not exist IS an addon");
+  assert.ok(!/if \(!target\) return escalate\(/.test(b), "a missing page still climbs to the rewrite");
+  assert.match(b, /if \(!target\) \{\s*return explain\("page\/no-page"/,
+    "a missing page is no longer answered with a sentence");
 });
 
 // ── the data layer: the content the site STORES ──────────────────────────────
@@ -1718,7 +1765,9 @@ test("a photo slot nobody can fill is said out loud", async () => {
   // of four other branches. Measured, not guessed: `orderingMoved` is called
   // once in the file and sits immediately above the reply this is about.
   const open = code.indexOf("const alsoOn = orderingMoved(");
-  const close = code.indexOf('return escalate("layer")', open);
+  // CLOSING LANDMARK RE-ANCHORED 2026-09-23: the dispatch fall-through
+  // explains now instead of escalating — same place, same job as an end.
+  const close = code.indexOf('return explain("route/layer")', open);
   assert.ok(open > 0 && close > open, "the page rung's own reply is gone — re-derive these landmarks");
   const rung = code.slice(open, close);
   assert.ok(rung.length > 500 && rung.length < 4000, "re-derive this window: " + rung.length + " bytes");
@@ -1819,7 +1868,8 @@ test("a photo slot nobody can fill is said out loud", async () => {
   const blank = w.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
   const pFrom = blank.indexOf('if (eLayer === "page") {');
   assert.ok(pFrom > 0, "the page rung is gone");
-  const pTo = blank.indexOf('return escalate("layer");', pFrom);
+  // RE-ANCHORED 2026-09-23: the fall-through below the page rung explains now.
+  const pTo = blank.indexOf('return explain("route/layer");', pFrom);
   assert.ok(pTo > pFrom, "the page rung's next sibling moved — re-derive the closing landmark");
   const pRung = blank.slice(pFrom, pTo);
   assert.ok(pRung.length > 2000 && pRung.length < 40000, "re-derive the page rung window: " + pRung.length);

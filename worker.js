@@ -239,6 +239,9 @@ import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
 import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES } from "./builder/site-lanes.mjs";
+// EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
+// hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
+import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
 // ONE MARK, SEVERAL FORMS (2026-09-07, owner: *"instead of it being 3 things or
 // 4 or 5, its gotta be one, wordmark, but it can be made in svg"*). The header
 // mark and the tab icon are one stored field each, carrying a form — a drawing,
@@ -20450,15 +20453,75 @@ async function handleRequest(request, env, ctx) {
             // `(httpOk, e, o)` and returns nothing; this takes an object and
             // returns a Response, so the two were never the same function.
             const eAnswer = ({ status = 200, ...body }) => Response.json(body, { status });
+            // ── AN ANSWER THAT EXPLAINS AND BUYS NOTHING (2026-09-23) ─────
+            //
+            // Owner: *"Classify the existing escalation cases explicitly …
+            // don't assume "no-lane" or another existing reason proves a
+            // rewrite can safely solve the request."* An escalate that names
+            // no layer is read by the browser as `up` — the full rewrite of
+            // every page, started with nothing on screen — so every refusal
+            // that is NOT a job for that rewrite answers here instead: a thing
+            // that is not there, an ask nobody could place, and every failure
+            // that is ours. `builder/edit-failure.mjs` is the classification
+            // and holds the sentence; this only puts it on the wire.
+            //
+            // `unchanged: true` IS THIS RUNG SAYING IT WROTE NOTHING. The
+            // sentence never claims that for the whole request — a rung does
+            // not know what ran beside it — and the browser adds "nothing on
+            // your site changed" only on a reply whose every step says so.
+            // `extra` may override it: a rename whose first write landed did
+            // change something, and must not be reported as if it had not.
+            //
+            // 503 FOR OURS, 422 FOR EVERYTHING ELSE — the job consumer reads
+            // `ok: false` either way (no publish, and whatever was reserved
+            // goes back), so the status is only ever what a caller reads.
+            const explain = (key, facts, extra) => {
+              const f = editFailure(key);
+              const ours = !!(f && f.ours);
+              return Response.json({
+                ok: false, error: f ? f.reason : "failed", cost: 0, unchanged: true, ours: ours || undefined,
+                msg: failureMsg(key, facts) || "I couldn't make that change.", ...(extra || {}),
+              }, { status: ours ? 503 : 422 });
+            };
+            // THE SITE'S OWN PAGES, for a sentence that names a page it does
+            // not have. Routes, never file paths — what a customer typed.
+            const eRoutes = () => eSrc.map((p) => routeOf(p && p.path)).filter(Boolean);
+            // A STEP THAT WROTE NOTHING, read off its own reply: it said so
+            // (`unchanged`), it was withheld (which publishes nothing by
+            // construction), or it escalated (every escalation returns before
+            // its rung writes). Anything else — a compile failure after rows
+            // were saved, a reply we could not read — is not known to be
+            // nothing, and cannot-tell must never read as nothing-happened.
+            const stepWroteNothing = (bd) => !!bd && (bd.unchanged === true || bd.error === "withheld" || bd.escalate === true);
             if (!eInstruction) return escalate("empty");
             // THE PICKED MODEL'S KEY, not Anthropic's — see `modelKeyMissing`.
-            if (modelKeyMissing(env, modelsFor(eb && eb.picker).quick)) return escalate("unconfigured");
+            // EXPLAINED, NOT ESCALATED (2026-09-23): the rewrite runs on the same
+            // picker and would meet the same missing key.
+            if (modelKeyMissing(env, modelsFor(eb && eb.picker).quick)) return explain("route/unconfigured");
 
             // THE STORED SOURCE IS THE WHOLE PREMISE. Without it there is
             // nothing to edit — a site built before the source was kept — and
             // the rung above regenerates from scratch, which is exactly right.
+            //
+            // ⚠ BUT ONLY WHEN THE STORE ANSWERED (2026-09-23). The loader folds
+            // a read that THREW into the same `null` as a store holding nothing,
+            // so a transient R2 failure bought a rewrite of every page — one
+            // that anchors on the very same store. A read that failed is ours,
+            // and is said; a store that answered empty keeps the rewrite.
+            //
+            // THE SECOND READ ONLY CLASSIFIES — IT NEVER GOES ON TO PUBLISH.
+            // Every read that publishes goes through the repairing reader
+            // (`site-busy`'s census holds it), and taking pages from this bare
+            // one would walk around the repair. So pages found HERE, after the
+            // repairing read answered nothing, mean that read blinked: the
+            // honest answer is "couldn't read just now", never a rewrite and
+            // never an edit of a copy nothing repaired.
             let eSrc = await loadSiteSourceForEdit(env, ownerSlug);
-            if (!eSrc || !eSrc.length) return escalate("no-source");
+            if (!eSrc || !eSrc.length) {
+              const eSrcRead = await readSiteSource(env, ownerSlug);
+              if (!eSrcRead.ok || eSrcRead.pages.length) return explain("route/no-source-unreadable");
+              return escalate("no-source");
+            }
 
             // ── ONE PUBLISH PER MESSAGE ───────────────────────────────────
             //
@@ -21014,20 +21077,23 @@ async function handleRequest(request, env, ctx) {
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
               // A DOOR THIS ROUTE OPENED ITSELF NEVER ESCALATES FOR BEING WRONG.
               //
-              // `no-lane` climbs to the ~25-credit revise, which is the right
-              // answer for a `look` ask nothing here can express. It is the
-              // wrong answer for a message the ROUTER sent to `picture` or
-              // `nav` and we redirected: the rung the router named was going to
-              // run, and turning that into a rewrite because our own picker had
-              // nothing to say would make the removal verb cost twenty-five
-              // credits to be unhelpful.
+              // `no-lane` used to climb to the ~25-credit revise, read as the
+              // right answer for a `look` ask nothing here could express. It is
+              // EXPLAINED now (2026-09-23, owner: *"don't assume "no-lane" …
+              // proves a rewrite can safely solve the request"*): a picker that
+              // could not place the message on any part of the site is not
+              // evidence that rewriting every part of it would, so the customer
+              // is asked which part they mean, for nothing. And on a door the
+              // ROUTER opened for `picture` or `nav` it never even explains: the
+              // rung the router named was going to run, and our own picker
+              // having nothing to say is no reason to stop it.
               //
               // So a removal-opened door falls THROUGH with no fields, which is
               // safe by construction: every step between here and the bottom of
               // this block walks `pickedFields`, so all of them are no-ops on an
               // empty list, and the `!steps.length` branch at the end puts the
               // router's own step back. `eRemovalDoor` is read there too.
-              if (!picked.fields.length && !eRemovalDoor) return escalate("no-lane");
+              if (!picked.fields.length && !eRemovalDoor) return explain("picker/no-lane");
               pickedFields = picked.fields;
 
               // ── TAKING SOMETHING OFF ──────────────────────────────────────
@@ -21113,11 +21179,11 @@ async function handleRequest(request, env, ctx) {
                     if (eRemoves.remove.includes(f)) {
                       if (!hasLookField(wallLook, f) && !onPage) {
                         editTrace.mark("remove:absent", "ok", { field: f });
-                        return eAnswer({
-                          ok: true, status: 200, moved: [], cost: 0,
-                          msg: "Your site doesn't have " + (f === "three" ? "a 3D scene" : "a QR code") +
-                            " on it, so there was nothing to take off. Nothing was changed.",
-                        });
+                        // ⚠ IT ANSWERED `ok: true` WITH NO LAYER, and the
+                        // browser's success composer ends '✅ Done.' — so this
+                        // sentence never reached the screen (2026-09-23). A
+                        // refusal now, which is the branch that shows `msg`.
+                        return explain("picker/nothing-to-remove", { what: f === "three" ? "a 3D scene" : "a QR code" });
                       }
                       continue;
                     }
@@ -21199,7 +21265,7 @@ async function handleRequest(request, env, ctx) {
               // the customer can see and undo, and here it can cost them a page.
               if (pickedFields.includes("pages")) {
                 const pv = picked.page;
-                if (!pv) return escalate("page-verb");
+                if (!pv) return explain("pages/page-verb");
                 // ADDING IS THE ADDON ROUTE, which this route cannot run — it
                 // publishes a site that exists rather than adding to it. Named
                 // rather than folded into a generic escalation, so the ladder
@@ -21207,12 +21273,19 @@ async function handleRequest(request, env, ctx) {
                 if (pv.layer === "addon") return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
                 // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
                 // against the real route list, the same way `readEdit` does one
-                // router up — and for the same reason: a removal aimed at a page
-                // nobody has is an addon, correctly identified without asking a
-                // model twice.
+                // router up.
+                //
+                // ⚠ THIS SAID "a removal aimed at a page nobody has is an addon,
+                // correctly identified" AND ESCALATED WITH NO LAYER, which the
+                // browser reads as `up`: "take the menu page off" on a site with
+                // no menu page bought a rewrite of every page (reproduced
+                // 2026-09-23). Removal and move are the only verbs that reach
+                // here — adding went to the add-on route one line up — and for
+                // both the honest answer is a sentence: already true, or nothing
+                // to move.
                 const known = eSrc.map((pg) => routeOf(pg.path)).filter(Boolean);
                 if (pv.name && known.length && !known.includes(pv.name)) {
-                  return escalate("no-page", { page: pv.name, verb: pv.verb });
+                  return explain("pages/no-page", { page: pv.name, verb: pv.verb, routes: known });
                 }
                 if (pv.verb === "remove") eRemove = true;
                 if (pv.verb === "move") eRename = pv.to;
@@ -21224,7 +21297,16 @@ async function handleRequest(request, env, ctx) {
               // the rung that can, not reported as missing. The capability
               // exists; it is simply not one an EDIT can run.
               const above = pickedFields.map((f) => [f, laneEscalate(f)]).find(([, r]) => r);
-              if (above && !steps.length) return escalate(above[1], { field: above[0] });
+              //
+              // BY NAME (2026-09-23). `laneEscalate` answers "build" for `kind`
+              // and nothing else today (derived, not assumed); the literal is
+              // what lets the classification census see this climb at all. A
+              // lane that one day escalates somewhere new is SAID until its own
+              // class is decided, never climbed by default.
+              if (above && !steps.length) {
+                if (above[1] === "build") return escalate("build", { field: above[0] });
+                return explain("picker/unbuilt", {}, { field: above[0], needs: above[1] });
+              }
               // NOT BUILT YET, AND IT SAYS WHICH — three different jobs that must
               // never share one word. `kind` is a rebuild by definition, `pages`
               // is three capabilities behind one field (add, remove, move),
@@ -21235,12 +21317,12 @@ async function handleRequest(request, env, ctx) {
               // darker and change our web address" did neither — the same
               // dropped-ask failure wearing the other face.
               if (!steps.length) {
-                if (notBuilt.length) return escalate("unbuilt", { field: notBuilt[0][0], needs: notBuilt[0][1] });
+                if (notBuilt.length) return explain("picker/unbuilt", {}, { field: notBuilt[0][0], needs: notBuilt[0][1] });
                 // THE OTHER HALF OF THE FALL-THROUGH, and the reason is at the
                 // picker's own empty check above: a door this route opened is
                 // put back the way the router left it, never climbed.
                 if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [] });
-                else return escalate("no-lane");
+                else return explain("picker/no-lane");
               }
             } else {
               // EVERY OTHER LAYER IS THE ROUTER'S OWN DECISION, made with the
@@ -21294,14 +21376,62 @@ async function handleRequest(request, env, ctx) {
               // NOTHING IS RECOMPILED AND NOTHING IS REPUBLISHED. The published
               // bundle reads these rows at runtime, so the change is live the
               // moment it commits.
-              const ddb = await siteBackendBySlug(env, ownerSlug);
-              if (!ddb) return escalate("no-backend");
+              // ── WHICH DATABASE, ASKED THE WAY THE RULES AND PAGE RUNGS ASK ──
+              //
+              // ⚠ `siteBackendBySlug` ANSWERS ONE `null` FOR FOUR FACTS, and
+              // this rung escalated on it with no layer — which the browser
+              // reads as the full rewrite of every page. REPRODUCED through the
+              // route (2026-09-23) on an `incomplete` site: the database real,
+              // the reference blank, the container without the KV cache that
+              // hides it in the Worker, and "change the haircut price to £25"
+              // bought a rewrite that cannot change a row at all. The four-state
+              // reader answers it now, and the fast one stays the first question
+              // so every site it answers is handled exactly as before.
+              //
+              //   ready / incomplete → the proven connection. NOTHING IS
+              //       WRITTEN: an incomplete reference is the backend repair's,
+              //       not this rung's (the page rung's rule, 2026-09-22).
+              //   none       → a HOP to the text rung. With no database the
+              //       words the customer means are in the page source, and that
+              //       is the rung that changes words, for ~1 credit.
+              //   unreadable → said, at no cost. Ours, and nothing a rewrite of
+              //       the pages touches.
+              let ddb = await siteBackendBySlug(env, ownerSlug);
+              let dResolved = false;
+              if (!ddb) {
+                const dBack = await siteBackendDetail(env, ownerSlug);
+                if (dBack.state === "unreadable") {
+                  console.error("data edit backend unreadable:", ownerSlug, dBack.why, dBack.detail || "");
+                  return explain("data/backend-unreadable", {}, { backend: dBack.why });
+                }
+                if (!dBack.conn) return escalate("no-backend", { layer: "text" });
+                ddb = dBack.conn;
+                dResolved = true;
+              }
+              // THE SCHEMA, AND A MISSING ROW IS NOT AN EMPTY DATABASE. The
+              // direct `_meta` read is still the first question on a ready site;
+              // when it answers nothing — no row, or a read that threw — the
+              // catalog-first reader the rules rung and the add-on use is asked,
+              // READ-ONLY, before anything is concluded. A catalog that confirms
+              // no tables means nothing here is stored content, so the words are
+              // in the pages: the same hop as no database at all.
               let dSpec = null;
-              try {
-                const rows = await sqlQuery(ddb, "SELECT v FROM _meta WHERE k = 'schema'");
-                if (rows && rows[0] && rows[0].v) dSpec = JSON.parse(rows[0].v);
-              } catch (e) { console.error("data edit schema read failed:", ownerSlug, e && e.message); }
-              if (!dSpec) return escalate("no-meta");
+              if (!dResolved) {
+                try {
+                  const rows = await sqlQuery(ddb, "SELECT v FROM _meta WHERE k = 'schema'");
+                  if (rows && rows[0] && rows[0].v) dSpec = JSON.parse(rows[0].v);
+                } catch (e) { console.error("data edit schema read failed:", ownerSlug, e && e.message); }
+              }
+              if (!dSpec) {
+                const dRead = await specForAddon(ddb);
+                if (!dRead.ok) {
+                  console.error("data edit schema recovery failed:", ownerSlug, dRead.why);
+                  return explain("data/spec-unreadable", {}, { backend: dRead.why });
+                }
+                const dKnown = dRead.spec && Array.isArray(dRead.spec.tables) ? dRead.spec.tables : [];
+                if (!dKnown.length) return escalate("no-meta", { layer: "text" });
+                dSpec = dRead.spec;
+              }
 
               // `display` TABLES ONLY, and that is a boundary rather than a
               // shortcut. A `collect` table holds customers' bookings and
@@ -21395,7 +21525,12 @@ async function handleRequest(request, env, ctx) {
                       : "That change couldn't be saved — try again."),
                   }, { status: 422 });
                 }
-                return escalate(dOut.reason);
+                // `no-data` IS THE ONLY REASON `runDataEdit` ESCALATES WITH — no
+                // table holds display content, so nothing the site stores is
+                // what was asked about. A HOP to the words, never the rewrite
+                // (2026-09-23): the rung above rewrites pages and cannot change
+                // a row either, which is this block's own opening argument.
+                return escalate("no-data", { layer: "text" });
               }
               // A REORDER IS THE ONE THING THIS LANE PUBLISHES. Rows are live
               // the moment they commit — the bundle reads them at runtime — but
@@ -21505,7 +21640,7 @@ async function handleRequest(request, env, ctx) {
               if (rBack.state === "unreadable") {
                 console.error("rules edit backend unreadable:", ownerSlug, rBack.why, rBack.detail || "");
                 return eAnswer({
-                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rBack.why,
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rBack.why, unchanged: true,
                   // ⚠ "YOU HAVEN'T BEEN CHARGED" WAS FALSE AND IS SCOPED NOW
                   // (2026-09-21, owner). `cost: 0` is true of this EDIT; the
                   // routing call that chose this layer is a separate POST that
@@ -21514,7 +21649,15 @@ async function handleRequest(request, env, ctx) {
                   // establish a zero-cost request, so the sentence says what
                   // this route can actually see. No refund is claimed, because
                   // none happened: there was nothing to reverse.
-                  msg: "I couldn't reach your site's database just now, so I've stopped rather than guess at what's in it — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
+                  //
+                  // ⚠ AND THE SITE-WIDE HALF MOVED TO THE BROWSER (2026-09-23).
+                  // This rung is also reached as one step of a message that ran
+                  // several (`backend` dispatches here), and "nothing on your
+                  // site changed" printed beside a step that shipped was false.
+                  // `unchanged: true` says what THIS rung knows; the browser adds
+                  // the whole-request sentence — the edit's cost and the routing
+                  // call's, as two amounts — only when every step says it.
+                  msg: "I couldn't reach your site's database just now, so I've stopped rather than guess at what's in it — this is on us. Try again in a few minutes.",
                 });
               }
               // A SITE THAT REALLY HAS NO DATABASE ESCALATES TO THE STEP THAT
@@ -21577,8 +21720,8 @@ async function handleRequest(request, env, ctx) {
               if (!rRead.ok) {
                 console.error("rules edit schema read failed:", ownerSlug, rRead.why);
                 return eAnswer({
-                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rRead.why,
-                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
+                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: rRead.why, unchanged: true,
+                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. Try again in a few minutes.",
                 });
               }
               // NO TABLES AND A CATALOG THAT CONFIRMS IT is a real answer:
@@ -21634,7 +21777,11 @@ async function handleRequest(request, env, ctx) {
                       : "That change couldn't be saved — try again.",
                   }, { status: 422 });
                 }
-                return escalate(rOut.reason);
+                // `no-tables` IS THE ONLY REASON `runRulesEdit` ESCALATES WITH
+                // (unreachable behind the `no-meta` check above, which answers
+                // first). Named with the add-on's layer like its two siblings:
+                // a rule needs a table, and making one is that step's.
+                return escalate("no-tables", { layer: "addon" });
               }
               return Response.json({
                 ok: true, layer: "rules", applied: rOut.applied, refused: rOut.refused || [],
@@ -21695,7 +21842,9 @@ async function handleRequest(request, env, ctx) {
                 const d = await fetch(
                   `${SUPABASE_URL}/rest/v1/site_aliases?alias=eq.${encodeURIComponent(drop)}&slug=eq.${encodeURIComponent(ownerSlug)}&current=is.false`,
                   { method: "DELETE", headers: svcHeaders(env, { Prefer: "return=representation" }), signal: AbortSignal.timeout(15000) });
-                if (!d.ok) return escalate("rename-store", { detail: (await d.text().catch(() => "")).slice(0, 200) });
+                // OUR STORE REFUSED — explained, never the rewrite, which does not
+                // move an address at all (2026-09-23). Nothing was deleted.
+                if (!d.ok) return explain("rename/rename-store", {}, { detail: (await d.text().catch(() => "")).slice(0, 200) });
                 const removed = await d.json().catch(() => null);
                 if (!Array.isArray(removed) || !removed.length) {
                   return Response.json({ ok: false, layer: "rename", cost: await eCharge(rUsage),
@@ -21773,10 +21922,16 @@ async function handleRequest(request, env, ctx) {
                 });
                 return w.ok ? null : (await w.text().catch(() => "")).slice(0, 200);
               };
+              // ⚠ EXPLAINED, AND THE SECOND ONE DOES NOT SAY NOTHING CHANGED.
+              // These escalated with no layer — the rewrite of every page, which
+              // cannot move an address — over a failure of our own store. The
+              // first write failing leaves the rows as they were; the SECOND
+              // failing leaves the old name demoted and the new one unwritten,
+              // which is a change, so that reply must not carry `unchanged`.
               const badOld = await putAlias(rows.demote);
-              if (badOld) return escalate("rename-store", { detail: badOld });
+              if (badOld) return explain("rename/rename-store", {}, { detail: badOld });
               const badNew = await putAlias(rows.promote);
-              if (badNew) return escalate("rename-store", { detail: badNew });
+              if (badNew) return explain("rename/rename-store", {}, { detail: badNew, unchanged: false });
               forgetAlias(ownerSlug, current, wanted);
 
               // ── AND THE HEAD FOLLOWS, WITHOUT A COMPILE ───────────────────
@@ -21861,7 +22016,11 @@ async function handleRequest(request, env, ctx) {
                     msg: nOut.msg || "That change couldn't be made — try again.",
                   }, { status: 422 });
                 }
-                return escalate(nOut.reason);
+                // `no-nav` IS THE ONLY REASON `runNavEdit` ESCALATES WITH: no
+                // menu, header button or link on any page. Explained (2026-09-23)
+                // — a rewrite of every page is not the answer to a menu the site
+                // does not have.
+                return explain("nav/no-nav");
               }
               const nPub = await publishStep(env, {
                 slug: ownerSlug, pages: nOut.pages,
@@ -21935,6 +22094,29 @@ async function handleRequest(request, env, ctx) {
               // replay has no bearer token to present and reading zero would
               // decline photographs the customer can afford.
               let balance = await (eJob ? readCreditsFor(env, eJob.uid) : readCredits(eAuth)).catch(() => 0);
+              // ── AND THE PHOTOGRAPHS IN THE SITE'S OWN COMPONENTS (2026-09-23) ──
+              //
+              // ⚠ THIS RUNG READ THE PAGES ALONE, and since the band split a
+              // section — its photograph included — lives in its own file under
+              // `-parts/`. REPRODUCED through the route: a site whose only
+              // photograph sat in `photo-wall.tsx` answered `no-slots`, which
+              // escalated with no layer — the rewrite of every page, to swap one
+              // picture. The text rung met the same wall on 2026-09-11 and this
+              // is its fix, one rung over: `editableFiles` presents each
+              // component with a path, which is all `imageSlots` and
+              // `applyPictures` look at, and `splitEditable` puts them back
+              // before anything publishes.
+              //
+              // ⚠ AND A STORE THAT COULD NOT BE READ MUST NOT PUBLISH AS EMPTY.
+              // That is the text rung's recorded defect: a failed read presented
+              // as no components, handed to the spine as `parts: []`, deleted
+              // every component on the site. So the components are handed over
+              // only when they were READ; otherwise this runs on the pages as it
+              // always did and the spine re-sends the store's own copy — and a
+              // photograph it then cannot find is said to be unfindable because
+              // of the store, not because the site has none.
+              const picParts = await editParts();
+              const picFiles = picParts.ok ? editableFiles(eSrc, picParts.parts) : eSrc;
               const pOut = await runPictureEdit({
                 send: eQuick(),
                 // The owner's upload library, named the way they see it.
@@ -21954,7 +22136,7 @@ async function handleRequest(request, env, ctx) {
                   if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
                   return made;
                 },
-              }, { instruction: eInstruction, pages: eSrc, model: eQuickModel });
+              }, { instruction: eInstruction, pages: picFiles, model: eQuickModel });
 
               if (!pOut.ok) {
                 if (!pOut.escalate) {
@@ -21973,10 +22155,25 @@ async function handleRequest(request, env, ctx) {
                 // rewrites every page of the site to add one picture. Carried on
                 // the escalate the client already reads; a lane that names no
                 // layer behaves exactly as it did.
-                return escalate(pOut.reason, pOut.layer ? { layer: pOut.layer, page: pOut.page } : undefined);
+                //
+                // THE MODULE ESCALATES FOR TWO REASONS AND THEY ARE TWO CLASSES
+                // (2026-09-23). `needs-place` names the page rung — a cheaper
+                // lane that inserts a frame on one page — and stays a hop.
+                // `no-slots` named nothing and fell to the rewrite of every page:
+                // it is a sentence now, saying how to ask for one to be added.
+                if (pOut.reason === "needs-place" && pOut.layer) return escalate("needs-place", { layer: pOut.layer, page: pOut.page });
+                if (!picParts.ok) return explain("picture/parts-unreadable");
+                return explain("picture/no-slots");
               }
+              // BOTH HALVES GO TO THE PUBLISH WHEN BOTH WERE READ — the pages
+              // and every component, changed or not, because a list handed in
+              // is the list stored (the text rung's rule). When the components
+              // were NOT read, the pages go alone and the spine re-sends the
+              // store's own copy, exactly as before this rung saw components.
+              const picSplit = picParts.ok ? splitEditable(pOut.pages) : { pages: pOut.pages };
               const pPub = await publishStep(env, {
-                slug: ownerSlug, pages: pOut.pages,
+                slug: ownerSlug, pages: picSplit.pages,
+                ...(picParts.ok ? { parts: picSplit.parts } : {}),
                 label: versionLabel({ revise: true, changeNote: eInstruction }),
               });
               if (!pPub.ok) {
@@ -22196,7 +22393,15 @@ async function handleRequest(request, env, ctx) {
                     msg: "Your site changed while that was being edited — send it again.",
                   }, { status: 409 });
                 }
-                return escalate(out.reason);
+                // THREE ESCALATIONS AND TWO CLASSES (2026-09-23). Too much
+                // wording for one-at-a-time edits is the rung establishing the
+                // change is beyond it — the designed climb, kept. No wording at
+                // all, or wording that matched nothing the model read, is NOT: a
+                // rewrite would reword the whole site to hunt for words nobody
+                // could find, and asking for the exact words costs nothing.
+                if (out.reason === "too-much-text") return escalate("too-much-text");
+                if (out.reason === "no-text") return explain("text/no-text");
+                return explain("text/no-match");
               }
               // BOTH HALVES GO TO THE PUBLISH, and the parts go EVERY time
               // rather than only when one changed. `recompileAndPublish` reads
@@ -22301,7 +22506,13 @@ async function handleRequest(request, env, ctx) {
                 // key this path could not see.
                 priorLook = lookWithMarks(cfg.config);
                 priorCss = cfg.config.css;
-              } catch (e) { console.error("edit look read failed:", ownerSlug, e && e.message); return escalate("no-meta"); }
+              } catch (e) {
+                // OURS, AND SAID (2026-09-23). A config read that failed escalated
+                // as `no-meta` with no layer — the rewrite of every page, which
+                // anchors on this very record — over a store that blinked.
+                console.error("edit look read failed:", ownerSlug, e && e.message);
+                return explain("look/config-unreadable");
+              }
               // ── A SITE MAY HAVE A STYLESHEET AND A THIN LOOK ───────────────
               //
               // `!priorLook` alone was the gate, which was right while `site_look`
@@ -22632,20 +22843,19 @@ async function handleRequest(request, env, ctx) {
               // the rung above recompiles from the same stored look. The whole
               // point of this lane is that a look change costs one cheap call.
               if (!moved.length && !cssMoved) {
-                // NOTHING MOVED HAS TWO CAUSES AND ONLY ONE OF THEM IS AN
-                // ESCALATION, which is what this used to miss. Every escalation
-                // falls through to the full revise by contract, so an ask that
-                // is ALREADY SATISFIED — a customer repeating an instruction
-                // after a stale preview, the ordinary trigger — bought a
-                // ~21-27-credit rebuild that regenerated every page and
-                // published a byte-identical site. The cheap lane is holding the
-                // answer.
+                // NOTHING MOVED HAS TWO CAUSES, which is what this used to miss.
+                // An ask that is ALREADY SATISFIED — a customer repeating an
+                // instruction after a stale preview, the ordinary trigger —
+                // escalated and bought a ~21-27-credit rebuild that regenerated
+                // every page and published a byte-identical site. The cheap
+                // lane is holding the answer.
                 //
                 // The discriminator is whether the model NAMED anything. Fields
                 // that all equal what is stored is "you already have that";
-                // naming nothing at all is "I could not express this", which is
-                // the case the escalation was written for and is left exactly
-                // as it was.
+                // naming nothing at all is "I could not express this" — which
+                // escalated too, until 2026-09-23, and is a sentence now: the
+                // rewrite recompiles from the same stored look, so it cannot
+                // express it either.
                 //
                 // THREE TERMS WENT ON 2026-08-24 AND THEY HAD BEEN INERT SINCE
                 // THE DAY BEFORE. They read `designed.tokens`, `designed.style`
@@ -22663,7 +22873,11 @@ async function handleRequest(request, env, ctx) {
                   // express this" and buys a rebuild that recompiles from the
                   // very same sheet.
                   || cssAsk.usable;
-                if (!named) return escalate("no-change");
+                // ⚠ AND "I COULD NOT EXPRESS THIS" IS SAID, NOT CLIMBED (2026-09-23).
+                // It escalated to the rewrite, which this block's own opening
+                // argument says recompiles from the same stored look and so
+                // cannot express it either. Asked which part and how, for nothing.
+                if (!named) return explain("look/no-change");
                 return Response.json({
                   ok: true, layer: "look", moved: [], renamed: 0,
                   // Its own field, not `moved`: the client's sentence is built
@@ -22822,10 +23036,20 @@ async function handleRequest(request, env, ctx) {
               const wantRoute = ePage.trim().toLowerCase();
               const target = eSrc.find((p) => p && routeOf(p.path) === wantRoute);
               // The router checks this against the digest already; it can still
-              // be wrong about a site whose digest carried no pages. A page we
-              // cannot find is an ADDON — they are asking for one that is not
-              // there — which is exactly what the rung above does.
-              if (!target) return escalate("no-page", { page: wantRoute });
+              // be wrong about a site whose digest carried no pages.
+              //
+              // ⚠ THIS SAID "a page we cannot find is an ADDON … which is exactly
+              // what the rung above does" AND ESCALATED WITH NO LAYER — which the
+              // browser reads as the rewrite of every page, not the add-on step.
+              // So "take the /menu page off" on a site with no /menu bought a
+              // rewrite, and so did an edit aimed at a page the router named from
+              // the sentence rather than the site (run 23, `/book`). Explained
+              // now (2026-09-23): removal is already true, a move has nothing to
+              // move, and for an edit the real pages are listed and the customer
+              // says which — which page gets targeted is its own task.
+              if (!target) {
+                return explain("page/no-page", { page: wantRoute, verb: eRemove ? "remove" : (eRename ? "move" : ""), routes: eRoutes() });
+              }
 
               // ── TAKING THE PAGE AWAY, WITH NO MODEL CALL AT ALL ───────────
               //
@@ -22856,8 +23080,11 @@ async function handleRequest(request, env, ctx) {
                   // A page something still links to needs the links taken out
                   // first, and that DOES need a model. Up the ladder, with the
                   // sentence the merge already composed.
-                  if (cut.msg) return Response.json({ ok: false, error: cut.reason, cost: 0, msg: cut.msg.trim() }, { status: 422 });
-                  return escalate(cut.reason, { page: wantRoute });
+                  if (cut.msg) return Response.json({ ok: false, error: cut.reason, cost: 0, unchanged: true, msg: cut.msg.trim() }, { status: 422 });
+                  // UNREACHABLE — a page that exists is either kept, with the
+                  // sentence above, or removed — and explained anyway (2026-09-23)
+                  // rather than climbing to a rewrite nobody could justify.
+                  return explain("page/removal-no-change", { page: wantRoute });
                 }
                 const cutPub = await publishStep(env, {
                   slug: ownerSlug, pages: cut.pages,
@@ -23121,8 +23348,11 @@ async function handleRequest(request, env, ctx) {
                 if (eBack.state === "unreadable") {
                   console.error("page edit backend unreadable:", ownerSlug, eBack.why, eBack.detail || "");
                   return eAnswer({
-                    status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: eBack.why,
-                    msg: "I couldn't reach your site's database just now, so I've stopped rather than rewrite your page as if it had none — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
+                    status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: eBack.why, unchanged: true,
+                    // RUNG-SCOPED (2026-09-23): "nothing on your site changed"
+                    // is the browser's to add, on a reply whose every step
+                    // says so — printed beside a step that shipped, it lied.
+                    msg: "I couldn't reach your site's database just now, so I've stopped rather than rewrite your page as if it had none — this is on us. Try again in a few minutes.",
                   });
                 }
                 // A CONNECTION IS THE ANSWER. `siteBackendDetail` hands one back
@@ -23136,9 +23366,16 @@ async function handleRequest(request, env, ctx) {
                 }
               }
               let eSpec = null, eLook2 = null, eCss2 = "", eSpecStop = "";
+              // WHETHER THE CONFIG WAS READ, apart from what it held: a read
+              // that failed is ours and is said, while a config that answered
+              // with no look at all is a site from before designs were stored,
+              // which only the rewrite can regenerate (2026-09-23). They were
+              // one `no-meta`.
+              let eCfgRead = false;
               try {
                 const cfg = await readSiteConfig(env, ownerSlug, eDb);
                 if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
+                eCfgRead = true;
                 eLook2 = cfg.config.look;
                 // AND THE STYLESHEET THE SITE IS WEARING. Read from the same
                 // config as the look, in the same read — a second read would
@@ -23188,18 +23425,35 @@ async function handleRequest(request, env, ctx) {
                   eSpec = { tables: [] };
                 }
               } catch (e) { console.error("page edit meta read failed:", ownerSlug, e && e.message); }
+              // ── A READY SITE WHOSE `_meta` GAVE NOTHING (2026-09-23) ──────────
+              //
+              // No row, or a read that threw, left `eSpec` null and escalated
+              // `no-meta` with no layer — the rewrite of every page, which
+              // cannot repair a schema either. A missing row is not an empty
+              // database, so the catalog-first reader the resolved branch
+              // above already uses is asked here too, READ-ONLY, before
+              // anything is concluded.
+              if (eCfgRead && !eSpec && eDb && !eSpecStop) {
+                try {
+                  const eRead = await specForAddon(eDb);
+                  if (eRead.ok) eSpec = eRead.spec;
+                  else eSpecStop = String(eRead.why || "spec-unreadable");
+                } catch (e) { eSpecStop = "spec-read-threw"; }
+              }
               // CANNOT-TELL STOPS HERE TOO, and does not escalate: `no-meta`
               // carries no layer, so the browser would answer it with the
               // ~25-credit rewrite of every page — which cannot repair a schema
               // this rung could not read.
               if (eSpecStop) {
                 console.error("page edit schema read failed:", ownerSlug, eSpecStop);
-                return eAnswer({
-                  status: 503, ok: false, error: "backend", cost: 0, ours: true, backend: eSpecStop,
-                  msg: "I couldn't read what your site's database is set up to do just now, so I've stopped rather than guess — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.",
-                });
+                return explain("page/spec-unreadable", {}, { backend: eSpecStop });
               }
-              if (!eSpec || !eLook2) return escalate("no-meta");
+              if (!eCfgRead) return explain("page/config-unreadable", { page: wantRoute });
+              if (!eLook2) return escalate("no-look");
+              // UNREACHABLE once the config was read: every branch above either
+              // sets a schema or sets a stop. Said rather than climbed if it ever
+              // is not.
+              if (!eSpec) return explain("page/spec-unreadable", {}, { backend: "spec-missing" });
 
               const eModels = modelsFor(eb && eb.picker);
 
@@ -23593,7 +23847,15 @@ async function handleRequest(request, env, ctx) {
                     problems: pProblems.slice(0, 4),
                   }, { status: 409 });
                 }
-                return escalate(wrote ? "no-change" : "no-page-back", { problems: pProblems.slice(0, 4) });
+                // ⚠ EXPLAINED, NOT CLIMBED (2026-09-23) — and this reverses the
+                // 2026-09-20 control that kept a genuine no-change escalating.
+                // The page's own writer saw the page and the request and changed
+                // nothing; a rewrite of EVERY page is no evidence it would do
+                // better, and it risks the pages nobody asked about. A writer
+                // that sent no page back is a model failure, ours. Both are a
+                // sentence at no cost for the edit.
+                if (!wrote) return explain("page/no-page-back", { page: wantRoute }, { problems: pProblems.slice(0, 4) });
+                return explain("page/no-change", { page: wantRoute }, { problems: pProblems.slice(0, 4) });
               }
               // ── AND A LOSS THE PROTECTION COULD NOT REACH IS WITHHELD ────
               //
@@ -23752,9 +24014,12 @@ async function handleRequest(request, env, ctx) {
               });
             }
 
-            // A LAYER NOBODY IMPLEMENTS escalates rather than pretending, so the
-            // change still happens — one rung up, at the price of a rung up.
-            return escalate("layer");
+            // A LAYER NOBODY IMPLEMENTS is a mismatch of OURS between the router
+            // and this route — every layer the router can name has a branch
+            // above. It used to escalate to the rewrite "so the change still
+            // happens"; a defect of ours is not a reason to spend a customer's
+            // credits on every page (2026-09-23). Said, at no cost.
+            return explain("route/layer");
             };
 
             // ── RUN EVERY STEP IN TURN, AND ANSWER ONCE ───────────────────
@@ -24018,6 +24283,29 @@ async function handleRequest(request, env, ctx) {
             // steps go through the merge below, where `partial` names every one.
             if (done.length === 1 && failures.length && !notBuilt.length) return failures[0].res;
 
+            // ── EVERY STEP REFUSED: EACH SAYS WHY, AND NOTHING IS BOUGHT ──────
+            //
+            // ⚠ REPRODUCED THROUGH THE ROUTE AND THE BROWSER'S OWN HANDLER
+            // (2026-09-23): a message whose two page steps were both withheld
+            // came back as `{ok: false, layer: "look", partial: [...]}` with no
+            // `msg` — and the browser's refusal branch, finding no sentence,
+            // started the full rewrite of every page. Each step's own sentence
+            // was on the wire the whole time, in `partial[].msg`, and nothing
+            // read it.
+            //
+            // UNANIMOUS ESCALATIONS ARE THE ONE EXCEPTION, and they are acted on
+            // exactly as a single step would be: when every step climbed to the
+            // SAME place (say, a site from before designs were stored, where
+            // every step needs the rewrite), the message as a whole needs it,
+            // and the first step's own escalate is the answer. Anything mixed is
+            // said step by step — acting on one step's climb would do part of a
+            // message at a price nobody saw.
+            if (!ranOk.length && failures.length && !notBuilt.length) {
+              const climbs = failures.map((d) => d.body).filter((bd) => bd && bd.escalate === true);
+              const whereTo = (bd) => (typeof bd.layer === "string" ? bd.layer : "") + "|" + (typeof bd.page === "string" ? bd.page : "");
+              if (climbs.length === failures.length && climbs.every((bd) => whereTo(bd) === whereTo(climbs[0]))) return failures[0].res;
+            }
+
             const flat = (k) => ranOk.flatMap((d) => (Array.isArray(d.body[k]) ? d.body[k] : []));
             const last = ranOk[ranOk.length - 1];
             // ── WHAT THE MESSAGE DID TO THE SITE'S PICTURES, ASKED ONCE ────
@@ -24122,8 +24410,24 @@ async function handleRequest(request, env, ctx) {
               // Both name the LANE, in the customer's own terms, so they can see
               // which half of their message is still outstanding.
               notBuilt: notBuilt.length ? notBuilt.map(([f, needs]) => ({ field: f, needs })) : undefined,
+              // ⚠ EVERY ENTRY CARRIES A SENTENCE NOW (2026-09-23). A step that
+              // ESCALATED has no `msg` of its own — it expected the browser to
+              // act on it — so beside other steps it arrived as a bare count.
+              // `stepMsg` says what that step needs, and `unchanged` records
+              // that the step wrote nothing, which is what lets the browser say
+              // "nothing on your site changed" of the whole message, and ONLY
+              // when every step says it.
               partial: failures.length
-                ? failures.map((d) => ({ layer: d.step.layer, lanes: d.step.fields, error: d.body && d.body.error, msg: d.body && d.body.msg }))
+                ? failures.map((d) => {
+                  const bd = d.body || {};
+                  const own = typeof bd.msg === "string" && bd.msg.trim() ? bd.msg : "";
+                  return {
+                    layer: d.step.layer, lanes: d.step.fields, error: bd.error,
+                    reason: bd.escalate === true ? bd.reason : undefined,
+                    msg: own || (bd.escalate === true ? stepMsg(bd) : undefined),
+                    unchanged: stepWroteNothing(bd) || undefined,
+                  };
+                })
                 : undefined,
               // ── AND EVERY OUTCOME A RUNG REPORTS THAT THE CUSTOMER NEEDS ──
               //
@@ -24172,6 +24476,24 @@ async function handleRequest(request, env, ctx) {
                 if (v === undefined || Object.hasOwn(merged, k)) continue;
                 merged[k] = v;
               }
+            }
+            // ── NOTHING RAN: WHAT THE EDIT COST, AND WHETHER THE SITE MOVED ──
+            //
+            // THE COST IS THE LEDGER'S, NOT A SUM OF THE STEPS' OWN FIGURES. On
+            // the job path the consumer hands back everything this job reserved
+            // the moment the reply says `ok: false` (`edit_refund`), so the edit
+            // cost nothing whatever a step reported; on the synchronous path
+            // nothing gives back what a refused step collected, and
+            // `syncLedger.taken` is exactly that. The routing call that chose
+            // this route is a separate charge the browser states separately.
+            //
+            // `unchanged` ONLY WHEN EVERY STEP SAYS IT — a data step that saved
+            // rows and then failed its reorder did change the site, and a reply
+            // claiming otherwise would be the one wrong sentence here.
+            if (!ranOk.length) {
+              merged.cost = eJob ? 0 : syncLedger.taken;
+              merged.unchanged = failures.every((d) => stepWroteNothing(d.body)) || undefined;
+              return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
           }

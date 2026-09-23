@@ -145,7 +145,9 @@ test("a second click while the first POST is unresolved does nothing", () => {
   // that forgets is visible as a number falling.
   const clears = (fn.match(/clearFlight\(\)/g) || []).length;
   assert.ok(clears >= 4, `only ${clears} release points — an exit that never releases locks the site`);
-  assert.match(fn, /\.catch\(\(err\) => \{ clearFlight\(\)/, "a thrown POST leaves the site locked");
+  // RE-ANCHORED 2026-09-23: the handler no longer takes the error (it no
+  // longer hands it to the rewrite), so the landmark is the release itself.
+  assert.match(fn, /\.catch\(\([^)]*\) => \{ clearFlight\(\)/, "a thrown POST leaves the site locked");
 });
 
 // ── THE POLL ──────────────────────────────────────────────────────────────
@@ -695,16 +697,24 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   // REACHABLE SINCE STAGE 2b (2026-09-05): `resumeEditJob` is wired now, and
   // a record written before the ask was stored resumes with no ask and no
   // fallback — exactly the caller this guard was written for while it had none.
+  //
+  // ⚠ AND SINCE 2026-09-23 THE PROPERTY IS STRONGER, SO THE ASSERTION IS. The
+  // failure branch fell back to the rewrite whenever a reply carried no
+  // sentence and an ask was held — which is how a message whose every step
+  // was refused bought a ~25-credit rewrite. It never falls back now, ask or
+  // no ask: the rewrite is started by an escalate the server chose to send
+  // (`escalatedEdit`) and by nothing in `editAnswer`. So the guard is the
+  // ABSENCE of the call, read over the code with comments blanked (the note
+  // explaining the change names the call it removed).
   const open = CHAT.indexOf("function editAnswer(");
   const shut = CHAT.indexOf("function applyEditResult(");
   assert.ok(open > 0 && shut > open, "the editAnswer window's landmarks are gone or out of order");
-  const a = CHAT.slice(open, shut);
-  const guard = a.indexOf("typeof o.fallback !== 'function'");
-  assert.ok(guard > 0, "a reply with no ask behind it still reaches the fallback");
-  // BEFORE the call it protects, and both landmarks proved.
-  const call = a.indexOf("return o.fallback();");
-  assert.ok(call > 0, "the failure branch no longer falls back at all");
-  assert.ok(guard < call, "the no-ask guard runs after the fallback it exists to prevent");
+  const a = CHAT.slice(open, shut).split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
+  // THE OBSERVER IS ALIVE: the branch the rewrite used to hang off is still
+  // here, and still finishes with a sentence.
+  assert.ok(a.includes("if (!httpOk || !e.ok) {"), "the failure branch is gone — this guard would pass over nothing");
+  assert.ok(a.includes("o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'))"), "the failure branch no longer ends in a sentence");
+  assert.ok(!/fallback\(/.test(a), "a failure or an unreadable reply still reaches the rewrite: " + (a.match(/.*fallback\(.*/) || [""])[0]);
 });
 
 test("escalateAction: an escalate that names the addon rung goes there, not to the revise", () => {
