@@ -618,6 +618,11 @@ function goLanding() {
 function showMarketing() {
   const mkt = document.getElementById('marketing');
   if (mkt) mkt.style.display = 'flex';   // CRT landing is a flex column (nav + stage)
+  // The landing is up: the "Site builder" link under the A is drawn off this
+  // class (owner 2026-09-23). These two functions are the landing's only
+  // switches — it starts hidden in the markup — so the class cannot disagree
+  // with what is on screen.
+  document.body.classList.add('in-landing');
   const gate = document.getElementById('authGate');
   if (gate) gate.style.display = 'none';
   const shell = document.querySelector('.shell');
@@ -630,6 +635,7 @@ function showMarketing() {
 function hideMarketing() {
   const mkt = document.getElementById('marketing');
   if (mkt) mkt.style.display = 'none';
+  document.body.classList.remove('in-landing');
 }
 // A marketing CTA opens the auth popup OVER the landing, in the right mode
 // ("start" → create account, "signin" → sign in). The landing stays visible,

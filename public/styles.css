@@ -553,6 +553,23 @@
   width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center;
   background: var(--split); color: var(--on-accent); font-weight: 800; font-size: .95rem;
 }
+/* "Site builder", under the A (owner 2026-09-23). It is only ever drawn over
+   the landing, so it wears the landing's own text link — "Sign in"'s hand, ink
+   and size — and not the app's. Right-aligned to the A rather than centred on
+   it: the word is twice the circle's width and the circle is 20px off the edge. */
+.profile-site {
+  display: none; position: absolute; top: calc(100% + 6px); right: 0;
+  background: none; border: 0; padding: .2rem 0; cursor: pointer; white-space: nowrap;
+  font-family: 'Patrick Hand', 'Segoe Print', Inter, system-ui, sans-serif;
+  font-size: 1.02rem; font-weight: 400; letter-spacing: .02em;
+  color: var(--graphite-2); transition: color .2s;
+}
+.profile-site:hover { color: var(--graphite); }
+body.in-landing .profile-site { display: block; }
+/* The A's menu opens over it, and the menu is see-through (5.5% ink over a
+   blur), so the word showed through its top edge. It steps aside while the
+   menu is open; that is why it follows the menu in the markup. */
+.profile-pop.open ~ .profile-site { visibility: hidden; }
 .profile-pop {
   position: absolute; top: calc(100% + 10px); right: 0; width: 316px; display: none;
   background: var(--panel);
