@@ -228,6 +228,12 @@ sentence too.
   "no sentence" route this fix closes, so its check fails there.)
 - Made-up answers show what the code does with an answer. They don't show what
   a real model would write.
+- **One slip, caught by CI:** I ran a hand-picked set of related tests (2,680,
+  all passing), and the full run on GitHub found one old test I hadn't picked.
+  It checked the photo step by counting characters from a fixed spot, and my
+  new comment moved that spot; it turned out it had been looking at the wrong
+  part of the file for a while anyway. It now checks by named start and end
+  points, and the whole suite (7,212 tests) passes locally.
 
 ### Separate next tasks — written down, not started
 

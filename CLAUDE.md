@@ -3802,7 +3802,25 @@ writes one); `site-apply` (the escalating reasons that still climb, the four
 that went are `explain`ed, the data lane resolves the four states, an unreadable
 body and a dropped connection no longer buy a rewrite); `edit-rules-backend`,
 `edit-nobackend`, `edit-parts`, `removal-door`, `site-picture`; `site-busy` (the
-classifier, above).
+classifier, above); **`api-auth`** — see the next paragraph.
+
+**⚠ THE FOCUSED SET MISSED A GUARD AND CI CAUGHT IT.** The local run was
+KEYWORD-selected (files naming `escalate`, `editAnswer`, the harness, the source
+readers …): **88 files, 2,680 / 2,680** on the committed tree. CI's full run on
+`1f234090` (unit run **`35854168333`**) read **7,212 / 7,207 / 1 / 4**: the
+failure was `api-auth`'s *"the picture layer's working balance moves as it
+spends"*, which reads the picture block by BYTE OFFSET (900 bytes above
+`runPictureEdit(`) and names none of the keywords. The new comment about the
+rung's components pushed `let balance` past the 900 — **and its END landmark
+(`pages: eSrc });`) had matched NOTHING since the call gained `model:
+eQuickModel`**, so `slice(start, -1)` had been searching the rest of worker.js
+all along: the byte-window trap in both of its halves at once. Re-anchored
+landmark to landmark (`if (eLayer === "picture") {` → the next `if (!pOut.ok)
+{`), both proved, and a `let` → `const` mutation of the balance now fails it
+(restored byte-identical). **The whole suite then read 7,212 / 7,212 / 0 / 0
+locally** (`duration_ms 126,927`). *A focused list selected by keyword is blind
+to exactly the guards that read by position* — which is why a narrow list is
+only ever believed for a green, never for completeness.
 
 **SEPARATE NEXT TASKS — RECORDED, NOT STARTED** (owner: *"Record wrong-page
 targeting, duplicate execution, content preservation and billing findings as

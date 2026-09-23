@@ -1177,8 +1177,22 @@ test("the picture layer's working balance moves as it spends", () => {
   // Read once and never decremented, the per-picture affordability check could
   // not bind across a batch: an account with 20 credits passed the same check
   // three times and bought three photographs it could afford one of.
-  const i = WORKER_SRC.indexOf("const pOut = await runPictureEdit({");
-  const block = WORKER_SRC.slice(Math.max(0, i - 900), WORKER_SRC.indexOf("}, { instruction: eInstruction, pages: eSrc });", i));
+  //
+  // ⚠ RE-ANCHORED 2026-09-23 — LANDMARK TO LANDMARK, BOTH PROVED. The window
+  // was 900 BYTES above the call to an END landmark (`pages: eSrc });`) that
+  // had stopped matching when the call gained `model: eQuickModel` — so
+  // `slice(start, -1)` ran to the end of the file and every assertion below it
+  // was searching the rest of worker.js. It went red only when a comment about
+  // the rung's components pushed `let balance` past the 900: this file's own
+  // byte-window trap, in both of its halves at once. The window is the picture
+  // layer's own block now, from its opening to the next sibling statement after
+  // the call.
+  const at = WORKER_SRC.indexOf('if (eLayer === "picture") {');
+  assert.ok(at >= 0, "the picture layer's block is gone, so nothing below reads it");
+  const end = WORKER_SRC.indexOf("if (!pOut.ok) {", at);
+  assert.ok(end > at, "the picture layer's call has no closing landmark after its opening one");
+  const block = WORKER_SRC.slice(at, end);
+  assert.ok(block.includes("const pOut = await runPictureEdit({"), "the window does not hold the call it is about");
   // THE PROPERTY IS `let` PLUS A REAL READ, not the spelling of the read. It
   // pinned `let balance = await readCredits` and went red when a queued edit —
   // which carries no bearer token and must read its balance by uid — added a
