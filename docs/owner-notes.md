@@ -190,6 +190,10 @@ deployed, no paid run.**
   7,212).
 - I rendered both replies in the real workspace chat and sent you the before
   and after.
+- **CI on GitHub passes too:** 7,214 tests (with the usual 4 skipped there),
+  and all 35 cases in the file show up by name as passing. The site-build
+  check doesn't run for this change — it only watches the files a site is
+  built from, and this touched none of them.
 
 ---
 

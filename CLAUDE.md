@@ -3869,6 +3869,12 @@ such a mix on a real message is not established.
   in the real workspace chat (the real composer's text, the real `chat.js` and
   `styles.css`). **No `site build` run**: `public/` and this test file are on
   none of its `paths`, so there is no run at all, not a fast one.
+- **CI, the same reading.** Unit run **`35897585399` on `3da0be16`** reads
+  **`# tests 7214 / # pass 7210 / # fail 0 / # skipped 4`** (`duration_ms
+  118,607`) — the TOTAL matches, `pass` differing by exactly CI's four skips —
+  and all 35 of the file's cases were found passing **by name** in the
+  downloaded log (the two new ones as `ok 1657` / `ok 1658`), with zero `not
+  ok` lines. **The stamp chain ends at `3da0be16`.**
 
 **SEPARATE NEXT TASKS — RECORDED, NOT STARTED** (owner: *"Record wrong-page
 targeting, duplicate execution, content preservation and billing findings as
