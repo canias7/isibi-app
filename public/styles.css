@@ -3403,11 +3403,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   transition:transform .25s ease,box-shadow .25s ease,filter .25s ease}
 .mkt-cta:hover{transform:translateY(-2px);filter:brightness(1.06);
   box-shadow:0 0 0 1px rgba(255,255,255,.12) inset,0 14px 44px rgba(0,0,0,.4),0 4px 18px rgba(0,0,0,.3)}
-.mkt-ghost{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;
-  background:var(--panel);color:var(--text);border:1px solid var(--line-2);border-radius:999px;
-  cursor:pointer;font-weight:600;font-size:.95rem;padding:.85rem 1.6rem;
-  transition:border-color .25s,background .25s,transform .25s}
-.mkt-ghost:hover{border-color:rgba(255,255,255,.28);background:var(--panel-2);transform:translateY(-2px)}
 .mkt-big{font-size:1rem;padding:.95rem 1.9rem}
 
 /* ==========================================================================
@@ -3971,9 +3966,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* chatbox lives inside the screen, docked bottom-centre */
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
-/* The two doors above the landing chatbox. The container is a plain row —
-   the buttons themselves reuse .mkt-cta / .mkt-ghost, so they stay in step with
-   the rest of the landing rather than being a third button style. */
 /* The security log's rows. Deliberately plain — it is a list somebody scans
    when they are worried, so the only colour carries meaning: a failure and an
    action the owner took are the two things worth picking out of a wall of
@@ -3982,13 +3974,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   padding:.5rem .1rem;border-bottom:1px solid var(--line);font-size:.86rem}
 .sec-what{color:var(--muted)}
 .sec-when,.sec-where{color:var(--muted);opacity:.75;font-size:.8rem;white-space:nowrap}
-.crt-doors{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:center}
-.crt-doors .mkt-cta,.crt-doors .mkt-ghost{padding:.7rem 1.9rem;font-size:.92rem}
 /* The landing's chatbox IS the builder's composer (`.st-new`, index.html), so its
    look lives with the builder's rules and not here (owner 2026-09-23: the two
    boxes must look the same). What stays the landing's own is only where it sits:
    as wide as the builder's (the start screen's hero is 720px), no top margin
-   because the doors' gap already spaces it, and a cap on the height the
+   because the landing centres the box itself, and a cap on the height the
    landing's grow-as-you-type sets, which the builder's box does not have.
    The font size and line height are the builder's own context (16px, normal):
    the landing's sheet sets 17px and 1.55, and the field is an inline-block
@@ -4006,10 +3996,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    in the DOM (hidden) so the channels/demos can be brought back if wanted. ── */
 .mkt-crt .crt-menu,
 .mkt-crt .crt-stage{display:none}
-/* Centred, then nudged down by half the row the doors added. The crest above is
-   positioned independently, so a stack that grows from its middle grows INTO it
-   — measured at 11px of overlap before this. */
-.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(calc(-50% + 1.6rem))}
+/* Centred. It was nudged down by half the row the Video / App doors added, and
+   the nudge went with the doors (owner 2026-09-23). The crest above is
+   positioned independently, so a stack that grows from its middle grows INTO
+   it — which is what the nudge was for when the doors made it taller. */
+.mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(-50%)}
 .mkt-crt .crt-crest{top:calc(50% - 10.6rem)}
 
 .mkt-crt .crt-scan{opacity:.05}
@@ -4340,7 +4331,8 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .logo-mark .gf-pass-b{filter:url(#pencilLead2);opacity:.36;
   transform:translate(14px,-10px) rotate(.8deg)}
 
-/* ---- buttons: one filled with pencil, one drawn empty ---- */
+/* ---- buttons: filled with pencil. The drawn-empty one (.mkt-ghost) went with
+   the App door, the last thing that wore it (owner 2026-09-23). ---- */
 .mkt-crt .mkt-cta{background:var(--gr-fill);background-color:#2a2833;
   color:var(--paper);border:0;box-shadow:none;position:relative;isolation:isolate}
 .mkt-crt .mkt-cta::before{content:"";position:absolute;inset:-1px;z-index:-1;
@@ -4348,16 +4340,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   filter:url(#pencilRough);pointer-events:none}
 .mkt-crt .mkt-cta:hover{filter:none;transform:translateY(-2px);
   box-shadow:0 7px 16px -10px rgba(51,49,61,.75)}
-.mkt-crt .mkt-ghost{background:var(--gr-tint);background-color:transparent;
-  color:var(--graphite);border:0;position:relative}
-.mkt-crt .mkt-ghost::before{content:"";position:absolute;inset:0;
-  border-radius:inherit;border:1.7px solid var(--graphite-2);
-  filter:url(#pencilRough);pointer-events:none}
-/* the second, slightly-off pass you make when one line did not look right */
-.mkt-crt .mkt-ghost::after{content:"";position:absolute;inset:1px 0 -1px 1px;
-  border-radius:inherit;border:1.3px solid var(--graphite-2);opacity:.42;
-  filter:url(#pencilRough2);pointer-events:none}
-.mkt-crt .mkt-ghost:hover{background:var(--gr-wash);transform:translateY(-2px)}
 
 /* the filter defs are markup, not furniture — keep them out of layout */
 .pencil-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
@@ -4376,10 +4358,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crt-crest-h .mkt-grad::after{bottom:.04em;height:.055em}
 .mkt-crt .crt-topbar .mkt-brand{font-family:'Caveat','Patrick Hand',cursive;
   font-weight:700;font-size:1.62rem;letter-spacing:.01em}
-.mkt-crt .mkt-signin,.mkt-crt .mkt-cta,.mkt-crt .mkt-ghost{
+.mkt-crt .mkt-signin,.mkt-crt .mkt-cta{
   font-family:inherit;font-weight:400;letter-spacing:.02em}
 .mkt-crt .mkt-signin{font-size:1.02rem}
-.mkt-crt .crt-doors .mkt-cta,.mkt-crt .crt-doors .mkt-ghost{font-size:1.06rem}
 .mkt-crt .crt-topbar .mkt-cta{font-size:1rem}
 
 /* ---- the page extends (owner 2026-08-29): the landing was ONE fixed screen

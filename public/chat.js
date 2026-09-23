@@ -30,10 +30,11 @@ let pendingSiteBrief = null;
 //
 // KEPT FOR THE LANDING, WHICH STILL ADVERTISES THE GENERATOR. The marketing
 // page's model pipeline (`initPipeModels`) walks MODELS_TAB and asks this for
-// each row's badge. That page — its CRT channel selector, its pipeline, its
-// alternating "generate / build" prompt line — is the one part of the media side
-// still standing, deliberately: rewriting it is a design job the owner directs,
-// not a deletion. Until then the tables it reads stay, and this is one of them.
+// each row's badge. That page — its CRT channel selector and its pipeline — is
+// the one part of the media side still standing, deliberately: rewriting it is a
+// design job the owner directs, not a deletion. (Its self-typing "generate /
+// build" prompt line and its Video / App doors went on 2026-09-23.) Until then
+// the tables it reads stay, and this is one of them.
 function providerOf(id) {
   if (/nano-banana/.test(id)) return { logo: '/logos/nanobanana.svg', name: 'Nano Banana', tint: '#f5b423' };
   if (/gemini/.test(id)) return { logo: '/logos/gemini.svg', name: 'Gemini', tint: '#6c7cff' };
@@ -625,15 +626,6 @@ function showMarketing() {
   // autoplay loops while the page was hidden and won't resume them on its
   // own — only a fresh load autoplays. Re-kick every cell that isn't playing.
   if (mkt) mkt.querySelectorAll('video').forEach((v) => { if (v.paused) v.play().catch(() => {}); });
-  // THE PROMPT LINE'S TYPING STARTS HERE, every time the landing appears. It
-  // stops itself whenever the landing is hidden, and boot runs initCrt() — its
-  // first start — BEFORE this function has ever shown the landing, so on every
-  // fresh load it saw `display: none`, stopped at once and never began: the box
-  // sat empty (owner's screenshots, 2026-09-23). paintCrt() rather than the
-  // typing itself, because it is the one writer of that placeholder and knows
-  // which channel wants the typing and which wants a fixed line; the typing
-  // refuses to start twice on one box.
-  paintCrt();
 }
 function hideMarketing() {
   const mkt = document.getElementById('marketing');
@@ -3528,61 +3520,6 @@ function initMktCord() {
 // rest flash a NO SIGNAL / COMING SOON state. The VHF knob turns with the
 // channel. State lives on module-level crtSel; wiring is one-time in initCrt().
 let crtSel = 0;
-// ── The landing's prompt line writes itself (owner 2026-08-29): one example at
-// a time, letters in and letters out. EVERY EXAMPLE IS SOMETHING TO BUILD
-// (owner 2026-09-23: "website examples only"). They used to alternate with
-// something to GENERATE, so a visitor saw both halves of the product; that half
-// went with the media side on 2026-09-12, and its five examples — a tiger clip,
-// a drone shot, a portrait, a voice line, an advert — went on offering a product
-// that no longer exists.
-//
-// This array is the only place the examples live. paintCrt() used to carry its
-// own copy of the first line; it now asks for the typing instead, so there is
-// exactly ONE writer for that attribute and no second list to drift out of step.
-const LAND_PROMPTS = [
-  'a booking page for my barber shop — prices, hours, and a contact form',
-  'a one-page site for a wedding photographer, with a gallery',
-  'an app that tracks my gym sets and charts the week',
-  'a menu site for a ramen shop, with a map and opening times',
-  'a landing page for my plumbing business that takes callbacks',
-];
-let landTypeTimer = null, landTypeAt = 0, landTypeEl = null;
-function landTypeStop() {
-  if (landTypeTimer) { clearTimeout(landTypeTimer); landTypeTimer = null; }
-  landTypeEl = null;
-}
-function landTypeStart(inp) {
-  if (!inp) return;
-  if (landTypeEl === inp && landTypeTimer) return;  // already running on this box
-  landTypeStop();
-  landTypeEl = inp;
-  // Asking for less motion should not mean an empty box: show a whole line and
-  // leave it alone.
-  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    inp.placeholder = LAND_PROMPTS[0];
-    return;
-  }
-  landTypeAt = 0;
-  landTypeStep(0, false);
-}
-function landTypeStep(chars, erasing) {
-  landTypeTimer = null;
-  const inp = landTypeEl;
-  const mkt = document.getElementById('marketing');
-  // Stop dead once the box is gone or the landing is behind the app. A timer
-  // that outlives its element keeps the whole landing alive after enterApp(),
-  // and goes on writing to a placeholder nobody can see.
-  if (!inp || !inp.isConnected || !mkt || mkt.style.display === 'none') { landTypeEl = null; return; }
-  // While the visitor is typing, their words cover the placeholder anyway —
-  // hold position rather than animating underneath them.
-  if (inp.value) { landTypeTimer = setTimeout(function () { landTypeStep(chars, erasing); }, 700); return; }
-  const full = LAND_PROMPTS[landTypeAt % LAND_PROMPTS.length];
-  inp.placeholder = full.slice(0, chars);
-  if (!erasing && chars < full.length) landTypeTimer = setTimeout(function () { landTypeStep(chars + 1, false); }, 42);
-  else if (!erasing) landTypeTimer = setTimeout(function () { landTypeStep(chars, true); }, 2100);
-  else if (chars > 0) landTypeTimer = setTimeout(function () { landTypeStep(chars - 1, true); }, 22);
-  else { landTypeAt++; landTypeTimer = setTimeout(function () { landTypeStep(0, false); }, 320); }
-}
 function paintCrt() {
   const opts = Array.prototype.slice.call(document.querySelectorAll('#crtMenu .crt-opt'));
   opts.forEach((o, i) => {
@@ -3608,15 +3545,13 @@ function paintCrt() {
   const live = !sel || sel.dataset.live === '1';
   const active = live || builder;
   if (box) box.classList.toggle('crt-chatbox-soon', !active);
-  // ONE writer for the placeholder. A channel with something fixed to say stops
-  // the typing and says it; the default channel hands the attribute over to the
-  // typing and never touches it again, so the two cannot race for it.
+  // ONE writer for the placeholder, and every channel has one fixed line. The
+  // default channel's is "hey" (owner 2026-09-23: "in the chatbox put hey"),
+  // which replaced a line that typed out examples by itself.
   if (inp) {
-    const fixed = kind === 'website'
+    inp.placeholder = kind === 'website'
       ? 'Describe a website or app — press Enter and Go Farther builds it →'
-      : live ? null : 'Coming soon — pick Video / Image / Voice to create';
-    if (fixed) { landTypeStop(); inp.placeholder = fixed; }
-    else landTypeStart(inp);
+      : live ? 'hey' : 'Coming soon — pick Video / Image / Voice to create';
   }
 }
 // swap the visible preview panel; lazy-load the website iframes on first show
@@ -3948,13 +3883,14 @@ function initCrt() {
   };
   document.addEventListener('keydown', onKey);
 
-  // The two doors above the chatbox. Same three lines the channel list uses, and
-  // deliberately so: the view is stashed under VIEW_KEY *before* the gate opens,
-  // because a signed-out visitor comes back through boot rather than through
-  // this handler, and boot is what reads it. Signed in, there is no gate to
-  // wait for and enterApp() takes them straight there.
+  // The footer's product links — the landing's doors now that the two buttons
+  // above the chatbox (Video, App) are gone (owner 2026-09-23). Same three lines
+  // the channel list uses, and deliberately so: the view is stashed under
+  // VIEW_KEY *before* the gate opens, because a signed-out visitor comes back
+  // through boot rather than through this handler, and boot is what reads it.
+  // Signed in, there is no gate to wait for and enterApp() takes them straight
+  // there.
   const doorEl = (el, view) => {
-    if (!el) return;
     el.addEventListener('click', (e) => {
       e.preventDefault();
       try { localStorage.setItem(VIEW_KEY, view); } catch (err) {}
@@ -3962,17 +3898,6 @@ function initCrt() {
       if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
     });
   };
-  const door = (id, view) => doorEl(document.getElementById(id), view);
-  // BOTH DOORS OPEN THE BUILDER, because there is one room. `doorVideo` used to
-  // open the media studio and is left wired rather than deleted: it is a link on
-  // the landing, and a landing link that does nothing is worse than one that
-  // lands somewhere real. What that link SAYS is the landing's own remaining
-  // work — see the note beside `providerOf`.
-  door('doorVideo', 'sites');
-  door('doorApp', 'sites');
-  // The footer's product links are the same doors under another name, so they
-  // are wired from the SAME function rather than a second copy of it — a change
-  // to what a door does cannot reach these two and miss the three below.
   document.querySelectorAll('[data-door]').forEach((el) => doorEl(el, el.getAttribute('data-door')));
 
   // Landing chatbox: let the visitor type freely; only funnel into the sign-up
