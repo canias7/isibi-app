@@ -4026,10 +4026,22 @@ text); the three swept files byte-identical to a scratchpad backup afterwards.
 **Suite 7,219 locally, taken twice** (`# tests 7219 / # pass 7219 / # fail 0 /
 # skipped 0`, `duration_ms` 116,888 and then 116,312 on the committed tree) —
 **+5 against 7,214**, exactly this file's cases.
+**AND THE CI UNIT HALF MATCHES**: run **`35904011295` on `807d88b8`** reads
+**`# tests 7219 / # pass 7215 / # fail 0 / # skipped 4`** (`duration_ms
+118,875`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all five cases found passing BY NAME (`ok 1807`–`ok 1811`) and
+zero `not ok` lines in the downloaded log.
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED, so this proves a
 page the router names is carried to the writer and published there — never that
 a real router names it. The router's instructions changed; whether the model
 fills the field is unproven until a live run.
+**⚠ A MEASURED LIMIT, SHARED WITH THE PAGE RUNG**: a named page is compared
+LOWERCASED (`readEdit` normalises it) against `routeOf`, which KEEPS case
+(`About.tsx` → `/About`), so a capitalised route file would be refused as
+missing — by the new door check, and already by the page rung's own lookup.
+**Measured: 0 capitalised routes** across the 324 corpus pages, the 8 generated
+fixtures and 53 live routes on 25 sites' sitemaps, so it is recorded rather than
+built for.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

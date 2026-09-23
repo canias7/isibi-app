@@ -195,8 +195,9 @@ isn't tested on its own.
 - Before the fix, 4 of the 5 failed, showing the home page edited and *"✅
   Updated /."* After it, all 5 pass. The one that passed both times is the
   no-page-named default.
-- Nine deliberate breaks, one for each step the page passes through: all nine
-  were caught.
+- Nine deliberate breaks — dropping the page at each step it passes through,
+  garbling the "no such page" sentence, or taking the router's new instruction
+  back out: all nine were caught.
 - The whole suite passes: 7,219 (the 5 new cases on top of 7,214).
 - **Not proven:** that the real router fills the page in. That needs a live run.
 
