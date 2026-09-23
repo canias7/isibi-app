@@ -3268,9 +3268,28 @@ the window.
     `Number.isInteger` dropped, the zero clause gone, the conversion clause
     gone, and rule 11 let into the frontend prompt; `page-gen.mjs`
     byte-identical to its backup afterwards.
-  - **Suite 7,179 locally** (`# tests 7179 / # pass 7179 / # fail 0 / #
-    skipped 0`, `duration_ms 128,347`) — **+4 against 7,175**, exactly the four
-    new cases; the CI half is stamped once read.
+  - **Suite 7,179, BOTH HALVES TAKEN** — locally `# tests 7179 / # pass 7179 /
+    # fail 0 / # skipped 0`, `duration_ms 128,347`, and CI unit run
+    **`35829428954` on `821a60ac`** at **`# tests 7179 / # pass 7175 / # fail 0
+    / # skipped 4`**, `duration_ms 118,250` — the TOTAL is what matches, `pass`
+    differing by exactly CI's own four skips — with **all twelve of the guard
+    file's cases matched BY NAME among the passing lines** of the downloaded
+    log. **+4 against 7,175**, exactly the four new cases. The focused set
+    (the fifteen files of the `rpc-state` sweep) re-run on the committed tree
+    reads **615 / 615 / 0 / 0**. **AND `site build` run `35829428934`**
+    (07:00:05 → 07:22:28Z, **22m23s**, all twenty steps) read all twelve counts
+    green out of its per-step files: TAP 397/397/0/0, kit-typecheck 4,
+    site-build 382, contrast-cases 16, theme-seam 11, theme-render 29,
+    site-routing 14, site-runtime 47, kit-render / kit-a11y / kit-effects /
+    kit-paint `all passed`, census 7 + 4 + 1 = **12**; the two known
+    `##[error]` annotations each directly above their own `ok` lines,
+    `tsc`-format lines 9 / 2 / 7, `site-build.mjs` 16m02s. **The rendered rules
+    were re-measured on the parent (`3281c084`) and the commit in two real
+    checkouts**: the full rules `e6f6b98731de6ec6` → `d36aeba09acc8a94`
+    (42,409 → 43,307), shopfront 27,909 → 28,807, and **both frontend prompts
+    byte-identical on both sides** (`e926db932bfd4666` 29,077 and
+    `935cc9b048e4a270` 14,073) — a second instrument beside the derived
+    comparison in the guard. **The stamp chain ends here.**
   - **WHAT IT DOES NOT DO.** The live `fretwork-1` still serves run 24's
     generated code (`01790128661913-dafwjz`) and nothing here repairs it: the
     rule reaches only a FUTURE page write, after a merge and a deploy

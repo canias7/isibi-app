@@ -276,7 +276,9 @@ and the page must never convert it with `Number(...)`.
   every bad answer, with loading, errors and "no day" unchanged.
 - 12 tests on this; the new ones fail on the old rule text; 8 deliberate
   breakages all caught.
-- The full test suite: 7,179 tests, all passing (4 more than before).
+- The full test suite: 7,179 tests, all passing here and on GitHub (4 more
+  than before), and GitHub's separate site-build check came back green on all
+  twelve of its counts.
 
 **Not shown:** that the model will follow it — that needs a paid edit, your
 call. Nothing is merged or deployed, and **your live site still has run 24's
