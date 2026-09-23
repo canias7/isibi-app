@@ -4349,6 +4349,22 @@ field rules are re-covered here, R-5 and R-6.) **Suite 7,230 locally, taken twic
 the comment rewording) — **+3 against 7,227**, exactly this change's net cases:
 the file goes 7 → 10, and the three re-anchored cases replaced their old
 versions one for one.
+**AND THE CI UNIT HALF MATCHES**: run **`35921456483` on `bee51307`** reads
+**`# tests 7230 / # pass 7226 / # fail 0 / # skipped 4`** (`duration_ms
+107,507`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all seven new or re-anchored cases found passing BY NAME (`ok
+1735` in `edit-page-context`, `ok 1770`–`1772` and `1775` in the new cases,
+`ok 1794`–`1795` in `edit-page-protect`) and zero `not ok` lines in the
+downloaded log. **AND `site build` run `35921456542` on `bee51307`**
+(21:17:04 → 21:42:28Z, **25m24s**, all twenty steps) read all twelve counts
+green out of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+**382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all
+passed`, census 7 + 4 + 1 = **12**; the two known `##[error]` annotations
+(`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) inside the case that
+compiles a broken page on purpose, the second followed by the two SSR-stream
+lines and then its own `ok`, `tsc`-format lines 9 / 2 / 7; `site-build.mjs`
+**18m37s**. **The stamp chain ends at `bee51307`.**
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and every writer is
 a stub that applies the ask to what it is shown, so this proves the route runs
 the page operation once, keeps the order and the picture step's result, bills

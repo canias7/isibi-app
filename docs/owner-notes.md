@@ -218,8 +218,10 @@ its own test. If you would rather I split this into its own change, say so.
 - Ten deliberate breaks to the new rule — running the second page step anyway,
   letting a failed first try block the second, ignoring which page, hiding a
   different step's failure, and so on: all ten caught.
-- The whole suite passes locally: 7,230 (the 3 new cases on top of 7,227).
-  GitHub's runs are next.
+- The whole suite passes: 7,230 (the 3 new cases on top of 7,227), both here
+  and on GitHub, where all 7 new or reworked cases were found passing by name.
+  GitHub's slower site-build check (25 minutes, twelve separate result counts,
+  real sites compiled and opened in a browser) passed in full too.
 - **Not proven:** that a real model's first page edit always applies your whole
   message — the rule relies on that.
 - Screenshots: before and after for all three cases.
