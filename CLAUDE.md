@@ -3546,6 +3546,114 @@ Preflight `0d5137f0a7eb` / `ce67f25d132667d0`, `async`/`runner` true.
   rewrite code on `/fr` and `/es`, and any `>` comparison in page-level code
   triggers it. In the backlog; not fixed.
 
+### THE EDIT-PATH REVIEW (2026-09-23, read-only, at `0d5137f0`)
+
+Owner: *"Close the booking-box correction as demonstrated by Run 26. Keep
+first-attempt generation unverified, and park translation and the hydration
+finding for now."* The goal it serves: a customer changes an existing site, the
+change works, unrelated content survives, and the reply describes the result.
+
+- **CLOSED — the booking-box correction (A)**, as demonstrated by run 26: all
+  four items held live. **(B), a correct component from the original sentence
+  on the first attempt, stays UNVERIFIED.** **PARKED (owner)**: the translator
+  reading page code as text (backlog) and React #418 (runs 11, 21, 24, 26).
+
+**HOW THE PATH REALLY ROUTES, read out of the code rather than the docs.** The
+router answers ONE layer (text · data · rules · look · picture · logo · nav ·
+page · rename, or `addon`), and `readEdit` keeps a page ONLY for the page layer
+(`site-ask.mjs:872`). Only `look` runs several steps (`pick_lanes`, ≤4 lanes,
+five of which — purpose, components, shape, three, tsx — dispatch to the page
+rung). **Every `escalate` with no `layer` is answered `up` by `escalateAction`
+and starts `go()` = `reactSend(…, 'revise')`: the full rewrite of every page,
+with nothing shown and no price** (`edit-poll.js:469-485`, `chat.js:9151-9189`,
+`8746-8751`). A refusal body with no `msg` does the same (`chat.js:9076`).
+
+**REPRODUCED FREE THROUGH THE REAL ROUTE** — every model answer SUPPLIED, the
+browser's own composer executed through `editBrowserReply`. Scratch scripts
+only; nothing added to the repo.
+
+1. **data on an `incomplete` site** → `{escalate, no-backend}`, zero model
+   calls → full rewrite. The rung still asks `siteBackendBySlug`
+   (`worker.js:21297-21298`); the rules rung on the identical fixture resolved
+   the database and reached its model call.
+2. **a photograph that lives only in a component** → the picture rung is
+   handed `pages: eSrc` (`21957`), finds no slot → `no-slots` → full rewrite.
+3. **"take the blog page off" on a site with none** → `{escalate, no-page,
+   verb: remove}` (`21215`) → full rewrite, whose own contract says a page not
+   returned is deleted.
+4. **two page steps both refused by the photograph protection** (409
+   `withheld`, cost 0 each) → merged `{ok:false, layer:"look", partial}` at
+   200 with no `msg` (`24071`) → full rewrite, and neither protection sentence
+   is shown.
+5. **look → `[shape, components]`** → the page rung runs TWICE on one
+   instruction (`pick_lanes, write_tweak, write_tweak, write_pages`); the move
+   landed and the screen says *"One part of that message didn't go through"*.
+   `21157-21160` pushes one step per page lane with no dedup.
+6. **a section change routed through look on a two-page site lands on `/`**
+   whatever page the message named (`fallbackPage`, `21153`): stored
+   `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."*
+7. **the page rung's full writer drops an unrelated section** → published,
+   *"✅ Updated /."* Nothing compares the sections or words that survived
+   (the addon's `keptProse` is not used here), and `chat.js:10274` never reads
+   what changed.
+8. **the css lane drops an earlier rule** while answering the whole sheet →
+   stored, *"✅ Updated the look — the design."* Its `keep` part is prompt-only
+   (`site-lanes.mjs:465-485`).
+9. **look + rename both succeed** → the screen says only *"✅ Updated the look
+   — the design."*; the new address is on `body.msg` and never shown (the
+   merged `layer` is `look`, `24075`, and that branch reads no `msg`).
+
+**MONEY, DRIVEN THROUGH THE REAL QUEUE CONSUMER WITH THE RPCS FAKED:**
+- **a refused rung inside a multi-rung message stays charged** — css ok +
+  refused rename → reserves 1 + 1, `edit_finalize p_ok:true`, reply `cost: 2`,
+  although the loop's own comment says a failed step charges nothing.
+- **direct writes land before the one publish** (alias rows driven; data rows
+  and rules DDL by reading); if that publish fails the whole job is refunded
+  and the reply says *"your site is untouched"* while the address has moved.
+- the routing call (≥1, **2 measured**) is never refunded (`19513-19516`), and
+  `edit_refund` is all-or-nothing per job.
+
+**THE SHARED BUILD EFFECT THAT MAKES THE FALL-THROUGH DANGEROUS.** The rewrite
+every `up` lands on has **no photograph wall** — `keepPhotos`/`keptImages`
+occur only on the edit page rung and the addon (`23010`, `23512`, `24053`
+report-only, `26718`) — and on a site that already shows photographs it hands
+the writer `imageDirective(0)`: *"PHOTOGRAPHS: none on this site … Every
+picture is <SafeImage> with no src … that is the intended look here"*
+(`budgetFor` answers 0 on a photographed revise; driven at helper level). That
+is the sentence the edit page rung stopped sending after it stripped two
+photographs. On the four `incomplete` sites the same rewrite is told there is
+no database (recorded above, read not driven).
+
+**ROUTER SIDE, read and driven at `readRouting` only:** an adopted site (one
+opened on a browser that did not build it) has no page list until
+`/api/site/routes` answers, so a message sent before then — or for the whole
+page load if that read fails — routes as a FIRST BUILD (`chat.js:10885`), posts
+`chat: "srv_<slug>"`, `siteForChat` finds no row, and a fresh paid site is built
+(`worker.js:14415-14427`). Not driven end to end. Attachments reach only the
+logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
+turn: the look door has no text lane, so the second half is an `alsoAsked`
+sentence at best.
+
+**EVIDENCE BY OPERATION** — live · supplied-output route tests · helper only:
+text — route tests, no live run · look/css — run 14 refused twice and
+refunded, run 41 wordmark finished, route tests · page layout — live runs 9 and
+11 · custom components — live runs 17, 21, 24, 26 · pictures — route tests, no
+live picture-rung run · remove/move — live run 11 (a section), route tests for
+page delete and lane removal, no live page delete or move · rules/data — route
+tests only (run 12 was blocked, since fixed) · combined — route tests and the
+driven money cases above.
+
+**THE NEXT TASK, PROPOSED AND NOT STARTED: no automatic full rewrite for a
+failure the route can name.** Every no-layer `escalate` in the edit route is
+classified — the revise genuinely does it (`up`), another rung does (a named
+`layer`), or nothing above can (a sentence, cost 0) — and a census guard makes
+a new `escalate` declare its class. Acceptance, each through the real route
+with `editBrowserReply` recording NO paid follow-up and a customer sentence:
+cases 1–4 above; an all-failed merge showing the steps' own sentences; and a
+control proving a genuine `up` (text `too-much-text`, a look `no-lane`) still
+reaches the revise. Whether a kept `up` is announced before it spends is the
+owner's call.
+
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
@@ -7074,7 +7182,7 @@ does name one — moved up to the supported list on 2026-09-20.)*
   no-database rules. Read out of the code, not driven; the obvious fix reaches
   `ensureSiteBackend`'s heal, which is the owner's call.
 - **THE TRANSLATOR CAN SEND PAGE CODE TO THE MODEL AND WRITE THE ANSWER BACK
-  INTO THE CODE (open, found live on run 26).** `extractText`
+  INTO THE CODE (open, found live on run 26; PARKED by the owner 2026-09-23).** `extractText`
   (`builder/site-text.mjs`) reads a `>` in page-level code as the end of a JSX
   tag, so `x >= 0 ? a : null; return (` became a "string" for
   `collectStrings`, was translated for each extra language, and was applied by

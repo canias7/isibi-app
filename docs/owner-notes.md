@@ -372,6 +372,59 @@ was given your real page list this time, not a guess.
   broke this time, but it could next time. Logged, not fixed.
 - The phone hydration warning (#418) is still there, separate.
 
+### The edit-path review (read-only, 23 Sep)
+
+**Closed, as you said:** the booking-box correction, on run 26's evidence.
+**Still not proven:** that the builder writes that box right the first time
+from your original sentence. **Parked:** the translation-reads-code finding and
+the phone hydration warning (#418).
+
+I read how edits really flow through the code, then ran the real edit route
+locally with made-up model answers — free, nothing live touched — to see what
+it does with each kind of answer. Made-up answers show what the code does with
+an answer; they say nothing about what a real model would write.
+
+**What holds up:** wording changes swap exact words and touch nothing else;
+moving a section with the cheap writer can't change a word; the page writer
+keeps other pages and your photographs (it puts a lost one back or refuses);
+the site's own components stay unchanged unless the request is about them; a
+failed publish puts your look back.
+
+**What I reproduced going wrong:**
+- **An edit the cheap steps can't do quietly starts the full rewrite of every
+  page** (about 17–25 credits), with nothing on screen first. That happens even
+  when a rewrite can't help: a price change on fretwork-1 and the other three
+  sites whose database link is blank; swapping a photo that sits inside a
+  section file; "take the blog page off" when there is no blog page; and when
+  both halves of a message were stopped by the photo protection.
+- **That full rewrite has no photo protection**, and on a site that already has
+  photos it is told the site has none and to use placeholders — the exact
+  instruction the page editor stopped sending after it wiped two photos.
+- **A section change can land on the wrong page:** asked about the gallery
+  page, it changed the home page and said "Updated /".
+- **One request can run the page editor twice,** then say a part failed when it
+  all worked.
+- **Nothing checks what the page writer or the stylesheet writer dropped:**
+  when either removes something you didn't ask about, it publishes and just
+  says "Updated".
+- **The reply can leave things out:** change the look and the web address
+  together, and it only mentions the look.
+- **Money:** a part that was refused still costs its share when another part of
+  the same message worked; a database or address change that already happened
+  is refunded and called "untouched" if the publish then fails; the routing
+  charge (2 credits measured) is never refunded.
+- **Opening a site on a different device:** if you type before it has loaded
+  that site's page list, the message can be treated as a brand-new site (read
+  in the code, not run end to end).
+
+**The next task I'd do (not started):** stop the automatic full rewrite for a
+failure the edit route can name. Each case either gets fixed where it is, sent
+to the step that can actually do it, or answered in plain words at no cost —
+and a check stops new cases defaulting to the rewrite. It's done when those
+four reproduced cases each end with a sentence and no paid follow-up, and a
+real "needs the full rewrite" case still gets one. Whether the full rewrite
+should ask you before it spends is your call.
+
 ---
 
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
