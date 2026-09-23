@@ -95,7 +95,10 @@ re-running it with `playwright-core` moved out of `node_modules` (CI installs
 none): the text-context and the 620px-width mutants are seen by the Chromium
 case alone, because both are INHERITED or COMPUTED values that no source check
 reads. So those two are held only where a browser runs — every local suite in
-this sandbox — and a CI pass says nothing about them.
+this sandbox — and a CI pass says nothing about them. **CI HALF, READ: unit
+run `35833955228` on `7b8d69b6` answers `7177 / 7172 / 0 / 5`** — the total
+matching the local run, and **CI's standing four skips are FIVE from here**:
+the fifth is this file's Chromium case saying it skipped. Not a regression.
 **Then the owner deleted the Video / App doors** (and `.mkt-ghost`, which only
 the App door wore) **and set the placeholder to "hey"** — a fixed line from
 `paintCrt`, its one writer. The box now sits 31.3px under the headline, the
