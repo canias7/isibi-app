@@ -805,6 +805,66 @@ test("a refused step with no sentence of its own is still counted, never dropped
   assert.deepEqual(said.actions, []);
 });
 
+// ── A STEP WITH NO SENTENCE, BESIDE ONE THAT HAS ONE ────────────────────────
+//
+// THE OWNER'S BROWSER-COMPOSER REPRODUCTION (2026-09-23): `partial:
+// [{msg}, {error: "compile"}]` printed the first sentence and nothing else —
+// byte-identical to a reply holding that failure ALONE. The count of steps
+// with no sentence lived in the branch reached only when NO step had one, so
+// a single explained step made every unexplained one vanish, in both of the
+// composer's callers. Driven at the browser only, because that is where the
+// defect lived; a step whose reply could not be read (`body` null) or whose
+// failure carried no `msg` is how the route can still write one.
+const REFUSED = "The photo change was refused.";
+const EXPLAINED = { layer: "page", msg: REFUSED };
+const SILENT = (layer) => ({ layer, error: "compile" });
+const MORE_1 = " One more part of that message didn’t go through. Ask for it again on its own and I’ll tell you why.";
+const MORE_2 = " 2 more parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why.";
+const TOOK = "✅ Took the picture off “the window”.";
+
+test("a refusal counts the steps that gave no reason beside the ones that did — the owner's reproduction", () => {
+  const refuse = (partial) => editBrowserReply({ ok: false, cost: 0, partial }, false, ROUTED("look"));
+  const alone = refuse([EXPLAINED]);
+  const mixed = refuse([EXPLAINED, SILENT("look")]);
+  assert.equal(alone.text, "⚠️ " + REFUSED, "control: one explained failure alone reads as it always did");
+  assert.equal(mixed.text, "⚠️ " + REFUSED + MORE_1, "the step with no reason vanished beside the one with a reason");
+  assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
+  // A DUPLICATE SENTENCE IS ONE PROBLEM; TWO STEPS WITH NO SENTENCE ARE TWO —
+  // even two that look exactly alike, because each entry is its own step.
+  assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]).text, "⚠️ " + REFUSED + MORE_2);
+  // THE TWO COUNTS STAY APART: explanations past the first two are counted
+  // as they always were, and the steps with none are counted after them.
+  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }, { layer: "look", msg: "The colour change was refused." }, SILENT("page")]).text,
+    "⚠️ " + REFUSED + " The menu change was refused. (1 more part of that message didn’t go through either.)" + MORE_1);
+  // CONTROLS — one kind of step alone reads exactly as it did before.
+  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }]).text, "⚠️ " + REFUSED + " The menu change was refused.");
+  assert.equal(refuse([SILENT("page"), SILENT("look")]).text,
+    "⚠️ 2 parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why.");
+  for (const partial of [[EXPLAINED], [EXPLAINED, SILENT("look")], [EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]]) {
+    const r = refuse(partial);
+    assert.ok(r.ok, r.why);
+    assert.equal(r.shown, true, "the browser showed nothing");
+    assert.deepEqual(r.actions, [], "a refusal started a follow-up: " + JSON.stringify(r.actions));
+  }
+});
+
+test("a partial success counts them too, after the tick, and starts nothing paid", () => {
+  const land = (partial) => editBrowserReply({ ok: true, layer: "picture", msg: TOOK, partial }, true, ROUTED("look"));
+  const alone = land([EXPLAINED]);
+  const mixed = land([EXPLAINED, SILENT("look")]);
+  const doubled = land([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]);
+  assert.equal(alone.text, TOOK + " ⚠️ " + REFUSED, "control: one explained failure after the tick reads as it always did");
+  assert.equal(mixed.text, TOOK + " ⚠️ " + REFUSED + MORE_1, "the step with no reason vanished after the tick");
+  assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
+  assert.equal(doubled.text, TOOK + " ⚠️ " + REFUSED + MORE_2);
+  for (const r of [alone, mixed, doubled]) {
+    assert.ok(r.ok, r.why);
+    assert.ok(!r.text.includes("Nothing on your site changed"), "a partial success claims nothing changed");
+    assert.deepEqual(paid(r), [], "something paid was started: " + JSON.stringify(r.actions));
+    assert.deepEqual(r.actions, [REFRESH], "a published edit did something other than refresh the balance");
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. THE CLASSIFICATION — THE TABLE, AND THE ROUTE HELD TO IT
 // ─────────────────────────────────────────────────────────────────────────────

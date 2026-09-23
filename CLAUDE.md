@@ -3722,10 +3722,14 @@ the ledger's — `syncLedger.taken` on the synchronous path, **0 on the job path
 never a sum of the steps' own figures; `unchanged` **only when every step wrote
 nothing** (`stepWroteNothing`: it said so, it was withheld, or it escalated —
 every escalation returns before its rung writes); every `partial[]` entry
-carries a sentence (`stepMsg` for a step that escalated: said beside other
-steps, never acted on, since acting would do part of a message at a price
-nobody saw). The screen prints each distinct sentence ONCE (two withheld page
-steps write the same one), two at most plus a count.
+carries its step's own sentence, or `stepMsg` for a step that escalated (said
+beside other steps, never acted on, since acting would do part of a message at
+a price nobody saw) — **not every entry, though**: a step whose reply could not
+be read (`body` null) or whose failure carried no `msg` and did not escalate
+still arrives with none (read, not driven). The screen prints each distinct
+sentence ONCE (two withheld page steps write the same one), two at most plus a
+count, **and counts every step with no sentence beside them** — *the mixed
+partial*, below.
 - **UNANIMOUS CLIMB IS THE ONE EXCEPTION**: every step escalated to the same
   `layer|page` → the first step's escalate is the answer, acted on exactly as
   one step's would be (a site from before designs were stored, where every step
@@ -3836,6 +3840,35 @@ TS2339`) each directly above their own `ok` lines; `site-build.mjs` **17m40s**.
 documents, none on that workflow's `paths` — and its product tree is
 `1f234090`'s, so that run is the reading for both. **The stamp chain ends at
 `aa9728ef`.**
+
+**THE MIXED PARTIAL (the same day, the owner's browser-composer
+reproduction).** `partial: [{layer: "page", msg: "The photo change was
+refused."}, {layer: "look", error: "compile"}]` printed *"⚠️ The photo change
+was refused."* — **byte-identical to a reply holding that one failure**, on the
+refusal branch and after the tick alike. `partialSaid` counted steps with no
+sentence only in the branch reached when NO step had one, so one explained step
+made every unexplained one vanish. It now says the sentences as before
+(deduplicated, two shown, the rest counted), then *"One more part of that
+message didn’t go through. Ask for it again on its own and I’ll tell you why."*
+— **"more" only beside a sentence**, so a reply of one kind alone reads
+byte-identically to before. **The dedup is of SENTENCES**: two steps with none
+are two failures, counted one by one even when their entries are identical.
+**A composer reproduction, not a live failure**: whether the route has written
+such a mix on a real message is not established.
+- **Evidence.** `test/edit-failure.test.mjs` 33 → **35 cases** — a complete
+  refusal and a partial success, each asserting the exact screen and the
+  recorded actions (`[]`; `["refresh the credit balance"]`), with a one-failure
+  control and both single-kind controls. **Red first**: both failed on the
+  unfixed composer with the one-failure text as `actual`. **One targeted
+  mutant** (every silent step counted as one) was killed by both — **and the 33
+  originals all passed under it**, so the new cases are the only guard on that
+  property; `chat.js` restored byte-identical from a scratchpad backup. Every
+  test file that reads or runs `chat.js` (93): **2,876 / 2,876**. Whole suite
+  locally: **`# tests 7214 / # pass 7214 / # fail 0 / # skipped 0`**,
+  `duration_ms 116,962` — **+2 against 7,212**, exactly the two cases. Rendered
+  in the real workspace chat (the real composer's text, the real `chat.js` and
+  `styles.css`). **No `site build` run**: `public/` and this test file are on
+  none of its `paths`, so there is no run at all, not a fast one.
 
 **SEPARATE NEXT TASKS — RECORDED, NOT STARTED** (owner: *"Record wrong-page
 targeting, duplicate execution, content preservation and billing findings as
@@ -4911,7 +4944,10 @@ off. Both halves true of their own rung and the second **false of the request**.
   prints the rung's **own sentence verbatim** (never re-composed from `error`,
   which would be a second copy of every refusal's wording); over two it counts
   the remainder, and a failed rung with **no** sentence is still counted —
-  *nothing at all* is the outcome the clause exists to close.
+  *nothing at all* is the outcome the clause exists to close. **⚠ That last
+  clause was true only when EVERY failed rung was silent**, until 2026-09-23:
+  beside one with a sentence the silent one vanished, byte-identically (*the
+  mixed partial*, in the classification section). Counted in both now.
   **AND THE HARNESS CAUGHT THE WIRING, AS DESIGNED**: `editReplyBody` was not
   on `EDIT_BROWSER_FNS`, so the reader threw `editReplyBody is not defined`
   and reported **NO** screen rather than a wrong one.

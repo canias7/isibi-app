@@ -155,6 +155,44 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — A refused part with no reason is no longer hidden
+
+You found this one in the browser's reply code: when one refused part of a
+message gave a reason and another gave none, the screen showed only the reason
+— exactly what it shows when that one part is the only thing that failed. The
+part with no reason simply disappeared. **Fixed on the branch. Not merged, not
+deployed, no paid run.**
+
+### What it says now
+
+- *"⚠️ The photo change was refused. One more part of that message didn’t go
+  through. Ask for it again on its own and I’ll tell you why."* — and the same
+  after the green tick when another part of the message did work.
+- The same reason given twice is still said once. Two parts with no reason are
+  counted as two, even when they look exactly alike.
+- When every part gave a reason, or none did, the screen reads exactly as it
+  did before.
+- The server can still send a part with no reason (read in the code, not
+  tried), so this is not only about old replies. It is not a failure anybody
+  has met live.
+
+### Proof (made-up replies, free)
+
+- Two new cases, so the test file has 35: a message where nothing happened,
+  and one where part of it worked. Each checks the exact sentence on screen and
+  that nothing paid starts — no follow-up on the first, only the balance
+  refresh on the second.
+- Both failed before the fix, and what they got was the one-failure sentence.
+- One deliberate break — counting any number of silent parts as one — was
+  caught by both new cases and by none of the 33 older ones.
+- Every test that reads or runs the browser code (93 files, 2,876 tests)
+  passes, and so does the whole suite (7,214 — the two new cases on top of
+  7,212).
+- I rendered both replies in the real workspace chat and sent you the before
+  and after.
+
+---
+
 ## 2026-09-23 — A refusal no longer starts the full rewrite
 
 You reproduced two of the review's cases yourself — "take the blog page off"

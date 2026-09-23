@@ -10144,27 +10144,37 @@ function editOutcomes(e) {
  * THE STEPS' OWN SENTENCES, VERBATIM — the rung is the only side that knows
  * why it stopped — each said ONCE: two page steps withheld for the same reason
  * write the same sentence, and printing it twice reads as two problems.
- * BOUNDED at two, the remainder COUNTED rather than dropped, and a step with no
- * sentence at all is still counted: *nothing at all* is the outcome this
- * exists to close. The server now gives every step a sentence, so the count is
- * for replies stored before that.
+ * BOUNDED at two, the remainder COUNTED rather than dropped.
+ *
+ * ⚠ AND EVERY STEP WITH NO SENTENCE IS COUNTED, WHATEVER STANDS BESIDE IT
+ * (2026-09-23, the owner's browser-composer reproduction). The count lived in
+ * the branch reached only when NO step had a sentence, so `[{msg}, {error:
+ * "compile"}]` printed the first sentence alone — byte-identical to a reply
+ * holding that one failure — and the unexplained step vanished from both
+ * callers. The dedup is of SENTENCES: two steps with none are two failures,
+ * not one repeated, so they are counted one by one and never folded together.
+ * *Nothing at all* is the outcome this exists to close. The route still writes
+ * such an entry — a step whose reply could not be read, or whose failure
+ * carried no `msg` and did not escalate — so this is not only for old replies.
  */
 function partialSaid(parts) {
   const stopped = Array.isArray(parts) ? parts : [];
   const said = [];
+  let silent = 0;
   stopped.forEach(function (p) {
     const m = p && typeof p.msg === 'string' ? p.msg.trim() : '';
-    if (m && said.indexOf(m) < 0) said.push(m);
+    if (!m) silent++;
+    else if (said.indexOf(m) < 0) said.push(m);
   });
-  if (said.length) {
-    let out = said.slice(0, 2).join(' ');
-    if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
-    return out;
-  }
-  if (!stopped.length) return '';
-  return (stopped.length === 1 ? 'One part' : stopped.length + ' parts') +
-    ' of that message didn’t go through. Ask for ' + (stopped.length === 1 ? 'it' : 'them') + ' again on ' +
-    (stopped.length === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
+  let out = said.slice(0, 2).join(' ');
+  if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
+  if (!silent) return out;
+  // "MORE" ONLY BESIDE A SENTENCE: alone, the count is the whole answer and
+  // reads exactly as it did before a sentence could stand next to it.
+  const more = said.length ? ' more' : '';
+  return (out ? out + ' ' : '') + (silent === 1 ? 'One' + more + ' part' : silent + more + ' parts') +
+    ' of that message didn’t go through. Ask for ' + (silent === 1 ? 'it' : 'them') + ' again on ' +
+    (silent === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
 }
 
 /**
