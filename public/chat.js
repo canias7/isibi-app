@@ -12082,6 +12082,19 @@ const CLICK_ACTIONS = {
     if (mkt && mkt.style.display !== 'none' && window.Auth && Auth.isSignedIn()) enterApp();
     showView(el.dataset.view);
   },
+  // "Site builder", under the A on the landing (owner 2026-09-23: "if clicked
+  // make sure it sends to the sites thing"). The LIST — "Your sites" — always,
+  // by the same call the workspace's own back arrow makes, and never the
+  // project that happened to be open when the wordmark was pressed: the landing
+  // leaves the address where it was, and `enterApp` reopens whatever the
+  // address names. So the address moves FIRST, and `enterApp` then reads
+  // `/projects` and draws the list rather than the old project.
+  'sites-list': () => {
+    openProject(null, 'push');
+    const mkt = document.getElementById('marketing');
+    if (mkt && mkt.style.display !== 'none' && window.Auth && Auth.isSignedIn()) enterApp();
+    showView('sites');
+  },
   'side-toggle': () => toggleSidebar(),
   'credits': () => openCredits(),
   'credits-topup': () => openCredits(true),
