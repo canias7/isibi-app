@@ -4483,6 +4483,10 @@ separate the two.
   `pageName` still targets the page the ROUTER named (`name: ePage || ""`) —
   the named-page section's recorded consequence — and the picker's own
   `pageName` still wins when it gives one.
+- **THE QR PLACEMENT STEP WAS THE SAME CLASS**: a page step with an ask of its
+  own, so `qr` beside `pages` would have run the placement down the removal or
+  move branch on its page. It carries no verb now — **by construction, not
+  driven by a case**.
 
 **AFTER, SAME ROUTE, SAME ANSWERS, BOTH MONEY PATHS**: each layout case runs
 **1** page writer, shown the stored target page; **1** compile carries the
