@@ -155,13 +155,37 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — The page-verb fix is closed, merged and live
+
+You reviewed it (251 focused and regression tests passing) and closed it,
+keeping the limit that the tests supply the model's answers. Merged and
+deployed, as you asked. **Deployed, not runtime-confirmed** — reading which
+code the live Worker runs needs a signed-in press. No paid replay.
+
+- `main` is now **`d86aa232687d4a0e56e9ce5d75c503dbb9e3fc38`** (5 commits,
+  9 files: the fix in `worker.js`, its 17 tests, four adjusted older tests, the
+  two documents). Nothing newer was on main, so it was a straight fast-forward
+  and nothing needed preserving.
+- Deploy 2149 passed in 2m54s. The site container moved from
+  `bb412dcada44c503` to **`d6d603e4a7921f14`**, exactly as predicted before
+  the push (185 inputs; `worker.js` is the one of the 9 files that feeds it).
+  No browser files changed, so there is no served-file check this time.
+- Undoing it is safe: reverting the five commits gives back main's exact
+  previous files (checked in a throwaway copy), so a rollback reuses the old
+  container.
+- To confirm it from the live Worker, press the canary with no spend:
+  `expect_deploy` `d86aa232687d4a0e56e9ce5d75c503dbb9e3fc38`, `expect_image`
+  `d6d603e4a7921f14`.
+
+---
+
 ## 2026-09-23 — A page removal or move no longer leaks into a layout change
 
 Your reproduction was exact: *"On the home page put the opening hours above
 the welcome, and remove the gallery page"* ran no page editor, removed the
 gallery, left the home page alone and warned that the home page can't be
-removed. **Fixed on the branch — not merged, not deployed, no paid run**, as
-you asked: the fix and its CI come to you first.
+removed. **Fixed, reviewed and closed — merged and deployed in deploy 2149
+(entry above).**
 
 ### What it did before (measured through the edit step, made-up model answers, free)
 

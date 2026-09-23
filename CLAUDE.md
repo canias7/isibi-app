@@ -280,7 +280,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality NINETEEN times, and the
+whole reader. **Cross-checked against reality TWENTY times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -331,6 +331,11 @@ and **the nineteenth — deploy 2148 (2026-09-23)** — `1aba925de4658f45` →
 `bb412dcada44c503`, both from 185 inputs, both ends predicted before each push
 and confirmed on both channels (recorded with their merges, below). 2148 was
 **0 `CACHED` lines** too: image step 2m08s, Wrangler 23s, job 2m59s.
+**The twentieth — deploy 2149 (2026-09-23)** — `bb412dcada44c503` →
+`d6d603e4a7921f14`, 185 inputs, `worker.js` the one input among the push's nine
+files, both ends predicted and confirmed on both channels (recorded with its
+merge, below); **0 `CACHED` lines** again, image step 2m14s, Wrangler 15s, job
+2m54s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3945,10 +3950,14 @@ separate next tasks"*):
    `pages` verb set, and every page step read them — so `shape` picked beside
    `pages` (*"…and take the gallery page off"*) ran the `shape` step down the
    REMOVAL branch: no page writer, `/gallery` removed, the layout never made.
-   **FIXED ON THE BRANCH 2026-09-23 — not merged, not deployed** (*a page verb
-   belongs to its own step*, below): aimed at a NON-home page the same sentence
-   had DELETED that page too, with *"✅ Updated the look."* on the screen, and
-   the router's own `remove` reached a layout lane through the picture door.
+   **CLOSED 2026-09-23 by the owner after review (251 focused and regression
+   tests passing), merged and deployed in deploy 2149** (*a page verb belongs to
+   its own step*, below): aimed at a NON-home page the same sentence had DELETED
+   that page too, with *"✅ Updated the look."* on the screen, and the router's
+   own `remove` reached a layout lane through the picture door. **The limit is
+   KEPT**: every model answer in the evidence is SUPPLIED, so what is closed is
+   the route scoping each verb to its own step and target — never that a real
+   picker names these lanes or a real writer makes the layout change.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -4422,7 +4431,7 @@ replay."*
   `bb412dcada44c503` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
 
-### A PAGE VERB BELONGS TO ITS OWN STEP (2026-09-23, on the branch)
+### A PAGE VERB BELONGS TO ITS OWN STEP (2026-09-23, merged and deployed in 2149)
 
 Owner, after reproducing it through the route: *"On the home page put the
 opening hours above the welcome, and remove the gallery page." With shape +
@@ -4430,8 +4439,9 @@ pages/remove, no page writer runs. The gallery is removed, the homepage stays
 unchanged, and the reply warns that the homepage cannot be removed. Scope
 remove and move/rename instructions to their individual operation and target,
 not shared request-wide flags. An ordinary layout step must not inherit another
-step's destructive action.* **Not merged, not deployed, no paid run** — the
-owner asked for the focused fix and its CI first.
+step's destructive action.* **Reviewed and CLOSED by the owner (251 focused and
+regression tests passing), merged and deployed in deploy 2149 — the next
+section. No paid run; the supplied-answer limit is kept.**
 
 **THE DEFECT, MEASURED THROUGH THE ROUTE ON HEAD `67c010fd`** (supplied
 answers; four pages — `/`, `/prices`, `/gallery`, `/visit` — none linking to
@@ -4566,6 +4576,47 @@ commits after it fire no site build. **The stamp chain ends at `9ca86137`.**
 is a stub that applies the layout to the file it is shown, so this proves the
 route scopes each verb to its own step and target — never that a real picker
 names these lanes and this verb, nor that a real writer makes the layout change.
+
+### MERGED AND DEPLOYED: THE PAGE-VERB CORRECTION (2026-09-23, late)
+
+Owner: *"The page-verb correction is reviewed: 251 focused and regression tests
+pass. Close the shared-flag defect, keeping the supplied-model-output
+limitation explicit. Merge and deploy the reviewed correction, preserving newer
+main changes. Report the actual deployed SHA and image. No paid replay."*
+
+- **CLOSED, WITH THE LIMIT KEPT**: a remove or move verb rides on its own step
+  and target, so a layout step beside it can no longer remove or move its own
+  page, and the router's own verb reaches only the router's step. Every model
+  answer in the evidence is SUPPLIED and the page writer is a stub, so no claim
+  is made that a real picker names these lanes or a real writer makes the
+  layout change.
+- **A FAST-FORWARD, BECAUSE NOTHING NEWER WAS ON MAIN**: `main` `d7890bab` →
+  **`d86aa232`** at **23:53:09Z**, 5 commits, 9 files (+1,006 / −57): the fix
+  in `worker.js`, its 17-case test file and mutation spec, four re-anchored
+  guards, and the two documents. Asked before the push: `HEAD..origin/main`
+  empty, zero runs in progress or queued, the image id predicted over both ends
+  (the twentieth cross-check, above), and the rollback verified in a throwaway
+  worktree — reverting the range gives tree `79b0e0b7…`, **main's own**, so a
+  rollback reuses `bb412dcada44c503`.
+- **DEPLOY 2149 (`35935786369`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Success,
+  job 23:53:17 → 23:56:11Z, **2m54s**; image step **2m14s** with **0 `CACHED`
+  lines**; Wrangler 15s. `DEPLOY_ID`
+  **`d86aa232687d4a0e56e9ce5d75c503dbb9e3fc38`** (unmasked in the log); image
+  **built `d6d603e4a7921f14`** (registry answered 404, 185 inputs — the log
+  prints `d6d603e4a792***f***4`) and **rolled from `bb412dcada44c503`**
+  (`- …:bb4***2dcada44c503` → `+ …:d6d603e4a792***f***4` under `SUCCESS
+  Modified application`, `Applied changes`); `Uploaded isibi-app`, `Current
+  Version ID: 242ee8f5-…`, `Deployed isibi-app triggers`. **`No updated asset
+  files to upload`** — `public/` did not change — so there is **no served-file
+  check**. Gates **401 / 401 / 401 / 404** at 23:57:52Z.
+- **THE TWENTIETH IMAGE-ID CROSS-CHECK, BOTH ENDS PREDICTED BEFORE THE PUSH**:
+  `origin/main` answered `bb412dcada44c503` (what deploy 2148 rolled to) and the
+  tip `d6d603e4a7921f14`, both from 185 inputs, `worker.js` the one of the
+  push's nine files among them.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  `d86aa232687d4a0e56e9ce5d75c503dbb9e3fc38` and `expect_image`
+  `d6d603e4a7921f14` — both routes that answer the sha and the image ask
+  `authUser` first, and a session holds no token. **No paid replay** (owner).
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
