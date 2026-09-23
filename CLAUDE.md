@@ -90,7 +90,12 @@ Chromium one SKIPS in CI (no browser there). **Sweep
 never applied, 2 comment-only controls surviving**, the swept files
 byte-identical to a scratchpad backup afterwards. **Suite 7,177 locally**
 (`7177 / 7175 / 0 / 2`, `duration_ms` 109,653) — +7 against 7,170, exactly the
-new cases.
+new cases. **⚠ IN CI THE SAME SWEEP IS 7 KILLED, 2 SURVIVED — MEASURED**, by
+re-running it with `playwright-core` moved out of `node_modules` (CI installs
+none): the text-context and the 620px-width mutants are seen by the Chromium
+case alone, because both are INHERITED or COMPUTED values that no source check
+reads. So those two are held only where a browser runs — every local suite in
+this sandbox — and a CI pass says nothing about them.
 **Then the owner deleted the Video / App doors** (and `.mkt-ghost`, which only
 the App door wore) **and set the placeholder to "hey"** — a fixed line from
 `paintCrt`, its one writer. The box now sits 31.3px under the headline, the

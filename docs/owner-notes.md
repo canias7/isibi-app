@@ -188,7 +188,9 @@ both of your screenshots. "hey" replaced it, and the typing code is deleted.
 real-browser comparison of the two boxes. That one skips in GitHub's checks,
 which have no browser; the other 6 run there. Against the old code, 5 of the 7
 fail. **The sweep: 9 deliberate breaks, all 9 caught, and both harmless
-controls left alone.** Full test suite: **7,177 tests, all
+controls left alone.** On GitHub's servers, which have no browser, it's **7 of
+9**. The two it misses are the box's width and its text size, which only a
+real browser can see. I measured that rather than assumed it. Full test suite: **7,177 tests, all
 passing** (2 skipped, as usual), which is 7 more than before, the new ones.
 
 **Where it is.** Pushed to the branch `claude/zealous-carson-nj6sha`. **Not
