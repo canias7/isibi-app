@@ -155,13 +155,37 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — "Doing it twice" is closed, merged and live
+
+You reviewed it (81 focused cases passing) and closed it, keeping the limit
+that the tests supply the model's answers. Merged and deployed, as you asked.
+**Deployed, not runtime-confirmed** — reading which code the live Worker runs
+needs a signed-in press. No paid replay.
+
+- `main` is now **`d7890bab48828d6092399571d050eb02536973ac`** (4 commits,
+  10 files: both page-once fixes, their tests, the two documents). Nothing
+  newer was on main, so it was a straight fast-forward and nothing needed
+  preserving.
+- Deploy 2148 passed in 2m59s. The site container moved from
+  `1aba925de4658f45` to **`bb412dcada44c503`**, exactly as predicted before
+  the push (185 inputs; `builder/site-lanes.mjs` and `worker.js` are the two
+  of the 10 files that feed it). No browser files changed, so there is no
+  served-file check this time.
+- Undoing it is safe: reverting the four commits gives back main's exact
+  previous files (checked in a throwaway copy), so a rollback reuses the old
+  container.
+- To confirm it from the live Worker, press the canary with no spend:
+  `expect_deploy` `d7890bab48828d6092399571d050eb02536973ac`, `expect_image`
+  `bb412dcada44c503`.
+
+---
+
 ## 2026-09-23 — A page edit that already worked is not run again after the photo step
 
 You reproduced what the last fix left: with `components`, `images` and `tsx`
 picked, the photo step sits between the two page lanes, so the page editor ran
-**twice** and the second run undid the swap. **Fixed on the branch. Not merged
-(you asked me to hold it), not deployed, no paid run. "Doing it twice" stays
-open until you close it.**
+**twice** and the second run undid the swap. **Fixed, reviewed and closed —
+merged and deployed in deploy 2148 (entry above).**
 
 ### What it did before (measured, made-up model answers, free)
 
@@ -518,11 +542,12 @@ sentence too.
    missing page is now explained; picking the right one isn't fixed.
    **Started:** a page the router names now reaches that page (live since
    deploy 2147).
-2. **Doing it twice:** one message can still run the page editor twice.
-   **Started:** two page lanes next to each other are one page edit now (on
-   the branch); with a different step between them it still runs twice.
-   **Update:** with a step between them it runs once now as well, in the same
-   order (on the branch, merge held). Kept open, as you asked.
+2. **Doing it twice — CLOSED 2026-09-23, your call, and live since deploy
+   2148.** Two page lanes next to each other are one page edit, and with a
+   different step between them the second runs only if the first did not
+   work. **The limit stays:** every test supplies the model's answers, so
+   what is proven is that the edit step runs your change once — not that a
+   real model's first edit applies the whole message.
 3. **Keeping content:** nothing yet checks what the page writer or the
    stylesheet writer dropped; look + web-address together still only reports
    the look; the full rewrite still has no photo protection.

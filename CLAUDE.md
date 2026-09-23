@@ -280,7 +280,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality SIXTEEN times, and the
+whole reader. **Cross-checked against reality NINETEEN times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -326,6 +326,11 @@ log answered `built …:fd3355f0b7***af62*** (registry answered 404; ***85 input
 …)` and `- …:ce67f25d***32667d0` → `+ …:fd3355f0b7***af62***` under `SUCCESS
 Modified application`. **0 `CACHED` lines** again; image step 2m28s, Wrangler
 19s, job 3m14s.
+**The eighteenth — deploy 2147** — `fd3355f0b71af621` → `1aba925de4658f45`,
+and **the nineteenth — deploy 2148 (2026-09-23)** — `1aba925de4658f45` →
+`bb412dcada44c503`, both from 185 inputs, both ends predicted before each push
+and confirmed on both channels (recorded with their merges, below). 2148 was
+**0 `CACHED` lines** too: image step 2m08s, Wrangler 23s, job 2m59s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3599,10 +3604,11 @@ only; nothing added to the repo.
 5. **look → `[shape, components]`** → the page rung runs TWICE on one
    instruction (`pick_lanes, write_tweak, write_tweak, write_pages`); the move
    landed and the screen says *"One part of that message didn't go through"*.
-   `21157-21160` pushes one step per page lane with no dedup. **Fixed on the
-   branch for NEIGHBOURING page lanes** — *one page operation for neighbouring
-   page lanes*, below — **and across another rung**, order kept (*a page
-   operation that succeeded is not run again*).
+   `21157-21160` pushes one step per page lane with no dedup. **Fixed for
+   NEIGHBOURING page lanes** — *one page operation for neighbouring page
+   lanes*, below — **and across another rung**, order kept (*a page operation
+   that succeeded is not run again*). **Both merged and live since deploy
+   2148.**
 6. **a section change routed through look on a two-page site lands on `/`**
    whatever page the message named (`fallbackPage`, `21153`): stored
    `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."* **Fixed on
@@ -3907,9 +3913,12 @@ separate next tasks"*):
    (*one page operation for neighbouring page lanes*, below). Two page lanes
    with another rung's step between them still run the page rung twice,
    deliberately (that order is load-bearing), and are the recorded remainder.
-   **THE REMAINDER IS FIXED ON THE BRANCH TOO, ORDER KEPT** (*a page operation
-   that succeeded is not run again*, below) — **and the task stays OPEN and
-   this patch's merge HELD at the owner's word** (2026-09-23).
+   **THE REMAINDER IS FIXED TOO, ORDER KEPT** (*a page operation that
+   succeeded is not run again*, below). **CLOSED 2026-09-23 by the owner after
+   review (81 focused cases passing), merged and deployed in deploy 2148 —
+   with the limit KEPT: every model answer in those cases is SUPPLIED, so what
+   is closed is the route running one requested page change once, never a
+   claim that a real model's first attempt applies the whole request.**
 3. **Content preservation.** Review #7 (the page writer drops an unrelated
    section and publishes), #8 (the css lane drops an earlier rule), #9 (look +
    rename both land and the screen names only the look), and the full rewrite's
@@ -4116,15 +4125,15 @@ actual deployed SHA and image. No paid replay yet."*
   `1aba925de4658f45` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
 
-### ONE PAGE OPERATION FOR NEIGHBOURING PAGE LANES (2026-09-23, on the branch)
+### ONE PAGE OPERATION FOR NEIGHBOURING PAGE LANES (2026-09-23, merged and deployed in 2148)
 
 Owner: *"Reproduce one look request whose selected fields include shape and
 components, both targeting the same page. Measure how many page-writer calls,
 compilations and charges it causes, and whether the second execution repeats
 or reverses the first. For compatible changes to the same page, prepare one
 page operation carrying both requested changes. Preserve genuinely different
-page targets and operations that require separate ordering."* **Not merged, not
-deployed, no paid run.**
+page targets and operations that require separate ordering."* **Merged and
+deployed in deploy 2148 (below); no paid run.**
 
 **THE REPRODUCTION, THROUGH THE REAL ROUTE WITH SUPPLIED ANSWERS.** A two-page
 site, `shape` + `components` both landing on `/`, both money paths. The writers
@@ -4238,7 +4247,7 @@ a stub that applies the ask to what it is shown, so this proves the route runs
 ONE page operation, publishes both changes and bills once — never that a real
 model applies two changes correctly in one call.
 
-### A PAGE OPERATION THAT SUCCEEDED IS NOT RUN AGAIN (2026-09-23, on the branch)
+### A PAGE OPERATION THAT SUCCEEDED IS NOT RUN AGAIN (2026-09-23, merged and deployed in 2148)
 
 Owner, after reproducing the recorded remainder independently through the
 route with supplied answers (`components` + `images` + `tsx`, the picture step
@@ -4247,9 +4256,9 @@ look"* naming only the picture failure): *"Preserving step order is necessary,
 but replaying the full request and undoing its result is still incorrect. …
 Ensure the same requested page change is not applied twice across an
 intervening step. Preserve genuine picture dependencies and ordering; do not
-blindly merge across them."* **Not merged, not deployed, no paid run — and
-duplicate execution stays OPEN and this patch's merge is HELD, at the owner's
-word.**
+blindly merge across them."* **Reviewed and CLOSED by the owner (81 focused
+cases passing), merged and deployed in deploy 2148 — the next section. No paid
+run; the supplied-answer limit is kept.**
 
 **THE REMAINDER, REPRODUCED ON BOTH MONEY PATHS BEFORE THE FIX** (this file's
 harness in `test/edit-page-once.test.mjs`, one page, a reframe as the
@@ -4370,6 +4379,46 @@ a stub that applies the ask to what it is shown, so this proves the route runs
 the page operation once, keeps the order and the picture step's result, bills
 once and says what shipped — never that a real model's first page attempt
 applies the whole request, which is the premise the skip rests on.
+
+### MERGED AND DEPLOYED: DUPLICATE EXECUTION CLOSED (2026-09-23, late)
+
+Owner: *"The duplicate-execution correction is reviewed: all 81 focused cases
+pass. Close the reproduced duplication defect, retaining the limit that these
+tests supply model answers. Merge and deploy the reviewed correction,
+preserving newer main work. Report the actual deployed SHA and image. No paid
+replay."*
+
+- **CLOSED, WITH THE LIMIT KEPT**: the route runs one requested page change
+  once — neighbouring page lanes as one operation, and across another rung the
+  later step only where the earlier did not succeed. Every model answer in the
+  evidence is SUPPLIED, so no claim is made that a real model's first page
+  attempt applies the whole request.
+- **A FAST-FORWARD, BECAUSE NOTHING NEWER WAS ON MAIN**: `main` `90045638` →
+  **`d7890bab`** at **22:22:15Z**, 4 commits, 10 files (+1,618 / −115): both
+  page-once fixes, their tests and mutation specs, and the two documents.
+  Asked before the push: zero runs in progress or queued, the image id
+  predicted over both ends (the nineteenth cross-check, below), and the
+  rollback verified in a throwaway worktree — reverting the range gives tree
+  `fde516bb…`, **main's own**, so a rollback reuses `1aba925de4658f45`.
+- **DEPLOY 2148 (`35927959426`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Success,
+  job 22:22:20 → 22:25:19Z, **2m59s**; image step **2m08s** with **0 `CACHED`
+  lines** (cold again, inside the warm band); Wrangler 23s. `DEPLOY_ID`
+  **`d7890bab48828d6092399571d050eb02536973ac`** (masked in the log as
+  `…9239957***d050eb…`); image **built `bb412dcada44c503`** (registry answered
+  404, 185 inputs — the log prints `bb4***2dcada44c503`) and **rolled from
+  `1aba925de4658f45`** (`- …:***aba925de4658f45` → `+ …:bb4***2dcada44c503`
+  under `SUCCESS Modified application`, `Applied changes`); `Uploaded
+  isibi-app`, `Current Version ID: 36990fe3-…`, `Deployed isibi-app triggers`.
+  **`No updated asset files to upload`** — `public/` did not change — so there
+  is **no served-file check**. Gates **401 / 401 / 401 / 404** at 22:26:15Z.
+- **THE NINETEENTH IMAGE-ID CROSS-CHECK, BOTH ENDS PREDICTED BEFORE THE PUSH**:
+  `origin/main` answered `1aba925de4658f45` (what deploy 2147 rolled to) and the
+  tip `bb412dcada44c503`, both from 185 inputs, `builder/site-lanes.mjs` and
+  `worker.js` the two of the push's ten files among them.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  `d7890bab48828d6092399571d050eb02536973ac` and `expect_image`
+  `bb412dcada44c503` — both routes that answer the sha and the image ask
+  `authUser` first, and a session holds no token. **No paid replay** (owner).
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
