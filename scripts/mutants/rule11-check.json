@@ -1,0 +1,75 @@
+[
+ {
+  "label": "CONTROL: the frontend prompt comment changes nothing",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "/** The frontend prompt, derived once at module load the way `PAGE_RULES` is built once. */",
+  "to": "/** The frontend prompt (control), derived once at module load the way `PAGE_RULES` is built once. */",
+  "control": true
+ },
+ {
+  "label": "A-1: a real answer is no longer tied to the function declared return, nor checked before calculating",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "    left\" or \"has space\", and a real answer is one that matches what the function is\n    declared to return — the digest prints that after the arrow. Check it before any\n    calculation. For example, a booking count is real only when\n",
+  "to": "    left\" or \"has space\". For example, a booking count is real only when\n"
+ },
+ {
+  "label": "A-2: the count check stops saying it is only a count check",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "That check is for a\n    count, not for every function: one declared to return a price, a difference, a row or\n    a list may rightly answer a decimal, a negative number, an object or an array, and is\n    checked against its own declared type. ",
+  "to": ""
+ },
+ {
+  "label": "A-3: the booking-count example is made a rule for every answer",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "For example, a booking count is real only when\n",
+  "to": "Every answer is real only when\n"
+ },
+ {
+  "label": "A-4: the count check loses its non-negative condition",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "Number.isInteger(data) && data >= 0\\`.",
+  "to": "Number.isInteger(data)\\`."
+ },
+ {
+  "label": "A-5: the count check loses its integer condition",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "\\`typeof data === \"number\" && Number.isInteger(data) && data >= 0\\`",
+  "to": "\\`typeof data === \"number\" && data >= 0\\`"
+ },
+ {
+  "label": "A-6: a real zero is no longer protected",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "A zero that passes is a real answer, so test\n    the type and never truthiness (\\`if (!data)\\` throws the zero away). ",
+  "to": ""
+ },
+ {
+  "label": "A-7: converting an answer into a count is no longer forbidden",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "Never convert it into\n    one: \\`Number(data)\\` and \\`+data\\` turn \\`[]\\`, \\`\"\"\\` and \\`false\\` into 0 and\n    \\`true\\` into 1, and \\`parseInt\\` reads \\`[2]\\` as 2 — a count nobody measured.",
+  "to": "A count nobody measured."
+ },
+ {
+  "label": "A-8: rule 11 reaches the frontend-only prompt",
+  "files": [
+   "builder/page-gen.mjs"
+  ],
+  "from": "const DATA_RULES = new Set([1, 2, 4, 5, 6, 8, 9, 10, 11, 13, 14]);",
+  "to": "const DATA_RULES = new Set([1, 2, 4, 5, 6, 8, 9, 10, 13, 14]);"
+ }
+]

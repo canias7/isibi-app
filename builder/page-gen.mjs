@@ -1107,7 +1107,18 @@ or an access level — anything not in the schema below does not exist.
     a real-looking answer, "six places left", about a day that may be full. Keep the query
     and give each state its own words: waiting ("Checking…"), failed ("Couldn't check —
     try again"), nothing ("Not available"). Only a real answer may state a number, "none
-    left" or "has space". A component that shows the answer takes the query itself —
+    left" or "has space", and a real answer is one that matches what the function is
+    declared to return — the digest prints that after the arrow. Check it before any
+    calculation. For example, a booking count is real only when
+    \`typeof data === "number" && Number.isInteger(data) && data >= 0\`. That check is for a
+    count, not for every function: one declared to return a price, a difference, a row or
+    a list may rightly answer a decimal, a negative number, an object or an array, and is
+    checked against its own declared type. A zero that passes is a real answer, so test
+    the type and never truthiness (\`if (!data)\` throws the zero away). Anything that
+    fails the check is not an answer and gets the "nothing" words. Never convert it into
+    one: \`Number(data)\` and \`+data\` turn \`[]\`, \`""\` and \`false\` into 0 and
+    \`true\` into 1, and \`parseInt\` reads \`[2]\` as 2 — a count nobody measured. A
+    component that shows the answer takes the query itself —
     \`{ isPending, isError, data }\` — as its prop, never the bare number.
 
 12. A CHART COMES FROM "@/components/charts/lib/<domain>", never from a file named

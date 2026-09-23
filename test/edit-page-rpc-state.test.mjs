@@ -36,10 +36,22 @@
 // what is established is that the rule is in the prompt and the prompt reaches
 // the writer — never that a real model obeys it. That is a live run, and the
 // acceptance for it stays open.
+//
+// AND A THIRD GROUP, FROM RUN 24 (2026-09-23). The real writer obeyed the state
+// paragraph — "Checking…", "Couldn't check — try again", "Not available", the
+// query handed over whole — and then turned ANY answer into a count with
+// `Number(data)` after its null check: `[]`, `false`, `""` and whitespace read
+// "Six places left.", `true` read 5 and `[2]` read 4. So rule 11 also says a
+// real answer is one that matches what the function is declared to return,
+// checked before any calculation, with the booking count's check as an
+// EXAMPLE and not a rule for every function.
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { renderPart } from "./fixtures/render-part.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 // THE TOOL NAMES COME FROM THE MODULES THAT DEFINE THEM — a hand-typed name is
@@ -48,6 +60,7 @@ import { CONFIG_KEY } from "../site-config.mjs";
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import {
   SITE_PAGES_TOOL, PAGE_RULES, FRONTEND_PAGE_RULES, pageRulesFor, pagesRequest, lintPages,
+  frontendRules, withoutCharts,
 } from "../builder/page-gen.mjs";
 import { bandRequest, partRequest } from "../builder/page-bands.mjs";
 // ⚠ `editBrowserReply`, NOT `browserReply` — the add composer answers a
@@ -60,6 +73,16 @@ import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const HEADLINE = "A FUNCTION'S ANSWER DOES NOT EXIST UNTIL IT ARRIVES";
 const FRONTEND_MARK = "THIS SITE HAS NO DATABASE";
+// THE ANSWER CHECK, and the booking count's EXAMPLE of one. The example has to
+// stay an example: other functions legitimately answer decimals, negatives,
+// objects and lists, so a writer that read it as a rule for every function
+// would refuse real answers.
+const ANSWER_CHECK = "a real answer is one that matches what the function is declared to return";
+const COUNT_EXAMPLE = 'typeof data === "number" && Number.isInteger(data) && data >= 0';
+/** Whitespace folded: the rules are hard-wrapped, and where a line breaks is layout, not wording. */
+const fold = (s) => String(s).replace(/\s+/g, " ");
+/** Does a block of rules carry the answer check — the requirement AND its example? */
+const carriesCheck = (s) => fold(s).includes(ANSWER_CHECK) && fold(s).includes(COUNT_EXAMPLE);
 
 /**
  * Rule 11's own text, landmark to landmark.
@@ -123,6 +146,52 @@ test("rule 11 says what a function's answer is before it arrives, and what never
     "rule 11 no longer says a component takes the query rather than the bare number");
 });
 
+test("rule 11 checks an answer against what the function returns before any calculation, the count check only an example", () => {
+  const r11 = fold(rule11(PAGE_RULES));
+  assert.match(r11, /ANYTHING THE SCHEMA DECLARES AS A FUNCTION/,
+    "the window is not rule 11, so every absence below would be about nothing");
+
+  // THE REQUIREMENT, and where the expected answer comes from: the digest's
+  // own arrow (`name(args) -> <returns>`), which every backend prompt carries.
+  assert.ok(r11.includes(ANSWER_CHECK), "rule 11 no longer ties a real answer to the function's declared return");
+  assert.match(r11, /the digest prints that after the arrow\. Check it before any calculation\./,
+    "rule 11 no longer says to check the answer before any calculation");
+
+  // THE BOOKING COUNT'S CHECK IS AN EXAMPLE, AND SAYS SO ON BOTH SIDES OF
+  // ITSELF: "For example" before it and "not for every function" straight
+  // after, so it cannot be read as a restriction on every function's answer.
+  assert.ok(r11.includes("For example, a booking count is real only when `" + COUNT_EXAMPLE
+    + "`. That check is for a count, not for every function"),
+    "the integer check is no longer framed as a booking count's example");
+  // AND NO SECOND COPY OF IT STATES IT AS A RULE — it occurs once in the whole prompt.
+  assert.equal(PAGE_RULES.split("Number.isInteger").length - 1, 1,
+    "the integer check appears somewhere else in the rules, outside its example");
+  // OTHER FUNCTIONS' REAL ANSWERS ARE NAMED AS REAL, each against its own declared type.
+  assert.match(r11, /may rightly answer a decimal, a negative number, an object or an array, and is checked against its own declared type/,
+    "rule 11 no longer says decimals, negatives, objects and lists are real answers where declared");
+
+  // A VALID ZERO SURVIVES THE CHECK — the one real answer a truthiness test throws away.
+  assert.match(r11, /A zero that passes is a real answer, so test the type and never truthiness \(`if \(!data\)` throws the zero away\)/,
+    "rule 11 no longer protects a real zero");
+  // ANYTHING ELSE IS NOT AN ANSWER, gets the words the paragraph already
+  // gives "nothing", and is never converted into one.
+  assert.match(r11, /Anything that fails the check is not an answer and gets the "nothing" words/,
+    "rule 11 no longer says what a failed check shows");
+  assert.match(r11, /Never convert it into one: `Number\(data\)` and `\+data` turn `\[\]`, `""` and `false` into 0 and `true` into 1, and `parseInt` reads `\[2\]` as 2/,
+    "rule 11 no longer forbids converting an answer into a count");
+
+  // A RULE THAT TELLS A MODEL WHAT JAVASCRIPT DOES HAD BETTER BE RIGHT ABOUT
+  // JAVASCRIPT: each conversion it names does exactly what it says.
+  assert.deepEqual([[], "", false, true].map(Number), [0, 0, 0, 1]);
+  assert.deepEqual([[], "", false, true].map((v) => +v), [0, 0, 0, 1]);
+  assert.equal(parseInt([2]), 2);
+
+  // THE ORDER: the state paragraph, then the requirement, then its example.
+  const at = (s) => r11.indexOf(s);
+  assert.ok(at(HEADLINE) >= 0 && at(ANSWER_CHECK) > at(HEADLINE) && at(COUNT_EXAMPLE) > at(ANSWER_CHECK),
+    "the answer check is out of order inside rule 11");
+});
+
 test("the paragraph reaches every site with a backend and no site without one", () => {
   const backend = { tables: [{ name: "bookings", columns: [{ name: "day", type: "date" }] }] };
   const fnOnly = { tables: [], functions: [{ name: "bookings_on_day", args: [], returns: "integer" }] };
@@ -136,6 +205,11 @@ test("the paragraph reaches every site with a backend and no site without one", 
     // paragraph is about functions above all.
     assert.ok(pageRulesFor(fnOnly, kind).includes(HEADLINE),
       "a site with a function and no table (kind " + JSON.stringify(kind) + ") does not get the state paragraph");
+    // THE ANSWER CHECK RIDES WITH IT, to the same two kinds of backend site.
+    assert.ok(carriesCheck(pageRulesFor(backend, kind)),
+      "a site with tables (kind " + JSON.stringify(kind) + ") does not get the answer check");
+    assert.ok(carriesCheck(pageRulesFor(fnOnly, kind)),
+      "a site with a function and no table (kind " + JSON.stringify(kind) + ") does not get the answer check");
     // AND NOTHING LEAKS INTO A FRONTEND SITE, whose prompt says there is no
     // function to call. The marker is asserted beside the absence, so the
     // absence is about the frontend prompt and not about an empty string.
@@ -143,10 +217,37 @@ test("the paragraph reaches every site with a backend and no site without one", 
     assert.ok(front.includes(FRONTEND_MARK), "the frontend rules lost their own opening, so this control is about nothing");
     assert.ok(!front.includes(HEADLINE),
       "the state paragraph leaked into a site with no database (kind " + JSON.stringify(kind) + ")");
+    assert.ok(!fold(front).includes(ANSWER_CHECK) && !front.includes("Number.isInteger"),
+      "the answer check leaked into a site with no database (kind " + JSON.stringify(kind) + ")");
   }
   // THE MODULE'S TWO BLOCKS, directly — the same property one layer down.
   assert.ok(PAGE_RULES.includes(HEADLINE));
   assert.ok(!FRONTEND_PAGE_RULES.includes(HEADLINE), "FRONTEND_PAGE_RULES carries the paragraph");
+  assert.ok(carriesCheck(PAGE_RULES), "PAGE_RULES does not carry the answer check");
+  assert.ok(!fold(FRONTEND_PAGE_RULES).includes(ANSWER_CHECK), "FRONTEND_PAGE_RULES carries the answer check");
+});
+
+test("the frontend prompts are byte-for-byte what they are without the answer check", () => {
+  // UNCHANGED IS A COMPARISON, NOT AN ABSENCE. A frontend prompt could lack the
+  // new words and still have moved, so the check is DERIVED: cut the answer
+  // check back out of PAGE_RULES, derive the frontend prompt from what is
+  // left, and require it to be the prompt the module really serves. Rule 11
+  // leaves the frontend prompt as a unit, so nothing inside it can reach one.
+  const ADDED = /, and a real answer is one that matches what the function is\s+declared to return[\s\S]*?a count nobody measured\./;
+  const without = PAGE_RULES.replace(ADDED, ".");
+  // THE CUT REALLY HAPPENED, and took the answer check and nothing else.
+  assert.notEqual(without, PAGE_RULES, "the answer check was not found, so the comparison below is about nothing");
+  assert.ok(!without.includes(COUNT_EXAMPLE), "the cut left the booking-count example behind");
+  assert.ok(without.includes(HEADLINE) && fold(without).includes('"has space". A component that shows the answer takes the query itself'),
+    "the cut took more than the answer check");
+  assert.equal(frontendRules(without), FRONTEND_PAGE_RULES,
+    "the frontend prompt moved when rule 11 gained its answer check");
+  for (const kind of ["", "shopfront"]) {
+    const front = pageRulesFor({ tables: [] }, kind);
+    assert.ok(front.includes(FRONTEND_MARK), "the frontend rules lost their own opening, so this control is about nothing");
+    const expected = kind === "shopfront" ? withoutCharts(frontendRules(without)) : frontendRules(without);
+    assert.equal(front, expected, "the frontend prompt for kind " + JSON.stringify(kind) + " is not what it was without the answer check");
+  }
 });
 
 test("every writer that takes the page rules takes the paragraph with them", () => {
@@ -163,6 +264,7 @@ test("every writer that takes the page rules takes the paragraph with them", () 
   for (const [who, req] of [["page", page], ["band", band], ["part", part]]) {
     assert.ok(sys(req).length > 1000, "the " + who + " request has no system block to read, so its absence below means nothing");
     assert.ok(sys(req).includes(HEADLINE), "the " + who + " writer is not given the state paragraph");
+    assert.ok(carriesCheck(sys(req)), "the " + who + " writer is not given the answer check");
   }
   // AND ALL THREE ARE ONE BLOCK, byte for byte — the cache prefix and the
   // single place a rule is fixed.
@@ -351,6 +453,7 @@ function assertDatabasePrompt(call, why) {
   const sys = systemOf(call);
   assert.ok(sys.length > 1000, why + ": the writer's system block is empty, so nothing below reads it");
   assert.ok(sys.includes(HEADLINE), why + ": the writer was not given the state paragraph");
+  assert.ok(carriesCheck(sys), why + ": the writer was not given the answer check");
   assert.ok(!sys.includes(FRONTEND_MARK), why + ": the writer was told the site has no database");
   const user = userOf(call);
   assert.ok(user.includes("THE SCHEMA THAT EXISTS"), why + ": the writer was not shown the site's schema");
@@ -424,6 +527,7 @@ test("a missing schema row on an incomplete site is recovered, not called empty"
     const sys = systemOf(w[0]);
     assert.ok(sys.includes(HEADLINE) && !sys.includes(FRONTEND_MARK),
       "a recovered database site was given the frontend rules");
+    assert.ok(carriesCheck(sys), "a recovered database site's writer was not given the answer check");
     assert.match(userOf(w[0]), /bookings/, "the recovered table never reached the writer");
     assert.deepEqual(r.seen.patches, [], "this rung wrote the backend reference");
   } finally { c.uninstall(); }
@@ -555,4 +659,85 @@ test("a schema that cannot be read stops the rewrite, and says which read failed
     assert.match(r.said.text, /Nothing on your site changed/, "the screen does not say the site is untouched: " + JSON.stringify(r.said.text));
     assert.deepEqual(paidActions(r.said), [], "the browser would buy something for this: " + JSON.stringify(r.said.actions));
   } finally { c.uninstall(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. RUN 24'S STORED COMPONENT, AND A SUPPLIED IMPLEMENTATION OF THE CHECK
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `fixtures/run24/day-space-lookup.after.tsx` is the component run 24's real
+// writer stored, byte for byte out of the run's own evidence bundle
+// (`after/source.json`). Rendered here with real React, it is a READING of
+// what that generated code does — not a claim about what the real function
+// sends: live, `bookings_on_day` answers a bare JSON integer.
+//
+// ⚠ THE CORRECTED COPY IS A SUPPLIED IMPLEMENTATION — hand-assembled below
+// from the stored component and the rule's OWN example expression, never a
+// model's answer. It shows the rule's booking-count check is sufficient for
+// this component, and it proves nothing about whether a model will write it.
+// The check is the booking count's, so `-1` and `1.5` are not answers HERE;
+// for a function declared to return a price or a difference they would be.
+
+const LOOKUP_RUN24 = readFileSync(new URL("./fixtures/run24/day-space-lookup.after.tsx", import.meta.url), "utf8");
+const sha16 = (s) => createHash("sha256").update(String(s), "utf8").digest("hex").slice(0, 16);
+
+/**
+ * What the box says: its LAST paragraph, read off the markup. Not the last
+ * sentence of the text — the label between the blurb and the answer carries no
+ * full stop, so a sentence split glues "Preferred day" onto the answer.
+ */
+const boxSays = (src, query, day = "2026-10-01") => {
+  const { html } = renderPart(src, { preferredDay: day, query, onPreferredDay() {} });
+  const ps = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)].map((m) => m[1]);
+  assert.ok(ps.length, "the component rendered no paragraph at all: " + html.slice(0, 160));
+  return ps.at(-1).replace(/<[^>]*>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ").trim();
+};
+const answered = (data) => ({ isPending: false, isError: false, data });
+
+test("run 24's stored component turns any answer into a count", () => {
+  assert.equal(LOOKUP_RUN24.length, 1932, "the fixture is not the 1,932-character component run 24 stored");
+  assert.equal(sha16(LOOKUP_RUN24), "4b162037f67df545", "the fixture has drifted from run 24's stored component");
+  // THE OBSERVER IS ALIVE: a real count reads right, so the defect below is a
+  // reading of the answer check and not of a renderer that says nothing.
+  assert.equal(boxSays(LOOKUP_RUN24, answered(2)), "4 places left.");
+  // THE OWNER'S SIX, reproduced: `Number(data)` after a null check makes a
+  // count out of anything it can.
+  for (const [data, want] of [
+    [[], "Six places left."], [false, "Six places left."], ["", "Six places left."],
+    ["   ", "Six places left."], [true, "5 places left."], [[2], "4 places left."],
+  ]) {
+    assert.equal(boxSays(LOOKUP_RUN24, answered(data)), want, "run 24's box on " + JSON.stringify(data));
+  }
+});
+
+test("a SUPPLIED implementation of the rule's own booking-count check reads every count right and nothing else as one", () => {
+  // THE CHECK IS READ OUT OF THE RULE, so an edit that breaks the example —
+  // dropping `>= 0`, or `Number.isInteger` — breaks this case too.
+  const m = fold(rule11(PAGE_RULES)).match(/a booking count is real only when `([^`]+)`/);
+  assert.ok(m, "the rule's booking-count example is gone, so there is nothing to supply");
+  const RUN24_CHECK = [
+    '  if (data == null) return "Not available";',
+    "  const booked = Number(data);",
+    '  if (!Number.isFinite(booked)) return "Not available";',
+  ].join("\n");
+  assert.equal(LOOKUP_RUN24.split(RUN24_CHECK).length - 1, 1, "run 24's answer check is not where this case replaces it");
+  const supplied = LOOKUP_RUN24.replace(RUN24_CHECK, () => '  if (!(' + m[1] + ')) return "Not available";\n  const booked = data;');
+  assert.notEqual(supplied, LOOKUP_RUN24, "the supplied implementation changed nothing");
+
+  // EVERY REAL COUNT READS RIGHT — zero included, the one a truthiness test loses.
+  for (const [n, want] of [
+    [0, "Six places left."], [1, "5 places left."], [2, "4 places left."], [5, "1 place left."],
+    [6, "None left."], [7, "None left."], [99, "None left."],
+  ]) {
+    assert.equal(boxSays(supplied, answered(n)), want, "the supplied check on " + n);
+  }
+  // NOTHING THAT IS NOT A BOOKING COUNT BECOMES ONE: the owner's six, the
+  // numeric string, the negative and the fraction a count cannot be, an object.
+  for (const data of [[], false, "", "   ", true, [2], [0], "3", -1, 1.5, {}, null]) {
+    assert.equal(boxSays(supplied, answered(data)), "Not available", "the supplied check read " + JSON.stringify(data) + " as a count");
+  }
+  // AND THE OTHER STATES ARE THE COMPONENT'S OWN, untouched.
+  assert.equal(boxSays(supplied, { isPending: true, isError: false, data: undefined }), "Checking…");
+  assert.equal(boxSays(supplied, { isPending: false, isError: true, data: undefined }), "Couldn't check — try again");
+  assert.equal(boxSays(supplied, answered(0), ""), "Choose a day to check space.");
 });

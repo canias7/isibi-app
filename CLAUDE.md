@@ -3226,33 +3226,57 @@ the window.
   real model, given rule 11 through the page rung on an `incomplete` site,
   produced the query hand-off and the three states — for this sentence on this
   site, and nothing wider.
-- **THE CORRECTION IS PROPOSED AND NOT APPLIED** (owner: *"Return the bounded
-  proposed change and free verification first"*). Rule 11 already forbade
-  `Number(data)` — as a DEFAULT, and the writer read it that way, converting
-  after its null check. The proposal extends one sentence, *"Only a real answer
-  may state a number, "none left" or "has space""*: **a real answer has the
-  type the function RETURNS** (the digest prints it after the arrow),
-  **checked before any arithmetic** — for a count `typeof data === "number" &&
-  Number.isInteger(data) && data >= 0` — **a zero that passes is a real answer,
-  so test the type and never truthiness**; anything that fails gets the
-  "nothing" words; and **never convert**, because `Number(data)` and `+data`
-  turn `[]`, `""` and `false` into 0 and `true` into 1. No array case, no lint,
-  no parser.
-  **VERIFIED FREE, AND ONLY THIS FAR**: a stand-in copy of the saved component
-  with only that check (hand-written, NOT a model's answer) renders the seven
-  counts as before and every malformed value *"Not available"*, pending /
-  failed / no day unchanged. Two weaker checks show why the sentence carries
-  all three conditions and the zero clause: type-only still shows `-1` as six
-  and `1.5` as *"4.5 places left."*; truthiness turns a real `0` into *"Not
-  available"* and still shows `[]` as six. Rendered rules **42,409 → 42,950**
-  full and **27,909 → 28,450** shopfront (+541 each), frontend **29,077 /
-  14,073** unchanged, the text inside rule 11 only. The full unit suite on the
-  proposed text, in a throwaway worktree: **`# tests 7175 / # pass 7174 /
-  # fail 1`** — the one failure is `render-sandbox`'s privilege-drop case
-  (`MODULE_NOT_FOUND` in the dropped child), which fails identically in that
-  worktree with the proposal REMOVED and passes 20/20 in the main checkout:
-  the worktree's location, not the text. No existing guard pins the words it
-  adds. **NOT ESTABLISHED**: that a model follows it.
+- **THE CORRECTION IS BUILT ON THE BRANCH — NOT MERGED, NOT DEPLOYED, NOT
+  PROVEN BY A MODEL** (owner, 2026-09-23: *"Implement the bounded rule-11
+  guidance correction now"*). Rule 11 already forbade `Number(data)` — as a
+  DEFAULT, and the writer read it that way, converting after its null check.
+  The sentence *"Only a real answer may state a number, "none left" or "has
+  space""* now goes on: **a real answer is one that matches what the function
+  is declared to return** (the digest prints it after the arrow), **checked
+  before any calculation**; *"For example, a booking count is real only when
+  `typeof data === "number" && Number.isInteger(data) && data >= 0`. That check
+  is for a count, not for every function"* — one declared to return a price, a
+  difference, a row or a list may rightly answer a decimal, a negative number,
+  an object or an array, and is checked against its own declared type; **a zero
+  that passes is a real answer** (test the type, never truthiness); anything
+  that fails gets the "nothing" words; and **never convert** (`Number(data)` and
+  `+data` turn `[]`, `""` and `false` into 0 and `true` into 1; `parseInt`
+  reads `[2]` as 2). No parser, no kit component, no reporting change.
+  - **Rules measured**: full **42,409 → 43,307** (+898), shopfront **27,909 →
+    28,807**, frontend **29,077 / 14,073** unchanged.
+  - **Guards** — `test/edit-page-rpc-state.test.mjs`, 8 → **12** cases: the
+    wording, with the integer check asserted to occur ONCE in the whole prompt
+    and only inside its *"For example … not for every function"* frame; the
+    rule's own claims about JavaScript asserted true; reach through
+    `pageRulesFor` (both kinds, a function-only spec), `pagesRequest` /
+    `bandRequest` / `partRequest` (one block) and the real edit route's writer
+    on an `incomplete` site, a recovered one and a site that gains a database;
+    **the frontend prompts DERIVED byte-identical** — the addition cut back out,
+    the frontend prompt derived from what is left and compared, because an
+    absence alone cannot say *unchanged*; and run 24's stored component
+    (`test/fixtures/run24/`, 1,932 chars, sha `4b162037f67df545`) reproducing the
+    owner's six, beside **a SUPPLIED implementation** built from the rule's own
+    example expression — hand-assembled, never a model's answer, so it proves the
+    example check is sufficient for that component and nothing about whether a
+    model writes it. **Red 8 of 12** against the unchanged rule text in a
+    throwaway worktree (the four that pass: the older paragraph's case, two
+    refusals that call no writer, and the fixture reading).
+  - **Focused mutation check** `scripts/mutants/rule11-check.json`: **8
+    mutants, 8 killed, 0 survived, 0 never applied, the comment-only control
+    surviving**, against the one guard file — the requirement gone, the
+    example's frame gone, the example made universal, `>= 0` dropped,
+    `Number.isInteger` dropped, the zero clause gone, the conversion clause
+    gone, and rule 11 let into the frontend prompt; `page-gen.mjs`
+    byte-identical to its backup afterwards.
+  - **Suite 7,179 locally** (`# tests 7179 / # pass 7179 / # fail 0 / #
+    skipped 0`, `duration_ms 128,347`) — **+4 against 7,175**, exactly the four
+    new cases; the CI half is stamped once read.
+  - **WHAT IT DOES NOT DO.** The live `fretwork-1` still serves run 24's
+    generated code (`01790128661913-dafwjz`) and nothing here repairs it: the
+    rule reaches only a FUTURE page write, after a merge and a deploy
+    (`page-gen.mjs` is an image input, so the image rolls). **#418 stays
+    separate and unresolved.** And the acceptance stays OPEN until a paid run —
+    the owner's call.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

@@ -254,25 +254,34 @@ item 5 (#418).
 One more thing for you to judge: "Not available" doesn't claim there are
 places, so it passes, but a visitor could read it as "the day is full".
 
-### The proposed fix — not applied, waiting for you
+### The fix — built on the branch, not merged or deployed
 
-One addition to the rule the writer already gets (rule 11): a real answer is
-the type the lookup is declared to return, and the page must check that
-before doing any sums — for a count, "a whole number, zero or more". A zero
+What you approved, with your two changes: the page writer is told that a real
+answer is one that matches what the lookup is declared to return, checked
+before doing any sums. The booking-count check ("a whole number, zero or
+more") is written as an example for a count only — the rule says in the same
+breath that a function returning a price, a difference, a row or a list can
+legitimately answer a decimal, a negative number, an object or a list. A zero
 that passes is a real answer. Anything else gets the "Not available" words,
-and the page must never convert it with `Number(...)`. No special case for
-lists, and no new code check.
+and the page must never convert it with `Number(...)`.
 
-**Checked free, and only this far:** a copy of the saved box with just that
-check (written by me, not by the model) gets every count right and shows "Not
-available" for every bad answer, with loading, errors and "no day" unchanged.
-The rules grow by 541 characters for sites with a database and don't change
-for sites without one. The existing tests all still pass on it, bar one that
-fails the same way without the change in my scratch copy (a sandbox test
-that can't run from that folder).
+**Checked, free:**
+- The new words reach every writer for sites with a database (the page, a
+  section, a component, and the real edit route), and the prompts for sites
+  without one come out byte-for-byte the same.
+- The box run 24 saved still reproduces your six values, as a record of what
+  that code does.
+- A copy of that box with only the rule's own example check (written by me,
+  not by the model) gets every count right and shows "Not available" for
+  every bad answer, with loading, errors and "no day" unchanged.
+- 12 tests on this; the new ones fail on the old rule text; 8 deliberate
+  breakages all caught.
+- The full test suite: 7,179 tests, all passing (4 more than before).
 
-**Not shown:** that the model will follow it. That needs a paid edit, and
-it's your call.
+**Not shown:** that the model will follow it — that needs a paid edit, your
+call. Nothing is merged or deployed, and **your live site still has run 24's
+box**; this change only affects the next time a page is written. The phone
+hydration warning (#418) is still open and separate.
 
 ---
 
