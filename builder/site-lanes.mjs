@@ -879,6 +879,56 @@ export function verbLayer(verb) {
 }
 
 /**
+ * ONE PAGE OPERATION WHERE TWO PAGE STEPS SIT SIDE BY SIDE (2026-09-23).
+ *
+ * `purpose`, `components`, `shape`, `three` and `tsx` all dispatch to the page
+ * rung, and the look door pushed one step per lane — so a message picking
+ * `components` and `shape` ran the page rung TWICE, on the same page, with the
+ * same sentence, the second run shown the first one's output and asked for the
+ * same change again. REPRODUCED through the route with supplied answers:
+ * *"swap the opening hours and the market times"* was swapped by the first run
+ * and swapped BACK by the second, the one publication carried the original
+ * page, both runs were billed (3 + 2), and the screen said "✅ Updated the
+ * look." The page rung reads the customer's sentence and never the lane names
+ * (`runLayer` hands it `fields` and the page branch reads none of them), so two
+ * such steps are one operation run twice, not two operations.
+ *
+ * WHAT MERGES: consecutive steps on the page rung, aimed at the SAME page, each
+ * carrying no ask of its own, every field a lane that dispatches to the page
+ * rung by its own name. The merged step carries every field, in order, so the
+ * reply's `lanes` names each one exactly as before.
+ *
+ * WHAT NEVER MERGES, each because it is a different operation rather than the
+ * same one twice:
+ *   - a step with its OWN ask — the QR placement's fixed text is not the
+ *     customer's sentence, and folding it in would put two asks on one call;
+ *   - a `pages` verb step — a removal or a move is a different branch of the
+ *     rung, and `laneLayer("pages")` is null because the verb decides the rung;
+ *   - a step aimed at a DIFFERENT page;
+ *   - two page steps with ANOTHER rung between them. Joining those would move a
+ *     page change across that rung, and the order is load-bearing: the picture
+ *     rung's work reaches a later page step through `eSrc`, which is what the
+ *     photograph protection reads. They stay two steps, and that is said.
+ *
+ * ORDER-PRESERVING BY CONSTRUCTION: no step moves, neighbours are joined. A
+ * list with nothing to join comes back with the same steps in the same order.
+ */
+export function mergePageSteps(steps) {
+  const joinable = (s) => !!s && s.layer === "page" && typeof s.page === "string" && !s.instruction
+    && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === "page");
+  const out = [];
+  for (const s of Array.isArray(steps) ? steps : []) {
+    const prev = out[out.length - 1];
+    if (joinable(prev) && joinable(s) && prev.page === s.page) {
+      out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
+    } else {
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/**
  * THE PLAN LANES ARE `PLAN_KEYS`, ASSERTED HERE RATHER THAN HOPED FOR.
  *
  * Both directions, at module load, because the failure is silent in both: a plan

@@ -1,0 +1,57 @@
+[
+ {
+  "label": "CONTROL: a comment in mergePageSteps changes nothing",
+  "files": ["builder/site-lanes.mjs"],
+  "from": " * ORDER-PRESERVING BY CONSTRUCTION: no step moves, neighbours are joined. A\n",
+  "to": " * ORDER-PRESERVING BY CONSTRUCTION: no step moves, neighbours are joined (control). A\n",
+  "control": true
+ },
+ {
+  "label": "O-1: the look door pushes one step per lane again (the defect)",
+  "files": ["worker.js"],
+  "from": "              steps.push(...mergePageSteps(dispatched));\n",
+  "to": "              steps.push(...dispatched);\n"
+ },
+ {
+  "label": "O-2: page steps are joined across another rung, at the first one's place",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "    const prev = out[out.length - 1];\n    if (joinable(prev) && joinable(s) && prev.page === s.page) {\n      out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };\n",
+  "to": "    const at = out.findIndex((x) => joinable(x) && joinable(s) && x.page === s.page);\n    const prev = out[at];\n    if (at >= 0) {\n      out[at] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };\n"
+ },
+ {
+  "label": "O-3: a step carrying its own ask is joined",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "  const joinable = (s) => !!s && s.layer === \"page\" && typeof s.page === \"string\" && !s.instruction\n",
+  "to": "  const joinable = (s) => !!s && s.layer === \"page\" && typeof s.page === \"string\"\n"
+ },
+ {
+  "label": "O-4: a pages-verb step is joined (the field rule dropped)",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "    && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === \"page\");\n",
+  "to": "    && Array.isArray(s.fields) && s.fields.length > 0;\n"
+ },
+ {
+  "label": "O-5: steps on different pages are joined",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "    if (joinable(prev) && joinable(s) && prev.page === s.page) {\n",
+  "to": "    if (joinable(prev) && joinable(s)) {\n"
+ },
+ {
+  "label": "O-6: the joined step keeps only the first lane's field",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "      out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };\n",
+  "to": "      out[out.length - 1] = { ...prev, fields: [...prev.fields] };\n"
+ },
+ {
+  "label": "O-7: the caller's step is mutated in place",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "      out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };\n",
+  "to": "      prev.fields.push(...s.fields.filter((f) => !prev.fields.includes(f)));\n"
+ },
+ {
+  "label": "O-8: a step on another rung with a page lane's name is joined",
+  "files": ["builder/site-lanes.mjs"],
+  "from": "  const joinable = (s) => !!s && s.layer === \"page\" && typeof s.page === \"string\" && !s.instruction\n",
+  "to": "  const joinable = (s) => !!s && typeof s.page === \"string\" && !s.instruction\n"
+ }
+]

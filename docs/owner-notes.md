@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — Two page lanes on one page are one page edit now
+
+When the lane picker chose two page lanes for one message — `shape` and
+`components`, say — the page editor ran **twice** on the same page with the same
+sentence, the second time on what the first had just written. **Fixed on the
+branch. Not merged, not deployed, no paid run.**
+
+### What it did before (measured, made-up model answers, free)
+
+- *"Swap the opening hours and the market times"*: the first run swapped them,
+  the second swapped them **back**. The site published the original page, you
+  were charged **3 + 2**, and the reply said *"✅ Updated the look."*
+- *"Put the market times at the top"*: the change shipped, but the second run
+  found nothing left to do, and the reply added *"I couldn't find a change to
+  make for that"* beside a change that had shipped.
+- The same message with one lane: one run, charged 3, *"✅ Updated /."*
+
+### What happens now
+
+- Page lanes that sit next to each other and aim at the same page become
+  **one** page edit carrying both changes. Both changes survive, it costs
+  exactly what the one-lane message costs, the other pages stay byte for byte
+  as they were, and the reply says *"✅ Updated /."*
+- **Kept apart on purpose:** the QR-placing step (it has its own fixed
+  instruction), a "take a page off / move a page" step, a step on a different
+  page, and two page lanes with a different step between them (a photo step,
+  say). Joining those last ones would move a page change to the other side of
+  the photo step, and that order matters for the photo protection. They still
+  run twice — written down as what's left.
+
+### Found on the way — a separate bug, not fixed
+
+*"Change the layout **and** take the gallery page off"* runs the layout step as
+a **removal**: the layout never changes and the gallery goes. Written down as
+its own next task (number 6 below).
+
+### Proof (made-up model answers, free)
+
+- A new test file, 7 cases, through the real edit step and the browser's own
+  reply code, on both the instant path and the queued path. The page writer
+  changes whatever page it is shown, so a second run shows up.
+- Before the fix, 3 of the 7 failed — each on "the page editor ran more than
+  once" — and each also fails on its own on the published page (the swap lost)
+  and on the money (charged 3 + 2). After it, all 7 pass. The one-lane controls
+  and the kept-apart case pass both times.
+- Four older tests were built on the double-run shape. Each now tests what it
+  was written for through a shape that still runs twice (a photo step between
+  the two page lanes). Your all-refused reproduction now gives one refusal, with
+  the same sentence on screen as before.
+- Eight deliberate breaks to the new rule — joining across a photo step,
+  joining a step that has its own instruction, dropping one of the two lanes,
+  and so on: all eight caught.
+- The whole suite passes locally: 7,227 (the 8 new cases on top of 7,219).
+  GitHub's run is next.
+- **Not proven:** that a real model makes two changes correctly in one call.
+
+---
+
+## 2026-09-23 — The named-page fix is live
+
+Merged and deployed, as you asked. **Deployed, not runtime-confirmed** — reading
+which code the live Worker runs needs a signed-in press.
+
+- The claim, as you put it: **a page the router supplies now survives all the
+  way to publication; whether the real router picks the right page is
+  unverified.**
+- `main` is now `90045638` (3 commits, 7 files). Nothing newer was on main, so
+  it was a straight fast-forward and nothing needed preserving.
+- Deploy 2147 passed in 3m07s. The site container moved from
+  `fd3355f0b71af621` to **`1aba925de4658f45`**, exactly as predicted before the
+  push. No browser files changed, so there is no served-file check this time.
+- To confirm it from the live Worker, press the canary with no spend:
+  `expect_deploy` `9004563879727638d4db6405e7560c7a2700ab03`, `expect_image`
+  `1aba925de4658f45`. No paid replay, as you said.
+
+---
+
 ## 2026-09-23 — A change aimed at a named page is made on that page
 
 When a message named a page — *"on the gallery page, put the market times above
@@ -163,7 +240,8 @@ thrown away at the very first step: the router's instructions said a page is
 only for page-layer answers, and the code dropped it for every other layer. So
 the change was made on the **home page**, and the reply said *"✅ Updated /."*
 A page the site doesn't have went the same way. **Fixed on the branch. Not
-merged, not deployed, no paid run.**
+merged, not deployed, no paid run.** (Merged and deployed since — the entry
+above.)
 
 ### What happens now
 
@@ -357,7 +435,11 @@ sentence too.
 1. **Wrong page:** a section change can still land on the home page, and the
    router can still name a page from your sentence (run 23's `/book`). A
    missing page is now explained; picking the right one isn't fixed.
+   **Started:** a page the router names now reaches that page (live since
+   deploy 2147).
 2. **Doing it twice:** one message can still run the page editor twice.
+   **Started:** two page lanes next to each other are one page edit now (on
+   the branch); with a different step between them it still runs twice.
 3. **Keeping content:** nothing yet checks what the page writer or the
    stylesheet writer dropped; look + web-address together still only reports
    the look; the full rewrite still has no photo protection.
@@ -370,6 +452,9 @@ sentence too.
    leave the address half-moved; if the routing call itself fails, the browser
    still starts a rewrite; and "add a QR code and make the footer navy" sends
    the whole message to the add-on step, so the footer never changes.
+6. **Layout plus a page removal** (found while fixing number 2): the removal
+   leaks into the layout step, so the layout step removes instead of changing
+   the layout.
 
 Translation, the phone hydration warning and the bigger architecture work stay
 parked, as you said.

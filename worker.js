@@ -238,7 +238,7 @@ import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -21244,10 +21244,26 @@ async function handleRequest(request, env, ctx) {
 
               const acting = pickedFields.filter((f) => OWN_LANES.includes(f));
               if (acting.length) steps.push({ layer: "look", page: ePage, fields: acting });
+              // ── ONE PAGE OPERATION PER PAGE, WHERE PAGE LANES SIT TOGETHER ──
+              //
+              // ⚠ ONE STEP PER LANE RAN THE PAGE RUNG TWICE (2026-09-23).
+              // `components` and `shape` both dispatch to the page rung, and the
+              // page rung reads the customer's sentence and none of the lane
+              // names — so a message picking both was one operation run twice
+              // on one page, the second shown the first's output. Reproduced
+              // through this route with supplied answers: a swap was made and
+              // then made BACK, the publication carried the original page, both
+              // runs were billed, and the screen said "✅ Updated the look."
+              // `mergePageSteps` joins neighbouring page steps on the same page
+              // into one step carrying every field; a step with its own ask, a
+              // `pages` verb, another page, or a step on another rung between
+              // two page steps keeps them apart, and no step moves.
+              const dispatched = [];
               for (const f of pickedFields) {
                 const to = laneLayer(f);
-                if (to) steps.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
+                if (to) dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
               }
+              steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
               //
               // The qr lane stores a destination and a caption and the container

@@ -320,11 +320,21 @@ const withPhoto = (slug) => head("/", SAFE_IMAGE) + "function Page(){ return <ma
   + "<SafeImage src=\"/u/" + slug + "/3f2a.jpg\" alt=\"our workbench\" ratio={4/3} /></section></main> }\n";
 const photoGone = (slug) => withPhoto(slug).replace("className=\"p-4\"", "className=\"p-8\"").replace(/<SafeImage[^>]*\/>/, "");
 
-test("when every step is refused, each says why — the steps' own sentences, and no rewrite", async () => {
-  // THE OWNER'S SECOND REPRODUCTION: two page steps both withheld by the
-  // photograph protection. The merged reply carried the sentences in
-  // `partial[].msg` and none at the top, and the browser's refusal branch,
-  // finding no `msg`, started the full rewrite of every page.
+test("the owner's all-withheld reproduction is one page operation now, and it says why without a rewrite", async () => {
+  // THE OWNER'S SECOND REPRODUCTION: `components` + `tsx` on a page showing a
+  // photograph the writer's answer deletes. It used to run the page rung
+  // TWICE — one step per lane — so both steps were withheld, the merged reply
+  // carried the sentences in `partial[].msg` and none at the top, and the
+  // browser's refusal branch, finding no `msg`, started the full rewrite of
+  // every page.
+  //
+  // ⚠ RE-ANCHORED 2026-09-23 WITH THE ONE-OPERATION FIX (`mergePageSteps`,
+  // `test/edit-page-once.test.mjs`). Neighbouring page lanes on one page are
+  // ONE page operation, so this message is one step and its refusal is the
+  // rung's own — 409, its own sentence at the top — and the screen reads
+  // exactly what the merged reply was fixed to read: the sentence once, the
+  // whole-request clause, and no follow-up. The merge's all-refused law is
+  // still driven, through a shape that still runs two page steps: the next case.
   const slug = "fail-all-withheld";
   const store = bucket(slug, { pages: [{ path: "index.tsx", source: withPhoto(slug) }] });
   const before = snapshot(store);
@@ -335,25 +345,63 @@ test("when every step is refused, each says why — the steps' own sentences, an
       [T.pages]: () => ({ pages: [{ path: "src/routes/index.tsx", source: photoGone(slug) }] }),
     },
   }, { layer: "look", instruction: "Give the bench section more padding." });
+  assert.equal(r.status, 409, "the single page step did not answer with its own refusal");
+  assert.equal(r.body.ok, false);
+  assert.equal(r.body.escalate, undefined, "the refusal escalates, which the browser would act on");
+  assert.equal(r.body.error, "withheld");
+  assert.equal(r.body.cost, 0, "a refused message reported a cost");
+  assert.equal(r.body.photosBlocked, 1);
+  assert.ok(typeof r.body.msg === "string" && r.body.msg.length > 40, "the refusal carries no sentence at the top");
+  assert.equal(r.body.partial, undefined, "one page operation was reported as several steps");
+  // ONE PAGE OPERATION: the cheap writer declined and the rewrite ran ONCE,
+  // where the old path ran that pair twice.
+  assert.deepEqual(r.seen.calls.filter((t) => t === T.tweak || t === T.pages), [T.tweak, T.pages],
+    "the page rung ran more than once for one message: " + JSON.stringify(r.seen.calls));
+  assert.equal(snapshot(store), before, "the store moved on a refused message");
+  assert.equal(r.compiles, 0);
+  assert.deepEqual(r.seen.debits, []);
+  assert.equal(r.said.text, "⚠️ " + r.body.msg + NOTHING_CHANGED + ROUTING_2);
+  assert.match(r.said.text, /taking a photograph off your site/);
+  assert.deepEqual(r.said.actions, [], "a refused message started a follow-up");
+});
+
+test("when every step is refused, each says why — the steps' own sentences, once each, and no rewrite", async () => {
+  // THE MERGE'S ALL-REFUSED LAW, still reachable: two page lanes with the
+  // picture rung BETWEEN them stay two page operations (joining them would
+  // move one across that rung), so this message runs three steps and every
+  // one declines — the page writer finds nothing to change, twice, and the
+  // picture rung finds no photograph. The two page steps write the SAME
+  // sentence, and printing it twice would read as two problems.
+  const slug = "fail-all-refused";
+  const home = page("/", "<h1>Harbour Loaf</h1><p>Open from 7am on weekdays</p>");
+  const store = bucket(slug, { pages: [{ path: "index.tsx", source: home }] });
+  const before = snapshot(store);
+  const r = await edit(slug, store, {
+    answers: {
+      [T.pick]: { fields: ["components", "images", "tsx"] },
+      [T.tweak]: { cannot: "needs the page rewritten" },
+      [T.pages]: () => ({ pages: [{ path: "src/routes/index.tsx", source: home }] }),
+    },
+  }, { layer: "look", instruction: "Tidy the opening hours block and swap the photo." });
   assert.equal(r.status, 422, "a message that did nothing answered as if it had");
   assert.equal(r.body.ok, false);
   assert.equal(r.body.escalate, undefined, "the merged reply escalates, which the browser would act on");
   assert.equal(r.body.cost, 0, "a message whose every step was refused reported a cost");
   assert.equal(r.body.unchanged, true, "every step wrote nothing, and the reply does not say so");
-  assert.ok(Array.isArray(r.body.partial) && r.body.partial.length === 2, "the two refused steps are not both on the reply");
-  for (const p of r.body.partial) {
-    assert.equal(p.error, "withheld");
-    assert.equal(p.unchanged, true, "a withheld step is not recorded as having written nothing");
-    assert.ok(typeof p.msg === "string" && p.msg.length > 40, "a refused step carries no sentence");
-  }
+  const noChange = failureMsg("page/no-change", { page: "/" });
+  const noSlots = failureMsg("picture/no-slots");
+  assert.deepEqual(r.body.partial.map((p) => p.msg), [noChange, noSlots, noChange], "each step's own sentence is not on the reply");
+  for (const p of r.body.partial) assert.equal(p.unchanged, true, "a refused step is not recorded as having written nothing");
+  // THE PAGE RUNG REALLY RAN TWICE — the premise of this case — with the
+  // picture rung between; without it the dedupe below would be vacuous.
+  assert.deepEqual(r.seen.calls.filter((t) => t === T.tweak || t === T.pages), [T.tweak, T.pages, T.tweak, T.pages],
+    "this case's premise is two page operations, and they did not both run: " + JSON.stringify(r.seen.calls));
   assert.equal(snapshot(store), before, "the store moved on a message whose every step was refused");
   assert.equal(r.compiles, 0);
   assert.deepEqual(r.seen.debits, []);
-  // THE SCREEN: the step's sentence ONCE — the two steps were refused for the
-  // same reason, and printing it twice reads as two problems — then the
-  // whole-request clause, and not one follow-up.
-  assert.equal(r.said.text, "⚠️ " + r.body.partial[0].msg + NOTHING_CHANGED + ROUTING_2);
-  assert.match(r.said.text, /taking a photograph off your site/);
+  // THE SCREEN: each distinct sentence ONCE, in the order the steps ran, then
+  // the whole-request clause — and not one follow-up.
+  assert.equal(r.said.text, "⚠️ " + noChange + " " + noSlots + NOTHING_CHANGED + ROUTING_2);
   assert.deepEqual(r.said.actions, [], "a message whose every step was refused started a follow-up");
 });
 

@@ -907,7 +907,13 @@ test("the restoration is by description, and it refuses to guess", () => {
 
 test("a withheld component is named on the reply AND on the screen when two rungs ran", async () => {
   // THE DEFECT, REPRODUCED. `components` and `tsx` both dispatch to the page
-  // rung, so this message runs it twice. `merged.layer` is then `"look"` —
+  // rung, and with `images` picked BETWEEN them this message runs it twice.
+  // (⚠ RE-ANCHORED 2026-09-23: this case picked `components` + `tsx` alone,
+  // which is ONE page operation now — `mergePageSteps`, see
+  // `test/edit-page-once.test.mjs`. A rung between two page lanes keeps them
+  // apart, so the picture rung is what makes this two page rungs. Its tool is
+  // left unanswered: it changes nothing, charges nothing, and its own
+  // sentence rides after the warnings.) `merged.layer` is then `"look"` —
   // the merge says so in as many words — and `editReply`'s look branch never
   // read `keptParts`, `unseenParts`, `photosRemoved` or `photos`. The reply
   // carried the field and the screen said "✅ Updated the look." and stopped.
@@ -918,7 +924,7 @@ test("a withheld component is named on the reply AND on the screen when two rung
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "tsx"] },
+      pick_lanes: { fields: ["components", "images", "tsx"] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       // RUNG 1 changes the page and `card-a`; RUNG 2 hands back a replacement
       // for `card-b`, which the wall withholds because it was too large to
@@ -938,6 +944,12 @@ test("a withheld component is named on the reply AND on the screen when two rung
       //     collapsing the layer does not silently make this case vacuous.
       assert.equal(body.layer, "look", "the merge stopped collapsing two rungs to `look`: " + body.layer);
       assert.deepEqual(body.layers, ["page", "page"], "the two rungs are not both page rungs: " + JSON.stringify(body.layers));
+      // THE STEP BETWEEN THEM, which is what keeps them two: the picture rung
+      // ran between the two page rungs and is reported as not done.
+      const order = calls.map((x) => x.tool).filter((t) => t === SITE_PAGES_TOOL.name || t === PICTURE_TOOL.name);
+      assert.deepEqual(order, [SITE_PAGES_TOOL.name, PICTURE_TOOL.name, SITE_PAGES_TOOL.name],
+        "the picture rung did not run between the two page rungs: " + JSON.stringify(calls.map((x) => x.tool)));
+      assert.deepEqual((body.partial || []).map((p) => p.layer), ["picture"], "the step between the page rungs is not on the reply");
 
       // (b) THE WITHHELD COMPONENT SURVIVES THE MERGE. It came from the SECOND
       //     rung, which is the half the catch-all could never carry: it copies
@@ -970,6 +982,12 @@ test("an empty frame the LAST rung removed is not reported", async () => {
   // reverses."* Every rung used to answer this about its own output, and the
   // merge then carried the FIRST rung's number — an opinion about a version
   // the second rung had already replaced.
+  //
+  // ⚠ RE-ANCHORED 2026-09-23 on `components` + `images` + `tsx`: the first two
+  // and the last are page lanes, and without the picture lane between them
+  // they are one page operation now (`mergePageSteps`), which has no
+  // intermediate version to report. The picture rung's tool is left
+  // unanswered, so it changes and charges nothing.
   const slug = "prot-interim";
   const store = bucket(slug, { parts: [] });
   const withFrame = homeWith(slug)
@@ -977,7 +995,7 @@ test("an empty frame the LAST rung removed is not reported", async () => {
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "tsx"] },
+      pick_lanes: { fields: ["components", "images", "tsx"] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       // RUNG 1 leaves an empty picture frame; RUNG 2 takes it out again. The
       // publication has none.
@@ -987,6 +1005,9 @@ test("an empty frame the LAST rung removed is not reported", async () => {
     }, async () => {
       const { body, said } = await edit(slug, "add a team picture and then change the hours", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
+      // THIS CASE'S PREMISE IS TWO PAGE RUNGS — the second is what removes the
+      // frame the first left.
+      assert.deepEqual(body.layers, ["page", "page"], "the message did not run two page rungs: " + JSON.stringify(body.layers));
 
       // (a) THE INTERMEDIATE REALLY DID CARRY ONE — measured with the product's
       //     own reader, so the case cannot rot into a story about a frame that

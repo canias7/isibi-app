@@ -3599,7 +3599,9 @@ only; nothing added to the repo.
 5. **look → `[shape, components]`** → the page rung runs TWICE on one
    instruction (`pick_lanes, write_tweak, write_tweak, write_pages`); the move
    landed and the screen says *"One part of that message didn't go through"*.
-   `21157-21160` pushes one step per page lane with no dedup.
+   `21157-21160` pushes one step per page lane with no dedup. **Fixed on the
+   branch for NEIGHBOURING page lanes** — *one page operation for neighbouring
+   page lanes*, below.
 6. **a section change routed through look on a two-page site lands on `/`**
    whatever page the message named (`fallbackPage`, `21153`): stored
    `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."* **Fixed on
@@ -3899,7 +3901,11 @@ separate next tasks"*):
    multi-page site still goes to the home page by the documented default.
 2. **Duplicate execution.** Review #5: two page lanes (`components`+`tsx`,
    `shape`+`components`) push two page steps for one sentence — the all-refused
-   reproduction still calls `write_tweak`/`write_pages` twice.
+   reproduction still calls `write_tweak`/`write_pages` twice. **STARTED
+   2026-09-23 — NEIGHBOURING page lanes are one page operation on the branch**
+   (*one page operation for neighbouring page lanes*, below). Two page lanes
+   with another rung's step between them still run the page rung twice,
+   deliberately (that order is load-bearing), and are the recorded remainder.
 3. **Content preservation.** Review #7 (the page writer drops an unrelated
    section and publishes), #8 (the css lane drops an earlier rule), #9 (look +
    rename both land and the screen names only the look), and the full rewrite's
@@ -3920,6 +3926,14 @@ separate next tasks"*):
    add-only wall or page-verb answer in the look door ends the WHOLE message —
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
+6. **The page verbs bleed into sibling page steps** (found 2026-09-23 while
+   reproducing #2; not fixed). `eRemove` and `eRename` are MESSAGE-WIDE `let`s
+   the `pages` verb sets, and every page step reads them — so `shape` picked
+   beside `pages` (*"…and take the gallery page off"*) runs the `shape` step
+   down the REMOVAL branch. Reproduced through the route with supplied answers
+   (`[shape, pages]`, verb `remove`, `/gallery`, the router naming `/`): no page
+   writer ran, the `shape` step answered *"I left / — that is the home page…"*,
+   `/gallery` was removed, and the layout change was never made.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -4059,6 +4073,150 @@ missing — by the new door check, and already by the page rung's own lookup.
 **Measured: 0 capitalised routes** across the 324 corpus pages, the 8 generated
 fixtures and 53 live routes on 25 sites' sitemaps, so it is recorded rather than
 built for.
+
+### MERGED AND DEPLOYED: THE NAMED-PAGE CORRECTION (2026-09-23, evening)
+
+Owner: *"Keep the claim precise: a target supplied by the router now survives
+through publication; real-model target selection remains unverified. Merge and
+deploy this reviewed correction, preserving newer main changes. Report the
+actual deployed SHA and image. No paid replay yet."*
+
+- **THE CLAIM, IN THE OWNER'S WORDS**: **a target supplied by the router now
+  survives through publication; real-model target selection remains
+  unverified.** The reviewed evidence is the 40 focused cases, unit CI and the
+  site build — all on SUPPLIED answers.
+- **A FAST-FORWARD, BECAUSE NOTHING NEWER WAS ON MAIN**: `main` `3c0a2533` →
+  **`90045638`** at ~19:25Z, 3 commits, 7 files (+784 / −15). Asked before the
+  push: zero runs in progress or queued, the image id predicted over both ends
+  (the eighteenth cross-check), and the rollback verified in a throwaway
+  worktree — reverting the range gives tree `6eed00f2…`, **main's own**, so a
+  rollback reuses `fd3355f0b71af621`.
+- **DEPLOY 2147 (`35909174705`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Success,
+  19:25:10 → 19:28:17Z, **3m07s**; image step **2m15s** with **0 `CACHED`
+  lines**; Wrangler 18s. `DEPLOY_ID` **`9004563879727638d4db6405e7560c7a2700ab03`**
+  (unmasked in the log); image **built `1aba925de4658f45`** (registry answered
+  404, 185 inputs — the log prints `***aba925de4658f45`, the `***` a masked
+  `1`) and **rolled from `fd3355f0b71af621`** (`- …:fd3355f0b7***af62***` →
+  `+ …:***aba925de4658f45` under `SUCCESS Modified application`, `Applied
+  changes`); `Uploaded isibi-app`, `Current Version ID: 54890ba0-…`, `Deployed
+  isibi-app triggers`. **`No updated asset files to upload`** — `public/` did
+  not change — so there is **no served-file check**. Gates **401 / 401 / 401 /
+  404** at 19:28:49Z.
+- **THE EIGHTEENTH IMAGE-ID CROSS-CHECK, BOTH ENDS PREDICTED BEFORE THE PUSH**:
+  `origin/main` answered `fd3355f0b71af621` (what deploy 2146 rolled to) and
+  the tip `1aba925de4658f45`, both from 185 inputs, three of the push's seven
+  files among them (`builder/edit-failure.mjs`, `builder/site-ask.mjs`,
+  `worker.js`) — re-read over the deployed range afterwards, same answer.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  `9004563879727638d4db6405e7560c7a2700ab03` and `expect_image`
+  `1aba925de4658f45` — both routes that answer the sha and the image ask
+  `authUser` first, and a session holds no token. **No paid replay** (owner).
+
+### ONE PAGE OPERATION FOR NEIGHBOURING PAGE LANES (2026-09-23, on the branch)
+
+Owner: *"Reproduce one look request whose selected fields include shape and
+components, both targeting the same page. Measure how many page-writer calls,
+compilations and charges it causes, and whether the second execution repeats
+or reverses the first. For compatible changes to the same page, prepare one
+page operation carrying both requested changes. Preserve genuinely different
+page targets and operations that require separate ordering."* **Not merged, not
+deployed, no paid run.**
+
+**THE REPRODUCTION, THROUGH THE REAL ROUTE WITH SUPPLIED ANSWERS.** A two-page
+site, `shape` + `components` both landing on `/`, both money paths. The writers
+are stubs that apply the request to the file they are SHOWN, which is what
+makes a repeated execution visible:
+
+| the ask | page-writer calls | compiles | what shipped | charged | screen |
+|---|---|---|---|---|---|
+| a swap (*"swap the opening hours and the market times"*) | **2**, the second shown the first's swapped page | 1 | the **ORIGINAL** page — the second run swapped it back | **3 + 2** (`use_credits`); job path `edit_reserve` seq 1 = 3, seq 2 = 2 | *"✅ Updated the look."* |
+| a placement (*"put the market times at the top"*) | **3** — the second run's cheap writer found nothing to do, then its full writer returned the page unchanged | 1 | the change | 3 (the second run's two calls unbilled: our cost) | *"✅ Updated /. ⚠️ I read the / page and couldn't find a change to make for that…"* |
+
+Controls — `shape` alone, `components` alone, and `shape` alone on the job
+path: 1 writer call, the change shipped, 3, *"✅ Updated /."* The unrelated
+gallery was byte-identical in every run.
+
+- **SO THE SECOND EXECUTION DOES BOTH, DEPENDING ON THE ASK**: it REVERSES a
+  change whose second application undoes it, and REPEATS one whose second
+  application finds nothing to do — and then reports a refusal beside a change
+  that shipped. Either way somebody pays for it and the screen is wrong.
+- **THE CAUSE**: the look door pushed one step per dispatched lane —
+  `purpose`, `components`, `shape`, `three` and `tsx` all dispatch to the page
+  rung — and the page rung reads the customer's SENTENCE and none of the lane
+  names (`runLayer` hands it `fields`; the page branch reads none of them). Two
+  such steps are one operation run twice, the second on the first's output
+  because `publishStep` advances `eSrc`.
+
+**THE FIX IS ONE PURE FUNCTION AT THE ONE PLACE THE STEPS ARE MADE.**
+`mergePageSteps` (`builder/site-lanes.mjs`) joins CONSECUTIVE page steps aimed
+at the SAME page, each with no ask of its own and every field a lane that
+dispatches to the page rung by its own name, into one step carrying every field
+in order. The look door applies it to the dispatched steps alone
+(`steps.push(...mergePageSteps(dispatched))`), so the QR placement step and the
+`pages` verb step — pushed separately — never meet it.
+
+- **WHAT NEVER JOINS, each a different operation rather than the same one
+  twice**: a step with its OWN ask (the QR placement's fixed text); a `pages`
+  verb step (`laneLayer("pages")` is null — the verb decides the rung); a step
+  on a DIFFERENT page; and **two page steps with ANOTHER rung between them**.
+  The last is the owner's *"operations that require separate ordering"*:
+  joining them moves one page change across that rung, and the order is
+  load-bearing — the picture rung's work reaches a later page step through
+  `eSrc`, which is what the photograph protection reads, and a page step run
+  first can be withheld for a loss the picture rung was about to authorise.
+  **No step moves; neighbours are joined.**
+- **AFTER, SAME ROUTE, SAME ANSWERS**: a swap-plus-card ask on `shape` +
+  `components` → **1** writer call shown the stored page, **1** compile carrying
+  BOTH changes, both in the store, the gallery byte-identical, **one debit
+  equal to the one-lane control's**, `lanes: ["components", "shape"]`,
+  `layers: ["page"]`, *"✅ Updated /."*; the job path takes **one**
+  `edit_reserve` (seq 1). The placement ask: one call, no false refusal.
+- **THE REMAINDER, STATED**: two page lanes with another rung's step between
+  them — `components` + `images` + `tsx` — still run the page rung twice, and
+  the second execution still repeats or reverses the first. Kept deliberately
+  for the ordering above; recorded, not fixed.
+- **AND A SEPARATE DEFECT FOUND ON THE WAY — THE VERB BLEEDS** into sibling
+  page steps (next-task 6 above). Unchanged by this fix.
+
+**FOUR PRE-EXISTING CASES WERE BUILT ON THE DEFECT'S SHAPE, AND EACH WAS
+RE-ANCHORED TO WHAT IT ASSERTS**, not appeased:
+- `edit-failure`'s owner reproduction (two page steps both withheld): the same
+  input is ONE page step now — its own 409 refusal, its sentence at the top —
+  and **the screen is byte-identical to what the merge was fixed to say**: the
+  sentence once, the whole-request clause, no follow-up. The merge's
+  all-refused law moved to a new case on `components` + `images` + `tsx`: two
+  page steps answering *no change* beside the picture rung finding no
+  photograph — 422, three entries, the repeated sentence printed ONCE. File
+  35 → **36 cases**.
+- `edit-page-context`'s snapshot case and `edit-page-protect`'s two
+  merge-reporting cases moved to `components` + `images` + `tsx`, the shape that
+  still runs two page rungs, each with its premise asserted (two page rungs,
+  the picture rung between them).
+
+**EVIDENCE.** `test/edit-page-once.test.mjs`, **7 cases**: the reproduction
+fixed on the synchronous path and on the job path, the placement shape, the
+single-lane controls, the ordering case (the picture rung's call sits between
+the two page calls, and the second is shown the first's output), and two unit
+cases driving `mergePageSteps` over every joining and non-joining shape. **Red
+3 of 7 against unfixed `90045638`** in a throwaway worktree (only the new
+function copied in, so the file loads) — the three route cases, each on its
+first gate (*the page writer ran more than once*); the controls, the ordering
+case and the rule cases pass on both. **And each layer sees the defect on its
+own**: with the call-count gate cut in the throwaway copy the same cases fail
+on the published page (the swap lost), and with that cut too, on money
+(`[3, 2]` debited; seq 1 = 3, seq 2 = 2 reserved). **Focused mutation check
+`scripts/mutants/page-once.json`: 8 mutants, 8 killed, 0 survived, 0 never
+applied, the comment-only control surviving**, against the eight edit-path files
+that can see the change (the new file, `edit-failure`, `edit-page-context`,
+`edit-page-protect`, `edit-lanes`, `edit-parts`, `site-apply`,
+`edit-page-target`); both swept files byte-identical to a scratchpad backup
+afterwards. **Suite 7,227 locally** (`# tests 7227 / # pass 7227 / # fail 0 /
+# skipped 0`, `duration_ms 117,122`) — **+8 against 7,219**, exactly this
+change's cases: seven in the new file and one in `edit-failure`.
+**⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and every writer is
+a stub that applies the ask to what it is shown, so this proves the route runs
+ONE page operation, publishes both changes and bills once — never that a real
+model applies two changes correctly in one call.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -4937,8 +5095,9 @@ off. Both halves true of their own rung and the second **false of the request**.
   component is refused, the merge hands over `null`, and the spine re-sends the
   store's own copy.
 - **ONE SNAPSHOT PER MESSAGE, ADVANCED BY `publishStep`.** `components` and
-  `tsx` both dispatch to `page`, so one sentence runs the rung TWICE — and each
-  run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
+  `tsx` both dispatch to `page`, so one sentence could run the rung TWICE (since
+  2026-09-23 only when another rung's step sits between them — neighbouring
+  page lanes are one step, `mergePageSteps`) — and each run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
   first rung's work was overwritten by the second rung's merge of the original:
   step one ran, was charged for, reported success, and shipped nothing.
   `editParts()` is the message-wide read and `publishStep` advances it exactly
@@ -5166,6 +5325,9 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
   list bills and changes nothing, silently, at both ends.
 - **9 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
   `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`.
+  **Neighbouring page lanes on one page are ONE page step** (`mergePageSteps`,
+  2026-09-23): the page rung reads the sentence, not the lane names, so two of
+  them were one operation run twice.
 - **1 verb lane** — `pages`: `remove` and `move` are the `page` rung, `add` is
   the addon route. **No default** — an unreadable verb refuses, and this is the
   ONE place where the bias inverts, because a wrong guess takes a page off a

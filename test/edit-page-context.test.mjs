@@ -47,6 +47,8 @@ import { TEXT_TOOL } from "../builder/site-apply.mjs";
 // picture spaces came back through the addon composer as "✅ Done." — a
 // fixture in a different shape from reality, one route over.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+// THE SENTENCE A STEP BETWEEN THE TWO PAGE STEPS SAYS, from the one table that owns it.
+import { failureMsg } from "../builder/edit-failure.mjs";
 import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS } from "../builder/page-gen.mjs";
 
 const USER = { id: "u-editctx-1", email: "owner@example.com" };
@@ -339,9 +341,15 @@ test("an unreadable components store publishes NOTHING over the inventory, and s
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("two page steps in one message: BOTH components reach the single publication", async () => {
-  // `components` and `tsx` both dispatch to the `page` layer, so a two-field
-  // pick runs the rung twice for ONE message. Each run used to read the stored
-  // parts FRESH and merge its own answer over them:
+  // `components` and `tsx` both dispatch to the `page` layer, and with the
+  // `images` lane picked BETWEEN them the message runs the page rung twice.
+  // (⚠ RE-ANCHORED 2026-09-23: this case picked `components` + `tsx` alone,
+  // and those two are now ONE page operation — `mergePageSteps` joins
+  // neighbouring page steps on one page, `test/edit-page-once.test.mjs`. Two
+  // page lanes with another rung between them stay two steps, because joining
+  // them would move one across that rung — so that is the shape that still
+  // needs the snapshot below.) Each run used to read the stored parts FRESH
+  // and merge its own answer over them:
   //
   //   step 1: mergeParts([A_OLD, B_OLD], [A_NEW]) -> [A_NEW, B_OLD]   -> handed over
   //   step 2: mergeParts([A_OLD, B_OLD], [B_NEW]) -> [A_OLD, B_NEW]   -> handed over
@@ -358,7 +366,7 @@ test("two page steps in one message: BOTH components reach the single publicatio
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "tsx"] },
+      pick_lanes: { fields: ["components", "images", "tsx"] },
       [TWEAK_TOOL.name]: { cannot: "that needs the components rewritten" },
       // TWO PAGE CALLS, ANSWERED IN ORDER — the first returns `card-a`, the
       // second `card-b`. Keyed by call index, because both steps ask for the
@@ -376,8 +384,10 @@ test("two page steps in one message: BOTH components reach the single publicatio
       // came in through the lane picker's door, so the merge keeps the
       // customer-facing layer it arrived on. Asserted as it really is, because
       // pinning "Updated /." here would be asserting a sentence this path does
-      // not compose — the same mistake one composer over.
-      assert.equal(said.text, "\u2705 Updated the look.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      // not compose — the same mistake one composer over. The picture step
+      // between the two page steps found no photograph, and says so after it.
+      assert.equal(said.text, "\u2705 Updated the look. \u26a0\ufe0f " + failureMsg("picture/no-slots"),
+        "the customer's sentence changed: " + JSON.stringify(said.text));
 
       // BOTH STEPS REALLY RAN. Without this the case would pass by doing half
       // the work once, which is the shape it is trying to catch.
