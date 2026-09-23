@@ -4543,6 +4543,13 @@ path).
 **Suite 7,247 locally** (`# tests 7247 / # pass 7247 / # fail 0 / # skipped 0`,
 `duration_ms 117,405`) — **+17 against 7,230**, exactly this file's cases; the
 re-anchors added assertions, not cases.
+**AND THE CI UNIT HALF MATCHES**: run **`35930143106` on `9ca86137`** reads
+**`# tests 7247 / # pass 7243 / # fail 0 / # skipped 4`** (`duration_ms
+110,793`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all seventeen cases found passing BY NAME (`ok 1823`–`1839`) and
+zero `not ok` lines in the downloaded log. The docs-only `9dd117df` reads the
+same four numbers on run `35930280497`, so the pair off CI says that commit
+moved the suite by zero.
 **⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and the page writer
 is a stub that applies the layout to the file it is shown, so this proves the
 route scopes each verb to its own step and target — never that a real picker
