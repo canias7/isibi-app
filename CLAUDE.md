@@ -3134,6 +3134,72 @@ reality*, in the harness this file calls the customer's own screen executed.
   preflight checks — run 20's precedent. `scripts/**` is in `paths-ignore`, so
   a merge of this would deploy nothing either.
 
+### RUN 24 — THE REPLAY: FOUR ITEMS OF FIVE, AND ONE EMPTY LIST (2026-09-23)
+
+**`35807954856`, paid, dispatched from `main` (01:50:31 → 02:02:41Z)** — so
+the OLD blind harness (`pages: []`), and the router answered `intent=edit
+layer=page page=/` in 38.1 s (`6,631 in / 19 out`, cost **2**) — the same
+luck runs 17 and 21 had. **It IS the replay**: the request's sha is the
+recorded one (159 chars), its own before-read is byte-identical to run 17's on
+all six bodies, and it published. Job states `claimed` (cost 0) to ~345 s,
+`routing` (cost 22) from ~358 s, `publishing` at ~643 s, a stored 200 under
+`x-gf-edit: final` at **646.5 s** (190 polls, 0 transient) — intervals, not
+attributed. The live header moved to **`01790128661913-dafwjz`**, minted
+**01:57:41.913Z**, inside the window.
+
+- **COST: route 2 + edit 22 = 24, balance 46 → 22, closing exactly.** `tweak`
+  absent, `tweakUsage` **8,314 in / 7,602 out** — this time the quick writer
+  re-emitted the whole page before it was declined (run 21's was 53 tokens), so
+  the edit landed in the quoted "dearer" band; its decline reason is still on
+  neither the reply nor the trace. The full writer: **24,652 in / 9,410 out**.
+  `langs` fr/es `cached, missing 0`.
+- **TWO FILES CHANGED, FOUR BYTE-IDENTICAL.** `index.tsx` 26,276 → 26,248
+  chars (`e8a2a0a6fc68f6ea`), two lines: the `useRpc` result is kept WHOLE
+  (`const bookingsOnDay = useRpc(…)`) and passed as `query={bookingsOnDay}`
+  instead of `bookingCount={Number(bookingCount ?? 0)}`. `day-space-lookup`
+  1,466 → 1,932 (`4b162037f67df545`): takes `query: {isPending, isError,
+  data}`, shows `Checking…` / `Couldn't check — try again` / `Not available` /
+  `Six places left.` / `N places left.` / `1 place left.` / `None left.`
+  `chord-diagram`, `trial-booking-form`, `gear.tsx`, `prices.tsx` unchanged.
+- **THE BOX USES THE RULE'S OWN EXAMPLE WORDS VERBATIM** — *"Checking…"*,
+  *"Couldn't check — try again"*, *"Not available"* are rule 11's three
+  examples. That is **strong evidence the rule reached the writer**, which the
+  vanished warnings alone could not be; the prompt is still not captured.
+  `problems` is **0**: run 21's four *"does not declare"* warnings are gone,
+  which is the new lookup's FIRST LIVE READING on an `incomplete` site inside
+  the container — the rung's lint read the real spec.
+- **PROBE v3 ON THE LIVE BOX** (02:06Z, `dafwjz`, no row written): successful
+  counts **MATCH 7 of 7** — 0 → *"Six places left."*, 1 → *"5 places left."*,
+  2 → *"4"*, 5 → *"1 place left."*, 6/7/99 → *"None left."*; held **READ 6 ·
+  MATCH 2** (every pending reading *"Checking…"*, the day switch included);
+  upstream failures **READ 7** (*"Couldn't check — try again"*, after the
+  retries); empty responses **READ 4 · FAIL 1** — 200 `null`, empty body and
+  `{}` → *"Not available"*, 204 → *"Couldn't check — try again"*, and **200
+  `[]` → *"Six places left."***; the real function **200 body `0`** → *"Six
+  places left."*, correct. No console errors, no failed requests beyond the
+  probe's own.
+- **THE ONE FAIL IS `Number([])`, WHICH IS 0.** `placesLeftLabel` refuses
+  `data == null` and a non-finite `Number(data)`, and an empty list passes
+  both. Rule 11 names `Number(data)` among the defaults never to apply; the
+  writer applied it after a null check. **Unrealistic for this function** — a
+  scalar-returning RPC answers a number, not a list — **and still one of the
+  fifteen states the owner listed**, so item 1 is not met.
+- **`Not available` classifies READ with the note *"may read as full"***: it
+  advertises no places, so it passes item 1; whether it reads well is the
+  owner's call, as recorded before the press.
+- **THE CUSTOMER'S SCREEN**: *"✅ Updated /. I had a look at the finished
+  pages: / threw an error and 2 pages reads something the check can't reach,
+  so I couldn't see it with real data."* — accurate as a relay of the render
+  check: `/` [phone] React #418 (the same finding as runs 11 and 21, still
+  UNRESOLVED), `/` and `/prices` `unmet` (by design). `deadSelectors` the same
+  two as before.
+- **THE VERDICT, KEPT NARROW**: items 2–5 pass; item 1 passes on fourteen of
+  its fifteen states and fails on `[]`. **The acceptance stays OPEN** on the
+  owner's call about `[]`. What is established is that a real model, given
+  rule 11 through the page rung on an `incomplete` site, produced the query
+  hand-off and the three states — for this sentence on this site, and nothing
+  wider.
+
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
@@ -5661,7 +5727,9 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
+build. **Balance 22** at run 24's end (2026-09-23, the replay: **46 → 22,
+moved 24** — route 2 + the page rung's 22, closing exactly, on a run that
+published). **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
 routing call; the edit escalated `no-page` at `cost: 0` and nothing published;
 run 22's free restore read 48). **Balance 48** at run 21's end (2026-09-22, the places-left replay:
 **65 → 48, moved 17** — route 2 + the page rung's 15, closing exactly, on a run

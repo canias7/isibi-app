@@ -208,6 +208,43 @@ sentence, same empty list. **This was the harness, not the product.**
 
 **Still open:** your five acceptance items. The press still has to happen.
 
+### The replay (run 24) — four of your five items pass; one state fails
+
+You ran it from `main`, so it used the old harness (no page list). The router
+still picked `/` this time, so it was the real test: same request, same
+starting files, and it published. **Cost 24** (routing 2 + edit 22), balance
+**46 → 22**.
+
+**What changed:** only the booking box and one line of the home page. The page
+now hands the box the whole booking lookup instead of a bare number. The other
+two components and the other two pages are byte-for-byte unchanged. The box
+uses the rule's own wording word for word: "Checking…", "Couldn't check — try
+again", "Not available". That's good evidence the new rule reached the writer.
+
+**Your five items, checked in a real browser:**
+1. **Loading, failed and missing never show "6 places left" — fails on one of
+   fifteen states.** Loading shows "Checking…" (day switches too), every
+   failure shows "Couldn't check — try again", and an empty or `null` answer
+   shows "Not available". **But an empty-list answer (`[]`) shows "Six places
+   left."** The code turns `[]` into 0. The booking lookup returns a single
+   number, so it shouldn't ever send `[]`, but it's on your list.
+2. **Zero shows six** ("Six places left.") — pass.
+3. **2, 5, 6 and over → 4, 1, 0, 0** ("4 places left.", "1 place left.",
+   "None left.") — pass.
+4. **The booking lookup and everything else unchanged** — pass. The real
+   lookup answers 0 and the box says "Six places left."
+5. **The reply and the browser** — pass. The reply says "✅ Updated /" plus the
+   automatic check's note ("/ threw an error" on phones, the same unresolved
+   finding as runs 11 and 21). No console errors in my browser loads.
+
+**So the acceptance isn't closed yet**, only because of `[]`. Your call:
+accept it as not applying to a lookup that returns one number, or fix it
+(one more paid edit on the site, or a platform check that catches this
+pattern). I haven't done either.
+
+One more thing for you to judge: "Not available" doesn't claim there are
+places, so it passes, but a visitor could read it as "the day is full".
+
 ---
 
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
