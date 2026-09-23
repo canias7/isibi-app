@@ -625,6 +625,15 @@ function showMarketing() {
   // autoplay loops while the page was hidden and won't resume them on its
   // own — only a fresh load autoplays. Re-kick every cell that isn't playing.
   if (mkt) mkt.querySelectorAll('video').forEach((v) => { if (v.paused) v.play().catch(() => {}); });
+  // THE PROMPT LINE'S TYPING STARTS HERE, every time the landing appears. It
+  // stops itself whenever the landing is hidden, and boot runs initCrt() — its
+  // first start — BEFORE this function has ever shown the landing, so on every
+  // fresh load it saw `display: none`, stopped at once and never began: the box
+  // sat empty (owner's screenshots, 2026-09-23). paintCrt() rather than the
+  // typing itself, because it is the one writer of that placeholder and knows
+  // which channel wants the typing and which wants a fixed line; the typing
+  // refuses to start twice on one box.
+  paintCrt();
 }
 function hideMarketing() {
   const mkt = document.getElementById('marketing');
@@ -3391,7 +3400,7 @@ function initAuthGate() {
   // Click ripple on primary buttons — a white ink expands from the tap point.
   if (!window.__rippleWired) {
     window.__rippleWired = true;
-    const RIPPLE = '.send, .st-sendc, .st-publish, .crt-chatbox-send, .st-data-add, .st-data-save';
+    const RIPPLE = '.send, .st-sendc, .st-publish, .st-data-add, .st-data-save';
     const reduceRipple = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.addEventListener('pointerdown', (e) => {
       if (reduceRipple) return;
@@ -3520,23 +3529,21 @@ function initMktCord() {
 // channel. State lives on module-level crtSel; wiring is one-time in initCrt().
 let crtSel = 0;
 // ── The landing's prompt line writes itself (owner 2026-08-29): one example at
-// a time, letters in and letters out. They alternate between something to
-// GENERATE and something to BUILD, so a visitor sees both halves of the product
-// within a few seconds and without a word of caption explaining it.
+// a time, letters in and letters out. EVERY EXAMPLE IS SOMETHING TO BUILD
+// (owner 2026-09-23: "website examples only"). They used to alternate with
+// something to GENERATE, so a visitor saw both halves of the product; that half
+// went with the media side on 2026-09-12, and its five examples — a tiger clip,
+// a drone shot, a portrait, a voice line, an advert — went on offering a product
+// that no longer exists.
 //
 // This array is the only place the examples live. paintCrt() used to carry its
 // own copy of the first line; it now asks for the typing instead, so there is
 // exactly ONE writer for that attribute and no second list to drift out of step.
 const LAND_PROMPTS = [
-  'a neon tiger prowling a rainy Tokyo alley, cinematic',
   'a booking page for my barber shop — prices, hours, and a contact form',
-  'a slow drone shot over a foggy pine forest at sunrise',
   'a one-page site for a wedding photographer, with a gallery',
-  'a paper-craft hummingbird, lit like a studio portrait',
   'an app that tracks my gym sets and charts the week',
-  'read this warmly: "we open at seven — come hungry"',
   'a menu site for a ramen shop, with a map and opening times',
-  'a 90s VHS advert for a lemonade stand, handheld and grainy',
   'a landing page for my plumbing business that takes callbacks',
 ];
 let landTypeTimer = null, landTypeAt = 0, landTypeEl = null;

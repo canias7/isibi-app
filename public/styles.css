@@ -126,7 +126,7 @@
       animation: view-in .22s cubic-bezier(.2, .7, .3, 1) both;
     }
     /* click ripple — a white ink expands from the tap point on primary dark buttons */
-    .send, .st-sendc, .st-publish, .crt-chatbox-send, .st-data-add, .st-data-save {
+    .send, .st-sendc, .st-publish, .st-data-add, .st-data-save {
       position: relative; overflow: hidden;
     }
     .ripple-ink {
@@ -861,8 +861,11 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 /* Glass composer — one calm surface, no chrome inside; the panel is the border. */
 .st-new { margin-top: 2rem; text-align: left; border: 1px solid var(--line-2); border-radius: 20px; background: var(--panel); padding: 1.1rem 1.15rem .8rem; box-shadow: 0 24px 60px rgba(0, 0, 0, .42); transition: border-color .18s ease, box-shadow .18s ease; }
 .st-new:focus-within { border-color: rgba(0, 0, 0, .42); box-shadow: 0 24px 60px rgba(0, 0, 0, .5), 0 0 0 3px rgba(0, 0, 0, .07); }
-.st-hero .st-in { width: 100%; font: inherit; font-size: 1.04rem; line-height: 1.5; color: var(--text); background: transparent; border: none; border-radius: 0; padding: .35rem .3rem; resize: none; min-height: 3.2rem; }
-.st-hero .st-in:focus { outline: none; }
+/* The field inside the composer, named by the COMPOSER rather than the page it
+   sits on: the landing draws the same box (index.html, #crtChatbox), and
+   `.st-hero .st-in` could only ever reach the builder's copy. */
+.st-new .st-in { width: 100%; font: inherit; font-size: 1.04rem; line-height: 1.5; color: var(--text); background: transparent; border: none; border-radius: 0; padding: .35rem .3rem; resize: none; min-height: 3.2rem; }
+.st-new .st-in:focus { outline: none; }
 .st-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .55rem; flex-wrap: wrap; }
 /* ONE AUTO MARGIN ON THIS ROW, AND IT IS THE SEND BUTTON'S. Three elements here
    each carry one of their own, written for the row each was designed in:
@@ -3981,22 +3984,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .sec-when,.sec-where{color:var(--muted);opacity:.75;font-size:.8rem;white-space:nowrap}
 .crt-doors{display:flex;gap:.7rem;flex-wrap:wrap;justify-content:center}
 .crt-doors .mkt-cta,.crt-doors .mkt-ghost{padding:.7rem 1.9rem;font-size:.92rem}
-.crt-chatbox{width:min(560px,88%);display:flex;align-items:stretch;gap:.9rem;cursor:text;
-  padding:1.1rem 1rem 1.1rem 1.4rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
-  box-shadow:0 28px 70px rgba(0,0,0,.55);transition:border-color .25s}
-.crt-chatbox:hover{border-color:rgba(0,0,0,.45)}
-/* textarea: text starts top-left and the box grows DOWN (wraps, never scrolls sideways) */
-.crt-chatbox-in{flex:1;min-width:0;color:var(--text);font-family:inherit;font-size:1.06rem;line-height:1.45;
-  background:transparent;border:0;outline:0;padding:0;margin:0;resize:none;overflow-x:hidden;overflow-y:auto;
-  min-height:4.4rem;max-height:9em;appearance:none}
-.crt-chatbox-in::placeholder{color:var(--muted);opacity:1}
-.crt-chatbox-send{flex:0 0 auto;align-self:center;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  border:0;cursor:pointer;background:var(--split);color:#14060d;box-shadow:0 6px 20px rgba(0,0,0,.4);transition:transform .15s}
-.crt-chatbox-send:hover{transform:translateY(-1px) scale(1.04)}
-.crt-chatbox-send:active{transform:scale(.96)}
+/* The landing's chatbox IS the builder's composer (`.st-new`, index.html), so its
+   look lives with the builder's rules and not here (owner 2026-09-23: the two
+   boxes must look the same). What stays the landing's own is only where it sits:
+   as wide as the builder's (the start screen's hero is 720px), no top margin
+   because the doors' gap already spaces it, and a cap on the height the
+   landing's grow-as-you-type sets, which the builder's box does not have.
+   The font size and line height are the builder's own context (16px, normal):
+   the landing's sheet sets 17px and 1.55, and the field is an inline-block
+   whose line box takes its parent's — measured 2.34px taller here until this
+   said so. */
+.crt-inbox .st-new{width:min(720px,100%);margin-top:0;font-size:1rem;line-height:normal}
+.crt-inbox .st-in{max-height:9em}
 /* coming-soon channel: the chatbox is inert (Enter does nothing) */
-.crt-chatbox.crt-chatbox-soon{opacity:.5;filter:saturate(.5);cursor:not-allowed}
-.crt-chatbox.crt-chatbox-soon .crt-chatbox-send{pointer-events:none}
+.st-new.crt-chatbox-soon{opacity:.5;filter:saturate(.5);cursor:not-allowed}
+.crt-chatbox-soon .st-gen{pointer-events:none}
 @media (max-width:640px){ .mkt-crt .crtl-stage{padding-top:4.5rem} }
 
 /* ── Minimal landing (owner 2026-07-23): drop the channel list + media wall,
@@ -4010,28 +4012,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .crt-inbox{top:50%;bottom:auto;transform:translateY(calc(-50% + 1.6rem))}
 .mkt-crt .crt-crest{top:calc(50% - 10.6rem)}
 
-/* ── Gradient Halo chatbox (owner 2026-07-23): the ONE colored element on the
-   black-and-white platform. Pinned to the old dark glass + pink→amber halo so it
-   reads as a deliberate island (owner: "leave that chatbox like that"). The ring
-   is a masked ::before (padding-box XOR border-box); the halo is the box-shadow. ── */
-.mkt-crt .crt-chatbox{position:relative;flex-direction:column;align-items:stretch;gap:.55rem;
-  width:min(620px,92%);padding:1.15rem 1.2rem 1rem;border:0;background:rgba(18,15,24,.94);
-  box-shadow:0 28px 70px rgba(0,0,0,.28),0 0 24px rgba(255,121,198,.34),0 0 62px rgba(255,121,198,.16)}
-.mkt-crt .crt-chatbox::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1.7px;
-  background:var(--halo);pointer-events:none;
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor;mask-composite:exclude}
-.mkt-crt .crt-chatbox-in{min-height:2.6rem;font-size:1.08rem;color:#f4f1f8}
-.mkt-crt .crt-chatbox-in::placeholder{color:rgba(244,241,248,.5)}
-.crt-chatbox-bar{display:flex;align-items:center;justify-content:space-between;gap:.6rem}
-.crt-chatbox-tools{display:flex;align-items:center;gap:.5rem}
-.crt-chatbox-ico{display:flex;align-items:center;justify-content:center;width:34px;height:34px;
-  border-radius:10px;color:var(--muted);background:rgba(255,255,255,.03);border:1px solid var(--line-2)}
-.crt-chatbox-ico svg{width:17px;height:17px}
-/* dark-island overrides so the chatbox stays legible on its dark glass */
-.mkt-crt .crt-chatbox-ico{color:rgba(244,241,248,.62);background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14)}
-.mkt-crt .crt-chatbox-send{background:var(--halo)}
 .mkt-crt .crt-scan{opacity:.05}
 
 /* ---- CRT landing: crest (laurel + headline), preview stage, legal ---- */
@@ -4379,29 +4359,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   filter:url(#pencilRough2);pointer-events:none}
 .mkt-crt .mkt-ghost:hover{background:var(--gr-wash);transform:translateY(-2px)}
 
-/* ---- the chatbox: a box ruled on the page, shaded lightly inside ---- */
-.mkt-crt .crt-chatbox{background:var(--gr-tint);background-color:rgba(255,253,247,.72);
-  box-shadow:0 18px 34px -26px rgba(51,49,61,.6);border-radius:14px}
-/* was the pink halo ring — now the ruled edge, drawn twice like a real one */
-.mkt-crt .crt-chatbox::before{inset:0;padding:0;border-radius:inherit;
-  background:none;border:1.9px solid var(--graphite);
-  -webkit-mask:none;mask:none;filter:url(#pencilRough)}
-.mkt-crt .crt-chatbox::after{content:"";position:absolute;inset:2px -1px -2px 2px;
-  border-radius:inherit;border:1.2px solid var(--graphite-2);opacity:.38;
-  filter:url(#pencilRough2);pointer-events:none}
-.mkt-crt .crt-chatbox:hover::before{border-color:#22202b}
-.mkt-crt .crt-chatbox-in{color:var(--graphite)}
-.mkt-crt .crt-chatbox-in::placeholder{color:var(--graphite-3)}
-.mkt-crt .crt-chatbox-ico{color:var(--graphite-2);background:var(--gr-wash);
-  background-color:transparent;border:0;position:relative;border-radius:9px}
-.mkt-crt .crt-chatbox-ico::before{content:"";position:absolute;inset:0;
-  border-radius:inherit;border:1.5px solid var(--graphite-2);
-  filter:url(#pencilRough2);pointer-events:none}
-.mkt-crt .crt-chatbox-send{background:var(--gr-fill);background-color:#2a2833;
-  color:var(--paper);box-shadow:none;position:relative;isolation:isolate}
-.mkt-crt .crt-chatbox-send::before{content:"";position:absolute;inset:-1px;z-index:-1;
-  border-radius:50%;border:1.7px solid var(--graphite);
-  filter:url(#pencilRough);pointer-events:none}
 /* the filter defs are markup, not furniture — keep them out of layout */
 .pencil-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
 
@@ -4424,8 +4381,6 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .mkt-crt .mkt-signin{font-size:1.02rem}
 .mkt-crt .crt-doors .mkt-cta,.mkt-crt .crt-doors .mkt-ghost{font-size:1.06rem}
 .mkt-crt .crt-topbar .mkt-cta{font-size:1rem}
-.mkt-crt .crt-chatbox-in,.mkt-crt .crt-chatbox-in::placeholder{
-  font-family:inherit;font-size:1.14rem}
 
 /* ---- the page extends (owner 2026-08-29): the landing was ONE fixed screen
    with overflow hidden, so anything added below it was simply invisible. The
