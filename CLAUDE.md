@@ -3134,18 +3134,21 @@ reality*, in the harness this file calls the customer's own screen executed.
   preflight checks — run 20's precedent. `scripts/**` is in `paths-ignore`, so
   a merge of this would deploy nothing either.
 
-### RUN 24 — THE REPLAY: FOUR ITEMS OF FIVE, AND ONE EMPTY LIST (2026-09-23)
+### RUN 24 — THE REPLAY: THE STATES HOLD, AND THE ANSWER IS NEVER CHECKED (2026-09-23)
 
 **`35807954856`, paid, dispatched from `main` (01:50:31 → 02:02:41Z)** — so
 the OLD blind harness (`pages: []`), and the router answered `intent=edit
 layer=page page=/` in 38.1 s (`6,631 in / 19 out`, cost **2**) — the same
-luck runs 17 and 21 had. **It IS the replay**: the request's sha is the
-recorded one (159 chars), its own before-read is byte-identical to run 17's on
-all six bodies, and it published. Job states `claimed` (cost 0) to ~345 s,
-`routing` (cost 22) from ~358 s, `publishing` at ~643 s, a stored 200 under
-`x-gf-edit: final` at **646.5 s** (190 polls, 0 transient) — intervals, not
-attributed. The live header moved to **`01790128661913-dafwjz`**, minted
-**01:57:41.913Z**, inside the window.
+luck runs 17 and 21 had. **So run 24 is no reading of the corrected harness**:
+that stays on the branch, and a press that should use it is dispatched from
+the branch until it merges (owner: *"Retain the corrected harness for future
+runs"*). **It IS the replay**: the request's sha is the recorded one (159
+chars), its own before-read is byte-identical to run 17's on all six bodies,
+and it published. Job states `claimed` (cost 0) to ~345 s, `routing` (cost 22)
+from ~358 s, `publishing` at ~643 s, a stored 200 under `x-gf-edit: final` at
+**646.5 s** (190 polls, 0 transient) — intervals, not attributed. The live
+header moved to **`01790128661913-dafwjz`**, minted **01:57:41.913Z**, inside
+the window.
 
 - **COST: route 2 + edit 22 = 24, balance 46 → 22, closing exactly.** `tweak`
   absent, `tweakUsage` **8,314 in / 7,602 out** — this time the quick writer
@@ -3177,28 +3180,79 @@ attributed. The live header moved to **`01790128661913-dafwjz`**, minted
   `{}` → *"Not available"*, 204 → *"Couldn't check — try again"*, and **200
   `[]` → *"Six places left."***; the real function **200 body `0`** → *"Six
   places left."*, correct. No console errors, no failed requests beyond the
-  probe's own.
-- **THE ONE FAIL IS `Number([])`, WHICH IS 0.** `placesLeftLabel` refuses
-  `data == null` and a non-finite `Number(data)`, and an empty list passes
-  both. Rule 11 names `Number(data)` among the defaults never to apply; the
-  writer applied it after a null check. **Unrealistic for this function** — a
-  scalar-returning RPC answers a number, not a list — **and still one of the
-  fifteen states the owner listed**, so item 1 is not met.
+  probe's own. **Its five "empty" shapes are a sample, never a type census.**
+- **⚠ THE DEFECT IS UNRESTRICTED `Number(data)`, NOT AN EMPTY LIST (owner:
+  *"don't close the remaining issue as an empty-array exception"*).** The first
+  write-up of this section called `[]` the one failing state — which was the
+  PROBE'S list speaking, not the component. `placesLeftLabel` refuses
+  `data == null` and a non-finite `Number(data)`, then does arithmetic on
+  whatever `Number` made. **Reproduced free** against the saved component
+  (`4b162037f67df545`, rendered with real React through `renderPart`):
+  `[]`, `false`, `""` and whitespace → *"Six places left."*, `true` → *"5
+  places left."*, `[2]` → *"4 places left."* — the owner's six, exactly — and
+  beyond them `[0]`, `"0"`, `"\n"`, `-1` and `-0.5` → Six, `"3"` → *"3 places
+  left."*, `[7]` and `"7"` → *"None left."*, `1.5` → *"4.5 places left."*.
+  Only `{}` and `"abc"` (a NaN) are refused. **The render agrees with the live
+  probe on every value both read** (`[]`, `{}`, `null`, the empty body, the
+  seven counts); a 204 never reaches it as an answer, since TanStack turns
+  `undefined` data into an error — the probe read *"Couldn't check"*.
+- **TWO CLAIMS, KEPT APART (owner).** The saved generated component is
+  DEFECTIVE for malformed answers — established. The real function sending
+  one — **NOT shown.** Read twice at 02:27Z (a real day, and the empty day the
+  page sends on load): **200, `application/json; charset=utf-8`,
+  `content-range: 0-0/*`, a body of the one byte `0`** — PostgREST's scalar
+  answer. `proxySiteService` returns the upstream status, content-type and
+  body verbatim, and the kit's `send()` validates nothing: 204 → `undefined`,
+  a body that is not JSON → `null`, a non-2xx → throws, anything else →
+  `data`, as parsed. **The declared return type lives in the site's stored
+  schema and in the digest line the writer is shown (`name(args) ->
+  <returns>`), and no route serves either to a session**, so the contract is
+  OBSERVED as a JSON integer, never read.
 - **`Not available` classifies READ with the note *"may read as full"***: it
   advertises no places, so it passes item 1; whether it reads well is the
   owner's call, as recorded before the press.
 - **THE CUSTOMER'S SCREEN**: *"✅ Updated /. I had a look at the finished
   pages: / threw an error and 2 pages reads something the check can't reach,
-  so I couldn't see it with real data."* — accurate as a relay of the render
-  check: `/` [phone] React #418 (the same finding as runs 11 and 21, still
-  UNRESOLVED), `/` and `/prices` `unmet` (by design). `deadSelectors` the same
-  two as before.
-- **THE VERDICT, KEPT NARROW**: items 2–5 pass; item 1 passes on fourteen of
-  its fifteen states and fails on `[]`. **The acceptance stays OPEN** on the
-  owner's call about `[]`. What is established is that a real model, given
-  rule 11 through the page rung on an `incomplete` site, produced the query
-  hand-off and the three states — for this sentence on this site, and nothing
-  wider.
+  so I couldn't see it with real data."* *"Updated /"* is true, and the rest
+  relays the render check faithfully: `/` [phone] React #418, `/` and
+  `/prices` `unmet` (by design). **⚠ BUT #418 IS UNRESOLVED (runs 11, 21 and
+  24), so whether *"/ threw an error"* is true of a visitor's page is not
+  established, and the reply is NOT verified as a whole (owner).**
+  `deadSelectors` the same two as before.
+- **THE VERDICT, KEPT NARROW**: items 2, 3 and 4 pass. Item 1 passes for every
+  loading, failed and missing state and **fails on response-type validation** —
+  a successful answer that is not a count is turned into one. Item 5 is open
+  while #418 is. **The acceptance stays OPEN.** What is established is that a
+  real model, given rule 11 through the page rung on an `incomplete` site,
+  produced the query hand-off and the three states — for this sentence on this
+  site, and nothing wider.
+- **THE CORRECTION IS PROPOSED AND NOT APPLIED** (owner: *"Return the bounded
+  proposed change and free verification first"*). Rule 11 already forbade
+  `Number(data)` — as a DEFAULT, and the writer read it that way, converting
+  after its null check. The proposal extends one sentence, *"Only a real answer
+  may state a number, "none left" or "has space""*: **a real answer has the
+  type the function RETURNS** (the digest prints it after the arrow),
+  **checked before any arithmetic** — for a count `typeof data === "number" &&
+  Number.isInteger(data) && data >= 0` — **a zero that passes is a real answer,
+  so test the type and never truthiness**; anything that fails gets the
+  "nothing" words; and **never convert**, because `Number(data)` and `+data`
+  turn `[]`, `""` and `false` into 0 and `true` into 1. No array case, no lint,
+  no parser.
+  **VERIFIED FREE, AND ONLY THIS FAR**: a stand-in copy of the saved component
+  with only that check (hand-written, NOT a model's answer) renders the seven
+  counts as before and every malformed value *"Not available"*, pending /
+  failed / no day unchanged. Two weaker checks show why the sentence carries
+  all three conditions and the zero clause: type-only still shows `-1` as six
+  and `1.5` as *"4.5 places left."*; truthiness turns a real `0` into *"Not
+  available"* and still shows `[]` as six. Rendered rules **42,409 → 42,950**
+  full and **27,909 → 28,450** shopfront (+541 each), frontend **29,077 /
+  14,073** unchanged, the text inside rule 11 only. The full unit suite on the
+  proposed text, in a throwaway worktree: **`# tests 7175 / # pass 7174 /
+  # fail 1`** — the one failure is `render-sandbox`'s privilege-drop case
+  (`MODULE_NOT_FOUND` in the dropped child), which fails identically in that
+  worktree with the proposal REMOVED and passes 20/20 in the main checkout:
+  the worktree's location, not the text. No existing guard pins the words it
+  adds. **NOT ESTABLISHED**: that a model follows it.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
