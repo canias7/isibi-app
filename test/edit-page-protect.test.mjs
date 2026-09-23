@@ -140,7 +140,7 @@ const STORED_LOOK = {
   ],
 };
 
-function bucket(slug, { home = homeWith(slug), parts = [{ name: "card-a", source: A_OLD }, { name: "card-b", source: A_OLD }] } = {}) {
+function bucket(slug, { home = homeWith(slug), parts = [{ name: "card-a", source: A_OLD }, { name: "card-b", source: A_OLD }], uploads = [] } = {}) {
   const store = new Map([
     [SRC_KEY(slug), JSON.stringify([{ path: "index.tsx", source: home }])],
     [PARTS_KEY(slug), JSON.stringify(parts)],
@@ -152,7 +152,12 @@ function bucket(slug, { home = homeWith(slug), parts = [{ name: "card-a", source
     async get(k) { const v = store.get(k); return v === undefined ? null : { text: async () => v }; },
     async put(k, v) { writes.push([k, String(v)]); store.set(k, String(v)); },
     async delete(k) { store.delete(k); },
-    async list() { return { objects: [], truncated: false }; },
+    // THE OWNER'S UPLOAD LIBRARY, listed the way R2 lists a prefix: only the
+    // keys under it. Empty unless a case supplies uploads.
+    async list(o) {
+      const prefix = String((o && o.prefix) || "");
+      return { objects: uploads.filter((k) => k.startsWith(prefix)).map((key) => ({ key, size: 1 })), truncated: false };
+    },
   };
 }
 
@@ -906,61 +911,62 @@ test("the restoration is by description, and it refuses to guess", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("a withheld component is named on the reply AND on the screen when two rungs ran", async () => {
-  // THE DEFECT, REPRODUCED. `components` and `tsx` both dispatch to the page
-  // rung, and with `images` picked BETWEEN them this message runs it twice.
-  // (⚠ RE-ANCHORED 2026-09-23: this case picked `components` + `tsx` alone,
-  // which is ONE page operation now — `mergePageSteps`, see
-  // `test/edit-page-once.test.mjs`. A rung between two page lanes keeps them
-  // apart, so the picture rung is what makes this two page rungs. Its tool is
-  // left unanswered: it changes nothing, charges nothing, and its own
-  // sentence rides after the warnings.) `merged.layer` is then `"look"` —
-  // the merge says so in as many words — and `editReply`'s look branch never
-  // read `keptParts`, `unseenParts`, `photosRemoved` or `photos`. The reply
-  // carried the field and the screen said "✅ Updated the look." and stopped.
-  assert.equal(laneLayer("components"), "page");
+  // THE DEFECT, REPRODUCED. When more than one rung ships, `merged.layer` is
+  // `"look"` — the merge says so in as many words — and `editReply`'s look
+  // branch never read `keptParts`, `unseenParts`, `photosRemoved` or
+  // `photos`. The reply carried the field and the screen said "✅ Updated the
+  // look." and stopped.
+  //
+  // ⚠ RE-ANCHORED TWICE ON 2026-09-23, each time because the shape stopped
+  // being reachable. It picked `components` + `tsx` — ONE page operation now
+  // (`mergePageSteps`); then `components` + `images` + `tsx` — whose second
+  // page step no longer runs once the first succeeded (`pageStepDone`,
+  // `test/edit-page-once.test.mjs`). The subject never needed two PAGE rungs,
+  // only two rungs that ship with the warning on the LATER one: `images` runs
+  // before `tsx` in `LANE_FIELDS`, so the picture step reframes a photograph
+  // first and the page step, second, withholds a component.
+  assert.equal(laneLayer("images"), "picture");
   assert.equal(laneLayer("tsx"), "page");
+  assert.ok(LANE_FIELDS.indexOf("images") < LANE_FIELDS.indexOf("tsx"), "the picture lane no longer runs before the tsx lane");
   const slug = "prot-merge";
   const store = bucket(slug, { parts: [{ name: "card-a", source: A_OLD }, { name: "card-b", source: B_BIG }] });
+  // THE PICTURE STEP'S REFRAME, which the page writer is then shown and keeps.
+  const framed = homeWith(slug).replace('<SafeImage src="' + PIC_B(slug) + '"', '<SafeImage focus="top" src="' + PIC_B(slug) + '"');
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "images", "tsx"] },
+      pick_lanes: { fields: ["images", "tsx"] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", focus: "top" }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
-      // RUNG 1 changes the page and `card-a`; RUNG 2 hands back a replacement
-      // for `card-b`, which the wall withholds because it was too large to
-      // show. Keyed by CALL ORDER, which is what makes this two rungs rather
-      // than one asked twice.
-      [SITE_PAGES_TOOL.name]: (n) => (n === 0
-        ? { pages: [{ path: "src/routes/index.tsx", source: homeWith(slug).replace("Nine until five.", "Nine until six.") }], parts: [{ name: "card-a", source: A_NEW }] }
-        : { pages: [{ path: "src/routes/index.tsx", source: homeWith(slug).replace("Nine until five.", "Nine until seven.") }], parts: [{ name: "card-b", source: B_NEW }] }),
+      // THE PAGE STEP changes the page and `card-a`, and hands back a
+      // replacement for `card-b` — which the wall withholds because it was too
+      // large to show.
+      [SITE_PAGES_TOOL.name]: {
+        pages: [{ path: "src/routes/index.tsx", source: framed.replace("Nine until five.", "Nine until six.") }],
+        parts: [{ name: "card-a", source: A_NEW }, { name: "card-b", source: B_NEW }],
+      },
     }, async (calls) => {
-      const { body, said } = await edit(slug, "rename the hours card and rewrite the address card", { store, layer: "look" });
+      const { body, said } = await edit(slug, "show the top of the window photograph, rename the hours card and rewrite the address card", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
-      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 2,
-        "this case's premise is two page rungs, and only one ran");
 
       // (a) THE MERGED REPLY IS THE `look` SHAPE — the branch the warnings
       //     used to be invisible in. Asserted so a future merge that stops
       //     collapsing the layer does not silently make this case vacuous.
       assert.equal(body.layer, "look", "the merge stopped collapsing two rungs to `look`: " + body.layer);
-      assert.deepEqual(body.layers, ["page", "page"], "the two rungs are not both page rungs: " + JSON.stringify(body.layers));
-      // THE STEP BETWEEN THEM, which is what keeps them two: the picture rung
-      // ran between the two page rungs and is reported as not done.
+      assert.deepEqual(body.layers, ["picture", "page"], "the two rungs that shipped are not the picture and the page: " + JSON.stringify(body.layers));
       const order = calls.map((x) => x.tool).filter((t) => t === SITE_PAGES_TOOL.name || t === PICTURE_TOOL.name);
-      assert.deepEqual(order, [SITE_PAGES_TOOL.name, PICTURE_TOOL.name, SITE_PAGES_TOOL.name],
-        "the picture rung did not run between the two page rungs: " + JSON.stringify(calls.map((x) => x.tool)));
-      assert.deepEqual((body.partial || []).map((p) => p.layer), ["picture"], "the step between the page rungs is not on the reply");
+      assert.deepEqual(order, [PICTURE_TOOL.name, SITE_PAGES_TOOL.name],
+        "the picture step did not run before the page step: " + JSON.stringify(calls.map((x) => x.tool)));
+      assert.equal(body.partial, undefined, "a rung was reported as not done: " + JSON.stringify(body.partial));
 
-      // (b) THE WITHHELD COMPONENT SURVIVES THE MERGE. It came from the SECOND
-      //     rung, which is the half the catch-all could never carry: it copies
-      //     a key from the first body that has one and skips every later rung.
+      // (b) THE WITHHELD COMPONENT SURVIVES THE MERGE, from the LATER rung.
       assert.deepEqual(body.keptParts, ["card-b"],
         "the withheld component was lost in the merge: " + JSON.stringify(body.keptParts));
 
-      // (c) AND THE FIRST RUNG'S WORK REALLY SHIPPED, so this is a merge that
-      //     kept both rungs rather than one that dropped the first.
+      // (c) AND BOTH RUNGS' WORK REALLY SHIPPED: the reframe and `card-a`.
+      assert.ok(storedHome(store, slug).includes('<SafeImage focus="top" src="' + PIC_B(slug) + '"'), "the picture step's reframe did not ship");
       const parts = storedParts(store, slug);
-      assert.equal(parts["card-a"], A_NEW, "the first rung's component did not ship");
+      assert.equal(parts["card-a"], A_NEW, "the page step's component did not ship");
       assert.equal(parts["card-b"], B_BIG, "the withheld component was overwritten anyway");
 
       // (d) THE SCREEN. This is the whole subject: the sentence a customer
@@ -977,37 +983,40 @@ test("a withheld component is named on the reply AND on the screen when two rung
   } finally { c.uninstall(); }
 });
 
-test("an empty frame the LAST rung removed is not reported", async () => {
+test("an empty frame a LATER rung filled is not reported", async () => {
   // Owner: *"avoid reporting intermediate changes that the final publication
   // reverses."* Every rung used to answer this about its own output, and the
-  // merge then carried the FIRST rung's number — an opinion about a version
-  // the second rung had already replaced.
+  // merge then carried an earlier rung's number — an opinion about a version a
+  // later rung had already replaced.
   //
-  // ⚠ RE-ANCHORED 2026-09-23 on `components` + `images` + `tsx`: the first two
-  // and the last are page lanes, and without the picture lane between them
-  // they are one page operation now (`mergePageSteps`), which has no
-  // intermediate version to report. The picture rung's tool is left
-  // unanswered, so it changes and charges nothing.
+  // ⚠ RE-ANCHORED TWICE ON 2026-09-23. It drove two page rungs, the second
+  // taking out the frame the first left: `components` + `tsx`, which is ONE
+  // page operation now (`mergePageSteps`), and then `components` + `images` +
+  // `tsx`, whose second page step no longer runs once the first succeeded
+  // (`pageStepDone`). The property never needed two page rungs — only an
+  // intermediate the publication does not carry. Here the page step leaves an
+  // empty frame and the picture step, after it, fills that frame with the
+  // owner's own photograph.
   const slug = "prot-interim";
-  const store = bucket(slug, { parts: [] });
+  const TEAM = "0123456789abcdef0123456789abcdef.jpg";
+  const store = bucket(slug, { parts: [], uploads: ["uploads/" + slug + "/" + TEAM] });
   const withFrame = homeWith(slug)
     .replace("<CardA />", '<SafeImage src="" alt="the team" /><CardA />');
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "images", "tsx"] },
+      pick_lanes: { fields: ["components", "images"] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
-      // RUNG 1 leaves an empty picture frame; RUNG 2 takes it out again. The
-      // publication has none.
-      [SITE_PAGES_TOOL.name]: (n) => (n === 0
-        ? { pages: [{ path: "src/routes/index.tsx", source: withFrame }], parts: [] }
-        : { pages: [{ path: "src/routes/index.tsx", source: homeWith(slug).replace("Nine until five.", "Nine until six.") }], parts: [] }),
-    }, async () => {
-      const { body, said } = await edit(slug, "add a team picture and then change the hours", { store, layer: "look" });
+      // THE PAGE STEP leaves an empty picture frame; THE PICTURE STEP fills it.
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: withFrame }], parts: [] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the team", file: TEAM }] },
+    }, async (calls) => {
+      const { body, said } = await edit(slug, "add a team picture and put my team photo in it", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
-      // THIS CASE'S PREMISE IS TWO PAGE RUNGS — the second is what removes the
-      // frame the first left.
-      assert.deepEqual(body.layers, ["page", "page"], "the message did not run two page rungs: " + JSON.stringify(body.layers));
+      // THIS CASE'S PREMISE IS A LATER RUNG THAT CHANGES WHAT AN EARLIER ONE LEFT.
+      assert.deepEqual(body.layers, ["page", "picture"], "the message did not run the page step and then the picture step: " + JSON.stringify(body.layers));
+      const order = calls.map((x) => x.tool).filter((t) => t === SITE_PAGES_TOOL.name || t === PICTURE_TOOL.name);
+      assert.deepEqual(order, [SITE_PAGES_TOOL.name, PICTURE_TOOL.name], "the rungs did not run page-then-picture");
 
       // (a) THE INTERMEDIATE REALLY DID CARRY ONE — measured with the product's
       //     own reader, so the case cannot rot into a story about a frame that
@@ -1015,13 +1024,15 @@ test("an empty frame the LAST rung removed is not reported", async () => {
       const stored = [{ path: "index.tsx", source: homeWith(slug) }];
       const interim = [{ path: "index.tsx", source: withFrame }];
       assert.equal(newEmptySlots(stored, interim), 1,
-        "the first rung's answer has no empty frame, so this case discriminates nothing");
+        "the page step's answer has no empty frame, so this case discriminates nothing");
 
-      // (b) AND THE PUBLICATION HAS NONE, so the reply says none.
+      // (b) AND THE PUBLICATION HAS NONE — the frame holds the owner's photograph
+      //     — so the reply says none.
+      assert.ok(sentHome(c).includes('src="/u/' + slug + "/" + TEAM + '"'), "the picture step did not fill the frame");
       assert.equal(newEmptySlots(stored, [{ path: "index.tsx", source: sentHome(c) }]), 0,
         "the publication still carries the frame: " + JSON.stringify(sentHome(c).slice(0, 200)));
       assert.equal(body.photos, 0,
-        "an empty frame the last rung removed was reported: " + JSON.stringify(body.photos));
+        "an empty frame a later rung filled was reported: " + JSON.stringify(body.photos));
       assert.ok(!said.text.includes("space for a photo"),
         "the customer was told about a frame the publication does not have: " + JSON.stringify(said.text));
     });

@@ -155,6 +155,83 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — A page edit that already worked is not run again after the photo step
+
+You reproduced what the last fix left: with `components`, `images` and `tsx`
+picked, the photo step sits between the two page lanes, so the page editor ran
+**twice** and the second run undid the swap. **Fixed on the branch. Not merged
+(you asked me to hold it), not deployed, no paid run. "Doing it twice" stays
+open until you close it.**
+
+### What it did before (measured, made-up model answers, free)
+
+- **Photo step fails:** page editor twice, the swap undone, charged **3 + 2**,
+  and the reply said *"✅ Updated the look. ⚠️ I couldn't reach the model that
+  picks the picture — try again in a moment."* — your reproduction exactly.
+- **Photo step works (a reframe):** page editor twice, the swap undone, the
+  reframe kept, charged **3 + 1 + 2**, and the reply said *"✅ Updated the
+  look."* — a success message over a change that was lost.
+
+### What happens now
+
+- The steps keep their order and nothing is moved across the photo step. The
+  only change: once the page edit has **worked**, the second page step for the
+  same page is not run. It would only apply your whole message again to what
+  the first one had already published.
+- **Photo step fails:** one page edit, the swap and the card both kept, the
+  photo untouched, charged **3**, and the reply says *"✅ Updated /. ⚠️ I
+  couldn't reach the model that picks the picture — try again in a moment."*
+- **Photo step works:** one page edit, then the reframe; the swap, the card and
+  the reframe all kept, charged **3 + 1**, reply *"✅ Updated the look."*
+- In both cases the result, the charge and the reply are **exactly** what the
+  same message gives without the `tsx` lane — a page lane after the photo step
+  now adds nothing.
+- **The case where the order matters still works.** If the first page edit is
+  held back because it would lose a photo, and the photo step then takes that
+  photo off as you asked, the second page step still runs, on the page the
+  photo step left, and makes the change.
+
+### One more thing I fixed, because the test for that case showed it
+
+In that held-back-then-done case the reply used to say *"…I couldn't make that
+change … so I didn't make it"* right beside the change that had just been
+made. That was already true before today. It follows the same rule, so I fixed
+it the same way: when a later try of the **same** page edit works, the earlier
+try's refusal is no longer shown (its lanes and its cost still count). A
+failure of a **different** step, like the photo step, is still shown — that has
+its own test. If you would rather I split this into its own change, say so.
+
+### Proof (made-up model answers, free)
+
+- The test file goes from 7 cases to 10: your two reproductions (photo step
+  failing and working), the case where the order matters, and a check of the
+  rule itself, each through the real edit step and the browser's own reply
+  code, on both the instant path and the queued path.
+- On the unfixed code, 3 of those fail on the right check: your two on "the
+  page editor ran again after the photo step", and the order case only on "a
+  refusal was shown beside the change that shipped" (its steps, page and
+  charges were already right).
+- Three older tests were built on "two page edits that both work". That can't
+  happen any more, so each now tests what it was written for another way (a
+  page edit then a photo change, or a photo change then a page edit). I broke
+  one of them on purpose to check it still catches its bug; it does.
+- Ten deliberate breaks to the new rule — running the second page step anyway,
+  letting a failed first try block the second, ignoring which page, hiding a
+  different step's failure, and so on: all ten caught.
+- The whole suite passes locally: 7,230 (the 3 new cases on top of 7,227).
+  GitHub's runs are next.
+- **Not proven:** that a real model's first page edit always applies your whole
+  message — the rule relies on that.
+- Screenshots: before and after for all three cases.
+
+### Still the next task
+
+**Layout plus a page removal** (number 6 below): the removal still leaks into
+the layout step. Not touched here. Translation and the phone hydration warning
+stay parked.
+
+---
+
 ## 2026-09-23 — Two page lanes on one page are one page edit now
 
 When the lane picker chose two page lanes for one message — `shape` and
@@ -442,6 +519,8 @@ sentence too.
 2. **Doing it twice:** one message can still run the page editor twice.
    **Started:** two page lanes next to each other are one page edit now (on
    the branch); with a different step between them it still runs twice.
+   **Update:** with a step between them it runs once now as well, in the same
+   order (on the branch, merge held). Kept open, as you asked.
 3. **Keeping content:** nothing yet checks what the page writer or the
    stylesheet writer dropped; look + web-address together still only reports
    the look; the full rewrite still has no photo protection.
@@ -456,7 +535,7 @@ sentence too.
    the whole message to the add-on step, so the footer never changes.
 6. **Layout plus a page removal** (found while fixing number 2): the removal
    leaks into the layout step, so the layout step removes instead of changing
-   the layout.
+   the layout. **This is the next task.**
 
 Translation, the phone hydration warning and the bigger architecture work stay
 parked, as you said.

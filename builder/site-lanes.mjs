@@ -908,24 +908,80 @@ export function verbLayer(verb) {
  *   - two page steps with ANOTHER rung between them. Joining those would move a
  *     page change across that rung, and the order is load-bearing: the picture
  *     rung's work reaches a later page step through `eSrc`, which is what the
- *     photograph protection reads. They stay two steps, and that is said.
+ *     photograph protection reads. They stay two steps, and that is said —
+ *     and the later one runs only where the earlier one did not succeed
+ *     (`pageStepDone`, below).
  *
  * ORDER-PRESERVING BY CONSTRUCTION: no step moves, neighbours are joined. A
  * list with nothing to join comes back with the same steps in the same order.
  */
 export function mergePageSteps(steps) {
-  const joinable = (s) => !!s && s.layer === "page" && typeof s.page === "string" && !s.instruction
-    && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === "page");
   const out = [];
   for (const s of Array.isArray(steps) ? steps : []) {
     const prev = out[out.length - 1];
-    if (joinable(prev) && joinable(s) && prev.page === s.page) {
+    if (samePageOperation(prev, s)) {
       out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
     } else {
       out.push(s);
     }
   }
   return out;
+}
+
+/**
+ * A STEP THAT RUNS THE PAGE RUNG ON THE CUSTOMER'S OWN SENTENCE — the one kind
+ * of step two lanes can share as a single operation. The page rung, a page to
+ * aim at, no ask of its own, and every field a lane that dispatches to the
+ * page rung by its own name. ONE definition, asked through `samePageOperation`
+ * by every reader of it, so "the same operation" cannot mean two things.
+ */
+function sentencePageStep(s) {
+  return !!s && s.layer === "page" && typeof s.page === "string" && !s.instruction
+    && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === "page");
+}
+
+/**
+ * TWO STEPS THAT ARE ONE PAGE OPERATION: both run the page rung on the
+ * customer's sentence, on the same page. What the three readers of "the same
+ * operation" — joining neighbours, skipping a repeat, retiring a refused
+ * attempt a later one completed — all ask, so they cannot disagree.
+ */
+export function samePageOperation(a, b) {
+  return sentencePageStep(a) && sentencePageStep(b) && a.page === b.page;
+}
+
+/**
+ * WHICH EARLIER STEP ALREADY DID THIS ONE'S WORK — its index in `done`, or -1.
+ *
+ * `mergePageSteps` joins page steps that sit side by side. Two that another
+ * rung separates stay two steps, because that order is load-bearing — but they
+ * are still ONE operation: the page rung reads the customer's sentence and
+ * none of the lane names. REPRODUCED through the route with supplied answers
+ * (2026-09-23): `components` + `images` + `tsx` ran the page writer twice, the
+ * second run applied the whole request again to what the first had published
+ * and swapped *"the opening hours and the market times"* straight back, both
+ * runs were billed (3 + 2), and the screen said "✅ Updated the look." — with
+ * the picture step failing and with it succeeding alike.
+ *
+ * SO A LATER STEP RUNS ONLY WHERE THE EARLIER ONE DID NOT SUCCEED. That is the
+ * dependency the order exists for: a page step withheld for a photograph the
+ * picture rung then takes off is answered by the later step, on the state the
+ * picture rung left. After a success there is nothing left for it to do — the
+ * request is already applied, and applying it again is what undid it.
+ *
+ * ONLY A RECORDED SUCCESS ABSORBS A LATER STEP (`failed === false`). An entry
+ * that cannot say lets the later step run, which is the behaviour before this
+ * existed — cannot-tell degrades to the old path, never to dropped work.
+ *
+ * AND THE MIRROR, asked by the same loop: when that later step DOES succeed,
+ * the earlier attempt's refusal is superseded — the operation happened, so a
+ * sentence saying *"I didn't make it"* would be false on the screen beside it.
+ *
+ * `done` is the step loop's own record: `{ step, failed }` for each step run.
+ */
+export function pageStepDone(step, done) {
+  return (Array.isArray(done) ? done : []).findIndex((d) => !!d && d.failed === false
+    && samePageOperation(d.step, step));
 }
 
 /**

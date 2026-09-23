@@ -3601,7 +3601,8 @@ only; nothing added to the repo.
    landed and the screen says *"One part of that message didn't go through"*.
    `21157-21160` pushes one step per page lane with no dedup. **Fixed on the
    branch for NEIGHBOURING page lanes** — *one page operation for neighbouring
-   page lanes*, below.
+   page lanes*, below — **and across another rung**, order kept (*a page
+   operation that succeeded is not run again*).
 6. **a section change routed through look on a two-page site lands on `/`**
    whatever page the message named (`fallbackPage`, `21153`): stored
    `index.tsx` changed, `gallery.tsx` untouched, *"✅ Updated /."* **Fixed on
@@ -3906,6 +3907,9 @@ separate next tasks"*):
    (*one page operation for neighbouring page lanes*, below). Two page lanes
    with another rung's step between them still run the page rung twice,
    deliberately (that order is load-bearing), and are the recorded remainder.
+   **THE REMAINDER IS FIXED ON THE BRANCH TOO, ORDER KEPT** (*a page operation
+   that succeeded is not run again*, below) — **and the task stays OPEN and
+   this patch's merge HELD at the owner's word** (2026-09-23).
 3. **Content preservation.** Review #7 (the page writer drops an unrelated
    section and publishes), #8 (the css lane drops an earlier rule), #9 (look +
    rename both land and the screen names only the look), and the full rewrite's
@@ -3927,7 +3931,7 @@ separate next tasks"*):
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
 6. **The page verbs bleed into sibling page steps** (found 2026-09-23 while
-   reproducing #2; not fixed). `eRemove` and `eRename` are MESSAGE-WIDE `let`s
+   reproducing #2; not fixed — **THE NEXT TASK**, owner, 2026-09-23). `eRemove` and `eRename` are MESSAGE-WIDE `let`s
    the `pages` verb sets, and every page step reads them — so `shape` picked
    beside `pages` (*"…and take the gallery page off"*) runs the `shape` step
    down the REMOVAL branch. Reproduced through the route with supplied answers
@@ -4174,7 +4178,8 @@ in order. The look door applies it to the dispatched steps alone
 - **THE REMAINDER, STATED**: two page lanes with another rung's step between
   them — `components` + `images` + `tsx` — still run the page rung twice, and
   the second execution still repeats or reverses the first. Kept deliberately
-  for the ordering above; recorded, not fixed.
+  for the ordering above. **FIXED ON THE BRANCH THE SAME DAY, ORDER KEPT** —
+  *a page operation that succeeded is not run again*, below.
 - **AND A SEPARATE DEFECT FOUND ON THE WAY — THE VERB BLEEDS** into sibling
   page steps (next-task 6 above). Unchanged by this fix.
 
@@ -4191,7 +4196,8 @@ RE-ANCHORED TO WHAT IT ASSERTS**, not appeased:
 - `edit-page-context`'s snapshot case and `edit-page-protect`'s two
   merge-reporting cases moved to `components` + `images` + `tsx`, the shape that
   still runs two page rungs, each with its premise asserted (two page rungs,
-  the picture rung between them).
+  the picture rung between them). **Moved again by the next section**, whose
+  fix makes that shape run one page operation too.
 
 **EVIDENCE.** `test/edit-page-once.test.mjs`, **7 cases**: the reproduction
 fixed on the synchronous path and on the job path, the placement shape, the
@@ -4231,6 +4237,123 @@ directly above its own `ok` line this time, `tsc`-format lines 9 / 2 / 7;
 a stub that applies the ask to what it is shown, so this proves the route runs
 ONE page operation, publishes both changes and bills once — never that a real
 model applies two changes correctly in one call.
+
+### A PAGE OPERATION THAT SUCCEEDED IS NOT RUN AGAIN (2026-09-23, on the branch)
+
+Owner, after reproducing the recorded remainder independently through the
+route with supplied answers (`components` + `images` + `tsx`, the picture step
+failing, `write_tweak` twice, debits `[3, 2]`, the swap reversed, *"Updated the
+look"* naming only the picture failure): *"Preserving step order is necessary,
+but replaying the full request and undoing its result is still incorrect. …
+Ensure the same requested page change is not applied twice across an
+intervening step. Preserve genuine picture dependencies and ordering; do not
+blindly merge across them."* **Not merged, not deployed, no paid run — and
+duplicate execution stays OPEN and this patch's merge is HELD, at the owner's
+word.**
+
+**THE REMAINDER, REPRODUCED ON BOTH MONEY PATHS BEFORE THE FIX** (this file's
+harness in `test/edit-page-once.test.mjs`, one page, a reframe as the
+successful picture change):
+
+| picture step | page-writer calls | what shipped | charged | screen |
+|---|---|---|---|---|
+| fails (its model unreachable) | **2**, the second shown the first's output | the swap **undone**, the card kept | **3 + 2** (reserved 3, then 2) | *"✅ Updated the look. ⚠️ I couldn't reach the model that picks the picture — try again in a moment."* |
+| succeeds (a reframe) | **2** | the swap **undone**, the reframe kept | **3 + 1 + 2** (reserved 3, 1, 2) | *"✅ Updated the look."* — a success sentence over a lost change |
+
+**THE FIX IS ONE RULE AT THE STEP LOOP, AND IT MOVES NOTHING.**
+`pageStepDone(step, done)` (`builder/site-lanes.mjs`): a page step running the
+customer's sentence, on a page where an earlier such step already SUCCEEDED,
+is not run; its lanes are folded onto the step that did the work, so `lanes`
+still names every one. The steps keep their order and nothing is merged across
+the picture step.
+- **SKIPPED ONLY AFTER A SUCCESS, AND ONLY A RECORDED ONE** (`failed ===
+  false`). An earlier step that was withheld or failed leaves the request
+  undone, and the later step completes it — on the state the picture rung left,
+  which is the dependency the order exists for. An entry that cannot say lets
+  the later step run: cannot-tell degrades to the old path, never to dropped
+  work.
+- **ONE DEFINITION OF "THE SAME OPERATION"** — `samePageOperation`: both steps
+  the page rung on the customer's sentence (no ask of their own, every field a
+  page lane) on the same page. Asked by `mergePageSteps`, `pageStepDone` and
+  the supersede below; the adjacent merge's arrow predicate moved into it
+  unchanged (`sentencePageStep`).
+- **AND THE MIRROR, FOUND BY THE DEPENDENCY CONTROL.** When a later attempt of
+  the same operation SUCCEEDS, the earlier attempt's refusal is **superseded**:
+  kept in `done` (its lanes and its cost stay on the reply), dropped from
+  `failures`. **Measured on HEAD and pre-existing, not caused by the skip**: the
+  dependency case — first page attempt withheld for a photograph, the picture
+  step takes it off, the second attempt ships the swap — printed *"⚠️ I
+  couldn't make that change … so I didn't make it"* beside the change that
+  shipped. **Superseded only by the same operation**: a picture step that fails
+  BEFORE a page step that ships stays on the screen (a control).
+
+**AFTER, SAME ROUTE, SAME ANSWERS, BOTH MONEY PATHS:**
+- **picture FAILS** → **1** page-writer call (shown the stored page), then the
+  picture step; the swap once and the card; the photograph untouched; debits
+  **`[3]`**, reserved **`seq 1: 3`**; `layers ["page"]`; *"✅ Updated /. ⚠️ I
+  couldn't reach the model that picks the picture — try again in a moment."*
+- **picture SUCCEEDS** → 1 page-writer call, then the reframe; the swap once,
+  the card, `focus="top"` kept; debits **`[3, 1]`**, reserved **`3, 1`**;
+  `layers ["page", "picture"]`; *"✅ Updated the look."*
+- **both are asserted EQUAL to `components` + `images`** — the same
+  publication, the same bill, the same refusals, the same screen — because a
+  page lane after the picture lane adds no page operation.
+- **the DEPENDENCY** → page (withheld, 409, cost 0), picture (takes the bench
+  off), page (runs, shown the picture step's result, ships the swap once);
+  debits **`[2, 2]`**, reserved **`2, 2`**; no refusal on the reply;
+  *"✅ Updated the look. One photograph is no longer on the site. If that was
+  not what you wanted, say "put the photo back". There is a space for a photo
+  — upload yours in the Data panel and it'll fill in."*
+
+**THREE PRE-EXISTING CASES DROVE TWO SUCCESSFUL PAGE RUNS ACROSS THE PICTURE
+STEP — the shape this fix makes unreachable — and each moved to a shape that
+still carries its property, re-anchored rather than appeased:**
+- `edit-page-context`'s snapshot case → `components` + `images`, the page step
+  changing `card-a` and the picture step reframing a photograph inside
+  `card-b`. The picture rung reads `editParts()` and hands every component to
+  `publishStep`, so without the snapshot's advance it republishes the stored
+  `card-a`. **Probed: cutting the advance fails it** (*"the picture step handed
+  over the stored one"*), `worker.js` restored byte-identical from the
+  scratchpad.
+- `edit-page-protect`'s withheld-component case → `images` + `tsx`: the picture
+  step reframes first and the page step, second, withholds `card-b` — the
+  look-shaped merge with the warning on the LATER rung, and the screen naming
+  it.
+- `edit-page-protect`'s frame case → `components` + `images`: the page step
+  leaves an empty frame and the picture step fills it with the owner's upload;
+  the publication has none and the reply says none. Renamed *"an empty frame a
+  LATER rung filled is not reported"*; the test bucket learned to list uploads.
+- **`edit-failure`'s all-refused case is UNCHANGED**, and correctly: both of its
+  page steps answer *no change*, so the first did not succeed and the second
+  still runs.
+
+**EVIDENCE.** `test/edit-page-once.test.mjs`, **10 cases**: the old ordering
+case replaced by three route cases — the picture step failing, succeeding, and
+the dependency with its different-operation control — each on both money
+paths, plus one unit case for the rule. **Red 3 of 40 against HEAD's route**
+across the three touched files (the new helpers copied into a throwaway
+worktree so the file loads), each on its own gate: the owner's two on *"the
+page operation ran again after the picture step"*, the dependency on *"the
+superseded refusal was reported beside the change that shipped"* — its calls,
+layout and charges PASSED on HEAD, so the order was always right and only the
+reply was wrong. **Focused mutation check `scripts/mutants/page-replay.json`: 10
+mutants, 10 killed, 0 survived, 0 never applied, the comment-only control
+surviving**, against the eight edit-path files that can see the change; both
+swept files byte-identical to their pre-sweep hashes afterwards. One comment
+in `site-lanes.mjs` was reworded after the sweep, proved comment-only by a diff
+against the swept copy, and the eight files re-run green (**193 / 193**).
+(`page-once.json`'s
+anchors name the arrow predicate that is now `sentencePageStep`; the ask and
+field rules are re-covered here, R-5 and R-6.) **Suite 7,230 locally, taken twice** (`# tests 7230 / # pass 7230 / # fail 0 /
+# skipped 0`, `duration_ms` 117,572 and then 117,219 on the final tree, after
+the comment rewording) — **+3 against 7,227**, exactly this change's net cases:
+the file goes 7 → 10, and the three re-anchored cases replaced their old
+versions one for one.
+**⚠ WHAT IT DOES NOT CLAIM**: every model answer is SUPPLIED and every writer is
+a stub that applies the ask to what it is shown, so this proves the route runs
+the page operation once, keeps the order and the picture step's result, bills
+once and says what shipped — never that a real model's first page attempt
+applies the whole request, which is the premise the skip rests on.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -5111,7 +5234,9 @@ off. Both halves true of their own rung and the second **false of the request**.
 - **ONE SNAPSHOT PER MESSAGE, ADVANCED BY `publishStep`.** `components` and
   `tsx` both dispatch to `page`, so one sentence could run the rung TWICE (since
   2026-09-23 only when another rung's step sits between them — neighbouring
-  page lanes are one step, `mergePageSteps`) — and each run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
+  page lanes are one step, `mergePageSteps` — and then only when the first did
+  not succeed, `pageStepDone`; the snapshot's live reader beside a page step is
+  now a later PICTURE step, which reads `editParts()` too) — and each run re-read the STORE. `publishStep`'s rule is "a later list wins", so the
   first rung's work was overwritten by the second rung's merge of the original:
   step one ran, was charged for, reported success, and shipped nothing.
   `editParts()` is the message-wide read and `publishStep` advances it exactly
@@ -5341,7 +5466,9 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
   `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`.
   **Neighbouring page lanes on one page are ONE page step** (`mergePageSteps`,
   2026-09-23): the page rung reads the sentence, not the lane names, so two of
-  them were one operation run twice.
+  them were one operation run twice. **Across another rung they stay two steps
+  in their order, and the later one runs only when the earlier did not
+  succeed** (`pageStepDone`).
 - **1 verb lane** — `pages`: `remove` and `move` are the `page` rung, `add` is
   the addon route. **No default** — an unreadable verb refuses, and this is the
   ONE place where the bias inverts, because a wrong guess takes a page off a

@@ -238,7 +238,7 @@ import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -24078,13 +24078,45 @@ async function handleRequest(request, env, ctx) {
             // from the one it is replacing.
             const done = [];
             for (const step of steps) {
+              // ── A PAGE OPERATION THAT ALREADY SUCCEEDED IS NOT RUN AGAIN ──
+              //
+              // ⚠ REPRODUCED THROUGH THIS ROUTE (2026-09-23): `components`,
+              // `images` and `tsx` give two page steps with the picture step
+              // between them, and the page rung reads the SENTENCE, not the
+              // lane names — so the second step applied the whole request
+              // again to what the first had published, swapped the customer's
+              // two sections straight back, billed a second page operation
+              // and said "✅ Updated the look.", whether the picture step
+              // failed or succeeded. Neighbours are joined above
+              // (`mergePageSteps`); these two are kept apart because the
+              // order is load-bearing, and it still is.
+              //
+              // SKIPPED ONLY AFTER A SUCCESS. An earlier page step that was
+              // withheld or failed leaves the request undone, and the later
+              // step is the one that does it — on the state the picture rung
+              // left, which is the dependency the order exists for. Its lanes
+              // are folded onto the step that did the work, so the reply still
+              // names every lane the customer's message touched.
+              const already = pageStepDone(step, done);
+              if (already >= 0) {
+                const did = done[already];
+                did.step = { ...did.step, fields: [...did.step.fields, ...step.fields.filter((f) => !did.step.fields.includes(f))] };
+                continue;
+              }
               // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; every other step
               // runs on the customer's sentence. Restored below the loop.
               eInstruction = step.instruction || eMessage;
               const res = await runLayer(step.layer, step.page, step.fields);
               eInstruction = eMessage;
               const body = await res.clone().json().catch(() => null);
-              done.push({ step, res, body, failed: !body || body.ok !== true });
+              const failed = !body || body.ok !== true;
+              // AND WHEN THAT LATER STEP DID IT, THE EARLIER REFUSAL IS OVER.
+              // The operation happened, so the first attempt's sentence —
+              // *"…so I didn't make it"* — would be false on the screen beside
+              // it. Kept in `done` (its lanes and its cost stay on the reply);
+              // only `failures` stops reporting it.
+              if (!failed) for (const d of done) if (d.failed && samePageOperation(d.step, step)) d.superseded = true;
+              done.push({ step, res, body, failed });
               // NO `break`. A RUNG THAT FAILED DOES NOT CANCEL THE OTHERS.
               //
               // It did, and that was the same dropped-ask bug one level up:
@@ -24309,7 +24341,9 @@ async function handleRequest(request, env, ctx) {
             }
 
             const ranOk = done.filter((d) => !d.failed);
-            const failures = done.filter((d) => d.failed);
+            // A REFUSED PAGE ATTEMPT THAT A LATER ONE COMPLETED IS NOT A FAILURE
+            // OF THE MESSAGE (`superseded`, set in the loop above).
+            const failures = done.filter((d) => d.failed && !d.superseded);
             // ONE STEP, AND IT FAILED — hand back that rung's own answer, whole.
             // Its status, its reason, its `detail`: a merged "ok: false" with a
             // sentence assembled here would be the failure-that-cannot-name-

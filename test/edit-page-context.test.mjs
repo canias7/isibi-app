@@ -47,9 +47,8 @@ import { TEXT_TOOL } from "../builder/site-apply.mjs";
 // picture spaces came back through the addon composer as "✅ Done." — a
 // fixture in a different shape from reality, one route over.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
-// THE SENTENCE A STEP BETWEEN THE TWO PAGE STEPS SAYS, from the one table that owns it.
-import { failureMsg } from "../builder/edit-failure.mjs";
 import { SITE_PAGES_TOOL, partsDirective, tsxDirective, partsSent, siteComponentApi, MAX_PART_CHARS } from "../builder/page-gen.mjs";
+import { PICTURE_TOOL } from "../builder/site-picture.mjs";
 
 const USER = { id: "u-editctx-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -340,80 +339,71 @@ test("an unreadable components store publishes NOTHING over the inventory, and s
 // 2. TWO PAGE STEPS IN ONE MESSAGE, AND ONLY THE LAST ONE'S COMPONENT SURVIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("two page steps in one message: BOTH components reach the single publication", async () => {
-  // `components` and `tsx` both dispatch to the `page` layer, and with the
-  // `images` lane picked BETWEEN them the message runs the page rung twice.
-  // (⚠ RE-ANCHORED 2026-09-23: this case picked `components` + `tsx` alone,
-  // and those two are now ONE page operation — `mergePageSteps` joins
-  // neighbouring page steps on one page, `test/edit-page-once.test.mjs`. Two
-  // page lanes with another rung between them stay two steps, because joining
-  // them would move one across that rung — so that is the shape that still
-  // needs the snapshot below.) Each run used to read the stored parts FRESH
-  // and merge its own answer over them:
+test("a page step and then a picture step in one message: BOTH components reach the single publication", async () => {
+  // THE DEFECT THIS CASE WAS WRITTEN FOR: every rung read the stored parts
+  // FRESH and merged its own answer over them, and `publishStep`'s own rule is
+  // "a later list wins" — so a later rung handed over the ORIGINAL `card-a`
+  // and the one publication carried it:
   //
   //   step 1: mergeParts([A_OLD, B_OLD], [A_NEW]) -> [A_NEW, B_OLD]   -> handed over
-  //   step 2: mergeParts([A_OLD, B_OLD], [B_NEW]) -> [A_OLD, B_NEW]   -> handed over
+  //   step 2: its own change over the STORE       -> [A_OLD, B_...]   -> handed over
   //
-  // and `publishStep`'s own rule is "a later list wins", so the single
-  // publication carried A_OLD and B_NEW. Step one ran, was charged for, and
-  // reported success.
+  // Step one ran, was charged for, reported success, and shipped nothing.
   //
   // WHAT IT DOES NOW: one snapshot per message (`editParts`), advanced by
-  // `publishStep` exactly as `eSrc` is — so step two merges against what step
-  // one accepted.
+  // `publishStep` exactly as `eSrc` is — so a later rung starts from what an
+  // earlier one accepted.
+  //
+  // ⚠ RE-ANCHORED TWICE ON 2026-09-23, each time because the shape it drove
+  // stopped being reachable. It picked `components` + `tsx`, which is ONE page
+  // operation now (`mergePageSteps`); then `components` + `images` + `tsx`,
+  // whose second page step no longer runs once the first succeeded
+  // (`pageStepDone` — `test/edit-page-once.test.mjs`). The snapshot's reader
+  // that is still reachable is the PICTURE rung: it reads `editParts()` and
+  // hands every component to `publishStep`. So a picture step after a page step
+  // that changed a component is this defect's live shape — without the advance
+  // it republishes the stored `card-a` over the page step's.
   const slug = "ctx-carry";
-  const store = bucket(slug);
+  const PIC = "/u/" + slug + "/a1b2c3d4e5f60718.jpg";
+  const B_PIC = B_OLD.replace("</p></section>", "</p><SafeImage src=\"" + PIC + "\" alt=\"the weir\" /></section>");
+  const B_FRAMED = B_PIC.replace("<SafeImage src=", "<SafeImage focus=\"top\" src=");
+  assert.notEqual(B_PIC, B_OLD, "the component carries no photograph, so the picture step has nothing to change");
+  const store = bucket(slug, { parts: [{ name: "card-a", source: A_OLD }, { name: "card-b", source: B_PIC }] });
   const c = installCompiler();
   try {
     await withWire({
-      pick_lanes: { fields: ["components", "images", "tsx"] },
+      pick_lanes: { fields: ["components", "images"] },
       [TWEAK_TOOL.name]: { cannot: "that needs the components rewritten" },
-      // TWO PAGE CALLS, ANSWERED IN ORDER — the first returns `card-a`, the
-      // second `card-b`. Keyed by call index, because both steps ask for the
-      // same tool and a single fixed answer could not tell them apart.
-      [SITE_PAGES_TOOL.name]: (n) => ({
-        pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }],
-        parts: [n === 0 ? { name: "card-a", source: A_NEW } : { name: "card-b", source: B_NEW }],
-      }),
+      // THE PAGE STEP changes `card-a`; THE PICTURE STEP reframes the
+      // photograph that lives in `card-b`. Each touches a different component.
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "-parts/card-b.tsx", alt: "the weir", focus: "top" }] },
     }, async (calls) => {
-      const { body, said } = await edit(slug, "hours to six, and say beside the weir", { store, layer: "look" });
+      const { body, said } = await edit(slug, "hours to six, and show the top of the weir photograph", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
-      // ⚠ THE MERGED REPLY READS AS A **LOOK** EDIT, and that is the existing
-      // merge's doing rather than anything this stage introduced: the message
-      // came in through the lane picker's door, so the merge keeps the
-      // customer-facing layer it arrived on. Asserted as it really is, because
-      // pinning "Updated /." here would be asserting a sentence this path does
-      // not compose — the same mistake one composer over. The picture step
-      // between the two page steps found no photograph, and says so after it.
-      assert.equal(said.text, "\u2705 Updated the look. \u26a0\ufe0f " + failureMsg("picture/no-slots"),
-        "the customer's sentence changed: " + JSON.stringify(said.text));
+      // BOTH RUNGS SHIPPED, so the merged reply reads as a look edit — the
+      // message came in through the lane picker's door.
+      assert.equal(said.text, "✅ Updated the look.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      assert.deepEqual(body.layers, ["page", "picture"], "the two rungs that shipped are not the page and the picture: " + JSON.stringify(body.layers));
 
-      // BOTH STEPS REALLY RAN. Without this the case would pass by doing half
-      // the work once, which is the shape it is trying to catch.
-      assert.equal(calls.filter((x) => x.tool === SITE_PAGES_TOOL.name).length, 2,
-        "the message did not run two page steps: " + JSON.stringify(calls.map((x) => x.tool)));
+      // THE ORDER THE LANES SET: the page step, then the picture step.
+      const order = calls.map((x) => x.tool).filter((t) => t === SITE_PAGES_TOOL.name || t === PICTURE_TOOL.name);
+      assert.deepEqual(order, [SITE_PAGES_TOOL.name, PICTURE_TOOL.name], "the rungs did not run page-then-picture: " + JSON.stringify(calls.map((x) => x.tool)));
+      // AND THE PICTURE STEP COULD SEE THE COMPONENT'S PHOTOGRAPH — its slot
+      // is named under the component's own path.
+      const picPrompt = JSON.stringify(calls.find((x) => x.tool === PICTURE_TOOL.name).body.messages);
+      assert.ok(picPrompt.includes("-parts/card-b.tsx"), "the picture step was not shown the component's photograph");
 
-      // AND THE SECOND STEP SAW THE FIRST'S WORK. Read off the prompt, because
-      // this is the hop the fix is: without the carried snapshot the second
-      // call is shown the ORIGINAL `card-a`, and a merge cannot put back what
-      // the writer was never told had changed.
-      const second = calls.filter((x) => x.tool === SITE_PAGES_TOOL.name)[1];
-      const secondPrompt = JSON.stringify(second.body.messages);
-      assert.ok(secondPrompt.includes(esc(A_NEW)),
-        "the second page step was shown the ORIGINAL card-a, not what the first step wrote");
-      assert.ok(!secondPrompt.includes(esc(A_OLD)),
-        "the second page step was shown the stale card-a as well");
-
-      // ONE PUBLISH FOR THE MESSAGE, carrying both changes.
+      // ONE PUBLISH FOR THE MESSAGE, carrying BOTH components' changes.
       const got = sentParts(payload(c));
       assert.ok(got, "the compiler was handed no components at all");
-      assert.equal(got["card-a"], A_NEW, "the first step's component did not reach the publication");
-      assert.equal(got["card-b"], B_NEW, "the second step's component did not reach the publication");
+      assert.equal(got["card-a"], A_NEW, "the page step's component did not reach the publication — the picture step handed over the stored one");
+      assert.equal(got["card-b"], B_FRAMED, "the picture step's change to its component did not reach the publication");
 
       const after = storedParts(store, slug);
-      assert.equal(after["card-a"], A_NEW, "the first step's component is not in the store");
-      assert.equal(after["card-b"], B_NEW, "the second step's component is not in the store");
+      assert.equal(after["card-a"], A_NEW, "the page step's component is not in the store");
+      assert.equal(after["card-b"], B_FRAMED, "the picture step's component is not in the store");
     });
   } finally { c.uninstall(); }
 });

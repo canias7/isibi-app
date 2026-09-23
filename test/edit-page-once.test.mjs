@@ -26,6 +26,12 @@
 //       change shipped · the screen added a false "I read the / page and
 //       couldn't find a change to make for that."
 //
+// AND ACROSS A STEP BETWEEN THEM (section 3, the same day): two page lanes
+// with the picture lane between them stay two steps — that order is
+// load-bearing — and the later one now runs only where the earlier one did not
+// succeed. The owner's two reproductions (the picture step failing, and
+// succeeding) and the dependency the order exists for are all driven there.
+//
 // WHAT EVERY ROUTE CASE ASSERTS, per the owner's acceptance: the real
 // `POST /api/site/<slug>/edit` driven with every model answer SUPPLIED; both
 // requested changes in the compiler payload AND the store; the unrelated page
@@ -49,7 +55,7 @@ import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 // THE TOOL NAMES COME FROM THE MODULES THAT DEFINE THEM — a hand-typed name is
 // a stub that never matches.
-import { pickTool, mergePageSteps, laneLayer, LANE_FIELDS } from "../builder/site-lanes.mjs";
+import { pickTool, mergePageSteps, pageStepDone, samePageOperation, laneLayer, LANE_FIELDS } from "../builder/site-lanes.mjs";
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { PICTURE_TOOL } from "../builder/site-picture.mjs";
@@ -140,9 +146,12 @@ const json = (o, status = 200) => new Response(JSON.stringify(o), { status, head
  * calls it names — and the call is in the log either way, which is what lets
  * the ordering case see a rung it did not answer.
  */
-async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HOME }) {
+async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HOME, picture = null }) {
   const slug = "once-" + mode + "-" + fields.join("-") + "-" + hex32().slice(0, 6);
-  const b = bucket(slug, home);
+  // A HOME PAGE MAY BE A FUNCTION OF THE SLUG, because a photograph the
+  // protection guards is one at `/u/<this site>/…` and the slug is made here.
+  const homeAt0 = typeof home === "function" ? home(slug) : home;
+  const b = bucket(slug, homeAt0);
   const id = hex32(), secret = hex32();
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const body = JSON.stringify({ layer: "look", page: "/", remove: false, rename: "", tab: false, instruction: ask, picker: "sonnet", idem: "idem" + hex32().slice(0, 20) });
@@ -184,7 +193,12 @@ async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HO
       if (tool === T.tweak) {
         const f = shownFile(args);
         seen.shown.push(f && f.source);
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: apply(f.source) } }], usage });
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { source: apply(f.source, slug) } }], usage });
+      }
+      // THE PICTURE STEP ANSWERS ONLY WHEN A CASE SUPPLIES ITS ANSWER, and with
+      // its own smaller usage, so its charge can be told apart from a page's.
+      if (tool === T.picture && picture) {
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: picture }], usage: { input_tokens: 400, output_tokens: 100 } });
       }
       return new Response("no stub for tool " + tool, { status: 503 });
     }
@@ -218,7 +232,7 @@ async function drive({ mode = "sync", fields, apply = BOTH, ask = ASK, home = HO
     };
     const stored = JSON.parse(b.store.get("source/" + slug + "/pages.json"));
     return {
-      status, reply, calls: seen.calls, shown: seen.shown, compiles: c.calls.length,
+      slug, homeAt0, status, reply, calls: seen.calls, shown: seen.shown, compiles: c.calls.length,
       sentHome: payloads.map((f) => sent(f, "index.tsx")),
       sentGallery: payloads.map((f) => sent(f, "gallery.tsx")),
       storedHome: (stored.find((p) => p.path === "index.tsx") || {}).source,
@@ -335,33 +349,200 @@ test("controls: shape alone and components alone each run one page operation", a
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. WHAT MUST STAY APART — a rung between two page lanes keeps its place
+// 3. A RUNG BETWEEN TWO PAGE LANES — the order stays, the page change happens once
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// Owner, on the remainder the adjacent merge left: *"Preserving step order is
+// necessary, but replaying the full request and undoing its result is still
+// incorrect. … Ensure the same requested page change is not applied twice
+// across an intervening step. Preserve genuine picture dependencies and
+// ordering; do not blindly merge across them."*
+//
+// THE REMAINDER, REPRODUCED BEFORE THE FIX through this file's own harness, on
+// both money paths — `components` + `images` + `tsx`, one page:
+//
+//   the picture step FAILS (its model unreachable)
+//     2 page-writer calls, the second shown the first one's output · the swap
+//     undone · billed 3 + 2 (reserved 3, then 2) · "✅ Updated the look. ⚠️ I
+//     couldn't reach the model that picks the picture — try again in a moment."
+//   the picture step SUCCEEDS (a reframe)
+//     2 page-writer calls · the swap undone, the reframe kept · billed
+//     3 + 1 + 2 · "✅ Updated the look." — a success sentence over a lost change
+//
+// THE FIX (`pageStepDone`): a later page step on the same page, running the
+// same sentence, is not run once an earlier one SUCCEEDED. No step moves and
+// nothing is merged across the picture step. Where the earlier one did NOT
+// succeed, the later one runs, on the state the picture step left — the
+// dependency case at the end of this section.
+//
+// THE EQUIVALENCE THE TWO OWNER CASES ASSERT: a page lane after the picture
+// lane adds no page operation, so `components` + `images` + `tsx` must
+// publish, bill and say exactly what `components` + `images` does — itself one
+// page operation beside the picture step.
 
-test("two page lanes with the picture rung between them stay two operations, in their order", async () => {
-  // `LANE_FIELDS` puts `components` (page) before `images` (picture) and
-  // `tsx` (page) after. Joining the two page steps would move one of them
-  // across the picture rung — and that order is load-bearing: the picture
-  // rung's work reaches a later page step through `eSrc`, which is what the
-  // photograph protection reads. So they stay two steps.
-  //
-  // ⚠ WHAT THE SECOND EXECUTION THEN DOES IS THE RECORDED REMAINDER and is
-  // deliberately NOT asserted here: it is shown the first one's output and
-  // runs the same sentence again. Only the ORDER is this case's subject.
-  const order = ["components", "images", "tsx"].map((f) => LANE_FIELDS.indexOf(f));
+/** A real photograph of THIS site, in the shape `photoUrls` and `imageSlots` match. */
+const BENCH = (slug) => "/u/" + slug + "/a1b2c3d4e5f60718.jpg";
+const OTHER = (slug) => "/u/" + slug + "/c3d4e5f607182930.jpg";
+const withBench = (slug) => HOME.replace("<p>Bread from the harbour, every morning.</p>",
+  "<p>Bread from the harbour, every morning.</p><SafeImage src=\"" + BENCH(slug) + "\" alt=\"the bench\" />");
+const THREE = ["components", "images", "tsx"];
+const TWO = ["components", "images"];
+const REFRAME = { pictures: [{ page: "index.tsx", alt: "the bench", focus: "top" }] };
+/** What the picture step's reframe writes — the attribute `applyPictures` inserts. */
+const framed = (src) => src.replace("<SafeImage src=", "<SafeImage focus=\"top\" src=");
+const relevantCalls = (r) => r.calls.filter((t) => t === T.tweak || t === T.pages || t === T.picture);
+/** True when the market section stands before the hours section, i.e. the swap happened an odd number of times. */
+const swapped = (src) => src.indexOf("className=\"market\"") < src.indexOf("className=\"hours\"");
+
+/**
+ * ONE PAGE OPERATION BESIDE THE PICTURE STEP, on one money path, asserted
+ * against the same message with the trailing page lane taken off.
+ */
+async function assertTrailingLaneAddsNothing({ mode, picture, expected, photo, text, money, label }) {
+  const order = THREE.map((f) => LANE_FIELDS.indexOf(f));
   assert.ok(order[0] < order[1] && order[1] < order[2], "the lane order no longer puts the picture lane between these two page lanes");
-  // A PHOTOGRAPH ON THE PAGE, so the picture rung has a slot and calls its
-  // model — which puts that rung in the call log, between the two page calls.
-  // Its tool is left unanswered: refused, recorded, charged nothing.
-  const photo = "<SafeImage src=\"/u/once/bench.jpg\" alt=\"the bench\" />";
-  const withPhoto = HOME.replace("<p>Bread from the harbour, every morning.</p>", "<p>Bread from the harbour, every morning.</p>" + photo);
-  const r = await drive({ fields: ["components", "images", "tsx"], home: withPhoto });
-  const relevant = r.calls.filter((t) => t === T.tweak || t === T.pages || t === T.picture);
-  assert.deepEqual(relevant, [T.tweak, T.picture, T.tweak],
-    "the page operations were joined or reordered across the picture rung: " + JSON.stringify(r.calls));
-  assert.equal(r.shown.length, 2);
-  assert.equal(r.shown[0], withPhoto, "the first page operation was not shown the stored page");
-  assert.equal(r.shown[1], BOTH(withPhoto), "the second page operation did not run on the first one's output, so the order is not the one the lanes set");
+  const control = await drive({ mode, fields: TWO, home: withBench, picture });
+  const r = await drive({ mode, fields: THREE, home: withBench, picture });
+  for (const [x, name] of [[control, "control"], [r, "three lanes"]]) {
+    assert.equal(x.status, 200, label + " (" + name + "): " + JSON.stringify(x.reply));
+    assert.equal(x.reply && x.reply.ok, true, label + " (" + name + "): " + JSON.stringify(x.reply));
+  }
+  // THE WRITER CALLS: one page operation, BEFORE the picture step — the order
+  // the lanes set, with nothing merged across the picture step and nothing run
+  // after it. The page writer was shown the page as stored.
+  assert.deepEqual(relevantCalls(r), [T.tweak, T.picture], label + ": the page operation ran again after the picture step: " + JSON.stringify(r.calls));
+  assert.deepEqual(r.shown, [r.homeAt0], label + ": the page writer was shown something other than the stored page");
+  assert.deepEqual(relevantCalls(control), relevantCalls(r), label + ": the control took a different path");
+  // THE FINAL LAYOUT, in the one compile and in the store: the swap exactly
+  // once and the card, the gallery byte-identical, no page added or lost.
+  const want = expected(r.homeAt0);
+  assert.ok(swapped(want) && want.includes("data-slot=\"card\""), label + ": the expected page does not carry both requested changes, so this case asserts nothing");
+  assert.equal(r.compiles, 1, label + ": compiles");
+  assert.equal(r.sentHome[0], want, label + ": the compiler was not handed the requested page");
+  assert.equal(r.storedHome, want, label + ": the store does not hold the requested page");
+  assert.equal(r.sentGallery[0], GALLERY, label + ": the gallery reached the compiler changed");
+  assert.equal(r.storedGallery, GALLERY, label + ": the gallery was rewritten");
+  assert.deepEqual(r.storedPaths, ["index.tsx", "gallery.tsx"], label + ": the store's page list moved");
+  assert.equal(control.storedHome, expected(control.homeAt0), label + ": the control's publication differs, so the equivalence is not the one asserted");
+  // THE PICTURE STEP'S RESULT, preserved in what shipped.
+  assert.equal((r.storedHome.match(/<SafeImage[^>]*\/>/) || [null])[0], photo(r.slug), label + ": the picture step's result did not survive");
+  // THE CHARGES: exactly the control's — no page operation billed twice — and
+  // exactly the reply's cost.
+  if (mode === "job") {
+    assert.deepEqual(r.reserves, money, label + ": reservations");
+    assert.deepEqual(r.reserves, control.reserves, label + ": the trailing page lane was reserved for");
+    assert.equal(r.reserves.reduce((n, x) => n + x.cost, 0), r.reply.cost, label + ": the reservations and the reported cost disagree");
+    assert.deepEqual(r.finalized, [true], label + ": the job did not finalize as a success");
+  } else {
+    assert.deepEqual(r.debits, money, label + ": debits");
+    assert.deepEqual(r.debits, control.debits, label + ": the trailing page lane was billed");
+    assert.equal(r.debits.reduce((n, x) => n + x, 0), r.reply.cost, label + ": the debits and the reported cost disagree");
+  }
+  assert.equal(r.refunds, 0, label + ": something was refunded on a message that succeeded");
+  // THE REPLY: the control's layers and refusals, and every lane still named.
+  assert.deepEqual(r.reply.layers, control.reply.layers, label + ": layers");
+  assert.deepEqual(r.reply.partial, control.reply.partial, label + ": refusals");
+  assert.deepEqual([...r.reply.lanes].sort(), [...THREE].sort(), label + ": the reply stopped naming a lane the message touched");
+  // THE CUSTOMER'S SCREEN, exactly — and exactly the control's.
+  assert.equal(r.said.ok, true, label + ": the browser could not compose a reply: " + r.said.why);
+  assert.equal(r.said.text, text, label + ": the customer's sentence");
+  assert.equal(control.said.text, text, label + ": the control says something else");
+  assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
+  return r;
+}
+
+test("a FAILED picture step between two page lanes: one page operation, billed once, and the screen names the page", async () => {
+  for (const mode of ["sync", "job"]) {
+    const r = await assertTrailingLaneAddsNothing({
+      mode, label: mode + " failed picture",
+      picture: null, // its tool answers 503 — the model that picks the picture is unreachable
+      expected: (home) => BOTH(home),
+      photo: (slug) => "<SafeImage src=\"" + BENCH(slug) + "\" alt=\"the bench\" />",
+      money: mode === "job" ? [{ seq: 1, cost: 3 }] : [3],
+      text: "✅ Updated /. ⚠️ I couldn't reach the model that picks the picture — try again in a moment.",
+    });
+    assert.deepEqual(r.reply.layers, ["page"], mode + ": the page operation is not the one rung that shipped");
+    assert.deepEqual((r.reply.partial || []).map((x) => [x.layer, x.error]), [["picture", "send"]], mode + ": the picture step's failure is not the one refusal reported");
+  }
+});
+
+test("a SUCCESSFUL picture change between two page lanes: one page operation, the reframe kept, billed as one", async () => {
+  for (const mode of ["sync", "job"]) {
+    const r = await assertTrailingLaneAddsNothing({
+      mode, label: mode + " successful picture",
+      picture: REFRAME,
+      expected: (home) => framed(BOTH(home)),
+      photo: (slug) => "<SafeImage focus=\"top\" src=\"" + BENCH(slug) + "\" alt=\"the bench\" />",
+      money: mode === "job" ? [{ seq: 1, cost: 3 }, { seq: 2, cost: 1 }] : [3, 1],
+      text: "✅ Updated the look.",
+    });
+    assert.deepEqual(r.reply.layers, ["page", "picture"], mode + ": the two rungs that shipped are not the page and the picture");
+    assert.equal(r.reply.partial, undefined, mode + ": a refusal was reported on a message whose every part shipped");
+  }
+});
+
+test("a GENUINE picture dependency still runs the later page step: withheld first, completed after the picture step", async () => {
+  // THE CASE THE ORDER EXISTS FOR, AND THE REASON THE RULE IS "AFTER A
+  // SUCCESS" RATHER THAN "ALWAYS". The customer asks for the swap AND for the
+  // bench photograph to come off. The page writer's first answer puts another
+  // picture where the bench was — the one loss the protection cannot put back
+  // — so that page step is WITHHELD (409, cost 0). The picture step then takes
+  // the bench off, as asked. The later page step runs on THAT state, where
+  // there is no photograph left to protect, and publishes the swap.
+  const ASK_OFF = "Swap the opening hours and the market times, and take the bench photograph off.";
+  const apply = (src, slug) => swap(src).replace("src=\"" + BENCH(slug) + "\"", "src=\"" + OTHER(slug) + "\"");
+  const cleared = (home, slug) => home.replace("src=\"" + BENCH(slug) + "\"", "src=\"\"");
+  for (const mode of ["sync", "job"]) {
+    const r = await drive({ mode, fields: THREE, home: withBench, ask: ASK_OFF, apply, picture: { pictures: [{ page: "index.tsx", alt: "the bench", clear: true }] } });
+    const label = mode + " dependency";
+    // THE FIXTURE'S PREMISE: the first answer drops this site's photograph for another.
+    assert.ok(apply(r.homeAt0, r.slug).includes(OTHER(r.slug)) && !apply(r.homeAt0, r.slug).includes(BENCH(r.slug)),
+      label + ": the first answer no longer loses the bench, so nothing is withheld and this case asserts nothing");
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    // THE WRITER CALLS: page, picture, page — the later page step RAN, in its
+    // place, shown the state the picture step left rather than the stored page.
+    assert.deepEqual(relevantCalls(r), [T.tweak, T.picture, T.tweak], label + ": the later page step did not run after the picture step: " + JSON.stringify(r.calls));
+    assert.deepEqual(r.shown, [r.homeAt0, cleared(r.homeAt0, r.slug)], label + ": the later page step was not shown the picture step's result");
+    // THE FINAL LAYOUT: the swap exactly once, the bench off as asked, the
+    // substituted picture nowhere, the gallery untouched.
+    const want = swap(cleared(r.homeAt0, r.slug));
+    assert.ok(swapped(want), label + ": the expected page is not swapped");
+    assert.equal(r.compiles, 1, label + ": compiles");
+    assert.equal(r.sentHome[0], want, label + ": the compiler was not handed the requested page");
+    assert.equal(r.storedHome, want, label + ": the store does not hold the requested page");
+    assert.ok(!r.storedHome.includes(OTHER(r.slug)), label + ": the withheld answer's picture shipped");
+    assert.equal(r.storedGallery, GALLERY, label + ": the gallery was rewritten");
+    // THE CHARGES: the withheld attempt cost nothing; the picture step and the
+    // page step that shipped are billed, and they are the whole reported cost.
+    if (mode === "job") {
+      assert.deepEqual(r.reserves, [{ seq: 1, cost: 2 }, { seq: 2, cost: 2 }], label + ": reservations");
+      assert.equal(r.reserves.reduce((n, x) => n + x.cost, 0), r.reply.cost, label + ": the reservations and the reported cost disagree");
+      assert.deepEqual(r.finalized, [true], label + ": the job did not finalize as a success");
+    } else {
+      assert.deepEqual(r.debits, [2, 2], label + ": debits");
+      assert.equal(r.debits.reduce((n, x) => n + x, 0), r.reply.cost, label + ": the debits and the reported cost disagree");
+    }
+    // THE REPLY: both rungs shipped, and the first attempt's refusal is gone —
+    // the operation happened, so "…so I didn't make it" would be false.
+    assert.deepEqual(r.reply.layers, ["picture", "page"], label + ": layers");
+    assert.equal(r.reply.partial, undefined, label + ": the superseded refusal was reported beside the change that shipped: " + JSON.stringify(r.reply.partial));
+    assert.equal(r.reply.photosRemoved, 1, label + ": the removal the customer asked for is not reported");
+    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.",
+      label + ": the customer's sentence");
+    assert.ok(!r.said.text.includes("didn't make it"), label + ": the screen says the change was not made");
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
+  }
+  // ⚠ AND A REFUSAL IS SUPERSEDED ONLY BY THE SAME OPERATION. A picture step
+  // that fails BEFORE a page step that ships is a different piece of work: it
+  // stays on the reply and on the screen.
+  const other = await drive({ fields: ["images", "tsx"], home: withBench });
+  assert.equal(other.reply && other.reply.ok, true, "the page step beside a failed picture step did not ship: " + JSON.stringify(other.reply));
+  assert.deepEqual(relevantCalls(other), [T.picture, T.tweak], "the picture step did not run before the page step: " + JSON.stringify(other.calls));
+  assert.deepEqual((other.reply.partial || []).map((x) => [x.layer, x.error]), [["picture", "send"]],
+    "a failure of a DIFFERENT step was superseded by the page step's success: " + JSON.stringify(other.reply.partial));
+  assert.equal(other.said.text, "✅ Updated /. ⚠️ I couldn't reach the model that picks the picture — try again in a moment.",
+    "the customer's sentence lost the picture step's failure");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -409,4 +590,43 @@ test("mergePageSteps keeps apart what is a different operation", () => {
   // A step on another rung with a page lane's name is not a page step.
   const odd = { layer: "look", page: "/", fields: ["shape"] };
   assert.deepEqual(mergePageSteps([P("shape"), odd]), [P("shape"), odd]);
+});
+
+test("pageStepDone: a later page step is absorbed only by an earlier SUCCESS of the same operation", () => {
+  const pic = { layer: "picture", page: "", fields: ["images"] };
+  const look = { layer: "look", page: "", fields: ["css"] };
+  const ok = (st) => ({ step: st, failed: false });
+  const bad = (st) => ({ step: st, failed: true });
+  // AN EARLIER SUCCESS ON THE SAME PAGE ABSORBS THE LATER STEP, across the
+  // picture step and whatever it did.
+  assert.equal(pageStepDone(P("tsx"), [ok(P("components")), bad(pic)]), 0);
+  assert.equal(pageStepDone(P("tsx"), [ok(P("components")), ok(pic)]), 0);
+  // AN EARLIER FAILURE DOES NOT — the later step is what completes the work.
+  assert.equal(pageStepDone(P("tsx"), [bad(P("components")), ok(pic)]), -1);
+  // CANNOT-TELL DOES NOT: only a recorded success absorbs.
+  assert.equal(pageStepDone(P("tsx"), [{ step: P("components") }]), -1);
+  assert.equal(pageStepDone(P("tsx"), [{ step: P("components"), failed: undefined }]), -1);
+  // ANOTHER RUNG'S SUCCESS DOES NOT.
+  assert.equal(pageStepDone(P("tsx"), [ok(pic), ok(look)]), -1);
+  // A DIFFERENT PAGE DOES NOT.
+  assert.equal(pageStepDone(P("tsx", "/menu"), [ok(P("components", "/"))]), -1);
+  // A STEP WITH ITS OWN ASK is never absorbed and never absorbs.
+  const qr = { layer: "page", page: "/", fields: ["qr"], instruction: "place the code" };
+  assert.equal(pageStepDone(qr, [ok(P("components"))]), -1);
+  assert.equal(pageStepDone(P("tsx"), [ok(qr)]), -1);
+  // A `pages` VERB STEP neither.
+  const verb = { layer: "page", page: "/", fields: ["pages"] };
+  assert.equal(pageStepDone(verb, [ok(P("components"))]), -1);
+  assert.equal(pageStepDone(P("tsx"), [ok(verb)]), -1);
+  // THE INDEX IS THE SUCCESS'S, wherever it sits.
+  assert.equal(pageStepDone(P("tsx"), [ok(look), bad(P("components")), ok(P("shape"))]), 2);
+  assert.equal(pageStepDone(P("tsx"), []), -1);
+  assert.equal(pageStepDone(P("tsx"), null), -1);
+  // THE ONE DEFINITION both this and `mergePageSteps` ask.
+  assert.equal(samePageOperation(P("components"), P("tsx")), true);
+  assert.equal(samePageOperation(P("tsx"), P("components")), true);
+  assert.equal(samePageOperation(P("components"), P("tsx", "/menu")), false);
+  assert.equal(samePageOperation(P("components"), pic), false);
+  assert.equal(samePageOperation(P("components"), qr), false);
+  assert.equal(samePageOperation(null, P("tsx")), false);
 });

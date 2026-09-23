@@ -1,0 +1,91 @@
+[
+ {
+  "label": "CONTROL: a comment in the step loop changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // SKIPPED ONLY AFTER A SUCCESS. An earlier page step that was\n",
+  "to": "              // SKIPPED ONLY AFTER A SUCCESS (control). An earlier page step that was\n",
+  "control": true
+ },
+ {
+  "label": "R-1: the later page step runs again after a success (the defect)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (already >= 0) {\n",
+  "to": "              if (false && already >= 0) {\n"
+ },
+ {
+  "label": "R-2: an earlier FAILED page step absorbs the later one (the dependency lost)",
+  "files": [
+   "builder/site-lanes.mjs"
+  ],
+  "from": "  return (Array.isArray(done) ? done : []).findIndex((d) => !!d && d.failed === false\n",
+  "to": "  return (Array.isArray(done) ? done : []).findIndex((d) => !!d && typeof d.failed === \"boolean\"\n"
+ },
+ {
+  "label": "R-3: cannot-tell absorbs the later step",
+  "files": [
+   "builder/site-lanes.mjs"
+  ],
+  "from": "  return (Array.isArray(done) ? done : []).findIndex((d) => !!d && d.failed === false\n",
+  "to": "  return (Array.isArray(done) ? done : []).findIndex((d) => !!d && !d.failed\n"
+ },
+ {
+  "label": "R-4: the same operation ignores the page",
+  "files": [
+   "builder/site-lanes.mjs"
+  ],
+  "from": "  return sentencePageStep(a) && sentencePageStep(b) && a.page === b.page;\n",
+  "to": "  return sentencePageStep(a) && sentencePageStep(b);\n"
+ },
+ {
+  "label": "R-5: a step carrying its own ask is the same operation",
+  "files": [
+   "builder/site-lanes.mjs"
+  ],
+  "from": "  return !!s && s.layer === \"page\" && typeof s.page === \"string\" && !s.instruction\n",
+  "to": "  return !!s && s.layer === \"page\" && typeof s.page === \"string\"\n"
+ },
+ {
+  "label": "R-6: a pages-verb step is the same operation (the field rule dropped)",
+  "files": [
+   "builder/site-lanes.mjs"
+  ],
+  "from": "    && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === \"page\");\n",
+  "to": "    && Array.isArray(s.fields) && s.fields.length > 0;\n"
+ },
+ {
+  "label": "R-7: the skipped step's lanes are not folded onto the step that did the work",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                did.step = { ...did.step, fields: [...did.step.fields, ...step.fields.filter((f) => !did.step.fields.includes(f))] };\n",
+  "to": ""
+ },
+ {
+  "label": "R-8: a later success never supersedes the earlier refusal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!failed) for (const d of done) if (d.failed && samePageOperation(d.step, step)) d.superseded = true;\n",
+  "to": ""
+ },
+ {
+  "label": "R-9: a later success supersedes ANY earlier refusal, not only the same operation's",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!failed) for (const d of done) if (d.failed && samePageOperation(d.step, step)) d.superseded = true;\n",
+  "to": "              if (!failed) for (const d of done) if (d.failed) d.superseded = true;\n"
+ },
+ {
+  "label": "R-10: the merge still reports a superseded refusal",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const failures = done.filter((d) => d.failed && !d.superseded);\n",
+  "to": "            const failures = done.filter((d) => d.failed);\n"
+ }
+]
