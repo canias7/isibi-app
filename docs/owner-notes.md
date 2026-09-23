@@ -448,13 +448,23 @@ without spending yet."*
    wording everywhere.
 3. **Paid, you, after about 23:50 UTC:** the same form with `restore_version`
    blank, `spend` yes and the instruction pasted exactly as before. About
-   **18–20 credits** (run 21 was 17), ~30 at worst. If the new database lookup
-   fails, it stops and costs only the routing call's 2. Your balance was 48.
+   **18–20 credits** (run 21 was 17), possibly up to ~30. **That's an
+   estimate, not a cap** (your correction, 23 Sep): nothing limits what one
+   edit can cost except your balance. If the new database lookup fails, it
+   stops and costs only the routing call's 2. Your balance was 48.
 
 **What to watch:** the four *"the schema does not declare…"* warnings in the
-reply should disappear. That's the sign the writer got your real database
-rules. The test passes only if no loading, error or empty state advertises
-places and the counts still read right.
+reply should disappear. **That only shows the edit step read your real
+database.** It doesn't prove the writer used it or built the right behaviour
+(your correction, 23 Sep); the browser checks decide that.
+
+**It passes only if** (your list, 23 Sep):
+- loading, failed and missing answers never show "6 places left";
+- a real count of zero shows six;
+- counts of 2, 5, 6 and above show 4, 1, 0 and 0;
+- the existing booking lookup and the other pages and components are
+  unchanged;
+- the actual reply and the browser behaviour check out.
 
 **Still not proven:** that the model follows the new rule. That's exactly what
 step 3 tests.

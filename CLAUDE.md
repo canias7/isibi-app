@@ -2987,13 +2987,16 @@ preflight.**
    `control` washhouse-3, `restore_version` and `read_job` blank. The run's own
    `before/source.json` is compared too.
 
-**WHAT IS NEW IN THIS PRESS, AND THE ONE READING THAT SHOWS IT.** The writer
-now gets the full rules (**42,409** chars, the new paragraph inside rule 11)
-and a digest of fretwork-1's real schema, where run 21's got the frontend rules
-(**29,077**). The prompt is not captured, so the evidence is a PROXY: **run
-21's four "does not declare" problems should be GONE**, because this rung's
-lint now reads the same spec the writer is handed. Still there means the spec
-did not reach the writer, and that is its own finding.
+**WHAT IS NEW IN THIS PRESS, AND WHAT THE WARNINGS CAN AND CANNOT SAY.** The
+writer should now get the full rules (**42,409** chars, the new paragraph
+inside rule 11) and a digest of fretwork-1's real schema, where run 21's got
+the frontend rules (**29,077**). The prompt is not captured. **Run 21's four
+"does not declare" problems disappearing shows only that this rung's LINT read
+a spec naming those tables and that function.** **⚠ It does NOT prove the
+writer received that context, and says nothing about whether the behaviour was
+implemented** (owner, 2026-09-23) — the behaviour is settled by the browser
+checks and nothing else. Still there means the rung's spec lacked those names,
+which is a finding about the lookup.
 
 **AND IT IS THE FIRST LIVE RUN OF THE LOOKUP.** `siteBackendDetail` resolving
 an `incomplete` site inside the container has only ever run against fakes.
@@ -3006,18 +3009,28 @@ from the spec read (`unreadable:<why>`, `permissions-unreadable`,
 `unrecoverable-tables`) — so the routing call's 2 is the whole spend and
 nothing publishes.
 
-**THE ACCEPTANCE IS RUN 21'S LIST, EVERY ITEM MANDATORY**: the request's sha;
-published, a version minted inside the window; `tweak` not true; the table (0 →
-six, 1 → five, 2 → four, 5 → one singular, 6/7/99 → full, never negative, no
-booking-count wording); **every unknown state and no day chosen never advertise
-places** (held at 1/4/10 s, slow then answered, a day switch while held; 503,
-500, 502, 504 and a dropped connection after the retries; 404; 403; 200
-`null`, an empty body, 204, `[]`, `{}`); `chord-diagram`, `trial-booking-form`,
-`gear.tsx` and `prices.tsx` byte-identical, `day-space-lookup` and `index.tsx`
-inspected — **`index.tsx` is now EXPECTED to change**, the rule telling the
-page to hand the component the query; NAV 200, 0 console errors, 0 failed
-requests, the real function 200 and the box right for the real count; an
-accurate reply.
+**THE ACCEPTANCE, FOCUSED (owner, 2026-09-23), EVERY ITEM MANDATORY:**
+
+1. **Loading, failed and missing answers never display "6 places left".**
+   (Held at 1/4/10 s and a day switch while held; 503, 500, 502, 504 and a
+   dropped connection after the retries; 404; 403; 200 `null`, an empty body,
+   204, `[]`, `{}`.)
+2. **A successful count of zero displays six.**
+3. **Counts 2, 5, 6 and above six produce 4, 1, 0 and 0.**
+4. **The existing RPC and the unrelated pages and components are preserved**:
+   `bookings_on_day` still called, answering 200 unintercepted with the box
+   right for the real count; `chord-diagram`, `trial-booking-form`, `gear.tsx`
+   and `prices.tsx` byte-identical. `index.tsx` and `day-space-lookup` are
+   inspected, and `index.tsx` is EXPECTED to change.
+5. **The actual customer reply and the browser behaviour are checked**:
+   `customer-reply.txt` against the artifact and the job record, and the box in
+   a real browser (NAV 200, console errors and failed requests counted).
+
+**The run counts as the replay only if** the instruction's sha matches, its own
+`before/source.json` matches run 17's before-read, and it published — those
+decide whether this IS the test, not whether it passed. The probe prints every
+state's line verbatim, so anything else an unknown state says is in the report
+rather than silently passed.
 
 - **THE INSTRUMENT CANNOT FAIL THE RULE'S OWN WORDS — measured**: *"Checking…"*
   and *"Couldn't check — try again"* classify READ with no advertisement;
@@ -3026,9 +3039,10 @@ accurate reply.
   mandatory item, and whether it reads well is a person's call.
 - **WHAT EACH OUTCOME WOULD MEAN**: a 503 `backend` → the lookup, not the
   writer. `tweak: true` with the computation changed → the door failing live.
-  The rewrite ran, the warnings are gone, an unknown state still advertises →
-  **the writer had the rule and did not follow it**. The rewrite ran and the
-  warnings are still there → the spec did not reach the writer. A count wrong
+  The rewrite ran and an unknown state still displays "6 places left" → the
+  behaviour failed; **the warnings being gone would NOT show the writer saw the
+  rule**, since the prompt is not captured. The warnings still there → the
+  rung's spec lacked those names, a lookup finding. A count wrong
   (0 → *"0 places left"*) → a doubled subtraction. Every reading passes → the
   acceptance closes **for this sentence on this site**, and says nothing about
   other wording.
@@ -3039,8 +3053,11 @@ accurate reply.
   about the same, because run 21's writer already re-emitted the whole page.
   **So route 2 + edit ~16–18 ≈ 18–20.** Dearer: the quick writer re-emitting
   the page before it declines (run 17's 7,627 output tokens, ~+5.7), or new
-  page wording that needs French and Spanish (≥1 each) — ~30 at worst.
-  Cheaper: the lookup stops — 2. Balance **48**.
+  page wording that needs French and Spanish (≥1 each) — perhaps ~30.
+  **⚠ EVERY FIGURE HERE IS AN ESTIMATE, NOT A CAP** (owner, 2026-09-23):
+  nothing enforces a per-request limit — `edit_reserve` raises only above
+  100,000 — so the account balance is the only bound that binds. Cheaper: the
+  lookup stops — 2. Balance **48**.
 - **THE SAME LIMITS AS RUN 21**: the tweak's decline reason is on neither the
   reply nor the trace, the writer's prompt is not captured, and the guards'
   supplied answers prove the path, never the model.
