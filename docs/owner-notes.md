@@ -155,6 +155,61 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-23 — The restore worked; the paid press never reached the edit
+
+### The restore (run 22, free)
+
+- The live Worker answered with the new build (`33126616…`) and a fresh
+  container got the new image (`962824ede93e7706`). **So deploy 2144 is now
+  confirmed running, not just deployed.**
+- fretwork-1 is back on `01789972018761-6tng48`. The run read it, and so did I.
+  The version list showed run 21's version with this one as its parent, as
+  predicted.
+- All six files match run 17's starting read byte for byte. As a check that
+  the comparison can see a difference: against run 21's result, only
+  `day-space-lookup` differs.
+- In a real browser the box showed the old booking wording in every state
+  (27 wrong, 0 right, 1 neutral: "Choose a day"). No console errors and no
+  failed requests. Nothing charged; balance 48.
+
+### The paid press (run 23) — it stopped before the edit
+
+- The router picked the page `/book`. fretwork-1 has no `/book`; its pages are
+  `/`, `/prices` and `/gear`. The edit stopped straight away with "no such
+  page" and cost nothing. The routing call cost **2**, so the balance went
+  **48 → 46**. Nothing was published and the site is still on the restored
+  version.
+- **This is neither a pass nor a fail of your five items.** The request was
+  right and the starting files were right, but nothing was published, so it
+  wasn't the replay.
+
+### Why: the test harness never told the router your pages
+
+The real app sends the router your site's page list, which it fetches from the
+server. **The harness has sent an empty list since 1 Sep.** With no list, the
+router guesses the page from your sentence ("Book a guitar lesson" is on your
+home page). The check that catches a page the site doesn't have only runs
+when there's a list to check against. Runs 17 and 21 got `/` by luck: same
+sentence, same empty list. **This was the harness, not the product.**
+
+### The fix (harness only, no product code)
+
+- The harness now fetches your page list the same way the app does and sends
+  it to the router. If it can't read the list, it stops before the routing
+  call, so nothing is spent. The evidence now also records what the router
+  was told.
+- **Proof:** 5 new tests. A mutation sweep with 10 deliberate breakages
+  (including run 23's exact defect): all 10 caught, and both harmless
+  controls left alone. The full suite: 7,175 tests, all passing (5 more than
+  before).
+- **Not merged, and it doesn't need to be.** The next press runs from the
+  branch (`claude/help-needed-ehlwlj`), which uses the fixed harness against
+  the same live site. A change to `scripts/` wouldn't deploy anything anyway.
+
+**Still open:** your five acceptance items. The press still has to happen.
+
+---
+
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press
 
 **Merged.** `main` fast-forwarded to `a208a86a` — 26 commits — at 18:44Z.

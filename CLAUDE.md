@@ -2961,7 +2961,9 @@ runner; image **built `962824ede93e7706`** (404, 184 inputs) and **rolled from
 files to upload`**, so there is no served-file check; `Uploaded isibi-app`, a
 fresh Worker version. Gates **401 / 401 / 401 / 404** at 23:34:27Z. fretwork-1
 still serves `01790112998238-ew6e7z`. **The runtime confirmation is press 1's
-preflight.**
+preflight** — **taken 2026-09-23 by run 22** (`deploy=331266164a17
+image=962824ede93e7706`, both readers agreeing), so 2144 is deployed AND
+runtime-confirmed; see *runs 22–23* below.
 
 **THE PRESSES**, all on `edit-canary.yml` **from `main`**, with
 `expect_deploy` **`331266164a17c952b40807eeea8bcb43623cbbb5`** and
@@ -3061,6 +3063,76 @@ rather than silently passed.
 - **THE SAME LIMITS AS RUN 21**: the tweak's decline reason is on neither the
   reply nor the trace, the writer's prompt is not captured, and the guards'
   supplied answers prove the path, never the model.
+
+### RUNS 22–23 — THE RESTORE HELD, AND THE HARNESS ROUTED BLIND (2026-09-23)
+
+**RUN 22 (`35804550563`, free, `main`, 01:01:20 → 01:02:14Z) IS DEPLOY 2144'S
+RUNTIME CONFIRMATION AND THE RESTORE.** `build-health 200
+deploy=331266164a17 image=962824ede93e7706`, `runtime 200 async=true
+runner=true`, both readers agreeing and both expectations matched: the live
+Worker answering, not Wrangler. The version list carried **15** rows, row 1
+`01790112998238-ew6e7z` with **parent `01789972018761-6tng48`** as predicted;
+POST 200 `{ok, files: 37, swept: 0, worker: true}`; the site reported the id on
+the FIRST read, and the session's own curl agreed at 01:03:22Z. **All six
+bodies byte-identical to run 17's before-read**, same path set, and to run 20's
+restored read; the control against run 21's after DIFFERS at
+`day-space-lookup` alone (1,488 → 1,466 chars). **Probe v3 on the restored box:
+FAIL 27 · MATCH 0 · READ 1** — every count and every unknown state in the old
+booking-count wording, `{}` as *"NaN bookings already on this day."*, the no-day
+line READ, the real function **200 body `0`**, 0 console errors and 0 failed
+requests beyond the failures the probe served. Balance **48**.
+
+**RUN 23 (`35805508645`, paid, `main`, 01:14:56 → 01:16:18Z) NEVER REACHED THE
+EDIT.** The request was right (159 chars, the recorded sha) and so was the
+starting source (all six bodies byte-identical to run 17's before). **The
+router answered `intent=edit layer=page page=/book`** in 27.9 s — `6,631 in /
+20 out`, cost **2** — and fretwork-1 has no `/book` (its routes are `/`,
+`/prices`, `/gear`). The page rung answered `{ok: false, escalate: true,
+reason: "no-page", cost: 0, page: "/book"}` in 11.7 s; nothing published (the
+after-read is byte-identical to the before-read, the header still
+`01789972018761-6tng48`), and the balance moved **48 → 46**. **It is not the
+replay** — it did not publish — so the acceptance is untouched either way.
+
+**THE CAUSE IS THE HARNESS, AND IT HAS BEEN THERE SINCE `aa96c976`
+(2026-09-01).** `edit-canary.mjs` built its routing digest with `pages: []`.
+`routeMessage` hands `site.pages` to `readRouting`, and `readEdit`'s check of
+the router's page against the site's list runs only when that list is
+non-empty — so every routing call the canary ever made was blind, and the
+router named a page from the sentence alone (*"Book a guitar lesson"* heads the
+home page). **Runs 17 and 21 routed the same sentence to `/` through the same
+empty list — luck, not a reading.** The browser does not route blind:
+`siteRoutesFetch` fills `site.pages` from `GET /api/site/routes?slug=`, and
+`siteRoute` sends those paths capped at 24. *A fixture in a different shape from
+reality*, in the harness this file calls the customer's own screen executed.
+
+- **WITH THE LIST PRESENT, A PAGE THE SITE DOES NOT HAVE IS AN `addon`, NOT A
+  `no-page`** — `readEdit` returns the fallback intent — so run 23's shape is
+  unreachable from a browser that has its list. The canary's existing gate
+  (`rd.intent !== "edit"`) refuses to spend on that answer.
+- **THE FIX IS THE HARNESS'S ALONE.** `readRoutes` (`scripts/canary-watch.mjs`)
+  reads that route with the browser's filter — a 2xx, `ok: true`, a `routes`
+  array, only strings starting with `/`, capped at `MAX_ROUTER_PAGES` (24, the
+  browser's number, read out of `chat.js` by its guard) — and the canary sends
+  that list. **Cannot-tell refuses above the routing call** (`routesRefusal`,
+  exit 1, nothing spent), because an empty list is the blind router and not
+  "no pages". `routing.json` now records the digest the router was sent — run
+  23's bundle had the answer and nowhere the list it answered from.
+- **`tables: []` IS KEPT AND SAID**: it is what a browser sends for a site it
+  adopted off the list (`fromRow` carries none); a browser that built the site
+  sends the build's list. Not exposed by any run — the layer was `page` on all
+  three.
+- **EVIDENCE**: 5 new cases (4 driven in `test/canary-watch.test.mjs`, 1 wiring
+  census in `test/edit-canary.test.mjs` that asserts the condition as well as
+  the call, since `if (false)` keeps every landmark). **Sweep
+  `scripts/mutants/canary-routes.json`: 10 mutants, 10 killed, 0 survived, 0
+  never applied, 2 comment-only controls surviving**, over 4 canary guard files;
+  both files byte-identical to a scratchpad backup afterwards. **Suite 7,175
+  locally** (`# tests 7175 / # pass 7175 / # fail 0 / # skipped 0`,
+  `duration_ms 107,036`) — **+5 against 7,170**, exactly these cases.
+- **NOT MERGED, AND IT NEED NOT BE FOR THE NEXT PRESS**: a dispatch from the
+  branch runs the branch's script against main's Worker, which is what the
+  preflight checks — run 20's precedent. `scripts/**` is in `paths-ignore`, so
+  a merge of this would deploy nothing either.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -5589,7 +5661,9 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 48** at run 21's end (2026-09-22, the places-left replay:
+build. **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
+routing call; the edit escalated `no-page` at `cost: 0` and nothing published;
+run 22's free restore read 48). **Balance 48** at run 21's end (2026-09-22, the places-left replay:
 **65 → 48, moved 17** — route 2 + the page rung's 15, closing exactly, on a run
 that published; runs 18–20 were free and read 65 each). **Balance 65** at run
 17's end (2026-09-22, read by the canary at both

@@ -322,3 +322,35 @@ test("the reply capture reads the browser's ACTIONS, not only its text", () => {
   // is what made run 12's capture unreadable.
   assert.match(block, /said\.shown|\bshown\b/, "the capture cannot tell an acting branch from an empty answer");
 });
+
+test("the router is told the site's pages, read above the routing call (run 23)", () => {
+  // RUN 23 (2026-09-23) ROUTED BLIND. The digest sent `pages: []`, so the
+  // router named `/book` — a route fretwork-1 does not have — and `readEdit`'s
+  // check against the real list never ran: 2 credits for routing, nothing
+  // edited. The browser sends the list `GET /api/site/routes` answers.
+  const paid = paidHalf();
+  const read = paid.indexOf("/api/site/routes?slug=");
+  const routed = paid.indexOf('"/api/site/route"');
+  assert.ok(read > 0, "the canary no longer reads the site's page list — the router routes blind");
+  assert.ok(routed > read, "the page list is read after the routing call has already spent");
+  const between = paid.slice(read, routed);
+  assert.match(between, /readRoutes\(/, "the page list is not read through the shared reader");
+  // THE REFUSAL SITS BETWEEN THE READ AND THE SPEND, on the reader's own
+  // answer, and it really stops the run. The condition is asserted as well as
+  // the call: `if (false)` would keep every landmark where it is.
+  const refuse = between.indexOf("routesRefusal(");
+  assert.ok(refuse > 0, "an unreadable page list no longer refuses");
+  assert.match(between.slice(between.lastIndexOf("if (", refuse), refuse), /!RP\.ok/,
+    "the refusal no longer depends on the page list being unreadable");
+  assert.match(between.slice(refuse, refuse + 200), /process\.exit\(1\)/, "the refusal does not stop the run");
+  // THE DEFECT ITSELF: the digest carried an empty page list.
+  const dAt = between.indexOf("const digest");
+  assert.ok(dAt > 0, "the routing digest is gone or moved below the routing call");
+  const digestLine = between.slice(dAt, between.indexOf("\n", dAt));
+  assert.doesNotMatch(digestLine, /pages:\s*\[\s*\]/, "the router is sent an empty page list again — run 23's defect");
+  assert.match(digestLine, /pages:\s*RP\.pages/, "the digest does not send the list that was read");
+  // AND THE RECORD SAYS WHAT THE ROUTER WAS TOLD — run 23's bundle had the
+  // router's answer and nowhere the list it answered from.
+  assert.match(paid, /routing\.json`,\s*JSON\.stringify\(\{[^\n]*\bsite:\s*digest\b/,
+    "routing.json no longer records the digest the router was sent");
+});

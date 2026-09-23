@@ -28,7 +28,7 @@ import { editBrowserReply } from "./addon-sweep.mjs";
 // THE INSTRUCTION WALL AND THE WATCH, lifted out so they can be driven. This
 // file is a script with top-level await that spends money, so a test cannot
 // import it to reach a function — see the header of `canary-watch.mjs`.
-import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport } from "./canary-watch.mjs";
+import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal } from "./canary-watch.mjs";
 // THE READ-ONLY LOOKUP. Its own module for the same reason: the decisions it
 // makes about billing and about what the old watch would have seen are worth
 // driving, and they cannot be reached through a script that spends money.
@@ -550,7 +550,25 @@ writeFileSync(`${EVID}/request.json`, JSON.stringify({
 // SO THE CANARY DOES WHAT THE CLIENT DOES: ask the router, carry every field
 // it decides. The routing call is a real ~0.3-credit charge and belongs to the
 // paid half, which is why it sits below the free checks and behind CANARY_SPEND.
-const digest = { name: CANARY, url: `https://${CANARY}.gofarther.app`, pages: [], tables: [] };
+//
+// AND THE ROUTER IS TOLD THE SITE'S PAGES, THE WAY THE BROWSER TELLS IT. This
+// sent `pages: []` until run 23, so the router named a page from the sentence
+// alone and `readEdit`'s check against the real list never ran: the
+// places-left ask routed to `/book`, which fretwork-1 does not have, and the
+// run paid for routing and edited nothing. The browser fills the list from
+// this same route (`siteRoutesFetch`), so the harness asks it too and refuses
+// to spend on an answer it cannot read — see `readRoutes`.
+//
+// `tables: []` is what a browser sends for a site it adopted off the list
+// (`fromRow` carries none); a browser that built the site sends the build's.
+const rr = await call("GET", `/api/site/routes?slug=${encodeURIComponent(CANARY)}`);
+const RP = readRoutes(rr.status, rr.json);
+if (!RP.ok) {
+  console.error("  " + routesRefusal(CANARY, RP.why));
+  process.exit(1);
+}
+console.log(`  pages sent to the router: ${RP.pages.join(", ")}`);
+const digest = { name: CANARY, url: `https://${CANARY}.gofarther.app`, pages: RP.pages, tables: [] };
 const rt = await call("POST", "/api/site/route", {
   body: { message: INSTRUCTION, site: digest, firstBuild: false, brief: INSTRUCTION,
           qa: [], answering: false, attached: false, slug: CANARY, hasSite: true },
@@ -634,7 +652,7 @@ console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})
 // refusal, a lane that never reached the page rung, an escalate and a
 // failure. Print all of it and let the reader judge.
 const rb = done && done.json ? done.json : null;
-writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, status: rt.status, ms: rt.ms, body: rd }, null, 2));
+writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, site: digest, status: rt.status, ms: rt.ms, body: rd }, null, 2));
 // THE STATUS AND THE FINAL HEADER SURVIVE INTO THE RECORD, because they are
 // what separates the three outcomes that used to write the same file: a
 // completed failure (a stored reply at 422/503), a terminal job with nothing

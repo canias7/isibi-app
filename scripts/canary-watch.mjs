@@ -177,3 +177,46 @@ export function watchReport(w) {
     pass: false,
   };
 }
+
+/**
+ * WHICH PAGES THE ROUTER IS TOLD THE SITE HAS — the browser's list, read the
+ * browser's way.
+ *
+ * The router picks the page an edit is for, and the one check on that pick
+ * (`readEdit` in `builder/site-ask.mjs`) compares it against the page list the
+ * CALLER sent — an empty list skips it. `edit-canary.mjs` sent `pages: []` from
+ * the day it was written, so every routing call it made was blind. Run 23
+ * (2026-09-23) is what that costs: the places-left sentence routed to
+ * `page=/book`, a route fretwork-1 does not have, the page rung escalated
+ * `no-page`, and the run spent 2 credits on routing and edited nothing. Runs 17
+ * and 21 routed the same sentence to `/` through the same empty list — luck,
+ * not a reading.
+ *
+ * THE BROWSER DOES NOT ROUTE BLIND. `siteRoutesFetch` in `public/chat.js` fills
+ * `site.pages` from `GET /api/site/routes?slug=`, and `siteRoute` sends those
+ * paths, capped at 24. This is that read with the browser's own filter: a 2xx,
+ * `ok: true`, a `routes` array, and only strings that start with `/`.
+ *
+ * CANNOT-TELL REFUSES; IT NEVER BECOMES AN EMPTY LIST. An empty list here is
+ * not "the site has no pages", it is the blind router this exists to stop — and
+ * a browser never sends one for a published site, because a failed read leaves
+ * its list as it was. A harness has no earlier list to keep, so it stops before
+ * the routing call, which is the first thing that spends.
+ */
+export const MAX_ROUTER_PAGES = 24;
+export function readRoutes(status, body) {
+  if (!(status >= 200 && status < 300)) return { ok: false, why: `status ${status}` };
+  if (!body || typeof body !== "object" || body.ok !== true) return { ok: false, why: "the answer is not ok" };
+  if (!Array.isArray(body.routes)) return { ok: false, why: "no routes list" };
+  // STRINGS ONLY, never coerced: `String(["/menu"])` is "/menu", the recorded
+  // coercion that has shipped three times here. The browser drops them too.
+  const pages = body.routes.filter((p) => typeof p === "string" && p.charAt(0) === "/").slice(0, MAX_ROUTER_PAGES);
+  if (!pages.length) return { ok: false, why: "no usable routes" };
+  return { ok: true, pages };
+}
+
+/** The sentence the refusal prints. Nothing has been spent when it does. */
+export function routesRefusal(slug, why) {
+  return `REFUSING TO SPEND: could not read which pages ${slug} has (${why}). ` +
+    "Routing without the site's page list lets the router name a page the site does not have.";
+}

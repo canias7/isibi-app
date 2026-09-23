@@ -18,7 +18,7 @@
 //     transient poll failure and polled past until the watch ran out.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport } from "../scripts/canary-watch.mjs";
+import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal, MAX_ROUTER_PAGES } from "../scripts/canary-watch.mjs";
 import { readFileSync } from "node:fs";
 
 const CANARY_RAW = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
@@ -255,4 +255,69 @@ test("the response headers survive the harness's own call helper", () => {
   const end = CANARY_RAW.indexOf("let failed = 0", at);
   assert.ok(end > at, "and its window must close on the next sibling");
   assert.match(CANARY_RAW.slice(at, end), /headers:\s*res\.headers/, "the call helper must keep the response headers");
+});
+
+// ── 3. THE ROUTER IS TOLD THE SITE'S PAGES (run 23, 2026-09-23) ───────────
+//
+// The canary sent `pages: []`, so the router named a page from the sentence
+// alone — `/book`, which fretwork-1 does not have — and `readEdit`'s check
+// against the real list never ran. The browser fills the list from
+// `GET /api/site/routes`, and this is the harness reading it the same way.
+
+// The `/api/site/routes` answer's own shape (worker.js: `{ok, slug, routes}`),
+// with fretwork-1's three real routes, home first.
+const ROUTES = { ok: true, slug: "fretwork-1", routes: ["/", "/prices", "/gear"] };
+
+test("the page list is the site's own routes, read the browser's way", () => {
+  assert.deepEqual(readRoutes(200, ROUTES), { ok: true, pages: ["/", "/prices", "/gear"] });
+  // THE BROWSER'S FILTER: strings that start with `/`, and nothing coerced.
+  // `String(["/x"])` is "/x", the recorded coercion — an array must be dropped,
+  // not stringified into a page the router is told exists.
+  const junk = readRoutes(200, { ok: true, routes: ["/", 5, null, "prices", ["/x"], { p: "/y" }, "/gear"] });
+  assert.deepEqual(junk, { ok: true, pages: ["/", "/gear"] });
+});
+
+test("a page list that cannot be read refuses; it never becomes an empty list", () => {
+  // CANNOT-TELL IS A REFUSAL. An empty list is the blind router run 23 paid
+  // for, so every one of these must answer `ok: false` with its own reason.
+  const cases = [
+    [0, ROUTES, /status 0/],
+    [401, { ok: false, error: "unauthorized" }, /status 401/],
+    [404, { ok: false, error: "not found" }, /status 404/],
+    [503, ROUTES, /status 503/],
+    [200, null, /not ok/],
+    [200, { ok: false }, /not ok/],
+    [200, { ok: "true", routes: ["/"] }, /not ok/],
+    [200, { ok: true }, /no routes list/],
+    [200, { ok: true, routes: "/" }, /no routes list/],
+    [200, { ok: true, routes: [] }, /no usable routes/],
+    [200, { ok: true, routes: ["gear", 7, ["/"]] }, /no usable routes/],
+  ];
+  for (const [status, body, why] of cases) {
+    const r = readRoutes(status, body);
+    assert.equal(r.ok, false, `status ${status} ${JSON.stringify(body)} was read as a page list`);
+    assert.equal(r.pages, undefined, "a refusal must not carry a list anybody could send");
+    assert.match(r.why, why);
+  }
+});
+
+test("the list is capped where the browser caps it", () => {
+  const many = Array.from({ length: MAX_ROUTER_PAGES + 6 }, (_, i) => (i ? "/p" + i : "/"));
+  const r = readRoutes(200, { ok: true, routes: many });
+  assert.equal(r.ok, true);
+  assert.equal(r.pages.length, MAX_ROUTER_PAGES);
+  assert.equal(r.pages[0], "/", "home must survive the cap");
+  // THE BROWSER'S NUMBER, not a second one typed here: `siteRoute`'s digest
+  // slices `sitePages(site)` at this bound, and two copies of one number drift.
+  const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const m = chat.match(/pages:\s*sitePages\(site\)\.map\(\(p\) => p\.path\)\.slice\(0,\s*(\d+)\)/);
+  assert.ok(m, "the browser's routing digest is no longer where this guard reads its cap from");
+  assert.equal(Number(m[1]), MAX_ROUTER_PAGES, "the harness caps the page list differently from the browser");
+});
+
+test("the refusal names the site and the reason", () => {
+  const s = routesRefusal("fretwork-1", "status 503");
+  assert.match(s, /^REFUSING TO SPEND/);
+  assert.match(s, /fretwork-1/);
+  assert.match(s, /status 503/);
 });
