@@ -350,6 +350,28 @@ deploy 2145 is now confirmed running, not just deployed. The site's files are
 byte-for-byte what run 24 left (all six), and the live version is still run
 24's. **Balance 22** — under the ~30 line, so top up before the paid press.
 
+**The paid press (run 26, 09:21–09:29 UTC) passed all four checks.** It cost
+19 (routing 2 + edit 17) and fitted without a top-up, leaving **3**. The router
+was given your real page list this time, not a guess.
+- **What changed:** only the home page. It now checks the answer is a whole
+  number of 0 or more before the box sees it, and hands the box nothing
+  otherwise. The box's own file is unchanged, and so are the other components
+  and pages.
+- **What the live box does now** (checked in a browser, nothing written): real
+  counts are right (0 → six, 5 → "1 place left.", 6 or more → "None left.");
+  loading says "Checking…", errors say "Couldn't check — try again", and
+  every wrong or missing answer says "Not available", including the 14 odd
+  answers that used to show places.
+- **What it proves:** the builder can fix this box when told what's wrong. It
+  doesn't prove it would write it right first time from your original "count
+  down the places left" message — that's the other test, still not run.
+- **Two things to know:** the safe check sits on the home page, not inside the
+  box, so the box on its own would still convert whatever it's given. And the
+  translation step read a piece of the new code as page text and "translated"
+  it for French and Spanish — the translation came back identical, so nothing
+  broke this time, but it could next time. Logged, not fixed.
+- The phone hydration warning (#418) is still there, separate.
+
 ---
 
 ## 2026-09-22 — Merged and deployed; the live places-left test is ready for your press

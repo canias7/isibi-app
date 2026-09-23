@@ -3481,6 +3481,71 @@ two zero-cost async checks settled `{"ok":false,"escalate":true,
   route 2 leaves 20 and run 24's edit alone was 22. **The paid press is
   prepared and not made**; nothing has spent since run 24.
 
+### RUN 26 — THE CORRECTION: ALL FOUR HOLD, AND IT LANDED ON THE PAGE (2026-09-23)
+
+**`35842461500`, paid, `main` at `0d5137f0`, 09:21:35 → 09:29:41Z.** It counts
+as the test: the request is 197 chars with sha256 `ab0e2144…` (`source:
+CANARY_INSTRUCTION`), its own `before/source.json` is identical to run 24's
+after-read on all six bodies, and it published — `x-site-version`
+**`01790155568567-c1td33`**, minted **09:26:08.567Z**, inside the window.
+Preflight `0d5137f0a7eb` / `ce67f25d132667d0`, `async`/`runner` true.
+
+- **THE ROUTER WAS GIVEN THE SITE'S REAL PAGES** (`/, /prices, /gear`) — the
+  route-list harness's first live run from `main` — and answered `intent=edit
+  layer=page page=/` in 30.1 s, cost 2 (`6,645 in / 19 out`).
+- **COST: route 2 + edit 17 = 19, balance 22 → 3, closing exactly.** No top-up
+  was made and it fitted. `tweak` absent, `tweakUsage` `8,309 in / 53 out` (a
+  quick decline, as in run 21; the reason is still not on the wire); the full
+  writer `25,027 in / 8,820 out`; two translation calls `980 in / 35 out` (fr
+  and es `missing: 1` each — see the finding below). Job states `claimed`
+  (cost 0) to ~194 s, `routing` (cost 16 → 17) from ~207 s, `publishing` at
+  ~407 s, a stored 200 under `x-gf-edit: final` at 414.1 s (123 polls, 0
+  transient). `problems` 0 — the lookup read the real spec again.
+- **ONLY `index.tsx` CHANGED** (26,248 → 26,563 chars, `8041046d0e4aba77`), in
+  two hunks: `const bookingCount = typeof bookingsOnDay.data === "number" &&
+  Number.isInteger(bookingsOnDay.data) && bookingsOnDay.data >= 0 ?
+  bookingsOnDay.data : null`, and the component handed `{ isPending, isError,
+  data: bookingCount }` instead of the raw query. **`day-space-lookup` is
+  byte-identical** (`4b162037f67df545`), so the prediction that the fix belongs
+  in the component was wrong; the acceptance said `index.tsx` is inspected, and
+  inspected it is those two hunks and nothing else. `chord-diagram`,
+  `trial-booking-form`, `gear.tsx`, `prices.tsx` byte-identical.
+- **THE CHECK IS RULE 11's EXAMPLE EXPRESSION VERBATIM**, and the instruction
+  named none of its integer or sign conditions — evidence the rule reached the
+  writer, never proof (the prompt is not captured).
+- **⚠ THE CHECK LIVES ON THE PAGE, NOT IN THE COMPONENT.** `placesLeftLabel`
+  still does `Number(data)`; it is safe here only because the page hands it an
+  integer ≥ 0 or `null`. The component reused elsewhere with a raw answer would
+  convert again.
+- **PROBE v4 ON THE LIVE BOX (09:30Z, `c1td33`, nothing written): FAIL 0.**
+  Counts **MATCH 7 of 7** (0 → *"Six places left."*, 1 → 5, 2 → 4, 5 → *"1
+  place left."*, 6/7/99 → *"None left."*); held **READ 6 · MATCH 2** (every
+  pending reading *"Checking…"*, the day switch included); failures **READ 7**
+  (*"Couldn't check — try again"*); empty **READ 5** (200 `null`, empty body,
+  `[]`, `{}` → *"Not available"*; 204 → *"Couldn't check — try again"*);
+  malformed **READ 14, FAIL 0** — every one *"Not available"*, `[7]` and `"7"`
+  included, so no count is made from a non-count any more; the real function
+  **200 body `0`** → *"Six places left."*. Plain loads at 1280×900 and 390×844:
+  NAV 200, 0 console errors, 0 failed requests.
+- **THE FOUR ITEMS**: malformed never availability ✓, zero stays six ✓,
+  loading / error / missing distinct ✓, unrelated files unchanged ✓. **(A)
+  passes — for this component, this wording, this site. (B), generation from
+  the original request, is untested.**
+- **THE CUSTOMER'S SCREEN**: *"✅ Updated /. I had a look at the finished
+  pages: 2 pages threw an error and 4 pages reads something the check can't
+  reach, so I couldn't see it with real data."* *"Updated /"* is true; the two
+  errors are #418 on `/` and `/es` at phone width, **still unresolved**, so that
+  clause is not verified; the four `unmet` are by design.
+- **⚠ NEW FINDING: THE TRANSLATOR READ CODE AS PAGE TEXT.** `extractText` took
+  `= 0 ? bookingsOnDay.data : null; return (` as JSX text — the `>` of `>=` read
+  as a tag's end, running to `<SiteChrome` — so that chunk was the one
+  "missing" string, sent to the model for fr and es and applied back into the
+  translated pages' code. **The compiled check is identical in all three
+  language chunks** (`index-CKn4l9II`, `index-BjcqMVEi`, `index-CkAVYpOq`), so
+  this time the answer left the code intact — but any other answer would
+  rewrite code on `/fr` and `/es`, and any `>` comparison in page-level code
+  triggers it. In the backlog; not fixed.
+
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
 Run 12 cost 2 credits and published nothing, and every one of its causes is a
@@ -6011,7 +6076,9 @@ because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 22** at run 24's end (2026-09-23, the replay: **46 → 22,
 moved 24** — route 2 + the page rung's 22, closing exactly, on a run that
 published), and **run 25's free press read 22 again** (09:17Z, nothing spent
-between). **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
+between). **Balance 3** at run 26's end (2026-09-23, the correction: **22 → 3,
+moved 19** — route 2 + the page rung's 17, closing exactly, on a run that
+published). **Balance 46** at run 23's end (2026-09-23: **48 → 46, moved 2** — the
 routing call; the edit escalated `no-page` at `cost: 0` and nothing published;
 run 22's free restore read 48). **Balance 48** at run 21's end (2026-09-22, the places-left replay:
 **65 → 48, moved 17** — route 2 + the page rung's 15, closing exactly, on a run
@@ -7006,6 +7073,16 @@ does name one — moved up to the supported list on 2026-09-20.)*
   declares no table rewrites every page of these four sites under the
   no-database rules. Read out of the code, not driven; the obvious fix reaches
   `ensureSiteBackend`'s heal, which is the owner's call.
+- **THE TRANSLATOR CAN SEND PAGE CODE TO THE MODEL AND WRITE THE ANSWER BACK
+  INTO THE CODE (open, found live on run 26).** `extractText`
+  (`builder/site-text.mjs`) reads a `>` in page-level code as the end of a JSX
+  tag, so `x >= 0 ? a : null; return (` became a "string" for
+  `collectStrings`, was translated for each extra language, and was applied by
+  `translatePages` into `/fr` and `/es`. The answer happened to be identical, so
+  run 26's compiled code is intact in all three languages; a different answer
+  would change the translated pages' logic, silently, on any edit that adds a
+  `>` comparison outside JSX. Measure `extractText` over the corpus for code
+  spans before changing it — it is also the reader `sameProse` stands on.
 - **A JOB CANNOT HEAL A BLANK REFERENCE, BY ITS OWN GATEWAY'S RULE (read, not
   driven, recorded 2026-09-22).** `healSiteBackendDb` — called by the rules
   rung, the addon and `ensureSiteBackend` — is a `PATCH` on `site_backends`.
