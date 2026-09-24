@@ -248,6 +248,8 @@ and every one of the 42 new cases found passing by name. I also rendered eight
 before/after screens in the real chat (sent in the conversation): before, every
 one said "✅ Updated /." over the loss; after, the refusals, the new "couldn't
 confirm" sentence, and an asked-for removal still going through unchanged.
+The site-build check (the one that builds real sites in a container) is green
+too: all twelve of its counts match what they always read, in 25 minutes.
 
 ---
 

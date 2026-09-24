@@ -5213,7 +5213,20 @@ sign-in gate held down on a served copy): eight scenarios, each chat sentence
 the browser composer's own output captured out of the route — BEFORE on
 `80036b40` in a throwaway worktree (which read **19 pass / 23 fail** again, the
 red count reproduced), AFTER on this branch — and all sixteen drawn bubbles equal
-to the composer's text.
+to the composer's text. **AND `site build` run `35949168905` on `249fc8c7`**
+(02:53:50 → 03:18:49Z, **24m59s**, all twenty steps) read all twelve counts
+green out of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+**382**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all passed`,
+census 7 + 4 + 1 = **12**; the two known `##[error]` annotations
+(`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) inside the case that
+compiles a broken page on purpose, the first directly above its own `ok` line,
+the second followed by the two SSR-stream lines and then its own `ok`;
+`tsc`-format lines 9 / 2 / 7; `site-build.mjs` **18m20s**. The docs-only
+`5f4bdf53` reads the same four unit numbers on run `35950590450` (`duration_ms
+121,019`, zero anchored `not ok N -` lines), so the pair off CI says that commit
+moved the suite by zero. **The stamp chain ends at `249fc8c7`** — the last
+commit to touch a product file (a comment in `worker.js`).
 
 **⚠ WHAT IT DOES NOT CLAIM, AND WHAT STAYS OPEN.** Every model answer in the
 evidence is SUPPLIED — the writers' and the judge's — so it proves the path,
