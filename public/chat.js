@@ -4277,19 +4277,49 @@ function buildErrOutcome(chatId, d) {
   const n = d && typeof d.cost === 'number' ? d.cost : null;
   return { chatId, cost: n, short: !!(d && d.refundShort) };
 }
-// Images the owner attached for the next build/revise (logo / reference). Sent to
-// the builder, which hosts them + shows them to the generator's vision.
-let siteAttach = [];
+// WHAT A COMPOSER HOLDS — ITS WORDS AND ITS FILES — BELONGS TO THAT COMPOSER
+// (2026-09-24, owner: "Keep recovered words and files associated with their
+// original site until explicitly sent, replaced or discarded. Redraws must
+// preserve that association, and switching sites must not transfer the
+// recovered attachment. Preserve any newer draft or attachments too.")
+//
+// The files the owner attaches for the next message (a logo, a reference, a
+// menu) used to be ONE list, drawn by whichever composer was showing, and the
+// words lived only in the box, which every redraw draws empty. So a message
+// handed back after a stop lost its words to the next redraw, and its picture
+// followed the customer to another site and went out on THAT site's logo edit —
+// measured through the real handlers: `POST /api/site/ashgrove-1/edit` carrying
+// fretwork-1's picture.
+//
+// So each site's composer has a DRAFT on its own record, `{t, imgs}`, and the
+// start screen has one of its own. The box writes its words into its draft as
+// they are typed and is filled from it on every draw; the strip draws the draft
+// of the composer on screen (`siteAttachFor`: a site's id, or '' for the start
+// screen); and a file goes into the draft of the composer it was chosen in.
+// Sending from the composer takes its draft, and nothing else does. IN MEMORY
+// ONLY, like a held message: `sitesSave` leaves it out, because one picture can
+// be larger than all of localStorage.
+const siteNewDraft = { t: '', imgs: [] };
+let siteAttachFor = '';
+function siteDraft(id) {
+  if (!id) return siteNewDraft;
+  const s = siteById(id);
+  // A site that is gone keeps nothing: a file that finishes reading after its
+  // site was deleted lands here and goes nowhere.
+  if (!s) return { t: '', imgs: [] };
+  if (!s.draft) s.draft = { t: '', imgs: [] };
+  return s.draft;
+}
 // Attach button → the device file picker. It used to ask the source first
 // (device, or one of the user's own saved image generations) — the gallery half
 // went with the media side on 2026-09-12, and a chooser with one option is a
 // modal in the way of the only thing it can do.
 function siteAttachOpen() {
-  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
+  if (siteDraft(siteAttachFor).imgs.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
   siteAttachDevice();
 }
 function siteAttachDevice() {
-  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
+  if (siteDraft(siteAttachFor).imgs.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 attachments.'); return; }
   const inp = document.createElement('input');
   // NO `accept` FILTER. People attach whatever they have — a menu PDF, a promo
   // clip, a price list — and a picker that hides those files answers the
@@ -4419,28 +4449,34 @@ async function siteAttachOne(f) {
 }
 
 function siteAttachFiles(fileList) {
-  const files = Array.from(fileList || []).slice(0, 3 - siteAttach.length);
+  // INTO THE DRAFT OF THE COMPOSER THEY WERE CHOSEN IN, named now: a file is read
+  // on a later turn, and by then another site may be on screen.
+  const owner = siteAttachFor;
+  const files = Array.from(fileList || []).slice(0, 3 - siteDraft(owner).imgs.length);
   if (!files.length) return;
   let pending = files.length;
   files.forEach((f) => {
     siteAttachOne(f).then((a) => {
-      if (siteAttach.length < 3) siteAttach.push(a);
+      const strip = siteDraft(owner).imgs;
+      if (strip.length < 3) strip.push(a);
       if (a && a.note === 'too large' && typeof sbToast === 'function') sbToast(a.name + ' is too large to attach.');
       if (--pending === 0) paintAttachStrip();
     });
   });
 }
 // Repaint the thumbnail strip in place (both composers share id="stAttach") — no
-// full re-render, so the textarea the user is typing in is never reset.
+// full re-render, so the textarea the user is typing in is never reset. It draws
+// the draft of the composer on screen, and its × takes a file out of that draft.
 function paintAttachStrip() {
+  const draft = siteDraft(siteAttachFor);
   document.querySelectorAll('#stAttach').forEach((el) => {
     // A thumbnail when there IS a picture; a named chip otherwise. Rendering
     // `<img src="undefined">` for a PDF or a text file paints a broken-image
     // icon, which reads as "your file failed" for one that is about to be used.
-    el.innerHTML = siteAttach.map((a, i) => '<div class="st-att' + (a.data ? '' : ' st-att-doc') + '">' +
+    el.innerHTML = draft.imgs.map((a, i) => '<div class="st-att' + (a.data ? '' : ' st-att-doc') + '">' +
       (a.data ? '<img src="' + a.data + '" alt="">' : '<span class="st-att-name">' + esc(a.name || 'file') + '</span>') +
       '<button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('');
-    el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { siteAttach.splice(+b.dataset.att, 1); paintAttachStrip(); });
+    el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { draft.imgs.splice(+b.dataset.att, 1); paintAttachStrip(); });
   });
 }
 // Runtime errors caught in the live preview, keyed `siteId|path`. Populated by
@@ -4530,8 +4566,10 @@ function sitesSave() {
     msgs: (s.msgs || []).slice(-40),
     // A message held after a stop carries its files as data URLs, and one can
     // be larger than all of localStorage — so it is never written. See
-    // `siteHoldUnsent`.
+    // `siteHoldUnsent`. The composer's draft is the same shape and is left out
+    // for the same reason. See `siteDraft`.
     unsent: undefined,
+    draft: undefined,
     // Version history (for restore). Best-effort: dropped first if storage is tight.
     history: (withHist && Array.isArray(s.history)) ? s.history.slice(0, 8).map((h) => ({
       ts: h.ts, label: h.label, active: h.active, design: (h.design || '').slice(0, 4000),
@@ -4827,25 +4865,31 @@ function siteHoldUnsent(origin, t, imgs) {
   const held = Array.isArray(s.unsent) ? s.unsent : [];
   s.unsent = held.concat([{ t: String(t || ''), imgs: Array.isArray(imgs) ? imgs.slice(0, 3) : [] }]);
 }
-// Hand the latest held message back to its own site's composer: its files into
-// the strip, and its words, answered here, for the box. WHOLE AND ALONE: a
-// message comes back only into an EMPTY strip, and while nothing is being sent.
+// Hand the latest held message back to its own site's composer, INTO THAT SITE'S
+// DRAFT (`siteDraft`) — its words for the box and its files for the strip — so
+// from then on it survives every redraw and stays on this site when another one
+// is opened, until it is sent, changed or cleared. WHOLE AND ALONE: a message
+// comes back only into an EMPTY draft, no words and no files, and while nothing
+// is being sent.
 //
 // Never beside other files, because the words and the files are one request —
 // the logo rung uses the FIRST attachment and ignores the rest, so "use this
 // picture as the logo" sent again over a strip holding a picture chosen since
-// would put THAT picture up; and never in place of them, which is the owner's
-// rule. So anything attached since stays exactly as it is, and the held message
-// waits for the next time this composer is drawn with the strip clear. Never
-// while a message is in flight: `siteSend` redraws before it takes the strip, and
-// a message handed back then would leave with the new one's words.
+// would put THAT picture up; and never in place of anything the customer has
+// written or attached since, which is the owner's rule. So a newer draft stays
+// exactly as it is, and the held message waits for the next time this composer
+// is drawn with its draft clear. Never while a message is in flight: `siteSend`
+// redraws before it takes the draft, and a message handed back then would leave
+// with the new one's words.
 function siteUnsentBack(site) {
   const held = site && Array.isArray(site.unsent) ? site.unsent : [];
-  if (!held.length || siteBusy || siteAttach.length) return '';
+  if (!held.length || siteBusy) return;
+  const draft = siteDraft(site.id);
+  if (draft.t.trim() || draft.imgs.length) return;
   const back = held[held.length - 1];
-  siteAttach = back.imgs.slice(0, 3);
+  draft.t = back.t;
+  draft.imgs = back.imgs.slice(0, 3);
   site.unsent = held.length > 1 ? held.slice(0, -1) : null;
-  return back.t;
 }
 function siteActivePage(site) {
   const pages = sitePages(site);
@@ -5393,6 +5437,9 @@ function renderSites() {
   // chip is safe; the ids are never on the page twice because this function
   // returns to `renderSiteWorkspace` before drawing anything when a site is open.
   wireBuildPicker();
+  // THE START SCREEN'S COMPOSER IS ITS OWN: its strip draws its own draft, never
+  // one a site's workspace left behind, and a file chosen here goes into it.
+  siteAttachFor = '';
   paintAttachStrip();
   // A CARD MAY NAME A SITE THIS BROWSER HAS NO RECORD OF — one the server
   // listed and another machine built. `siteById` searches localStorage alone,
@@ -5592,6 +5639,11 @@ function siteCreate(prompt) {
   const name = prompt.split(/\s+/).slice(0, 4).join(' ').slice(0, 30) || 'New site';
   sitesLoad().unshift({ id, name, createdAt: Date.now(), updatedAt: Date.now(), html: '', msgs: [] });
   sitesSave();
+  // THE START SCREEN'S FILES GO WITH ITS BRIEF. They were attached for this build,
+  // so they move to the new project's draft, which the send below takes; the
+  // start screen keeps nothing of them.
+  siteDraft(id).imgs = siteNewDraft.imgs.slice(0, 3);
+  siteNewDraft.imgs = [];
   // THE ADDRESS EXISTS BEFORE THE SITE DOES, which is the case the id was
   // chosen over the slug for: this fires the moment a brief is typed, minutes
   // before there is a slug to name, and the customer can copy or reload that
@@ -7993,13 +8045,14 @@ function renderSiteWorkspace(view, site) {
   }
   paintPreviewErrBadge(); // hidden until the preview reports errors
   // "Fix with AI": route the caught runtime errors through the normal revise flow.
+  // The platform's own words, so the composer's draft stays where it is.
   const fixBtn = document.getElementById('stFixBtn');
   if (fixBtn) fixBtn.onclick = () => {
     const errs = (sitePreviewErrs[previewErrKey()] || []).slice(0, 6);
     if (!errs.length) return;
     const detail = errs.map((x, i) => (i + 1) + '. ' + x.msg + (x.info ? ' [' + x.info + ']' : '')).join('\n');
     const bar = document.getElementById('stFixBar'); if (bar) bar.hidden = true;
-    siteSend('The live page is throwing these JavaScript errors — find the root cause in the code and fix it, changing as little else as possible:\n' + detail);
+    siteSend('The live page is throwing these JavaScript errors — find the root cause in the code and fix it, changing as little else as possible:\n' + detail, true);
   };
   const fixX = document.getElementById('stFixX');
   if (fixX) fixX.onclick = () => { sitePreviewErrs[previewErrKey()] = []; const bar = document.getElementById('stFixBar'); if (bar) bar.hidden = true; };
@@ -8199,9 +8252,9 @@ function renderSiteWorkspace(view, site) {
     view.querySelectorAll('.st-mob-osbtn').forEach((o) => o.classList.toggle('on', o.dataset.os === siteMobileOs));
   });
   view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
-  // "Try to fix" error card.
+  // "Try to fix" error card. Its own words, so the composer's draft stays too.
   const errFix = document.getElementById('stErrFix');
-  if (errFix) errFix.onclick = () => { siteErr = null; siteSend('There was an error on this page — please find and fix it.'); };
+  if (errFix) errFix.onclick = () => { siteErr = null; siteSend('There was an error on this page — please find and fix it.', true); };
   const errLogs = document.getElementById('stErrLogs');
   if (errLogs) errLogs.onclick = () => { siteErr = null; renderSites(); };
   const back = document.getElementById('stBack');
@@ -8338,20 +8391,29 @@ function renderSiteWorkspace(view, site) {
 // one place a held message comes back (`siteUnsentBack`) is driven together
 // with the send button it feeds. It runs on every redraw of the open site and
 // hands back that site's held message only while its composer is drawn — the
-// history rail draws none, and the message waits. The box is drawn empty on
-// every redraw, so the words go into an empty box.
+// history rail draws none, and the message waits.
+//
+// THE BOX IS DRAWN EMPTY ON EVERY REDRAW, so it is filled from this site's draft
+// and every keystroke goes back into the draft: what is in the box — words the
+// customer typed, or a message handed back — survives any redraw, and belongs to
+// this site when another one is opened. The strip draws the same draft.
 function wireSiteComposer(site) {
   const plusBtn = document.getElementById('stPlus');
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
   const ta = document.getElementById('stRevise');
-  const back = ta ? siteUnsentBack(site) : '';
+  siteAttachFor = site.id;
+  if (ta) siteUnsentBack(site);
+  const draft = siteDraft(site.id);
   paintAttachStrip();
   const sendBtn = document.getElementById('stSend');
   const stopBtn = document.getElementById('stStop');
   if (stopBtn) stopBtn.onclick = siteStop;
-  if (back) ta.value = back;
+  if (ta) {
+    ta.value = draft.t;
+    ta.oninput = () => { draft.t = ta.value; };
+  }
   if (sendBtn && ta) {
-    sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; siteSend(t); };
+    sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; draft.t = ''; siteSend(t); };
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
@@ -11280,7 +11342,9 @@ function siteAnswer(label, skip) {
   siteRoute(site, said, origin, true, imgs, finish, true);
 }
 
-function siteSend(text) {
+// `leaveDraft` is for words the platform wrote — the "Fix with AI" presses —
+// which are sent beside the composer rather than from it (see the take below).
+function siteSend(text, leaveDraft) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
   const t = String(text || '').trim().slice(0, 2000);
@@ -11317,7 +11381,15 @@ function siteSend(text) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
-  const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
+  // THE COMPOSER'S FILES GO WITH THE MESSAGE — its Send button has already taken
+  // the words out of the box and the draft — and only a message sent FROM the
+  // composer takes them. A "Fix with AI" press sends the platform's own words
+  // (`leaveDraft`), and whatever is in the box and the strip stays there: a
+  // picture waiting beside its words is never sent away from them with an
+  // instruction nobody wrote.
+  const draft = leaveDraft ? null : siteDraft(origin);
+  const imgs = draft ? draft.imgs.slice(0, 3) : [];
+  if (draft) { draft.imgs = []; paintAttachStrip(); }
   // Cutover: new projects + React sites go through the streaming React engine.
   // IS THIS EVEN A BUILD? Until 2026-08-08 nothing asked: `isBuild` above is the
   // only decision there was, so every message on an existing site ran a full

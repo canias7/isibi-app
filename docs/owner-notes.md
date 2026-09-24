@@ -160,6 +160,46 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — What's in a site's message box stays with that site (on the branch, not deployed)
+
+**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
+only (`chat.js`). The before and after screenshots are in the chat.
+
+**What you found** (on `3736239`): after a stopped message came back,
+(1) any redraw of the workspace emptied the box while the picture stayed in the
+strip, and (2) opening another site carried the picture along — and a logo
+change sent from Ashgrove went out with fretwork-1's picture.
+
+**Now**:
+- **Each site has its own message box and its own attachments.** What you type
+  and attach on a site stays with that site through redraws, switching to other
+  sites and coming back, until you send it, change it or clear it.
+- **A message that comes back after a stop stays whole on its own site**: a
+  redraw keeps both the words and the picture, and opening another site shows
+  that site's own box — never the picture from the first one.
+- **Anything newer you've written is kept too.** If you type something while a
+  message is being sent and the message then stops, your new words stay in the
+  box; the stopped message waits until the box is clear, then comes back on the
+  next redraw. (Before, the stop wiped what you had typed.)
+- **"Fix with AI" doesn't take what's in your box.** It sends its own message
+  and leaves your words and attachments where they are. Before, it took your
+  attached picture with it.
+- **The start screen keeps its own attachments.** A picture attached there no
+  longer turns up in a site you open. It goes with the new site you build from
+  there.
+- Still kept in the page's memory, not the browser's storage, so **a reload
+  loses it**.
+
+**Proof, and its limit**: 12 new tests driving the real send code, attach code
+and composer. They cover both of your sequences (redraw then send; switch, send
+from the other site, switch back and send the original), checking the words
+and pictures in every request. Your immediate-retry test and all the question
+tests still pass. Also the real app in a real browser, before and after. The
+router's answer was written by me, so this proves what gets sent, not what a
+real router would decide. Full suite: 7,462 passing here.
+
+---
+
 ## 2026-09-24 — A message stopped because the page list didn't load now keeps your attached picture (on the branch, not deployed)
 
 **Fixed on the branch — not merged, not deployed, no paid run.** Browser file
@@ -202,11 +242,11 @@ with that just now…"*), the attached picture is dropped too — on any site,
 whether its page list loaded or not. That's outside "this pre-routing check",
 so it's recorded as the next task instead of fixed here.
 
-**Also true, and unchanged**: text you type in the box while a message is being
-sent is wiped when the reply arrives (it always was); after a stop, your
-original words now take its place. And a picture that comes back and isn't sent
-follows you if you switch sites, like any attachment — the strip is shared by
-every site.
+**Also true, and unchanged** — **corrected the same day, after you reproduced
+both as bugs**: text you type in the box while a message is being sent was
+wiped when the reply arrived, and a picture that came back and wasn't sent
+followed you if you switched sites. I recorded both as "how it always was";
+they are fixed in the entry above this one.
 
 ---
 

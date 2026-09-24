@@ -6221,11 +6221,13 @@ workspace or overwrite newly selected attachments. No automatic paid retry."*
   page, like anything in the composer — **a reload loses it**, the owner's call.
 - **NOTHING SENDS IT AGAIN**: the routing call is billed, so sending is the
   customer's press.
-- **UNCHANGED, AND SAID**: the strip is ONE list drawn by whichever composer is
-  showing, so a file handed back and not sent follows the customer to another
-  site like any attachment (pre-existing). And the box is drawn empty on every
-  redraw, so words typed during the wait were already lost at the stop's redraw
-  (pre-existing); the held words take their place.
+- **UNCHANGED, AND SAID** — **⚠ AND WRONG TO LEAVE, the same day (owner)**: the
+  strip was ONE list drawn by whichever composer is showing, so a file handed
+  back and not sent followed the customer to another site "like any attachment",
+  and the box is drawn empty on every redraw, so the handed-back words went at
+  the next one. Recorded here as pre-existing; the owner reproduced both as the
+  defect they are, and they are fixed in the next section — *a composer's words
+  and files belong to its own site*.
 - **⚠ FOUND ON THE WAY, NOT CHANGED — THE SAME LOSS ONE STEP LATER.** A routing
   call that fails or answers something unusable stops in `siteRoute`'s `lost()`
   with *"…Send it again in a moment"* and drops the attachments too — on any
@@ -6270,6 +6272,112 @@ and the picture back; the resend `attached: false`, no image → `attached: true
 the attached picture on the logo edit) and the workspace switch. **Every routing
 answer is SUPPLIED**: this proves what the browser sends and shows, never what a
 real router answers.
+
+### A COMPOSER'S WORDS AND FILES BELONG TO ITS OWN SITE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, on `3736239`, with the real handlers and the composer wiring: *"Fail the
+page-list read with “Use this picture as the logo” and an attachment. Recovery
+restores both. Redraw the workspace: the message becomes empty, the attachment
+remains, and unsent is already null."* And: *"After recovery, switch to another
+site. The restored attachment remains in global siteAttach. Sending a logo edit
+there posts the original site’s picture to the other site’s edit endpoint."* —
+*"Keep recovered words and files associated with their original site until
+explicitly sent, replaced or discarded. Redraws must preserve that association,
+and switching sites must not transfer the recovered attachment. Preserve any
+newer draft or attachments too."* **Browser only (`public/chat.js`).**
+
+- **REPRODUCED FIRST, BOTH**, through the real `siteSend`, the real attach code
+  and the real `wireSiteComposer`: after one redraw the box read `""` with
+  `logo.png` still in the strip and nothing held; on ashgrove-1 the strip still
+  held it and `POST /api/site/ashgrove-1/edit` went with `images: ["logo.png"]`;
+  back on fretwork-1, nothing at all.
+- **THE CAUSE IS LAST ROUND'S HAND-BACK.** It moved the held message into the
+  only two places a composer had — the words into a box every redraw draws
+  empty, the files into ONE list drawn by whichever composer is showing — and
+  cleared the hold. Last round recorded the strip following the customer as
+  pre-existing; the owner reproduced it as the defect it is, and it is the same
+  defect for ANY attachment, returned or not.
+- **EACH COMPOSER HAS A DRAFT** (`siteDraft(id)`): `{t, imgs}` on the site's own
+  record, and `siteNewDraft` for the start screen. `siteAttachFor` names the
+  composer on screen (a site's id, or `''`). The box writes its words into its
+  draft on every keystroke (`oninput`) and is filled from it on every draw; the
+  strip draws the draft of the composer on screen and its × removes from that
+  draft; a file goes into the draft of the composer it was CHOSEN in
+  (`siteAttachFiles` names the owner before the read, which answers on a later
+  turn); `siteSend` takes the origin site's files and the Send button its words.
+  **The global `siteAttach` is gone**: no list belongs to nobody any more.
+- **A RETURNED MESSAGE GOES INTO ITS SITE'S DRAFT** (`siteUnsentBack`), so it
+  survives every redraw and stays on its site when another is opened, until it
+  is sent, changed or cleared. **Only into an EMPTY draft — no words, no files —
+  and never while a message is in flight**: last round's "whole and alone" rule,
+  widened to the words.
+- **⚠ TWO CONSEQUENCES, SAID RATHER THAN LEFT TO BE FOUND:**
+  1. **Words typed while a message waits now SURVIVE its stop**, and the stopped
+     message waits behind them until they are sent or cleared; the next draw
+     then brings it back. Last round the stop's redraw wiped them and the
+     stopped words took their place.
+  2. **A returned message whose picture alone is removed keeps its words in the
+     box**, and the next held message waits until the box is clear too. One
+     existing case (two stopped messages) asserted the old order; it now clears
+     the words before the redraw that brings the first message back.
+- **THE PLATFORM'S OWN WORDS NEVER TAKE THE DRAFT.** The two Fix presses
+  (`stFixBtn`, `stErrFix`) call `siteSend(text, true)` (`leaveDraft`). Before, a
+  Fix press took the strip with it — a returned logo sent with an instruction
+  nobody wrote — and its redraw wiped the box. A census holds it: every call
+  that sends a sentence written in the code passes `true`, and the composer's
+  two sends (`t`, `prompt`) pass nothing.
+- **THE START SCREEN'S FILES ARE ITS OWN**: opening a site no longer carries them
+  into that site's strip, and `siteCreate` moves them to the new project's
+  draft, which its first build takes. **Its words are unchanged** — its box is
+  still drawn empty on a redraw (pre-existing, not asked).
+- **IN MEMORY ONLY**, like the held message: `sitesSave` writes `draft:
+  undefined`, and a reload loses a draft. A deleted site's draft goes with its
+  record.
+- **UNCHANGED**: next-task 9 (a routing call that cannot be acted on drops the
+  attachments) is untouched.
+
+**EVIDENCE.** `test/site-entry-inventory.test.mjs` **48 → 60 cases**, and its
+harness now carries the real `siteDraft` and `siteCreate`; typing fires the box's
+`input` event, as a browser does. **12 new cases**: the owner's first sequence
+(redraws and the history rail round trip keep both, Send sends both); the
+second sequence to another site AND to the start screen (nothing arrives, and
+what is sent from there carries no picture — ashgrove-1's logo edit and a new
+project's build); switching back after a message was sent and answered on the
+other site; a newer draft kept on both sites; words typed during the wait; a Fix
+press; the census; a file still being read when another site is opened; the
+start screen's files reaching a new project's build and no other composer; the
+start screen's two modelled lines, asserted in `renderSites`; and an answer typed
+into the box not coming back into it. The storage case now also saves after the
+hand-back and finds no draft and no picture. **The immediate-retry and every
+clarification case pass unchanged.** `test/site-route-failure.test.mjs` carries
+the real draft code in place of the old strip: **74 / 74**. **Red 12 of 59
+against `3736239f`** (in a throwaway worktree, with a shim making every "draft"
+the old single strip so the harness loads): the 11 new cases then written and the
+changed half of the two-messages case, each failing first on the defect — the box
+`''` after the redraw, `logo.png` in ashgrove-1's strip, ashgrove-1's routing call
+`attached: true`, the Fix press routed with the picture. **With those gates cut
+in the throwaway copy, the second sequence fails at the wire**: `logo.png` posted
+to `/api/site/ashgrove-1/edit`, and into a new project's build from the start
+screen. The typed-answer case was written afterwards for a probe (below); the old
+code keeps no draft for it to read. **Targeted probes, not a sweep: 22 killed, 0
+survived, 0 never applied, the comment-only control surviving**, over `chat.js`
+against five files (`site-entry-inventory`, `site-route-failure`, `site-ask`,
+`site-context`, `free-identifiers`; spec in the scratchpad); `chat.js`
+byte-identical to its backup afterwards (`98f883cf3bff10bd`). **Not probed, and
+said**: the three-file limit's counts (`siteAttachOpen` is stubbed in the
+harness) and `siteDraft`'s answer for a site that is gone (unreachable there).
+**One redundancy removed rather than left for a probe to survive**: `siteSend`
+also cleared the draft's words, which only the Send button holds; it takes the
+files alone now. The 92 files that read `chat.js`: **2,968 / 2,968**. **Suite
+7,462 locally** (`# tests 7462 / # pass 7462 / # fail 0 / # skipped 0`,
+`duration_ms 116,248`) — **+12 against 7,450**, exactly the new cases.
+**Rendered in the real workspace, before and after**, both sequences with the
+real + button and file chooser, the real Worker, every request recorded:
+before, the redraw emptied the box and Send sent nothing, and ashgrove-1's logo
+edit carried `fretwork-logo.png` while fretwork-1 was left empty; after, both
+kept, ashgrove-1's edit carried no picture, and back on fretwork-1 the request
+went whole. **Every routing answer is SUPPLIED**: this proves what the browser
+sends and shows, never what a real router answers.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

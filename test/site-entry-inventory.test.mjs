@@ -124,12 +124,16 @@ const SRC = [
   cutLine("const NATIVE_IMAGE ="),
   cutLine("const TEXTISH ="),
   cutStatement("const readAs ="),
+  cutLine("const siteNewDraft ="),
+  cutLine("let siteAttachFor ="),
+  cut("function siteDraft("),
   cut("async function siteAttachOne("),
   cut("function siteAttachFiles("),
   cut("function paintAttachStrip("),
   cut("function siteHoldUnsent("),
   cut("function siteUnsentBack("),
   cut("function wireSiteComposer("),
+  cut("function siteCreate("),
 ].join("\n");
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -186,6 +190,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     dom.strip = newStrip();
     if (!shown) {
       dom.stRevise = dom.stSend = dom.stStop = dom.stPlus = null;
+      vm.runInContext("siteAttachFor = ''", ctx);
       ctx.paintAttachStrip();
       return;
     }
@@ -245,13 +250,13 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     fetchCredits: () => {},
     sitesLoad: () => records,
     sitesCache: records,
-    siteAttach: [],
     buildPicker: "grok",
     siteBusy: false,
     siteBuild: null,
     siteTicker: null,
     siteOpenId: open,
     renderSites: () => draw(),
+    openProject: (id) => { ctx.siteOpenId = id || null; draw(); },
     editBlocked: new Set(), editInFlight: new Set(), editIdem: new Map(),
     EditPoll: { newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
     browserTimeZone: () => "Europe/London",
@@ -269,7 +274,8 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     // attach code; `type` writes the box on screen; `pressSend` presses the Send
     // button that is drawn, so it sends what the box holds.
     attach: async (files) => { ctx.siteAttachFiles(files); await settle(); },
-    type: (t) => { assert.ok(dom.stRevise, "no box is drawn"); dom.stRevise.value = t; },
+    // Typing fires the box's `input` event, as a browser does.
+    type: (t) => { assert.ok(dom.stRevise, "no box is drawn"); dom.stRevise.value = t; if (typeof dom.stRevise.oninput === "function") dom.stRevise.oninput(); },
     pressSend: () => { assert.ok(dom.stSend && typeof dom.stSend.onclick === "function", "no Send button is drawn and wired"); dom.stSend.onclick(); },
     unattach: (i) => { const b = dom.strip.buttons[i]; assert.ok(b && typeof b.onclick === "function", "no remove button on attachment " + i); b.onclick(); },
     open: (id) => { ctx.siteOpenId = id; draw(); },
@@ -278,10 +284,14 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     // What the composer on screen shows: the box, the strip's attachments, and
     // the pictures the strip DRAWS.
     box: () => (dom.stRevise ? dom.stRevise.value : null),
-    strip: () => copy(ctx.siteAttach),
+    strip: () => copy(ctx.siteDraft(vm.runInContext("siteAttachFor", ctx)).imgs),
     drawn: () => (dom.strip ? [...dom.strip.html.matchAll(/<img src="([^"]*)"/g)].map((m) => m[1]) : []),
     sendDrawn: () => !!dom.stSend,
     held: (id = "origin-1") => copy(site(id).unsent) || null,
+    // A site's draft as its record holds it, whichever composer is on screen.
+    draft: (id = "origin-1") => copy(site(id).draft) || null,
+    owner: () => vm.runInContext("siteAttachFor", ctx),
+    create: (brief) => ctx.siteCreate(brief),
     stored: () => JSON.parse(store.get(vm.runInContext("SITES_KEY", ctx)) || "null"),
     click: (label) => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-ans]" ? { getAttribute: () => label } : null) } }),
     clickSkip: () => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-skip]" ? {} : null) } }),
@@ -398,12 +408,12 @@ test("not loaded: the message waits for the list, then goes to the live site wit
 
 test("not loaded, with a file attached: the attachment travels with the message through the wait", async () => {
   const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }], route: [LOGO] });
-  h.ctx.siteAttach = [IMG];
+  h.ctx.siteDraft("origin-1").imgs = [IMG];
   h.send(LOGO_ASK);
   await settle();
   // Taken off the composer when the message was sent, so it belongs to this
   // message whatever happens on screen while the list is read.
-  assert.deepEqual(copy(h.ctx.siteAttach), [], "the attachment was left in the composer");
+  assert.deepEqual(h.strip(), [], "the attachment was left in the composer");
   assertWaiting(h);
   h.release(LIST);
   await settle();
@@ -585,6 +595,21 @@ for (const [door, act] of [
     assert.equal(h.clarify(), null);
   });
 }
+
+// Typed into the box and sent with the button, as a person does it: the words
+// went as the answer, so they are gone from the box and from the site's draft.
+test("an answer typed into the box goes as the answer and does not come back into the box", async () => {
+  const h = workspace({ sites: [LOGO_ROUND], route: [LOGO] });
+  h.type("It's my guitar school");
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 2, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], LOGO_ASK, { brief: LOGO_ASK, attached: true });
+  assertEdit(work[1], LOGO_ASK, "logo", [IMG]);
+  assert.equal(h.box(), "", "the sent answer came back into the box on the next redraw");
+  assert.equal(h.draft().t, "", "the sent answer stayed in the site's draft");
+});
 
 test("an existing site's round whose list cannot be read is kept, untouched, for the next press", async () => {
   const h = workspace({ sites: [ROUND], routes: [{ reject: new TypeError("Failed to fetch") }, LIST], route: [EDIT] });
@@ -845,8 +870,16 @@ test("two messages stopped on one site each come back with their own words and f
   assert.equal(h.box(), INSTEAD);
   assert.deepEqual(h.strip(), [PHOTO_ATT]);
   assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
-  // Its picture taken off, the next redraw brings back the first, whole.
+  // Its picture taken off, its words are still in the box — they came back to
+  // this site and stay until they are sent, changed or cleared — so a redraw
+  // keeps them, and the first message waits behind them.
   h.unattach(0);
+  h.redraw();
+  assert.equal(h.box(), INSTEAD, "a redraw threw away words that were still in the box");
+  assert.deepEqual(h.strip(), []);
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the first message came back over words still in the box");
+  // The words cleared as well, the next redraw brings back the first, whole.
+  h.type("");
   h.redraw();
   assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
   h.pressSend();
@@ -885,6 +918,277 @@ test("a stopped message is kept in memory and never written to storage", async (
   assert.deepEqual(rec.msgs.map((m) => m.r + ": " + m.t), ["u: " + OWNER_ASK, "a: " + NO_PAGES], "the stop was not saved");
   assert.ok(!("unsent" in rec), "the held message was written to storage");
   assert.ok(!JSON.stringify(saved).includes(PNG), "a held picture reached storage");
+  // Handed back into its site's draft when that site is opened, and saved: the
+  // draft is left out the same way.
+  h.open("origin-1");
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.ctx.sitesSave();
+  const again = h.stored().find((r) => r.id === "origin-1");
+  assert.ok(!("draft" in again), "the composer's draft was written to storage");
+  assert.ok(!JSON.stringify(h.stored()).includes(PNG), "a drafted picture reached storage");
+});
+
+// ── A RETURNED MESSAGE STAYS WITH ITS OWN SITE, WORDS AND FILES ──────────────
+//
+// The owner's two sequences on 3736239, run with the real handlers and the real
+// composer wiring: once a message had come back, (1) a redraw left the box empty
+// with the picture still in the strip, and (2) opening another site carried the
+// picture there, and a logo edit sent from it posted fretwork-1's picture to
+// ashgrove-1's edit endpoint. "Keep recovered words and files associated with
+// their original site until explicitly sent, replaced or discarded. Redraws must
+// preserve that association, and switching sites must not transfer the
+// recovered attachment. Preserve any newer draft or attachments too."
+
+const PNG3 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPQ6rH7DwADzAH0VlKXygAAAABJRU5ErkJggg==";
+const SIGN_FILE = { name: "sign.png", type: "image/png", size: 68, dataUrl: PNG3 };
+const SIGN_ATT = { name: "sign.png", data: PNG3 };
+const ASHGROVE_ASK = "Make the opening hours bigger";
+const ASHGROVE_Q = "What can you change on this site?";
+const ANSWERED = "I can change its words, colours, pictures and pages.";
+const ANSWER = ok200({ ok: true, intent: "ask", answer: ANSWERED, cost: 1 });
+const NEW_BRIEF = "A bakery in Leeds";
+const FIX = "There was an error on this page — please find and fix it.";
+// A routing call made from ashgrove-1, the other site.
+function assertRoutedOther(call, message, extra = {}) {
+  assert.equal(call.method + " " + call.url, "POST /api/site/route");
+  assert.equal(call.body.slug, "ashgrove-1", "routed for the wrong site");
+  assert.equal(call.body.message, message, "the other site's routing call carries the wrong words");
+  assert.equal(call.body.firstBuild, false);
+  assert.equal(call.body.hasSite, true);
+  for (const [k, v] of Object.entries(extra)) assert.deepEqual(call.body[k], v, "the other site's routing call's " + k);
+}
+
+test("the owner's first sequence: once the message is back, redraws keep its words and its picture, and Send sends both", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [FAIL, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  assertStopped(h, NO_PAGES, ["u: " + OWNER_ASK]);
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  // Each redraw draws a new, empty box; each fills it from the site's draft.
+  // Twice, and the history rail opened and closed, which draws no composer at
+  // all in between.
+  h.redraw();
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.redraw();
+  h.showRail("history");
+  h.showRail("chat");
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  assert.deepEqual(h.draft(), { t: OWNER_ASK, imgs: [LOGO_ATT] }, "the site's draft is not what its composer shows");
+  assert.equal(h.calls.length, 1, "something was sent without a press");
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 2, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+  // Sent, so it is gone from the composer, a redraw included.
+  h.redraw();
+  assert.equal(h.box(), "", "the sent words came back into the box");
+  assert.deepEqual(h.strip(), [], "the sent picture came back into the strip");
+  assert.deepEqual(h.draft(), { t: "", imgs: [] });
+});
+
+for (const [where, go, send, check] of [
+  ["another site", (h) => h.open("origin-2"), (h) => { h.type(OWNER_ASK); h.pressSend(); }, (h) => {
+    // The owner's own sequence: the same words on ashgrove-1, a logo edit there.
+    const [routed, edit] = h.work();
+    assertRoutedOther(routed, OWNER_ASK, { attached: false });
+    assert.equal(edit.method + " " + edit.url, "POST /api/site/ashgrove-1/edit");
+    assert.equal(edit.body.layer, "logo");
+    assert.equal(edit.body.instruction, OWNER_ASK);
+    assert.equal(edit.body.images, undefined, "fretwork-1's picture was posted to ashgrove-1's edit endpoint");
+  }],
+  ["the start screen", (h) => h.open(null), (h) => h.create(NEW_BRIEF), (h) => {
+    const [routed, build] = h.work();
+    assert.equal(routed.body.message, NEW_BRIEF);
+    assert.equal(routed.body.firstBuild, true);
+    assert.equal(routed.body.attached, false, "a new project's brief was routed with fretwork-1's picture");
+    assert.equal(build.method + " " + build.url, "POST /api/site/react-build");
+    assert.deepEqual(build.body.images, [], "fretwork-1's picture went into a new site's build");
+  }],
+]) {
+  test("the owner's second sequence: once the message is back, opening " + where + " takes nothing of it, and what is sent from there carries none of its files", async () => {
+    const h = workspace({ sites: [ADOPTED, OTHER], routes: [FAIL], route: [where === "another site" ? LOGO : BUILD] });
+    await sendWithLogo(h);
+    assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+    go(h);
+    assert.deepEqual(h.strip(), [], "the returned picture followed to " + where);
+    assert.deepEqual(h.drawn(), [], "the returned picture is drawn on " + where);
+    assert.ok(!h.box(), "the returned words followed to " + where);
+    send(h);
+    await settle();
+    check(h);
+    assert.deepEqual(h.draft(), { t: OWNER_ASK, imgs: [LOGO_ATT] }, "the returned message did not stay on fretwork-1");
+  });
+}
+
+test("switching back recovers the original request: a message sent and answered on another site in between takes nothing of it, and it goes out whole from its own site", async () => {
+  const h = workspace({ sites: [ADOPTED, OTHER], routes: [FAIL, LIST], route: [ANSWER, LOGO] });
+  await sendWithLogo(h);
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.open("origin-2");
+  h.type(ASHGROVE_Q);
+  h.pressSend();
+  await settle();
+  // ashgrove-1's own message, with nothing of fretwork-1's, answered and done.
+  assertRoutedOther(h.work()[0], ASHGROVE_Q, { attached: false });
+  assert.deepEqual(h.thread("origin-2"), ["u: " + ASHGROVE_Q, "a: " + ANSWERED]);
+  assert.equal(h.busy(), false);
+  // Back on fretwork-1: the request is where it was left, whole, and goes.
+  h.open("origin-1");
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 3, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[1], OWNER_ASK, { attached: true });
+  assertEdit(work[2], OWNER_ASK, "logo", [LOGO_ATT]);
+  assert.deepEqual(h.draft(), { t: "", imgs: [] }, "the request stayed in the composer after it was sent");
+});
+
+test("a newer draft is kept on both sites: words and a picture put in place of the returned message, and the other site's own unsent draft", async () => {
+  const h = workspace({ sites: [ADOPTED, OTHER], open: "origin-2", routes: [FAIL, LIST], route: [LOGO] });
+  // ashgrove-1's own draft, written and not sent.
+  await h.attach([PHOTO_FILE]);
+  h.type(ASHGROVE_ASK);
+  // fretwork-1's message stops and comes back.
+  h.open("origin-1");
+  await sendWithLogo(h);
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  // Changed by the customer: new words, and a different picture.
+  h.type(INSTEAD);
+  h.unattach(0);
+  await h.attach([SIGN_FILE]);
+  h.redraw();
+  assert.equal(h.box(), INSTEAD, "a redraw threw away the changed words");
+  assert.deepEqual(h.strip(), [SIGN_ATT], "a redraw threw away the changed picture");
+  // Each site shows its own, whichever is opened.
+  h.open("origin-2");
+  assert.equal(h.box(), ASHGROVE_ASK, "ashgrove-1's own words were lost");
+  assert.deepEqual(h.strip(), [PHOTO_ATT], "ashgrove-1's own picture was lost");
+  assert.deepEqual(h.drawn(), [PNG2]);
+  h.open("origin-1");
+  assert.equal(h.box(), INSTEAD);
+  assert.deepEqual(h.strip(), [SIGN_ATT]);
+  assert.deepEqual(h.drawn(), [PNG3]);
+  // What goes is what the box and the strip hold now.
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assertRoutedLive(work[0], INSTEAD, { attached: true });
+  assertEdit(work[1], INSTEAD, "logo", [SIGN_ATT]);
+  assert.deepEqual(h.draft("origin-2"), { t: ASHGROVE_ASK, imgs: [PHOTO_ATT] }, "fretwork-1's send touched ashgrove-1's draft");
+});
+
+test("words typed while a message waits survive its stop, and the stopped message waits behind them until they are cleared", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  assertWaiting(h);
+  h.type(ASK);
+  h.release(FAIL);
+  await settle();
+  assertStopped(h, NO_PAGES, ["u: " + OWNER_ASK]);
+  assert.equal(h.box(), ASK, "the stop's redraw threw away words typed during the wait");
+  assert.deepEqual(h.strip(), []);
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the stopped message was put over words in the box");
+  h.redraw();
+  assert.equal(h.box(), ASK);
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
+  // Cleared, and the next redraw brings the stopped message back, whole.
+  h.type("");
+  h.redraw();
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+});
+
+test("a Fix press sends the platform's own words and leaves the returned message in the composer", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [FAIL, LIST], route: [EDIT] });
+  await sendWithLogo(h);
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  // The error card's own call, as it is made.
+  h.ctx.siteSend(FIX, true);
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 2, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], FIX, { attached: false });
+  assertEdit(work[1], FIX);
+  assert.equal(h.box(), OWNER_ASK, "the Fix press took the words out of the box");
+  assert.deepEqual(h.strip(), [LOGO_ATT], "the Fix press took the picture out of the strip");
+  assert.deepEqual(h.draft(), { t: OWNER_ASK, imgs: [LOGO_ATT] });
+});
+
+test("the platform's own words never take the composer's draft: every call that sends a sentence written in the code says so", () => {
+  // Whole-line comments blanked, length kept: the notes above siteSend quote it.
+  const code = CHAT.split("\n").map((l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  const calls = [];
+  for (let at = code.indexOf("siteSend("); at >= 0; at = code.indexOf("siteSend(", at + 1)) {
+    if (code.slice(Math.max(0, at - 9), at) === "function ") continue;
+    let depth = 0, i = at + "siteSend".length, args = "";
+    for (; i < code.length; i++) {
+      const c = code[i];
+      if (c === "(") depth++;
+      else if (c === ")" && --depth === 0) break;
+      if (depth >= 1 && !(depth === 1 && c === "(")) args += c;
+    }
+    calls.push(args.trim());
+  }
+  assert.ok(calls.length >= 4, "the census found too few sends to mean anything: " + JSON.stringify(calls));
+  for (const args of calls) {
+    if (/^['"`]/.test(args)) assert.match(args, /,\s*true$/, "a sentence the platform wrote is sent as the customer's draft: " + args.slice(0, 60));
+    else assert.doesNotMatch(args, /,/, "a send from the composer passes something besides its words: " + args);
+  }
+  assert.deepEqual(calls.filter((a) => !/^['"`]/.test(a)).sort(), ["prompt", "t"], "the composer's sends are not the two expected");
+});
+
+test("a file still being read when another site is opened lands on the site it was chosen on", async () => {
+  const h = workspace({ sites: [ADOPTED, OTHER] });
+  // Chosen on fretwork-1; the reader answers on a later turn.
+  h.ctx.siteAttachFiles([LOGO_FILE]);
+  h.open("origin-2");
+  await settle();
+  assert.deepEqual(h.strip(), [], "the file arrived in ashgrove-1's composer");
+  assert.deepEqual(h.drawn(), []);
+  assert.deepEqual(h.draft("origin-2"), { t: "", imgs: [] });
+  h.open("origin-1");
+  assert.deepEqual(h.strip(), [LOGO_ATT], "the file did not reach the site it was chosen on");
+  assert.deepEqual(h.drawn(), [PNG]);
+});
+
+test("files attached on the start screen stay there when a site is opened, and go with the new project's first build", async () => {
+  const h = workspace({ sites: [ADOPTED], open: null, route: [BUILD] });
+  await h.attach([PHOTO_FILE]);
+  assert.deepEqual(h.strip(), [PHOTO_ATT]);
+  assert.deepEqual(h.drawn(), [PNG2]);
+  h.open("origin-1");
+  assert.deepEqual(h.strip(), [], "the start screen's picture followed into fretwork-1's composer");
+  assert.deepEqual(h.drawn(), []);
+  h.open(null);
+  assert.deepEqual(h.strip(), [PHOTO_ATT], "the start screen lost its picture");
+  h.create(NEW_BRIEF);
+  await settle();
+  const [routed, build] = h.work();
+  assert.equal(routed.body.firstBuild, true);
+  assert.equal(routed.body.attached, true, "the brief was routed without the picture attached with it");
+  assert.equal(build.method + " " + build.url, "POST /api/site/react-build");
+  assert.deepEqual(build.body.images, [PHOTO_ATT], "the start screen's picture did not go with the new project's build");
+  h.open(null);
+  assert.deepEqual(h.strip(), [], "the picture stayed on the start screen after it went with the build");
+  assert.deepEqual(h.draft("origin-1"), { t: "", imgs: [] }, "fretwork-1's composer was given the start screen's picture");
+});
+
+test("the start screen's strip is drawn from the start screen's own draft (the two lines this harness models)", () => {
+  const open = CHAT.indexOf("\nfunction renderSites(");
+  const shut = CHAT.indexOf("\nfunction ", open + 10);
+  assert.ok(open > 0 && shut > open, "renderSites is gone");
+  const body = CHAT.slice(open, shut).split("\n").map((l) => (/^\s*\/\//.test(l) ? " ".repeat(l.length) : l)).join("\n");
+  const own = body.indexOf("siteAttachFor = '';");
+  const paint = body.indexOf("paintAttachStrip();", own);
+  assert.ok(own > 0, "the start screen does not name its own composer");
+  assert.ok(paint > own, "the start screen paints its strip before naming its own composer");
+  assert.equal(body.indexOf("paintAttachStrip();"), paint, "the start screen paints a strip before it names its own composer");
 });
 
 // ── A GENUINE NEW PROJECT KEEPS EVERYTHING IT HAD ────────────────────────────
