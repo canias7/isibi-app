@@ -160,10 +160,73 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-24 — What's in a site's message box stays with that site (on the branch, not deployed)
+## 2026-09-24 — The message-box fixes are live; next up, a failed add-on still buys a full rewrite (reproduced, not fixed)
 
-**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
-only (`chat.js`). The before and after screenshots are in the chat.
+**Merged and deployed, and closed.** The three fixes below — a site opened in
+another browser waits for its pages, a stopped message keeps your picture, and
+each site keeps its own message box — went to main at 09:59 UTC, and deploy 2153
+finished green a minute later. Right before the push I checked that main hadn't
+moved, that the reviewed version was the one going out, and that its tests had
+passed. Only the browser file changed, so the builder's container was reused, not
+rebuilt: I worked that out in advance and the deploy confirmed it. The live
+`chat.js` is byte-for-byte the merged one. It is **deployed but not yet
+confirmed from the live system**. The free check is your press, because I'm
+still not allowed to start workflows: `edit-canary` on `main`, spend `no`,
+expect_deploy `baeca9590e6fb988a883e9f9abf00aa9ed568de7`, expect_image
+`56f7d5866240a1de`.
+
+**Checked in the live app, for free** (screenshot in the chat). This was the real
+gofarther.dev in a real browser, with everything that could cost money answered
+inside the browser, so nothing reached the server.
+- On fretwork-1, with its page list failing, I attached a picture, typed *"Use
+  this picture as the logo."* and sent it. It stopped with the usual sentence,
+  and the words and the picture came back in the box.
+- After a redraw, both were still there.
+- On Ashgrove, the box was empty.
+- Back on fretwork-1, the words and the picture were there together.
+- Once the page list answered, I sent it. The edit request carried your words
+  and that exact picture.
+- All 18 checks passed.
+
+**How long a draft lasts** (your words): what you type and attach stays with its
+own site while you move around the app and while the screen redraws, for as long
+as the page stays open. **Refreshing the browser loses it.**
+
+**Next: a failed add-on still buys a full rewrite — reproduced, not fixed.** This
+is the one item still waiting from the three I recorded for later this morning.
+When you ask for something new (an add-on) and that request goes wrong on the
+way, the page starts a full rewrite of every page and says nothing. A revise
+measured 17 credits. "Goes wrong" here means the connection drops, the answer
+can't be read, the server refuses without saying why, or the add-on step turns
+it down. It did that in **25 of the 31 cases** I tried, including when an edit
+hands over to the add-on step. In some of them the add-on may already have gone
+through, so you'd pay twice and get every page rewritten on top of it.
+- **How it was checked**: the real page code ran with every answer written by
+  me, so nothing was spent.
+- **What I propose** (browser file only):
+  - When the page can't read the answer or loses the connection, it says *"I
+    couldn't read the answer to that addition, so I can't tell whether it went
+    through. Check the preview before asking for it again."* (the wording is
+    yours to change).
+  - A refusal that comes without its own sentence says it failed.
+  - Being signed out says to sign in.
+  - None of these starts the full rewrite. That fixes 18 of the 25.
+- **What I'd leave for a separate step**: the add-on step's own "I can't do
+  this" answers, the other 7. Some of them really do need the rewrite, like a
+  site with no stored design. Others don't: a model that isn't set up, a read
+  that failed, or nothing found to add. Sorting them is a server change and a
+  decision per reason, the way the edit step's answers were sorted yesterday.
+- **Not in it**: the picture lost when the "what kind of change is this?"
+  check fails (the other thing recorded today), translation, the full rewrite
+  itself, and model-written replies.
+
+---
+
+## 2026-09-24 — What's in a site's message box stays with that site (merged and deployed)
+
+**Fixed, merged and deployed (deploy 2153, entry above) — no paid run.**
+Browser file only (`chat.js`). The before and after screenshots are in the
+chat.
 
 **What you found** (on `3736239`): after a stopped message came back,
 (1) any redraw of the workspace emptied the box while the picture stayed in the
@@ -201,10 +264,11 @@ in CI (four left out there, as always).
 
 ---
 
-## 2026-09-24 — A message stopped because the page list didn't load now keeps your attached picture (on the branch, not deployed)
+## 2026-09-24 — A message stopped because the page list didn't load now keeps your attached picture (merged and deployed)
 
-**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
-only (`chat.js`). The before and after screenshots are in the chat.
+**Fixed, merged and deployed (deploy 2153, entry above) — no paid run.**
+Browser file only (`chat.js`). The before and after screenshots are in the
+chat.
 
 **What you found**: on a site whose page list hadn't loaded, with a picture
 attached, *"Use this picture as the logo."* stopped with *"Send it again in a
@@ -251,11 +315,11 @@ they are fixed in the entry above this one.
 
 ---
 
-## 2026-09-24 — A site opened in another browser waits for its pages now, and answering a stray question sends your original request (on the branch, not deployed)
+## 2026-09-24 — A site opened in another browser waits for its pages now, and answering a stray question sends your original request (merged and deployed)
 
-**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
-only (`chat.js`), so the builder's container won't need rebuilding. The before
-and after screenshots are in the chat.
+**Fixed, merged and deployed (deploy 2153, entry above) — no paid run.**
+Browser file only (`chat.js`), so the builder's container didn't need
+rebuilding. The before and after screenshots are in the chat.
 
 **The page list.** A site that already has an address is never treated as a new
 project any more.
@@ -379,15 +443,15 @@ just repeat the same sentence.
 
 ---
 
-## 2026-09-24 — A garbled follow-up question now stops too (on the branch, not deployed)
+## 2026-09-24 — A garbled follow-up question now stops too (merged and deployed)
 
 You found the one gap left in the check: a follow-up question (like *"Which
 footer?"* with buttons under it) was only checked for having at least two
 answers. So a question with no words showed as *"undefined"*, words sent as the
 wrong kind of thing showed as *"[object Object]"*, and answers that weren't
 words showed as buttons reading *"null"* and *"[object Object]"* — and the
-builder then waited for you to answer that. **Fixed on the branch — not merged,
-not deployed, no paid run.** The screenshots are in the chat.
+builder then waited for you to answer that. **Fixed, merged and deployed
+(deploy 2152) — no paid run.** The screenshots are in the chat.
 
 - **What happens now**: a follow-up question is shown only when its words and
   every one of its answers are real text, with at least two answers. On a site
@@ -416,10 +480,10 @@ free check: `edit-canary` on `main`, spend `no`, expect_deploy
 
 ---
 
-## 2026-09-24 — A failed message check on a live site now stops and says so (on the branch, not deployed)
+## 2026-09-24 — A failed message check on a live site now stops and says so (merged and deployed)
 
-You approved the fix and added two cases to it. **Built on the branch — not
-merged, not deployed, no paid run.** The screenshots are in the chat.
+You approved the fix and added two cases to it. **Built, merged and deployed
+(deploy 2152) — no paid run.** The screenshots are in the chat.
 
 **What happens now.** On a site that already has pages, the builder checks the
 answer to "what kind of change is this?" before it starts anything. If that

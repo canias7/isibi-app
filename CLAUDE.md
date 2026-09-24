@@ -294,7 +294,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality TWENTY-THREE times, and the
+whole reader. **Cross-checked against reality TWENTY-FOUR times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -365,6 +365,14 @@ push's five files among them (`public/chat.js`, two tests, two documents), and
 the log answered `reused … (registry answered 200; ***86 inputs …)` beside `no
 changes isibi-app-sitebuildcontainer` — image step **1.1 s**, Wrangler ~16 s,
 job **~42 s**: the no-roll band, with an asset upload (`+ /chat.js`) inside it.
+**The twenty-fourth — deploy 2153 (2026-09-24) — is the THIRD CONFIRMED
+NEGATIVE**: both ends answered `56f7d5866240a1de` from 186 inputs, none of the
+push's seven files among them (`public/chat.js`, four tests, two documents),
+and the log answered `reused … (registry answered 200; ***86 inputs …)` beside
+`no changes isibi-app-sitebuildcontainer` — image step **~1.2 s**, Wrangler
+**~23 s** (it reinstalled itself first: `npx` found no matching version and
+installed 4.107.0 in ~3 s), job **57 s**. The no-roll band again, one asset
+uploaded (`+ /chat.js`).
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3695,8 +3703,8 @@ END the same day** (*an existing site whose page list has not loaded is built as
 a new site*), which corrected one hop: the chat is **not** `srv_<slug>` — opening
 the card runs `siteAdopt`, which makes a fresh local record, so the body carried
 `chat: "site_<ms>_<rand>"`; `siteForChat` found no row for it just the same.
-**FIXED ON THE BRANCH THE SAME DAY** (*an existing site waits for its page list*,
-below). Attachments reach only the
+**FIXED THE SAME DAY, merged and deployed in deploy 2153** (*an existing site
+waits for its page list*, below). Attachments reach only the
 logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
 turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
@@ -3949,8 +3957,9 @@ separate next tasks"*):
 1. **Wrong-page targeting.** Review #6 (a section change through `look` lands on
    `/` via `fallbackPage`) and run 23's `/book` (the router naming a page from
    the sentence). A missing page is now SAID; choosing the right one is not
-   fixed. **STARTED 2026-09-23 — the NAMED half is fixed on the branch** (*a
-   named page reaches the page it names*, below); a message naming no page on a
+   fixed. **STARTED 2026-09-23 — the NAMED half is fixed, merged and deployed
+   in deploy 2147** (*a named page reaches the page it names*, below); a
+   message naming no page on a
    multi-page site still goes to the home page by the documented default.
 2. **Duplicate execution.** Review #5: two page lanes (`components`+`tsx`,
    `shape`+`components`) push two page steps for one sentence — the all-refused
@@ -4000,9 +4009,9 @@ separate next tasks"*):
    2026-09-24**: `if (!r.ok || !d) return go();` and `.catch(go)`, so on a live
    site a dropped connection, a non-2xx or an unreadable routing answer starts
    the full rewrite of every page with nothing shown and no price —
-   **REPRODUCED THE SAME DAY through the real handler, and BUILT ON THE BRANCH
-   THE SAME DAY, not merged** (*a routing answer that cannot be acted on stops
-   a live site*, below); and an
+   **REPRODUCED THE SAME DAY through the real handler, BUILT THE SAME DAY, and
+   merged and deployed in deploy 2152** (*a routing answer that cannot be acted
+   on stops a live site*, below); and an
    add-only wall or page-verb answer in the look door ends the WHOLE message —
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
@@ -4033,14 +4042,19 @@ separate next tasks"*):
    with every request recorded, and the correction PROPOSED, not built** —
    *an existing site whose page list has not loaded is built as a new site*,
    below: a new paid build, the wrong site, and the request lost, all three.
-   **BUILT ON THE BRANCH THE SAME DAY, not merged** (*an existing site waits for
-   its page list*, below), with the clarify doors the owner added.
+   **BUILT THE SAME DAY** (*an existing site waits for its page list*, below),
+   with the clarify doors the owner added, **and CLOSED by the owner after an
+   independent review (260 focused tests), merged and deployed in deploy 2153**
+   (*merged and deployed: the existing-site entry and the composer drafts*,
+   below).
 8. **The addon's own failures fall to the full rewrite** (found 2026-09-24,
    driven): a valid addon answer whose addon POST drops, or whose reply cannot
    be read, starts `react-revise` — on top of an addon that may have landed.
    `siteAddon`'s `.catch(fallback)` and `addonAnswer`'s `fall()`; the
    double-charge shape `siteEdit`'s catch was fixed for on 2026-09-23. Kept out
-   of the routing correction.
+   of the routing correction. **REPRODUCED IN FULL 2026-09-24 — 25 of 31 shapes
+   start the rewrite; the scope is proposed and nothing is built** (*the
+   add-on's own failures buy the full rewrite — reproduced*, below).
 9. **A routing call that cannot be acted on drops the attachments** (found
    2026-09-24, driven through the entry harness on `c5c93652`): `siteRoute`'s
    `lost()` stops with *"…Send it again in a moment"*, and the files `siteSend`
@@ -4082,7 +4096,7 @@ correction."*
   `fd3355f0b71af621` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token.
 
-### A NAMED PAGE REACHES THE PAGE IT NAMES (2026-09-23, on the branch)
+### A NAMED PAGE REACHES THE PAGE IT NAMES (2026-09-23, merged and deployed in 2147)
 
 Owner: *"Reproduce a request explicitly targeting /gallery on a two-page site
 that passes through look → page. Trace where the requested page is lost and
@@ -4977,7 +4991,7 @@ the look's no-change sentence scoped to the styling — plus their CI stamps.
   `67a81b55332be3a9` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
 
-### THE FULL PAGE WRITER DROPS UNRELATED CONTENT SILENTLY — REPRODUCED (2026-09-24; built on the branch, next section)
+### THE FULL PAGE WRITER DROPS UNRELATED CONTENT SILENTLY — REPRODUCED (2026-09-24; built, next section — merged and deployed in 2151)
 
 Owner: *"Investigate whether the full page writer can silently drop unrelated
 content during a small requested edit … Use a page containing distinct
@@ -6074,7 +6088,7 @@ only (`public/chat.js`), so no container roll:
   That branch is reachable only from a stored record, so it stays; only the promise
   is false.
 
-### AN EXISTING SITE WAITS FOR ITS PAGE LIST, AND A ROUND ON ONE SENDS THE ORIGINAL REQUEST (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### AN EXISTING SITE WAITS FOR ITS PAGE LIST, AND A ROUND ON ONE SENDS THE ORIGINAL REQUEST (2026-09-24, merged and deployed in 2153 — no paid run)
 
 Owner: *"An existing site must not become a first build because its page
 inventory is loading, empty or unreadable. Await the in-flight inventory request
@@ -6173,7 +6187,7 @@ and the original request reaches `fretwork-1`, and a failed or empty list stops
 with the sentence after one retry. **Every routing answer is SUPPLIED**: this
 proves what the browser sends and shows, never what a real router answers.
 
-### A MESSAGE THE PAGE-LIST CHECK STOPPED KEEPS ITS FILES (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A MESSAGE THE PAGE-LIST CHECK STOPPED KEEPS ITS FILES (2026-09-24, merged and deployed in 2153 — no paid run)
 
 Owner, reproducing it through the real handlers on `c5c93652`: an existing site
 with no page list loaded, a picture attached, *"Use this picture as the logo."*,
@@ -6273,7 +6287,7 @@ the attached picture on the logo edit) and the workspace switch. **Every routing
 answer is SUPPLIED**: this proves what the browser sends and shows, never what a
 real router answers.
 
-### A COMPOSER'S WORDS AND FILES BELONG TO ITS OWN SITE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A COMPOSER'S WORDS AND FILES BELONG TO ITS OWN SITE (2026-09-24, merged and deployed in 2153 — no paid run)
 
 Owner, on `3736239`, with the real handlers and the composer wiring: *"Fail the
 page-list read with “Use this picture as the logo” and an attachment. Recovery
@@ -6388,6 +6402,179 @@ edit carried `fretwork-logo.png` while fretwork-1 was left empty; after, both
 kept, ashgrove-1's edit carried no picture, and back on fretwork-1 the request
 went whole. **Every routing answer is SUPPLIED**: this proves what the browser
 sends and shows, never what a real router answers.
+
+### MERGED AND DEPLOYED: THE EXISTING-SITE ENTRY AND THE COMPOSER DRAFTS (2026-09-24)
+
+Owner: *"The correction checks out. Independent review on baeca95 passed 260
+focused tests, including recovery across redraws, switching sites, returning and
+resending, and preserving newer drafts. Proceed with merging and deploying … after
+confirming the candidate and required CI remain current. … Record that drafts
+survive navigation and redraws within the session, not a browser refresh. Then
+close this correction."*
+
+- **CLOSED BY THE OWNER**, as one correction: an existing site waits for its
+  page list and a round on one sends the original request; a stopped message
+  keeps its files; a composer's words and files belong to its own site — the
+  three sections above. **The limit travels with it**: every routing answer in
+  the evidence is SUPPLIED, so what is closed is what the browser sends and
+  shows, never what a real router decides.
+- **DRAFTS SURVIVE NAVIGATION AND REDRAWS WITHIN THE SESSION, NOT A BROWSER
+  REFRESH** (the owner's own words, recorded as the rule). A site's typed words
+  and attached files stay with that site through redraws, other sites, the start
+  screen and back, for as long as the page is open; a refresh loses them.
+  `sitesSave` writes `draft: undefined` and never stores a held message, because
+  a picture is a data URL of up to ~7 MB and one oversized record can fail the
+  save of every site. Making drafts outlive a refresh is a separate decision.
+- **RECHECKED BEFORE THE PUSH, AND NOTHING HAD MOVED**: a clean tree;
+  `origin/main` still `40190564`; the candidate `baeca959` the branch tip and a
+  fast-forward of main; the range **7 commits, 7 files (+2,381 / −74)** —
+  `public/chat.js`, `test/page-picker.test.mjs`, `test/site-ask.test.mjs`,
+  `test/site-entry-inventory.test.mjs`, `test/site-route-failure.test.mjs` and
+  the two documents — with the one product file the reviewed `chat.js`
+  (sha256 `98f883cf3bff10bd`); unit CI green on `2e2998cc` (run `35983286186`,
+  `7462 / 7458 / 0 / 4`) and on the documents-only `baeca959` (run
+  `35983726339`); **no `site build` owed**, none of the seven files being on
+  its `paths`; zero runs in progress or queued at 09:59Z.
+- **THE ROLLBACK, VERIFIED BEFORE IT COULD BE NEEDED**: `git revert --no-commit
+  40190564..baeca959` in a throwaway worktree gives tree **`79ab1cc7…`, main's
+  own**, so a rollback also reuses `56f7d5866240a1de`.
+- **A FAST-FORWARD**: `main` `40190564` → **`baeca959`** at **09:59:36Z**.
+- **DEPLOY 2153 (`35984592632`)**: success, job 09:59:42 → 10:00:39Z (**57 s**).
+  `DEPLOY_ID` **`baeca9590e6fb988a883e9f9abf00aa9ed568de7`** (unmasked in the
+  log); the deploy gate *"took over from `40190564…`"*; image step **reused
+  `56f7d5866240a1de`** (`registry answered 200; ***86 inputs off ./Dockerfile`)
+  and Wrangler **`no changes isibi-app-sitebuildcontainer`** — the image id was
+  recomputed over both ends before the push and answered the same id from 186
+  inputs on each, none of the seven files among them (the THIRD CONFIRMED
+  NEGATIVE, in the deploy section above); `+ /chat.js`, 1 uploaded, 85 already;
+  `Uploaded isibi-app`, `Current Version ID: 24633147-…`, `Deployed isibi-app
+  triggers`. **No hold was owed**: nothing rolled, and the edit jobs keep running
+  on the image deploy 2151 put there.
+- **THE SERVED-FILE CHECK, BOTH READINGS**: before (09:58:08Z) **746,091 bytes,
+  sha256 `35e09289eb624b2e`**, byte-identical to `40190564`'s `chat.js`, 0
+  occurrences of `siteDraft`; after (10:02:53Z) **760,703 bytes, sha256
+  `98f883cf3bff10bd`, byte-identical to `git show baeca959:public/chat.js`**,
+  with `siteDraft` 12, `siteRoutesRead` 3, `siteHoldUnsent` 4 and
+  `siteUnsentBack` 4. Gates **401 / 401 / 401 / 404** at 10:02:58Z.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED.** The canary dispatch answered **403** again
+  at 10:03Z, so the Worker's own sha is the owner's free press:
+  `edit-canary.yml` from `main`, spend `no`, `expect_deploy`
+  **`baeca9590e6fb988a883e9f9abf00aa9ed568de7`**, `expect_image`
+  **`56f7d5866240a1de`**. It also confirms 2151 and 2152, which put that image
+  and that Worker code there.
+- **THE LIVE CHECK, FREE, IN THE DEPLOYED APP** (10:09Z, owner: *"recover a
+  stopped request with a picture, redraw, switch sites, return, and verify the
+  original request and picture remain together"*). A real Chromium loaded
+  **https://gofarther.dev unchanged** — `index.html`, `chat.js` and every other
+  asset from the live origin, `chat.js` hashed as it arrived and equal to the
+  merged file — with a fake session seeded into localStorage so the app booted
+  signed in through its own code path. **Nothing that costs could leave the
+  browser**: all **9** `/api` requests were answered in the page (GETs by a local
+  copy of the deployed Worker with its outbound calls stubbed, the routing call
+  by it with the router's answer SUPPLIED, the edit POST **stopped in the page**
+  and never sent), Supabase was answered in the page, and every other non-static
+  request was aborted — **0 `/api` and 0 Supabase requests reached the network**,
+  counted. The sequence, with the real + button and file chooser: open
+  fretwork-1 with its page list failing, attach a picture, type *"Use this
+  picture as the logo."*, Send → the stop sentence, **no routing call**, and the
+  words and **the attached picture** back in the box and strip; open and close
+  the history rail → both still there; back to the start screen and open
+  Ashgrove → **its box and strip empty**; back to fretwork-1 → **the words and
+  the picture together**; the page list answering, Send → routed `attached:
+  true, firstBuild: false, hasSite: true`, and the edit request carried
+  `instruction` *"Use this picture as the logo."*, `layer: logo` and **the
+  attached picture byte for byte**. **18 of 18 checks PASS**; the screenshots
+  are in the chat. The page's own console carried nothing but the browser
+  reporting the check's own 503 and 422 answers; the rest came from the sites'
+  own preview and thumbnail frames. **It proves the deployed browser code, not
+  the router**: the routing answer is supplied, as in every test of this
+  correction.
+
+### THE ADD-ON'S OWN FAILURES BUY THE FULL REWRITE — REPRODUCED (2026-09-24; proposed, nothing built)
+
+Owner: *"Bring back the next bounded edit-path issue already recorded, with its
+reproduction and proposed scope before implementation."* That is **next-task 8**:
+the 05:31 owner-notes entry recorded three items for later — the site with no
+page list (closed above), the add-on's own failures, and the reader-broke flag
+(read by the routing correction since) — and this is the one left.
+
+**THE REPRODUCTION, FREE, THROUGH THE REAL HANDLERS ON THE DEPLOYED
+`baeca959`** (a scratch driver, not committed): the real `siteSend` →
+`siteRoute` → `siteAddon` → `addonAnswer`, and for a queued add-on the real
+`watchEditJob` with the real `EditPoll`, cut out of `chat.js` and run; `fetch`
+is the one seam — the routing call answers a valid add-on, the add-on POST
+answers the case, a poll answers the case's stored reply under `x-gf-edit:
+final`, and any further POST is recorded and never answered; `applyAddonResult`
+is a recorder. **25 of 31 shapes post `/api/site/react-revise`** — the full
+rewrite of every page (a revise of the same site measured 17 credits) — and say
+nothing:
+
+| shape | what the browser does |
+|---|---|
+| the add-on POST dropped, or aborted | the rewrite |
+| a 200 carrying HTML, truncated JSON or an empty body | the rewrite |
+| a 500 carrying Cloudflare's HTML (the Worker threw) | the rewrite |
+| a 503, 429 or 501 JSON with no sentence; a 200 `{ok:false}` with none | the rewrite |
+| a 401 | the sign-in gate, **and** the rewrite behind it |
+| a 404 or 503 from the owner check (`assertOwner` answered raw — the edit route re-shapes it with `editGateRefusal`, this route does not) | the rewrite |
+| the route's own escalates, which carry no layer: `empty`, `unconfigured`, `no-source`, `no-meta`, `no-add`, a merge that returned nothing usable | the rewrite |
+| the success handler throws after a successful add-on (**injected**, to measure how wide the catch is) | the rewrite |
+| queued: a stored 503 or `{ok:false}` with no sentence; a stored escalate with no layer | the rewrite |
+| an edit the edit route hands to the add-on (`picker/addon`), whose add-on POST drops or answers 503 with no sentence | the rewrite |
+| controls: a refusal with a sentence (both paths), an escalate naming a layer (the hop), a success (both paths), a poll that lost the job | unchanged — no rewrite |
+
+- **THE DOUBLE CHARGE IS THE SEVERE HALF.** A dropped POST, an unreadable 200, a
+  Worker that threw after filing the job and a success handler that throws are
+  each a point where the add-on may already have LANDED — the rewrite then
+  charges again for the same ask and regenerates every page on top of it, with
+  no photograph wall (recorded above). It is the shape `siteEdit`'s catch was
+  fixed for on 2026-09-23 (`unreadEditMsg`), one route over.
+- **THE ESCALATES ARE THE SERVER'S, AND THEY ARE UNCLASSIFIED.** `aEscalate`
+  carries no layer, and the browser answers every such escalate with the
+  rewrite. The edit route's table already rules on the same reasons one route
+  over: `unconfigured` is `explain` and ours (the rewrite meets the same missing
+  key), a store read that failed is `explain` and ours, a message nobody could
+  place is `explain` — while a store that answered with no pages, and a site
+  with no stored design, are genuine `up`. **The add-on route has no such
+  table**, and its `no-source` also folds a failed read into "no pages".
+
+**THE PROPOSED SCOPE — BOUNDED, BROWSER ONLY (`public/chat.js`), NOTHING
+BUILT:**
+
+1. `siteAddon`'s catch says an unread sentence of its own — a function beside
+   `unreadEditMsg`, drafted as *"I couldn't read the answer to that addition,
+   so I can't tell whether it went through. Check the preview before asking for
+   it again."* (the wording is the owner's) — and never starts the rewrite.
+2. `addonAnswer`: an unreadable body says the same; a refusal with no sentence
+   says `outcomeMessage('failed')`, or the signed-out sentence on a 401 — never
+   the rewrite.
+3. The success handler moves out of the catch's reach, so a throw after a
+   successful add-on is said rather than answered with a rewrite.
+4. **Unchanged**: a refusal with its own sentence; an escalate naming a layer
+   (the hop to the edit route); a watch resumed after a refresh (it holds no ask
+   and already says so); and — deliberately — the no-layer escalates, which
+   stay the server's explicit climb in this scope.
+
+That closes **18 of the 25**: every shape but the seven no-layer escalates (six
+answered at once, one stored for a queued add-on).
+**The server half, recommended as its own next step and NOT in this scope**:
+classify the add-on route's escalates as `EDIT_FAILURES` classifies the edit
+route's (an `addon/<name>` table and a census over the route's window; a
+sentence at no cost for `unconfigured`, a failed read, `no-add` and a writer
+that answered nothing usable; `up` kept for a store that answered with no pages
+and a site with no stored design; the owner check re-shaped with
+`editGateRefusal`). That is `worker.js` — an image roll — and a class decision
+per reason for the owner.
+
+- **TESTS, ON APPROVAL**: the two ADJACENT OPEN DEFECT cases in
+  `test/site-route-failure.test.mjs` flip into stops; the reproduction's shapes
+  become cases asserting no rewrite POST, the sentence and the busy flag
+  cleared, the queued path through the real `watchEditJob`; the controls stay.
+- **NOT IN IT**: next-task 9 (a routing call that cannot be acted on drops the
+  attachments), translation, full-rewrite internals, model-written replies.
+- **WHAT THE REPRODUCTION DOES NOT CLAIM**: every answer is SUPPLIED, so this is
+  what the browser does with a response and never how often the route sends
+  one; the injected throw measures the catch's width, not a known bug.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
