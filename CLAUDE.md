@@ -4058,7 +4058,10 @@ separate next tasks"*):
    THE SAME DAY, on the branch, not merged** (*an add-on that fails never buys
    the rewrite*, below). **The add-on route's own escalates naming no layer
    still climb to the rewrite** — the separate server-side step — so not every
-   automatic rewrite from an addition is closed.
+   automatic rewrite from an addition is closed. **AND ITS REPLIES ARE
+   VALIDATED BEFORE THEY ARE TRUSTED** (the owner's second round the same day,
+   on the branch: *an add-on reply is validated before it is trusted*, below) —
+   a well-formed no-layer escalate still climbs; a malformed one stops.
 9. **A routing call that cannot be acted on drops the attachments** (found
    2026-09-24, driven through the entry harness on `c5c93652`): `siteRoute`'s
    `lost()` stops with *"…Send it again in a moment"*, and the files `siteSend`
@@ -4068,6 +4071,15 @@ separate next tasks"*):
    pre-routing stop had (*a message the page-list check stopped keeps its
    files*, below), one step later; that correction's hold is the mechanism,
    and the owner scoped it to the pre-routing check.
+10. **The edit reader trusts a reply by truthiness** (found 2026-09-24, driven
+   through the real handler on `f1dadcdc`'s `chat.js`, straight back AND
+   queued): a 503 escalate naming the add-on posts the paid add-on; one naming
+   a layer posts another paid edit; one naming no layer starts the rewrite;
+   `escalate: "false"` naming a layer posts another edit; `{ok: "false"}`
+   prints "✅ Done.". `editAnswer` reads `e.escalate` before `httpOk`, and
+   `!e.ok`. The add-on's own reader was closed for exactly this class (*an
+   add-on reply is validated before it is trusted*, below); the owner's report
+   and rule were the add-on's, so this one is recorded, not changed.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -6586,7 +6598,7 @@ per reason for the owner.
   what the browser does with a response and never how often the route sends
   one; the injected throw measures the catch's width, not a known bug.
 
-### AN ADD-ON THAT FAILS NEVER BUYS THE REWRITE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### AN ADD-ON THAT FAILS NEVER BUYS THE REWRITE (2026-09-24, on the branch — passed the owner's independent review, 269 focused tests; not merged, not deployed, no paid run)
 
 Owner, having reproduced the dropped POST and the unreadable response starting
 `react-revise` independently: *"A transport failure, unreadable response,
@@ -6712,6 +6724,136 @@ backend addition's outcome."* **Browser only (`public/chat.js`).**
   operation, pre-existing); and a queued REFUSAL whose redraw throws still
   escapes the watcher as an unhandled rejection after its sentence is out (no
   paid operation, pre-existing, the watcher not catching its reader).
+
+### AN ADD-ON REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, after the failure round above passed independent review (269 focused
+tests): *"One response-validation gap remains on 248e6aaa: HTTP 503 +
+{ok:false, escalate:true, layer:"picture"} posts another paid edit. HTTP 200 +
+{ok:false, escalate:"false", layer:"picture"} also posts another edit. HTTP
+200 + {ok:"false"} prints "✅ Done." Validate the response before treating it as
+authority for success, a queued receipt or another paid action. Require real
+booleans, a successful HTTP status for actionable responses, and valid fields
+for the action. Invalid or contradictory replies must stop with uncertainty.
+Apply the same rules to direct and queued final replies. Retain valid explicit
+handoffs and successful additions. This is response validation, not the
+deferred classification of legitimate no-layer escalations."* **Browser only
+(`public/chat.js`).**
+
+- **REPRODUCED FIRST, AND WIDER THAN REPORTED**, through the real send path on
+  248e6aaa, each shape straight back and as a queued job's stored reply: **45
+  shapes, and every one acted or claimed.** **16 posted a second paid edit**
+  (the 503 escalate, `escalate: "false"`, `escalate: 1`, an escalate beside
+  `ok: true`, one with no `ok`, a layer the edit route does not have, a `page`
+  that is not a string — and the first two again after an edit handed its ask
+  over). **14 started the rewrite** (a layer that is a list, the add-on's own
+  name, an empty or null layer, a no-layer escalate at a 503 or with `ok` spelled
+  as a string, `escalate: "true"` on a success). **7 printed "✅ Done"** (`ok`
+  as `"false"`, `"true"` or `1`), **2 printed a success's own words under a
+  warning** (`ok: true` at a 422 carrying a sentence), and **6 took a receipt
+  that was not one** (`ok: "true"` watched, `job: 7` polled `/api/site/edit/7`,
+  a receipt at a 503 watched, an empty job id and a receipt carrying a `result`
+  printed "Done", and a job's own final reply shaped as a receipt printed
+  "Done"). Every branch read its field by truthiness and none asked the status.
+- **`readAddonReply(httpOk, a)` IS THE ONE READING**, asked by `siteAddon` for
+  its receipt and by `addonAnswer` for every outcome, straight back or a job's
+  final reply. Six answers:
+  - **`hop`** — HTTP 2xx, `ok: false`, `escalate: true`, a `layer` in
+    `ROUTE_EDIT_LAYERS` (the browser's guarded copy of the edit route's list, so
+    `addon` is never a hop), `page` a string or absent → one paid edit there.
+  - **`climb`** — the same with the `layer` KEY MISSING → the rewrite. **KEPT,
+    and still the deferred server-side classification**; this refuses only a
+    malformed one.
+  - **`receipt`** — HTTP 2xx, `ok: true`, a non-empty string `job`, no `result`
+    → watched. Only the POST can answer one: in `addonAnswer` a receipt is not
+    knowing, a job's final reply never being "queued".
+  - **`success`** — HTTP 2xx, `ok: true`, no escalate, and no `job` unless it is
+    the sweep's recovered reply (`EditPoll.isRecovered`) → applied and said.
+  - **`refusal`** — `ok: false`, no escalate, at ANY status, since it starts
+    nothing → the route's sentence or `unsaid`.
+  - **`unknown`** — everything else → `addonOutcomeMsg('unknown')`, nothing more
+    posted.
+- **ABSENT IS `== null`**, `routeActionable`'s convention, **EXCEPT THE CLIMB'S
+  LAYER**: the climb is the one paid step an absence reaches, and the route's
+  no-layer escalate has no `layer` key at all (`aEscalate(reason)` spreads
+  nothing; a hop is written only when `addLayerIn` answered a real layer), so
+  `layer: null` is not knowing, never a climb.
+- **THE JOB ID'S GRAMMAR IS THE SERVER'S.** The browser asks for a non-empty
+  string; the poll route answers any id that is not 32 hex (`isJobId`) with the
+  404 a lost job gets, which the watcher reads as `gone`. A shape check here
+  would be a second copy of `ID_RE`.
+- **ONE CHANGE BEYOND THE REPORT, SAID**: `ok: true` at a failing status CARRYING
+  a sentence printed that sentence under a warning; it is not knowing now. With
+  no sentence it already was, since the failure round.
+- **FOUND ON THE WAY, NOT CHANGED — THE EDIT READER HAS THE SAME CLASS**,
+  measured through the real handler on this branch, straight back AND queued: a
+  503 escalate naming the add-on posts the paid add-on; one naming a layer posts
+  another paid edit; one naming no layer starts the rewrite; `escalate: "false"`
+  naming a layer posts another edit; `ok: "false"` prints "✅ Done.".
+  `editAnswer` reads `e.escalate` by truthiness before `httpOk`, and `!e.ok`.
+  The owner's report and rule were the add-on's, so it is next-task 10; the same
+  reader shape would close it.
+- **EVIDENCE.** `test/addon-failure.test.mjs` **38 → 87 cases**, every one
+  through the real handlers with `fetch` the one seam: the three reproductions
+  straight back, as a queued job's stored reply AND after an edit handed its ask
+  over; the fifteen wider shapes straight back and queued; five receipts that
+  are not one, and a job's final reply shaped as a receipt; and four new
+  controls — a real 202 receipt and the 200 for an ask already filed, the
+  sweep's recovered reply (a `job` on a FINAL reply, still a success),
+  `escalate: false` as a real boolean (a refusal shown, a success applied,
+  neither hopping), and a hop naming a page carrying it to the edit route.
+  **Red 45 of 87 against 248e6aaa** in a throwaway worktree, the reader
+  appended there unused so the harness can cut it — exactly the 45 new
+  non-control cases; the 42 green on both are the 38 kept and the 4 new
+  controls. **⚠ THE FIRST RED RUN READ 43, AND THE TWO WERE A ROW THAT DID NOT
+  DISCRIMINATE**: `ok: true` at a 422 with no sentence was already a stop after
+  the failure round, so a comment calling every row "measured acting on
+  248e6aaa" was false for it. The row carries a sentence now, the shape the old
+  reader printed, and the red run was re-taken rather than the claim kept.
+  **Re-anchored, not appeased — five guards pinned the old spelling**:
+  `addon-queue` (the receipt's truthiness → the reader asked before the receipt
+  branch, and a job watched only inside it; the reader's branch ORDER → the
+  reader asked first, the applied branch the fall-through, and a census that
+  `addonAnswer` reads none of `ok`/`escalate`/`layer`/`page`/`job` itself, over
+  comment-blanked code), `site-addon` twice (`layer !== 'addon'` → the reader's
+  `ROUTE_EDIT_LAYERS` check plus the browser's list parsed and found holding
+  `picture` and not `addon`; the escalate-before-refusal order, which is
+  LOAD-BEARING in the reader, since an escalate is `ok: false` too), `addon-sweep`
+  (the hop fixture had no `ok` and is the route's own shape now; `{ok: true,
+  msg}` at a 422 showed the msg and is not knowing now; the owner's three
+  asserted as the paid run's reader records them: no action), and `edit-poll`
+  (its resume case pinned `rememberJob(slug, a.job, …)` — the fifth, found by
+  the focused run rather than by reading). `scripts/addon-sweep.mjs` cuts
+  `readAddonReply` and gains `BROWSER_LINES` for the layer list, a LINE the
+  function cutter cannot reach — its valid-hop case is what proves both in
+  scope, reaching `ROUTE_EDIT_LAYERS.includes`. The three `siteSend` harnesses
+  cut the reader too. **Targeted probes, not a sweep: 25 killed, 0 survived, 0
+  never applied, the comment-only control surviving**, over `chat.js` and
+  `scripts/addon-sweep.mjs` against thirteen files (spec in the scratchpad) —
+  one per clause of the reader, each wiring hop (the POST's receipt, its status,
+  the reader's status, the queued reply's status, the hop's page, the unsaid
+  sentence) and both harness lists; both files byte-identical to their backups
+  afterwards (sha256 `489b2884eab21157`, `6170bfc7ee4d0d49`). **Two redundant
+  belts were removed before the probes rather than left to survive them**: a
+  list, a bare value and a string all lack a boolean `ok`, so `Array.isArray`
+  and `typeof a !== 'object'` could never decide anything the `ok` check did
+  not. The 92 files that read `chat.js`: **3,051 / 3,051**. **Suite 7,549
+  locally** (`# tests 7549 / # pass 7547 / # fail 0 / # skipped 2`,
+  `duration_ms 132,610`) — **+49 against 7,500**, exactly the new cases; the
+  re-anchors added assertions, not cases. **AND CI MATCHES**: unit run
+  **`36058296434` on `f1dadcdc`** reads **`# tests 7549 / # pass 7545 / # fail 0
+  / # skipped 4`** (`duration_ms 111,191`) — the total is what matches, `pass`
+  differing by CI's four skips against the two local ones — with all 87 of the
+  file's cases and the six re-anchored ones found passing BY NAME in the
+  downloaded log archive, 7,549 distinct result numbers with no gap and zero
+  `not ok N -`. No `site build` fires: none of the commit's nine files is on its
+  `paths`. **The stamp chain ends at `f1dadcdc`.** **Rendered in the real app in a real
+  Chromium**, before and after, the owner's three typed and sent: before, the
+  503 escalate and `escalate: "false"` left the rail running on a second paid
+  edit POST with nothing said, and `ok: "false"` printed "✅ Done."; after, one
+  sentence, the send button, and nothing past the add-on POST. **Every answer
+  is SUPPLIED**: this proves what the browser does with a reply, never how
+  often a real route sends one.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

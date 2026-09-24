@@ -160,6 +160,84 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — An add-on answer is checked before it's trusted (on the branch, not deployed)
+
+**Where the last fix stands:** you checked it independently (269 tests), and the
+dropped connections, unreadable answers and display errors now stop correctly.
+
+**What was still wrong.** The page took an add-on answer at its word without
+checking it. You found three cases:
+- A 503 carrying "go to the picture step" posted another paid edit.
+- `escalate: "false"` (the word, not a real yes/no) posted one too.
+- `ok: "false"` printed "✅ Done."
+
+I tried 45 shapes of the same kind, straight back and as a queued job's stored
+answer, on the code you reviewed. Every one of them did something or claimed
+something:
+- **16 posted a second paid edit.**
+- **14 started the full rewrite.**
+- **7 printed "✅ Done"**, and **2 printed a success's own words under a
+  warning sign.**
+- **6 treated an answer as "your job is queued" when it wasn't one.** One polled
+  a job number nobody filed, and others printed "Done".
+
+**What happens now.** One check reads every add-on answer before anything acts
+on it, the same way whether it came straight back or from a queued job:
+- **Yes and no have to be real yes and no.** `"false"`, `"true"` and `1` don't
+  count.
+- **Anything that acts needs a successful status.** That covers a success, a
+  queued receipt, a hop to a cheaper step, and the full rewrite. A refusal can
+  come at any status, since it starts nothing.
+- **What the action needs has to be valid.** A hop has to name a step the edit
+  route really has, so "addon" never counts. A queued receipt needs a real job
+  number. The full rewrite needs no step named at all.
+- **Anything else stops with the not-knowing sentence** and posts nothing:
+  *"I didn't get a usable answer about that addition, so I can't tell whether it
+  went through. Asking for it again could add it a second time."*
+
+**Kept exactly as it was:**
+- A success, and a refusal with its own reason.
+- A real hop to the picture step, now also carrying a page when it names one.
+- A queued receipt, including the one for an ask that was already filed.
+- The "details were lost" reply after a crash.
+- An edit handing its request to the add-on.
+
+**Still open, as agreed:** the add-on step's own "this needs the full rewrite"
+(naming no cheaper step) still starts the rewrite when it's well-formed. Sorting
+those is the separate server step.
+
+**One change you didn't ask for:** an answer saying "success" with a failing
+status *and* a sentence used to show that sentence under a warning sign. It
+contradicts itself, so it now gets the not-knowing sentence.
+
+**Found, not changed — the edit step has the same gap.** The same kinds of edit
+answers act the same way, straight back and queued:
+- a 503 that says "hand this to the add-on" posts the paid add-on;
+- a 503 naming another step posts another paid edit;
+- a 503 naming no step starts the full rewrite;
+- `escalate: "false"` posts another edit;
+- `ok: "false"` prints "✅ Done."
+
+Your rule was about add-on answers, so I've recorded this rather than fixed it.
+The same check would close it.
+
+**How it was checked:**
+- 87 tests run the real page code, 49 of them new. Those cover your three
+  cases straight back, queued, and after an edit hands over, plus the wider
+  shapes and four unchanged-behaviour checks. All 45 new failure cases fail on
+  the code you reviewed. The 42 that pass there are the 38 from last round and
+  the 4 unchanged-behaviour checks.
+- 25 deliberate small breakages of the check, one per rule, and every one was
+  caught.
+- The full test suite passes here and on GitHub: 7,549 tests, 0 failures,
+  with all 87 add-on tests found passing by name.
+- The before and after screenshots are in the chat: the real app in a real
+  browser, your three cases typed and sent.
+
+**Browser file only, on the branch — not merged, not deployed, no paid run.**
+
+---
+
 ## 2026-09-24 — A failed add-on no longer buys a full rewrite (on the branch, not deployed)
 
 **Closed first:** you checked the deployed message-box fixes (deploy 2153, the
