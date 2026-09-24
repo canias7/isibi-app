@@ -544,9 +544,12 @@ test("the panel's own type and its never-full segment are in the stylesheet", ()
   // The hero's face is NAMED, not inherited: the app's `body` rule is nested
   // inside `:root` and did not apply in a headless render, so what was drawn for
   // the owner and what shipped would have been two different typefaces.
+  // It names the app's ONE font token since 2026-09-24 (the handwriting face it
+  // named before went with the pencil look), so the hero cannot drift from the
+  // rest of the page when that font changes.
   const hero = /\.st-b1 \.st-building-t \{[^}]*\}/.exec(css);
   assert.ok(hero, "the stage hero has no rule of its own");
-  assert.match(hero[0], /font-family:\s*'Patrick Hand'/, "the hero's display face is inherited again");
+  assert.match(hero[0], /font-family:\s*var\(--font\)/, "the hero's display face is inherited again");
   // Tabular figures, because this redraws every 1.5s and proportional digits make
   // a running clock twitch sideways on every tick.
   const clock = /\.st-bclock \{[^}]*\}/.exec(css);

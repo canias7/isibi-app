@@ -22,7 +22,7 @@
   <meta name="twitter:image" content="https://gofarther.dev/icon-512.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:wght@400;500;600;700&family=Caveat:wght@500;600;700&family=Patrick+Hand&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body data-agent="gofarther.dev">
@@ -31,30 +31,9 @@
          OUTSIDE #marketing. A <use> does resolve into a display:none subtree
          (measured), so keeping these defs inside the landing block worked; it
          also made the signed-in app's logo depend on the landing's markup still
-         being there, which is not a dependency anybody would go looking for. The
-         The pencil FILTERS moved out with it on 2026-08-30, when the whole app
-         became the same sheet — they are no longer landing-only either.
+         being there, which is not a dependency anybody would go looking for.
          Geometry is public/logo.svg's, and test/brand-mark.test.mjs asserts every
          copy in the tree still matches that file. -->
-    <svg class="pencil-defs" width="0" height="0" aria-hidden="true" focusable="false">
-      <filter id="pencilRough" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.038" numOctaves="3" seed="7" result="n" />
-        <feDisplacementMap in="SourceGraphic" in2="n" scale="3.4" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <filter id="pencilRough2" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.052" numOctaves="3" seed="23" result="n" />
-        <feDisplacementMap in="SourceGraphic" in2="n" scale="2.6" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <filter id="pencilLead" x="-18%" y="-18%" width="136%" height="136%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.021" numOctaves="4" seed="11" result="n" />
-        <feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <filter id="pencilLead2" x="-18%" y="-18%" width="136%" height="136%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" seed="41" result="n" />
-        <feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <defs><pattern id="pencilTint" width="6.5" height="6.5" patternUnits="userSpaceOnUse" patternTransform="rotate(-56)"><line x1="0" y1="0" x2="0" y2="6.5" stroke="#4a4656" stroke-opacity=".14" stroke-width="1.2" /></pattern></defs>
-    </svg>
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
       <defs><g id="gfMark" fill="none" stroke="currentColor"><g stroke-width="34"><path d="M425.7 362.7A201.5 201.5 0 0 1 288.9 454.2" /><path d="M220.7 454.2A201.5 201.5 0 0 1 75.9 163.2" /><path d="M92 137.2A201.5 201.5 0 0 1 438.4 339.2" /></g><g stroke-width="16.5"><circle cx="167.5" cy="239" r="22.8" /><circle cx="255" cy="168.5" r="23.5" /><circle cx="342.5" cy="239" r="22.8" /></g><g stroke-width="20" stroke-linecap="round" stroke-linejoin="round"><path d="M255 200V465" /><path d="M167.5 262v63.5L210.5 370v92" /><path d="M342.5 262v63.5L299.5 370v92" /></g></g></defs>
     </svg>
@@ -64,11 +43,6 @@
        Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
        and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
   <div id="marketing" class="mkt mkt-crt" style="display:none">
-    <!-- Pencil landing: the two filters that roughen a drawn line. Fractal
-         noise through a displacement map is what turns a CSS border into a
-         stroke somebody made by hand; two seeds so no two edges on the page
-         wobble the same way. They are inline because Chrome will not resolve
-         filter: url() against an external document. -->
 
 
     <!-- The CRT is the landing — everything lives inside the screen: the nav on
@@ -80,7 +54,7 @@
           <div class="crt-glass" aria-hidden="true"></div>
           <div class="crt-scan" aria-hidden="true"></div>
           <header class="crt-topbar">
-            <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" role="img" aria-label="Go Farther"><use href="#gfMark" class="gf-pass gf-pass-a" /><use href="#gfMark" class="gf-pass gf-pass-b" /></svg></div>
+            <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" role="img" aria-label="Go Farther"><use href="#gfMark" /></svg></div>
             <nav class="mkt-links">
               <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
               <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
@@ -222,7 +196,7 @@
            would only give it a way to ship dead. -->
       <div class="gf-run">
         <svg class="gf-run-elbow" viewBox="0 0 106 106" width="106" height="106" aria-hidden="true">
-          <path fill="url(#pencilTint)" stroke="none" d="M10.1 0 V39.1 A55.8 55.8 0 0 0 65.9 94.9 H106 V57.1 H65.9 A18 18 0 0 1 47.9 39.1 V0 Z" />
+          <path class="gf-run-shade" stroke="none" d="M10.1 0 V39.1 A55.8 55.8 0 0 0 65.9 94.9 H106 V57.1 H65.9 A18 18 0 0 1 47.9 39.1 V0 Z" />
           <g fill="none" stroke="currentColor" stroke-width="2.2">
             <path d="M10.1 0 V39.1 A55.8 55.8 0 0 0 65.9 94.9 H106" />
             <path d="M47.9 0 V39.1 A18 18 0 0 0 65.9 57.1 H106" />
@@ -259,7 +233,7 @@
         </div>
       </div>
       <div class="mkt-foot-row">
-        <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" class="gf-pass gf-pass-a" /><use href="#gfMark" class="gf-pass gf-pass-b" /></svg> Go Farther</div>
+        <div class="mkt-brand"><svg class="logo-mark" viewBox="-6 -6 524 524" aria-hidden="true"><use href="#gfMark" /></svg> Go Farther</div>
         <div class="mkt-foot-links"><span>&copy; gofarther.dev</span></div>
       </div>
     </footer>

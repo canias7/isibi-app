@@ -168,10 +168,10 @@ test("the corner ends on the horizontal run's own walls", () => {
 test("the shading round the bend traces the walls it shades", () => {
   // The corner is shaded by a filled path that runs out along the outer wall
   // and back along the inner one — a SECOND copy of the same geometry, and two
-  // copies drift. Re-derive the walls and leave this behind and the graphite
-  // slides off the pipe, which nothing else here would notice: it is a fill,
-  // so it kinks no line and breaks no join.
-  const fill = /<path fill="url\(#pencilTint\)"[^>]*\bd="([^"]+)"/.exec(ELBOW);
+  // copies drift. Re-derive the walls and leave this behind and the fill slides
+  // off the pipe, which nothing else here would notice: it is a fill, so it
+  // kinks no line and breaks no join.
+  const fill = /<path class="gf-run-shade"[^>]*\bd="([^"]+)"/.exec(ELBOW);
   assert.ok(fill, "the bend must be shaded — the straights are, and a bare corner is the tell");
   const d = fill[1];
   for (const t of turns) {
@@ -184,20 +184,39 @@ test("the shading round the bend traces the walls it shades", () => {
   }
 });
 
-test("the straight run starts under the elbow's tails, past the roughen throw", () => {
-  // Both halves are pushed through feDisplacementMap, which moves the line by
-  // up to `scale` px in either direction. Butting them end to end therefore
-  // opens a visible gap on some renders and not others. The overlap has to
-  // beat the throw, so read the throw out of the filter rather than trusting a
-  // number that was true when it was written.
-  const f = /<filter id="pencilRough"[\s\S]*?scale="([\d.]+)"/.exec(HTML_CODE);
-  assert.ok(f, "#pencilRough must exist — it is what makes these lines wobble");
-  const throwPx = parseFloat(f[1]);
+test("the bend and both straights are filled from ONE token", () => {
+  // Plain since 2026-09-24: the bore is a flat grey, and the corner is an SVG
+  // path while the straights are CSS boxes — so the SAME grey has to reach two
+  // drawing systems. It is one token read three times; a literal in any one of
+  // them is a second copy of the colour, and the corner comes out a shade off
+  // the pipe it joins. (It was a hatch pattern, #pencilTint, until then.)
+  const shade = /(?:^|;|\s)fill\s*:\s*(var\(--[\w-]+\))/.exec(rule(".mkt-crt .gf-run-shade"));
+  assert.ok(shade, "the bend's fill must be a token, not a literal");
+  for (const [name, body] of [["the vertical pipe", VERT], ["the horizontal run", RUN]]) {
+    const bg = /(?:^|;|\s)background\s*:\s*(var\(--[\w-]+\))/.exec(body);
+    assert.ok(bg, name + " must be filled from a token");
+    assert.equal(bg[1], shade[1], name + " is filled with " + bg[1] + " and the bend with " + shade[1]);
+  }
+  // alive: the markup names the class this rule is read under
+  assert.match(ELBOW, /<path class="gf-run-shade"/, "the elbow's shading does not carry the class the fill is set on");
+});
+
+test("the straight run starts under the elbow's tails, so the join cannot open", () => {
+  // Both halves used to be pushed through #pencilRough, which moved each line by
+  // up to the filter's `scale`, so the overlap had to beat twice that throw or
+  // the join opened on some renders and not others. The page is plain now
+  // (2026-09-24) and neither half takes a filter — ASSERTED, because a
+  // displacement filter brought back without re-reading this would reopen the
+  // join. What is left is the overlap itself: the band must begin UNDER the
+  // elbow's flat tails, not at their end.
+  for (const sel of [".mkt-crt .gf-run-elbow", ".mkt-crt .gf-run-pipe"]) {
+    assert.equal(/(?:^|;|\s)filter\s*:/.test(rule(sel)), false,
+      sel + " takes a filter again — the overlap has to be re-derived against its throw");
+  }
   const tail = Math.min(...turns.map((t) => t.tail));
   const overlap = tail - px(RUN, "left");
-  assert.ok(overlap >= throwPx * 2,
-    "the band starts " + overlap + "px inside the elbow's tails; the filter throws " +
-    throwPx + "px, so the join can open");
+  assert.ok(overlap > 0,
+    "the band starts " + (-overlap) + "px past the end of the elbow's tails, so the join is open");
 });
 
 test("the pipe's bottom is open, because the run leaves through it", () => {

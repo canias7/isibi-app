@@ -422,13 +422,22 @@ test("a page-menu row is never given on-accent text", () => {
   // The rule and the background have to agree, and this asserts the agreement
   // rather than either half: a row in the on-accent list must be dark-filled.
   const css = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
-  const sweep = css.match(/^[^\n]*\.st-msg\.u\{color:var\(--on-accent\)\}/m);
+  // Anchored on the RULE's own body, not on whichever selector happens to end
+  // its list: it was pinned to `.st-msg.u{`, and the day the customer's bubble
+  // turned light grey (2026-09-24) that bubble had to LEAVE the list — which is
+  // this guard's own property, and would have read as the rule going missing.
+  const sweep = css.match(/^[^\n]*\.st-vtab\.on[^\n{]*\{color:var\(--on-accent\)\}/m);
   assert.ok(sweep, "the on-accent sweep rule moved; this guard checks nothing");
   assert.ok(!/\.st-pageitem\.on/.test(sweep[0]),
     "the page-menu row is back in the on-accent list, and its label will render white on white");
+  // The same pairing, one row over: the customer's own message is ChatGPT's
+  // light grey now, so white ink on it would vanish exactly as the page row's did.
+  assert.match(css, /\.st-msg\.u \{[^}]*background: var\(--paper-2\)/,
+    "the customer's bubble is no longer the light grey this check assumes — re-read the pairing");
+  assert.ok(!/\.st-msg\.u/.test(sweep[0]),
+    "the customer's light grey bubble is in the on-accent list, and its words will render white on grey");
   // The controls left in it are the dark-filled ones, so the rule still has work
   // to do — an empty list would pass the check above for the wrong reason.
-  assert.match(sweep[0], /\.st-msg\.u/);
   assert.match(sweep[0], /\.st-vtab\.on/);
 });
 
