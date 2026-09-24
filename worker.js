@@ -9614,13 +9614,17 @@ function withheldPhotosMsg(n) {
  * THE ITEMS RIDE ON THE REFUSAL, each with the reason it was not accepted, so
  * a refusal can be audited from the stored reply alone. Link words and
  * destinations are the customer's own; a component is named by its file name
- * here because this list is for a reader of the record, not the screen.
+ * here because this list is for a reader of the record, not the screen. A
+ * group the judge declared rides too (`group`), so a refusal for a group
+ * stretched over the wrong kind of thing (`group-other-kind`) says which group
+ * was claimed.
  */
 function keepRefusal(k, slug, extra = {}) {
   if (!k || k.verdict === "kept" || k.verdict === "asked") return null;
   const brief = (it) => ({
     kind: it.kind, label: it.label || undefined, href: it.href || undefined, to: it.to || undefined,
-    name: it.name || undefined, section: it.section || undefined, why: it.why || undefined,
+    name: it.name || undefined, section: it.section || undefined, group: it.group || undefined,
+    why: it.why || undefined,
   });
   if (k.verdict === "withheld") {
     return Response.json({

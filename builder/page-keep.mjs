@@ -17,18 +17,25 @@
 // THE FACTS ARE CODE'S AND THE INTENT IS THE CUSTOMER'S OWN WORDS, AND THE TWO
 // NEVER MIX. Code computes exactly what the rewrite lost. Whether the message
 // asked for each loss is asked of a small model call — made ONLY when
-// something was lost — which must QUOTE the words that ask for it. Code then
-// checks two things about each quote: that the words really occur in the
-// message, and that they name the item they are attached to.
+// something was lost — which must QUOTE the words that ask for it, item by
+// item. Code then checks each quote: the words really occur in the message,
+// and EITHER they name the item they are attached to, OR the judge says they
+// ask for a whole GROUP ("links", "sections") and the item is of a kind that
+// group can hold (`KEEP_GROUPS`).
 //
-// ⚠ AND THAT IS ALL THE QUOTE PROVES. A verified quote establishes that the
-// words occur in the request and share a naming word with the item; whether
-// those words AUTHORISE that particular loss is still the model's judgement.
-// "Keep the order form" contains the words "order form" and quotes perfectly —
-// the rule tells the model a request to keep something is not a request to
-// remove it, and nothing in code can check that it listened. So this is a
-// narrowing of what can slip through, never a guarantee, and every test that
-// supplies the model's answer proves the path and not the judgement.
+// ⚠ NONE OF THAT PROVES INTENT (owner: *"Quote presence and word overlap are
+// not proof of intent"*). A verified quote establishes that the words occur in
+// the request; a shared naming word, that they refer to the item by something
+// it is called; a group of the right kind, that a group claim is not being
+// stretched over a different kind of thing. Whether those words AUTHORISE that
+// particular loss is still the model's judgement. "Keep the order form"
+// contains the words "order form" and quotes perfectly — the rule tells the
+// model a request to keep something is not a request to remove it, and nothing
+// in code can check that it listened. So this is a narrowing of what can slip
+// through, never a guarantee, and every test that supplies the model's answer
+// proves the path and not the judgement. And because a check can fail on a
+// message that really did ask, a check's refusal is never told to the customer
+// as "your message didn't ask" — see `keepWithheldMsg`.
 
 import { linkSlots } from "./site-nav.mjs";
 import { localParts, partUses, partBindings, drawsTag, tagAt } from "./site-files.mjs";
@@ -305,11 +312,64 @@ export function itemTerms(item) {
  * says "Directions" — is refused, and the refusal tells the customer how to
  * say it. An item with no naming words at all (a wordless link to "/" under no
  * heading) cannot be checked this way and is left to the judge alone.
+ *
+ * ⚠ AND IT IS ONE OF TWO WAYS A QUOTE CAN COVER AN ITEM, NEVER THE ONLY ONE
+ * (owner, 2026-09-24). Made mandatory, it refused *"Remove all links from the
+ * home page"* for both of the page's links — a clear request about a GROUP
+ * cannot name each member, and the customer was told their message had not
+ * asked. A group the judge declares is the other way in (`groupCovers`).
  */
 export function quoteNamesItem(quote, item) {
   const terms = itemTerms(item);
   if (!terms.size) return true;
   return naming(quote).some((w) => terms.has(w));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A GROUP ASKED FOR AT ONCE — DECLARED BY THE JUDGE, CHECKED BY KIND
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * THE GROUPS A MESSAGE CAN ASK FOR WHOLE, and the kinds of item each can hold.
+ *
+ *   links      every link — gone, or pointed somewhere else
+ *   sections   the site's own sections, and the links that were inside them:
+ *              a section taken off takes its links with it
+ *
+ * WHICH GROUP A QUOTE ASKS FOR IS THE JUDGE'S READING, NOT CODE'S. Deciding it
+ * here would mean reading English — *"all the links"*, *"every button"*,
+ * *"everything below the hours"* — and a keyword list for that only ever
+ * grows. So the judge DECLARES the group on each item it answers that way,
+ * and code checks the one thing it can know without reading English: the item
+ * is a KIND that group can hold. That is what stops a group being stretched
+ * over something it does not contain — *"Remove all links"* declared as the
+ * links group cannot answer for the order form, which is a section. The kinds
+ * are the inventory's own, so nothing here is a word list.
+ *
+ * ⚠ STILL JUDGED ITEM BY ITEM. A group is not a blanket: every item needs its
+ * own answer, so *"all the links except Directions"* is a group answer for the
+ * links it covers and a plain no for Directions. Code cannot read the
+ * *"except"* — a judge that counts Directions in anyway is believed, exactly as
+ * a judge that misreads *"keep the order form"* is.
+ *
+ * ⚠ AND THE CONTAINMENT RUNS ONE WAY. A section holds links, so a sections
+ * group may answer for a link that is gone; a link holds no section. Which
+ * links were really inside the sections that went is the judge's reading too.
+ */
+export const KEEP_GROUPS = Object.freeze({
+  links: Object.freeze(["link-lost", "link-moved"]),
+  sections: Object.freeze(["part-gone", "link-lost"]),
+});
+
+/**
+ * DOES A GROUP THE JUDGE DECLARED HOLD THIS KIND OF ITEM — `true`, or the
+ * reason it does not: `unknown-group` (not one of `KEEP_GROUPS`) or
+ * `group-other-kind` (a group that cannot hold this kind of thing).
+ */
+export function groupCovers(group, item) {
+  const kinds = typeof group === "string" && Object.hasOwn(KEEP_GROUPS, group) ? KEEP_GROUPS[group] : null;
+  if (!kinds) return "unknown-group";
+  return kinds.includes(item && item.kind) ? true : "group-other-kind";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -329,10 +389,18 @@ export const KEEP_TOOL = {
           type: "object",
           properties: {
             n: { type: "integer", description: "The item's number." },
-            asked: { type: "boolean", description: "true ONLY when the message itself asks for this particular item." },
+            asked: {
+              type: "boolean",
+              description: "true ONLY when the message itself asks for this item — by naming it, or as one of a group it asks for.",
+            },
             quote: {
               type: "string",
-              description: "When asked is true: the exact words, copied from the message, that ask for this item. Otherwise leave it empty.",
+              description: "When asked is true: the exact words, copied from the message, that ask for this item or for the group it belongs to. Otherwise leave it empty.",
+            },
+            group: {
+              type: "string",
+              enum: Object.keys(KEEP_GROUPS),
+              description: "Only when quote asks for a whole group rather than naming this item: \"links\" when the words ask for the links, \"sections\" when they ask for the sections. Leave it out when the words name this item itself.",
             },
           },
           required: ["n", "asked"],
@@ -351,6 +419,14 @@ export const KEEP_RULES =
   "copy into quote the exact words from the message that ask for it. Otherwise asked: false, with no quote.\n\n" +
   "How to read the message:\n" +
   "- Asking to remove a section asks for what was inside that section; each item says which heading it sat under.\n" +
+  "- A message can ask for a whole group at once instead of naming each thing — \"remove all the links\", \"take " +
+  "off every section except the hours\". Each item in that group is asked for: answer it asked: true, copy the " +
+  "words that ask for the group into quote, and set group to what those words ask for — \"links\" or " +
+  "\"sections\". Leave group out when the words name the item itself.\n" +
+  "- A group is still answered item by item. Anything the message leaves out of its group (\"all the links " +
+  "except Directions\") is not asked for.\n" +
+  "- A group asks only for what it names. Asking for every link does not ask for any section; asking for the " +
+  "sections asks for the links inside them, and for no link anywhere else.\n" +
   "- Asking for one thing never asks for anything else. A message about the opening hours does not ask for a link " +
   "or a form to go.\n" +
   "- A message that asks to KEEP something, or only mentions it, does not ask for it to go.\n" +
@@ -409,11 +485,17 @@ export function keepUsage(reply, model = KEEP_MODEL) {
  *
  * FAILS CLOSED AT EVERY STEP. An item the answer leaves out, one answered
  * twice in disagreement, an `asked` that is not the boolean `true`, a quote
- * missing, a quote not in the message, and a quote that does not name its
- * item are all NOT ASKED — each with its own reason, so a refusal can be
- * audited. Only a reply with no readable list is `ok: false`, which is ours
- * and is said differently: the loss may have been asked for, and we could not
- * tell.
+ * missing, a quote not in the message, and a quote that neither names its item
+ * nor comes with a declared group that can hold it are all NOT ASKED — each
+ * with its own reason, so a refusal can be audited. Only a reply with no
+ * readable list is `ok: false`, which is ours and is said differently: the
+ * loss may have been asked for, and we could not tell.
+ *
+ * A DECLARED GROUP IS AN ALTERNATIVE TO NAMING, NEVER A REPLACEMENT FOR IT: a
+ * quote that names its item is accepted with or without a group, so a judge
+ * that labels a named request as a group costs nothing, and only the quotes
+ * that name nothing depend on the group being one that can hold the item. A
+ * `group` that is not a string is not read at all — never coerced.
  */
 export function readKeep(reply, { message, items }) {
   const list = Array.isArray(items) ? items : [];
@@ -425,7 +507,11 @@ export function readKeep(reply, { message, items }) {
   const clash = new Set();
   for (const a of answers) {
     if (!a || typeof a !== "object" || !Number.isInteger(a.n) || a.n < 1 || a.n > list.length) continue;
-    const said = { asked: a.asked === true, quote: typeof a.quote === "string" ? a.quote : "" };
+    const said = {
+      asked: a.asked === true,
+      quote: typeof a.quote === "string" ? a.quote : "",
+      group: typeof a.group === "string" ? a.group.trim() : "",
+    };
     const prev = byN.get(a.n);
     if (!prev) { byN.set(a.n, said); continue; }
     if (prev.asked !== said.asked) clash.add(a.n);
@@ -440,8 +526,11 @@ export function readKeep(reply, { message, items }) {
     else if (!s.asked) why = "not-asked";
     else if (!s.quote.trim()) why = "no-quote";
     else if (!quoteInMessage(message, s.quote)) why = "quote-not-in-message";
-    else if (!quoteNamesItem(s.quote, it)) why = "quote-not-about-item";
-    const out = { ...it, quote: s ? s.quote : "" };
+    else if (!quoteNamesItem(s.quote, it)) {
+      const g = s.group ? groupCovers(s.group, it) : "quote-not-about-item";
+      if (g !== true) why = g;
+    }
+    const out = { ...it, quote: s ? s.quote : "", ...(s && s.group ? { group: s.group } : {}) };
     if (why) unasked.push({ ...out, why }); else asked.push(out);
   });
   return { ok: true, asked, unasked };
@@ -510,6 +599,15 @@ function listOf(xs) {
  * changed" and "you haven't been charged" are claims about the whole request,
  * which the browser adds on the one branch that can see the whole request
  * refused (`withheldPhotosMsg`'s rule, one protection over).
+ *
+ * ⚠ THE CLAIM IS ONLY AS STRONG AS WHAT MADE IT (owner, 2026-09-24: *"The
+ * customer is incorrectly told the message didn't ask to remove those
+ * links"*). "Which your message didn't ask for" is the JUDGE'S reading, so it
+ * is said only when the judge answered no to every item listed. Anything else
+ * — the judge said yes and a check could not confirm it, or left an item out,
+ * or contradicted itself — is a refusal the message may not deserve, and the
+ * sentence says only that it could not be confirmed. The weaker clause is true
+ * of every item either way, which is why a mixed list takes it.
  */
 export function keepWithheldMsg(unasked) {
   const xs = Array.isArray(unasked) ? unasked : [];
@@ -520,8 +618,10 @@ export function keepWithheldMsg(unasked) {
   if (off.length) acts.push("taking " + listOf(off) + " off the page");
   if (moved.length) acts.push("pointing " + listOf(moved));
   const many = xs.length > 1;
+  const judgedNo = xs.length > 0 && xs.every((it) => it.why === "not-asked");
   return "I couldn't make that change without also " + acts.join(", and ") +
-    ", which your message didn't ask for — so I didn't make it. If you do want " +
+    (judgedNo ? ", which your message didn't ask for" : ", which I couldn't confirm your message asked for") +
+    " — so I didn't make it. If you do want " +
     (many ? "those changes" : "that change") + ", say so in your message and send it again.";
 }
 

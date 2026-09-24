@@ -26,6 +26,14 @@
 //   BOTH WRITERS AND THE MONEY — the same check on the cheap tweak rung (whose
 //     refusal must not buy the rewrite), a judge that cannot answer, the job
 //     path's reservations, and a mixed request where another step succeeded.
+//   GROUPS — the owner's reproduction (2026-09-24): *"Remove all links from
+//     the home page, keeping their text and everything else"* was refused for
+//     both links as `quote-not-about-item`, because a quote had to name each
+//     item and a request about a group names none. A group the judge DECLARES
+//     is now the other way a quote can cover an item, checked by the one thing
+//     code can know without reading English — the item is a kind that group can
+//     hold. Still judged item by item: "all the links except Directions", and a
+//     links group asked beside an unrelated component loss, which is refused.
 //
 // ⚠ EVERY MODEL ANSWER HERE IS SUPPLIED — the writers' AND THE JUDGE'S. What
 // these cases prove is the PATH: which losses are found, that each is asked
@@ -56,8 +64,8 @@ import { modelsFor } from "../builder/build-models.mjs";
 import { linkSlots } from "../builder/site-nav.mjs";
 import { localParts, partUse } from "../builder/site-files.mjs";
 import {
-  KEEP_TOOL, KEEP_RULES, KEEP_UNCHECKED_MSG, keepInventory, pairLinks, partStates, quoteInMessage,
-  quoteNamesItem, readKeep, keepRequest, keepWithheldMsg,
+  KEEP_TOOL, KEEP_RULES, KEEP_UNCHECKED_MSG, KEEP_GROUPS, keepInventory, pairLinks, partStates, quoteInMessage,
+  quoteNamesItem, groupCovers, readKeep, keepRequest, keepWithheldMsg,
 } from "../builder/page-keep.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
@@ -101,6 +109,14 @@ const HERO_ASK = "Change the line under “Harbour Loaf” to say “Fresh bread
 const KEEP_ASK = "Show the opening hours on the home page as a short list: weekdays 7am to 4pm, Saturday 8am to 2pm — and keep the order form.";
 const PHONE_ASK = "Take the phone number off the home page.";
 const BIGGER_ASK = "Make the “Opening hours” heading on the home page bigger.";
+// A GROUP ASKED FOR AT ONCE. The first is the owner's reproduction, verbatim.
+const ALL_LINKS_ASK = "Remove all links from the home page, keeping their text and everything else.";
+const EXCEPT_ASK = "Remove all the links from the home page except Directions, keeping their text.";
+const SECTIONS_ASK = "Take every section off the home page except the opening hours.";
+// The words a judge quotes for each group — really in its message.
+const Q_ALL = "Remove all links from the home page";
+const Q_EXCEPT = "Remove all the links from the home page";
+const Q_SECTIONS = "Take every section off the home page";
 
 // ── WHAT THE WRITER ANSWERS ─────────────────────────────────────────────────
 const CORRECT = home(HERO, HOURS_NEW, ORDER, VISIT);
@@ -134,11 +150,26 @@ const DROPS_HOURS = home(HERO_NEW, ORDER, VISIT);
 const HOURS_BIG = HOURS.replace("<h2>", "<h2 className=\"text-3xl\">");
 const TWEAK_NARROW = home(HERO, HOURS_BIG, ORDER, VISIT);
 const TWEAK_WIDE = home(HERO, HOURS_BIG, ORDER, VISIT.replace("to=\"/visit\"", "to=\"/contact\""));
+// THE GROUP ANSWERS. A link taken off with its words left standing — what the
+// owner's writer did: the `<Link>` wrapper goes, the text stays.
+const unlink = (block, to, words) => block.replace("<Link to=\"" + to + "\">" + words + "</Link>", words);
+const HERO_PLAIN = unlink(HERO, "/menu", "See the menu");
+const VISIT_PLAIN = unlink(VISIT, "/visit", "Directions");
+const UNLINKED = home(HERO_PLAIN, HOURS, ORDER, VISIT_PLAIN);
+// "…except Directions", honoured: only the hero's link goes.
+const UNLINKED_BUT_DIRECTIONS = home(HERO_PLAIN, HOURS, ORDER, VISIT);
+// Every link off as asked — AND the order form gone beside them.
+const UNLINKED_DROPS_ORDER = home(HERO_PLAIN, HOURS, VISIT_PLAIN);
+// Every section off but the hours: the order form, and the two links that
+// were inside the sections that went.
+const HOURS_ONLY = home(HOURS);
 
 // ── WHAT THE JUDGE ANSWERS (always supplied) ────────────────────────────────
 const asks = (n, quote) => ({ n, asked: true, quote });
 const no = (n) => ({ n, asked: false });
 const judged = (...answers) => ({ answers });
+// An item answered as one of a group the message asks for.
+const inGroup = (n, quote, group) => ({ n, asked: true, quote, group });
 
 // ── THE MONEY ───────────────────────────────────────────────────────────────
 // Every writer call reports the same usage and the judge a larger one, so a
@@ -334,6 +365,9 @@ const WHOLE = " Nothing on your site changed, and this edit cost you nothing. Re
 
 // ── WHAT THE EXISTING READERS SEE ───────────────────────────────────────────
 const links = (src) => linkSlots([{ path: "index.tsx", source: src }]).map((l) => l.label + " → " + l.href);
+// The numbered items the judge was shown, one line each — so a case whose
+// judge answers three numbers can prove three items were really asked about.
+const itemsShown = (r) => String(r.judged[0].messages[0].content).split("\n").filter((l) => /^\d+\. /.test(l));
 const use = (src) => partUse(src, "order-form");
 
 test("the readers the check leans on see the page's two links and its own component, rendered", () => {
@@ -347,6 +381,10 @@ test("the readers the check leans on see the page's two links and its own compon
 const DOES = [{ name: "order-form", does: "the order-ahead form", props: "none" }];
 const inv = (after) => keepInventory(HOME, after, { does: DOES });
 const brief = (it) => [it.kind, it.label || it.name, it.href || "", it.to || "", it.section];
+// The refusal the route composes when the JUDGE answered no to every item —
+// the one case its "didn't ask for" clause is said in.
+const judgedNo = (items) => items.map((it) => ({ ...it, why: "not-asked" }));
+const refusalFor = (after) => keepWithheldMsg(judgedNo(inv(after).items));
 
 test("the inventory finds exactly what each answer lost, and nothing in a correct one", () => {
   assert.deepEqual(inv(CORRECT).items, [], "a correct narrow edit loses nothing");
@@ -486,6 +524,61 @@ test("the judge's answer is read fail-closed, each refusal with its own reason",
   assert.deepEqual(readKeep(reply(judged(asks(1, "Take the \"Find us\" section off"), no(2))), { message: REMOVE_ASK, items }).asked.map((a) => a.label), ["Directions"]);
 });
 
+// ═════ A GROUP: DECLARED BY THE JUDGE, CHECKED BY KIND ═════════════════════
+
+test("a declared group holds only the kinds of item it can hold — the inventory's own kinds, no word list", () => {
+  assert.deepEqual(Object.keys(KEEP_GROUPS), ["links", "sections"]);
+  const [menu] = inv(UNLINKED).items;
+  const [moved] = inv(RETARGETED).items;
+  const [form] = inv(DROPS_ORDER).items;
+  assert.deepEqual([menu.kind, moved.kind, form.kind], ["link-lost", "link-moved", "part-gone"], "one of each kind");
+  assert.equal(groupCovers("links", menu), true);
+  assert.equal(groupCovers("links", moved), true, "pointing every link somewhere else is a links group too");
+  assert.equal(groupCovers("links", form), "group-other-kind", "a group of links holds no section");
+  assert.equal(groupCovers("sections", form), true);
+  assert.equal(groupCovers("sections", menu), true, "a section taken off takes its links with it");
+  assert.equal(groupCovers("sections", moved), "group-other-kind", "taking sections off points no link anywhere");
+  assert.equal(groupCovers("pages", menu), "unknown-group");
+  assert.equal(groupCovers("constructor", menu), "unknown-group", "an own-property test, never truthiness");
+  assert.equal(groupCovers(["links"], menu), "unknown-group", "a list is never coerced into a name");
+});
+
+test("a declared group is an alternative to naming, read item by item — and a quote must still be in the message", () => {
+  const items = inv(UNLINKED_DROPS_ORDER).items;
+  assert.deepEqual(items.map((i) => i.label || i.name), ["See the menu", "Directions", "order-form"]);
+  const read = (message, ...answers) => readKeep({ content: [{ type: "tool_use", name: T.keep, input: judged(...answers) }] }, { message, items });
+  const whys = (r) => r.unasked.map((u) => [u.label || u.name, u.why]);
+  // THE OWNER'S ANSWER, AS THE JUDGE GAVE IT THEN: no group declared, and a
+  // quote that names neither link. Still refused — code cannot tell it from a
+  // quote attached to the wrong item without reading the English.
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, asks(1, Q_ALL), asks(2, Q_ALL), no(3))),
+    [["See the menu", "quote-not-about-item"], ["Directions", "quote-not-about-item"], ["order-form", "not-asked"]]);
+  // DECLARED: both links answered as the group, the form still judged alone.
+  const g = read(ALL_LINKS_ASK, inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), no(3));
+  assert.deepEqual(g.asked.map((a) => [a.label, a.group]), [["See the menu", "links"], ["Directions", "links"]]);
+  assert.deepEqual(whys(g), [["order-form", "not-asked"]]);
+  // STRETCHED OVER THE FORM: refused by kind, with the claim on the record.
+  const s = read(ALL_LINKS_ASK, inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), inGroup(3, Q_ALL, "links"));
+  assert.deepEqual(s.unasked.map((u) => [u.name, u.why, u.group]), [["order-form", "group-other-kind", "links"]]);
+  // PRESENCE IS STILL REQUIRED OF A GROUP'S QUOTE, and so is a quote at all.
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, "Delete every link", "links"), inGroup(2, Q_ALL, "links"), no(3)))[0],
+    ["See the menu", "quote-not-in-message"]);
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, "", "links"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "no-quote"]);
+  // A GROUP THAT IS NOT ONE OF OURS covers nothing.
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, "pages"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "unknown-group"]);
+  // THE ORDER IN WHICH A GROUP IS ANSWERED is the judge's: one link in the
+  // group and the other said no to is two separate answers, read separately.
+  assert.deepEqual(whys(read(EXCEPT_ASK, inGroup(1, Q_EXCEPT, "links"), no(2), no(3))), [["Directions", "not-asked"], ["order-form", "not-asked"]]);
+  // A GROUP CAN ONLY ADD AN ACCEPTANCE, NEVER TAKE ONE AWAY: the form named
+  // outright is accepted by its name, even under a group label that is wrong.
+  const named = read("Take the order form off the home page.", no(1), no(2), inGroup(3, "Take the order form off", "links"));
+  assert.deepEqual(named.asked.map((a) => a.name), ["order-form"]);
+  // THE SECTIONS GROUP holds the form and the links inside the sections that went.
+  const sec = readKeep({ content: [{ type: "tool_use", name: T.keep, input: judged(inGroup(1, Q_SECTIONS, "sections"), inGroup(2, Q_SECTIONS, "sections"), inGroup(3, Q_SECTIONS, "sections")) }] },
+    { message: SECTIONS_ASK, items: inv(HOURS_ONLY).items });
+  assert.deepEqual([sec.asked.length, sec.unasked.length], [3, 0]);
+});
+
 test("the judge is shown the message verbatim and every item by its words, destination and heading", () => {
   const req = keepRequest({ message: REMOVE_ASK, items: inv(REMOVED_PLUS).items, model: "sentinel-model" });
   assert.equal(req.model, "sentinel-model", "the picker's model, not a pinned one");
@@ -498,16 +591,44 @@ test("the judge is shown the message verbatim and every item by its words, desti
   // The rules say the two things the negative controls below lean on.
   assert.ok(KEEP_RULES.includes("A message that asks to KEEP something, or only mentions it, does not ask for it to go."));
   assert.ok(KEEP_RULES.includes("Asking for one thing never asks for anything else."));
+  // And the three the group cases lean on: how to declare a group, that it is
+  // still answered item by item, and that it asks only for what it names.
+  assert.ok(KEEP_RULES.includes("set group to what those words ask for — \"links\" or \"sections\""), KEEP_RULES);
+  assert.ok(KEEP_RULES.includes("A group is still answered item by item."), KEEP_RULES);
+  assert.ok(KEEP_RULES.includes("Asking for every link does not ask for any section"), KEEP_RULES);
+  // The tool offers exactly the groups code can check, and nothing requires one.
+  const item = KEEP_TOOL.input_schema.properties.answers.items;
+  assert.deepEqual(item.properties.group.enum, Object.keys(KEEP_GROUPS));
+  assert.deepEqual(item.required, ["n", "asked"], "a group is only for a quote that asks for one");
 });
 
 test("the refusal names what would also have happened, in the customer's words, and claims nothing about the whole request", () => {
-  const items = inv(REMOVED_PLUS).items;
+  const items = judgedNo(inv(REMOVED_PLUS).items);
   const msg = keepWithheldMsg(items);
   assert.equal(msg, "I couldn't make that change without also taking the “Directions” link under “Find us” and the “Order ahead” section off the page, which your message didn't ask for — so I didn't make it. If you do want those changes, say so in your message and send it again.");
   assert.ok(!/order-form/.test(msg), "never a file name");
   assert.ok(!/Nothing on your site changed|charged|cost you nothing/.test(msg), "rung-scoped: the browser speaks for the whole request");
-  assert.equal(keepWithheldMsg(inv(RETARGETED).items),
+  assert.equal(keepWithheldMsg(judgedNo(inv(RETARGETED).items)),
     "I couldn't make that change without also pointing the “Directions” link at /contact instead of /visit, which your message didn't ask for — so I didn't make it. If you do want that change, say so in your message and send it again.");
+});
+
+test("“your message didn't ask for” is said only when the JUDGE said no — a check that could not confirm a yes says only that", () => {
+  // THE OWNER'S COMPLAINT, AS A PROPERTY: the judge answered yes, a check
+  // refused, and the screen told the customer their message had not asked.
+  // A check can fail on a message that really did ask, so its refusal claims
+  // only what it knows.
+  const [directions, orderForm] = inv(REMOVED_PLUS).items;
+  const WEAK = ", which I couldn't confirm your message asked for — so I didn't make it.";
+  for (const why of ["no-quote", "quote-not-in-message", "quote-not-about-item", "unknown-group", "group-other-kind", "unanswered", "conflicting"]) {
+    const msg = keepWithheldMsg([{ ...directions, why }]);
+    assert.ok(msg.includes(WEAK), why + ": " + msg);
+    assert.ok(!msg.includes("didn't ask for"), why + ": never the judge's reading when the judge did not give it");
+  }
+  // A MIXED LIST TAKES THE WEAKER CLAUSE, which is true of both items; the
+  // stronger one would be false of the item the judge said yes to.
+  const mixed = keepWithheldMsg([{ ...directions, why: "quote-not-about-item" }, { ...orderForm, why: "not-asked" }]);
+  assert.ok(mixed.includes(WEAK) && !mixed.includes("didn't ask for"), mixed);
+  assert.ok(keepWithheldMsg([{ ...orderForm, why: "not-asked" }]).includes(", which your message didn't ask for — "), "the judge's own no keeps its sentence");
 });
 
 // ═════ PROTECTED — the five reproductions, flipped ═════════════════════════
@@ -516,7 +637,7 @@ test("PROTECTED: a narrow edit whose answer also drops the “Find us” section
   const r = await drive({ route: { layer: "page" }, ask: HOURS_ASK, answer: DROPS_VISIT, judge: judged(no(1)) });
   refused(r, { calls: PAGE_JUDGED });
   assert.deepEqual(r.reply.contentBlocked, [{ kind: "link-lost", label: "Directions", href: "/visit", section: "Find us", why: "not-asked" }]);
-  assert.equal(r.said.text, "⚠️ " + keepWithheldMsg(inv(DROPS_VISIT).items) + WHOLE);
+  assert.equal(r.said.text, "⚠️ " + refusalFor(DROPS_VISIT) + WHOLE);
   assert.deepEqual(r.said.actions, [], "nothing further is bought — no rewrite starts");
 });
 
@@ -659,6 +780,10 @@ test("NEGATIVE: a genuine quote attached to the wrong item — accepted for the 
   const r = await drive({ route: { layer: "page" }, ask: REMOVE_ASK, answer: REMOVED_PLUS, judge: judged(asks(1, q), asks(2, q)) });
   refused(r, { calls: PAGE_JUDGED });
   assert.deepEqual(r.reply.contentBlocked.map((b) => [b.kind, b.name, b.why]), [["part-gone", "order-form", "quote-not-about-item"]]);
+  // THE JUDGE SAID YES and a check disagreed, so the customer is told only
+  // that it could not be confirmed — never that their message did not ask.
+  assert.ok(r.reply.msg.includes(", which I couldn't confirm your message asked for — "), r.reply.msg);
+  assert.ok(!r.reply.msg.includes("didn't ask for"), r.reply.msg);
 });
 
 test("NEGATIVE: a quote that is not in the message is not permission", async () => {
@@ -741,8 +866,144 @@ for (const mode of ["sync", "job"]) {
     else assert.deepEqual(r.reserves, [{ seq: 1, cost: styleOnly }], "reserved for the picker and the stylesheet only");
     const blocked = (r.reply.partial || []).find((p) => p.error === "withheld");
     assert.ok(blocked, "the refused page step is on the reply: " + JSON.stringify(r.reply.partial));
-    assert.equal(blocked.msg, keepWithheldMsg(inv(DROPS_ORDER).items));
-    assert.ok(r.said.text.includes("⚠️ " + keepWithheldMsg(inv(DROPS_ORDER).items)), r.said.text);
+    assert.equal(blocked.msg, refusalFor(DROPS_ORDER));
+    assert.ok(r.said.text.includes("⚠️ " + refusalFor(DROPS_ORDER)), r.said.text);
     assert.ok(!r.said.text.includes("Nothing on your site changed"), "something DID change, so the whole-request note must not say otherwise");
   });
 }
+
+// ═════ GROUPS — asked for at once, judged item by item ═════════════════════
+
+test("GROUP: “remove all links, keeping their text” publishes — each link answered as one of the group the message asks for", async () => {
+  // THE OWNER'S REPRODUCTION, with the judge now able to say that its quote
+  // asks for a GROUP. The words and every section stay; only the wrappers go.
+  assert.deepEqual(links(UNLINKED), [], "no in-body link is left");
+  assert.equal(use(UNLINKED), "rendered", "the order form is still drawn");
+  const r = await drive({
+    route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links")),
+  });
+  published(r, UNLINKED, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(r.said.text, UPDATED);
+  const shown = r.judged[0].messages[0].content;
+  assert.ok(shown.includes(ALL_LINKS_ASK), "the judge saw the customer's message verbatim");
+  assert.ok(shown.includes("“See the menu”") && shown.includes("“Directions”"), shown);
+  assert.ok(r.judged[0].system.includes("A message can ask for a whole group at once"), "the judge is told a group is a way to answer");
+  assert.equal(itemsShown(r).length, 2, "the two links, and nothing else, were asked about");
+  assert.ok(JSON.stringify(r.judged[0].tools).includes('"enum":["links","sections"]'), "the tool on the wire offers the groups");
+});
+
+test("GROUP, UNDECLARED: the owner's supplied answer — a group quote with no group named — still refuses, and is never told as “didn't ask”", async () => {
+  // Code cannot tell this answer from the unrelated-removal control below
+  // without reading English: in both, a quote really in the message names
+  // nothing on the page. So without the judge's declaration it refuses — and
+  // now says only what a check can know.
+  const r = await drive({ route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED, judge: judged(asks(1, Q_ALL), asks(2, Q_ALL)) });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reply.contentBlocked.map((b) => [b.label, b.why]), [["See the menu", "quote-not-about-item"], ["Directions", "quote-not-about-item"]]);
+  assert.equal(r.said.text, "⚠️ I couldn't make that change without also taking the “See the menu” link under “Harbour Loaf” and the “Directions” link under “Find us” off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want those changes, say so in your message and send it again." + WHOLE);
+  assert.deepEqual(r.said.actions, [], "no rewrite is bought");
+});
+
+test("GROUP, EXCEPT ONE: “all the links except Directions”, honoured by the writer, publishes — only the one link was asked about", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: EXCEPT_ASK, answer: UNLINKED_BUT_DIRECTIONS,
+    judge: judged(inGroup(1, Q_EXCEPT, "links")),
+  });
+  published(r, UNLINKED_BUT_DIRECTIONS, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.deepEqual(links(UNLINKED_BUT_DIRECTIONS), ["Directions → /visit"], "the named link stays");
+  assert.ok(!r.judged[0].messages[0].content.includes("“Directions”"), "a link that was kept is never an item");
+  assert.equal(itemsShown(r).length, 1);
+  assert.equal(r.said.text, UPDATED);
+});
+
+test("GROUP, EXCEPT ONE: a writer that takes the named link off too is refused — for that link alone, as not asked", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: EXCEPT_ASK, answer: UNLINKED,
+    judge: judged(inGroup(1, Q_EXCEPT, "links"), no(2)),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reply.contentBlocked, [{ kind: "link-lost", label: "Directions", href: "/visit", section: "Find us", why: "not-asked" }]);
+  assert.ok(!r.reply.msg.includes("See the menu"), "the link the group did ask for is not complained about");
+  assert.ok(r.reply.msg.includes(", which your message didn't ask for — "), "the judge said no, so that is what the customer hears");
+});
+
+test("LIMIT, NOT A PROTECTION: a judge that counts the excepted link into the group is believed — code does not read “except”", async () => {
+  // Kept so the boundary is on the record: the quote is really in the message
+  // and the links group can hold a link, so nothing here can disagree with the
+  // judge. Supplied output; it says nothing about how often a real model does it.
+  const r = await drive({
+    route: { layer: "page" }, ask: EXCEPT_ASK, answer: UNLINKED,
+    judge: judged(inGroup(1, Q_EXCEPT, "links"), inGroup(2, Q_EXCEPT, "links")),
+  });
+  published(r, UNLINKED, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 2, "Directions WAS an item, and the judge's yes covered it");
+});
+
+test("GROUP + COLLATERAL: every link off as asked, and the order form lost beside them — the collateral loss alone is refused", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED_DROPS_ORDER,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), no(3)),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reply.contentBlocked.map((b) => [b.kind, b.name, b.section, b.why]), [["part-gone", "order-form", "Order ahead", "not-asked"]]);
+  assert.equal(r.said.text, "⚠️ I couldn't make that change without also taking the “Order ahead” section off the page, which your message didn't ask for — so I didn't make it. If you do want that change, say so in your message and send it again." + WHOLE);
+});
+
+test("GROUP + COLLATERAL: a judge that stretches the links group over the order form is refused by kind — a links group holds no section", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED_DROPS_ORDER,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), inGroup(3, Q_ALL, "links")),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reply.contentBlocked, [{ kind: "part-gone", name: "order-form", section: "Order ahead", group: "links", why: "group-other-kind" }]);
+  assert.ok(r.reply.msg.includes(", which I couldn't confirm your message asked for — "), "the judge said yes, so the customer is not told it said no");
+});
+
+test("GROUP + COLLATERAL, THE JOB PATH: the refusal reserves nothing, compiles nothing and stores nothing", async () => {
+  const r = await drive({
+    mode: "job", route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED_DROPS_ORDER,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), no(3)),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reserves, [], "no reservation was made");
+  assert.deepEqual(r.finalized, [false], "the job finalized as not published");
+});
+
+test("LIMIT, NOT A PROTECTION: a judge that calls a links quote a sections group is believed — which group words ask for is its reading", async () => {
+  // The kind check stops a group being stretched over a thing it cannot hold;
+  // it cannot stop the judge naming the wrong group for the words, because
+  // telling "all links" from "all sections" is reading English. Supplied output.
+  const r = await drive({
+    route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED_DROPS_ORDER,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), inGroup(3, Q_ALL, "sections")),
+  });
+  published(r, UNLINKED_DROPS_ORDER, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 3, "the order form WAS an item, and the third answer covered it");
+});
+
+test("GROUP OF SECTIONS: “every section off except the hours” publishes — the order form and the links inside the sections that went", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: SECTIONS_ASK, answer: HOURS_ONLY,
+    judge: judged(inGroup(1, Q_SECTIONS, "sections"), inGroup(2, Q_SECTIONS, "sections"), inGroup(3, Q_SECTIONS, "sections")),
+  });
+  published(r, HOURS_ONLY, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 3, "both links and the order form were each asked about");
+  assert.equal(r.said.text, UPDATED);
+});
+
+test("GROUP, THE TWEAK: taking every link's wrapper off through the cheap writer publishes, the judge billed with it", async () => {
+  const r = await drive({
+    route: { layer: "page" }, ask: ALL_LINKS_ASK, tweak: () => UNLINKED,
+    judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links")),
+  });
+  published(r, UNLINKED, { calls: [T.tweak, T.keep], debits: [credits(CALL, JUDGE)] });
+  assert.equal(r.reply.tweak, true, "the cheap rung answered");
+  assert.equal(itemsShown(r).length, 2);
+});
+
+test("GROUP, THE TWEAK: the owner's undeclared answer on the cheap writer refuses there, and the rewrite is NOT bought", async () => {
+  const r = await drive({ route: { layer: "page" }, ask: ALL_LINKS_ASK, tweak: () => UNLINKED, judge: judged(asks(1, Q_ALL), asks(2, Q_ALL)) });
+  refused(r, { calls: [T.tweak, T.keep] });
+  assert.deepEqual(r.reply.contentBlocked.map((b) => b.why), ["quote-not-about-item", "quote-not-about-item"]);
+});
