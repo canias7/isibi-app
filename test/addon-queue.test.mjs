@@ -356,17 +356,27 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // job's clock time; the property is that the minted key rides the POST.
   assert.match(fn, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem\b[^}]*\}\)/, "the key does not ride the POST");
   // A RECEIPT IS NOT AN OUTCOME: a job with no result is watched, not applied.
-  assert.match(fn, /if \(a && a\.ok && a\.job && !a\.result\) \{/, "a 202 receipt is read as the addon's reply");
+  // RE-ANCHORED 2026-09-24 (the owner's validation round): this pinned
+  // `if (a && a.ok && a.job && !a.result)`, a truthiness reading that watched
+  // `ok: "true"`, a receipt at a 503 and `job: 7`. The property is unchanged — a
+  // receipt is watched and not applied — and what decides that it IS one is the
+  // one reader of a reply, asked before anything is watched. Which shapes it
+  // takes is driven in addon-failure.test.mjs.
+  const asked = at(fn, "const said = readAddonReply(r.ok, a);", "the reader");
+  const receipt = at(fn, "if (said.act === 'receipt') {", "the receipt branch");
+  assert.ok(asked < receipt, "the receipt is decided before the reply is read");
   // RE-ANCHORED 2026-09-05 (stage 2b): the record carries the ask and which
   // route filed the job, so a watch resumed after a refresh reads the reply
   // with THIS route's reader; the property is that a filed addon is
   // remembered, as an addon, with its ask.
-  assert.match(fn, /EditPoll\.rememberJob\(slug, a\.job, undefined, \{ ask: instruction, op: 'addon'/, "a filed addon is not remembered for a refresh with its ask and route");
+  assert.match(fn, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'/, "a filed addon is not remembered for a refresh with its ask and route");
   // RE-ANCHORED 2026-09-24: both calls hand on the POST's own latched finish
   // rather than the bare one, so the POST's catch never speaks over a sentence
   // already out. The property is that it is ONE finish, whatever it is called.
-  const watched = fn.match(/watchEditJob\(site, d, a\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  const watched = fn.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
   assert.ok(watched, "a filed addon is not watched through the shared watcher with the addon reader");
+  // …AND ONLY INSIDE THE BRANCH THE READER OPENED.
+  assert.ok(fn.indexOf(watched[0]) > receipt, "a job is watched outside the receipt branch");
   // THE ONE READER, BOTH WAYS.
   const read = fn.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
   assert.ok(read, "the synchronous reply bypasses addonAnswer");
@@ -389,11 +399,31 @@ test("the shared watcher takes a reader and defaults to the edit's", () => {
 });
 
 test("addonAnswer reads the stored reply the way the synchronous tail did, and never rewrites for a lost ask", () => {
-  const fn = between(CHAT, "\nfunction addonAnswer(", "\nfunction applyAddonResult(", "addonAnswer");
-  const esc = at(fn, "if (a.escalate) {", "escalate");
-  const fail = at(fn, "if (!httpOk || !a.ok) {", "failure");
+  // RE-ANCHORED 2026-09-24 (the owner's validation round). This pinned
+  // `if (a.escalate) {` before `if (!httpOk || !a.ok) {` — each field read by
+  // truthiness, so `escalate: "false"` hopped and `ok: "false"` printed "✅ Done".
+  // One reader decides what a reply is now, and the branches below it are
+  // exclusive, so their order is not the property. What is: the reader is asked
+  // before any branch, the decision fields are read by NOTHING else here, and
+  // the applied branch is the fall-through, reached only when every other act
+  // has returned. Which reply reaches which branch is driven in
+  // addon-failure.test.mjs.
+  const whole = between(CHAT, "\nfunction addonAnswer(", "\nfunction readAddonReply(", "addonAnswer");
+  const fn = whole.slice(0, whole.indexOf("\n}\n") + 3);
+  assert.ok(fn.length > 3 && fn.endsWith("\n}\n"), "addonAnswer has no end before the reader");
+  const asked = at(fn, "const said = readAddonReply(httpOk, a);", "the reader");
+  const esc = at(fn, "if (said.act === 'hop' || said.act === 'climb') {", "escalate");
+  const fail = at(fn, "if (said.act === 'refusal') {", "refusal");
   const apply = at(fn, "return applyAddonResult(a, o);", "apply");
-  assert.ok(esc < fail && fail < apply, "escalate, refusal, apply are not read in that order");
+  assert.ok(asked < esc && esc < fail && fail < apply, "the reader, the escalate, the refusal and the applied branch are not in that order");
+  assert.match(fn.slice(apply), /^return applyAddonResult\(a, o\);\s*\}\s*$/, "something follows the applied branch — it is no longer the fall-through");
+  // THE DECISION FIELDS HAVE ONE READER. Over the code with comments blanked,
+  // since the notes about the old truthiness spell it.
+  const code = fn.replace(/\/\/[^\n]*/g, "");
+  assert.ok(code.includes("readAddonReply(httpOk, a)"), "the blanked window lost the code it is reading");
+  for (const f of ["ok", "escalate", "layer", "page", "job"]) {
+    assert.doesNotMatch(code, new RegExp("\\ba\\." + f + "\\b"), "addonAnswer reads a." + f + " itself, beside the one reader");
+  }
   // A WATCH RESUMED AFTER A REFRESH holds no ask: an escalate there says so
   // rather than starting a ~25-credit rewrite for a sentence nobody re-typed.
   assert.match(fn, /const canFall = typeof o\.fallback === 'function' && !!o\.instruction;/, "the fallback is not gated on holding the ask");

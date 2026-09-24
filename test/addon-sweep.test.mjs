@@ -919,10 +919,14 @@ test("the browser's own selection decides which screen a reply gets, status incl
   assert.equal(atFail.shown, true, "nothing is shown on that branch");
   assert.match(atFail.text, /^⚠️ I didn’t get a usable answer about that addition/, atFail.text);
   assert.deepEqual(atFail.actions, [], "a failing status bought something: " + JSON.stringify(atFail.actions));
-  // AND `msg` WINS OVER THE BODY'S OWN `ok` at a failing status, which is the
-  // half a customer actually sees.
-  assert.equal(browserReply({ ok: true, msg: "the body says both", added: ["src/routes/gallery.tsx"] }, httpOkOf(422)).text,
-    "⚠️ the body says both");
+  // ⚠ RE-ANCHORED 2026-09-24 (the owner's validation round) — THIS SHOWED THE
+  // BODY'S OWN SENTENCE. `ok: true` at a 422 says two opposite things, and the
+  // owner's rule is that an invalid or contradictory reply "must stop with
+  // uncertainty": its `msg` is a sentence from a reply that cannot be trusted,
+  // so the page says it does not know, and buys nothing.
+  const both = browserReply({ ok: true, msg: "the body says both", added: ["src/routes/gallery.tsx"] }, httpOkOf(422));
+  assert.match(both.text, /^⚠️ I didn’t get a usable answer about that addition/, both.text);
+  assert.deepEqual(both.actions, [], "a contradictory reply bought something: " + JSON.stringify(both.actions));
 
   // ── 4. CANNOT-TELL REFUSES, in both directions ─────────────────────────────
   //
@@ -951,7 +955,12 @@ test("the browser's own selection decides which screen a reply gets, status incl
   // reading a reply can never spend; and both are REPORTED, because a run that
   // printed only the text would be silent about the expensive half of what the
   // browser would do.
-  const hop = browserReply({ escalate: true, layer: "picture" }, httpOkOf(200));
+  // RE-ANCHORED 2026-09-24: the hop is the route's own shape now — its
+  // `aEscalate("layer", { layer, kind })` at a 200 — where it was a two-field
+  // object with no `ok`. The page holds a reply to real booleans before it pays
+  // for anything, and a body with no `ok` is not one the route writes.
+  const HOP = { ok: false, escalate: true, reason: "layer", cost: 0, layer: "picture", kind: "photo" };
+  const hop = browserReply(HOP, httpOkOf(200));
   assert.equal(hop.ok, true, hop.why);
   assert.equal(hop.shown, false, "an escalate shows nothing — it hops");
   assert.equal(hop.text, "", "an escalate must not compose a screen");
@@ -977,7 +986,20 @@ test("the browser's own selection decides which screen a reply gets, status incl
   assert.match(unread.text, /^⚠️ I didn’t get a usable answer about that addition/, unread.text);
   assert.deepEqual(unread.actions, [], "a body that would not parse bought something: " + JSON.stringify(unread.actions));
   // …and both are on the report, labelled as NOT having happened.
-  const hopLines = customerLines({ escalate: true, layer: "picture" }, 200).join("\n");
+  // THE OWNER'S THREE, AS THE PAID RUN'S READER WOULD RECORD THEM (2026-09-24):
+  // each claimed the hop, the hop again, and a success. None may record a paid
+  // step, and none may be printed as done.
+  for (const [what, body, status] of [
+    ["an escalate at a 503", { ok: false, escalate: true, layer: "picture" }, 503],
+    ["escalate spelled as the string \"false\"", { ok: false, escalate: "false", layer: "picture" }, 200],
+    ["ok spelled as the string \"false\"", { ok: "false" }, 200],
+  ]) {
+    const r = browserReply(body, httpOkOf(status));
+    assert.equal(r.ok, true, what + ": " + r.why);
+    assert.match(r.text, /^⚠️ I didn’t get a usable answer about that addition/, what + ": " + r.text);
+    assert.deepEqual(r.actions, [], what + " recorded a paid step: " + JSON.stringify(r.actions));
+  }
+  const hopLines = customerLines(HOP, 200).join("\n");
   assert.match(hopLines, /the browser would then \(NOT done here — recorded only\), 1:/, hopLines);
   assert.match(hopLines, /↳ post a SECOND, PAID request/, hopLines);
   assert.match(hopLines, /nothing was shown — this reply takes a branch that acts instead of printing/, hopLines);

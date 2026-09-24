@@ -9757,7 +9757,9 @@ function resumeOpenSite(site) {
 // at 17 credits — with nothing said, often on top of an addition that may
 // already have landed. `siteEdit` stopped doing that on 2026-09-23. From here
 // the rewrite now starts only on the add-on route's own escalate that names no
-// layer: the server's explicit climb, never something this page failed to read.
+// layer: the server's explicit climb, never something this page failed to read
+// — and only a well-formed one, at a successful status with real booleans
+// (`readAddonReply`, below the reader).
 // `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the second thing
 // they asked for, which this turn is not doing. It is optional so nothing that
 // calls this without one changes shape.
@@ -9793,12 +9795,18 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     // answers with the same receipt. Watched by the same watcher — the poll
     // route, the two voices and the exactly-once latch are one copy for both
     // — and read, when the stored reply lands, by this route's own reader.
-    if (a && a.ok && a.job && !a.result) {
+    //
+    // ⚠ A RECEIPT IS TAKEN ONLY WHEN IT IS ONE (2026-09-24). This asked
+    // `a.ok && a.job` by truthiness, so `ok: "true"` was watched, a receipt at a
+    // 503 was watched, and `job: 7` was polled as a job id. `readAddonReply`
+    // is the one reading of what a reply may be trusted to say.
+    const said = readAddonReply(r.ok, a);
+    if (said.act === 'receipt') {
       // THE ASK RIDES THE RECORD with the route that filed it (stage 2b), so a
       // watch resumed after a refresh reads the reply with THIS route's reader
       // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
-      EditPoll.rememberJob(slug, a.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '' });
-      watchEditJob(site, d, a.job, origin, tell, fallback, instruction, undefined, addonAnswer);
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '' });
+      watchEditJob(site, d, said.job, origin, tell, fallback, instruction, undefined, addonAnswer);
       return;
     }
     return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish: tell, fallback, slug });
@@ -9828,38 +9836,97 @@ function addonAnswer(httpOk, a, o) {
   // re-typed — `escalatedEdit` reads that as its own case and says so; this
   // does the same, in its own words.
   const canFall = typeof o.fallback === 'function' && !!o.instruction;
-  // A BODY THIS PAGE CANNOT READ IS NOT KNOWING (2026-09-24). It fell to the
-  // rewrite, on top of an addition that may well have gone through.
-  if (!a) { o.finish(addonOutcomeMsg('unknown')); return; }
-  if (a.escalate) {
+  const said = readAddonReply(httpOk, a);
+  // NOT KNOWING — a body this page cannot read (2026-09-24: it fell to the
+  // rewrite), or one that cannot be trusted with what it claims (below). A
+  // RECEIPT is one too: this reads an OUTCOME, the POST's own receipt is taken
+  // before this is called, and a job's final reply is never a receipt.
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown')); return; }
+  if (said.act === 'hop' || said.act === 'climb') {
+    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.'); return; }
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
     // (2026-09-02): "add a photograph" is the picture rung's job, and the
     // add step says so with the layer's name. Same sentence, same picker,
     // handed to the edit route with the hop already spent — the addon route
-    // never escalates back here, so this cannot loop. An escalate that names
-    // no layer, or names the addon itself, still falls to the revise.
-    var layer = typeof a.layer === 'string' ? a.layer : '';
-    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.'); return; }
-    if (layer && layer !== 'addon') {
-      return siteEdit(o.site, { ...(o.d || {}), layer: layer, page: a.page ? String(a.page) : (o.d && o.d.page) }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+    // never escalates back here, so this cannot loop. A layer the edit route
+    // does not have — the addon's own name included — is not a hop at all.
+    if (said.act === 'hop') {
+      return siteEdit(o.site, { ...(o.d || {}), layer: said.layer, page: said.page || (o.d && o.d.page) }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
     }
     // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
     // Which of the route's escalates really need it is a separate, server-side
     // step: they are not classified the way the edit route's are.
     return o.fallback();
   }
-  if (!httpOk || !a.ok) {
+  if (said.act === 'refusal') {
     // The route's own sentence, when it wrote one.
     if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg); return; }
     // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
     // `ok: false` without a reason is still the route saying the addition did
     // not finish — never that nothing changed or nothing was charged, which an
-    // error alone does not establish. A failing status over a body that does
-    // not say `ok: false` says less than that, and is not knowing.
-    o.finish(addonOutcomeMsg(a.ok === false ? 'unsaid' : 'unknown'));
+    // error alone does not establish.
+    o.finish(addonOutcomeMsg('unsaid'));
     return;
   }
   return applyAddonResult(a, o);
+}
+
+// ── WHAT AN ADD-ON REPLY MAY BE TRUSTED TO SAY (2026-09-24) ─────────────────
+//
+// Owner, on 248e6aaa: "Validate the response before treating it as authority
+// for success, a queued receipt or another paid action. Require real booleans,
+// a successful HTTP status for actionable responses, and valid fields for the
+// action. Invalid or contradictory replies must stop with uncertainty." Three
+// shapes reproduced it: a 503 carrying `{ok:false, escalate:true,
+// layer:"picture"}` posted a paid edit; `escalate: "false"` — a string, and
+// truthy — posted one too; and `{ok:"false"}` printed "✅ Done.". Every branch
+// read its field by truthiness and none asked the status.
+//
+// ONE READING, SIX ANSWERS, asked by the POST and by a job's final reply alike:
+//
+//   hop      the route's escalate naming a cheaper rung — a PAID edit at that
+//            layer. HTTP 2xx, `ok: false`, `escalate: true`, a `layer` the edit
+//            route has (the browser's copy of its list), `page` a string or absent.
+//   climb    the same escalate naming no layer — the rewrite. Which of these
+//            really need it is the deferred server-side classification; this
+//            only refuses one that is malformed.
+//   receipt  a job was filed — watched. HTTP 2xx, `ok: true`, a `job` that is a
+//            non-empty string, no `result`. Only the POST can answer one.
+//   success  applied and said. HTTP 2xx, `ok: true`, no escalate, and no `job`
+//            unless it is the sweep's recovered reply, which carries its own.
+//   refusal  `ok: false` and no escalate, at any status: nothing is started, so
+//            the status adds nothing. The route's sentence, or `unsaid`.
+//   unknown  everything else, every CONTRADICTION among it: an escalate at a
+//            failing status, `ok: true` beside an escalate, a success at a
+//            failing status, a boolean spelled as a string.
+//
+// ABSENT IS `== null`, as in `routeActionable`: JSON has no `undefined`, and a
+// null says nothing. A field that is there is held to its type, never coerced —
+// `String(["picture"])` is "picture", and "false" is truthy. THE ONE EXCEPTION
+// IS THE CLIMB'S LAYER, because the climb is the one paid step an ABSENCE
+// reaches: the route's escalate has no `layer` key at all when it names no rung
+// (`aEscalate(reason)` spreads nothing) and never writes `layer: null`, so there
+// the key has to be missing. The job id's own grammar is the server's: the poll
+// route answers a malformed one with the 404 a lost job gets, and this page
+// reads that as `gone`.
+function readAddonReply(httpOk, a) {
+  const unknown = { act: 'unknown' };
+  // `ok` is on every reply the route writes, so a body that is not one — a
+  // list, a bare value, `null` — fails here with the rest.
+  if (!a || typeof a.ok !== 'boolean') return unknown;
+  const absentOr = (v, type) => v == null || typeof v === type;
+  if (!absentOr(a.escalate, 'boolean')) return unknown;
+  if (a.escalate === true) {
+    if (httpOk !== true || a.ok !== false) return unknown;
+    if (a.layer === undefined) return { act: 'climb' };
+    if (!ROUTE_EDIT_LAYERS.includes(a.layer) || !absentOr(a.page, 'string')) return unknown;
+    return { act: 'hop', layer: a.layer, page: a.page || '' };
+  }
+  if (a.ok === false) return { act: 'refusal' };
+  if (httpOk !== true) return unknown;
+  if (a.job == null || EditPoll.isRecovered(a)) return { act: 'success' };
+  if (typeof a.job !== 'string' || a.job === '' || a.result != null) return unknown;
+  return { act: 'receipt', job: a.job };
 }
 
 /** WHAT A PUBLISHED ADDITION CHANGES ON THIS SIDE — one copy, both paths. */

@@ -36,6 +36,14 @@
 // need it is a separate, server-side step, so this file does not claim that
 // every automatic rewrite is closed.
 //
+// AND A REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24, the owner's second
+// round, on 248e6aaa): a 503 carrying an escalate that names a layer posted a
+// paid edit, `escalate: "false"` posted one too, and `ok: "false"` printed
+// "✅ Done.". Every branch read its field by truthiness and none asked the
+// status. `readAddonReply` is the one reading now — real booleans, a successful
+// status for anything that acts, valid fields for the act — asked by the POST
+// and by a job's final reply alike, and anything else is not knowing.
+//
 // Every answer here is SUPPLIED. This proves what the browser sends and says,
 // never how often a real route answers these shapes.
 import test from "node:test";
@@ -83,6 +91,7 @@ const SRC = [
   cut("function watchEditJob("),
   cut("function siteAddon("),
   cut("function addonAnswer("),
+  cut("function readAddonReply("),
   cut("function applyAddonResult("),
   cut("function addonOutcomeMsg("),
   cut("function sitePathOf("),
@@ -366,7 +375,132 @@ test("THE SHARED WATCHER: a queued EDIT whose stored reply cannot be read says s
   assert.equal(o.clock.cleared, 1);
 });
 
+// ── A REPLY THAT CANNOT BE TRUSTED WITH WHAT IT CLAIMS ───────────────────────
+//
+// The owner, on 248e6aaa (2026-09-24): "Validate the response before treating
+// it as authority for success, a queued receipt or another paid action. Require
+// real booleans, a successful HTTP status for actionable responses, and valid
+// fields for the action. Invalid or contradictory replies must stop with
+// uncertainty. Apply the same rules to direct and queued final replies."
+//
+// THE THREE REPRODUCTIONS, measured on 248e6aaa straight back AND as a queued
+// job's stored reply: the escalate at a 503 posted a paid edit, `escalate:
+// "false"` posted one too, and `ok: "false"` printed "✅ Done.".
+const THE_THREE = [
+  ["a 503 carrying an escalate that names a layer", { ok: false, escalate: true, layer: "picture" }, 503],
+  ["an escalate spelled as the string \"false\"", { ok: false, escalate: "false", layer: "picture" }, 200],
+  ["ok spelled as the string \"false\"", { ok: "false" }, 200],
+];
+// …AND THE REST OF THE SAME CLASS, each measured acting or printing done on
+// 248e6aaa: a paid edit, the rewrite, or "✅ Done." over nothing.
+const MALFORMED = [
+  ["an escalate spelled as a number", { ok: false, escalate: 1, layer: "picture" }, 200],
+  ["an escalate beside ok: true", { ok: true, escalate: true, layer: "picture" }, 200],
+  ["an escalate with no ok at all", { escalate: true, layer: "picture" }, 200],
+  ["an escalate naming a layer the edit route does not have", { ok: false, escalate: true, layer: "colour" }, 200],
+  ["an escalate naming its layer as a list", { ok: false, escalate: true, layer: ["picture"] }, 200],
+  ["an escalate naming the add-on route itself", { ok: false, escalate: true, layer: "addon" }, 200],
+  ["an escalate naming an empty layer", { ok: false, escalate: true, layer: "" }, 200],
+  ["an escalate whose layer is null — never written, so not no layer", { ok: false, escalate: true, layer: null }, 200],
+  ["an escalate whose page is not a string", { ok: false, escalate: true, layer: "picture", page: {} }, 200],
+  ["an escalate naming no layer, at a 503", { ok: false, escalate: true, reason: "no-source", cost: 0 }, 503],
+  ["an escalate naming no layer, with ok spelled as a string", { ok: "false", escalate: true, reason: "no-source" }, 200],
+  ["an escalate spelled as the string \"true\" on a success", { ...SUCCESS, escalate: "true" }, 200],
+  ["ok spelled as the string \"true\"", { ...SUCCESS, ok: "true" }, 200],
+  ["ok spelled as a number", { ...SUCCESS, ok: 1 }, 200],
+  // With no sentence this one was already a stop after the round before; with
+  // one, 248e6aaa printed the success's own words under a warning sign.
+  ["a success at a failing status, carrying a sentence", { ...SUCCESS, msg: "Added the gallery." }, 422],
+];
+for (const [what, body, status] of [...THE_THREE, ...MALFORMED]) {
+  test("AN UNTRUSTED REPLY STOPS: " + what + " (" + status + ") — straight back, nothing more is posted", async () => {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(body, status)] } });
+    assertStopped(o, ["POST " + ADD], UNKNOWN);
+  });
+  test("AN UNTRUSTED REPLY STOPS: " + what + " (" + status + ") — as a queued job's stored reply, nothing more is posted", async () => {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [stored(body, status)] } });
+    assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], UNKNOWN);
+  });
+}
+// THE SAME READER WHICHEVER WAY THE ADD-ON WAS REACHED: an edit that handed its
+// ask over, and the add-on answering one of the three.
+for (const [what, body, status] of THE_THREE) {
+  test("AN UNTRUSTED REPLY STOPS: an edit handed to the add-on, and " + what + " (" + status + ") — nothing more is posted", async () => {
+    const o = await drive({ answers: { route: [ROUTE_EDIT], edit: [ok(HANDOFF)], addon: [ok(body, status)] } });
+    assertStopped(o, ["POST " + EDIT, "POST " + ADD], UNKNOWN);
+  });
+}
+
+// A RECEIPT IS TAKEN ONLY WHEN IT IS ONE. Each of these was watched, polled
+// under a job id nobody filed, or printed "✅ Done." on 248e6aaa.
+const BAD_RECEIPTS = [
+  ["ok spelled as the string \"true\"", { ok: "true", job: "job-a", status: "queued" }, 202],
+  ["a job id that is a number", { ok: true, job: 7, status: "queued" }, 202],
+  ["an empty job id", { ok: true, job: "", status: "queued" }, 202],
+  ["a receipt at a 503", { ok: true, job: "job-a", status: "queued" }, 503],
+  ["a receipt that also carries a result", { ok: true, job: "job-a", status: "queued", result: { ok: true } }, 200],
+];
+for (const [what, body, status] of BAD_RECEIPTS) {
+  test("A RECEIPT THAT IS NOT ONE STOPS: " + what + " (" + status + ") — nothing is watched and nothing more is posted", async () => {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(body, status)], poll: [stored(SUCCESS)] } });
+    assertStopped(o, ["POST " + ADD], UNKNOWN);
+  });
+}
+test("A RECEIPT THAT IS NOT ONE STOPS: a job's own stored reply shaped as a receipt is not watched a second time", async () => {
+  // A job's final reply is the route's outcome; it is never "your job is
+  // queued". Read as a success it printed "✅ Done." over a job it named.
+  const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [stored({ ok: true, job: "job-z", status: "queued", poll: "/api/site/edit/job-z" }, 202), stored(SUCCESS)] } });
+  assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], UNKNOWN);
+});
+
 // ── KEPT AS THEY ARE ─────────────────────────────────────────────────────────
+test("CONTROL: a receipt the route really writes is watched — the 202, and the 200 for an ask already filed", async () => {
+  const duplicate = ok({ ok: true, job: "job-a", status: "queued", duplicate: true, poll: "/api/site/edit/job-a" }, 200);
+  for (const receipt of [RECEIPT, duplicate]) {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [receipt], poll: [stored(SUCCESS)] } });
+    assert.deepEqual(o.trail, ["POST " + ADD, "GET /api/site/edit/job-a"]);
+    assert.deepEqual(o.said, [DONE]);
+    assert.equal(o.busy, false);
+    assert.equal(o.railRunning, false);
+  }
+});
+
+test("CONTROL: the sweep's recovered reply carries a job and is still a success, said in its own words", async () => {
+  // `edit_sweep_lost` and the reconciler store `{ok:true, recovered:true, job,
+  // cost, build}` — a job id on a FINAL reply, and not a receipt.
+  const recovered = { ok: true, recovered: true, job: "job-a", cost: 12, build: "b1" };
+  const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [RECEIPT], poll: [stored(recovered)] } });
+  assertStopped(o, ["POST " + ADD, "GET /api/site/edit/job-a"], "✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.");
+});
+
+test("CONTROL: escalate: false is a real boolean — a refusal is shown and a success applied, and neither hops", async () => {
+  for (const [body, status, said] of [
+    [{ ok: false, escalate: false, error: "add", msg: "I can't add that." }, 422, "⚠️ I can't add that."],
+    [{ ok: false, escalate: false, layer: "picture", error: "add", msg: "I can't add that." }, 200, "⚠️ I can't add that."],
+    [{ ok: false, escalate: false, error: "x" }, 503, UNSAID],
+  ]) {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(body, status)] } });
+    assertStopped(o, ["POST " + ADD], said);
+  }
+  const won = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok({ ...SUCCESS, escalate: false })] } });
+  assertStopped(won, ["POST " + ADD], DONE);
+});
+
+test("CONTROL: a hop naming a page carries that page to the edit route, straight back and queued", async () => {
+  const hop = { ok: false, escalate: true, reason: "layer", layer: "picture", kind: "photo", cost: 0, page: "/prices" };
+  for (const [answers, before] of [
+    [{ addon: [ok(hop)] }, ["POST " + ADD]],
+    [{ addon: [RECEIPT], poll: [stored(hop)] }, ["POST " + ADD, "GET /api/site/edit/job-a"]],
+  ]) {
+    const o = await drive({ answers: { route: [ROUTE_ADDON], ...answers } });
+    assert.deepEqual(o.trail, [...before, "POST " + EDIT]);
+    const edit = o.after[o.after.length - 1].body;
+    assert.equal(edit.layer, "picture");
+    assert.equal(edit.page, "/prices");
+    assert.equal(edit.instruction, ASK);
+  }
+});
+
 test("CONTROL: a successful addition is said and applied, straight back and queued", async () => {
   for (const answers of [{ addon: [ok(SUCCESS)] }, { addon: [RECEIPT], poll: [stored(SUCCESS)] }]) {
     const o = await drive({ answers: { route: [ROUTE_ADDON], ...answers } });

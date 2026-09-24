@@ -855,7 +855,10 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
   assert.match(CHAT, /EditPoll\.rememberJob\(slug, e\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '' \}\)/,
     "the edit route no longer stores the ask");
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, a\.job, undefined, \{ ask: instruction, op: 'addon'/, "the addon route no longer stores the ask");
+  // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
+  // now, and its job rides the reader's answer. The property is the ask and the
+  // route stored for the job, whichever name holds it.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'/, "the addon route no longer stores the ask");
   // THE LATCH: declared, taken at the top of every watch, released when the
   // watch ends — and NOT when it gave up, so a render does not restart it.
   assert.match(CHAT, /const editWatched = new Set\(\);/, "the per-job latch is gone");

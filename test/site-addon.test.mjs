@@ -455,15 +455,30 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // handled before the failure check, a named layer other than the addon's
   // own hops to `siteEdit` as handed-off, and an unnamed one falls to the
   // revise.
-  const esc = b.indexOf("if (a.escalate) {");
+  // RE-ANCHORED 2026-09-24 (the owner's validation round): the branches read
+  // the one reader's answer (`said`), where each read its own field by
+  // truthiness — `escalate: "false"` hopped, a 503's escalate hopped. What makes
+  // a reply a hop, a climb or a refusal is `readAddonReply`'s, and asserted
+  // below; the properties here are the branch's own.
+  const esc = b.indexOf("if (said.act === 'hop' || said.act === 'climb') {");
   assert.ok(esc > 0, "the escalate branch is gone");
-  const fail = b.indexOf("if (!httpOk || !a.ok)", esc);
+  const fail = b.indexOf("if (said.act === 'refusal') {", esc);
   assert.ok(fail > esc, "the failure check no longer follows the escalate branch");
   const branch = b.slice(esc, fail);
-  assert.match(branch, /layer !== 'addon'/, "an escalate naming the addon itself would hop into the edit route");
-  // `[\s\S]*?` rather than `[^)]*`: the page argument is `String(a.page)`,
-  // whose own `)` is inside the object — a flat scan where depth matters.
-  assert.match(branch, /return siteEdit\(o\.site, \{ \.\.\.\(o\.d \|\| \{\}\), layer: layer,[\s\S]*?\}, o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
+  // AN ESCALATE NAMING THE ADDON ITSELF NEVER HOPS. This pinned `layer !==
+  // 'addon'`; the reader admits a hop only to a layer the edit route has, and
+  // that list — the browser's copy of it — has no `addon`. Both halves read.
+  const readAt = b.indexOf("function readAddonReply(");
+  assert.ok(readAt > 0, "the reply reader is gone from the add-on path");
+  const reader = b.slice(readAt, b.indexOf("\n}\n", readAt));
+  assert.match(reader, /if \(!ROUTE_EDIT_LAYERS\.includes\(a\.layer\)/, "a hop is not held to the edit route's own layers");
+  const layers = CHAT.match(/\nconst ROUTE_EDIT_LAYERS = (\[[^\]]*\]);/);
+  assert.ok(layers, "the browser's layer list is gone");
+  const list = JSON.parse(layers[1].replace(/'/g, '"'));
+  assert.ok(list.includes("picture") && !list.includes("addon"), "an escalate naming the addon itself would hop into the edit route: " + layers[1]);
+  // `[\s\S]*?` rather than `[^)]*`: the page argument holds an `&&` whose own
+  // `)` is inside the object — a flat scan where depth matters.
+  assert.match(branch, /return siteEdit\(o\.site, \{ \.\.\.\(o\.d \|\| \{\}\), layer: said\.layer,[\s\S]*?\}, o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
   // RE-ANCHORED 2026-09-24: the climb calls the fallback itself — the `fall`
   // helper it used went, since nothing else reaches the rewrite from here.
@@ -478,7 +493,7 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // named. RE-ANCHORED 2026-09-24: both hand on the POST's own latched finish,
   // so its catch never speaks over a sentence already out — the property is
   // that it is the SAME one, whatever it is called.
-  const watch = b.match(/watchEditJob\(site, d, a\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  const watch = b.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
   assert.ok(watch, "a queued addon is not watched with the addon reader");
   const sync = b.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
   assert.ok(sync, "the synchronous reply is not read by addonAnswer");
@@ -486,8 +501,11 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // BOTH ANCHORS PROVED FIRST: `indexOf` answers -1 for a missing one, and
   // `-1 < anything` passes exactly when the thing ordered has been renamed —
   // which it was, to `httpOk`, the status however the reply arrived.
-  const escAt = b.indexOf("a.escalate");
-  const failAt = b.indexOf("!httpOk || !a.ok");
+  // RE-ANCHORED 2026-09-24: the order lives in the READER now, and it is
+  // load-bearing there — an escalate is `ok: false` too, so a refusal check
+  // asked first would read every escalate as a refusal.
+  const escAt = reader.indexOf("if (a.escalate === true) {");
+  const failAt = reader.indexOf("if (a.ok === false) return { act: 'refusal' };");
   assert.ok(escAt > 0 && failAt > 0, "the escalate or the failure check is gone");
   assert.ok(escAt < failAt, "the escalation check must run before the failure check");
   // ⚠ RE-ANCHORED 2026-09-24 — THIS PINNED THE DEFECT. `.catch(fallback)` sent a
@@ -1142,7 +1160,11 @@ test("a removed page leaves the picker", () => {
   const rd = chat.indexOf("function addonAnswer(");
   assert.ok(rd > 0, "addonAnswer is gone");
   const reader = chat.slice(rd, chat.indexOf("\n}", rd));
-  assert.ok(reader.indexOf("if (a.escalate)") > 0 && reader.indexOf("if (a.escalate)") < reader.indexOf("a.msg"),
+  // RE-ANCHORED 2026-09-24: the reader's answer decides the branch now, where
+  // `if (a.escalate)` read the field by truthiness. The property is the same —
+  // an escalate is decided before a refusal's sentence is shown.
+  const escalated = reader.indexOf("if (said.act === 'hop' || said.act === 'climb')");
+  assert.ok(escalated > 0 && escalated < reader.indexOf("a.msg"),
     "a refusal with a message is escalated before it is shown");
   assert.match(reader, /return applyAddonResult\(a, o\);/, "the reader no longer applies a published addition");
 });

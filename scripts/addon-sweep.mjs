@@ -663,8 +663,18 @@ export const BROWSER_FNS = Object.freeze([
   // cannot use, a refusal with no sentence and a success it broke showing are
   // said by it, where they used to start the rewrite and say nothing.
   "addonOutcomeMsg",
+  // `readAddonReply` IS WHAT THE SELECTION ASKS FIRST (2026-09-24): whether a
+  // reply may be trusted with the success, the receipt or the paid step it
+  // claims. It reads the edit route's layer list, which is a LINE and not a
+  // function, so it rides in `BROWSER_LINES` below.
+  "readAddonReply",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
 ]);
+
+// THE TOP-LEVEL LINES THE CUT FUNCTIONS READ, each one line of chat.js named by
+// its opening. A function reading one of these with the line missing is the
+// same `ReferenceError` as a missing function, and it answers `{ok: false}`.
+export const BROWSER_LINES = Object.freeze(["const ROUTE_EDIT_LAYERS ="]);
 
 /**
  * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED.
@@ -690,7 +700,12 @@ function browserSource() {
       if (end < 0) throw new Error(name + " has no end in chat.js");
       return chat.slice(at, end + 2);
     };
-    BROWSER_SOURCE = { ok: true, src: BROWSER_FNS.map(cut).join("\n") + "\nreturn addonAnswer;" };
+    const cutLine = (head) => {
+      const at = chat.indexOf("\n" + head);
+      if (at < 0) throw new Error(head + " is gone from chat.js");
+      return chat.slice(at + 1, chat.indexOf("\n", at + 1));
+    };
+    BROWSER_SOURCE = { ok: true, src: [...BROWSER_LINES.map(cutLine), ...BROWSER_FNS.map(cut)].join("\n") + "\nreturn addonAnswer;" };
   } catch (e) {
     BROWSER_SOURCE = { ok: false, why: String((e && e.message) || e).split("\n")[0].slice(0, 120) };
   }

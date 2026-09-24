@@ -97,6 +97,7 @@ const SRC = [
   cut("function siteEdit("),
   cut("function siteAddon("),
   cut("function addonAnswer("),
+  cut("function readAddonReply("),
   cut("function reactSend("),
   cut("function reactStageLabel("),
   cut("function buildCostWords("),
