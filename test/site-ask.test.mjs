@@ -914,14 +914,23 @@ test("a typed reply during a round is an ANSWER, not a new brief", () => {
   const i = src.indexOf("function siteSend(");
   const block = src.slice(i, i + 1200);
   assert.match(block, /if \(site\.clarify\) \{ siteAnswer\(t\); return; \}/);
-  // And skipping goes STRAIGHT to the build — paying a model to reclassify
-  // "just build it" is the one question too many the button exists to avoid.
+  // And on a NEW project skipping goes STRAIGHT to the build — paying a model to
+  // reclassify "just build it" is the one question too many the button exists
+  // to avoid. (A site that exists never reaches the skip block: `siteAnswer`
+  // routes its original request above it, test/site-entry-inventory.test.mjs.)
   const a = src.indexOf("function siteAnswer(");
   const ans = src.slice(a, src.indexOf("function siteSend(", a));
-  assert.match(ans, /if \(skip\)/);
-  assert.match(ans, /reactSend\(site, round\.brief, origin, 'build'/);
-  assert.ok(!/siteRoute\([^)]*\)\s*;?\s*\}\s*$/.test(ans.slice(ans.indexOf("if (skip)"), ans.indexOf("siteRoute("))),
-    "the skip path calls the router");
+  // THE SKIP BLOCK, LANDMARK TO LANDMARK. This read `slice(indexOf("if (skip)"),
+  // indexOf("siteRoute("))`, which was vacuous twice over: the slice stopped
+  // just before the only `siteRoute(` it could have matched, and once the
+  // existing-site branch put a `siteRoute(` ABOVE the skip block the slice ran
+  // backwards and was empty.
+  const sk = ans.indexOf("  if (skip) {");
+  const skEnd = ans.indexOf("\n  }\n", sk);
+  assert.ok(sk > 0 && skEnd > sk, "the skip block is gone");
+  const skipBlock = ans.slice(sk, skEnd);
+  assert.match(skipBlock, /reactSend\(site, round\.brief, origin, 'build'/, "the skip block does not build");
+  assert.doesNotMatch(skipBlock, /siteRoute\(/, "the skip path calls the router");
 });
 
 test("a first build asks only when the answer changes the build — with a floor", () => {

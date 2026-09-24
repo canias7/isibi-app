@@ -4687,40 +4687,109 @@ function reactRoutePages(files) {
 // were unreachable in the preview. Nothing failed and nothing logged; the label
 // is a legitimate rendering of an empty list.
 //
-// ONCE PER SLUG PER PAGE LOAD. `renderSiteWorkspace` runs on every render and
-// every reply triggers one, so without the latch this is a request per render —
-// `editWatched`'s reasoning one panel over. The latch is deliberately NOT
-// cleared on a successful write: a site that publishes a new page mid-session
-// has its list written by the build itself, and a site that answered nothing
-// will answer nothing again this load.
+// THE PICKER ASKS ONCE PER SLUG PER PAGE LOAD. `renderSiteWorkspace` runs on
+// every render and every reply triggers one, so without the latch this is a
+// request per render — `editWatched`'s reasoning one panel over. The latch is
+// deliberately NOT cleared on a successful write: a site that publishes a new
+// page mid-session has its list written by the build itself, and a site that
+// answered nothing will answer nothing again this load. A MESSAGE is the one
+// thing that asks again (`siteWithPages`, below): somebody is waiting on it.
 //
 // IT NEVER OVERWRITES A LIST THIS BROWSER ALREADY HAS, and the check is made at
 // APPLY time rather than at fetch time — a build can land while the request is
 // in the air, and that list is the better one: it is what was just written,
 // where this answer is what was last published.
 //
-// SILENT ON EVERY FAILURE. A blip leaves the picker exactly as it was, which is
-// the screen that shipped before this existed. There is nothing to tell the
-// customer: they did not ask for this and cannot act on it.
+// THE PICKER IS SILENT ON EVERY FAILURE. A blip leaves it exactly as it was,
+// which is the screen that shipped before this existed. There is nothing to
+// tell the customer: they did not ask for this and cannot act on it.
 const siteRoutesAsked = new Set();
+// ONE READ PER SLUG IN THE AIR, shared by the picker's fetch and by a message
+// sent to a site whose list has not arrived (2026-09-24). Two askers at once
+// get one request and the same answer, so a customer who sends while the
+// picker's read is still out waits on THAT read rather than starting another.
+//
+// BOUNDED: the request is aborted after `SITE_ROUTES_WAIT_MS` and answers like
+// any other read that did not come back, so a message waiting on it is never
+// left on a rail that does not end. It leaves the map when it settles, which is
+// what lets the next message ask again after a failure.
+//
+// IT RESOLVES `{ paths, status }` AND NEVER REJECTS. `paths` is every route the
+// server answered — possibly none — or `null` when the read did not answer
+// usably: a dropped request, the bound reached, a non-2xx, a body that is not a
+// list of routes. `status` is the HTTP status, 0 when none arrived, so a 401 can
+// be said as one.
+const SITE_ROUTES_WAIT_MS = 15000;
+const siteRoutesPending = new Map();
+function siteRoutesRead(slug) {
+  const held = siteRoutesPending.get(slug);
+  if (held) return held;
+  // ANY READ IS THE PICKER'S ONE ASK FOR THIS LOAD, so a list a message already
+  // fetched is not fetched again by the next render.
+  siteRoutesAsked.add(slug);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SITE_ROUTES_WAIT_MS);
+  const read = apiFetch('/api/site/routes?slug=' + encodeURIComponent(slug), { signal: ctl.signal })
+    .then(async (r) => {
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.ok !== true || !Array.isArray(d.routes)) return { paths: null, status: r.status };
+      // STRINGS ONLY. This is a decoded JSON body: `String(["/menu"])` is "/menu",
+      // the recorded coercion that has shipped three times here, so a shape we did
+      // not send is dropped rather than made into a page nobody can open.
+      return { paths: d.routes.filter((p) => typeof p === 'string' && p.charAt(0) === '/'), status: r.status };
+    })
+    .catch(() => ({ paths: null, status: 0 }))
+    .then((out) => { clearTimeout(timer); siteRoutesPending.delete(slug); return out; });
+  siteRoutesPending.set(slug, read);
+  return read;
+}
+// The answer onto one record, and whether it was written.
+function siteRoutesApply(id, paths) {
+  if (!Array.isArray(paths) || !paths.length) return false;
+  const s = siteById(id);
+  if (!s || (Array.isArray(s.pages) && s.pages.length > 1)) return false;
+  s.pages = paths.map(pageFromPath);
+  sitesSave();
+  return true;
+}
 function siteRoutesFetch(site) {
   if (!site || !site.slug || !site.react || !site.id) return;
   if (siteRoutesAsked.has(site.slug)) return;
-  siteRoutesAsked.add(site.slug);
-  apiFetch('/api/site/routes?slug=' + encodeURIComponent(site.slug)).then(async (r) => {
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.ok !== true || !Array.isArray(d.routes) || !d.routes.length) return;
-    const s = siteById(site.id);
-    if (!s || (Array.isArray(s.pages) && s.pages.length > 1)) return;
-    // STRINGS ONLY. This is a decoded JSON body: `String(["/menu"])` is "/menu",
-    // the recorded coercion that has shipped three times here, so a shape we did
-    // not send is dropped rather than made into a page nobody can open.
-    const paths = d.routes.filter((p) => typeof p === 'string' && p.charAt(0) === '/');
-    if (!paths.length) return;
-    s.pages = paths.map(pageFromPath);
-    sitesSave();
-    if (siteOpenId === s.id) renderSites();
-  }).catch(() => {});
+  siteRoutesRead(site.slug).then((got) => {
+    if (siteRoutesApply(site.id, got.paths) && siteOpenId === site.id) renderSites();
+  });
+}
+// AN ADDRESS WITH NO PAGE LIST IS AN EXISTING SITE WHOSE LIST HAS NOT ARRIVED,
+// NEVER A NEW PROJECT (2026-09-24, owner: "An existing site must not become a
+// first build because its page inventory is loading, empty or unreadable").
+//
+// A record opened from a start-screen card (`siteAdopt`) carries the site's slug
+// and no pages until `/api/site/routes` answers, and "no pages" was what every
+// message read as a first build: the routing call went out with `firstBuild`
+// and without `hasSite`, and every answer it could give ended in a build with
+// no slug — a new paid site under a new name, the request never reaching the
+// site it was about. Reproduced in a real browser, every request recorded.
+//
+// SO THE MESSAGE WAITS FOR THE LIST, and `go(s)` runs with the ORIGIN's record
+// once it is there — by id, never `siteOpenId`, so a workspace switch during the
+// wait cannot send it to the site now on screen, and only while that record
+// still has the address the list was read for. With no usable list — a read
+// that failed or ran out its bound, or one that answered no pages — `stop` says
+// so and nothing is routed: the routing call is billed too, and a first build is
+// not a fallback for a site that exists. EMPTY STOPS AS WELL, because the route
+// answers `routes: []` both for a site that never published and for a store read
+// that failed, and cannot tell them apart.
+const SITE_NO_PAGES_MSG = '⚠️ I couldn’t load your site’s pages just now, so nothing on your site changed. Send it again in a moment.';
+function siteWithPages(origin, slug, go, stop) {
+  const held = siteById(origin);
+  if (held && held.slug === slug && sitePages(held).length) { go(held); return; }
+  siteRoutesRead(slug).then((got) => {
+    const s = siteById(origin);
+    if (!s || s.slug !== slug) { stop(SITE_NO_PAGES_MSG); return; }
+    siteRoutesApply(origin, got.paths);
+    if (sitePages(s).length) { go(s); return; }
+    stop(got.status === 401 ? '⚠️ You’re signed out. Sign in and send that again.' : SITE_NO_PAGES_MSG);
+  });
 }
 function siteActivePage(site) {
   const pages = sitePages(site);
@@ -8858,9 +8927,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // `slug` and `hasSite` OPEN THE TWO CHEAP RUNGS. Until they were sent, the
     // router had two work answers and on an existing site the only one it could
     // give was `build` — a ~25-credit rewrite of every page, for a change of
-    // colour. `hasSite` is deliberately not `!isBuild`: that flag is about this
-    // project having pages in localStorage, this one is about the SERVER owning
-    // a published site at that slug, and the server re-checks it anyway.
+    // colour. `hasSite` is read off THIS BROWSER'S RECORD — an address and a
+    // page list — as `firstBuild` is, and the server takes both on trust:
+    // nothing re-checks them. (This used to say `hasSite` was about the server
+    // owning a published site, "and the server re-checks it anyway"; neither was
+    // true, and a record with an address and no list built a new site.) So a
+    // record like that never reaches this call: `siteSend` and `siteAnswer` wait
+    // for its list first (`siteWithPages`), and stop without one.
     //
     // `picker` IS WHICH MODEL DECIDES, and it was missing for as long as the
     // route has existed. The build, the revise and the edit all send it; this
@@ -11076,10 +11149,25 @@ function siteAnswer(label, skip) {
   if (!site || siteBusy || !site.clarify) return;
   const said = String(label || '').trim().slice(0, 200);
   if (!skip && !said) return;
+  // A SITE THAT EXISTS IS NEVER INTERVIEWED INTO A NEW ONE (2026-09-24). A round
+  // on a record with an address is one a first-build question put there — the
+  // missing-page-list defect asked it — and every way out of it built a new
+  // site: skip posted the build with no slug, and an answer was routed with
+  // `firstBuild` set. Where the router answered an edit instead, it was the
+  // ANSWER that went as the edit's instruction ("A guitar school" for a logo),
+  // and the round stayed behind. So on a site with an address, an answer —
+  // typed, clicked or skipped — ends the round and sends the ORIGINAL request,
+  // with its attachments, the way that message should have gone: to the live
+  // site, once its page list is in hand. The answer is kept in the thread and
+  // sent nowhere: it answers a question that does not apply to a site that
+  // exists. The round is untouched until then, so a stop leaves it for the next
+  // press to try again.
+  const round = site.clarify;
+  const live = typeof site.slug === 'string' && site.slug !== '';
   // The question this answers — the last one actually asked, read off the
   // thread rather than held in a second place that could disagree with it.
   const asked = [...(site.msgs || [])].reverse().find((m) => m && m.r === 'a' && m.q);
-  if (!skip && asked) site.clarify.qa.push({ q: String(asked.q), a: said });
+  if (!skip && asked && !live) site.clarify.qa.push({ q: String(asked.q), a: said });
   site.msgs.push({ r: 'u', t: skip ? 'Skip the questions — just build it' : said });
   const origin = siteOpenId;
   const imgs = site.clarify.imgs || [];
@@ -11097,11 +11185,21 @@ function siteAnswer(label, skip) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
+  if (live) {
+    siteWithPages(origin, site.slug, (s) => {
+      // The round is over, so its buttons come off the screen now rather than
+      // when the work finishes: until then they are drawn and refuse a press.
+      s.clarify = null;
+      sitesSave();
+      if (siteOpenId === origin) renderSites();
+      siteRoute(s, round.brief, origin, false, imgs, finish);
+    }, finish);
+    return;
+  }
   if (skip) {
     // Straight to the build. No routing call: they have said what they want and
     // paying a model to reclassify "just build it" would be the one question too
     // many this button exists to avoid.
-    const round = site.clarify;
     site.clarify = null;
     sitesSave();
     reactSend(site, round.brief, origin, 'build', imgs, finish, round.qa);
@@ -11184,6 +11282,16 @@ function siteSend(text) {
   // The reasoning that closed `ask` still stands and is unchanged: `attached`
   // shuts it at the router, because answering a file with prose drops the file
   // on the floor. What re-opens is only the WORK answers.
+  //
+  // A SITE WITH AN ADDRESS AND NO PAGE LIST WAITS FOR THE LIST (2026-09-24), and
+  // is then routed as the live site it is — never as a first build. The busy flag
+  // is already set, so a second press during the wait is refused rather than
+  // queued, and the attachments were taken above, so they travel with this
+  // message whichever workspace is on screen when the list arrives.
+  if (isBuild && typeof site.slug === 'string' && site.slug) {
+    siteWithPages(origin, site.slug, (s) => siteRoute(s, t, origin, false, imgs, finish), finish);
+    return;
+  }
   if (reactPath) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
   // A LEGACY STATIC SITE CANNOT BE EDITED — the engine that made it is gone.
   //

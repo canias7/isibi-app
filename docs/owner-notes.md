@@ -160,7 +160,58 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-24 — The routing fixes are live; a site opened in another browser can still start a new site (reproduced, not fixed)
+## 2026-09-24 — A site opened in another browser waits for its pages now, and answering a stray question sends your original request (on the branch, not deployed)
+
+**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
+only (`chat.js`), so the builder's container won't need rebuilding. The before
+and after screenshots are in the chat.
+
+**The page list.** A site that already has an address is never treated as a new
+project any more.
+- **List still loading**: your message waits for it, then goes to your site as a
+  normal change. If the builder was already fetching the list, your message
+  waits on that same fetch rather than starting a second one.
+- **List fails to load, or comes back empty**: it stops and says *"⚠️ I couldn’t
+  load your site’s pages just now, so nothing on your site changed. Send it
+  again in a moment."* Nothing is sent and nothing is charged — not even the
+  "what kind of change is this?" check, which is charged too. Sending again asks
+  for the list again. The wording is yours to change.
+- **The wait has a limit**: 15 seconds, then it stops the same way.
+- **It stays with the site you sent it from**: switching to another site while it
+  waits can't send your message there, and pressing send again while it waits
+  does nothing.
+
+**A stray first-build question on an existing site.** You found that answering
+one of these built a brand-new site: *"Skip the questions"* did it directly, and
+a normal answer was treated as a new-site interview. While reproducing that I
+found a third problem: when your page list *had* loaded, your **answer** was sent
+as the change itself — *"A guitar school"* as the instruction for a colour
+change — and the question stayed on screen.
+
+Now, on a site that exists, **typing an answer, clicking an option, pressing a
+number key, Skip or Esc all do the same thing**: the question goes away and your
+**original request** (with any picture you attached to it) goes to your site as
+a normal change. Your answer stays in the chat but isn't sent anywhere, because
+it answers a question that doesn't apply to a site you already have. If the page
+list can't be loaded, the question stays so your next press can try again.
+
+**A brand-new project behaves exactly as before**: the first build, the
+questions, Skip going straight to the build.
+
+**Proof, and its limit**: 37 new tests driving the real send and answer code
+(32 of them fail on the old code; the 5 that pass on both are the checks that
+must not change), and the real app in a real browser with the real server code,
+before and after. The router's answer was written by me in all of it, so this
+proves what gets sent, not what a real router would decide. Full suite: 7,439
+passing. CI and your merge call come next.
+
+**Also noticed, not changed**: on a brand-new project, the question's buttons
+stay drawn after you answer until the build finishes. They don't do anything
+while it's busy. On an existing site they now disappear right away.
+
+---
+
+## 2026-09-24 — The routing fixes are live; a site opened in another browser can still start a new site (reproduced; fixed on the branch the same day, above)
 
 **Merged and deployed.** Both of today's routing fixes are on `main`
 (`40190564`) and live since deploy 2152. When the "what kind of change is

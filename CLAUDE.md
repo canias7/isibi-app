@@ -3695,7 +3695,8 @@ END the same day** (*an existing site whose page list has not loaded is built as
 a new site*), which corrected one hop: the chat is **not** `srv_<slug>` — opening
 the card runs `siteAdopt`, which makes a fresh local record, so the body carried
 `chat: "site_<ms>_<rand>"`; `siteForChat` found no row for it just the same.
-Attachments reach only the
+**FIXED ON THE BRANCH THE SAME DAY** (*an existing site waits for its page list*,
+below). Attachments reach only the
 logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
 turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
@@ -4032,6 +4033,8 @@ separate next tasks"*):
    with every request recorded, and the correction PROPOSED, not built** —
    *an existing site whose page list has not loaded is built as a new site*,
    below: a new paid build, the wrong site, and the request lost, all three.
+   **BUILT ON THE BRANCH THE SAME DAY, not merged** (*an existing site waits for
+   its page list*, below), with the clarify doors the owner added.
 8. **The addon's own failures fall to the full rewrite** (found 2026-09-24,
    driven): a valid addon answer whose addon POST drops, or whose reply cannot
    be read, starts `react-revise` — on top of an addon that may have landed.
@@ -5924,7 +5927,7 @@ arbitrary wait. No paid run."*
   **`40190564b02e24b299d66fe6e9d0ecb1d4c3e466`**, `expect_image`
   **`56f7d5866240a1de`**. It also confirms 2151, since 2152 reused 2151's image.
 
-### AN EXISTING SITE WHOSE PAGE LIST HAS NOT LOADED IS BUILT AS A NEW SITE — REPRODUCED (2026-09-24; proposal only, nothing built)
+### AN EXISTING SITE WHOSE PAGE LIST HAS NOT LOADED IS BUILT AS A NEW SITE — REPRODUCED (2026-09-24; built the same day, next section)
 
 Owner: *"Then take the next separate edit-entry issue: an existing site whose
 page inventory hasn't loaded is treated as a new project. Reproduce through the
@@ -6011,7 +6014,8 @@ yet"* both for a site that never published and for a read that threw.
 it.) **A correction that reads `routes: []` as "never published, so a first build
 is right" re-opens the defect on an R2 blip.**
 
-**THE PROPOSED CORRECTION — NOT BUILT, AWAITING THE OWNER.** It touches the browser
+**THE PROPOSED CORRECTION — BUILT THE SAME DAY, with the clarify doors the owner
+added (next section).** It touches the browser
 only (`public/chat.js`), so no container roll:
 
 1. **A PROJECT WITH AN ADDRESS IS NEVER A FIRST BUILD.** In `siteSend`, a site with
@@ -6044,8 +6048,8 @@ only (`public/chat.js`), so no container roll:
   they name exist on the site now*.
 - **NOT IN IT**: the addon request's own failures (next-task 8); a clarify round
   the defect already stored on a slugged record (reachable only from such a record,
-  and it still answers through `siteAnswer`); the full revise; translation;
-  hydration; model-written replies.
+  and it still answers through `siteAnswer`) — **the owner put this one IN: next
+  section**; the full revise; translation; hydration; model-written replies.
 - **TESTS, ON APPROVAL**: focused cases driving the real `siteSend` for loaded,
   loading, failed, answered-empty and a new project. Each asserts the requests,
   the busy flag, the rail and the sentence. The RECORDED case in
@@ -6060,6 +6064,97 @@ only (`public/chat.js`), so no container roll:
   comment still cites it, so "rebuild it" gets the same sentence back forever.
   That branch is reachable only from a stored record, so it stays; only the promise
   is false.
+
+### AN EXISTING SITE WAITS FOR ITS PAGE LIST, AND A ROUND ON ONE SENDS THE ORIGINAL REQUEST (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner: *"An existing site must not become a first build because its page
+inventory is loading, empty or unreadable. Await the in-flight inventory request
+before routing; allow a retry after failure. If usable inventory cannot be
+established, stop without starting paid work. Keep genuine new-project behavior
+working. Cover clarification entry points in this same correction. … Protect
+typed replies, option clicks and skip; preserve the original request and
+attachments. Keep the wait bounded and tied to the original site."* **Browser
+only (`public/chat.js`)** — no Worker change, so no image input moves.
+
+- **ONE READ PER SLUG IN THE AIR** — `siteRoutesRead(slug)`, shared by the
+  picker's fetch and by a message. A message sent while the picker's read is out
+  waits on THAT read: measured in the real browser, one request. It resolves
+  `{paths, status}` and never rejects. **BOUNDED**: `SITE_ROUTES_WAIT_MS` 15,000,
+  the request aborted at the bound. It leaves the map when it settles, which is
+  what lets the next message ask again after a failure, and any read marks the
+  picker's once-per-load latch, so a list a message fetched is not re-read by the
+  next render. `paths: null` (unread) and `[]` (answered none) are kept apart and
+  **nothing downstream reads them differently today** — both stop — so a probe on
+  that line is equivalent by construction and was left out, said here.
+- **THE PICKER BEHAVES AS IT DID**: latched, silent on failure, never
+  overwriting a longer list at apply time (`siteRoutesApply`). Its once-per-slug
+  case now also renders AFTER the answer landed — a read in the air is shared by
+  construction, so only a later render shows the latch itself holds.
+- **THE SEND** — `siteSend`: a record with an address and no page list waits
+  (`siteWithPages`), then routes as the live site (`firstBuild` false, `hasSite`
+  true, its real pages); with no usable list it stops with `SITE_NO_PAGES_MSG`,
+  *"⚠️ I couldn’t load your site’s pages just now, so nothing on your site
+  changed. Send it again in a moment."* (the owner's to reword), or the
+  signed-out sentence on a 401. **No routing call on a stop** — that call is
+  billed too. **Empty stops as well**, because the route answers `routes: []`
+  for a store read that failed.
+- **TIED TO THE SITE IT WAS SENT FROM.** The continuation re-reads the ORIGIN's
+  record by id, never `siteOpenId`, and requires the address the list was read
+  for: a workspace switch during the wait cannot send the message to the site on
+  screen; a record removed meanwhile is sent nothing and the workspace freed; a
+  re-addressed one stops. The busy flag is set before the wait, so a second press
+  — any door, any workspace — is refused rather than queued, and the attachments
+  leave the composer at send, so they travel with that message.
+- **A ROUND ON AN EXISTING SITE** — `siteAnswer`. Every way out of a stored
+  first-build round built a new site: skip posted `react-build` with no slug, an
+  answer was routed with `firstBuild` set (the owner's two). **Reproducing them
+  found a third**: on a site whose list WAS loaded, an answer the router took as
+  an edit went as the edit's instruction — *"A guitar school"* for a look change
+  — and the round stayed stored (the real Worker, real browser, both halves).
+  Now, on a site with an address, a typed reply, an option (clicked or keyed) or
+  skip (clicked or Escape) ends the round and sends the ORIGINAL request
+  (`round.brief`) with its attachments (`round.imgs`) down the live path once
+  the list is in. The answer stays in the thread and is sent nowhere. **A stop
+  leaves the round untouched** — no answer written into it — so the next press
+  tries again. **One redraw** when the round ends takes its buttons off the
+  screen; they are inert while busy, but otherwise stayed drawn until the work
+  finished. The new-project path keeps that stale draw — pre-existing, untouched.
+- **A NEW PROJECT IS UNCHANGED**: no address, no read; a first build, the
+  interview, skip straight to the build, a failed routing call still building.
+- **THE `hasSite` COMMENT IS CORRECTED**: it said the flag was "about the SERVER
+  owning a published site … and the server re-checks it anyway"; it is read off
+  this browser's record and the server takes it on trust.
+
+**EVIDENCE.** `test/site-entry-inventory.test.mjs`, **37 cases**, drives the real
+`siteSend`, `siteAnswer`, the thread's click delegation and the keyboard listener
+with the real `siteRoute`, `siteEdit`, `reactSend`, busy flag and rail; `fetch`
+is the one seam. Every case asserts the outgoing requests and the screen state —
+thread, busy flag, rail and its clock, the round, the pages, the redraws.
+**Red 32 of 37 against unfixed `c0acaf88`** in a throwaway worktree (the new
+helpers appended so it loads), every red case failing first on the defect itself
+(*the list was not read*, or nothing was waiting); the 5 green are the loaded
+control and the four new-project controls. **Three existing harnesses carried
+the change rather than being appeased**: `page-picker` now carries the shared
+read (never faked); `site-route-failure` answers the page-list read on its own,
+and its RECORDED adopted-site case flipped into a live-site stop;
+`site-ask`'s skip-path window re-anchored landmark to landmark — **it was vacuous
+before this change** (its slice stopped just before the only `siteRoute(` it
+could have matched) and empty after it, and is proved alive now by making a new
+project's skip call the router. **Targeted probes, not a sweep: 20 killed, 0
+survived, 0 never applied, the comment-only control surviving**, over `chat.js`
+against the four files (spec in the scratchpad, as the last two rounds kept
+theirs), run on the final file; `chat.js` byte-identical to its backup
+afterwards (`22161c29c3c977be`). **Suite 7,439 locally** (`# tests 7439 / # pass
+7439 / # fail 0 / # skipped 0`, `duration_ms 116,676`) — **+37 against 7,402**,
+exactly the new file; the 92 files that read `chat.js`: **2,945 / 2,945**.
+**Rendered in the real workspace, before and after**, nine scenes (the reproduction's
+instrument: real app, real Chromium, real Worker for the page list, routing call
+and build route): before, a loading, failed or empty list and a skip each started
+a paid build of a new site (deposit taken, design model called) and an option or
+typed answer sent the answer as the edit; after, the loading list is waited on
+and the original request reaches `fretwork-1`, and a failed or empty list stops
+with the sentence after one retry. **Every routing answer is SUPPLIED**: this
+proves what the browser sends and shows, never what a real router answers.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

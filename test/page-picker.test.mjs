@@ -302,6 +302,14 @@ function driveFetch({ answer, status = 200, throws = false, record } = {}) {
     "const { apiFetch, siteById, sitesSave, renderSites } = deps;",
     "let siteOpenId = deps.siteOpenId;",
     konst("siteRoutesAsked"),
+    // THE SHARED READ AND ITS APPLY, which the fetch now goes through (2026-09-24:
+    // one read per slug in the air, shared with a message sent before the list
+    // arrived). Carried, not faked, so every case below still drives the real
+    // filter, the real apply-time check and the real latch.
+    konst("SITE_ROUTES_WAIT_MS"),
+    konst("siteRoutesPending"),
+    fn("function siteRoutesRead("),
+    fn("function siteRoutesApply("),
     fn("function pageFromPath("),
     fn("function siteRoutesFetch("),
     "return siteRoutesFetch;",
@@ -349,6 +357,13 @@ test("DRIVEN: once per slug, however many times the workspace renders", async ()
   d.run(d.store); d.run(d.store); d.run(d.store);
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(d.calls.length, 1, "the picker asks the server on every render: " + d.calls.length + " requests");
+  // AND AFTER IT ANSWERED. Renders arrive over time, not only in one burst: a
+  // read still in the air is shared by construction (2026-09-24), so only a
+  // render AFTER the answer shows whether the latch itself holds. This site
+  // answered one page, which keeps the workspace's gate open.
+  d.run(d.store); d.run(d.store);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(d.calls.length, 1, "the picker asks again once its answer has landed: " + d.calls.length + " requests");
 });
 
 test("DRIVEN: every failure is silent, and the picker stays as it was", async () => {

@@ -33,8 +33,10 @@
 // routing call is billed on its own and may already have been charged.
 //
 // OUT OF SCOPE, AND ASSERTED AS THEY ARE: an empty project keeps its documented
-// default (every failure builds), the adopted site with no page list (a later
-// task), and the add-on request's own failures (a later task).
+// default (every failure builds), and the add-on request's own failures (a later
+// task). The adopted site with no page list waits for its list now and is then
+// routed as the live site it is — test/site-entry-inventory.test.mjs holds that
+// whole path; the one case here shows its routing failure is a live-site stop.
 //
 // Every routing answer here is SUPPLIED. This proves what the browser does with
 // a response, never what a real router answers.
@@ -65,6 +67,14 @@ const SRC = [
   cut("function routeQuestion("),
   cut("function routeActionable("),
   cut("function siteRoute("),
+  cutLine("const siteRoutesAsked ="),
+  cutLine("const SITE_ROUTES_WAIT_MS ="),
+  cutLine("const siteRoutesPending ="),
+  cut("function siteRoutesRead("),
+  cut("function siteRoutesApply("),
+  cutLine("const SITE_NO_PAGES_MSG ="),
+  cut("function siteWithPages("),
+  cut("function pageFromPath("),
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
@@ -83,13 +93,16 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 /**
  * ONE MESSAGE THROUGH THE REAL SEND HANDLER. `route` is the routing call's
  * answer (`{reject}` or `{status, body, type}`); `follow`, when given, answers
- * the next POST the same way. Returns every request after the routing call, the
+ * the next POST the same way; `routes` answers a read of the site's page list,
+ * which only a site with an address and no list makes, and which is kept out
+ * of `routed` and `posts` so both still start at the routing call. Returns every request after the routing call, the
  * assistant messages pushed, the clarify round the site holds afterwards (`null`
  * for none), the busy flag, the rail's label, the rail clock's starts and
  * stops, and the screen-affecting calls in order.
  */
-async function drive({ site, message, route, follow }) {
+async function drive({ site, message, route, follow, routes }) {
   const calls = [];
+  const reads = [];
   const events = [];
   const clock = { started: 0, cleared: 0 };
   const s = JSON.parse(JSON.stringify(site));
@@ -98,6 +111,11 @@ async function drive({ site, message, route, follow }) {
     window: {}, Auth: { accessToken: async () => "token" },
     AbortController, encodeURIComponent,
     fetch: (url, init) => {
+      if (String(url).startsWith("/api/site/routes?")) {
+        reads.push(url);
+        if (!routes) return new Promise(() => {});
+        return Promise.resolve(new Response(routes.body, { status: routes.status, headers: { "content-type": "application/json" } }));
+      }
       const n = calls.length;
       calls.push({ url, body: init && init.body ? JSON.parse(init.body) : undefined });
       const answer = n === 0 ? route : n === 1 ? follow : null;
@@ -109,6 +127,9 @@ async function drive({ site, message, route, follow }) {
     // running by a case that keeps working would hold the test process open.
     setInterval: () => { clock.started++; return { clock: clock.started }; },
     clearInterval: () => { clock.cleared++; },
+    // The page-list read's bound, never reached here.
+    setTimeout: () => ({}),
+    clearTimeout: () => {},
     showAuthGate: () => events.push("sign-in gate"),
     scheduleCreditRefresh: () => {},
     fetchCredits: () => {},
@@ -136,6 +157,7 @@ async function drive({ site, message, route, follow }) {
   const msgs = JSON.parse(JSON.stringify(s.msgs));
   assert.deepEqual(msgs[0], { r: "u", t: message }, "the message itself is the first thing on the thread");
   return {
+    reads,
     routed: calls[0],
     posts: calls.slice(1),
     // Pushed inside the context, so another realm's objects — copied out.
@@ -401,10 +423,22 @@ test("an empty project draws no question the reader refuses: like every other un
   }
 });
 
-// ── RECORDED FOR A LATER TASK: the adopted site with no page list ────────────
-test("RECORDED: a failed routing call on an adopted site with no page list starts a NEW site build", async () => {
-  const o = await drive({ site: ADOPTED, message: ASK, route: { reject: new TypeError("Failed to fetch") } });
-  assert.deepEqual(o.posts, [{ url: "/api/site/react-build", body: { brief: ASK, images: [], picker: "grok", qa: [], chat: "origin-1" } }]);
+// ── THE ADOPTED SITE WITH NO PAGE LIST: A LIVE SITE, NEVER A NEW BUILD ───────
+// This was recorded here as a new paid build of a different site (the routing
+// call went out as a first build and failed to the build). It waits for its
+// page list now, is routed as the live site with it, and a failed routing call
+// is the live site's stop.
+test("an adopted site with no page list reads its list first, and a failed routing call then stops as a live site", async () => {
+  const o = await drive({
+    site: ADOPTED, message: ASK,
+    routes: ok200({ ok: true, slug: "fretwork-1", routes: ["/", "/prices", "/gear"] }),
+    route: { reject: new TypeError("Failed to fetch") },
+  });
+  assert.deepEqual(o.reads, ["/api/site/routes?slug=fretwork-1"], "the page list was read once, before the routing call");
+  assert.equal(o.routed.body.firstBuild, false, "routed as a first build");
+  assert.equal(o.routed.body.hasSite, true, "routed as a site the account does not have");
+  assert.deepEqual(o.routed.body.site.pages, ["/", "/prices", "/gear"], "routed without the page list it just read");
+  assertStopped(o, STOPPED);
 });
 
 // ── ADJACENT, NOT THE ROUTING CALL: the add-on's own failure still rewrites ──
