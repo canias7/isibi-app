@@ -159,6 +159,14 @@ unreachable CSS**. The law that survives:
   entries here and in owner-notes, and a push.
 - **Stamp measured numbers only AFTER the run.** A result written before the run
   ends is a claim ahead of its evidence.
+- **Customer replies should EVENTUALLY be model-written from authoritative
+  operation results** (owner, 2026-09-24: *"Record my future preference:
+  customer replies should eventually be model-written from authoritative
+  operation results. Do not implement that redesign now."*). Recorded, not
+  started. Until then replies are composed deterministically in `editReply` —
+  and the half that carries over is already the rule: **what a reply states
+  comes from what the operations really did** (`pageOps`, `partial`, the diff,
+  the ledger), never from the request's wording.
 
 ---
 
@@ -280,7 +288,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality TWENTY times, and the
+whole reader. **Cross-checked against reality TWENTY-ONE times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -336,6 +344,11 @@ and confirmed on both channels (recorded with their merges, below). 2148 was
 files, both ends predicted and confirmed on both channels (recorded with its
 merge, below); **0 `CACHED` lines** again, image step 2m14s, Wrangler 15s, job
 2m54s.
+**The twenty-first — deploy 2150 (2026-09-24)** — `d6d603e4a7921f14` →
+`67a81b55332be3a9`, 185 inputs, `worker.js` the one input among the push's nine
+files, both ends predicted and confirmed on both channels (recorded with its
+merge, below); **0 `CACHED` lines** again, image step 2m03s, Wrangler 18s, job
+2m53s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3929,6 +3942,8 @@ separate next tasks"*):
    section and publishes), #8 (the css lane drops an earlier rule), #9 (look +
    rename both land and the screen names only the look), and the full rewrite's
    missing photograph wall and `imageDirective(0)` on a photographed site.
+   **#7 REPRODUCED 2026-09-24 through the route** (*the full page writer drops
+   unrelated content silently*, below) — a protection proposed, NOT built.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -4618,7 +4633,7 @@ main changes. Report the actual deployed SHA and image. No paid replay."*
   `d6d603e4a7921f14` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
 
-### THE REPLY NAMES THE PAGE OPERATIONS THAT SHIPPED (2026-09-24, on the branch)
+### THE REPLY NAMES THE PAGE OPERATIONS THAT SHIPPED (2026-09-24, merged and deployed in 2150)
 
 Owner: *"Layout + removal must identify the edited page and the removed page.
 Layout + move must identify the edited page and the move's old and new
@@ -4626,8 +4641,8 @@ addresses. A standalone move must report the move, not "Updated" at the old
 address. Use successful operation results, not the request's wording, as
 evidence. Preserve partial-failure warnings and do not describe a refused
 removal or move as completed. … Keep this to operation reporting—not a
-requirements redesign."* **Not merged, not deployed, no paid run** — the owner
-asked for the focused change and its CI first.
+requirements redesign."* **Reviewed by the owner (263 focused and regression
+tests, both CI checks green), merged and deployed in deploy 2150** — no paid run.
 
 **MEASURED THROUGH THE ROUTE BEFORE THE CHANGE** (supplied answers, the
 page-verb fixture): all four combined cases said *"✅ Updated the look."*; a
@@ -4745,7 +4760,7 @@ purpose, each directly above its own `ok` line this time; `tsc`-format lines
 limit holds**: this proves what the reply says about operations the route
 performed, never that a real model makes the layout change.
 
-### A LOOK THAT CHANGED NOTHING SPEAKS FOR THE STYLING ALONE (2026-09-24, on the branch)
+### A LOOK THAT CHANGED NOTHING SPEAKS FOR THE STYLING ALONE (2026-09-24, merged and deployed in 2150)
 
 Owner, after checking the reply correction (263 focused and regression tests,
 both CI checks green): *"When the stylesheet already matches and the gallery is
@@ -4753,8 +4768,9 @@ successfully removed, the real browser composer says: "Your site already looks
 like that — nothing to change. Took /gallery off the site." Scope the
 no-change statement to the design operation that did nothing. … Do not
 describe the whole request as having nothing to change when another operation
-shipped. … Use the operation result to determine the scope."* **Not merged,
-not deployed, no paid run.**
+shipped. … Use the operation result to determine the scope."* **Reviewed by the
+owner (71 focused tests, unit CI green; *"No further wording expansion is
+needed"*), merged and deployed in deploy 2150** — no paid run.
 
 **MEASURED ON HEAD `f4e28dc8`, THROUGH THE ROUTE AND THE BROWSER'S OWN
 COMPOSER** (supplied answers, the stored sheet already the one asked for):
@@ -4836,6 +4852,113 @@ lines**. **⚠ A BARE `grep -c "not ok"` ANSWERS 4 ON THAT GREEN LOG**: two test
 names contain the words *"is not ok"*, each printed twice (`# Subtest:` and its
 own `ok` line). Count result lines anchored as `ok N -` / `not ok N -`, never
 the phrase.
+**AND `site build` run `35941990957` on `d4ae8af7`** (01:13:43 → 01:36:45Z,
+**23m02s**, all twenty steps) read all twelve counts green out of its per-step
+files: TAP 397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, kit-render /
+kit-a11y / kit-effects / kit-paint `all passed`, census 7 + 4 + 1 = **12**; the
+two known `##[error]` annotations (`index.tsx(50,13) TS2322`,
+`menu.tsx(27,17) TS2339`) inside the case that compiles a broken page on
+purpose; `site-build.mjs` **16m42s**. **The stamp chain ends at `d4ae8af7`.**
+
+### MERGED AND DEPLOYED: THE REPORTING CHANGES (2026-09-24)
+
+Owner: *"The scoped no-change correction passes review: 71 focused tests pass,
+and unit CI is green. No further wording expansion is needed. Once the current
+site build passes, merge and deploy the reviewed reporting changes, preserving
+newer main work. Report the actual deployed SHA and image. No paid replay."*
+Both corrections above — the reply naming the page operations that shipped, and
+the look's no-change sentence scoped to the styling — plus their CI stamps.
+
+- **A FAST-FORWARD, BECAUSE NOTHING NEWER WAS ON MAIN**: `main` `d86aa232` →
+  **`4df02867`** at **01:39:42Z**, 5 commits, 9 files (+1,110 / −51), pushed
+  only after `site build` run `35941990957` finished green. Asked before the
+  push: `origin/main` unmoved, zero runs in progress or queued, the image id
+  predicted over both ends (the twenty-first cross-check, above), and the
+  rollback verified in a throwaway worktree — reverting the range gives tree
+  `6b081e00…`, **main's own**, so a rollback reuses `d6d603e4a7921f14`.
+- **DEPLOY 2150 (`35943904626`) — DEPLOYED, NOT RUNTIME-CONFIRMED.** Success,
+  01:39:44 → 01:42:37Z, **2m53s**; image step **2m03s** with **0 `CACHED`
+  lines**; Wrangler 18s. `DEPLOY_ID` **`4df028677ffef22cbe4399049fe6b4009bf2112f`**
+  (the log prints `…4009bf2***2f`, the `***` a masked `11`); image **built
+  `67a81b55332be3a9`** (registry answered 404, 185 inputs — the log prints
+  `67a8***b55332be3a9`) and **rolled from `d6d603e4a7921f14`** (`- …:d6d603e4a792***f***4`
+  → `+ …:67a8***b55332be3a9` under `SUCCESS Modified application`, `Applied
+  changes`); `Uploaded isibi-app`, `Current Version ID: 1e7018c7-…`, `Deployed
+  isibi-app triggers`.
+- **THE SERVED-FILE CHECK, BOTH READINGS TAKEN**: `public/` changed, so
+  Wrangler answered `+ /chat.js`, 1 file, 85 already uploaded. **Before** (taken
+  at 01:27:27Z, before the push): 736,749 bytes, sha256 `bf745e7118484cad` —
+  byte-identical to `d86aa232`'s — and **0** occurrences of `pageOpsSaid`.
+  **After** (01:43:46Z): 740,600 bytes, sha256 `37983c53938d6581`, **4**
+  occurrences — **byte-identical to `git show 4df02867:public/chat.js`**. The
+  scoped sentence itself lives in `worker.js`, so the served file cannot show
+  it; the Worker half rests on Wrangler's report until a signed-in read.
+  Gates **401 / 401 / 401 / 404** at 01:43:46Z.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  `4df028677ffef22cbe4399049fe6b4009bf2112f` and `expect_image`
+  `67a81b55332be3a9` — both routes that answer the sha and the image ask
+  `authUser` first, and a session holds no token. **No paid replay** (owner).
+
+### THE FULL PAGE WRITER DROPS UNRELATED CONTENT SILENTLY — REPRODUCED (2026-09-24, not fixed)
+
+Owner: *"Investigate whether the full page writer can silently drop unrelated
+content during a small requested edit … Use a page containing distinct
+sections, links and a custom component; request one narrow change, then supply
+an answer that also omits an unrelated section. Check the compiler payload,
+stored source and customer reply. Include controls for the correct narrow edit
+and an explicitly requested section removal. Return the concrete reproduction
+and smallest proposed protection before implementing it. Keep full-site revise
+separate."* **Reproduced; nothing built.** The reproduction is a scratch test
+through the real `POST /api/site/<slug>/edit`, supplied answers, the tweak
+declining so the full writer runs.
+
+**THE FIXTURE**: a home page of four sections — a hero with a `<Link
+to="/menu">`, the opening hours, "Order ahead" rendering the site's own
+`<OrderForm />` (`./-parts/order-form`, stored in `parts.json`), and "Find us"
+with a `<Link to="/visit">Directions</Link>` — beside `/menu` and `/visit`
+pages. The narrow ask: *"Show the opening hours on the home page as a short
+list…"*.
+
+| writer's answer | compiler payload | stored `index.tsx` | screen | charged |
+|---|---|---|---|---|
+| the hours change + "Find us" left out | "Find us" and the `/visit` link **gone** | **gone** | *"✅ Updated /."* | 3 |
+| the hours change + "Order ahead" left out | `<OrderForm />` **no longer rendered** (the file stays in the store, orphaned) | **gone** | *"✅ Updated /."* | 3 |
+| control: the correct narrow edit | everything kept | kept | *"✅ Updated /."* | 3 |
+| control: *"Take the "Find us" section off"* via look, picker `removes: ["components"]` | removed | removed | *"✅ Updated /."* | 4 |
+| control: the same removal routed straight to `page` | removed | removed | *"✅ Updated /."* | 3 |
+
+**SO THE LOSS IS SILENT AND INDISTINGUISHABLE**: the page rung's walls cover
+photographs, oversized or unreadable components and no-change, and nothing
+compares the page's sections, links or rendered components before and after —
+a silent unrelated loss reads exactly as a correct edit or an asked-for removal.
+
+**⚠ THE MEASUREMENT THAT DECIDES WHAT CAN BE PROTECTED — RUN 11.** Over the
+saved before/after pairs of the live page-rung runs (9, 11, 17, 24, 26): section
+titles live mostly in kit components' props, not raw `<h1>`–`<h6>` (the bakery
+page has 0; fretwork-1 2 across 13–15 sections), and **run 11 — a correct,
+requested consolidation routed straight to the page layer with no removal mark
+— took `<section>` from 15 to 13.** So any block- or section-level refusal would
+have refused a real, correct edit. What NONE of the five real edits lost is an
+in-body link or one of the site's own components.
+
+**THE SMALLEST PROPOSED PROTECTION (awaiting the owner)**: in the page rung's
+full writer, beside the photograph refusal, compare the target page before and
+after with two EXISTING readers — `linkSlots` (`builder/site-nav.mjs`; the link
+count dropping, the lost ones named by label and target) and
+`localParts`/`partUses` (`builder/site-files.mjs`; a component the page
+`rendered` that is now definitely `unused`). A loss is permitted only when this
+step's lanes were picked as a removal (the picker's `removes`, which the router
+is told to use for any section removal); otherwise **409 `withheld`, cost 0,
+nothing compiled or stored**, naming what would have come off. Prototyped over
+the fixture and the real runs: catches both drops, passes the correct edit, a
+pure reorder and a retargeted link, and flags **nothing** on runs 9, 11, 17, 24,
+26. **Its stated limits**: a dropped section with no link and none of the site's
+own components stays silent (the most common kit section — run 11 is why it
+cannot be refused without an intent signal); an explicit removal routed straight
+to `page` that takes a link or component is withheld with the sentence; links
+written as expressions are not in `linkSlots`' inventory. Full-site revise
+untouched.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

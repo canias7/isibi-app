@@ -110,6 +110,11 @@ owner signals one; move an item out of Open the moment it is resolved.
   rebuild costs credits and re-rolls the customer's page copy.
 - **No arbitrary HTML in the head.** Every website builder offers "paste anything
   into your head" and every one of them is a way to get a site hacked.
+- **Customer replies should eventually be written by a model from what the edit
+  really did** (2026-09-24) — *"customer replies should eventually be
+  model-written from authoritative operation results. Do not implement that
+  redesign now."* Recorded, not started. Until then the replies are composed by
+  code from those same results, never from how the request was worded.
 
 **The media product (gofarther.dev)**
 - **Never name the provider to a user.** "fal" is an implementation detail; error
@@ -155,13 +160,76 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — Found: a page rewrite can quietly drop a section nobody asked about
+
+You asked whether the full page writer can silently drop unrelated content
+during a small edit. **It can, and I reproduced it** through the real edit step
+with made-up model answers — nothing is fixed yet, as you asked: the
+reproduction and the smallest protection come to you first.
+
+The test page has four sections: a welcome with a link to the menu, opening
+hours, "Order ahead" (the site's own order form), and "Find us" with a
+Directions link to /visit. The ask: *"Show the opening hours as a short list."*
+
+| what the writer handed back | what got published and saved | what the customer was told |
+|---|---|---|
+| the hours change, **and "Find us" left out** | "Find us" and its link are gone | ✅ Updated /. |
+| the hours change, **and "Order ahead" left out** | the order form no longer appears on the page | ✅ Updated /. |
+| just the hours change (correct) | everything kept | ✅ Updated /. |
+| "Take the Find us section off" (asked for) | "Find us" removed | ✅ Updated /. |
+
+So the loss is silent, and the reply reads exactly the same as a correct edit
+or a removal you asked for.
+
+**What I'd propose (not built):** before publishing, compare the page before and
+after using two readers the builder already has — its list of links on a page,
+and its check for whether one of your own components is still shown. If a link
+or one of your components disappeared and the message wasn't a removal (the
+edit step already marks "take X off" requests as removals), refuse the change at
+no cost and say what it would have taken off. Checked against every real page
+edit I have saved (five live runs), it would have refused none of them.
+
+**Its limits, honestly:** a dropped section with no link and none of your own
+components (plain text) would still slip through. On real sites that's the most
+common kind of section, and one real edit — run 11, *"show just the first
+three"* — legitimately removed two such sections, so refusing them would have
+blocked a correct change. Covering those would need the writer to declare what
+it removed. And if a removal request reaches the page step directly instead of
+being marked as a removal, a section with a link would be refused with an
+explanation.
+
+---
+
+## 2026-09-24 — The reporting fixes are merged and live
+
+You reviewed both reply corrections (the page operations named, and "nothing to
+change" scoped to the styling) and asked me to merge and deploy them once the
+site build passed. It passed, and they are live. **Deployed, not
+runtime-confirmed** — reading which code the live Worker runs needs a signed-in
+press. No paid replay.
+
+- `main` is now **`4df028677ffef22cbe4399049fe6b4009bf2112f`** (5 commits,
+  9 files). Nothing newer was on main, so it was a straight fast-forward and
+  nothing needed preserving.
+- Deploy 2150 passed in 2m53s. The site container moved from
+  **`d6d603e4a7921f14`** to **`67a81b55332be3a9`** — the id I predicted before
+  pushing, from 185 inputs.
+- The app's `chat.js` the site serves is now byte-for-byte the merged file.
+- If anything goes wrong, undoing the merge restores main's exact previous
+  state, and the previous container would be reused — checked before pushing.
+- To confirm the live code, press the canary's free check with
+  `expect_deploy` **`4df028677ffef22cbe4399049fe6b4009bf2112f`** and
+  `expect_image` **`67a81b55332be3a9`**.
+
+---
+
 ## 2026-09-24 — "Nothing to change" now speaks only for the styling when something else shipped
 
 You found it: with the styling already in place and the gallery removed, the
 reply said *"Your site already looks like that — nothing to change. Took
 /gallery off the site."* — the first half describing the whole message while
-the removal had shipped. **Fixed on the branch — not merged, not deployed, no
-paid run**, as you asked.
+the removal had shipped. **Fixed; you reviewed it (71 focused tests, unit CI
+green) and it is now merged and live** — see the entry above. No paid run.
 
 ### What the customer sees now
 
@@ -208,8 +276,8 @@ paid run**, as you asked.
 - The whole suite: 7,265 tests, all passing (6 more than before — exactly the
   new ones).
 - CI agrees on the unit tests: the same 7,265 (four skipped on CI, as always),
-  with all 35 page-verb tests found passing by name. The site build is still
-  running as I write this.
+  with all 35 page-verb tests found passing by name; the site build passed all
+  twenty steps with every one of its twelve counts unchanged.
 - Screenshots of all five cases, before and after, are in the chat.
 - **The limit:** the tests supply the model's answers, so this proves what the
   reply says about what the edit step did — not that a real model makes the
@@ -222,8 +290,8 @@ paid run**, as you asked.
 When a message changed a page's layout **and** removed or moved another page,
 the reply said only *"✅ Updated the look."* — naming neither. A move on its
 own said *"✅ Updated /gallery."*, which is the address the page had just left.
-**Fixed on the branch — not merged, not deployed, no paid run**, as you asked:
-the change and its CI come to you first.
+**Fixed; you reviewed it (263 tests, both CI checks green) and it is now merged
+and live** — see the 2026-09-24 entry at the top. No paid run.
 
 ### What the customer sees now
 
