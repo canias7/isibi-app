@@ -181,22 +181,61 @@ Directions link to /visit. The ask: *"Show the opening hours as a short list."*
 So the loss is silent, and the reply reads exactly the same as a correct edit
 or a removal you asked for.
 
-**What I'd propose (not built):** before publishing, compare the page before and
-after using two readers the builder already has — its list of links on a page,
-and its check for whether one of your own components is still shown. If a link
-or one of your components disappeared and the message wasn't a removal (the
-edit step already marks "take X off" requests as removals), refuse the change at
-no cost and say what it would have taken off. Checked against every real page
-edit I have saved (five live runs), it would have refused none of them.
+**The reproduction is now in the repo** as `test/edit-page-keep.test.mjs` —
+13 cases through the real edit step with made-up model answers, so you can
+review it. It records how things behave **today** (nothing is fixed): the
+problem cases check that the loss really does get published, so whoever fixes
+it has to change each one on purpose. It covers the correct edit, a reorder,
+removing "Find us" both ways (through the look step and straight to the page
+step), a link the customer asked to point somewhere else, the order form dropped with
+its import line kept and with it removed, a link removed while a different one
+is added, and "remove Find us" with the order form lost beside it. The whole
+test suite: 7,278 tests, all passing (13 more than before), and CI agrees (the
+same 7,278, four skipped on CI as always).
 
-**Its limits, honestly:** a dropped section with no link and none of your own
-components (plain text) would still slip through. On real sites that's the most
-common kind of section, and one real edit — run 11, *"show just the first
-three"* — legitimately removed two such sections, so refusing them would have
-blocked a correct change. Covering those would need the writer to declare what
-it removed. And if a removal request reaches the page step directly instead of
-being marked as a removal, a section with a link would be refused with an
-explanation.
+**My first proposal had four problems you pointed out, and the revised one
+fixes each (still not built — for you to approve):**
+
+1. **Removals work the same both ways.** Permission no longer comes from the
+   look step's "this is a removal" flag, which the direct page route never has
+   and which only names the kind of thing being removed, never which one. It comes from
+   **your customer's own words**, which both routes carry.
+2. **Permission covers only what was asked for.** Every lost item is checked
+   on its own. "Remove Find us" can cover the Directions link inside "Find us";
+   it can't cover the order form under "Order ahead".
+3. **No counting links.** Links are matched by their words and where they go.
+   Same words, new destination = a retarget, which needs the customer to have
+   asked for it — so a requested retarget still works and a silent one is
+   caught. A link that vanished is a loss even if a different link appeared.
+4. **Components are checked both ways, and "not sure" stays "not sure".** The
+   check starts from the components the page showed before, so a rewrite that
+   deletes the import line too is still caught. If the checker can't tell
+   whether a component is still shown (say it's now used under another name),
+   the change goes through and the reply says it couldn't confirm that part —
+   it's never treated as lost, and never claimed as kept.
+
+**How the check decides:** code works out exactly what disappeared. Only then —
+and only if something did — one small model call is asked, item by item, *did
+the customer's message ask for this?*, and it has to **quote the customer's
+exact words**; code checks the quote is really in the message, so it can't make
+up permission. If every loss was asked for, the edit goes through as normal. If
+something wasn't, the edit is refused at no cost, nothing changes, and the reply
+names what would have come off (by its words or the heading it sat under) and
+how to say they want it gone. If that check itself fails, the edit is refused
+and the reply says the check failed — a different message, since the loss might
+have been asked for. The same check runs on the cheap quick-edit path too.
+
+**On the real edits I have saved** (five live page edits), it would have found
+nothing to ask about — zero extra calls. Five is a small sample.
+
+**Still open, honestly — this is a partial fix, not full protection:** a section
+that is only words or standard building blocks (no link, none of your own
+components) can still disappear silently; the test file keeps one such case so
+that stays visible. Also outside it: links built from data, links inside
+components, and a rewrite that moves a section into a new component (that one
+would be refused, the cautious direction). And the model's yes/no can be wrong
+in a way made-up answers can't test — only a paid run would show that. The
+full-site rewrite is untouched.
 
 ---
 

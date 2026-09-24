@@ -3943,7 +3943,11 @@ separate next tasks"*):
    rename both land and the screen names only the look), and the full rewrite's
    missing photograph wall and `imageDirective(0)` on a photographed site.
    **#7 REPRODUCED 2026-09-24 through the route** (*the full page writer drops
-   unrelated content silently*, below) — a protection proposed, NOT built.
+   unrelated content silently*, below) — the reproduction COMMITTED as
+   `test/edit-page-keep.test.mjs`, the protection's design REVISED on the
+   owner's four points and awaiting approval, NOT built. **It covers links and
+   the site's own components only; plain-text and kit-only section loss stays
+   OPEN.**
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -4909,24 +4913,46 @@ an answer that also omits an unrelated section. Check the compiler payload,
 stored source and customer reply. Include controls for the correct narrow edit
 and an explicitly requested section removal. Return the concrete reproduction
 and smallest proposed protection before implementing it. Keep full-site revise
-separate."* **Reproduced; nothing built.** The reproduction is a scratch test
-through the real `POST /api/site/<slug>/edit`, supplied answers, the tweak
-declining so the full writer runs.
+separate."* **Reproduced; nothing built.** The reproduction is COMMITTED —
+`test/edit-page-keep.test.mjs`, **13 cases** through the real `POST
+/api/site/<slug>/edit`, supplied answers, the tweak declining so the full
+writer runs — as a CHARACTERISATION of today's behaviour, no product change:
+the OPEN DEFECT cases assert the loss IS published, so a fix must flip each one
+deliberately into a refusal case, and a fix that leaves one green has not fixed
+that shape. Suite **7,265 → 7,278** locally (`# tests 7278 / # pass 7278 /
+# fail 0 / # skipped 0`, `duration_ms 116,832`), exactly those cases; **and CI
+matches**: unit run **`35945643176` on `32e0966b`** reads **`# tests 7278 / #
+pass 7274 / # fail 0 / # skipped 4`** (`duration_ms 122,592`) — the total is
+what matches, `pass` differing by CI's four skips — with all thirteen cases
+found passing BY NAME and zero anchored `not ok` lines in the downloaded log.
+No `site build` fires for it: a `test/` file outside that workflow's `paths`
+produces no run. **The stamp chain ends at `32e0966b`.**
 
 **THE FIXTURE**: a home page of four sections — a hero with a `<Link
 to="/menu">`, the opening hours, "Order ahead" rendering the site's own
 `<OrderForm />` (`./-parts/order-form`, stored in `parts.json`), and "Find us"
-with a `<Link to="/visit">Directions</Link>` — beside `/menu` and `/visit`
-pages. The narrow ask: *"Show the opening hours on the home page as a short
-list…"*.
+with a `<Link to="/visit">Directions</Link>` — beside `/menu`, `/visit` and
+`/contact` pages. The narrow ask: *"Show the opening hours on the home page as
+a short list…"*.
 
-| writer's answer | compiler payload | stored `index.tsx` | screen | charged |
-|---|---|---|---|---|
-| the hours change + "Find us" left out | "Find us" and the `/visit` link **gone** | **gone** | *"✅ Updated /."* | 3 |
-| the hours change + "Order ahead" left out | `<OrderForm />` **no longer rendered** (the file stays in the store, orphaned) | **gone** | *"✅ Updated /."* | 3 |
-| control: the correct narrow edit | everything kept | kept | *"✅ Updated /."* | 3 |
-| control: *"Take the "Find us" section off"* via look, picker `removes: ["components"]` | removed | removed | *"✅ Updated /."* | 4 |
-| control: the same removal routed straight to `page` | removed | removed | *"✅ Updated /."* | 3 |
+Every case publishes today, stores the writer's answer byte for byte, leaves the
+other pages and the component FILE untouched, charges 3 (4 through look, the
+picker call) and says *"✅ Updated /."*:
+
+| kind | the ask → the writer's answer | what the existing readers see |
+|---|---|---|
+| must stay published | the hours → just the hours (correct) | links and `order-form` kept |
+| must stay published | *"Put "Find us" at the top"* → reordered | the same links, `rendered` |
+| must stay published | *"Take the "Find us" section off"* via look, picker `removes: ["components"]` → removed | Directions gone, as asked |
+| must stay published | the same removal routed straight to `page` — no picker, no removal signal at all | the same |
+| must stay published | *"Send the Directions link to the contact page"* → retargeted | `Directions → /contact` |
+| must stay published | the hours → the order form rendered through `const Form = OrderForm` | `partUse` **`unsure`**, never `unused` |
+| **open defect** | the hours → + "Find us" left out | `Directions → /visit` gone |
+| **open defect** | the hours → + "Order ahead" left out, import kept | **`unused`** — a confirmed absence |
+| **open defect** | the hours → + "Order ahead" left out, import removed too | **`none`** — confirmed against the before |
+| **open defect** | the hours → Directions removed, `Get in touch → /contact` added | **2 links before, 2 after** |
+| **open defect** | *"Take "Find us" off"* via look → + "Order ahead" left out | Directions gone (asked) + `unused` (not asked) |
+| open, outside the proposed inventory | the hero line → + "Opening hours" left out | nothing the inventory reads moved |
 
 **SO THE LOSS IS SILENT AND INDISTINGUISHABLE**: the page rung's walls cover
 photographs, oversized or unreadable components and no-change, and nothing
@@ -4942,23 +4968,115 @@ requested consolidation routed straight to the page layer with no removal mark
 have refused a real, correct edit. What NONE of the five real edits lost is an
 in-body link or one of the site's own components.
 
-**THE SMALLEST PROPOSED PROTECTION (awaiting the owner)**: in the page rung's
-full writer, beside the photograph refusal, compare the target page before and
-after with two EXISTING readers — `linkSlots` (`builder/site-nav.mjs`; the link
-count dropping, the lost ones named by label and target) and
-`localParts`/`partUses` (`builder/site-files.mjs`; a component the page
-`rendered` that is now definitely `unused`). A loss is permitted only when this
-step's lanes were picked as a removal (the picker's `removes`, which the router
-is told to use for any section removal); otherwise **409 `withheld`, cost 0,
-nothing compiled or stored**, naming what would have come off. Prototyped over
-the fixture and the real runs: catches both drops, passes the correct edit, a
-pure reorder and a retargeted link, and flags **nothing** on runs 9, 11, 17, 24,
-26. **Its stated limits**: a dropped section with no link and none of the site's
-own components stays silent (the most common kit section — run 11 is why it
-cannot be refused without an intent signal); an explicit removal routed straight
-to `page` that takes a link or component is withheld with the sentence; links
-written as expressions are not in `linkSlots`' inventory. Full-site revise
-untouched.
+**THE FIRST PROPOSAL WAS REJECTED ON FOUR POINTS (owner, 2026-09-24), and each
+is a rule for this protection now:** *"1. Preserve intentional section removal
+whether it arrives through look or directly through page. Blocking the direct
+route is a regression, not an acceptable coverage limit. 2. Scope removal
+permission to the requested target. "Remove Find us" must not also authorize
+dropping OrderForm or unrelated links. 3. Do not use link counts alone.
+Removing Directions while adding a different link must not conceal the loss.
+Preserve legitimate requested retargeting. 4. Check component loss both when
+its import remains and when the writer removes the import too. Keep uncertain
+readings distinct from confirmed absence."* The first proposal took its
+permission from the picker's `removes`, which fails 1 and 2 at once —
+**`readRemoves` answers LANE names (`components`), never a target, and only the
+look door has a picker** — and it counted links, which fails 3.
+
+**THE REVISED DESIGN (awaiting the owner; nothing built):**
+
+- **THE FACTS ARE CODE'S, THE INTENT IS THE CUSTOMER'S OWN WORDS, AND THE TWO
+  ARE NEVER MIXED.** Code computes exactly what the answer lost, from the two
+  existing readers; a small model call — made ONLY when something was lost —
+  answers, item by item, whether the customer's message asked for it, and must
+  QUOTE the words that do; code checks the quote is really in the message. No
+  phrase matching in code: a deterministic reader of intent is refused by
+  paraphrase and fooled by *"keep Find us"*, and this file's standing rule
+  against homemade analysis engines applies to language as it did to syntax.
+- **LINKS ARE PAIRED BY IDENTITY, NEVER COUNTED.** `linkSlots` gives each
+  in-body literal link its words and destination; before and after pair in
+  order, each after-link used once: **(1)** same words and destination → kept;
+  **(2)** same words, new destination → **RETARGETED**; **(3)** same
+  destination, new words → relabelled, kept (words are text, which this does
+  not protect); **(4)** a before-link left over → **LOST**, an after-link left
+  over → added, **which never offsets a loss**. Words before destination, so an
+  ambiguous pairing resolves toward asking; a wordless link pairs by
+  destination alone.
+- **A COMPONENT IS READ BY `partUse` ON BOTH SIDES, AND ONLY WHAT THE BEFORE
+  PROVABLY SHOWED IS PROTECTED:**
+
+  | before | after | reading |
+  |---|---|---|
+  | `rendered` | `rendered` | kept |
+  | `rendered` | `unused` — import kept, tag gone, name mentioned nowhere | **CONFIRMED ABSENT** |
+  | `rendered` | `none`, and no tag of its old binding left | **CONFIRMED ABSENT** (import removed too) |
+  | `rendered` | `unsure` — still mentioned, not provably rendered | **UNCERTAIN** |
+  | `rendered` | `none`, but its old binding still appears as a tag | **UNCERTAIN** |
+  | `unsure` | anything but `rendered` | **UNCERTAIN** — never confirmed shown |
+
+  The component list comes from the BEFORE's imports (`localParts`), so a
+  writer that deletes the import line cannot take the component out of the
+  question — which is the whole of point 4's second half.
+- **PERMISSION IS PER ITEM, FROM THE CUSTOMER'S MESSAGE, AND IDENTICAL ON BOTH
+  ROUTES** — the message is the one thing the look door and the direct page
+  route both carry. The judge sees the message verbatim and the numbered items:
+  the kind; the words or the destination; the heading the item sat under (the
+  nearest `<h1>`–`<h6>` or kit `title`/`heading` prop above it in the BEFORE —
+  a description, never a permission and never a grouping); a retarget's old and
+  new destination; a component's declared `does` when `look.tsx` has one. Its
+  tool is one property, `answers: [{n, asked, quote}]`, on the picker's quick
+  model (`eQuick`, `eQuickModel` — every small call follows the picker).
+  **`asked: true` counts only with a quote found in the message** after folding
+  case, whitespace and quote marks, holding a word of three or more letters; an
+  item missing from the answer, or answered twice in disagreement, is NOT
+  asked. So *"Take the "Find us" section off"* can authorise Directions (under
+  "Find us") and cannot, by itself, authorise the order form (under "Order
+  ahead") — each needs its own verified quote.
+- **FOUR OUTCOMES.** Everything lost was asked → publishes, the reply
+  unchanged, the judge's tokens billed with the edit. Anything not asked →
+  **409 `withheld`, cost 0, nothing compiled or stored** — the photo refusal's
+  shape, so `stepWroteNothing`, the whole-request note and the job path's
+  refund read it unchanged — naming each unasked item in the customer's words
+  (a link by its words, a component by the heading it sat under or its declared
+  `does`, never a file name) and how to authorise it. The judge unreachable or
+  unreadable → **503 `withheld`, `ours`, cost 0**, with a DIFFERENT sentence (*"I
+  couldn't check that the rewrite kept everything you didn't ask to change —
+  that's on us"*), because the loss may have been asked for: fail closed, two
+  facts, two sentences. **An UNCERTAIN component never refuses and is never
+  counted as kept**: `partsUnsure` on the reply and one clause naming the
+  heading — the only browser change, recommended, because silence would let
+  "✅ Updated /." stand over something the check could not see.
+- **BOTH RUNGS, ONE CONTRACT — the photo protection's own rules**: asked of the
+  ACCEPTED publication, after the photo refusal, before `publishStep`; the
+  before is `eSrc`, so what an earlier step of the same message did is already
+  in it; and a loss the TWEAK made REFUSES rather than falling through (the
+  owner's own ruling on the photo case: *"Do not publish the loss merely
+  because matching failed, or trigger a full rewrite"*). On the tweak only
+  links can arrive — `sameProse` already refuses worded content and
+  `partEligible` own-component identity — so what reaches the check there is a
+  wordless link or a retarget.
+- **MEASURED**: the prototype classifies every committed case as above; over
+  the five saved live page edits (runs 9, 11, 17, 24, 26 — runs 12, 14, 21 and
+  23 changed no page) it finds nothing lost, retargeted, relabelled, added or
+  uncertain, so **the judge would have been called 0 times. n = 5**, said as
+  n = 5; no larger set of real before/after page pairs exists here.
+- **⚠ WHAT STAYS OPEN — THIS IS A PARTIAL IMPROVEMENT, NOT CONTENT
+  PRESERVATION** (owner): a section of plain words or kit components (the
+  committed hours case stays green under this design by construction, which is
+  why it is kept); links built from data (`to={…}`), links inside components,
+  and kit components' own `href` props; a section MOVED into a new component
+  takes its links out of the page's inventory and would be REFUSED (a
+  conservative false refusal; the remedy, if it is met, is reading the rendered
+  components' links too); the judge can misattribute a quote that IS in the
+  message — supplied answers prove the path and never the judgment, and only a
+  paid run measures that. Full-site revise untouched.
+- **THE FOOTPRINT, ON APPROVAL**: `builder/page-keep.mjs` (new, pure: the
+  inventory, the pairing, the component states, the headings, the judge's tool,
+  prompt and reader, the sentences); two call sites in `worker.js`, one per
+  rung; the one clause in `chat.js` if approved. Tests: the OPEN DEFECT cases
+  flipped into refusals, the MUST-STAY cases kept publishing (the removals and
+  the retarget now with a supplied "asked"), plus a quote not in the message, a
+  judge that fails, the tweak path and the job path's money; a focused mutation
+  check, no broad sweep.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
