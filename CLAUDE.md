@@ -4653,9 +4653,11 @@ byte-identical through the new composer.
 - **THE LOOK BRANCH USES IT ONLY WHEN AN ENTRY REMOVED OR MOVED A PAGE**, so
   every other multi-step sentence — page + picture, css + layout — reads as it
   did. With nothing else to name, the page operations ARE the sentence; beside
-  a look change they follow it; and **the `lookNote` early return appends them
-  too** — found on the way, *"✅ Your site already looks like that — nothing to
-  change."* was the WHOLE reply over a removal that shipped.
+  a look change they follow it. **⚠ The `lookNote` early return appended them
+  too, and that was half a fix**: *"✅ Your site already looks like that —
+  nothing to change."* had been the WHOLE reply over a removal that shipped,
+  and appending the removal left it claiming the whole message had nothing to
+  change beside a change that shipped. The owner caught it — next section.
 - **ONE PAGE, ONE CLAUSE**: two successful steps on one page are named once.
   Reachable by reading, not driven: the QR placement step carries an ask of its
   own, so `samePageOperation` never joins or skips it beside a layout step on
@@ -4690,8 +4692,9 @@ sentence; the standalone move (router, both paths; pages lane) asserts *"✅
 Moved /gallery to /photos."*; **new**: a refused removal and a refused move
 beside a layout change (both paths), a refused move and a refused home-page
 removal on their own (both paths), the `/Photos/` discriminator, a stylesheet
-change beside a removal, an unchanged look beside a removal, and the one-clause
-composer case. **Red 20 of 29 against unfixed `9a4d1787`** in a throwaway
+change beside a removal, an unchanged look beside a removal (its expectation
+corrected by the next section — it asserted the misleading sentence), and the
+one-clause composer case. **Red 20 of 29 against unfixed `9a4d1787`** in a throwaway
 worktree; **with the `pageOps` assertion cut, 16 of 29 fail on the sentence
 alone** — the four partial-success cases then pass, their sentences having
 been right already, so they fail on the unfixed code only on the missing
@@ -4741,6 +4744,89 @@ purpose, each directly above its own `ok` line this time; `tsc`-format lines
 **17m26s**. **The stamp chain ends at `45ea3eec`.** **The supplied-answer
 limit holds**: this proves what the reply says about operations the route
 performed, never that a real model makes the layout change.
+
+### A LOOK THAT CHANGED NOTHING SPEAKS FOR THE STYLING ALONE (2026-09-24, on the branch)
+
+Owner, after checking the reply correction (263 focused and regression tests,
+both CI checks green): *"When the stylesheet already matches and the gallery is
+successfully removed, the real browser composer says: "Your site already looks
+like that — nothing to change. Took /gallery off the site." Scope the
+no-change statement to the design operation that did nothing. … Do not
+describe the whole request as having nothing to change when another operation
+shipped. … Use the operation result to determine the scope."* **Not merged,
+not deployed, no paid run.**
+
+**MEASURED ON HEAD `f4e28dc8`, THROUGH THE ROUTE AND THE BROWSER'S OWN
+COMPOSER** (supplied answers, the stored sheet already the one asked for):
+styling + removal *"✅ Your site already looks like that — nothing to change.
+Took /gallery off the site. Every publish is kept…"*; styling + move *"… nothing
+to change. Moved /gallery to /photos."*; and **styling + a layout change on
+/prices *"✅ Your site already looks like that — nothing to change."* — the
+WHOLE reply, over a layout change that shipped.** That third one is older than
+the reply correction: the early return printed the look's note alone from the
+day the note existed, and the correction only appended page operations that
+removed or moved a page.
+
+**THE SERVER SCOPES THE NOTE, FROM THE STEPS' OWN RESULTS.** `lookNote` is
+composed server-side and the browser prints it verbatim, and the merge is where
+every step's result is known — so the merge decides: a SUCCESSFUL step carrying
+no note is an operation that shipped, and beside one the note is *"The
+requested styling was already in place."*; otherwise it is the step's own
+sentence. Read off `ranOk`, never off the request's lanes or verb. **A step
+answering `ok` that wrote nothing would read as shipped** — none does in the
+look door today (every `ok: true` the edit route answers is a write, checked by
+listing them) — and that errs the safe way: the scoped sentence is true either
+way, and only the whole-message one can be false.
+- **AND THE BROWSER NAMES EVERY PAGE OPERATION THAT SHIPPED AFTER THE NOTE**,
+  an ordinary edit included (`pageOpsSaid(ops)`, not `opsSaid`): with the look
+  having changed nothing, nothing else in that branch can say what shipped. The
+  non-note path is unchanged — there a verb-less page edit is still unnamed
+  beside "Updated the look".
+- **A TAB STILL RUNNING THE DEPLOYED `chat.js`** prints the note verbatim, so it
+  gets the scoped sentence without the new composer: never the whole-message
+  claim, only without the page operations after it.
+
+**WHAT THE CUSTOMER SEES NOW** (exact, all asserted): *"✅ The requested styling
+was already in place. Took /gallery off the site. Every publish is kept, so say
+the word if you want it back."* · *"✅ The requested styling was already in
+place. Moved /gallery to /photos."* · *"✅ The requested styling was already in
+place. Updated /prices."* · and on its own, unchanged: *"✅ Your site already
+looks like that — nothing to change."*
+
+**⚠ A REFUSED OPERATION SHIPPED NOTHING, SO BESIDE ONE THE LOOK'S OWN SENTENCE
+STANDS** — the owner's rule taken literally (*"when another operation
+shipped"*), and recorded as a decision rather than left to be found: styling +
+a refused removal of `/` reads *"✅ Your site already looks like that — nothing
+to change. ⚠️ I left / — that is the home page, and removing it would leave the
+site with no front door."*, the refused removal never described as done.
+Scoping it there too is one condition, and the sweep's S-2 mutant is that
+condition (`done.length > 1` for "a successful step without the note") — killed
+by the two refused-operation controls, so the choice is pinned whichever way the
+owner takes it.
+
+**WHAT IT DOES NOT NAME**: a picture, menu or address change beside an
+unchanged look gets the scoped sentence alone — the look branch names none of
+those in any multi-step reply (the review's #9, next-task 3). The scoped
+sentence is true of what it names and claims nothing about the rest.
+
+**EVIDENCE.** `test/edit-page-verb.test.mjs`, **29 → 35 cases**: the
+unchanged-styling case's expectation corrected and run on both money paths;
+new: styling + move, styling + a layout change, and three controls — styling on
+its own, and styling beside a refused removal and a refused move — each
+asserting the stored pages, the compile count, `pageOps`, the note on the wire
+and the exact screen. **Red 4 of 35 against unfixed `f4e28dc8`** in a throwaway
+worktree — the removal (both paths), the move and the layout case, each first
+on the note on the wire; **with those assertions cut, all four still fail on
+the sentence alone**, the layout case reading *"nothing to change"* as its
+whole reply. The controls pass on both sides. The edit-path set — 34 files —
+**867 / 867**. **Focused mutation check `scripts/mutants/look-scope.json`: 6
+mutants, 6 killed, 0 survived, 0 never applied, the comment-only control
+surviving** — the note never scoped, scoped beside a refused step, scoped with
+the look alone, scoped only by a verb; the browser naming only a verb after the
+note, and nothing after it — against the same 34 files; both swept files
+byte-identical to their pre-sweep hashes afterwards. **Suite 7,265 locally**
+(`# tests 7265 / # pass 7265 / # fail 0 / # skipped 0`, `duration_ms 121,875`)
+— **+6 against 7,259**, exactly this file's new cases.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

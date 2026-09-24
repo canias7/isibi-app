@@ -155,6 +155,65 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — "Nothing to change" now speaks only for the styling when something else shipped
+
+You found it: with the styling already in place and the gallery removed, the
+reply said *"Your site already looks like that — nothing to change. Took
+/gallery off the site."* — the first half describing the whole message while
+the removal had shipped. **Fixed on the branch — not merged, not deployed, no
+paid run**, as you asked.
+
+### What the customer sees now
+
+| message | before | now |
+|---|---|---|
+| green footer (already green) + remove the gallery | ✅ Your site already looks like that — nothing to change. Took /gallery off the site. Every publish is kept… | ✅ The requested styling was already in place. Took /gallery off the site. Every publish is kept, so say the word if you want it back. |
+| green footer (already green) + move the gallery to /photos | ✅ Your site already looks like that — nothing to change. Moved /gallery to /photos. | ✅ The requested styling was already in place. Moved /gallery to /photos. |
+| green footer (already green) + lay out /prices | ✅ Your site already looks like that — nothing to change. *(the whole reply — the layout change went unmentioned)* | ✅ The requested styling was already in place. Updated /prices. |
+| green footer (already green), nothing else | ✅ Your site already looks like that — nothing to change. | unchanged |
+| green footer (already green) + remove the home page (refused) | ✅ Your site already looks like that — nothing to change. ⚠️ I left / — that is the home page… | unchanged |
+
+- **Decided from what actually happened, not from what was asked.** The edit
+  step checks whether any other part of the message really succeeded. If one
+  did, the no-change sentence is about the styling; if the styling was the
+  whole message, it still says the site already looks like that.
+- **The third row was the same problem, quieter**: when the other part was an
+  ordinary layout change rather than a removal or a move, the reply said
+  "nothing to change" and nothing else. It now names the page it changed.
+- **One choice for you to confirm**: when the other part was *refused* (like
+  removing the home page), nothing shipped, so the reply keeps "Your site
+  already looks like that — nothing to change." followed by the refusal's
+  warning — your rule taken literally ("when another operation shipped"). If
+  you'd rather it say "The requested styling was already in place." there too,
+  it's a one-line change.
+
+### Worth knowing — not changed here
+
+- If the other part of the message was a photo, menu or web-address change,
+  the reply now says "The requested styling was already in place." without
+  naming that other change — those parts of a multi-part message have never
+  been named (item 3 on the list). It no longer claims nothing changed.
+
+### Proof (made-up model answers, free)
+
+- The page-verb tests go from 29 to 35. The test that asserted the misleading
+  sentence now asserts the new one, on both paths; new ones cover the move, the
+  layout change, and three unchanged controls (the styling alone, beside a
+  refused removal, beside a refused move) — each checking what was saved, what
+  the compiler received, and the exact reply.
+- On the old code, the 4 changed cases fail and every control passes.
+- The 34 edit-step test files: 867 of 867 pass.
+- A focused mutation check: 6 of 6 deliberate breakages caught, the harmless
+  control not flagged.
+- The whole suite: 7,265 tests, all passing (6 more than before — exactly the
+  new ones).
+- Screenshots of all five cases, before and after, are in the chat.
+- **The limit:** the tests supply the model's answers, so this proves what the
+  reply says about what the edit step did — not that a real model makes the
+  change.
+
+---
+
 ## 2026-09-24 — The reply now says which page was edited, removed or moved
 
 When a message changed a page's layout **and** removed or moved another page,
@@ -185,7 +244,8 @@ the change and its CI come to you first.
 - **One more gap found on the way, fixed too:** when the look part of a message
   changed nothing, the reply was *"✅ Your site already looks like that —
   nothing to change."* and a removal in the same message went unmentioned. It
-  now adds *"Took /gallery off the site…"*.
+  now adds *"Took /gallery off the site…"* — which still opened by saying there
+  was nothing to change. You caught that; the entry above fixes it.
 - **Every other reply is unchanged**, including messages that edit a page next
   to a photo change or a colour change without removing or moving anything.
 

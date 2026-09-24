@@ -1,0 +1,45 @@
+[
+ {
+  "label": "CONTROL: a comment above the scoped note changes nothing",
+  "files": ["worker.js"],
+  "from": "              // DECIDED FROM THE STEPS' OWN RESULTS, never from the request: a\n",
+  "to": "              // DECIDED FROM THE STEPS' OWN RESULTS (control), never from the request: a\n",
+  "control": true
+ },
+ {
+  "label": "S-1: the note is never scoped (the defect restored)",
+  "files": ["worker.js"],
+  "from": "              lookNote: ranOk.some((d) => d.body.lookNote) && ranOk.some((d) => !d.body.lookNote)\n                ? \"The requested styling was already in place.\"\n                : ranOk.map(",
+  "to": "              lookNote: false\n                ? \"The requested styling was already in place.\"\n                : ranOk.map("
+ },
+ {
+  "label": "S-2: a REFUSED step scopes the note too (the request, not the results)",
+  "files": ["worker.js"],
+  "from": "lookNote: ranOk.some((d) => d.body.lookNote) && ranOk.some((d) => !d.body.lookNote)",
+  "to": "lookNote: ranOk.some((d) => d.body.lookNote) && done.length > 1"
+ },
+ {
+  "label": "S-3: the note is scoped even when the look was the whole message",
+  "files": ["worker.js"],
+  "from": "lookNote: ranOk.some((d) => d.body.lookNote) && ranOk.some((d) => !d.body.lookNote)",
+  "to": "lookNote: ranOk.some((d) => d.body.lookNote)"
+ },
+ {
+  "label": "S-4: only a removal or a move scopes the note (a verb, not a shipped result)",
+  "files": ["worker.js"],
+  "from": "lookNote: ranOk.some((d) => d.body.lookNote) && ranOk.some((d) => !d.body.lookNote)",
+  "to": "lookNote: ranOk.some((d) => d.body.lookNote) && pageOps.some((o) => o.removed || o.renamedTo)"
+ },
+ {
+  "label": "B-1: beside the note, only a removal or a move is named",
+  "files": ["public/chat.js"],
+  "from": "      const shipped = pageOpsSaid(ops);\n",
+  "to": "      const shipped = opsSaid;\n"
+ },
+ {
+  "label": "B-2: nothing that shipped follows the note",
+  "files": ["public/chat.js"],
+  "from": "      return '✅ ' + e.lookNote.trim() + (shipped ? ' ' + shipped : '');\n",
+  "to": "      return '✅ ' + e.lookNote.trim();\n"
+ }
+]

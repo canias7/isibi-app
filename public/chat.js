@@ -10444,14 +10444,22 @@ function editReplyBody(e) {
     //
     // A PAGE REMOVED OR MOVED IS SAID, AND SO IS THE PAGE EDITED BESIDE IT
     // (2026-09-23). This is where a message that ran several page steps lands,
-    // and "✅ Updated the look." named none of them — nor did this early
-    // return, which answered "nothing to change" over a removal that shipped.
-    // Only when one of them took a page away or moved one, so every other
-    // multi-step sentence reads as it did; and with nothing else to name, the
-    // page operations ARE the sentence.
+    // and "✅ Updated the look." named none of them. Only when one of them took
+    // a page away or moved one, so every other multi-step sentence reads as it
+    // did; and with nothing else to name, the page operations ARE the sentence.
+    //
+    // ⚠ BESIDE A LOOK THAT CHANGED NOTHING, EVERY PAGE OPERATION THAT SHIPPED
+    // IS NAMED, an ordinary edit included (2026-09-24). That note was the whole
+    // reply — "nothing to change" over a removal, a move or a layout change
+    // that had shipped — and the server now scopes it to the styling once
+    // anything else did. Nothing else here can say what shipped, so the page
+    // operations follow the note.
     const ops = Array.isArray(e.pageOps) ? e.pageOps : [];
     const opsSaid = ops.some(pageOpVerb) ? pageOpsSaid(ops) : '';
-    if (typeof e.lookNote === 'string' && e.lookNote.trim()) return '✅ ' + e.lookNote.trim() + (opsSaid ? ' ' + opsSaid : '');
+    if (typeof e.lookNote === 'string' && e.lookNote.trim()) {
+      const shipped = pageOpsSaid(ops);
+      return '✅ ' + e.lookNote.trim() + (shipped ? ' ' + shipped : '');
+    }
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
     // ALREADY PLAIN NAMES when they arrive — the server maps the axis keys

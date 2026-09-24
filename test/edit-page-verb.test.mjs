@@ -699,12 +699,19 @@ test("a move's reported address is the one the renamer published, not the one th
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 9. A LOOK CHANGE BESIDE A REMOVAL — where the look's own sentence has
-// something to say, the removal follows it; where the look changed nothing,
-// the removal still gets said.
+// 9. A LOOK STEP BESIDE A PAGE OPERATION — where the look's own sentence has
+// something to say, the removal follows it. Where the look changed NOTHING, its
+// "nothing to change" speaks for the styling alone once another operation
+// SHIPPED (2026-09-24, owner: *"Do not describe the whole request as having
+// nothing to change when another operation shipped"*), and the page operations
+// that shipped follow it. Decided from the steps' own results: a REFUSED
+// operation shipped nothing, so beside one the look's own sentence stands and
+// the refusal is warned about.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const FOOTER = "footer{background-color:#0b3d2e}";
+const LOOK_SAME = "Your site already looks like that — nothing to change.";
+const STYLING_SAME = "The requested styling was already in place.";
 
 test("a stylesheet change beside a removal names both: the look's own sentence, then the removal", async () => {
   const r = await drive({
@@ -721,20 +728,106 @@ test("a stylesheet change beside a removal names both: the look's own sentence, 
   assert.equal(r.said.text, "✅ Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
 });
 
-test("a look that changed nothing beside a removal still says the removal", async () => {
-  // THE STORED SHEET IS ALREADY THE ONE ASKED FOR, so the look step answers
-  // "nothing to change" — which, before the reply correction, was the whole
-  // sentence over a removal that shipped.
-  const r = await drive({
-    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and remove the gallery page.",
-    pick: { fields: ["css", "pages"], ...REMOVE_GALLERY }, lane: { css: FOOTER }, css: FOOTER,
+for (const mode of ["sync", "job"]) {
+  test("unchanged styling beside a removal says the styling was already in place, then the removal (" + mode + ")", async () => {
+    // THE STORED SHEET IS ALREADY THE ONE ASKED FOR, so the look step answers
+    // "nothing to change" — which opened the reply, as a claim about the whole
+    // message, over a removal that shipped.
+    const r = await drive({
+      mode, body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and remove the gallery page.",
+      pick: { fields: ["css", "pages"], ...REMOVE_GALLERY }, lane: { css: FOOTER }, css: FOOTER,
+    });
+    const label = "unchanged look + remove (" + mode + ")";
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assertSite(r, GALLERY_GONE, label);
+    assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
+    assertOps(r, [GONE], label);
+    assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
+    assert.equal(r.said.text, "✅ " + STYLING_SAME + " Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+    assert.ok(!/nothing to change/.test(r.said.text), label + ": the whole request was described as having nothing to change");
   });
-  const label = "unchanged look + remove";
+}
+
+test("unchanged styling beside a move says the styling was already in place, then the move", async () => {
+  const r = await drive({
+    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and move the gallery page to /photos.",
+    pick: { fields: ["css", "pages"], ...MOVE_GALLERY }, lane: { css: FOOTER }, css: FOOTER,
+  });
+  const label = "unchanged look + move";
   assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-  assertSite(r, GALLERY_GONE, label);
+  assertSite(r, GALLERY_MOVED, label);
   assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
-  assertOps(r, [GONE], label);
-  assert.equal(r.said.text, "✅ Your site already looks like that — nothing to change. Took /gallery off the site. Every publish is kept, so say the word if you want it back.", label + ": the customer's sentence");
+  assertOps(r, [MOVE], label);
+  assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
+  assert.equal(r.said.text, "✅ " + STYLING_SAME + " Moved /gallery to /photos.", label + ": the customer's sentence");
+});
+
+test("unchanged styling beside an ordinary page edit names the page it changed", async () => {
+  // NOT A VERB: the rule is that another operation SHIPPED, read off its
+  // result, so a layout change scopes the note exactly as a removal does — and
+  // with the look having changed nothing, the edited page is what is named.
+  const r = await drive({
+    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and on the prices page put the price list above the introduction.",
+    pick: { fields: ["css", "shape"] }, lane: { css: FOOTER }, css: FOOTER, apply: pricesLayout,
+  });
+  const label = "unchanged look + layout";
+  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+  assert.deepEqual(r.shown.map((f) => f && f.path), ["prices.tsx"], label + ": the writer was shown the wrong file");
+  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, label);
+  assert.deepEqual(r.reply.layers, ["look", "page"], label + ": layers");
+  assertOps(r, [LAYOUT("/prices")], label);
+  assert.equal(r.reply.lookNote, STYLING_SAME, label + ": the look's note on the wire");
+  assert.equal(r.said.text, "✅ " + STYLING_SAME + " Updated /prices.", label + ": the customer's sentence");
+});
+
+test("control: unchanged styling on its own still says the site already looks like that", async () => {
+  const r = await drive({
+    body: { layer: "look" }, ask: "Make the footer dark green.",
+    pick: { fields: ["css"] }, lane: { css: FOOTER }, css: FOOTER,
+  });
+  const label = "unchanged look alone";
+  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+  assert.deepEqual(r.calls, [T.pick, T.lane], label + ": model calls");
+  assert.equal(r.compiles, 0, label + ": something compiled");
+  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
+  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
+  assert.equal(r.reply.pageOps, undefined, label + ": a page operation was listed");
+  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
+  assert.equal(r.said.text, "✅ " + LOOK_SAME, label + ": the customer's sentence");
+});
+
+test("control: unchanged styling beside a REFUSED removal keeps the look's own sentence and warns about the refusal", async () => {
+  const r = await drive({
+    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and remove the home page.",
+    pick: { fields: ["css", "pages"], pageVerb: "remove", pageName: "/" }, lane: { css: FOOTER }, css: FOOTER,
+  });
+  const label = "unchanged look + refused removal";
+  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+  assert.equal(r.compiles, 0, label + ": something compiled");
+  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
+  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
+  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "kept"]], label + ": partial");
+  assert.equal(r.reply.pageOps, undefined, label + ": a refused removal was listed as an operation");
+  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
+  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
+  assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
+});
+
+test("control: unchanged styling beside a REFUSED move keeps the look's own sentence and warns about the refusal", async () => {
+  const r = await drive({
+    body: { layer: "look", page: "/prices" }, ask: "Make the footer dark green, and move the gallery page to /visit.",
+    pick: { fields: ["css", "pages"], pageVerb: "move", pageName: "/gallery", pageTo: "/visit" }, lane: { css: FOOTER }, css: FOOTER,
+  });
+  const label = "unchanged look + refused move";
+  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+  assert.equal(r.compiles, 0, label + ": something compiled");
+  assert.deepEqual(r.stored, AS_STORED, label + ": the store changed");
+  assert.deepEqual(r.reply.layers, ["look"], label + ": layers");
+  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "rename"]], label + ": partial");
+  assert.equal(r.reply.pageOps, undefined, label + ": a refused move was listed as an operation");
+  assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
+  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
+  assert.ok(!/moved/i.test(r.said.text), label + ": the refused move was described as done");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

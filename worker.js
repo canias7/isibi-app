@@ -24526,7 +24526,24 @@ async function handleRequest(request, env, ctx) {
               // A LANE THAT FOUND NOTHING TO DO SAYS SO IN ITS OWN WORDS, and
               // that has to survive the merge — an empty `moved` with no note
               // reads as a change that silently failed.
-              lookNote: ranOk.map((d) => d.body.lookNote).filter(Boolean).join(" ") || undefined,
+              //
+              // ⚠ BUT THOSE WORDS SPEAK FOR THE WHOLE MESSAGE, which is false
+              // once another operation shipped (2026-09-24, owner: *"Scope the
+              // no-change statement to the design operation that did nothing
+              // … Do not describe the whole request as having nothing to
+              // change when another operation shipped"*). "Make the footer
+              // green and remove the gallery", on a site whose footer already
+              // was, answered "Your site already looks like that — nothing to
+              // change. Took /gallery off the site."
+              //
+              // DECIDED FROM THE STEPS' OWN RESULTS, never from the request: a
+              // step that succeeded without this note is an operation that
+              // shipped, and then the note speaks for the styling alone. A
+              // REFUSED step shipped nothing, so beside a refusal the look's
+              // own sentence stands and the refusal follows it as a warning.
+              lookNote: ranOk.some((d) => d.body.lookNote) && ranOk.some((d) => !d.body.lookNote)
+                ? "The requested styling was already in place."
+                : ranOk.map((d) => d.body.lookNote).filter(Boolean).join(" ") || undefined,
               cssNote: ranOk.map((d) => d.body.cssNote).filter(Boolean).join(" ") || undefined,
               // ── WHAT WE DID NOT DO, SAID OUT LOUD ────────────────────────
               //
