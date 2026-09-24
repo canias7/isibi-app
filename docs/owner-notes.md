@@ -160,6 +160,82 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — The routing fixes are live; a site opened in another browser can still start a new site (reproduced, not fixed)
+
+**Merged and deployed.** Both of today's routing fixes are on `main`
+(`40190564`) and live since deploy 2152. When the "what kind of change is
+this?" answer fails or comes back garbled on a live site, the builder now stops
+and says so instead of starting work.
+
+- **Checked before the push**: nothing new had landed on `main`, nothing else
+  was running, and the only product file in the merge was the reviewed
+  `chat.js`.
+- **What the deploy changed**: only the browser file `chat.js`. The copy the
+  site now serves is byte for byte the merged file, checked before and after.
+  The builder's container was **reused, not rebuilt**. I worked that out
+  before pushing from what the container is built from (none of the changed
+  files goes into it), and the deploy's own log agreed. So there was nothing
+  to wait for.
+- **Not yet confirmed by the live server itself.** My session still can't press
+  the free check (403). **Your press**: `edit-canary` on `main`, spend `no`,
+  expect_deploy `40190564b02e24b299d66fe6e9d0ecb1d4c3e466`, expect_image
+  `56f7d5866240a1de`. That one press also covers this morning's page-rewrite
+  protection deploy, because this deploy reused its container.
+
+**The next issue, reproduced, nothing changed yet.** Open a site in a browser
+that didn't build it and type a change before its page list has loaded, or
+after loading it failed. A brand-new site gets built instead.
+
+I ran the real app in a real browser and recorded every request it made. The
+server side was the real code; only the router's answer was written by me. The
+site was `fretwork-1` (three pages), opened from its card, with *"Make the
+footer navy"*:
+
+- **Page list already loaded**: the edit went to `fretwork-1`, as it should.
+- **Page list still loading, or failed to load**: the builder treated it as a
+  brand-new project. It started a paid build of a **new** site, taking the
+  2-credit deposit and calling the design model, with *"Make the footer navy"*
+  as the new site's description. `fretwork-1` was never touched.
+- **When that build finishes** (I supplied a successful answer to show it): the
+  workspace you had open for `fretwork-1` turned into a new site called "Navy
+  Footer".
+- **A genuinely new project** (the control) worked exactly as it should.
+
+So the answer to your question is **all three**: it starts a new paid build, it
+points at the wrong site, and your request is lost. What the router answers
+makes no difference. With the page list missing, every kind of change comes
+back as "build a new site", and a follow-up question turns into the new-site
+interview.
+
+**Why**: the builder decides "is this a new project?" by whether this browser
+has the site's page list. A site opened from another browser only gets that
+list from the server a moment later. The builder asks once per page load and
+quietly gives up if that fails.
+
+**Proposed fix. It's browser-only, small, and needs your OK:**
+1. A site that already has an address is never treated as a new project.
+2. If its page list isn't there yet, the builder waits for it (asking again if
+   the first try failed) before doing anything with your message.
+3. If the list can't be loaded, it stops and says so. Nothing is sent and
+   nothing is charged. Suggested wording, yours to change: *"⚠️ I couldn't load
+   your site's pages just now, so nothing on your site changed. Send it again
+   in a moment."*
+4. If the server says the site has no pages at all, it also stops rather than
+   building a new site. The reason: today the server gives that same "no pages"
+   answer when its own storage read fails. The alternative is a small server
+   fix so that answer means what it says, but that one rebuilds the container.
+
+A quicker two-line fix exists: treat any site with an address as existing and
+skip the page list. I don't recommend it. The router would then decide without
+knowing your pages, which is how a change got sent to a `/book` page that
+didn't exist.
+
+**Also noticed, not changed**: very old projects, made before the current
+builder, tell you to say "rebuild it". Nothing handles that any more, so they
+just repeat the same sentence.
+
+---
+
 ## 2026-09-24 — A garbled follow-up question now stops too (on the branch, not deployed)
 
 You found the one gap left in the check: a follow-up question (like *"Which

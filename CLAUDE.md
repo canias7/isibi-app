@@ -254,6 +254,12 @@ validator parses a non-file image with `new URL("https://" + image)` and a bare
   must run the new code. The hold is about the ROLL, whatever the image step
   cost. **The base image is not an input**: an upstream `node:22-slim` update
   reaches the image only when something here changes.
+- **AND A PUSH THAT ROLLS NOTHING OWES NO HOLD AT ALL** (owner, 2026-09-24:
+  *"Determine container-image reuse from the actual inputs; don't assume a roll
+  or require an arbitrary wait"*). Predict the id over both ends before the push,
+  and read the image step's `reused` and Wrangler's `no changes` after it. On
+  deploy 2152 (a `public/`-only product change) those two readings and the
+  served-file check were the whole verification.
 
 **THE TIMING BAND, AND WHY NO INFERENCE FROM THE DIFF IS AVAILABLE.** Before
 the skip: 14–15 minutes per deploy. After: a docs/test-only push is a
@@ -288,7 +294,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality TWENTY-ONE times, and the
+whole reader. **Cross-checked against reality TWENTY-THREE times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -349,6 +355,16 @@ merge, below); **0 `CACHED` lines** again, image step 2m14s, Wrangler 15s, job
 files, both ends predicted and confirmed on both channels (recorded with its
 merge, below); **0 `CACHED` lines** again, image step 2m03s, Wrangler 18s, job
 2m53s.
+**The twenty-second — deploy 2151 (2026-09-24)** — `67a81b55332be3a9` →
+`56f7d5866240a1de`, and **the input COUNT moved 185 → 186** as predicted
+(`builder/page-keep.mjs` joined the worker COPY line); image step 2m11s with
+**0 `CACHED` lines**, Wrangler 19s, job 2m57s.
+**The twenty-third — deploy 2152 (2026-09-24) — is the SECOND CONFIRMED
+NEGATIVE**: both ends answered `56f7d5866240a1de` from 186 inputs, none of the
+push's five files among them (`public/chat.js`, two tests, two documents), and
+the log answered `reused … (registry answered 200; ***86 inputs …)` beside `no
+changes isibi-app-sitebuildcontainer` — image step **1.1 s**, Wrangler ~16 s,
+job **~42 s**: the no-roll band, with an asset upload (`+ /chat.js`) inside it.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -3668,15 +3684,18 @@ no database (recorded above, read not driven).
 opened on a browser that did not build it) has no page list until
 `/api/site/routes` answers, so a message sent before then — or for the whole
 page load if that read fails — routes as a FIRST BUILD (`chat.js:10885`), posts
-`chat: "srv_<slug>"`, `siteForChat` finds no row, and a fresh paid site is built
-(`worker.js:14415-14427`). Not driven end to end. **Re-read hop by hop
-2026-09-24, and every hop holds**: `fromRow` (`public/site-list.js`) carries no
-`pages`; `isBuild = !sitePages(site).length`; a build body carries `chat` and
-no slug; `cleanChatId("srv_fretwork-1")` accepts the id; `siteForChat` answers
-`null` for it, so `chatOwnsNoSite` is true and `freeSlugFor` names a NEW site.
-The routes read is asked once per page load (`siteRoutesAsked`) and never
-retried, so one failed read exposes every message of that load. Still not
-driven. Attachments reach only the
+the project's chat, `siteForChat` finds no row, and a fresh paid site is built
+(`worker.js:14415-14427`). **Re-read hop by hop 2026-09-24, and every hop
+holds**: `fromRow` (`public/site-list.js`) carries no `pages`; `isBuild =
+!sitePages(site).length`; a build body carries `chat` and no slug; `siteForChat`
+answers `null` for it, so `chatOwnsNoSite` is true and `freeSlugFor` names a NEW
+site. The routes read is asked once per page load (`siteRoutesAsked`) and never
+retried, so one failed read exposes every message of that load. **DRIVEN END TO
+END the same day** (*an existing site whose page list has not loaded is built as
+a new site*), which corrected one hop: the chat is **not** `srv_<slug>` — opening
+the card runs `siteAdopt`, which makes a fresh local record, so the body carried
+`chat: "site_<ms>_<rand>"`; `siteForChat` found no row for it just the same.
+Attachments reach only the
 logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
 turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
@@ -4009,7 +4028,10 @@ separate next tasks"*):
    in `react-build` with the project's chat, `siteForChat` finds no row, and a
    fresh paid site is named. **Driven for the failure door only**
    (`test/site-route-failure.test.mjs`); the answer doors are read hop by hop
-   (*router side*, above).
+   (*router side*, above). **REPRODUCED END TO END 2026-09-24 in a real browser
+   with every request recorded, and the correction PROPOSED, not built** —
+   *an existing site whose page list has not loaded is built as a new site*,
+   below: a new paid build, the wrong site, and the request lost, all three.
 8. **The addon's own failures fall to the full rewrite** (found 2026-09-24,
    driven): a valid addon answer whose addon POST drops, or whose reply cannot
    be read, starts `react-revise` — on top of an addon that may have landed.
@@ -5672,7 +5694,7 @@ difference."*
   judgment is unverified; plain-text and kit-only section loss stays open.
   **Partial preservation protection, not the edit path complete.**
 
-### A ROUTING ANSWER THAT CANNOT BE ACTED ON STOPS A LIVE SITE — BUILT ON THE BRANCH (2026-09-24; not merged, not deployed, no paid run)
+### A ROUTING ANSWER THAT CANNOT BE ACTED ON STOPS A LIVE SITE (2026-09-24; merged and deployed in 2152 — no paid run)
 
 Owner, after checking the reproduction: *"On an existing site with pages,
 validate the routing result before dispatching any action. Network/HTTP/parse
@@ -5857,6 +5879,187 @@ after: the owner's three shapes and a valid control — before, the garbled
 question with its buttons and the round stored; after, the sentence, no round,
 no buttons; the control identical both ways. **Every routing answer is
 SUPPLIED**, as above.
+
+### MERGED AND DEPLOYED: THE ROUTING PATCH (2026-09-24)
+
+Owner: *"Merge and deploy the reviewed routing patch after rechecking current
+main and candidate 40190564. Stop if additional product changes appeared.
+Verify the deployed SHA and served chat.js against the merged file. Determine
+container-image reuse from the actual inputs; don't assume a roll or require an
+arbitrary wait. No paid run."*
+
+- **RECHECKED BEFORE THE PUSH, AND NOTHING HAD MOVED**: a clean tree, `origin/main`
+  still `1b968c9`, the candidate `40190564` the branch tip, and zero runs in
+  progress, queued or waiting. The range is 7 commits and **5 files**:
+  `public/chat.js`, `test/site-route-failure.test.mjs`, `test/site-ask.test.mjs`
+  and the two documents. The one product file is the reviewed `chat.js`.
+- **A FAST-FORWARD**: `main` `1b968c9` → **`40190564`** at **07:12:17Z**.
+- **REUSE WAS PREDICTED FROM THE INPUTS, NOT ASSUMED**: both ends answer
+  **`56f7d5866240a1de` from 186 inputs**, and none of the five files is an input
+  (`public/` is not copied). The observer was proven first: `worker.js` and
+  `builder/page-keep.mjs` are inputs, and nothing under `public/` is.
+- **DEPLOY 2152 (`35968361110`)**: success, job 07:12:25 → 07:13:06Z (**~42 s**);
+  image step **1.1 s** — `reused isibi-app-sitebuildcontainer:56f7d5866240a***de
+  (registry answered 200; ***86 inputs off ./Dockerfile)`; Wrangler **~16 s** —
+  `+ /chat.js`, 1 uploaded, 85 already, `Uploaded isibi-app`, **`no changes
+  isibi-app-sitebuildcontainer`**, `Deployed isibi-app triggers`, `Current
+  Version ID: 98474cac-…`. `DEPLOY_ID` `40190564b02e24b299d66fe6e9d0ecb1d4c3e466`
+  (the log masks it as `40***90564…ecb***d4c3e466`).
+- **NO HOLD IS OWED**: the 15–20 minute rule is about the roll, and nothing
+  rolled. The edit jobs run on the image deploy 2151 put there. The whole change
+  is the served file.
+- **THE SERVED-FILE CHECK, BOTH READINGS**: before (07:12:08Z, before the push):
+  **741,487 bytes, sha256 `54397bfe3a57abb0`**, byte-identical to `1b968c9`'s
+  `chat.js`, 0 occurrences of `routeActionable` or `routeQuestion`. After
+  (07:13:52Z): **746,091 bytes, sha256 `35e09289eb624b2e`**, 2 and 3 of them,
+  and **byte-identical to `git show 40190564:public/chat.js`**. Gates **401 / 401
+  / 401 / 404**.
+- **THE ROLLBACK WAS VERIFIED BEFORE IT COULD BE NEEDED**: `git revert --no-commit
+  1b968c9..40190564` in a throwaway worktree gives tree **`b436a175…`**, main's
+  own, so a rollback also reuses `56f7d5866240a1de`.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED.** The Worker half is Wrangler's own report;
+  the served file is the one reading taken directly. The canary dispatch answered
+  **403** again at 07:14Z, so the confirmation is the owner's free press:
+  `edit-canary.yml` from `main`, spend `no`, `expect_deploy`
+  **`40190564b02e24b299d66fe6e9d0ecb1d4c3e466`**, `expect_image`
+  **`56f7d5866240a1de`**. It also confirms 2151, since 2152 reused 2151's image.
+
+### AN EXISTING SITE WHOSE PAGE LIST HAS NOT LOADED IS BUILT AS A NEW SITE — REPRODUCED (2026-09-24; proposal only, nothing built)
+
+Owner: *"Then take the next separate edit-entry issue: an existing site whose
+page inventory hasn't loaded is treated as a new project. Reproduce through the
+real browser flow with recorded network actions … Establish whether an ordinary
+edit starts a new build, targets the wrong site, or loses the request. Return the
+smallest proposed correction before implementing it."* Next-task 7, driven end to
+end.
+
+**THE HARNESS** (scratchpad, not committed): the real `public/` app (`index.html`,
+`chat.js`, `site-list.js`, `styles.css`) runs in a real Chromium with the sign-in
+gate held down on the served copy, and every request the page makes is recorded.
+The site list, the page list, the routing call and the build call are answered by
+the real Worker (`loadWorker`). Its own outbound calls are stubbed: the owner, a
+balance of 50, the site row, and a chat lookup that finds no site bound to the
+chat the build names. **ONLY THE ROUTER'S ANSWER IS SUPPLIED.** Any other model
+call is the build's design call, which is recorded and stopped there with a 503.
+The site is `fretwork-1` as the server holds it: three stored pages (`/`,
+`/prices`, `/gear`), built on another machine, bound to no chat. It is opened
+from its start-screen card, which adopts it (`siteAdopt`: a new local record with
+the slug and **no pages**), and sent *"Make the footer navy"*.
+
+| `/api/site/routes` | routing body | router (supplied) | the work request |
+|---|---|---|---|
+| answered before the send | `firstBuild: false`, `hasSite: true`, pages `/ /prices /gear` | `edit`/`look` | `POST /api/site/fretwork-1/edit`, `layer: look`: **correct** |
+| answers after the send | `firstBuild: true`, `hasSite: false`, pages `[]`, `slug: fretwork-1` | `build` | `POST /api/site/react-build` `{brief: "Make the footer navy", chat: site_…}`, **no slug** |
+| fails | the same | `build` | the same |
+| a new project (control) | `firstBuild: true`, `hasSite: false`, pages `[]`, `slug: ""` | `build` | `POST /api/site/react-build`: correct |
+
+**THE REAL BUILD ROUTE THEN BUYS A NEW SITE**, identically for the last three rows:
+the chat lookup finds no site, **`credit_debit` takes the 2-credit deposit**, and
+**the design model is called**. A paid build of a new site has started there; the
+harness stopped it with a 503 and the route reversed the deposit. In the "answers
+after" row the page list did land, but after the build had been sent. **With the
+build's answer supplied as a success** (a fifth run), the workspace opened for
+`fretwork-1` became **"Navy Footer" at `navy-footer`**, the thread said *"✅ Built
+“Navy Footer”. Tell me what to change."*, and `fretwork-1` was never touched.
+
+**SO IT IS ALL THREE, NOT ONE**:
+- it **starts a new paid build**: the deposit and the design call, plus the routing call;
+- it **targets the wrong site**: the build body names no site, and its answer points
+  the open workspace at the new one (`s.slug = d.slug`);
+- it **loses the request**: the edit never reaches `fretwork-1`, and the sentence
+  becomes a new site's brief.
+
+**AND NO ROUTER ANSWER CAN REACH THE EXISTING SITE FROM THAT STATE.** Here is the
+real `/api/site/route`, driven with every answer supplied over the two bodies:
+
+| body | edit | edit (a page) | addon | build | clarify | ask |
+|---|---|---|---|---|---|---|
+| list missing | build | build | build | build | **clarify** | ask |
+| list loaded | edit/look | edit/page | addon | build | addon | ask |
+
+`hasSite: false` closes `edit` and `addon` at `readRouting`, so both fall to
+`FALLBACK_NO_SITE` (a build). `firstBuild: true` opens **a first-build interview on
+an existing site**, and the answer to that question goes through `siteAnswer`,
+which builds. **No change to the router's instructions can fix this: the body it
+is sent is the defect.**
+
+**THE CAUSE IS ONE LINE AND A LATCH.**
+- `siteSend` decides *first build?* with `const isBuild = !sitePages(site).length`,
+  read off localStorage. An adopted record has no pages (`fromRow` and `siteAdopt`
+  carry none).
+- The list arrives only through `siteRoutesFetch`, which the render fires and
+  forgets, **once per slug per page load** (`siteRoutesAsked`, never cleared), and
+  which is **silent on every failure**.
+- **THE WINDOW**: the first message on a site opened in a browser that did not
+  build it, until that read lands; or every message of a page load in which the
+  read failed. Once a read succeeds the list is saved and later loads are safe.
+- `siteRoute` sends `firstBuild: !!isBuild` and `hasSite: !!(site.slug &&
+  sitePages(site).length)`, and the Worker takes both **on trust, deliberately**.
+- **Its comment is wrong in one clause**: *"claim you have none and you rebuild
+  your own site"*. A first-build body carries no slug, so what gets bought is a
+  NEW site, never a rebuild of yours.
+- **The browser's comment above the body is wrong twice**: it says `hasSite` is
+  *"about the SERVER owning a published site"* and that *"the server re-checks it
+  anyway"*. In fact it is computed from localStorage pages, and the server
+  re-checks nothing.
+
+**⚠ A SECOND COLLAPSE UNDER THE FIRST**: `/api/site/routes` reads through
+`loadSiteSource`, which folds a FAILED R2 read into `null`. So it answers `{ok:
+true, routes: []}` with *"nothing stored — this site has not published a build
+yet"* both for a site that never published and for a read that threw.
+(`readSiteSource` already answers `{ok, pages, why}`; the route just does not ask
+it.) **A correction that reads `routes: []` as "never published, so a first build
+is right" re-opens the defect on an R2 blip.**
+
+**THE PROPOSED CORRECTION — NOT BUILT, AWAITING THE OWNER.** It touches the browser
+only (`public/chat.js`), so no container roll:
+
+1. **A PROJECT WITH AN ADDRESS IS NEVER A FIRST BUILD.** In `siteSend`, a site with
+   a `slug` and no page list waits for the page list before anything is routed. A
+   read already in flight is reused; one that failed or answered nothing is asked
+   again, since the customer's send is reason enough for one request.
+   `siteRoutesFetch` returns the read (one promise per slug). The render path is
+   unchanged and keeps its once-per-load latch.
+2. **THE LIST ARRIVES → the ordinary live-site path**, routed with the real pages
+   (`firstBuild: false`, `hasSite: true`).
+3. **THE READ FAILS → STOP WITH A SENTENCE, NOTHING SENT**: no routing call, no
+   charge, busy flag and rail cleared. Wording is the owner's; a draft: *"⚠️ I
+   couldn't load your site's pages just now, so nothing on your site changed. Send
+   it again in a moment."*
+4. **THE READ ANSWERS NO PAGES → ALSO A STOP, NEVER A FIRST BUILD.** Recommended
+   because of the collapse above: a first build from a slugged record makes a
+   different site under a different name, and `routes: []` cannot tell "never
+   published" from "the read failed". **The cost**: a never-published site opened
+   from its card in another browser cannot be built from that card (a new project
+   still can). **The alternative** is a Worker change (the route asks
+   `readSiteSource` and answers 503 when the read did not happen) so that
+   `routes: []` means what it says. That costs an image roll, since `worker.js` is
+   an input.
+5. **THE TWO WRONG COMMENTS ARE CORRECTED** in the same change.
+
+- **NOT RECOMMENDED: the two-line alternative** of taking `isBuild` and `hasSite`
+  from `site.slug` alone and routing with `pages: []`. That is the **blind router**
+  (run 23's `/book`: `readEdit` checks a named page only against a non-empty list).
+  A blind router also cannot draw the edit/addon line, which is *does the thing
+  they name exist on the site now*.
+- **NOT IN IT**: the addon request's own failures (next-task 8); a clarify round
+  the defect already stored on a slugged record (reachable only from such a record,
+  and it still answers through `siteAnswer`); the full revise; translation;
+  hydration; model-written replies.
+- **TESTS, ON APPROVAL**: focused cases driving the real `siteSend` for loaded,
+  loading, failed, answered-empty and a new project. Each asserts the requests,
+  the busy flag, the rail and the sentence. The RECORDED case in
+  `site-route-failure.test.mjs` (*"a failed routing call on an adopted site with no
+  page list starts a NEW site build"*) flips from a characterisation into a stop.
+- **⚠ WHAT THE REPRODUCTION DOES NOT CLAIM**: the router's answer is supplied, so
+  what a real router says to *"Make the footer navy"* under `firstBuild: true` is
+  unmeasured. The matrix is why that does not matter: every work answer it could
+  give is a build, and `clarify` leads to one.
+- **FOUND ON THE WAY, NOT CHANGED**: a legacy static project answers *"Say “rebuild
+  it” and I’ll regenerate it"*, but `siteRebuild` no longer exists anywhere. Its
+  comment still cites it, so "rebuild it" gets the same sentence back forever.
+  That branch is reachable only from a stored record, so it stays; only the promise
+  is false.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
