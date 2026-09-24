@@ -193,7 +193,8 @@ attach code and the real composer, your exact case among them with the picture
 checked all the way into the logo change. All 11 fail on the old code, and the
 37 tests from the last round still pass. Plus the real app in a real browser,
 before and after. The router's answer was written by me, so this proves what
-gets sent, not what a real router would decide. Full suite: 7,450 passing here.
+gets sent, not what a real router would decide. Full suite: 7,450 passing here,
+and the same 7,450 in CI (four left out there, as always).
 
 **Found on the way, not changed**: the same loss one step later. If the "what
 kind of change is this?" check itself fails (*"I couldn't work out what to do

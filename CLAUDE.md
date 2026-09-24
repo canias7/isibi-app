@@ -6258,7 +6258,13 @@ against seven files (spec in the scratchpad); `chat.js` byte-identical to its
 backup afterwards (`41ccd678eec40411`). The files that read `siteSend`, the
 workspace render, the strip or the save: **486 / 486**. **Suite 7,450 locally**
 (`# tests 7450 / # pass 7450 / # fail 0 / # skipped 0`, `duration_ms 116,649`)
-— **+11 against 7,439**, exactly the new cases. **Rendered in the real
+— **+11 against 7,439**, exactly the new cases. **AND CI MATCHES**: unit run
+**`35978672105` on `bd70385a`** reads **`# tests 7450 / # pass 7446 / # fail 0 /
+# skipped 4`** (`duration_ms 103,827`) — the total is what matches, `pass`
+differing by CI's four skips — with all 48 of the file's cases found passing BY
+NAME in the downloaded log archive, 7,450 distinct result numbers and zero `not
+ok N -`. No `site build` fires: `public/` and this test file are on none of its
+`paths`. **The stamp chain ends at `bd70385a`.** **Rendered in the real
 workspace, before and after**: the owner's case (box and strip empty → the words
 and the picture back; the resend `attached: false`, no image → `attached: true`,
 the attached picture on the logo edit) and the workspace switch. **Every routing
