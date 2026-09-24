@@ -5705,8 +5705,8 @@ on a live site only (`!isBuild`), above every branch that sends:
   needs the site's address and a layer in `ROUTE_EDIT_LAYERS`, with `page` and
   `rename` absent or strings and `remove` and `tab` absent or booleans; `addon`
   needs the address; `build` nothing more; `ask` a non-blank string; `clarify`
-  the one predicate its branch draws with (`routeAsksQuestion`, ≥2 options); any
-  other intent fails. **A malformed field refuses the whole answer rather than
+  the one reader its branch draws from (`routeQuestion`, the paragraph after the
+  evidence); any other intent fails. **A malformed field refuses the whole answer rather than
   reading as absent**, because at the point of use absent is a different action.
 - **a refusal is `lost(r)`**: `finish` with *"⚠️ I couldn’t work out what to do
   with that just now, so nothing on your site changed. Send it again in a
@@ -5774,14 +5774,89 @@ lines. **⚠ AN ANCHORED COUNT OF `ok N -` LINES READS 7,382 ON THAT LOG, AND
 was chunked, so `^<timestamp> ok` misses it — count the result numbers, not the
 lines. No `site build` fires: `public/` and these test files are on none of its
 `paths`. The documents-only `9650c0d7` reads the same four numbers on run
-`35964678838` (`duration_ms 100,145`), so it moved the suite by zero. **The
-stamp chain ends at `d0e9c896`.** **Rendered in the
+`35964678838` (`duration_ms 100,145`), so it moved the suite by zero. **That
+round's stamp chain ended at `d0e9c896`.** **Rendered in the
 real workspace chat**, the message typed into the composer and sent, before and
 after: a dropped request, the router's `failed: true` fallback, and
 `{ok:false, intent:"edit", layer:"look"}` — before, the rail and the stop
 button over a rewrite, add-on or edit request; after, the sentence and the send
 button. **Every routing answer is SUPPLIED**: this proves what the browser does
 with a response, never what a real router answers.
+
+**A CLARIFY ROUND IS AN ACTION TOO, AND ITS CHECK READ ONE FIELD** (the owner's
+review, the same day: *"routeAsksQuestion checks only the options array's
+length"*). Reproduced by the owner through the real handler and again here in
+the real workspace chat, on `d0e9c896`'s handler: `{question:{options:["Order",
+"Visit"]}}` drew the question **"undefined"**, words that were an object drew
+**"[object Object]"**, and `{text:"Choose one", options:[null, {}]}` drew two
+buttons answering **"null"** and **"[object Object]"** — each with the clarify
+round STORED, so the next message would be read as an answer to it. **Nothing
+was sent, which is why the first round's stop table could not see it**: a
+drawing is not a request, and every assertion there was about requests.
+
+- **ONE READER, AND THE BRANCH DRAWS WHAT IT RETURNS.** `routeQuestion(d)`
+  answers `{text, options}` — the words a string with something in it, at least
+  two answers, every one a string with something in it — or `null`.
+  `routeActionable`'s clarify arm and the clarify branch both ask it, and the
+  branch pushes the reader's `text` and `options`, never the answer's own
+  fields: a field the reader never looked at cannot reach the screen. **The
+  rule is the producer's own shape** — `readQuestion` in `builder/site-ask.mjs`
+  sends a clipped non-empty text and two to four non-empty string options and
+  nothing else — so the browser refuses nothing the real route sends.
+- **EVERY ANSWER IS CHECKED, THE FIFTH TOO**, though four are drawn: an unusable
+  one dropped there would be a malformed field read as absent. Four or more
+  usable answers still draw the first four (a control).
+- **ON A LIVE SITE A REFUSED QUESTION IS `lost(r)`**: the same sentence, busy
+  flag and rail cleared, **no clarify round stored**, nothing sent.
+- **⚠ ONE CONSEQUENCE OFF THE LIVE SITE, STATED RATHER THAN LEFT TO BE FOUND**:
+  the reader is shared, so an EMPTY project no longer draws a question it
+  refuses either — and with nothing to draw, the answer falls to that project's
+  documented default for an unusable answer, **the first build, which is paid**,
+  where it used to draw the garbled question. A case pins it, so choosing a stop
+  there instead is one assertion to flip, and the owner's to make.
+- **UNCHANGED**: `siteAskHTML` still draws whatever a message STORED before this
+  change — a branch reachable only from a record in a customer's localStorage
+  STAYS, by this file's own rule — and the route never sends these shapes, so
+  such a record exists only if a route misbehaved while the old code ran.
+
+**EVIDENCE.** `test/site-route-failure.test.mjs` goes **55 → 74 cases**: 17
+malformed shapes on a live site (the owner's three first; words missing, empty,
+blank, a number, null or an object; answers missing, a single string, an empty
+list, empty, blank, a number, a list, or an unusable fifth; no question at all;
+a question that is only a string), a four-or-more control, and the empty-project
+case. **Every stop now also asserts that no clarify round is stored**, and both
+clarify controls assert the exact drawn message and the stored round `{brief,
+qa: [], imgs: []}`. **Red 13 of 74 against `d0e9c896`'s handler** in a throwaway
+worktree, the harness's one cut line pointed at the old function's name so the
+file loads — the 12 shapes the length check let through and the empty-project
+case; the 5 it already refused and every control pass on both. **Each red case
+fails first on what was drawn** (`q: 'undefined'`, `q: '[object Object]'`,
+`opts: [null, {}]`), **and with that assertion cut in the throwaway copy all 12
+live-site shapes still fail — on the stored round**, so each assertion sees the
+defect alone. `site-ask`'s guard pinned `routeAsksQuestion`'s exact body and is
+re-anchored to the property: whole-line comments blanked, the code it scans
+proved still there, siteRoute reads no `.question`, the reader does, and the
+live check asks the same reader. **Nine targeted probes, not a sweep** — the
+words read for truthiness, blank words accepted, the answers unchecked, only the
+four drawn checked, one answer enough, every answer drawn, the check keeping the
+old length rule, the branch drawing the raw answer, the branch keeping the old
+rule — **9 killed, the comment-only control surviving**, `chat.js`
+byte-identical to the fixed copy (`35e09289eb624b2e`) afterwards. **The
+raw-answer mutant is killed only by the structural guard**, being behaviourally
+equivalent on every input the reader admits — which is exactly why that guard
+exists. The 91 files that read `chat.js`: **2,908 / 2,908**, +19. **Suite 7,402
+locally** (`# tests 7402 / # pass 7402 / # fail 0 / # skipped 0`, `duration_ms
+115,601`) — **+19 against 7,383**, exactly the file's 55 → 74. **AND CI
+MATCHES**: unit run **`35967266345` on `0ca6b143`** reads **`# tests 7402 /
+# pass 7398 / # fail 0 / # skipped 4`** (`duration_ms 121,218`) — the total is
+what matches, `pass` differing by CI's four skips — with **all 183 cases of the
+two changed files found passing BY NAME** in the downloaded log archive, 7,402
+distinct result numbers and zero `not ok N -`. No `site build` fires, as before.
+**The stamp chain ends at `0ca6b143`.** **Rendered in the real workspace chat**, the message typed and sent, before and
+after: the owner's three shapes and a valid control — before, the garbled
+question with its buttons and the round stored; after, the sentence, no round,
+no buttons; the control identical both ways. **Every routing answer is
+SUPPLIED**, as above.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

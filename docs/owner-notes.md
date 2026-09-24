@@ -160,6 +160,43 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — A garbled follow-up question now stops too (on the branch, not deployed)
+
+You found the one gap left in the check: a follow-up question (like *"Which
+footer?"* with buttons under it) was only checked for having at least two
+answers. So a question with no words showed as *"undefined"*, words sent as the
+wrong kind of thing showed as *"[object Object]"*, and answers that weren't
+words showed as buttons reading *"null"* and *"[object Object]"* — and the
+builder then waited for you to answer that. **Fixed on the branch — not merged,
+not deployed, no paid run.** The screenshots are in the chat.
+
+- **What happens now**: a follow-up question is shown only when its words and
+  every one of its answers are real text, with at least two answers. On a site
+  that already has pages, anything else gets the same sentence as the other
+  failures (*"⚠️ I couldn’t work out what to do with that just now, so nothing
+  on your site changed. Send it again in a moment."*), nothing is started, and
+  no question is left waiting for an answer.
+- **One change on a brand-new project, said plainly**: a garbled follow-up
+  question isn't shown there either. With nothing to show, a new project does
+  what it does for every other unusable answer — it starts the first build,
+  which is charged. Before, it showed the garbled question. One test pins this,
+  so if you'd rather it stopped there too, that is a small change and your call.
+- **How likely it is**: the real server already checks its own follow-up
+  questions this way before sending them, so this only matters if something
+  goes wrong on the way. Questions saved in a browser before this change are
+  still shown as they were saved.
+- **What still works exactly as before**: a real follow-up question, on a live
+  site or a new project, and everything from the earlier fix today.
+- **Proof**: every answer in the tests was written by us, so this shows what
+  the page does with an answer, not what the real server sends. Unit tests
+  7,402, none failing, locally and on GitHub.
+
+The page-rewrite protection deployed earlier today is still waiting for your
+free check: `edit-canary` on `main`, spend `no`, expect_deploy
+`1b968c9de0530872e06ee24680dbfec9d36b928f`, expect_image `56f7d5866240a1de`.
+
+---
+
 ## 2026-09-24 — A failed message check on a live site now stops and says so (on the branch, not deployed)
 
 You approved the fix and added two cases to it. **Built on the branch — not
