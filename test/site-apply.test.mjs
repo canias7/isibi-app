@@ -861,8 +861,19 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   const ansEnd = CHAT.indexOf("function applyEditResult(");
   assert.ok(ansAt > 0 && ansEnd > ansAt, "the shared reply reader is gone or moved");
   const ans = CHAT.slice(ansAt, ansEnd);
-  const escAt = ans.indexOf("if (e.escalate)");
-  const failAt = ans.indexOf("if (!httpOk || !e.ok)");
+  // RE-ANCHORED 2026-09-24 (the owner's validation round): `editAnswer` asks
+  // ONE reader what the reply is (`readEditReply`, the add-on's rule with the
+  // edit's hops) and acts on its answer, so the ordering that is load-bearing
+  // lives in the reader's rule now — an escalate is `ok: false` too, and a
+  // refusal check asked first would read every escalate as a refusal. It pinned
+  // `if (e.escalate)` before `if (!httpOk || !e.ok)`: the truthiness reading
+  // that let `escalate: "false"` and a 503's escalate reach a paid request.
+  assert.match(ans, /const said = readEditReply\(httpOk, e\);/, "the edit reply is not read by the one reader");
+  assert.match(ans, /if \(said\.act === 'hop' \|\| said\.act === 'climb'\) return escalatedEdit\(/,
+    "an escalation is not handed to the escalation handler");
+  const core = CHAT.slice(CHAT.indexOf("function readRouteReply("), CHAT.indexOf("function readAddonReply("));
+  const escAt = core.indexOf("if (a.escalate === true) {");
+  const failAt = core.indexOf("if (a.ok === false) return { act: 'refusal' };");
   assert.ok(escAt > 0 && failAt > 0, "the escalate check or the failure check is gone");
   assert.ok(escAt < failAt,
     "an escalation is not handled before the failure branch, so a 200 carrying escalate:true is shown as an error");
@@ -886,9 +897,13 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   // gone through, and a rewrite on top of it charges twice for one ask and
   // rewrites a change it cannot see. Both now SAY they cannot tell, with the
   // same sentence (`unreadEditMsg`), and start nothing.
-  assert.match(ans, /if \(!e\) \{ clearFlight\(\); o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
+  // RE-ANCHORED 2026-09-24: an unreadable body is the reader's `unknown` (a
+  // null has no boolean `ok`), said by the same branch as a body that cannot be
+  // trusted — the property is that branch's sentence and that it buys nothing.
+  assert.match(core, /if \(!a \|\| typeof a\.ok !== 'boolean'\) return unknown;/, "an unreadable body is no longer read as not knowing");
+  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ clearFlight\(\); o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
     "an unreadable body no longer says it cannot tell");
-  assert.ok(!/if \(!e\) \{[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
+  assert.ok(!/said\.act === 'unknown'[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
   assert.match(b, /\}\)\.catch\(\(\) => \{ clearFlight\(\); finish\('⚠️ ' \+ unreadEditMsg\(\)\); \}\)/,
     "a network drop no longer says it cannot tell");
   assert.ok(!/\.catch\([^)]*\) => \{[^}]*fallback\(/.test(b), "a network drop still reaches the rewrite");

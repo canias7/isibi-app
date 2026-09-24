@@ -395,7 +395,9 @@ test("the shared watcher takes a reader and defaults to the edit's", () => {
   assert.match(w, /return reader\(!!\(r0 && r0\.ok\), once, \{ site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug \}\);/,
     "the reader is not handed the poll's status and the same options the edit's reader gets");
   // The edit's own call site passes no reader, so nothing about a queued edit changed.
-  assert.match(CHAT, /watchEditJob\(site, d, e\.job, origin, finish, fallback, instruction, imgs\);/, "the edit's watch call gained or lost an argument");
+  // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` now,
+  // and its job rides the reader's answer — the property is the argument list.
+  assert.match(CHAT, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs\);/, "the edit's watch call gained or lost an argument");
 });
 
 test("addonAnswer reads the stored reply the way the synchronous tail did, and never rewrites for a lost ask", () => {

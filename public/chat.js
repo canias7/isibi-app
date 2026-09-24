@@ -9255,21 +9255,34 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     }),
   }).then(async (r) => {
     const e = await r.json().catch(() => null);
+    // SIGNED OUT DECIDES ALONE, and before the body (2026-09-24): the route
+    // answers 401 above everything it does, and `apiFetch` has already put the
+    // sign-in gate up. The routing stop's and the add-on's own sentence. A 401
+    // carries no `ok`, so read as a reply it would be not knowing — and it is
+    // the one failure whose next step is known.
+    if (r.status === 401) { clearFlight(); finish('⚠️ You’re signed out. Sign in and send that again.'); return; }
     // ── A QUEUED EDIT ANSWERS WITH A JOB, NOT AN OUTCOME ─────────────────
     //
     // Flag off, this is never taken and every line below runs as it did. Flag
     // on, the reply is a receipt and the real answer is fetched by polling —
     // and `duplicate` means this exact ask was already filed, so the right move
     // is to watch the ORIGINAL rather than treat it as new.
-    if (e && e.ok && e.job && !e.result) {
+    //
+    // ⚠ A RECEIPT IS TAKEN ONLY WHEN IT IS ONE (2026-09-24). This asked
+    // `e.ok && e.job && !e.result` by truthiness, so `ok: "true"` was watched,
+    // a receipt at a 503 was watched, `job: 7` was polled as a job id, and an
+    // empty job id fell through and printed "✅ Done." for an edit nobody saw.
+    // `readEditReply` is the one reading of what a reply may be trusted to say.
+    const said = readEditReply(r.ok, e);
+    if (said.act === 'receipt') {
       clearFlight();
       // THE ASK RIDES THE RECORD (stage 2b, 2026-09-05), with the route that
       // filed the job and the layer and page a sideways hop re-posts with — so
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, e.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '' });
-      watchEditJob(site, d, e.job, origin, finish, fallback, instruction, imgs);
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '' });
+      watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs);
       return;
     }
     return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, clearFlight, slug });
@@ -9363,14 +9376,28 @@ function wholeRequestNote(e, d) {
 
 function editAnswer(httpOk, e, o) {
   const clearFlight = o.clearFlight || function () {};
+  // ⚠ A REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24). Owner, on
+  // fd27cc9f: "HTTP 503 carrying the edit's addon handoff posts a paid addon",
+  // and "HTTP 200 with {ok:"false"} prints "✅ Done."". This read `e.escalate`
+  // by truthiness before it asked the status, and `!e.ok` — so `escalate:
+  // "false"` hopped, a 503's escalate hopped or climbed, and a boolean spelled
+  // as a string passed as a success. `readEditReply` is the add-on's rule with
+  // the edit's own hops, asked of the POST's reply and of a job's stored one.
+  const said = readEditReply(httpOk, e);
   // A BODY WE CANNOT READ IS US NOT KNOWING — and not knowing is not a reason
   // to buy the full rewrite of every page (2026-09-23). It used to fall to
   // `fallback`, on the argument that the rung above still works; but the edit
   // may well have gone through, and a rewrite on top of it both charges again
-  // and rewrites the change it cannot see. Said, and left to the customer.
-  if (!e) { clearFlight(); o.finish('⚠️ ' + unreadEditMsg()); return; }
-  if (e.escalate) return escalatedEdit(e, o);
-  if (!httpOk || !e.ok) {
+  // and rewrites the change it cannot see. Said, and left to the customer. A
+  // body that cannot be TRUSTED with what it claims is the same case, and so
+  // is a RECEIPT here: this reads an OUTCOME, the POST's own receipt is taken
+  // before this is called, and a job's final reply is never a receipt.
+  if (said.act === 'unknown' || said.act === 'receipt') { clearFlight(); o.finish('⚠️ ' + unreadEditMsg()); return; }
+  // AN ESCALATE, AND ONLY A WELL-FORMED ONE, handed on with the fields the
+  // reader checked — never the raw body — so nothing it did not look at can
+  // reach a paid request. Where it goes is still `escalatedEdit`'s to decide.
+  if (said.act === 'hop' || said.act === 'climb') return escalatedEdit({ layer: said.layer, page: said.page }, o);
+  if (said.act === 'refusal') {
     // The server's own sentence when it has one. `buildDownMsg` already knows
     // to drop the "try again in a few seconds" advice on a failure that no
     // amount of retrying fixes.
@@ -9382,8 +9409,8 @@ function editAnswer(httpOk, e, o) {
     // THE RUNG'S OWN SENTENCE — or, when several steps were all refused, EACH
     // STEP'S — THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE. `wholeRequestNote`
     // is empty for every refusal that already says it.
-    const said = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
-    if (said) { o.finish('⚠️ ' + said + wholeRequestNote(e, o.d)); return; }
+    const told = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
+    if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d)); return; }
     // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
     // `fallback` whenever the reply carried no sentence, and a message whose
     // every step was refused carried none at the top — so the customer got a
@@ -9871,7 +9898,7 @@ function addonAnswer(httpOk, a, o) {
   return applyAddonResult(a, o);
 }
 
-// ── WHAT AN ADD-ON REPLY MAY BE TRUSTED TO SAY (2026-09-24) ─────────────────
+// ── WHAT AN ADD-ON OR EDIT REPLY MAY BE TRUSTED TO SAY (2026-09-24) ─────────
 //
 // Owner, on 248e6aaa: "Validate the response before treating it as authority
 // for success, a queued receipt or another paid action. Require real booleans,
@@ -9882,20 +9909,32 @@ function addonAnswer(httpOk, a, o) {
 // truthy — posted one too; and `{ok:"false"}` printed "✅ Done.". Every branch
 // read its field by truthiness and none asked the status.
 //
+// AND THE EDIT READER HAD THE SAME CLASS (the owner, on fd27cc9f: "HTTP 503
+// carrying the edit's addon handoff posts a paid addon", and "HTTP 200 with
+// {ok:"false"} prints "✅ Done.""), so it reads its replies with THIS rule, not
+// a second copy of it: `readEditReply` below. The two routes' replies are one
+// shape — the edit route's `escalate()`, `explain()`, `enqueueReply` and the
+// sweep's recovered reply are the add-on's own — and they differ in ONE place,
+// which is passed in rather than written twice: where a hop may go (`hops`).
+//
 // ONE READING, SIX ANSWERS, asked by the POST and by a job's final reply alike:
 //
-//   hop      the route's escalate naming a cheaper rung — a PAID edit at that
-//            layer. HTTP 2xx, `ok: false`, `escalate: true`, a `layer` the edit
-//            route has (the browser's copy of its list), `page` a string or absent.
-//   climb    the same escalate naming no layer — the rewrite. Which of these
-//            really need it is the deferred server-side classification; this
-//            only refuses one that is malformed.
+//   hop      the route's escalate naming a cheaper rung — a PAID request at
+//            that layer. HTTP 2xx, `ok: false`, `escalate: true`, a `layer` on
+//            the caller's `hops` list, `page` a string or absent.
+//   climb    the same escalate naming no layer — the rewrite. Which of the
+//            add-on's really need it is the deferred server-side
+//            classification (the edit route's are classified in
+//            `builder/edit-failure.mjs`); this only refuses one that is
+//            malformed.
 //   receipt  a job was filed — watched. HTTP 2xx, `ok: true`, a `job` that is a
 //            non-empty string, no `result`. Only the POST can answer one.
 //   success  applied and said. HTTP 2xx, `ok: true`, no escalate, and no `job`
 //            unless it is the sweep's recovered reply, which carries its own.
 //   refusal  `ok: false` and no escalate, at any status: nothing is started, so
-//            the status adds nothing. The route's sentence, or `unsaid`.
+//            the status adds nothing. The route's sentence, or the reader's
+//            own when it wrote none (`unsaid` for an add-on; the edit's
+//            refused steps, or its failed sentence).
 //   unknown  everything else, every CONTRADICTION among it: an escalate at a
 //            failing status, `ok: true` beside an escalate, a success at a
 //            failing status, a boolean spelled as a string.
@@ -9905,11 +9944,12 @@ function addonAnswer(httpOk, a, o) {
 // `String(["picture"])` is "picture", and "false" is truthy. THE ONE EXCEPTION
 // IS THE CLIMB'S LAYER, because the climb is the one paid step an ABSENCE
 // reaches: the route's escalate has no `layer` key at all when it names no rung
-// (`aEscalate(reason)` spreads nothing) and never writes `layer: null`, so there
+// (the add-on's `aEscalate(reason)` and the edit's `escalate(reason)` spread
+// nothing) and neither route writes `layer: null`, so there
 // the key has to be missing. The job id's own grammar is the server's: the poll
 // route answers a malformed one with the 404 a lost job gets, and this page
 // reads that as `gone`.
-function readAddonReply(httpOk, a) {
+function readRouteReply(httpOk, a, hops) {
   const unknown = { act: 'unknown' };
   // `ok` is on every reply the route writes, so a body that is not one — a
   // list, a bare value, `null` — fails here with the rest.
@@ -9919,7 +9959,7 @@ function readAddonReply(httpOk, a) {
   if (a.escalate === true) {
     if (httpOk !== true || a.ok !== false) return unknown;
     if (a.layer === undefined) return { act: 'climb' };
-    if (!ROUTE_EDIT_LAYERS.includes(a.layer) || !absentOr(a.page, 'string')) return unknown;
+    if (!hops.includes(a.layer) || !absentOr(a.page, 'string')) return unknown;
     return { act: 'hop', layer: a.layer, page: a.page || '' };
   }
   if (a.ok === false) return { act: 'refusal' };
@@ -9927,6 +9967,17 @@ function readAddonReply(httpOk, a) {
   if (a.job == null || EditPoll.isRecovered(a)) return { act: 'success' };
   if (typeof a.job !== 'string' || a.job === '' || a.result != null) return unknown;
   return { act: 'receipt', job: a.job };
+}
+// AN ADD-ON HOPS ONLY TO A LAYER THE EDIT ROUTE HAS — the browser's guarded copy
+// of its list, which has no `addon`: the add-on's own name is never a hop.
+function readAddonReply(httpOk, a) {
+  return readRouteReply(httpOk, a, ROUTE_EDIT_LAYERS);
+}
+// AN EDIT HOPS TO THOSE AND TO THE ADD-ON ROUTE — its handoff, `escalate("addon",
+// { layer: "addon" })`, which `EditPoll.escalateAction` sends there. The add-on
+// route never hands back, so that hop cannot loop.
+function readEditReply(httpOk, e) {
+  return readRouteReply(httpOk, e, ROUTE_EDIT_LAYERS.concat('addon'));
 }
 
 /** WHAT A PUBLISHED ADDITION CHANGES ON THIS SIDE — one copy, both paths. */

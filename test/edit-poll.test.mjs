@@ -415,9 +415,20 @@ test("with no job in the reply the synchronous path runs exactly as before", () 
   // ONE BRANCH, AND IT NEEDS A JOB. Flag off, the reply carries none, so
   // nothing below it changes — which is what makes the rollback a variable
   // rather than a revert.
-  assert.match(fn, /if \(e && e\.ok && e\.job && !e\.result\) \{/,
+  // RE-ANCHORED 2026-09-24: this pinned `if (e && e.ok && e.job && !e.result)`,
+  // the truthiness reading the owner's validation round replaced — `ok: "true"`
+  // was watched and `job: 7` polled. The branch now takes the one reader's
+  // receipt, and a receipt there needs a job that is a non-empty string: with
+  // none, the reply is an outcome and the synchronous path reads it.
+  assert.match(fn, /const said = readEditReply\(r\.ok, e\);\s+if \(said\.act === 'receipt'\) \{/,
+    "the job branch no longer asks the reader whether the reply is a receipt");
+  const core = CHAT.slice(CHAT.indexOf("function readRouteReply("), CHAT.indexOf("function readAddonReply("));
+  assert.ok(core.length > 200, "the shared reply reader is gone — this guard would pass over nothing");
+  assert.match(core, /if \(a\.job == null \|\| EditPoll\.isRecovered\(a\)\) return \{ act: 'success' \};/,
+    "a reply with no job is not an outcome, so the flag-off path would not run as before");
+  assert.match(core, /if \(typeof a\.job !== 'string' \|\| a\.job === '' \|\| a\.result != null\) return unknown;/,
     "the job branch is no longer gated on a job actually being present");
-  const branch = fn.indexOf("e.ok && e.job");
+  const branch = fn.indexOf("if (said.act === 'receipt') {");
   const published = fn.indexOf("scheduleCreditRefresh()");
   assert.ok(branch > 0 && published > branch, "the job branch does not precede the synchronous success path");
   // AND THE WATCHER IS LOADED BEFORE THE THING THAT CALLS IT.
@@ -562,7 +573,8 @@ test("the live watch is handed the ask it needs to act on an escalate", () => {
   // The 202 branch starts the watch, and without the instruction that watch can
   // only ever answer "lost" — a queued escalate would then never reach the
   // revise, which is the bug this whole block exists to close, one hop over.
-  assert.match(fn, /watchEditJob\(site, d, e\.job, origin, finish, fallback, instruction, imgs\)/,
+  // RE-ANCHORED 2026-09-24: the job rides the reader's answer (`said.job`).
+  assert.match(fn, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs\)/,
     "the queued watch is started without the ask, so an escalate cannot hop or fall back");
 });
 
@@ -711,8 +723,9 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   assert.ok(open > 0 && shut > open, "the editAnswer window's landmarks are gone or out of order");
   const a = CHAT.slice(open, shut).split("\n").map((l) => (/^\s*\/\//.test(l) ? "" : l)).join("\n");
   // THE OBSERVER IS ALIVE: the branch the rewrite used to hang off is still
-  // here, and still finishes with a sentence.
-  assert.ok(a.includes("if (!httpOk || !e.ok) {"), "the failure branch is gone — this guard would pass over nothing");
+  // here, and still finishes with a sentence. RE-ANCHORED 2026-09-24: the
+  // failure branch is the reader's `refusal` now (it was `!httpOk || !e.ok`).
+  assert.ok(a.includes("if (said.act === 'refusal') {"), "the failure branch is gone — this guard would pass over nothing");
   assert.ok(a.includes("o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'))"), "the failure branch no longer ends in a sentence");
   assert.ok(!/fallback\(/.test(a), "a failure or an unreadable reply still reaches the rewrite: " + (a.match(/.*fallback\(.*/) || [""])[0]);
 });
@@ -853,7 +866,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   assert.match(ro, /s\.msgs\.push\(\{ r: 'a', t: reply \}\);/, "the resumed reply does not reach the thread");
   assert.match(ro, /if \(siteOpenId === origin\) renderSites\(\);/, "the resumed reply does not re-draw the workspace");
   // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, e\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '' \}\)/,
+  // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` too,
+  // and its job rides the reader's answer.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '' \}\)/,
     "the edit route no longer stores the ask");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the

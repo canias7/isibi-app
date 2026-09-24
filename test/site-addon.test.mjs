@@ -468,10 +468,16 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // AN ESCALATE NAMING THE ADDON ITSELF NEVER HOPS. This pinned `layer !==
   // 'addon'`; the reader admits a hop only to a layer the edit route has, and
   // that list — the browser's copy of it — has no `addon`. Both halves read.
-  const readAt = b.indexOf("function readAddonReply(");
+  // RE-ANCHORED 2026-09-24 (the edit round): the rule is `readRouteReply`, the
+  // one the edit's reader shares, and the list a hop is held to is its
+  // argument — so the reader's body is read for the rule and the add-on's
+  // wrapper for the list it passes.
+  const readAt = b.indexOf("function readRouteReply(");
   assert.ok(readAt > 0, "the reply reader is gone from the add-on path");
   const reader = b.slice(readAt, b.indexOf("\n}\n", readAt));
-  assert.match(reader, /if \(!ROUTE_EDIT_LAYERS\.includes\(a\.layer\)/, "a hop is not held to the edit route's own layers");
+  assert.match(reader, /if \(!hops\.includes\(a\.layer\)/, "a hop is not held to the list it is handed");
+  assert.match(b, /function readAddonReply\(httpOk, a\) \{\s*return readRouteReply\(httpOk, a, ROUTE_EDIT_LAYERS\);\s*\}/,
+    "a hop is not held to the edit route's own layers");
   const layers = CHAT.match(/\nconst ROUTE_EDIT_LAYERS = (\[[^\]]*\]);/);
   assert.ok(layers, "the browser's layer list is gone");
   const list = JSON.parse(layers[1].replace(/'/g, '"'));

@@ -666,8 +666,9 @@ export const BROWSER_FNS = Object.freeze([
   // `readAddonReply` IS WHAT THE SELECTION ASKS FIRST (2026-09-24): whether a
   // reply may be trusted with the success, the receipt or the paid step it
   // claims. It reads the edit route's layer list, which is a LINE and not a
-  // function, so it rides in `BROWSER_LINES` below.
-  "readAddonReply",
+  // function, so it rides in `BROWSER_LINES` below. Its rule is
+  // `readRouteReply`, the one the edit's reader shares (2026-09-24).
+  "readRouteReply", "readAddonReply",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
 ]);
 
@@ -815,6 +816,11 @@ export const EDIT_BROWSER_FNS = Object.freeze([
   // screen. That is the designed failure rather than a wrong sentence, and it
   // is still one a guard should catch first.
   "wholeRequestNote", "editAnswer",
+  // `readEditReply` IS WHAT `editAnswer` ASKS FIRST (2026-09-24): whether an
+  // edit reply may be trusted with the success, the escalate or the receipt it
+  // claims — the add-on's rule (`readRouteReply`) with the edit's own hops. It
+  // reads the edit route's layer list, the same LINE `browserSource` cuts.
+  "readRouteReply", "readEditReply",
 ]);
 
 /**
@@ -836,6 +842,11 @@ function editBrowserSource() {
       if (end < 0) throw new Error(name + " has no end in chat.js");
       return chat.slice(at, end + 2);
     };
+    const cutLine = (head) => {
+      const at = chat.indexOf("\n" + head);
+      if (at < 0) throw new Error(head + " is gone from chat.js");
+      return chat.slice(at + 1, chat.indexOf("\n", at + 1));
+    };
     EDIT_BROWSER_SOURCE = {
       ok: true,
       // `editBlocked` IS A MODULE-SCOPE `Set` THE REFUSAL BRANCH WRITES TO,
@@ -843,7 +854,7 @@ function editBrowserSource() {
       // per load, because a harness that shared it across replies would let
       // one `needs-review` answer change what a later, unrelated one says.
       src: "const editBlocked = new Set();\n"
-        + EDIT_BROWSER_FNS.map(cut).join("\n") + "\nreturn editAnswer;",
+        + [...BROWSER_LINES.map(cutLine), ...EDIT_BROWSER_FNS.map(cut)].join("\n") + "\nreturn editAnswer;",
     };
   } catch (e) {
     EDIT_BROWSER_SOURCE = { ok: false, why: String((e && e.message) || e).split("\n")[0].slice(0, 120) };
