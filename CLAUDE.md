@@ -5508,7 +5508,19 @@ permission through the naming fallback."*
   differing by CI's four skips — with the rewritten reader case, the new reader
   case and all five shared-heading route cases found passing BY NAME in the
   downloaded log (`ok 1780`, `ok 1781`, `ok 1824`–`1828`) and zero anchored
-  `not ok N -` lines. **Rendered in the real workspace chat, before and
+  `not ok N -` lines; the documents-only `03cde33e` reads the same four numbers
+  on run `35955832188` (`duration_ms 120,893`), so it moved the count by zero.
+  **AND `site build` run `35955566453` on `16b9ce72`** (04:25:17 → 04:45:51Z,
+  **20m34s**, all twenty steps) read all twelve counts green out of its per-step
+  files: TAP 397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases
+  16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47,
+  kit-render / kit-a11y / kit-effects / kit-paint `all passed`, census 7 + 4 + 1
+  = **12**; the two known `##[error]` annotations (`index.tsx(50,13) TS2322`,
+  `menu.tsx(27,17) TS2339`) inside the case that compiles a broken page on
+  purpose, each directly above its own `ok` line this time; `tsc`-format lines
+  9 / 2 / 7; `site-build.mjs` **14m59s**. **The stamp chain ends at
+  `16b9ce72`**, the last commit to move a product or test file. **Rendered in
+  the real workspace chat, before and
   after** (the owner's bypass, link-only removal, the form named on its own):
   every chat sentence the browser composer's own output captured out of the
   route — BEFORE on the unfixed product (captured before the fix), AFTER on this
