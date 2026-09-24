@@ -207,6 +207,9 @@ paid run**, as you asked.
   control not flagged.
 - The whole suite: 7,265 tests, all passing (6 more than before — exactly the
   new ones).
+- CI agrees on the unit tests: the same 7,265 (four skipped on CI, as always),
+  with all 35 page-verb tests found passing by name. The site build is still
+  running as I write this.
 - Screenshots of all five cases, before and after, are in the chat.
 - **The limit:** the tests supply the model's answers, so this proves what the
   reply says about what the edit step did — not that a real model makes the

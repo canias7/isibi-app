@@ -4827,6 +4827,15 @@ note, and nothing after it — against the same 34 files; both swept files
 byte-identical to their pre-sweep hashes afterwards. **Suite 7,265 locally**
 (`# tests 7265 / # pass 7265 / # fail 0 / # skipped 0`, `duration_ms 121,875`)
 — **+6 against 7,259**, exactly this file's new cases.
+**AND THE CI UNIT HALF MATCHES**: run **`35941990927` on `d4ae8af7`** reads
+**`# tests 7265 / # pass 7261 / # fail 0 / # skipped 4`** (`duration_ms
+121,097`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all thirty-five of this file's cases found passing BY NAME (`ok
+1823`–`1857`) in the full downloaded log archive, and **zero `not ok N` result
+lines**. **⚠ A BARE `grep -c "not ok"` ANSWERS 4 ON THAT GREEN LOG**: two test
+names contain the words *"is not ok"*, each printed twice (`# Subtest:` and its
+own `ok` line). Count result lines anchored as `ok N -` / `not ok N -`, never
+the phrase.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
