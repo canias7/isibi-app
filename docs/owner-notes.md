@@ -160,7 +160,76 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-24 — The message-box fixes are live; next up, a failed add-on still buys a full rewrite (reproduced, not fixed)
+## 2026-09-24 — A failed add-on no longer buys a full rewrite (on the branch, not deployed)
+
+**Closed first:** you checked the deployed message-box fixes (deploy 2153, the
+entry below) and they check out, so that correction is closed.
+
+**What was wrong.** When you ask for something new and the add-on request goes
+wrong on its way, the page used to start a full rewrite of every page (a revise
+measured 17 credits) and say nothing. I rebuilt the check from scratch on the
+deployed page code, with every answer written by me so nothing was spent:
+- **25 of 36 cases started the full rewrite.** That covered a dropped
+  connection, an answer that couldn't be read, a refusal with no reason given,
+  being signed out, and every one of those again when an edit handed its request
+  to the add-on step.
+- **The page also started the rewrite after it had already said "✅ Done"**, if
+  the screen then failed to redraw. The same happened after a refusal's own
+  message.
+- **Two queued cases froze instead.** The send box stayed busy for good and
+  nothing was said.
+
+**What happens now.** None of these starts anything else. Each one gets one
+sentence (the wording is yours to change):
+- **The connection drops, or the answer can't be used:** *"I didn't get a usable
+  answer about that addition, so I can't tell whether it went through. Asking
+  for it again could add it a second time."*
+- **The server says it didn't finish but gives no reason:** *"That addition
+  didn't finish, and I wasn't told why, so I can't tell whether any part of it
+  was added."*
+- **You're signed out:** *"You're signed out. Sign in and send that again."*
+  The sign-in screen comes up as before.
+- **It went through, but this page broke while showing it:** *"✅ That addition
+  went through, but I couldn't show the details of what it changed here."* A
+  success is never called a failure, and a message already on screen is never
+  followed by a second one.
+- **None of them says your site is untouched or that you weren't charged**, and
+  none tells you to check the preview. An error doesn't prove either, and the
+  preview can't show a new table, a saved function or a schedule (your rules).
+
+**Kept exactly as it was:**
+- A success, and a refusal that comes with its own reason.
+- An add-on answer that hands over to a cheaper edit step.
+- An edit that hands its request to the add-on step.
+
+**Not changed, and still open:** when the add-on step itself says "this needs
+the full rewrite" without naming a cheaper step, the rewrite still starts.
+Sorting which of those really need it is the separate server step we agreed.
+So **not every automatic rewrite is closed yet**.
+
+**Also affected:** a queued edit whose answer couldn't be read used to freeze the
+same way. It now says so in the edit's own sentence. That sentence still ends
+*"Check the preview before asking for it again"*, which your new rule says the
+preview can't settle for a data or rules change. I've recorded that and not
+changed it.
+
+**How it was checked:**
+- 38 tests run the real page code. 32 of them fail on the old code, and the 6
+  that pass there are the ones that should (the wording check and the unchanged
+  cases).
+- 14 deliberate small breakages of the fix, and every one was caught.
+- The full test suite passes here, and on GitHub too: 7,500 tests, 0 failures,
+  with all 38 new ones found passing by name.
+- The before and after screenshots are in the chat: the real app in a real
+  browser, the message typed and sent. Before, you get the rewrite's progress
+  steps and the stop button with nothing said. After, you get one sentence and
+  the send button.
+
+**Browser file only, on the branch — not merged, not deployed, no paid run.**
+
+---
+
+## 2026-09-24 — The message-box fixes are live; next up, a failed add-on still buys a full rewrite (reproduced; fixed on the branch the same day, above)
 
 **Merged and deployed, and closed.** The three fixes below — a site opened in
 another browser waits for its pages, a stopped message keeps your picture, and

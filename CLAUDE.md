@@ -4054,7 +4054,11 @@ separate next tasks"*):
    double-charge shape `siteEdit`'s catch was fixed for on 2026-09-23. Kept out
    of the routing correction. **REPRODUCED IN FULL 2026-09-24 — 25 of 31 shapes
    start the rewrite; the scope is proposed and nothing is built** (*the
-   add-on's own failures buy the full rewrite — reproduced*, below).
+   add-on's own failures buy the full rewrite — reproduced*, below). **BUILT
+   THE SAME DAY, on the branch, not merged** (*an add-on that fails never buys
+   the rewrite*, below). **The add-on route's own escalates naming no layer
+   still climb to the rewrite** — the separate server-side step — so not every
+   automatic rewrite from an addition is closed.
 9. **A routing call that cannot be acted on drops the attachments** (found
    2026-09-24, driven through the entry harness on `c5c93652`): `siteRoute`'s
    `lost()` stops with *"…Send it again in a moment"*, and the files `siteSend`
@@ -5782,6 +5786,8 @@ EMPTY PROJECT KEEPS ITS DOCUMENTED DEFAULT**: a dropped request, a 500,
 **UNCHANGED, STILL SEPARATE TASKS**: the adopted site with no page list
 (next-task 7 — its `isBuild` is true, so it is outside this rule) and the
 add-on request's own failures (next-task 8, two ADJACENT OPEN DEFECT cases).
+*Both have since been built: next-task 7 merged in deploy 2153, and next-task 8
+on the branch the same day, where those two cases now stop.*
 
 **⚠ FOUND WHILE RENDERING, NOT CHANGED: CHROMIUM RE-SENDS A ROUTING POST WHOSE
 CONNECTION IS RESET.** One `fetch` from the page, against a local server that
@@ -6489,8 +6495,12 @@ close this correction."*
   own preview and thumbnail frames. **It proves the deployed browser code, not
   the router**: the routing answer is supplied, as in every test of this
   correction.
+- **AND THE OWNER CHECKED THE DEPLOYED CORRECTION AND CLOSED IT** (later the
+  same day: *"The deployed entry/draft correction checks out. Close it."*).
+  What that check covered is the owner's; nothing here records a canary press,
+  so the Worker's own sha stays read by the owner's free press, as above.
 
-### THE ADD-ON'S OWN FAILURES BUY THE FULL REWRITE — REPRODUCED (2026-09-24; proposed, nothing built)
+### THE ADD-ON'S OWN FAILURES BUY THE FULL REWRITE — REPRODUCED (2026-09-24; built the same day, next section)
 
 Owner: *"Bring back the next bounded edit-path issue already recorded, with its
 reproduction and proposed scope before implementation."* That is **next-task 8**:
@@ -6575,6 +6585,133 @@ per reason for the owner.
 - **WHAT THE REPRODUCTION DOES NOT CLAIM**: every answer is SUPPLIED, so this is
   what the browser does with a response and never how often the route sends
   one; the injected throw measures the catch's width, not a known bug.
+
+### AN ADD-ON THAT FAILS NEVER BUYS THE REWRITE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, having reproduced the dropped POST and the unreadable response starting
+`react-revise` independently: *"A transport failure, unreadable response,
+missing refusal sentence or client-side result-handler exception must never
+initiate another paid operation."* The distinctions, in the owner's words: lost
+connection or an unusable response is an unknown outcome; an authoritative
+refusal is shown; an authentication failure asks for sign-in; a success followed
+by a display or application error keeps the known result and never calls the
+addition failed. *"An HTTP error alone does not establish that nothing changed
+or nothing was charged. Likewise, checking the preview cannot establish every
+backend addition's outcome."* **Browser only (`public/chat.js`).**
+
+- **REPRODUCED FIRST, REBUILT FROM SCRATCH** (the earlier driver was gone with
+  its container): the real `siteSend` → `siteRoute` → `siteAddon`/`siteEdit` →
+  `watchEditJob` with the real `edit-poll.js`, `fetch` the one seam, on the
+  deployed `chat.js` (sha256 `98f883cf…`). **25 of 36 shapes posted
+  `/api/site/react-revise` and said nothing**: every transport and parse
+  failure, every failing status without a sentence, a 401 (behind the gate), a
+  throw while showing a success — **and the redraw throwing after "✅ Done" was
+  already on the thread, which started the rewrite anyway** — and all of those
+  again after an edit handed its ask to the add-on route. **Two queued shapes
+  hung instead**: an unreadable stored reply ended the watch in silence, and a
+  throw on a stored success escaped as an unhandled rejection; the send box
+  stayed busy in both. Two more printed garbage rather than rewriting: a blank
+  `msg` as a bare warning sign, and an object `msg` as `[object Object]`.
+- **ONE SENTENCE FUNCTION, FOUR FACTS** — `addonOutcomeMsg(kind)`, a function so
+  the reply harness cuts and runs it:
+  `unknown` *"⚠️ I didn’t get a usable answer about that addition, so I can’t
+  tell whether it went through. Asking for it again could add it a second
+  time."* · `unsaid` *"⚠️ That addition didn’t finish, and I wasn’t told why, so
+  I can’t tell whether any part of it was added."* · `signed-out` (the routing
+  stop's own sentence) · `shown` *"✅ That addition went through, but I couldn’t
+  show the details of what it changed here."* **None claims anything about the
+  site, the money or the preview** — the preview cannot show a table, a saved
+  function or a schedule. The wording is the owner's to change.
+- **WHICH ONE, and the line is the route's own word.** No body → `unknown`. A
+  failing status or `ok` not true: its own `msg` if that is a non-blank STRING
+  (a blank or an object is no sentence), else `unsaid` when the body says
+  `ok: false` and `unknown` when it says less (a raw owner-check `{error}`, a
+  list, `{ok:true}` at a 5xx). **A 401 is decided in `siteAddon` from the
+  status, before the body**, so an unreadable 401 still asks for sign-in; the
+  queued path never meets one, a stored reply never being a 401.
+- **A SUCCESS THIS PAGE BREAKS SHOWING STAYS A SUCCESS.** `applyAddonResult`'s
+  body is wrapped: a throw before its sentence is out says `shown`; a throw
+  after (the redraw) is swallowed, the sentence standing alone. What it recorded
+  before the throw — a new page in the picker, a table in the digest — is kept.
+- **ONE SENTENCE PER ADDITION.** `siteAddon` latches its `finish` (`tell`) and
+  hands the SAME latched one to the synchronous reader and the queued watch; the
+  POST's catch — which was `.catch(fallback)` — says `unknown` only when nothing
+  has been said, so a refusal whose redraw throws is not contradicted.
+- **THE SHARED WATCHER ASKS THE LATCH, NOT WHAT `take` RETURNS.** `take` answers
+  null both for an answer already used and for a final reply that would not
+  parse; `if (!once) return` read both as "used". `if (w.taken()) return` now,
+  and the reader is handed the null. **This reaches queued EDITS too**: an
+  unreadable stored edit reply now says `unreadEditMsg` where it hung.
+- **FROM AN ADDITION THE REWRITE NOW STARTS IN TWO PLACES, CENSUSED**: a site
+  with no address (`if (!slug) return fallback()`, unreachable from `siteRoute`
+  and `escalatedEdit`, both of which require one), and **the route's own
+  escalate naming no layer — KEPT, and the separate server-side step**: which of
+  those reasons really need the rewrite is a class decision per reason, as
+  `EDIT_FAILURES` made for the edit route. So **not every automatic rewrite is
+  closed**, and a case asserts the climb as it stands on both paths.
+- **KEPT AND ASSERTED**: a success (said, the picker updated), a refusal with its
+  own sentence, an escalate naming a layer (one edit POST, the same ask), and
+  the valid edit → add-on handoff (one add-on POST, the customer's words).
+- **EVIDENCE.** `test/addon-failure.test.mjs`, **38 cases** through the real
+  handlers — direct, handoff (synchronous and queued edits) and queued add-ons —
+  each asserting the requests after the routing call (no rewrite, the add-on
+  posted exactly once), the one sentence, the busy flag, the rail and its clock.
+  **Red 32 of 38 against `5e82a50b`** in a throwaway worktree (the new sentence
+  function appended so the file loads); the 6 green there are the wording case
+  and the five controls. With the request gate cut in the throwaway copy, **30
+  of the 32 still fail on the sentence**; the two that then pass are the redraw
+  cases, whose only defect is the rewrite they start after a correct sentence —
+  "✅ Done", and a refusal's own words (**a refusal whose redraw threw reached
+  `.catch(fallback)` too**; that case was written after the first red run, and
+  the first stamp of 31 of 37 was re-measured with it rather than carried
+  over). **Re-anchored, not appeased**: `site-addon` (renamed — it was
+  titled "…falls back on everything else", and its `.catch(fallback)` pin
+  asserted the defect; now a census of the fallback's calls, over comment-blanked
+  code, because the comment recording the old line spells it), `addon-queue` and
+  `site-addon` (the two call spellings → *one* finish on both paths, whatever it
+  is called), `addon-sweep` (two cases asserted the rewrite for a no-sentence
+  refusal and an unparsable body; now the sentence and no action, beside a
+  no-layer escalate that still records the rewrite so the recorder is proved
+  alive), `add-second-one` (the `if (a.msg)` spelling → driven through
+  `browserReply`), and `site-route-failure` (its two ADJACENT OPEN DEFECT cases
+  flipped into stops). `scripts/addon-sweep.mjs` cuts `addonOutcomeMsg`, and its
+  inert-coercion note was RE-MEASURED rather than kept: 16 bodies × 2 statuses,
+  every body the coercion changes gives the raw value's screen on both versions.
+  **Targeted probes, not a sweep: 14 killed, 0 survived, 0 never applied, the
+  comment-only control surviving**, over `chat.js` against nine files (spec in
+  the scratchpad); `chat.js` byte-identical to its backup afterwards
+  (`a7389aebbfed06bf`). The 104 files that read `chat.js` or the harness:
+  **3,205 / 3,205**. **Suite 7,500 locally** (`# tests 7500 / # pass 7498 /
+  # fail 0 / # skipped 2`, `duration_ms 141,432`) — **+38 against 7,462**,
+  exactly the new file; the two skips need the site template's own
+  dependencies, absent in this container. **AND CI MATCHES**: unit run
+  **`36053871897` on `248e6aaa`** reads **`# tests 7500 / # pass 7496 / # fail 0
+  / # skipped 4`** (`duration_ms 123,979`) — the total is what matches, `pass`
+  differing by CI's four skips — with all 38 of the file's cases, and every
+  re-anchored case, found passing BY NAME in the downloaded log archive, 7,500
+  distinct result numbers with no gap and zero `not ok N -`. No `site build`
+  fires: none of the push's eight files is on its `paths`. **The stamp chain
+  ends at `248e6aaa`.** (Its commit message says "red 31": that count was taken
+  before the 38th case existed, and is corrected to 32 of 38 above.) **⚠ AND THE FIRST LOCAL RUN READ ONE
+  FAILURE THAT WAS THE CLONE**: `site-searchpath` case 11 asks git whether its
+  pinned baseline is an ancestor of HEAD, and this container's clone was
+  shallow (51 commits) with the baseline's object present — so the skip did not
+  fire and the ancestry could not be proved. It failed identically on unchanged
+  HEAD and passed once unshallowed; recorded so the next shallow container does
+  not chase it. **Rendered in the real app in a real Chromium**, the message
+  typed and sent, every request answered in the page, before and after: a
+  dropped POST, a 503 with no sentence and an HTML answer — before, the rewrite's
+  rail and the stop button with nothing said; after, one sentence and the send
+  button. **Every answer is SUPPLIED**: this proves what the browser sends and
+  says, never how often a real route answers these shapes.
+- **FOUND ON THE WAY, NOT CHANGED**: the edit's own not-knowing sentence
+  (`unreadEditMsg`) still ends *"Check the preview before asking for it
+  again"*, which the owner's rule says cannot establish a backend change (a
+  data or rules edit) — now also said by a queued edit's unreadable reply; a
+  queued job whose poll answers 401 keeps polling behind the gate (no paid
+  operation, pre-existing); and a queued REFUSAL whose redraw throws still
+  escapes the watcher as an unhandled rejection after its sentence is out (no
+  paid operation, pre-existing, the watcher not catching its reader).
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
