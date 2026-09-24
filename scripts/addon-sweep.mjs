@@ -918,7 +918,6 @@ export function editBrowserReply(reply, httpOk, d) {
       origin: "",
       slug: "",
       instruction: "the ask this run posted",
-      clearFlight: () => {},
       finish: (t) => { text = String(t); },
       fallback: () => { actions.push("start the FULL ~25-credit rewrite (the browser's `fallback`)"); },
     });

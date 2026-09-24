@@ -68,7 +68,11 @@ const SRC = [
   cut("function siteSend("),
   cut("function siteBuildStart("),
   cutLine("function siteBuildStop("),
-  "const editInFlight = new Set(); const editIdem = new Map(); const editBlocked = new Set(); const editWatched = new Set();",
+  // THE LATCHES AS THE PAGE DECLARES THEM, and the two functions that take and
+  // release a site's edit latch — never a second copy of either.
+  cutLine("const editInFlight ="), cutLine("const editIdem ="), cutLine("const editBlocked ="), cutLine("const editWatched ="),
+  cut("function editAsk("),
+  cut("function editAskDone("),
   cut("function siteEdit("),
   cut("function unreadEditMsg("),
   cut("function wholeRequestNote("),

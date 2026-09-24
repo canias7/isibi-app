@@ -156,23 +156,27 @@ const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8")
 
 /**
  * THE POST `siteEdit` MAKES for a routing reply — the real function, with its
- * six free names supplied and `apiFetch` a recorder whose promise never
+ * free names supplied (the two that take and release the site's edit latch are
+ * cut out of chat.js beside it) and `apiFetch` a recorder whose promise never
  * settles, so nothing past the POST runs. What comes back is the URL and the
  * body exactly as the browser would send them.
  */
 function browserEditPost(site, d, instruction) {
-  const open = CHAT.indexOf("\nfunction siteEdit(");
-  const shut = CHAT.indexOf("\n}\n", open);
-  assert.ok(open > 0 && shut > open, "siteEdit's landmarks are gone from chat.js");
+  const fn = (head) => {
+    const open = CHAT.indexOf("\nfunction " + head + "(");
+    const shut = CHAT.indexOf("\n}\n", open);
+    assert.ok(open > 0 && shut > open, head + "'s landmarks are gone from chat.js");
+    return CHAT.slice(open, shut + 2);
+  };
   const sent = [];
   const ended = [];
   const ctx = vm.createContext({
-    editBlocked: new Set(), editInFlight: new Set(), editIdem: new Map(),
+    editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
     EditPoll: { newIdemKey: () => "idem-page-target", outcomeMessage: (s) => "outcome:" + s },
     buildPicker: "sonnet",
     apiFetch: (url, init) => { sent.push({ url, init }); return new Promise(() => {}); },
   });
-  vm.runInContext(CHAT.slice(open, shut + 2), ctx);
+  vm.runInContext([fn("editAsk"), fn("editAskDone"), fn("siteEdit")].join("\n"), ctx);
   ctx.siteEdit(site, d, instruction, "origin-1", (t) => ended.push("finish:" + t), () => ended.push("fallback"), [], false);
   assert.deepEqual(ended, [], "siteEdit ended the message instead of posting it: " + JSON.stringify(ended));
   assert.equal(sent.length, 1, "siteEdit made " + sent.length + " requests, not one");

@@ -9160,9 +9160,11 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // own words.
 // ── ONE EDIT IN FLIGHT PER SITE, AND ONE KEY PER ASK ─────────────────────
 //
-// `editInFlight` is what stops a double submission while the first POST is
-// unresolved: a second click before the 202 lands would otherwise be a second
-// job with its own key, its own charge and its own publish racing the first.
+// `editInFlight` is what stops a double submission while an ask is being made:
+// a second click before the first one ends would otherwise be a second job
+// with its own key, its own charge and its own publish racing the first. It
+// maps a site to the ASK holding it, and `editAsk` and `editAskDone` below are
+// the only two things that touch it.
 //
 // `editIdem` is the retry key for the ask that is in flight. It is minted when
 // the customer asks for something and reused for every retry of THAT POST — a
@@ -9173,7 +9175,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
 // `editBlocked` is the sites whose last edit stopped mid-publish. The server
 // refuses those too — `edit_create` answers `needs-review` — and this is the
 // half that stops the customer spending a round trip to be told so.
-const editInFlight = new Set();
+const editInFlight = new Map();
 const editIdem = new Map();
 const editBlocked = new Set();
 // `editWatched` is the jobs this page has a live watch on (stage 2b,
@@ -9182,16 +9184,74 @@ const editBlocked = new Set();
 // latch inside a watch is per WATCH, not per job.
 const editWatched = new Set();
 
+// ── THE ASK THAT TOOK A SITE'S LATCH IS THE ONLY ONE THAT RELEASES IT ──────
+//
+// (2026-09-24) The owner, reproducing it through the real handlers: an edit
+// hands off to another edit layer, that layer succeeds and the customer hears
+// "Updated the wording." — and the next message reaches the router, posts no
+// edit and leaves the send box busy for good. The latch was a site name in a
+// Set, released by `clearFlight`, which did nothing inside a hop (the hop is
+// the same ask, so it took no latch of its own) and was never called by the
+// first POST once that POST had handed off. So every chain with a sideways hop
+// in it left the site latched for the rest of the page load, whatever the hop
+// answered. And the other way round, a queued edit released it at its RECEIPT,
+// while the job it had just filed was still running.
+//
+// So the latch belongs to the ask, held for exactly as long as the ask is being
+// made. `siteEdit` takes it for a customer's message and wraps that message's
+// `finish` and `fallback`: the chain's end — its sentence on the thread, or its
+// handoff to the full rewrite — releases it, and nothing else does. A hop, a
+// queued job's watch and the add-on handoff are each handed the wrapped pair,
+// so they hold it until the chain they belong to has really ended.
+//
+// THE TOKEN IS COMPARED BEFORE IT IS RELEASED, so an old ask's late completion
+// can never release a newer ask's latch: `editAskDone` deletes the entry only
+// when the ask it was given is still the one holding it.
+function editAsk(slug) {
+  if (editInFlight.has(slug)) return null;
+  const ask = {};
+  editInFlight.set(slug, ask);
+  return ask;
+}
+function editAskDone(slug, ask) {
+  if (editInFlight.get(slug) === ask) editInFlight.delete(slug);
+}
+
 function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOff) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   if (editBlocked.has(slug)) { finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
   // A SIDEWAYS HOP IS THE SAME ASK. `handedOff` means one lane escalated to
   // another within one message, so it must not be refused as a double
-  // submission — it IS the first submission, redirected.
+  // submission — it IS the first submission, redirected. It takes no latch of
+  // its own and releases none: it was handed its ask's wrapped `finish` and
+  // `fallback`, and whichever of them ends the chain is what releases.
   if (!handedOff) {
-    if (editInFlight.has(slug)) return;
-    editInFlight.add(slug);
+    const ask = editAsk(slug);
+    // SILENT, AND NOT REACHED IN THE ORDINARY RUN OF THINGS (2026-09-24): every
+    // door that sends a message refuses while `siteBusy` is set, and the
+    // wrapped `finish` below releases the latch in the same step as the page's
+    // own `finish` clears that flag. What does reach it is the busy flag coming
+    // down while another ask still holds the site — an older ask's `finish`
+    // running a second time, which the flag, having no owner, cannot tell from
+    // the holder's — and then this latch is the one wall left. A sentence here
+    // could only go through the refused message's own `finish`, which would
+    // clear the page's busy flag while the holder is still being made. So it
+    // posts nothing, releases nothing and says nothing, and the holder's end
+    // clears the page.
+    if (!ask) return;
+    const tell = finish;
+    finish = (...said) => { editAskDone(slug, ask); return tell(...said); };
+    // THE HANDOFF TO THE FULL REWRITE ENDS THE EDIT CHAIN, and releases here —
+    // not when the rewrite finishes, because a rewrite that succeeds ends
+    // through `siteFinishBuild` and never calls the `finish` it was handed, so a
+    // latch waiting for it would be held for good by every successful climb.
+    // The page stays busy until the rewrite ends, which is what refuses a
+    // second message meanwhile.
+    if (typeof fallback === 'function') {
+      const fall = fallback;
+      fallback = (...args) => { editAskDone(slug, ask); return fall(...args); };
+    }
   }
   // ── THE LATCH IS PER ASK. THE KEY IS PER POST. ──────────────────────────
   //
@@ -9215,7 +9275,6 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
   // double charge, and the right direction to fail in.
   editIdem.set(slug, EditPoll.newIdemKey());
   const idem = editIdem.get(slug);
-  const clearFlight = () => { if (!handedOff) editInFlight.delete(slug); };
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/edit', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -9260,7 +9319,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // sign-in gate up. The routing stop's and the add-on's own sentence. A 401
     // carries no `ok`, so read as a reply it would be not knowing — and it is
     // the one failure whose next step is known.
-    if (r.status === 401) { clearFlight(); finish('⚠️ You’re signed out. Sign in and send that again.'); return; }
+    if (r.status === 401) { finish('⚠️ You’re signed out. Sign in and send that again.'); return; }
     // ── A QUEUED EDIT ANSWERS WITH A JOB, NOT AN OUTCOME ─────────────────
     //
     // Flag off, this is never taken and every line below runs as it did. Flag
@@ -9275,7 +9334,11 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // `readEditReply` is the one reading of what a reply may be trusted to say.
     const said = readEditReply(r.ok, e);
     if (said.act === 'receipt') {
-      clearFlight();
+      // THE LATCH STAYS TAKEN WHILE THE JOB RUNS (2026-09-24). It was released
+      // here, on the receipt — so the lock was off for the whole of every
+      // queued edit, the ordinary case since the queue was switched on for
+      // everyone. The watch is handed the wrapped pair and releases at its end.
+      //
       // THE ASK RIDES THE RECORD (stage 2b, 2026-09-05), with the route that
       // filed the job and the layer and page a sideways hop re-posts with — so
       // a watch resumed after a refresh hops or falls to the revise exactly as
@@ -9285,11 +9348,11 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs);
       return;
     }
-    return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, clearFlight, slug });
+    return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, slug });
     // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
     // POST may have been filed, and a rewrite on top of it would charge twice
     // for one ask (2026-09-23). It fell to `fallback` — the full rewrite.
-  }).catch(() => { clearFlight(); finish('⚠️ ' + unreadEditMsg()); });
+  }).catch(() => { finish('⚠️ ' + unreadEditMsg()); });
 }
 
 /**
@@ -9375,7 +9438,10 @@ function wholeRequestNote(e, d) {
 }
 
 function editAnswer(httpOk, e, o) {
-  const clearFlight = o.clearFlight || function () {};
+  // NOTHING HERE RELEASES THE SITE'S LATCH (2026-09-24): every way out below
+  // ends in `o.finish` or `o.fallback`, and those are the ask's own wrapped
+  // pair (`siteEdit`), which release it — or a hop, which carries them on.
+  //
   // ⚠ A REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24). Owner, on
   // fd27cc9f: "HTTP 503 carrying the edit's addon handoff posts a paid addon",
   // and "HTTP 200 with {ok:"false"} prints "✅ Done."". This read `e.escalate`
@@ -9392,7 +9458,7 @@ function editAnswer(httpOk, e, o) {
   // body that cannot be TRUSTED with what it claims is the same case, and so
   // is a RECEIPT here: this reads an OUTCOME, the POST's own receipt is taken
   // before this is called, and a job's final reply is never a receipt.
-  if (said.act === 'unknown' || said.act === 'receipt') { clearFlight(); o.finish('⚠️ ' + unreadEditMsg()); return; }
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg()); return; }
   // AN ESCALATE, AND ONLY A WELL-FORMED ONE, handed on with the fields the
   // reader checked — never the raw body — so nothing it did not look at can
   // reach a paid request. Where it goes is still `escalatedEdit`'s to decide.
@@ -9401,7 +9467,7 @@ function editAnswer(httpOk, e, o) {
     // The server's own sentence when it has one. `buildDownMsg` already knows
     // to drop the "try again in a few seconds" advice on a failure that no
     // amount of retrying fixes.
-    clearFlight();
+    //
     // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
@@ -9420,7 +9486,6 @@ function editAnswer(httpOk, e, o) {
     o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'));
     return;
   }
-  clearFlight();
   return applyEditResult(e, o);
 }
 
@@ -9494,7 +9559,6 @@ function applyEditResult(e, o) {
  * goes up the ladder.
  */
 function escalatedEdit(e, o) {
-  const clearFlight = o.clearFlight || function () {};
   // DECIDED IN `edit-poll.js`, ACTED ON HERE. Three outcomes, one of which
   // spends ~25 credits, so the choice between them is driven by a test rather
   // than read out of this file.
@@ -9507,7 +9571,6 @@ function escalatedEdit(e, o) {
     hasAsk: !!o.instruction && typeof o.fallback === 'function',
   });
   if (act === 'lost') {
-    clearFlight();
     o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.');
     return;
   }
@@ -9515,18 +9578,24 @@ function escalatedEdit(e, o) {
   // does not have, and the addon step is the one that adds (owner, 2026-09-02:
   // "add will always go in addon"). Same sentence, same picker; it falls to
   // the revise below only if the addon itself cannot.
+  //
+  // THE LATCH GOES WITH IT (2026-09-24). It was released here, so the site was
+  // unlatched for the whole of the add-on the edit had just handed its ask to.
+  // The add-on is handed the ask's wrapped `finish` and `fallback`, and its end
+  // is what releases.
   if (act === 'addon') {
-    clearFlight();
     return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, o.d);
   }
   if (act === 'hop') {
     // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
     // releasing it would let a second click in while this one is still
-    // running — the exact double submission it exists to stop.
+    // running — the exact double submission it exists to stop. It is released
+    // by the hop's own end, because the hop is handed the ask's wrapped
+    // `finish` and `fallback` (2026-09-24: nothing ever released it before, so
+    // every chain with a hop in it left the site latched for good).
     return siteEdit(o.site, { ...(o.d || {}), layer: e.layer, page: e.page ? String(e.page) : (o.d && o.d.page) },
       o.instruction, o.origin, o.finish, o.fallback, o.imgs, true);
   }
-  clearFlight();
   return o.fallback();
 }
 

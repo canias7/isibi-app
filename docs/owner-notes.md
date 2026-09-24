@@ -160,6 +160,92 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — After an edit hands off to a cheaper step, your next message goes through (on the branch, not deployed)
+
+**Where things stand:** you reviewed the edit-answer check (516 tests, all
+green), and the add-on file your browser downloads matches `fd27cc9`. As you
+asked, this lock fix comes before the edit-answer check is deployed. Neither
+is deployed yet.
+
+**The problem, as you reproduced it:** an edit hands itself to a cheaper step,
+that step works and says "✅ Updated the wording." Then your next message pays
+for its routing step, sends nothing, says nothing, and the progress bar keeps
+running until you reload.
+
+**Reproducing it turned up two faults, pointing opposite ways:**
+- **Locked for good.** Every edit that handed off to another step left the site
+  locked, whatever that step answered. I tried 10 endings and all 10 stuck:
+  success, a refusal, a dropped connection, an unreadable answer, signed out, a
+  queued job, a handoff to the add-on, a climb to the full rewrite, "under
+  review", and a malformed answer.
+- **Let go too early.** A queued edit let go of the lock the moment its job was
+  filed, while the job was still running. That's every edit today, because the
+  queue is on for everyone, so the lock wasn't protecting anything during an
+  ordinary edit. An edit that handed your request to the add-on let go at the
+  handoff too.
+
+**What happens now:** the lock belongs to your request. It's taken when your
+message starts an edit, and it comes off once, when that request finishes:
+- when you're told how it went, or
+- when it hands over to the full rewrite.
+
+Everything in between keeps it: a hop to a cheaper step, a queued job, a
+handoff to the add-on. Each request carries its own ticket, so a late finish
+from an older request can't unlock a newer one.
+
+**One choice you should know about:** the lock comes off when an edit hands
+over to the full rewrite, not when the rewrite finishes. A rewrite that
+succeeds finishes in its own way and never tells the edit, so waiting for it
+would bring the stuck lock back after every successful rewrite. The send box
+stays busy until the rewrite ends, so you still can't send a second message
+meanwhile. The tests check that.
+
+**Kept exactly as it was:**
+- the edit-answer checks you reviewed — untouched, and all 72 of their tests
+  pass;
+- a second press while an edit is running still sends nothing;
+- "your last edit is under review" still blocks the next message, in its own
+  words;
+- a job picked up again after a refresh behaves as before.
+
+**Found, not changed:**
+- **The one-hop limit isn't enforced when a hop's answer comes back queued**,
+  so a queued hop could hop again. It can't happen today: only two steps ever
+  hop (data → wording, photo → page), and neither of those hops again.
+- **If the screen fails to redraw after an edit's answer, a second "I couldn't
+  read the answer" message appears, and the send box frees up early.** The
+  add-on had this fixed earlier; the edit side didn't. I found it while writing
+  the test for "an older request can't unlock a newer one". The lock itself
+  holds in that situation; the test checks that too.
+- **A second request refused by the lock still says nothing.** That can now
+  only happen after the redraw failure above. Saying something there would free
+  the send box while the first request is still running, so I left it. Whether
+  it should say something, and what, is yours.
+
+**How it was checked:**
+- Your sequence and more were reproduced on the branch code first, through the
+  real send path.
+- **23 new tests, each sending two messages through the same page.** Each one
+  checks every request sent, what was said, and whether the send box and the
+  lock are free at the end. They cover every way a hop can end, queued jobs
+  (including the lock held while a job runs), the add-on handoff, the climb to
+  the full rewrite, "under review", two duplicate-press checks, the lock
+  refusing a second request on its own, and an older request finishing late.
+  **On the old code 17 fail.** The 6 that pass on both are the checks that
+  should behave the same either way.
+- **11 deliberate small breakages of the lock**, and every one was caught —
+  also by the new two-message tests on their own. A comment-only change was
+  left alone, as it should be.
+- **Every test file that reads the edit path (26 files):** 948 tests, 0 failures.
+- **The full suite:** 7,644 tests, 0 failures here — 23 more than before,
+  exactly the new tests.
+- **Screenshot:** before and after of your sequence in the real app, in the
+  chat.
+
+**Browser file only, on the branch — not merged, not deployed, no paid run.**
+
+---
+
 ## 2026-09-24 — The add-on fixes are live; an edit's answer is now checked too (on the branch, not deployed)
 
 **Deployed: both add-on fixes you reviewed.** A failed add-on no longer buys the
@@ -222,7 +308,8 @@ All 24 shapes behaved the same before and after.
 succeeds, the site stays locked for the rest of the page load. Your next edit
 message pays for its routing step and then hangs with the progress bar running.
 A reload clears it. That lock is the duplicate-edit protection you said to keep,
-so I've recorded it rather than touched it.
+so I've recorded it rather than touched it. *(You then asked for it: fixed on
+the branch — the entry above.)*
 
 **How it was checked:**
 - Your two cases and 23 more were reproduced on the live code first, through
@@ -10967,18 +11054,19 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 
 ## Open — bugs and gaps
 
-**Open 2026-09-24 — after an edit hops to a cheaper step, the next edit message
-hangs**
+**Fixed on the branch 2026-09-24, not merged — after an edit hops to a cheaper
+step, the next edit message hangs**
 
 When an edit hands itself to a cheaper step (a data change that turns out to be
 wording, a photo that needs a page change) and that succeeds, the site stays
 locked against a second edit for the rest of the page load. Your next edit
 message still pays for its routing step, then nothing is sent and nothing is
-said, and the progress bar keeps running. A reload clears it. I drove it through
-the real page: the first message said "✅ Updated the wording.", and the second
-sent only the routing call and stayed busy. The lock is the duplicate-edit
-protection you said to keep, so the fix — releasing it when the hop's own answer
-arrives — is yours to approve. Recorded as next-task 11 in CLAUDE.md.
+said, and the progress bar keeps running. A reload clears it. **You reproduced
+it and asked for the fix; it's on the branch awaiting your review** — the lock
+now belongs to the request and comes off when that request finishes, and a
+queued edit no longer lets go of it while its job is still running. See the
+2026-09-24 entry at the top. Next-task 11 in CLAUDE.md. Two things found on the
+way are recorded there as next-tasks 12 and 13.
 
 **Open 2026-09-17 — the edit path has the same "nobody mentioned the empty
 picture frame" gap the addon just had**

@@ -4102,9 +4102,31 @@ separate next tasks"*):
    posting, nothing is said, and the send box stays busy with the rail running.
    Driven: message 1 hopped and said *"✅ Updated the wording."*; message 2's
    requests were the routing call alone, busy true, rail running. A reload
-   clears it. **Not changed**: it is the duplicate-execution latch the owner
-   said to preserve, and the fix — releasing the ask's latch when the hop's own
-   answer ends — is a change to that protection, for the owner to take.
+   clears it. **The owner reproduced it independently and took the fix: BUILT
+   THE SAME DAY on the branch, not merged** (*a site's edit latch is held for
+   exactly as long as its ask*, below) — and reproducing it found the other
+   half: a queued edit, and an edit handed to the add-on, released the latch
+   while the work was still running.
+12. **The one-hop bound is not enforced on the queued path** (found 2026-09-24
+   while fixing #11, driven through the real handlers on `4b849501`):
+   `watchEditJob` hands its reader `handedOff: false` whatever the job was, so a
+   hop whose reply arrives QUEUED may hop again. A synchronous hop whose queued
+   reply escalates to `page` posted edits at `data`, `text`, `page`; a fully
+   queued chain alternating `text`/`page` posted `data`, `text`, `page`,
+   `text`, `page` — while the synchronous control goes up to the rewrite.
+   **Unreachable today**: only `data` (→ `text`) and `picture` (→ `page`) hop
+   in `builder/edit-failure.mjs`, and neither target has a hop entry. It
+   becomes live the day one does. Not changed.
+13. **A throw after an edit's sentence is out says a second sentence and lowers
+   the busy flag** (found 2026-09-24 writing #11's stale-completion case,
+   driven): a redraw that throws inside `finish` propagates to `siteEdit`'s
+   POST catch, which says *"I couldn't read the answer to that change…"* as a
+   SECOND reply through the same `finish` — clearing the page's busy flag while
+   whatever runs next is still running. The add-on closed this class with its
+   `tell` latch (*an add-on that fails never buys the rewrite*); the edit path
+   has no such latch. The per-ask latch keeps the site held in that state
+   (asserted); the double sentence and the lowered flag are recorded, not
+   changed.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -7017,7 +7039,9 @@ legitimate no-layer escalation classification as its separate follow-up."*
   is posted.
 - **⚠ FOUND ON THE WAY, NOT CHANGED — A HOP THAT SUCCEEDS LEAVES THE SITE'S
   EDIT LATCH HELD** (next-task 11): the next edit message of that page load pays
-  for its routing call and then hangs, busy, with the rail running.
+  for its routing call and then hangs, busy, with the rail running. **Fixed on
+  the branch the next round** (*a site's edit latch is held for exactly as long
+  as its ask*, below).
 - **EVIDENCE.** `test/edit-reply-validation.test.mjs`, **72 cases** through the
   real handlers with `fetch` the one seam: the owner's two and the 23 wider
   shapes, each straight back and as a stored reply (50); six receipts that are
@@ -7072,6 +7096,133 @@ legitimate no-layer escalation classification as its separate follow-up."*
   one sentence and nothing past the edit POST. **Every answer is SUPPLIED**:
   this proves what the browser does with a reply, never how often a real route
   sends one.
+
+### A SITE'S EDIT LATCH IS HELD FOR EXACTLY AS LONG AS ITS ASK (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, having reproduced it independently through the real handlers: *"1. An
+edit hands off to another edit layer. 2. That layer succeeds and the customer
+hears "Updated the wording." 3. A second message reaches the router. 4. No
+second edit POST occurs, and busy stays true."* — *"Release the original
+request's duplicate-execution lock when its handoff chain genuinely finishes.
+Preserve protection while work is active, including queued jobs, and ensure an
+old completion cannot release a newer request's lock."* Next-task 11. **Browser
+only (`public/chat.js`).** The edit-reply validation (`8921c0ec`) is under it and
+is NOT deployed either — the owner put this correction before that deploy.
+
+- **REPRODUCED FIRST, AND IT IS TWO DEFECTS POINTING OPPOSITE WAYS**, through
+  the real `siteSend` → `siteRoute` → `siteEdit` → `watchEditJob`/`siteAddon`
+  → `reactSend` on `4b849501`, two messages through one page:
+  - **HELD FOR GOOD.** Every chain with a synchronous hop left the site latched
+    after message 1, whatever the hop answered — **10 of 10**: a success (the
+    owner's), a 422 refusal, a dropped POST, an unreadable body, a 401, the
+    hop's own queued success, a handoff to the add-on, a climb to the rewrite
+    (402), `needs-review`, and an escalate at a 503. Message 2 then made its
+    routing call, posted no edit, said nothing, and left the send box busy with
+    the rail running. The latch was a site name in a `Set`, released by
+    `clearFlight` — a no-op inside a hop (`handedOff`), and never called by the
+    first POST once it had handed off (`escalatedEdit`'s hop: *"THE LATCH IS
+    NOT CLEARED HERE"*).
+  - **RELEASED TOO EARLY.** A queued edit released it at its RECEIPT, while the
+    job it had just filed was still running — and `EDIT_ASYNC_EVERYONE` makes
+    every edit POST answer a receipt, so **during the ordinary edit the latch
+    protected nothing**. An edit that handed its ask to the add-on released it
+    at the handoff too. Only the page's busy flag stood in front of a second
+    ask.
+  - **THE CONCURRENT CONTROL HELD ON THE OLD CODE**: a second press while
+    message 1's POST was unanswered sent nothing (the busy flag) — 1 routing
+    call, 1 POST.
+- **THE LATCH BELONGS TO THE ASK.** `editInFlight` is a `Map` from a site to the
+  ask holding it; `editAsk(slug)` hands out a fresh token or `null`, and
+  `editAskDone(slug, ask)` deletes the entry only while THAT token still holds
+  it — so an old ask's late completion cannot release a newer one. `siteEdit`
+  takes it for a customer's message (`!handedOff`) and wraps that message's
+  `finish` and `fallback` — release first, then continue — **before the POST**,
+  so every callback the POST can reach is handed the wrapped pair: its reply,
+  its catch, a hop, a queued watch, the add-on handoff. **`clearFlight` is gone**,
+  the receipt's release and the add-on handoff's with it; nothing else names the
+  map (a census holds it).
+- **THE HANDOFF TO THE FULL REWRITE RELEASES — MEASURED, NOT CHOSEN.** A
+  rewrite that succeeds ends through `siteFinishBuild` and never calls the
+  `finish` it was handed (`reactSend`'s success branch), so a latch waiting for
+  the rewrite would be held for good by every successful climb — the defect
+  again. The page's busy flag stays set until the rewrite ends, and a case
+  asserts a message sent meanwhile reaches nothing.
+- **A HOP TAKES NO LATCH AND RELEASES NONE**: it inherits the wrapped pair.
+  **A RESUMED WATCH TAKES NONE, AS BEFORE** — `resumeOpenSite` sets the busy
+  flag, and a control asserts a resumed hop leaves nothing held.
+- **THE DUPLICATE REFUSAL STAYS SILENT**, and is reached only when the busy flag
+  came down while another ask holds the site — an older ask's `finish` running a
+  second time, which the flag, having no owner, cannot tell from the holder's.
+  A sentence there could only go through the refused message's own `finish`,
+  which would lower the flag while the holder runs. Wording, and whether to say
+  anything, is the owner's.
+- **THE VALIDATED READERS ARE UNTOUCHED**: `readRouteReply`, `readEditReply`
+  and `readAddonReply` are byte-identical, and `edit-reply-validation`'s 72
+  cases pass with only their harness's declaration line changed.
+- **FOUND ON THE WAY, NOT CHANGED**: the one-hop bound is not enforced on the
+  queued path (next-task 12, unreachable today), and a throw after an edit's
+  sentence is out says a second sentence and lowers the busy flag (next-task
+  13) — both driven.
+- **EVIDENCE.** `test/edit-lock.test.mjs`, **23 cases**, every one sending TWO
+  messages through ONE page with `fetch` the one seam — a request the script
+  does not answer is HELD, which is how a case reads the latch while work is
+  active — and asserting every request (the message a routing call routed, the
+  layer and ask an edit posted, the job a poll followed), what was said, and
+  the final busy, rail, clock and latch state: the hop's every end (success,
+  422, dropped POST, unreadable body, 401, an escalate at a 503 the reader
+  refuses), a first POST that drops, `needs-review` (message 2 meets the review
+  block, not the latch), four queued shapes (the latch held while the job runs
+  and while a stored hop posts, a hop's own queued answer, a stored refusal, a
+  lost job), the add-on handoff (held through it, straight and queued) and a
+  hop into it, the climb (released at the handoff, the page busy until the
+  rewrite ends, a message sent meanwhile reaching nothing), two duplicate-press
+  controls, the latch refusing a second ask on its own during a watch, the
+  token contract, an old ask's late finish after a newer ask took the site
+  (the newer ask keeps it, and a third press meets the latch), and a resumed
+  watch's hop leaving nothing held. **Red 17 of 23 against `4b849501`** in a
+  throwaway worktree, only the two new functions appended so the file loads:
+  16 fail on the latch itself, and the contract case fails because the
+  appended functions meet the old `Set` (not evidence); the 6 green on both are
+  the first-POST drop, the queued refusal, the lost job, the two duplicate-press
+  controls and the resume control. **With the latch assertions cut in that
+  copy, the 8 stuck-chain cases still fail on the owner's own symptom** —
+  message 2 routed and posted no edit — and the lock-wall case on a second
+  POST; the climb and stale-completion cases fail on latch assertions of their
+  own, which the cut left in place. The four too-early cases then pass, and so
+  does `needs-review` (the review block refuses message 2 either way): in those
+  the latch state is the only difference, and the too-early half is otherwise
+  visible only through a second ask past the busy flag — which the lock-wall
+  case drives. **Re-anchored, not appeased**: `edit-poll` three times
+  (the latch landmark → `const ask = editAsk(slug);`, the guard's close found
+  by DEPTH with a new `blockEnd` — the block holds the two wrappers now, so a
+  flat `indexOf("}")` finds the first wrapper's brace; and the `clearFlight`
+  count, which was the defect's own shape, → the wrappers, a census of
+  `editAskDone` (one definition and two calls), no `clearFlight` anywhere, and
+  `editInFlight` named only by its declaration and its two owners), `site-apply`
+  (both not-knowing lines without `clearFlight();`), and five harnesses —
+  `edit-reply-validation` and `addon-failure` cut the page's own declarations
+  and the two functions instead of a hard-coded `Set` line, `site-route-failure`,
+  `site-entry-inventory` and `edit-page-target` cut the two functions and supply
+  a `Map`. `scripts/addon-sweep.mjs` drops the dead `clearFlight` field.
+  **Targeted probes, not a sweep: 11 killed, 0 survived, 0 never applied, the
+  comment-only control surviving**, over `chat.js` against the 26 files that
+  load the edit path (spec in the scratchpad) — the receipt releasing again,
+  either wrapper not releasing, the fallback unwrapped, a release without the
+  token compare, a held site handing out a second ask, a refused ask carrying
+  on, a hop taking a latch of its own, the add-on handoff releasing early, the
+  release after the page's `finish` instead of before, and a release with a
+  foreign token — **and the same 11 killed by `edit-lock.test.mjs` ALONE**, so
+  the two-message cases catch each one without the census. `chat.js`
+  byte-identical to its backup after both runs (sha256 `420e05d71a71b313`). The
+  26 files, before the probes: **948 / 948**. **Suite 7,644 locally** (`# tests
+  7644 / # pass 7642 / # fail 0 / # skipped 2`, `duration_ms 130,375`) — **+23
+  against 7,621**, exactly the new file; the re-anchors added assertions, not
+  cases. **Rendered in the real app in a
+  real Chromium**, before (`4b849501`) and after, the owner's sequence typed and
+  sent: before, message 2 routed and then sat on "Thinking" with the stop
+  button drawn; after, it posted its edit and was answered. **Every answer is
+  SUPPLIED**: this proves what the browser sends and holds, never how often a
+  real route answers these shapes.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

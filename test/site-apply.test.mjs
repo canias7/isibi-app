@@ -900,11 +900,15 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   // RE-ANCHORED 2026-09-24: an unreadable body is the reader's `unknown` (a
   // null has no boolean `ok`), said by the same branch as a body that cannot be
   // trusted — the property is that branch's sentence and that it buys nothing.
+  // RE-ANCHORED 2026-09-24: `clearFlight` is gone from both lines — the site's
+  // latch is released by the ask's own wrapped `finish`, which is what both of
+  // them call (test/edit-poll.test.mjs reads that shape; test/edit-lock.test.mjs
+  // drives it). The property here is unchanged: the sentence, and no rewrite.
   assert.match(core, /if \(!a \|\| typeof a\.ok !== 'boolean'\) return unknown;/, "an unreadable body is no longer read as not knowing");
-  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ clearFlight\(\); o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
+  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
     "an unreadable body no longer says it cannot tell");
   assert.ok(!/said\.act === 'unknown'[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
-  assert.match(b, /\}\)\.catch\(\(\) => \{ clearFlight\(\); finish\('⚠️ ' \+ unreadEditMsg\(\)\); \}\)/,
+  assert.match(b, /\}\)\.catch\(\(\) => \{ finish\('⚠️ ' \+ unreadEditMsg\(\)\); \}\)/,
     "a network drop no longer says it cannot tell");
   assert.ok(!/\.catch\([^)]*\) => \{[^}]*fallback\(/.test(b), "a network drop still reaches the rewrite");
   // The escalate-before-failure ordering is asserted on `editAnswer` above,

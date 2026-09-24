@@ -46,6 +46,26 @@ function blankComments(src) {
 }
 const CHAT = blankComments(CHAT_RAW);
 
+/**
+ * WHERE A BLOCK CLOSES, BY DEPTH — the `}` matching the first `{` at or after
+ * `at`, over comment-blanked source, with string literals skipped. A flat
+ * `indexOf("}")` answers the first brace of whatever the block HOLDS, which
+ * since 2026-09-24 is the first of the two wrappers inside `siteEdit`'s guard.
+ */
+function blockEnd(src, at) {
+  const open = src.indexOf("{", at);
+  if (at < 0 || open < 0) return -1;
+  let depth = 0; let quote = "";
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (quote) { if (c === "\\") { i++; continue; } if (c === quote) quote = ""; continue; }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+
 test("the comment blanker leaves strings alone", () => {
   // The observer for the blanker itself: every assertion below is downstream of
   // it, and one that eats code makes them all lie in the direction of reporting
@@ -116,9 +136,13 @@ test("the key is minted once per submission and reused for the retry", () => {
   // distinguishes inside from outside.
   const mint = fn.indexOf("editIdem.set(slug");
   const guard = fn.indexOf("if (!handedOff) {");
-  const latch = fn.indexOf("editInFlight.add(");
+  const latch = fn.indexOf("const ask = editAsk(slug);");
   assert.ok(mint > 0 && guard > 0 && latch > guard, "the mint, the guard or the latch is gone");
-  const guardEnd = fn.indexOf("}", latch);
+  // RE-ANCHORED 2026-09-24: the guard's close is found by DEPTH. The block
+  // holds the ask's wrapped `finish` and `fallback` now, each with braces of
+  // its own, so the first `}` after the latch is inside the first wrapper — and
+  // a mint moved in between the two wrappers would read as outside the guard.
+  const guardEnd = blockEnd(fn, guard);
   assert.ok(guardEnd > latch, "the first-submission guard never closes");
   assert.ok(mint > guardEnd,
     "the key is minted inside the first-submission guard, so a sideways hop re-files the job that just escalated");
@@ -138,16 +162,44 @@ test("a second click while the first POST is unresolved does nothing", () => {
   const shut = CHAT.indexOf("function escalatedEdit(");
   assert.ok(open > 0 && shut > open, "the siteEdit window's landmarks are gone or out of order");
   const fn = CHAT.slice(open, shut);
-  assert.match(fn, /if \(editInFlight\.has\(slug\)\) return;/, "a double submission is no longer refused");
-  assert.match(fn, /editInFlight\.add\(slug\)/, "nothing marks the edit in flight");
-  // AND EVERY SYNCHRONOUS EXIT RELEASES IT, or the site is locked for the
-  // session after one failure. Counted rather than enumerated, so a new exit
-  // that forgets is visible as a number falling.
-  const clears = (fn.match(/clearFlight\(\)/g) || []).length;
-  assert.ok(clears >= 4, `only ${clears} release points — an exit that never releases locks the site`);
-  // RE-ANCHORED 2026-09-23: the handler no longer takes the error (it no
-  // longer hands it to the rewrite), so the landmark is the release itself.
-  assert.match(fn, /\.catch\(\([^)]*\) => \{ clearFlight\(\)/, "a thrown POST leaves the site locked");
+  // RE-ANCHORED 2026-09-24, AND THE COUNT IT HELD WAS THE DEFECT'S SHAPE. This
+  // pinned `editInFlight.has`/`.add` and counted `clearFlight()` calls —
+  // "every synchronous exit releases it" — while a hop's `clearFlight` did
+  // nothing and the first POST never called its own once it had handed off, so
+  // every chain with a hop in it locked the site for good, however many release
+  // points there were. And the receipt's release sat where the queued job had
+  // only just started. The latch belongs to the ASK now: taken once for a
+  // customer's message and released by that message's own `finish` or
+  // `fallback`, which everything downstream is handed. `test/edit-lock.test.mjs`
+  // DRIVES it through two messages on one page; this reads the shape.
+  const guard = fn.indexOf("if (!handedOff) {");
+  const guardEnd = blockEnd(fn, guard);
+  assert.ok(guard > 0 && guardEnd > guard, "the first-submission guard is gone");
+  const block = fn.slice(guard, guardEnd);
+  assert.match(block, /const ask = editAsk\(slug\);\s+if \(!ask\) return;/, "a double submission is no longer refused");
+  assert.match(block, /finish = \(\.\.\.said\) => \{ editAskDone\(slug, ask\); return tell\(\.\.\.said\); \};/,
+    "the ask's own finish no longer releases its latch");
+  assert.match(block, /fallback = \(\.\.\.args\) => \{ editAskDone\(slug, ask\); return fall\(\.\.\.args\); \};/,
+    "the handoff to the rewrite no longer releases the latch");
+  // THE WRAPPERS ARE IN PLACE BEFORE THE POST IS MADE, so every callback the
+  // POST can reach — its reply, its catch, a hop, a watch — is handed them.
+  assert.ok(guardEnd < fn.indexOf("apiFetch("), "the POST is made before the ask's finish and fallback are wrapped");
+  // AND NOTHING ELSE RELEASES IT: one definition and the two wrappers. A third
+  // mention is an exit releasing on its own — at a receipt, say, while the job
+  // it filed is still running, which is exactly where the old release sat.
+  const releases = (CHAT.match(/editAskDone\(/g) || []).length;
+  assert.equal(releases, 3, `editAskDone has ${releases} mentions — one definition and the two wrappers, nothing else`);
+  assert.doesNotMatch(CHAT, /clearFlight/, "a per-exit release is back beside the ask's own");
+  // THE MAP IS OWNED BY THE TWO FUNCTIONS THAT TAKE AND RELEASE AN ASK: its
+  // declaration aside, nothing else in the page names it.
+  assert.match(CHAT, /const editInFlight = new Map\(\);/, "the latch no longer records which ask holds a site");
+  const at = CHAT.indexOf("function editAsk(");
+  const owners = CHAT.slice(at, blockEnd(CHAT, CHAT.indexOf("function editAskDone(")) + 1);
+  assert.ok(at > 0 && owners.includes("function editAskDone("), "the two latch functions are gone or apart");
+  const named = (CHAT.match(/editInFlight/g) || []).length;
+  const owned = (owners.match(/editInFlight/g) || []).length;
+  assert.ok(owned >= 3, "the latch functions no longer read the map — the census found " + owned);
+  assert.equal(named - owned, 1, "editInFlight is named outside its declaration and the two functions that own it");
 });
 
 // ── THE POLL ──────────────────────────────────────────────────────────────
@@ -552,14 +604,14 @@ test("a hop is a new submission, so it carries a new key", () => {
   assert.ok(open > 0 && shut > open, "the siteEdit window's landmarks are gone or out of order");
   const fn = CHAT.slice(open, shut);
   const mint = fn.indexOf("editIdem.set(");
-  const latch = fn.indexOf("editInFlight.add(");
+  const latch = fn.indexOf("const ask = editAsk(slug);");
   assert.ok(mint > 0 && latch > 0, "the key mint or the in-flight latch is gone");
   // THE MINT IS OUTSIDE THE `!handedOff` BLOCK and the latch is inside it —
   // `edit_create` keys on (uid, slug, op, idem_key) with no layer in it, so a
   // hop reusing the first key matches the job that just escalated, comes back
   // `duplicate: true`, and the cheaper job is never filed at all.
   const guard = fn.indexOf("if (!handedOff) {");
-  const guardEnd = fn.indexOf("}", fn.indexOf("editInFlight.add("));
+  const guardEnd = blockEnd(fn, guard);
   assert.ok(guard > 0 && guardEnd > guard, "the handedOff guard is gone");
   assert.ok(latch > guard && latch < guardEnd, "the in-flight latch left the handedOff guard");
   assert.ok(mint > guardEnd, "the key is still minted only for a first submission, so a sideways hop re-files the escalated job");
