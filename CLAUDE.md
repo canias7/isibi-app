@@ -3708,7 +3708,7 @@ owner's call.
 Owner, after reproducing the review's missing-page removal and all-refused
 cases independently through the route and the browser handler: *"Both produce
 no customer sentence and would start the full paid rewrite. Fix this failure
-handling first."* **On the branch — not merged, not deployed, no paid run.**
+handling first."* **Merged and deployed in deploy 2146 (below); no paid run.**
 Bounded to edit failure handling; translation, #418 and architecture parked.
 
 **THE CLASSIFICATION IS ONE TABLE**: `builder/edit-failure.mjs`
@@ -3952,7 +3952,7 @@ separate next tasks"*):
    **#7 REPRODUCED 2026-09-24 through the route** (*the full page writer drops
    unrelated content silently*, below), the design revised on the owner's four
    points, and **BUILT ON THE BRANCH THE SAME DAY** (*the preservation check,
-   built*, below) — not merged, not deployed, no paid run. **It covers links
+   built*, below) — merged and deployed in deploy 2151, no paid run. **It covers links
    and the site's own components only; plain-text and kit-only section loss
    stays OPEN**, and the judge's reading of a message is the model's, proven by
    no test here. **A GROUP asked for at once** (*"remove all links"*) was
@@ -3961,7 +3961,8 @@ separate next tasks"*):
    the owner reproduced, **a declared group constrains its answer** (next
    section but one). **CLOSED AT CODE REVIEW BY THE OWNER 2026-09-24** (*"The
    87 focused tests pass, and both CI checks are green"*) and handed off for
-   merge — not merged, not deployed (*handed off for merge*, below). **Partial
+   merge, **merged and deployed in deploy 2151** (*merged and deployed: the
+   preservation check*, below). **Partial
    protection, not the edit path complete**: supplied model answers only.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
@@ -3978,7 +3979,10 @@ separate next tasks"*):
    failure still falls to `go()` (the router, not the edit route) — **re-read
    2026-09-24**: `if (!r.ok || !d) return go();` and `.catch(go)`, so on a live
    site a dropped connection, a non-2xx or an unreadable routing answer starts
-   the full rewrite of every page with nothing shown and no price; and an
+   the full rewrite of every page with nothing shown and no price —
+   **REPRODUCED THE SAME DAY through the real handler, 17 failure shapes, each
+   starting `react-revise`; a correction is proposed and not built** (*a failed
+   routing call on a live site buys the full rewrite*, below); and an
    add-only wall or page-verb answer in the look door ends the WHOLE message —
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
@@ -3995,6 +3999,23 @@ separate next tasks"*):
    KEPT**: every model answer in the evidence is SUPPLIED, so what is closed is
    the route scoping each verb to its own step and target — never that a real
    picker names these lanes or a real writer makes the layout change.
+7. **An adopted site with no page list builds a NEW site** (recorded
+   2026-09-24 for later — owner: *"Keep the separate missing-page-inventory/
+   new-build issue recorded for later"*). A site opened on a browser that did
+   not build it has no page list until `/api/site/routes` answers, asked once per
+   load and never retried, so `isBuild` is true and the message routes as a
+   FIRST build with `hasSite: false`: a failed routing call, a `build` answer, and
+   `edit`/`addon` (closed off without `hasSite`, so they fall to `build`) all end
+   in `react-build` with the project's chat, `siteForChat` finds no row, and a
+   fresh paid site is named. **Driven for the failure door only**
+   (`test/site-route-failure.test.mjs`); the answer doors are read hop by hop
+   (*router side*, above).
+8. **The addon's own failures fall to the full rewrite** (found 2026-09-24,
+   driven): a valid addon answer whose addon POST drops, or whose reply cannot
+   be read, starts `react-revise` — on top of an addon that may have landed.
+   `siteAddon`'s `.catch(fallback)` and `addonAnswer`'s `fall()`; the
+   double-charge shape `siteEdit`'s catch was fixed for on 2026-09-23. Kept out
+   of the routing correction.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -5101,7 +5122,7 @@ look door has a picker** — and it counted links, which fails 3.
   judge that fails, the tweak path and the job path's money; a focused mutation
   check, no broad sweep.
 
-### THE PRESERVATION CHECK, BUILT (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### THE PRESERVATION CHECK, BUILT (2026-09-24, merged and deployed in 2151 — no paid run)
 
 Owner: *"Proceed with the bounded implementation of the revised preservation
 check. The committed reproductions check out."* — six requirements, each met
@@ -5261,7 +5282,7 @@ components' own `href` props; a section moved into a new component is refused
 (conservative). Full-site revise, translation and hydration untouched; the
 model-written-replies preference stays recorded, not started.
 
-### A GROUP ASKED FOR AT ONCE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A GROUP ASKED FOR AT ONCE (2026-09-24, merged and deployed in 2151 — no paid run)
 
 Owner, reproducing it through the real edit route: *"Request: “Remove all
 links from the home page, keeping their text and everything else.” … Judge:
@@ -5417,7 +5438,7 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   revise, translation and hydration are untouched; model-written replies stay a
   recorded future preference.
 
-### A DECLARED GROUP CONSTRAINS ITS ANSWER (2026-09-24, closed at code review — not merged, not deployed, no paid run)
+### A DECLARED GROUP CONSTRAINS ITS ANSWER (2026-09-24, closed at code review, merged and deployed in 2151 — no paid run)
 
 Owner, reproducing it through the edit route: *"Before: “Order ahead” contains
 a link and OrderForm. Request: “Remove all links under ‘Order ahead’, keeping
@@ -5548,7 +5569,7 @@ permission through the naming fallback."*
   section loss stays OPEN; full-site revise, translation and hydration are
   untouched; model-written replies stay a recorded future preference.
 
-### HANDED OFF FOR MERGE: THE PRESERVATION CHECK (2026-09-24, not merged, not deployed)
+### HANDED OFF FOR MERGE: THE PRESERVATION CHECK (2026-09-24, merged and deployed in 2151 — next section)
 
 Owner: *"Close this bounded correction at the code-review level. Stop
 expanding this guard or running further sweeps. Prepare the merge/deployment
@@ -5606,6 +5627,99 @@ meets, not on this paragraph.
   supplied, so real-model judgment is unverified; plain-text and kit-only
   section loss stays open. **Partial preservation protection, not the edit path
   complete.**
+
+### A FAILED ROUTING CALL ON A LIVE SITE BUYS THE FULL REWRITE — REPRODUCED (2026-09-24; proposal pending, nothing built)
+
+Owner: *"routing failures that fall through to a full-site rewrite. Reproduce
+through the real browser routing handler, with action recorders and no paid
+network calls … Record exactly which action each starts and what the customer
+sees. Return the smallest proposed correction before implementing it."*
+
+**THE HARNESS**: `test/site-route-failure.test.mjs` cuts the REAL `siteRoute`,
+`apiFetch`, `siteEdit`, `siteAddon`, `addonAnswer` and `reactSend` out of
+`public/chat.js` and runs them. `fetch` is the one seam: it answers the routing
+call per case and records the next POST, answering that with a promise that
+never settles — so the record is the action the message starts and nothing past
+it runs. **A CHARACTERISATION, no product change**: the defect cases assert
+today's rewrite, so a correction flips each one deliberately.
+
+| what the routing call did (live site, *"Make the footer navy"*) | action started | what the customer sees |
+|---|---|---|
+| dropped, or aborted | `POST /api/site/react-revise` | no sentence; the rail goes "Thinking…" → "Planning your site…" |
+| any non-2xx — 500 carrying Cloudflare's HTML, 503, 429, 413, even a 503 carrying a well-formed edit answer | the same | the same |
+| 401 | the same, BEHIND the sign-in gate | the gate; when the revise is refused too, the gate again and *"⚠️ That didn’t come together. Try again in a moment."* — about a build nobody asked for |
+| a 200 that cannot be read — HTML, truncated JSON, an empty body, `null` | the same | the same |
+| a 200 naming nothing the browser acts on — `[]`, `{}`, `{ok:false}`, an unknown intent, `ask` with no answer, `clarify` with one option | the same | the same |
+| a 200 `{intent:"edit"}` with no layer | `POST …/edit`, `layer: ""` | not a rewrite: the route falls through to `route/layer` (explain, ours, cost 0) — read, not driven |
+| a 200 `{intent:"addon", failed:true}` (the router model threw) | `POST …/addon` | acted on as a decision: nothing in `chat.js` reads `failed` |
+
+**The rewrite is a revise of every page** (a revise of the same site measured
+**17** credits) and inherits the full rewrite's recorded gaps: no photograph
+wall, `imageDirective(0)` on a photographed site, and the no-database rules on
+the four `incomplete` sites.
+
+**CONTROLS, all asserted and none of them changed by the proposal**: a valid
+edit → `POST …/edit` with its layer, the rail still "Thinking…"; a valid addon →
+`POST …/addon`; an explicit `build` on a live site → the revise (the only way to
+say "scrap this"); the route's zero-balance answer (`intent: "build"`, `cost: 0`)
+→ the revise, whose own 402 speaks; an explicit build on an empty project →
+`POST /api/site/react-build` carrying `chat`; `ask` with an answer → the answer,
+nothing bought; `clarify` → the question, nothing bought. **A first build's
+failure** → `react-build`, the documented default (*every unclear case resolves
+to work*).
+
+**THE CAUSE IS THREE LINES AND A COMMENT OLDER THAN THE LADDER.** `if (!r.ok ||
+!d) return go();`, `if (d.intent !== 'ask' || !d.answer) return go();` and
+`}).catch(go);` — and `go()` is a revise on any project with pages. The comment
+above `siteRoute` says *"EVERY failure mode here falls through to the build …
+This sits in front of a path that works and must never be the reason it does not
+run"*, which was true while every message on an existing site WAS a revise. The
+edit and addon rungs made most of them a few credits and the fallback stayed the
+rewrite: *a rule true because of a layer below it expires when that layer
+moves*, in the browser this time.
+
+**THE PROPOSAL — ONE FUNCTION AND THREE CALL SITES IN `siteRoute`. NOT BUILT.**
+
+```js
+const lost = (r) => {
+  if (isBuild) return go();     // an empty project keeps its documented default
+  finish('⚠️ ' + (r && r.status === 401
+    ? 'You’re signed out. Sign in and send that again.'
+    : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
+};
+```
+
+`!r.ok || !d` → `lost(r)`; an explicit `d.intent === 'build'` → `go()`, then
+anything else unrecognised → `lost()`; `.catch(go)` → `.catch(() => lost())`;
+the comment corrected. **An explicit build keeps the revise**, so the
+zero-balance 402 and "scrap this" are unchanged. **The sentence claims nothing
+about money** — an unreadable 200 can follow a billed routing call. `.catch`
+also catches a synchronous throw inside `siteEdit`/`siteAddon` before their POST,
+which today buys the rewrite too. **The cost, stated**: a customer whose routing
+call fails presses send again. The wording is the owner's to change.
+
+- **THE OWNER'S CALL, ONE WORD**: `isBuild` in `lost` leaves the adopted-site row
+  exactly as today; `!site.slug` would also stop a failed routing call building a
+  NEW site for an adopted project — the failure door of that separate task, not
+  its main door.
+- **NOT IN THIS CORRECTION, RECORDED**: (1) the addon's OWN failures — its POST
+  dropped, its reply unreadable, or a refusal with no `msg` — still fall to the
+  rewrite (driven: `.catch(fallback)` and `addonAnswer`'s `fall()`), the
+  double-charge shape `siteEdit`'s catch was fixed for on 2026-09-23; (2)
+  `failed: true` has no reader in the browser; (3) the adopted site with no page
+  list builds a NEW site on a failure AND on most answers — next-task 7.
+- **EVIDENCE**: **32 cases** — 17 failure shapes, the 401 pair, the no-layer
+  edit, the `failed` addon, 2 adjacent addon failures, 7 controls, the first
+  build, the adopted row. **Three targeted probes**, one per failure arm, each on
+  a scratchpad-backed `chat.js` restored byte-identical (`54397bfe3a57abb0`
+  after each): `.catch(go)` → a sentence failed exactly the 2 dropped/aborted
+  cases plus the first-build and adopted rows; `!r.ok || !d` → a sentence failed
+  exactly the 9 non-2xx/unreadable cases, the 401 pair and the first-build row;
+  the last arm, build excepted, failed exactly the 6 unrecognised-answer cases —
+  the controls green under all three. **Suite 7,360 locally** (`# tests 7360 /
+  # pass 7360 / # fail 0 / # skipped 0`, `duration_ms 116,833`) — **+32 against
+  7,328**, exactly this file. **Every routing answer here is SUPPLIED**: this is
+  what the browser does with a response, never what a real router answers.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
