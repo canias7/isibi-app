@@ -6371,6 +6371,16 @@ also cleared the draft's words, which only the Send button holds; it takes the
 files alone now. The 92 files that read `chat.js`: **2,968 / 2,968**. **Suite
 7,462 locally** (`# tests 7462 / # pass 7462 / # fail 0 / # skipped 0`,
 `duration_ms 116,248`) — **+12 against 7,450**, exactly the new cases.
+**AND CI MATCHES**: unit run **`35983286186` on `2e2998cc`** reads **`# tests
+7462 / # pass 7458 / # fail 0 / # skipped 4`** (`duration_ms 122,549`) — the
+total is what matches, `pass` differing by CI's four skips — with all 60 of the
+file's cases and all 74 of `site-route-failure`'s found passing BY NAME in the
+downloaded log archive, 7,462 distinct result numbers with no gap, and zero `not
+ok N -`. **An anchored count of result lines reads 7,461, and 7,462 is right**:
+result 5316's line opens with a byte-order mark where the log was chunked — the
+trap the routing round recorded (result 5300 there), met again. No `site build` fires: none of the
+commit's five files is on that workflow's `paths`. **The stamp chain ends at
+`2e2998cc`.**
 **Rendered in the real workspace, before and after**, both sequences with the
 real + button and file chooser, the real Worker, every request recorded:
 before, the redraw emptied the box and Send sent nothing, and ashgrove-1's logo

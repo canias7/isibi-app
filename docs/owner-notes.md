@@ -196,7 +196,8 @@ from the other site, switch back and send the original), checking the words
 and pictures in every request. Your immediate-retry test and all the question
 tests still pass. Also the real app in a real browser, before and after. The
 router's answer was written by me, so this proves what gets sent, not what a
-real router would decide. Full suite: 7,462 passing here.
+real router would decide. Full suite: 7,462 passing here, and the same 7,462
+in CI (four left out there, as always).
 
 ---
 
