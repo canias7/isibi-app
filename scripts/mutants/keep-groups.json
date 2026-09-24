@@ -9,20 +9,20 @@
   "control": true
  },
  {
-  "label": "G-1: a declared group is ignored (the owner's regression restored)",
+  "label": "G-1: a declared group is ignored (the owner's first regression restored)",
   "files": [
    "builder/page-keep.mjs"
   ],
-  "from": "const g = s.group ? groupCovers(s.group, it) : \"quote-not-about-item\";",
-  "to": "const g = \"quote-not-about-item\";"
+  "from": "    else if (s.declared) {\n      const g = groupCovers(s.group, it);",
+  "to": "    else if (false) {\n      const g = groupCovers(s.group, it);"
  },
  {
   "label": "G-2: an undeclared quote is read as a links group (a blanket)",
   "files": [
    "builder/page-keep.mjs"
   ],
-  "from": "const g = s.group ? groupCovers(s.group, it) : \"quote-not-about-item\";",
-  "to": "const g = groupCovers(s.group || \"links\", it);"
+  "from": "    } else if (!quoteNamesItem(s.quote, it)) why = \"quote-not-about-item\";",
+  "to": "    } else if (groupCovers(\"links\", it) !== true && !quoteNamesItem(s.quote, it)) why = \"quote-not-about-item\";"
  },
  {
   "label": "G-3: no kind check — any declared group covers any item",
@@ -159,5 +159,53 @@
   ],
   "from": "const judgedNo = xs.length > 0 && xs.every((it) => it.why === \"not-asked\");",
   "to": "const judgedNo = xs.length > 0 && xs.some((it) => it.why === \"not-asked\");"
+ },
+ {
+  "label": "D-1: naming is asked before a declared group (the shared-heading bypass restored)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "    else if (s.declared) {\n",
+  "to": "    else if (s.declared && !quoteNamesItem(s.quote, it)) {\n"
+ },
+ {
+  "label": "D-2: a group that is not a string is read as no group (handed back to naming)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "      declared: a.group != null && !(typeof a.group === \"string\" && !a.group.trim()),",
+  "to": "      declared: typeof a.group === \"string\" && a.group.trim() !== \"\","
+ },
+ {
+  "label": "D-3: null counts as a declared group",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "      declared: a.group != null && !(typeof a.group === \"string\" && !a.group.trim()),",
+  "to": "      declared: a.group !== undefined && !(typeof a.group === \"string\" && !a.group.trim()),"
+ },
+ {
+  "label": "D-4: a blank group counts as a declared group",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "      declared: a.group != null && !(typeof a.group === \"string\" && !a.group.trim()),",
+  "to": "      declared: a.group != null,"
+ },
+ {
+  "label": "D-5: two answers that disagree about the group are not a conflict",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "    if (prev.asked !== said.asked || (said.asked && groupKey(prev) !== groupKey(said))) clash.add(a.n);",
+  "to": "    if (prev.asked !== said.asked) clash.add(a.n);"
+ },
+ {
+  "label": "D-6: answers declaring two different groups agree",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const groupKey = (s) => (s.declared ? \"group:\" + s.group : \"\");",
+  "to": "const groupKey = (s) => (s.declared ? \"group\" : \"\");"
  }
 ]

@@ -113,10 +113,14 @@ const BIGGER_ASK = "Make the “Opening hours” heading on the home page bigger
 const ALL_LINKS_ASK = "Remove all links from the home page, keeping their text and everything else.";
 const EXCEPT_ASK = "Remove all the links from the home page except Directions, keeping their text.";
 const SECTIONS_ASK = "Take every section off the home page except the opening hours.";
+const UNDER_ASK = "Remove all links under ‘Order ahead’, keeping their text.";
+const FORM_ASK = "Take the order form out of ‘Order ahead’ on the home page.";
 // The words a judge quotes for each group — really in its message.
 const Q_ALL = "Remove all links from the home page";
 const Q_EXCEPT = "Remove all the links from the home page";
 const Q_SECTIONS = "Take every section off the home page";
+const Q_UNDER = "Remove all links under ‘Order ahead’";
+const Q_FORM = "Take the order form out";
 
 // ── WHAT THE WRITER ANSWERS ─────────────────────────────────────────────────
 const CORRECT = home(HERO, HOURS_NEW, ORDER, VISIT);
@@ -163,6 +167,20 @@ const UNLINKED_DROPS_ORDER = home(HERO_PLAIN, HOURS, VISIT_PLAIN);
 // Every section off but the hours: the order form, and the two links that
 // were inside the sections that went.
 const HOURS_ONLY = home(HOURS);
+// THE SHARED HEADING (owner, 2026-09-24). "Order ahead" holds a link of its own
+// beside the form, so a quote naming the heading names BOTH of them — which is
+// how a links group used to answer for the form: naming passed, and the group's
+// kind was never asked. The link's words share nothing with the request; only
+// the heading (and the form's own name) does.
+const ORDER_LINKED = "<section className=\"order\"><h2>Order ahead</h2><p>Order by 6pm for the next morning.</p><Link to=\"/contact\">Large batches</Link><OrderForm /></section>";
+const HOME_ORDER_LINKED = home(HERO, HOURS, ORDER_LINKED, VISIT);
+const ORDER_LINKED_PLAIN = unlink(ORDER_LINKED, "/contact", "Large batches");
+// The link's wrapper off under "Order ahead", its words and the form kept.
+const UNDER_UNLINKED = home(HERO, HOURS, ORDER_LINKED_PLAIN, VISIT);
+// The owner's writer: the wrapper off AND the form gone (its import kept).
+const UNDER_UNLINKED_DROPS_FORM = home(HERO, HOURS, ORDER_LINKED_PLAIN.replace("<OrderForm />", ""), VISIT);
+// The form taken out on its own; the link under the same heading kept.
+const UNDER_DROPS_FORM = home(HERO, HOURS, ORDER_LINKED.replace("<OrderForm />", ""), VISIT);
 
 // ── WHAT THE JUDGE ANSWERS (always supplied) ────────────────────────────────
 const asks = (n, quote) => ({ n, asked: true, quote });
@@ -182,9 +200,9 @@ const U = (u) => ({ model: MODEL, in: u.input_tokens, out: u.output_tokens, cach
 const credits = (...us) => pageCredits(...us.map(U));
 
 // ── THE HARNESS ─────────────────────────────────────────────────────────────
-function bucket(slug) {
+function bucket(slug, before = HOME) {
   const store = new Map([
-    ["source/" + slug + "/pages.json", JSON.stringify([{ path: "index.tsx", source: HOME }, ...OTHER_PAGES])],
+    ["source/" + slug + "/pages.json", JSON.stringify([{ path: "index.tsx", source: before }, ...OTHER_PAGES])],
     ["source/" + slug + "/parts.json", JSON.stringify([{ name: "order-form", source: ORDER_FORM }])],
     [CONFIG_KEY(slug), JSON.stringify({
       look: { brand: "Harbour Loaf", theme: "broadsheet", tsx: [{ name: "order-form", does: "the order-ahead form", props: "none" }] },
@@ -220,13 +238,15 @@ function shownFile(args) {
  * look route; `tweak` the cheap writer's page as a function of what it was
  * shown (absent: it declines, so the full writer runs); `answer` the full
  * writer's page; `judge` the preservation judge's answer — an object, a
- * function of the request, or "fail" / "garbled"; `lane` the css lane's answer.
+ * function of the request, or "fail" / "garbled"; `lane` the css lane's answer;
+ * `before` the home page the site starts from (the ordinary fixture unless a
+ * case needs a different one).
  * A model tool with no supplied answer is recorded and refused (503), so a case
  * passes only on the calls it names — and every call is in the log either way.
  */
-async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null }) {
+async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null, before = HOME }) {
   const slug = "keep-" + mode + "-" + hex(4);
-  const b = bucket(slug);
+  const b = bucket(slug, before);
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const reqBody = JSON.stringify({
@@ -314,7 +334,7 @@ async function drive({ mode = "sync", route, ask, pick = null, tweak = null, ans
     const parts = JSON.parse(b.store.get("source/" + slug + "/parts.json"));
     const config = JSON.parse(b.store.get(CONFIG_KEY(slug)));
     return {
-      status, reply, calls: seen.calls, debits: seen.debits, judged: seen.judged,
+      status, reply, before, calls: seen.calls, debits: seen.debits, judged: seen.judged,
       compiles: c.calls.length, compiled: files.length ? compiledOf(files[0]) : null,
       stored: pages.find((p) => p.path === "index.tsx").source,
       others: OTHER_PAGES.map((o) => (pages.find((p) => p.path === o.path) || {}).source),
@@ -352,7 +372,7 @@ function refused(r, { calls, status = 409 }) {
   assert.equal(r.reply.cost, 0, "the edit cost nothing");
   assert.deepEqual(r.calls, calls, "the model calls");
   assert.equal(r.compiles, 0, "nothing was compiled");
-  assert.equal(r.stored, HOME, "the stored page is byte-identical to before");
+  assert.equal(r.stored, r.before, "the stored page is byte-identical to before");
   assert.deepEqual(r.others, OTHER_PAGES.map((o) => o.source), "the other pages are byte-identical");
   assert.deepEqual(r.parts, [{ name: "order-form", source: ORDER_FORM }], "the component's FILE is untouched");
   assert.deepEqual(r.debits, [], "nothing was charged");
@@ -543,7 +563,7 @@ test("a declared group holds only the kinds of item it can hold — the inventor
   assert.equal(groupCovers(["links"], menu), "unknown-group", "a list is never coerced into a name");
 });
 
-test("a declared group is an alternative to naming, read item by item — and a quote must still be in the message", () => {
+test("a declared group decides its answer alone, item by item — without one the quote must name the item, and either way it must be in the message", () => {
   const items = inv(UNLINKED_DROPS_ORDER).items;
   assert.deepEqual(items.map((i) => i.label || i.name), ["See the menu", "Directions", "order-form"]);
   const read = (message, ...answers) => readKeep({ content: [{ type: "tool_use", name: T.keep, input: judged(...answers) }] }, { message, items });
@@ -566,20 +586,69 @@ test("a declared group is an alternative to naming, read item by item — and a 
   assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, "", "links"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "no-quote"]);
   // A GROUP THAT IS NOT ONE OF OURS covers nothing.
   assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, "pages"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "unknown-group"]);
-  // A GROUP THAT IS NOT A STRING is not read at all — `String(["links"])` is
-  // "links", so a coercion would accept it.
-  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, ["links"]), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "quote-not-about-item"]);
+  // A GROUP THAT IS NOT A STRING is a declaration nobody can read: refused as
+  // an unknown group — never coerced (`String(["links"])` is "links", so a
+  // coercion would accept it) and never ignored (which would hand the answer
+  // back to naming).
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, ["links"]), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "unknown-group"]);
   // THE ORDER IN WHICH A GROUP IS ANSWERED is the judge's: one link in the
   // group and the other said no to is two separate answers, read separately.
   assert.deepEqual(whys(read(EXCEPT_ASK, inGroup(1, Q_EXCEPT, "links"), no(2), no(3))), [["Directions", "not-asked"], ["order-form", "not-asked"]]);
-  // A GROUP CAN ONLY ADD AN ACCEPTANCE, NEVER TAKE ONE AWAY: the form named
-  // outright is accepted by its name, even under a group label that is wrong.
-  const named = read("Take the order form off the home page.", no(1), no(2), inGroup(3, "Take the order form off", "links"));
-  assert.deepEqual(named.asked.map((a) => a.name), ["order-form"]);
+  // A DECLARED GROUP CONSTRAINS ITS ANSWER (owner, 2026-09-24). The form named
+  // outright is accepted by its name when the answer declares no group — and
+  // REFUSED when it declares a group that cannot hold a section: the answer
+  // contradicts itself, and the words naming the item do not override the kind
+  // it declared. This case used to assert the opposite, which is the bypass.
+  const FORM = "Take the order form off the home page.";
+  const byName = read(FORM, no(1), no(2), asks(3, "Take the order form off"));
+  assert.deepEqual(byName.asked.map((a) => a.name), ["order-form"], "a named removal needs no group");
+  // The two links are answered no in every read below, so they stand as
+  // not-asked beside the form throughout; the form's row is what moves.
+  const saidNo = [["See the menu", "not-asked"], ["Directions", "not-asked"]];
+  const underLinks = read(FORM, no(1), no(2), inGroup(3, "Take the order form off", "links"));
+  assert.deepEqual(whys(underLinks), [...saidNo, ["order-form", "group-other-kind"]],
+    "a links group never answers for the form, however well the words name it");
+  assert.equal(underLinks.unasked[2].group, "links", "the claimed group stays on the record");
+  assert.deepEqual(underLinks.asked, []);
+  // A GROUP NOBODY CAN READ is refused the same way, whether it is a string
+  // that is not one of ours or not a string at all — neither regains the yes
+  // through the naming it would have passed.
+  assert.deepEqual(whys(read(FORM, no(1), no(2), inGroup(3, "Take the order form off", "components"))), [...saidNo, ["order-form", "unknown-group"]]);
+  assert.deepEqual(whys(read(FORM, no(1), no(2), inGroup(3, "Take the order form off", ["sections"]))), [...saidNo, ["order-form", "unknown-group"]]);
+  assert.deepEqual(whys(read(FORM, no(1), no(2), inGroup(3, "Take the order form off", 7))), [...saidNo, ["order-form", "unknown-group"]]);
+  // NO GROUP IS NO DECLARATION: left out, null, or blank, the answer is read by
+  // its naming exactly as an answer without the field.
+  for (const none of [undefined, null, "", "  "]) {
+    assert.deepEqual(read(FORM, no(1), no(2), inGroup(3, "Take the order form off", none)).asked.map((a) => a.name), ["order-form"], JSON.stringify(none));
+  }
   // THE SECTIONS GROUP holds the form and the links inside the sections that went.
   const sec = readKeep({ content: [{ type: "tool_use", name: T.keep, input: judged(inGroup(1, Q_SECTIONS, "sections"), inGroup(2, Q_SECTIONS, "sections"), inGroup(3, Q_SECTIONS, "sections")) }] },
     { message: SECTIONS_ASK, items: inv(HOURS_ONLY).items });
   assert.deepEqual([sec.asked.length, sec.unasked.length], [3, 0]);
+});
+
+test("THE SHARED HEADING: a links group cannot answer for the form under the same heading, although the quote names it", () => {
+  // THE OWNER'S BYPASS, AT THE READER. Both items sat under "Order ahead", so
+  // the quote names both — and naming used to be asked first, so the group's
+  // kind was never checked for the form.
+  const items = keepInventory(HOME_ORDER_LINKED, UNDER_UNLINKED_DROPS_FORM, { does: DOES }).items;
+  assert.deepEqual(items.map((i) => [i.kind, i.label || i.name, i.section]),
+    [["link-lost", "Large batches", "Order ahead"], ["part-gone", "order-form", "Order ahead"]]);
+  assert.ok(items.every((it) => quoteNamesItem(Q_UNDER, it)), "the premise: the quote names BOTH items, by their shared heading");
+  const read = (...answers) => readKeep({ content: [{ type: "tool_use", name: T.keep, input: judged(...answers) }] }, { message: UNDER_ASK, items });
+  const r = read(inGroup(1, Q_UNDER, "links"), inGroup(2, Q_UNDER, "links"));
+  assert.deepEqual(r.asked.map((a) => [a.label, a.group]), [["Large batches", "links"]], "the link is one of the group");
+  assert.deepEqual(r.unasked.map((u) => [u.name, u.why, u.group]), [["order-form", "group-other-kind", "links"]], "the form is not");
+  // TWO ANSWERS TO ONE ITEM THAT DISAGREE ABOUT ITS GROUP ARE A CONFLICT, in
+  // either order — otherwise the answer without a group could win the merge and
+  // bring the naming back in.
+  for (const pair of [[asks(2, Q_UNDER), inGroup(2, Q_UNDER, "links")], [inGroup(2, Q_UNDER, "links"), asks(2, Q_UNDER)],
+    [inGroup(2, Q_UNDER, "links"), inGroup(2, Q_UNDER, "sections")]]) {
+    const c = read(inGroup(1, Q_UNDER, "links"), ...pair);
+    assert.deepEqual(c.unasked.map((u) => [u.name, u.why]), [["order-form", "conflicting"]], JSON.stringify(pair));
+  }
+  // AGREEING DUPLICATES ARE NOT A CONFLICT, as before.
+  assert.deepEqual(read(inGroup(1, Q_UNDER, "links"), inGroup(1, Q_UNDER, "links"), no(2)).asked.map((a) => a.label), ["Large batches"]);
 });
 
 test("the judge is shown the message verbatim and every item by its words, destination and heading", () => {
@@ -1009,4 +1078,78 @@ test("GROUP, THE TWEAK: the owner's undeclared answer on the cheap writer refuse
   const r = await drive({ route: { layer: "page" }, ask: ALL_LINKS_ASK, tweak: () => UNLINKED, judge: judged(asks(1, Q_ALL), asks(2, Q_ALL)) });
   refused(r, { calls: [T.tweak, T.keep] });
   assert.deepEqual(r.reply.contentBlocked.map((b) => b.why), ["quote-not-about-item", "quote-not-about-item"]);
+});
+
+// ═════ THE SHARED HEADING — a declared group constrains its answer ═════════
+
+const UNDER_REFUSAL = "⚠️ I couldn't make that change without also taking the “Order ahead” section off the page, which I couldn't confirm your message asked for — so I didn't make it. If you do want that change, say so in your message and send it again.";
+
+test("SHARED HEADING (the owner's bypass): the link and the form under “Order ahead” both gone — a links group cannot answer for the form, whatever words name it", async () => {
+  // THE OWNER'S REPRODUCTION THROUGH THE ROUTE. The writer took the link's
+  // wrapper off AND the form; the judge answered both as the links group,
+  // quoting the request. The quote names the form by its heading, and that
+  // used to be asked first — so the group's kind was never checked, and the
+  // form went out with "✅ Updated /."
+  assert.equal(use(HOME_ORDER_LINKED), "rendered");
+  assert.equal(use(UNDER_UNLINKED_DROPS_FORM), "unused", "the answer really drops the form");
+  const r = await drive({
+    route: { layer: "page" }, ask: UNDER_ASK, before: HOME_ORDER_LINKED, answer: UNDER_UNLINKED_DROPS_FORM,
+    judge: judged(inGroup(1, Q_UNDER, "links"), inGroup(2, Q_UNDER, "links")),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.equal(itemsShown(r).length, 2, "the link and the form were each asked about");
+  assert.deepEqual(r.reply.contentBlocked, [{ kind: "part-gone", name: "order-form", section: "Order ahead", group: "links", why: "group-other-kind" }],
+    "only the form is refused; the link WAS one of the group");
+  assert.equal(r.said.text, UNDER_REFUSAL + WHOLE, "the judge said yes, so the customer is not told it said no");
+  assert.deepEqual(r.said.actions, [], "no rewrite is bought");
+});
+
+test("SHARED HEADING, THE JOB PATH: the refusal reserves nothing, compiles nothing and stores nothing", async () => {
+  const r = await drive({
+    mode: "job", route: { layer: "page" }, ask: UNDER_ASK, before: HOME_ORDER_LINKED, answer: UNDER_UNLINKED_DROPS_FORM,
+    judge: judged(inGroup(1, Q_UNDER, "links"), inGroup(2, Q_UNDER, "links")),
+  });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.deepEqual(r.reply.contentBlocked.map((b) => [b.name, b.why]), [["order-form", "group-other-kind"]]);
+  assert.deepEqual(r.reserves, [], "no reservation was made");
+  assert.deepEqual(r.finalized, [false], "the job finalized as not published");
+});
+
+test("SHARED HEADING, LINK ONLY: the link's wrapper off under “Order ahead”, its words and the form kept — publishes, the judge billed with the edit", async () => {
+  assert.deepEqual(links(UNDER_UNLINKED), ["See the menu → /menu", "Directions → /visit"], "only the link under “Order ahead” went");
+  assert.equal(use(UNDER_UNLINKED), "rendered", "the form is still drawn");
+  const r = await drive({
+    route: { layer: "page" }, ask: UNDER_ASK, before: HOME_ORDER_LINKED, answer: UNDER_UNLINKED,
+    judge: judged(inGroup(1, Q_UNDER, "links")),
+  });
+  published(r, UNDER_UNLINKED, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 1, "the one link, and nothing else, was asked about");
+  assert.equal(r.said.text, UPDATED);
+});
+
+test("SHARED HEADING, THE FORM NAMED ON ITS OWN: “take the order form out of ‘Order ahead’”, answered with no group, publishes — a named removal needs no group", async () => {
+  assert.deepEqual(links(UNDER_DROPS_FORM), ["See the menu → /menu", "Large batches → /contact", "Directions → /visit"], "the link under the same heading stays");
+  assert.equal(use(UNDER_DROPS_FORM), "unused");
+  const r = await drive({
+    route: { layer: "page" }, ask: FORM_ASK, before: HOME_ORDER_LINKED, answer: UNDER_DROPS_FORM,
+    judge: judged(asks(1, Q_FORM)),
+  });
+  published(r, UNDER_DROPS_FORM, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 1, "only the form was an item");
+  assert.equal(r.said.text, UPDATED);
+});
+
+test("LIMIT, NOT A PROTECTION: the form answered with NO group, quoting the links request that shares its heading, is believed — naming reads words, not intent", async () => {
+  // Kept so the boundary is on the record. A declared group now constrains its
+  // answer; an answer that declares NO group is read by its naming, and the
+  // heading's words really do name the form. Telling "the links under Order
+  // ahead" from "Order ahead" is reading English — the judge's call, which the
+  // rules already steer ("Asking for every link does not ask for any section").
+  // Supplied output; it says nothing about how often a real model answers so.
+  const r = await drive({
+    route: { layer: "page" }, ask: UNDER_ASK, before: HOME_ORDER_LINKED, answer: UNDER_UNLINKED_DROPS_FORM,
+    judge: judged(inGroup(1, Q_UNDER, "links"), asks(2, Q_UNDER)),
+  });
+  published(r, UNDER_UNLINKED_DROPS_FORM, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  assert.equal(itemsShown(r).length, 2, "the form WAS an item, and the judge's yes covered it");
 });

@@ -318,6 +318,10 @@ export function itemTerms(item) {
  * home page"* for both of the page's links — a clear request about a GROUP
  * cannot name each member, and the customer was told their message had not
  * asked. A group the judge declares is the other way in (`groupCovers`).
+ *
+ * ⚠ THE ANSWER CHOOSES WHICH WAY, AND NAMING IS NEVER A FALLBACK FROM A GROUP.
+ * An answer that declares a group is checked by kind and by nothing else —
+ * matching words cannot override a group that cannot hold the item (`readKeep`).
  */
 export function quoteNamesItem(quote, item) {
   const terms = itemTerms(item);
@@ -355,6 +359,11 @@ export function quoteNamesItem(quote, item) {
  * ⚠ AND THE CONTAINMENT RUNS ONE WAY. A section holds links, so a sections
  * group may answer for a link that is gone; a link holds no section. Which
  * links were really inside the sections that went is the judge's reading too.
+ *
+ * ⚠ THE KIND CHECK IS THE WHOLE OF A GROUP ANSWER, NOT A LAST RESORT. A quote
+ * naming the item does not rescue a group that cannot hold it: *"Remove all
+ * links under 'Order ahead'"* names the order form by its heading, and still
+ * cannot answer for it as the links group.
  */
 export const KEEP_GROUPS = Object.freeze({
   links: Object.freeze(["link-lost", "link-moved"]),
@@ -485,18 +494,36 @@ export function keepUsage(reply, model = KEEP_MODEL) {
  *
  * FAILS CLOSED AT EVERY STEP. An item the answer leaves out, one answered
  * twice in disagreement, an `asked` that is not the boolean `true`, a quote
- * missing, a quote not in the message, and a quote that neither names its item
- * nor comes with a declared group that can hold it are all NOT ASKED — each
- * with its own reason, so a refusal can be audited. Only a reply with no
- * readable list is `ok: false`, which is ours and is said differently: the
- * loss may have been asked for, and we could not tell.
+ * missing, a quote not in the message, a declared group that cannot hold the
+ * item, and — with no group declared — a quote that does not name the item are
+ * all NOT ASKED, each with its own reason, so a refusal can be audited. Only a
+ * reply with no readable list is `ok: false`, which is ours and is said
+ * differently: the loss may have been asked for, and we could not tell.
  *
- * A DECLARED GROUP IS AN ALTERNATIVE TO NAMING, NEVER A REPLACEMENT FOR IT: a
- * quote that names its item is accepted with or without a group, so a judge
- * that labels a named request as a group costs nothing, and only the quotes
- * that name nothing depend on the group being one that can hold the item. A
- * `group` that is not a string is not read at all — never coerced.
+ * A DECLARED GROUP DECIDES ITS ANSWER ALONE (owner, 2026-09-24). The answer
+ * either declares a group or it does not, and code asks exactly one question
+ * of it: a group answer is checked by KIND (`groupCovers`), a plain answer by
+ * NAMING (`quoteNamesItem`). Naming is never asked of a group answer. It used
+ * to be asked FIRST, and that was a bypass: "Order ahead" held a link and the
+ * order form, the request was *"Remove all links under 'Order ahead'"*, the
+ * judge answered both as the links group — and the quote named the form by
+ * its heading, so the group's kind was never checked and the form went out.
+ * An answer whose declared group contradicts the item is inconsistent, and an
+ * inconsistent answer does not get its yes back from the words.
+ *
+ * THE COST, STATED: a judge that labels a request naming the form outright as
+ * a links group is refused now, where it used to cost nothing. That is a
+ * refusal the customer can answer; the other way round loses part of the site.
+ *
+ * WHAT COUNTS AS DECLARED: anything in `group` but nothing. Left out, `null` or
+ * blank is no group. A string that is not one of `KEEP_GROUPS`, or a value that
+ * is not a string at all, is a declaration nobody can read — refused as
+ * `unknown-group`, never coerced (`String(["links"])` is "links") and never
+ * ignored (which would hand the answer back to naming).
  */
+// Which group an answer declared, as one comparable value: "" for none.
+const groupKey = (s) => (s.declared ? "group:" + s.group : "");
+
 export function readKeep(reply, { message, items }) {
   const list = Array.isArray(items) ? items : [];
   const block = (reply && Array.isArray(reply.content) ? reply.content : [])
@@ -511,10 +538,14 @@ export function readKeep(reply, { message, items }) {
       asked: a.asked === true,
       quote: typeof a.quote === "string" ? a.quote : "",
       group: typeof a.group === "string" ? a.group.trim() : "",
+      declared: a.group != null && !(typeof a.group === "string" && !a.group.trim()),
     };
     const prev = byN.get(a.n);
     if (!prev) { byN.set(a.n, said); continue; }
-    if (prev.asked !== said.asked) clash.add(a.n);
+    // TWO ANSWERS TO ONE ITEM DISAGREE when one says yes and the other no — or
+    // when both say yes and not as the same group. Otherwise the answer with no
+    // group could win the merge and bring the naming back in.
+    if (prev.asked !== said.asked || (said.asked && groupKey(prev) !== groupKey(said))) clash.add(a.n);
     else if (!prev.quote && said.quote) byN.set(a.n, said);
   }
   const asked = [], unasked = [];
@@ -526,10 +557,10 @@ export function readKeep(reply, { message, items }) {
     else if (!s.asked) why = "not-asked";
     else if (!s.quote.trim()) why = "no-quote";
     else if (!quoteInMessage(message, s.quote)) why = "quote-not-in-message";
-    else if (!quoteNamesItem(s.quote, it)) {
-      const g = s.group ? groupCovers(s.group, it) : "quote-not-about-item";
+    else if (s.declared) {
+      const g = groupCovers(s.group, it);
       if (g !== true) why = g;
-    }
+    } else if (!quoteNamesItem(s.quote, it)) why = "quote-not-about-item";
     const out = { ...it, quote: s ? s.quote : "", ...(s && s.group ? { group: s.group } : {}) };
     if (why) unasked.push({ ...out, why }); else asked.push(out);
   });

@@ -160,6 +160,75 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — A "links" answer can't cover your order form any more, whatever words it quotes (on the branch, not deployed)
+
+You found the hole through the real edit route: "Order ahead" held a link and
+the order form, the customer asked *"Remove all links under ‘Order ahead’,
+keeping their text"*, the rewrite took the link's wrapper off **and** the
+form, and the checking model said both were part of the "links" group. The
+form went out, and the customer was told *"✅ Updated /."* **Fixed on the
+branch — not merged, not deployed, no paid run.**
+
+**Why it happened.** The code asked two questions in the wrong order. It first
+asked "do the quoted words name this thing?" and only asked "can a links group
+hold this thing?" when the answer was no. The request says "Order ahead", which
+is the order form's heading, so the first question said yes and the second was
+never asked. My previous fix built that order on purpose, and one of my tests
+even checked that a named order form was accepted under a "links" label. That
+test was the hole, and it's reversed now.
+
+**What changed:**
+
+- If the checking model says an answer is a **group**, the code checks only
+  whether that group can hold the thing: a "links" group never covers your
+  order form, even when the words name it. If it says **no group**, the code
+  checks the words, as before. So *"take the order form out of ‘Order ahead’"*
+  still works on its own, with no group needed.
+- A group value the code can't read (a made-up group name, or something that
+  isn't text) is refused instead of quietly falling back to the word check.
+  This corrects my earlier "a non-text group is ignored": ignoring it let the
+  word check wave it through.
+- If the model answers the same item twice, once as a group and once not, that
+  counts as a contradiction and is refused. Otherwise the plain answer could
+  win and bring the word check back.
+
+**What the customer sees now in your case:** the change isn't made, and they're
+told it would also have taken the "Order ahead" section off, *"which I couldn't
+confirm your message asked for"*. Nothing is charged, compiled or saved, on
+either payment path. Taking only the link off still goes through.
+
+**The cost.** If the model names the order form outright but labels it a
+"links" group by mistake, that is now refused where it used to pass. The
+customer can answer that with one more message; the other way round loses part
+of their site.
+
+**A limit, kept on the record as a test.** If the checking model answers the
+order form with **no** group and quotes *"Remove all links under ‘Order
+ahead’"*, it's still believed, because those words really do name the form's
+heading. Telling "the links under Order ahead" apart from "Order ahead" means
+reading English, which is the model's job. Its instructions already say that
+asking for the links doesn't ask for any section. This fix makes a declared
+group hold; it doesn't claim to catch a misreading without one.
+
+**The numbers:** 6 new test cases, 63 in the file. On the old code 4 of them
+fail: your reproduction on both payment paths, and the two direct checks of
+the rule. The other 59 pass either way, which is right: they're the cases that
+must keep working. The eight related test files: 174 of 174 passing. The whole
+suite: 7,328 tests, all passing — exactly 6 more. I broke the new code on
+purpose 25 different ways — including putting your bypass back — and every one
+was caught (the harmless control wasn't). I also rendered it in the real chat,
+before and after (sent in the conversation): your case, the correct link-only
+removal, and the order form named on its own. In your case nothing is
+published at all, so the link they did ask about is still a link too — the
+whole change is held back, as with every refusal of this kind.
+
+Every model answer in these tests is made up — they prove what the code does
+with an answer, not how often a real model gives one. A section that's only
+words or standard building blocks can still disappear silently; that stays
+open.
+
+---
+
 ## 2026-09-24 — "Remove all links" works now: a group is judged item by item (on the branch, not deployed)
 
 You found it through the real edit route: *"Remove all links from the home

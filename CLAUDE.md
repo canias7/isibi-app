@@ -3950,7 +3950,9 @@ separate next tasks"*):
    stays OPEN**, and the judge's reading of a message is the model's, proven by
    no test here. **A GROUP asked for at once** (*"remove all links"*) was
    refused by it and is supported the same day (*a group asked for at once*,
-   below), judge-declared and kind-checked — on the branch, not merged.
+   below), judge-declared and kind-checked — and after a shared-heading bypass
+   the owner reproduced, **a declared group constrains its answer** (next
+   section but one) — on the branch, not merged.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -5157,7 +5159,10 @@ reader of an import clause.
   to the judge alone. **⚠ AND (2) IS NO LONGER MANDATORY** (owner, the same day:
   *"a clear request about a group cannot succeed unless the customer names each
   member"*): a group the judge declares, of a kind that can hold the item, is
-  the other way a quote covers it — *a group asked for at once*, below.
+  the other way a quote covers it — *a group asked for at once*, below. **⚠ AND
+  THE TWO WAYS ARE EXCLUSIVE PER ANSWER** (owner, the same day): an answer that
+  declares a group is checked by kind ALONE, so (2) cannot rescue a group that
+  cannot hold the item — *a declared group constrains its answer*, below.
 - **FOUR VERDICTS, ONE WRITER (`keepRefusal`) FOR BOTH RUNGS**: `kept` (no
   call) · `asked` (publish; the judge's tokens billed with the edit in the ONE
   `eCharge`) · `withheld` (409 `withheld`, cost 0, `contentBlocked:
@@ -5267,7 +5272,10 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   `link-lost` and `link-moved`; `sections` holds `part-gone` and `link-lost` (a
   section taken off takes its links). A quote covers an item when it occurs in
   the message AND either names the item OR comes with a declared group that can
-  hold the item's kind (`groupCovers`). **The kinds are the inventory's own, so
+  hold the item's kind (`groupCovers`). **⚠ CORRECTED THE SAME DAY: never
+  "either" for one answer** — an answer that declares a group is checked by kind
+  alone and one that declares none by naming alone (*a declared group
+  constrains its answer*, below). **The kinds are the inventory's own, so
   nothing is a word list**: which group words ask for is reading English, and a
   keyword list (*"all links"*, *"every button"*, *"everything below the
   hours"*) only grows — and reads no message written in Spanish or French.
@@ -5283,13 +5291,18 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   exact supplied answer, with no group named, STILL REFUSES** — on both writers,
   now with the honest sentence. **Whether a real model fills `group` is
   unverified**; that is the risk this design carries, stated rather than hidden.
-- **STILL JUDGED ITEM BY ITEM, AND A GROUP CAN ONLY ADD AN ACCEPTANCE.** Every
-  item needs its own answer; a quote that names its item is accepted with or
-  without a group (a wrong group label on it costs nothing); a group's quote
-  must still occur in the message and must not be empty; a name not ours is
-  `unknown-group`; a group stretched over a kind it cannot hold is
-  `group-other-kind`; a non-string `group` is not read at all, never coerced
-  (`String(["links"])` is `"links"`, and a case holds it).
+- **STILL JUDGED ITEM BY ITEM.** Every item needs its own answer; a group's
+  quote must still occur in the message and must not be empty; a name not ours
+  is `unknown-group`; a group stretched over a kind it cannot hold is
+  `group-other-kind`. **⚠ "A GROUP CAN ONLY ADD AN ACCEPTANCE" WAS THE BYPASS
+  (corrected the same day, owner).** This bullet first said a quote that names
+  its item is accepted *with or without a group (a wrong group label on it costs
+  nothing)*, and a unit case asserted exactly that for the order form under
+  `group: "links"` — so under a heading the quote named, a links group answered
+  for the form and it shipped. And a non-string `group` was *"not read at
+  all"*, which made it no group and handed the answer back to naming — the same
+  hole by a malformed route. Both are closed: *a declared group constrains its
+  answer*, next section.
 - **THE REFUSAL CLAIMS ONLY WHAT MADE IT.** `keepWithheldMsg` says *"which your
   message didn't ask for"* only when EVERY listed item's reason is `not-asked`
   — the judge said no. Any other reason (the judge said yes and a check could
@@ -5365,7 +5378,23 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   scenarios, every chat sentence the browser composer's own output captured out
   of the route — BEFORE on `58dfa875` in a throwaway worktree (which read 43
   pass / 14 fail again, the red count reproduced), AFTER on this branch — and all
-  twelve drawn bubbles equal to the composer's text.
+  twelve drawn bubbles equal to the composer's text. **The docs-and-assertion
+  commit `f89846de` reads the same four unit numbers** on run **`35953787126`**
+  (`duration_ms 116,441`, zero anchored `not ok N -` lines), so it moved the
+  count by zero. **AND `site build` run `35953017727` on `5437cbf5`** (03:49:03 →
+  04:13:58Z, **24m55s**, all twenty steps) read all twelve counts green out of
+  its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build **382**,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all
+  passed`, census 7 + 4 + 1 = **12**; the two known `##[error]` annotations
+  (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) inside the case that
+  compiles a broken page on purpose, the first directly above its own `ok`
+  line, the second followed by the two SSR-stream lines and then its own `ok`;
+  `tsc`-format lines 9 / 2 / 7; `site-build.mjs` **18m19s**. **⚠ THE RUN-LEVEL
+  API ANSWERED `in_progress` FOR THIS RUN AT 04:14Z WHILE ITS JOB HAD COMPLETED
+  AT 04:13:58** — `updated_at` still read the creation second — so the job
+  listing, not the run, is what said it was done: this file's stale-snapshot
+  trap, met again.
 - **⚠ WHAT IT DOES NOT CLAIM.** Every model answer is SUPPLIED — the writers'
   and the judge's, the `group` included — so this proves the path: a declared
   group is read, kind-checked and judged per item, a collateral loss is still
@@ -5374,6 +5403,119 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   a group at all. Plain-words and kit-only section loss stays OPEN; full-site
   revise, translation and hydration are untouched; model-written replies stay a
   recorded future preference.
+
+### A DECLARED GROUP CONSTRAINS ITS ANSWER (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, reproducing it through the edit route: *"Before: “Order ahead” contains
+a link and OrderForm. Request: “Remove all links under ‘Order ahead’, keeping
+their text.” Writer removes the link wrapper AND OrderForm. Judge answers
+asked:true, group:"links" for both, quoting that request. Result: 200, compiled
+and stored without the form, customer hears “✅ Updated /.” readKeep checks
+groupCovers only when quoteNamesItem fails. The shared heading makes
+quoteNamesItem pass, so a links-group answer authorizes a part-gone item. Make
+an explicitly declared group constrain its answer. Matching words must not
+override a contradictory group kind. A named individual removal can remain
+valid without a group; an inconsistent answer should not silently regain
+permission through the naming fallback."*
+
+- **REPRODUCED FIRST, THROUGH THE ROUTE, ON BOTH MONEY PATHS.** On `f89846de`:
+  200, the form gone from the compiled AND stored page, the synchronous reply
+  charging `cost: 6`, and *"✅ Updated /."* on both paths — the owner's report
+  exactly. **The cause is the ORDER of two checks**: `quoteNamesItem` ran first
+  and `groupCovers` only when it failed, and *"Remove all links under ‘Order
+  ahead’"* names the form by its heading (and by its own name), so the form's
+  `group-other-kind` was never asked. **The previous round built that order on
+  purpose** (*"A GROUP CAN ONLY ADD AN ACCEPTANCE"*, above, now corrected) and a
+  unit case asserted it — the order form named outright and accepted under
+  `group: "links"`. That case preserved the bypass, and the owner named it.
+- **THE FIX IS WHICH QUESTION IS ASKED, NOT A NEW QUESTION.** An answer either
+  declares a group or it does not, and `readKeep` asks exactly ONE question of
+  it: a group answer is checked by KIND (`groupCovers`) and naming is never
+  asked of it; a plain answer is checked by NAMING (`quoteNamesItem`), as
+  before. So matching words cannot override a group that cannot hold the item,
+  and a named individual removal with no group still publishes. **No English is
+  read and nothing is bypassed**: the kinds are the inventory's own.
+- **WHAT COUNTS AS DECLARED: anything in `group` but nothing.** Left out,
+  `null` or blank is no group. A string that is not one of `KEEP_GROUPS`
+  (`"components"`), or a value that is not a string at all (`["sections"]`,
+  `7`), is a declaration nobody can read — refused as `unknown-group`, **never
+  coerced and never ignored**, because ignoring it hands the answer back to
+  naming. **⚠ CORRECTED**: last round a non-string group was *"not read at
+  all"*, which made it an undeclared answer — on a quote that named its item,
+  the same bypass by a malformed route. `null` and blank are read as absent
+  deliberately: they declare nothing, so they open nothing an absent field does
+  not.
+- **AND A SECOND WAY IN, CLOSED WITH IT: TWO ANSWERS TO ONE ITEM.** The merge
+  kept the first answer that carried a quote, so `{asked, quote}` then `{asked,
+  quote, group: "links"}` for the form kept the plain one and naming let it
+  through. **Two yes answers that do not declare the same group are now a
+  conflict** (`conflicting`), in either order, and so are two different groups;
+  agreeing duplicates are read as before.
+- **THE COST, STATED**: a judge that labels a request NAMING the form outright
+  (*"Take the order form off"*) as a links group is refused now, where it used
+  to cost nothing. That is a refusal the customer can answer; the other way
+  round loses part of the site.
+- **THE SENTENCE**: `group-other-kind` and `unknown-group` are not
+  `not-asked`, so the customer hears *"…which I couldn't confirm your message
+  asked for…"* — the judge said yes, and the screen does not claim otherwise.
+- **THE ROUTE CASES**, through `POST /api/site/<slug>/edit` on a starting page
+  whose "Order ahead" holds a "Large batches" link beside the form (the harness
+  now takes the starting page, and a refusal is compared against IT rather than
+  the fixed fixture): **the owner's bypass** — refused, 409, nothing compiled,
+  stored or charged, `contentBlocked` naming the form ALONE with `group:
+  "links"` and `group-other-kind`, the exact screen, no follow-up bought;
+  **the same on the job path** — no reservation, `edit_finalize p_ok: false`;
+  **correct link-only removal under the heading** — publishes, the judge billed
+  with the edit, one item asked about; **the form named on its own** (*"Take the
+  order form out of ‘Order ahead’"*, no group) — publishes, only the form an
+  item, the link under the same heading kept. **Retained unchanged and green**:
+  all links (full writer and tweak), the two except-one cases, the three
+  collateral cases (both money paths, and the stretched group), the sections
+  group, the named-section removal and retarget controls, and the billing
+  controls.
+- **A LIMIT, RECORDED AS A CASE AND NEVER AS A PROTECTION**: the form answered
+  with NO group, quoting the links request that shares its heading, is believed
+  and the form goes — the heading's words really do name it. Telling *"the
+  links under Order ahead"* from *"Order ahead"* is reading English, the
+  judge's call, which the rules already steer (*"Asking for every link does not
+  ask for any section"*). **The fix constrains a DECLARED group and claims
+  nothing about an undeclared misreading.**
+- **EVIDENCE.** `test/edit-page-keep.test.mjs` **57 → 63 cases** — one reader
+  case (the shared heading, the premise that the quote names BOTH items asserted
+  first, and the duplicate-answer conflicts), five route cases, and the group
+  reader case rewritten (its named-form-under-links assertion reversed, the
+  non-string expectation corrected, unknown / non-string / absent groups
+  added). **Red 4 of 63 against the unfixed `f89846de`** (a throwaway worktree,
+  the product byte-identical to the scratchpad backup, sha `5f340fb0`): the two
+  reader cases and the owner's bypass on both money paths, each route case at
+  200 where 409 was due; the rewritten case's first gate is its non-string line,
+  and with that line cut its named-form assertion is red on its own. The 59
+  green on both are the controls, the limit and every retained case. **The
+  eight focused files 174 / 174** (+6). **Focused mutation check
+  `scripts/mutants/keep-groups.json`, re-anchored and extended: 25 mutants, 25
+  killed, 0 survived, 0 never applied, the comment-only control surviving**,
+  over `page-keep.mjs` and `worker.js` against the same eight files — G-1 and
+  G-2 re-anchored (their line was the one this round replaced), and six new:
+  naming asked before a declared group (the bypass restored), a non-string group
+  read as no group, `null` counted as a declaration, a blank group counted as
+  one, two answers disagreeing about the group not a conflict, and two
+  different groups agreeing; both swept files byte-identical to their
+  pre-sweep hashes afterwards. **Suite 7,328 locally** (`# tests 7328 / # pass
+  7328 / # fail 0 / # skipped 0`, `duration_ms 117,043`) — **+6 against 7,322**,
+  exactly the file's 57 → 63. **Rendered in the real workspace chat, before and
+  after** (the owner's bypass, link-only removal, the form named on its own):
+  every chat sentence the browser composer's own output captured out of the
+  route — BEFORE on the unfixed product (captured before the fix), AFTER on this
+  branch — and all six drawn bubbles equal to the composer's text. In the
+  owner's AFTER nothing published, so the link the customer DID ask about is
+  still a link: a refusal withholds the whole change, as every preservation
+  refusal does.
+- **⚠ WHAT IT DOES NOT CLAIM.** Every judge answer is SUPPLIED, the `group`
+  included, so this proves that code enforces the kind a judge DECLARES — and
+  nothing about how often a real model declares a group, declares the wrong
+  one, or misreads a shared heading without one. Plain-words and kit-only
+  section loss stays OPEN; full-site revise, translation and hydration are
+  untouched; model-written replies stay a recorded future preference.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
