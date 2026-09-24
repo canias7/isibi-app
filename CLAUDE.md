@@ -5628,6 +5628,50 @@ meets, not on this paragraph.
   section loss stays open. **Partial preservation protection, not the edit path
   complete.**
 
+### MERGED AND DEPLOYED: THE PRESERVATION CHECK (2026-09-24)
+
+Owner: *"The preservation handoff passed independent review. Proceed with
+merging and deploying this reviewed patch. Recheck current main and the
+candidate before merging. Reviewed candidate: 1b968c9; expected image:
+56f7d5866240a1de. If product code changed meanwhile, stop and identify the
+difference."*
+
+- **RECHECKED AT 05:30:38Z AND NOTHING HAD MOVED**: `origin/main` still
+  `4df02867`, the candidate still `1b968c9`, and no product file differing from
+  the reviewed tree (`16b9ce72`'s). Zero runs in progress or queued; the image
+  predicted over both ends again; the rollback tree re-verified (`ddabc0dd…`,
+  main's own); the served-file BEFORE reading re-taken at 05:30:58Z — **740,600
+  bytes, `37983c53938d6581`, 0 × `partsUnsure`**, byte-identical to main's.
+- **A FAST-FORWARD**: `main` `4df02867` → **`1b968c9`** at **05:31:09Z**.
+- **DEPLOY 2151 (`35960304858`)** — success, job 05:31:15 → 05:34:12Z,
+  **2m57s**; image step **2m11s** with **0 `CACHED` lines**; Wrangler 19s.
+  `DEPLOY_ID` `***b968c9de0530872e06ee24680dbfec9d36b928f` (the `***` a masked
+  `1`); image **built `56f7d5866240a***de`** (registry answered 404, `***86
+  inputs off ./Dockerfile`) and **rolled from `67a8***b55332be3a9`** (`- "image"`
+  → `+ "image"` under `SUCCESS Modified application`, `Applied changes`);
+  `+ /chat.js`, 1 uploaded, 85 already; `Uploaded isibi-app`, `Current Version
+  ID: 5f694545-…`, `Deployed isibi-app triggers`.
+- **THE TWENTY-SECOND IMAGE-ID CROSS-CHECK, BOTH ENDS PREDICTED BEFORE THE PUSH,
+  AND THE INPUT COUNT MOVED 185 → 186 AS PREDICTED** — `builder/page-keep.mjs`
+  joined the Dockerfile's worker COPY line, so the count is a second quantity
+  agreeing independently of the id.
+- **THE SERVED-FILE CHECK, BOTH READINGS**: after (05:35:15Z) **741,487 bytes,
+  `54397bfe3a57abb0`, 2 × `partsUnsure`, byte-identical to `git show
+  1b968c9:public/chat.js`** — exactly the handoff's prediction. Gates **401 /
+  401 / 401 / 404**.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED.** The confirmation is the canary's free
+  press, and the session **re-tested it rather than assumed it**: at 05:52:40Z,
+  18 minutes after the deploy finished, `run_workflow` on `edit-canary.yml`
+  (`main`, `spend: no`, both expectations set) answered **403 Resource not
+  accessible by integration** — the `actions: write` wall again. **The owner's
+  press**: `edit-canary.yml` from `main`, `spend` no, `expect_deploy`
+  **`1b968c9de0530872e06ee24680dbfec9d36b928f`**, `expect_image`
+  **`56f7d5866240a1de`**, everything else at its default. It refuses on a
+  mismatch of either, so it cannot pass against the previous build.
+- **THE LIMITS TRAVEL WITH IT**: supplied model answers only, so a real model's
+  judgment is unverified; plain-text and kit-only section loss stays open.
+  **Partial preservation protection, not the edit path complete.**
+
 ### A FAILED ROUTING CALL ON A LIVE SITE BUYS THE FULL REWRITE — REPRODUCED (2026-09-24; proposal pending, nothing built)
 
 Owner: *"routing failures that fall through to a full-site rewrite. Reproduce
@@ -5650,7 +5694,7 @@ today's rewrite, so a correction flips each one deliberately.
 | 401 | the same, BEHIND the sign-in gate | the gate; when the revise is refused too, the gate again and *"⚠️ That didn’t come together. Try again in a moment."* — about a build nobody asked for |
 | a 200 that cannot be read — HTML, truncated JSON, an empty body, `null` | the same | the same |
 | a 200 naming nothing the browser acts on — `[]`, `{}`, `{ok:false}`, an unknown intent, `ask` with no answer, `clarify` with one option | the same | the same |
-| a 200 `{intent:"edit"}` with no layer | `POST …/edit`, `layer: ""` | not a rewrite: the route falls through to `route/layer` (explain, ours, cost 0) — read, not driven |
+| a 200 `{intent:"edit"}` with no layer | `POST …/edit`, `layer: ""` | not a rewrite: the route answers `route/layer` — 503, cost 0, no model call, nothing compiled — and the screen says *"I couldn't work out how to make that kind of change from here — this is on us…"* (driven through the real route, scratch script) |
 | a 200 `{intent:"addon", failed:true}` (the router model threw) | `POST …/addon` | acted on as a decision: nothing in `chat.js` reads `failed` |
 
 **The rewrite is a revise of every page** (a revise of the same site measured
@@ -5697,6 +5741,10 @@ about money** — an unreadable 200 can follow a billed routing call. `.catch`
 also catches a synchronous throw inside `siteEdit`/`siteAddon` before their POST,
 which today buys the rewrite too. **The cost, stated**: a customer whose routing
 call fails presses send again. The wording is the owner's to change.
+**PROTOTYPED ON A SCRATCH COPY OF `chat.js`, the repo's untouched**: the 19
+open-defect cases flip — no POST after the routing call, one sentence, the 401
+pair the sign-in sentence — and the other 13 stay green, the explicit build, the
+zero-balance build, the first build and the adopted row among them.
 
 - **THE OWNER'S CALL, ONE WORD**: `isBuild` in `lost` leaves the adopted-site row
   exactly as today; `!site.slug` would also stop a failed routing call building a
@@ -5718,8 +5766,12 @@ call fails presses send again. The wording is the owner's to change.
   the last arm, build excepted, failed exactly the 6 unrecognised-answer cases —
   the controls green under all three. **Suite 7,360 locally** (`# tests 7360 /
   # pass 7360 / # fail 0 / # skipped 0`, `duration_ms 116,833`) — **+32 against
-  7,328**, exactly this file. **Every routing answer here is SUPPLIED**: this is
-  what the browser does with a response, never what a real router answers.
+  7,328**, exactly this file. **AND CI MATCHES**: unit run **`35961568319` on
+  `e0daf2e8`** reads **`# tests 7360 / # pass 7356 / # fail 0 / # skipped 4`**
+  (`duration_ms 121,751`), all 32 cases passing BY NAME (`ok 6103`–`ok 6134`)
+  and zero anchored `not ok N -` lines in the downloaded log. **The stamp chain
+  ends at `e0daf2e8`.** **Every routing answer here is SUPPLIED**: this is what
+  the browser does with a response, never what a real router answers.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

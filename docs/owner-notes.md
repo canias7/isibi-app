@@ -160,6 +160,46 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — The page-rewrite protection is live; a failed message check still buys a full rewrite (reproduced, not fixed)
+
+**Merged and deployed.** The page-rewrite protection went to main at 05:31 UTC
+and deploy 2151 finished green three minutes later. Before the push, main and
+the reviewed candidate were checked again and nothing had changed. The deploy
+built the container image that was worked out in advance (`56f7d5866240a1de`),
+and the live `chat.js` is byte-for-byte the merged one. It is **deployed but
+not yet confirmed from the live system**: the free check that asks the running
+Worker and container which code they are is your press — the session was
+refused again (it has no permission to start workflows). Press `edit-canary` on
+`main` with spend `no`, expect_deploy
+`1b968c9de0530872e06ee24680dbfec9d36b928f` and expect_image `56f7d5866240a1de`.
+
+**Found, not fixed: when the check that reads your message fails, a live site
+gets a full rewrite.** Before anything happens to a message on a site that
+already exists, the builder asks the server what kind of change it is. If that
+one call fails — the connection drops, the server answers with an error, or it
+sends back something the page can't read — the page starts the full rewrite of
+every page (a revise measured 17 credits) and says nothing about why. It does
+that for all 17 failure shapes that were tried. When you have been signed out,
+it shows the sign-in screen and starts the rewrite behind it.
+
+- **How it was checked**: the real page code ran with every network answer
+  written by us, so nothing was spent. It is saved as a test that shows
+  today's behaviour, and the fix will have to change those cases on purpose.
+- **What stays the same**: a real edit, a real add-on, "scrap this and make a
+  new site", the out-of-credits answer, a question, a clarifying question, and
+  a brand-new project's first build all still do exactly what they do now.
+- **The proposed fix (not built)**: on a site that already has pages, a failed
+  or unreadable check says *"I couldn't work out what to do with that just now,
+  so nothing on your site changed. Send it again in a moment."* (or asks you to
+  sign in again) and buys nothing. The cost is that you press send again. The
+  wording is yours to change.
+- **Recorded for later, not part of this**: a site opened in a browser that
+  didn't build it can start a brand-new site instead of changing yours; an
+  add-on whose own request fails still falls to the full rewrite; and the
+  server's "the reader broke" flag is never read by the page.
+
+---
+
 ## 2026-09-24 — The page-rewrite protection is closed at review and ready to merge (not merged, not deployed)
 
 You closed it: *"Close this bounded correction at the code-review level. Stop
