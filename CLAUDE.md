@@ -3948,7 +3948,9 @@ separate next tasks"*):
    built*, below) — not merged, not deployed, no paid run. **It covers links
    and the site's own components only; plain-text and kit-only section loss
    stays OPEN**, and the judge's reading of a message is the model's, proven by
-   no test here.
+   no test here. **A GROUP asked for at once** (*"remove all links"*) was
+   refused by it and is supported the same day (*a group asked for at once*,
+   below), judge-declared and kind-checked — on the branch, not merged.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -5134,7 +5136,8 @@ reader of an import clause.
   artifacts (29 page readings) the only page importing one is fretwork-1's home
   page — 8 readings × 3 components, all 24 `rendered → rendered`, zero
   uncertain. One site's one page, said as that.
-- **THE JUDGE**: tool `keep_check`, one property `answers: [{n, asked, quote}]`,
+- **THE JUDGE**: tool `keep_check`, one property `answers: [{n, asked, quote}]`
+  (plus an optional `group` since the next section's round),
   on `eQuickModel` through `eQuick("keep_check")`, `KEEP_MAX_TOKENS` 1024, called
   ONLY when something was lost. Its rules say a request to KEEP something, or a
   mention, is not a request to remove it, and that asking for one thing never
@@ -5151,12 +5154,15 @@ reader of an import clause.
   stated**: a paraphrase sharing no naming word (*"the map link"* for a link
   that says "Directions") is refused and the sentence asks for it to be named;
   an item with NO naming words (a wordless link to `/` under no heading) is left
-  to the judge alone.
+  to the judge alone. **⚠ AND (2) IS NO LONGER MANDATORY** (owner, the same day:
+  *"a clear request about a group cannot succeed unless the customer names each
+  member"*): a group the judge declares, of a kind that can hold the item, is
+  the other way a quote covers it — *a group asked for at once*, below.
 - **FOUR VERDICTS, ONE WRITER (`keepRefusal`) FOR BOTH RUNGS**: `kept` (no
   call) · `asked` (publish; the judge's tokens billed with the edit in the ONE
   `eCharge`) · `withheld` (409 `withheld`, cost 0, `contentBlocked:
-  [{kind, label, href, to, name, section, why}]`, nothing compiled, stored or
-  charged) · `unchecked` (503 `withheld`, `ours`, `contentUnchecked`). The photo
+  [{kind, label, href, to, name, section, group, why}]`, nothing compiled,
+  stored or charged) · `unchecked` (503 `withheld`, `ours`, `contentUnchecked`). The photo
   refusal's shape, so the merge's `stepWroteNothing`, the browser's
   whole-request note and the job path's refund read it with no new branch.
 - **BOTH WRITERS, BEFORE THE PUBLISH.** The tweak after its photograph refusal,
@@ -5236,6 +5242,138 @@ publishing case), links built from data, links inside components, kit
 components' own `href` props; a section moved into a new component is refused
 (conservative). Full-site revise, translation and hydration untouched; the
 model-written-replies preference stays recorded, not started.
+
+### A GROUP ASKED FOR AT ONCE (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, reproducing it through the real edit route: *"Request: “Remove all
+links from the home page, keeping their text and everything else.” … Judge:
+asked:true for both items, quoting the actual request. Result: 409 withheld,
+both items quote-not-about-item. The customer is incorrectly told the message
+didn't ask to remove those links. quoteNamesItem makes shared naming words
+mandatory, so a clear request about a group cannot succeed unless the customer
+names each member. Fix this without adding a growing English keyword parser or
+a blanket removal bypass. Support explicitly requested groups while keeping
+judgment per item. Quote presence and word overlap are not proof of intent."*
+
+- **REPRODUCED FIRST, EXACTLY, AND IT IS TWO DEFECTS.** On `58dfa875`, the
+  writer taking both `<Link>` wrappers off with every word kept and the judge
+  answering `asked: true` for both with the request's own words: 409
+  `withheld`, both `quote-not-about-item`, and the screen said *"…which your
+  message didn't ask for…"*. (1) Naming was the ONLY way a quote could cover an
+  item. (2) The refusal sentence claimed the JUDGE'S reading whatever refused —
+  and here the judge had said yes.
+- **THE GROUP IS THE JUDGE'S TO DECLARE AND CODE'S TO CHECK, BY KIND.** Each
+  answer may carry `group`, enum `Object.keys(KEEP_GROUPS)`: `links` holds
+  `link-lost` and `link-moved`; `sections` holds `part-gone` and `link-lost` (a
+  section taken off takes its links). A quote covers an item when it occurs in
+  the message AND either names the item OR comes with a declared group that can
+  hold the item's kind (`groupCovers`). **The kinds are the inventory's own, so
+  nothing is a word list**: which group words ask for is reading English, and a
+  keyword list (*"all links"*, *"every button"*, *"everything below the
+  hours"*) only grows — and reads no message written in Spanish or French.
+- **WHY THE JUDGE MUST DECLARE IT, AND WHAT THAT COSTS.** To code, the owner's
+  quote *"Remove all links from the home page"* and the unrelated-removal
+  control's *"Take the phone number off"* are ONE shape — words really in the
+  message that name nothing on the page. Accepting the first without a
+  declaration accepts the second — MEASURED: the G-2 mutant, which reads an
+  undeclared quote as a links group, fails four cases run one at a time — that
+  phone-number control, the owner's undeclared answer on both writers, and the
+  wrong-item control (on its reason, `group-other-kind` where
+  `quote-not-about-item` was due). **So the owner's
+  exact supplied answer, with no group named, STILL REFUSES** — on both writers,
+  now with the honest sentence. **Whether a real model fills `group` is
+  unverified**; that is the risk this design carries, stated rather than hidden.
+- **STILL JUDGED ITEM BY ITEM, AND A GROUP CAN ONLY ADD AN ACCEPTANCE.** Every
+  item needs its own answer; a quote that names its item is accepted with or
+  without a group (a wrong group label on it costs nothing); a group's quote
+  must still occur in the message and must not be empty; a name not ours is
+  `unknown-group`; a group stretched over a kind it cannot hold is
+  `group-other-kind`; a non-string `group` is not read at all, never coerced
+  (`String(["links"])` is `"links"`, and a case holds it).
+- **THE REFUSAL CLAIMS ONLY WHAT MADE IT.** `keepWithheldMsg` says *"which your
+  message didn't ask for"* only when EVERY listed item's reason is `not-asked`
+  — the judge said no. Any other reason (the judge said yes and a check could
+  not confirm it, left an item out, contradicted itself) says *"which I
+  couldn't confirm your message asked for"*, and a MIXED list takes the weaker
+  clause, true of both. **The closing advice — *"say so in your message and
+  send it again"* — is unchanged**, and reads oddly to a customer who already
+  asked for the group; it is a wording question for the owner, not changed
+  here.
+- **THE RULES** gain three bullets: how to declare a group; *"A group is still
+  answered item by item"* (anything the message leaves out of its group is not
+  asked for); *"A group asks only for what it names"* (every link asks for no
+  section; the sections ask for the links inside them and for no link anywhere
+  else). `contentBlocked` carries `group`, so a `group-other-kind` refusal says
+  which group was claimed.
+- **THE ROUTE CASES THE OWNER LISTED**, all through `POST
+  /api/site/<slug>/edit` with the calls, the compiler payload, the store, the
+  money and the screen asserted: **remove all links keeping their text** —
+  publishes on the full writer and on the TWEAK, the judge billed with the edit,
+  exactly the two links asked about; **all links except one named link** —
+  honoured, it publishes with only the one link asked about; the writer taking
+  the named link too is refused for THAT link alone, `not-asked`, with the
+  "didn't ask for" sentence; **a group beside an unrelated component loss** —
+  the collateral loss alone is refused, on BOTH money paths (no reservation,
+  `edit_finalize p_ok: false`), and refused by kind (`group-other-kind`, the
+  claimed group on the record) when the judge stretches the links group over the
+  order form; **the named-section removal (look and page) and retarget
+  controls** — unchanged and green. Beside them: a sections group (*"every
+  section off except the hours"*) publishes, three items each asked about; the
+  owner's undeclared answer refuses on both writers.
+- **TWO LIMITS, RECORDED AS CASES AND NEVER AS PROTECTIONS**: a judge that
+  counts the excepted "Directions" into the group is believed — code does not
+  read *"except"*; and a judge that calls a links quote a SECTIONS group is
+  believed and the order form goes — which group words ask for is its reading,
+  so the kind check stops a group being STRETCHED, never one being MISLABELLED.
+  A sections group can likewise answer for any lost link by kind, not only the
+  links that sat inside the sections that went.
+- **EVIDENCE.** `test/edit-page-keep.test.mjs` **42 → 57 cases** (3 unit, 12
+  route). **Red 14 of 57 against the unfixed `58dfa875`** (a throwaway worktree
+  with only `KEEP_GROUPS`/`groupCovers` appended so the file loads): every group
+  case that must publish fails on 409 `withheld` — the owner's regression — the
+  wording cases on *"didn't ask for"*, and the except/collateral refusals on the
+  other links refused beside them as `quote-not-about-item`. Twelve of the
+  fifteen new cases are red there, plus two EXTENDED old ones (the judge-prompt
+  case, now asserting the group rules, and the wrong-item control, now
+  asserting the weaker sentence). The 43 green on both: the 40 old cases whose
+  assertions did not change, the group table itself (copied in so the file
+  loads), and two refusals that refuse either way — the collateral loss on the
+  job path and the undeclared answer on the tweak.
+  The eight focused files (`edit-page-keep`, `site-tweak`, `site-files`,
+  `edit-browser-reply`, `edit-page-protect`, `edit-parts`, `edit-failure`,
+  `free-identifiers`) **168 / 168**. **Suite 7,322 locally** (`# tests 7322 / #
+  pass 7322 / # fail 0 / # skipped 0`, `duration_ms 116,718`) — **+15 against
+  7,307**, exactly the file's 42 → 57. **AND THE CI UNIT HALF MATCHES**: run
+  **`35953017719` on `5437cbf5`** reads **`# tests 7322 / # pass 7318 / # fail 0
+  / # skipped 4`** (`duration_ms 118,157`), all fifteen new cases passing BY
+  NAME in the downloaded log and zero anchored `not ok N -` lines. **Focused
+  mutation check `scripts/mutants/keep-groups.json`: 19 mutants, 19 killed, 0
+  survived, 0 never applied, the comment-only control surviving**, over
+  `page-keep.mjs` and `worker.js` against the same eight files — the group
+  ignored, an undeclared quote read as a links group, no kind check, an unknown
+  group accepted, each kind list widened or narrowed, a group excusing a
+  missing or absent quote, a coerced group, the group dropped from the record,
+  the tool or any of the three rules losing it, and the refusal sentence always
+  strong, never strong, or strong on one `not-asked`; both swept files
+  byte-identical to their scratchpad backups (and to HEAD) afterwards. **One gap
+  was found while WRITING the spec, before it ran**: nothing asserted that a
+  non-string `group` is ignored, so that assertion went in first and the
+  coercion mutant dies on it. **The final tree read 7,322 / 7,322 / 0 / 0 again
+  locally** (`duration_ms 116,194`) — that assertion sits inside an existing
+  case. **Rendered in the real workspace chat, before and after** (the real
+  `chat.js` and `styles.css`, the sign-in gate held down on a served copy): six
+  scenarios, every chat sentence the browser composer's own output captured out
+  of the route — BEFORE on `58dfa875` in a throwaway worktree (which read 43
+  pass / 14 fail again, the red count reproduced), AFTER on this branch — and all
+  twelve drawn bubbles equal to the composer's text.
+- **⚠ WHAT IT DOES NOT CLAIM.** Every model answer is SUPPLIED — the writers'
+  and the judge's, the `group` included — so this proves the path: a declared
+  group is read, kind-checked and judged per item, a collateral loss is still
+  refused, and the refusal says only what made it. It proves nothing about how
+  a real model reads *"all the links except Directions"*, or whether it declares
+  a group at all. Plain-words and kit-only section loss stays OPEN; full-site
+  revise, translation and hydration are untouched; model-written replies stay a
+  recorded future preference.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

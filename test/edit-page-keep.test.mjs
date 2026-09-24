@@ -566,6 +566,9 @@ test("a declared group is an alternative to naming, read item by item — and a 
   assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, "", "links"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "no-quote"]);
   // A GROUP THAT IS NOT ONE OF OURS covers nothing.
   assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, "pages"), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "unknown-group"]);
+  // A GROUP THAT IS NOT A STRING is not read at all — `String(["links"])` is
+  // "links", so a coercion would accept it.
+  assert.deepEqual(whys(read(ALL_LINKS_ASK, inGroup(1, Q_ALL, ["links"]), inGroup(2, Q_ALL, "links"), no(3)))[0], ["See the menu", "quote-not-about-item"]);
   // THE ORDER IN WHICH A GROUP IS ANSWERED is the judge's: one link in the
   // group and the other said no to is two separate answers, read separately.
   assert.deepEqual(whys(read(EXCEPT_ASK, inGroup(1, Q_EXCEPT, "links"), no(2), no(3))), [["Directions", "not-asked"], ["order-form", "not-asked"]]);

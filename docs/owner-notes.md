@@ -160,6 +160,74 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — "Remove all links" works now: a group is judged item by item (on the branch, not deployed)
+
+You found it through the real edit route: *"Remove all links from the home
+page, keeping their text and everything else"* was refused, and the customer
+was told their message hadn't asked to remove those links. It had. **Fixed on
+the branch — not merged, not deployed, no paid run.**
+
+**Why it happened.** The check made each quote name the thing that was lost —
+"Directions", "See the menu". A request about a whole group ("all links") names
+none of them, so both links were refused. And the refusal always said *"which
+your message didn't ask for"*, even when the checking model had said it did.
+
+**What changed:**
+
+- The checking model can now say its quote asks for a **group** — "links" or
+  "sections" — instead of naming each thing. The code accepts that only for
+  things of the right kind: a "links" group covers a link that's gone or now
+  points somewhere else, and never one of your sections; a "sections" group
+  covers a section and the links that were in it.
+- It's still decided **item by item**. "Remove all the links except Directions"
+  covers the other links and not Directions. "Remove all links" when the order
+  form also went missing: the links are fine, the order form is refused.
+- The code does not read English to decide which group a sentence means — no
+  growing keyword list, and nothing that breaks on a Spanish or French message.
+  The checking model decides that; the code checks the kind.
+- The refusal now says *"which your message didn't ask for"* only when the
+  checking model actually said no. When it said yes and a check couldn't
+  confirm it, the customer reads *"which I couldn't confirm your message asked
+  for"* instead.
+
+**One thing to know.** If the checking model quotes "Remove all links" but
+doesn't say it's a group, it's still refused: to the code that looks exactly
+like quoting "take the phone number off" for a link, which must stay refused.
+So this depends on the real model using the new field, and nothing here tests a
+real model. In that case the customer now gets the honest "couldn't confirm"
+sentence rather than the false one.
+
+**Two limits, kept on the record as tests rather than hidden:** if the checking
+model counts Directions into "all the links except Directions", it's believed —
+the code doesn't read "except". And if it calls a "links" sentence a "sections"
+group, the order form would go: the code stops a group being stretched over the
+wrong kind of thing, not a group being misnamed.
+
+**A wording question for you.** The refusal still ends *"If you do want those
+changes, say so in your message and send it again"* — a little odd for someone
+who already asked for the whole group. I haven't changed it; say if you want it
+to read differently (for example "name them in your message").
+
+**The numbers:** 15 new test cases, 57 in the file. On the old code 14 fail —
+12 of the new ones and 2 older ones I extended — and the 43 that pass on both
+are the unchanged earlier cases plus three new ones that give the same answer
+either way (two refusals, and the group table I copied in so the file loads). The
+whole suite: 7,322 tests, all passing — exactly 15 more. CI agrees: the same
+7,322 (four skipped on CI as always), with all fifteen new cases found passing
+by name. I broke the new code on purpose 19 different ways and every one was
+caught (the harmless control wasn't) — and writing that list showed me one gap
+first: nothing checked that a non-text "group" is ignored rather than
+converted, so I added that check before running it. I also rendered six
+before/after screens in the real chat (sent in the conversation): your
+reproduction, your exact answer with no group named, "except Directions" both
+ways, the lost order form, and "every section except the hours".
+
+Every model answer in these tests is made up — they prove the path, not how a
+real model reads a message. A section that's only words or standard building
+blocks can still disappear silently; that stays open.
+
+---
+
 ## 2026-09-24 — Built: a page rewrite can't quietly drop a link or one of your own sections (on the branch, not deployed)
 
 You approved the revised design with six requirements. It's built and tested

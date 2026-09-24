@@ -1,0 +1,163 @@
+[
+ {
+  "label": "CONTROL: a comment in the groups section changes nothing",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": " * THE GROUPS A MESSAGE CAN ASK FOR WHOLE, and the kinds of item each can hold.\n",
+  "to": " * THE GROUPS A MESSAGE CAN ASK FOR WHOLE, and the kinds of item each can hold. (control)\n",
+  "control": true
+ },
+ {
+  "label": "G-1: a declared group is ignored (the owner's regression restored)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const g = s.group ? groupCovers(s.group, it) : \"quote-not-about-item\";",
+  "to": "const g = \"quote-not-about-item\";"
+ },
+ {
+  "label": "G-2: an undeclared quote is read as a links group (a blanket)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const g = s.group ? groupCovers(s.group, it) : \"quote-not-about-item\";",
+  "to": "const g = groupCovers(s.group || \"links\", it);"
+ },
+ {
+  "label": "G-3: no kind check — any declared group covers any item",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "return kinds.includes(item && item.kind) ? true : \"group-other-kind\";",
+  "to": "return true;"
+ },
+ {
+  "label": "G-4: an unknown group is accepted",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "if (!kinds) return \"unknown-group\";",
+  "to": "if (!kinds) return true;"
+ },
+ {
+  "label": "G-5: a links group holds a section too (collateral loss let through)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "links: Object.freeze([\"link-lost\", \"link-moved\"]),",
+  "to": "links: Object.freeze([\"link-lost\", \"link-moved\", \"part-gone\"]),"
+ },
+ {
+  "label": "G-6: a links group does not hold a re-pointed link",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "links: Object.freeze([\"link-lost\", \"link-moved\"]),",
+  "to": "links: Object.freeze([\"link-lost\"]),"
+ },
+ {
+  "label": "G-7: a sections group does not hold the links inside it",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "sections: Object.freeze([\"part-gone\", \"link-lost\"]),",
+  "to": "sections: Object.freeze([\"part-gone\"]),"
+ },
+ {
+  "label": "G-8: a group excuses a quote that is not in the message",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "else if (!quoteInMessage(message, s.quote)) why = \"quote-not-in-message\";",
+  "to": "else if (!s.group && !quoteInMessage(message, s.quote)) why = \"quote-not-in-message\";"
+ },
+ {
+  "label": "G-9: a group excuses a missing quote",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "else if (!s.quote.trim()) why = \"no-quote\";",
+  "to": "else if (!s.group && !s.quote.trim()) why = \"no-quote\";"
+ },
+ {
+  "label": "G-10: a non-string group is coerced",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "group: typeof a.group === \"string\" ? a.group.trim() : \"\",",
+  "to": "group: a.group ? String(a.group).trim() : \"\","
+ },
+ {
+  "label": "G-11: the declared group is dropped from the item record",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "...(s && s.group ? { group: s.group } : {})",
+  "to": "...({})"
+ },
+ {
+  "label": "G-12: the refusal record drops the claimed group",
+  "files": [
+   "worker.js"
+  ],
+  "from": "name: it.name || undefined, section: it.section || undefined, group: it.group || undefined,\n",
+  "to": "name: it.name || undefined, section: it.section || undefined,\n"
+ },
+ {
+  "label": "G-13: the tool offers no group field",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "            group: {\n              type: \"string\",\n              enum: Object.keys(KEEP_GROUPS),\n",
+  "to": "            group_: {\n              type: \"string\",\n              enum: Object.keys(KEEP_GROUPS),\n"
+ },
+ {
+  "label": "G-14: the judge is never told how to declare a group",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  \"- A message can ask for a whole group at once instead of naming each thing — \\\"remove all the links\\\", \\\"take \" +\n",
+  "to": "  \"\" +\n"
+ },
+ {
+  "label": "G-15: the judge is not told a group is still answered item by item",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  \"- A group is still answered item by item. Anything the message leaves out of its group (\\\"all the links \" +\n",
+  "to": "  \"- Anything the message leaves out of its group (\\\"all the links \" +\n"
+ },
+ {
+  "label": "G-16: the judge is not told a group asks only for what it names",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  \"- A group asks only for what it names. Asking for every link does not ask for any section; asking for the \" +\n",
+  "to": "  \"- A group asks only for what it names. Asking for the \" +\n"
+ },
+ {
+  "label": "W-1: the refusal always says the message did not ask (the false claim restored)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "(judgedNo ? \", which your message didn't ask for\" : \", which I couldn't confirm your message asked for\")",
+  "to": "\", which your message didn't ask for\""
+ },
+ {
+  "label": "W-2: the refusal never says the message did not ask, even when the judge said no",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const judgedNo = xs.length > 0 && xs.every((it) => it.why === \"not-asked\");",
+  "to": "const judgedNo = false;"
+ },
+ {
+  "label": "W-3: one judged no makes the whole list \"didn't ask\"",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const judgedNo = xs.length > 0 && xs.every((it) => it.why === \"not-asked\");",
+  "to": "const judgedNo = xs.length > 0 && xs.some((it) => it.why === \"not-asked\");"
+ }
+]
