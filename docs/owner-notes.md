@@ -243,6 +243,11 @@ different ways and every one was caught (the harmless control wasn't). The
 whole test suite: 7,307 tests, all passing — 29 more than before, exactly the
 new cases. One older test had to be adjusted: it checked the rewrite's billing
 line letter for letter and read the extra (correct) charge as a missing one.
+CI agrees: the same 7,307 tests, all passing (four skipped on CI as always),
+and every one of the 42 new cases found passing by name. I also rendered eight
+before/after screens in the real chat (sent in the conversation): before, every
+one said "✅ Updated /." over the loss; after, the refusals, the new "couldn't
+confirm" sentence, and an asked-for removal still going through unchanged.
 
 ---
 

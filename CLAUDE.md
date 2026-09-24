@@ -5203,7 +5203,17 @@ pass (a moved link beside a new same-words link) or that the site's declared
 purpose reaches the judge through the route — each got its own case or
 assertion first. **Suite 7,307 locally** (`# tests 7307 / # pass 7307 / #
 fail 0 / # skipped 0`, `duration_ms 115,247`) — **+29 against 7,278**, exactly
-the file's 13 → 42.
+the file's 13 → 42. **AND THE CI UNIT HALF MATCHES**: run **`35949168893` on
+`249fc8c7`** reads **`# tests 7307 / # pass 7303 / # fail 0 / # skipped 4`**
+(`duration_ms 122,105`) — the total is what matches, `pass` differing by CI's
+four skips — with all 42 of the file's cases found passing BY NAME in the
+downloaded log archive and zero anchored `not ok N -` lines. **Rendered in the
+real workspace chat, before and after** (the real `chat.js` and `styles.css`, the
+sign-in gate held down on a served copy): eight scenarios, each chat sentence
+the browser composer's own output captured out of the route — BEFORE on
+`80036b40` in a throwaway worktree (which read **19 pass / 23 fail** again, the
+red count reproduced), AFTER on this branch — and all sixteen drawn bubbles equal
+to the composer's text.
 
 **⚠ WHAT IT DOES NOT CLAIM, AND WHAT STAYS OPEN.** Every model answer in the
 evidence is SUPPLIED — the writers' and the judge's — so it proves the path,
