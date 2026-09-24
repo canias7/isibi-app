@@ -5762,7 +5762,7 @@ address check, a blank answer accepted, an unknown intent accepted, the status
 ignored, the live check gone, `.catch(go)` back, the 401 sentence gone, the rule
 applied to an empty project — **16 killed, the comment-only control
 surviving**, `chat.js` restored byte-identical (`babddbb9dbb5a3f4`) after each.
-The 91 test files that read `chat.js`: **2,888 / 2,888**. **Suite 7,383
+The 91 test files that read `chat.js`: **2,889 / 2,889** on the committed tree. **Suite 7,383
 locally** (`# tests 7383 / # pass 7383 / # fail 0 / # skipped 0`, `duration_ms
 117,452`) — **+23 against 7,360**, exactly the file's 32 → 55. **AND CI
 MATCHES**: unit run **`35964401253` on `d0e9c896`** reads **`# tests 7383 /
@@ -5773,7 +5773,9 @@ lines. **⚠ AN ANCHORED COUNT OF `ok N -` LINES READS 7,382 ON THAT LOG, AND
 7,383 IS RIGHT**: result 5300's line opens with a byte-order mark where the log
 was chunked, so `^<timestamp> ok` misses it — count the result numbers, not the
 lines. No `site build` fires: `public/` and these test files are on none of its
-`paths`. **The stamp chain ends at `d0e9c896`.** **Rendered in the
+`paths`. The documents-only `9650c0d7` reads the same four numbers on run
+`35964678838` (`duration_ms 100,145`), so it moved the suite by zero. **The
+stamp chain ends at `d0e9c896`.** **Rendered in the
 real workspace chat**, the message typed into the composer and sent, before and
 after: a dropped request, the router's `failed: true` fallback, and
 `{ok:false, intent:"edit", layer:"look"}` — before, the rail and the stop
