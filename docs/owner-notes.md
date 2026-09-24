@@ -237,8 +237,9 @@ meanwhile. The tests check that.
   also by the new two-message tests on their own. A comment-only change was
   left alone, as it should be.
 - **Every test file that reads the edit path (26 files):** 948 tests, 0 failures.
-- **The full suite:** 7,644 tests, 0 failures here — 23 more than before,
-  exactly the new tests.
+- **The full suite:** 7,644 tests, 0 failures, here and on GitHub — 23 more
+  than before, exactly the new tests. All 23 were found passing by name in
+  GitHub's log.
 - **Screenshot:** before and after of your sequence in the real app, in the
   chat.
 

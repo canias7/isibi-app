@@ -7217,7 +7217,16 @@ is NOT deployed either — the owner put this correction before that deploy.
   26 files, before the probes: **948 / 948**. **Suite 7,644 locally** (`# tests
   7644 / # pass 7642 / # fail 0 / # skipped 2`, `duration_ms 130,375`) — **+23
   against 7,621**, exactly the new file; the re-anchors added assertions, not
-  cases. **Rendered in the real app in a
+  cases. **AND CI MATCHES**: unit run **`36070847167` on `c3963607`** reads
+  **`# tests 7644 / # pass 7640 / # fail 0 / # skipped 4`** (`duration_ms
+  122,639`) — the total is what matches, `pass` differing by CI's four skips
+  against the two local ones — with all 23 of the file's cases, the three
+  re-anchored `edit-poll` cases and the re-anchored `site-apply` case found
+  passing BY NAME in the downloaded log archive, 7,644 distinct result numbers
+  with no gap and zero `not ok N -`. **The stamp chain ends at `c3963607`.** No
+  `site build` fires: none of the commit's twelve files is on its `paths`,
+  checked with GitHub's own glob rule (`*` does not cross `/`) and the matcher
+  proved alive on `worker.js` first. **Rendered in the real app in a
   real Chromium**, before (`4b849501`) and after, the owner's sequence typed and
   sent: before, message 2 routed and then sat on "Thinking" with the stop
   button drawn; after, it posted its edit and was answered. **Every answer is
