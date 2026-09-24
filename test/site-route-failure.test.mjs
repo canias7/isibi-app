@@ -18,10 +18,19 @@
 // answering it with a promise that never settles — so the record is the action
 // the customer's message starts, and nothing past it runs.
 //
-// EVERY STOP ASSERTS FOUR THINGS: no request after the routing call, the busy
-// flag cleared, the rail and its clock stopped, and the exact sentence on
-// screen — which claims nothing about money, because the routing call is billed
-// on its own and may already have been charged.
+// AND A CLARIFY ROUND IS AN ACTION TOO. Its check asked only how many options
+// there were, so a question with no words drew as "undefined", words that were
+// an object as "[object Object]", and `[null, {}]` as two buttons answering
+// "null" and "[object Object]" (owner, 2026-09-24: "Require a non-empty string
+// question and usable non-empty string options. Keep the validation and
+// rendering branch consistent."). One reader now answers the question as it
+// will be drawn, and on a live site a question it refuses stops like any other
+// answer that cannot be acted on.
+//
+// EVERY STOP ASSERTS FIVE THINGS: no request after the routing call, the busy
+// flag cleared, the rail and its clock stopped, no clarify round stored, and the
+// exact sentence on screen — which claims nothing about money, because the
+// routing call is billed on its own and may already have been charged.
 //
 // OUT OF SCOPE, AND ASSERTED AS THEY ARE: an empty project keeps its documented
 // default (every failure builds), the adopted site with no page list (a later
@@ -53,7 +62,7 @@ function cutLine(head) {
 const SRC = [
   cut("async function apiFetch("),
   cutLine("const ROUTE_EDIT_LAYERS ="),
-  cut("function routeAsksQuestion("),
+  cut("function routeQuestion("),
   cut("function routeActionable("),
   cut("function siteRoute("),
   cut("function siteSend("),
@@ -75,8 +84,9 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
  * ONE MESSAGE THROUGH THE REAL SEND HANDLER. `route` is the routing call's
  * answer (`{reject}` or `{status, body, type}`); `follow`, when given, answers
  * the next POST the same way. Returns every request after the routing call, the
- * assistant messages pushed, the busy flag, the rail's label, the rail clock's
- * starts and stops, and the screen-affecting calls in order.
+ * assistant messages pushed, the clarify round the site holds afterwards (`null`
+ * for none), the busy flag, the rail's label, the rail clock's starts and
+ * stops, and the screen-affecting calls in order.
  */
 async function drive({ site, message, route, follow }) {
   const calls = [];
@@ -130,6 +140,7 @@ async function drive({ site, message, route, follow }) {
     posts: calls.slice(1),
     // Pushed inside the context, so another realm's objects — copied out.
     said: msgs.slice(1),
+    clarify: s.clarify == null ? null : JSON.parse(JSON.stringify(s.clarify)),
     busy: ctx.siteBusy,
     rail: ctx.siteBuild ? ctx.reactStageLabel() : "(stopped)",
     ticker: ctx.siteTicker,
@@ -152,11 +163,12 @@ const STOPPED = "⚠️ I couldn’t work out what to do with that just now, so 
 const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
 
 // What every stop owes the customer: nothing sent, the busy flag and the rail
-// cleared, and the one sentence.
+// cleared, no clarify round left waiting for an answer, and the one sentence.
 function assertStopped(o, sentence) {
   assert.equal(o.routed.url, "/api/site/route", "the routing call went out first");
   assert.deepEqual(o.posts, [], "no edit, add-on or rewrite request followed the routing call");
   assert.deepEqual(o.said, [{ r: "a", t: sentence }], "the customer is told, in one sentence");
+  assert.equal(o.clarify, null, "no clarify round is stored, so the next message is not read as an answer to it");
   assert.equal(o.busy, false, "the busy flag is cleared, so the next message can be sent");
   assert.equal(o.rail, "(stopped)", "the rail is stopped");
   assert.equal(o.clock.started, 1, "the rail's clock was started when the message was sent");
@@ -227,6 +239,42 @@ test("A LIVE SITE STOPS: a 401 shows the sign-in gate and says to sign in, and n
   assertStopped(o, SIGNED_OUT);
 });
 
+// ── A LIVE SITE: A QUESTION THE SCREEN CANNOT DRAW STOPS THE SAME WAY ────────
+// The route's own reader (`readQuestion` in builder/site-ask.mjs) only ever
+// sends words to ask and two to four answers, each a string with something in
+// it. The first three below are the owner's reproductions, in order; the rest
+// are the same three failures — missing, blank, not a string — for the words,
+// the list and the answers in it.
+const clarify = (question) => ok200({ ok: true, intent: "clarify", question, cost: 1 });
+const TWO = ["Order", "Visit"];
+const BAD_QUESTIONS = [
+  ["no words (it drew as \"undefined\")", clarify({ options: TWO })],
+  ["words that are an object (they drew as \"[object Object]\")", clarify({ text: { en: "Which one?" }, options: TWO })],
+  ["answers null and {} (they drew as buttons answering \"null\" and \"[object Object]\")", clarify({ text: "Choose one", options: [null, {}] })],
+  ["no question at all", ok200({ ok: true, intent: "clarify", cost: 1 })],
+  ["a question that is only a string", clarify("Which one?")],
+  ["empty words", clarify({ text: "", options: TWO })],
+  ["blank words", clarify({ text: "   ", options: TWO })],
+  ["words that are a number", clarify({ text: 7, options: TWO })],
+  ["words that are null", clarify({ text: null, options: TWO })],
+  ["no answers", clarify({ text: "Choose one" })],
+  ["answers that are one string, not a list", clarify({ text: "Choose one", options: "Order, Visit" })],
+  ["an empty list of answers", clarify({ text: "Choose one", options: [] })],
+  ["an empty answer", clarify({ text: "Choose one", options: ["Order", ""] })],
+  ["a blank answer", clarify({ text: "Choose one", options: ["Order", "  "] })],
+  ["an answer that is a number", clarify({ text: "Choose one", options: ["Order", 3] })],
+  // `String(["Visit", "Call"])` is "Visit,Call": one button offering two answers.
+  ["an answer that is a list", clarify({ text: "Choose one", options: ["Order", ["Visit", "Call"]] })],
+  // Past the four the screen draws, and still nothing the route sends: dropped
+  // there, it would be a malformed field read as absent.
+  ["an unusable fifth answer", clarify({ text: "Choose one", options: ["Order", "Visit", "Call", "Email", null] })],
+];
+for (const [what, route] of BAD_QUESTIONS) {
+  test("A LIVE SITE STOPS: a clarify round with " + what + " draws nothing, stores no round and sends nothing", async () => {
+    assertStopped(await drive({ site: LIVE, message: ASK, route }), STOPPED);
+  });
+}
+
 // ── THE BROWSER'S LAYER LIST IS THE ROUTER'S ─────────────────────────────────
 test("the browser's edit layers are exactly the router's EDIT_LAYERS, both ways", () => {
   const list = vm.runInNewContext(cutLine("const ROUTE_EDIT_LAYERS =") + "; ROUTE_EDIT_LAYERS");
@@ -290,14 +338,27 @@ test("CONTROL: a question with an answer is said, and buys nothing", async () =>
   assert.equal(o.rail, "(stopped)");
 });
 
-test("CONTROL: a clarify round on a live site is still drawn, and buys nothing", async () => {
-  const o = await drive({ site: LIVE, message: ASK, route: ok200({ ok: true, intent: "clarify", question: { text: "Which footer?", options: ["Main", "Shop"] }, cost: 1 }) });
-  assert.deepEqual(o.posts, []);
-  assert.equal(o.said.length, 1);
-  assert.equal(o.said[0].t, "Which footer?");
-  assert.deepEqual(o.said[0].opts, ["Main", "Shop"]);
+test("CONTROL: a clarify round on a live site is drawn as it came, stores its round, and buys nothing", async () => {
+  const o = await drive({ site: LIVE, message: ASK, route: clarify({ text: "Which footer?", options: ["Main", "Shop"] }) });
+  assert.deepEqual(o.posts, [], "a question sends nothing after the routing call");
+  assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: ["Main", "Shop"] }],
+    "the question is drawn in its own words, with its two answers to press");
+  assert.deepEqual(o.clarify, { brief: ASK, qa: [], imgs: [] }, "the round is stored, so the answer is put back together with the brief");
   assert.equal(o.busy, false);
   assert.equal(o.rail, "(stopped)");
+  assert.equal(o.clock.started, 1);
+  assert.equal(o.clock.cleared, 1);
+  assert.equal(o.ticker, null);
+});
+
+test("CONTROL: four answers, or more, draw the first four", async () => {
+  const four = ["Main", "Shop", "Blog", "Help"];
+  for (const options of [four, [...four, "Other"]]) {
+    const o = await drive({ site: LIVE, message: ASK, route: clarify({ text: "Which footer?", options }) });
+    assert.deepEqual(o.posts, []);
+    assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: four }], json(options));
+    assert.deepEqual(o.clarify, { brief: ASK, qa: [], imgs: [] });
+  }
 });
 
 test("CONTROL: an explicit build on an empty project is the first build, in its own chat", async () => {
@@ -305,11 +366,13 @@ test("CONTROL: an explicit build on an empty project is the first build, in its 
   assert.deepEqual(o.posts, [{ url: "/api/site/react-build", body: { brief: "A bakery in Leeds", images: [], picker: "grok", qa: [], chat: "origin-1" } }]);
 });
 
-test("CONTROL: a clarify round on an empty project asks, and buys nothing", async () => {
-  const o = await drive({ site: EMPTY, message: "A bakery", route: ok200({ ok: true, intent: "clarify", question: { text: "What should visitors do?", options: ["Order", "Visit"] }, cost: 1 }) });
+test("CONTROL: a clarify round on an empty project asks, stores its round, and buys nothing", async () => {
+  const o = await drive({ site: EMPTY, message: "A bakery", route: clarify({ text: "What should visitors do?", options: TWO }) });
   assert.deepEqual(o.posts, []);
-  assert.equal(o.said.length, 1);
-  assert.deepEqual(o.said[0].opts, ["Order", "Visit"]);
+  assert.deepEqual(o.said, [{ r: "a", t: "What should visitors do?", q: "What should visitors do?", opts: TWO }]);
+  assert.deepEqual(o.clarify, { brief: "A bakery", qa: [], imgs: [] });
+  assert.equal(o.busy, false);
+  assert.equal(o.rail, "(stopped)");
 });
 
 // ── UNCHANGED: an empty project's failure is still a build ───────────────────
@@ -323,6 +386,18 @@ test("an empty project keeps its documented default: a failed or unreadable rout
     const o = await drive({ site: EMPTY, message: "A bakery in Leeds", route });
     assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/react-build"], json(route.body || "rejected"));
     assert.deepEqual(o.said, [], "no stop sentence on a first build");
+  }
+});
+
+// The one change an empty project sees: the reader is shared, so a question it
+// refuses is not drawn there either. With nothing to draw, the answer is one
+// more the empty project cannot use, and that default is the first build.
+test("an empty project draws no question the reader refuses: like every other unusable answer there, it starts the first build", async () => {
+  for (const [what, route] of BAD_QUESTIONS.slice(0, 3)) {
+    const o = await drive({ site: EMPTY, message: "A bakery in Leeds", route });
+    assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/react-build"], what);
+    assert.deepEqual(o.said, [], what + ": nothing drawn");
+    assert.equal(o.clarify, null, what + ": no round stored");
   }
 });
 

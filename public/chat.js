@@ -8745,12 +8745,25 @@ function siteFinishBuild(origin, reply, build, note, why) {
 // test/site-route-failure.test.mjs compares the two both ways, so a layer added
 // on one side and not the other fails by existing.
 const ROUTE_EDIT_LAYERS = ['data', 'text', 'look', 'page', 'rules', 'picture', 'logo', 'nav', 'rename'];
-// A CLARIFY ROUND THE SCREEN CAN DRAW: a question with at least two answers to
-// press. One predicate, asked by the check below and by the branch that draws
-// the question, so an answer the check lets through cannot miss that branch and
-// fall to the rewrite underneath it.
-function routeAsksQuestion(d) {
-  return !!(d && d.question && Array.isArray(d.question.options) && d.question.options.length >= 2);
+// A QUESTION THE SCREEN CAN DRAW, exactly as it will be drawn, or `null`. ONE
+// reader, asked by the check below and by the branch that draws the question,
+// and that branch draws what it RETURNS: an answer the check lets through
+// cannot miss the branch and fall to the rewrite underneath it, and neither can
+// act on a field the other never looked at.
+//
+// THE WORDS AND EVERY ANSWER ARE STRINGS WITH SOMETHING IN THEM, and there are
+// at least two answers — what the route's own reader (`readQuestion` in
+// builder/site-ask.mjs) sends, and nothing else is a question this screen was
+// meant to show. Only the options' LENGTH used to be asked, so a question with
+// no words drew as "undefined", words that were an object as "[object Object]",
+// and `[null, {}]` as two buttons answering "null" and "[object Object]"
+// (owner, 2026-09-24). An answer past the four drawn is checked too: an
+// unusable one dropped there would be a malformed field read as absent.
+function routeQuestion(d) {
+  const q = d && d.question;
+  const words = (v) => typeof v === 'string' && v.trim() !== '';
+  if (!q || !words(q.text) || !Array.isArray(q.options) || q.options.length < 2 || !q.options.every(words)) return null;
+  return { text: q.text, options: q.options.slice(0, 4) };
 }
 // CAN THIS ROUTING ANSWER BE ACTED ON AS IT STANDS? Asked on a live site before
 // anything is sent (owner, 2026-09-24: "validate the routing result before
@@ -8774,7 +8787,7 @@ function routeActionable(d, site) {
   if (d.intent === 'addon') return slug;
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
-  if (d.intent === 'clarify') return routeAsksQuestion(d);
+  if (d.intent === 'clarify') return !!routeQuestion(d);
   return false;
 }
 // Ask the router whether this is a question, then either answer it or build.
@@ -8875,14 +8888,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     if (!r.ok || !d) return go();
     // A QUESTION FOR THEM, before anything is built or charged. Rendered as an
     // ordinary assistant message carrying options; the round is remembered on
-    // the site so the answer can be put back together with the brief.
-    if (d.intent === 'clarify' && routeAsksQuestion(d)) {
+    // the site so the answer can be put back together with the brief. What is
+    // drawn is what the reader returned, never the answer's own fields.
+    const question = d.intent === 'clarify' ? routeQuestion(d) : null;
+    if (question) {
       siteBusy = false;
       siteBuildStop();
       const s0 = siteById(origin);
       if (!s0) return;
       s0.clarify = { brief: brief, qa: qa, imgs: imgs || [] };
-      s0.msgs.push({ r: 'a', t: String(d.question.text), q: String(d.question.text), opts: d.question.options.slice(0, 4) });
+      s0.msgs.push({ r: 'a', t: question.text, q: question.text, opts: question.options });
       s0.updatedAt = Date.now();
       sitesSave();
       if (siteOpenId === origin) renderSites();

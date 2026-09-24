@@ -366,12 +366,22 @@ test("the composer asks before it builds: an empty project falls through to the 
   // A THROWN FETCH TAKES THE SAME TWO RULES.
   assert.match(block, /\.catch\(\(\) => \(isBuild \? go\(\) : lost\(\)\)\)/,
     "a network failure no longer builds an empty project, or no longer stops on a live site");
-  // AND THE CLARIFY BRANCH IS GUARDED BY THE ONE PREDICATE THE CHECK ASKS. A
-  // question with fewer than two options is a dead end nobody can click past;
-  // one predicate, so an answer the check lets through cannot miss the branch.
-  assert.match(block, /d\.intent === 'clarify' && routeAsksQuestion\(d\)/, "the clarify branch asks its own condition again");
-  assert.match(src, /function routeAsksQuestion\(d\) \{\n\s*return !!\(d && d\.question && Array\.isArray\(d\.question\.options\) && d\.question\.options\.length >= 2\);/,
-    "a malformed question would render as a dead end");
+  // AND THE CLARIFY BRANCH DRAWS WHAT THE ONE READER RETURNS. The check and the
+  // branch both ask `routeQuestion`, and nothing in siteRoute reads the raw
+  // question: a field the reader never looked at cannot reach the screen, which
+  // is how a question with no words drew as "undefined" (owner, 2026-09-24).
+  // What the reader refuses is DRIVEN, shape by shape, through the real send
+  // handler in test/site-route-failure.test.mjs; this pins where it is asked.
+  // Whole-line comments go first, so prose explaining the rule cannot read as
+  // code breaking it — and the code this scan reads is proved still there.
+  const code = block.replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.ok(code.includes("routeQuestion(d)") && code.includes("s0.msgs.push("), "the blanked block lost the code this scan reads");
+  assert.ok(!/\.question\b/.test(code), "siteRoute reads the raw question: a field the reader never checked can reach the screen");
+  // The raw question is read in exactly one place, and it is the reader.
+  const reader = declBlock(src, "function routeQuestion(");
+  assert.match(reader, /\.question\b/, "the reader no longer reads the question it answers for");
+  const actionable = declBlock(src, "function routeActionable(");
+  assert.match(actionable, /routeQuestion\(d\)/, "the live site's check no longer asks the reader the branch draws from");
 });
 
 test("an answer renders as an ordinary message, with no build attached", () => {
