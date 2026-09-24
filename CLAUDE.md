@@ -4041,6 +4041,15 @@ separate next tasks"*):
    `siteAddon`'s `.catch(fallback)` and `addonAnswer`'s `fall()`; the
    double-charge shape `siteEdit`'s catch was fixed for on 2026-09-23. Kept out
    of the routing correction.
+9. **A routing call that cannot be acted on drops the attachments** (found
+   2026-09-24, driven through the entry harness on `c5c93652`): `siteRoute`'s
+   `lost()` stops with *"…Send it again in a moment"*, and the files `siteSend`
+   took off the composer are held nowhere — strip empty, and the resend's logo
+   edit posts no image. On any live site, page list loaded or not, and on an
+   existing site's round, which is cleared before routing. The same loss the
+   pre-routing stop had (*a message the page-list check stopped keeps its
+   files*, below), one step later; that correction's hold is the mechanism,
+   and the owner scoped it to the pre-routing check.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -6104,7 +6113,9 @@ only (`public/chat.js`)** — no Worker change, so no image input moves.
   screen; a record removed meanwhile is sent nothing and the workspace freed; a
   re-addressed one stops. The busy flag is set before the wait, so a second press
   — any door, any workspace — is refused rather than queued, and the attachments
-  leave the composer at send, so they travel with that message.
+  leave the composer at send, so they travel with that message. **⚠ And a stop
+  then left them nowhere** — the owner's reproduction the same day; they are
+  handed back now (next section).
 - **A ROUND ON AN EXISTING SITE** — `siteAnswer`. Every way out of a stored
   first-build round built a new site: skip posted `react-build` with no slug, an
   answer was routed with `firstBuild` set (the owner's two). **Reproducing them
@@ -6161,6 +6172,98 @@ typed answer sent the answer as the edit; after, the loading list is waited on
 and the original request reaches `fretwork-1`, and a failed or empty list stops
 with the sentence after one retry. **Every routing answer is SUPPLIED**: this
 proves what the browser sends and shows, never what a real router answers.
+
+### A MESSAGE THE PAGE-LIST CHECK STOPPED KEEPS ITS FILES (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, reproducing it through the real handlers on `c5c93652`: an existing site
+with no page list loaded, a picture attached, *"Use this picture as the logo."*,
+the page-list read fails → *"Send it again in a moment"* — `siteAttach` empty,
+the stored message carrying no attachment, and the message sent again routed
+`attached: false` and posted the logo edit with no images. *"Preserve the
+original request and attachments when this pre-routing check stops. Keep
+recovery tied to the original site; do not restore its files into another
+workspace or overwrite newly selected attachments. No automatic paid retry."*
+**Browser only (`public/chat.js`).**
+
+- **REPRODUCED FIRST, TWO WAYS**: through the real `siteSend` with the picture
+  made by the real attach code (`siteAttachFiles` → `siteAttachOne`), and in a
+  real browser with the real + button and file chooser. After the stop the box
+  and the strip were empty; the resend was routed `attached: false` and the logo
+  edit posted `images: none`.
+- **THE CAUSE IS LAST ROUND'S OWN DESIGN**: `siteSend` takes the attachments off
+  the composer at send so they travel with the message whatever is on screen
+  during the wait — and a stop then left them nowhere. Nothing stores an
+  attachment on a thread message, anywhere.
+- **KEPT ON ITS OWN SITE** (`siteHoldUnsent`): on a stop before routing,
+  `siteSend` keeps `{t, imgs}` on the ORIGIN record, by id, **before** `finish`
+  redraws — so that redraw is the one that hands it back. A LIST, so two stopped
+  messages on one site each keep their own words and files.
+- **HANDED BACK ONLY TO THAT SITE'S COMPOSER** (`siteUnsentBack`, called by
+  `wireSiteComposer` — the composer's wiring lifted out of `renderSiteWorkspace`
+  unchanged): the latest held message, whole — its files into the strip, its
+  words into the box — **only into an EMPTY strip, and while nothing is being
+  sent**. Another workspace or the start screen never draws it; the history rail
+  draws no composer, and it waits.
+- **WHOLE AND ALONE, AND WHY NOT BESIDE.** The first cut put the held files
+  beside a picture chosen during the wait. **The logo rung uses the FIRST
+  attachment and ignores the rest** (`worker.js`: *"UP TO 3 ARRIVE AND ONLY THE
+  FIRST IS USED"*), so a quick "send it again" would have put the NEW picture up
+  as the logo. So a newly chosen attachment stays exactly as it is — not
+  replaced, joined or moved — and the held message waits until the strip is
+  clear.
+- **NOT WHILE SENDING**: `siteSend` redraws BEFORE it takes the strip, so a
+  hand-back on that redraw would leave with the new message's words — a
+  words-only message would have carried the held picture, routed `attached:
+  true`. Asserted, and the probe that drops the check dies on it.
+- **IN MEMORY ONLY**: `sitesSave` writes `unsent: undefined`. A held picture is a
+  data URL of up to ~7 MB, and a record carrying one can overflow localStorage
+  and fail the save of every site, not just this one. It lasts as long as the
+  page, like anything in the composer — **a reload loses it**, the owner's call.
+- **NOTHING SENDS IT AGAIN**: the routing call is billed, so sending is the
+  customer's press.
+- **UNCHANGED, AND SAID**: the strip is ONE list drawn by whichever composer is
+  showing, so a file handed back and not sent follows the customer to another
+  site like any attachment (pre-existing). And the box is drawn empty on every
+  redraw, so words typed during the wait were already lost at the stop's redraw
+  (pre-existing); the held words take their place.
+- **⚠ FOUND ON THE WAY, NOT CHANGED — THE SAME LOSS ONE STEP LATER.** A routing
+  call that fails or answers something unusable stops in `siteRoute`'s `lost()`
+  with *"…Send it again in a moment"* and drops the attachments too — on any
+  live site, page list loaded or not, and on an existing site's round, whose
+  round is cleared before routing. **Measured through the same harness on
+  `c5c93652`**: strip empty, nothing held, the resend's logo edit posting no
+  image. Outside "this pre-routing check", so it is next-task 9, not fixed here.
+
+**EVIDENCE.** `test/site-entry-inventory.test.mjs` **37 → 48 cases**. The
+harness now draws the composer the way the page does on every redraw — a new,
+empty box; Send, or Stop while busy; the +; a new strip; or no composer on the
+history rail — and wires it with the real `wireSiteComposer`; the attachment is
+made by the real attach code out of a file; the real `paintAttachStrip` paints it
+(what it DRAWS is asserted); the real `sitesSave` writes a fake localStorage.
+**11 new cases**: the owner's reproduction as failure → retry through the
+composer's own Send button, the exact image object on the logo edit; the other
+three stop reasons (empty, signed out, the bound); a switch to another site and
+to the start screen during the wait; a picture chosen during the wait (left as
+it is; the held message waits, then comes back whole after its × and a redraw); a
+words-only message sent while one waits; two stopped messages (latest first);
+the history rail; storage. **The 37 existing cases pass unchanged** — the
+clarify, timeout, duplicate-send and new-project cases among them. **Red 11 of
+48 against `c5c93652`**, in a throwaway worktree with the old inline composer
+wiring packaged under the new name so the file loads — exactly the 11 new
+cases, each failing first on the missing hand-back or hold; the controls'
+protective halves (nothing into another workspace, a new picture untouched) pass
+on both, as a control's should. **Targeted probes, not a sweep: 13 killed, 0
+survived, 0 never applied, the comment-only control surviving**, over `chat.js`
+against seven files (spec in the scratchpad); `chat.js` byte-identical to its
+backup afterwards (`41ccd678eec40411`). The files that read `siteSend`, the
+workspace render, the strip or the save: **486 / 486**. **Suite 7,450 locally**
+(`# tests 7450 / # pass 7450 / # fail 0 / # skipped 0`, `duration_ms 116,649`)
+— **+11 against 7,439**, exactly the new cases. **Rendered in the real
+workspace, before and after**: the owner's case (box and strip empty → the words
+and the picture back; the resend `attached: false`, no image → `attached: true`,
+the attached picture on the logo edit) and the workspace switch. **Every routing
+answer is SUPPLIED**: this proves what the browser sends and shows, never what a
+real router answers.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

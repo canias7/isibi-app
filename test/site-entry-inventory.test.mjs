@@ -28,6 +28,19 @@
 // answering it with a promise that never settles, so the record is the work the
 // customer's message starts and nothing past it runs.
 //
+// AND A MESSAGE THE CHECK STOPPED KEEPS ITS FILES (2026-09-24). The owner ran
+// the stop with a picture attached — "Use this picture as the logo." — and found
+// it nowhere afterwards: `siteAttach` empty, the stored message words alone, and
+// the message sent again was routed `attached: false` and posted the logo edit
+// with no image. "Preserve the original request and attachments when this
+// pre-routing check stops. Keep recovery tied to the original site; do not
+// restore its files into another workspace or overwrite newly selected
+// attachments. No automatic paid retry." So the composer is here too: every
+// redraw draws it the way the page does — an empty box, Send or Stop, the strip
+// — and wires it with the real `wireSiteComposer`; attachments are made by the
+// real attach code out of a file; and the strip is painted by the real
+// `paintAttachStrip`, so what it DRAWS is asserted as well as what it holds.
+//
 // Every routing answer here is SUPPLIED. This proves what the browser sends and
 // shows, never what a real router answers.
 import test from "node:test";
@@ -105,6 +118,18 @@ const SRC = [
   cut("function siteWithPages("),
   cutStatement("document.addEventListener('keydown', (e) => {"),
   cutClick(),
+  cut("function esc("),
+  cutLine("const SITES_KEY ="),
+  cut("function sitesSave("),
+  cutLine("const NATIVE_IMAGE ="),
+  cutLine("const TEXTISH ="),
+  cutStatement("const readAs ="),
+  cut("async function siteAttachOne("),
+  cut("function siteAttachFiles("),
+  cut("function paintAttachStrip("),
+  cut("function siteHoldUnsent("),
+  cut("function siteUnsentBack("),
+  cut("function wireSiteComposer("),
 ].join("\n");
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -119,6 +144,12 @@ const reply = (a) => new Response(a.body, { status: a.status, headers: { "conten
  * `{status, body}`, `{reject}`, `{defer: true}` (answered later by
  * `release(answer)`) or `{hang: true}` (never answers, but honours the abort).
  * Any other request is recorded and never answered.
+ *
+ * EVERY REDRAW DRAWS THE COMPOSER as `renderSiteWorkspace` does for the site on
+ * screen — a NEW box, drawn empty; Send, or Stop while a message is in the air;
+ * the + button; a new strip — and wires it with the real `wireSiteComposer`.
+ * With no site on screen it is the start screen: a strip of its own, painted by
+ * the same painter. The workspace is drawn once before anything is typed.
  */
 function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
   const calls = [];
@@ -132,6 +163,43 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
   const listeners = {};
   const records = copy(sites);
   const queue = { routes: routes.slice(), route: route.slice() };
+  // The page's elements, as the last redraw left them.
+  const dom = {};
+  // The strip as `paintAttachStrip` leaves it: its markup, and a × button per
+  // attachment carrying the index it removes, which is what the painter wires.
+  const newStrip = () => {
+    const el = { html: "", buttons: [] };
+    Object.defineProperty(el, "innerHTML", {
+      get() { return el.html; },
+      set(v) { el.html = v; el.buttons = [...v.matchAll(/data-att="(\d+)"/g)].map((m) => ({ dataset: { att: m[1] }, onclick: null })); },
+    });
+    el.querySelectorAll = (sel) => (sel === "[data-att]" ? el.buttons : []);
+    return el;
+  };
+  const store = new Map();
+  // Which rail the workspace shows: the chat, with the composer under it, or the
+  // edit history, which draws no composer at all.
+  let rail = "chat";
+  const draw = () => {
+    const shown = records.find((r) => r.id === ctx.siteOpenId) || null;
+    renders.push({ open: ctx.siteOpenId, question: !!(shown && shown.clarify) });
+    dom.strip = newStrip();
+    if (!shown) {
+      dom.stRevise = dom.stSend = dom.stStop = dom.stPlus = null;
+      ctx.paintAttachStrip();
+      return;
+    }
+    if (rail === "history") {
+      dom.strip = dom.stRevise = dom.stSend = dom.stStop = dom.stPlus = null;
+      ctx.wireSiteComposer(shown);
+      return;
+    }
+    dom.stRevise = { value: "", focus() {} };
+    dom.stSend = ctx.siteBusy ? null : { onclick: null };
+    dom.stStop = ctx.siteBusy ? { onclick: null } : null;
+    dom.stPlus = { onclick: null };
+    ctx.wireSiteComposer(shown);
+  };
   const answer = (a, signal) => {
     if (!a) return new Promise(() => {});
     if (a.reject) return Promise.reject(a.reject);
@@ -146,7 +214,18 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
   const ctx = vm.createContext({
     window: {}, Auth: { accessToken: async () => "token" },
     AbortController, encodeURIComponent,
-    document: { addEventListener: (type, fn) => { listeners[type] = fn; } },
+    document: {
+      addEventListener: (type, fn) => { listeners[type] = fn; },
+      getElementById: (id) => dom[id] || null,
+      querySelectorAll: (sel) => (sel === "#stAttach" && dom.strip ? [dom.strip] : []),
+    },
+    // A file read as the browser reads it: the attach code's own reader asks for
+    // a data URL, and answers on a later turn.
+    FileReader: class { readAsDataURL(f) { this.result = f.dataUrl; queueMicrotask(() => this.onload()); } },
+    localStorage: { setItem: (k, v) => store.set(k, v), getItem: (k) => (store.has(k) ? store.get(k) : null) },
+    sbToast: (t) => events.push("toast: " + t),
+    siteAttachOpen: () => {},
+    siteStop: () => {},
     thread: { contains: () => true, onclick: null },
     fetch: (url, init) => {
       const method = (init && init.method) || "GET";
@@ -165,18 +244,14 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     scheduleCreditRefresh: () => {},
     fetchCredits: () => {},
     sitesLoad: () => records,
-    sitesSave: () => {},
+    sitesCache: records,
     siteAttach: [],
-    paintAttachStrip: () => {},
     buildPicker: "grok",
     siteBusy: false,
     siteBuild: null,
     siteTicker: null,
     siteOpenId: open,
-    renderSites: () => {
-      const open = records.find((r) => r.id === ctx.siteOpenId);
-      renders.push({ open: ctx.siteOpenId, question: !!(open && open.clarify) });
-    },
+    renderSites: () => draw(),
     editBlocked: new Set(), editInFlight: new Set(), editIdem: new Map(),
     EditPoll: { newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
     browserTimeZone: () => "Europe/London",
@@ -185,10 +260,29 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
   });
   vm.runInContext(SRC, ctx);
   assert.equal(typeof listeners.keydown, "function", "the keyboard listener did not register");
+  draw();
   const site = (id) => records.find((r) => r.id === id) || null;
   return {
     ctx, calls, events, renders, clock, timers, records,
     send: (t) => ctx.siteSend(t),
+    // THE COMPOSER, driven as a person drives it. `attach` goes through the real
+    // attach code; `type` writes the box on screen; `pressSend` presses the Send
+    // button that is drawn, so it sends what the box holds.
+    attach: async (files) => { ctx.siteAttachFiles(files); await settle(); },
+    type: (t) => { assert.ok(dom.stRevise, "no box is drawn"); dom.stRevise.value = t; },
+    pressSend: () => { assert.ok(dom.stSend && typeof dom.stSend.onclick === "function", "no Send button is drawn and wired"); dom.stSend.onclick(); },
+    unattach: (i) => { const b = dom.strip.buttons[i]; assert.ok(b && typeof b.onclick === "function", "no remove button on attachment " + i); b.onclick(); },
+    open: (id) => { ctx.siteOpenId = id; draw(); },
+    redraw: () => draw(),
+    showRail: (which) => { rail = which; draw(); },
+    // What the composer on screen shows: the box, the strip's attachments, and
+    // the pictures the strip DRAWS.
+    box: () => (dom.stRevise ? dom.stRevise.value : null),
+    strip: () => copy(ctx.siteAttach),
+    drawn: () => (dom.strip ? [...dom.strip.html.matchAll(/<img src="([^"]*)"/g)].map((m) => m[1]) : []),
+    sendDrawn: () => !!dom.stSend,
+    held: (id = "origin-1") => copy(site(id).unsent) || null,
+    stored: () => JSON.parse(store.get(vm.runInContext("SITES_KEY", ctx)) || "null"),
     click: (label) => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-ans]" ? { getAttribute: () => label } : null) } }),
     clickSkip: () => ctx.thread.onclick({ target: { closest: (sel) => (sel === "[data-skip]" ? {} : null) } }),
     key: (key) => listeners.keydown({ key, target: { tagName: "BODY" }, preventDefault() {}, metaKey: false, ctrlKey: false, altKey: false }),
@@ -579,6 +673,218 @@ test("pressing again and again during the wait sends the message once", async ()
   h.release(LIST);
   await settle();
   assert.equal(h.work().length, 2, "the request went out more than once: " + JSON.stringify(h.work().map((c) => c.url)));
+});
+
+// ── A MESSAGE THE CHECK STOPPED KEEPS ITS WORDS AND ITS FILES ────────────────
+
+// Pictures as the real attach code makes them out of a file.
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const PNG2 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const LOGO_FILE = { name: "logo.png", type: "image/png", size: 68, dataUrl: PNG };
+const PHOTO_FILE = { name: "shopfront.png", type: "image/png", size: 68, dataUrl: PNG2 };
+const LOGO_ATT = { name: "logo.png", data: PNG };
+const PHOTO_ATT = { name: "shopfront.png", data: PNG2 };
+// The owner's words, with their full stop.
+const OWNER_ASK = "Use this picture as the logo.";
+const INSTEAD = "Use this one as the logo instead.";
+const FAIL = { reject: new TypeError("Failed to fetch") };
+
+// Attach the logo through the real attach code, type the owner's words in the
+// box, and press the Send button that is drawn.
+async function sendWithLogo(h) {
+  await h.attach([LOGO_FILE]);
+  assert.deepEqual(h.strip(), [LOGO_ATT], "the attach code did not make the attachment");
+  assert.deepEqual(h.drawn(), [PNG], "the strip does not draw the picture");
+  h.type(OWNER_ASK);
+  h.pressSend();
+  await settle();
+}
+// The stopped message back in its site's composer, whole.
+function assertBack(h, words, files, pictures) {
+  assert.equal(h.box(), words, "the words did not come back to the box");
+  assert.deepEqual(h.strip(), files, "the files did not come back to the strip");
+  assert.deepEqual(h.drawn(), pictures, "the strip does not draw what it holds");
+  assert.equal(h.held(), null, "the message is still held after it came back");
+  assert.ok(h.sendDrawn(), "the Send button is not drawn");
+}
+
+test("the owner's reproduction: the list fails with a picture attached, the words and the picture come back to the site's composer, and sending again puts THAT picture on the logo edit", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [FAIL, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  // The stop, as before: nothing routed, one sentence, the workspace free.
+  assert.deepEqual(h.reads(), ["/api/site/routes?slug=fretwork-1"]);
+  assertStopped(h, NO_PAGES, ["u: " + OWNER_ASK]);
+  // AND THE MESSAGE IS BACK WHERE IT WAS WRITTEN — the same object the attach
+  // code made, drawn in the strip — and nothing has been sent again by itself.
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  assert.equal(h.calls.length, 1, "something was sent without a press");
+  // SENT AGAIN WITH THE SAME BUTTON: what the box and the strip hold.
+  h.pressSend();
+  await settle();
+  assert.equal(h.reads().length, 2, "the list was not asked for again");
+  const work = h.work();
+  assert.equal(work.length, 2, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+  assert.deepEqual(h.strip(), [], "the picture was left in the composer after it was sent");
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + NO_PAGES, "u: " + OWNER_ASK]);
+});
+
+for (const [why, answer, sentence, reach] of [
+  ["the list is empty", ok200({ ok: true, slug: "fretwork-1", routes: [] }), NO_PAGES],
+  ["the read is refused as signed out", { status: 401, body: json({ error: "unauthorized" }) }, SIGNED_OUT],
+  ["the read runs out its bound", { hang: true }, NO_PAGES, (h) => h.timers.find((t) => t.ms === h.bound()).fn()],
+]) {
+  test("every stop before routing keeps the message — " + why, async () => {
+    const h = workspace({ sites: [ADOPTED], routes: [answer], route: [LOGO] });
+    await sendWithLogo(h);
+    if (reach) { reach(h); await settle(); }
+    assertStopped(h, sentence, ["u: " + OWNER_ASK]);
+    assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  });
+}
+
+for (const [where, elsewhere] of [["another site", "origin-2"], ["the start screen", null]]) {
+  test("switched to " + where + " while the list is read: nothing comes back into its composer, and the message comes back when its own site is opened", async () => {
+    const h = workspace({ sites: [ADOPTED, OTHER], routes: [{ defer: true }, LIST], route: [LOGO] });
+    await sendWithLogo(h);
+    assertWaiting(h);
+    h.open(elsewhere);
+    h.release(FAIL);
+    await settle();
+    assert.deepEqual(h.work(), []);
+    assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + NO_PAGES], "the stop was not said on the site it was sent from");
+    assert.deepEqual(h.thread("origin-2"), [], "the other site's thread was written to");
+    assert.equal(h.busy(), false);
+    // NOTHING COMES BACK HERE — not on this screen's next redraw either.
+    h.redraw();
+    assert.deepEqual(h.strip(), [], "the stopped message's picture came back into " + where);
+    assert.deepEqual(h.drawn(), [], "the stopped message's picture is drawn on " + where);
+    assert.ok(!h.box(), "the stopped message's words came back into " + where);
+    assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the message is not held on its own site");
+    assert.equal(h.held("origin-2"), null, "the message was held on the other site");
+    // Its own site opened again: it comes back there, and goes from there.
+    h.open("origin-1");
+    assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+    h.pressSend();
+    await settle();
+    const work = h.work();
+    assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+    assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+  });
+}
+
+test("a picture chosen while the list is read is left exactly as it is, and the stopped message waits until the strip is clear, then comes back whole", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  await h.attach([PHOTO_FILE]);
+  assert.deepEqual(h.strip(), [PHOTO_ATT]);
+  h.release(FAIL);
+  await settle();
+  assertStopped(h, NO_PAGES, ["u: " + OWNER_ASK]);
+  // The new choice as it was: not replaced, not joined, not moved.
+  assert.deepEqual(h.strip(), [PHOTO_ATT], "the picture chosen during the wait was changed");
+  assert.deepEqual(h.drawn(), [PNG2]);
+  // The stopped message did not come back beside it: the logo rung uses the
+  // FIRST attachment, so its words would go out with the wrong picture.
+  assert.equal(h.box(), "", "the stopped message's words came back beside another picture");
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the stopped message was not kept");
+  h.redraw();
+  assert.deepEqual(h.strip(), [PHOTO_ATT], "a redraw changed the picture chosen during the wait");
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
+  // The new picture taken off with its own ×; the next redraw hands the stopped
+  // message back, and it goes as it was written.
+  h.unattach(0);
+  assert.deepEqual(h.strip(), []);
+  h.redraw();
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+});
+
+test("a message sent while another waits to come back goes with its own files and no others", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }, LIST], route: [EDIT] });
+  await sendWithLogo(h);
+  await h.attach([PHOTO_FILE]);
+  h.release(FAIL);
+  await settle();
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
+  // The picture chosen during the wait is taken off, so the strip is clear —
+  // and before anything redraws, a message with no file is typed and sent.
+  // `siteSend` redraws BEFORE it takes the strip: had the held message been
+  // handed back on that redraw, its picture would have left with these words.
+  h.unattach(0);
+  h.type(ASK);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 2, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], ASK, { attached: false });
+  assertEdit(work[1], ASK);
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the stopped message was handed back while another was being sent");
+  assert.deepEqual(h.strip(), [], "the stopped message's picture was put back while another message was in the air");
+});
+
+test("two messages stopped on one site each come back with their own words and files, the latest first", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }, FAIL, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  await h.attach([PHOTO_FILE]);
+  h.release(FAIL);
+  await settle();
+  // The first is held, the strip not being clear; the new picture goes with
+  // words of its own, and stops too.
+  h.type(INSTEAD);
+  h.pressSend();
+  await settle();
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + NO_PAGES, "u: " + INSTEAD, "a: " + NO_PAGES]);
+  assert.deepEqual(h.work(), []);
+  // The latest comes back first — it is the one the sentence on screen is about.
+  assert.equal(h.box(), INSTEAD);
+  assert.deepEqual(h.strip(), [PHOTO_ATT]);
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
+  // Its picture taken off, the next redraw brings back the first, whole.
+  h.unattach(0);
+  h.redraw();
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assertEdit(work[1], OWNER_ASK, "logo", [LOGO_ATT]);
+});
+
+test("with the history rail open no composer is drawn, so the stopped message waits and comes back when the chat is drawn", async () => {
+  const h = workspace({ sites: [ADOPTED], routes: [{ defer: true }, LIST], route: [LOGO] });
+  await sendWithLogo(h);
+  h.showRail("history");
+  h.release(FAIL);
+  await settle();
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + NO_PAGES]);
+  assert.equal(h.box(), null, "a box is drawn on the history rail");
+  assert.deepEqual(h.strip(), [], "the picture was put in a strip nobody can see");
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the message was used up with no composer to take it");
+  h.showRail("chat");
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+});
+
+test("a stopped message is kept in memory and never written to storage", async () => {
+  // Stopped with another site on screen, so it is still held when the stop is
+  // saved.
+  const h = workspace({ sites: [ADOPTED, OTHER], routes: [{ defer: true }], route: [LOGO] });
+  await sendWithLogo(h);
+  h.open("origin-2");
+  h.release(FAIL);
+  await settle();
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }]);
+  const saved = h.stored();
+  assert.ok(Array.isArray(saved), "nothing was saved");
+  const rec = saved.find((r) => r.id === "origin-1");
+  assert.deepEqual(rec.msgs.map((m) => m.r + ": " + m.t), ["u: " + OWNER_ASK, "a: " + NO_PAGES], "the stop was not saved");
+  assert.ok(!("unsent" in rec), "the held message was written to storage");
+  assert.ok(!JSON.stringify(saved).includes(PNG), "a held picture reached storage");
 });
 
 // ── A GENUINE NEW PROJECT KEEPS EVERYTHING IT HAD ────────────────────────────

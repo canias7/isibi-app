@@ -160,6 +160,55 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — A message stopped because the page list didn't load now keeps your attached picture (on the branch, not deployed)
+
+**Fixed on the branch — not merged, not deployed, no paid run.** Browser file
+only (`chat.js`). The before and after screenshots are in the chat.
+
+**What you found**: on a site whose page list hadn't loaded, with a picture
+attached, *"Use this picture as the logo."* stopped with *"Send it again in a
+moment"* when the list failed to load — and the picture was gone: not in the
+attachment strip, not with the message. Sending again went out with no
+picture, so the logo change had nothing to use.
+
+**Now**:
+- When a message stops before anything is sent, **your words go back in the box
+  and your picture goes back in the strip**, on that site. One press on send
+  sends exactly what you sent the first time, picture included. Nothing is sent
+  again by itself.
+- **It stays with its own site.** If you're on another site, or the start
+  screen, when it stops, nothing appears there; it comes back when you open the
+  site it was for.
+- **Anything you attached in the meantime is left exactly as it is.** The
+  stopped message waits, and comes back once the attachment strip is clear. It
+  never comes back beside another picture: a logo change uses the *first*
+  picture, so sending it again next to a new one would have put the new one up
+  as your logo.
+- It's kept in the page's memory, not in the browser's storage (a photo can be
+  bigger than all of that storage). **A reload loses it**, the same as anything
+  else in the box — say if you'd rather it survived one.
+
+**Proof, and its limit**: 11 new tests driving the real send code, the real
+attach code and the real composer, your exact case among them with the picture
+checked all the way into the logo change. All 11 fail on the old code, and the
+37 tests from the last round still pass. Plus the real app in a real browser,
+before and after. The router's answer was written by me, so this proves what
+gets sent, not what a real router would decide. Full suite: 7,450 passing here.
+
+**Found on the way, not changed**: the same loss one step later. If the "what
+kind of change is this?" check itself fails (*"I couldn't work out what to do
+with that just now…"*), the attached picture is dropped too — on any site,
+whether its page list loaded or not. That's outside "this pre-routing check",
+so it's recorded as the next task instead of fixed here.
+
+**Also true, and unchanged**: text you type in the box while a message is being
+sent is wiped when the reply arrives (it always was); after a stop, your
+original words now take its place. And a picture that comes back and isn't sent
+follows you if you switch sites, like any attachment — the strip is shared by
+every site.
+
+---
+
 ## 2026-09-24 — A site opened in another browser waits for its pages now, and answering a stray question sends your original request (on the branch, not deployed)
 
 **Fixed on the branch — not merged, not deployed, no paid run.** Browser file

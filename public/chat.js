@@ -4528,6 +4528,10 @@ function sitesSave() {
     html: (s.html || '').slice(0, 400000),
     pages: Array.isArray(s.pages) ? s.pages.slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 400000) })) : undefined,
     msgs: (s.msgs || []).slice(-40),
+    // A message held after a stop carries its files as data URLs, and one can
+    // be larger than all of localStorage — so it is never written. See
+    // `siteHoldUnsent`.
+    unsent: undefined,
     // Version history (for restore). Best-effort: dropped first if storage is tight.
     history: (withHist && Array.isArray(s.history)) ? s.history.slice(0, 8).map((h) => ({
       ts: h.ts, label: h.label, active: h.active, design: (h.design || '').slice(0, 4000),
@@ -4790,6 +4794,58 @@ function siteWithPages(origin, slug, go, stop) {
     if (sitePages(s).length) { go(s); return; }
     stop(got.status === 401 ? '⚠️ You’re signed out. Sign in and send that again.' : SITE_NO_PAGES_MSG);
   });
+}
+// A MESSAGE THAT STOPPED BEFORE IT WAS ROUTED IS KEPT ON ITS OWN SITE, WORDS AND
+// FILES (2026-09-24, owner: "Preserve the original request and attachments when
+// this pre-routing check stops. Keep recovery tied to the original site; do not
+// restore its files into another workspace or overwrite newly selected
+// attachments. No automatic paid retry.")
+//
+// `siteSend` takes the attachments off the composer the moment a message is
+// sent, so they travel with it whatever is on screen while the page list is
+// read — and a stop then left them nowhere: the strip empty, the thread holding
+// the words alone, and the message sent again went out with no file. Measured
+// with a picture attached through the real attach code: the second send was
+// routed `attached: false` and the logo edit posted no image.
+//
+// KEPT ON THE RECORD THE MESSAGE WAS SENT FROM, BY ID, and handed back only to
+// THAT site's composer (`siteUnsentBack`), so a stop that lands while another
+// workspace — or the start screen — is showing puts nothing into its composer.
+// NOTHING SENDS IT AGAIN: the routing call is billed, so sending is the
+// customer's press.
+//
+// IN MEMORY ONLY: `sitesSave` leaves it out. A held picture is a data URL of up
+// to ~7 MB, and a record carrying one can overflow localStorage and fail the
+// whole save — every site's state, not just this one. It lasts as long as the
+// page, which is as long as anything in the composer lasts.
+//
+// A LIST, because a second message on the same site can stop while the first is
+// still waiting to come back — each keeps its own words and its own files.
+function siteHoldUnsent(origin, t, imgs) {
+  const s = siteById(origin);
+  if (!s) return;
+  const held = Array.isArray(s.unsent) ? s.unsent : [];
+  s.unsent = held.concat([{ t: String(t || ''), imgs: Array.isArray(imgs) ? imgs.slice(0, 3) : [] }]);
+}
+// Hand the latest held message back to its own site's composer: its files into
+// the strip, and its words, answered here, for the box. WHOLE AND ALONE: a
+// message comes back only into an EMPTY strip, and while nothing is being sent.
+//
+// Never beside other files, because the words and the files are one request —
+// the logo rung uses the FIRST attachment and ignores the rest, so "use this
+// picture as the logo" sent again over a strip holding a picture chosen since
+// would put THAT picture up; and never in place of them, which is the owner's
+// rule. So anything attached since stays exactly as it is, and the held message
+// waits for the next time this composer is drawn with the strip clear. Never
+// while a message is in flight: `siteSend` redraws before it takes the strip, and
+// a message handed back then would leave with the new one's words.
+function siteUnsentBack(site) {
+  const held = site && Array.isArray(site.unsent) ? site.unsent : [];
+  if (!held.length || siteBusy || siteAttach.length) return '';
+  const back = held[held.length - 1];
+  siteAttach = back.imgs.slice(0, 3);
+  site.unsent = held.length > 1 ? held.slice(0, -1) : null;
+  return back.t;
 }
 function siteActivePage(site) {
   const pages = sitePages(site);
@@ -8275,19 +8331,30 @@ function renderSiteWorkspace(view, site) {
   // The inbox and members handlers went with their buttons (above). Both
   // panels are still reached from their own Cloud cards, which is the door
   // that describes what it opens.
+  wireSiteComposer(site);
+  wireBuildPicker();
+}
+// THE WORKSPACE COMPOSER'S WIRING, lifted out of `renderSiteWorkspace` so the
+// one place a held message comes back (`siteUnsentBack`) is driven together
+// with the send button it feeds. It runs on every redraw of the open site and
+// hands back that site's held message only while its composer is drawn — the
+// history rail draws none, and the message waits. The box is drawn empty on
+// every redraw, so the words go into an empty box.
+function wireSiteComposer(site) {
   const plusBtn = document.getElementById('stPlus');
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
+  const ta = document.getElementById('stRevise');
+  const back = ta ? siteUnsentBack(site) : '';
   paintAttachStrip();
   const sendBtn = document.getElementById('stSend');
   const stopBtn = document.getElementById('stStop');
   if (stopBtn) stopBtn.onclick = siteStop;
-  const ta = document.getElementById('stRevise');
+  if (back) ta.value = back;
   if (sendBtn && ta) {
     sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; siteSend(t); };
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
     ta.focus();
   }
-  wireBuildPicker();
 }
 // #4 — LIVE build activity (Claude-Code-style running log). The server only
 // THE CLASSIC ROTATING ACTIVITY LOG IS GONE (2026-09-13, the dead-code census).
@@ -11287,9 +11354,14 @@ function siteSend(text) {
   // is then routed as the live site it is — never as a first build. The busy flag
   // is already set, so a second press during the wait is refused rather than
   // queued, and the attachments were taken above, so they travel with this
-  // message whichever workspace is on screen when the list arrives.
+  // message whichever workspace is on screen when the list arrives. If it stops
+  // instead, the words and the files are kept on this site (`siteHoldUnsent`)
+  // BEFORE `finish` redraws it, so that redraw is the one that hands them back.
   if (isBuild && typeof site.slug === 'string' && site.slug) {
-    siteWithPages(origin, site.slug, (s) => siteRoute(s, t, origin, false, imgs, finish), finish);
+    siteWithPages(origin, site.slug, (s) => siteRoute(s, t, origin, false, imgs, finish), (said) => {
+      siteHoldUnsent(origin, t, imgs);
+      finish(said);
+    });
     return;
   }
   if (reactPath) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
