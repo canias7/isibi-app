@@ -6147,6 +6147,12 @@ theirs), run on the final file; `chat.js` byte-identical to its backup
 afterwards (`22161c29c3c977be`). **Suite 7,439 locally** (`# tests 7439 / # pass
 7439 / # fail 0 / # skipped 0`, `duration_ms 116,676`) — **+37 against 7,402**,
 exactly the new file; the 92 files that read `chat.js`: **2,945 / 2,945**.
+**AND CI MATCHES**: unit run **`35974950743` on `fcc0d067`** reads **`# tests
+7439 / # pass 7435 / # fail 0 / # skipped 4`** (`duration_ms 110,479`) — the
+total is what matches, `pass` differing by CI's four skips — with all 37 of the
+file's cases found passing BY NAME in the downloaded log archive, 7,439 distinct
+result numbers and zero `not ok N -`. No `site build` fires: `public/` and these
+test files are on none of its `paths`. **The stamp chain ends at `fcc0d067`.**
 **Rendered in the real workspace, before and after**, nine scenes (the reproduction's
 instrument: real app, real Chromium, real Worker for the page list, routing call
 and build route): before, a loading, failed or empty list and a skip each started

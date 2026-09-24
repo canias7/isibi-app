@@ -203,7 +203,8 @@ questions, Skip going straight to the build.
 must not change), and the real app in a real browser with the real server code,
 before and after. The router's answer was written by me in all of it, so this
 proves what gets sent, not what a real router would decide. Full suite: 7,439
-passing. CI and your merge call come next.
+passing here, and the same 7,439 in CI (four left out there, as always). **Not
+merged, not deployed** — that's your call.
 
 **Also noticed, not changed**: on a brand-new project, the question's buttons
 stay drawn after you answer until the build finishes. They don't do anything
