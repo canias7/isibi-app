@@ -214,8 +214,9 @@ group hold; it doesn't claim to catch a misreading without one.
 fail: your reproduction on both payment paths, and the two direct checks of
 the rule. The other 59 pass either way, which is right: they're the cases that
 must keep working. The eight related test files: 174 of 174 passing. The whole
-suite: 7,328 tests, all passing — exactly 6 more. I broke the new code on
-purpose 25 different ways — including putting your bypass back — and every one
+suite: 7,328 tests, all passing — exactly 6 more. CI agrees: the same 7,328
+(four skipped on CI as always), with every new case found passing by name. I
+broke the new code on purpose 25 different ways — including putting your bypass back — and every one
 was caught (the harmless control wasn't). I also rendered it in the real chat,
 before and after (sent in the conversation): your case, the correct link-only
 removal, and the order form named on its own. In your case nothing is

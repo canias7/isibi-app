@@ -5502,7 +5502,13 @@ permission through the naming fallback."*
   different groups agreeing; both swept files byte-identical to their
   pre-sweep hashes afterwards. **Suite 7,328 locally** (`# tests 7328 / # pass
   7328 / # fail 0 / # skipped 0`, `duration_ms 117,043`) — **+6 against 7,322**,
-  exactly the file's 57 → 63. **Rendered in the real workspace chat, before and
+  exactly the file's 57 → 63. **AND THE CI UNIT HALF MATCHES**: run
+  **`35955566283` on `16b9ce72`** reads **`# tests 7328 / # pass 7324 / # fail 0
+  / # skipped 4`** (`duration_ms 110,682`) — the total is what matches, `pass`
+  differing by CI's four skips — with the rewritten reader case, the new reader
+  case and all five shared-heading route cases found passing BY NAME in the
+  downloaded log (`ok 1780`, `ok 1781`, `ok 1824`–`1828`) and zero anchored
+  `not ok N -` lines. **Rendered in the real workspace chat, before and
   after** (the owner's bypass, link-only removal, the form named on its own):
   every chat sentence the browser composer's own output captured out of the
   route — BEFORE on the unfixed product (captured before the fix), AFTER on this
