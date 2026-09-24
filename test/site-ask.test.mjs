@@ -18,6 +18,9 @@ import {
   siteDigest, normalizePagePath,
   readAlso, MAX_ALSO_CHARS,
 } from "../builder/site-ask.mjs";
+// ⚠ `editBrowserReply`, the browser's own edit composer executed — the add
+// composer answers a plausible "✅ Done." for an edit body.
+import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
 
@@ -1576,7 +1579,14 @@ test("the deletion path reaches the route and calls no model", () => {
   // takes a page away.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   assert.match(chat, /remove: d\.remove === true/, "the client never sends it, or sends it loosely");
-  assert.match(chat, /Took ' \+ \(gone/, "the customer is not told the page went");
+  // AND THE CUSTOMER IS TOLD THE PAGE WENT — DRIVEN, since 2026-09-23. This
+  // matched the old composer's spelling (`'✅ Took ' + (gone…`); a removal is
+  // said through `pageOpsSaid` now, which the page branch and the multi-step
+  // reply share. The property is the sentence, so the real composer is run on
+  // the removal rung's own reply shape (`page`, `removed`, `cost: 0`).
+  const said = editBrowserReply({ ok: true, layer: "page", page: "/gallery", removed: ["gallery.tsx"], cost: 0 }, true);
+  assert.equal(said.ok, true, said.why);
+  assert.match(said.text, /^✅ Took \/gallery off the site\./, "the customer is not told the page went");
 });
 
 test("EVERY FIELD `readEdit` DECIDES REACHES THE CLIENT", () => {

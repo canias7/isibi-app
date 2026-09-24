@@ -784,6 +784,9 @@ export const EDIT_BROWSER_FNS = Object.freeze([
   // `partialSaid` IS BOTH BRANCHES' composer for refused steps (2026-09-23),
   // and `unreadEditMsg` the refusal branch's sentence for an unreadable reply.
   "partialSaid", "unreadEditMsg",
+  // `pageOpsSaid` IS BOTH THE PAGE BRANCH'S AND THE LOOK BRANCH'S composer for
+  // a removal or a move (2026-09-23), and `pageOpVerb` the one reading of which.
+  "pageOpVerb", "pageOpsSaid",
   "renderTail", "alsoTail", "editReplyBody", "editReply", "applyEditResult", "escalatedEdit",
   // ⚠ `editAnswer`'s OWN COMPOSER, and the census had to widen for it. The
   // requirement was derived from `editReply`'s body alone, which cannot see a

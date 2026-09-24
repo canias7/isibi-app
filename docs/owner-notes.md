@@ -155,6 +155,73 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — The reply now says which page was edited, removed or moved
+
+When a message changed a page's layout **and** removed or moved another page,
+the reply said only *"✅ Updated the look."* — naming neither. A move on its
+own said *"✅ Updated /gallery."*, which is the address the page had just left.
+**Fixed on the branch — not merged, not deployed, no paid run**, as you asked:
+the change and its CI come to you first.
+
+### What the customer sees now
+
+| message | before | now |
+|---|---|---|
+| lay out /prices + remove the gallery | ✅ Updated the look. | ✅ Updated /prices and took /gallery off the site. Every publish is kept, so say the word if you want it back. |
+| lay out /prices + move the gallery to /photos | ✅ Updated the look. | ✅ Updated /prices and moved /gallery to /photos. |
+| move the gallery to /photos, on its own | ✅ Updated /gallery. | ✅ Moved /gallery to /photos. |
+| lay out /prices + remove the home page (refused) | ✅ Updated /prices. ⚠️ I left / — that is the home page… | unchanged |
+| lay out /prices + move the gallery onto /visit (refused, taken) | ✅ Updated /prices. ⚠️ I couldn't move that page — there is already a page at /visit. | unchanged |
+| remove the gallery, on its own | ✅ Took /gallery off the site. Every publish is kept… | unchanged |
+
+- **The facts come from what actually happened, not from what was asked.**
+  The edit step now reports each page operation that succeeded — the page it
+  edited, the files a removal really took away, the address a move really
+  published. A removal or move that was refused never appears there, so it
+  can't be described as done; its warning still shows, in its own words.
+- **Checked with a request that differs from the result:** asked to move the
+  gallery to "/Photos/", the site publishes it at "/photos", and the reply says
+  **/photos**.
+- **One more gap found on the way, fixed too:** when the look part of a message
+  changed nothing, the reply was *"✅ Your site already looks like that —
+  nothing to change."* and a removal in the same message went unmentioned. It
+  now adds *"Took /gallery off the site…"*.
+- **Every other reply is unchanged**, including messages that edit a page next
+  to a photo change or a colour change without removing or moving anything.
+
+### Worth knowing — not changed here
+
+- A refused move **on its own** says *"⚠️ I couldn't move that page — there is
+  already a page at /visit."* but, unlike a refused removal, doesn't add
+  *"Nothing on your site changed, and this edit cost you nothing."* It never
+  claims the move happened; I've noted it rather than changed it.
+- Messages that mix a photo change or a web-address change with page edits
+  still don't name the photo or address part (item 3 on the list).
+
+### Proof (made-up model answers, free)
+
+- The page-verb test file goes from 17 to 29 tests, all through the real edit
+  step and the browser's own reply code: what was saved, what the compiler
+  received, the charge, and the exact reply. New ones cover the refused
+  removal and move beside a layout change (both paths), refusals on their own,
+  the "/Photos/" check, and the two look cases.
+- On the old code, 20 of the 29 fail. On the reply wording alone, 16 fail; the
+  refused-removal and refused-move cases already worded things right, and fail
+  on the old code only because it couldn't say which operations succeeded.
+- Two older tests were tied to the old code's layout, and were adjusted to
+  check the same thing (one now runs the real reply code instead of matching
+  its spelling).
+- A focused mutation check: 16 of 16 deliberate breakages caught, the harmless
+  control not flagged.
+- The whole suite: 7,259 tests, all passing (12 more than before — exactly the
+  new ones).
+- Screenshots of six cases, before and after, are in the chat.
+- **The limit:** the tests supply the model's answers, so this proves what the
+  reply says about the changes the edit step made — not that a real model makes
+  the layout change.
+
+---
+
 ## 2026-09-23 — The page-verb fix is closed, merged and live
 
 You reviewed it (251 focused and regression tests passing) and closed it,

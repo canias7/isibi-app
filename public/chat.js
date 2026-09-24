@@ -10204,6 +10204,64 @@ function partialSaid(parts) {
  * that committed and died has no layer, no pages and no fields, and appending
  * to its sentence would be describing work nobody can read.
  */
+/**
+ * WHICH PAGE OPERATION A SUCCESSFUL PAGE STEP WAS: `remove`, `move`, or '' for
+ * an ordinary edit of the page. Read off the step's own reply — `removed` is
+ * what the merge really took away, `renamedTo` the address really published.
+ */
+function pageOpVerb(op) {
+  if (!op || typeof op !== 'object') return '';
+  if (Array.isArray(op.removed) && op.removed.length) return 'remove';
+  if (typeof op.renamedTo === 'string' && op.renamedTo) return 'move';
+  return '';
+}
+
+/**
+ * WHAT THE PAGE OPERATIONS THAT SUCCEEDED DID, in one sentence (2026-09-23).
+ *
+ * Owner: *"Layout + removal must identify the edited page and the removed page.
+ * Layout + move must identify the edited page and the move's old and new
+ * addresses. A standalone move must report the move, not "Updated" at the old
+ * address. Use successful operation results, not the request's wording, as
+ * evidence."* Before this, "lay out /prices and remove the gallery" shipped both
+ * and said "✅ Updated the look.", and a move on its own said "✅ Updated
+ * /gallery." — the address the page had just LEFT.
+ *
+ * ONLY WHAT SUCCEEDED IS HERE. The route builds `pageOps` from the steps that
+ * published, and a single page step's own reply is a success by the time this
+ * reads it, so a refused removal or move has no way to be described as done:
+ * its sentence arrives on `partial`, which the wrapper says as a warning.
+ *
+ * ONE COMPOSER FOR BOTH SHAPES — a single page step's reply and each entry of a
+ * multi-step one — so a removal cannot come to read one way alone and another
+ * beside a layout change.
+ */
+function pageOpsSaid(ops) {
+  const said = [];
+  let gone = false;
+  (Array.isArray(ops) ? ops : []).forEach(function (op) {
+    const verb = pageOpVerb(op);
+    const page = op && typeof op.page === 'string' && op.page ? op.page : '';
+    let s;
+    if (verb === 'remove') {
+      const was = op.removed.map(sitePathOf).filter(Boolean);
+      s = 'took ' + (was.join(', ') || 'that page') + ' off the site';
+      gone = true;
+    } else if (verb === 'move') {
+      s = 'moved ' + (page || 'that page') + ' to ' + op.renamedTo;
+    } else {
+      s = 'updated ' + (page || 'the page');
+    }
+    if (said.indexOf(s) < 0) said.push(s);
+  });
+  if (!said.length) return '';
+  const list = said.length === 1 ? said[0] : said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1];
+  // FREE, AND SAYING SO IS THE POINT: a removal costs nothing but a recompile,
+  // and every publish is kept, so it can be put back.
+  return list.charAt(0).toUpperCase() + list.slice(1) + '.' +
+    (gone ? ' Every publish is kept, so say the word if you want it back.' : '');
+}
+
 function editReply(e) {
   if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
   return editReplyBody(e) + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
@@ -10332,13 +10390,13 @@ function editReplyBody(e) {
     const said = typeof e.msg === 'string' && e.msg.trim() ? e.msg.trim() : '✅ Done.';
     return said + ' It’s live now — nothing needed rebuilding.';
   }
-  if (e.layer === 'page' && Array.isArray(e.removed) && e.removed.length) {
-    // FREE, AND SAYING SO IS THE POINT. This is the one change that costs nothing
-    // but a recompile, and the customer has been told for months that editing
-    // pages is expensive.
-    const gone = e.removed.map(sitePathOf).filter(Boolean);
-    return '✅ Took ' + (gone.join(', ') || 'that page') + ' off the site. Every publish is kept, ' +
-      'so say the word if you want it back.' + problemNote(e.problems);
+  if (e.layer === 'page' && pageOpVerb(e)) {
+    // A REMOVAL OR A MOVE SAYS WHAT IT DID, from the rung's own reply, through
+    // the one composer the multi-step reply uses too. A move used to fall to
+    // the branch below and say "✅ Updated /gallery." — the old address.
+    // (The removal's own `problemNote` went with it: the wrapper already
+    // appends that note once, and a removal's reply carries no problems.)
+    return '✅ ' + pageOpsSaid([e]);
   }
   if (e.layer === 'page') {
     // NAMES THE PAGE, AND NAMES WHAT IT REFUSED. This layer changes exactly one
@@ -10383,7 +10441,17 @@ function editReplyBody(e) {
     // look." with no list reads as a change that silently failed. The server
     // composes the words because it is the side that knows the difference
     // between "you already have that" and "I could not do it".
-    if (typeof e.lookNote === 'string' && e.lookNote.trim()) return '✅ ' + e.lookNote.trim();
+    //
+    // A PAGE REMOVED OR MOVED IS SAID, AND SO IS THE PAGE EDITED BESIDE IT
+    // (2026-09-23). This is where a message that ran several page steps lands,
+    // and "✅ Updated the look." named none of them — nor did this early
+    // return, which answered "nothing to change" over a removal that shipped.
+    // Only when one of them took a page away or moved one, so every other
+    // multi-step sentence reads as it did; and with nothing else to name, the
+    // page operations ARE the sentence.
+    const ops = Array.isArray(e.pageOps) ? e.pageOps : [];
+    const opsSaid = ops.some(pageOpVerb) ? pageOpsSaid(ops) : '';
+    if (typeof e.lookNote === 'string' && e.lookNote.trim()) return '✅ ' + e.lookNote.trim() + (opsSaid ? ' ' + opsSaid : '');
     const moved = (Array.isArray(e.moved) ? e.moved : []).slice(0, 4);
     const tokens = (Array.isArray(e.tokens) ? e.tokens : []).slice(0, 4);
     // ALREADY PLAIN NAMES when they arrive — the server maps the axis keys
@@ -10401,7 +10469,8 @@ function editReplyBody(e) {
     // scoped change and a site-wide one read identically — and the customer
     // goes and looks at the home page, sees nothing, and concludes it failed.
     var where = typeof e.tokensPage === 'string' && e.tokensPage ? ' on ' + e.tokensPage : '';
-    let out = '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
+    let out = !bits.length && opsSaid ? '✅ ' + opsSaid
+      : '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
     // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
     // name is stored once and written into every page; the customer can check
     // the second half by looking, and a count of zero on a rename is the one
@@ -10427,6 +10496,8 @@ function editReplyBody(e) {
     for (const n of [e.styleNote, e.tokenNote, e.cssNote]) {
       if (typeof n === 'string' && n.trim()) out += ' ' + n.trim();
     }
+    // Beside a look change, the page operations follow it.
+    if (bits.length && opsSaid) out += ' ' + opsSaid;
     // ── AND THIS IS WHERE A MULTI-RUNG MESSAGE LANDS ─────────────────────
     //
     // `layer` is `"look"` whenever more than one rung ran — the merge says so

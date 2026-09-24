@@ -4508,13 +4508,13 @@ out and KEPT, `partial [picture no-slots]`, *"✅ Updated /prices. ⚠️ I coul
 find a photograph on your site that I can change. If you'd like one added, say
 which page it should go on and where."*
 
-- **⚠ THE COMBINED REPLY NAMES NEITHER CHANGE**: *"✅ Updated the look."* The
-  merged reply lands on the browser's look branch, which reads no `removed`, no
-  `renamedTo` and no page — review #9's reporting class (next task 3),
-  unchanged by this fix and asserted exactly as it is, so changing it is a
-  decision somebody makes on purpose. **And `renamedTo` has no reader in the
-  browser at all**: a standalone move says *"✅ Updated /gallery."* — the OLD
-  address.
+- **⚠ THE COMBINED REPLY NAMED NEITHER CHANGE**: *"✅ Updated the look."* The
+  merged reply lands on the browser's look branch, which read no `removed`, no
+  `renamedTo` and no page, and `renamedTo` had no reader in the browser at all,
+  so a standalone move said *"✅ Updated /gallery."* — the OLD address. Left
+  exactly as it was by this fix and asserted, so changing it was a decision
+  made on purpose: **it is the next section, *the reply names the page
+  operations that shipped*.**
 
 **EVIDENCE.** `test/edit-page-verb.test.mjs`, **17 cases**: layout + removal
 and layout + move on the home page AND on `/prices`, each on both money paths
@@ -4617,6 +4617,113 @@ main changes. Report the actual deployed SHA and image. No paid replay."*
   `d86aa232687d4a0e56e9ce5d75c503dbb9e3fc38` and `expect_image`
   `d6d603e4a7921f14` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
+
+### THE REPLY NAMES THE PAGE OPERATIONS THAT SHIPPED (2026-09-24, on the branch)
+
+Owner: *"Layout + removal must identify the edited page and the removed page.
+Layout + move must identify the edited page and the move's old and new
+addresses. A standalone move must report the move, not "Updated" at the old
+address. Use successful operation results, not the request's wording, as
+evidence. Preserve partial-failure warnings and do not describe a refused
+removal or move as completed. … Keep this to operation reporting—not a
+requirements redesign."* **Not merged, not deployed, no paid run** — the owner
+asked for the focused change and its CI first.
+
+**MEASURED THROUGH THE ROUTE BEFORE THE CHANGE** (supplied answers, the
+page-verb fixture): all four combined cases said *"✅ Updated the look."*; a
+move on its own said *"✅ Updated /gallery."*; and a refused removal or move
+beside a layout change was ALREADY right — *"✅ Updated /prices. ⚠️ I left / —
+that is the home page…"* — because the one step that succeeded lands on the
+page branch and the refusal rides `partial`. **The combined reply could not
+have said more**: the merge's catch-all keeps the FIRST `page`, so *"lay out
+/prices and move the gallery to /photos"* replied `page: "/prices"` beside
+`renamedTo: "/photos"`, and the move's starting address was on no field at all.
+
+**THE ROUTE CARRIES `pageOps`**: one entry per page step that SUCCEEDED, in the
+order it ran, each `{page, removed, renamedTo}` read off that step's own reply —
+`removed` the files the merge really took away, `renamedTo` the address
+`renameRoute` really published. Built from `ranOk`, so a refused step cannot be
+listed; it stays on `partial`, in its own words.
+
+**THE BROWSER HAS ONE COMPOSER FOR IT, `pageOpsSaid`**, and both shapes go
+through it: the page branch (a single page step's reply is read as its own
+entry) and the look branch (a multi-step reply). `pageOpVerb` is the one
+reading of which operation an entry was. The old removal branch's sentence is
+byte-identical through the new composer.
+- **THE LOOK BRANCH USES IT ONLY WHEN AN ENTRY REMOVED OR MOVED A PAGE**, so
+  every other multi-step sentence — page + picture, css + layout — reads as it
+  did. With nothing else to name, the page operations ARE the sentence; beside
+  a look change they follow it; and **the `lookNote` early return appends them
+  too** — found on the way, *"✅ Your site already looks like that — nothing to
+  change."* was the WHOLE reply over a removal that shipped.
+- **ONE PAGE, ONE CLAUSE**: two successful steps on one page are named once.
+  Reachable by reading, not driven: the QR placement step carries an ask of its
+  own, so `samePageOperation` never joins or skips it beside a layout step on
+  the same page.
+
+**WHAT THE CUSTOMER SEES NOW** (exact, all asserted): *"✅ Updated /prices and
+took /gallery off the site. Every publish is kept, so say the word if you want
+it back."* · *"✅ Updated /prices and moved /gallery to /photos."* · *"✅ Moved
+/gallery to /photos."* · a refused removal or move beside a layout change
+unchanged (*"✅ Updated /prices. ⚠️ I couldn't move that page — there is already
+a page at /visit."*) · a standalone refusal unchanged.
+
+**THE DISCRIMINATOR BETWEEN RESULT AND REQUEST**: a move asked for as
+*"/Photos/"* reaches the step as `"/photos/"` (the picker's reader lowercases)
+and is published by `renameRoute` as `"/photos"`; the reply says `/photos`. A
+reply composed from the request would say `/photos/`, and a mutant doing
+exactly that is killed by that one case.
+
+**⚠ FOUND ON THE WAY, NOT CHANGED**: a refused standalone move answers without
+`unchanged: true` (a refused removal carries it), so its screen has no
+whole-request note — *"⚠️ I couldn't move that page — there is already a page at
+/visit."* and nothing after it. It never claims the move happened; recorded, not
+fixed. And the old removal branch appended `problemNote` itself while the
+wrapper appends it again — a double that could never fire, a removal's reply
+carrying no `problems`, and the text branch has the same latent twin.
+
+**EVIDENCE.** `test/edit-page-verb.test.mjs`, **17 → 29 cases**, every one
+through the real route and the browser's own composer, asserting the stored
+pages, the compiler payload, the money and the exact sentence: the four
+combined cases and the joined-layout case now assert `pageOps` and the new
+sentence; the standalone move (router, both paths; pages lane) asserts *"✅
+Moved /gallery to /photos."*; **new**: a refused removal and a refused move
+beside a layout change (both paths), a refused move and a refused home-page
+removal on their own (both paths), the `/Photos/` discriminator, a stylesheet
+change beside a removal, an unchanged look beside a removal, and the one-clause
+composer case. **Red 20 of 29 against unfixed `9a4d1787`** in a throwaway
+worktree; **with the `pageOps` assertion cut, 16 of 29 fail on the sentence
+alone** — the four partial-success cases then pass, their sentences having
+been right already, so they fail on the unfixed code only on the missing
+field. The 9 green on both are the controls (the standalone removals, the
+layout alone, the picture door, the four standalone refusals).
+**Two pre-existing guards went red and neither was appeased**: `site-apply`'s
+landmark window (`const was = imageSources(…)` → `const merged = {`) grew by the
+new block, and the block MOVED rather than the window widening — it reads only
+`ranOk`, so it sits beside `flat` and `last`; `site-ask`'s *"the customer is
+told the page went"* matched the old composer's spelling (`'Took ' + (gone`) and
+now DRIVES the composer on the removal rung's reply shape.
+**Focused mutation check `scripts/mutants/page-reply.json`: 16 mutants, 16
+killed, 0 survived, 0 never applied, the comment-only control surviving**,
+against the 24 files that can see the change (the edit-path and reply tests,
+`site-ask`, `site-apply`, `free-identifiers`, `wiring`): four in the route (a
+refused step listed, the move's address and the removal taken from the
+REQUEST, the field off the reply), eleven in the composer (the old
+removal-only branch, page operations composed without a verb, dropped as the
+sentence / after the look / after `lookNote`, a move said as an update, either
+verb unrecognised, the removal's "every publish is kept", the "and", the
+one-clause rule) and one in the harness (the composer not cut out of
+`chat.js`). All three swept files byte-identical to their pre-sweep hashes
+afterwards. **Two mutants were left out and are inert by construction, said
+here rather than swept**: the entry's `page` taken from the step (the page
+rung's `wantRoute` IS the step's page, lowercased by both readers), and the
+removal named by the step's page rather than the files (`sitePathOf` of the
+removed file IS that page on every fixture). **Suite 7,259 locally** (`# tests
+7259 / # pass 7259 / # fail 0 / # skipped 0`, `duration_ms 121,328`) — **+12
+against 7,247**, exactly this file's new cases; the `site-ask` re-anchor
+added an assertion, not a case. **The supplied-answer limit holds**: this
+proves what the reply says about operations the route performed, never that
+a real model makes the layout change.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

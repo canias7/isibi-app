@@ -24411,6 +24411,28 @@ async function handleRequest(request, env, ctx) {
 
             const flat = (k) => ranOk.flatMap((d) => (Array.isArray(d.body[k]) ? d.body[k] : []));
             const last = ranOk[ranOk.length - 1];
+            // ── WHAT EACH PAGE STEP THAT SUCCEEDED DID, IN THE ORDER IT RAN ──
+            //
+            // ⚠ THE CATCH-ALL BELOW CANNOT CARRY THIS (2026-09-23, owner:
+            // *"Layout + move must identify the edited page and the move's old
+            // and new addresses"*). Every page step answers `page`, and the
+            // catch-all keeps the FIRST — so "lay out /prices and move the
+            // gallery to /photos" replied `page: "/prices"` beside `renamedTo:
+            // "/photos"`, the move's own starting address was on no field at
+            // all, and the screen said "✅ Updated the look." about both.
+            //
+            // FROM THE RUNGS' OWN SUCCESSFUL REPLIES, NEVER FROM THE REQUEST.
+            // `removed` is the list of files the merge really took away and
+            // `renamedTo` is the address `renameRoute` really published, which
+            // is not always the one asked for (it normalises the slashes). A
+            // step that refused is not in `ranOk`, so a removal the home page's
+            // protection stopped can never be listed here as done — it reaches
+            // the screen through `partial`, in its own words.
+            const pageOps = ranOk.filter((d) => d.body && d.body.layer === "page").map((d) => ({
+              page: typeof d.body.page === "string" && d.body.page ? d.body.page : undefined,
+              removed: Array.isArray(d.body.removed) && d.body.removed.length ? d.body.removed : undefined,
+              renamedTo: typeof d.body.renamedTo === "string" && d.body.renamedTo ? d.body.renamedTo : undefined,
+            }));
             // ── WHAT THE MESSAGE DID TO THE SITE'S PICTURES, ASKED ONCE ────
             //
             // Owner: *"avoid reporting intermediate changes that the final
@@ -24472,6 +24494,7 @@ async function handleRequest(request, env, ctx) {
               lanes: [...new Set([...flat("lanes"), ...done.flatMap((d) => d.step.fields)])],
               moved: flat("moved"),
               changed: flat("changed"),
+              pageOps: pageOps.length ? pageOps : undefined,
               css: ranOk.some((d) => d.body.css) || undefined,
               renamed: ranOk.reduce((n, d) => n + (Number(d.body.renamed) || 0), 0) || undefined,
               // THE LAST PUBLISH'S FILES AND RENDER, because each step publishes

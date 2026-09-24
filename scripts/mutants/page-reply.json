@@ -1,0 +1,139 @@
+[
+ {
+  "label": "CONTROL: a comment above the page operations changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // ── WHAT EACH PAGE STEP THAT SUCCEEDED DID, IN THE ORDER IT RAN ──\n",
+  "to": "            // ── WHAT EACH PAGE STEP THAT SUCCEEDED DID, IN THE ORDER IT RAN (control) ──\n",
+  "control": true
+ },
+ {
+  "label": "R-1: every page step is listed, refused ones included",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const pageOps = ranOk.filter((d) => d.body && d.body.layer === \"page\").map(",
+  "to": "const pageOps = done.filter((d) => d.step.layer === \"page\").map("
+ },
+ {
+  "label": "R-2: the move's address is the one the request spelled",
+  "files": [
+   "worker.js"
+  ],
+  "from": "renamedTo: typeof d.body.renamedTo === \"string\" && d.body.renamedTo ? d.body.renamedTo : undefined,",
+  "to": "renamedTo: typeof d.step.rename === \"string\" && d.step.rename ? d.step.rename : undefined,"
+ },
+ {
+  "label": "R-3: the removal is the request's page, not the files the merge took away",
+  "files": [
+   "worker.js"
+  ],
+  "from": "removed: Array.isArray(d.body.removed) && d.body.removed.length ? d.body.removed : undefined,",
+  "to": "removed: d.step.remove === true ? [d.step.page] : undefined,"
+ },
+ {
+  "label": "R-4: the page operations never reach the reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              pageOps: pageOps.length ? pageOps : undefined,\n",
+  "to": ""
+ },
+ {
+  "label": "B-1: the page branch knows a removal and not a move (the old branch)",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (e.layer === 'page' && pageOpVerb(e)) {",
+  "to": "  if (e.layer === 'page' && Array.isArray(e.removed) && e.removed.length) {"
+ },
+ {
+  "label": "B-2: the look branch composes page operations with no removal or move among them",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    const opsSaid = ops.some(pageOpVerb) ? pageOpsSaid(ops) : '';",
+  "to": "    const opsSaid = pageOpsSaid(ops);"
+ },
+ {
+  "label": "B-3: with nothing else to name, the look branch still says only 'Updated the look'",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    let out = !bits.length && opsSaid ? '✅ ' + opsSaid\n",
+  "to": "    let out = false ? '✅ ' + opsSaid\n"
+ },
+ {
+  "label": "B-4: beside a look change the page operations are dropped",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (bits.length && opsSaid) out += ' ' + opsSaid;\n",
+  "to": ""
+ },
+ {
+  "label": "B-5: 'nothing to change' is still the whole sentence over a removal",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "return '✅ ' + e.lookNote.trim() + (opsSaid ? ' ' + opsSaid : '');",
+  "to": "return '✅ ' + e.lookNote.trim();"
+ },
+ {
+  "label": "B-6: a move is said as an update",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "      s = 'moved ' + (page || 'that page') + ' to ' + op.renamedTo;",
+  "to": "      s = 'updated ' + (page || 'the page');"
+ },
+ {
+  "label": "B-7: a removal is not recognised as one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (Array.isArray(op.removed) && op.removed.length) return 'remove';\n",
+  "to": ""
+ },
+ {
+  "label": "B-8: a move is not recognised as one",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (typeof op.renamedTo === 'string' && op.renamedTo) return 'move';\n",
+  "to": ""
+ },
+ {
+  "label": "B-9: a removal loses 'every publish is kept'",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    (gone ? ' Every publish is kept, so say the word if you want it back.' : '');",
+  "to": "    '';"
+ },
+ {
+  "label": "B-10: the clauses lose their 'and'",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1]",
+  "to": "said.join(', ')"
+ },
+ {
+  "label": "B-11: one page is named once per step, not once",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "    if (said.indexOf(s) < 0) said.push(s);",
+  "to": "    said.push(s);"
+ },
+ {
+  "label": "H-1: the harness does not cut the composer out of chat.js",
+  "files": [
+   "scripts/addon-sweep.mjs"
+  ],
+  "from": "\"pageOpVerb\", \"pageOpsSaid\",",
+  "to": "\"pageOpVerb\","
+ }
+]
