@@ -1,0 +1,179 @@
+[
+ {
+  "label": "CONTROL: a comment above the stop list changes nothing",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "// Words that name no item: grammar, the page's own furniture, and the verbs a\n",
+  "to": "// Words that name no item: grammar, the page's own furniture, and the verbs a (control)\n",
+  "control": true
+ },
+ {
+  "label": "K-1: no same-heading exact pass (a repeated label's loss lands in the wrong section)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  pass((l, x) => exact(l, x) && here(l, x), keep);\n",
+  "to": ""
+ },
+ {
+  "label": "K-2: no cross-page exact pass (a moved link is claimed as a retarget)",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  pass(exact, keep);\n",
+  "to": ""
+ },
+ {
+  "label": "K-3: an added link offsets a lost one",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const lost = b.filter((_, i) => open[i]).map(",
+  "to": "const lost = b.filter((_, i) => open[i]).slice(a.filter((_, j) => !used.has(j)).length).map("
+ },
+ {
+  "label": "K-4: a wordless link can be a retarget",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const words = (l, x) => !!l.label && l.label === x.label && l.href !== x.href;",
+  "to": "const words = (l, x) => l.label === x.label && l.href !== x.href;"
+ },
+ {
+  "label": "K-5: imported-but-never-drawn read as uncertain, not gone",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "if (a === \"unused\") { gone.push(one(\"import-kept\")); continue; }",
+  "to": "if (a === \"unused\") { unsure.push(one(\"import-kept\")); continue; }"
+ },
+ {
+  "label": "K-6: the import line removed too is never a confirmed loss",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "if (Array.isArray(bound) && bound.length && !drawsTag(src1, bound)) gone.push(one(\"import-removed\"));",
+  "to": "if (false) gone.push(one(\"import-removed\"));"
+ },
+ {
+  "label": "K-7: an uncertain component counted as gone",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "      unsure.push(one(\"not-provably-drawn\"));\n",
+  "to": "      gone.push(one(\"not-provably-drawn\"));\n"
+ },
+ {
+  "label": "K-8: a never-confirmed component reported even when it is plainly drawn after",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "if (b === \"unsure\" && a !== \"rendered\") unsure.push(one(\"never-confirmed\"));",
+  "to": "if (b === \"unsure\") unsure.push(one(\"never-confirmed\"));"
+ },
+ {
+  "label": "K-9: any quote counts as in the message",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  return (\" \" + fold(message) + \" \").includes(\" \" + q + \" \");\n",
+  "to": "  return true;\n"
+ },
+ {
+  "label": "K-10: any quote counts as naming its item",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "  return naming(quote).some((w) => terms.has(w));\n",
+  "to": "  return true;\n"
+ },
+ {
+  "label": "K-11: a truthy asked is a yes",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "const said = { asked: a.asked === true,",
+  "to": "const said = { asked: !!a.asked,"
+ },
+ {
+  "label": "K-12: an item the judge left out is taken as asked",
+  "files": [
+   "builder/page-keep.mjs"
+  ],
+  "from": "    if (!s) why = \"unanswered\";\n",
+  "to": "    if (!s) { asked.push({ ...it, quote: \"\" }); return; }\n"
+ },
+ {
+  "label": "W-1: the tweak's answer is not checked",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const twStop = keepRefusal(twJudge, ownerSlug);",
+  "to": "const twStop = null;"
+ },
+ {
+  "label": "W-2: the rewrite's answer is not checked",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems.slice(0, 4) });",
+  "to": "const pStop = null;"
+ },
+ {
+  "label": "W-3: the judge goes unbilled on a rewrite that publishes",
+  "files": [
+   "worker.js"
+  ],
+  "from": "cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage)",
+  "to": "cost: await eCharge(eGen && eGen.usage, twSpent, twJudged)"
+ },
+ {
+  "label": "W-4: the judge goes unbilled on a tweak that publishes",
+  "files": [
+   "worker.js"
+  ],
+  "from": "cost: await eCharge(tw.usage, twJudge.usage, twPub)",
+  "to": "cost: await eCharge(tw.usage, twPub)"
+ },
+ {
+  "label": "W-5: a judge that could not answer lets the loss publish",
+  "files": [
+   "worker.js"
+  ],
+  "from": "if (!k || k.verdict === \"kept\" || k.verdict === \"asked\") return null;",
+  "to": "if (!k || k.verdict !== \"withheld\") return null;"
+ },
+ {
+  "label": "W-6: the declared purpose never reaches the judge",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                does: eLook2.tsx, inPart: !!partNameOf(target.path),\n",
+  "to": "                inPart: !!partNameOf(target.path),\n"
+ },
+ {
+  "label": "W-7: before and after swapped",
+  "files": [
+   "worker.js"
+  ],
+  "from": "message: eInstruction, before: target.source, after: wrote.source,",
+  "to": "message: eInstruction, before: wrote.source, after: target.source,"
+ },
+ {
+  "label": "W-8: the uncertain component never reaches the reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "partsUnsure: pKeep.unsure.length ? unsurePhrases(pKeep.unsure) : undefined,",
+  "to": "partsUnsure: undefined,"
+ },
+ {
+  "label": "C-1: the screen never names an uncertain component",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (unsurePx.length) {\n",
+  "to": "  if (false) {\n"
+ }
+]

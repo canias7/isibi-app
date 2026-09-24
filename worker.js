@@ -23435,6 +23435,10 @@ async function handleRequest(request, env, ctx) {
                       cost: await eCharge(tw.usage, twJudge.usage, twPub), usage: tw.usage,
                       keepUsage: twJudge.usage || undefined,
                       // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept.
+                      // ⚠ A BELT THAT CANNOT FIRE TODAY, said so: a tweak that
+                      // re-binds one of the site's own components changes the
+                      // identity `partEligible` compares, so it never reaches
+                      // here. Kept for the day that gate moves.
                       partsUnsure: twJudge.unsure.length ? unsurePhrases(twJudge.unsure) : undefined,
                     });
                   }

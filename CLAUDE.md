@@ -3943,11 +3943,12 @@ separate next tasks"*):
    rename both land and the screen names only the look), and the full rewrite's
    missing photograph wall and `imageDirective(0)` on a photographed site.
    **#7 REPRODUCED 2026-09-24 through the route** (*the full page writer drops
-   unrelated content silently*, below) — the reproduction COMMITTED as
-   `test/edit-page-keep.test.mjs`, the protection's design REVISED on the
-   owner's four points and awaiting approval, NOT built. **It covers links and
-   the site's own components only; plain-text and kit-only section loss stays
-   OPEN.**
+   unrelated content silently*, below), the design revised on the owner's four
+   points, and **BUILT ON THE BRANCH THE SAME DAY** (*the preservation check,
+   built*, below) — not merged, not deployed, no paid run. **It covers links
+   and the site's own components only; plain-text and kit-only section loss
+   stays OPEN**, and the judge's reading of a message is the model's, proven by
+   no test here.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -4904,7 +4905,7 @@ the look's no-change sentence scoped to the styling — plus their CI stamps.
   `67a81b55332be3a9` — both routes that answer the sha and the image ask
   `authUser` first, and a session holds no token. **No paid replay** (owner).
 
-### THE FULL PAGE WRITER DROPS UNRELATED CONTENT SILENTLY — REPRODUCED (2026-09-24, not fixed)
+### THE FULL PAGE WRITER DROPS UNRELATED CONTENT SILENTLY — REPRODUCED (2026-09-24; built on the branch, next section)
 
 Owner: *"Investigate whether the full page writer can silently drop unrelated
 content during a small requested edit … Use a page containing distinct
@@ -5028,9 +5029,14 @@ look door has a picker** — and it counted links, which fails 3.
   **`asked: true` counts only with a quote found in the message** after folding
   case, whitespace and quote marks, holding a word of three or more letters; an
   item missing from the answer, or answered twice in disagreement, is NOT
-  asked. So *"Take the "Find us" section off"* can authorise Directions (under
-  "Find us") and cannot, by itself, authorise the order form (under "Order
-  ahead") — each needs its own verified quote.
+  asked. **⚠ CORRECTED (owner, 2026-09-24): a verified quote proves the words
+  OCCUR in the request; whether they AUTHORISE that particular loss is still
+  the model's judgement, and nothing in code makes that judgement a
+  guarantee.** This paragraph first said *"Take the "Find us" section off"*
+  *cannot* authorise the order form — true of code's own checks (as built, a
+  quote must also NAME its item — next section), never of the judgement: a
+  judge that quotes *"keep the order form"* as permission is quoting real words
+  that name the item, and it is believed.
 - **FOUR OUTCOMES.** Everything lost was asked → publishes, the reply
   unchanged, the judge's tokens billed with the edit. Anything not asked →
   **409 `withheld`, cost 0, nothing compiled or stored** — the photo refusal's
@@ -5077,6 +5083,136 @@ look door has a picker** — and it counted links, which fails 3.
   the retarget now with a supplied "asked"), plus a quote not in the message, a
   judge that fails, the tweak path and the job path's money; a focused mutation
   check, no broad sweep.
+
+### THE PRESERVATION CHECK, BUILT (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner: *"Proceed with the bounded implementation of the revised preservation
+check. The committed reproductions check out."* — six requirements, each met
+below and each with a case: the documentation's permission claim corrected (a
+verified quote proves occurrence; the model judges authorisation); intentional
+removals through look AND page, and requested retargets, preserved without an
+authorised removal authorising anything else; exact link identity matched
+across both inventories before any retarget or relabel, with repeated labels
+and reorders covered; negative controls for *"keep the order form"*, an
+unrelated removal and a genuine quote on the wrong item, with supplied judge
+answers kept apart from any claim about a real model; the same protection on
+both writers before publication, a refused tweak buying no rewrite, and
+compiler/store inactivity and real billing verified on refusal — including a
+mixed request where another step succeeded; the five defect cases flipped, the
+controls kept, uncertain components kept apart from confirmed loss, and
+plain-text/kit-only loss explicitly open.
+
+**THE MODULE**: `builder/page-keep.mjs`, pure, on the Dockerfile's worker COPY
+line — and `container-images` went red until it was COMMITTED, the guard asking
+git rather than the disk, exactly as designed. `site-files.mjs` gained two
+exported readers (`partBindings`, `tagAt`/`drawsTag`) rather than a second
+reader of an import clause.
+
+- **LINKS, PAIRED BY IDENTITY IN SIX PASSES** — each rule twice, first between
+  links under the same heading, then anywhere: exact (words and destination) →
+  kept · same words, new destination → RETARGETED, judged · same destination,
+  new words → relabelled, kept · a before-link left over → LOST, judged · an
+  after-link left over → added, which never offsets a loss. **Exact across the
+  whole page BEFORE any retarget**: a moved "Book now → /book" beside a new
+  "Book now → /offers" is kept, never claimed as a retarget (the K-2 mutant
+  dies on it). **The same-heading pass is what keeps a repeated label honest**:
+  two "Book now → /book", the FIRST section removed, and the loss is reported in
+  the first section (K-1). A wordless link pairs by destination alone. **A
+  LIMIT, STATED**: two links keeping their words and swapping destinations read
+  as moved.
+- **COMPONENTS, BY THE APPROVED TABLE**: rendered → `unused`, and rendered →
+  `none` with no tag of the old binding left, are CONFIRMED losses and judged;
+  rendered → `unsure`, rendered → `none` with the tag still drawn, and `unsure`
+  → anything but rendered are UNCERTAIN — never judged, never refused, never
+  counted as kept. `partsUnsure` rides the reply in the customer's words (the
+  heading, else the declared `does`, never a file name) and the browser adds ONE
+  clause: *"I couldn’t confirm that the “Order ahead” section is still on the
+  page — have a look before you share it."* **`unsure` → `unsure` reports too**,
+  as the table says, so a page rendering a component through an alias gets the
+  clause on every edit. **Measured, and the sample is narrow**: the 324-file
+  corpus imports no `-parts/` component at all, and across the nine saved run
+  artifacts (29 page readings) the only page importing one is fretwork-1's home
+  page — 8 readings × 3 components, all 24 `rendered → rendered`, zero
+  uncertain. One site's one page, said as that.
+- **THE JUDGE**: tool `keep_check`, one property `answers: [{n, asked, quote}]`,
+  on `eQuickModel` through `eQuick("keep_check")`, `KEEP_MAX_TOKENS` 1024, called
+  ONLY when something was lost. Its rules say a request to KEEP something, or a
+  mention, is not a request to remove it, and that asking for one thing never
+  asks for another.
+- **TWO CHECKS ON EVERY QUOTE — AND WHAT NEITHER PROVES.** (1) The words occur
+  in the message: whole words, case/spacing/punctuation folded, at least one
+  word of three letters. (2) The quote NAMES its item: it shares a naming word
+  with the item's link words, heading, destination (or new destination),
+  component name or declared purpose, after a short stop list of grammar, page
+  furniture and request verbs. **(2) is what refuses a genuine quote attached to
+  the wrong item.** **Neither proves authorisation**: *"keep the order form"*
+  occurs and names the item, and a judge that reads it as permission is
+  believed — a case says so (`LIMIT, NOT A PROTECTION`). **The cost of (2),
+  stated**: a paraphrase sharing no naming word (*"the map link"* for a link
+  that says "Directions") is refused and the sentence asks for it to be named;
+  an item with NO naming words (a wordless link to `/` under no heading) is left
+  to the judge alone.
+- **FOUR VERDICTS, ONE WRITER (`keepRefusal`) FOR BOTH RUNGS**: `kept` (no
+  call) · `asked` (publish; the judge's tokens billed with the edit in the ONE
+  `eCharge`) · `withheld` (409 `withheld`, cost 0, `contentBlocked:
+  [{kind, label, href, to, name, section, why}]`, nothing compiled, stored or
+  charged) · `unchecked` (503 `withheld`, `ours`, `contentUnchecked`). The photo
+  refusal's shape, so the merge's `stepWroteNothing`, the browser's
+  whole-request note and the job path's refund read it with no new branch.
+- **BOTH WRITERS, BEFORE THE PUBLISH.** The tweak after its photograph refusal,
+  before `publishStep` — **and its refusal RETURNS**: the case asserts the calls
+  are exactly `write_tweak, keep_check`, no `write_pages`. The rewrite after its
+  photograph refusal, over the guarded page, with the site's declared `tsx`
+  purposes. A tweak whose compile then fails hands its judge's tokens to the
+  rewrite's bill (`twJudged`), as `twSpent` hands on the tweak's own. The
+  tweak's `partsUnsure` line is a belt that cannot fire today (a re-bound
+  component moves the identity `partEligible` compares) and says so.
+- **THE MONEY, DRIVEN ON BOTH PATHS**: a publish debits
+  `pageCredits(tweak, writer, judge)`, a refusal debits nothing; on the job path
+  one `edit_reserve` on a publish, none on a refusal, `edit_finalize p_ok:
+  false`. **The mixed request** (css + a refused page): one compile carrying the
+  ORIGINAL home page and the new stylesheet, charged (sync) and reserved (job)
+  for the picker and the css lane only, the refusal on `partial` and on the
+  screen after the look's sentence, and no whole-request note.
+
+**EVIDENCE.** `test/edit-page-keep.test.mjs`, **13 → 42 cases**, every route
+case through the real `POST /api/site/<slug>/edit` with every model answer
+SUPPLIED, asserting the calls, the compiler payload, the store (the page, the
+other pages, the component file, the stylesheet), the debits or reservations,
+and the screen through the browser's own `editBrowserReply`. **Red 23 of 42
+against the unfixed route** (`80036b40` in a throwaway worktree, only the module
+and the two readers copied in so the file loads), each on its own gate —
+published where a refusal was expected, no judge call, no clause, the judge
+unbilled — and **with the calls assertion cut in the throwaway copy the mixed
+case still fails on the compiler payload**, the loss shipping. The 19 green on
+both are the pure module cases, the readers' baseline and the four controls
+(the correct edit, the reorder, the plain-words drop, the visual tweak).
+**One pre-existing guard re-anchored, not appeased**: `site-tweak`'s *"WHAT THE
+CHEAP ATTEMPT COST IS BILLED WITH THE REWRITE"* was pinned to
+`eCharge(eGen && eGen.usage, twSpent)` WITH its closing parenthesis; the
+property is that `twSpent` rides in the rewrite's own call, and the judge's
+honest third argument read as the cheap attempt going unbilled. **Focused
+mutation check `scripts/mutants/page-keep.json`: 21 mutants, 21 killed, 0
+survived, 0 never applied, the comment-only control surviving**, over
+`page-keep.mjs`, `worker.js` and `chat.js` against eight files (`edit-page-keep`,
+`site-tweak`, `site-files`, `edit-browser-reply`, `edit-page-protect`,
+`edit-parts`, `edit-failure`, `free-identifiers`); all three swept files
+byte-identical to their scratchpad backups afterwards. **Two gaps were found
+while WRITING the spec, before it ran**: nothing asserted the cross-page exact
+pass (a moved link beside a new same-words link) or that the site's declared
+purpose reaches the judge through the route — each got its own case or
+assertion first. **Suite 7,307 locally** (`# tests 7307 / # pass 7307 / #
+fail 0 / # skipped 0`, `duration_ms 115,247`) — **+29 against 7,278**, exactly
+the file's 13 → 42.
+
+**⚠ WHAT IT DOES NOT CLAIM, AND WHAT STAYS OPEN.** Every model answer in the
+evidence is SUPPLIED — the writers' and the judge's — so it proves the path,
+never a real model's reading of a message; only a paid run measures that.
+Outside the inventory: a section of plain words or kit-only markup (kept as a
+publishing case), links built from data, links inside components, kit
+components' own `href` props; a section moved into a new component is refused
+(conservative). Full-site revise, translation and hydration untouched; the
+model-written-replies preference stays recorded, not started.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

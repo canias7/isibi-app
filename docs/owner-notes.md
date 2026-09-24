@@ -160,6 +160,92 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — Built: a page rewrite can't quietly drop a link or one of your own sections (on the branch, not deployed)
+
+You approved the revised design with six requirements. It's built and tested
+on the branch — **not merged, not deployed, no paid run**.
+
+**What happens now when a page edit goes through the page writer** (the quick
+one-file edit or the full page rewrite):
+
+- Before anything is published, the code compares the page with what the
+  writer handed back and lists exactly what's gone: **links** (matched by their
+  words and where they point — never counted) and **your site's own sections**
+  (components) the page used to show.
+- If nothing is gone, nothing extra happens — no extra call, no extra cost.
+- If something is gone, **one small model call** is asked, item by item, *did
+  the customer's message ask for this?* It has to quote the customer's words.
+- If every loss was asked for, the edit goes through as normal, and that small
+  call is charged with it.
+- If anything wasn't asked for, **the edit is refused**: nothing is compiled,
+  nothing is saved, nothing is charged, and the customer is told what the
+  change would also have done — e.g. *"I couldn't make that change without also
+  taking the “Order ahead” section off the page, which your message didn't ask
+  for — so I didn't make it. If you do want that change, say so in your message
+  and send it again."*
+- If that small check itself fails, the edit is refused and the reply says it's
+  on us — a different message, because the loss might have been asked for.
+- **A refused quick edit does not fall through to the expensive full rewrite.**
+- In a message that does two things (say, a colour change and a page change),
+  the colour change still ships and is the only thing charged; the refused page
+  change is named after it.
+
+**Correcting what I told you before.** I wrote that because the check has to
+quote the customer's exact words, *"it can't make up permission."* That was too
+strong. **A quote the code has checked proves the words really are in the
+message — and, as built, that they name the thing that was lost. Whether those
+words actually give permission to lose it is still the model's judgement, and
+nothing guarantees that.** For example, *"…and keep the order form"* really does
+mention the order form: the model is told that asking to keep something isn't
+asking to remove it, but if it read it wrong anyway, the code would believe it.
+One test deliberately shows that, so the limit is on the record.
+
+**What's checked, as you asked:**
+
+1. Removing a section works the same whether the message goes through the look
+   step or straight to the page step, and a link you asked to point somewhere
+   else still goes through.
+2. Permission is per item: "take Find us off" can cover the Directions link
+   under "Find us"; the same words attached by the model to the order form are
+   refused, because they don't name it.
+3. Links are matched by exact identity across the whole page first, so a
+   reordered page or a repeated "Book now" link doesn't look like a change.
+4. Negative checks: "keep the order form", a removal message about something
+   else entirely ("take the phone number off"), a real quote attached to the
+   wrong item, and a quote that isn't in the message — all refused.
+5. The same check runs on both page writers before publishing; for refusals I
+   checked that nothing is compiled or saved and nothing is charged, on both
+   ways an edit can be billed, including the two-part message.
+6. The five problem cases from the reproduction are now refusal tests; the
+   correct edit, the reorder, both removals and the asked-for retarget still go
+   through. If the checker can't tell whether one of your sections is still
+   shown (say it's now used under another name), the edit goes through and the
+   reply says so — never treated as lost, never claimed as kept.
+
+**Every model answer in these tests is made up** — the writers' and the
+checker's. They prove the path; they don't prove how a real model reads a
+message.
+
+**Still open:** a section that's only words or standard building blocks (no
+link, none of your own components) can still disappear silently — one test
+keeps that visible. Also outside it: links built from data, links inside
+components, and a section moved into a new component (that one would be
+refused — the cautious direction). A customer who describes a link in words
+that share nothing with it ("the map link" for one labelled "Directions") is
+asked to name it. The full-site rewrite, translation and the hydration issue
+are untouched, as you said, and model-written replies stay a recorded future
+preference.
+
+**The numbers:** the test file went from 13 to 42 cases; 23 of them fail on
+the old code, each for its own reason, and the 19 that pass on both are the
+checker's own unit tests and the controls. I broke the new code on purpose 21
+different ways and every one was caught (the harmless control wasn't). The
+whole test suite: 7,307 tests, all passing — 29 more than before, exactly the
+new cases. One older test had to be adjusted: it checked the rewrite's billing
+line letter for letter and read the extra (correct) charge as a missing one.
+
+---
+
 ## 2026-09-24 — Found: a page rewrite can quietly drop a section nobody asked about
 
 You asked whether the full page writer can silently drop unrelated content
@@ -217,8 +303,9 @@ fixes each (still not built — for you to approve):**
 **How the check decides:** code works out exactly what disappeared. Only then —
 and only if something did — one small model call is asked, item by item, *did
 the customer's message ask for this?*, and it has to **quote the customer's
-exact words**; code checks the quote is really in the message, so it can't make
-up permission. If every loss was asked for, the edit goes through as normal. If
+exact words**; code checks the quote is really in the message. *(Corrected when
+it was built, above: that check proves the words are in the message, not that
+they give permission — the permission is still the model's call.)* If every loss was asked for, the edit goes through as normal. If
 something wasn't, the edit is refused at no cost, nothing changes, and the reply
 names what would have come off (by its words or the heading it sat under) and
 how to say they want it gone. If that check itself fails, the edit is refused
