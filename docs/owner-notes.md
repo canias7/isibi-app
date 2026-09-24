@@ -160,6 +160,28 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — The page-rewrite protection is closed at review and ready to merge (not merged, not deployed)
+
+You closed it: *"Close this bounded correction at the code-review level. Stop
+expanding this guard or running further sweeps."* The merge handoff is ready
+and **nothing was merged, deployed or pressed.**
+
+- **What would ship**: the check that stops a page rewrite from quietly taking
+  off a link or one of your site's own sections, on both page writers, plus the
+  one-line warning when it can't see a section either way. Five product files;
+  no database change.
+- **What was checked for the merge**: main has not moved, so it is a
+  fast-forward. The unit tests (7,328, none failing) and the site build are
+  green. Nothing else is running. The container image the deploy should build
+  (`56f7d5866240a1de`) was worked out in advance. A rollback was tried in a
+  scratch copy, and it gives back main exactly.
+- **What it still does not do**: every checking-model answer in the tests was
+  written by us, so how a real model judges a message is unproven. A section
+  made only of plain words or kit parts can still be dropped. It is partial
+  protection, not the edit path finished.
+
+---
+
 ## 2026-09-24 — A "links" answer can't cover your order form any more, whatever words it quotes (on the branch, not deployed)
 
 You found the hole through the real edit route: "Order ahead" held a link and

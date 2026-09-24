@@ -3669,7 +3669,14 @@ opened on a browser that did not build it) has no page list until
 `/api/site/routes` answers, so a message sent before then — or for the whole
 page load if that read fails — routes as a FIRST BUILD (`chat.js:10885`), posts
 `chat: "srv_<slug>"`, `siteForChat` finds no row, and a fresh paid site is built
-(`worker.js:14415-14427`). Not driven end to end. Attachments reach only the
+(`worker.js:14415-14427`). Not driven end to end. **Re-read hop by hop
+2026-09-24, and every hop holds**: `fromRow` (`public/site-list.js`) carries no
+`pages`; `isBuild = !sitePages(site).length`; a build body carries `chat` and
+no slug; `cleanChatId("srv_fretwork-1")` accepts the id; `siteForChat` answers
+`null` for it, so `chatOwnsNoSite` is true and `freeSlugFor` names a NEW site.
+The routes read is asked once per page load (`siteRoutesAsked`) and never
+retried, so one failed read exposes every message of that load. Still not
+driven. Attachments reach only the
 logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
 turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
@@ -3952,7 +3959,10 @@ separate next tasks"*):
    refused by it and is supported the same day (*a group asked for at once*,
    below), judge-declared and kind-checked — and after a shared-heading bypass
    the owner reproduced, **a declared group constrains its answer** (next
-   section but one) — on the branch, not merged.
+   section but one). **CLOSED AT CODE REVIEW BY THE OWNER 2026-09-24** (*"The
+   87 focused tests pass, and both CI checks are green"*) and handed off for
+   merge — not merged, not deployed (*handed off for merge*, below). **Partial
+   protection, not the edit path complete**: supplied model answers only.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -3965,7 +3975,10 @@ separate next tasks"*):
 5. **Found on the way, out of scope**: the rename's SECOND alias write failing
    leaves the old name demoted and the new one unwritten (explained with
    `unchanged: false`; the half-moved state is not repaired); `siteRoute`'s own
-   failure still falls to `go()` (the router, not the edit route); and an
+   failure still falls to `go()` (the router, not the edit route) — **re-read
+   2026-09-24**: `if (!r.ok || !d) return go();` and `.catch(go)`, so on a live
+   site a dropped connection, a non-2xx or an unreadable routing answer starts
+   the full rewrite of every page with nothing shown and no price; and an
    add-only wall or page-verb answer in the look door ends the WHOLE message —
    *"add a QR code and make the footer navy"* goes to the add-on and the css
    lane never runs.
@@ -5404,7 +5417,7 @@ judgment per item. Quote presence and word overlap are not proof of intent."*
   revise, translation and hydration are untouched; model-written replies stay a
   recorded future preference.
 
-### A DECLARED GROUP CONSTRAINS ITS ANSWER (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A DECLARED GROUP CONSTRAINS ITS ANSWER (2026-09-24, closed at code review — not merged, not deployed, no paid run)
 
 Owner, reproducing it through the edit route: *"Before: “Order ahead” contains
 a link and OrderForm. Request: “Remove all links under ‘Order ahead’, keeping
@@ -5534,6 +5547,65 @@ permission through the naming fallback."*
   one, or misreads a shared heading without one. Plain-words and kit-only
   section loss stays OPEN; full-site revise, translation and hydration are
   untouched; model-written replies stay a recorded future preference.
+
+### HANDED OFF FOR MERGE: THE PRESERVATION CHECK (2026-09-24, not merged, not deployed)
+
+Owner: *"Close this bounded correction at the code-review level. Stop
+expanding this guard or running further sweeps. Prepare the merge/deployment
+handoff against current main … Do not merge, deploy or dispatch a paid run
+yet."* Everything below was read or computed 2026-09-24 ~05:14Z; **re-ask each
+one immediately before the push**, because a merge is judged on the state it
+meets, not on this paragraph.
+
+- **THE CANDIDATE IS THE BRANCH TIP, A FAST-FORWARD OF MAIN `4df02867`**
+  (`HEAD..origin/main` empty). Its product tree is `16b9ce72`'s; every commit
+  after that one is `CLAUDE.md` and `docs/owner-notes.md` alone. The exact tip
+  is the handoff reply's, and `git rev-parse origin/claude/help-needed-ehlwlj`
+  re-derives it — this paragraph cannot name the commit it is in.
+- **THE PRODUCT CHANGES ARE FIVE FILES**: `builder/page-keep.mjs` (new),
+  `builder/site-files.mjs` (`partBindings`, `tagAt`, `drawsTag`), `worker.js`
+  (the import, `keepRefusal`, `keepCheck` on the tweak and on the rewrite, the
+  judge's tokens in the one `eCharge`), `public/chat.js` (one clause reading
+  `partsUnsure`) and `Dockerfile` (`page-keep.mjs` on the worker COPY line).
+  Beside them `test/edit-page-keep.test.mjs` (63 cases), a re-anchor in
+  `test/site-tweak.test.mjs` and two mutation specs. **No migration, no
+  `wrangler.jsonc`, no workflow, no package change, no stored-state format**:
+  every new reply field is additive and an older tab ignores it.
+- **THE REQUIRED CI, READ**: unit tests on the tip, and `site build` on the
+  product tree — run **`35955566453` on `16b9ce72`**, green, since docs-only
+  commits fire no site build. `e6eb22f0`'s unit run **`35957268327`** reads
+  **`# tests 7328 / # pass 7324 / # fail 0 / # skipped 4`** (`duration_ms
+  121,334`), zero anchored `not ok N -`, the seven declared-group cases found by
+  name. **Zero runs in progress, queued or waiting at 05:13:50Z.**
+- **THE IMAGE, PREDICTED OVER BOTH ENDS**: `origin/main` answers
+  `67a81b55332be3a9` from **185** inputs (what deploy 2150 rolled to) and the
+  candidate **`56f7d5866240a1de`** from **186** — `builder/page-keep.mjs`
+  ADDED, `Dockerfile`, `worker.js` and `builder/site-files.mjs` moved. The same
+  id at `16b9ce72`, so the docs commits do not move it. The deploy should say
+  `built … (registry answered 404; ***86 inputs …)` and roll `67a8***b55332be3a9`
+  → `56f7d5866240a***de` under `SUCCESS Modified application`.
+- **THE ROLLBACK, VERIFIED BEFORE IT CAN BE NEEDED**: a fast-forward has no
+  merge commit, so it is the RANGE — `git revert --no-commit
+  4df02867..<candidate>` then one reviewed commit. In a throwaway worktree that
+  gives tree **`ddabc0dd…`, main's own**, so a rollback's image step says
+  `reused 67a81b55332be3a9`. **No prerequisite**: the check writes nothing when
+  it refuses, and nothing stored depends on it.
+- **THE SERVED-FILE CHECK'S BEFORE READING, TAKEN** (05:13:59Z):
+  `https://gofarther.dev/chat.js` **740,600 bytes, sha256 `37983c53938d6581`,
+  0 occurrences of `partsUnsure`**, byte-identical to `4df02867:public/chat.js`.
+  After the deploy it should be **741,487 bytes, `54397bfe3a57abb0`, 2
+  occurrences**, byte-identical to the candidate's. Re-take the before reading
+  if anything deploys first.
+- **THE RUNTIME CONFIRMATION IS THE CANARY'S FREE PRESS** with `expect_deploy`
+  the candidate sha and `expect_image` `56f7d5866240a1de` — a green deploy is
+  Wrangler reporting on itself. **And the check is live on the edit path only
+  once the CONTAINER has rolled**: edits run as jobs in the site's container,
+  so a job started on the old image publishes without it, exactly as today —
+  the 15–20 minute rule.
+- **THE LIMITS TRAVEL WITH IT**: every model answer in the evidence is
+  supplied, so real-model judgment is unverified; plain-text and kit-only
+  section loss stays open. **Partial preservation protection, not the edit path
+  complete.**
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
