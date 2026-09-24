@@ -10246,6 +10246,15 @@ rule and the measurement.
   there is nothing to make it look wrong. It cost one monitor that polled for
   completion, never saw a run, and **ended silently after 55 rounds**. Ask by
   BRANCH and match the sha yourself.
+- **AND A GREP OVER A JOB'S JSON ANSWERS ABOUT ITS FIRST STEP (2026-09-24).** A
+  job's `steps` carry the same `status`, `conclusion` and `completed_at` keys as
+  the job itself. So `until … grep -q '"status": *"completed"'` exited on its
+  first poll, because "Set up job" had already completed, and `grep -o …
+  conclusion | head -1` then printed that step's `success` and its
+  21:54:59Z — while the job's own field read `in_progress` with `npm test`
+  still running. **A false all-clear in the shape of a real one**, caught only
+  because the time was two minutes too early. Parse the JSON and read the
+  TOP-LEVEL field (`j.status`, `j.conclusion`), never a pattern over the text.
 - **A FALSE ALARM IS WORSE THAN A MISS**, and a false ALL-CLEAR is worse than
   either. Any new lint measures its false-alarm rate against the real corpus and
   must reach ZERO before it ships. **A live check's ambiguous anchor fails
