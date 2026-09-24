@@ -195,6 +195,7 @@ import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } fro
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
+import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
 // and never interpret one, so a part with a path is a page to them; the mapping
@@ -9591,6 +9592,51 @@ function withheldPhotosMsg(n) {
     " back safely — so I didn't make it. Say " +
     "“take " + (n === 1 ? "that photo" : "those photos") +
     " off” if you did want " + (n === 1 ? "it" : "them") + " gone.";
+}
+
+/**
+ * THE PAGE PRESERVATION CHECK'S ANSWER AS A RESPONSE, or `null` to go on
+ * (2026-09-24). See `builder/page-keep.mjs` for what is compared and what the
+ * judge's quote does and does not prove.
+ *
+ * ONE WRITER FOR BOTH PAGE WRITERS — the cheap tweak and the rewrite refuse in
+ * the same words, `withheldPhotosMsg`'s rule one protection over. The shape is
+ * the photo refusal's (`error: "withheld"`, cost 0) so everything that already
+ * reads that refusal reads this one unchanged: the merge counts the step as
+ * having written nothing, the browser adds the whole-request note only on a
+ * complete refusal, and the job path refunds what nothing reserved.
+ *
+ * TWO REFUSALS, TWO SENTENCES. `withheld` is a loss the message did not ask
+ * for — 409, the customer's to authorise. `unchecked` is a judge that could
+ * not answer — 503 and ours, because the loss may well have been asked for and
+ * we could not tell; publishing it anyway would be deciding for them.
+ *
+ * THE ITEMS RIDE ON THE REFUSAL, each with the reason it was not accepted, so
+ * a refusal can be audited from the stored reply alone. Link words and
+ * destinations are the customer's own; a component is named by its file name
+ * here because this list is for a reader of the record, not the screen.
+ */
+function keepRefusal(k, slug, extra = {}) {
+  if (!k || k.verdict === "kept" || k.verdict === "asked") return null;
+  const brief = (it) => ({
+    kind: it.kind, label: it.label || undefined, href: it.href || undefined, to: it.to || undefined,
+    name: it.name || undefined, section: it.section || undefined, why: it.why || undefined,
+  });
+  if (k.verdict === "withheld") {
+    return Response.json({
+      ok: false, error: "withheld", cost: 0,
+      msg: keepWithheldMsg(k.unasked),
+      contentBlocked: k.unasked.slice(0, 6).map(brief),
+      ...extra,
+    }, { status: 409 });
+  }
+  console.error("page keep check could not be made:", slug, k.why, (k.error && k.error.message) || "");
+  return Response.json({
+    ok: false, error: "withheld", cost: 0, ours: true,
+    msg: KEEP_UNCHECKED_MSG,
+    contentUnchecked: (k.items || []).slice(0, 6).map(brief),
+    ...extra,
+  }, { status: 503 });
 }
 
 function compileMsg(pub, theirs) {
@@ -23265,6 +23311,11 @@ async function handleRequest(request, env, ctx) {
                 inPart: !!partNameOf(target.path),
                 send: eQuick(),
               });
+              // THE PRESERVATION CHECK ON THE TWEAK'S ANSWER, when it ran.
+              // Kept outside the block so a tweak whose compile then fails
+              // hands its judge call's tokens on to the rewrite's bill, exactly
+              // as `twSpent` hands on the tweak's own.
+              let twJudge = null;
               if (tw.ok) {
                 // ── ⚠ THE PRESERVATION CONTRACT APPLIES TO A TWEAK THAT WORKED
                 //    (2026-09-21, owner: *"Successful tweaks bypass
@@ -23337,6 +23388,28 @@ async function handleRequest(request, env, ctx) {
                 // intact, and `twSpent` carries this call's tokens into its
                 // bill so the customer is not charged twice for one ask.
                 if (twKept && twKept.source !== target.source) {
+                  // ── AND WHAT THE TWEAK TOOK OFF THE PAGE IS ASKED ABOUT,
+                  //    BEFORE THE PUBLISH (2026-09-24) ─────────────────────
+                  //
+                  // The same contract as the rewrite below, on the rung that
+                  // answers first — the lesson of the photograph round, where
+                  // a protection built on the fallback missed the path most
+                  // messages take. `sameProse` already refuses a tweak that
+                  // moved words and `partEligible` one that moved a component,
+                  // so what can reach this check here is a wordless link lost
+                  // or a link pointed somewhere else.
+                  //
+                  // ⚠ A REFUSAL DOES NOT FALL THROUGH TO THE REWRITE (owner:
+                  // *"A refused tweak must not trigger an expensive rewrite"*).
+                  // The customer asked for one thing and would otherwise buy a
+                  // whole-page regeneration because the cheap rung went wide.
+                  twJudge = await keepCheck({
+                    message: eInstruction, before: target.source, after: twKept.source,
+                    inPart: !!partNameOf(target.path),
+                    send: eQuick("keep_check"), model: eQuickModel,
+                  });
+                  const twStop = keepRefusal(twJudge, ownerSlug);
+                  if (twStop) return twStop;
                   // RECORDED ACROSS THE MESSAGE, exactly as the rewrite rung
                   // records it, and read once below the loop against what
                   // really ships — never summed per rung.
@@ -23356,7 +23429,13 @@ async function handleRequest(request, env, ctx) {
                     return Response.json({
                       ok: true, layer: "page", page: wantRoute, tweak: true,
                       files: twPub.files, render: twPub.render, renderNote: twPub.renderNote,
-                      cost: await eCharge(tw.usage, twPub), usage: tw.usage,
+                      // THE JUDGE'S TOKENS ARE BILLED WITH THE EDIT, in the one
+                      // rounding — only here, on a publish. A refusal above
+                      // returned at cost 0 and charged nothing.
+                      cost: await eCharge(tw.usage, twJudge.usage, twPub), usage: tw.usage,
+                      keepUsage: twJudge.usage || undefined,
+                      // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept.
+                      partsUnsure: twJudge.unsure.length ? unsurePhrases(twJudge.unsure) : undefined,
                     });
                   }
                   console.error("tweak compile failed, falling through:", ownerSlug, target.path);
@@ -23371,6 +23450,7 @@ async function handleRequest(request, env, ctx) {
               // there is nothing to bill and the rewrite is about to fail the
               // same way and say so properly.
               const twSpent = tw.reason === "send" ? null : tw.usage;
+              const twJudged = twJudge ? twJudge.usage : null;
 
               // ⚠ A `null` FROM `siteBackendBySlug` IS FOUR FACTS, AND ON THIS
               //    RUNG ONE OF THEM COST THE WRITER ITS RULES (run 21,
@@ -23969,6 +24049,31 @@ async function handleRequest(request, env, ctx) {
                   problems: pProblems.slice(0, 4),
                 }, { status: 409 });
               }
+              // ── AND WHAT THE REWRITE TOOK OFF THE PAGE IS ASKED ABOUT ─────
+              //
+              // (2026-09-24.) Owner, reproducing it through this route: *"a
+              // narrow edit whose answer also drops an unrelated section …
+              // publishes, and says Updated /"*. Nothing compared what the page
+              // had with what it was about to have. `keepCheck` does, over the
+              // page that would really ship — after the photograph guard, so
+              // the before is `target.source` as this rung found it (an earlier
+              // step's work already in it) and the after is the guarded answer.
+              //
+              // THE PERMISSION IS THE CUSTOMER'S MESSAGE, ASKED ITEM BY ITEM,
+              // and it is the same on this route and through the look door,
+              // because the message is the one thing both carry. The picker's
+              // `removes` is not consulted: it names lanes, never a target.
+              //
+              // ⚠ WHAT IT DOES NOT COVER, SAID WHERE IT RUNS: a section of plain
+              // words or kit-only markup has no link and none of the site's own
+              // components, so its loss is invisible here and still publishes.
+              const pKeep = await keepCheck({
+                message: eInstruction, before: target.source, after: wrote.source,
+                does: eLook2.tsx, inPart: !!partNameOf(target.path),
+                send: eQuick("keep_check"), model: eQuickModel,
+              });
+              const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems.slice(0, 4) });
+              if (pStop) return pStop;
               const pPages = pGuard.pages;
               // THE COMPONENTS THE EDIT WROTE GO WITH THE PAGE. `validatePages`
               // reads them out of `parts`, as the build does; this rung dropped
@@ -24079,7 +24184,11 @@ async function handleRequest(request, env, ctx) {
                 // lesson `pageCredits` already carries. `twSpent` is null when
                 // the cheap rung never reached the provider.
                 files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
-                cost: await eCharge(eGen && eGen.usage, twSpent), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                cost: await eCharge(eGen && eGen.usage, twSpent, twJudged, pKeep.usage), usage: eGen && eGen.usage, tweakUsage: twSpent || undefined,
+                keepUsage: pKeep.usage || undefined,
+                // AN UNCERTAIN COMPONENT IS NAMED, never counted as kept and
+                // never refused: the check could not see it either way.
+                partsUnsure: pKeep.unsure.length ? unsurePhrases(pKeep.unsure) : undefined,
               });
             }
 

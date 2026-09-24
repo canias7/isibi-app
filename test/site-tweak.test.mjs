@@ -298,7 +298,14 @@ test("WHAT THE CHEAP ATTEMPT COST IS BILLED WITH THE REWRITE, once", () => {
   // `eCharge` is variadic precisely so two calls on one path round up ONCE —
   // the lesson `pageCredits` already carries, where summing separately-rounded
   // credits charged twice for the rounding.
-  assert.match(worker, /cost: await eCharge\(eGen && eGen\.usage, twSpent\)/,
+  //
+  // ⚠ THE PROPERTY IS THAT `twSpent` RIDES IN THE REWRITE'S OWN CALL, not that
+  // it is the call's last argument. This was pinned to the closing parenthesis
+  // and went red on 2026-09-24, when the preservation judge's tokens joined the
+  // same call — an honest third argument read as the cheap attempt going
+  // unbilled. The judge's half is asserted where it is observable, on the
+  // debits `test/edit-page-keep.test.mjs` reads.
+  assert.match(worker, /cost: await eCharge\(eGen && eGen\.usage, twSpent[,)]/,
     "the rewrite bills without the cheap attempt that preceded it");
   // …and a provider that was never reached bills nothing.
   assert.match(worker, /const twSpent = tw\.reason === "send" \? null : tw\.usage/);

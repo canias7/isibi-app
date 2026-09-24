@@ -420,6 +420,60 @@ export function partUse(src, name, inPart) {
   return partUses(src, [n], inPart).get(n) || "none";
 }
 
+/**
+ * THE LOCAL NAMES THIS SOURCE BINDS ONE OF THE SITE'S OWN COMPONENTS UNDER —
+ * `[]` when it does not import that component, `null` when an import of it
+ * binds through a clause `bindingsOf` cannot read (a namespace, a side effect,
+ * a dynamic import). `bindingsOf`'s three answers, over every import of that
+ * one component.
+ *
+ * IT EXISTS FOR THE PAGE PRESERVATION CHECK (2026-09-24), which asks something
+ * `partUses` cannot: once a rewrite has taken the IMPORT LINE out as well, does
+ * the page still draw the tag the import used to bind? `partUses` answers
+ * nothing about a component a source no longer imports — correctly, it asks
+ * about the source it is given — so the names have to come from the BEFORE and
+ * the placement test runs over the AFTER. Exported rather than re-derived: a
+ * second reader of an import clause is this module's own recorded drift.
+ */
+export function partBindings(src, name, inPart) {
+  const n = typeof name === "string" ? name.trim() : "";
+  if (!n) return [];
+  const out = [];
+  for (const m of importSpecs(src).specs) {
+    if (!specNames(m.spec, n, inPart)) continue;
+    const b = bindingsOf(m.clause, m.kind);
+    if (b === null) return null;
+    out.push(...b);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * WHERE THIS SOURCE FIRST DRAWS `<Name` FOR ANY OF THESE NAMES, or -1 —
+ * `partUses`' own placement test, over the same masked copy, so a `<Name`
+ * inside a string is text a visitor reads and never a component on the page.
+ * The offset is valid against the REAL source (the mask is length-preserving),
+ * which is what lets a caller ask which heading the component sat under. A name
+ * that is not an identifier answers nothing rather than being built into a
+ * pattern.
+ */
+export function tagAt(src, names) {
+  const list = (Array.isArray(names) ? names : []).filter((x) => typeof x === "string" && IDENT.test(x));
+  if (!list.length) return -1;
+  const { mask } = importSpecs(src);
+  let best = -1;
+  for (const b of list) {
+    const m = new RegExp("<\\s*" + esc(b) + "(?![\\w$])").exec(mask);
+    if (m && (best < 0 || m.index < best)) best = m.index;
+  }
+  return best;
+}
+
+/** Does this source draw `<Name` for any of these names — `tagAt` as a yes or no. */
+export function drawsTag(src, names) {
+  return tagAt(src, names) >= 0;
+}
+
 /** `specNames` RUN BACKWARDS: the two spellings it admits, as capture groups. */
 const PART_SPEC = new RegExp("(?:^|/)" + esc(PART_DIR) + "([^/]+)$");
 const SIBLING_SPEC = /^\.\/([^/]+)$/;

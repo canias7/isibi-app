@@ -10058,6 +10058,19 @@ function editOutcomes(e) {
     out += ' I could not read this site’s sections just then, so I left ' + unseen.join(' and ') +
       ' exactly as ' + (unseen.length === 1 ? 'it was' : 'they were') + '. Ask again and I’ll try once more.';
   }
+  // ── A SECTION THE PRESERVATION CHECK COULD NOT SEE EITHER WAY ──────────
+  //
+  // (2026-09-24.) The page preservation check refuses a component of the
+  // site's own that a rewrite provably took off; one it cannot SEE — still
+  // named in the code, not provably drawn — is neither refused nor counted
+  // as kept, and silence would let "Updated /." stand over it. The server
+  // sends each one in the customer's own words (the heading it sat under, or
+  // what it was declared to do — never a file name), so this only joins them.
+  const unsurePx = Array.isArray(e.partsUnsure) ? e.partsUnsure.filter((x) => typeof x === 'string' && x) : [];
+  if (unsurePx.length) {
+    out += ' I couldn’t confirm that ' + unsurePx.join(' and ') + (unsurePx.length === 1 ? ' is' : ' are') +
+      ' still on the page — have a look before you share it.';
+  }
   // ── A PHOTOGRAPH THE CHANGE WOULD HAVE TAKEN OFF, AND DIDN'T ───────────
   //
   // The protection's own receipt. The builder emptied a picture this message
