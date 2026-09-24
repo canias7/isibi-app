@@ -913,7 +913,12 @@ test("the browser's own selection decides which screen a reply gets, status incl
   const atFail = browserReply(CLAIMS, httpOkOf(422));
   assert.ok(!/✅ Done/.test(atFail.text),
     "the HTTP status is not being read — a body claiming success at 422 reached the success composer: " + atFail.text);
-  assert.equal(atFail.shown, false, "nothing is shown on that branch; the browser falls instead");
+  // RE-ANCHORED 2026-09-24: this branch used to show nothing and fall to the
+  // rewrite. A failing status over a body that does not say `ok: false` is not
+  // knowing now, said in the page's own sentence — and it buys nothing.
+  assert.equal(atFail.shown, true, "nothing is shown on that branch");
+  assert.match(atFail.text, /^⚠️ I didn’t get a usable answer about that addition/, atFail.text);
+  assert.deepEqual(atFail.actions, [], "a failing status bought something: " + JSON.stringify(atFail.actions));
   // AND `msg` WINS OVER THE BODY'S OWN `ok` at a failing status, which is the
   // half a customer actually sees.
   assert.equal(browserReply({ ok: true, msg: "the body says both", added: ["src/routes/gallery.tsx"] }, httpOkOf(422)).text,
@@ -940,22 +945,37 @@ test("the browser's own selection decides which screen a reply gets, status incl
 
   // ── 5. NO EXTERNAL ACTION, AND THE TWO EXPENSIVE ONES ARE RECORDED ─────────
   //
-  // The browser's other two branches do not print — they ACT: an escalate posts
-  // a SECOND paid request to the edit route, and a fall starts the ~25-credit
-  // rewrite. Both are injected recorders here, so a harness reading a reply can
-  // never spend; and both are REPORTED, because a run that printed only the text
-  // would be silent about the expensive half of what the browser would do.
+  // Two branches do not print — they ACT: an escalate naming a layer posts a
+  // SECOND paid request to the edit route, and an escalate naming none starts
+  // the ~25-credit rewrite. Both are injected recorders here, so a harness
+  // reading a reply can never spend; and both are REPORTED, because a run that
+  // printed only the text would be silent about the expensive half of what the
+  // browser would do.
   const hop = browserReply({ escalate: true, layer: "picture" }, httpOkOf(200));
   assert.equal(hop.ok, true, hop.why);
   assert.equal(hop.shown, false, "an escalate shows nothing — it hops");
   assert.equal(hop.text, "", "an escalate must not compose a screen");
   assert.equal(hop.actions.length, 1, JSON.stringify(hop.actions));
   assert.match(hop.actions[0], /SECOND, PAID request to the edit route \(layer "picture"\)/, hop.actions[0]);
+  // THE ROUTE'S OWN CLIMB STILL FALLS, which is also what proves the rewrite's
+  // recorder alive: the two cases below record nothing, and that absence is
+  // worth something only beside a case where the same recorder fires.
+  const climb = browserReply({ ok: false, escalate: true, reason: "no-source" }, httpOkOf(200));
+  assert.equal(climb.shown, false, "an escalate naming no layer shows nothing — it climbs");
+  assert.deepEqual(climb.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"], JSON.stringify(climb.actions));
+  // ⚠ RE-ANCHORED 2026-09-24 — THESE TWO ASSERTED THE DEFECT. A refusal with no
+  // sentence and a body that would not parse both started the rewrite and said
+  // nothing, on top of an addition that may have landed. The owner's rule: "a
+  // transport failure, unreadable response, missing refusal sentence or
+  // client-side result-handler exception must never initiate another paid
+  // operation."
   const fell = browserReply({ ok: false, error: "qr-dependency" }, httpOkOf(422));
-  assert.equal(fell.shown, false, "a refusal with no msg shows nothing — it falls to the rewrite");
-  assert.deepEqual(fell.actions, ["start the FULL ~25-credit rewrite (the browser's `fallback`)"], JSON.stringify(fell.actions));
-  assert.deepEqual(browserReply(null, httpOkOf(500)).actions,
-    ["start the FULL ~25-credit rewrite (the browser's `fallback`)"], "a body that would not parse falls too");
+  assert.equal(fell.shown, true, "a refusal with no msg shows nothing");
+  assert.equal(fell.text, "⚠️ That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.", fell.text);
+  assert.deepEqual(fell.actions, [], "a refusal with no msg bought something: " + JSON.stringify(fell.actions));
+  const unread = browserReply(null, httpOkOf(500));
+  assert.match(unread.text, /^⚠️ I didn’t get a usable answer about that addition/, unread.text);
+  assert.deepEqual(unread.actions, [], "a body that would not parse bought something: " + JSON.stringify(unread.actions));
   // …and both are on the report, labelled as NOT having happened.
   const hopLines = customerLines({ escalate: true, layer: "picture" }, 200).join("\n");
   assert.match(hopLines, /the browser would then \(NOT done here — recorded only\), 1:/, hopLines);

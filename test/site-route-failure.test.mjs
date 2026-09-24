@@ -32,9 +32,11 @@
 // exact sentence on screen — which claims nothing about money, because the
 // routing call is billed on its own and may already have been charged.
 //
-// OUT OF SCOPE, AND ASSERTED AS THEY ARE: an empty project keeps its documented
-// default (every failure builds), and the add-on request's own failures (a later
-// task). The adopted site with no page list waits for its list now and is then
+// OUT OF SCOPE, AND ASSERTED AS IT IS: an empty project keeps its documented
+// default (every failure builds). The add-on request's own failures, which were
+// recorded here as a later task, stop now too — test/addon-failure.test.mjs holds
+// that whole path; the two cases at the end show it from this entry. The adopted
+// site with no page list waits for its list now and is then
 // routed as the live site it is — test/site-entry-inventory.test.mjs holds that
 // whole path; the one case here shows its routing failure is a live-site stop.
 //
@@ -83,6 +85,7 @@ const SRC = [
   cut("function siteEdit("),
   cut("function siteAddon("),
   cut("function addonAnswer("),
+  cut("function addonOutcomeMsg("),
   cut("function reactSend("),
   cut("function reactStageLabel("),
   cut("function buildCostWords("),
@@ -442,16 +445,23 @@ test("an adopted site with no page list reads its list first, and a failed routi
   assertStopped(o, STOPPED);
 });
 
-// ── ADJACENT, NOT THE ROUTING CALL: the add-on's own failure still rewrites ──
+// ── ADJACENT, NOT THE ROUTING CALL: the add-on's own failure stops too ──────
+// These two were recorded here as an open defect: each posted the add-on and
+// then `/api/site/react-revise`, and said nothing (2026-09-24, fixed the same
+// day). They stop now in the add-on's own not-knowing sentence, and every
+// other shape of that failure is in test/addon-failure.test.mjs.
 for (const [what, follow] of [
   ["its POST is dropped", { reject: new TypeError("Failed to fetch") }],
   ["its reply is unreadable", { status: 200, body: "<html>oops</html>" }],
 ]) {
-  test("ADJACENT OPEN DEFECT (a later task): a valid addon answer whose addon " + what + " starts the rewrite", async () => {
+  test("ADJACENT, FIXED: a valid addon answer whose addon " + what + " says so and starts nothing more", async () => {
     const ask = "Add a gallery page";
     const o = await drive({ site: LIVE, message: ask, route: ok200({ ok: true, intent: "addon", cost: 2 }), follow });
-    assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/fretwork-1/addon", "/api/site/react-revise"]);
-    assert.equal(o.posts[1].body.instruction, ask);
-    assert.deepEqual(o.said, []);
+    assert.deepEqual(o.posts.map((p) => p.url), ["/api/site/fretwork-1/addon"], "a rewrite or a second add-on followed the add-on");
+    assert.equal(o.posts[0].body.instruction, ask);
+    assert.deepEqual(o.said, [{ r: "a", t: "⚠️ I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time." }]);
+    assert.equal(o.busy, false, "the busy flag is cleared");
+    assert.equal(o.rail, "(stopped)", "the rail is stopped");
+    assert.equal(o.clock.cleared, 1, "and its clock cleared");
   });
 }

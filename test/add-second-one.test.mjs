@@ -17,6 +17,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { keptProse, sameProse } from "../builder/site-tweak.mjs";
 import { ADD_DESIGN_RULE, addDirective, foldAdds, rewroteMsg } from "../builder/site-add.mjs";
+// The browser's own add-on reader, executed — never a second copy of its sentence.
+import { browserReply } from "../scripts/addon-sweep.mjs";
 
 const worker = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
 const addSrc = fs.readFileSync(new URL("../builder/site-add.mjs", import.meta.url), "utf8");
@@ -128,7 +130,14 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   // Said in the trace, refused by name, for nothing, with the sentence.
   assert.match(wall, /aMark\("kept", aLost\.length \? "fail" : "ok",/, "the wall leaves no trace");
   assert.match(wall, /if \(aLost\.length\) \{\s*\n\s*return Response\.json\(\{ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg\(aLost\) \}, \{ status: 422 \}\);/, "a lost page is not refused as `rewrote`, free, with the sentence");
-  // The browser prints a refusal's `msg` as the answer (the `declined`/`already` path).
-  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  assert.match(chat, /if \(a\.msg\) \{ o\.finish\('⚠️ ' \+ a\.msg\); return; \}/, "a refusal's sentence does not reach the customer");
+  // The browser prints a refusal's `msg` as the answer (the `declined`/`already`
+  // path). RE-ANCHORED 2026-09-24 from the spelling `if (a.msg) { … }` — which
+  // went red when the check learned to refuse a sentence that is not a string —
+  // to the property, DRIVEN: this refusal's own reply, through the browser's own
+  // reader, is its sentence behind a warning, and it buys nothing.
+  const msg = rewroteMsg([{ path: "index.tsx", lost: ["Open daily"] }]);
+  const seen = browserReply({ ok: false, error: "rewrote", cost: 0, msg }, false);
+  assert.equal(seen.ok, true, "the browser's own reader could not run: " + seen.why);
+  assert.equal(seen.text, "⚠️ " + msg, "a refusal's sentence does not reach the customer");
+  assert.deepEqual(seen.actions, [], "a refusal with its sentence bought something");
 });

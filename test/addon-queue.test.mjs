@@ -362,10 +362,15 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // with THIS route's reader; the property is that a filed addon is
   // remembered, as an addon, with its ask.
   assert.match(fn, /EditPoll\.rememberJob\(slug, a\.job, undefined, \{ ask: instruction, op: 'addon'/, "a filed addon is not remembered for a refresh with its ask and route");
-  assert.match(fn, /watchEditJob\(site, d, a\.job, origin, finish, fallback, instruction, undefined, addonAnswer\);/,
-    "a filed addon is not watched through the shared watcher with the addon reader");
+  // RE-ANCHORED 2026-09-24: both calls hand on the POST's own latched finish
+  // rather than the bare one, so the POST's catch never speaks over a sentence
+  // already out. The property is that it is ONE finish, whatever it is called.
+  const watched = fn.match(/watchEditJob\(site, d, a\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  assert.ok(watched, "a filed addon is not watched through the shared watcher with the addon reader");
   // THE ONE READER, BOTH WAYS.
-  assert.match(fn, /return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish, fallback, slug \}\);/, "the synchronous reply bypasses addonAnswer");
+  const read = fn.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
+  assert.ok(read, "the synchronous reply bypasses addonAnswer");
+  assert.equal(read[1] || "finish", watched[1], "the queued and the synchronous reply are finished by different functions");
   // THE WORD, not the call: the watcher is handed the reader as a value, with
   // no parenthesis after it. FOUR since stage 2b: the resumed watch picks the
   // same reader, as a value, for a record an addon filed.

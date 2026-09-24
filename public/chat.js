@@ -9120,8 +9120,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go, imgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
-    // fine. Falls through to that revise on anything it cannot do, exactly like
-    // the edit above it.
+    // fine. Falls through to that revise only on the add-on route's own escalate
+    // naming no layer; an answer it cannot read, or a refusal, is said instead,
+    // as the edit's is (2026-09-24).
     if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go, d);
     // On a live site only an explicit `build` reaches this `go()`: the check
     // above refused every answer it could not act on.
@@ -9540,8 +9541,15 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // a resumed watch after a refresh, two tabs on one job. Applying twice
     // bumps the preview twice, prints the reply twice, and on a `data` edit
     // offers an undo for rows that are already back.
+    //
+    // ⚠ THE LATCH IS ASKED, NOT READ OFF WHAT `take` RETURNS (2026-09-24).
+    // `take` answers null both for an answer already used and for a final
+    // reply whose body would not parse, and `if (!once) return` read both as
+    // "used" — so an unreadable stored reply ended the watch in silence, with
+    // the send box busy for good. The reader is handed the null now, and says
+    // it does not know.
+    if (w.taken()) return;
     const once = w.take(e);
-    if (!once) return;
     EditPoll.forgetJob(slug);
     release();
     // ── THE SAME READER THE SYNCHRONOUS PATH USES, ON THE SAME OBJECT ─────
@@ -9738,10 +9746,18 @@ function resumeOpenSite(site) {
 }
 // The middle rung: add a page or a table, keep everything else.
 //
-// Same contract as `siteEdit` — every failure falls through to the revise, and
-// an escalation is never surfaced as an error — but this one CAN take a while
-// (a model call plus a container build), so the step rows stay running rather
-// than being stopped the way a question stops them.
+// It CAN take a while (a model call plus a container build), so the step rows
+// stay running rather than being stopped the way a question stops them.
+//
+// ⚠ AND ITS OWN FAILURES NEVER BUY THE REWRITE (2026-09-24). This said "same
+// contract as `siteEdit` — every failure falls through to the revise", and here
+// it was still true: a dropped POST, a body that would not parse, a refusal with
+// no sentence, a 401, and a throw while showing a success each started
+// `/api/site/react-revise` — the full rewrite of every page, a revise measured
+// at 17 credits — with nothing said, often on top of an addition that may
+// already have landed. `siteEdit` stopped doing that on 2026-09-23. From here
+// the rewrite now starts only on the add-on route's own escalate that names no
+// layer: the server's explicit climb, never something this page failed to read.
 // `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the second thing
 // they asked for, which this turn is not doing. It is optional so nothing that
 // calls this without one changes shape.
@@ -9753,6 +9769,12 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
   // synchronous path byte-identical; on, it is what stops a retry after a lost
   // 202 from filing a second charged addition.
   const idem = EditPoll.newIdemKey();
+  // ONE SENTENCE FOR THIS ADDITION, HOWEVER THIS PAGE FAILS. `told` is set the
+  // moment anything is said, so the catch below speaks only when nothing has
+  // been: a sentence already on the thread whose redraw then threw is left
+  // standing rather than contradicted by a second one.
+  let told = false;
+  const tell = (t) => { told = true; finish(t); };
   apiFetch('/api/site/' + encodeURIComponent(slug) + '/addon', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // `tz` IS THE OWNER'S ZONE (2026-09-03): a scheduled job's clock time
@@ -9760,6 +9782,10 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone() }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
+    // SIGNED OUT DECIDES ALONE, and before the body: the route answers 401 above
+    // everything it does, and `apiFetch` has already put the sign-in gate up.
+    // The routing stop's own sentence.
+    if (r.status === 401) { tell(addonOutcomeMsg('signed-out')); return; }
     // ── A QUEUED ADDON ANSWERS WITH A JOB, NOT AN OUTCOME (2026-09-03) ────
     //
     // Run 21: the first live addon was reset at 257.6s on the customer's
@@ -9772,11 +9798,14 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
       // watch resumed after a refresh reads the reply with THIS route's reader
       // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
       EditPoll.rememberJob(slug, a.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '' });
-      watchEditJob(site, d, a.job, origin, finish, fallback, instruction, undefined, addonAnswer);
+      watchEditJob(site, d, a.job, origin, tell, fallback, instruction, undefined, addonAnswer);
       return;
     }
-    return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish, fallback, slug });
-  }).catch(fallback);
+    return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish: tell, fallback, slug });
+    // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
+    // addition may have been filed, and a rewrite on top of it would charge
+    // twice for one ask. This was `.catch(fallback)` — the full rewrite.
+  }).catch(() => { if (!told) tell(addonOutcomeMsg('unknown')); });
 }
 
 /**
@@ -9793,13 +9822,15 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
  * exactly as an inline 422 does.
  */
 function addonAnswer(httpOk, a, o) {
-  // THE REVISE, when there is an ask to re-post. A watch resumed after a
-  // refresh holds only the job id, and starting a ~25-credit rewrite there
-  // would charge for a sentence nobody re-typed — `escalatedEdit` reads that
-  // as its own case and says so; this does the same, in its own words.
+  // THE ASK, for the one branch that may still re-post it: an escalate the
+  // server sent. A watch resumed after a refresh holds only the job id, and
+  // starting a ~25-credit rewrite there would charge for a sentence nobody
+  // re-typed — `escalatedEdit` reads that as its own case and says so; this
+  // does the same, in its own words.
   const canFall = typeof o.fallback === 'function' && !!o.instruction;
-  const fall = () => (canFall ? o.fallback() : o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')));
-  if (!a) return fall();
+  // A BODY THIS PAGE CANNOT READ IS NOT KNOWING (2026-09-24). It fell to the
+  // rewrite, on top of an addition that may well have gone through.
+  if (!a) { o.finish(addonOutcomeMsg('unknown')); return; }
   if (a.escalate) {
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
     // (2026-09-02): "add a photograph" is the picture rung's job, and the
@@ -9812,11 +9843,21 @@ function addonAnswer(httpOk, a, o) {
     if (layer && layer !== 'addon') {
       return siteEdit(o.site, { ...(o.d || {}), layer: layer, page: a.page ? String(a.page) : (o.d && o.d.page) }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
     }
-    return fall();
+    // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
+    // Which of the route's escalates really need it is a separate, server-side
+    // step: they are not classified the way the edit route's are.
+    return o.fallback();
   }
   if (!httpOk || !a.ok) {
-    if (a.msg) { o.finish('⚠️ ' + a.msg); return; }
-    return fall();
+    // The route's own sentence, when it wrote one.
+    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg); return; }
+    // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
+    // `ok: false` without a reason is still the route saying the addition did
+    // not finish — never that nothing changed or nothing was charged, which an
+    // error alone does not establish. A failing status over a body that does
+    // not say `ok: false` says less than that, and is not knowing.
+    o.finish(addonOutcomeMsg(a.ok === false ? 'unsaid' : 'unknown'));
+    return;
   }
   return applyAddonResult(a, o);
 }
@@ -9824,41 +9865,79 @@ function addonAnswer(httpOk, a, o) {
 /** WHAT A PUBLISHED ADDITION CHANGES ON THIS SIDE — one copy, both paths. */
 function applyAddonResult(a, o) {
   const d = o.d;
-  const finish = o.finish;
-  scheduleCreditRefresh();
-  const s = siteById(o.origin);
-  if (s) {
-    s.previewV = (s.previewV || 0) + 1;
-    // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
-    // and cannot open it. Merged rather than replaced: the response names only
-    // what this addon touched, and `s.pages` is the whole site.
-    const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
-    if (added.length && Array.isArray(s.pages)) {
-      for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
+  // ⚠ A SUCCESS THIS PAGE THEN FAILS TO SHOW IS STILL A SUCCESS (2026-09-24).
+  // A throw anywhere below — the record, the composer, the redraw — reached the
+  // POST's catch, and that catch was the full rewrite: an addition the route had
+  // just made and charged for was answered with a rewrite of every page, and
+  // measured with the success sentence already on the thread. What is known is
+  // kept: the route said it went through, so the sentence says so, and only the
+  // details go unsaid. `told` is why nothing is said twice — a sentence already
+  // out whose redraw then threw is left standing.
+  let told = false;
+  const finish = (t) => { told = true; o.finish(t); };
+  try {
+    scheduleCreditRefresh();
+    const s = siteById(o.origin);
+    if (s) {
+      s.previewV = (s.previewV || 0) + 1;
+      // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added
+      // and cannot open it. Merged rather than replaced: the response names only
+      // what this addon touched, and `s.pages` is the whole site.
+      const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
+      if (added.length && Array.isArray(s.pages)) {
+        for (const p of added) if (!s.pages.some((q) => q && q.path === p)) s.pages.push({ path: p });
+      }
+      // AND A PAGE THAT WENT HAS TO LEAVE THE PICKER. Adding without removing is
+      // the same lie the other way round: the customer is told the page is gone,
+      // the picker still offers it, and opening it lands on a route the site no
+      // longer has. The two halves belong in one place, or the next person adds
+      // a third field and keeps only the flattering one.
+      // The SELECTION needs nothing: `sitePageActive` resolves `site.active`
+      // with `|| pages[0]`, so a path that has left the list falls back to the
+      // home page on its own. Clearing it here would be a line that cannot
+      // change what anybody sees.
+      const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
+      if (removed.length && Array.isArray(s.pages)) {
+        s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
+      }
+      // A NEW TABLE HAS TO REACH THE ROUTER'S DIGEST the same way a new page
+      // reaches the picker — the addon is the lane that ADDS tables, and a
+      // digest that never learns them keeps routing "where do my bookings
+      // go?" blind. Union like the build path: the response names what this
+      // addon touched, not the whole site.
+      const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
+      if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
+      sitesSave();
     }
-    // AND A PAGE THAT WENT HAS TO LEAVE THE PICKER. Adding without removing is
-    // the same lie the other way round: the customer is told the page is gone,
-    // the picker still offers it, and opening it lands on a route the site no
-    // longer has. The two halves belong in one place, or the next person adds
-    // a third field and keeps only the flattering one.
-    // The SELECTION needs nothing: `sitePageActive` resolves `site.active`
-    // with `|| pages[0]`, so a path that has left the list falls back to the
-    // home page on its own. Clearing it here would be a line that cannot
-    // change what anybody sees.
-    const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
-    if (removed.length && Array.isArray(s.pages)) {
-      s.pages = s.pages.filter((q) => !(q && removed.indexOf(q.path) >= 0));
-    }
-    // A NEW TABLE HAS TO REACH THE ROUTER'S DIGEST the same way a new page
-    // reaches the picker — the addon is the lane that ADDS tables, and a
-    // digest that never learns them keeps routing "where do my bookings
-    // go?" blind. Union like the build path: the response names what this
-    // addon touched, not the whole site.
-    const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
-    if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
-    sitesSave();
+    finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
+  } catch (err) {
+    if (!told) o.finish(addonOutcomeMsg('shown'));
   }
-  finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
+}
+// WHAT THE SCREEN SAYS WHEN AN ADDITION'S OWN ANSWER CANNOT BE USED
+// (2026-09-24, owner: "A transport failure, unreadable response, missing
+// refusal sentence or client-side result-handler exception must never initiate
+// another paid operation"). Four facts, four sentences, and not one of them
+// starts anything:
+//
+//   unknown    — the connection dropped, or what came back cannot be used. The
+//                addition may have gone through, so nothing is claimed about
+//                the site or the money — and nothing points at the preview,
+//                which cannot show a table, a saved function or a schedule.
+//   unsaid     — the route answered `ok: false` and not why. It did not finish;
+//                whether any part of it landed is not known from that.
+//   signed-out — the routing stop's own sentence.
+//   shown      — the route said it went through and this page broke showing
+//                it: the known result, never described as a failed addition.
+//
+// A FUNCTION rather than constants so the reply harness (`browserReply`) cuts
+// and runs these sentences instead of keeping a second copy. An unknown kind
+// gets the not-knowing sentence, which is the direction to be wrong in.
+function addonOutcomeMsg(kind) {
+  if (kind === 'signed-out') return '⚠️ You’re signed out. Sign in and send that again.';
+  if (kind === 'unsaid') return '⚠️ That addition didn’t finish, and I wasn’t told why, so I can’t tell whether any part of it was added.';
+  if (kind === 'shown') return '✅ That addition went through, but I couldn’t show the details of what it changed here.';
+  return '⚠️ I didn’t get a usable answer about that addition, so I can’t tell whether it went through. Asking for it again could add it a second time.';
 }
 // `src/routes/gallery.tsx` OR a bare `gallery.tsx` → `/gallery`. Kept in step
 // with `routeOf` in builder/site-addon.mjs; the client cannot import it.

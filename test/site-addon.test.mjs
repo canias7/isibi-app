@@ -426,7 +426,11 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   assert.match(code.slice(prov, schema), /aSpec = \{ tables: \[\] \};/, "a database just made is not described as storing nothing");
 });
 
-test("the composer dispatches an addon and falls back on everything else", () => {
+// RENAMED 2026-09-24: it was "…and falls back on everything else", which was
+// the defect — a dropped POST, an unreadable body, a refusal with no sentence
+// and a throw after a success each started the rewrite. What falls back now is
+// the route's own escalate naming no layer, and a site with no address.
+test("the composer dispatches an addon, and only the route's own no-layer escalate falls back to the revise", () => {
   assert.match(CHAT, /d\.intent === 'addon' && site\.slug\) return siteAddon\(/,
     "the client never routes an addon anywhere");
   const from = CHAT.indexOf("function siteAddon(");
@@ -461,14 +465,24 @@ test("the composer dispatches an addon and falls back on everything else", () =>
   // whose own `)` is inside the object — a flat scan where depth matters.
   assert.match(branch, /return siteEdit\(o\.site, \{ \.\.\.\(o\.d \|\| \{\}\), layer: layer,[\s\S]*?\}, o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
-  assert.match(branch, /return fall\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
+  // RE-ANCHORED 2026-09-24: the climb calls the fallback itself — the `fall`
+  // helper it used went, since nothing else reaches the rewrite from here.
+  assert.match(branch, /return o\.fallback\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
   // AND THE REVISE IS THE CUSTOMER'S OWN ASK, never a rewrite for a sentence
-  // nobody re-typed: `fall` runs the fallback only when the ask is held.
+  // nobody re-typed: the climb is reached only when the ask is held.
   assert.match(b, /const canFall = typeof o\.fallback === 'function' && !!o\.instruction;/, "the fallback is not gated on holding the ask");
-  // BOTH PATHS REACH THE ONE READER: the synchronous reply directly, the
-  // queued one through the shared watcher with this reader named.
-  assert.match(b, /return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish, fallback, slug \}\);/, "the synchronous reply is not read by addonAnswer");
-  assert.match(b, /watchEditJob\(site, d, a\.job, origin, finish, fallback, instruction, undefined, addonAnswer\);/, "a queued addon is not watched with the addon reader");
+  assert.ok(branch.indexOf("if (!canFall)") > 0 && branch.indexOf("if (!canFall)") < branch.indexOf("return o.fallback();"),
+    "the lost-ask case is not decided before the climb");
+  // BOTH PATHS REACH THE ONE READER, AND WITH ONE `finish`: the synchronous
+  // reply directly, the queued one through the shared watcher with this reader
+  // named. RE-ANCHORED 2026-09-24: both hand on the POST's own latched finish,
+  // so its catch never speaks over a sentence already out — the property is
+  // that it is the SAME one, whatever it is called.
+  const watch = b.match(/watchEditJob\(site, d, a\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  assert.ok(watch, "a queued addon is not watched with the addon reader");
+  const sync = b.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
+  assert.ok(sync, "the synchronous reply is not read by addonAnswer");
+  assert.equal(sync[1] || "finish", watch[1], "the queued and the synchronous reply are finished by different functions");
   // BOTH ANCHORS PROVED FIRST: `indexOf` answers -1 for a missing one, and
   // `-1 < anything` passes exactly when the thing ordered has been renamed —
   // which it was, to `httpOk`, the status however the reply arrived.
@@ -476,7 +490,21 @@ test("the composer dispatches an addon and falls back on everything else", () =>
   const failAt = b.indexOf("!httpOk || !a.ok");
   assert.ok(escAt > 0 && failAt > 0, "the escalate or the failure check is gone");
   assert.ok(escAt < failAt, "the escalation check must run before the failure check");
-  assert.match(b, /\}\)\.catch\(fallback\)/);
+  // ⚠ RE-ANCHORED 2026-09-24 — THIS PINNED THE DEFECT. `.catch(fallback)` sent a
+  // dropped POST, and any throw after the answer arrived, to the rewrite of
+  // every page. The catch is not knowing now (driven in addon-failure.test.mjs);
+  // what is held here is where the rewrite can still start: a census of the
+  // fallback's calls over the code, line comments blanked, and it is TWO — a
+  // site with no address, and the route's own climb.
+  // Over the BLANKED code: the comment that records the old line spells it.
+  const code = b.replace(/\/\/[^\n]*/g, "");
+  assert.ok(code.includes("return applyAddonResult(a, o);") && code.includes("if (!slug) return fallback();"),
+    "the blanked window lost the code it is counting — the census would read nothing");
+  assert.doesNotMatch(code, /\.catch\(fallback\)/, "a failed add-on POST still starts the rewrite");
+  const falls = [...code.matchAll(/\b(?:o\.)?fallback\(\)/g)].map((m) => code.slice(Math.max(0, m.index - 30), m.index + 14).replace(/\s+/g, " "));
+  assert.equal(falls.length, 2, "the add-on path reaches the rewrite from " + falls.length + " places: " + JSON.stringify(falls));
+  assert.match(falls[0], /if \(!slug\) return fallback\(\)/, falls[0]);
+  assert.match(falls[1], /return o\.fallback\(\)/, falls[1]);
   // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added and
   // cannot open it.
   assert.match(b, /s\.pages\.push\(\{ path: p \}\)/);
