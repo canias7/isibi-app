@@ -160,7 +160,90 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-24 — An add-on answer is checked before it's trusted (on the branch, not deployed)
+## 2026-09-24 — The add-on fixes are live; an edit's answer is now checked too (on the branch, not deployed)
+
+**Deployed: both add-on fixes you reviewed.** A failed add-on no longer buys the
+full rewrite, and an add-on's answer is checked before anything acts on it
+(`main` → `fd27cc9f`, deploy 2154):
+- **The site's container was reused, not rebuilt.** I predicted that from what
+  the image is built from before the push, and the deploy log confirmed it.
+- **The page your browser downloads is byte-for-byte the reviewed file.** I
+  checked it before and after.
+- **Still unconfirmed:** that the live Worker is running this code. Only your
+  free canary press can show that: `edit-canary.yml` from `main`, spend `no`,
+  `expect_deploy` `fd27cc9ffcfa5aae9cdbf66a8a5ce1c9595f1efc`, `expect_image`
+  `56f7d5866240a1de`.
+
+**Then the edit side, which had the same gap.** You reproduced two cases, and
+both were real on the live code:
+- a 503 carrying "hand this to the add-on" posted the paid add-on;
+- `ok: "false"` printed "✅ Done."
+
+I tried 25 shapes of the same kind, straight back and as a queued job's stored
+answer:
+- **In 34 of the 50 tries the page started a paid request**: another edit, the
+  add-on, or the full rewrite.
+- **8 printed "✅"** and **2 put a success's own words under a warning sign.**
+- **5 told you "your site is untouched and anything it cost has been refunded"**
+  about an answer that said no such thing.
+- **Six answers that weren't "your job is queued" were treated as if they were.**
+  One polled a job number nobody filed, and two printed "Done" straight away.
+
+**What happens now.** An edit's answer goes through **the same check as an
+add-on's** — one rule shared by both, not a copy. The only difference is that an
+edit may hand its request to the add-on. Yes and no must be real yes and no,
+anything that acts needs a successful status, and a hop must name a real step.
+Anything else stops with the edit's own not-knowing sentence and posts nothing:
+*"I couldn't read the answer to that change, so I can't tell whether it went
+through. Check the preview before asking for it again."*
+
+**Kept exactly as it was, and checked on the old and new code:**
+- successes, including partial ones, and queued receipts;
+- the edit → add-on handoff;
+- hops to a cheaper step, including when they name a page;
+- the full rewrite when the server asks for it;
+- the one-hop limit;
+- every refusal in its own words;
+- "your last edit is under review" blocking the next message;
+- the "details were lost" reply.
+
+All 24 shapes behaved the same before and after.
+
+**Two things for you to decide:**
+- **Wording.** That not-knowing sentence still says "check the preview". A rules
+  change leaves nothing to see there. I reused the sentence rather than
+  rewording it, because the wording is yours.
+- **Sign-in.** Being signed out now says *"You're signed out. Sign in and send
+  that again."*, the same as the add-on and the routing step. It used to say
+  "that edit didn't finish … refunded". This is the one change beyond your two
+  cases.
+
+**Found, not changed:** after an edit hands off to a cheaper step and that
+succeeds, the site stays locked for the rest of the page load. Your next edit
+message pays for its routing step and then hangs with the progress bar running.
+A reload clears it. That lock is the duplicate-edit protection you said to keep,
+so I've recorded it rather than touched it.
+
+**How it was checked:**
+- Your two cases and 23 more were reproduced on the live code first, through
+  the real send path.
+- **72 new tests through the real handlers.** On the live code 60 of them fail.
+  The 12 that pass on both are the "kept as it was" checks and one check that
+  the edit and add-on readers really are the same rule.
+- **17 deliberate small breakages of the new check**, one per rule and per
+  hand-off, and every one was caught. A comment-only change was left alone, as
+  it should be.
+- **Every test file that reads the page's code:** 3,310 tests, 0 failures.
+- **The full suite:** 7,621 tests, 0 failures, here and on GitHub. All 72 new
+  tests were found passing by name.
+- **Screenshots:** before and after are in the chat — your two cases typed and
+  sent in the real app.
+
+**Browser file only, on the branch — not merged, not deployed, no paid run.**
+
+---
+
+## 2026-09-24 — An add-on answer is checked before it's trusted (merged and deployed)
 
 **Where the last fix stands:** you checked it independently (269 tests), and the
 dropped connections, unreadable answers and display errors now stop correctly.
@@ -219,7 +302,8 @@ answers act the same way, straight back and queued:
 - `ok: "false"` prints "✅ Done."
 
 Your rule was about add-on answers, so I've recorded this rather than fixed it.
-The same check would close it.
+The same check would close it. **(You reproduced two of these yourself, and the
+same check now closes them, on the branch — entry above.)**
 
 **How it was checked:**
 - 87 tests run the real page code, 49 of them new. Those cover your three
@@ -234,11 +318,12 @@ The same check would close it.
 - The before and after screenshots are in the chat: the real app in a real
   browser, your three cases typed and sent.
 
-**Browser file only, on the branch — not merged, not deployed, no paid run.**
+**Browser file only. You reviewed it (318 tests); merged and deployed in deploy
+2154 (entry above). No paid run.**
 
 ---
 
-## 2026-09-24 — A failed add-on no longer buys a full rewrite (on the branch, not deployed)
+## 2026-09-24 — A failed add-on no longer buys a full rewrite (merged and deployed)
 
 **Closed first:** you checked the deployed message-box fixes (deploy 2153, the
 entry below) and they check out, so that correction is closed.
@@ -303,7 +388,8 @@ changed it.
   steps and the stop button with nothing said. After, you get one sentence and
   the send button.
 
-**Browser file only, on the branch — not merged, not deployed, no paid run.**
+**Browser file only. You reviewed it (269 tests); merged and deployed in deploy
+2154 (two entries above). No paid run.**
 
 ---
 
@@ -10880,6 +10966,19 @@ checks new passwords against HaveIBeenPwned. Verified still disabled 2026-08-28.
 ---
 
 ## Open — bugs and gaps
+
+**Open 2026-09-24 — after an edit hops to a cheaper step, the next edit message
+hangs**
+
+When an edit hands itself to a cheaper step (a data change that turns out to be
+wording, a photo that needs a page change) and that succeeds, the site stays
+locked against a second edit for the rest of the page load. Your next edit
+message still pays for its routing step, then nothing is sent and nothing is
+said, and the progress bar keeps running. A reload clears it. I drove it through
+the real page: the first message said "✅ Updated the wording.", and the second
+sent only the routing call and stayed busy. The lock is the duplicate-edit
+protection you said to keep, so the fix — releasing it when the hop's own answer
+arrives — is yours to approve. Recorded as next-task 11 in CLAUDE.md.
 
 **Open 2026-09-17 — the edit path has the same "nobody mentioned the empty
 picture frame" gap the addon just had**
