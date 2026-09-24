@@ -215,6 +215,10 @@ the change and its CI come to you first.
   control not flagged.
 - The whole suite: 7,259 tests, all passing (12 more than before — exactly the
   new ones).
+- CI agrees: the unit tests read the same 7,259 (four skipped on CI, as
+  always), with all 29 of the page-verb tests and the adjusted older one found
+  passing by name; the site build passed all twenty steps with every one of its
+  twelve counts unchanged.
 - Screenshots of six cases, before and after, are in the chat.
 - **The limit:** the tests supply the model's answers, so this proves what the
   reply says about the changes the edit step made — not that a real model makes
@@ -304,7 +308,8 @@ look."* It doesn't say which page changed, or that a page was removed or moved.
 That's the "look + web address only reports the look" item already on the list
 (number 3 below), so I left it alone and the tests pin today's wording. Also, a
 page move on its own says *"✅ Updated /gallery."* — the old address, not the
-new one.
+new one. **Both now fixed on the branch — the 2026-09-24 entry
+above.**
 
 ### Proof (made-up model answers, free)
 

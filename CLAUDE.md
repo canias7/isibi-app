@@ -4721,9 +4721,26 @@ removal named by the step's page rather than the files (`sitePathOf` of the
 removed file IS that page on every fixture). **Suite 7,259 locally** (`# tests
 7259 / # pass 7259 / # fail 0 / # skipped 0`, `duration_ms 121,328`) — **+12
 against 7,247**, exactly this file's new cases; the `site-ask` re-anchor
-added an assertion, not a case. **The supplied-answer limit holds**: this
-proves what the reply says about operations the route performed, never that
-a real model makes the layout change.
+added an assertion, not a case.
+**AND THE CI UNIT HALF MATCHES**: run **`35937632664` on `45ea3eec`** reads
+**`# tests 7259 / # pass 7255 / # fail 0 / # skipped 4`** (`duration_ms
+113,089`) — the TOTAL is what matches, `pass` differing by exactly CI's four
+skips — with all twenty-nine of this file's cases found passing BY NAME (`ok
+1823`–`1851`), the re-anchored `site-ask` case as `ok 3868`, and zero `not ok`
+lines in the full downloaded log (44,611 lines; the job-log tool returns only
+its tail, so the run's log archive is what was read). **AND `site build` run
+`35937632658` on `45ea3eec`** (00:16:06 → 00:40:09Z, **24m03s**, all twenty
+steps) read all twelve counts green out of its per-step files: TAP
+397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases 16,
+theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, kit-render /
+kit-a11y / kit-effects / kit-paint `all passed`, census 7 + 4 + 1 = **12**; the
+two known `##[error]` annotations (`index.tsx(50,13) TS2322`,
+`menu.tsx(27,17) TS2339`) inside the case that compiles a broken page on
+purpose, each directly above its own `ok` line this time; `tsc`-format lines
+9 / 2 / 7, the same nine lines as run `35930143439`'s; `site-build.mjs`
+**17m26s**. **The stamp chain ends at `45ea3eec`.** **The supplied-answer
+limit holds**: this proves what the reply says about operations the route
+performed, never that a real model makes the layout change.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
