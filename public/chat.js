@@ -8740,18 +8740,64 @@ function siteFinishBuild(origin, reply, build, note, why) {
   s.updatedAt = Date.now(); sitesSave();
   if (siteOpenId === origin) renderSites();
 }
+// THE LAYERS THE EDIT ROUTE HAS — a copy of `EDIT_LAYERS` in
+// builder/site-ask.mjs, which a classic script cannot import.
+// test/site-route-failure.test.mjs compares the two both ways, so a layer added
+// on one side and not the other fails by existing.
+const ROUTE_EDIT_LAYERS = ['data', 'text', 'look', 'page', 'rules', 'picture', 'logo', 'nav', 'rename'];
+// A CLARIFY ROUND THE SCREEN CAN DRAW: a question with at least two answers to
+// press. One predicate, asked by the check below and by the branch that draws
+// the question, so an answer the check lets through cannot miss that branch and
+// fall to the rewrite underneath it.
+function routeAsksQuestion(d) {
+  return !!(d && d.question && Array.isArray(d.question.options) && d.question.options.length >= 2);
+}
+// CAN THIS ROUTING ANSWER BE ACTED ON AS IT STANDS? Asked on a live site before
+// anything is sent (owner, 2026-09-24: "validate the routing result before
+// dispatching any action"). Every field an action reads is checked with the
+// type the action reads it as, so a malformed field refuses the whole answer
+// instead of quietly turning into "absent" where it is used: a `rename` that is
+// not a string would post an ordinary page edit of the sentence "move the
+// gallery to /photos", which is a different change from the one asked for.
+function routeActionable(d, site) {
+  // `ok` is on every decision the route answers, so a body that is not one —
+  // `null`, a list, a bare value — fails here with the rest. `failed` is what
+  // the route answers when the routing model threw: the fallback intent, an
+  // outage wearing a decision's shape.
+  if (!d || d.ok !== true || d.failed === true) return false;
+  const slug = typeof site.slug === 'string' && site.slug !== '';
+  const absentOr = (v, type) => v == null || typeof v === type;
+  if (d.intent === 'edit') {
+    return slug && ROUTE_EDIT_LAYERS.includes(d.layer) && absentOr(d.page, 'string') &&
+      absentOr(d.rename, 'string') && absentOr(d.remove, 'boolean') && absentOr(d.tab, 'boolean');
+  }
+  if (d.intent === 'addon') return slug;
+  if (d.intent === 'build') return true;
+  if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
+  if (d.intent === 'clarify') return routeAsksQuestion(d);
+  return false;
+}
 // Ask the router whether this is a question, then either answer it or build.
 //
 // ONE extra call in front of the build path, ~0.3 credits, and it pays for
 // itself the first time somebody types a question at an existing site — that
 // used to cost a full revise and overwrite their pages with an answer to it.
 //
-// EVERY failure mode here falls through to the build. A 401, a 500, a network
-// drop, a body that is not what we expect: all of them call `reactSend` exactly
-// as before. This sits in front of a path that works and must never be the
-// reason it does not run — the same asymmetry the server-side reader takes, for
-// the same reason. Getting it wrong toward "build" costs a build they can see;
-// getting it wrong toward "ask" silently does not build what they asked for.
+// ON AN EMPTY PROJECT every failure mode here still falls through to the first
+// build — a 401, a 500, a network drop, a body that is not what we expect —
+// because there the build is the harmless default and getting it wrong toward
+// "ask" silently does not build what they asked for.
+//
+// ON A LIVE SITE A FAILURE STOPS, SAID, WITH NOTHING SENT AFTER IT (2026-09-24).
+// This comment used to say every failure falls through to the build there too,
+// which was true while every message on an existing site WAS a revise. The edit
+// and add-on rungs made most of those messages a few credits, and the fallback
+// stayed the rewrite of every page: a dropped routing call, a 5xx, an answer
+// that could not be read, the router's own fallback after its model threw, or
+// an edit naming no layer each started a revise nobody asked for, with no
+// sentence. An explicit `build` answer still starts the revise — it is how a
+// customer says "scrap this", and how the route's zero-balance answer lets the
+// revise's own gate speak.
 function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
@@ -8773,6 +8819,12 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     if (s && s.clarify) { s.clarify = null; sitesSave(); }
     reactSend(site, brief, origin, isBuild ? 'build' : 'revise', imgs, finish, qa);
   };
+  // THE LIVE SITE'S STOP. `finish` clears the busy flag and the rail and says
+  // the sentence. It claims nothing about money: the routing call is billed on
+  // its own and may already have been charged, whatever became of its answer.
+  const lost = (r) => finish('⚠️ ' + (r && r.status === 401
+    ? 'You’re signed out. Sign in and send that again.'
+    : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
   // What the answer is allowed to know. Names only — a `collect` table holds
   // customer names and phone numbers and none of that belongs in a routing call.
   const digest = {
@@ -8817,11 +8869,14 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length) }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
+    // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
+    // decision every branch below can act on as it stands.
+    if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
     if (!r.ok || !d) return go();
     // A QUESTION FOR THEM, before anything is built or charged. Rendered as an
     // ordinary assistant message carrying options; the round is remembered on
     // the site so the answer can be put back together with the brief.
-    if (d.intent === 'clarify' && d.question && Array.isArray(d.question.options) && d.question.options.length >= 2) {
+    if (d.intent === 'clarify' && routeAsksQuestion(d)) {
       siteBusy = false;
       siteBuildStop();
       const s0 = siteById(origin);
@@ -8851,6 +8906,8 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // fine. Falls through to that revise on anything it cannot do, exactly like
     // the edit above it.
     if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go, d);
+    // On a live site only an explicit `build` reaches this `go()`: the check
+    // above refused every answer it could not act on.
     if (d.intent !== 'ask' || !d.answer) return go();
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
@@ -8866,7 +8923,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
-  }).catch(go);
+  }).catch(() => (isBuild ? go() : lost()));
 }
 // The cheap rung: change what the site already has, without rewriting a page.
 //

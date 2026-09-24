@@ -340,25 +340,37 @@ const routeBlock = () => {
   return src.slice(i, end);
 };
 
-test("the composer asks before it builds, and falls through on anything unexpected", () => {
+test("the composer asks before it builds: an empty project falls through to the build, a live site stops", () => {
   const src = chat();
   assert.match(src, /function siteRoute\(/, "the composer-side router is gone");
   assert.match(src, /siteRoute\(site, t, origin, isBuild, imgs, finish\)/, "siteSend no longer calls it");
   const block = routeBlock();
-  // EVERY failure mode reaches the build. A router that can swallow a build
-  // request is worse than no router: the customer cannot tell it from broken.
+  // TWO RULES SINCE 2026-09-24, and the behaviour of both is DRIVEN through the
+  // real send handler in test/site-route-failure.test.mjs. What is asserted
+  // here is the shape that behaviour rests on.
   //
-  // Two fall-throughs now rather than one, because the clarify branch sits
-  // between them — so the property is asserted as "an unusable answer of ANY
-  // kind returns go()", which is what it always meant.
-  assert.match(block, /if \(!r\.ok \|\| !d\) return go\(\)/, "a bad response no longer builds");
+  // ON AN EMPTY PROJECT every failure mode still reaches the build: there a
+  // router that swallows a build request is worse than no router, because the
+  // customer cannot tell it from broken. Two fall-throughs, because the clarify
+  // branch sits between them.
+  assert.match(block, /if \(!r\.ok \|\| !d\) return go\(\)/, "a bad response on an empty project no longer builds");
   assert.match(block, /if \(d\.intent !== 'ask' \|\| !d\.answer\) return go\(\)/,
-    "the fall-through has been narrowed — some failure now stops the build");
-  assert.match(block, /\.catch\(go\)/, "a network failure must still build");
-  // AND THE CLARIFY BRANCH IS GUARDED THE SAME WAY. A question with fewer than
-  // two options reaching the thread is a dead end nobody can click past, so it
-  // has to fall through here as well as being refused server-side.
-  assert.match(block, /d\.intent === 'clarify' && d\.question && Array\.isArray\(d\.question\.options\) && d\.question\.options\.length >= 2/,
+    "the empty project's fall-through has been narrowed — some failure now stops its first build");
+  // ON A LIVE SITE that same fall-through was the rewrite of every page, bought
+  // by a dropped request or an unreadable answer. The check has to come BEFORE
+  // anything that sends: before the fall-through, the edit and the add-on.
+  const check = block.indexOf("if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);");
+  const sends = ["return go()", "siteEdit(", "siteAddon("].map((s) => block.indexOf(s));
+  assert.ok(check > 0, "the live site's check on the routing answer is gone");
+  for (const at of sends) assert.ok(at > check, "something that sends work now runs before the live site's check");
+  // A THROWN FETCH TAKES THE SAME TWO RULES.
+  assert.match(block, /\.catch\(\(\) => \(isBuild \? go\(\) : lost\(\)\)\)/,
+    "a network failure no longer builds an empty project, or no longer stops on a live site");
+  // AND THE CLARIFY BRANCH IS GUARDED BY THE ONE PREDICATE THE CHECK ASKS. A
+  // question with fewer than two options is a dead end nobody can click past;
+  // one predicate, so an answer the check lets through cannot miss the branch.
+  assert.match(block, /d\.intent === 'clarify' && routeAsksQuestion\(d\)/, "the clarify branch asks its own condition again");
+  assert.match(src, /function routeAsksQuestion\(d\) \{\n\s*return !!\(d && d\.question && Array\.isArray\(d\.question\.options\) && d\.question\.options\.length >= 2\);/,
     "a malformed question would render as a dead end");
 });
 
