@@ -160,6 +160,54 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — A failed message check on a live site now stops and says so (on the branch, not deployed)
+
+You approved the fix and added two cases to it. **Built on the branch — not
+merged, not deployed, no paid run.** The screenshots are in the chat.
+
+**What happens now.** On a site that already has pages, the builder checks the
+answer to "what kind of change is this?" before it starts anything. If that
+check fails or comes back unusable, nothing is started and the chat says:
+*"⚠️ I couldn’t work out what to do with that just now, so nothing on your site
+changed. Send it again in a moment."* If you have been signed out it says
+*"⚠️ You’re signed out. Sign in and send that again."* beside the sign-in
+screen. The spinner stops, so you can send again straight away. The sentence
+says nothing about money on purpose: the check itself may already have been
+charged.
+
+- **What counts as unusable**: a dropped connection, a server error, an answer
+  the page can't read, an answer that says it failed — including your two: the
+  server's own "the reader broke" fallback, which used to start the paid
+  add-on, and an answer marked "not ok", which used to start work anyway — and
+  an answer whose details are wrong (an edit that doesn't name one of the edit
+  types, a page, move or removal given in the wrong form, a question with no
+  answer).
+- **What it did before, measured on the old code with the same made-up
+  answers**: of 31 shapes, 19 started the full rewrite of every page, 9 started
+  an edit, 1 started the paid add-on, and 2 printed the answer raw (like
+  "[object Object]"). None of them said a word.
+- **What still works exactly as before**: a real edit (every kind), a real
+  add-on, "scrap this and make a new site", the out-of-credits answer, a
+  question, a clarifying question, and a brand-new project's first build — which
+  still starts building if the check fails, as it always has.
+- **Still separate, not touched**: a site opened in a browser that didn't build
+  it can still start a new site, and an add-on whose own request fails still
+  falls to the full rewrite.
+- **Noticed while taking the screenshots, not changed**: when a connection is
+  cut before any answer comes back, Chrome itself sends the check again, two or
+  three times. It happens the same before and after this change, and I haven't
+  measured it against the real server; if it happens there, each repeat that
+  reaches the model would be charged.
+- **Proof**: every answer in the tests was written by us, so this shows what
+  the page does with an answer, not what the real server sends. Unit tests
+  7,383, none failing, locally and on GitHub.
+
+The page-rewrite protection deployed earlier today is still waiting for your
+free check: `edit-canary` on `main`, spend `no`, expect_deploy
+`1b968c9de0530872e06ee24680dbfec9d36b928f`, expect_image `56f7d5866240a1de`.
+
+---
+
 ## 2026-09-24 — The page-rewrite protection is live; a failed message check still buys a full rewrite (reproduced, not fixed)
 
 **Merged and deployed.** The page-rewrite protection went to main at 05:31 UTC
