@@ -684,7 +684,7 @@ test("CONTROL: with the store readable, one changed component leaves the other e
   try {
     await withWire({
       [TWEAK_TOOL.name]: { cannot: "that needs the component rewritten" },
-      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME_EDITED }], parts: [{ name: "card-a", source: A_NEW }] },
+      [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: HOME }], parts: [{ name: "card-a", source: A_NEW }] },
     }, async () => {
       const { body, said } = await edit(slug, "change the opening hours to six", { store });
       assert.equal(body && body.ok, true, "the control edit did not go through: " + JSON.stringify(body));
@@ -694,6 +694,7 @@ test("CONTROL: with the store readable, one changed component leaves the other e
       assert.ok(got, "the compiler was handed no components at all");
       assert.equal(got["card-a"], A_NEW, "the change did not reach the publication");
       assert.equal(got["card-b"], B_OLD, "the untouched component was lost on a HEALTHY read");
+      assert.equal(JSON.parse(store.store.get(SOURCE_KEY(slug)))[0].source.trim(), HOME.trim(), "the component-only change rewrote its parent page");
       const after = storedParts(store, slug);
       assert.equal(after["card-a"], A_NEW, "the change is not in the store");
       assert.equal(after["card-b"], B_OLD, "the untouched component is not in the store");
