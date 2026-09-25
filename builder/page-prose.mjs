@@ -71,35 +71,48 @@ export function proseInventory(source, parse) {
 // assurance. Quoted new wording/destinations cannot grant permission to a second
 // section. Negations, vague targets and duplicate names do not grant a scope.
 function permissions(message, before, pairs) {
-  const allowed = new Set();
-  const clauses = String(message).split(/[;!?]|\.(?:\s|$)|(?:,?\s+(?:and|but)\s+)(?=(?:please\s+)?(?:change|rewrite|reword|update|show|rename|replace|remove|delete|take|keep|leave|make|move|put|do\b|don't\b))/i);
+  const allowed = new Set(), protectedBlocks = new Set();
+  // Quoted copy is data, even when it contains punctuation or commands.
+  const quotes = [];
+  let token = "quotedtoken";
+  while (String(message).toLowerCase().includes(token)) token += "x";
+  const shielded = String(message).replace(/"([^"\n]*)"|“([^”\n]*)”|‘([^’\n]*)’|'([^'\n]*)'/g,
+    (_, ...groups) => `${token}${quotes.push(groups.slice(0, 4).find(x => x !== undefined)) - 1}`);
+  if (/["“”‘’]|(?:^|\s)'|'(?:\s|$)/.test(shielded)) return allowed;
+  const expand = s => s.replace(new RegExp(token + "(\\d+)", "g"), (_, i) => quotes[Number(i)]);
+  const clauses = shielded.split(/[;!?]|\.(?:\s|$)|(?:,?\s+(?:and|but)\s+)(?=(?:please\s+)?(?:change|rewrite|reword|update|show|rename|replace|remove|delete|take|keep|leave|preserve|make|move|put|do\b|don't\b))/i);
+  const resolve = object => {
+    // Complete noun phrases only: a mention is not an authorization.
+    const n = name(expand(object)).replace(/^the\s+/, "");
+    const hits = [];
+    for (const block of before.blocks.filter(b => b.section)) for (const label of block.names) {
+      const forms = [[label, "all"], [label + " section", "all"], [label + " heading", "heading"], [label + " title", "heading"],
+        ...["line", "paragraph", "sentence"].flatMap(role => ["under", "in", "of"].map(prep => [role + " " + prep + " " + label, "line"]))];
+      for (const [phrase, scope] of forms) if (n === phrase) hits.push({ block, scope });
+    }
+    const unique = hits.filter((h, i) => hits.findIndex(x => x.block === h.block && x.scope === h.scope) === i);
+    return unique.length === 1 ? unique[0] : null;
+  };
   for (let clause of clauses) {
-    clause = name(clause).replace(/^please\s+/, "");
-    if (!/^(change|rewrite|reword|update|show|rename|replace|remove|delete|take|make)\b/.test(clause)) continue;
-    if (/\b(?:not|never|dont|don't|except|unless|without)\b/.test(clause)) {
-      // The existing explicit group-deletion control, with a unique exception.
+    clause = space(clause).toLowerCase().replace(/^please\s+/, "");
+    const action = /^(change|rewrite|reword|update|show|rename|replace|remove|delete|take|make)\s+(.+)$/.exec(clause);
+    if (!action) continue;
+    if (/\b(?:not|never|dont|don't|except|unless|without|keep|leave|preserve|keeping|leaving)\b/.test(clause)) {
       const group = /^(?:remove|delete|take) (?:all|every)(?: the)? sections? (?:off(?: the home page)? )?except (?:the )?(.+)$/.exec(clause);
-      if (!group) continue;
-      const except = before.blocks.filter(b => b.section && b.names.includes(group[1]));
-      if (except.length !== 1) continue;
-      for (const b of before.blocks) if (b.section && b !== except[0]) for (const a of b.atoms) allowed.add(a);
+      const except = group && resolve(group[1]);
+      if (!except) continue;
+      protectedBlocks.add(except.block);
+      for (const b of before.blocks) if (b.section && b !== except.block) for (const atom of b.atoms) allowed.add(atom);
       continue;
     }
-    // Only the object before a replacement/result clause is a target.
-    const object = clause.split(/\s+(?:to|as|into|with|so that)\s+/)[0];
-    if (/\b(?:keep|leave|preserve|keeping|leaving)\b/.test(object)) continue;
-    const matched = new Map();
-    for (const b of before.blocks) {
-      for (const n of b.names) if (contains(object, n)) {
-        if (!matched.has(n)) matched.set(n, []);
-        matched.get(n).push(b);
-      }
-    }
-    for (const bs of matched.values()) {
-      if (bs.length !== 1 || !bs[0].section) continue;
+    // operation + exact target/list + optional reference/result. Reference and
+    // result operands never supply targets; unknown target grammar fails closed.
+    const object = action[2].split(/\s+(?:to|as|into|with|so that|above|below|before|after|beside|like|compared to|relative to|at|on|off)\s+/)[0];
+    const targets = object.split(/\s+and\s+/).map(resolve);
+    const matched = targets.every(Boolean) ? targets : [];
+    for (const { block, scope } of matched) {
       // Naming where a link/photo/form lives does not authorize its prose.
       if (/\b(?:links?|photos?|pictures?|images?|forms?|buttons?|components?)\b/.test(object)) continue;
-      const block = bs[0];
       // Rewording is not permission to remove the whole section. A unique
       // surviving target needs actual replacement prose, not just its heading.
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
@@ -108,31 +121,32 @@ function permissions(message, before, pairs) {
         if (!peer || (block.atoms.some(a => !a.heading) && !peer.atoms.some(a => !a.heading))) continue;
       }
       // A request for a heading grants only the heading, not its paragraphs.
-      const headingOnly = /\b(?:heading|title)\b/.test(object);
-      const lineOnly = /\b(?:line|paragraph|sentence)\b/.test(object);
-      const candidates = bs[0].atoms.filter(a => headingOnly ? a.heading : lineOnly ? a.role === "p" : true);
+      const headingOnly = scope === "heading";
+      const lineOnly = scope === "line";
+      const candidates = block.atoms.filter(a => headingOnly ? a.heading : lineOnly ? a.role === "p" : true);
       if ((headingOnly || lineOnly) && candidates.length !== 1) continue;
       for (const a of candidates) allowed.add(a);
     }
     // A quoted sentence can target itself even outside a semantic section.
-    const exactObject = object.replace(/^\w+\s+/, "").replace(/^(?:the\s+)?(?:text|words|heading|title)\s+/, "").replace(/^the\s+/, "");
+    const exactObject = name(expand(object)).replace(/^(?:the\s+)?(?:text|words|heading|title)\s+/, "").replace(/^the\s+/, "");
     for (const a of before.atoms) {
       if (a.text.length < 4 || exactObject !== name(a.text)) continue;
       if (before.atoms.filter(x => name(x.text) === name(a.text)).length !== 1) continue;
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
-      const replacement = clause.match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1];
+      const replacement = name(expand(clause.match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1] || ""));
       if (removing || (replacement && pairs.get(a.block)?.atoms.some(x => name(x.text).replace(/[.!?]+$/, "") === replacement.replace(/[.!?]+$/, "")))) allowed.add(a);
     }
   }
   // An explicit preservation clause wins over a surrounding rewrite/removal.
   // In particular, splitting "but keep ..." must not discard the constraint.
   for (let clause of clauses) {
-    clause = name(clause).replace(/^please\s+/, "");
+    clause = name(expand(clause)).replace(/^please\s+/, "");
     if (!/^(?:keep|leave|preserve|do not|dont)\b/.test(clause)) continue;
     for (const a of before.atoms) {
       if (contains(clause, name(a.text)) || a.block.names.some(n => contains(clause, n))) allowed.delete(a);
     }
   }
+  for (const block of protectedBlocks) for (const atom of block.atoms) allowed.delete(atom);
   return allowed;
 }
 

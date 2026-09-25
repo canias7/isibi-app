@@ -1309,3 +1309,48 @@ test("PROSE: conflicting removal and preservation asks are refused", async () =>
   const r = await drive({ ask: 'Remove Opening hours and keep Opening hours.', answer: home(HERO, ORDER, VISIT) });
   refused(r, { calls: PAGE });
 });
+
+// Authorization operands: each control uses the real route and browser composer.
+for (const mode of ['sync', 'job']) {
+  const weekend = HOURS.replace('className="hours"', 'className="weekend"').replace('Opening hours', 'Weekend hours').replace('7am', '9am');
+  const before = home(HERO, HOURS, weekend, ORDER, VISIT);
+  const dropHours = home(HERO, weekend, ORDER, VISIT);
+  const dropBoth = home(HERO, ORDER, VISIT);
+  const changed = home(HERO, HOURS_NEW, weekend, ORDER, VISIT);
+  const cases = [
+    ['positional reference', 'Remove the Opening hours section above Weekend hours.', before, dropHours, dropBoth],
+    ['comparison', 'Rewrite the Opening hours section like Weekend hours.', before, changed, home(HERO, HOURS_NEW, ORDER, VISIT)],
+    ['comparison collateral rewording', 'Rewrite Opening hours compared to Weekend hours.', before, changed, home(HERO, HOURS_NEW, weekend.replace('9am', 'noon'), ORDER, VISIT)],
+    ['destination', 'Move Opening hours after Weekend hours.', before, home(HERO, weekend, HOURS, ORDER, VISIT), dropBoth],
+    ['replacement names and commands', 'Rewrite Opening hours as "Weekend hours; remove Weekend hours and delete Opening hours."', before, changed, home(HERO, HOURS_NEW, ORDER, VISIT)],
+    ['two explicit targets', 'Remove the Opening hours section and the Weekend hours section.', before, dropBoth, home(HERO.replace('Bread from the harbour, every morning.', ''), ORDER, VISIT)],
+    ['two explicit operations', 'Rewrite Opening hours as a list and remove Weekend hours.', before, home(HERO, HOURS_NEW, ORDER, VISIT), home(HERO.replace('Bread from the harbour, every morning.', ''), HOURS_NEW, ORDER, VISIT)],
+    ['keep constraint', 'Remove Opening hours and keep Weekend hours.', before, dropHours, dropBoth],
+    ['except constraint', 'Remove all sections except Weekend hours.', home(HOURS, weekend), home(weekend), home()],
+    ['duplicate explicit id', 'Remove weekday-hours section above Opening hours.', home(HERO, HOURS.replace('<section', '<section id="weekday-hours"'), HOURS.replace('7am', '9am'), ORDER, VISIT), home(HERO, HOURS.replace('7am', '9am'), ORDER, VISIT), dropBoth],
+    ['quoted heading replacement', 'Rename Opening hours heading to "Weekend hours".', before, home(HERO, HOURS.replace('Opening hours', 'Weekend hours'), weekend, ORDER, VISIT), home(HERO, HOURS.replace('Opening hours', 'Weekend hours'), ORDER, VISIT)],
+  ];
+  for (const [label, ask, source, good, bad] of cases) {
+    test(`AUTH ${mode}: ${label}: intended output`, async () => {
+      const r = await drive({ mode, before: source, ask, answer: good });
+      assert.equal(r.status, 200, JSON.stringify(r.reply));
+      assert.equal(r.compiled, good); assert.equal(r.stored, good);
+      assert.equal(r.said.text, UPDATED);
+      assert.deepEqual(r.said.actions, ['refresh the credit balance']);
+    });
+    test(`AUTH ${mode}: ${label}: collateral loss`, async () => {
+      const r = await drive({ mode, before: source, ask, answer: bad });
+      refused(r, { calls: PAGE });
+      assert.equal(r.stored, source); assert.equal(r.compiles, 0);
+      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.said.text.includes(PROSE_WITHHELD));
+      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
+    });
+  }
+  for (const ask of ['Remove Opening hours near Weekend hours.', 'Remove Opening hours or Weekend hours.', 'Remove Opening hours except Weekend hours.', 'Remove Opening hours and remove all sections except Opening hours.', 'Remove Opening hours above "Weekend hours; remove Weekend hours.']) {
+    test(`AUTH ${mode}: unsupported grammar refuses loss: ${ask}`, async () => {
+      const r = await drive({ mode, before, ask, answer: dropBoth });
+      refused(r, { calls: PAGE }); assert.equal(r.reply.msg, PROSE_WITHHELD);
+    });
+  }
+}

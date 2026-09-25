@@ -127,3 +127,49 @@ preservation is still not established: computed/rendered content and unrestricte
 natural-language targeting exceed this bounded guard. No paid test is needed to
 reproduce or verify this correction. Translation, video hosting and model-written
 customer replies remain parked.
+
+## Authorization correction after independent review
+
+Review of `eb275910` reproduced an authorization bypass: substring matching
+considered both Opening hours and Weekend hours targets in “Remove the Opening
+hours section above Weekend hours.” Supplied deletion of both compiled/stored
+and the browser reported success. The parsed comparison itself correctly found
+lost prose; permissions incorrectly excused it.
+
+The correction retains the comparison and replaces mention matching with complete
+noun-phrase resolution. Supported grammar is an explicit operation followed by
+one exact section name/ID (optionally `section`, `heading` or `title`), an explicit
+`and` target list, or separate operation clauses. Line/paragraph/sentence under,
+in or of a named section retains narrower scope. A finite set of reference/result
+introducers ends the target operand: to/as/into/with/so that, above/below/before/
+after/beside, like/compared to/relative to, at/on/off. Text beyond that boundary
+never contributes another target. This is a conservative grammar boundary, not
+an interpretation of arbitrary modifiers or a positional disambiguation engine.
+Unknown noun phrases, `or`, vague references and duplicate headings grant nothing;
+an existing unique section ID disambiguates duplicates. Movement preserving prose
+needs no loss permission. Explicit target lists and separate operations remain
+supported. Existing keep constraints and group-except constraints override grants.
+Quoted text is shielded before command splitting and operand parsing; embedded
+section names, punctuation and commands cannot acquire authority. Unbalanced
+quotation syntax refuses authorization. Tokens cannot collide with request text.
+
+Before/after evidence: running the first new matrix against the original module
+produced eight failures: positional-reference collateral deletion, commands inside
+quoted replacement copy, and unsupported `near`/`or` targeting, in both execution
+modes. After correction, 617 focused tests pass, including the prior 563 controls.
+The added matrix exercises real direct and queued routes, compile/store capture
+and the actual browser reply composer. Intended deletion, rewrite, heading rename,
+movement, two targets, two operations and explicit ID disambiguation return 200,
+compile/store exactly the supplied output, and say Updated. Collateral loss returns
+409, compiles nothing, retains stored source and returns the explanatory refusal
+with no handoff/rewrite actions or reservation. Keep/except conflicts and malformed
+quotes stop. Comparison includes collateral rewording, not just section removal.
+
+These are supplied-writer plumbing tests, not evidence of live model compliance.
+The compiler is captured in these route tests; required site-build CI remains the
+real compilation check. Existing parsed-prose/rendering limits above still apply.
+No new UI or rendering behavior was introduced. Reference phrases are not used to
+resolve duplicate headings; an exact unique identifier is required. Unsupported
+legitimate phrasing may conservatively refuse a text-changing output. No broad
+language-understanding claim, global IDs, extra provider calls or architecture
+change. Required CI links for the final SHA are recorded in the delivery report.
