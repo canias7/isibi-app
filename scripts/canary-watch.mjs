@@ -33,6 +33,9 @@
 // are the precedent — a wall nobody can drive is a wall nobody is guarding, in
 // the branch whose wrong answer costs credits.
 import { createRequire } from "node:module";
+// THE PLATFORM'S OWN VERSION-ID RULE, never a second copy — `canary-restore.mjs`
+// asks the same one.
+import { isVersionId } from "../site-versions.mjs";
 
 // THE BROWSER'S OWN READER, NOT A SECOND COPY OF IT. `public/edit-poll.js` is
 // a UMD and assigns `module.exports` when one exists, which is how
@@ -219,4 +222,157 @@ export function readRoutes(status, body) {
 export function routesRefusal(slug, why) {
   return `REFUSING TO SPEND: could not read which pages ${slug} has (${why}). ` +
     "Routing without the site's page list lets the router name a page the site does not have.";
+}
+
+// ── THE AFTER-READ WAITS FOR THIS JOB'S OWN VERSION (run 32, 2026-09-25) ────
+//
+// Run 32 published a section move, and its after-read was the PREVIOUS build:
+// the page was fetched 7.9 s after the job recorded its publish, the old
+// script answered, and `compare.json` compared the old page with itself and
+// said nothing had moved. A read one minute later got the new build. So an
+// after-read is evidence about THIS job only when the site reports the version
+// this job published, and the before-read only when it reports the version the
+// job was built from. `x-site-version` is what the live script bakes, so it is
+// the one reading that names what a visitor was served — the restore mode's
+// own rule, applied to the paid half.
+//
+// CANNOT-TELL IS "UNVERIFIED", NEVER A MATCH. A wait that runs out, a version
+// list nobody could read, a before-read that cannot be tied to one version:
+// each leaves the comparison unverified, said as such. And AN UNRELATED NEWER
+// VERSION IS NOT A MATCH — a later publish means this job's pages can no longer
+// be read at all, so the wait stops on it rather than running out on it.
+
+/** When a version was minted, in ms — its first 14 digits. 0 when it is not a version id. */
+function mintMs(id) {
+  return isVersionId(id) ? Number(String(id).slice(0, 14)) : 0;
+}
+
+/**
+ * Which version THIS job published, read off the site's own version list.
+ *
+ * The edit route stamps the job's id into every build it stages (the
+ * manifest's `job`), and the list carries it on each row, so the row whose
+ * `job` is this job's id IS this job's version — not "the newest", which is
+ * the unrelated-newer-version mistake in its simplest form. A job that staged
+ * more than one build (a correction round publishes again) ends on its newest.
+ *
+ * `reply` is `{status, json}` as the canary's `call` returns it. The status is
+ * asked as well as the shape: a list inside a failing answer is not a list.
+ */
+export function publishedVersion(reply, job) {
+  if (typeof job !== "string" || !job) return { ok: false, why: "no-job" };
+  const list = reply && reply.status === 200 && reply.json && Array.isArray(reply.json.versions) ? reply.json.versions : null;
+  if (!list) return { ok: false, why: "list-unreadable", status: (reply && reply.status) || 0 };
+  const own = list.filter((v) => v && typeof v === "object" && v.job === job && isVersionId(v.id));
+  if (!own.length) return { ok: false, why: "not-listed" };
+  const newest = own.reduce((a, b) => (mintMs(b.id) > mintMs(a.id) ? b : a));
+  return { ok: true, id: newest.id, parent: isVersionId(newest.parent) ? newest.parent : "", rows: own.length };
+}
+
+/**
+ * The version the after-read must see.
+ *
+ * A published edit: the version this job published. An edit that did NOT
+ * publish: the version the before-read saw, because nothing should have moved —
+ * and a site that moved anyway is not this job's outcome to compare.
+ */
+export function afterReadTarget({ published, before, list, job }) {
+  if (!published) {
+    return isVersionId(before) ? { ok: true, id: before, parent: "", why: "unpublished" } : { ok: false, why: "before-unknown" };
+  }
+  return publishedVersion(list, job);
+}
+
+/** One version every read agreed on, or "" — a before-read that straddled a publish is not one version. */
+export function sameVersion(versions) {
+  const list = Array.isArray(versions) ? versions : [];
+  if (!list.length || !isVersionId(list[0])) return "";
+  return list.every((v) => v === list[0]) ? list[0] : "";
+}
+
+/**
+ * A BOUNDED wait for a live read to report `expect`.
+ *
+ * `read()` answers `{version, …}` (version "" when it could not be read) and
+ * the whole last reading is handed back, so the caller keeps the page it waited
+ * for. Three outcomes, and only one of them is a match:
+ *
+ *   `match`      — a read reported `expect`.
+ *   `superseded` — a read reported a version minted AFTER `expect`: another
+ *                  publish landed, so this job's version will never be served
+ *                  again. Stopping here is the point; running the bound out on
+ *                  it would only delay the same answer.
+ *   `timeout`    — the bound ran out on reads that were stale, unreadable or
+ *                  otherwise not `expect`. NOT A FACT ABOUT THE SITE: all that
+ *                  is established is that this harness stopped looking.
+ *
+ * An older version than `expect` (the before-read's, while the new script
+ * spreads) is waited through — that is exactly run 32's 7.9 seconds.
+ */
+export async function awaitVersion({ read, expect, polls = 40, gapMs = 3000, sleep } = {}) {
+  const nap = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  if (!isVersionId(expect)) return { kind: "no-target", reads: 0, last: null, seen: "" };
+  let last = null;
+  let seen = "";
+  for (let i = 0; i < polls; i++) {
+    last = (await read()) || {};
+    seen = typeof last.version === "string" ? last.version : "";
+    if (seen === expect) return { kind: "match", reads: i + 1, last, seen };
+    if (mintMs(seen) > mintMs(expect)) return { kind: "superseded", reads: i + 1, last, seen };
+    if (i + 1 < polls) await nap(gapMs);
+  }
+  return { kind: "timeout", reads: polls, last, seen };
+}
+
+/**
+ * Whether the before/after comparison is about THIS job — `verified` or not,
+ * with the first reason it is not.
+ *
+ * `before` is the one version the before-read saw (`sameVersion` over its
+ * pages), `target` is `afterReadTarget`'s answer, `wait` is the home page's
+ * `awaitVersion`, and `after` is the after-inventory's `render` — each page
+ * carrying the version it was read at. EVERY page must be the target: one page
+ * read from the old build is run 32's defect on one route.
+ */
+export function afterReadVerdict({ published, before, target, wait, after } = {}) {
+  const base = {
+    verified: false, published: !!published, before: isVersionId(before) ? before : "",
+    expect: target && target.ok ? target.id : "", parent: (target && target.parent) || "",
+  };
+  if (!isVersionId(before)) return { ...base, why: "before-unknown" };
+  if (!target || !target.ok) return { ...base, why: (target && target.why) || "no-target", status: target && target.status };
+  // THE JOB STARTED FROM SOMETHING ELSE: another publish sits between the
+  // before-read and this job's build, so the comparison would count its
+  // changes as this job's.
+  if (published && target.parent !== before) return { ...base, why: "parent-mismatch" };
+  if (!wait || wait.kind !== "match") return { ...base, why: wait ? wait.kind : "no-wait", seen: (wait && wait.seen) || "" };
+  const pages = Object.entries(after || {});
+  if (!pages.length) return { ...base, why: "no-pages" };
+  const off = pages
+    .map(([route, v]) => ({ route, version: v && typeof v.version === "string" ? v.version : "" }))
+    .filter((p) => p.version !== base.expect);
+  if (off.length) return { ...base, why: "page-version", off };
+  return { ...base, verified: true, why: "verified" };
+}
+
+/** The sentence the log and `compare.json` carry. One composer, so the two cannot drift. */
+export function verdictSentence(v) {
+  if (!v) return "UNVERIFIED — no verdict was reached";
+  const why = {
+    "verified": () => v.published
+      ? `VERIFIED — every page was read at ${v.expect}, the version this job published, and the before-read at ${v.before}, the version it was built from`
+      : `VERIFIED — the edit did not publish, and every page still reports ${v.expect}, the version the before-read saw`,
+    "before-unknown": () => "UNVERIFIED — the before-read cannot be tied to one version, so the comparison may include other publishes",
+    "no-job": () => "UNVERIFIED — there is no job id to find this job's version by",
+    "list-unreadable": () => `UNVERIFIED — the site's version list could not be read (${v.status || 0}), so which version this job published is unknown`,
+    "not-listed": () => "UNVERIFIED — no version in the site's list names this job, so which version it published is unknown",
+    "parent-mismatch": () => `UNVERIFIED — this job's version ${v.expect} was built from ${v.parent || "(no parent)"}, but the before-read saw ${v.before}: another publish sits between them`,
+    "timeout": () => `UNVERIFIED — the site did not report ${v.expect} within the wait (last read: ${v.seen || "unreadable"})`,
+    "superseded": () => `UNVERIFIED — the site moved on to ${v.seen}, a later version than this job's ${v.expect}, so this job's pages could not be read`,
+    "no-target": () => "UNVERIFIED — there was no version to wait for",
+    "no-wait": () => "UNVERIFIED — the after-read did not wait for a version",
+    "no-pages": () => "UNVERIFIED — the after-read read no pages",
+    "page-version": () => `UNVERIFIED — ${(v.off || []).map((p) => `${p.route} was read at ${p.version || "(unreadable)"}`).join(", ")}, not ${v.expect}`,
+  }[v.why];
+  return why ? why() : `UNVERIFIED — unrecognised outcome ${JSON.stringify(v.why)}`;
 }

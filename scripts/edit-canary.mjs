@@ -29,6 +29,10 @@ import { editBrowserReply } from "./addon-sweep.mjs";
 // file is a script with top-level await that spends money, so a test cannot
 // import it to reach a function — see the header of `canary-watch.mjs`.
 import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal } from "./canary-watch.mjs";
+// THE AFTER-READ'S WAIT AND ITS VERDICT (run 32), in the same module for the
+// same reason: whether a comparison is about this job is a decision worth
+// driving, and it cannot be reached through a script that spends money.
+import { afterReadTarget, awaitVersion, afterReadVerdict, sameVersion, verdictSentence } from "./canary-watch.mjs";
 // THE READ-ONLY LOOKUP. Its own module for the same reason: the decisions it
 // makes about billing and about what the old watch would have seen are worth
 // driving, and they cannot be reached through a script that spends money.
@@ -404,7 +408,12 @@ function proseBag(html) {
   return body.toLowerCase().replace(/&[a-z#0-9]+;/g, " ").split(/[^a-z0-9']+/).filter(Boolean).sort();
 }
 
-async function inventory(label) {
+// A PAGE READ AT THE WRONG VERSION IS RE-READ, BOUNDED: five reads three
+// seconds apart, then the page is kept as it came and the verdict says so.
+const PAGE_POLLS = 5;
+const PAGE_GAP_MS = 3000;
+
+async function inventory(label, expect = "") {
   mkdirSync(`${EVID}/${label}`, { recursive: true });
   const src = await call("GET", `/api/site/source?slug=${encodeURIComponent(CANARY)}`);
   const sb = src.json || {};
@@ -424,11 +433,27 @@ async function inventory(label) {
 
   const render = {};
   for (const r of routes) {
-    let html = "";
-    try { html = await fetch(origin + r).then((x) => x.text()); } catch (e) { html = ""; }
+    // THE VERSION EACH PAGE WAS READ AT IS RECORDED, because a page is only
+    // evidence about the build that served it — run 32's after-read was the
+    // previous build, 7.9 s after the publish, and nothing in the record said
+    // so. `x-site-version` is what the live script bakes.
+    const readPage = async () => {
+      try {
+        const x = await fetch(origin + r);
+        return { version: String(x.headers.get("x-site-version") || ""), html: await x.text() };
+      } catch { return { version: "", html: "" }; }
+    };
+    let got;
+    if (expect) {
+      const w = await awaitVersion({ read: readPage, expect, polls: PAGE_POLLS, gapMs: PAGE_GAP_MS });
+      got = { html: "", version: "", ...(w.last || {}), reads: w.reads };
+    } else {
+      got = { ...(await readPage()), reads: 1 };
+    }
+    const html = got.html || "";
     const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
     writeFileSync(`${EVID}/${label}/route${file}.html`, html);
-    render[r] = { bytes: html.length, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
+    render[r] = { bytes: html.length, version: got.version, reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
   }
 
   const inv = {
@@ -454,7 +479,7 @@ console.log(`  source ${BEFORE.status}  reads=${JSON.stringify(BEFORE.reads)}  c
 console.log(`  pages  ${BEFORE.pages.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(none)"}`);
 console.log(`  parts  ${BEFORE.parts.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(NONE — component coverage is outstanding for this run)"}`);
 for (const [r, v] of Object.entries(BEFORE.render)) {
-  console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+  console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  version=${v.version || "(unreadable)"}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
 }
 check("the source read is complete (reads all true)", BEFORE.readsComplete === true, JSON.stringify(BEFORE.reads));
 
@@ -736,16 +761,46 @@ writeFileSync(`${EVID}/customer-reply.txt`, !said
      ...(sActs.length ? ["", `the browser would then (NOT done here — recorded only), ${sActs.length}:`, ...sActs.map((a) => "  -> " + a)] : [])].join("\n")
   : `could not compose: ${said.why}`);
 
+// ── THE AFTER-READ WAITS FOR THIS JOB'S OWN VERSION ────────────────────────
+//
+// ⚠ RUN 32 (2026-09-25) READ THE PREVIOUS BUILD. The after-read ran as soon as
+// the stored reply arrived, 7.9 s after the job recorded its publish, and the
+// old script answered: `compare.json` compared the old page with itself and
+// reported a real section move as no change. A read a minute later got the new
+// build. So the after-read now waits — BOUNDED — for the site to report the
+// version THIS job published, found by this job's own id in the site's version
+// list, never "whatever is newest". A wait that runs out, or a later publish
+// landing first, leaves the comparison UNVERIFIED, and it is said.
+const body = done && done.json ? done.json : null;
+const published = !!(body && body.ok === true);
+const BEFORE_VERSION = sameVersion(Object.values(BEFORE.render).map((v) => v.version));
+const versionList = published ? await call("GET", `/api/site/${encodeURIComponent(CANARY)}/versions`) : null;
+const TARGET = afterReadTarget({ published, before: BEFORE_VERSION, list: versionList, job });
+console.log("\nWHICH BUILD THE AFTER-READ MUST SEE");
+console.log(`  before-read  ${BEFORE_VERSION || "(not one readable version)"}`);
+console.log(`  target       ${TARGET.ok ? TARGET.id + (published ? `  (this job's; built from ${TARGET.parent || "-"})` : "  (unpublished: nothing should have moved)") : "none — " + TARGET.why}`);
+const liveRead = async () => {
+  try {
+    const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+    return { version: String(r.headers.get("x-site-version") || "") };
+  } catch { return { version: "" }; }
+};
+const WAIT = TARGET.ok ? await awaitVersion({ read: liveRead, expect: TARGET.id }) : { kind: "no-target", reads: 0, seen: "" };
+console.log(`  wait         ${WAIT.kind} after ${WAIT.reads} read${WAIT.reads === 1 ? "" : "s"}${WAIT.seen && WAIT.kind !== "match" ? " (last read " + WAIT.seen + ")" : ""}`);
+
 // ── BEFORE / AFTER EVIDENCE ────────────────────────────────────────────────
 console.log(`\nINVENTORY — after (written to ${EVID}/after)\n`);
-const AFTER = await inventory("after");
-const cmp = { slug: CANARY, routes: {}, parts: {} };
+const AFTER = await inventory("after", WAIT.kind === "match" ? TARGET.id : "");
+const VERDICT = afterReadVerdict({ published, before: BEFORE_VERSION, target: TARGET, wait: WAIT, after: AFTER.render });
+const SAID = verdictSentence(VERDICT);
+const cmp = { slug: CANARY, comparison: { ...VERDICT, sentence: SAID, wait: { kind: WAIT.kind, reads: WAIT.reads, seen: WAIT.seen } }, routes: {}, parts: {} };
 for (const r of Object.keys(BEFORE.render)) {
   const b = BEFORE.render[r], a = AFTER.render[r] || { photos: [], headings: [], words: 0 };
   const lostPix = b.photos.filter((u) => !a.photos.includes(u));
   const newPix = a.photos.filter((u) => !b.photos.includes(u));
   const moved = JSON.stringify(b.headings) !== JSON.stringify(a.headings);
-  cmp.routes[r] = { photosBefore: b.photos.length, photosAfter: a.photos.length, lost: lostPix, gained: newPix,
+  cmp.routes[r] = { versionBefore: b.version || "", versionAfter: a.version || "",
+                    photosBefore: b.photos.length, photosAfter: a.photos.length, lost: lostPix, gained: newPix,
                     headingsBefore: b.headings, headingsAfter: a.headings, orderChanged: moved,
                     wordsBefore: b.words, wordsAfter: a.words };
   console.log(`  ${r.padEnd(14)} photos ${b.photos.length}->${a.photos.length}${lostPix.length ? "  LOST " + lostPix.length : ""}  order ${moved ? "CHANGED" : "same"}`);
@@ -759,10 +814,21 @@ writeFileSync(`${EVID}/compare.json`, JSON.stringify(cmp, null, 2));
 
 // THE PRESERVATION VERDICT, stated as its own line so a published edit that
 // lost a photograph cannot read as a pass on the strength of `ok: true`.
+//
+// ⚠ AND ONLY A VERIFIED COMPARISON MAY PASS OR FAIL IT (run 32). Pages read
+// from the wrong build pass every one of these checks while saying nothing
+// about this job, so an unverified comparison is printed as UNVERIFIED — never
+// as ok, never as FAIL.
+console.log(`\n  comparison  ${SAID}`);
 const anyLost = Object.values(cmp.routes).some((v) => v.lost.length > 0);
-check("no route lost an on-page photograph", !anyLost,
-  anyLost ? Object.entries(cmp.routes).filter(([, v]) => v.lost.length).map(([r, v]) => `${r}:${v.lost.length}`).join(" ") : "none lost");
-check("the stored components are preserved", cmp.parts.preserved, `${partsBefore.length} -> ${partsAfter.length}`);
+if (VERDICT.verified) {
+  check("no route lost an on-page photograph", !anyLost,
+    anyLost ? Object.entries(cmp.routes).filter(([, v]) => v.lost.length).map(([r, v]) => `${r}:${v.lost.length}`).join(" ") : "none lost");
+  check("the stored components are preserved", cmp.parts.preserved, `${partsBefore.length} -> ${partsAfter.length}`);
+} else {
+  console.log("  UNVERIFIED  no route lost an on-page photograph — the pages were not read at this job's version");
+  console.log("  UNVERIFIED  the stored components are preserved — the comparison is not tied to this job's version");
+}
 if (!partsBefore.length) {
   console.log("  NOTE  this fixture has no stored component, so the components half of the");
   console.log("        preservation guard is OUTSTANDING after this run — not disproved, untested.");
@@ -779,8 +845,6 @@ if (!partsBefore.length) {
 // the verdict is `ok: true` — a rung that ran, compiled and published. An
 // escalate is a legitimate product answer and a failed canary: it means the
 // paid half stopped before the thing under test.
-const body = done && done.json ? done.json : null;
-const published = !!(body && body.ok === true);
 // ⚠ AND THE THREE NON-REPLY OUTCOMES GET THREE SENTENCES, NOT ONE. "No
 // terminal answer inside the watch" was written for every one of them and is
 // only true of the last — a completed failure DID answer, and a lost job DID
@@ -792,5 +856,8 @@ else if (!published) {
   console.error("This is a completed round trip that changed nothing. Do not read it as a pass.");
 } else {
   console.log(`\nCANARY PASSED: layer=${body.layer || "?"} published, cost=${body.cost ?? "?"}`);
+  // THE VERDICT ON THE TRANSPORT IS NOT A VERDICT ON THE COMPARISON, and the
+  // line after it says which one this run has.
+  console.log(`The before/after comparison: ${SAID}`);
 }
 process.exit(published ? 0 : 1);

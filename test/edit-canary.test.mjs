@@ -303,7 +303,13 @@ test("the reply capture reads the browser's ACTIONS, not only its text", () => {
   // CLOSED ON THE NEXT CODE SIBLING, not on the section heading under it, for
   // the same reason — and searched FROM the opening one so the two cannot
   // cross.
-  const end = SRC.indexOf('await inventory("after")', at);
+  //
+  // ⚠ RE-ANCHORED 2026-09-25 (run 32). This closed on `await inventory("after")`
+  // until the after-read learned to wait for this job's version: the call gained
+  // an argument and a block now sits between the capture and it. The next code
+  // sibling of the capture is that block's first line, so the window is exactly
+  // as wide as it was.
+  const end = SRC.indexOf("const body = done && done.json", at);
   assert.ok(end > at, "the reply-capture block's closing landmark is gone or moved above it");
   const block = SRC.slice(at, end);
   assert.ok(block.length > 300, "the capture block came out too small to assert over: " + block.length);
@@ -353,4 +359,65 @@ test("the router is told the site's pages, read above the routing call (run 23)"
   // router's answer and nowhere the list it answered from.
   assert.match(paid, /routing\.json`,\s*JSON\.stringify\(\{[^\n]*\bsite:\s*digest\b/,
     "routing.json no longer records the digest the router was sent");
+});
+
+test("the after-read waits for THIS job's own version, and an unverified comparison passes nothing (run 32)", () => {
+  // RUN 32 (2026-09-25) READ THE PREVIOUS BUILD: the after-inventory ran as
+  // soon as the stored reply arrived, 7.9 s after the publish, and compared the
+  // old page with itself. The decisions are driven in canary-watch.test.mjs;
+  // this is the wiring — each hop between them, in the order that makes the
+  // after-read evidence about this job.
+  const paid = paidHalf();
+  const target = paid.indexOf("afterReadTarget(");
+  const wait = paid.indexOf("awaitVersion(", target);
+  const after = paid.indexOf('await inventory("after"');
+  const verdict = paid.indexOf("afterReadVerdict(");
+  assert.ok(target > 0, "the after-read no longer asks which version it must see");
+  assert.ok(wait > target, "the after-read no longer waits for that version");
+  assert.ok(after > wait, "the after-inventory is read before the wait — run 32's defect");
+  assert.ok(verdict > after, "the verdict is reached before the pages it judges were read");
+
+  // THE TARGET IS THIS JOB'S, found in the site's own version list by the job
+  // id the POST answered — never "whatever is newest".
+  const tLine = paid.slice(target, paid.indexOf("\n", target));
+  // THE JOB THE POST ANSWERED, handed over as itself — `job: ""` would still
+  // spell the word and look up nothing.
+  assert.match(tLine, /[{,]\s*job\s*[,}]/, "the target is not looked up by this job's id");
+  const list = paid.slice(paid.lastIndexOf("const versionList", target), target);
+  assert.match(list, /\/versions`/, "the version list is not the site's own versions route");
+
+  // THE LIVE READ IS THE SITE'S OWN HEADER, the one the restore mode reads too.
+  const live = paid.indexOf("const liveRead");
+  assert.ok(live > target && live < wait, "the live read is gone or moved — the observer is alive");
+  assert.match(paid.slice(live, wait), /headers\.get\("x-site-version"\)/, "the wait no longer reads the site's own version header");
+
+  // THE WAIT IS ON THE TARGET, and the pages are read at it only when it came.
+  assert.match(paid.slice(wait, paid.indexOf("\n", wait)), /expect:\s*TARGET\.id/, "the wait is not for the target version");
+  const aLine = paid.slice(after, paid.indexOf("\n", after));
+  assert.match(aLine, /WAIT\.kind === "match" \? TARGET\.id/, "the pages are held to the target even when the wait did not see it");
+
+  // EVERY PAGE RECORDS THE VERSION IT WAS READ AT — the one reading that names
+  // the build that served it.
+  const inv = SRC.indexOf("async function inventory(");
+  const invEnd = SRC.indexOf("\n}\n", inv);
+  assert.ok(inv > 0 && invEnd > inv, "the inventory function is gone — the observer is alive");
+  const invBody = SRC.slice(inv, invEnd);
+  assert.match(invBody, /x-site-version/, "a page read no longer records its version");
+  assert.match(invBody, /version:\s*got\.version/, "the recorded page drops the version it was read at");
+
+  // THE RECORD CARRIES THE VERDICT, and the checks that compare the two reads
+  // are inside a VERIFIED branch — the condition asserted, not only the call,
+  // because `if (true)` keeps every landmark where it is.
+  assert.match(paid, /comparison:\s*\{\s*\.\.\.VERDICT/, "compare.json no longer carries the verdict");
+  assert.match(paid, /versionBefore:[^\n]*versionAfter:/, "compare.json no longer records each page's two versions");
+  const gate = paid.indexOf("if (VERDICT.verified) {");
+  assert.ok(gate > 0, "the preservation checks are no longer gated on a verified comparison");
+  const photos = paid.indexOf('check("no route lost an on-page photograph"', gate);
+  const parts = paid.indexOf('check("the stored components are preserved"', gate);
+  const other = paid.indexOf("} else {", gate);
+  assert.ok(photos > gate && parts > gate && other > parts, "a preservation check runs outside the verified branch");
+  assert.match(paid.slice(other, other + 400), /UNVERIFIED/, "an unverified comparison is not said to be unverified");
+  // AND THE LAST LINE SAYS WHICH COMPARISON THE RUN HAS.
+  const tail = paid.slice(paid.lastIndexOf("CANARY PASSED"));
+  assert.match(tail, /SAID/, "the verdict on the transport no longer carries the verdict on the comparison");
 });

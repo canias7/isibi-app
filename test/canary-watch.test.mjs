@@ -19,6 +19,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal, MAX_ROUTER_PAGES } from "../scripts/canary-watch.mjs";
+import { publishedVersion, afterReadTarget, sameVersion, awaitVersion, afterReadVerdict, verdictSentence } from "../scripts/canary-watch.mjs";
 import { readFileSync } from "node:fs";
 
 const CANARY_RAW = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
@@ -320,4 +321,188 @@ test("the refusal names the site and the reason", () => {
   assert.match(s, /^REFUSING TO SPEND/);
   assert.match(s, /fretwork-1/);
   assert.match(s, /status 503/);
+});
+
+// ── 4. THE AFTER-READ WAITS FOR THIS JOB'S OWN VERSION (run 32, 2026-09-25) ──
+//
+// Run 32 published a section move on fretwork-1 and read the site back 7.9 s
+// after the job recorded its publish — the PREVIOUS build answered, and the
+// comparison said nothing had moved. These are run 32's own identifiers: the
+// version it started from, the version its job published, and the job's id.
+const V_BEFORE = "01790155568567-c1td33";
+const V_MINE = "01790360265159-n7mtnq";
+const V_LATER = "01790361000000-later1";   // minted after V_MINE: another publish
+const V_OLDER = "01790040384165-wl5it5";   // minted before V_BEFORE: an old build
+const JOB32 = "bb3e792f1eb4142103be22c9ebe6748c";
+const list = (versions, status = 200) => ({ status, json: { ok: true, versions } });
+const row = (id, job, parent) => ({ id, job, parent, label: "x", layout: "build" });
+
+test("the version this job published is found by the job's own id, never by being newest", () => {
+  // AN UNRELATED NEWER VERSION IS NOT A MATCH: the newest row is another job's.
+  const l = list([row(V_LATER, "another-job", V_MINE), row(V_MINE, JOB32, V_BEFORE), row(V_BEFORE, "an-older-job", V_OLDER)]);
+  assert.deepEqual(publishedVersion(l, JOB32), { ok: true, id: V_MINE, parent: V_BEFORE, rows: 1 });
+  // A job that published twice (a correction round) ends on its newest build.
+  const twice = list([row(V_LATER, JOB32, V_MINE), row(V_MINE, JOB32, V_BEFORE)]);
+  assert.equal(publishedVersion(twice, JOB32).id, V_LATER);
+  assert.equal(publishedVersion(twice, JOB32).rows, 2);
+  // The order the list arrives in does not decide it — the mint time does.
+  const reversed = list([row(V_MINE, JOB32, V_BEFORE), row(V_LATER, JOB32, V_MINE)]);
+  assert.equal(publishedVersion(reversed, JOB32).id, V_LATER);
+});
+
+test("a version list that cannot be read, or does not name this job, is not a target", () => {
+  const l = [row(V_MINE, JOB32, V_BEFORE)];
+  assert.deepEqual(publishedVersion(list(l, 503), JOB32), { ok: false, why: "list-unreadable", status: 503 },
+    "a list inside a failing answer is not a list");
+  assert.equal(publishedVersion({ status: 200, json: { ok: true } }, JOB32).why, "list-unreadable");
+  assert.equal(publishedVersion({ status: 200, json: { versions: "x" } }, JOB32).why, "list-unreadable");
+  assert.equal(publishedVersion(null, JOB32).why, "list-unreadable");
+  assert.equal(publishedVersion(list([row(V_LATER, "another-job", V_MINE)]), JOB32).why, "not-listed");
+  // THE JOB ID IS COMPARED STRICTLY, and a row whose id is not a version is
+  // never a target.
+  assert.equal(publishedVersion(list([{ id: V_MINE, job: 7, parent: V_BEFORE }]), "7").why, "not-listed");
+  assert.equal(publishedVersion(list([row("not-a-version", JOB32, V_BEFORE)]), JOB32).why, "not-listed");
+  // AND NO JOB FINDS NOTHING — a missing id must never match a row with none.
+  assert.equal(publishedVersion(list([row(V_MINE, "", V_BEFORE)]), "").why, "no-job");
+  assert.equal(publishedVersion(list([row(V_MINE, null, V_BEFORE)]), undefined).why, "no-job");
+});
+
+test("an edit that did not publish is compared against the version the before-read saw", () => {
+  assert.deepEqual(afterReadTarget({ published: false, before: V_BEFORE, list: null, job: JOB32 }),
+    { ok: true, id: V_BEFORE, parent: "", why: "unpublished" });
+  assert.equal(afterReadTarget({ published: false, before: "", list: null, job: JOB32 }).why, "before-unknown");
+  assert.equal(afterReadTarget({ published: true, before: V_BEFORE, list: list([row(V_MINE, JOB32, V_BEFORE)]), job: JOB32 }).id, V_MINE);
+});
+
+test("the before-read is one version only when every page agreed on it", () => {
+  assert.equal(sameVersion([V_BEFORE, V_BEFORE, V_BEFORE]), V_BEFORE);
+  assert.equal(sameVersion([V_BEFORE, V_MINE, V_BEFORE]), "", "a before-read that straddled a publish is not one version");
+  assert.equal(sameVersion(["", ""]), "");
+  assert.equal(sameVersion(["garbage", "garbage"]), "");
+  assert.equal(sameVersion([]), "");
+  assert.equal(sameVersion(undefined), "");
+});
+
+// A read sequence and a clock that records every nap instead of taking it.
+function reader(versions, extra = {}) {
+  let n = 0;
+  const read = () => { const v = versions[Math.min(n, versions.length - 1)]; n++; return Promise.resolve({ version: v, ...extra }); };
+  return { read, count: () => n };
+}
+function clock() {
+  const naps = [];
+  return { naps, sleep: (ms) => { naps.push(ms); return Promise.resolve(); } };
+}
+
+test("RUN 32'S SHAPE: the old build answers first, and the wait reads on until this job's version does", async () => {
+  const r = reader([V_BEFORE, V_BEFORE, V_MINE], { html: "<main>the new page</main>" });
+  const c = clock();
+  const w = await awaitVersion({ read: r.read, expect: V_MINE, polls: 40, gapMs: 3000, sleep: c.sleep });
+  assert.equal(w.kind, "match");
+  assert.equal(w.reads, 3, "run 32 read once and stopped; the wait must read past the old build");
+  assert.deepEqual(c.naps, [3000, 3000], "a nap between reads, none after the match");
+  assert.equal(w.last.html, "<main>the new page</main>", "the page that matched is the page kept");
+  // An OLDER build than this job's (the before-read's, or older still) is
+  // waited through, never taken.
+  const o = await awaitVersion({ read: reader([V_OLDER, V_MINE]).read, expect: V_MINE, sleep: clock().sleep });
+  assert.equal(o.kind, "match");
+  assert.equal(o.reads, 2);
+});
+
+test("a later publish stops the wait at once and is NOT a match", async () => {
+  const r = reader([V_BEFORE, V_LATER, V_MINE]);
+  const w = await awaitVersion({ read: r.read, expect: V_MINE, polls: 40, sleep: clock().sleep });
+  assert.equal(w.kind, "superseded");
+  assert.equal(w.seen, V_LATER);
+  assert.equal(r.count(), 2, "waiting on after a later version has landed cannot bring this job's back");
+});
+
+test("a wait that runs out is a timeout, bounded, and never a match", async () => {
+  const c = clock();
+  const r = reader([V_BEFORE]);
+  const w = await awaitVersion({ read: r.read, expect: V_MINE, polls: 40, gapMs: 3000, sleep: c.sleep });
+  assert.equal(w.kind, "timeout");
+  assert.equal(w.reads, 40);
+  assert.equal(r.count(), 40, "the bound is the number of reads, and it is respected");
+  assert.equal(c.naps.length, 39, "no nap after the last read");
+  assert.equal(w.seen, V_BEFORE);
+  // UNREADABLE AND GARBAGE ARE WAITED THROUGH TOO, and still time out.
+  assert.equal((await awaitVersion({ read: reader([""]).read, expect: V_MINE, polls: 3, sleep: clock().sleep })).kind, "timeout");
+  assert.equal((await awaitVersion({ read: reader(["x9"]).read, expect: V_MINE, polls: 3, sleep: clock().sleep })).kind, "timeout");
+  // A read that answers nothing at all is an unreadable read, not a crash.
+  assert.equal((await awaitVersion({ read: () => Promise.resolve(null), expect: V_MINE, polls: 2, sleep: clock().sleep })).kind, "timeout");
+  // NO TARGET, NO READS.
+  const none = reader([V_MINE]);
+  const n = await awaitVersion({ read: none.read, expect: "", sleep: clock().sleep });
+  assert.equal(n.kind, "no-target");
+  assert.equal(none.count(), 0);
+});
+
+const pagesAt = (v) => ({ "/": { version: v }, "/gear": { version: v }, "/prices": { version: v } });
+const MINE_TARGET = { ok: true, id: V_MINE, parent: V_BEFORE, rows: 1 };
+const MATCHED = { kind: "match", reads: 3, seen: V_MINE };
+
+test("the comparison is VERIFIED only when both reads are tied to this job", () => {
+  const v = afterReadVerdict({ published: true, before: V_BEFORE, target: MINE_TARGET, wait: MATCHED, after: pagesAt(V_MINE) });
+  assert.equal(v.verified, true);
+  assert.equal(v.why, "verified");
+  assert.match(verdictSentence(v), /^VERIFIED/);
+  assert.match(verdictSentence(v), new RegExp(V_MINE));
+  // An edit that did not publish: every page still at the before-read's version.
+  const un = afterReadVerdict({ published: false, before: V_BEFORE, target: { ok: true, id: V_BEFORE, parent: "" },
+    wait: { kind: "match", reads: 1, seen: V_BEFORE }, after: pagesAt(V_BEFORE) });
+  assert.equal(un.verified, true);
+  assert.match(verdictSentence(un), /did not publish/);
+});
+
+test("RUN 32'S AFTER-READ, AS IT WAS TAKEN, IS UNVERIFIED", () => {
+  // The pages it read were the previous build. The old harness compared them
+  // anyway and reported no change; the verdict must refuse to.
+  const v = afterReadVerdict({ published: true, before: V_BEFORE, target: MINE_TARGET, wait: MATCHED, after: pagesAt(V_BEFORE) });
+  assert.equal(v.verified, false);
+  assert.equal(v.why, "page-version");
+  assert.equal(v.off.length, 3);
+  assert.match(verdictSentence(v), /^UNVERIFIED/);
+  assert.match(verdictSentence(v), new RegExp(`/ was read at ${V_BEFORE}`));
+  // ONE page from the old build is the same defect on one route.
+  const one = afterReadVerdict({ published: true, before: V_BEFORE, target: MINE_TARGET, wait: MATCHED,
+    after: { "/": { version: V_MINE }, "/gear": { version: V_BEFORE }, "/prices": { version: V_MINE } } });
+  assert.equal(one.verified, false);
+  assert.deepEqual(one.off, [{ route: "/gear", version: V_BEFORE }]);
+});
+
+test("every way a comparison cannot be tied to this job is UNVERIFIED, with its own reason", () => {
+  const ok = { published: true, before: V_BEFORE, target: MINE_TARGET, wait: MATCHED, after: pagesAt(V_MINE) };
+  const cases = [
+    [{ before: "" }, "before-unknown"],
+    [{ before: "garbage" }, "before-unknown"],
+    [{ target: { ok: false, why: "list-unreadable", status: 503 } }, "list-unreadable"],
+    [{ target: { ok: false, why: "not-listed" } }, "not-listed"],
+    [{ target: null }, "no-target"],
+    // THE JOB STARTED FROM ANOTHER BUILD: a publish sits between the two reads.
+    [{ target: { ...MINE_TARGET, parent: V_OLDER } }, "parent-mismatch"],
+    [{ target: { ...MINE_TARGET, parent: "" } }, "parent-mismatch"],
+    [{ wait: { kind: "timeout", reads: 40, seen: V_BEFORE } }, "timeout"],
+    [{ wait: { kind: "superseded", reads: 2, seen: V_LATER } }, "superseded"],
+    [{ wait: null }, "no-wait"],
+    [{ after: {} }, "no-pages"],
+    [{ after: { "/": { version: "" } } }, "page-version"],
+  ];
+  for (const [change, why] of cases) {
+    const v = afterReadVerdict({ ...ok, ...change });
+    assert.equal(v.verified, false, `${JSON.stringify(change)} was verified`);
+    assert.equal(v.why, why, JSON.stringify(change));
+    const said = verdictSentence(v);
+    assert.match(said, /^UNVERIFIED — /, `${why} must say UNVERIFIED`);
+    assert.doesNotMatch(said, /unrecognised outcome/, `${why} has no sentence of its own`);
+  }
+  assert.equal(verdictSentence(afterReadVerdict({ ...ok, target: { ok: false, why: "list-unreadable", status: 503 } })).includes("503"), true,
+    "the list's status is named");
+  assert.match(verdictSentence(afterReadVerdict({ ...ok, wait: { kind: "superseded", seen: V_LATER } })), new RegExp(V_LATER));
+  // An edit that did not publish is never held to a parent it does not have.
+  const un = afterReadVerdict({ published: false, before: V_BEFORE, target: { ok: true, id: V_BEFORE, parent: "" },
+    wait: { kind: "superseded", reads: 1, seen: V_LATER }, after: pagesAt(V_LATER) });
+  assert.equal(un.why, "superseded", "a site that moved under an unpublished edit is not this job's outcome");
+  assert.match(verdictSentence({ why: "something-new" }), /^UNVERIFIED — unrecognised outcome/);
+  assert.match(verdictSentence(null), /^UNVERIFIED/);
 });
