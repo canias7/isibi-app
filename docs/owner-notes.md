@@ -8,8 +8,11 @@ all free checks passed, spending disabled, balance 3. No more deployment checks
 or retries needed. [Closure record](investigations/addon-escalation-correction.md)
 and [remaining edit-path checklist](investigations/edit-path-checklist.md).
 Translation and model-written replies remain parked. A missing live test is
-unverified behavior, not a product defect. Next check is prepared only; no paid
-dispatch or product correction is authorized by this record.
+unverified behavior, not a product defect. The owner subsequently authorized only
+the reproduced add-on fallback redraw correction: guarded like the edit side,
+179 focused tests pass; working branch only, pending review. This contains an
+escaped display error; publication and cleanup already succeeded. No merge,
+deployment, paid dispatch or changes to the other checklist items.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not

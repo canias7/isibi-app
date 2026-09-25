@@ -50,7 +50,7 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
-const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const POLL = readFileSync(new URL("../public/edit-poll.js", import.meta.url), "utf8");
 
 // A top-level function runs from its declaration to the first `}` at column 0.
@@ -537,6 +537,34 @@ test("CONTROL: an edit handed to the add-on whose success fails to apply keeps t
     lines: ["route: " + M1, "edit look: " + M1, "addon: " + M1],
     said: [ADDON_SHOWN],
   });
+});
+
+for (const queued of [false, true]) {
+  test(`an add-on success ${queued ? "queued" : "straight back"} whose application and fallback redraw both throw stays successful and permits the next message`, async () => {
+    await twoMessages({
+      first: {
+        route: [routeTo("look")], edit: [ok(HANDOFF)],
+        addon: [queued ? receipt("job-addon") : ok(ADDED)],
+        ...(queued ? { poll: [stored(ADDED)] } : {}),
+      },
+      credit: { from: "applyAddonResult" }, redraw: {},
+      lines: ["route: " + M1, "edit look: " + M1, "addon: " + M1, ...(queued ? ["poll job-addon"] : [])],
+      said: [ADDON_SHOWN],
+    });
+  });
+}
+
+test("a queued add-on fallback redraw that starts a newer message and throws leaves the newer request alone", async () => {
+  const p = page({
+    answers: {
+      route: [routeTo("look"), routeTo("look")], edit: [ok(HANDOFF)],
+      addon: [receipt("job-addon")], poll: [stored(ADDED)],
+    },
+    credit: { from: "applyAddonResult" },
+    redraw: { then: (q) => q.ctx.siteSend(M2) },
+  });
+  await p.send(M1);
+  await newerHolds(p, ["route: " + M1, "edit look: " + M1, "addon: " + M1, "poll job-addon", "route: " + M2, "edit look: " + M2], [ADDON_SHOWN]);
 });
 
 test("a second press while the queued job runs sends nothing, and the job's success that then fails to apply frees the page", async () => {

@@ -32,7 +32,7 @@ deployment checks or spend credits merely to relabel the same evidence.
 
 | Item | Current-code evidence and precise scope |
 | --- | --- |
-| Add-on known-success fallback can throw during its own redraw | `public/chat.js:10149`: the catch calls `o.finish(addonOutcomeMsg('shown'))` without a guard. The corresponding edit fallback catches that second throw. On the queued path this can escape to the event loop. This is a recorded robustness gap, not proof a published addition failed. |
+| Add-on known-success fallback redraw — fixed on working branch, not deployed | The owner independently reproduced an escaped queued display error; publication and request cleanup succeeded. The fallback now uses the existing edit-side guarded finish. Focused regressions cover direct/queued double failures, the subsequent message and a newer request started during redraw. Ordinary success-redraw controls remain. |
 | Queued refusal redraw can escape | `watchEditJob` invokes the outcome reader from its async step; refusal branches call `finish` without containing a redraw exception. Recorded impact: the sentence remains and the request frees, but a rejection can escape. No new live incident is claimed. |
 | Preview invalidation can be skipped after a synchronous scheduling exception | `applyEditResult` and `applyAddonResult` call `scheduleCreditRefresh()` before incrementing `previewV`. The injected synchronous throw is recorded. **Do not describe this as every failed balance request:** the actual scheduler defers `fetchCredits` in a timer, so an ordinary later network failure does not establish this sequence. |
 | Queued handoff loses the one-hop marker | `watchEditJob` supplies `handedOff:false` to its reader, whereas `escalatedEdit` uses that flag for the hop limit. Latent guard gap: the recorded current data→text and picture→page destinations do not hop again. Not evidence of a current live loop. |
@@ -42,31 +42,18 @@ in-memory limit (`siteDraft`, `sitesSave`), not a newly found defect. The silent
 duplicate latch is likewise a deliberate secondary guard, not a stranded-request
 regression. Translation and model-written replies remain parked.
 
-## One recommended next check — prepared, not executed
+## Prepared check completed; narrow correction awaiting review
 
-**Queued add-on success whose fallback redraw also throws.** This is the narrow
-untested combination beside the existing edit-side and add-on single-failure
-controls. It checks an acknowledged gap rather than reopening those fixes.
+The owner independently reproduced the queued add-on double display failure.
+The regression also failed before the patch with “the redraw failed” escaping.
+The existing edit-side guard now contains that fallback redraw exception.
 
-Preparation: a standalone `prepared-addon-redraw-check.mjs` is supplied with this
-task's outputs. It loads only the helper prelude of the existing
-`test/edit-result-display.test.mjs`, runs the actual browser handlers in their VM,
-and registers one additional scenario. No product or test-suite implementation
-is changed. Only the artifact's syntax is checked; no scenario is executed yet.
+All 179 focused tests pass in edit-result-display, edit-lock and addon-failure:
+one truthful success, no rewrite or extra handoff, busy/lock released, subsequent
+message completes, and an older completion leaves a newer request alone.
+The harness reads normalize CRLF so these controls also run on Windows.
 
-Scenario: route an edit, return its add-on handoff, queue the add-on and deliver
-a valid stored success. Throw synchronously in add-on result application, then
-throw again while drawing its known-success fallback. Send a second message
-through the same page after both injections have been consumed.
-
-**Acceptance:** exactly one truthful addition-success message; no uncertainty
-message, rewrite or extra handoff; no uncaught rejection; the first ask releases
-its busy state and lock; the second message posts exactly its own route/edit and
-finishes idle. The current unguarded catch is expected to fail the rejection
-criterion; the prepared probe has not yet measured it.
-
-**Can run free: yes.** All route/model results are local fixtures. VM fetch records
-requests instead of sending them; host fetch is disabled. It needs no account,
-credits, canary dispatch, live site or repair. This does not prove live model
-quality or billing. A later real edit would require separate spending approval;
-the recorded balance 3 is not a budget authorization.
+This is an escaped display error, not a failed publication or stranded request.
+All providers are fixture-backed; no paid run, merge or deployment. Other
+checklist items remain separate and unchanged. Required branch CI is recorded
+with the delivery; no next sweep or additional correction is started.

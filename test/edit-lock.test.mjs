@@ -47,7 +47,7 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
-const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const POLL = readFileSync(new URL("../public/edit-poll.js", import.meta.url), "utf8");
 
 // A top-level function runs from its declaration to the first `}` at column 0.

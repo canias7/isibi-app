@@ -10147,7 +10147,9 @@ function applyAddonResult(a, o) {
     }
     finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
   } catch (err) {
-    if (!told) o.finish(addonOutcomeMsg('shown'));
+    if (told) return;
+    const shown = addonOutcomeMsg('shown');
+    try { finish(shown); } catch (again) { /* left standing */ }
   }
 }
 // WHAT THE SCREEN SAYS WHEN AN ADDITION'S OWN ANSWER CANNOT BE USED
