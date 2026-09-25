@@ -2,131 +2,202 @@
   {
     "label": "CONTROL: the page-qualifier heading comment changes nothing",
     "control": true,
-    "files": [
-      "builder/page-prose.mjs"
-    ],
+    "files": ["builder/page-prose.mjs"],
     "from": "// ── A PAGE THE REQUEST NAMES (2026-09-25, owner) ────────────────────────────",
     "to": "// ── A PAGE THE REQUEST NAMES (2026-09-25, owner; control) ──────────────────"
   },
   {
+    "label": "CONTROL: the page-operand comment changes nothing",
+    "control": true,
+    "files": ["builder/page-prose.mjs"],
+    "from": "// ⚠ AND A PAGE THIS CHECK CANNOT READ MAY NOT DROP OUT OF THE SENTENCE UNREAD",
+    "to": "// ⚠ AND A PAGE THIS CHECK CANNOT READ MAY NOT DROP OUT OF THE SENTENCE (control)"
+  },
+  {
     "label": "CONTROL: the call site's comment changes nothing",
     "control": true,
-    "files": [
-      "worker.js"
-    ],
+    "files": ["worker.js"],
     "from": "              // held to it: \"…from the home page\" grants nothing on /prices.",
     "to": "              // held to it (control): \"…from the home page\" grants nothing on /prices."
   },
   {
     "label": "Q-1: a qualifier naming another page is not checked",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "    if ([...clause.matchAll(PAGE_QUAL)].some((m) => !samePage(m[2], page))) continue;\n",
+    "files": ["builder/page-prose.mjs"],
+    "from": "    if (quals.some((q) => !q.same)) continue;\n",
     "to": ""
   },
   {
     "label": "Q-2: every named page matches",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "  const n = space(named).toLowerCase();\n  // \"this page\", \"the page\": they can only mean the page being edited.\n  if (n === \"page\") return true;",
-    "to": "  const n = space(named).toLowerCase();\n  return true;\n  if (n === \"page\") return true;"
+    "files": ["builder/page-prose.mjs"],
+    "from": "  const n = space(named).toLowerCase().replace(/[.,;:!?]+$/, \"\");\n",
+    "to": "  const n = space(named).toLowerCase().replace(/[.,;:!?]+$/, \"\");\n  return true;\n"
   },
   {
     "label": "Q-3: the leading qualifier is left in front of the verb",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "    clause = clause.replace(PAGE_LEAD, \"\");\n",
+    "files": ["builder/page-prose.mjs"],
+    "from": "    if (quals.length && quals[0].start === 0) clause = clause.slice(quals[0].end).replace(/^\\s*[,:]?\\s*/, \"\");\n",
     "to": ""
   },
   {
     "label": "Q-4: the qualifier stays in the operand and is read as part of the target",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "const operand = space(action[2].replace(PAGE_QUAL, \" \"));",
+    "files": ["builder/page-prose.mjs"],
+    "from": "const operand = unqualified(action[2]);",
     "to": "const operand = space(action[2]);"
   },
   {
     "label": "Q-5: \"the text under X\" is not a form",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
+    "files": ["builder/page-prose.mjs"],
     "from": "[\"line\", \"paragraph\", \"sentence\", \"text\", \"words\"]",
     "to": "[\"line\", \"paragraph\", \"sentence\", \"words\"]"
   },
   {
     "label": "Q-6: the route does not tell the guard which page it edits",
-    "files": [
-      "worker.js"
-    ],
+    "files": ["worker.js"],
     "from": "message: eInstruction, page: routeOf(target.path) });",
     "to": "message: eInstruction });"
   },
   {
     "label": "Q-7: \"this page\" is not accepted",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "  if (n === \"page\") return true;\n  if (typeof page !== \"string\" || !page.trim()) return false;",
-    "to": "  if (n === \"page\") return false;\n  if (typeof page !== \"string\" || !page.trim()) return false;"
+    "files": ["builder/page-prose.mjs"],
+    "from": "  if (n === \"page\") return det !== \"that\";",
+    "to": "  if (n === \"page\") return false;"
   },
   {
     "label": "Q-8: the home page matches any page",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "index page)$/.test(n)) return have === \"/\";",
-    "to": "index page)$/.test(n)) return true;"
+    "files": ["builder/page-prose.mjs"],
+    "from": "  if (HOME_PAGE.test(n)) return have === \"/\";",
+    "to": "  if (HOME_PAGE.test(n)) return true;"
   },
   {
     "label": "Q-9: a page that cannot be confirmed is taken as a match",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
+    "files": ["builder/page-prose.mjs"],
     "from": "  if (typeof page !== \"string\" || !page.trim()) return false;",
     "to": "  if (typeof page !== \"string\" || !page.trim()) return true;"
   },
   {
     "label": "Q-10: \"from\" is not recognised as a page preposition",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "(?:on|in|from|off|of|for|at)\\s+${PAGE_DET}",
-    "to": "(?:on|in|off|of|for|at)\\s+${PAGE_DET}"
+    "files": ["builder/page-prose.mjs"],
+    "from": "const QUAL_PREP = String.raw`on|in|from|off|of|for|at`;",
+    "to": "const QUAL_PREP = String.raw`on|in|off|of|for|at`;"
   },
   {
     "label": "Q-11: the quoted replacement keeps the qualifier's words",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "const replacement = name(expand(space(clause.replace(PAGE_QUAL, \" \")).match(",
+    "files": ["builder/page-prose.mjs"],
+    "from": "const replacement = name(expand(unqualified(clause).match(",
     "to": "const replacement = name(expand(space(clause).match("
   },
   {
     "label": "Q-12: a named page matches without comparing its address",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
+    "files": ["builder/page-prose.mjs"],
     "from": "  return !!m && have.split(\"/\").pop() === m[1];",
     "to": "  return !!m;"
   },
   {
     "label": "Q-13: a route written as an address is not compared",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
+    "files": ["builder/page-prose.mjs"],
     "from": "  if (n.startsWith(\"/\")) return have === routeKey(n);",
     "to": "  if (n.startsWith(\"/\")) return true;"
   },
   {
     "label": "Q-14: \"to\" is read as a page word again, so replacement wording can void a request",
-    "files": [
-      "builder/page-prose.mjs"
-    ],
-    "from": "(?:on|in|from|off|of|for|at)\\s+${PAGE_DET}",
-    "to": "(?:on|in|from|off|of|for|at|to|onto)\\s+${PAGE_DET}"
+    "files": ["builder/page-prose.mjs"],
+    "from": "const QUAL_PREP = String.raw`on|in|from|off|of|for|at`;",
+    "to": "const QUAL_PREP = String.raw`on|in|from|off|of|for|at|to|onto`;"
+  },
+  {
+    "label": "Q-15: a quoted operand that is not recognisably a page drops out unread (the reported bypass, generalised)",
+    "files": ["builder/page-prose.mjs"],
+    "from": "        named = null;\n",
+    "to": "        continue;\n"
+  },
+  {
+    "label": "Q-16: a quote in the page position is not read at all",
+    "files": ["builder/page-prose.mjs"],
+    "from": "    if (quote !== undefined) {",
+    "to": "    if (quote !== undefined && false) {"
+  },
+  {
+    "label": "Q-17: a form's own preposition is read as a page (\"the words in ‘Chords’\")",
+    "files": ["builder/page-prose.mjs"],
+    "from": "        if ((prep === \"in\" || prep === \"of\") && FORM_WORD.test(clause.slice(0, start))) continue;\n",
+    "to": ""
+  },
+  {
+    "label": "Q-18: any in/of quote counts as a form reference, whatever stands before it",
+    "files": ["builder/page-prose.mjs"],
+    "from": "&& FORM_WORD.test(clause.slice(0, start))) continue;",
+    "to": ") continue;"
+  },
+  {
+    "label": "Q-19: a form word before ANY page preposition makes the quote a section",
+    "files": ["builder/page-prose.mjs"],
+    "from": "        if ((prep === \"in\" || prep === \"of\") && FORM_WORD",
+    "to": "        if (FORM_WORD"
+  },
+  {
+    "label": "Q-20: a web address is not read as a page operand, so it drops out unread",
+    "files": ["builder/page-prose.mjs"],
+    "from": "|https?:\\/\\/\\S*|",
+    "to": "|zzzzzzzzqq|"
+  },
+  {
+    "label": "Q-21: a plural \"pages\" is not read, so \"on the home and menu pages\" drops out",
+    "files": ["builder/page-prose.mjs"],
+    "from": "\\S*?pages?)(?=$",
+    "to": "\\S*?page)(?=$"
+  },
+  {
+    "label": "Q-22: a page name may run across another preposition and swallow the real qualifier",
+    "files": ["builder/page-prose.mjs"],
+    "from": "(?:(?!${QUAL_STOP})\\S+\\s+)*?",
+    "to": "(?:\\S+\\s+)*?"
+  },
+  {
+    "label": "Q-23: \"that page\" is taken as the page being edited",
+    "files": ["builder/page-prose.mjs"],
+    "from": "  if (n === \"page\") return det !== \"that\";",
+    "to": "  if (n === \"page\") return true;"
+  },
+  {
+    "label": "Q-24: a quoted page's own determiner is kept (‘the home page’)",
+    "files": ["builder/page-prose.mjs"],
+    "from": "      if (d) { words = d[1]; named = named.slice(d[0].length); }\n",
+    "to": ""
+  },
+  {
+    "label": "Q-25: the ‘Menu’ page loses its page word",
+    "files": ["builder/page-prose.mjs"],
+    "from": "      if (suffix) named += \" \" + suffix;",
+    "to": "      if (suffix) named += \"\";"
+  },
+  {
+    "label": "Q-26: a quoted page keeps its trailing punctuation (‘the menu page.’)",
+    "files": ["builder/page-prose.mjs"],
+    "from": "      named = name(quotes[Number(quote)]).replace(/[.,;:!?]+$/, \"\");",
+    "to": "      named = name(quotes[Number(quote)]);"
+  },
+  {
+    "label": "Q-27: an address keeps its trailing punctuation (\"From /menu, …\")",
+    "files": ["builder/page-prose.mjs"],
+    "from": "  const n = space(named).toLowerCase().replace(/[.,;:!?]+$/, \"\");\n  // \"this page\"",
+    "to": "  const n = space(named).toLowerCase();\n  // \"this page\""
+  },
+  {
+    "label": "Q-28: \"homepage\" and \"home-page\" are not the home page",
+    "files": ["builder/page-prose.mjs"],
+    "from": "const HOME_PAGE = /^(?:home[ -]?page|",
+    "to": "const HOME_PAGE = /^(?:home page|"
+  },
+  {
+    "label": "Q-29: a word ending in \"page\" is not read unless it is \"page\" or \"homepage\"",
+    "files": ["builder/page-prose.mjs"],
+    "from": "\\S*?pages?)(?=$",
+    "to": "(?:home)?pages?)(?=$"
+  },
+  {
+    "label": "Q-30: a quoted page name ending in \"page\" is not recognised as a page",
+    "files": ["builder/page-prose.mjs"],
+    "from": "const pageName = (n) => n.startsWith(\"/\") || /pages?$/.test(n);",
+    "to": "const pageName = (n) => n.startsWith(\"/\");"
   }
 ]

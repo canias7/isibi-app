@@ -201,9 +201,11 @@ const U = (u) => ({ model: MODEL, in: u.input_tokens, out: u.output_tokens, cach
 const credits = (...us) => pageCredits(...us.map(U));
 
 // ── THE HARNESS ─────────────────────────────────────────────────────────────
-function bucket(slug, before = HOME) {
+// `target` is the page file the edit changes; `before` is what it starts as.
+function bucket(slug, before = HOME, target = "index.tsx") {
+  const pages = [{ path: "index.tsx", source: HOME }, ...OTHER_PAGES].map((p) => (p.path === target ? { path: target, source: before } : p));
   const store = new Map([
-    ["source/" + slug + "/pages.json", JSON.stringify([{ path: "index.tsx", source: before }, ...OTHER_PAGES])],
+    ["source/" + slug + "/pages.json", JSON.stringify(pages)],
     ["source/" + slug + "/parts.json", JSON.stringify([{ name: "order-form", source: ORDER_FORM }])],
     [CONFIG_KEY(slug), JSON.stringify({
       look: { brand: "Harbour Loaf", theme: "broadsheet", tsx: [{ name: "order-form", does: "the order-ahead form", props: "none" }] },
@@ -241,13 +243,14 @@ function shownFile(args) {
  * writer's page; `judge` the preservation judge's answer — an object, a
  * function of the request, or "fail" / "garbled"; `lane` the css lane's answer;
  * `before` the home page the site starts from (the ordinary fixture unless a
- * case needs a different one).
+ * case needs a different one), or the page named by `target` when a case edits
+ * another page (its route then goes in `route.page`).
  * A model tool with no supplied answer is recorded and refused (503), so a case
  * passes only on the calls it names — and every call is in the log either way.
  */
-async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null, before = HOME }) {
+async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null, before = HOME, target = "index.tsx" }) {
   const slug = "keep-" + mode + "-" + hex(4);
-  const b = bucket(slug, before);
+  const b = bucket(slug, before, target);
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const reqBody = JSON.stringify({
@@ -290,7 +293,7 @@ async function drive({ mode = "sync", route, ask, pick = null, tweak = null, ans
       const said = (input, usage = CALL) => json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage });
       if (tool === T.pick && pick) return said(pick);
       if (tool === T.tweak) return tweak ? said({ source: tweak(shownFile(args)) }) : said({ cannot: "that needs the page rewritten" });
-      if (tool === T.pages && answer) return said({ pages: [{ path: "src/routes/index.tsx", source: answer }] });
+      if (tool === T.pages && answer) return said({ pages: [{ path: "src/routes/" + target, source: answer }] });
       if (tool === T.lane && lane) return said(lane, LANE);
       if (tool === T.keep) {
         seen.judged.push(args);
@@ -330,15 +333,15 @@ async function drive({ mode = "sync", route, ask, pick = null, tweak = null, ans
       await Promise.allSettled(ctx.pending);
     }
     const files = c.calls.map((k) => (k.body && k.body.files) || {});
-    const compiledOf = (f) => f["src/routes/index.tsx"] || f["index.tsx"] || null;
+    const compiledOf = (f) => f["src/routes/" + target] || f[target] || null;
     const pages = JSON.parse(b.store.get("source/" + slug + "/pages.json"));
     const parts = JSON.parse(b.store.get("source/" + slug + "/parts.json"));
     const config = JSON.parse(b.store.get(CONFIG_KEY(slug)));
     return {
       status, reply, before, calls: seen.calls, debits: seen.debits, judged: seen.judged,
       compiles: c.calls.length, compiled: files.length ? compiledOf(files[0]) : null,
-      stored: pages.find((p) => p.path === "index.tsx").source,
-      others: OTHER_PAGES.map((o) => (pages.find((p) => p.path === o.path) || {}).source),
+      stored: pages.find((p) => p.path === target).source,
+      others: [{ path: "index.tsx" }, ...OTHER_PAGES].filter((o) => o.path !== target).map((o) => (pages.find((p) => p.path === o.path) || {}).source),
       parts, css: config.css,
       reserves: seen.rpc.filter((r) => r.fn === "edit_reserve").map((r) => ({ seq: r.args.p_seq, cost: Number(r.args.p_cost) })),
       finalized: seen.rpc.filter((r) => r.fn === "edit_finalize").map((r) => r.args.p_ok),
@@ -1451,4 +1454,140 @@ test("PAGE: a qualifier is held to the page the edit changes, and cannot-tell gr
   assert.notEqual(twoParasChanged, twoParas, "the fixture really changes the page");
   assert.equal((await preservePageProse({ before: twoParas, after: twoParasChanged, message: OWNER_CHANGE, page: "/" })).ok, false,
     "with two paragraphs under the heading, \"the text under\" is ambiguous and grants nothing");
+});
+
+// ── A QUOTED PAGE, AND A PAGE THE CHECK CANNOT READ (2026-09-25, owner) ─────
+//
+// "Remove the ‘Chords’ section on ‘/menu’." published on the home page. The
+// quote was shielded, so the page reader never saw an address, and the target
+// then ended at "on" and took the address with it, unread. A quote standing in
+// the page position is read now and held to the page this edit changes; a page
+// operand the check cannot confirm grants nothing; and quoted REPLACEMENT copy
+// is never read as a page. The owner's own fixture: a Chords section beside an
+// unrelated Hours section, the writer taking Chords off and leaving Hours.
+const CHORD_SHAPES = "<section><h2>Chords</h2><p>Eight shapes for your first month.</p></section>";
+const ON_HOME = bare(CHORD_SHAPES, HOURS);
+// A real non-home page carries its own head, or the site's lint says so on the screen.
+const menuPage = (...blocks) => "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('/menu')({ head: () => ({ meta: [{ title: \"Lessons\" }] }), component: P })\n"
+  + "function P(){return <main>" + blocks.join("") + "</main>}\n";
+const ON_MENU = menuPage(CHORD_SHAPES, HOURS);
+const QUOTED_MENU = "Remove the ‘Chords’ section on ‘/menu’.";
+const QUOTED_COPY = "Change the text under ‘Chords’ to ‘Prices are on the menu page, at /menu.’";
+const COPY_ANSWER = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "Prices are on the menu page, at /menu."), HOURS);
+const HOURS_REWORDED = HOURS.replace("Open from 7am on weekdays.", "Open daily.");
+const MENU_OTHERS = [HOME, ...OTHER_PAGES.filter((o) => o.path !== "menu.tsx").map((o) => o.source)];
+
+for (const mode of ["sync", "job"]) {
+  const money = (r, published) => mode === "sync"
+    ? assert.deepEqual(r.debits, published ? [credits(CALL, CALL)] : [], "the charge")
+    : assert.deepEqual(r.reserves, published ? [{ seq: 1, cost: credits(CALL, CALL) }] : [], "the reservation");
+  const refusedHere = (r, before, others) => {
+    assert.equal(r.status, 409, JSON.stringify(r.reply));
+    assert.equal(r.reply.error, "prose-preservation");
+    assert.equal(r.reply.proseBlocked, "unconfirmed-target", "refused by the text guard, not by something else");
+    assert.equal(r.reply.cost, 0);
+    assert.deepEqual(r.calls, PAGE, "the quick writer declined and the full writer answered");
+    assert.equal(r.compiles, 0, "nothing was compiled");
+    assert.equal(r.stored, before, "the stored page is byte-identical to before");
+    assert.deepEqual(r.others, others, "the other pages are byte-identical");
+    assert.equal(r.reply.msg, PROSE_WITHHELD);
+    assert.ok(r.said.text.includes(PROSE_WITHHELD));
+    assert.deepEqual(r.said.actions, [], "the browser buys nothing after the refusal");
+    money(r, false);
+  };
+  const publishedHere = (r, answer, others, screen) => {
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.deepEqual(r.calls, PAGE, "the quick writer declined and the full writer answered");
+    assert.equal(r.compiles, 1);
+    assert.equal(r.compiled, answer, "the compiler payload is the writer's answer, byte for byte");
+    assert.equal(r.stored, answer, "the store holds the writer's answer, byte for byte");
+    assert.deepEqual(r.others, others, "the other pages are byte-identical");
+    assert.equal(r.said.text, screen);
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+    money(r, true);
+  };
+
+  test(`QUOTED PAGE ${mode}: a quoted address naming another page grants nothing, correct answer or not`, async () => {
+    const r = await drive({ mode, before: ON_HOME, ask: QUOTED_MENU, answer: bare(HOURS) });
+    refusedHere(r, ON_HOME, OTHER_PAGES.map((o) => o.source));
+  });
+  // THE CONTROL IS THE SAME SENTENCE ON THE PAGE IT NAMES, so what decides is
+  // the page the edit changes and not the words.
+  test(`QUOTED PAGE ${mode}: the same sentence, edited on the page it names, publishes`, async () => {
+    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS) });
+    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "✅ Updated /menu.");
+  });
+  test(`QUOTED PAGE ${mode}: a quoted page that matches never widens the grant: unrelated text lost is refused`, async () => {
+    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: QUOTED_MENU, answer: menuPage(HOURS_REWORDED) });
+    refusedHere(r, ON_MENU, MENU_OTHERS);
+  });
+  test(`QUOTED PAGE ${mode}: quoted replacement text that mentions another page stays copy`, async () => {
+    const r = await drive({ mode, before: ON_HOME, ask: QUOTED_COPY, answer: COPY_ANSWER });
+    publishedHere(r, COPY_ANSWER, OTHER_PAGES.map((o) => o.source), UPDATED);
+  });
+}
+
+test("QUOTED PAGE: every page operand is held to the page the edit changes, and one this check cannot read grants nothing", async () => {
+  const at = (route, ...blocks) => (route === "/" ? bare(...blocks) : page(route, blocks.join("")));
+  const run = (message, route, after = [HOURS]) => preservePageProse({ before: at(route, CHORD_SHAPES, HOURS), after: at(route, ...after), message, page: route });
+  const ok = async (message, route, after) => assert.deepEqual(await run(message, route, after), { ok: true }, message + " on " + route);
+  const no = async (message, route, after) => {
+    const r = await run(message, route, after);
+    assert.equal(r.ok, false, message + " on " + route);
+    assert.equal(r.why, "unconfirmed-target", message + " on " + route);
+  };
+  // THE OBSERVER IS ALIVE: the same answer with no page named publishes anywhere.
+  await ok("Remove the ‘Chords’ section.", "/");
+  await ok("Remove the ‘Chords’ section.", "/menu");
+  // A QUOTED ADDRESS OR PAGE NAME, in every quote style, compared with the edited route.
+  for (const q of [["‘", "’"], ["“", "”"], ['"', '"'], ["'", "'"]]) {
+    await no(`Remove the ${q[0]}Chords${q[1]} section on ${q[0]}/menu${q[1]}.`, "/");
+    await ok(`Remove the ${q[0]}Chords${q[1]} section on ${q[0]}/menu${q[1]}.`, "/menu");
+  }
+  await ok("Remove the ‘Chords’ section on ‘/’.", "/");
+  await ok("Remove the ‘Chords’ section from ‘the home page’.", "/");
+  await no("Remove the ‘Chords’ section from ‘the home page’.", "/menu");
+  await ok("Remove the ‘Chords’ section from the ‘Menu’ page.", "/menu");
+  await ok("Remove the ‘Chords’ section from ‘the menu page.’", "/menu");
+  await ok("From /menu, remove the ‘Chords’ section.", "/menu");
+  await no("From /menu, remove the ‘Chords’ section.", "/");
+  await no("Remove the ‘Chords’ section from the ‘Menu’ page.", "/");
+  for (const prep of ["in", "of", "at", "off", "for", "from"]) await no(`Remove the ‘Chords’ section ${prep} ‘/menu’.`, "/");
+  // A LEADING QUOTED PAGE is read, then stops standing in front of the verb.
+  await ok("On ‘/menu’, remove the ‘Chords’ section.", "/menu");
+  await no("On ‘/menu’, remove the ‘Chords’ section.", "/");
+  // AMBIGUOUS OR UNREADABLE: a page operand that cannot be confirmed grants nothing.
+  await no("Remove the ‘Chords’ section on ‘Menu’.", "/menu", undefined);
+  await no("Remove the ‘Chords’ section on ‘Gear Board’.", "/");
+  await no("Remove the ‘Chords’ section on the Lesson Prices page.", "/");
+  await no("Remove the ‘Chords’ section for the ‘Lesson Prices’ page.", "/");
+  await no("Remove the ‘Chords’ section on the home and menu pages.", "/");
+  await no("Remove the ‘Chords’ section on /café.", "/");
+  await no("Remove the ‘Chords’ section on https://fretwork-1.gofarther.app/.", "/");
+  await no("Go to the menu page and remove the ‘Chords’ section on that page.", "/");
+  // A page operand after the target's own end is still read: the target ends at
+  // "at", "like" and the rest, and what follows cannot carry a page away with it.
+  await no("Remove the ‘Chords’ section at the top in ‘Gear Board’.", "/");
+  await no("Remove the ‘Chords’ section like the text on ‘Gear Board’.", "/");
+  // …while the forms it can confirm still publish.
+  await ok("Remove the ‘Chords’ section from the home-page.", "/");
+  await ok("Remove the ‘Chords’ section from this page.", "/");
+  await ok("Remove the ‘Chords’ section at the top of the page.", "/");
+  // A FORM'S OWN PREPOSITION NAMES A SECTION, not a page.
+  await ok("Change the words in ‘Chords’ to ‘Start here.’", "/", [CHORD_SHAPES.replace("Eight shapes for your first month.", "Start here."), HOURS]);
+  await ok("Change the text of ‘Chords’ to ‘Start here.’", "/", [CHORD_SHAPES.replace("Eight shapes for your first month.", "Start here."), HOURS]);
+  // QUOTED REPLACEMENT COPY IS NEVER READ AS A PAGE, before or after a real qualifier…
+  const copy = [CHORD_SHAPES.replace("Eight shapes for your first month.", "Prices are on the menu page, at /menu."), HOURS];
+  await ok(QUOTED_COPY, "/", copy);
+  await ok("Change the text under ‘Chords’ on ‘/’ to ‘Prices are on the menu page, at /menu.’", "/", copy);
+  // …but a page named AFTER the quoted copy is a qualifier, and is held to the edit.
+  await no("Change the text under ‘Chords’ to ‘Prices are on the menu page, at /menu.’ on ‘/menu’.", "/", copy);
+  // UNQUOTED NEW WORDING IS STILL THE CUSTOMER'S SENTENCE: a page named in it
+  // after "on" cannot be told from a qualifier, so it grants nothing — quoting
+  // the new wording makes it copy.
+  await no("Change the text under ‘Chords’ to say prices are on ‘/menu’.", "/", [CHORD_SHAPES.replace("Eight shapes for your first month.", "prices are on /menu"), HOURS]);
+  await ok("Change the text under ‘Chords’ to say see ‘/menu’ for prices.", "/", [CHORD_SHAPES.replace("Eight shapes for your first month.", "see /menu for prices"), HOURS]);
+  // A QUALIFIER NEVER WIDENS A GRANT.
+  await no("Remove the ‘Chords’ section on ‘/’.", "/", [HOURS_REWORDED]);
 });

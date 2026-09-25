@@ -75,27 +75,76 @@ export function proseInventory(source, parse) {
 // and it must be the page this edit changes. It is never a target itself, and
 // one that names another page, or a page this check cannot confirm, grants
 // nothing, so a qualifier can only ever narrow what a sentence authorizes.
-const PAGE_DET = String.raw`(?:(?:the|this|that|my|our)\s+)`;
-const PAGE_NAME = String.raw`(?:home\s?page|front\s+page|main\s+page|landing\s+page|index\s+page|page|\/[a-z0-9/_-]*|[a-z0-9][a-z0-9-]*\s+page)`;
+//
+// ⚠ AND A PAGE THIS CHECK CANNOT READ MAY NOT DROP OUT OF THE SENTENCE UNREAD
+// (2026-09-25, owner). "Remove the ‘Chords’ section on ‘/menu’." published on
+// the home page: the quote was shielded, so no page was seen there, and the
+// target then ended at "on" and the address went with the rest. "On the Lesson
+// Prices page" and "on ‘Gear Board’" went the same way. So a PAGE OPERAND is
+// whatever stands after a page preposition and names a page — a quote, an
+// address, a web address or words ending in "page(s)" — and every one must be
+// confirmed as the page being edited or the clause grants nothing. A quoted
+// name that is not recognisably a page is ambiguous in that position and
+// grants nothing too, unless the preposition is a form's own ("the text in
+// ‘Hours’" names a section). Only a quote STANDING in the page position is
+// read: quoted replacement copy ("…to ‘See the menu page.’") stays copy.
 // NOT "to": it already ends the target operand, and a page after it is a
 // destination or replacement wording ("…then go to the gear page"), never a
 // target, so reading it as a qualifier could only refuse a valid request.
-const PAGE_QUAL = new RegExp(String.raw`(^|\s)(?:on|in|from|off|of|for|at)\s+${PAGE_DET}?(${PAGE_NAME})(?=$|[\s,.;:!?])`, "g");
-const PAGE_LEAD = new RegExp(String.raw`^(?:on|in|from|for|at)\s+${PAGE_DET}?${PAGE_NAME}\s*[,:]?\s+`);
+const QUAL_PREP = String.raw`on|in|from|off|of|for|at`;
+// A page's own name never runs across another preposition, so one qualifier
+// cannot swallow the next.
+const QUAL_STOP = String.raw`(?:on|in|from|off|of|for|at|to|into|onto|with|as|by|under|over|above|below|before|after|beside|between|than|like)\b`;
+const QUAL_DET = /^(the|this|that|my|our)\s+/;
+const FORM_WORD = /(?:^|\s)(?:line|paragraph|sentence|text|words)\s+$/;
+const HOME_PAGE = /^(?:home[ -]?page|front page|main page|landing page|index page)$/;
 const routeKey = (r) => "/" + String(r).trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+const pageName = (n) => n.startsWith("/") || /pages?$/.test(n);
 
 /** Whether a page named in a request is the page being edited. Cannot-tell is no. */
-function samePage(named, page) {
-  const n = space(named).toLowerCase();
-  // "this page", "the page": they can only mean the page being edited.
-  if (n === "page") return true;
+function samePage(named, page, det = "") {
+  const n = space(named).toLowerCase().replace(/[.,;:!?]+$/, "");
+  // "this page", "the page": they can only mean the page being edited. "That
+  // page" points back at a page named somewhere else, so it cannot be confirmed.
+  if (n === "page") return det !== "that";
   if (typeof page !== "string" || !page.trim()) return false;
   const have = routeKey(page);
-  if (/^(?:home ?page|front page|main page|landing page|index page)$/.test(n)) return have === "/";
+  if (HOME_PAGE.test(n)) return have === "/";
   if (n.startsWith("/")) return have === routeKey(n);
   // "the menu page" is the page whose address ends in /menu.
   const m = /^([a-z0-9][a-z0-9-]*) page$/.exec(n);
   return !!m && have.split("/").pop() === m[1];
+}
+
+/**
+ * Every page a clause names in the qualifier position, with where it stands and
+ * whether it is the page being edited. `token` is the quote shield's own word.
+ */
+function pageQualifiers(clause, token, quotes, page) {
+  const re = new RegExp(String.raw`(^|\s)(${QUAL_PREP})\s+(?:(the|this|that|my|our)\s+)?`
+    + String.raw`(${token}(\d+)(?:\s+(pages?))?|https?:\/\/\S*|\/\S*|(?:(?!${QUAL_STOP})\S+\s+)*?\S*?pages?)(?=$|[\s,.;:!?])`, "g");
+  const found = [];
+  for (const m of clause.matchAll(re)) {
+    const [whole, lead, prep, det = "", operand, quote, suffix] = m;
+    const start = m.index + lead.length;
+    // A web address is read so it cannot drop out; `samePage` never confirms
+    // one, its host being one this check cannot see.
+    let named = operand, words = det;
+    if (quote !== undefined) {
+      // A QUOTE IN THE PAGE POSITION: ‘/menu’, ‘the home page’, the ‘Menu’ page.
+      named = name(quotes[Number(quote)]).replace(/[.,;:!?]+$/, "");
+      const d = QUAL_DET.exec(named);
+      if (d) { words = d[1]; named = named.slice(d[0].length); }
+      if (suffix) named += " " + suffix;
+      else if (!pageName(named)) {
+        // A form's own preposition names a section: "the text in ‘Hours’".
+        if ((prep === "in" || prep === "of") && FORM_WORD.test(clause.slice(0, start))) continue;
+        named = null;
+      }
+    }
+    found.push({ start, end: m.index + whole.length, same: named !== null && samePage(named, page, words) });
+  }
+  return found;
 }
 
 // This is a deliberately small, explicit request grammar, not a language model
@@ -126,13 +175,21 @@ function permissions(message, before, pairs, page) {
     const unique = hits.filter((h, i) => hits.findIndex(x => x.block === h.block && x.scope === h.scope) === i);
     return unique.length === 1 ? unique[0] : null;
   };
+  // The qualifiers taken out of the text they stand in. Used only once every
+  // qualifier in the clause has been confirmed as the page being edited.
+  const unqualified = (s) => {
+    let out = "", at = 0;
+    for (const q of pageQualifiers(s, token, quotes, page)) { out += s.slice(at, q.start) + " "; at = q.end; }
+    return space(out + s.slice(at));
+  };
   for (let clause of clauses) {
     clause = space(clause).toLowerCase().replace(/^please\s+/, "");
     // EVERY PAGE THE CLAUSE NAMES MUST BE THIS PAGE, or the clause grants
     // nothing. A leading "On the home page," then stops standing in front of
-    // the verb, and the qualifier is taken out of the operand below.
-    if ([...clause.matchAll(PAGE_QUAL)].some((m) => !samePage(m[2], page))) continue;
-    clause = clause.replace(PAGE_LEAD, "");
+    // the verb, and the qualifiers are taken out of the operand below.
+    const quals = pageQualifiers(clause, token, quotes, page);
+    if (quals.some((q) => !q.same)) continue;
+    if (quals.length && quals[0].start === 0) clause = clause.slice(quals[0].end).replace(/^\s*[,:]?\s*/, "");
     const action = /^(change|rewrite|reword|update|show|rename|replace|remove|delete|take|make)\s+(.+)$/.exec(clause);
     if (!action) continue;
     if (/\b(?:not|never|dont|don't|except|unless|without|keep|leave|preserve|keeping|leaving)\b/.test(clause)) {
@@ -148,7 +205,7 @@ function permissions(message, before, pairs, page) {
     // THE PAGE QUALIFIER IS NOT PART OF THE TARGET: taken out of the operand
     // before the target is read, so "the X section from the home page" is the X
     // section and nothing after the qualifier can become a target.
-    const operand = space(action[2].replace(PAGE_QUAL, " "));
+    const operand = unqualified(action[2]);
     const object = operand.split(/\s+(?:to|as|into|with|so that|above|below|before|after|beside|like|compared to|relative to|at|on|off)\s+/)[0];
     const targets = object.split(/\s+and\s+/).map(resolve);
     const matched = targets.every(Boolean) ? targets : [];
@@ -175,7 +232,7 @@ function permissions(message, before, pairs, page) {
       if (a.text.length < 4 || exactObject !== name(a.text)) continue;
       if (before.atoms.filter(x => name(x.text) === name(a.text)).length !== 1) continue;
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
-      const replacement = name(expand(space(clause.replace(PAGE_QUAL, " ")).match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1] || ""));
+      const replacement = name(expand(unqualified(clause).match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1] || ""));
       if (removing || (replacement && pairs.get(a.block)?.atoms.some(x => name(x.text).replace(/[.!?]+$/, "") === replacement.replace(/[.!?]+$/, "")))) allowed.add(a);
     }
   }
