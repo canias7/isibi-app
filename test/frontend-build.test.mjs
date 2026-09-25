@@ -528,8 +528,17 @@ test("everything downstream asks whether there IS a database, not whether one wa
   for (const [call, why] of [
     [/if \(db\) made = await applySiteSchema\(db, spec\)/, "the schema apply is not gated on the connection"],
     [/if \(db\) seeded = await seedSiteRows\(db, /, "seeding is not gated on the connection"],
-    [/const stored = db \? await loadSiteSchema\(db\) : null/, "the merged-schema read is not gated on the connection"],
   ]) assert.match(src, call, why);
+  // THE MERGED-SCHEMA READ, RE-ANCHORED 2026-09-25: it is the catalog-aware one
+  // now, and a revise of a site whose reference is blank reads through the
+  // connection the four-state reader proved (`revConn`). The property is
+  // unchanged — it runs only with a connection in hand — and is read landmark
+  // to landmark, the gate before the read and the read before the merge.
+  const conn = src.indexOf("const specConn = db || revConn;");
+  const gate = src.indexOf("if (specConn) {", conn);
+  const merge = src.indexOf("pageSpec = withStoredSpec(spec, read.spec);", gate);
+  assert.ok(conn > 0 && gate > conn && merge > gate, "the merged-schema read is not gated on the connection");
+  assert.ok(src.slice(gate, merge).includes("specForAddon(specConn)"), "the merged-schema read is not inside the connection's gate");
 
   // The response tells the truth about it rather than claiming one always exists.
   assert.match(src, /backend: !!db,/, "the build response hardcodes `backend` again");

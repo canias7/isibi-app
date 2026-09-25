@@ -5952,6 +5952,30 @@ async function readStoredSpec(conn) {
  * and refuses the ones that would change behaviour; what is left over is a live
  * table the designers would not be told about, which is precisely run 47.
  */
+/** The revise's sentence for a database it could not read (2026-09-25). */
+const REVISE_DB_UNREADABLE_MSG = "I couldn't read your site's database just now, so I stopped rather than rewrite your pages as if it had none — this is on us. Try again in a few minutes.";
+
+/**
+ * THIS REQUEST'S SPEC OVER WHAT THE SITE ALREADY STORES, for the page writer
+ * (2026-09-25): tables, functions and outside connections, each by name, the
+ * request's own entry winning — it carries the full column objects `_meta`
+ * stores as names. A site that stores nothing answers the request's spec.
+ */
+function withStoredSpec(spec, stored) {
+  const byName = (a, b) => {
+    const m = new Map();
+    for (const x of (Array.isArray(a) ? a : [])) if (x && x.name) m.set(String(x.name).toLowerCase(), x);
+    for (const x of (Array.isArray(b) ? b : [])) if (x && x.name) m.set(String(x.name).toLowerCase(), x);
+    return [...m.values()];
+  };
+  const out = { ...spec };
+  for (const k of ["tables", "functions", "apis"]) {
+    const merged = byName(stored && stored[k], spec && spec[k]);
+    if (merged.length) out[k] = merged;
+  }
+  return out;
+}
+
 async function specForAddon(conn) {
   const st = await readStoredSpec(conn);
   if (!st.ok) return { ok: false, why: st.state + ":" + st.why };
@@ -15427,6 +15451,34 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // is worse than no step at all: it attributes the wait to the wrong thing.
       tr.at("owner");
 
+      // ── A REVISE KNOWS THE DATABASE THE SITE HAS, READ-ONLY (2026-09-25) ──
+      //
+      // `siteBackendRowFresh` answers `conn: null` for a site whose database is
+      // real and whose `site_backends.neon_db` is blank — the four `incomplete`
+      // sites — and a database it could not reach reads the same. REPRODUCED
+      // through this route with supplied answers: on both, the page writer was
+      // handed the FRONTEND rules ("THIS SITE HAS NO DATABASE") for a rewrite of
+      // every page, over a home page calling the site's own function. So when
+      // the row carries no connection, the four-state reader the edit's rungs
+      // use is asked — it resolves and PROVES, and writes nothing — and
+      // `unreadable` stops here, refunded, rather than rewriting the site as if
+      // it had no database. `none` is the one state in which it has none.
+      //
+      // NOTHING IS PROVISIONED OR REPAIRED FROM THIS: the connection is used to
+      // READ what the database holds for the writer, and `needsDb` — which is
+      // what reaches `ensureSiteBackend` — is decided exactly as before.
+      let revConn = null;
+      if (existing && !ownerConn) {
+        const found = await siteBackendDetail(env, slug);
+        if (found.state === "unreadable") {
+          console.error("revise backend unreadable:", slug, found.why);
+          const back = await refundFields();
+          return Response.json({ ok: false, error: "backend-unreadable", ours: true, backend: String(found.why || ""),
+            msg: REVISE_DB_UNREADABLE_MSG, ...back }, { status: 503 });
+        }
+        if (found.conn && (found.state === "incomplete" || found.state === "ready")) revConn = found.conn;
+      }
+
       let spec = normalizeSchema(body.schema || designed || {});
       tr.at("normalize");
       // A BOOKING TABLE WITH NOTHING STOPPING A DOUBLE BOOKING, named rather
@@ -15693,16 +15745,33 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // the site has but stores columns as plain names. Taking _meta wholesale
       // threw away the type information for the tables just designed, and the
       // generator was told they had no columns.
+      //
+      // ⚠ AND ITS FUNCTIONS AND CONNECTIONS, NOT ITS TABLES ALONE (2026-09-25).
+      // The merge took `tables` and left `functions` and `apis` to this
+      // request's spec — so a revise of a site with a function its page calls
+      // (`useRpc("bookings_on_day")`) handed the writer a digest without it,
+      // measured through this route on a `ready` site, and rule 11 tells the
+      // writer to call only what the digest lists.
+      //
+      // ⚠ AND A READ THAT FAILED IS NOT AN EMPTY DATABASE (2026-09-25). This
+      // was `loadSiteSchema`, which answers `{tables: []}` for a read that
+      // threw; `specForAddon` asks the catalog first — the reader the edit's
+      // page rung uses — and a database whose contents cannot be established
+      // stops the revise, refunded, rather than rewriting every page as if it
+      // stored nothing.
       let pageSpec = spec;
-      try {
-        const stored = db ? await loadSiteSchema(db) : null;
-        if (stored && Array.isArray(stored.tables) && stored.tables.length) {
-          const byName = new Map();
-          for (const t of stored.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
-          for (const t of (spec.tables || [])) if (t && t.name) byName.set(String(t.name).toLowerCase(), t); // richer wins
-          pageSpec = { ...spec, tables: [...byName.values()] };
+      const specConn = db || revConn;
+      if (specConn) {
+        let read = null;
+        try { read = await specForAddon(specConn); } catch (e) { read = { ok: false, why: "spec-read-threw" }; }
+        if (!read || !read.ok) {
+          console.error("revise schema unreadable:", slug, read && read.why);
+          const back = await refundFields();
+          return Response.json({ ok: false, error: "backend-unreadable", ours: true, backend: "schema:" + String((read && read.why) || ""),
+            msg: REVISE_DB_UNREADABLE_MSG, ...back }, { status: 503 });
         }
-      } catch (e) { console.error("merged schema read failed:", slug, e && e.message); }
+        pageSpec = withStoredSpec(spec, read.spec);
+      }
 
       // ── THE SITE'S LOOK, REMEMBERED ────────────────────────────────────────
       //

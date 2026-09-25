@@ -239,10 +239,15 @@ test("the build's refs: one per debit, the job's id under the queue, carried to 
   // updates on its way out. So the bare call is the one that is not a refusal,
   // and a total alone could not tell a ninth refusal that forgot to reverse
   // from a ninth caller that is not one.
-  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 8,
-    "the eight refusals no longer all reverse through the ledger of refs");
-  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 9,
-    "a reversal was added or removed outside the eight refusals — say which, here");
+  //
+  // TEN SINCE 2026-09-25: a revise whose database cannot be read stops rather
+  // than rewriting every page as if it had none — once where the four-state
+  // reader answers `unreadable`, once where the catalog-aware schema read does
+  // (`REVISE_DB_UNREADABLE_MSG`) — and each reverses every ref it debited.
+  assert.equal((route.match(/const back = await refundFields\(\);/g) || []).length, 10,
+    "the ten refusals no longer all reverse through the ledger of refs");
+  assert.equal((route.match(/await refundFields\(\)/g) || []).length, 11,
+    "a reversal was added or removed outside the ten refusals — say which, here");
   // What the reply carries.
   assert.match(route, /exempt: \(exempt \|\| \(pages && pages\.exempt === true\)\) \? true : undefined,/, "the reply does not carry exempt");
   // A FOUNDER IS NEVER SETTLED, and the flag that says so is set where the
