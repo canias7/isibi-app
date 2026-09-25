@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC); the section-reorder test on fretwork-1 waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -216,7 +216,8 @@ evaluated before the second is pressed.
   - Test 2 is about 10 if the quick writer handles it (run 17). If it falls back
     to the full writer, it is 17–24 (runs 21, 26, 11 and 24).
   - The labels-only test 1 would be 17–24.
-  - **The balance is 3.**
+  - **Read the balance from the ledger right before the press**; it was 1
+    after run 31.
 - **This session's browser cannot open the site's pages** (the browser does not
   trust the network proxy). Adding the proxy's CA to Chromium's trust was
   refused by the permission system. So a live browser check is either your
@@ -244,9 +245,15 @@ evaluated before the second is pressed.
   This is another case of the recorded billing-wording item (a failure
   sentence that claims nothing was charged). **You kept the live test open
   (run 31 was blocked by credits, not a failed fix) and asked for this one to
-  be fixed. It is fixed on the branch; see the next entry.**
+  be fixed. It is fixed and deployed; see the next entry.**
+- **Updated for deployment 2159 (2026-09-25).** The form's two expectation
+  boxes are now `c2fa000cba21ec4546a6593b41e9031f7da97124` and
+  `a51d8b32e5869576`. The container image rolled, so press no earlier than
+  about 18:10 UTC. The request, the site, the six starting hashes and every
+  acceptance check are unchanged, and the site still serves
+  `01790155568567-c1td33` (read 17:53 UTC).
 
-## 2026-09-25 — A credit refusal now states the edit's cost and the routing cost separately (on the branch, not deployed)
+## 2026-09-25 — A credit refusal now states the edit's cost and the routing cost separately (merged and deployed)
 
 **What the customer now reads on run 31's shape:** "⚠️ That didn't go through —
 there aren't enough credits for it, so it wasn't published. Top up and send it
@@ -283,7 +290,19 @@ again. This edit cost you nothing. Reading your message cost 2 credits."
   - Site build run 36162058201 on the same commit is green: all twelve of its
     counts match what is on record (site build 382 passed, the kit checks all
     passed).
-- **Not merged, not deployed, no paid retry.**
+- **Merged and deployed** as deployment 2159
+  ([36169277205](https://github.com/canias7/isibi-app/actions/runs/36169277205),
+  17:47–17:50 UTC), after your independent review (26 focused tests, both
+  required CI checks green). No paid retry.
+  - Main fast-forwarded from `6ed355e4` to `c2fa000c`; nothing newer was on
+    main.
+  - The container image rolled from `f05cb5a5a0def44c` to
+    `a51d8b32e5869576`, as predicted before the push.
+  - The served `chat.js` is byte-identical to the merged file (782,960 bytes,
+    read at 17:51 UTC).
+  - The server sentences live in the Worker, whose version here is the
+    deploy's own report. The next canary press's preflight reads it live and
+    refuses on a mismatch before anything is spent.
 - **The top-up couldn't be done from here.** Credits are added only through
   `add_credits`, which is gated by a mint secret held by the Worker and GitHub,
   and this session doesn't have it. The Supabase connector in this session

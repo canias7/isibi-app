@@ -10,6 +10,9 @@ Edit-path milestone and literal-text guard: [milestone](docs/investigations/edit
 run 36155364708 at 2026-09-25 15:37 UTC (all free checks passed, spending off, balance 3).
 The guard covers parsed literal JSX prose and its supported request grammar only;
 every model answer in its evidence is supplied.
+Credit-refusal wording (the edit's charge and the routing charge stated apart):
+merged/deployed at `c2fa000c` (deploy 2159, image `a51d8b32e5869576`); served
+`chat.js` byte-identical to the merged file; the Worker half is Wrangler's report.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -415,6 +418,14 @@ lines**, image step 2m12s, Wrangler 25s (it reinstalled itself first), job
 3m09s. **The running count above stops at twenty-six on purpose**: deploys 2156
 and 2157 were another session's, and whether their ids were predicted before
 the push is not recorded here.
+**Deploy 2159 (2026-09-25) was predicted on both ends and confirmed on both
+channels**: `origin/main` `6ed355e4` answered `f05cb5a5a0def44c` — what canary
+run 30 read LIVE — and the tip `c2fa000c` answered `a51d8b32e5869576`, both from
+187 inputs, `worker.js` the one of the push's six files among the 157 distinct
+input paths. The log answered `built …:a5***d8b32e5869576 (registry answered
+404; ***87 inputs …)` and `- …:f05cb5a5a0def44c` → `+ …:a5***d8b32e5869576`
+under `SUCCESS Modified application`; **0 `CACHED` lines**, image step 2m05s,
+Wrangler ~22s, job 3m09s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -4051,9 +4062,9 @@ separate next tasks"*):
    `NO_CONTAINER_MSG`); and refusals that collect a charge (nav `no-menu`, the
    rename refusals, data/rules `no-match`, picture `no-change`) report a `cost`
    the job path then refunds, so the stored reply disagrees with the ledger.
-   **`compileMsg`'s `unbilled` half is FIXED on the branch (2026-09-25, from
-   run 31)**: see *a ledger refusal states the edit's charge and the routing
-   charge apart*. The other sentences in this list are unchanged.
+   **`compileMsg`'s `unbilled` half is FIXED (2026-09-25, from run 31), merged
+   and deployed in deploy 2159**: see *a ledger refusal states the edit's
+   charge and the routing charge apart*. The other sentences in this list are unchanged.
 5. **Found on the way, out of scope**: the rename's SECOND alias write failing
    leaves the old name demoted and the new one unwritten (explained with
    `unchanged: false`; the half-moved state is not repaired); `siteRoute`'s own
@@ -7595,15 +7606,15 @@ and `edit-text-preservation.md`, deliberately not copied here.
   the request. The two live tests the milestone plans are prepared and not
   dispatched (13–26 credits together; balance 3 at canary 36096052737).
 
-### A LEDGER REFUSAL STATES THE EDIT'S CHARGE AND THE ROUTING CHARGE APART (2026-09-25, on the branch)
+### A LEDGER REFUSAL STATES THE EDIT'S CHARGE AND THE ROUTING CHARGE APART (2026-09-25, merged and deployed in deploy 2159)
 
 Owner, after canary run 31 (`36159773928`) stopped at the credit reservation:
 *"compileMsg's unbilled response says "nothing was charged," although routing
 already charged 2 credits. Distinguish the edit's charge from routing. Use
 actual recorded amounts where available; if routing cost is unavailable after
 reload, don't invent a total or claim the whole request was free. Keep "not
-published" separate from "nothing changed.""* **Not merged, not deployed, no
-paid run.**
+published" separate from "nothing changed.""* **Merged and deployed in deploy
+2159 (the last bullet); no paid run.**
 
 - **REPRODUCED FIRST THROUGH THE REAL COMPOSER.** `editBrowserReply` was run
   over run 31's stored reply and its own routing reply, both read from the
@@ -7682,6 +7693,30 @@ paid run.**
     (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) from the case that
     compiles a broken page on purpose. `site-build.mjs` took **18m53s**.
     **The stamp chain ends at `eb7a4372`.**
+- **MERGED AND DEPLOYED — deploy 2159 (`36169277205`), NOT RUNTIME-CONFIRMED**
+  (owner: *"Merge and deploy this reviewed correction… No paid verification run
+  is needed for this wording fix."*). The independent review passed 26 focused
+  tests and both required CI checks.
+  - **A fast-forward**: main `6ed355e4` → **`c2fa000c`** at 17:46:57Z, 9
+    commits, 6 files. Main had not moved, so nothing on it could be lost.
+    Asked before the push: nothing in flight, CI green on every commit of the
+    range, the image predicted over both ends, and the rollback verified —
+    reverting the range gives tree `2c1475c6…`, main's own, so a rollback
+    reuses `f05cb5a5a0def44c`.
+  - **The deploy**: job 17:47:04 → 17:50:13Z. `DEPLOY_ID` `c2fa000c…`; the gate
+    took over from `6ed355e4…`; the image **built `a51d8b32e5869576` and rolled
+    from `f05cb5a5a0def44c`** (the paragraph in the deploy section); `+ /chat.js`,
+    1 uploaded, 85 already; `Uploaded isibi-app`, `Current Version ID:
+    d9568430-…`, `Deployed isibi-app triggers`.
+  - **The served file, both readings**: before (17:46:21Z) 781,931 bytes,
+    sha256 `36b2d3b6dc15f271`, byte-identical to `6ed355e4`'s, 0 ×
+    `if (e.error === 'unbilled') {`; after (17:51:24Z) **782,960 bytes,
+    `d5b10edb5534dae5`, byte-identical to `git show c2fa000c:public/chat.js`**
+    with and without a query string, 1 ×. Gates 401 / 401 / 401 / 404.
+  - **The Worker half is Wrangler's report.** The server sentences live in
+    `worker.js`, and the Worker's sha and a cold start's image need a signed-in
+    read; the next canary press's preflight reads both and refuses on a
+    mismatch before anything is spent.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
