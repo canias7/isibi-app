@@ -36,7 +36,7 @@ export function addonFailure(reason, { reconstruct = false, layer, kind, problem
   }
   const messages = {
     empty: "Tell me what you'd like to add before I continue.",
-    unconfigured: "The site builder isn't configured for the selected model, so I couldn't continue with the addition. This needs fixing on our side.",
+    unconfigured: "The site builder is missing required configuration, so I couldn't continue with the addition. This needs fixing on our side.",
     "editable-state": "I couldn't verify or recover the site's editable files, so I've stopped this addition instead of rebuilding from uncertain data.",
     "no-source": "I couldn't read the site's saved page files reliably, so I've stopped this addition instead of rebuilding without them.",
     "no-meta": "I couldn't read the site's saved design or database information reliably, so I've stopped this addition instead of guessing.",
