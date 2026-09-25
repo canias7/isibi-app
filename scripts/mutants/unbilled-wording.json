@@ -1,0 +1,57 @@
+[
+ {
+  "label": "CONTROL: a comment in the ledger-refusal note changes nothing",
+  "files": ["public/chat.js"],
+  "from": "  // (2026-09-25, run 36159773928). Its server sentence used to end \"…it\n",
+  "to": "  // (2026-09-25, run 36159773928, control). Its server sentence used to end \"…it\n",
+  "control": true
+ },
+ {
+  "label": "U-1: the short-balance sentence says \"nothing was charged\" again (run 31's defect)",
+  "files": ["worker.js"],
+  "from": "      ? \"That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again.\"\n",
+  "to": "      ? \"That didn't go through — there aren't enough credits for it, so it wasn't published and nothing was charged. Top up and send it again.\"\n"
+ },
+ {
+  "label": "U-2: the billing-service-down sentence says \"nothing was charged\" again",
+  "files": ["worker.js"],
+  "from": "      : \"That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.\";\n",
+  "to": "      : \"That didn't go through — our billing service didn't answer, so it wasn't published and nothing was charged. Try again in a moment.\";\n"
+ },
+ {
+  "label": "U-3: the browser states no money on a ledger refusal (the unbilled branch gone)",
+  "files": ["public/chat.js"],
+  "from": "  if (e.error === 'unbilled') {\n    const cost = typeof e.cost",
+  "to": "  if (false) {\n    const cost = typeof e.cost"
+ },
+ {
+  "label": "U-4: the routing amount is dropped from a ledger refusal",
+  "files": ["public/chat.js"],
+  "from": "    return edit + reading;\n",
+  "to": "    return edit;\n"
+ },
+ {
+  "label": "U-5: an edit cost the reply did not record is called free",
+  "files": ["public/chat.js"],
+  "from": "    const edit = cost === null ? ''\n",
+  "to": "    const edit = cost === null ? ' This edit cost you nothing.'\n"
+ },
+ {
+  "label": "U-6: a ledger refusal claims nothing on the site changed",
+  "files": ["public/chat.js"],
+  "from": "  if (e.unchanged === true || e.error === 'withheld') {\n",
+  "to": "  if (e.unchanged === true || e.error === 'withheld' || e.error === 'unbilled') {\n"
+ },
+ {
+  "label": "U-7: a recorded edit cost above zero is said as free",
+  "files": ["public/chat.js"],
+  "from": "      : cost > 0 ? ' This edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'\n",
+  "to": "      : cost > 0 ? ' This edit cost you nothing.'\n"
+ },
+ {
+  "label": "U-8: the routing amount is read from the edit's reply instead of the routing reply",
+  "files": ["public/chat.js"],
+  "from": "  const routed = d && Number(d.cost) > 0 ? Number(d.cost) : 0;\n  const reading =",
+  "to": "  const routed = e && Number(e.cost) > 0 ? Number(e.cost) : 0;\n  const reading ="
+ }
+]

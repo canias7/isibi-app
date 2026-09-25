@@ -9433,11 +9433,6 @@ function editShownMsg() {
  */
 function wholeRequestNote(e, d) {
   if (!e || e.ok) return '';
-  // THE SCOPE WIDENED ON 2026-09-23 AND THE CONDITION DID NOT LOOSEN. Every
-  // refusal the classification added carries `unchanged: true` — the rung
-  // saying it wrote nothing — and the merge sets it on a message only when
-  // EVERY step says so. `withheld` stays beside it for replies stored before.
-  if (!(e.unchanged === true || e.error === 'withheld')) return '';
   // ⚠ "YOU HAVEN'T BEEN CHARGED" WAS FALSE, and this reader is where it was
   // said. The routing call that chose this route is a separate POST, billed
   // on its own and never refunded (run 12 moved the balance by 2 on a message
@@ -9447,13 +9442,35 @@ function wholeRequestNote(e, d) {
   // the routing reply's own `cost` when this browser still holds it. A watch
   // resumed after a refresh does not, and then nothing is said about it
   // rather than a guess.
-  const cost = Number(e.cost) || 0;
-  let out = cost > 0
-    ? ' Nothing on your site changed, but this edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
-    : ' Nothing on your site changed, and this edit cost you nothing.';
   const routed = d && Number(d.cost) > 0 ? Number(d.cost) : 0;
-  if (routed) out += ' Reading your message cost ' + routed + ' credit' + (routed === 1 ? '' : 's') + '.';
-  return out;
+  const reading = routed ? ' Reading your message cost ' + routed + ' credit' + (routed === 1 ? '' : 's') + '.' : '';
+  // THE SCOPE WIDENED ON 2026-09-23 AND THE CONDITION DID NOT LOOSEN. Every
+  // refusal the classification added carries `unchanged: true` — the rung
+  // saying it wrote nothing — and the merge sets it on a message only when
+  // EVERY step says so. `withheld` stays beside it for replies stored before.
+  if (e.unchanged === true || e.error === 'withheld') {
+    const cost = Number(e.cost) || 0;
+    return (cost > 0
+      ? ' Nothing on your site changed, but this edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
+      : ' Nothing on your site changed, and this edit cost you nothing.') + reading;
+  }
+  // ⚠ A LEDGER'S REFUSAL STATES THE MONEY AND NOT "NOTHING CHANGED"
+  // (2026-09-25, run 36159773928). Its server sentence used to end "…it
+  // wasn't published and nothing was charged", and the balance went 3 → 1:
+  // the routing call is its own charge. The sentence now says only what
+  // happened, and the amounts are stated here from what each reply RECORDED.
+  // It is not an `unchanged` reply: "not published" is not "nothing changed",
+  // because a rung can write rows before the reserve that refused. A `cost`
+  // that is not a real number says nothing about the edit, rather than
+  // calling it free; with no routing reply held there is no total to give.
+  if (e.error === 'unbilled') {
+    const cost = typeof e.cost === 'number' && Number.isFinite(e.cost) && e.cost >= 0 ? e.cost : null;
+    const edit = cost === null ? ''
+      : cost > 0 ? ' This edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
+      : ' This edit cost you nothing.';
+    return edit + reading;
+  }
+  return '';
 }
 
 function editAnswer(httpOk, e, o) {

@@ -9672,11 +9672,19 @@ function compileMsg(pub, theirs) {
   // compile, and the fallback sentence would call it one. "Wasn't published"
   // rather than "nothing was changed", because a rung that writes rows before
   // it reserves has already written them; what is true on every rung is that
-  // nothing published and, once the consumer's refund lands, nothing charged.
+  // nothing published.
+  //
+  // ⚠ AND IT NO LONGER SAYS "NOTHING WAS CHARGED" (2026-09-25, run 36159773928).
+  // That was true of the change once the refund lands and false of the
+  // message: the routing call that chose this route is a separate charge that
+  // is never refunded. Run 31 moved the balance 3 → 1 under a screen saying
+  // nothing was charged. What anything cost is stated by the reader, from the
+  // amounts recorded on each reply (`wholeRequestNote` in public/chat.js), and
+  // this sentence says only what happened.
   if (pub && pub.error === "unbilled") {
     return pub.detail === "insufficient"
-      ? "That didn't go through — there aren't enough credits for it, so it wasn't published and nothing was charged. Top up and send it again."
-      : "That didn't go through — our billing service didn't answer, so it wasn't published and nothing was charged. Try again in a moment.";
+      ? "That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again."
+      : "That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.";
   }
   if (!pub || !pub.ours) return theirs;
   // ── AND A THIRD (2026-09-02) ─────────────────────────────────────────────

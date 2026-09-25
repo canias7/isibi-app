@@ -25,6 +25,7 @@ import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fi
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { collectStrings, TRANSLATE_TOOL } from "../builder/site-translate.mjs";
+import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const USER = { id: "u-refused-1", email: "owner@example.com" };
 const STORED_CSS = ":root{--background:oklch(100% 0 0)}\nfooter{background-color:#000}";
@@ -134,6 +135,44 @@ async function drive({ slug, pages = [HOME], langs = null, body: bodyExtra = {},
 const INSUFFICIENT = (s, cost) => ({ ok: false, error: "insufficient", cost: 0, seq: s, asked: cost });
 const CSS = { pick_lanes: { fields: ["css"] }, edit_site: { css: "footer{color:#fff}" } };
 
+// ── WHAT THE CUSTOMER READS, IN THE BROWSER'S OWN WORDS (2026-09-25) ────────
+//
+// Run 36159773928 ("run 31") stopped exactly here: the routing call took 2 of
+// a balance of 3, the edit's reserve was refused, and the screen said "…it
+// wasn't published and nothing was charged". The server sentence now says
+// only what happened; the money is stated by `wholeRequestNote` from what the
+// two replies RECORDED. `ROUTED` is run 31's own routing reply, verbatim.
+const ROUTED = { ok: true, intent: "edit", layer: "page", page: "/", cost: 2, usage: { in: 6774, out: 19, cacheRead: 512, cacheWrite: 0, model: "grok-4.6" } };
+const SHORT = "⚠️ That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again.";
+const DOWN = "⚠️ That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.";
+const EDIT_FREE = " This edit cost you nothing.";
+const READING_2 = " Reading your message cost 2 credits.";
+
+/**
+ * The stored reply through the real composer (`editAnswer` in public/chat.js),
+ * twice: with the routing reply the sending page holds, and as a watch resumed
+ * after a refresh holds nothing. Refusal behaviour is part of the assertion —
+ * a refusal buys nothing and retries nothing.
+ */
+function assertScreens(reply, httpOk, lead) {
+  const held = editBrowserReply(reply, httpOk, ROUTED);
+  assert.equal(held.ok, true, "the browser could not compose a reply: " + held.why);
+  assert.equal(held.text, lead + EDIT_FREE + READING_2, "the page that sent the message");
+  assert.deepEqual(held.actions, [], "a refusal set paid work in motion: " + JSON.stringify(held.actions));
+  const resumed = editBrowserReply(reply, httpOk, undefined);
+  assert.equal(resumed.ok, true, "the browser could not compose a reply: " + resumed.why);
+  // No routing reply, so no routing amount and no total — and "this edit"
+  // stays the subject, never the whole request.
+  assert.equal(resumed.text, lead + EDIT_FREE, "a watch resumed after a refresh");
+  assert.deepEqual(resumed.actions, []);
+  for (const s of [held.text, resumed.text]) {
+    assert.doesNotMatch(s, /nothing was charged/i, "the whole request is called free again: " + JSON.stringify(s));
+    // "Not published" is not "nothing changed": a rung can write rows before
+    // the reserve that refused, so this reply never makes that claim.
+    assert.doesNotMatch(s, /Nothing on your site changed/, "a ledger refusal claims nothing changed: " + JSON.stringify(s));
+  }
+}
+
 /** What a refused job must look like from the ledger's side. */
 function assertStopped(r, sentence) {
   assert.ok(r.fns.includes("edit_reserve"), "no reserve was attempted");
@@ -153,7 +192,14 @@ test("the first reserve refused as insufficient: no exempt, no gate, no compile,
   const r = await drive({ slug: "refused-first", reserve: INSUFFICIENT, answers: CSS });
   assertStopped(r, /enough credits/);
   // AND THE FIRST REFUSAL IS THE ONE NAMED — the ledger's own word.
-  assert.match(String(r.reply.msg), /wasn't published and nothing was charged/);
+  // RE-ANCHORED 2026-09-25: this pinned "wasn't published and nothing was
+  // charged", the clause run 31 showed false of the message. The property is
+  // that the server says what happened and makes no claim about money.
+  assert.match(String(r.reply.msg), /wasn't published/);
+  assert.doesNotMatch(String(r.reply.msg), /charged/, "the server sentence makes a claim about money again");
+  // THE QUEUED STORED REPLY, READ AS RUN 31'S WAS: on the page that sent it,
+  // and after a refresh.
+  assertScreens(r.reply, false, SHORT);
 });
 
 test("a LATER reserve refused after the first landed: the translation is not bought into a publish, the first reserve goes back", async () => {
@@ -177,6 +223,43 @@ test("a LATER reserve refused after the first landed: the translation is not bou
 test("a ledger that did not answer is a refusal too, named as ours", async () => {
   const r = await drive({ slug: "refused-rpc", reserve: () => ({ ok: false, error: "rpc", status: 500 }), answers: CSS });
   assertStopped(r, /billing service didn't answer/);
+  // THE BILLING SERVICE DOWN, READ BY THE CUSTOMER: the same two amounts,
+  // never "nothing was charged" for a message whose routing was paid.
+  assertScreens(r.reply, false, DOWN);
+});
+
+// The server's own sentence, evaluated out of worker.js as
+// test/gateway-refusal.test.mjs does, so this file holds no copy of it.
+function serverSentence(detail) {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const at = src.indexOf("function compileMsg(pub, theirs) {");
+  const end = src.indexOf("\n}\n", at);
+  assert.ok(at > 0 && end > at, "compileMsg moved — rescope this");
+  // eslint-disable-next-line no-new-func
+  const compileMsg = new Function("roomSentence", src.slice(at, end + 2) + "\nreturn compileMsg;")((k) => "room:" + k);
+  return compileMsg({ ok: false, error: "unbilled", ours: detail !== "insufficient", detail }, "");
+}
+
+test("run 31 (36159773928), reproduced through the customer's own composer: the edit and the routing are two amounts", () => {
+  // Run 31's stored reply as recorded — HTTP 422 under `x-gf-edit: final`,
+  // every field but `msg` verbatim — with the sentence the server now sends.
+  const reply = { ok: false, error: "unbilled", cost: 0, msg: serverSentence("insufficient"), lanes: [], detail: "insufficient" };
+  assertScreens(reply, false, SHORT);
+  // The billing service down, on the same shape.
+  assertScreens({ ...reply, detail: "rpc", msg: serverSentence("rpc") }, false, DOWN);
+});
+
+test("the amounts are the recorded ones: a routing cost of 1 is said as 1, and an edit cost that is not a number is not called free", () => {
+  const reply = { ok: false, error: "unbilled", cost: 0, msg: serverSentence("insufficient"), lanes: [], detail: "insufficient" };
+  assert.equal(editBrowserReply(reply, false, { ...ROUTED, cost: 1 }).text, SHORT + EDIT_FREE + " Reading your message cost 1 credit.");
+  // A reply that recorded no cost says nothing about the edit's, rather than
+  // calling it free — and with no routing reply held, says nothing at all.
+  const { cost, ...uncosted } = reply;
+  assert.equal(cost, 0);
+  assert.equal(editBrowserReply(uncosted, false, ROUTED).text, SHORT + READING_2);
+  assert.equal(editBrowserReply(uncosted, false, undefined).text, SHORT);
+  // And a recorded edit cost is said as recorded.
+  assert.equal(editBrowserReply({ ...reply, cost: 3 }, false, ROUTED).text, SHORT + " This edit cost 3 credits." + READING_2);
 });
 
 test("a duplicate delivery's reserve — ok, charged 0, repeat — is a reserve that landed, and the publish goes through", async () => {
@@ -338,6 +421,8 @@ test("synchronous: a collect refused by the ledger stops the publish, nothing co
   assert.ok(r.body && r.body.ok === false, JSON.stringify(r.body));
   assert.equal(r.body.error, "unbilled", "the refusal wears the compile's code: " + JSON.stringify(r.body));
   assert.match(String(r.body.msg || ""), /enough credits/);
+  // The synchronous reply, straight back and after a refresh.
+  assertScreens(r.body, r.status >= 200 && r.status < 300, SHORT);
 });
 
 test("synchronous: a ledger that did not answer is a refusal too, named as ours", async () => {
@@ -345,6 +430,7 @@ test("synchronous: a ledger that did not answer is a refusal too, named as ours"
   assert.equal(r.compiles, 0);
   assert.ok(r.body && r.body.ok === false && r.body.error === "unbilled", JSON.stringify(r.body));
   assert.match(String(r.body.msg || ""), /billing service didn't answer/);
+  assertScreens(r.body, r.status >= 200 && r.status < 300, DOWN);
 });
 
 test("synchronous: a collect that landed publishes exactly as before", async () => {
