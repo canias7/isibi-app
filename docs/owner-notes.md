@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC); the section-reorder test on fretwork-1 waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, and your browser look is the one check left; see the next entry.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,14 +176,88 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-25 — Next: the two real-model edit tests, on fretwork-1 (prepared, NOT dispatched)
+## 2026-09-25 — Test 2 on fretwork-1 (the section move) published correctly; your browser look is left
+
+**Run 32** ([36172189711](https://github.com/canias7/isibi-app/actions/runs/36172189711),
+18:14–18:22 UTC, on main at `c2fa000c`, with your spending approval). It counts
+as the test:
+- the request's hash matched (131 characters);
+- its own before-read matched all six recorded starting hashes;
+- the preflight passed with both expectations set;
+- it published.
+
+- **Deployment 2159 is now confirmed from the live server.** The preflight
+  read the Worker at `c2fa000cba21` and a cold container at
+  `a51d8b32e5869576`. Both readers agreed, and async and runner were both
+  true. Until now the Worker half was only the deploy's own report.
+- **What published.**
+  - The quick writer made the change (`tweak: true`) in one model call.
+  - The live site moved from `01790155568567-c1td33` to
+    `01790360265159-n7mtnq`, a version created at 18:17:45 UTC.
+  - The job recorded its publish at 18:22:45 UTC.
+- **The change is exactly the move.**
+  - Only `index.tsx` changed, and it is still 26,563 characters. The chord
+    diagram, trial booking form, day-space card, `/prices` and `/gear` are
+    byte-identical.
+  - Inside `index.tsx` it is a pure block move. "The first eight chords" went
+    from ninth to second, directly above "A guitar you can turn", and the title
+    is still first.
+  - All 14 top-level blocks are byte-identical: the 13 sections plus the QR
+    slot, which draws nothing here. So is the code above the page layout. The
+    words and code tokens are the same before and after.
+- **Money: 10 credits, which adds up exactly.** The canary read the balance at
+  101 before the paid call and 91 after. That is 2 for reading the message plus
+  8 for the edit. The ledger shows one reserve of 8 for this job and no refund.
+  The job is done and its billing is finalized.
+- **The reply** is "✅ Updated /." with no refusal. It adds two notes:
+  - "/ threw an error": the known phone-width hydration finding (#418), also
+    seen on runs 11, 21, 24 and 26 and still unresolved;
+  - two reads the check can't reach, which is by design.
+- **Live pages, read directly afterwards** (18:23 and 18:25 UTC, all on the new
+  version):
+  - The home page's headings, in order: Book a guitar lesson · The first eight
+    chords · A guitar you can turn · September 2026 · Space on a preferred day
+    · Book a trial lesson · Book a trial lesson.
+  - The home page has the same visible words as before, the same 52 component
+    markers, and the same 4 forms, 9 drawings, one 3D canvas, and the same
+    inputs, buttons and links.
+  - `/prices` and `/gear` have unchanged headings, words and components.
+  - `/fr` and `/es` show the chords above the guitar too.
+- **One check failed only because of when the harness read the page.**
+  - The harness read the home page 8 seconds after the job recorded its
+    publish. It got the previous build: the old script bundles, and the same
+    bytes as the before-read apart from the render time. So its comparison
+    file says the order didn't change.
+  - A read one minute later got the new build.
+  - That was the harness's timing, not a product fault, so **I haven't
+    restored anything.** The harness doesn't wait for the site's version to
+    change before this read, though the restore mode does. That is recorded as
+    an open item and not changed.
+- **What this run did not test.**
+  - The quick writer published, so the new literal-text guard, which runs only
+    on the full writer, wasn't exercised.
+  - Only one model call was billed. The link-and-component check calls its
+    judge only when something is lost, so it found nothing lost.
+  - The writer's prompt isn't captured, and there was no second message from
+    the same browser.
+  - fretwork-1 has no photos.
+  - A pass is one real-model reading.
+- **Waiting on you: the browser look (item 8).** Open
+  https://fretwork-1.gofarther.app/ and check that:
+  - the chords sit above the guitar;
+  - the guitar draws;
+  - choosing a day in "Space on a preferred day" shows six places.
+
+  This session's browser can't open the site.
+
+## 2026-09-25 — The two real-model edit tests, on fretwork-1 (test 2 ran as run 32, above; test 1 is not for dispatch)
 
 You closed the deployment milestone once run 30 was verified. The next
 milestone is the two live edit tests from the
 [milestone plan](investigations/edit-path-milestone.md#smallest-useful-live-evidence-plan--prepared-not-dispatched),
-corrected at your direction to fit a real site. **fretwork-1 is proposed and
-not yet approved.** Nothing is dispatched until you approve the site and the
-spending. The tests run one at a time on `edit-canary.yml`, and the first is
+corrected at your direction to fit a real site. **You approved fretwork-1 and
+the spending for test 2, which ran as run 32** (the entry above). Test 1 stays
+undispatched. The tests run one at a time on `edit-canary.yml`, and the first is
 evaluated before the second is pressed.
 
 - **Nothing copies a site** (no route, script or workflow does), and you ruled

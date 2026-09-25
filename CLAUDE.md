@@ -12,7 +12,11 @@ The guard covers parsed literal JSX prose and its supported request grammar only
 every model answer in its evidence is supplied.
 Credit-refusal wording (the edit's charge and the routing charge stated apart):
 merged/deployed at `c2fa000c` (deploy 2159, image `a51d8b32e5869576`); served
-`chat.js` byte-identical to the merged file; the Worker half is Wrangler's report.
+`chat.js` byte-identical to the merged file; runtime-confirmed by canary run 32's
+preflight (36172189711, 2026-09-25 18:15 UTC).
+Live test 2 (the section move on fretwork-1): run 32 published it through the quick
+writer as a pure block move, for route 2 + edit 8 credits; its own after-page read was
+the previous build, and the owner's browser look is outstanding (the run 32 section).
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -7693,8 +7697,8 @@ published" separate from "nothing changed.""* **Merged and deployed in deploy
     (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) from the case that
     compiles a broken page on purpose. `site-build.mjs` took **18m53s**.
     **The stamp chain ends at `eb7a4372`.**
-- **MERGED AND DEPLOYED — deploy 2159 (`36169277205`), NOT RUNTIME-CONFIRMED**
-  (owner: *"Merge and deploy this reviewed correction… No paid verification run
+- **MERGED AND DEPLOYED — deploy 2159 (`36169277205`), RUNTIME-CONFIRMED BY
+  CANARY RUN 32** (owner: *"Merge and deploy this reviewed correction… No paid verification run
   is needed for this wording fix."*). The independent review passed 26 focused
   tests and both required CI checks.
   - **A fast-forward**: main `6ed355e4` → **`c2fa000c`** at 17:46:57Z, 9
@@ -7713,10 +7717,104 @@ published" separate from "nothing changed.""* **Merged and deployed in deploy
     `if (e.error === 'unbilled') {`; after (17:51:24Z) **782,960 bytes,
     `d5b10edb5534dae5`, byte-identical to `git show c2fa000c:public/chat.js`**
     with and without a query string, 1 ×. Gates 401 / 401 / 401 / 404.
-  - **The Worker half is Wrangler's report.** The server sentences live in
-    `worker.js`, and the Worker's sha and a cold start's image need a signed-in
-    read; the next canary press's preflight reads both and refuses on a
-    mismatch before anything is spent.
+  - **The Worker half was Wrangler's report until run 32.** The server
+    sentences live in `worker.js`, and the Worker's sha and a cold start's
+    image need a signed-in read. Canary run 32's preflight (18:15 UTC) read
+    `build-health 200 deploy=c2fa000cba21 image=a51d8b32e5869576` and `runtime
+    200 deploy=c2fa000cba21 async=true runner=true`, both readers agreeing and
+    both form expectations matched.
+
+### RUN 32 — THE SECTION MOVE PUBLISHED AS A PURE BLOCK MOVE, AND THE HARNESS READ THE OLD PAGE (2026-09-25)
+
+Live test 2, with the owner's spending approval: `36172189711`, dispatched
+18:14:49Z from `main` at `c2fa000c`; job 18:14:53 → 18:22:55Z. The request is the
+sheet's, byte for byte: 131 chars, sha256 `b9271234b92233a3…`, `source:
+CANARY_INSTRUCTION`. **It counts as the test**:
+- its own before-read (18:15:27Z, `reads` all true) matched all six recorded
+  starting hashes (`index.tsx` `8041046d0e4aba77` and the five below);
+- the preflight passed with both expectations set;
+- it published.
+
+- **Routing.** The router was given `/, /prices, /gear` and answered `intent=edit
+  layer=page page=/` in 20.3 s, cost 2 (`7,286 in / 19 out`).
+- **The job.** `bb3e792f1eb4142103be22c9ebe6748c`, created 18:15:56.66Z.
+  - States: `claimed` to ~95 s after the POST, `routing` (cost 8) from ~109 s,
+    `publishing` at ~408 s.
+  - A stored 200 under `x-gf-edit: final` at 414.4 s (127 polls, 0 transient).
+- **THE QUICK WRITER PUBLISHED** (`tweak: true`). One billed call, `grok-4.6`
+  `8,374 in / 7,688 out / 512 cache read`: it re-emitted the whole page, like
+  run 17's `8,314 / 7,627`.
+  - The live version moved `01790155568567-c1td33` → **`01790360265159-n7mtnq`**,
+    minted 18:17:45.159Z (2 s after the reserve).
+  - Job `published_at` 18:22:45.03Z, `worker_status` 200.
+  - `phase_ms`: `publish:1` 305,014, `stage` 30,674, `activate` 8,055,
+    `worker:put` 1,675.
+  - `moved: []` and `changed: []` on the reply are the recorded tweak-reply
+    shape (neither key is set), not an inventory.
+- **A PURE BLOCK MOVE, measured on the stored bodies.**
+  - `index.tsx` `8041046d0e4aba77` → `6bb1fb500f7df623`, still 26,563 chars.
+  - Its 14 top-level render blocks (13 sections + the QR slot, which draws
+    nothing here) are each byte-identical. The chords block went from 9th to
+    2nd, directly above the guitar block, and the title is still first.
+  - The 16,554 chars above the render are byte-identical, and the token and
+    line multisets are identical.
+  - The other five bodies are byte-identical: `prices.tsx`, `gear.tsx`,
+    `chord-diagram`, `trial-booking-form`, `day-space-lookup`.
+  - The evaluator was proved alive first on two synthetic afters: a pure move
+    read as exactly that, and a move plus one changed block was flagged.
+- **MONEY CLOSES EXACTLY: 101 → 91 = route 2 + edit 8**, balance read by the
+  canary at both ends.
+  - `credit_events` holds ONE row for the job: `reserve −8, balance_after 91,
+    ref <job>#1`, 18:17:43Z. There is no refund.
+  - The job reads `done`, `billing: finalized`, `cost 8`.
+  - The routing charge writes no ledger row, as recorded. The reserve's
+    `after 91` puts the balance at 99 just before it.
+- **THE REPLY**: *"✅ Updated /. I had a look at the finished pages: / threw an
+  error and 2 pages reads something the check can't reach, so I couldn't see it
+  with real data."*
+  - The render findings are `/` [phone] #418 (the known unresolved finding),
+    `/` `unmet` (a database function) and `/prices` `unmet` (an outside
+    connection). `deadSelectors` are the same two as before.
+  - `langs` fr/es are `cached`, `missing: 0`.
+- **⚠ THE HARNESS'S AFTER-PAGE WAS THE PREVIOUS BUILD, SO `compare.json` SAYS
+  NOTHING MOVED.**
+  - The after-inventory (18:22:53Z) read the NEW source out of the store, but
+    its `route_home.html` was rendered at 18:22:52.946Z by the OLD script. That
+    was 7.9 s after `published_at`.
+  - That page carries the old route chunks (`index-Dbwawyy9.js`,
+    `index-CKn4l9II.js`) and is byte-identical to the before-read once the
+    render timestamps are masked. So every route read `orderChanged: false`
+    and `/` read 477 → 477 words.
+  - A curl 61 s after the publish got `n7mtnq` and the new chunks
+    (`index-Czmz-jMb.js`, `index-DE311wwR.js`).
+  - **The cause of the 7.9 s is not measured**; what is measured is the two
+    reads.
+  - **The paid path's after-read does not wait for `x-site-version` to move,
+    and the restore mode does.** A stale read compares the old page against
+    itself, so it would hide a real loss exactly as it hid this real change.
+    It is in the backlog, not changed.
+- **THE LIVE PAGES, read independently at 18:23:54Z and 18:25:55Z, every route
+  on `n7mtnq`.**
+  - `/` headings: Book a guitar lesson · The first eight chords · A guitar you
+    can turn · September 2026 · Space on a preferred day · Book a trial lesson
+    · Book a trial lesson.
+  - `/`: visible words 509 → 509 as a multiset (the before-read through the
+    same reader), `data-slot` census identical (52), forms 4, svg 9, canvas 1,
+    inputs 12, buttons 15, links 12.
+  - `/prices` and `/gear`: headings, word multisets and slot censuses
+    identical.
+  - `/fr` and `/es` carry the move too.
+- **What it established.** One real model, given this sentence on this site,
+  moved one section as asked. The route published exactly that, billed it once,
+  and said so.
+- **What it did not establish.**
+  - The full writer never ran, so **the literal-text guard (full writer only)
+    was not exercised**.
+  - One billed call means `keepCheck` found nothing lost; it calls its judge
+    only on a loss.
+  - The writer's prompt is not captured, and there was no second message.
+  - The real-browser check (item 8) is the owner's look: this session's
+    Chromium cannot open a site host behind the proxy.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -11250,6 +11348,15 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **THE PAID CANARY'S AFTER-READ DOES NOT WAIT FOR THE NEW VERSION (open, found
+  on run 32).** `edit-canary.mjs` takes its after-inventory as soon as the
+  stored reply arrives. On run 32 the page it read was rendered by the previous
+  script, 7.9 s after the job's `published_at`. So `compare.json` compared the
+  old page against itself and reported a real reorder as no change. The restore
+  mode already waits for `x-site-version` to read the id; the paid path does
+  not. The shape of a fix is to wait for the header to leave the before-read's
+  version (bounded) and to record the version each read saw. Not changed: the
+  owner ruled out new harness work for this test.
 - **`updated_at` IS NEVER BUMPED (open).** `site-schema.mjs:1121` creates it as
   a column DEFAULT whose own comment says "bumped on every UPDATE", and a
   Postgres default applies only when the column is OMITTED from an INSERT. There
