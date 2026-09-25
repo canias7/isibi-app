@@ -1299,3 +1299,13 @@ test("PROSE: a heading can be renamed without any persisted section identifier",
   published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
   assert.match(renderedHome(r.stored).text, /When we open Open from 7am on weekdays/);
 });
+
+
+test("PROSE: an explicit keep clause overrides a surrounding rewrite permission", async () => {
+  const r = await drive({ ask: 'Rewrite the Opening hours section as a list, but keep "Open from 7am on weekdays." exactly.', answer: CORRECT });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: conflicting removal and preservation asks are refused", async () => {
+  const r = await drive({ ask: 'Remove Opening hours and keep Opening hours.', answer: home(HERO, ORDER, VISIT) });
+  refused(r, { calls: PAGE });
+});

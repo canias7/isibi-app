@@ -34,7 +34,8 @@ successful steps remain the baseline.
   targets. It excludes replacement wording from target selection, handles
   heading/paragraph granularity, and does not interpret a link/photo/form's
   surrounding section as permission to rewrite its prose. A non-deletion
-  request requires a surviving target with replacement prose. Explicit removal
+  request requires a surviving target with replacement prose. Explicit keep/leave
+  clauses override grants, including conflicts with a removal request. Explicit removal
   and the existing all-sections-except-one control remain possible.
 - When targeting or parsing cannot be established, return `409 prose-preservation` with an
   explanatory sentence. No rewrite/handoff is initiated and no extra model
@@ -59,6 +60,7 @@ CI separately performs real compilation/browser integration.
 | Hours rewording and heading rename, neighbors unchanged | Accepted; exact output compiled/stored; rendered replacement list, neighboring form/links retained |
 | Section movement | Accepted in sync/job; rendered order changes with old words retained |
 | Explicit text-only section deletion | Accepted; only requested section disappears from rendered output |
+| Explicit keep conflicts with rewrite/removal | Refused; preservation wins over the surrounding change grant |
 | Duplicate headings / vague / negated target | Refused; unique section ID or exact quoted text is a supported disambiguation |
 | Reword request answered by deleting the section | Refused |
 | Hero replacement text mentions Opening hours | Does not authorize editing/removing the hours section |
@@ -77,7 +79,7 @@ Initial unit CI caught the new module missing from the explicit container COPY
 list. Added it beside page-keep and retained the import-closure check. The earlier
 site-build run was superseded after that correction.
 
-Focused validation: **561 passed, zero failed** across edit-page-keep/context/
+Focused validation: **563 passed, zero failed** across edit-page-keep/context/
 protect/photos/once/contract/target/verb/rpc-state, edit-path, edit-lock,
 edit-result-display, edit-poll, addon-failure, edit-failure, addon-queue and
 site-busy. Required CI results and exact commit are recorded in the delivery

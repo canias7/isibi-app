@@ -6,8 +6,8 @@ import { tweakParser } from "./site-tweak.mjs";
 
 const space = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 const name = (s) => space(s).normalize("NFKC").toLowerCase().replace(/[“”‘’"']/g, "");
-const contains = (s, part) => (" " + s.replace(/[^\p{L}\p{N}#-]+/gu, " ") + " ")
-  .includes(" " + part.replace(/[^\p{L}\p{N}#-]+/gu, " ") + " ");
+const words = s => space(s.replace(/[^\p{L}\p{N}#-]+/gu, " "));
+const contains = (s, part) => (" " + words(s) + " ").includes(" " + words(part) + " ");
 
 export const PROSE_WITHHELD = "I couldn't confirm that this page change preserves text outside the requested target, so I didn't publish this change. Please identify the section by its unique heading or quote the exact text to change or remove.";
 
@@ -122,6 +122,15 @@ function permissions(message, before, pairs) {
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
       const replacement = clause.match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1];
       if (removing || (replacement && pairs.get(a.block)?.atoms.some(x => name(x.text).replace(/[.!?]+$/, "") === replacement.replace(/[.!?]+$/, "")))) allowed.add(a);
+    }
+  }
+  // An explicit preservation clause wins over a surrounding rewrite/removal.
+  // In particular, splitting "but keep ..." must not discard the constraint.
+  for (let clause of clauses) {
+    clause = name(clause).replace(/^please\s+/, "");
+    if (!/^(?:keep|leave|preserve|do not|dont)\b/.test(clause)) continue;
+    for (const a of before.atoms) {
+      if (contains(clause, name(a.text)) || a.block.names.some(n => contains(clause, n))) allowed.delete(a);
     }
   }
   return allowed;
