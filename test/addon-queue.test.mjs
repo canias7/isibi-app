@@ -29,9 +29,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { REPLAY_HEADER, CONSUMER_CEILING_MS } from "../builder/edit-job.mjs";
 
-const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-const CHAT_RAW = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-const HARNESS_RAW = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8");
+const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const CHAT_RAW = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const HARNESS_RAW = readFileSync(new URL("../scripts/addon-sweep.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 /** Length-preserving comment blanking, string-aware. See wall-probe.test.mjs. */
 function blankComments(src) {
@@ -390,14 +390,14 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
 
 test("the shared watcher takes a reader and defaults to the edit's", () => {
   const w = between(CHAT, "\nfunction watchEditJob(", "\nfunction cancelEditJob(", "watch");
-  assert.match(w, /function watchEditJob\(site, d, job, origin, finish, fallback, instruction, imgs, answer\)/, "the watcher no longer takes a reader");
+  assert.match(w, /function watchEditJob\(site, d, job, origin, finish, fallback, instruction, imgs, answer, handedOff\)/, "the watcher no longer takes a reader");
   assert.match(w, /const reader = typeof answer === 'function' \? answer : editAnswer;/, "the default reader is not the edit's");
-  assert.match(w, /return reader\(!!\(r0 && r0\.ok\), once, \{ site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug \}\);/,
+  assert.match(w, /return reader\(!!\(r0 && r0\.ok\), once, \{ site, d, instruction, origin, finish, fallback, imgs, handedOff: !!handedOff, slug \}\);/,
     "the reader is not handed the poll's status and the same options the edit's reader gets");
   // The edit's own call site passes no reader, so nothing about a queued edit changed.
   // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` now,
   // and its job rides the reader's answer — the property is the argument list.
-  assert.match(CHAT, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs\);/, "the edit's watch call gained or lost an argument");
+  assert.match(CHAT, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs, undefined, handedOff\);/, "the edit's watch call gained or lost an argument");
 });
 
 test("addonAnswer reads the stored reply the way the synchronous tail did, and never rewrites for a lost ask", () => {

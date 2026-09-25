@@ -1,5 +1,10 @@
 # Remaining edit-path checklist
 
+Historical closure record. The subsequent owner-authorized [full edit-path
+review](edit-path-milestone.md) records the queued marker, refusal-display and
+preview-ordering corrections on the review branch. Closed deployments below
+remain closed; they were not rechecked.
+
 Scope: current product at `5cb8592`, the recorded reviews and canary 28. This is
 not a new lane audit. Escalation correction and deployment verification are
 closed; no further deployment checks, retries or paid runs are requested.

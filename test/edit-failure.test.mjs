@@ -1107,12 +1107,13 @@ test("the browser starts the rewrite from an escalate and from nothing else", ()
   assert.match(body("watchEditJob"), /reader\([^;]*\{ site, d,/, "the queued answer is not handed the routing reply");
 });
 
-for (const bad of ['config', 'backend', 'malformed-source']) {
+for (const bad of ['config', 'backend', 'malformed-source', 'malformed-config', 'parts']) {
   test('reconstruction stops when missing source is combined with ' + bad, async () => {
     const slug = 'review-no-source-' + bad;
-    const store = bucket(slug, { down: bad === 'config' ? [CONFIG_KEY(slug)] : [] });
+    const store = bucket(slug, { down: bad === 'config' ? [CONFIG_KEY(slug)] : bad === 'parts' ? [PARTS_KEY(slug)] : [] });
     if (bad === 'malformed-source') store.store.set(SOURCE_KEY(slug), '{broken');
-    const wire = { answers: {}, ...(bad === 'backend' ? { route: (url) => url.includes('/rest/v1/site_backends') ? json({ error: 'unreadable' }, 503) : null } : {}) };
+    if (bad === 'malformed-config') store.store.set(CONFIG_KEY(slug), '{"look":42}');
+    const wire = { answers: {}, ...(bad === 'backend' ? { route: (url) => url.includes('select=neon_db,uid') ? json({ error: 'unreadable' }, 503) : null } : {}) };
     const r = await edit(slug, store, wire, { layer: 'text', instruction: 'Say we open at 8.' });
     assert.equal(r.body.ok, false);
     assert.notEqual(r.body.escalate, true, JSON.stringify(r.body));
@@ -1136,3 +1137,17 @@ for (const hasSource of [false, true]) {
     assert.deepEqual(r.seen.debits, []);
   });
 }
+
+test('editable recovery returning ok false is as decisive as a thrown read', async () => {
+  const slug = 'review-recovery-return';
+  const store = bucket(slug, { pages: TWO_PAGES(slug) });
+  store.store.set('current/' + slug + '.json', JSON.stringify({version:'20260925000000-probe'}));
+  const r = await edit(slug, store, {answers:{}}, {layer:'page',instruction:'Move the opening hours above the map.'});
+  assert.equal(r.body.ok, false);
+  assert.notEqual(r.body.escalate, true);
+  assert.notEqual(r.body.unchanged, true);
+  assert.match(r.body.msg, /recover/i);
+  assert.deepEqual(paid(r.said), []);
+  assert.equal(r.compiles, 0);
+  assert.deepEqual(r.seen.debits, []);
+});

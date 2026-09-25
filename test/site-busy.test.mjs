@@ -614,7 +614,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   // fifth bare read that publishes — the bare reader's other callers answer a
   // count, a listing or a delete and are named here so a new one is noticed.
   for (const line of [
-    "let eSrc = await loadSiteSourceForEdit(env, ownerSlug);",
+    "const eSource = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     "priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,",
     // RE-ANCHORED 2026-09-06 (stage 9): the platform rebuild's read moved out
@@ -662,21 +662,21 @@ test("the editable copy: four editing readers read through the repairing reader,
   const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
   // The ninth is the checked arm INSIDE the repairing wrapper; its caller
   // cannot publish unless recovery and the strict source read both succeeded.
-  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
-  // THE CLASSIFIER NEVER BECOMES THE SOURCE: nothing assigns its pages anywhere.
-  assert.ok(W.includes("const eSrcRead = await readSiteSource(env, ownerSlug);"), "the edit route's classifying read is gone");
-  assert.doesNotMatch(W, /=\s*eSrcRead\.pages\b/, "the edit route edits pages from a bare read that skipped the repair");
-  assert.match(W, /if \(!eSrcRead\.ok \|\| eSrcRead\.pages\.length\) return explain\("route\/no-source-unreadable"\);/,
-    "pages found by the classifying read are not answered as a read that blinked");
+  // Both editing routes now use the checked recovery wrapper, so the
+  // second bare classification read is gone rather than becoming editable input.
+  assert.doesNotMatch(W, /const eSrcRead = await readSiteSource/);
+  assert.match(W, /if \(!eSource\.ok\) return explain\("route\/no-source-unreadable"/);
+  assert.ok(W.indexOf('if (!eSource.ok)') < W.indexOf('let eSrc = eSource.pages;'));
   // 6 → 7 AND THE SEVENTH IS THE WRAPPER'S OWN DELEGATION, measured rather than
   // reasoned about: `loadSiteSource` used to hold the R2 get itself and now
   // calls `readSiteSource`, so its body is a match the census sees. It is a
   // DEFINITION rather than a caller, which is why it is named here — a count
   // nobody can reproduce by reading the file is a count that drifts.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 4,
-    "the three reads through the three-state reader are not the wrapper's, the Code tab's and the edit route's classifier: " + bare.join(" | "));
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 3,
+    "the three reads are not the plain wrapper's, the checked wrapper's and the Code tab's: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");

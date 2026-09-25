@@ -220,6 +220,7 @@ function page({ answers = {}, credit, redraw } = {}) {
     },
     waiting() { return held.map((h) => h.kind); },
     lines() { return reqs.map(line); },
+    requests() { return reqs; },
     said() { return s.msgs.filter((m) => m.r === "a").map((m) => m.t); },
     asked() { return s.msgs.filter((m) => m.r === "u").map((m) => m.t); },
     busy() { return ctx.siteBusy; },
@@ -621,4 +622,20 @@ test('a terminal job still releases and reports its outcome when credit scheduli
   const first = { route: [routeTo('look')], edit: [receipt('job-ended')], poll: [ok({status:'cancelled',msg:'The edit was cancelled.'})] };
   await twoMessages({ first, credit: { from: '(?:Immediate[.])?step' }, redraw: {},
     lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['⚠️ The edit was cancelled.'] });
+});
+
+test('an attached logo reaches only its selected edit and is not carried into the next message', async () => {
+  const first = {route:[routeTo('logo')],edit:[ok({ok:true,layer:'logo',cost:0})]};
+  const p = page({answers:merge(first,MESSAGE_2)});
+  const attached = {name:'logo.png',data:'data:image/png;base64,ZmFrZQ=='};
+  p.ctx.siteDraft('origin-1').imgs.push(attached);
+  await p.send('Use this as the logo.');
+  assert.equal(p.requests()[0].body.attached,true);
+  assert.equal(p.requests()[0].body.hasSite,true);
+  assert.deepEqual(p.requests()[1].body.images,[attached]);
+  assert.equal(p.requests()[1].body.layer,'logo');
+  assertIdle(p,'after logo response');
+  await thenMessage2(p);
+  assert.equal(p.requests()[2].body.attached,false);
+  assert.equal(p.requests()[3].body.images,undefined);
 });
