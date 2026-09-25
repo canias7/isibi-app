@@ -193,7 +193,7 @@ evaluated before the second is pressed.
     files.
   - The live page still serves version `01790155568567-c1td33`.
   - On the home page, "A guitar you can turn" is the second section (the 3D
-    guitar). "The first eight chords" is the eighth. The opening-hours card is
+    guitar). "The first eight chords" is the ninth of 13. The opening-hours card is
     its own section, directly above the chords (an earlier note here put it
     inside the guitar section, which was wrong). No route has a map.
 - **Test 1 (the "Space on a preferred day" states) already works.**
@@ -209,7 +209,7 @@ evaluated before the second is pressed.
     down in case you want that reading anyway.
 - **Test 2 is a real change.** The request is "Move ‘The first eight chords’
   above ‘A guitar you can turn’…", sha256 `b9271234b92233a3…`, 131 characters.
-  It moves one section from eighth to second, and both sections sit in the same
+  It moves one section from ninth to second, and both sections sit in the same
   JSX.
 - **Cost.** These are recorded prices on this page, not caps; nothing limits a
   single request.
