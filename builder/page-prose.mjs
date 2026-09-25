@@ -77,7 +77,10 @@ export function proseInventory(source, parse) {
 // nothing, so a qualifier can only ever narrow what a sentence authorizes.
 const PAGE_DET = String.raw`(?:(?:the|this|that|my|our)\s+)`;
 const PAGE_NAME = String.raw`(?:home\s?page|front\s+page|main\s+page|landing\s+page|index\s+page|page|\/[a-z0-9/_-]*|[a-z0-9][a-z0-9-]*\s+page)`;
-const PAGE_QUAL = new RegExp(String.raw`(^|\s)(?:on|in|from|off|of|for|at|to|onto)\s+${PAGE_DET}?(${PAGE_NAME})(?=$|[\s,.;:!?])`, "g");
+// NOT "to": it already ends the target operand, and a page after it is a
+// destination or replacement wording ("…then go to the gear page"), never a
+// target, so reading it as a qualifier could only refuse a valid request.
+const PAGE_QUAL = new RegExp(String.raw`(^|\s)(?:on|in|from|off|of|for|at)\s+${PAGE_DET}?(${PAGE_NAME})(?=$|[\s,.;:!?])`, "g");
 const PAGE_LEAD = new RegExp(String.raw`^(?:on|in|from|for|at)\s+${PAGE_DET}?${PAGE_NAME}\s*[,:]?\s+`);
 const routeKey = (r) => "/" + String(r).trim().toLowerCase().replace(/^\/+|\/+$/g, "");
 

@@ -184,8 +184,8 @@ matched nothing; the second also used “the text under”, which was not a form
 
 - **A page qualifier is read as a page, and it must be the page being edited.**
   `preservePageProse` takes `page`; the edit route passes the target's route.
-  A qualifier is a preposition (on, in, from, off, of, for, at, to, onto) plus a
-  page name: the home page (or homepage, front, main, landing, index page), an
+  A qualifier is a preposition (on, in, from, off, of, for, at) plus a page
+  name: the home page (or homepage, front, main, landing, index page), an
   address (`/menu`), or “the menu page” (the page whose address ends in
   `/menu`). “This page” and “the page” can only mean the page being edited.
 - **Every qualifier in a clause must match, or the clause grants nothing.** A
@@ -201,9 +201,13 @@ matched nothing; the second also used “the text under”, which was not a form
   scope**: one paragraph under the heading, or no grant at all.
 - **The quoted-text form ignores a trailing qualifier** when it reads the
   replacement.
+- **“To” is not a page word.** It already ends the target operand, and a page
+  after it is a destination or replacement wording (“…then go to the gear
+  page”). Reading it as a qualifier could only refuse a valid request.
 
 Evidence (supplied writer answers only):
-- `test/edit-page-keep.test.mjs` gains 23 cases. 22 go through the real edit
+- `test/edit-page-keep.test.mjs` gains 23 cases (the “to” wording is an extra
+  assertion in the matcher case). 22 go through the real edit
   route in sync and job modes, with compile/store capture and the browser
   composer, and one drives the matcher directly.
   - These publish: the owner's two sentences, a reference after a qualifier,
@@ -215,7 +219,7 @@ Evidence (supplied writer answers only):
     section.
 - Red on the unfixed guard: exactly the six publish cases and the matcher case
   fail; every refusal control and all 156 existing cases pass on both.
-- Targeted probes: 13 killed, 0 survived, 2 comment-only controls. The first
+- Targeted probes: 14 killed, 0 survived, 2 comment-only controls. The first
   run's survivor was a real gap (an address was recognised but not compared),
   closed by a negative case.
 - Checked separately against fretwork-1's stored home page (17 cases, local

@@ -1436,6 +1436,9 @@ test("PAGE: a qualifier is held to the page the edit changes, and cannot-tell gr
   assert.equal((await run("Remove the ‘The first eight chords’ section from /menu.", "/")).ok, false, "an address is compared, not just recognised");
   assert.equal((await run("Remove the ‘The first eight chords’ section from the menu page.", "/")).ok, false);
   assert.equal((await run("Remove the ‘The first eight chords’ section from the home page.", "/menu")).ok, false);
+  // A PAGE AFTER "TO" IS WORDING OR A DESTINATION, NEVER A QUALIFIER: it must
+  // not void a request whose target is exact.
+  assert.deepEqual(await run("Change the text under ‘The first eight chords’ to say start here, then go to the gear page.", "/", STARTS_HERE), { ok: true });
   // "THIS PAGE" CAN ONLY MEAN THE PAGE BEING EDITED.
   assert.deepEqual(await run("Remove the ‘The first eight chords’ section from this page.", undefined), { ok: true });
   // A QUALIFIER NEVER WIDENS A GRANT: the unrelated loss is refused with or without it.
