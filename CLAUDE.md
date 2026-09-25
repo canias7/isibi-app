@@ -4,6 +4,11 @@ Add-on escalation correction: [bounded patch and verification](docs/investigatio
 Only verified missing source/design may reconstruct; unreadable state and failed
 editable recovery stop. Closed: merged/deployed at `5cb8592`; non-spending canary
 36096052737 verified image `b83b0611aeecce8f` at 2026-09-25 04:50:36 UTC.
+Edit-path milestone and literal-text guard: [milestone](docs/investigations/edit-path-milestone.md),
+[text preservation](docs/investigations/edit-text-preservation.md). Merged/deployed at
+`6ed355e4` (deploy 2158, image `f05cb5a5a0def44c`), deployed, NOT runtime-confirmed.
+The guard covers parsed literal JSX prose and its supported request grammar only;
+every model answer in its evidence is supplied.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -395,6 +400,20 @@ entries, not of paths), and the log answered `reused … (registry answered 200;
 ***86 inputs …)` beside `no changes isibi-app-sitebuildcontainer` — image step
 **~1.4 s**, Wrangler **~18 s** (it reinstalled itself first, as on 2153 and
 2154), job **52 s**. The no-roll band again, one asset uploaded (`+ /chat.js`).
+**Deploy 2158 (2026-09-25) was predicted on both ends and confirmed on both
+channels, and the input COUNT moved 186 → 187 as predicted**
+(`builder/page-prose.mjs` joined the worker COPY line): `origin/main`
+`38fe281d` answered `b83b0611aeecce8f` — what the non-spending canary
+36096052737 read LIVE at `5cb8592` — and the tip `6ed355e4` answered
+`f05cb5a5a0def44c`, with `Dockerfile`, `worker.js`, `builder/page-keep.mjs` and
+`builder/page-prose.mjs` the four of the push's 23 files among the **157
+distinct input paths**. The log answered `built …:f05cb5a5a0def44c (registry
+answered 404; ***87 inputs …)` and `- …:b83b06***aeecce8f` →
+`+ …:f05cb5a5a0def44c` under `SUCCESS Modified application`; **0 `CACHED`
+lines**, image step 2m12s, Wrangler 25s (it reinstalled itself first), job
+3m09s. **The running count above stops at twenty-six on purpose**: deploys 2156
+and 2157 were another session's, and whether their ids were predicted before
+the push is not recorded here.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -4015,6 +4034,13 @@ separate next tasks"*):
    merge, **merged and deployed in deploy 2151** (*merged and deployed: the
    preservation check*, below). **Partial
    protection, not the edit path complete**: supplied model answers only.
+   **AND THE PLAIN-TEXT HALF IS NARROWED, NOT CLOSED** — Codex's literal-text
+   guard (`builder/page-prose.mjs`), merged and deployed in deploy 2158,
+   refuses a full-page edit that loses parsed literal JSX prose the request's
+   supported grammar did not authorise. Words from code, data, component props,
+   other component files or CSS stay uncovered, and kit-only markup with no
+   literal prose is still unseen; `docs/investigations/edit-text-preservation.md`
+   holds the scope.
 4. **Billing.** A refused rung stays charged when another step of the message
    succeeded (job path); direct writes (rows, DDL, aliases) land before the one
    publish and a failed publish refunds everything and says "untouched"; the
@@ -4132,7 +4158,10 @@ separate next tasks"*):
    `text`, `page` — while the synchronous control goes up to the rewrite.
    **Unreachable today**: only `data` (→ `text`) and `picture` (→ `page`) hop
    in `builder/edit-failure.mjs`, and neither target has a hop entry. It
-   becomes live the day one does. Not changed.
+   becomes live the day one does. Not changed here. **CLOSED by the edit-path
+   milestone, merged and deployed in deploy 2158**: the job record carries a
+   strict `handedOff` boolean through the queue and a reload, and the watcher
+   hands it to the shared reader (controlled tests in `edit-lock`).
 13. **A throw after an edit's sentence is out says a second sentence and lowers
    the busy flag** (found 2026-09-24 writing #11's stale-completion case,
    driven): a redraw that throws inside `finish` propagates to `siteEdit`'s
@@ -4146,10 +4175,13 @@ separate next tasks"*):
    whose application throws: no reply, busy for good, latched — and took the
    fix: BUILT THE SAME DAY, merged and deployed in deploy 2155** (*a published
    edit this page fails to show is still a published edit*, below). Every sentence
-   through `siteEdit` now ends its POST once. **Still open**: a QUEUED
-   non-success sentence whose redraw throws after it is out escapes the watcher
+   through `siteEdit` now ends its POST once. **Left open then**: a QUEUED
+   non-success sentence whose redraw throws after it is out escaped the watcher
    as an unhandled rejection — one sentence, the page freed, the latch released
-   — as the add-on's queued refusal already does.
+   — as the add-on's queued refusal did. **CLOSED by the edit-path milestone,
+   merged and deployed in deploy 2158**: `watchEditJob` wraps its `finish`, so
+   a redraw failure after the terminal state is recorded stays inside the
+   watcher (controlled tests only).
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -7472,7 +7504,72 @@ go out as one push.
      path, unreachable today because no hop target has a hop of its own.
 
   None is closed by this deploy. **Every answer in the evidence is SUPPLIED**:
-  what is established is what the browser sends, says and holds.
+  what is established is what the browser sends, says and holds. **Items 2–4
+  are since closed in code and controlled tests** — 3's add-on half at deploy
+  2157, the rest at deploy 2158, next section — and item 1 is by design.
+
+### MERGED AND DEPLOYED: THE EDIT-PATH MILESTONE AND THE LITERAL-TEXT GUARD (2026-09-25)
+
+Owner: *"The implementation is approved for merge and deployment … Verify the
+actual deployed SHA, served browser files and container image after rollout
+using existing non-spending checks … Preservation is limited to the documented
+literal-text scope and supported request grammar; do not claim universal
+preservation or proven real-model compliance."* The candidate was Codex's
+`codex/edit-text-preservation` at **`6ed355e495f9ba404d7556aa8148831d5fcd2bcd`**,
+carrying the reviewed `codex/edit-path-milestone` rounds under it; what each
+fix is and what bounds it are in `docs/investigations/edit-path-milestone.md`
+and `edit-text-preservation.md`, deliberately not copied here.
+
+- **NOT MERGED OR DEPLOYED BY ANYONE ELSE, ASKED**: `origin/main` was
+  `38fe281d` (the owner's last verified main), the candidate was not its
+  ancestor, and the last deploy run was 2157 at `a5741864` — main's two later
+  commits touch `docs/` alone, so they deployed nothing.
+- **A FAST-FORWARD**: `38fe281d` is an ancestor of the candidate and main held
+  0 commits the candidate lacked, so every main commit is kept by
+  construction. Pushed **14:37:00Z**, 9 commits, 23 files (+997 / −82).
+- **RECHECKED BEFORE THE PUSH**: unit run **`36109568312` on `6ed355e4`** at
+  **`# tests 7827 / # pass 7823 / # fail 0 / # skipped 4`** (`duration_ms
+  131,861`), and `site build` run **`36109568288`** on the same sha, job and
+  all twenty steps `success` (07:48:53 → 08:14:19Z) — read by the job's own
+  fields, and its counts not re-read, the review being the owner's and
+  closed. Zero runs in progress, queued or waiting.
+- **THE ROLLBACK, VERIFIED BEFORE IT COULD BE NEEDED**: `git revert
+  --no-commit 38fe281d..6ed355e4` in a throwaway worktree gives tree
+  **`195d1801…`, main's own**, so a rollback's image step says `reused
+  b83b0611aeecce8f`.
+- **DEPLOY 2158 (`36148674316`)**: success, job 14:37:06 → 14:40:15Z.
+  `DEPLOY_ID` `6ed355e495f9ba404d7556aa8***4883***d5fcd2bcd` (each `***` a masked
+  `1`); the gate *"took over from `a5741864…`"*; image **built and rolled**
+  (the paragraph in the deploy section above); drain `no live leases after
+  0s`; `+ /edit-poll.js`, `+ /chat.js`, 2 uploaded, 84 already; `Uploaded
+  isibi-app`, `Current Version ID: 906fdee6-5***8c-…`, `Deployed isibi-app
+  triggers`. **The image rolled, so the 15–20 minute hold is owed** before
+  container work that must run the new code.
+- **THE SERVED-FILE CHECK, BOTH READINGS**: before (14:36:29Z) `chat.js`
+  **781,511 bytes, `d873ddb00e7375f7`** and `edit-poll.js` **29,272 bytes,
+  `6de38f0c05eb0e51`**, each byte-identical to `38fe281d`'s; after (14:40:52Z)
+  **781,931 bytes, `36b2d3b6dc15f271`** and **29,391 bytes,
+  `7d7da74ed3b3c160`**, each **byte-identical to `git show 6ed355e4:public/…`**
+  with and without a query string. Discriminators 0 → N: `finishOnce` 0 → 2
+  and `rec.handedOff` 0 → 1 in `chat.js`, `handedOff === true` 0 → 2 in
+  `edit-poll.js`. A background poll saw the new `chat.js` first at 14:40:09Z,
+  the second Wrangler finished. Gates **401 / 401 / 401 / 404** at 14:40:52Z.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED**: the Worker's own sha and a cold
+  start's image need `/api/site/build-health`, and the session holds no
+  token; the canary dispatch, re-tested at 14:56Z once the hold had passed,
+  answered **403** again. The owner's free press: `edit-canary.yml` from `main`, spend `no`,
+  `expect_deploy` **`6ed355e495f9ba404d7556aa8148831d5fcd2bcd`**,
+  `expect_image` **`f05cb5a5a0def44c`**.
+- **THE LIMITS TRAVEL WITH IT**: the guard compares parsed literal JSX prose
+  per section on the full EDIT page writer alone — not computed or data-driven
+  words, not a component's prop strings, not other component files, not CSS
+  content — and authorises only its supported grammar (an explicit operation
+  on an exact unique heading or section id, or quoted exact text), so
+  legitimate phrasing outside it can be refused. **Every writer answer in its
+  evidence is SUPPLIED**: it proves the route refuses an unauthorised loss of
+  that prose and publishes an authorised one, never that a real model follows
+  the request. The two live tests the milestone plans are prepared and not
+  dispatched (13–26 credits together; balance 3 at canary 36096052737).
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

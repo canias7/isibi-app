@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). Work stays on codex/edit-path-milestone: no merge, deployment or paid request.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) — deployed, not yet runtime-confirmed; see the dated entry below. No paid request.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,6 +176,90 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-25 — The edit-path milestone and the text guard are live (merged and deployed)
+
+**What went out:** the reviewed `codex/edit-text-preservation` branch, at
+`6ed355e495f9ba404d7556aa8148831d5fcd2bcd`. It carries both reviewed rounds
+(your independent review passed 617 focused tests):
+- **the edit-path milestone** — a queued hand-off keeps its "already handed
+  off once" mark, through the queue and a page reload; a queued refusal whose
+  screen fails to redraw no longer throws an error in the background; the
+  preview refreshes before the balance refresh, so a failing balance refresh
+  can't stop it; a rewrite from missing pages now stops when the rest of the
+  site's saved state can't be read;
+- **the text guard** — when a full-page edit would lose words you didn't ask to
+  change, that page change isn't published or charged, and the customer is
+  told why. Any other part of the same message that did go through still
+  counts and is charged. The routing call that chose the step is billed
+  separately, as always.
+
+**Checked before the push:**
+- Nothing newer was on main. Main (`38fe281d`) was already inside the branch,
+  so this was a fast-forward and nothing on main was lost.
+- The exact commit had passed both test runs on GitHub: unit tests (7,827
+  tests, 0 failures) and the site build.
+- Nothing else was running.
+- I worked out the new server image in advance: `b83b0611aeecce8f` →
+  `f05cb5a5a0def44c`. The text guard's new file joined the image, so it has
+  187 parts instead of 186.
+- I checked that undoing the push would put back exactly what main had.
+- I read both browser files the site serves before pushing.
+
+**The deploy (2158), from its own log:**
+- It deployed exactly the reviewed version (`6ed355e4`).
+- The server image was rebuilt and switched over, exactly as predicted
+  (`b83b0611aeecce8f` → `f05cb5a5a0def44c`, 187 parts).
+- Two files were uploaded: `chat.js` and `edit-poll.js`.
+- 3 minutes 9 seconds end to end; the image build was 2 minutes 12 seconds.
+- **Edits run the new server code once the switch settles, about 15–20
+  minutes after 14:40 UTC.**
+
+**What your browser now downloads:** both files match the reviewed code byte
+for byte. Before the deploy, the site served main's versions, with none of the
+new code. After it:
+- `chat.js`: 781,931 bytes, identical to the merged file;
+- `edit-poll.js`: 29,391 bytes, identical to the merged file.
+
+**Not yet confirmed from the live server itself.** Starting the free check
+from here is refused (GitHub permissions). It's your free press:
+- **edit-canary**, from **main**, **spend: no**;
+- **expect_deploy:** `6ed355e495f9ba404d7556aa8148831d5fcd2bcd`;
+- **expect_image:** `f05cb5a5a0def44c`.
+
+**What this does NOT claim:**
+- **The text guard covers only words typed directly into a page's markup.** It
+  does not cover:
+  - words produced by code or data;
+  - a heading or label handed to a component as a setting;
+  - text inside other component files;
+  - anything drawn by CSS.
+- **It understands a narrow way of asking.** A request has to name a section
+  by its exact, unique heading, or quote the exact text. Other phrasing may be
+  refused even when the request was reasonable.
+- **It only runs on the full page rewrite.** The quick one-file tweak and the
+  add-on path keep their own separate checks.
+- **Every model answer in the tests was supplied.** Nothing here proves a real
+  model follows the request, or keeps what it wasn't asked to change.
+
+**Items the previous deploy listed as still true.** These are closed by code
+and controlled tests, not by a live run:
+- **The balance refresh can no longer stop the preview refresh.** It now runs
+  after the preview is bumped.
+- **A queued refusal's redraw can no longer escape.** It's contained.
+  - The add-on's own "went through" redraw was contained earlier, at deploy
+    2157.
+- **The one-hand-off limit is now enforced for queued edits too.**
+- **Drafts are still kept for the session only.** That's by design.
+
+**Prepared, NOT run:** the two live edit tests in the
+[milestone plan](investigations/edit-path-milestone.md) — about 13–26 credits
+together, on a site you approve. The balance was 3 at the last free check
+(04:50 UTC).
+
+**No paid run.**
+
+---
+
 ## 2026-09-25 — The three edit fixes are live (merged and deployed)
 
 **What went out:** the three edit fixes you reviewed, in one push:
@@ -212,7 +296,8 @@ from here is still refused (GitHub permissions). It's your free press:
 - **expect_deploy:** `5afd5a0fe51e2d5f9bb6480c649cd857e2c20668`;
 - **expect_image:** `56f7d5866240a1de`.
 
-**Still true, each its own item — none fixed by this deploy:**
+**Still true, each its own item — none fixed by this deploy** (the last three
+are since closed; see the entry above):
 - **Drafts are kept for the session only.** They survive switching sites and
   redraws, not a browser refresh.
 - **If the balance refresh is what fails, the preview isn't refreshed for that
