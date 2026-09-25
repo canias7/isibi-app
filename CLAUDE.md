@@ -294,7 +294,7 @@ cache is open and unmeasured.
 ANOTHER TIMING.** `containerInputs`/`imageId` are pure functions of the git
 objects the Dockerfile COPYs, so running them over a ref answers what that
 ref's image id WILL be — `git rev-parse <ref>:<path>` and `git show` are the
-whole reader. **Cross-checked against reality TWENTY-FIVE times, and the
+whole reader. **Cross-checked against reality TWENTY-SIX times, and the
 thirteenth is the first CONFIRMED NEGATIVE** — every earlier one predicted a
 MOVE and watched it happen, which cannot distinguish a working predictor from
 one that simply agrees with whatever rebuilt. **Deploy 2140 (2026-09-21)
@@ -380,6 +380,15 @@ eight tests, two documents), and the log answered `reused … (registry answered
 200; ***86 inputs …)` beside `no changes isibi-app-sitebuildcontainer` — image
 step **1.5 s**, Wrangler **16.2 s** (it reinstalled itself first, as on 2153),
 job **43 s**. The no-roll band again, one asset uploaded (`+ /chat.js`).
+**The twenty-sixth — deploy 2155 (2026-09-25) — is the FIFTH CONFIRMED
+NEGATIVE**: both ends answered `56f7d5866240a1de` from 186 inputs, none of the
+push's sixteen files among them (`public/chat.js`, `scripts/addon-sweep.mjs`,
+twelve tests, two documents — intersected with all **156 distinct input
+paths**, since 30 files are COPYed to two destinations and 186 is the count of
+entries, not of paths), and the log answered `reused … (registry answered 200;
+***86 inputs …)` beside `no changes isibi-app-sitebuildcontainer` — image step
+**~1.4 s**, Wrangler **~18 s** (it reinstalled itself first, as on 2153 and
+2154), job **52 s**. The no-roll band again, one asset uploaded (`+ /chat.js`).
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -4088,9 +4097,10 @@ separate next tasks"*):
    `!e.ok`. The add-on's own reader was closed for exactly this class (*an
    add-on reply is validated before it is trusted*, below); the owner's report
    and rule were the add-on's, so this one is recorded, not changed. **The
-   owner reproduced the first and the last independently, and it is BUILT THE
-   SAME DAY on the branch, not merged** (*an edit reply is validated before it
-   is trusted*, below) — the add-on's rule shared, not copied.
+   owner reproduced the first and the last independently, and it was BUILT THE
+   SAME DAY and merged and deployed in deploy 2155** (*an edit reply is
+   validated before it is trusted*, below) — the add-on's rule shared, not
+   copied.
 11. **A hop that succeeds leaves the site's edit latch held** (found 2026-09-24
    while validating the edit reader, driven through the real handlers on
    `fd27cc9f`): `siteEdit`'s `editInFlight` is released only by the FIRST
@@ -4103,8 +4113,8 @@ separate next tasks"*):
    Driven: message 1 hopped and said *"✅ Updated the wording."*; message 2's
    requests were the routing call alone, busy true, rail running. A reload
    clears it. **The owner reproduced it independently and took the fix: BUILT
-   THE SAME DAY on the branch, not merged** (*a site's edit latch is held for
-   exactly as long as its ask*, below) — and reproducing it found the other
+   THE SAME DAY, merged and deployed in deploy 2155** (*a site's edit latch is
+   held for exactly as long as its ask*, below) — and reproducing it found the other
    half: a queued edit, and an edit handed to the add-on, released the latch
    while the work was still running.
 12. **The one-hop bound is not enforced on the queued path** (found 2026-09-24
@@ -4128,8 +4138,8 @@ separate next tasks"*):
    (asserted); the double sentence and the lowered flag are recorded, not
    changed. **The owner then reproduced the QUEUED form — a stored success
    whose application throws: no reply, busy for good, latched — and took the
-   fix: BUILT THE SAME DAY on the branch, not merged** (*a published edit this
-   page fails to show is still a published edit*, below). Every sentence
+   fix: BUILT THE SAME DAY, merged and deployed in deploy 2155** (*a published
+   edit this page fails to show is still a published edit*, below). Every sentence
    through `siteEdit` now ends its POST once. **Still open**: a QUEUED
    non-success sentence whose redraw throws after it is out escapes the watcher
    as an unhandled rejection — one sentence, the page freed, the latch released
@@ -6962,7 +6972,7 @@ trusted* — go out as one push.
   **`56f7d5866240a1de`** — which also confirms the image and Worker code
   2151–2153 put there.
 
-### AN EDIT REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### AN EDIT REPLY IS VALIDATED BEFORE IT IS TRUSTED (2026-09-24, merged and deployed in deploy 2155 — no paid run)
 
 Owner, once the add-on round had deployed: *"I independently reproduced: HTTP
 503 carrying the edit's addon handoff posts a paid addon. HTTP 200 with
@@ -7104,7 +7114,7 @@ legitimate no-layer escalation classification as its separate follow-up."*
   this proves what the browser does with a reply, never how often a real route
   sends one.
 
-### A SITE'S EDIT LATCH IS HELD FOR EXACTLY AS LONG AS ITS ASK (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A SITE'S EDIT LATCH IS HELD FOR EXACTLY AS LONG AS ITS ASK (2026-09-24, merged and deployed in deploy 2155 — no paid run)
 
 Owner, having reproduced it independently through the real handlers: *"1. An
 edit hands off to another edit layer. 2. That layer succeeds and the customer
@@ -7242,7 +7252,7 @@ is NOT deployed either — the owner put this correction before that deploy.
   SUPPLIED**: this proves what the browser sends and holds, never how often a
   real route answers these shapes.
 
-### A PUBLISHED EDIT THIS PAGE FAILS TO SHOW IS STILL A PUBLISHED EDIT (2026-09-24, on the branch — not merged, not deployed, no paid run)
+### A PUBLISHED EDIT THIS PAGE FAILS TO SHOW IS STILL A PUBLISHED EDIT (2026-09-24, merged and deployed in deploy 2155 — no paid run)
 
 Owner, keeping the lock correction (*"539 focused tests, all green. Keep
 it."*): *"A queued edit receives a successful stored result. scheduleCreditRefresh
@@ -7382,6 +7392,81 @@ lock correction and the edit-reply validation, neither deployed.
   sentence, the send button back, and the second message answered. **Every
   answer is SUPPLIED**: this proves what the browser says and holds, never how
   often a real route answers these shapes.
+
+### MERGED AND DEPLOYED: THE EDIT REPLY, LATCH AND RESULT CORRECTIONS (2026-09-25)
+
+Owner: *"The correction passes independent review on 5afd5a0: 571 focused
+tests, all green. … Merge and deploy the reviewed edit-response validation,
+handoff-lock and result-display corrections after confirming the candidate and
+required CI remain current. Verify the actual deployed SHA and served chat.js
+against the merged file. Recompute the container input hash and confirm reuse
+or a roll from the deployment log. No paid replay."* The three sections above
+go out as one push.
+
+- **RECHECKED BEFORE THE PUSH, AND NOTHING HAD MOVED**: a clean tree;
+  `origin/main` still `fd27cc9f`; the candidate `5afd5a0f` the branch tip and a
+  fast-forward of main; the range **7 commits, 16 files (+2,942 / −113)** —
+  `public/chat.js`, `scripts/addon-sweep.mjs`, twelve test files and the two
+  documents; unit CI green on every commit of it (`8921c0ec` `36063913439`,
+  `88f9d564` `36064397030`, `4b849501` `36064986189`, `c3963607`
+  `36070847167`, `ce27b5bb` `36071187172`, `86e8893f` `36079630725`,
+  `5afd5a0f` `36079909541`); zero runs in progress, queued or waiting.
+- **NO `site build` WAS OWED**: its `paths` list re-derived from the workflow
+  file as it stands (21 patterns) and matched with GitHub's own rule, the
+  matcher proved alive first (`worker.js` matches, `scripts/x.mjs` does not) —
+  none of the sixteen.
+- **REUSE PREDICTED FROM THE INPUTS**: both ends answered `56f7d5866240a1de`
+  from 186 inputs, and none of the sixteen files is among the **156 distinct
+  input paths** (30 files are COPYed to two destinations, so 186 counts
+  entries); the observer proved alive (`worker.js` and `builder/page-keep.mjs`
+  are inputs).
+- **THE ROLLBACK, VERIFIED BEFORE IT COULD BE NEEDED**: `git revert --no-commit
+  fd27cc9f..5afd5a0f` in a throwaway worktree gives tree **`bb60fd93…`, main's
+  own**, so a rollback also reuses `56f7d5866240a1de`.
+- **A FAST-FORWARD**: `main` `fd27cc9f` → **`5afd5a0f`** at **01:22:25Z**.
+- **DEPLOY 2155 (`36081725007`)**: success, job 01:22:30 → 01:23:22Z (**52 s**,
+  read off the job's own top-level fields). `DEPLOY_ID`
+  `5afd5a0fe5***e2d5f9bb6480c649cd857e2c20668` (the `***` a masked `1`, so the
+  candidate `5afd5a0fe51e2d5f…`); the deploy gate *"took over from
+  `fd27cc9f…`"*; image step **~1.4 s** — `reused
+  isibi-app-sitebuildcontainer:56f7d5866240a***de (registry answered 200;
+  ***86 inputs off ./Dockerfile)`; Wrangler **~18 s** (it reinstalled itself
+  first) — `+ /chat.js`, 1 uploaded, 85 already, `Uploaded isibi-app`, **`no
+  changes isibi-app-sitebuildcontainer`**, `Deployed isibi-app triggers`,
+  `Current Version ID: 2aa***a3***5-…`. **No hold was owed**: nothing rolled,
+  and the edit jobs keep running on the image deploy 2151 put there.
+- **THE SERVED-FILE CHECK, BOTH READINGS**: before (01:22:12Z, before the push)
+  **770,384 bytes, sha256 `489b2884eab21157`**, byte-identical to `fd27cc9f`'s
+  `chat.js`, 0 occurrences of `editShownMsg`, `editAskDone`, `readEditReply` or
+  `readRouteReply`; after (01:23:54Z) **781,431 bytes, sha256
+  `974b455ab0135e1d`, byte-identical to `git show 5afd5a0f:public/chat.js`**
+  with and without a query string, 2, 5, 6 and 3 of them. Gates **401 / 401 /
+  401 / 404** at 01:23:54Z.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED.** The canary dispatch answered **403**
+  again at ~01:24Z, so the Worker's own sha is the owner's free press:
+  `edit-canary.yml` from `main`, spend `no`, `expect_deploy`
+  **`5afd5a0fe51e2d5f9bb6480c649cd857e2c20668`**, `expect_image`
+  **`56f7d5866240a1de`**. The product change is the served file, and that
+  reading was taken directly; the press confirms the Worker version beside it.
+- **THE LIMITATIONS TRAVEL WITH IT, EACH ITS OWN ITEM** (owner: *"Keep the
+  recorded limitations explicit"*):
+  1. **drafts are session-only** — they survive navigation and redraws within
+     the session, never a browser refresh;
+  2. **a failed balance refresh can prevent the preview refresh** — both
+     appliers refresh the credit balance FIRST, so a throw there is kept as a
+     known result but skips the preview bump, the picker update and the undo
+     record, and the preview may show the old bundle until the next bump (the
+     add-on's order, kept as asked);
+  3. **console-only errors** — a QUEUED non-success sentence whose redraw
+     throws after it is out still escapes the watcher as an unhandled
+     rejection (one sentence, the page freed, the latch released), as the
+     add-on's queued refusal does, and the add-on's known-result sentence is
+     not guarded against its own redraw failing;
+  4. **the queued one-hop limit** (next-task 12) — unenforced on the queued
+     path, unreachable today because no hop target has a hop of its own.
+
+  None is closed by this deploy. **Every answer in the evidence is SUPPLIED**:
+  what is established is what the browser sends, says and holds.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

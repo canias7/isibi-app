@@ -160,7 +160,61 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-24 — If the page can't show a finished edit, you're still told it worked (on the branch, not deployed)
+## 2026-09-25 — The three edit fixes are live (merged and deployed)
+
+**What went out:** the three edit fixes you reviewed, in one push:
+- an edit's answer is checked before it's trusted (516 tests);
+- the edit lock comes off when the request really ends (539 tests);
+- a finished edit the page fails to show is still reported as done (571 tests).
+
+**Checked before the push:**
+- Nothing new had landed on main.
+- Every commit had passed its tests on GitHub.
+- Nothing else was running.
+- No site-build test was owed: none of the 16 changed files is one it
+  watches.
+- I worked out in advance that the server image would not change. None of
+  the changed files goes into it.
+- I confirmed that undoing the push would put back exactly what main had
+  before.
+
+**The deploy (2155), from its own log:**
+- It deployed exactly the reviewed version (`5afd5a0f`).
+- The server image was reused, as predicted. Nothing was rebuilt or
+  restarted, so there is no wait before an edit runs.
+- One file was uploaded: the page's code, `chat.js`.
+- 52 seconds end to end.
+
+**What your browser now downloads:** the same `chat.js` as the reviewed code,
+byte for byte. I read it before and after:
+- before: the old file, with none of the new code in it;
+- after: the new file, identical to the merged one.
+
+**Not yet confirmed from the live server itself.** Starting the free check
+from here is still refused (GitHub permissions). It's your free press:
+- **edit-canary**, from **main**, **spend: no**;
+- **expect_deploy:** `5afd5a0fe51e2d5f9bb6480c649cd857e2c20668`;
+- **expect_image:** `56f7d5866240a1de`.
+
+**Still true, each its own item — none fixed by this deploy:**
+- **Drafts are kept for the session only.** They survive switching sites and
+  redraws, not a browser refresh.
+- **If the balance refresh is what fails, the preview isn't refreshed for that
+  change.** You're still told it went through; the preview may show the old
+  version until your next change.
+- **Some errors only show in the browser's console.** A queued refusal whose
+  screen then fails to redraw: you see one message and the page frees. The
+  add-on's "went through" message also isn't protected against its own redraw
+  failing.
+- **The one-hand-off limit isn't enforced for queued edits.** It can't happen
+  today, because no cheaper step hands off again, but it would the day one
+  does.
+
+**No paid run.**
+
+---
+
+## 2026-09-24 — If the page can't show a finished edit, you're still told it worked (merged and deployed)
 
 **Where things stand:** you kept the lock fix (539 tests, all green). This goes
 on top of it. Neither is deployed.
@@ -230,11 +284,12 @@ problem I'd recorded.
   found passing by name in GitHub's log.
 - **Screenshot:** before and after of your case in the real app, in the chat.
 
-**Browser file only, on the branch — not merged, not deployed, no paid run.**
+**Browser file only. You reviewed it (571 tests); merged and deployed in deploy
+2155 (entry above). No paid run.**
 
 ---
 
-## 2026-09-24 — After an edit hands off to a cheaper step, your next message goes through (on the branch, not deployed)
+## 2026-09-24 — After an edit hands off to a cheaper step, your next message goes through (merged and deployed)
 
 **Where things stand:** you reviewed the edit-answer check (516 tests, all
 green), and the add-on file your browser downloads matches `fd27cc9`. As you
@@ -320,11 +375,12 @@ meanwhile. The tests check that.
 - **Screenshot:** before and after of your sequence in the real app, in the
   chat.
 
-**Browser file only, on the branch — not merged, not deployed, no paid run.**
+**Browser file only. You reviewed it (539 tests); merged and deployed in deploy
+2155 (two entries above). No paid run.**
 
 ---
 
-## 2026-09-24 — The add-on fixes are live; an edit's answer is now checked too (on the branch, not deployed)
+## 2026-09-24 — The add-on fixes are live; an edit's answer is now checked too (merged and deployed since)
 
 **Deployed: both add-on fixes you reviewed.** A failed add-on no longer buys the
 full rewrite, and an add-on's answer is checked before anything acts on it
@@ -404,7 +460,8 @@ the branch — the entry above.)*
 - **Screenshots:** before and after are in the chat — your two cases typed and
   sent in the real app.
 
-**Browser file only, on the branch — not merged, not deployed, no paid run.**
+**Browser file only. You reviewed it (516 tests); merged and deployed in deploy
+2155 (three entries above). No paid run.**
 
 ---
 
