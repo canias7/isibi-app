@@ -75,6 +75,7 @@ const SRC = [
   cut("function editAskDone("),
   cut("function siteEdit("),
   cut("function unreadEditMsg("),
+  cut("function editShownMsg("),
   cut("function wholeRequestNote("),
   cut("function editAnswer("),
   cut("function applyEditResult("),

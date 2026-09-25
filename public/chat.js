@@ -9231,14 +9231,15 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // SILENT, AND NOT REACHED IN THE ORDINARY RUN OF THINGS (2026-09-24): every
     // door that sends a message refuses while `siteBusy` is set, and the
     // wrapped `finish` below releases the latch in the same step as the page's
-    // own `finish` clears that flag. What does reach it is the busy flag coming
-    // down while another ask still holds the site — an older ask's `finish`
+    // own `finish` clears that flag. What reached it was the busy flag coming
+    // down while another ask still held the site — an older ask's `finish`
     // running a second time, which the flag, having no owner, cannot tell from
-    // the holder's — and then this latch is the one wall left. A sentence here
-    // could only go through the refused message's own `finish`, which would
-    // clear the page's busy flag while the holder is still being made. So it
-    // posts nothing, releases nothing and says nothing, and the holder's end
-    // clears the page.
+    // the holder's. That second run is closed (ONE ENDING PER POST, below, and
+    // `applyEditResult` keeping its own redraw failure), so this is the wall
+    // behind the flag rather than the only one. A sentence here could only go
+    // through the refused message's own `finish`, which would clear the page's
+    // busy flag while the holder is still being made. So it posts nothing,
+    // releases nothing and says nothing, and the holder's end clears the page.
     if (!ask) return;
     const tell = finish;
     finish = (...said) => { editAskDone(slug, ask); return tell(...said); };
@@ -9253,6 +9254,17 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       fallback = (...args) => { editAskDone(slug, ask); return fall(...args); };
     }
   }
+  // ONE ENDING PER POST (2026-09-24) — the add-on's `told`, for the edit. A
+  // throw after this POST's sentence was out — its redraw, say — reached the
+  // catch below, which said "I couldn't read the answer" UNDER the sentence
+  // and ran the page's finish a second time: a second reply, and the busy flag
+  // lowered again, a newer message's if one had started. So the finish this
+  // POST hands on ends it once, and anything after is dropped. Carried by the
+  // finish itself rather than a flag the catch reads, because a hop and a
+  // queued watch are handed it and end the chain from their own code.
+  let told = false;
+  const end = finish;
+  finish = (...said) => { if (told) return; told = true; return end(...said); };
   // ── THE LATCH IS PER ASK. THE KEY IS PER POST. ──────────────────────────
   //
   // These were one statement, and the hop carried the FIRST post's key. That
@@ -9378,6 +9390,13 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
 // cuts and runs this sentence instead of keeping a second copy of it.
 function unreadEditMsg() {
   return 'I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.';
+}
+// WHAT THE SCREEN SAYS WHEN AN EDIT THE ROUTE PUBLISHED CANNOT BE SHOWN HERE
+// (2026-09-24) — the add-on's `shown` sentence, for the edit: the known result,
+// never described as a failed or uncertain one, and only the details unsaid. A
+// function for the same reason as `unreadEditMsg`.
+function editShownMsg() {
+  return '✅ That change went through, but I couldn’t show the details of what it changed here.';
 }
 
 /**
@@ -9508,27 +9527,57 @@ function editAnswer(httpOk, e, o) {
  * something. Two copies of one decision, exactly as this repo's own rule warns.
  */
 function applyEditResult(e, o) {
-  // PUBLISHED. Bump the cache-buster the same way a revise does, or the preview
-  // keeps showing the old bundle and the change reads as not applied.
-  scheduleCreditRefresh();
-  const s = siteById(o.origin);
-  if (s) {
-    s.previewV = (s.previewV || 0) + 1;
-    // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a later
-    // removal and CLEARED by an add, because once a row has been put back,
-    // carrying it forward is a standing offer to put it back again on an
-    // unrelated change.
-    // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
-    // Told it is gone and still offered it is the same lie either way.
-    const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
-    if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
-    const rows = Array.isArray(e.applied) ? e.applied : [];
-    const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
-    if (gone.length) s.undoRows = gone.slice(0, 3);
-    else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
-    sitesSave();
+  // ⚠ A SUCCESS THIS PAGE THEN FAILS TO SHOW IS STILL A SUCCESS (2026-09-24) —
+  // `applyAddonResult`'s rule, for the edit. Owner, injecting a throw into the
+  // credit refresh below while a queued edit's stored success was applied: "The
+  // rejection escapes; no reply is shown; busy remains true; editInFlight still
+  // holds fretwork-1." And the next message sent nothing at all. Straight back,
+  // the same throw reached the POST's catch, which told the customer it could
+  // not tell whether an edit the route had just published went through; and a
+  // redraw failing AFTER "✅ Updated the look." was on the thread printed that
+  // sentence under it and ran the page's finish a second time, which lowered a
+  // newer message's busy flag. What is known is kept: the route said the edit
+  // published, so the sentence says so, and only the details go unsaid. `told`
+  // is why nothing is said twice — a sentence already out whose redraw then
+  // threw is left standing, and so is the known-result sentence's own. On a
+  // customer's message `siteEdit`'s own ending would drop a second sentence
+  // too — two walls, deliberately — but a watch resumed after a refresh hands
+  // this the page's own finish, and there `told` is the only one.
+  let told = false;
+  const finish = (t) => { told = true; o.finish(t); };
+  try {
+    // PUBLISHED. Bump the cache-buster the same way a revise does, or the preview
+    // keeps showing the old bundle and the change reads as not applied.
+    scheduleCreditRefresh();
+    const s = siteById(o.origin);
+    if (s) {
+      s.previewV = (s.previewV || 0) + 1;
+      // REMEMBER WHAT WENT, so the next message can undo it. Replaced by a later
+      // removal and CLEARED by an add, because once a row has been put back,
+      // carrying it forward is a standing offer to put it back again on an
+      // unrelated change.
+      // A DELETED PAGE LEAVES THE PICKER, exactly as it does on the addon lane.
+      // Told it is gone and still offered it is the same lie either way.
+      const cut = (Array.isArray(e.removed) ? e.removed : []).map(sitePathOf).filter(Boolean);
+      if (cut.length && Array.isArray(s.pages)) s.pages = s.pages.filter((q) => !(q && cut.indexOf(q.path) >= 0));
+      const rows = Array.isArray(e.applied) ? e.applied : [];
+      const gone = rows.filter((r) => r && r.removed && r.was).map((r) => ({ table: r.table, was: r.was }));
+      if (gone.length) s.undoRows = gone.slice(0, 3);
+      else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
+      sitesSave();
+    }
+    finish(editReply(e) + renderTail(e) + alsoTail(o.d));
+  } catch (err) {
+    if (told) return;
+    // NOTHING ESCAPES FROM THE FINISH. A throw out of this sentence's own
+    // finish is its redraw failing too: what it said stands and nothing more
+    // is tried, because on a queued edit there is no catch above this but the
+    // event loop's, and a second sentence is the defect this function closes.
+    // The sentence is composed OUTSIDE the guard, so a composer that is not
+    // there still fails out loud rather than into silence.
+    const shown = editShownMsg();
+    try { finish(shown); } catch (again) { /* left standing */ }
   }
-  o.finish(editReply(e) + renderTail(e) + alsoTail(o.d));
 }
 
 /**

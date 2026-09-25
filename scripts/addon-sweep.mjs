@@ -821,6 +821,11 @@ export const EDIT_BROWSER_FNS = Object.freeze([
   // claims — the add-on's rule (`readRouteReply`) with the edit's own hops. It
   // reads the edit route's layer list, the same LINE `browserSource` cuts.
   "readRouteReply", "readEditReply",
+  // `editShownMsg` IS `applyEditResult`'s KNOWN-RESULT SENTENCE (2026-09-24):
+  // a published edit whose showing throws is said as the success it is. Not
+  // reachable from `editAnswer`'s own calls, so the census cannot see it; a
+  // reply whose composer throws is what reaches it, and the guard drives one.
+  "editShownMsg",
 ]);
 
 /**

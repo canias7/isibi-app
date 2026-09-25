@@ -85,6 +85,7 @@ const SRC = [
   ...LATCHES,
   cut("function siteEdit("),
   cut("function unreadEditMsg("),
+  cut("function editShownMsg("),
   cut("function wholeRequestNote("),
   cut("function editAnswer("),
   cut("function applyEditResult("),
@@ -566,45 +567,46 @@ test("the latch's own contract: only the ask holding a site releases it", () => 
   assert.deepEqual(held(), ["ashgrove-1"], "the newer ask's own release did not free its site");
 });
 
-test("an old ask's finish running again after a newer ask took the site does not release it", async () => {
-  // THE ONE PATH IN `siteEdit` WHERE AN ASK'S FINISH RUNS TWICE: a throw after
-  // its sentence is out — here the redraw — reaches the POST's catch, which
-  // says the not-knowing sentence through the same finish. The newer ask takes
-  // the site in between, from the redraw itself, before it throws.
+test("an old ask's redraw failing after a newer ask took the site ends nothing of the newer one", async () => {
+  // ⚠ RE-ANCHORED 2026-09-24, when the second finish this case recorded was
+  // closed. A throw after message 1's sentence was out — here the redraw —
+  // reached the POST's catch, which said the not-knowing sentence through the
+  // same finish a second time: `[LOOK, UNREAD]`, the page's busy flag lowered
+  // under message 2, and the latch the only wall left, so a third press paid
+  // its routing call before the latch refused its edit. The latch held then
+  // and holds now; what changed is that message 1 ends once
+  // (`applyEditResult` keeps its own redraw failure, and each POST's finish
+  // ends it once), so message 2 keeps the page's busy flag as well.
+  //
+  // Message 2 is started from INSIDE message 1's redraw, through the page's own
+  // `siteSend`, so it sets the busy flag and takes the site the way any message
+  // does — the one moment a newer ask can exist while the old one unwinds.
   let armed = true;
-  const ended2 = [];
   const p = page({
     answers: { route: [routeTo("look"), routeTo("look")], edit: [ok(LOOKED)] },
     onRender: () => {
       const last = p.said().slice(-1)[0];
       if (!armed || last !== LOOK) return;
       armed = false;
-      // Message 2, taking the site the moment message 1's finish let it go. Its
-      // finish does what the page's does: clears the flag, stops the rail and
-      // says the reply.
-      p.ctx.siteEdit(p.s, { layer: "look", cost: 2 }, M2, "origin-1",
-        (t) => { p.ctx.siteBusy = false; p.ctx.siteBuildStop(); ended2.push(t); }, () => ended2.push("fallback"), [], false);
+      p.ctx.siteSend(M2);
       throw new Error("the redraw failed");
     },
   });
   await p.send(M1);
-  assert.deepEqual(p.lines(), ["route: " + M1, "edit look: " + M1, "edit look: " + M2]);
+  const lines = ["route: " + M1, "edit look: " + M1, "route: " + M2, "edit look: " + M2];
+  assert.deepEqual(p.lines(), lines);
   assert.deepEqual(p.waiting(), ["edit"]);
-  // Message 1's second sentence is the catch's — recorded as it stands, not
-  // changed here — and its second finish ran after message 2 took the site.
-  assert.deepEqual(p.said(), [LOOK, UNREAD]);
-  assert.deepEqual(p.lock(), ["fretwork-1"], "message 1's late finish released the site message 2 holds");
-  // AND THE PAGE'S BUSY FLAG CAME DOWN WITH IT: the flag has no owner, so an
-  // old finish lowers it while a newer ask is being made. That is the state in
-  // which the latch is the only wall left — so a press now pays its routing
-  // call, and the latch refuses its edit.
-  assert.equal(p.busy(), false);
+  assert.deepEqual(p.said(), [LOOK], "message 1 said more than its own sentence");
+  assert.deepEqual(p.lock(), ["fretwork-1"], "message 1's end released the site message 2 holds");
+  assert.equal(p.busy(), true, "message 1's end cleared message 2's busy flag");
+  // A THIRD PRESS SENDS NOTHING AT ALL now — the busy flag is message 2's and
+  // stays up — where it used to pay its routing call and meet the latch.
   await p.send(M3);
-  assert.deepEqual(p.lines(), ["route: " + M1, "edit look: " + M1, "edit look: " + M2, "route: " + M3],
-    "a third ask posted an edit while message 2 held the site");
+  assert.deepEqual(p.lines(), lines, "a third press reached the server while message 2 held the site");
+  assert.deepEqual(p.asked(), [M1, M2], "the third press was taken as a message");
   assert.deepEqual(p.lock(), ["fretwork-1"]);
   await p.answer("edit", ok(LOOKED));
-  assert.deepEqual(ended2, [LOOK]);
+  assert.deepEqual(p.said(), [LOOK, LOOK]);
   assertIdle(p, "after message 2 answered");
 });
 

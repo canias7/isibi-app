@@ -230,3 +230,20 @@ test("an ordinary published edit prints and does NOT start a rewrite", () => {
   assert.ok(!r.actions.some((a) => /rewrite|PAID/.test(a)),
     "a published edit records a paid action: " + JSON.stringify(r.actions));
 });
+
+test("a published edit whose composer throws is drawn as the known result, not as no screen", () => {
+  // `applyEditResult` KEEPS A KNOWN RESULT (2026-09-24): a throw before its
+  // sentence says `editShownMsg`, the add-on's `shown` rule for the edit. That
+  // sentence is not reachable from `editAnswer`'s own calls, so the census
+  // above cannot see it — and a reader without it would report NO screen for a
+  // reply the page draws as a success. This reply's composer throws on one
+  // field, which is what reaches it.
+  const reply = { ok: true, layer: "page", page: "/", files: 24, cost: 2 };
+  Object.defineProperty(reply, "photos", { enumerable: true, get() { throw new Error("a composer read broke"); } });
+  const r = editBrowserReply(reply, true);
+  assert.equal(r.ok, true, "the reader threw on a reply the page draws as a success: " + r.why);
+  assert.equal(r.shown, true, "the known result was not said");
+  assert.equal(r.text, "✅ That change went through, but I couldn’t show the details of what it changed here.");
+  // WHAT RAN BEFORE THE THROW STANDS, and nothing paid was set in motion.
+  assert.deepEqual(r.actions, ["refresh the credit balance"], "a published edit that failed to show recorded: " + JSON.stringify(r.actions));
+});

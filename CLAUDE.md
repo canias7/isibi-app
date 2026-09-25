@@ -4126,7 +4126,14 @@ separate next tasks"*):
    `tell` latch (*an add-on that fails never buys the rewrite*); the edit path
    has no such latch. The per-ask latch keeps the site held in that state
    (asserted); the double sentence and the lowered flag are recorded, not
-   changed.
+   changed. **The owner then reproduced the QUEUED form — a stored success
+   whose application throws: no reply, busy for good, latched — and took the
+   fix: BUILT THE SAME DAY on the branch, not merged** (*a published edit this
+   page fails to show is still a published edit*, below). Every sentence
+   through `siteEdit` now ends its POST once. **Still open**: a QUEUED
+   non-success sentence whose redraw throws after it is out escapes the watcher
+   as an unhandled rejection — one sentence, the page freed, the latch released
+   — as the add-on's queued refusal already does.
 
 ### MERGED AND DEPLOYED: THE FAILURE HANDLING (2026-09-23, evening)
 
@@ -7155,14 +7162,16 @@ is NOT deployed either — the owner put this correction before that deploy.
   second time, which the flag, having no owner, cannot tell from the holder's.
   A sentence there could only go through the refused message's own `finish`,
   which would lower the flag while the holder runs. Wording, and whether to say
-  anything, is the owner's.
+  anything, is the owner's. **That second run was the only path found to reach
+  it, and it is closed** (next section), so the refusal is now the wall behind
+  the busy flag.
 - **THE VALIDATED READERS ARE UNTOUCHED**: `readRouteReply`, `readEditReply`
   and `readAddonReply` are byte-identical, and `edit-reply-validation`'s 72
   cases pass with only their harness's declaration line changed.
 - **FOUND ON THE WAY, NOT CHANGED**: the one-hop bound is not enforced on the
   queued path (next-task 12, unreachable today), and a throw after an edit's
   sentence is out says a second sentence and lowers the busy flag (next-task
-  13) — both driven.
+  13) — both driven. **Next-task 13 is fixed in the next section.**
 - **EVIDENCE.** `test/edit-lock.test.mjs`, **23 cases**, every one sending TWO
   messages through ONE page with `fetch` the one seam — a request the script
   does not answer is HELD, which is how a case reads the latch while work is
@@ -7232,6 +7241,136 @@ is NOT deployed either — the owner put this correction before that deploy.
   button drawn; after, it posted its edit and was answered. **Every answer is
   SUPPLIED**: this proves what the browser sends and holds, never how often a
   real route answers these shapes.
+
+### A PUBLISHED EDIT THIS PAGE FAILS TO SHOW IS STILL A PUBLISHED EDIT (2026-09-24, on the branch — not merged, not deployed, no paid run)
+
+Owner, keeping the lock correction (*"539 focused tests, all green. Keep
+it."*): *"A queued edit receives a successful stored result. scheduleCreditRefresh
+throws inside result application (injected). The rejection escapes; no reply is
+shown; busy remains true; editInFlight still holds fretwork-1. This is a
+controlled error-injection result, not a new live incident. It extends the
+display-error finding you already recorded."* — and the rule, the add-on's:
+*"A successful server result remains successful if local application or
+rendering fails. Finish the request and release only its own lock. Do not start
+another paid operation. Do not append an uncertainty warning after success has
+already been reported. A late completion must not clear a newer request's busy
+state or lock."* Next-task 13. **Browser only (`public/chat.js`)**, on top of the
+lock correction and the edit-reply validation, neither deployed.
+
+- **REPRODUCED FIRST ON `ce27b5bb`, AND WIDER THAN REPORTED**, through the real
+  send path with `fetch` the one seam and the failure injected where the owner
+  put it — the credit refresh throwing only when called from inside the result's
+  application (the routing call refreshes the balance too, and a throw there is
+  `siteRoute`'s `lost()`), or the redraw throwing once a reply is recorded:
+  - **the owner's case, and then the NEXT message sent nothing at all** — not
+    even its routing call: stuck until a reload. The same on a hop whose own
+    answer was queued, a watch resumed after a refresh (no latch, busy stuck)
+    and a queued double failure.
+  - **straight back, the same throw reached `siteEdit`'s POST catch**, which
+    said *"I couldn't read the answer to that change, so I can't tell whether
+    it went through"* about an edit the route had published — and on a hop's
+    success.
+  - **a redraw failing after "✅ Updated the look." was recorded** printed that
+    sentence UNDER it (straight back, and on a hop) and ran the page's finish a
+    second time; queued, it escaped the watcher as an unhandled rejection.
+  - **a late completion**: where that redraw had started a newer message
+    (through the page's own `siteSend`), the second finish lowered the newer
+    message's busy flag and stopped its rail with its edit in flight — the
+    latch still refused a third ask's edit, after that ask had paid its routing
+    call. The same for a refusal's redraw.
+  - **and the recorded finding for every other sentence**: a refusal, an
+    unreadable answer, a sign-out and a hop's refusal each got the not-knowing
+    sentence under them when their redraw threw.
+- **`applyEditResult` KEEPS A KNOWN RESULT — `applyAddonResult`'s rule, line for
+  line.** A throw before its sentence says `editShownMsg()` — *"✅ That change
+  went through, but I couldn't show the details of what it changed here."*, the
+  add-on's `shown` sentence one noun over (the wording is the owner's); a throw
+  after is left standing (`told`). **And nothing escapes it**: the known-result
+  sentence's own finish is guarded as well — where the add-on's is not — because
+  on a queued edit there is no catch above it but the event loop's. The sentence
+  is COMPOSED outside that guard, so a missing composer still fails out loud.
+- **`siteEdit` ENDS EACH POST ONCE — the add-on's `tell`, for the edit.** The
+  finish it hands on drops anything after the first call, carried by the finish
+  rather than a flag its catch reads, because a hop and a queued watch are
+  handed it and end the chain from their own code. **Per POST, not per ask**: a
+  resumed watch takes no ask, and its hop's catch is reached only by the POST's
+  own ending — a probe applying the ending to a customer's ask alone survived
+  everything until a resumed-hop case was written.
+- **TWO WALLS, DELIBERATELY, AND THE PROBES SAID WHERE THE SECOND IS THE ONLY
+  ONE.** On a customer's message `applyEditResult`'s `told` and the POST's
+  ending both drop a second sentence, so three probes on `told` SURVIVED the
+  first run. The chain where `told` is the only wall is a watch resumed after a
+  refresh (the page's own finish, no POST around it); a resumed success whose
+  redraw throws after its sentence kills all three. Said in the code.
+- **WHAT THE CUSTOMER SEES**: the owner's case says the known-result sentence,
+  the page frees, and the next message posts its edit; a success whose redraw
+  fails says its own sentence once; and a late completion leaves the newer
+  message's busy flag, rail and latch alone, so a third press sends NOTHING —
+  it used to pay its routing call and meet the latch. **No paid request is
+  started by any of it**, asserted as every request line in every case.
+- **KEPT**: the readers byte-identical; the latch; the duplicate-send controls
+  and the latch-alone case; the add-on's own known-result sentence on an edit
+  handed to it (a control).
+- **`edit-lock`'s OLD/NEW-REQUEST CASE IS RE-ANCHORED, NOT APPEASED.** It
+  recorded the second finish — `[LOOK, UNREAD]`, the busy flag lowered, the
+  third press routed — and now asserts message 1 ends once and message 2 keeps
+  its busy flag. Its message 2 is started through the page's own `siteSend`
+  rather than a stand-in finish, so the flag it asserts is the page's.
+- **FOUND, NOT CHANGED**:
+  - a QUEUED refusal (any non-success sentence the watcher reads) whose redraw
+    throws after its sentence still escapes the watcher as an unhandled
+    rejection — one sentence, the page freed, the latch released. The add-on's
+    queued refusal is recorded as the same; the watcher does not catch its
+    reader.
+  - the add-on's known-result sentence is not guarded against its own redraw
+    failing (straight back, `told` drops the catch's second sentence; queued,
+    it escapes with the state correct).
+  - both appliers refresh the credit balance FIRST, so a throw there skips the
+    preview bump, the picker update and the undo record: the customer is told
+    the change went through and the preview may show the old bundle until the
+    next bump. The add-on's order is kept, as asked.
+  - the not-knowing sentence's "Check the preview", recorded before.
+- **EVIDENCE.** `test/edit-result-display.test.mjs`, **23 cases**: a success
+  whose application throws before its sentence (queued — the owner's —
+  straight back, a hop, a hop's queued answer, a resumed watch); a success
+  whose redraw throws after its sentence (straight back, queued, a hop, a
+  resumed watch); both at once (straight back, queued); a newer message started
+  in the old one's redraw (a success straight back, queued, and a refusal);
+  every other sentence whose redraw throws (a refusal, an unreadable answer, a
+  sign-out, a hop's refusal, a resumed watch's hop refusal); two controls; a
+  second press while the job runs; and the wording. Every one sends a second
+  message through the same page and asserts every request, what was said, the
+  final busy, latch and rail state, and that nothing reached the event loop (a
+  file-wide `unhandledRejection` recorder). **Red 20 of 23 on `ce27b5bb`** (a
+  throwaway worktree, `editShownMsg` appended so the harness loads): the
+  straight-back cases on the sentence, the queued ones first on the escaped
+  rejection — node's runner attributes it to the running case, and the scratch
+  reproduction shows the same queued shapes stuck at the state level (no reply,
+  busy, latched, the next message sending nothing); the 3 green are the two
+  controls and the wording. Plus `edit-lock`'s re-anchored case (red on the old
+  code: `[LOOK, UNREAD]`) and one `edit-browser-reply` case — a reply whose
+  composer throws is drawn as the known result by the canary's own reader (red
+  on the old code: the reader threw) — with `editShownMsg` on
+  `EDIT_BROWSER_FNS`, since `editAnswer`'s own calls cannot reach it and the
+  census does not see it. Three harnesses cut the new sentence. **Targeted
+  probes, not a sweep: 12 killed, 0 survived, 0 never applied, the comment-only
+  control surviving**, over `chat.js` and `scripts/addon-sweep.mjs` against the
+  27 files that load the edit path (spec in the scratchpad): the catch
+  rethrowing, speaking after its sentence, `told` never set or set after the
+  page's finish, the known result said as not knowing, its finish unguarded, the
+  POST's ending dropping nothing, missing, applied to an ask alone or set after
+  the finish, the sentence reworded, and the harness list; the new file alone
+  kills 11 (the list is the other file's). Both files byte-identical to their
+  backups afterwards (sha256 `974b455ab0135e1d`, `38ccd24bb90cb4dc`). The 27
+  files: **972 / 972**. **Suite 7,668 locally** (`# tests 7668 / # pass 7666 /
+  # fail 0 / # skipped 2`, `duration_ms 125,370`) — **+24 against 7,644**: the
+  23 new cases and the harness case. **Rendered in the real app in a real
+  Chromium**, before (`ce27b5bb`) and after, the owner's case typed and sent:
+  before, "Thinking" for good with the stop button drawn, the second message
+  never sent, and the page's own uncaught rejection; after, the known-result
+  sentence, the send button back, and the second message answered. **Every
+  answer is SUPPLIED**: this proves what the browser says and holds, never how
+  often a real route answers these shapes.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

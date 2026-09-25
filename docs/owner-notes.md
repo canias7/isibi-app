@@ -160,6 +160,78 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-24 — If the page can't show a finished edit, you're still told it worked (on the branch, not deployed)
+
+**Where things stand:** you kept the lock fix (539 tests, all green). This goes
+on top of it. Neither is deployed.
+
+**The problem, as you reproduced it:** a queued edit finished, then the page
+broke while showing the result — you made the balance refresh fail on purpose.
+No reply appeared, the stop button stayed, and the site stayed locked. As you
+said, it's a controlled test, not a live incident, and it extends the redraw
+problem I'd recorded.
+
+**Reproducing it showed more than that:**
+- After that failure, **your next message sent nothing at all.** The page was
+  stuck until a reload.
+- **Straight back (not queued)**, the same failure said *"I couldn't read the
+  answer to that change, so I can't tell whether it went through"* — about an
+  edit that had gone through.
+- **If the screen failed to redraw after "✅ Updated the look."**, that same "I
+  couldn't read the answer" message appeared underneath the success.
+- **If a new message had already started**, that extra message from the old one
+  switched off the new one's busy state while it was still running.
+- A refusal, an unreadable answer and a sign-out got the same extra message
+  underneath when the redraw failed.
+
+**What happens now:**
+- If an edit went through but the page can't show the details, you see
+  **"✅ That change went through, but I couldn't show the details of what it
+  changed here."** That's the add-on's wording with one word changed. The
+  wording is yours to change.
+- If the redraw fails after a message is already on screen, nothing more is
+  said.
+- Each edit request ends once. The lock comes off once, the send box frees once,
+  and nothing an older request does afterwards can touch a newer one.
+- None of this starts anything paid.
+
+**Kept exactly as it was:**
+- the edit-answer checks;
+- the lock and its tests;
+- a second press while an edit runs still sends nothing;
+- the add-on's own "That addition went through…" message.
+
+**Found, not changed:**
+- **A queued refusal whose screen then fails to redraw still leaves an error in
+  the browser's console.** You see one message and the page frees; only the
+  console shows it. The add-on has the same, already recorded.
+- **The add-on's "went through" message isn't protected against its own redraw
+  failing.** The edit's now is.
+- **When the balance refresh is what fails, the preview isn't refreshed for that
+  change**, because the refresh runs first. So the preview may show the old
+  version until your next change. You're still told the change went through. I
+  kept the add-on's order, as you asked.
+
+**How it was checked:**
+- Your case and the others were reproduced on the branch code first, through
+  the real send path.
+- **23 new tests, each followed by a second message through the same page.**
+  Each checks every request sent, what was said, whether the send box and the
+  lock are free, and that no error escaped. On the old code 20 fail. The 3 that
+  pass are two "behaves the same either way" checks and the wording check.
+- **The lock file's "older request vs newer request" test** now also checks that
+  the newer request keeps its busy state.
+- **12 deliberate small breakages**, and every one was caught. A comment-only
+  change was left alone, as it should be.
+- **Every test file that reads the edit path (27 files):** 972 tests, 0 failures.
+- **The full suite:** 7,668 tests, 0 failures here — 24 more than before, which
+  is the new tests.
+- **Screenshot:** before and after of your case in the real app, in the chat.
+
+**Browser file only, on the branch — not merged, not deployed, no paid run.**
+
+---
+
 ## 2026-09-24 — After an edit hands off to a cheaper step, your next message goes through (on the branch, not deployed)
 
 **Where things stand:** you reviewed the edit-answer check (516 tests, all
@@ -216,11 +288,14 @@ meanwhile. The tests check that.
   read the answer" message appears, and the send box frees up early.** The
   add-on had this fixed earlier; the edit side didn't. I found it while writing
   the test for "an older request can't unlock a newer one". The lock itself
-  holds in that situation; the test checks that too.
+  holds in that situation; the test checks that too. *(You then asked for it:
+  fixed on the branch — the entry above.)*
 - **A second request refused by the lock still says nothing.** That can now
   only happen after the redraw failure above. Saying something there would free
   the send box while the first request is still running, so I left it. Whether
-  it should say something, and what, is yours.
+  it should say something, and what, is yours. *(The redraw failure was the only
+  way I found to reach it, and it's fixed in the entry above. So it's now a
+  second wall behind the busy send box.)*
 
 **How it was checked:**
 - Your sequence and more were reproduced on the branch code first, through the
@@ -11067,7 +11142,9 @@ it and asked for the fix; it's on the branch awaiting your review** — the lock
 now belongs to the request and comes off when that request finishes, and a
 queued edit no longer lets go of it while its job is still running. See the
 2026-09-24 entry at the top. Next-task 11 in CLAUDE.md. Two things found on the
-way are recorded there as next-tasks 12 and 13.
+way are recorded there as next-tasks 12 and 13. **Next-task 13 (the redraw
+failure) is fixed on the branch too, not merged** — the "If the page can't show
+a finished edit" entry.
 
 **Open 2026-09-17 — the edit path has the same "nobody mentioned the empty
 picture frame" gap the addon just had**
