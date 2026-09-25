@@ -7362,9 +7362,20 @@ lock correction and the edit-reply validation, neither deployed.
   the finish, the sentence reworded, and the harness list; the new file alone
   kills 11 (the list is the other file's). Both files byte-identical to their
   backups afterwards (sha256 `974b455ab0135e1d`, `38ccd24bb90cb4dc`). The 27
-  files: **972 / 972**. **Suite 7,668 locally** (`# tests 7668 / # pass 7666 /
-  # fail 0 / # skipped 2`, `duration_ms 125,370`) — **+24 against 7,644**: the
-  23 new cases and the harness case. **Rendered in the real app in a real
+  files: **972 / 972**. **Suite 7,668 locally, taken twice** (`# tests 7668 /
+  # pass 7666 / # fail 0 / # skipped 2`, `duration_ms` 125,370 and then 126,780
+  on the committed tree) — **+24 against 7,644**: the 23 new cases and the
+  harness case. **AND CI MATCHES**: unit run **`36079630725` on `86e8893f`**
+  reads **`# tests 7668 / # pass 7664 / # fail 0 / # skipped 4`**
+  (`duration_ms 121,589`) — the total is what matches, `pass` differing by
+  CI's four skips against the two local ones — with all 23 of the file's cases
+  (`ok 2221`–`2243`), the re-anchored `edit-lock` case (`ok 1817`) and the
+  `edit-browser-reply` case (`ok 1702`) found passing BY NAME in the downloaded
+  log archive, 7,668 distinct result numbers with no gap and zero `not ok N -`;
+  the job read by its own top-level fields (`completed`, `success`, 00:56:23Z).
+  **The stamp chain ends at `86e8893f`.** No `site build` fires: none of the
+  commit's nine files is on its `paths`, checked with GitHub's own glob rule
+  and the matcher proved alive on `worker.js` first. **Rendered in the real app in a real
   Chromium**, before (`ce27b5bb`) and after, the owner's case typed and sent:
   before, "Thinking" for good with the stop button drawn, the second message
   never sent, and the page's own uncaught rejection; after, the known-result

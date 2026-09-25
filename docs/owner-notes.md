@@ -224,8 +224,10 @@ problem I'd recorded.
 - **12 deliberate small breakages**, and every one was caught. A comment-only
   change was left alone, as it should be.
 - **Every test file that reads the edit path (27 files):** 972 tests, 0 failures.
-- **The full suite:** 7,668 tests, 0 failures here — 24 more than before, which
-  is the new tests.
+- **The full suite:** 7,668 tests, 0 failures, here and on GitHub — 24 more
+  than before: the 23 new tests, plus one checking that the paid test run
+  records the new message correctly. All 24, and the changed lock test, were
+  found passing by name in GitHub's log.
 - **Screenshot:** before and after of your case in the real app, in the chat.
 
 **Browser file only, on the branch — not merged, not deployed, no paid run.**
