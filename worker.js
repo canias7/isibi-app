@@ -214,7 +214,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -6132,8 +6132,8 @@ function configDeps(env, slug, db) {
 }
 
 /** Read a site's config. `{ok:false}` means CANNOT TELL — refuse, never publish. */
-async function readSiteConfig(env, slug, db) {
-  return loadConfig(configDeps(env, slug, db), slug);
+async function readSiteConfig(env, slug, db, options) {
+  return loadConfig(configDeps(env, slug, db), slug, options);
 }
 
 /**
@@ -8297,12 +8297,16 @@ async function saveSiteSource(env, slug, pages) {
  * object at all are the same answer to that question. The distinction the route
  * needs is the one this function adds: whether the READ happened.
  */
-async function readSiteSource(env, slug) {
+async function readSiteSource(env, slug, { strict = false } = {}) {
   if (!env.SITES_BUCKET) return { ok: false, pages: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(SOURCE_KEY(slug));
     if (!o) return { ok: true, pages: [] };
     const v = JSON.parse(await o.text());
+    if (strict && (!Array.isArray(v) || v.some((p) => !p || typeof p.path !== "string" || !p.path.trim()
+      || typeof p.source !== "string" || !p.source.trim()))) {
+      return { ok: false, pages: [], why: "shape" };
+    }
     return { ok: true, pages: Array.isArray(v) ? v : [] };
   } catch (e) { console.error("source read failed:", slug, e && e.message); return { ok: false, pages: [], why: "read" }; }
 }
@@ -8322,9 +8326,19 @@ async function loadSiteSource(env, slug) {
  * so an edit can never quietly republish the site as it was before the edit
  * that preceded it. A check that cannot be made never costs the read.
  */
-async function loadSiteSourceForEdit(env, slug) {
-  try { await ensureEditableState(env, slug); }
-  catch (e) { console.error("editable state: check failed for", slug, e && e.message); }
+async function loadSiteSourceForEdit(env, slug, { checked = false } = {}) {
+  let recovery;
+  try { recovery = await ensureEditableState(env, slug); }
+  catch (e) {
+    console.error("editable state: check failed for", slug, e && e.message);
+    recovery = { ok: false, why: "threw" };
+  }
+  // Only the add-on opts in. A returned failure is as decisive as a throw;
+  // keep its outcome, including any recovery writes, rather than hiding it.
+  if (checked) {
+    if (!recovery || recovery.ok !== true) return { ok: false, pages: [], why: "editable-state", recovery };
+    return { ...await readSiteSource(env, slug, { strict: true }), recovery };
+  }
   return loadSiteSource(env, slug);
 }
 
@@ -8665,12 +8679,16 @@ async function saveSiteParts(env, slug, parts) {
  * claim ahead of its evidence; derive it with a grep rather than reading it
  * here.
  */
-async function readSiteParts(env, slug) {
+async function readSiteParts(env, slug, { strict = false } = {}) {
   if (!env.SITES_BUCKET) return { ok: false, parts: [], why: "no-store" };
   try {
     const o = await env.SITES_BUCKET.get(PARTS_KEY(slug));
     if (!o) return { ok: true, parts: [] };
     const v = JSON.parse(await o.text());
+    if (strict && (!Array.isArray(v) || v.some((p) => !p || typeof p.name !== "string" || !p.name.trim()
+      || typeof p.source !== "string" || !p.source.trim()))) {
+      return { ok: false, parts: [], why: "shape" };
+    }
     return { ok: true, parts: Array.isArray(v) ? v : [] };
   } catch (e) { console.error("parts read failed:", slug, e && e.message); return { ok: false, parts: [], why: "read" }; }
 }
@@ -24850,17 +24868,18 @@ async function handleRequest(request, env, ctx) {
               ? (() => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: aTz }).format(new Date()); } catch { return null; } })()
               : null;
             const aAuth = request.headers.get("Authorization") || "";
-            // Same shape as the edit lane's: this rung has one above it too.
-            const aEscalate = (reason, extra) =>
-              Response.json({ ok: false, escalate: true, reason, cost: 0, ...(extra || {}) });
-            if (!aInstruction) return aEscalate("empty");
+            const aFailure = (reason, extra) => Response.json(addonFailure(reason, extra));
+            if (!aInstruction) return aFailure("empty");
             // The add step designs on `.quick` — the picker's own model, the
             // rule every small call follows — and asking about the one this
             // rung sends is what keeps that a fact rather than a coincidence.
-            if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aEscalate("unconfigured");
+            if (modelKeyMissing(env, modelsFor(ab && ab.picker).quick)) return aFailure("unconfigured");
 
-            const aSrc = await loadSiteSourceForEdit(env, ownerSlug);
-            if (!aSrc || !aSrc.length) return aEscalate("no-source");
+            const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            if (!aRead.ok) return aFailure(aRead.why === "editable-state" ? "editable-state" : "no-source", { recovery: aRead.recovery });
+            const aSrc = aRead.pages;
+            // Absence is not permission yet: backend, config and schema must
+            // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
             // with `if (!adb) return aEscalate("no-backend")` — the same dead
             // gate the look and logo lanes had — and since a first build
@@ -24887,7 +24906,7 @@ async function handleRequest(request, env, ctx) {
             // container where the addon now runs.
             const aBack = await siteBackendDetail(env, ownerSlug);
             let adb = aBack.conn;
-            // AN UNRESOLVABLE BACKEND STOPS THE STEP. Cost 0, nothing changed,
+            // AN UNRESOLVABLE BACKEND STOPS THE STEP. Recovery may have run,
             // and the reason is named rather than collapsed into "no database":
             // Supabase down, a project row we cannot read and a derived
             // database that will not answer are three different things to fix,
@@ -24897,7 +24916,7 @@ async function handleRequest(request, env, ctx) {
               console.error("addon backend unreadable:", ownerSlug, aBack.why, aBack.detail || "");
               return Response.json({
                 ok: false, error: "backend", cost: 0, ours: true, backend: aBack.why,
-                msg: "I couldn't read your site's database just now, so I've stopped rather than guess at what's in it — this is on us and nothing was changed. Try again in a few minutes.",
+                msg: "I couldn't read your site's database just now, so I've stopped this addition rather than guess at what's in it. Try again in a few minutes.",
               }, { status: 503 });
             }
             // A REFERENCE THAT WAS INCOMPLETE IS REPAIRED ON THE WAY PAST.
@@ -24922,7 +24941,7 @@ async function handleRequest(request, env, ctx) {
             // is honest.
             if (aBack.state === "none") aSpec = { tables: [] };
             try {
-              const cfg = await readSiteConfig(env, ownerSlug, adb);
+              const cfg = await readSiteConfig(env, ownerSlug, adb, { strict: true });
               if (!cfg.ok) throw new Error(cfg.why + ": " + cfg.error);
               // ONE MARK, SEVERAL FORMS (2026-09-07) — resolved here for the
               // reason the edit path resolves them: this look goes through
@@ -24946,8 +24965,20 @@ async function handleRequest(request, env, ctx) {
                 aRecovered = stored.recovered || [];
                 if (aRecovered.length) aMark("backend", "recovered", { tables: aRecovered.length });
               }
-            } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aEscalate("no-meta"); }
-            if (!aLook || !aSpec) return aEscalate("no-meta");
+            } catch (e) { console.error("addon meta read failed:", ownerSlug, e && e.message); return aFailure("no-meta"); }
+            if (!aSpec || Array.isArray(aSpec) || !Array.isArray(aSpec.tables)
+              || aSpec.tables.some(t => !t || typeof t !== "object" || typeof t.name !== "string" || !t.name.trim()
+                || !Array.isArray(t.columns))) return aFailure("no-meta");
+            // CSS-only is existing design, not an absent design to regenerate.
+            if (!aLook && aCss.trim()) return aFailure("no-look");
+            if (!aSrc.length || !aLook) {
+              // A reconstruction uses the build path's configuration and the
+              // remaining saved files. Absence of one input cannot waive them.
+              if (!siteDbConfigured(env) || !env.SUPABASE_SERVICE_KEY || !env.ANTHROPIC_API_KEY) return aFailure("unconfigured");
+              const remaining = await readSiteParts(env, ownerSlug, { strict: true });
+              if (!remaining.ok) return aFailure("no-meta");
+              return aFailure(!aSrc.length ? "no-source" : "no-meta", { reconstruct: true });
+            }
 
             const aModels = modelsFor(ab && ab.picker);
             // ── THE ADD STEP, ITS OWN PATH (2026-09-02) ──────────────────
@@ -25147,7 +25178,7 @@ async function handleRequest(request, env, ctx) {
                 msg: k.billing
                   ? "The site builder is temporarily unavailable — this is on us, not your change."
                   : timedOut
-                    ? "That took longer than we allow ourselves to wait — this is on us, and nothing was charged."
+                    ? "That took longer than we allow ourselves to wait, so I stopped this addition."
                     : (what || "The builder is busy — try again in a moment."),
                 upstream: (e && e.status) || null, upstreamType: k.type, billing: k.billing || undefined,
                 timeout: timedOut || undefined,
@@ -25171,9 +25202,8 @@ async function handleRequest(request, env, ctx) {
             // together with the page call and the seed net below, one rounding.
             const aDesignUsage = aPicked.usage ? [aPicked.usage] : [];
             if (aPicked.failed) return aDown(aPicked.error, "The builder is busy — try again in a moment.");
-            // A PICKER THAT NAMED NOTHING could not read the message as an
-            // addition at all; that is the one answer the rung above is for.
-            if (!aPicked.kinds.length) return aEscalate("no-add");
+            // An empty or invalid picker answer establishes no broader request.
+            if (!aPicked.kinds.length) return aFailure("no-add");
             const aKinds = aPicked.kinds;
             // A PHOTOGRAPH ALONE IS THE PICTURE RUNG'S, one step sideways: it
             // fills a slot, prices it against the real balance and refuses
@@ -25196,7 +25226,7 @@ async function handleRequest(request, env, ctx) {
             // designed. `addLayer` is still right for a caller asking about
             // the KIND rather than about this message.
             const aHop = aKinds.find((k) => addLayerIn(k, aKinds));
-            if (aHop && aKinds.length === 1) return aEscalate("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
+            if (aHop && aKinds.length === 1) return aFailure("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
             const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
@@ -26938,9 +26968,9 @@ async function handleRequest(request, env, ctx) {
             if (!aMerge.ok && aMerge.reason === "nothing-returned" && aNote) {
               return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aNote.slice(0, 500) }, { status: 422 });
             }
-            // NOTHING USABLE CAME BACK AND NOTHING SAID WHY — escalate rather
-            // than report success.
-            if (!aMerge.ok) return aEscalate(aMerge.reason, { problems: aProblems.slice(0, 4) });
+            // No usable/effective output is a stop, including unknown reasons.
+            // The explanatory refusals and the model's own note above win.
+            if (!aMerge.ok) return aFailure(aMerge.reason, { problems: aProblems.slice(0, 4) });
 
             // ── WHAT WAS THERE IS STILL THERE (owner, 2026-09-04: "add a second one") ──
             //

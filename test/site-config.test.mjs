@@ -320,7 +320,7 @@ test("the Worker reads and writes through this module and nowhere else", () => {
   assert.match(w, /import \{[^}]*loadConfig[^}]*\} from "\.\/site-config\.mjs"/,
     "worker.js does not import the config store — a name it never imported is a ReferenceError on the build path");
   // BOTH ENDS, because either alone passes while the other is cut.
-  assert.match(w, /async function readSiteConfig\(env, slug, db\)/, "the Worker has no config reader");
+  assert.match(w, /async function readSiteConfig\(env, slug, db, options\)/, "the Worker has no config reader");
   assert.match(w, /async function patchSiteConfig\(env, slug, db, patch\)/, "the Worker has no config writer");
   assert.ok((w.match(/readSiteConfig\(env,/g) || []).length >= 4, "fewer readers than lanes — the scan stopped matching");
   assert.ok((w.match(/patchSiteConfig\(env,/g) || []).length >= 5, "fewer writers than lanes — the scan stopped matching");

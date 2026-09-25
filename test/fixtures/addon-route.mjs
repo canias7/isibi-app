@@ -270,7 +270,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false }) {
+function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "" }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -512,6 +512,10 @@ function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, 
       if (catalog && /role_table_grants/i.test(q)) return neonRows(catalog.grants || [], ["t", "g", "p", "lvl", "col"]);
       if (catalog && /pg_policies/i.test(q)) return neonRows(catalog.policies || [], ["t", "c", "q", "w"]);
       if (catalog && /pg_trigger/i.test(q)) return neonRows(catalog.triggers || [], ["t", "g"]);
+      if (/SELECT k, v FROM _meta WHERE k IN/i.test(q)) {
+        if (legacyFail) return new Response('{"message":"legacy config unavailable"}', { status: 500 });
+        return neonRows(legacyRows, ["k", "v"]);
+      }
       if (/^SELECT v FROM _meta WHERE k\s*=\s*'?schema/i.test(q.trim())) {
         // THE TWO WAYS A SCHEMA READ CAN COME BACK WITHOUT A SPEC, and they
         // need opposite answers from the route. `metaFail` is Neon refusing the
@@ -587,7 +591,7 @@ function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, 
       // asked of a writer that returns none. Omitted by default, so every
       // earlier case sends a `write_pages` answer with no `parts` key at all.
       const inputObj = asked === "pick_adds" ? { kinds }
-        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes: "", ...(writtenParts ? { parts: writtenParts } : {}) }
+        : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}) }
         : (answers[kind] || {});
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
@@ -675,6 +679,9 @@ export async function addon(slug, instruction, opts) {
     // route's black box readable at all — without it `traces` is always empty,
     // which reads exactly like a route that never marked anything.
     const ctx = makeCtx();
+    // Only fixture dependencies change: real R2 failure/absence shapes and
+    // missing environment settings can be driven before the actual route runs.
+    if (opts && opts.setup) opts.setup(env, store, slug);
     const res = await worker.fetch(req, env, ctx);
     await Promise.allSettled(ctx.pending);
     const body = await res.json().catch(() => null);

@@ -22,6 +22,35 @@
 /** A returned set larger than this is not an addon, it is a rewrite wearing one. */
 export const MAX_RETURNED = 6;
 
+/** A failure is not permission to rewrite. Only verified reconstruction and
+ * the photo handoff may start another operation. Messages describe this step,
+ * not the whole request's bill or side effects (routing/recovery may precede it).
+ */
+export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery } = {}) {
+  const base = { ok: false, reason, cost: 0 };
+  if (reconstruct === true && (reason === "no-source" || reason === "no-meta")) {
+    return { ...base, escalate: true };
+  }
+  if (reason === "layer" && layer === "picture" && kind === "photo") {
+    return { ...base, escalate: true, layer, kind };
+  }
+  const messages = {
+    empty: "Tell me what you'd like to add before I continue.",
+    unconfigured: "The site builder isn't configured for the selected model, so I couldn't continue with the addition. This needs fixing on our side.",
+    "editable-state": "I couldn't verify or recover the site's editable files, so I've stopped this addition instead of rebuilding from uncertain data.",
+    "no-source": "I couldn't read the site's saved page files reliably, so I've stopped this addition instead of rebuilding without them.",
+    "no-meta": "I couldn't read the site's saved design or database information reliably, so I've stopped this addition instead of guessing.",
+    "no-look": "The site's stylesheet is available, but its saved design information isn't sufficient for this addition. I've stopped instead of rewriting the site.",
+    "no-add": "I couldn't determine a supported addition from that message. Please clarify what you'd like to add.",
+    "nothing-returned": "The builder didn't return usable page changes for this addition. I've stopped instead of starting a full-site rewrite.",
+    "no-change": "The builder produced no page changes for this addition. I've stopped instead of starting a full-site rewrite.",
+    "too-many": "The builder returned more pages than this addition can accept. I've stopped instead of starting a full-site rewrite.",
+  };
+  const msg = Object.hasOwn(messages, reason) ? messages[reason]
+    : "I couldn't complete this addition, so I've stopped instead of starting another operation.";
+  return { ...base, error: reason, msg, ...(problems ? { problems } : {}), ...(recovery ? { recovery } : {}) };
+}
+
 /**
  * WHAT AN ADDON MAY CHANGE ABOUT A TABLE THE SITE ALREADY HAS.
  *
@@ -301,12 +330,8 @@ export function mergeAddonPages(prior, returned, remove, asked) {
   }
 
   if (!added.length && !changed.length && !gone.length) {
-    // A REFUSAL IS NOT AN ABSENCE OF WORK, and the difference decides whether
-    // the customer is charged ~25 credits for asking a question. `no-change`
-    // escalates: the rung above rewrites the whole site, which is right when
-    // this lane simply could not answer. But "remove the home page" HAS an
-    // answer — no, and here is why — and sending that up the ladder rebuilds
-    // their site in reply to a request that should have been one sentence.
+    // Preserve a specific refusal; otherwise report an unchanged result.
+    // Neither result permits a full rewrite.
     if (kept.length) return { ok: false, reason: "kept", kept, msg: keptReply(kept) };
     return { ok: false, reason: "no-change" };
   }

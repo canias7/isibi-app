@@ -124,12 +124,35 @@ function normalize(raw) {
  * a bug to surface loudly, not to paper over by publishing the site stripped,
  * which is the exact failure the throwing-read rule exists to prevent.
  */
-export function readConfig(text) {
+export function readConfig(text, { strict = false } = {}) {
   if (typeof text !== "string" || !text.trim()) return null;
   let parsed;
   try { parsed = JSON.parse(text); } catch { return null; }
   if (!isObj(parsed)) return null;
+  if (strict && !validConfigShape(parsed)) return null;
   return normalize(parsed);
+}
+
+// Opt-in for the add-on's reconstruction decision: normalization must not turn
+// a present malformed field into evidence that a design never existed.
+function validConfigShape(raw) {
+  return CONFIG_FIELDS.every((field) => {
+    if (!Object.hasOwn(raw, field)) return true;
+    if (["look", "verify", "langStrings"].includes(field)) return raw[field] === null || isObj(raw[field]);
+    return typeof raw[field] === "string";
+  });
+}
+
+function validLegacyConfig(rows) {
+  if (!Array.isArray(rows)) return false;
+  return rows.every((row) => {
+    if (!isObj(row) || typeof row.k !== "string") return false;
+    const field = CONFIG_FIELDS.find((f) => LEGACY_META[f] === row.k);
+    if (!field || row.v == null) return true;
+    if (typeof row.v !== "string") return false;
+    if (["css", "logo", "icon"].includes(field)) return true;
+    try { return validConfigShape({ [field]: JSON.parse(row.v) }); } catch { return false; }
+  });
 }
 
 /** What gets written. Normalised first, so a bad patch cannot store a bad shape. */
@@ -194,7 +217,7 @@ export function withConfig(prior, patch) {
  * exists so a caller can say which happened rather than reporting the same
  * answer for two different states.
  */
-export async function loadConfig(deps, slug) {
+export async function loadConfig(deps, slug, { strict = false } = {}) {
   const key = CONFIG_KEY(slug);
   let text = null;
   try {
@@ -204,7 +227,7 @@ export async function loadConfig(deps, slug) {
   }
 
   if (text != null) {
-    const config = readConfig(text);
+    const config = readConfig(text, { strict });
     if (!config) {
       return { ok: false, why: "unreadable", error: "the stored config could not be parsed", config: emptyConfig(), from: "r2" };
     }
@@ -224,6 +247,9 @@ export async function loadConfig(deps, slug) {
     // same reason. Falling through to an empty config here would republish an
     // existing site stripped of its entire design on a transient blip.
     return { ok: false, why: "legacy", error: String((e && e.message) || e), config: emptyConfig(), from: "none" };
+  }
+  if (strict && !validLegacyConfig(rows)) {
+    return { ok: false, why: "legacy", error: "the stored legacy config is malformed", config: emptyConfig(), from: "legacy" };
   }
   const { config, found } = fromMetaRows(rows);
   if (!found) return { ok: true, config: emptyConfig(), from: "none" };

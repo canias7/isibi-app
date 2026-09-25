@@ -1110,7 +1110,7 @@ test("a schema read that FAILS stops the step; one that finds nothing stored is 
     answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
   });
   assert.equal(failed.body.ok, false, "an unreadable schema was designed against: " + JSON.stringify(failed.body));
-  assert.equal(failed.body.escalate, true);
+  assert.notEqual(failed.body.escalate, true);
   assert.equal(failed.body.reason, "no-meta");
   assert.equal(failed.body.cost, 0);
 
@@ -1391,7 +1391,7 @@ test("a live table that cannot be recovered safely STOPS the step, and says whic
     answers: { function: { function: [{ name: "f", returns: "bigint", body: "SELECT 1", internal: true }] } },
   });
   assert.equal(r.body.ok, false, "the step designed against a spec missing a live table: " + JSON.stringify(r.body));
-  assert.equal(r.body.escalate, true);
+  assert.notEqual(r.body.escalate, true);
   assert.equal(r.body.reason, "no-meta");
   assert.equal(r.body.cost, 0, "a stop that could not design cost the customer something");
 });

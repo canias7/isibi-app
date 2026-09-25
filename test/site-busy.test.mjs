@@ -615,7 +615,7 @@ test("the editable copy: four editing readers read through the repairing reader,
   // count, a listing or a delete and are named here so a new one is noticed.
   for (const line of [
     "let eSrc = await loadSiteSourceForEdit(env, ownerSlug);",
-    "const aSrc = await loadSiteSourceForEdit(env, ownerSlug);",
+    "const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });",
     "priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,",
     // RE-ANCHORED 2026-09-06 (stage 9): the platform rebuild's read moved out
     // of the cron's dep (`const pages = …(env, slug)`) and into the route its
@@ -660,7 +660,9 @@ test("the editable copy: four editing readers read through the repairing reader,
   // rather than editing a copy nothing repaired. Asserted as that property,
   // below, not as a count alone.
   const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  // The ninth is the checked arm INSIDE the repairing wrapper; its caller
+  // cannot publish unless recovery and the strict source read both succeeded.
+  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
   // THE CLASSIFIER NEVER BECOMES THE SOURCE: nothing assigns its pages anywhere.
@@ -673,12 +675,13 @@ test("the editable copy: four editing readers read through the repairing reader,
   // calls `readSiteSource`, so its body is a match the census sees. It is a
   // DEFINITION rather than a caller, which is why it is named here — a count
   // nobody can reproduce by reading the file is a count that drifts.
-  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 3,
+  assert.equal(bare.filter((b) => b.startsWith("readSiteSource")).length, 4,
     "the three reads through the three-state reader are not the wrapper's, the Code tab's and the edit route's classifier: " + bare.join(" | "));
   assert.match(fnW("loadSiteSource"), /const r = await readSiteSource\(env, slug\);/,
     "the wrapper no longer delegates — there are two readers of the store, which drift");
   const wrap = fnW("loadSiteSourceForEdit");
-  assert.match(wrap, /try \{ await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not repair before it reads, or a failed check costs the read");
+  assert.match(wrap, /try \{ recovery = await ensureEditableState\(env, slug\); \}\s+catch/, "the wrapper does not preserve the repair outcome");
+  assert.match(wrap, /recovery\.ok !== true/, "a returned recovery failure is ignored");
   assert.match(wrap, /return loadSiteSource\(env, slug\);/);
   // THE MARKER, LAST, ON EVERY COPY: the spine's, the build's, the restore's.
   const spine = fnW("recompileAndPublish");

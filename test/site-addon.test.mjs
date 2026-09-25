@@ -272,7 +272,7 @@ test("the addon module cannot reach the schema engine or the publisher", () => {
 // ── the wiring, at both ends ─────────────────────────────────────────────────
 
 const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const CHAT = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 function addonBlock() {
   const from = WORKER.indexOf("\n          if (ad) {");
@@ -355,18 +355,18 @@ test("the addon lane provisions ONLY on first touch of the backend, and charges 
   assert.ok(directApply > 0 && plCharge > directApply, "the pageless answer does not apply the schema before it bills the small calls through the one charge");
 });
 
-test("a failed addon leaves the site untouched, and an unusable one escalates", () => {
+test("a failed compile preserves the live site, and unusable output stops", () => {
   const b = addonBlock();
   assert.match(b, /site is untouched/, "a failed compile must promise the live site survived");
-  assert.match(b, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
-    "nothing usable back must escalate rather than report success");
+  assert.match(b, /if \(!aMerge\.ok\) return aFailure\(aMerge\.reason/,
+    "nothing usable back must stop rather than report success");
   // COMMENTS BLANKED FIRST. The first version of this loop listed
   // "no-backend" and kept passing after that refusal was deleted, because the
   // comment explaining the deletion quotes it — prose contains the thing it
   // forbids, the recorded trap, caught here on 2026-09-02.
   const code = b.replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
-  for (const reason of ["empty", "unconfigured", "no-source", "no-meta"]) {
-    assert.ok(code.includes('aEscalate("' + reason + '"'), "no escalation path for: " + reason);
+  for (const reason of ["empty", "unconfigured", "no-meta"]) {
+    assert.ok(code.includes('aFailure("' + reason + '"'), "no escalation path for: " + reason);
   }
   // A SITE WITHOUT A DATABASE IS ADDED TO, NOT REFUSED (owner, 2026-09-02:
   // "add will always go in addon" — and a first build provisions none, so
@@ -374,7 +374,7 @@ test("a failed addon leaves the site untouched, and an unusable one escalates", 
   // rebuild). The connection is read only under a guard, the spec is an
   // honest empty one, and a designed table on such a site is a named 422
   // rather than a climb.
-  assert.ok(!code.includes('aEscalate("no-backend"'), "the addon still refuses a site with no database");
+  assert.ok(!code.includes('aFailure("no-backend"'), "the addon still refuses a site with no database");
   // RE-ANCHORED, NOT APPEASED (2026-09-15). The schema read was inline here as
   // `SELECT v FROM _meta WHERE k = 'schema'` and is now `readStoredSpec`, which
   // exists because that one query had THREE outcomes collapsed into a spec or a
@@ -1176,7 +1176,7 @@ test("a removed page leaves the picker", () => {
 });
 
 test("the route hands a considered refusal to the customer, not to the build lane", () => {
-  // The wiring half of the same decision. `aEscalate` sets `escalate: true`, and
+  // The wiring half of the same decision. `aFailure` sets `escalate: true`, and
   // the client's first line is `if (a.escalate) return fallback()` — so a
   // refusal routed through it rebuilds the site for ~25 credits in answer to
   // "remove the home page". The branch must sit BEFORE the escalation.
@@ -1200,7 +1200,7 @@ test("the route hands a considered refusal to the customer, not to the build lan
   assert.ok(end > at, "the publish that bounds this region moved — rescope this");
   const after = w.slice(at, end);
   const refuse = after.indexOf("if (!aMerge.ok && aMerge.msg)");
-  const climb = after.indexOf("return aEscalate(aMerge.reason");
+  const climb = after.indexOf("return aFailure(aMerge.reason");
   assert.ok(refuse > 0, "a refusal with a reason still escalates to the build lane");
   assert.ok(climb > 0, "the escalation is gone — a dead end must still reach the rung above");
   assert.ok(refuse < climb, "the escalation is checked first, so the refusal can never fire");
@@ -1811,24 +1811,21 @@ test("the addon reports the model's own note instead of escalating", () => {
     "the refusal branch is gone or no longer requires a note");
   // …AND IT COMES BEFORE THE ESCALATION, or it can never fire.
   const refusal = win.indexOf('aMerge.reason === "nothing-returned"');
-  const climb = win.indexOf("return aEscalate(aMerge.reason");
+  const climb = win.indexOf("return aFailure(aMerge.reason");
   assert.ok(refusal > 0 && climb > 0 && refusal < climb,
     "the refusal must be decided before the escalation, or the ladder wins every time");
 });
 
-test("NOTHING SAID WHY STILL ESCALATES, which is what keeps the recovery", () => {
-  // A model that fell over writes no note, and that really is "this lane could
-  // not answer" — the one question escalation exists to settle. Requiring the
-  // note is what separates the two, so a branch that fired without one would
-  // turn every generator failure into a dead end.
+test("unexplained unusable output stops instead of escalating", () => {
+  // An absent explanation is not permission to rebuild the whole site.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // RE-ANCHORED 2026-09-17: the landmark is the ASSIGNMENT, not the argument
   // list — this is a window opener and the arguments are not its claim.
   const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
-  assert.match(win, /if \(!aMerge\.ok\) return aEscalate\(aMerge\.reason/,
-    "the unexplained-failure path no longer escalates");
+  assert.match(win, /if \(!aMerge\.ok\) return aFailure\(aMerge\.reason/,
+    "the unexplained-failure path must stop");
 });
 
 test("the live check asks for a page the fixture does NOT have", () => {

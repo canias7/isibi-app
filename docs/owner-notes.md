@@ -1,5 +1,11 @@
 # Owner Notes
 
+2026-09-25: Authorized bounded add-on escalation correction implemented on the
+work branch; [patch and focused evidence](investigations/addon-escalation-correction.md).
+No merge/deploy or paid replay authorized. Model-written replies and translation
+remain parked. Stop messages must not imply routing was free or recovery made
+no changes. Await independent review of the patch and branch CI.
+
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
    have to relearn them.

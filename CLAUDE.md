@@ -1,5 +1,9 @@
 # Go Farther
 
+Add-on escalation correction: [bounded patch and verification](docs/investigations/addon-escalation-correction.md).
+Only verified missing source/design may reconstruct; unreadable state and failed
+editable recovery stop. This patch is on the work branch, not merged or deployed.
+
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
 >

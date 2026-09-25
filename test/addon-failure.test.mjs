@@ -50,8 +50,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { addon, storedPage, addedTo } from "./fixtures/addon-route.mjs";
+import { addonFailure } from "../builder/site-addon.mjs";
 
-const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const POLL = readFileSync(new URL("../public/edit-poll.js", import.meta.url), "utf8");
 
 // A top-level function runs from its declaration to the first `}` at column 0.
@@ -552,12 +554,8 @@ test("CONTROL: the valid edit → add-on handoff still posts the add-on once, in
   assert.equal(o.busy, false);
 });
 
-// ── OUT OF SCOPE, ASSERTED AS IT IS ──────────────────────────────────────────
-// The add-on route's own escalates carry no layer, and each still starts the
-// rewrite: the server's explicit climb, not something this page failed to read.
-// Classifying them is the separate server-side step — until then this is the
-// one way from an addition to the rewrite, and this case is its record.
-test("NOT CHANGED HERE: the add-on route's own escalate naming no layer still starts the rewrite, straight back and queued", async () => {
+// Explicit reconstruction remains a browser contract. Real producer coverage below.
+test("CONTROL: an explicit reconstruction still starts the rewrite, straight back and queued", async () => {
   const climb = { ok: false, escalate: true, reason: "no-source", cost: 0 };
   for (const [answers, before] of [
     [{ addon: [ok(climb)] }, ["POST " + ADD]],
@@ -568,4 +566,120 @@ test("NOT CHANGED HERE: the add-on route's own escalate naming no layer still st
     assert.equal(o.after[o.after.length - 1].body.instruction, ASK);
     assert.deepEqual(o.said, []);
   }
+});
+
+// Real Worker replies, then the real browser handlers. Every external provider
+// is stubbed by addon(); drive records follow-up POSTs without executing them.
+const componentCase = {
+  kinds: ["component"], storedPages: [storedPage("/")],
+  answers: { component: { component: [{ page: "/", does: "a parking note", components: ["card"] }] } },
+};
+const sourceKey = s => `source/${s}/pages.json`;
+const configKey = s => `config/${s}.json`;
+const setRaw = (key, raw) => (env, bucket, slug) => bucket.store.set(key(slug), raw);
+const absentSource = (env, bucket, slug) => bucket.store.delete(sourceKey(slug));
+const failRead = key => (env, bucket, slug) => {
+  const get = bucket.get.bind(bucket);
+  bucket.get = k => k === key(slug) ? Promise.reject(new Error("fixture unreadable")) : get(k);
+};
+const combine = (...steps) => (...args) => steps.forEach(step => step(...args));
+const version = "20260925000000-probe";
+const recoveryPointer = (env, bucket, slug) => bucket.store.set(`current/${slug}.json`, json({ version }));
+async function browserReply(r, expected = "stop") {
+  for (const queued of [false, true]) {
+    const before = ["POST " + ADD, ...(queued ? ["GET /api/site/edit/job-a"] : [])];
+    const o = await drive({ answers: { route: [ROUTE_ADDON], ...(queued
+      ? { addon: [RECEIPT], poll: [stored(r.body, r.status)] }
+      : { addon: [ok(r.body, r.status)] }) } });
+    if (expected === "stop") {
+      assert.notEqual(r.body.escalate, true);
+      assertStopped(o, before, "⚠️ " + r.body.msg);
+      assert.ok(!o.trail.some(t => t === "POST " + EDIT), "no paid handoff");
+    } else if (expected === "success") {
+      assert.equal(r.body.ok, true, json(r.body));
+      assert.deepEqual(o.trail, before);
+      assert.equal(o.busy, false);
+    } else {
+      assert.deepEqual(o.trail, [...before, "POST " + (expected === "photo" ? EDIT : REWRITE)]);
+      assert.equal(o.after.at(-1).body.instruction, ASK);
+      if (expected === "photo") assert.equal(o.after.at(-1).body.layer, "picture");
+    }
+  }
+}
+const stoppedRoutes = [
+  ["empty", { instruction: "" }],
+  ["unconfigured", { setup: env => { delete env.XAI_API_KEY; delete env.ANTHROPIC_API_KEY; } }],
+  ["source-read", { setup: failRead(sourceKey) }],
+  ["source-json", { setup: setRaw(sourceKey, "{") }],
+  ["source-object", { setup: setRaw(sourceKey, "{}") }],
+  ["source-entry", { setup: setRaw(sourceKey, '[{"path":"index.tsx"}]') }],
+  ["source-null", { setup: setRaw(sourceKey, 'null') }],
+  ["config-read", { setup: failRead(configKey) }],
+  ["config-json", { setup: setRaw(configKey, "{") }],
+  ["config-look", { setup: setRaw(configKey, '{"look":[]}') }],
+  ["config-css", { setup: setRaw(configKey, '{"css":42}') }],
+  ["legacy-read", { legacyFail: true, setup: (e,b,s) => b.store.delete(configKey(s)) }],
+  ["legacy-malformed", { legacyRows: [{k:"site_look",v:"[]"}], setup: (e,b,s) => b.store.delete(configKey(s)) }],
+  ["schema-read", { metaFail: true }],
+  ["schema-json", { metaJunk: true }],
+  ["schema-shape", { stored: [] }],
+  ["missing-source-config-read", { setup: combine(absentSource, failRead(configKey)) }],
+  ["missing-source-config-malformed", { setup: combine(absentSource, setRaw(configKey, '{"look":42}')) }],
+  ["missing-source-backend-read", { backend: "unreadable", setup: absentSource }],
+  ["missing-source-schema-read", { metaFail: true, setup: absentSource }],
+  ["missing-source-schema-malformed", { stored: {tables:42}, setup: absentSource }],
+  ["missing-source-parts-read", { setup: combine(absentSource, e => { e.NEON_API_KEY="k"; }, failRead(s => `source/${s}/parts.json`)) }],
+  ["missing-source-unconfigured", { setup: absentSource }],
+  ["recovery-pointer-read", { setup: failRead(s => `current/${s}.json`) }],
+  ["recovery-pointer-malformed", { setup: setRaw(s => `current/${s}.json`, "{") }],
+  ["recovery-returned-false", { setup: recoveryPointer }],
+  ["recovery-partial-write", { setup: combine(recoveryPointer, (e,b,s) => b.store.set(`builds/${s}/${version}/state/pages.json`, json([storedPage("/")])), failRead(s => `builds/${s}/${version}/state/parts.json`)) }],
+  ["css-only", { setup: setRaw(configKey, '{"css":"body{color:red}"}') }],
+  ["picker-empty", { kinds: [] }],
+  ["picker-invalid", { kinds: ["imaginary-kind"] }],
+  ["output-empty", { ...componentCase, written: [] }],
+  ["output-invalid", { ...componentCase, written: [{path:"index.tsx",source:"garbage"}] }],
+  ["output-unchanged", { ...componentCase, written: [storedPage("/")] }],
+  ["provisioned-output-empty", { backend:"none", provisions:true, kinds:["table"],
+    answers:{table:{table:[{table:{name:"repairs",columns:[{name:"who",type:"text"}]}}]}}, written:[] }],
+  ["model-note", { ...componentCase, written: [], notes: "The requested feature already exists." }],
+];
+for (const [name, opts] of stoppedRoutes) test(`REAL stop ${name}: direct and queued, no rewrite or paid handoff`, async () => {
+  const r = await addon("bounded-" + name, opts.instruction ?? ASK, { kinds: [], answers: {}, ...opts });
+  assert.equal(typeof r.body.msg, "string", json(r.body));
+  if (name === "model-note") assert.ok(r.body.msg.includes(opts.notes));
+  if (name.startsWith("recovery-")) assert.equal(r.body.recovery.ok, false);
+  if (name === "recovery-partial-write") assert.equal(r.store.store.get(sourceKey("bounded-" + name)), json([storedPage("/")]));
+  if (name === "provisioned-output-empty") assert.ok(r.neonCalls.length > 0, "provisioning preceded this stop");
+  assert.doesNotMatch(r.body.msg, /nothing (?:changed|charged)|\bfree\b/i);
+  await browserReply(r);
+});
+test("unknown future failures default to stop through both browser handlers", async () => {
+  for (const reason of ["future-reason", "__proto__", "too-many"]) {
+    await browserReply({status:200, body:addonFailure(reason, {reconstruct:true})});
+  }
+});
+for (const missing of ["source", "design"]) test(`REAL reconstruction: readable state with absent ${missing}`, async () => {
+  const r = await addon("bounded-reconstruct-" + missing, ASK, {kinds:[], answers:{}, backend: "none", setup(e,b,s) {
+    e.NEON_API_KEY = "k";
+    b.store.delete(missing === "source" ? sourceKey(s) : configKey(s));
+  }});
+  assert.equal(r.body.escalate, true, json(r.body));
+  assert.equal(r.body.reason, missing === "source" ? "no-source" : "no-meta");
+  await browserReply(r, "rewrite");
+});
+test("REAL photo handoff survives direct and queued handling", async () => {
+  const r = await addon("bounded-photo", ASK, {kinds:["photo"],answers:{}});
+  await browserReply(r, "photo");
+});
+for (const control of ["addition", "legacy", "empty-schema", "recovery"]) test(`REAL successful ${control}: direct and queued`, async () => {
+  const opts = {...componentCase, publishes:true, written:[addedTo("/", "<p>Parking behind the shop.</p>")]};
+  if (control === "legacy") {
+    opts.legacyRows = [{k:"site_look",v:json({brand:"Fretwork",pages:[]})}];
+    opts.setup = (e,b,s) => b.store.delete(configKey(s));
+  }
+  if (control === "empty-schema") opts.metaMissing = true;
+  if (control === "recovery") opts.setup = combine(recoveryPointer, (e,b,s) => b.store.set(`builds/${s}/${version}/state/pages.json`, json([storedPage("/")])));
+  const r = await addon("bounded-success-" + control, ASK, opts);
+  await browserReply(r, "success");
 });

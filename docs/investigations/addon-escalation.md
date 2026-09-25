@@ -1,5 +1,9 @@
 # Add-on escalation: investigation and proposed correction
 
+Implementation follow-up: see [the bounded correction](addon-escalation-correction.md).
+This investigation and its standalone probe describe the **5afd5a0 baseline**;
+the probe's old escalation assertions are historical, not post-fix acceptance tests.
+
 2026-09-25 UTC. Product examined: `5afd5a0fe51e2d5f9bb6480c649cd857e2c20668`.
 Branch base: `56df634c5725888e18c680313b91bb79af286fdb` (documentation only
 after that product commit). Deployment 2155 is already independently verified;
