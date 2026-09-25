@@ -176,6 +176,75 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-25 — A page the text check can't read no longer drops out of the request (on the branch, not merged)
+
+You found the gap: on the home page, "Remove the ‘Chords’ section on /menu."
+was refused, but "Remove the ‘Chords’ section on ‘/menu’." was allowed. The
+quotes hid the address from the part that reads pages, and then everything
+after "on" was set aside unread.
+
+**It was wider than the quotes.** On the old code, each of these was allowed
+on the home page with the correct answer:
+- a quoted address or name (‘/menu’, ‘Gear Board’);
+- a page named in several words ("the Lesson Prices page");
+- more than one page ("the home and menu pages");
+- an address with an accent (/café), or a full web address;
+- "that page", pointing back at a page named earlier in the sentence.
+
+My earlier note said a page named that way "allows nothing". That was only true
+after "from", "in", "of" and "for". I've corrected it where it's written.
+
+**What changed.**
+- Anything standing after "on", "in", "from", "off", "of", "for" or "at" that
+  names a page is read and has to be the page being edited. That covers a
+  quote, an address, a web address, or words ending in "page".
+- If it's another page, or the check can't tell which page it is, that part of
+  the request allows nothing.
+- A quoted name that doesn't look like a page (‘Menu’, ‘Gear Board’) counts as
+  can't-tell. The one exception is "the text in ‘Hours’" or "the words of
+  ‘Hours’", which name a section, as before.
+- **Quoted new wording is left alone.** "Change the text under ‘Chords’ to
+  ‘Prices are on the menu page, at /menu.’" still goes through, because only a
+  quote standing where a page goes is read as a page.
+- **Unquoted new wording is read as your sentence.** "…to say prices are on
+  ‘/menu’" allows nothing, because there's no telling whether "on ‘/menu’" is
+  part of the new text or says which page. Quoting the new text fixes that.
+- **The check is against the page actually being edited.** The same sentence
+  is refused on the home page and goes through on /menu.
+
+**Evidence** (the writer's answers are supplied, so this proves the checking,
+not a real model):
+- There are 9 new tests, 8 of them through the real edit path in both modes:
+  - your wrong-page quoted address is refused;
+  - the same sentence on /menu goes through, which is the matching-page
+    control;
+  - the same sentence refuses when unrelated text is lost too;
+  - quoted new wording that mentions another page goes through.
+- One more test goes through every shape above in all four kinds of quote
+  mark.
+- On the old code, exactly 3 of the 188 tests fail: your case in both modes
+  (it published, charged 3) and the shape test. The other new tests are
+  controls that pass on both.
+- 30 of 30 targeted probes were caught. Each breaks one part of the new check
+  on purpose; all three comment-only controls survived.
+- The whole suite passes locally: 7,872 tests, the 9 new ones added to
+  7,863. Required CI is running as I write this; the reply says how it went.
+- The check's file goes into the site builder's image, so merging this would
+  rebuild it. The predicted image is `3d1d8d585b309152`, which replaces the
+  `18725c075657d7e3` given below.
+- Your two original sentences and all the collateral-removal checks still
+  pass unchanged.
+
+**Still not covered, on purpose.**
+- A page named without "page", quotes or an address ("on the menu") isn't
+  recognised as a page. It reads like "at the top", and telling those apart
+  would need the site's page list, which the check isn't given.
+- A quoted bare name (‘Menu’) is refused even on the menu page. "The ‘Menu’
+  page" or ‘/menu’ works.
+- When the page is the problem, the refusal still asks you to name the
+  section's heading. It doesn't say the page was the issue. Recorded, not
+  changed.
+
 ## 2026-09-25 — Everyday wording like "…from the home page" now passes the text check (on the branch, not merged); test 3 revised
 
 You reproduced two ordinary requests that the text check refused even with a
@@ -195,7 +264,10 @@ correct answer:
 - "The text under ‘X’" now works. It means the one paragraph under that
   heading, and if there are two paragraphs it allows nothing.
 - A page called by its menu name ("the Lesson Prices page") isn't recognised
-  yet, so it allows nothing. That errs on the safe side.
+  yet, so it allows nothing. That errs on the safe side. **⚠ Wrong as written:**
+  that held after "from", "in", "of" and "for", but after "on", "at" and "off"
+  the page was dropped unread and the request was allowed. It is fixed in the
+  entry above.
 
 **Evidence** (the writer's answers are supplied, so this proves the checking,
 not a real model):
@@ -216,8 +288,11 @@ not a real model):
 - One refinement after the first push: a page mentioned after "to" (as in "…then
   go to the gear page") is no longer read as the page the edit is on, because
   that wording could only have refused a valid request.
-- The whole suite passes locally: 7,863 tests. Required CI is running as I
-  write this; the reply says how it went.
+- The whole suite passes locally: 7,863 tests. **Required CI passed on both
+  commits.** Unit tests read 7,863 total, 7,859 passed and 4 skipped, with no
+  failures, on each (runs 36180050406 and 36180679232). The site build passed
+  on each (runs 36180050487 and 36180679182), and the second one's twelve
+  counts all match the record.
 - This touches the Worker, so merging it would rebuild the container. The
   predicted image is `18725c075657d7e3`.
 

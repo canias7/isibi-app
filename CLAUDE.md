@@ -20,7 +20,8 @@ writer as a pure block move, for route 2 + edit 8 credits. **CLOSED for what it 
 NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:00 UTC
 (a real Chromium over TLS-verified live bytes). On the branch, not merged: the canary's
 after-read waits for its job's version (`72885ca9`, reviewed: 40 focused tests), and the
-text guard accepts page-qualified requests held to the edited page (`ce913d06` + `8c0d67a1`). Test 3
+text guard accepts page-qualified requests held to the edited page (`ce913d06` + `8c0d67a1`)
+and reads a quoted or unreadable page instead of dropping it (`d6f5e55e`). Test 3
 (the full writer) is revised and waits on that merge (the run 32 section and the three
 after it).
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
@@ -7985,16 +7986,110 @@ chords’ to ‘Start here.’"*
 - **LIMITS**: a page named by its navigation label (*"the Lesson Prices page"*)
   is not confirmed and grants nothing. Unquoted replacement words naming
   another page void their clause. Both are conservative, never wider.
+  **⚠ THE FIRST HALF WAS TRUE AFTER from/in/of/for AND FALSE AFTER on/at/off**,
+  where the page was dropped unread and the removal granted. See the next
+  section, which also closes the quoted-address bypass the owner found.
 - **AN IMAGE INPUT**: the predicted id at `8c0d67a1` is `18725c075657d7e3`
   (187 inputs), against main's `a51d8b32e5869576`. `72885ca9` alone moves
   nothing.
 
+### A QUOTED OR UNREADABLE PAGE OPERAND GRANTS NOTHING (2026-09-25, on the branch at `d6f5e55e`, not merged)
+
+Owner, on `db5babc`: *"“Remove the ‘Chords’ section on /menu.” correctly
+refuses. “Remove the ‘Chords’ section on ‘/menu’.” incorrectly accepts. Quote
+shielding hides the page operand from PAGE_QUAL, while the later “on” split
+still authorizes the section removal. Recognize quoted page identifiers in the
+page-qualifier position without treating quoted replacement copy as
+instructions. Keep page validation tied to the actual edited route.
+Unrecognized or ambiguous page operands must not silently disappear."*
+
+- **THE GAP WAS WIDER THAN THE QUOTE.** `PAGE_QUAL` knew only a fixed set of
+  page names. Whatever else stood after on/at/off was cut off by the operand
+  split and never read. Reproduced on `db5babc` with supplied answers, each
+  published on `/`:
+  - a quoted address or name (‘/menu’, ‘Gear Board’);
+  - a page in several words (*"the Lesson Prices page"*) or a plural (*"the
+    home and menu pages"*);
+  - an address the pattern did not spell (`/café`) and a web address;
+  - *"that page"*, pointing back at a page another clause named.
+  After from/in/of/for the same operands refused, but only because the
+  leftovers stopped the target resolving. So a MATCHING ‘/’ or ‘the home page’
+  refused as well, and the previous section's limit was half false.
+- **THE FIX, in `builder/page-prose.mjs`**:
+  - `pageQualifiers` replaces `PAGE_QUAL`/`PAGE_LEAD`. After a page
+    preposition it lists every page operand, with where it stands and whether
+    `samePage` confirms it.
+  - A page operand is a quote standing in that position, an address, a web
+    address, or words ending in "page(s)". A name never runs across another
+    preposition (`QUAL_STOP`).
+  - A quote is read only there. If it is not recognisably a page it is
+    ambiguous and grants nothing, except after a form's own in/of (*"the words
+    in ‘Hours’"*).
+  - Quoted replacement copy is never scanned. Unquoted new wording is still
+    the sentence, as before.
+  - *"That page"* is never confirmed.
+  - The lead is cut when the first qualifier opens the clause. `unqualified`
+    removes the confirmed spans from the operand and from the replacement.
+- **EVIDENCE.**
+  - `test/edit-page-keep.test.mjs` gains **9 cases**. Eight go through the real
+    route (sync and job):
+    - the owner's wrong-page quoted address, refused;
+    - **the same sentence edited on `/menu`, published**, the matching-page
+      control;
+    - a matching quoted page beside an unrelated loss, refused;
+    - quoted replacement copy naming another page, published.
+
+    The ninth is a module case over every operand shape, in all four quote
+    styles.
+  - `drive` gained `target`, so a case can edit a page other than the home
+    page, and 179 existing cases passed unchanged with it.
+  - **Red on `db5babc`: exactly 3 of 188.** These are the wrong-page case on both
+    paths (it published, 200, cost 3) and the module case. The six controls
+    pass on both.
+  - A 45-sentence local matrix differs from `db5babc` on exactly 13 sentences:
+    9 bypasses closed and 4 matching quoted pages now accepted.
+  - **Probes `scripts/mutants/page-qualifier.json`: 30 killed, 0 survived, 0
+    never applied, 3 comment-only controls**, over the 11 edit-path files
+    (baseline 368/368). Both probed files were byte-identical afterwards. The
+    anchors are rewritten for the new reader: Q-1 to Q-14 keep their meaning,
+    and Q-15 to Q-30 are one per load-bearing clause.
+    - Q-15 restores the reported bypass, generalised.
+    - Q-18 and Q-19 needed a page operand after the target's own end (*"…at
+      the top in ‘Gear Board’"*, *"…like the text on ‘Gear Board’"*) before
+      they could die.
+    - Two belts were removed first rather than left to survive: a web-address
+      null that `samePage` already produces, and a `same` test inside
+      `unqualified`, which runs only after every qualifier is confirmed.
+    - ⚠ **The `pgrep -f` waiter trap, met again.** The wait on the run
+      matched its own command line. The run's own completion notice arrived
+      first, and the waiter was killed by PID.
+  - Suite **7,872 locally** (`7872 / 7870 / 0 / 2`, `duration_ms 116,207`),
+    +9 against 7,863, exactly this file's new cases.
+  - **CI for the previous round is read**:
+    - `ce913d06` passed unit 36180050406 (`7863 / 7859 / 0 / 4`) and site
+      build 36180050487.
+    - `8c0d67a1` passed unit 36180679232 (`7863 / 7859 / 0 / 4`) and site
+      build 36180679182, whose twelve counts all match the record (TAP
+      397/397/0/0, site-build 382 …; census 7 + 4 + 1).
+- **LIMITS**:
+  - A page named with none of "page", quotes or an address (*"on the menu"*)
+    is not recognised. It reads like *"at the top"*, and telling them apart
+    needs the site's page list, which the guard is not given.
+  - A quoted bare name (‘Menu’) refuses even on its own page.
+  - A page refusal uses the ordinary text-guard sentence (*"identify the
+    section by its unique heading…"*), which does not say the page was the
+    problem. Recorded, not changed.
+- **AN IMAGE INPUT**: the predicted id at `d6f5e55e` is **`3d1d8d585b309152`**
+  (187 inputs). The same predictor re-derived main (`a51d8b32e5869576`) and
+  `db5babc8` (`18725c075657d7e3`) as recorded.
+
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 
-**PREREQUISITE**: `ce913d06` + `8c0d67a1` merged and deployed, since the natural sentence
-needs the deployed guard. The merge carries the after-read wait (`72885ca9`)
-with it. `expect_deploy` is the merge sha. `expect_image` is predicted
-`18725c075657d7e3`, to be re-predicted over the real merge.
+**PREREQUISITE**: `ce913d06` + `8c0d67a1` + `d6f5e55e` merged and deployed,
+since the natural sentence needs the deployed guard. The merge carries the
+after-read wait (`72885ca9`) with it. `expect_deploy` is the merge sha.
+`expect_image` is predicted `3d1d8d585b309152` at `d6f5e55e`, to be
+re-predicted over the real merge.
 
 - **Request**: *"Remove the ‘The first eight chords’ section from the home
   page."*, 63 chars / 67 bytes, sha256
@@ -11595,6 +11690,11 @@ does name one — moved up to the supported list on 2026-09-20.)*
 - **THE TEXT GUARD'S TWO REFUSED PHRASINGS ARE FIXED ON THE BRANCH, NOT MERGED**
   (`ce913d06` + `8c0d67a1`; *"the text guard holds a page qualifier to the edited page"*,
   after run 32). Until it is deployed, the live guard still refuses them.
+- **THE QUOTED-PAGE BYPASS IS FIXED ON THE BRANCH, NOT MERGED** (`d6f5e55e`).
+  ⚠ The deployed guard (`c2fa000c`) predates the page reader entirely. Any
+  page after on/at/off drops out there and never refuses, and a page after
+  from/in/of/for makes the target fail to resolve. Until the merge, the live
+  guard does not hold a request to its page at all.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.

@@ -227,6 +227,87 @@ Evidence (supplied writer answers only):
 
 Limits: the page names recognised are the ones above. A page called by its
 navigation label (“the Lesson Prices page”) is not confirmed and grants
-nothing. Unquoted replacement text that names another page makes its clause
+nothing. ⚠ Corrected in the next section: that was true after from/in/of/for,
+but after on/at/off the page was dropped unread. Unquoted replacement text that names another page makes its clause
 grant nothing. These are conservative refusals, never wider grants. Nothing
 here proves a real model's answer.
+
+## Quoted and unreadable page operands (2026-09-25, owner)
+
+The owner found one bypass left in `db5babc`. On the home page, with a Chords
+section beside an unrelated Hours section, “Remove the ‘Chords’ section on
+/menu.” refused, but “Remove the ‘Chords’ section on ‘/menu’.” published. Quote
+shielding hid the address from the page reader. The target then ended at “on”,
+and the address went with the rest, unread.
+
+- **The same gap took more than the quoted address.** Reproduced on `db5babc`
+  with supplied answers:
+  - After on/at/off, all of these published: a quoted name (‘Gear Board’), a
+    page named in several words (“the Lesson Prices page”), a plural (“the home
+    and menu pages”), an address with characters the reader did not spell
+    (`/café`), a web address, and “that page” (“Go to the menu page and remove…
+    on that page”).
+  - After from/in/of/for the same operands refused. That was only because the
+    leftover words stopped the target resolving, so a matching ‘the home page’
+    or ‘/’ refused as well.
+  - ⚠ The limit in the previous section, that a page called by its navigation
+    label “grants nothing”, was true after from/in/of/for and false after
+    on/at/off, where the page was dropped.
+- **A page operand is whatever stands after a page preposition and names a
+  page.** That is a quote in that position, an address, a web address, or words
+  ending in “page(s)”. Every one must be confirmed as the page being edited, or
+  the clause grants nothing.
+  - A quoted address or page name is read and compared: ‘/menu’, ‘the home
+    page’, the ‘Menu’ page, in all four quote styles.
+  - A quoted name that is not recognisably a page (‘Menu’, ‘Gear Board’) is
+    ambiguous in that position, and grants nothing.
+  - The exception is a form's own preposition: “the text in ‘Hours’” and “the
+    words of ‘Hours’” still name a section.
+  - Several words ending in “page”, a plural, a web address and “that page” are
+    never confirmed.
+- **Quoted replacement copy is never read as a page.** Only a quote standing in
+  the page position is read, so ‘Prices are on the menu page, at /menu.’ after
+  “to” stays copy. A page named after the quoted copy (“…to ‘…’ on ‘/menu’”) is
+  a qualifier, and is held to the edit.
+- **Unquoted new wording is still the customer's sentence.** A page named in it
+  after on/in/from… cannot be told from a qualifier, so it grants nothing, as
+  “…to say lessons are on the gear page” already did. Quoting the new wording
+  makes it copy.
+- **Validation stays tied to the edited route.** The route passes
+  `routeOf(target.path)`, and the same sentence refuses on `/` and publishes on
+  `/menu`.
+
+Evidence (supplied writer answers only):
+- `test/edit-page-keep.test.mjs` gains 9 cases.
+  - Eight go through the real edit route in sync and job modes:
+    - the owner's wrong-page quoted address (refused);
+    - the same sentence edited on `/menu` (published, the matching-page
+      control);
+    - a matching quoted page beside an unrelated loss (refused);
+    - quoted replacement text naming another page (published).
+  - One module case covers every operand shape above.
+  - The harness gained `target`, so an edit can change a page other than the
+    home page.
+- Red on `db5babc`: exactly 3 of 188 fail.
+  - The wrong-page quoted address on both paths. There it published: 200, cost
+    3.
+  - The module case.
+  - The other six route cases are controls, and pass on both.
+- Targeted probes (`scripts/mutants/page-qualifier.json`, over the 11 edit-path
+  files, baseline 368/368): 30 killed, 0 survived, 0 never applied, and 3
+  comment-only controls survived. Both probed files were byte-identical to their
+  backups afterwards.
+- Suite 7,872 locally (`7872 / 7870 / 0 / 2`), +9 against 7,863, exactly the new cases.
+- The earlier fixes and every collateral control are unchanged and pass.
+
+Limits:
+- A page named without the word “page”, quotes or an address (“on the menu”) is
+  not recognised as a page. It reads like any other phrase after the target
+  (“at the top”), because telling the two apart needs the site's page list,
+  which the guard is not given.
+- A quoted bare name refuses even on the right page. Saying “the ‘Menu’ page”
+  or quoting the address works.
+- A refusal for a page the check cannot confirm uses the same sentence as any
+  other text-guard refusal. That sentence asks for the section's heading or
+  exact text, and does not say the page was the problem. Recorded, not changed.
+- Nothing here proves a real model's answer.
