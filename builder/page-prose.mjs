@@ -67,10 +67,38 @@ export function proseInventory(source, parse) {
   return { blocks, atoms };
 }
 
+// ── A PAGE THE REQUEST NAMES (2026-09-25, owner) ────────────────────────────
+// "Remove the ‘…’ section from the home page." and "On the home page, change
+// the text under ‘…’ to …" are ordinary sentences, and both were refused with
+// a correct answer: the page qualifier was read as part of the target, which
+// then matched nothing. A qualifier is now read as what it is — WHICH PAGE —
+// and it must be the page this edit changes. It is never a target itself, and
+// one that names another page, or a page this check cannot confirm, grants
+// nothing, so a qualifier can only ever narrow what a sentence authorizes.
+const PAGE_DET = String.raw`(?:(?:the|this|that|my|our)\s+)`;
+const PAGE_NAME = String.raw`(?:home\s?page|front\s+page|main\s+page|landing\s+page|index\s+page|page|\/[a-z0-9/_-]*|[a-z0-9][a-z0-9-]*\s+page)`;
+const PAGE_QUAL = new RegExp(String.raw`(^|\s)(?:on|in|from|off|of|for|at|to|onto)\s+${PAGE_DET}?(${PAGE_NAME})(?=$|[\s,.;:!?])`, "g");
+const PAGE_LEAD = new RegExp(String.raw`^(?:on|in|from|for|at)\s+${PAGE_DET}?${PAGE_NAME}\s*[,:]?\s+`);
+const routeKey = (r) => "/" + String(r).trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+
+/** Whether a page named in a request is the page being edited. Cannot-tell is no. */
+function samePage(named, page) {
+  const n = space(named).toLowerCase();
+  // "this page", "the page": they can only mean the page being edited.
+  if (n === "page") return true;
+  if (typeof page !== "string" || !page.trim()) return false;
+  const have = routeKey(page);
+  if (/^(?:home ?page|front page|main page|landing page|index page)$/.test(n)) return have === "/";
+  if (n.startsWith("/")) return have === routeKey(n);
+  // "the menu page" is the page whose address ends in /menu.
+  const m = /^([a-z0-9][a-z0-9-]*) page$/.exec(n);
+  return !!m && have.split("/").pop() === m[1];
+}
+
 // This is a deliberately small, explicit request grammar, not a language model
 // assurance. Quoted new wording/destinations cannot grant permission to a second
 // section. Negations, vague targets and duplicate names do not grant a scope.
-function permissions(message, before, pairs) {
+function permissions(message, before, pairs, page) {
   const allowed = new Set(), protectedBlocks = new Set();
   // Quoted copy is data, even when it contains punctuation or commands.
   const quotes = [];
@@ -86,8 +114,10 @@ function permissions(message, before, pairs) {
     const n = name(expand(object)).replace(/^the\s+/, "");
     const hits = [];
     for (const block of before.blocks.filter(b => b.section)) for (const label of block.names) {
+      // "The text under X" is the paragraph under X, with the same exact scope:
+      // one paragraph or no grant at all.
       const forms = [[label, "all"], [label + " section", "all"], [label + " heading", "heading"], [label + " title", "heading"],
-        ...["line", "paragraph", "sentence"].flatMap(role => ["under", "in", "of"].map(prep => [role + " " + prep + " " + label, "line"]))];
+        ...["line", "paragraph", "sentence", "text", "words"].flatMap(role => ["under", "in", "of"].map(prep => [role + " " + prep + " " + label, "line"]))];
       for (const [phrase, scope] of forms) if (n === phrase) hits.push({ block, scope });
     }
     const unique = hits.filter((h, i) => hits.findIndex(x => x.block === h.block && x.scope === h.scope) === i);
@@ -95,6 +125,11 @@ function permissions(message, before, pairs) {
   };
   for (let clause of clauses) {
     clause = space(clause).toLowerCase().replace(/^please\s+/, "");
+    // EVERY PAGE THE CLAUSE NAMES MUST BE THIS PAGE, or the clause grants
+    // nothing. A leading "On the home page," then stops standing in front of
+    // the verb, and the qualifier is taken out of the operand below.
+    if ([...clause.matchAll(PAGE_QUAL)].some((m) => !samePage(m[2], page))) continue;
+    clause = clause.replace(PAGE_LEAD, "");
     const action = /^(change|rewrite|reword|update|show|rename|replace|remove|delete|take|make)\s+(.+)$/.exec(clause);
     if (!action) continue;
     if (/\b(?:not|never|dont|don't|except|unless|without|keep|leave|preserve|keeping|leaving)\b/.test(clause)) {
@@ -107,7 +142,11 @@ function permissions(message, before, pairs) {
     }
     // operation + exact target/list + optional reference/result. Reference and
     // result operands never supply targets; unknown target grammar fails closed.
-    const object = action[2].split(/\s+(?:to|as|into|with|so that|above|below|before|after|beside|like|compared to|relative to|at|on|off)\s+/)[0];
+    // THE PAGE QUALIFIER IS NOT PART OF THE TARGET: taken out of the operand
+    // before the target is read, so "the X section from the home page" is the X
+    // section and nothing after the qualifier can become a target.
+    const operand = space(action[2].replace(PAGE_QUAL, " "));
+    const object = operand.split(/\s+(?:to|as|into|with|so that|above|below|before|after|beside|like|compared to|relative to|at|on|off)\s+/)[0];
     const targets = object.split(/\s+and\s+/).map(resolve);
     const matched = targets.every(Boolean) ? targets : [];
     for (const { block, scope } of matched) {
@@ -133,7 +172,7 @@ function permissions(message, before, pairs) {
       if (a.text.length < 4 || exactObject !== name(a.text)) continue;
       if (before.atoms.filter(x => name(x.text) === name(a.text)).length !== 1) continue;
       const removing = /^(?:remove|delete)\b|^take\b.*\b(?:off|out)\b/.test(clause);
-      const replacement = name(expand(clause.match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1] || ""));
+      const replacement = name(expand(space(clause.replace(PAGE_QUAL, " ")).match(/\s+to\s+(?:say\s+)?(.+)$/)?.[1] || ""));
       if (removing || (replacement && pairs.get(a.block)?.atoms.some(x => name(x.text).replace(/[.!?]+$/, "") === replacement.replace(/[.!?]+$/, "")))) allowed.add(a);
     }
   }
@@ -183,7 +222,7 @@ function pairBlocks(before, after) {
 }
 
 /** No missing parser/read is ever treated as an empty inventory. */
-export async function preservePageProse({ before, after, message, parse }) {
+export async function preservePageProse({ before, after, message, parse, page }) {
   if (before === after) return { ok: true };
   try {
     const reader = parse === undefined ? await tweakParser() : parse;
@@ -199,7 +238,7 @@ export async function preservePageProse({ before, after, message, parse }) {
       }
     }
     if (!lost.length) return { ok: true };
-    const allowed = permissions(message, b, pairs);
+    const allowed = permissions(message, b, pairs, page);
     const blocked = lost.filter(x => !allowed.has(x));
     return blocked.length ? { ok: false, why: "unconfirmed-target", blocked: blocked.map(x => x.text).slice(0, 6) } : { ok: true };
   } catch {

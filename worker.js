@@ -24124,7 +24124,9 @@ async function handleRequest(request, env, ctx) {
               });
               const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems.slice(0, 4) });
               if (pStop) return pStop;
-              const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction });
+              // THE PAGE THIS EDIT CHANGES, so a request that names a page is
+              // held to it: "…from the home page" grants nothing on /prices.
+              const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction, page: routeOf(target.path) });
               if (!pProse.ok) return Response.json({
                 // The legacy "withheld" browser note promises nothing changed;
                 // recovery may already have run, so do not claim that here.

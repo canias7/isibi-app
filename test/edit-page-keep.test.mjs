@@ -1354,3 +1354,98 @@ for (const mode of ['sync', 'job']) {
     });
   }
 }
+
+// ── PAGE-QUALIFIED REQUESTS (2026-09-25, owner) ─────────────────────────────
+//
+// Two ordinary sentences were refused with a CORRECT writer answer, because
+// the text guard read "from the home page" and "On the home page," as part of
+// the target: "Remove the ‘The first eight chords’ section from the home page."
+// and "On the home page, change the text under ‘The first eight chords’ to
+// ‘Start here.’" A page qualifier is read as a page now, and it must be the page
+// the edit changes. It never becomes a target, and naming another page grants
+// nothing. Supplied writer answers, the real route and the browser composer.
+const CHORDS = "<section><h2>The first eight chords</h2><p>Every beginner asks for these. Which finger sits on which fret, and which strings you skip.</p></section>";
+const CHORDS_START = "<section><h2>The first eight chords</h2><p>Start here.</p></section>";
+const GUITAR = "<section><h2>A guitar you can turn</h2><p>Drag with the mouse to spin it round. Same shape you will hold in the room.</p></section>";
+const GUITAR_REWORDED = GUITAR.replace("Drag with the mouse to spin it round. Same shape you will hold in the room.", "Drag it round.");
+const LESSONS = home(HERO, CHORDS, GUITAR, ORDER, VISIT);
+const OWNER_REMOVE = "Remove the ‘The first eight chords’ section from the home page.";
+const OWNER_CHANGE = "On the home page, change the text under ‘The first eight chords’ to ‘Start here.’";
+const NO_CHORDS = home(HERO, GUITAR, ORDER, VISIT);
+const STARTS_HERE = home(HERO, CHORDS_START, GUITAR, ORDER, VISIT);
+
+for (const mode of ["sync", "job"]) {
+  for (const [label, ask, answer] of [
+    ["owner's removal from the home page", OWNER_REMOVE, NO_CHORDS],
+    ["owner's change under a heading on the home page", OWNER_CHANGE, STARTS_HERE],
+    ["the referenced section after the qualifier stays a reference", "Remove the ‘The first eight chords’ section from the home page above ‘A guitar you can turn’.", NO_CHORDS],
+    // THE QUOTED-TEXT FORM WITH A QUALIFIER AFTER IT: the replacement is the
+    // quoted words, not the words plus "on the home page".
+    ["exact quoted text changed on the home page", "Change “Drag with the mouse to spin it round. Same shape you will hold in the room.” to “Drag it round.” on the home page.", home(HERO, CHORDS, GUITAR_REWORDED, ORDER, VISIT)],
+  ]) {
+    test(`PAGE ${mode}: ${label}: the correct answer publishes`, async () => {
+      const r = await drive({ mode, before: LESSONS, ask, answer });
+      assert.equal(r.status, 200, JSON.stringify(r.reply));
+      assert.deepEqual(r.calls, PAGE, "the quick writer declined and the full writer answered");
+      assert.equal(r.compiles, 1);
+      assert.equal(r.compiled, answer); assert.equal(r.stored, answer);
+      assert.equal(r.said.text, UPDATED);
+      assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+    });
+  }
+  // EVERY ONE OF THESE MUST STILL REFUSE, and on the text guard's own reason.
+  for (const [label, ask, answer] of [
+    ["removal + unrelated text lost", OWNER_REMOVE, home(HERO, GUITAR_REWORDED, ORDER, VISIT)],
+    ["change + unrelated text lost", OWNER_CHANGE, home(HERO, CHORDS_START, GUITAR_REWORDED, ORDER, VISIT)],
+    ["change + the heading renamed too", OWNER_CHANGE, home(HERO, CHORDS_START.replace("The first eight chords", "Eight chords"), GUITAR, ORDER, VISIT)],
+    ["a qualifier naming ANOTHER page grants nothing, correct answer or not", "Remove the ‘The first eight chords’ section from the menu page.", NO_CHORDS],
+    ["a leading qualifier naming another page grants nothing", "On the visit page, change the text under ‘The first eight chords’ to ‘Start here.’", STARTS_HERE],
+    ["a referenced section never becomes a second removal target", "Remove the ‘The first eight chords’ section from the home page above ‘A guitar you can turn’.", home(HERO, ORDER, VISIT)],
+    ["\"from\" a section is not a page", "Remove the ‘The first eight chords’ section from ‘A guitar you can turn’.", home(HERO, ORDER, VISIT)],
+  ]) {
+    test(`PAGE ${mode}: ${label}: refused`, async () => {
+      const r = await drive({ mode, before: LESSONS, ask, answer });
+      refused(r, { calls: PAGE });
+      assert.equal(r.reply.error, "prose-preservation");
+      assert.equal(r.reply.proseBlocked, "unconfirmed-target", "refused by the text guard, not by something else");
+      assert.equal(r.stored, LESSONS); assert.equal(r.compiles, 0);
+      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.said.text.includes(PROSE_WITHHELD));
+      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
+    });
+  }
+}
+
+test("PAGE: a qualifier is held to the page the edit changes, and cannot-tell grants nothing", async () => {
+  const run = (message, page, after = NO_CHORDS) => preservePageProse({ before: LESSONS, after, message, page });
+  // THE OBSERVER IS ALIVE: the same answer with no qualifier publishes.
+  assert.deepEqual(await run("Remove the ‘The first eight chords’ section.", undefined), { ok: true });
+  assert.deepEqual(await run(OWNER_REMOVE, "/"), { ok: true });
+  assert.deepEqual(await run(OWNER_CHANGE, "/", STARTS_HERE), { ok: true });
+  // NO PAGE TO CHECK AGAINST: a named page cannot be confirmed, so it grants nothing.
+  assert.equal((await run(OWNER_REMOVE, undefined)).ok, false);
+  assert.equal((await run(OWNER_REMOVE, "")).ok, false);
+  assert.equal((await run("Take the ‘The first eight chords’ section off the home page.", undefined)).ok, false);
+  // THE HOME PAGE IS "/" AND ONLY "/".
+  assert.equal((await run(OWNER_REMOVE, "/menu")).ok, false);
+  assert.deepEqual(await run(OWNER_REMOVE, "/", NO_CHORDS), { ok: true });
+  assert.deepEqual(await run("Remove the ‘The first eight chords’ section from the homepage.", "/"), { ok: true });
+  // A NAMED PAGE MATCHES ITS OWN ROUTE, by name or by address.
+  assert.deepEqual(await run("Remove the ‘The first eight chords’ section from the menu page.", "/menu"), { ok: true });
+  assert.deepEqual(await run("Remove the ‘The first eight chords’ section from /menu.", "/menu/"), { ok: true });
+  assert.equal((await run("Remove the ‘The first eight chords’ section from /menu.", "/")).ok, false, "an address is compared, not just recognised");
+  assert.equal((await run("Remove the ‘The first eight chords’ section from the menu page.", "/")).ok, false);
+  assert.equal((await run("Remove the ‘The first eight chords’ section from the home page.", "/menu")).ok, false);
+  // "THIS PAGE" CAN ONLY MEAN THE PAGE BEING EDITED.
+  assert.deepEqual(await run("Remove the ‘The first eight chords’ section from this page.", undefined), { ok: true });
+  // A QUALIFIER NEVER WIDENS A GRANT: the unrelated loss is refused with or without it.
+  const collateral = home(HERO, GUITAR_REWORDED, ORDER, VISIT);
+  assert.equal((await run("Remove the ‘The first eight chords’ section.", "/", collateral)).ok, false);
+  assert.equal((await run(OWNER_REMOVE, "/", collateral)).ok, false);
+  // "THE TEXT UNDER X" HAS THE PARAGRAPH'S EXACT SCOPE: one paragraph or nothing.
+  const twoParas = home(HERO, CHORDS.replace("</p>", "</p><p>A second paragraph.</p>"), GUITAR, ORDER, VISIT);
+  const twoParasChanged = twoParas.replace("<p>Every beginner asks for these. Which finger sits on which fret, and which strings you skip.</p><p>A second paragraph.</p>", "<p>Start here.</p>");
+  assert.notEqual(twoParasChanged, twoParas, "the fixture really changes the page");
+  assert.equal((await preservePageProse({ before: twoParas, after: twoParasChanged, message: OWNER_CHANGE, page: "/" })).ok, false,
+    "with two paragraphs under the heading, \"the text under\" is ambiguous and grants nothing");
+});

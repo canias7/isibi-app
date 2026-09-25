@@ -173,3 +173,56 @@ resolve duplicate headings; an exact unique identifier is required. Unsupported
 legitimate phrasing may conservatively refuse a text-changing output. No broad
 language-understanding claim, global IDs, extra provider calls or architecture
 change. Required CI links for the final SHA are recorded in the delivery report.
+
+## Page-qualified requests (2026-09-25, owner)
+
+The owner reproduced two ordinary sentences refused with a correct generated
+answer: “Remove the ‘The first eight chords’ section from the home page.” and
+“On the home page, change the text under ‘The first eight chords’ to ‘Start
+here.’” The guard read the page qualifier as part of the target, so the target
+matched nothing; the second also used “the text under”, which was not a form.
+
+- **A page qualifier is read as a page, and it must be the page being edited.**
+  `preservePageProse` takes `page`; the edit route passes the target's route.
+  A qualifier is a preposition (on, in, from, off, of, for, at, to, onto) plus a
+  page name: the home page (or homepage, front, main, landing, index page), an
+  address (`/menu`), or “the menu page” (the page whose address ends in
+  `/menu`). “This page” and “the page” can only mean the page being edited.
+- **Every qualifier in a clause must match, or the clause grants nothing.** A
+  qualifier naming another page, or any named page when the page is unknown,
+  grants nothing. A qualifier can therefore only narrow what a sentence
+  authorizes.
+- **A qualifier is never a target.** A leading “On the home page,” is taken off
+  in front of the verb, and qualifiers are taken out of the operand before the
+  target is read. Text after them is still a reference or a result, never a
+  second target. “From” is not a general boundary: “from ‘A guitar you can
+  turn’” is not a page, so it grants nothing.
+- **“The text under X” (and “words under/in/of X”) has the paragraph's exact
+  scope**: one paragraph under the heading, or no grant at all.
+- **The quoted-text form ignores a trailing qualifier** when it reads the
+  replacement.
+
+Evidence (supplied writer answers only):
+- `test/edit-page-keep.test.mjs` gains 23 cases. 22 go through the real edit
+  route in sync and job modes, with compile/store capture and the browser
+  composer, and one drives the matcher directly.
+  - These publish: the owner's two sentences, a reference after a qualifier,
+    and quoted text with a qualifier.
+  - These refuse, all on `prose-preservation` / `unconfirmed-target` with
+    nothing compiled, stored or reserved: unrelated text lost beside either
+    sentence, the heading renamed beside the change, a qualifier naming another
+    page (trailing and leading), a referenced section dropped too, and “from” a
+    section.
+- Red on the unfixed guard: exactly the six publish cases and the matcher case
+  fail; every refusal control and all 156 existing cases pass on both.
+- Targeted probes: 13 killed, 0 survived, 2 comment-only controls. The first
+  run's survivor was a real gap (an address was recognised but not compared),
+  closed by a negative case.
+- Checked separately against fretwork-1's stored home page (17 cases, local
+  only): the same outcomes.
+
+Limits: the page names recognised are the ones above. A page called by its
+navigation label (“the Lesson Prices page”) is not confirmed and grants
+nothing. Unquoted replacement text that names another page makes its clause
+grant nothing. These are conservative refusals, never wider grants. Nothing
+here proves a real model's answer.
