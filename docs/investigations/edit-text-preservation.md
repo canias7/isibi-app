@@ -298,6 +298,11 @@ Evidence (supplied writer answers only):
   comment-only controls survived. Both probed files were byte-identical to their
   backups afterwards.
 - Suite 7,872 locally (`7872 / 7870 / 0 / 2`), +9 against 7,863, exactly the new cases.
+- CI on `9d2f8319`:
+  - Unit run 36186783484 reads `7872 / 7868 / 0 / 4`, with all 9 new cases
+    passing by name.
+  - Site build run 36186783336 read all twelve counts green (site-build 382,
+    TAP 397).
 - The earlier fixes and every collateral control are unchanged and pass.
 
 Limits:

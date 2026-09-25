@@ -8065,6 +8065,22 @@ Unrecognized or ambiguous page operands must not silently disappear."*
       first, and the waiter was killed by PID.
   - Suite **7,872 locally** (`7872 / 7870 / 0 / 2`, `duration_ms 116,207`),
     +9 against 7,863, exactly this file's new cases.
+  - **AND CI MATCHES on `9d2f8319`** (the product tree is `d6f5e55e`'s):
+    - Unit run **36186783484** reads `7872 / 7868 / 0 / 4` (`duration_ms
+      99,380`). The total matches, and `pass` differs by exactly CI's four
+      skips.
+    - All 9 new cases pass by name (`ok 2124`–`2132`). There are 7,872
+      distinct result numbers and zero anchored `not ok N -`.
+    - **`site build` run 36186783336** (20:36:34 → 20:53:40Z, **17m06s**, all
+      twenty steps) read all twelve counts green: TAP 397/397/0/0,
+      kit-typecheck 4, site-build **382**, contrast-cases 16, theme-seam 11,
+      theme-render 29, site-routing 14 and site-runtime 47. Kit-render /
+      kit-a11y / kit-effects / kit-paint read `all passed`, and the census is
+      7 + 4 + 1 = **12**.
+    - The only `##[error]` lines are the two known annotations
+      (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`).
+    - `site-build.mjs` took **12m21s**.
+    - **The stamp chain ends at `9d2f8319`.**
   - **CI for the previous round is read**:
     - `ce913d06` passed unit 36180050406 (`7863 / 7859 / 0 / 4`) and site
       build 36180050487.

@@ -228,7 +228,10 @@ not a real model):
 - 30 of 30 targeted probes were caught. Each breaks one part of the new check
   on purpose; all three comment-only controls survived.
 - The whole suite passes locally: 7,872 tests, the 9 new ones added to
-  7,863. Required CI is running as I write this; the reply says how it went.
+  7,863. **Required CI passed.** Unit tests read 7,872 total, 7,868 passed
+  and 4 skipped, with no failures (run 36186783484); all 9 new tests passed
+  by name. The site build passed with all twelve counts matching the record
+  (run 36186783336).
 - The check's file goes into the site builder's image, so merging this would
   rebuild it. The predicted image is `3d1d8d585b309152`, which replaces the
   `18725c075657d7e3` given below.
