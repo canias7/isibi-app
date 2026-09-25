@@ -176,42 +176,54 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-25 — Next: the two real-model edit tests (prepared, NOT dispatched)
+## 2026-09-25 — Next: the two real-model edit tests, on fretwork-1 (prepared, NOT dispatched)
 
 You closed the deployment milestone once run 30 was verified. The next
-milestone is the two live edit tests in the
-[milestone plan](investigations/edit-path-milestone.md#smallest-useful-live-evidence-plan--prepared-not-dispatched).
-They run one at a time on `edit-canary.yml`: the first is evaluated before the
-second is pressed. **Neither is dispatched** until you approve the spending and
-the site.
+milestone is the two live edit tests from the
+[milestone plan](investigations/edit-path-milestone.md#smallest-useful-live-evidence-plan--prepared-not-dispatched),
+corrected at your direction to fit a real site. **fretwork-1 is proposed and
+not yet approved.** Nothing is dispatched until you approve the site and the
+spending. The tests run one at a time on `edit-canary.yml`, and the first is
+evaluated before the second is pressed.
 
-- **The exact requests, hashed.** Request 1 is 273 characters (283 bytes), with
-  sha256 `e0f76816dd1d2288…`. It contains three curly quotes and an ellipsis,
-  so paste it as-is. Request 2 is 104 characters, plain ASCII, sha256
-  `e62eaf71d9b72373…`. Each run's `request.json` has to carry the same hash, or
-  it tested a different sentence.
-- **The site is not settled, and fretwork-1 only half fits.** The plan asks for
-  a throwaway copy of a site that has the availability card with the
-  `bookings_on_day` count, an Opening hours section and a map.
-  - fretwork-1 is the only site with the card and that count function.
-  - Its home page has a small opening-hours card (`data-slot="opening-hours"`)
-    inside the "A guitar you can turn" section. **No route has a map** (all
-    three routes read at version `01790155568567-c1td33`, which is run 26's
-    publish).
-  - **Nothing copies a site**: there is no route, script or workflow for it.
-  - So request 2 has nothing to move on fretwork-1. Request 1's "the map" names
-    something that is not there.
-- **What it costs.** The plan says 13–26, and that is not a cap. On a page the
-  size of fretwork-1's home page (26,563 characters), recorded runs cost:
-  - an edit to this card: 17 to 24 including routing (runs 21, 26 and 24);
-  - a quick-writer rewrite: 10 including routing (run 17);
-  - a full rewrite: about 22 (run 11).
+- **Nothing copies a site** (no route, script or workflow does), and you ruled
+  out building one.
+- **The starting state is run 26's.**
+  - Run 30's stored source is byte-identical to run 26's after-read on all six
+    files.
+  - The live page still serves version `01790155568567-c1td33`.
+  - On the home page, "A guitar you can turn" is the second section (the 3D
+    guitar). "The first eight chords" is the eighth. The opening-hours card is
+    its own section, directly above the chords (an earlier note here put it
+    inside the guitar section, which was wrong). No route has a map.
+- **Test 1 (the "Space on a preferred day" states) already works.**
+  - The corrected request asks for "Checking…" while loading, "Unavailable" for
+    an error or an invalid answer, and six places for zero.
+  - The card already shows "Checking…" and "Six places left.", and never shows
+    places for an unknown state. This was measured today by rendering the
+    stored card locally, and it matches run 26's recorded live-page reading of
+    this same version.
+  - The only difference is two labels: "Couldn't check — try again" and "Not
+    available" would become "Unavailable".
+  - Per your rule it is **not for dispatch**. A labels-only request is written
+    down in case you want that reading anyway.
+- **Test 2 is a real change.** The request is "Move ‘The first eight chords’
+  above ‘A guitar you can turn’…", sha256 `b9271234b92233a3…`, 131 characters.
+  It moves one section from eighth to second, and both sections sit in the same
+  JSX.
+- **Cost.** These are recorded prices on this page, not caps; nothing limits a
+  single request.
+  - Test 2 is about 10 if the quick writer handles it (run 17). If it falls back
+    to the full writer, it is 17–24 (runs 21, 26, 11 and 24).
+  - The labels-only test 1 would be 17–24.
   - **The balance is 3.**
-- **What these two tests can and cannot show.** They add real-model and
-  live-chain evidence. They do not prove preservation in general.
-  - The browser's lock across two messages is not exercised, because each run
-    is one message from the harness.
-  - The writer's prompt is not captured.
+- **This session's browser cannot open the site's pages** (the browser does not
+  trust the network proxy). Adding the proxy's CA to Chromium's trust was
+  refused by the permission system. So a live browser check is either your
+  look at the page or your permission for that change.
+- **What these tests do not show.** Each run is one message from the harness,
+  so the browser's lock across two messages is not exercised. The writer's
+  prompt is not captured.
 
 ---
 
