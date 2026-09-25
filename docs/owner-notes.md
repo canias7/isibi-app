@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry).
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -173,6 +173,45 @@ owner signals one; move an item out of Open the moment it is resolved.
   Several bugs were found only by opening a PNG, never by a passing test.
 - **Do not change the highest-leverage prompt in the middle of a run you are
   trying to read.**
+
+---
+
+## 2026-09-25 — Next: the two real-model edit tests (prepared, NOT dispatched)
+
+You closed the deployment milestone once run 30 was verified. The next
+milestone is the two live edit tests in the
+[milestone plan](investigations/edit-path-milestone.md#smallest-useful-live-evidence-plan--prepared-not-dispatched).
+They run one at a time on `edit-canary.yml`: the first is evaluated before the
+second is pressed. **Neither is dispatched** until you approve the spending and
+the site.
+
+- **The exact requests, hashed.** Request 1 is 273 characters (283 bytes), with
+  sha256 `e0f76816dd1d2288…`. It contains three curly quotes and an ellipsis,
+  so paste it as-is. Request 2 is 104 characters, plain ASCII, sha256
+  `e62eaf71d9b72373…`. Each run's `request.json` has to carry the same hash, or
+  it tested a different sentence.
+- **The site is not settled, and fretwork-1 only half fits.** The plan asks for
+  a throwaway copy of a site that has the availability card with the
+  `bookings_on_day` count, an Opening hours section and a map.
+  - fretwork-1 is the only site with the card and that count function.
+  - Its home page has a small opening-hours card (`data-slot="opening-hours"`)
+    inside the "A guitar you can turn" section. **No route has a map** (all
+    three routes read at version `01790155568567-c1td33`, which is run 26's
+    publish).
+  - **Nothing copies a site**: there is no route, script or workflow for it.
+  - So request 2 has nothing to move on fretwork-1. Request 1's "the map" names
+    something that is not there.
+- **What it costs.** The plan says 13–26, and that is not a cap. On a page the
+  size of fretwork-1's home page (26,563 characters), recorded runs cost:
+  - an edit to this card: 17 to 24 including routing (runs 21, 26 and 24);
+  - a quick-writer rewrite: 10 including routing (run 17);
+  - a full rewrite: about 22 (run 11).
+  - **The balance is 3.**
+- **What these two tests can and cannot show.** They add real-model and
+  live-chain evidence. They do not prove preservation in general.
+  - The browser's lock across two messages is not exercised, because each run
+    is one message from the harness.
+  - The writer's prompt is not captured.
 
 ---
 
