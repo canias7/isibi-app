@@ -1249,3 +1249,121 @@ test("a new project's round, skipped, still goes straight to the build with no r
     assert.equal(h.clarify(), null);
   }
 });
+
+// ── A ROUTING ANSWER THAT CANNOT BE ACTED ON KEEPS THE MESSAGE TOO (2026-09-25) ──
+//
+// The owner's milestone named it: "attachments lost when routing returns an
+// unusable answer". The stop above is BEFORE the routing call; this is the stop
+// one step later — `siteRoute`'s `lost()`, when the routing call drops, is
+// refused, or answers something the browser cannot act on. It said its sentence
+// and kept nothing: measured through these same handlers before the fix, the
+// box, the strip and the hold were all empty after every shape below, and the
+// message sent again was routed `attached: false` and posted the logo edit with
+// no picture. On an existing site's round it was worse, because the round is
+// cleared before the routing call — the original request and its picture went
+// with it, and nothing was left to answer.
+//
+// The fix is the pre-routing stop's own mechanism, one call later: the message
+// is held on the site it was sent from BEFORE `finish` redraws, so that redraw
+// hands it back to that site's composer and to no other. Nothing sends it again:
+// the routing call is billed, so sending is the customer's press.
+const LOST = "⚠️ I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.";
+// The round a first-build question stored on this site, holding a picture made
+// by the attach code: the words and the file the customer sent with it.
+const ATT_ROUND = { ...LOADED, msgs: [{ r: "u", t: OWNER_ASK }, Q], clarify: { brief: OWNER_ASK, qa: [], imgs: [LOGO_ATT] } };
+
+// WHAT THIS STOP OWES: the one routing call and nothing after it, the sentence,
+// the busy flag and the rail cleared.
+function assertLost(h, sentence, thread) {
+  const work = h.work();
+  assert.equal(work.length, 1, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assert.deepEqual(h.thread(), thread.concat(["a: " + sentence]), "the customer is not told, in one sentence");
+  assert.equal(h.busy(), false, "the busy flag is left set, so the next message cannot be sent");
+  assert.equal(h.rail(), "(stopped)", "the rail is left running");
+  assert.equal(h.clock.started, 1, "the rail's clock was not started when the message was sent");
+  assert.equal(h.clock.cleared, 1, "the rail's clock was not cleared when it stopped");
+}
+
+for (const [why, answer, sentence] of [
+  ["the routing call drops", FAIL, LOST],
+  ["the routing call answers 503", { status: 503, body: json({ ok: false, error: "busy" }) }, LOST],
+  ["the routing call answers signed out", { status: 401, body: json({ error: "unauthorized" }) }, SIGNED_OUT],
+  ["the router answers a failure of its own", ok200({ ok: false, intent: "edit", layer: "logo", cost: 2 }), LOST],
+  ["the routing answer cannot be acted on", ok200({ ok: true, intent: "edit", layer: ["logo"], cost: 2 }), LOST],
+]) {
+  test("a routing stop keeps the message — " + why + ": the words and the picture come back to the site's composer", async () => {
+    const h = workspace({ sites: [LOADED], route: [answer] });
+    await sendWithLogo(h);
+    assertLost(h, sentence, ["u: " + OWNER_ASK]);
+    assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+    assert.equal(h.calls.length, 1, "something was sent without a press");
+  });
+}
+
+test("a routing stop's message, sent again with the same button, puts THAT picture on the logo edit", async () => {
+  const h = workspace({ sites: [LOADED], route: [FAIL, LOGO] });
+  await sendWithLogo(h);
+  assertLost(h, LOST, ["u: " + OWNER_ASK]);
+  h.pressSend();
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 3, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[1], OWNER_ASK, { attached: true });
+  assertEdit(work[2], OWNER_ASK, "logo", [LOGO_ATT]);
+  assert.deepEqual(h.strip(), [], "the picture was left in the composer after it was sent");
+  assert.equal(h.held(), null, "the message is still held after it was sent");
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + LOST, "u: " + OWNER_ASK]);
+});
+
+test("a routing stop while another site is on screen: nothing comes back there, and the message comes back on its own site", async () => {
+  const h = workspace({ sites: [LOADED, OTHER], route: [{ defer: true }, LOGO] });
+  await sendWithLogo(h);
+  h.open("origin-2");
+  h.release(FAIL);
+  await settle();
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + LOST], "the stop was not said on the site it was sent from");
+  assert.deepEqual(h.thread("origin-2"), [], "the other site's thread was written to");
+  assert.equal(h.busy(), false);
+  h.redraw();
+  assert.deepEqual(h.strip(), [], "the stopped message's picture came back into another site's composer");
+  assert.deepEqual(h.drawn(), [], "the stopped message's picture is drawn on another site");
+  assert.ok(!h.box(), "the stopped message's words came back into another site's composer");
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the message is not held on its own site");
+  assert.equal(h.held("origin-2"), null, "the message was held on the other site");
+  h.open("origin-1");
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+});
+
+test("a routing stop after a newer draft: the newer draft stays as it is, and the stopped message waits for a clear composer", async () => {
+  const h = workspace({ sites: [LOADED], route: [{ defer: true }] });
+  await sendWithLogo(h);
+  // Written while the routing call is out: it belongs to the customer now.
+  h.redraw();
+  h.type(INSTEAD);
+  h.release(FAIL);
+  await settle();
+  assert.equal(h.box(), INSTEAD, "the newer words were replaced");
+  assert.deepEqual(h.strip(), [], "the stopped message's picture was put beside the newer words");
+  assert.deepEqual(h.held(), [{ t: OWNER_ASK, imgs: [LOGO_ATT] }], "the stopped message was dropped");
+});
+
+test("an existing site's round, answered, and the routing call drops: the ORIGINAL request and its picture come back, and nothing is left to answer", async () => {
+  const h = workspace({ sites: [ATT_ROUND], route: [FAIL, LOGO] });
+  h.click("A guitar school");
+  await settle();
+  const work = h.work();
+  assert.equal(work.length, 1, "wrong requests: " + JSON.stringify(work.map((c) => c.url)));
+  assertRoutedLive(work[0], OWNER_ASK, { attached: true });
+  assert.deepEqual(h.thread(), ["u: " + OWNER_ASK, "a: " + QUESTION, "u: A guitar school", "a: " + LOST]);
+  assert.equal(h.clarify(), null, "the round is still stored, so the next message would be read as an answer");
+  assert.equal(h.busy(), false);
+  // THE REQUEST THE ANSWER WAS FOR, and its picture — never the answer.
+  assertBack(h, OWNER_ASK, [LOGO_ATT], [PNG]);
+  h.pressSend();
+  await settle();
+  const again = h.work();
+  assert.equal(again.length, 3, "wrong requests: " + JSON.stringify(again.map((c) => c.url)));
+  assertRoutedLive(again[1], OWNER_ASK, { attached: true });
+  assertEdit(again[2], OWNER_ASK, "logo", [LOGO_ATT]);
+});

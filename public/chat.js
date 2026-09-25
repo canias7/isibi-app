@@ -9033,9 +9033,23 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
   // THE LIVE SITE'S STOP. `finish` clears the busy flag and the rail and says
   // the sentence. It claims nothing about money: the routing call is billed on
   // its own and may already have been charged, whatever became of its answer.
-  const lost = (r) => finish('⚠️ ' + (r && r.status === 401
-    ? 'You’re signed out. Sign in and send that again.'
-    : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
+  //
+  // AND THE MESSAGE COMES BACK, WORDS AND FILES (2026-09-25, owner: "attachments
+  // lost when routing returns an unusable answer"). `siteSend` took the files
+  // off the composer when this was sent, and an existing site's round was
+  // cleared before this call — so a stop here left the request nowhere, and the
+  // message sent again went out with no picture. Measured through the real
+  // handlers: a dropped call, a 503 and an unusable answer each left the box,
+  // the strip and the hold empty. Held on its own site BEFORE `finish` redraws
+  // it, the pre-routing stop's own mechanism, so that redraw hands it back to
+  // this site's composer and to no other. Nothing sends it again: the routing
+  // call is billed, so sending is the customer's press.
+  const lost = (r) => {
+    siteHoldUnsent(origin, t, imgs);
+    finish('⚠️ ' + (r && r.status === 401
+      ? 'You’re signed out. Sign in and send that again.'
+      : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
+  };
   // What the answer is allowed to know. Names only — a `collect` table holds
   // customer names and phone numbers and none of that belongs in a routing call.
   const digest = {

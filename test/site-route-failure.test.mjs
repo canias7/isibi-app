@@ -69,6 +69,7 @@ const SRC = [
   cut("function routeQuestion("),
   cut("function routeActionable("),
   cut("function siteRoute("),
+  cut("function siteHoldUnsent("),
   cutLine("const siteRoutesAsked ="),
   cutLine("const SITE_ROUTES_WAIT_MS ="),
   cutLine("const siteRoutesPending ="),
@@ -172,6 +173,9 @@ async function drive({ site, message, route, follow, routes }) {
     // Pushed inside the context, so another realm's objects — copied out.
     said: msgs.slice(1),
     clarify: s.clarify == null ? null : JSON.parse(JSON.stringify(s.clarify)),
+    // What the site keeps for its composer to hand back (`siteHoldUnsent`).
+    asked: message,
+    held: s.unsent == null ? null : JSON.parse(JSON.stringify(s.unsent)),
     busy: ctx.siteBusy,
     rail: ctx.siteBuild ? ctx.reactStageLabel() : "(stopped)",
     ticker: ctx.siteTicker,
@@ -200,6 +204,9 @@ function assertStopped(o, sentence) {
   assert.deepEqual(o.posts, [], "no edit, add-on or rewrite request followed the routing call");
   assert.deepEqual(o.said, [{ r: "a", t: sentence }], "the customer is told, in one sentence");
   assert.equal(o.clarify, null, "no clarify round is stored, so the next message is not read as an answer to it");
+  // AND THE MESSAGE IS KEPT ON ITS SITE, for its composer to hand back: the
+  // customer sends it again with one press, and nothing sends it by itself.
+  assert.deepEqual(o.held, [{ t: o.asked, imgs: [] }], "the message is not kept to be sent again");
   assert.equal(o.busy, false, "the busy flag is cleared, so the next message can be sent");
   assert.equal(o.rail, "(stopped)", "the rail is stopped");
   assert.equal(o.clock.started, 1, "the rail's clock was started when the message was sent");
