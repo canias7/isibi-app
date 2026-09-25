@@ -366,7 +366,7 @@ test("a failed compile preserves the live site, and unusable output stops", () =
   // forbids, the recorded trap, caught here on 2026-09-02.
   const code = b.replace(/^\s*\/\/[^\n]*$/gm, (m) => " ".repeat(m.length));
   for (const reason of ["empty", "unconfigured", "no-meta"]) {
-    assert.ok(code.includes('aFailure("' + reason + '"'), "no escalation path for: " + reason);
+    assert.ok(code.includes('aFailure("' + reason + '"'), "no stop path for: " + reason);
   }
   // A SITE WITHOUT A DATABASE IS ADDED TO, NOT REFUSED (owner, 2026-09-02:
   // "add will always go in addon" — and a first build provisions none, so
@@ -1176,10 +1176,7 @@ test("a removed page leaves the picker", () => {
 });
 
 test("the route hands a considered refusal to the customer, not to the build lane", () => {
-  // The wiring half of the same decision. `aFailure` sets `escalate: true`, and
-  // the client's first line is `if (a.escalate) return fallback()` — so a
-  // refusal routed through it rebuilds the site for ~25 credits in answer to
-  // "remove the home page". The branch must sit BEFORE the escalation.
+  // Specific refusal text must win over the generic stop explanation.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   // RE-ANCHORED 2026-09-17, TWICE, AND THE SECOND TIME IS THE LESSON. First
   // `const` became `let` (a dead QR code withholds a page and the route
@@ -1200,10 +1197,10 @@ test("the route hands a considered refusal to the customer, not to the build lan
   assert.ok(end > at, "the publish that bounds this region moved — rescope this");
   const after = w.slice(at, end);
   const refuse = after.indexOf("if (!aMerge.ok && aMerge.msg)");
-  const climb = after.indexOf("return aFailure(aMerge.reason");
+  const stop = after.indexOf("return aFailure(aMerge.reason");
   assert.ok(refuse > 0, "a refusal with a reason still escalates to the build lane");
-  assert.ok(climb > 0, "the escalation is gone — a dead end must still reach the rung above");
-  assert.ok(refuse < climb, "the escalation is checked first, so the refusal can never fire");
+  assert.ok(stop > 0, "the generic stop is missing");
+  assert.ok(refuse < stop, "the generic stop hides the specific refusal");
 });
 
 // ── an addon may not rewrite what it was not asked about ─────────────────────
@@ -1809,11 +1806,11 @@ test("the addon reports the model's own note instead of escalating", () => {
   // AND IT ANSWERS RATHER THAN ESCALATING — 422 with the note as the message.
   assert.match(win, /aMerge\.reason === "nothing-returned" && aNote/,
     "the refusal branch is gone or no longer requires a note");
-  // …AND IT COMES BEFORE THE ESCALATION, or it can never fire.
+  // The model note must precede the generic stop explanation.
   const refusal = win.indexOf('aMerge.reason === "nothing-returned"');
-  const climb = win.indexOf("return aFailure(aMerge.reason");
-  assert.ok(refusal > 0 && climb > 0 && refusal < climb,
-    "the refusal must be decided before the escalation, or the ladder wins every time");
+  const stop = win.indexOf("return aFailure(aMerge.reason");
+  assert.ok(refusal > 0 && stop > 0 && refusal < stop,
+    "the model note must take precedence over the generic stop");
 });
 
 test("unexplained unusable output stops instead of escalating", () => {

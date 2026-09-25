@@ -108,8 +108,9 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   // by both. Recorded: "assert the property, not the spelling".
   const route = between(worker, "aMerge = mergeAddonPages(", 'const aGatePub = aJob ? aJob.gate("build") : null;', "the addon's merge-to-gate stretch");
   const wall = between(route, "const aWas = new Map(", "// ── MAY THIS STILL PUBLISH?", "the wall");
-  // After every merge refusal and escalate, before the gate and the bill.
-  assert.ok(route.indexOf("if (!aMerge.ok) return aEscalate(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");
+  // After every merge refusal, before the gate and the bill.
+  assert.ok(route.indexOf("if (!aMerge.ok) return aFailure(aMerge.reason") > 0, "the merge decision is missing");
+  assert.ok(route.indexOf("if (!aMerge.ok) return aFailure(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");
   assert.ok(worker.indexOf("const aWas = new Map(") < worker.indexOf('const aGatePub = aJob ? aJob.gate("build") : null;'), "the wall runs after the gate");
   // RE-ANCHORED 2026-09-05 (stage 1a-ii): the page bill's line reads
   // `aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill)`

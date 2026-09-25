@@ -1404,7 +1404,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.match(W, /import \{[^}]*\bpickAdds\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "a call to a name never imported is a ReferenceError on the addon path");
   // The order: picked, hopped, refused-by-name, designed, cleaned, folded, merged.
   const pick = at(b, "const aPicked = await pickAdds(", "pick");
-  const hop = at(b, "if (aHop && aKinds.length === 1) return aEscalate(\"layer\", { layer: addLayerIn(aHop, aKinds), kind: aHop });", "hop");
+  const hop = at(b, "if (aHop && aKinds.length === 1) return aFailure(\"layer\", { layer: addLayerIn(aHop, aKinds), kind: aHop });", "hop");
   // RE-ANCHORED 2026-09-03: the named refusal of a table on a site with no
   // database sat between the hop and the design. The backend is the addon's
   // now and the first tier designed MAKES the database, so what follows the
@@ -1434,7 +1434,7 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // A cleaner's refusal and a declined step are sentences, never climbs.
   assert.match(b.slice(clean, fold), /addRefusal\(clean\.why, k\)/, "a refused answer is not told to the customer");
   assert.match(b.slice(clean, fold), /if \(!aAnswers\.length\) \{/, "every kind declining is not a named answer");
-  assert.match(b, /if \(!aPicked\.kinds\.length\) return aEscalate\("no-add"\)/, "a picker that named nothing does not climb");
+  assert.match(b, /if \(!aPicked\.kinds\.length\) return aFailure\("no-add"\)/, "an empty picker must stop");
   // The page call is told the addition and shown the kit parts' props.
   const gen = at(b, "aGen = await generateSitePages(env, briefWithLayout({", "page call");
   const call = b.slice(gen, b.indexOf("}), aSpec", gen));
