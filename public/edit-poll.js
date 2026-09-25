@@ -161,13 +161,18 @@
     // WAS charged for; the one wrong sentence here is any that says the site
     // is untouched or the money came back.
     if (kind === "recovered") return "✅ Your change was published — but the details of what it did were lost along the way. Reload the preview to see it.";
-    if (kind === "cancelled") return "I stopped that edit — your site is untouched and you haven't been charged.";
-    if (kind === "lost") return "That edit stopped before it finished. Your site is untouched and anything it cost has been refunded.";
+    // WHAT HAPPENED, AND NOTHING ABOUT MONEY (2026-09-25). "You haven't been
+    // charged" and "anything it cost has been refunded" were said whatever the
+    // job's own row recorded, and the routing call that chose the edit is a
+    // charge nothing refunds. The reader states both amounts from what each
+    // recorded (`wholeRequestNote` in public/chat.js).
+    if (kind === "cancelled") return "I stopped that edit before anything was published.";
+    if (kind === "lost") return "That edit stopped before it finished, so nothing was published.";
     if (kind === "needs_review") {
       return "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
         "edits on this site until that's settled. Your site is still serving whatever it was serving before.";
     }
-    return "That edit didn't finish. Your site is untouched and anything it cost has been refunded.";
+    return "That edit didn't finish, so nothing was published.";
   }
 
   /**

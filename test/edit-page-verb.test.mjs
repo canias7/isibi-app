@@ -658,7 +658,11 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.pageOps, undefined, label + ": a refused move was listed as an operation");
     assert.deepEqual(r.debits, [], label + ": debits");
     assert.deepEqual(r.reserves, [], label + ": reserves");
-    assert.equal(r.said.text, "⚠️ I couldn't move that page — there is already a page at /visit.", label + ": the customer's sentence");
+    // (2026-09-25) The refusal now says it wrote nothing, as a refused removal
+    // always did, so the screen states that and what the edit and the routing
+    // call cost. It had no whole-request note at all.
+    assert.equal(r.reply.unchanged, true, label + ": a refused move no longer says it wrote nothing");
+    assert.equal(r.said.text, "⚠️ I couldn't move that page — there is already a page at /visit. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
   });
 
   test("control: a refused removal on its own is said, and nothing is removed (" + mode + ")", async () => {

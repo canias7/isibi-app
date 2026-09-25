@@ -74,14 +74,14 @@ function bucket(slug) {
  * heartbeat answer that the customer asked to stop, and the heartbeat fire at
  * once. `skew` moves the clock forward by that much after the first build.
  */
-async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null }) {
+async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null, collect = null, balance = 100, creditBack = true }) {
   const slug = site ? site.slug : "fail-" + mode + "-" + hex32().slice(0, 8);
   const b = site ? site.b : bucket(slug);
   const id = hex32(), secret = hex32();
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const body = JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, ...routed, instruction: ask, picker: "sonnet", idem: "idem" + hex32().slice(0, 20) });
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body, uid: USER.id, slug, secret, at: Date.now() })));
-  const seen = { rpc: [], debits: [], models: [] };
+  const seen = { rpc: [], debits: [], credited: [], models: [] };
   // THE JOB'S ROW, moved the way the real RPCs move it: a reserve holds
   // credits, a finalize with `p_ok` settles them, a refund gives them back.
   const row = { state: "routing", billing: "none", cost: 0, result: null };
@@ -115,8 +115,20 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
         default: return json({ ok: false, error: "no stub for " + fn }, 500);
       }
     }
-    if (u.includes("/rpc/use_credits")) { seen.debits.push(Number(args.cost) || 0); return json(Number(args.cost) || 0); }
-    if (u.includes("/rpc/get_credits")) return json(100);
+    // THE SYNCHRONOUS LEDGER. `use_credits` debits the whole bill or nothing
+    // and answers -1 then; `collect(n)` says, per call, whether this one lands.
+    if (u.includes("/rpc/use_credits")) {
+      const n = seen.debits.length + 1;
+      const took = !collect || collect(n) ? Number(args.cost) || 0 : 0;
+      seen.debits.push(took);
+      return json(took > 0 ? took : -1);
+    }
+    if (u.includes("/rpc/credit_back")) {
+      if (!creditBack) return new Response("refused", { status: 503 });
+      seen.credited.push(Number(args.amount) || 0);
+      return new Response(null, { status: 204 });
+    }
+    if (u.includes("/rpc/get_credits")) return json(balance);
     if (u.includes("/auth/v1/user")) return json(USER);
     if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
     if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
@@ -173,6 +185,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
       builds: c.calls.map((k) => JSON.stringify(k.body)),
       models: seen.models,
       debits: seen.debits,
+      credited: seen.credited,
       reserves: seen.rpc.filter((r) => r.fn === "edit_reserve").map((r) => Number(r.args.p_cost)),
       committed: seen.rpc.some((r) => r.fn === "edit_committed"),
       row: { ...row, result: undefined },
@@ -271,4 +284,179 @@ test("control: a correction that lands keeps the corrected stylesheet it publish
   assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
   assert.equal(r.committed, true, "the corrected edit was not committed");
   assert.equal(r.config.css, CLEAN_CSS.css, "the published stylesheet was wound back under the live site");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHAT A REFUSED OR STOPPED EDIT COST, FROM WHAT EACH PATH RECORDED
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// REPRODUCED on the parent, both money paths. A rung that refuses AFTER its
+// model call answered bills that call (`cost: await eCharge(...)`): the menu
+// rung reading nothing it could act on collected 1 on the synchronous path and
+// reserved 1 on a job — whose consumer then refunded it. The screen said the
+// rung's sentence and nothing else on both, so neither the charge that stood
+// nor the refund that landed was said; and beside a change that shipped, the
+// refused step's charge stood with the screen silent. Every failure sentence
+// the server wrote claimed "nothing was charged", false of every request, the
+// routing call being a charge nothing refunds. Now the sentences say what
+// happened, and the browser states the edit's cost from the reply — the
+// synchronous path's collections, or on a job the row's record after the
+// consumer's refund — beside the routing reply's.
+
+const MENU_ASK = "Rename the Shop menu item to Store.";
+const MENU_REFUSED = "I couldn't work out what the menu should be. Tell me what to add, take out or move.";
+const BOTH_ASK = "Make the footer navy and rename the Shop menu item to Store.";
+const NAVY = { css: "footer { background: navy; }" };
+const LOOK_SAID = "✅ Updated the look — the design. The stylesheet sets none of the kit's own colour variables, so the site renders on the default palette.";
+const TIMEOUT = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+
+for (const mode of ["sync", "job"]) {
+  test("a refusal charged after its model call says what the edit cost, from what the " + (mode === "job" ? "job's row settled" : "ledger collected") + " (" + mode + ")", async () => {
+    const r = await drive({ mode, routed: { layer: "nav" }, ask: MENU_ASK, nav: {} });
+    assert.equal(r.status, 422, JSON.stringify(r.reply));
+    assert.equal(r.reply.error, "no-menu", "not the menu rung's refusal: " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [T.nav], "the menu rung's model call did not run");
+    assert.equal(r.builds.length, 0, "a refusal built something");
+    if (mode === "job") {
+      // RESERVED, THEN GIVEN BACK BY THE CONSUMER — and the reply the browser
+      // reads says so, where the stored one still carried the reserve.
+      assert.deepEqual(r.reserves, [1], "the model call was not reserved");
+      assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
+      assert.equal(r.reply.cost, 0, "the poll route reported a refunded job's reserve as its cost");
+      assert.equal(r.reply.refunded, 1, "the poll route did not report the refund the row recorded");
+      assert.equal(r.said.text, "⚠️ " + MENU_REFUSED + " This edit cost you nothing. Reading your message cost 2 credits.");
+    } else {
+      // COLLECTED, and nothing on this path gives a refusal's charge back.
+      assert.deepEqual(r.debits, [1], "the model call was not collected");
+      assert.equal(r.reply.cost, 1, "the reply does not report what was collected");
+      assert.equal(r.said.text, "⚠️ " + MENU_REFUSED + " This edit cost 1 credit. Reading your message cost 2 credits.");
+    }
+    assert.deepEqual(r.said.actions, [], "a refusal started something");
+  });
+
+  test("a step refused after its model call, beside a change that shipped, says what that step still cost (" + mode + ")", async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BOTH_ASK, pick: { fields: ["css", "action"] }, lanes: [NAVY], nav: {} });
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 1, "the change that shipped did not build once");
+    assert.equal(r.committed, mode === "job", "the job did not commit what it published");
+    // THE REFUSED STEP'S OWN CHARGE, on its own entry and in the bill.
+    assert.equal(r.reply.partial && r.reply.partial.length, 1, JSON.stringify(r.reply.partial));
+    assert.equal(r.reply.partial[0].error, "no-menu");
+    assert.equal(r.reply.partial[0].cost, 1, "the refused step's charge is not on its entry");
+    assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2, 1], "not the css change and the menu rung's call");
+    assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger took");
+    assert.equal(r.said.text, LOOK_SAID + " ⚠️ " + MENU_REFUSED + " That part still cost 1 credit.");
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+  });
+
+  test("a step whose model call timed out, beside a change that shipped, claims nothing about money (" + mode + ")", async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BOTH_ASK, pick: { fields: ["css", "action"] }, lanes: [NAVY], navThrows: TIMEOUT });
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 1, "the change that shipped did not build once");
+    // IT SAID "…this is on us, and nothing was charged" beside a css change
+    // that had cost 2. The step itself took nothing, so nothing is said of it.
+    assert.equal(r.reply.partial && r.reply.partial.length, 1, JSON.stringify(r.reply.partial));
+    assert.equal(r.reply.partial[0].cost, undefined, "a step that took nothing reports a cost");
+    assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2], "the timed-out step was charged");
+    assert.equal(r.said.text, LOOK_SAID + " ⚠️ That took longer than we allow ourselves to wait — this is on us.");
+  });
+}
+
+/**
+ * THE POLL ROUTE ALONE, over a row the case writes: what the browser reads for
+ * a finished job. The row is `edit_get`'s own shape.
+ */
+async function poll(row) {
+  const id = hex32();
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const u = String((input && input.url) || input || "");
+    if (u.includes("/rest/v1/rpc/edit_get")) return json({ ok: true, job: id, slug: "fail-poll", phase: null, needs_review: false, ms: 1000, ...row });
+    if (u.includes("/auth/v1/user")) return json(USER);
+    if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
+    return new Response("unavailable", { status: 503 });
+  };
+  try {
+    const worker = await loadWorker();
+    const env = { SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test" };
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/edit/" + id, { headers: { Authorization: "Bearer t" } }), env, makeCtx());
+    const text = await res.text();
+    let reply = null;
+    try { reply = JSON.parse(text); } catch { reply = null; }
+    return { status: res.status, text, reply, said: reply ? editBrowserReply(reply, res.ok, ROUTED) : null };
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+const STOPPED = "My correction still wouldn't have shown up on your page, so nothing was published.";
+const stoppedResult = (cost) => ({ status: 503, type: "application/json", body: JSON.stringify({ ok: false, error: "unverified", cost, msg: STOPPED }) });
+
+test("the poll route reports a finished job's cost from its row, and claims none the row does not settle", async () => {
+  // REFUNDED: the reply was stored holding the reserve, and the row says it
+  // came back — so the edit cost nothing, and the amount given back is said.
+  const refunded = await poll({ state: "failed", billing: "refunded", cost: 2, result: stoppedResult(2) });
+  assert.equal(refunded.status, 503);
+  assert.equal(refunded.reply.cost, 0, "a refunded job's reserve was reported as its cost");
+  assert.equal(refunded.reply.refunded, 2, "the refund the row recorded was not reported");
+  assert.equal(refunded.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  // NOTHING TAKEN, whatever the stored reply held.
+  for (const billing of ["none", "exempt"]) {
+    const r = await poll({ state: "failed", billing, cost: 0, result: stoppedResult(2) });
+    assert.equal(r.reply.cost, 0, billing + ": a job that took nothing reported a cost");
+    assert.equal(r.reply.refunded, undefined, billing + ": a refund was reported that the row does not record");
+  }
+  // NOT SETTLED — a refund that did not land, or a job held for review: the
+  // row cannot say, so the edit's cost is not claimed either way.
+  const held = await poll({ state: "failed", billing: "reserved", cost: 2, needs_review: true, result: stoppedResult(2) });
+  assert.equal("cost" in held.reply, false, "an unsettled job's cost was claimed: " + held.text);
+  assert.equal(held.said.text, "⚠️ " + STOPPED + " Reading your message cost 2 credits.");
+  // A PUBLISHED JOB'S REPLY IS HANDED BACK BYTE FOR BYTE, whatever the row
+  // holds — the row's cost differs from the reply's here so that a rewrite is
+  // visible, where re-serialising an equal value would not be.
+  const shipped = JSON.stringify({ ok: true, layer: "look", cost: 3, lanes: ["css"] });
+  const done = await poll({ state: "done", billing: "finalized", cost: 4, result: { status: 200, type: "application/json", body: shipped } });
+  assert.equal(done.text, shipped, "a published job's reply was rewritten");
+  // A STORED BODY THAT IS NOT A JSON OBJECT IS HANDED BACK AS IT IS.
+  const odd = await poll({ state: "failed", billing: "refunded", cost: 2, result: { status: 503, type: "text/plain", body: "not json" } });
+  assert.equal(odd.text, "not json", "a body that is not JSON was rewritten");
+  // AND A FINISHED JOB WITH NO STORED REPLY answers its state with the same cost.
+  const lost = await poll({ state: "lost", billing: "refunded", cost: 2, result: null });
+  assert.equal(lost.status, 202);
+  assert.equal(lost.reply.cost, 0, "a lost job's refunded reserve was reported as its cost");
+  const lostHeld = await poll({ state: "lost", billing: "reserved", cost: 2, result: null });
+  assert.equal("cost" in lostHeld.reply, false, "an unsettled lost job's cost was claimed");
+  // A RUNNING JOB STILL ANSWERS WHAT IT HOLDS SO FAR.
+  const running = await poll({ state: "routing", billing: "reserved", cost: 2, result: null });
+  assert.equal(running.reply.cost, 2, "a running job's held cost is no longer reported");
+});
+
+// A REFUND IS SAID ONLY WHEN IT LANDED. On the synchronous path a later collect
+// the ledger refused stops the publish, and the earlier collects are handed
+// back — and the reply said `cost: 0` whether or not they came back, the
+// failed refund only logged. REPRODUCED on the parent: with `credit_back`
+// refused the screen said "This edit cost you nothing" over 2 credits kept.
+for (const landed of [true, false]) {
+  test("a refused collect after one that landed: the reply's cost is what the refund " + (landed ? "gave back" : "could not give back") + " (sync)", async () => {
+    const r = await drive({ mode: "sync", routed: { layer: "look" }, ask: BOTH_ASK, pick: { fields: ["css", "action"] }, lanes: [NAVY], nav: {}, collect: (n) => n === 1, balance: 0, creditBack: landed });
+    assert.equal(r.status, 422, JSON.stringify(r.reply));
+    assert.equal(r.reply.error, "unbilled", "not the ledger's refusal: " + JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 0, "a refused publish compiled");
+    assert.deepEqual(r.debits, [2, 0], "not the css change collected and the menu rung's call refused");
+    assert.deepEqual(r.credited, landed ? [2] : [], "the refund of the earlier collect is not what the ledger answered");
+    assert.equal(r.reply.cost, landed ? 0 : 2, "the reply's cost is not what the ledger still holds");
+    assert.equal(r.said.text, "⚠️ That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again."
+      + (landed ? " This edit cost you nothing." : " This edit cost 2 credits.") + " Reading your message cost 2 credits.");
+  });
+}
+
+// A REFUSAL WITH NO SENTENCE — a reply stored before, or an older Worker's —
+// is said in the platform's own words, then what each recorded. Driven through
+// the composer alone: every refusal the route writes today carries a sentence.
+test("a refusal with no sentence of its own says what the edit and the routing call recorded", () => {
+  const charged = editBrowserReply({ ok: false, error: "compile", cost: 1 }, false, ROUTED);
+  assert.equal(charged.text, "⚠️ That edit didn't finish, so nothing was published. This edit cost 1 credit. Reading your message cost 2 credits.");
+  const unknown = editBrowserReply({ ok: false, error: "compile" }, false, ROUTED);
+  assert.equal(unknown.text, "⚠️ That edit didn't finish, so nothing was published. Reading your message cost 2 credits.");
+  assert.deepEqual(charged.actions, [], "a refusal started something");
 });

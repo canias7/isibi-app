@@ -65,7 +65,7 @@ import {
   // hold back for a compile, read from where it lives.
   MIN_BUILD_MS,
   // The job runner (2026-09-04): who runs a queued job, what it is handed.
-  jobRunnerOn, fireOutcome, FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
+  jobRunnerOn, fireOutcome, FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, NO_CONTAINER_EDIT_MSG, jobRunnerFor, jobSecrets, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
   // One job per site at a time (stage 6, 2026-09-05): how long a refused
   // claim waits before its message is re-sent.
   SITE_BUSY_DEFER_S,
@@ -1467,7 +1467,7 @@ export default {
               console.error("job runner: the container could not take", edit.id, "after", FIRE_RETRY_MAX, "tries —", why);
               await editRpc(env, "edit_finalize", {
                 p_id: edit.id, p_ok: false,
-                p_result: { status: 503, type: "application/json", body: JSON.stringify({ ok: false, error: "no-container", job: edit.id, detail: why.slice(0, 120), msg: NO_CONTAINER_MSG }) },
+                p_result: { status: 503, type: "application/json", body: JSON.stringify({ ok: false, error: "no-container", job: edit.id, detail: why.slice(0, 120), msg: NO_CONTAINER_EDIT_MSG }) },
               });
             }
           }
@@ -9558,8 +9558,8 @@ function unbilledReply(charges) {
  * the halves and this only joins them, so there is one copy of each reason.
  *
  * The lead-in is deliberately not an apology. It says what did NOT happen —
- * nothing was published, nothing was charged — because the failure this
- * replaces is a reply that claimed a removal it never made.
+ * nothing was published — because the failure this replaces is a reply that
+ * claimed a removal it never made. What it cost is the reader's to say.
  */
 function cannotRemoveMsg(refused) {
   const list = (Array.isArray(refused) ? refused : []).filter((r) => r && typeof r.why === "string");
@@ -9694,7 +9694,7 @@ function compileMsg(pub, theirs) {
   // fallback told the customer it had not compiled — a failure wearing another
   // failure's sentence, the recorded trap. The gate's own reason rides along.
   if (pub.error === "not-granted") {
-    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), so nothing was changed. Nothing was charged.";
+    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), so nothing was changed.";
   }
   // ── THE PUBLISH WAS UNDONE BECAUSE THE SCRIPT NEVER WENT UP (2026-09-06) ──
   //
@@ -9705,13 +9705,13 @@ function compileMsg(pub, theirs) {
   // dispatch-upload failure, and "nothing was changed" is the sentence for a
   // publish that never began.
   if (pub.error === "not-served") {
-    return "That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. Nothing was charged. This is on us; try again in a moment.";
+    return "That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. This is on us; try again in a moment.";
   }
   // A holder that lost the site's lease between its compile and its publish:
   // something else has the site, so refusing is the CORRECT outcome and the
   // sentence says to send it again rather than apologising for a fault.
   if (pub.error === "lease-lost") {
-    return "That didn't go through — something else was changing your site at the same time, so nothing was published and nothing was charged. Send it again.";
+    return "That didn't go through — something else was changing your site at the same time, so nothing was published. Send it again.";
   }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
@@ -9755,15 +9755,15 @@ function compileMsg(pub, theirs) {
   if (pub.code === "forbidden") {
     return "That didn't go through — our storage refused to write " +
       (pub.key ? "“" + String(pub.key).slice(0, 120) + "”" : "a file this site needs") +
-      ", so nothing was changed. This is on us, not your change; nothing was charged.";
+      ", so nothing was changed. This is on us, not your change.";
   }
   if (pub.room) return roomSentence(pub.room);
   if (pub.timedOut) {
-    return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Nothing was charged. Try again, or ask for it in two smaller steps.";
+    return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Try again, or ask for it in two smaller steps.";
   }
   return pub.error === "read"
-    ? "That didn't go through — we couldn't read your site's saved design, so nothing was changed. Nothing was charged."
-    : "That didn't go through — our build service was restarting. Try again in a moment; nothing was charged.";
+    ? "That didn't go through — we couldn't read your site's saved design, so nothing was changed."
+    : "That didn't go through — our build service was restarting. Try again in a moment.";
 }
 
 /**
@@ -10053,7 +10053,7 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
     // stored still proceeds — the read SUCCEEDING with no rows is the legit
     // pre-look-era state — so only the cannot-tell case refuses. `ours: true`
     // routes every lane's compileMsg to the honest sentence: our side, try
-    // again, nothing was charged.
+    // again.
     console.error("recompile look read failed:", slug, e && e.message);
     return { ok: false, error: "read", ours: true, detail: "couldn't read the site's stored look — nothing was changed" };
   }
@@ -12710,6 +12710,53 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   }
 }
 
+/**
+ * WHAT A FINISHED EDIT COST, FROM ITS OWN ROW (2026-09-25).
+ *
+ * The owner's rule: *"Base billing statements on recorded ledger outcomes;
+ * don't invent refunds."* A job's reply is stored BEFORE the consumer refunds
+ * a reply that did not ship (`edit_finalize`, then `edit_refund`), so the
+ * stored `cost` is what the handler held at that moment — measured through the
+ * route and the real consumer: a menu refusal reserved 1, was refunded, and
+ * the poll handed back `cost: 1`. The row is what the ledger RPCs move, in the
+ * same transaction as the ledger's own rows: `refunded` means the reserve came
+ * back, `none` and `exempt` that nothing was taken, `finalized` that what was
+ * reserved stands.
+ *
+ * `null` WHEN THE ROW DOES NOT SETTLE IT — `reserved` on a finished job is a
+ * refund that did not land or a job held for review — and then nothing is
+ * claimed about the edit's cost rather than a guess either way.
+ */
+function ledgerEditCost(row) {
+  const billing = row && row.billing;
+  if (billing === "refunded" || billing === "none" || billing === "exempt") return 0;
+  if (billing === "finalized") {
+    const n = Number(row.cost);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  return null;
+}
+
+/**
+ * A FINISHED JOB'S STORED REPLY, WITH ITS COST TAKEN FROM THE ROW.
+ *
+ * Only for a job that did NOT publish (`failed`, `cancelled`, `lost`): a
+ * published job's reply is handed back byte for byte, its cost being what its
+ * reserves were and nothing having moved since. A body that is not a JSON
+ * object is handed back as it is.
+ */
+function servedEditReply(row, body) {
+  if (!row || row.state === "done") return body;
+  let reply;
+  try { reply = JSON.parse(body); } catch { return body; }
+  if (!reply || typeof reply !== "object" || Array.isArray(reply)) return body;
+  const out = { ...reply };
+  const cost = ledgerEditCost(row);
+  if (cost === null) delete out.cost; else out.cost = cost;
+  if (row.billing === "refunded" && Number(row.cost) > 0) out.refunded = Number(row.cost);
+  return JSON.stringify(out);
+}
+
 /** Where an edit job's replayable request lives. Its own prefix, not `jobs/<id>`. */
 const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
 
@@ -12770,21 +12817,21 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
     refunded: Number((r && r.refunded) || 0),
     review: review || undefined,
     msg: (msg || (why === "cancelled"
-      ? "I stopped that edit before anything was published — your site is untouched and you haven't been charged."
+      ? "I stopped that edit before anything was published."
       // THE PROCESS WAS STOPPED (stage 5d): the container's build service
       // ended the job — past its deadline, or shut down under it — and the
       // job answered at its next gate. Nothing published, the reserve back.
       : why === "stopped"
-        ? "That change was stopped before it could publish — the service running it was shut down or ran past its time limit — so your site is untouched and nothing was charged. Send it again in a few minutes."
-      // THE PUBLISH FLOOR (run 33, 2026-09-03): refused before the reserve
-      // and before the container, so nothing was charged and nothing ran.
+        ? "That change was stopped before it could publish — the service running it was shut down or ran past its time limit. Send it again in a few minutes."
+      // THE PUBLISH FLOOR (run 33, 2026-09-03): refused before the container,
+      // so nothing ran and nothing was published. What anything cost is the
+      // reader's to say, from the job's own row (`servedEditReply`).
       : why === "time"
-        ? "That took longer than the time we allow for one change, so I stopped before publishing — your site is untouched and nothing was charged. Try again, or ask for it in two smaller steps."
+        ? "That took longer than the time we allow for one change, so I stopped before publishing. Try again, or ask for it in two smaller steps."
       : review
         ? "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
           "edits on this site until that's settled."
-        : "That edit ran out of time before it could publish safely, so I've left your site exactly as it was " +
-          "and refunded what it cost.")) + keptNote,
+        : "That edit ran out of time before it could publish safely, so nothing was published.")) + keptNote,
   }, { status: review ? 409 : 503 });
 }
 
@@ -19771,7 +19818,10 @@ async function handleRequest(request, env, ctx) {
       // the handler wrote sat unread in the row.
       const res = row.result;
       if (isTerminalEdit(row.state) && res && typeof res.body === "string") {
-        return new Response(res.body, {
+        // ITS COST IS THE ROW'S (2026-09-25) — see `servedEditReply`: the
+        // reply was stored before the consumer's refund, and the row records
+        // whether the refund landed.
+        return new Response(servedEditReply(row, res.body), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),
@@ -19788,7 +19838,9 @@ async function handleRequest(request, env, ctx) {
         status: row.state,
         phase: row.phase || undefined,
         ms: Number(row.ms) || 0,
-        cost: Number(row.cost) || 0,
+        // A FINISHED JOB'S COST IS WHAT ITS ROW SETTLED (2026-09-25), and a
+        // running one's what it holds so far.
+        cost: isTerminalEdit(row.state) && row.state !== "done" ? (ledgerEditCost(row) ?? undefined) : (Number(row.cost) || 0),
         cancel: !!row.cancel,
         // A JOB UNDER REVIEW IS SAID SO, because the next thing the customer
         // does is try again and `edit_create` will refuse — a refusal with no
@@ -21054,7 +21106,7 @@ async function handleRequest(request, env, ctx) {
                 msg: k.billing
                   ? "The site builder is temporarily unavailable — this is on us, not your change."
                   : timedOut
-                    ? "That took longer than we allow ourselves to wait — this is on us, and nothing was charged."
+                    ? "That took longer than we allow ourselves to wait — this is on us."
                     : (what || "That didn't go through — try again in a moment."),
                 upstream: (e && e.status) || null,
                 upstreamType: k.type,
@@ -23325,7 +23377,10 @@ async function handleRequest(request, env, ctx) {
               if (wantRename) {
                 const rn = renameRoute(eSrc, wantRoute, wantRename, routeOf);
                 if (!rn.ok) {
-                  return Response.json({ ok: false, error: "rename", cost: 0, msg: "I couldn't move that page — " + rn.reason + "." }, { status: 422 });
+                  // `unchanged: true` (2026-09-25): `renameRoute` is pure, so a
+                  // refused move wrote nothing — and without it the screen had
+                  // no whole-request note, where a refused removal had one.
+                  return Response.json({ ok: false, error: "rename", cost: 0, unchanged: true, msg: "I couldn't move that page — " + rn.reason + "." }, { status: 422 });
                 }
                 // `renamed` IS THE POINT OF DOING IT THIS WAY. Without the
                 // explicit pair the publish sees a delete plus an add and 301s
@@ -24362,9 +24417,17 @@ async function handleRequest(request, env, ctx) {
               // piece of work on a different rung — was abandoned without the
               // customer being told it had ever been understood.
               //
-              // A failed step charges nothing (`cost: 0` on every failure path),
-              // so carrying on spends OUR money and not theirs, which is the
-              // right way round for a failure that is usually ours.
+              // ⚠ A FAILED STEP IS NOT ALWAYS FREE, and this said it was
+              // (`cost: 0` on every failure path) until 2026-09-25. A rung
+              // that refuses AFTER its model call answered bills that call:
+              // the menu, the picture, the address, the data and the rules
+              // rungs each put `cost: await eCharge(...)` on their refusal.
+              // Measured through the route: a css change beside a menu change
+              // the menu rung could not read debited 2 and then 1. When the
+              // message ships nothing the job path refunds all of it; beside
+              // a change that shipped it stands, and the reply says so
+              // (`partial[].cost`, below). Carrying on after a failure is
+              // still right: the other steps are independent work.
             }
 
             // ── AND NOW THE ONE PUBLISH ───────────────────────────────────
@@ -24455,7 +24518,7 @@ async function handleRequest(request, env, ctx) {
                 const kept = !(await restoreEditConfig());
                 return await editStopped(env, { job: eJob, why: "budget", phase: "correct", trace: editTrace, ctx, kept,
                   msg: "I found that my change wouldn't have shown up on your page, and there wasn't enough time " +
-                    "left to put it right safely — your site is untouched and you haven't been charged." });
+                    "left to put it right safely, so nothing was published." });
               }
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx) {
                 try {
@@ -24515,8 +24578,7 @@ async function handleRequest(request, env, ctx) {
                 if (eJob && !finalPub.ok && finalPub.error === "dead-css") {
                   const kept = !(await restoreEditConfig());
                   return await editStopped(env, { job: eJob, why: "unverified", phase: "verify", trace: editTrace, ctx, kept,
-                    msg: "My correction still wouldn't have shown up on your page, so I've left your site exactly " +
-                      "as it was and refunded what this cost." });
+                    msg: "My correction still wouldn't have shown up on your page, so nothing was published." });
                 }
                 } catch (e) {
                   console.error("css verify round failed:", ownerSlug, (e && (e.stack || e.message)) || e);
@@ -24529,9 +24591,13 @@ async function handleRequest(request, env, ctx) {
                   // secret, a message can quote the request. `phase` is one of OUR
                   // own step names, so it is safe to send and it is the whole point.
                   return Response.json({
-                    ok: false, error: "verify", cost: 0,
+                    // WHAT THIS REQUEST'S LEDGER HOLDS: the synchronous path
+                    // collected at each rung and nothing gives it back here; a
+                    // job's reserves are the consumer's to refund, and the poll
+                    // route reports what its row then records.
+                    ok: false, error: "verify", cost: eJob ? 0 : syncLedger.taken,
                     msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
-                      "it right — your site is untouched and nothing was charged." +
+                      "it right, so nothing was published." +
                       (kept ? " The change itself is still saved, though, so it could go out with your next edit." : ""),
                     kind: String((e && e.name) || "Error").slice(0, 40),
                     phase: cssFixed ? "republish" : "correct",
@@ -24550,8 +24616,17 @@ async function handleRequest(request, env, ctx) {
                 // (2026-09-05, 1a-iii). The flag-off path collects at each rung,
                 // so a later refusal leaves the earlier collects taken for work
                 // that never shipped; under a job the consumer's refund is this.
+                // AND WHAT THE SYNCHRONOUS PATH STILL HOLDS IS THE REPLY'S
+                // COST (2026-09-25). It said 0 whatever the rungs had
+                // collected, and only the ledger's refusal gave anything back:
+                // measured through the route, a build that failed after a css
+                // lane collected 2 answered `cost: 0`. A job's reserves are
+                // the consumer's to refund, and the poll route reports the
+                // row's own record of that (`servedEditReply`).
+                let syncKept = syncLedger.taken;
                 if (finalPub.error === "unbilled" && !eJob && syncLedger.taken > 0) {
-                  if (!await refundCredits(env, ou.id, syncLedger.taken)) console.error("edit unbilled refund short:", ownerSlug, syncLedger.taken);
+                  if (await refundCredits(env, ou.id, syncLedger.taken)) syncKept = 0;
+                  else console.error("edit unbilled refund short:", ownerSlug, syncLedger.taken);
                 }
                 // THE SITE IS UNTOUCHED — nothing was published — but the STORED
                 // state is not: each rung wrote its change before handing over
@@ -24562,7 +24637,7 @@ async function handleRequest(request, env, ctx) {
                 // to the snapshot taken before any of them ran.
                 const restored = await restoreEditConfig();
                 return Response.json({
-                  ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: 0,
+                  ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: eJob ? 0 : syncKept,
                   msg: compileMsg(finalPub, restored
                     ? "That didn't compile, so your site is untouched."
                     : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
@@ -24777,6 +24852,11 @@ async function handleRequest(request, env, ctx) {
                     reason: bd.escalate === true ? bd.reason : undefined,
                     msg: own || (bd.escalate === true ? stepMsg(bd) : undefined),
                     unchanged: stepWroteNothing(bd) || undefined,
+                    // WHAT THIS STEP WAS CHARGED THOUGH IT DID NOT GO THROUGH
+                    // (2026-09-25): its own `cost`, which is what the ledger
+                    // answered for its charge. Beside a change that shipped,
+                    // nothing refunds it, so the customer is told.
+                    cost: Number(bd.cost) > 0 ? Number(bd.cost) : undefined,
                   };
                 })
                 : undefined,

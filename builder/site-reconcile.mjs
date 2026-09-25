@@ -40,10 +40,17 @@ export const RECONCILE_KINDS = Object.freeze([
   "live-ahead", "chain-broken", "retry-exhausted", "no-script-staged", "no-dispatch", "upload-refused", "upload-not-serving",
 ]);
 
-/** A refunded verdict's sentence: the change never went live. */
-export const NEVER_LIVE_MSG = "That change stopped while it was being published and never went live — your site is still serving what it served before, and anything it cost has been refunded. Ask again.";
+/**
+ * A refunded verdict's sentence: the change never went live.
+ *
+ * NOTHING ABOUT MONEY (2026-09-25). "Anything it cost has been refunded" was
+ * said whatever the refund answered; the browser now states what the edit cost
+ * from the job's own row (`servedEditReply` in worker.js), which is the record
+ * of whether the refund landed.
+ */
+export const NEVER_LIVE_MSG = "That change stopped while it was being published and never went live — your site is still serving what it served before. Ask again.";
 /** …and the one for a change a later publish overtook before it could go live. */
-export const OVERTAKEN_MSG = "That change was overtaken: another change to this site was published before it could go live, so it was set aside — anything it cost has been refunded. Ask again if you still want it.";
+export const OVERTAKEN_MSG = "That change was overtaken: another change to this site was published before it could go live, so it was set aside. Ask again if you still want it.";
 
 /**
  * How often ONE row's lost upload is retried by one isolate before the row is

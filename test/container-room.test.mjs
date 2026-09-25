@@ -225,12 +225,15 @@ test("a listener that throws does not break the wait, and the loop needs no opti
   assert.equal(bare.room, null);
 });
 
-test("the customer's sentence says ours, says nothing was charged, and says which of the three", () => {
+// NOTHING ABOUT MONEY (2026-09-25): the edit's reader states what the edit and
+// the routing call cost, from what each recorded, and a sentence that said it
+// too was said twice — and was false of the routing call.
+test("the customer's sentence says ours, says which of the three, and claims nothing about money", () => {
   const s = ["full", "rate", "start"].map(roomSentence);
   assert.equal(new Set(s).size, 3, "the three kinds read as one sentence");
   for (const x of s) {
     assert.match(x, /our build service/);
-    assert.match(x, /Nothing was charged/);
+    assert.doesNotMatch(x, /charg|refund|cost/i);
     assert.doesNotMatch(x, /describ/, "the customer's words are not blamed");
   }
   assert.match(roomSentence("full"), /full right now/);

@@ -9462,29 +9462,32 @@ function wholeRequestNote(e, d) {
   // refusal the classification added carries `unchanged: true` — the rung
   // saying it wrote nothing — and the merge sets it on a message only when
   // EVERY step says so. `withheld` stays beside it for replies stored before.
+  // A `cost` THAT IS NOT A REAL NUMBER SAYS NOTHING ABOUT THE EDIT, rather
+  // than calling it free: the poll route leaves it off a finished job whose
+  // own row does not settle what it cost (`servedEditReply` in worker.js).
+  const cost = typeof e.cost === 'number' && Number.isFinite(e.cost) && e.cost >= 0 ? e.cost : null;
   if (e.unchanged === true || e.error === 'withheld') {
-    const cost = Number(e.cost) || 0;
-    return (cost > 0
-      ? ' Nothing on your site changed, but this edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
+    return (cost === null ? ' Nothing on your site changed.'
+      : cost > 0 ? ' Nothing on your site changed, but this edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
       : ' Nothing on your site changed, and this edit cost you nothing.') + reading;
   }
-  // ⚠ A LEDGER'S REFUSAL STATES THE MONEY AND NOT "NOTHING CHANGED"
-  // (2026-09-25, run 36159773928). Its server sentence used to end "…it
-  // wasn't published and nothing was charged", and the balance went 3 → 1:
-  // the routing call is its own charge. The sentence now says only what
-  // happened, and the amounts are stated here from what each reply RECORDED.
-  // It is not an `unchanged` reply: "not published" is not "nothing changed",
-  // because a rung can write rows before the reserve that refused. A `cost`
-  // that is not a real number says nothing about the edit, rather than
-  // calling it free; with no routing reply held there is no total to give.
-  if (e.error === 'unbilled') {
-    const cost = typeof e.cost === 'number' && Number.isFinite(e.cost) && e.cost >= 0 ? e.cost : null;
-    const edit = cost === null ? ''
-      : cost > 0 ? ' This edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
-      : ' This edit cost you nothing.';
-    return edit + reading;
-  }
-  return '';
+  // ⚠ EVERY OTHER REFUSAL STATES THE MONEY TOO, AND NEVER "NOTHING CHANGED"
+  // (2026-09-25). It began with the ledger's refusal (run 36159773928: "…it
+  // wasn't published and nothing was charged", and the balance went 3 → 1 —
+  // the routing call is its own charge), and the same claim was in every
+  // failure sentence the server wrote: a stop, a timeout, a compile that did
+  // not run, a set-aside job. Reproduced through the route: "That took longer
+  // than we allow ourselves to wait — this is on us, and nothing was charged"
+  // printed beside a css change that had cost 2. Those sentences now say only
+  // what happened, and the amounts are stated here, from what each reply
+  // RECORDED — the reply's own `cost` (the synchronous path's collections, or
+  // on a job the row's record after the consumer's refund) and the routing
+  // reply's. "Not published" is not "nothing changed": a rung can write rows
+  // before the step that failed, so only an `unchanged` reply claims the site.
+  const edit = cost === null ? ''
+    : cost > 0 ? ' This edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'
+    : ' This edit cost you nothing.';
+  return edit + reading;
 }
 
 function editAnswer(httpOk, e, o) {
@@ -9523,8 +9526,9 @@ function editAnswer(httpOk, e, o) {
     // the customer spending a round trip to find out.
     if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
     // THE RUNG'S OWN SENTENCE — or, when several steps were all refused, EACH
-    // STEP'S — THEN THE ONE CLAIM ONLY THIS BRANCH CAN MAKE. `wholeRequestNote`
-    // is empty for every refusal that already says it.
+    // STEP'S — THEN WHAT THIS BRANCH ALONE CAN SAY: whether the site changed,
+    // and what the edit and the routing call cost. No refusal sentence the
+    // server writes states money (2026-09-25), so it is said once.
     const told = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
     if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d)); return; }
     // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
@@ -9533,7 +9537,7 @@ function editAnswer(httpOk, e, o) {
     // ~25-credit rewrite of every page in answer to changes that had each been
     // refused for a reason. The rewrite is started by an ESCALATE the server
     // chose to send (`escalatedEdit`), and by nothing else.
-    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'));
+    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d));
     return;
   }
   return applyEditResult(e, o);
@@ -9820,7 +9824,9 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // fixed one otherwise. Never `kind`, never `phase`, never a provider
     // message — the poll route has nowhere to put one, and this is the side
     // that renders, so the choice is made here rather than trusted from there.
-    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)));
+    // AND WHAT IT COST, from what the job's own row settled and the routing
+    // reply this page holds (2026-09-25) — the sentence says neither.
+    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
 }
@@ -10767,6 +10773,19 @@ function editOutcomes(e) {
   // longer.
   const stopped = partialSaid(e.partial);
   if (stopped) out += ' ⚠️ ' + stopped;
+  // ⚠ AND WHAT THE PART THAT DID NOT GO THROUGH STILL COST (2026-09-25). A rung
+  // that refuses after its model call answered bills that call, and beside a
+  // change that shipped nothing refunds it — measured through the route, a
+  // menu change the menu rung could not read cost 1 beside a css change, and
+  // the screen said nothing of it. The amount is each step's own recorded
+  // charge (`partial[].cost`); a step with none adds nothing.
+  const charged = (Array.isArray(e.partial) ? e.partial : [])
+    .map((p) => (p && typeof p.cost === 'number' && Number.isFinite(p.cost) && p.cost > 0 ? p.cost : 0))
+    .filter((c) => c > 0);
+  const refusedCost = charged.reduce((n, c) => n + c, 0);
+  if (stopped && refusedCost > 0) {
+    out += (charged.length === 1 ? ' That part' : ' Those parts') + ' still cost ' + refusedCost + ' credit' + (refusedCost === 1 ? '' : 's') + '.';
+  }
   return out;
 }
 

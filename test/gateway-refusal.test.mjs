@@ -35,7 +35,10 @@ test("a forbidden write is named as ours, with the key; a transient one keeps to
   const forbidden = compileMsg({ ok: false, error: "stage", ours: true, code: "forbidden", key: "sitemeta/fretwork-1.json", detail: "gateway put 403 for sitemeta/fretwork-1.json" }, theirs);
   assert.match(forbidden, /our storage refused to write “sitemeta\/fretwork-1\.json”/, forbidden);
   assert.match(forbidden, /nothing was changed/);
-  assert.match(forbidden, /This is on us, not your change; nothing was charged\./);
+  // (2026-09-25) What it cost is the reader's to say, from what the reply and
+  // the routing reply recorded; "nothing was charged" was false of the request.
+  assert.match(forbidden, /This is on us, not your change\.$/);
+  assert.doesNotMatch(forbidden, /charg|refund|cost/i, "the sentence claims something about money");
   assert.doesNotMatch(forbidden, /restarting|didn't compile/, "a refused key still wears another failure's sentence");
   // The same on the activation side.
   const act = compileMsg({ ok: false, error: "activate", ours: true, code: "forbidden", key: "current/fretwork-1.json" }, theirs);
@@ -58,6 +61,22 @@ test("a forbidden write is named as ours, with the key; a transient one keeps to
   // is the fact, not the phase — but never over a refusal that is theirs.
   assert.match(compileMsg({ ok: false, error: "compile", ours: true, code: "forbidden", key: "k" }, theirs), /refused to write/);
   assert.equal(compileMsg({ ok: false, error: "compile", ours: false, code: "forbidden", key: "k" }, theirs), theirs);
+  // AND NO ARM STATES MONEY (2026-09-25). Each said "nothing was charged" or
+  // "nothing was published and nothing was charged", which was false of the
+  // request — the routing call that chose the edit is a charge nothing
+  // refunds — and, on the synchronous path, of collects no refusal gave back.
+  // The reader states both amounts from what each reply recorded. Every arm is
+  // driven; the room arm is stubbed here and asserted in its own module.
+  const arms = [
+    { ok: false, error: "unbilled", detail: "insufficient" }, { ok: false, error: "unbilled", detail: "rpc" },
+    { ok: false, error: "not-granted", ours: true, detail: "lease" }, { ok: false, error: "not-served", ours: true },
+    { ok: false, error: "lease-lost", ours: true }, { ok: false, error: "stage", ours: true, code: "forbidden", key: "k" },
+    { ok: false, error: "compile", ours: true, timedOut: true }, { ok: false, error: "read", ours: true },
+    { ok: false, error: "stage", ours: true, code: "transient" },
+  ];
+  const said = arms.map((pub) => compileMsg(pub, theirs));
+  assert.equal(new Set(said).size, arms.length, "two arms answered one sentence, so this drives fewer arms than it lists");
+  for (const t of said) assert.doesNotMatch(t, /charg|refund|cost/i, "a compile sentence states money the reader states: " + t);
 });
 
 test("the spine's stage and activation catches carry the typed refusal's code and key onto the wire", () => {

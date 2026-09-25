@@ -139,11 +139,12 @@ export async function withRoom(call, { deadline = Infinity, floorMs = 0, now = D
 
 /**
  * The customer's sentence for a room problem the wait ran out on. Ours, said
- * so, nothing charged — and which of the three, because "full" waits minutes
- * and "rate" waits a moment.
+ * so — and which of the three, because "full" waits minutes and "rate" waits a
+ * moment. Nothing about money (2026-09-25): an edit's reader states what the
+ * edit and the routing call cost, from what each recorded.
  */
 export function roomSentence(kind) {
-  if (kind === "rate") return "That didn't go through — our build service was starting too many sites at once, so nothing was changed. Nothing was charged. Try again in a moment.";
-  if (kind === "start") return "That didn't go through — our build service could not start, so nothing was changed. Nothing was charged. Try again in a moment.";
-  return "That didn't go through — our build service is full right now, so nothing was changed. Nothing was charged. Try again in a few minutes.";
+  if (kind === "rate") return "That didn't go through — our build service was starting too many sites at once, so nothing was changed. Try again in a moment.";
+  if (kind === "start") return "That didn't go through — our build service could not start, so nothing was changed. Try again in a moment.";
+  return "That didn't go through — our build service is full right now, so nothing was changed. Try again in a few minutes.";
 }

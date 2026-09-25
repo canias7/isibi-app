@@ -34,6 +34,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { BACKEND_STATES, backendState } from "../site-backend-state.mjs";
+import { editGateRefusal } from "../site-owner.mjs";
 // ⚠ `editBrowserReply`, NOT `browserReply` — the add composer answers a
 // plausible sentence for an edit body rather than throwing, so a guard pinned
 // to it passes whatever the edit screen really says.
@@ -272,9 +273,16 @@ test("a Supabase that cannot be read refuses above the rung, and starts nothing"
     "an unreadable ownership check still starts a paid request: " + JSON.stringify(r.said.actions));
   // THE EXACT WORDING, because "displays something" and "displays the right
   // thing" are two claims and only the second is worth having.
+  //
+  // ⚠ THE MONEY IS THE READER'S, FROM THE REPLY (2026-09-25): the gate's own
+  // sentence says what happened, and the body carries `unchanged: true` and
+  // `cost: 0`, from which the browser says the site did not change and what
+  // this edit cost — beside what the routing call cost, when the page holds
+  // its reply (this harness hands none over, so that line is absent here).
   assert.equal(r.said.text,
     "⚠️ I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. "
-    + "Nothing on your site changed and this edit cost you nothing. Try again in a few minutes.");
+    + "Try again in a few minutes. Nothing on your site changed, and this edit cost you nothing.");
+  assert.equal(r.body.unchanged, true, "the refusal no longer says it wrote nothing: " + JSON.stringify(r.body));
   // OWNERSHIP ENFORCEMENT IS UNCHANGED: the gate's own decision and its own
   // sentence both survive verbatim on the wire, under the field the other
   // dozen routes read.
@@ -304,7 +312,7 @@ test("a site that is not yours is refused on the screen, not with a paid rewrite
     "a site that is not yours still starts a paid request: " + JSON.stringify(r.said.actions));
   assert.equal(r.said.text,
     "⚠️ I can't find a site with that name on your account, so there was nothing for me to edit. "
-    + "Nothing changed and this edit cost you nothing.");
+    + "Nothing on your site changed, and this edit cost you nothing.");
 });
 
 test("the re-shaping is the EDIT route's and no other owner route's", async () => {
@@ -669,18 +677,32 @@ test("no refusal this round added claims the whole request was free", () => {
     assert.ok(!/have?n.t been charged/i.test(s),
       "a refusal still claims the whole request was free, and the routing call was billed: " + JSON.stringify(s));
   }
-  // ⚠ AND WHO SAYS WHAT IT COST SPLIT ON 2026-09-23. The ownership gate
-  // answers the whole request on its own — nothing runs beside it — so its
-  // sentences still say "this edit cost you nothing" themselves. The rules
-  // rung is one step of a message that may run several, so its sentences stop
-  // at their own advice and the answer carries `unchanged: true`, from which
-  // the browser says it — only when every step of the message wrote nothing.
-  // Both halves are asserted: a sentence of each kind that says NEITHER is a
-  // refusal that tells nobody what it cost.
+  // ⚠ AND WHO SAYS WHAT IT COST SPLIT ON 2026-09-23, AND MOVED WHOLLY TO THE
+  // READER ON 2026-09-25. The ownership gate's sentences used to say "this
+  // edit cost you nothing" themselves, and the browser's whole-request note
+  // said it again beside them once the note stated every refusal's money. So
+  // the gate now says what happened and nothing about money, and its body
+  // carries `unchanged: true` and `cost: 0` — from which the browser says both
+  // — which is the rules rung's shape one boundary over. Both halves are
+  // asserted: a sentence that states money states it twice on the screen, and
+  // a body without the two fields is a refusal that tells nobody what it cost.
   const ownerMsgs = [...owner.matchAll(/[?:]\s*"([^"]{60,})"/g)].map((m) => m[1]);
   assert.ok(ownerMsgs.length >= 3, "found only " + ownerMsgs.length + " gate sentences — this scan is over nothing");
   for (const s of ownerMsgs) {
-    assert.match(s, /this edit cost you nothing/i, "a gate refusal says nothing about what it did or did not cost: " + JSON.stringify(s));
+    assert.doesNotMatch(s, /charg|refund|cost/i, "a gate refusal states money the browser states as well: " + JSON.stringify(s));
+  }
+  // `assertOwner`'s own shape: `{error: {status, body}}`.
+  for (const [status, body] of [
+    [503, { error: "couldn't check that site just now — try again in a moment" }],
+    [404, { error: "no such site" }],
+    [401, { error: "sign in" }],
+    [500, { error: "anything else" }],
+  ]) {
+    const out = editGateRefusal({ error: { status, body } });
+    assert.equal(out.status, status, "the gate's own status was not carried");
+    assert.equal(out.body.error, body.error, "the gate's own sentence was not carried");
+    assert.equal(out.body.unchanged, true, "a gate refusal no longer lets the browser say nothing changed: " + JSON.stringify(out.body));
+    assert.equal(out.body.cost, 0, "a gate refusal no longer lets the browser say what it cost: " + JSON.stringify(out.body));
   }
   const rungMsgs = [...rung.matchAll(/msg:\s*"([^"]+)"/g)];
   assert.ok(rungMsgs.length >= 2, "found only " + rungMsgs.length + " rung sentences — this scan is over nothing");

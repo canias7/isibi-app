@@ -203,7 +203,13 @@ test("the stored reply: a kept job gets the sweep's recovered shape naming its k
   assert.equal(JSON.parse(reconcileReply({ verdict: "refunded", kind: "superseded-not-built-on" }, row, 3).body).msg, OVERTAKEN_MSG);
   assert.equal(reconcileReply({ verdict: "unknown", kind: "live-unreadable" }, row), null);
   assert.equal(reconcileReply({ verdict: "retry", kind: "lost-upload" }, row), null);
-  for (const m of [NEVER_LIVE_MSG, OVERTAKEN_MSG]) assert.match(m, /refunded/, "a refunded sentence does not say the money came back");
+  // (2026-09-25) THE AMOUNT IS ON THE REPLY AND THE WORDS ARE THE READER'S.
+  // The sentences said "anything it cost has been refunded"; the reply carries
+  // `refunded`, which is `edit_reconcile`'s own answer, and the poll route sets
+  // the edit's cost from the row that refund moved (`servedEditReply`), from
+  // which the browser says what the edit cost beside what the routing call
+  // cost — a charge nothing here refunds.
+  for (const m of [NEVER_LIVE_MSG, OVERTAKEN_MSG]) assert.doesNotMatch(m, /charg|refund|cost/i, "a reconcile sentence states money the reader states: " + m);
   const facts = publicFacts({ job: { id: ID }, pointer: { version: V2, build: "b2", parent: V1, job: ID, etag: "secret-etag" }, live: { build: "b2", version: V2 }, builds: [B(V1), B(V2)], mine: { version: V2, build: "b2" } });
   assert.deepEqual(facts, { pointer: { version: V2, build: "b2", parent: V1, job: ID }, live: { build: "b2", version: V2 }, mine: { version: V2, build: "b2" }, builds: 2 });
   assert.equal(publicFacts({ pointer: undefined, builds: null }).pointer, "unreadable");

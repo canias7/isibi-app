@@ -303,7 +303,10 @@ test("a build row the claim failed as site-busy answers its own sentence, and an
   assert.deepEqual(rowVerdict({ state: "failed", job: ID }).body.msg, FAILED_MSG);
   assert.equal(rowVerdict({ state: "queued", job: ID, error: { kind: "site-busy" } }), null, "a reason on a row in flight read as terminal");
   assert.notEqual(BUSY_BUILD_MSG, BUSY_EDIT_MSG);
-  for (const m of [BUSY_BUILD_MSG, BUSY_EDIT_MSG]) assert.match(m, /nothing was charged/, "the sentence does not say nothing was charged");
+  // The build's states its own money; the edit's none — its reader states what
+  // the edit and the routing call cost (2026-09-25; see deploy-gate's twin).
+  assert.match(BUSY_BUILD_MSG, /nothing was charged/, "the build's sentence does not say nothing was charged");
+  assert.doesNotMatch(BUSY_EDIT_MSG, /charg|refund|cost/i, "the edit's sentence claims something about money");
 });
 
 // ── DRIVEN: THE QUEUE CONSUMER CLAIMS FIRST, DEFERS, GIVES UP, OR RUNS UNDER ITS CLAIM ──

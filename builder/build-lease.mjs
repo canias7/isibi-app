@@ -178,16 +178,20 @@ export const COLLECTED_MSG = "That build has finished and its answer was already
 // ONE JOB PER SITE AT A TIME (stage 6): a job whose site stayed busy for the
 // whole of its wait is failed by the claim itself, with nothing charged.
 export const BUSY_BUILD_MSG = "Your site was busy with another change for the whole time this build waited, so it was set aside — nothing was charged for it. Send your brief again once the other change has finished.";
-export const BUSY_EDIT_MSG = "Your site was busy with another change for the whole time this edit waited, so it was set aside — nothing was charged for it. Ask again once the other change has finished.";
+// THE EDIT'S THREE SAY NOTHING ABOUT MONEY (2026-09-25): an edit's reader states
+// what the edit cost from the job's own row, beside what the routing call cost —
+// said here as well, it was said twice. The build's keep theirs: the build card
+// states no money of its own over a reply that carries a sentence.
+export const BUSY_EDIT_MSG = "Your site was busy with another change for the whole time this edit waited, so it was set aside. Ask again once the other change has finished.";
 // THE DEPLOY GATE (stage 3a): a job refused for the whole of its wait because a
 // deploy's gate stood under another id — reachable only when a gate is left
 // standing with no new Worker behind it, since new code claims through its own.
 export const GATED_BUILD_MSG = "Our platform was being updated for the whole time this build waited, so it was set aside — nothing was charged for it. Send your brief again in a few minutes.";
-export const GATED_EDIT_MSG = "Our platform was being updated for the whole time this edit waited, so it was set aside — nothing was charged for it. Ask again in a few minutes.";
+export const GATED_EDIT_MSG = "Our platform was being updated for the whole time this edit waited, so it was set aside. Ask again in a few minutes.";
 // A QUEUED JOB NOBODY PICKED UP (stage 3a): its message sent again once by the
 // sweep, then failed with nothing charged — a build's deposit given back.
 export const STALE_BUILD_MSG = "That build was never picked up on our side, so it was set aside — nothing was charged for it. Send your brief again.";
-export const STALE_EDIT_MSG = "That change was never picked up on our side, so it was set aside — nothing was charged for it. Ask again.";
+export const STALE_EDIT_MSG = "That change was never picked up on our side, so it was set aside. Ask again.";
 
 /**
  * WHAT THE POLL ROUTE ANSWERS FROM THE ROW ALONE — asked only when the answer

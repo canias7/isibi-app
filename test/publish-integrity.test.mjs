@@ -713,12 +713,15 @@ test("the spine names a not-served and a lease-lost activation to the customer i
   const notServed = compileMsg({ ok: false, error: "not-served", ours: true, detail: "not-served" }, theirs);
   assert.match(notServed, /couldn't be put live/, notServed);
   assert.match(notServed, /still serving what it was/, "the sentence does not say the old site is still up");
-  assert.match(notServed, /Nothing was charged/);
+  // (2026-09-25) Nothing about money in either: the reader states what the
+  // edit and the routing call cost, from what each recorded.
+  assert.doesNotMatch(notServed, /charg|refund|cost/i, "the sentence claims something about money");
   assert.doesNotMatch(notServed, /didn't compile|restarting/, "a failed upload wears another failure's sentence");
 
   const leaseLost = compileMsg({ ok: false, error: "lease-lost", ours: true, detail: "lease-lost" }, theirs);
   assert.match(leaseLost, /something else was changing your site/, leaseLost);
-  assert.match(leaseLost, /nothing was published and nothing was charged/);
+  assert.match(leaseLost, /nothing was published\./);
+  assert.doesNotMatch(leaseLost, /charg|refund|cost/i, "the sentence claims something about money");
   assert.match(leaseLost, /Send it again/, "a correct refusal reads as a fault instead of a retry");
   assert.doesNotMatch(leaseLost, /didn't compile|restarting/);
   assert.notEqual(leaseLost, notServed, "the two refusals share one sentence");

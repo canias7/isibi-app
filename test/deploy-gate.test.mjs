@@ -193,7 +193,14 @@ test("a build row the claim failed under a deploy gate, or never picked up, answ
   assert.deepEqual(stale.body, { ok: false, failed: true, stale: true, stage: "queue", job: ID, msg: STALE_BUILD_MSG });
   assert.equal(rowVerdict({ state: "failed", job: ID, error: { kind: "site-busy" } }).body.msg, BUSY_BUILD_MSG);
   assert.equal(rowVerdict({ state: "failed", job: ID, error: { kind: "compile" } }).body.msg, FAILED_MSG);
-  for (const m of [GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG]) assert.match(m, /nothing was charged/, "a sentence does not say the customer paid nothing");
+  // A BUILD'S SENTENCE STATES ITS OWN MONEY; AN EDIT'S STATES NONE (2026-09-25).
+  // The build card states no money of its own over a reply with a sentence, so
+  // the build's keeps "nothing was charged for it". An edit's reader states
+  // what the edit cost from the job's own row, beside what the routing call
+  // cost — said in the sentence as well, the screen said it twice, and "nothing
+  // was charged" was false of the request, the routing call being a charge.
+  for (const m of [GATED_BUILD_MSG, STALE_BUILD_MSG]) assert.match(m, /nothing was charged/, "a build's sentence does not say the build cost nothing");
+  for (const m of [GATED_EDIT_MSG, STALE_EDIT_MSG]) assert.doesNotMatch(m, /charg|refund|cost/i, "an edit's sentence claims something about money: " + m);
 });
 
 // ── THE MIGRATION, THE SNAPSHOT AND THE CHECK ────────────────────────────────

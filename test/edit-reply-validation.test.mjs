@@ -429,15 +429,21 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
   const all = await drive({ answers: { route: [routeTo("look")], edit: [ok(ALL, 422)] } });
   assert.deepEqual(all.said, ["⚠️ I couldn't find that colour. The photo change was refused." + NOTE]);
   // A refusal whose body carries a real `escalate: false` is a refusal.
+  // (2026-09-25) Every refusal now states what the routing call cost when the
+  // page holds its reply, and what the edit cost when the reply records it —
+  // a reply with no `cost` says nothing about the edit rather than a guess.
   const f = await drive({ answers: { route: [routeTo("look")], edit: [ok({ ok: false, escalate: false, error: "x", msg: "No." }, 422)] } });
-  assert.deepEqual(f.said, ["⚠️ No."]);
-  // editStopped and the reconcile's refund, as stored: their own sentences.
-  for (const [body, status] of [
-    [{ ok: false, error: "stopped", phase: "build", cost: 0, refunded: 2, msg: "That change was stopped before it could publish." }, 503],
-    [{ ok: false, error: "reconciled", kind: "never-activated", job: "job-e", refunded: 2, msg: "That change never went live, so I've refunded it." }, 409],
+  assert.deepEqual(f.said, ["⚠️ No. Reading your message cost 2 credits."]);
+  // editStopped and the reconcile's refund, as stored: their own sentences,
+  // then the amounts each recorded.
+  for (const [body, status, tail] of [
+    [{ ok: false, error: "stopped", phase: "build", cost: 0, refunded: 2, msg: "That change was stopped before it could publish." }, 503,
+      " This edit cost you nothing. Reading your message cost 2 credits."],
+    [{ ok: false, error: "reconciled", kind: "never-activated", job: "job-e", refunded: 2, msg: "That change never went live, so I've refunded it." }, 409,
+      " Reading your message cost 2 credits."],
   ]) {
     const o = await drive({ answers: { route: [routeTo("look")], edit: [RECEIPT], poll: [stored(body, status)] } });
-    assert.deepEqual(o.said, ["⚠️ " + body.msg]);
+    assert.deepEqual(o.said, ["⚠️ " + body.msg + tail]);
   }
 });
 

@@ -1113,6 +1113,13 @@ export const FIRE_RETRY_MS = 2000;
 
 /** What the customer is told when the container could not take their job. */
 export const NO_CONTAINER_MSG = "Our build service could not pick this up just now, so nothing was changed and nothing was charged. Please try again in a few minutes.";
+// THE EDIT'S OWN SENTENCE SAYS NOTHING ABOUT MONEY (2026-09-25). The routing
+// call that chose the edit is billed on its own and never refunded, so "nothing
+// was charged" was false of every edit that reached this; what the edit cost is
+// stated by the browser from the job's own row (`servedEditReply` in worker.js)
+// beside what the routing call cost. The build keeps its sentence: its reader
+// states no money of its own when the reply carries one.
+export const NO_CONTAINER_EDIT_MSG = "Our build service could not pick this up just now, so nothing was changed. Please try again in a few minutes.";
 
 /**
  * What to do with one `fireContainerJob` answer. See the table above.

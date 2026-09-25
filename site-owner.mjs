@@ -120,19 +120,24 @@ export function editGateRefusal(gate) {
   // site it is. 401 is unreachable from the edit route (it checks the session
   // above this) and is answered anyway rather than falling to a default that
   // would be wrong about whose fault it is.
+  // WHAT HAPPENED, AND NOTHING ABOUT THE SITE OR THE MONEY (2026-09-25). The
+  // refusal carries `unchanged: true` and `cost: 0`, and the browser's one
+  // whole-request note says "Nothing on your site changed, and this edit cost
+  // you nothing" beside what the routing call cost — said here as well, the
+  // screen said it twice.
   const said = status === 503
-    ? "I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. Nothing on your site changed and this edit cost you nothing. Try again in a few minutes."
+    ? "I couldn't check that this site is yours just now, so I've stopped rather than act on it — this is on us. Try again in a few minutes."
     : status === 404
-      ? "I can't find a site with that name on your account, so there was nothing for me to edit. Nothing changed and this edit cost you nothing."
+      ? "I can't find a site with that name on your account, so there was nothing for me to edit."
       : status === 401
-        ? "You've been signed out, so I couldn't check whose site this is. Sign in and send that again — nothing changed and this edit cost you nothing."
-        : "I couldn't start that edit, so I've stopped rather than guess. Nothing on your site changed and this edit cost you nothing.";
+        ? "You've been signed out, so I couldn't check whose site this is. Sign in and send that again."
+        : "I couldn't start that edit, so I've stopped rather than guess.";
   return {
     status,
     // `...body` FIRST so the gate's own `error` survives verbatim — a caller
     // reading the old field keeps reading it, and a future gate arm that adds
     // its own key arrives here without this function being edited.
-    body: { ...body, ok: false, cost: 0, ours: status >= 500, msg: said },
+    body: { ...body, ok: false, cost: 0, unchanged: true, ours: status >= 500, msg: said },
   };
 }
 

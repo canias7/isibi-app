@@ -778,7 +778,9 @@ test("no ask means no spend, on the failure path as well as the escalate", () =>
   // here, and still finishes with a sentence. RE-ANCHORED 2026-09-24: the
   // failure branch is the reader's `refusal` now (it was `!httpOk || !e.ok`).
   assert.ok(a.includes("if (said.act === 'refusal') {"), "the failure branch is gone — this guard would pass over nothing");
-  assert.ok(a.includes("o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'))"), "the failure branch no longer ends in a sentence");
+  // RE-ANCHORED 2026-09-25: the sentence is followed by what the edit and the
+  // routing call cost, so the landmark is the sentence's own opening.
+  assert.ok(a.includes("o.finish('⚠️ ' + EditPoll.outcomeMessage('failed')"), "the failure branch no longer ends in a sentence");
   assert.ok(!/fallback\(/.test(a), "a failure or an unreadable reply still reaches the rewrite: " + (a.match(/.*fallback\(.*/) || [""])[0]);
 });
 

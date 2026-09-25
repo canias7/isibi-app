@@ -1213,10 +1213,12 @@ for (const mode of ["sync", "job"]) {
       const r = await drive({ mode, ask, before, answer });
       refused(r, { calls: PAGE });
       assert.equal(r.reply.msg, PROSE_WITHHELD);
-      assert.ok(r.said.text.includes(PROSE_WITHHELD));
+      // NOT "NOTHING CHANGED" — recovery may already have written — BUT THE
+      // MONEY, FROM WHAT WAS RECORDED (2026-09-25): no debit and no reserve is
+      // what the edit cost, and the routing call is its own charge.
+      assert.equal(r.said.text, "⚠️ " + PROSE_WITHHELD + " This edit cost you nothing. Reading your message cost 2 credits.");
       assert.ok(!r.said.text.includes("Nothing on your site changed"));
-      assert.ok(!r.said.text.includes("cost you nothing"));
-      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
+      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []); assert.deepEqual(r.debits, []);
     });
   }
   test("PROSE " + mode + ": a successful style step survives a refused text-loss step", async () => {

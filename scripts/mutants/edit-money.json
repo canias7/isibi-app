@@ -1,0 +1,156 @@
+[
+  {
+    "label": "CONTROL: the ledger-cost comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": " * WHAT A FINISHED EDIT COST, FROM ITS OWN ROW (2026-09-25).",
+    "to": " * WHAT A FINISHED EDIT COST, FROM ITS OWN ROW (2026-09-25; control)."
+  },
+  {
+    "label": "CONTROL: the refused-step cost comment changes nothing",
+    "control": true,
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  // ⚠ AND WHAT THE PART THAT DID NOT GO THROUGH STILL COST (2026-09-25). A rung",
+    "to": "  // ⚠ AND WHAT THE PART THAT DID NOT GO THROUGH STILL COST (2026-09-25, control). A rung"
+  },
+  {
+    "label": "M-1: the poll route hands back the stored reply as it was stored",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        return new Response(servedEditReply(row, res.body), {",
+    "to": "        return new Response(res.body, {"
+  },
+  {
+    "label": "M-2: a refunded row reports its reserve as the cost",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (billing === \"refunded\" || billing === \"none\" || billing === \"exempt\") return 0;",
+    "to": "  if (billing === \"none\" || billing === \"exempt\") return 0;\n  if (billing === \"refunded\") return Number(row.cost);"
+  },
+  {
+    "label": "M-3: an unsettled row is called free",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    return Number.isFinite(n) && n >= 0 ? n : null;\n  }\n  return null;\n}",
+    "to": "    return Number.isFinite(n) && n >= 0 ? n : null;\n  }\n  return 0;\n}"
+  },
+  {
+    "label": "M-4: a published job's reply is rewritten too",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!row || row.state === \"done\") return body;",
+    "to": "  if (!row) return body;"
+  },
+  {
+    "label": "M-5: the refund the row recorded is not reported",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (row.billing === \"refunded\" && Number(row.cost) > 0) out.refunded = Number(row.cost);\n",
+    "to": ""
+  },
+  {
+    "label": "M-6: a finished job's state answer reports what it held",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        cost: isTerminalEdit(row.state) && row.state !== \"done\" ? (ledgerEditCost(row) ?? undefined) : (Number(row.cost) || 0),",
+    "to": "        cost: Number(row.cost) || 0,"
+  },
+  {
+    "label": "M-7: the synchronous refusal reports 0 whatever was kept",
+    "files": [
+      "worker.js"
+    ],
+    "from": "ok: false, error: finalPub.error === \"unbilled\" ? \"unbilled\" : \"compile\", cost: eJob ? 0 : syncKept,",
+    "to": "ok: false, error: finalPub.error === \"unbilled\" ? \"unbilled\" : \"compile\", cost: 0,"
+  },
+  {
+    "label": "M-8: a refund that landed is not taken off what the reply reports",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                  if (await refundCredits(env, ou.id, syncLedger.taken)) syncKept = 0;",
+    "to": "                  if (await refundCredits(env, ou.id, syncLedger.taken)) void 0;"
+  },
+  {
+    "label": "M-9: a refused step's charge is not put on its entry",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    cost: Number(bd.cost) > 0 ? Number(bd.cost) : undefined,",
+    "to": "                    cost: undefined,"
+  },
+  {
+    "label": "M-10: the refused step's charge is not said",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (stopped && refusedCost > 0) {",
+    "to": "  if (false && stopped && refusedCost > 0) {"
+  },
+  {
+    "label": "M-11: a refusal that is not 'unchanged' states no money",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const edit = cost === null ? ''\n    : cost > 0 ? ' This edit cost ' + cost + ' credit' + (cost === 1 ? '' : 's') + '.'\n    : ' This edit cost you nothing.';\n  return edit + reading;",
+    "to": "  return '';"
+  },
+  {
+    "label": "M-12: a cost that is not recorded is called free",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const cost = typeof e.cost === 'number' && Number.isFinite(e.cost) && e.cost >= 0 ? e.cost : null;",
+    "to": "  const cost = Number(e.cost) || 0;"
+  },
+  {
+    "label": "M-13: the failure branch with no sentence states no money",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d));",
+    "to": "    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed'));"
+  },
+  {
+    "label": "M-14: an ended job's sentence states no money",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d));",
+    "to": "EditPoll.outcomeMessage(read.kind)));"
+  },
+  {
+    "label": "M-15: a refused move does not say it wrote nothing",
+    "files": [
+      "worker.js"
+    ],
+    "from": "return Response.json({ ok: false, error: \"rename\", cost: 0, unchanged: true, msg: \"I couldn't move that page — \" + rn.reason + \".\" }, { status: 422 });",
+    "to": "return Response.json({ ok: false, error: \"rename\", cost: 0, msg: \"I couldn't move that page — \" + rn.reason + \".\" }, { status: 422 });"
+  },
+  {
+    "label": "M-16: the ownership gate's refusal does not say it wrote nothing",
+    "files": [
+      "site-owner.mjs"
+    ],
+    "from": "    body: { ...body, ok: false, cost: 0, unchanged: true, ours: status >= 500, msg: said },",
+    "to": "    body: { ...body, ok: false, cost: 0, ours: status >= 500, msg: said },"
+  },
+  {
+    "label": "M-17: the container's refusal of an edit claims nothing was charged",
+    "files": [
+      "worker.js"
+    ],
+    "from": "detail: why.slice(0, 120), msg: NO_CONTAINER_EDIT_MSG }) },",
+    "to": "detail: why.slice(0, 120), msg: NO_CONTAINER_MSG }) },"
+  }
+]

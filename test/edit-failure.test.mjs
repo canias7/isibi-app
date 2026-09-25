@@ -809,7 +809,12 @@ test("a message whose steps did not all write nothing never claims the site is u
   assert.equal(byLayer.page.unchanged, true);
   assert.match(byLayer.rename.msg, /what you would like the address to be/);
   assert.equal(byLayer.rename.unchanged, undefined, "a refusal that collected a charge is recorded as having done nothing");
-  assert.equal(r.said.text, "⚠️ " + byLayer.page.msg + " " + byLayer.rename.msg);
+  // AND THE SCREEN STATES WHAT WAS DEBITED (2026-09-25) — never "nothing on
+  // your site changed", and never free: the rename step's charge stands on
+  // this path, and the routing call is its own.
+  const n = r.body.cost;
+  assert.equal(r.said.text, "⚠️ " + byLayer.page.msg + " " + byLayer.rename.msg
+    + " This edit cost " + n + " credit" + (n === 1 ? "" : "s") + ". Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, []);
 });
 
@@ -842,9 +847,19 @@ test("the screen states the edit's own charge and the routing charge as two amou
   // about the routing call rather than a guess.
   const resumed = editBrowserReply({ ok: false, error: "no-match", cost: 0, unchanged: true, msg }, false, undefined);
   assert.equal(resumed.text, "⚠️ " + msg + NOTHING_CHANGED);
-  // A refusal that does NOT say it wrote nothing makes no whole-request claim.
+  // A refusal that does NOT say it wrote nothing makes no claim about the
+  // site — and states the money it recorded all the same (2026-09-25).
   const unsure = editBrowserReply({ ok: false, error: "compile", cost: 0, msg }, false, ROUTED("data"));
-  assert.equal(unsure.text, "⚠️ " + msg);
+  assert.equal(unsure.text, "⚠️ " + msg + " This edit cost you nothing. Reading your message cost 2 credits.");
+  const charged = editBrowserReply({ ok: false, error: "no-match", cost: 1, msg }, false, ROUTED("data"));
+  assert.equal(charged.text, "⚠️ " + msg + " This edit cost 1 credit. Reading your message cost 2 credits.");
+  // A COST THAT IS NOT A RECORDED NUMBER SAYS NOTHING ABOUT THE EDIT — the
+  // poll route leaves it off a job whose own row does not settle it — and the
+  // routing call is still said.
+  const unsettled = editBrowserReply({ ok: false, error: "stopped", msg }, false, ROUTED("data"));
+  assert.equal(unsettled.text, "⚠️ " + msg + " Reading your message cost 2 credits.");
+  const unsettledSame = editBrowserReply({ ok: false, error: "no-match", unchanged: true, msg }, false, ROUTED("data"));
+  assert.equal(unsettledSame.text, "⚠️ " + msg + " Nothing on your site changed. Reading your message cost 2 credits.");
 });
 
 test("a refused step with no sentence of its own is still counted, never dropped", () => {
@@ -870,24 +885,27 @@ const MORE_1 = " One more part of that message didn’t go through. Ask for it a
 const MORE_2 = " 2 more parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why.";
 const TOOK = "✅ Took the picture off “the window”.";
 
+// WHAT A REFUSAL ALSO STATES (2026-09-25): the edit's recorded cost and the
+// routing call's, after whatever the steps said.
+const PAID = " This edit cost you nothing. Reading your message cost 2 credits.";
 test("a refusal counts the steps that gave no reason beside the ones that did — the owner's reproduction", () => {
   const refuse = (partial) => editBrowserReply({ ok: false, cost: 0, partial }, false, ROUTED("look"));
   const alone = refuse([EXPLAINED]);
   const mixed = refuse([EXPLAINED, SILENT("look")]);
-  assert.equal(alone.text, "⚠️ " + REFUSED, "control: one explained failure alone reads as it always did");
-  assert.equal(mixed.text, "⚠️ " + REFUSED + MORE_1, "the step with no reason vanished beside the one with a reason");
+  assert.equal(alone.text, "⚠️ " + REFUSED + PAID, "control: one explained failure alone reads as it always did");
+  assert.equal(mixed.text, "⚠️ " + REFUSED + MORE_1 + PAID, "the step with no reason vanished beside the one with a reason");
   assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
   // A DUPLICATE SENTENCE IS ONE PROBLEM; TWO STEPS WITH NO SENTENCE ARE TWO —
   // even two that look exactly alike, because each entry is its own step.
-  assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]).text, "⚠️ " + REFUSED + MORE_2);
+  assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]).text, "⚠️ " + REFUSED + MORE_2 + PAID);
   // THE TWO COUNTS STAY APART: explanations past the first two are counted
   // as they always were, and the steps with none are counted after them.
   assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }, { layer: "look", msg: "The colour change was refused." }, SILENT("page")]).text,
-    "⚠️ " + REFUSED + " The menu change was refused. (1 more part of that message didn’t go through either.)" + MORE_1);
+    "⚠️ " + REFUSED + " The menu change was refused. (1 more part of that message didn’t go through either.)" + MORE_1 + PAID);
   // CONTROLS — one kind of step alone reads exactly as it did before.
-  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }]).text, "⚠️ " + REFUSED + " The menu change was refused.");
+  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }]).text, "⚠️ " + REFUSED + " The menu change was refused." + PAID);
   assert.equal(refuse([SILENT("page"), SILENT("look")]).text,
-    "⚠️ 2 parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why.");
+    "⚠️ 2 parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why." + PAID);
   for (const partial of [[EXPLAINED], [EXPLAINED, SILENT("look")], [EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]]) {
     const r = refuse(partial);
     assert.ok(r.ok, r.why);

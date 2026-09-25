@@ -23,7 +23,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import {
   EDIT_JOB_KIND, EDIT_JOB_PREFIX, EDIT_JOB_MS, CONTAINER_EDIT_JOB_MS, packEditJob,
   JOB_ENV_NAMES, jobSecrets, jobRunnerOn, jobRunnerFor, jobRunnerEveryone, readCanaryList, JOB_FIRE_MS, JOB_TOKEN_GRACE_S,
-  FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, fireOutcome,
+  FIRE_RETRY_MAX, FIRE_RETRY_MS, NO_CONTAINER_MSG, NO_CONTAINER_EDIT_MSG, fireOutcome,
 } from "../builder/edit-job.mjs";
 import { gatewayKey, verifyJobToken, signJobToken, SB_MARKER } from "../builder/job-gateway.mjs";
 import { makeTerminator, readDeadline } from "../builder/job-clock.mjs";
@@ -607,7 +607,11 @@ test("a container that refuses does NOT quietly run the job in the Worker", asyn
     const reply = JSON.parse(String(fin[0].body.p_result.body));
     assert.equal(reply.error, "no-container", "on " + status + " the failure does not name itself");
     assert.equal(fin[0].body.p_ok, false);
-    assert.match(String(reply.msg), /nothing was charged/i, "the customer is not told they were not charged");
+    // THE EDIT'S SENTENCE SAYS WHAT HAPPENED AND NOTHING ABOUT MONEY
+    // (2026-09-25): the routing call that chose the edit is a charge nothing
+    // refunds, and the browser states both amounts from what each recorded.
+    assert.equal(reply.msg, NO_CONTAINER_EDIT_MSG, "the edit is not told its own sentence");
+    assert.doesNotMatch(String(reply.msg), /charg|refund|cost/i, "the edit's sentence makes a claim about money");
     // AND NOTHING WAS SPENT: the fire happens before any model call, so there
     // is no reserve to reverse and no refund to make.
     assert.equal(rpcs.some((r) => /rpc\/edit_(reserve|refund)$/.test(r.u)), false,

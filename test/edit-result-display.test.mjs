@@ -622,7 +622,9 @@ for (const addon of [false, true]) {
 test('a terminal job still releases and reports its outcome when credit scheduling fails', async () => {
   const first = { route: [routeTo('look')], edit: [receipt('job-ended')], poll: [ok({status:'cancelled',msg:'The edit was cancelled.'})] };
   await twoMessages({ first, credit: { from: '(?:Immediate[.])?step' }, redraw: {},
-    lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['⚠️ The edit was cancelled.'] });
+    // (2026-09-25) The ended job's sentence, then what the routing call cost:
+    // this job-state answer records no edit cost, so none is claimed.
+    lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['⚠️ The edit was cancelled. Reading your message cost 2 credits.'] });
 });
 
 test('an attached logo reaches only its selected edit and is not carried into the next message', async () => {

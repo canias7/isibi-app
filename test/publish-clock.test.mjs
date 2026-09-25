@@ -50,7 +50,7 @@ test("the addon asks the gate BEFORE it reserves credits, so a refusal for time 
   assert.match(route, /return await editStopped\(env, \{ job: aJob, why: aGatePub\.why/, "a refused gate no longer stops the job through editStopped");
 });
 
-test("a stopped job refused for time says so, and says nothing was charged", () => {
+test("a stopped job refused for time says so, and leaves what it cost to the reader", () => {
   // ANCHORED ON THE NAME, not the whole parameter list, which gains a field
   // whenever a caller has something new to hand it (`kept`, 2026-09-25).
   const fn = between(worker, "async function editStopped(env, {", "async function runLostEditJobs(", "editStopped");
@@ -58,7 +58,10 @@ test("a stopped job refused for time says so, and says nothing was charged", () 
   assert.ok(time > 0, "no sentence for a job refused for time");
   const sentence = fn.slice(time, fn.indexOf("\n", fn.indexOf("?", time) + 1));
   assert.match(sentence, /longer than the time we allow/);
-  assert.match(sentence, /nothing was charged/);
+  // (2026-09-25) It said "nothing was charged", and the routing call that chose
+  // the edit is a charge nothing refunds. What the edit cost is the reader's to
+  // say, from the job's own row (`servedEditReply`), beside the routing call's.
+  assert.doesNotMatch(sentence, /charg|refund|cost/i, "the stop claims something about money: " + sentence);
   assert.match(sentence, /two smaller steps/);
 });
 
@@ -81,7 +84,7 @@ test("the spine tells the clock apart from the code: a timed-out container call 
   const read = msg.indexOf('return pub.error === "read"');
   assert.ok(timed > 0 && read > timed, "the timeout sentence must be decided before the read/restarting fallback");
   assert.match(msg.slice(timed, read), /longer than the time we allow for one change/);
-  assert.match(msg.slice(timed, read), /Nothing was charged/);
+  assert.doesNotMatch(msg.slice(timed, read), /charg|refund|cost/i, "the timeout sentence claims something about money");
 });
 
 test("the harness keeps a verdict it already gave: a 422 is `failed` with the route's reason, never `LIE: reply says ok`", () => {
