@@ -237,6 +237,35 @@ test("a job with no time left for the correction puts back the stylesheet it wro
   await assertPutBack(r, "budget");
 });
 
+// A LOGO IS THE SAME WRITE ONE RUNG OVER: the mark goes into the stored look
+// before the one publish, and a cancel there left it saved for the next edit.
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+test("a job cancelled at the publish gate after a logo was saved puts the logo back, and the next edit does not ship it", async () => {
+  const r = await drive({ mode: "job", routed: { layer: "logo", images: [{ name: "logo.png", data: PNG }] }, ask: "Use this picture as the logo.", cancel: true });
+  assert.equal(r.builds.length, 0, "the cancelled edit built");
+  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
+  assert.deepEqual(r.config.look, LOOK, "the cancelled logo is still in the stored look");
+  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site });
+  assert.equal(next.builds.length, 1, "the next message did not build once");
+  assert.ok(!next.builds[0].includes("/u/" + r.site.slug + "/"), "the next, unrelated edit shipped the cancelled logo");
+});
+
+// THE LOGO RUNG READS THE COMPOSER'S OWN ATTACHMENT (2026-09-25). The attach
+// code makes `{name, data}` (test/site-entry-inventory.test.mjs asserts the edit
+// POST carries exactly that), and the rung read bare strings alone: "Use this
+// picture as the logo." with the picture attached came back "Attach the logo
+// with the 📎 button", nothing stored and nothing built.
+test("a logo attached in the composer's shape is stored and published through the edit route", async () => {
+  const r = await drive({ mode: "sync", routed: { layer: "logo", images: [{ name: "logo.png", data: PNG }] }, ask: "Use this picture as the logo." });
+  assert.equal(r.reply && r.reply.ok, true, "the attached logo was refused: " + JSON.stringify(r.reply));
+  assert.equal(r.builds.length, 1, "the logo was not built into the site");
+  const mark = r.config.look && r.config.look.wordmark;
+  assert.equal(mark && mark.form, "image", "the logo was not stored as the header mark: " + JSON.stringify(r.config.look));
+  assert.ok(String(mark.url).startsWith("/u/" + r.site.slug + "/"), "the logo is not the site's own upload: " + mark.url);
+  assert.ok(r.builds[0].includes(mark.url), "the build does not carry the logo");
+  assert.match(r.said.text, /logo in the header/, "the screen does not say the logo went up: " + r.said.text);
+});
+
 test("control: a correction that lands keeps the corrected stylesheet it published", async () => {
   const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, CLEAN_CSS], render: (n) => (n === 1 ? DEAD : { ok: true, checked: 2, pages: 1, findings: [] }) });
   assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));

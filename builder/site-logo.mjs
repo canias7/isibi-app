@@ -169,7 +169,15 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
     };
   }
 
-  const first = Array.isArray(images) ? images.find((i) => typeof i === "string" && i) : null;
+  // THE COMPOSER'S OWN SHAPE, beside a bare string (2026-09-25). The browser
+  // attaches `{name, data}` — the shape the rest of the platform reads an
+  // attachment in (`attachments`, builder/site-context.mjs) — and this read
+  // strings alone. Driven through the edit route with the object the attach
+  // code makes: "Use this picture as the logo." with the picture attached was
+  // answered "Attach the logo with the 📎 button", and nothing was stored. Every
+  // test of this rung posted a bare string, so none of them could see it.
+  const dataOf = (a) => (typeof a === "string" ? a : (a && typeof a.data === "string" ? a.data : ""));
+  const first = Array.isArray(images) ? images.map(dataOf).find(Boolean) || null : null;
   const read = readLogoImage(first, deps);
   if (!read.ok) return { ok: false, reason: read.reason, msg: logoRefusal(read.reason) };
 

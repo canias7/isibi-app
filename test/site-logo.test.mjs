@@ -168,6 +168,31 @@ test("the first usable attachment is the one used", async () => {
   assert.equal(r.ok, true);
 });
 
+// THE BROWSER'S OWN SHAPE (2026-09-25). The attach code makes `{name, data}`,
+// and every case above posts a bare string — so a logo attached in the composer
+// was refused as "none" while all of them passed.
+test("an attachment in the composer's shape — {name, data} — is the logo", async () => {
+  const { d, seen } = deps();
+  const r = await runLogoEdit(d, { images: [{ name: "logo.png", data: dataUrl(PNG) }] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(seen.saved, ["/u/cafe/abc.png"]);
+  assert.equal(seen.published, 1);
+});
+
+test("…and the first attachment that carries a picture is used, past one that carries words", async () => {
+  const { d } = deps();
+  const r = await runLogoEdit(d, { images: [{ name: "notes.txt", text: "our colours" }, { name: "logo.png", data: dataUrl(PNG) }] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test("…while an attachment with no picture in it is still no logo", async () => {
+  const { d, seen } = deps();
+  const r = await runLogoEdit(d, { images: [{ name: "notes.txt", text: "our colours" }, { name: "x", data: 7 }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, "none");
+  assert.equal(seen.stored, 0);
+});
+
 test("a refusal never publishes and never saves", async () => {
   const { d, seen } = deps();
   const r = await runLogoEdit(d, { images: ["data:image/svg+xml;base64,PHN2Zz4="] });
