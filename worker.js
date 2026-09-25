@@ -24126,7 +24126,9 @@ async function handleRequest(request, env, ctx) {
               if (pStop) return pStop;
               // THE PAGE THIS EDIT CHANGES, so a request that names a page is
               // held to it: "…from the home page" grants nothing on /prices.
-              const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction, page: routeOf(target.path) });
+              // AND THE SITE'S PAGES, whose own names a request may use: "on the
+              // menu" is /menu wherever this site has one, never this page.
+              const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction, page: routeOf(target.path), pages: eSrc });
               if (!pProse.ok) return Response.json({
                 // The legacy "withheld" browser note promises nothing changed;
                 // recovery may already have run, so do not claim that here.

@@ -1,0 +1,164 @@
+[
+  {
+    "label": "CONTROL: the page-names heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "// ── THE SITE'S OWN PAGE NAMES (2026-09-25, owner) ───────────────────────────",
+    "to": "// ── THE SITE'S OWN PAGE NAMES (2026-09-25, owner; control) ──────────────────"
+  },
+  {
+    "label": "CONTROL: the apostrophe comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  // AN APOSTROPHE IS NOT A QUOTE MARK (2026-09-25). Between two letters the",
+    "to": "  // AN APOSTROPHE IS NOT A QUOTE MARK (2026-09-25; control). Between two letters the"
+  },
+  {
+    "label": "N-1: the route does not hand the guard the site's pages",
+    "files": [
+      "worker.js"
+    ],
+    "from": "message: eInstruction, page: routeOf(target.path), pages: eSrc });",
+    "to": "message: eInstruction, page: routeOf(target.path) });"
+  },
+  {
+    "label": "N-2: the site's menu labels are not read as page names",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  for (const slot of navSlots(list)) for (const item of slot.items) {",
+    "to": "  for (const slot of []) for (const item of slot.items) {"
+  },
+  {
+    "label": "N-3: a menu anchor names a page",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "|| /[#?]/.test(href)) continue;",
+    "to": "|| /[?]/.test(href)) continue;"
+  },
+  {
+    "label": "N-4: an outside link names a page",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (!href.startsWith(\"/\") || href.startsWith(\"//\") || /[#?]/.test(href)) continue;",
+    "to": "    if (/[#?]/.test(href)) continue;"
+  },
+  {
+    "label": "N-5: a component file names a page",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (!r || /(^|\\/)-/.test(r.slice(1))) continue;",
+    "to": "    if (!r) continue;"
+  },
+  {
+    "label": "N-6: the shortest name wins",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (routes) best = { end: at, routes };",
+    "to": "    if (routes && !best) best = { end: at, routes };"
+  },
+  {
+    "label": "N-7: a name two pages share names the edited one",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "same: !!have && hit.routes.size === 1 && hit.routes.has(have) });",
+    "to": "same: !!have && hit.routes.has(have) });"
+  },
+  {
+    "label": "N-8: a bare name after a form's own in/of is a page",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      if ((m[2] === \"in\" || m[2] === \"of\") && FORM_WORD.test(clause.slice(0, start))) continue;",
+    "to": ""
+  },
+  {
+    "label": "N-9: a quoted name the site gives a page is never resolved",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "        if (!names || !names.has(pageKey(named))) named = null;",
+    "to": "        named = null;"
+  },
+  {
+    "label": "N-10: a named \"X page\" is not resolved by the site's names",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  const routes = names && names.get(pageKey(m ? m[1] : n));",
+    "to": "  const routes = null;"
+  },
+  {
+    "label": "N-11: a name runs across punctuation",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (!/^[\\s\\-_&+\\/]*$/.test(clause.slice(at, m.index))) break;",
+    "to": "    if (!/^[\\s\\-_&+\\/,.;:!?]*$/.test(clause.slice(at, m.index))) break;"
+  },
+  {
+    "label": "N-12: page names are spelled without folding apostrophes",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  .replace(APOSTROPHE, \"\").match(/[\\p{L}\\p{N}]+/gu) || [];",
+    "to": "  .match(/[\\p{L}\\p{N}]+/gu) || [];"
+  },
+  {
+    "label": "N-13: a site with pages but no scan: bare names are never read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  if (names && names.size) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "A-1: a curly quote may close on an apostrophe",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "’(?=[\\p{L}\\p{N}]))*)’(?![\\p{L}\\p{N}])|",
+    "to": "’(?=[\\p{L}\\p{N}]))*)’|"
+  },
+  {
+    "label": "A-2: a straight quote may close on an apostrophe",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "'(?=[\\p{L}\\p{N}]))*)'(?![\\p{L}\\p{N}])/gu,",
+    "to": "'(?=[\\p{L}\\p{N}]))*)'/gu,"
+  },
+  {
+    "label": "A-3: a curly quote cannot hold an apostrophe",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "‘((?:[^’\\n]|’(?=[\\p{L}\\p{N}]))*)’",
+    "to": "‘([^’\\n]*)’"
+  },
+  {
+    "label": "A-4: a straight quote cannot hold an apostrophe",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "'((?:[^'\\n]|'(?=[\\p{L}\\p{N}]))*)'",
+    "to": "'([^'\\n]*)'"
+  },
+  {
+    "label": "A-5: an apostrophe outside a quote is a stray mark",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": ".test(shielded.replace(APOSTROPHE, \"\"))) return allowed;",
+    "to": ".test(shielded)) return allowed;"
+  }
+]

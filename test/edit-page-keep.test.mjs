@@ -66,7 +66,7 @@ import {
   KEEP_TOOL, KEEP_RULES, KEEP_UNCHECKED_MSG, KEEP_GROUPS, keepInventory, pairLinks, partStates, quoteInMessage,
   quoteNamesItem, groupCovers, readKeep, keepRequest, keepWithheldMsg,
 } from "../builder/page-keep.mjs";
-import { PROSE_WITHHELD, preservePageProse } from "../builder/page-prose.mjs";
+import { PROSE_WITHHELD, preservePageProse, sitePageNames, pageKey } from "../builder/page-prose.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
@@ -1478,7 +1478,10 @@ const COPY_ANSWER = bare(CHORD_SHAPES.replace("Eight shapes for your first month
 const HOURS_REWORDED = HOURS.replace("Open from 7am on weekdays.", "Open daily.");
 const MENU_OTHERS = [HOME, ...OTHER_PAGES.filter((o) => o.path !== "menu.tsx").map((o) => o.source)];
 
-for (const mode of ["sync", "job"]) {
+// ONE PAIR OF CHECKS FOR EVERY PAGE-GUARD ROUTE CASE, per money path: refused
+// by the text guard with nothing compiled, stored or charged, or published with
+// the writer's answer byte for byte and one charge.
+function pageGuardChecks(mode) {
   const money = (r, published) => mode === "sync"
     ? assert.deepEqual(r.debits, published ? [credits(CALL, CALL)] : [], "the charge")
     : assert.deepEqual(r.reserves, published ? [{ seq: 1, cost: credits(CALL, CALL) }] : [], "the reservation");
@@ -1507,7 +1510,11 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
     money(r, true);
   };
+  return { refusedHere, publishedHere };
+}
 
+for (const mode of ["sync", "job"]) {
+  const { refusedHere, publishedHere } = pageGuardChecks(mode);
   test(`QUOTED PAGE ${mode}: a quoted address naming another page grants nothing, correct answer or not`, async () => {
     const r = await drive({ mode, before: ON_HOME, ask: QUOTED_MENU, answer: bare(HOURS) });
     refusedHere(r, ON_HOME, OTHER_PAGES.map((o) => o.source));
@@ -1591,3 +1598,160 @@ test("QUOTED PAGE: every page operand is held to the page the edit changes, and 
   // A QUALIFIER NEVER WIDENS A GRANT.
   await no("Remove the ‘Chords’ section on ‘/’.", "/", [HOURS_REWORDED]);
 });
+
+// ── A PAGE THE SITE NAMES (2026-09-25, owner) ───────────────────────────────
+//
+// "Remove the ‘Chords’ section on the menu." published on the home page of a
+// site that HAS a /menu page: "the menu" was not recognisably a page, so the
+// target ended at "on" and the page went with the rest. A page is named by the
+// words the site itself uses for it — its address's last segment (the builder
+// picker's own name) and the labels its menu links to it with — and a name the
+// site gives another page grants nothing here. Words that name no page are not
+// read as one: "at the top" says where, not which page.
+const SITE_NAV = "<SiteChrome links={[{ label: \"Book\", href: \"/\" }, { label: \"Lesson Prices\", href: \"/prices\" }, { label: \"Gear Board\", href: \"/gear/\" }, { label: \"Hours\", href: \"/#hours\" }, { label: \"Shop\", href: \"https://shop.example.com\" }]} />";
+const navPage = (route, ...blocks) => "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "export const Route = createFileRoute('" + route + "')({ component: P })\nfunction P(){return <main>" + SITE_NAV + blocks.join("") + "</main>}\n";
+const NAV_FILE = { "/": "index.tsx", "/prices": "prices.tsx", "/gear": "gear.tsx", "/menu": "menu.tsx" };
+const navSite = (edited, before) => Object.entries(NAV_FILE).map(([route, path]) => ({ path, source: route === edited ? before : navPage(route, "<h1>" + route + "</h1>") }));
+const MENU_ASK = "Remove the ‘Chords’ section on the menu.";
+
+test("PAGE NAMES: a page is named by its address and by the site's own menu, and by nothing else", () => {
+  const names = sitePageNames([...navSite("/", navPage("/")), { path: "-parts/menu-card.tsx", source: "export default function M(){return null}" }]);
+  const seen = Object.fromEntries([...names].map(([k, v]) => [k, [...v].sort()]));
+  assert.deepEqual(seen, {
+    home: ["/"], prices: ["/prices"], gear: ["/gear"], menu: ["/menu"],
+    book: ["/"], "lesson prices": ["/prices"], "gear board": ["/gear"],
+  }, "the address names, the menu's labels, no anchor, no outside link and no component");
+  // ONE SPELLING FOR ONE NAME: case, apostrophes, hyphens and a leading "the".
+  assert.equal(pageKey("The Lesson-Prices"), "lesson prices");
+  assert.equal(pageKey("What’s on"), pageKey("whats-on"));
+  assert.equal(pageKey("What's on"), "whats on");
+  // A NAME TWO PAGES SHARE names both, so a request cannot pick one by it.
+  const shared = sitePageNames([{ path: "menu.tsx", source: navPage("/menu") }, { path: "food.tsx", source: navPage("/food").replace("{ label: \"Book\", href: \"/\" }", "{ label: \"Menu\", href: \"/food\" }") }]);
+  assert.deepEqual([...shared.get("menu")].sort(), ["/food", "/menu"]);
+  // NOTHING READ, NOTHING NAMED.
+  assert.equal(sitePageNames(undefined).size, 0);
+});
+
+test("PAGE NAMES: a name the site gives another page grants nothing; its own name, or none, still publishes", async () => {
+  const run = (message, route, { blocks = [HOURS], pages = true } = {}) => {
+    const before = navPage(route, CHORD_SHAPES, HOURS);
+    return preservePageProse({ before, after: navPage(route, ...blocks), message, page: route, pages: pages ? navSite(route, before) : undefined });
+  };
+  const ok = async (message, route, opts) => assert.deepEqual(await run(message, route, opts), { ok: true }, message + " on " + route);
+  const no = async (message, route, opts) => {
+    const r = await run(message, route, opts);
+    assert.equal(r.ok, false, message + " on " + route);
+    assert.equal(r.why, "unconfirmed-target", message + " on " + route);
+  };
+  // THE OWNER'S CASE, and what decides it is the site: with no pages read the
+  // same sentence still publishes, which is the defect this closes.
+  await no(MENU_ASK, "/");
+  await ok(MENU_ASK, "/", { pages: false });
+  await ok(MENU_ASK, "/menu");
+  await ok("Remove the ‘Chords’ section from the menu.", "/menu");
+  await no("Remove the ‘Chords’ section from the menu.", "/");
+  await ok("On the menu, remove the ‘Chords’ section.", "/menu");
+  await no("On the menu, remove the ‘Chords’ section.", "/");
+  // THE SITE'S MENU LABELS, bare, quoted or with "page".
+  await ok("Remove the ‘Chords’ section on Gear Board.", "/gear");
+  await no("Remove the ‘Chords’ section on Gear Board.", "/");
+  await ok("Remove the ‘Chords’ section on the Lesson Prices page.", "/prices");
+  await no("Remove the ‘Chords’ section on the Lesson Prices page.", "/");
+  await ok("Remove the ‘Chords’ section on ‘Gear Board’.", "/gear");
+  await no("Remove the ‘Chords’ section on ‘Gear Board’.", "/prices");
+  await ok("Remove the ‘Chords’ section on ‘Menu’.", "/menu");
+  await no("Remove the ‘Chords’ section on ‘Menu’.", "/menu", { pages: false });
+  await ok("Remove the ‘Chords’ section from Book.", "/");
+  await no("Remove the ‘Chords’ section from Book.", "/gear");
+  // THE LONGEST NAME WINS: on a site whose menu calls /board "Menu Board",
+  // "the menu board" is /board, never /menu.
+  const board = navPage("/board", CHORD_SHAPES, HOURS).replace("{ label: \"Book\", href: \"/\" }", "{ label: \"Menu Board\", href: \"/board\" }");
+  assert.deepEqual(await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] }), { ok: true });
+  assert.equal((await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
+  // …and a name never runs across punctuation: "the menu, board" is /menu.
+  assert.equal((await preservePageProse({ before: board, after: navPage("/board", HOURS), message: "Remove the ‘Chords’ section on the menu, board.", page: "/board", pages: [...navSite("/", navPage("/")), { path: "board.tsx", source: board }] })).ok, false);
+  // A NAME PREFIXING MORE WORDS is still that page's name, which errs toward asking.
+  await no("Remove the ‘Chords’ section on the menu board.", "/");
+  // WORDS THAT NAME NO PAGE ARE NOT A PAGE: a position still publishes.
+  await ok("Remove the ‘Chords’ section at the top.", "/");
+  await ok("Remove the ‘Chords’ section on the left.", "/prices");
+  // AN ANCHOR IN THE MENU NAMES A SECTION, not a page: "Hours" → /#hours is
+  // no name of the home page, so "on the hours" is not held to it.
+  await ok("Remove the ‘Chords’ section on the hours.", "/prices");
+  // A FORM'S OWN PREPOSITION NAMES A SECTION, bare as well as quoted.
+  const menuSection = "<section><h2>Menu</h2><p>Sourdough and rye.</p></section>";
+  const withMenu = navPage("/", CHORD_SHAPES, menuSection, HOURS);
+  assert.deepEqual(await preservePageProse({
+    before: withMenu, after: navPage("/", CHORD_SHAPES, menuSection.replace("Sourdough and rye.", "Rye only."), HOURS),
+    message: "Change the text in Menu to ‘Rye only.’", page: "/", pages: navSite("/", withMenu),
+  }), { ok: true });
+  // A NAME TWO PAGES SHARE grants nothing on either.
+  const food = { path: "food.tsx", source: navPage("/food").replace("{ label: \"Book\", href: \"/\" }", "{ label: \"Menu\", href: \"/food\" }") };
+  const sharedMenu = navPage("/menu", CHORD_SHAPES, HOURS);
+  assert.equal((await preservePageProse({ before: sharedMenu, after: navPage("/menu", HOURS), message: MENU_ASK, page: "/menu", pages: [...navSite("/menu", sharedMenu), food] })).ok, false);
+  // A NAME NEVER WIDENS A GRANT: unrelated text lost on the named page is refused.
+  await no(MENU_ASK, "/menu", { blocks: [HOURS_REWORDED] });
+  // QUOTED REPLACEMENT COPY THAT NAMES A PAGE STAYS COPY.
+  await ok("Change the text under ‘Chords’ to ‘See the menu for prices.’", "/", { blocks: [CHORD_SHAPES.replace("Eight shapes for your first month.", "See the menu for prices."), HOURS] });
+});
+
+for (const mode of ["sync", "job"]) {
+  const { refusedHere, publishedHere } = pageGuardChecks(mode);
+  // The stored site has /menu, /visit and /contact beside the home page.
+  test(`PAGE NAMES ${mode}: "on the menu" from the home page grants nothing, correct answer or not`, async () => {
+    const r = await drive({ mode, before: ON_HOME, ask: MENU_ASK, answer: bare(HOURS) });
+    refusedHere(r, ON_HOME, OTHER_PAGES.map((o) => o.source));
+  });
+  test(`PAGE NAMES ${mode}: the same sentence, edited on the menu page, publishes`, async () => {
+    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS) });
+    publishedHere(r, menuPage(HOURS), MENU_OTHERS, "✅ Updated /menu.");
+  });
+  test(`PAGE NAMES ${mode}: a matching page name never widens the grant: unrelated text lost is refused`, async () => {
+    const r = await drive({ mode, route: { page: "/menu" }, target: "menu.tsx", before: ON_MENU, ask: MENU_ASK, answer: menuPage(HOURS_REWORDED) });
+    refusedHere(r, ON_MENU, MENU_OTHERS);
+  });
+  test(`PAGE NAMES ${mode}: quoted replacement copy that names a page stays copy`, async () => {
+    const answer = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "See the menu for prices."), HOURS);
+    const r = await drive({ mode, before: ON_HOME, ask: "Change the text under ‘Chords’ to ‘See the menu for prices.’", answer });
+    publishedHere(r, answer, OTHER_PAGES.map((o) => o.source), UPDATED);
+  });
+}
+
+// ── AN APOSTROPHE IS NOT A QUOTE MARK (2026-09-25) ──────────────────────────
+//
+// "Change the text under ‘Chords’ to ‘We’re open late.’" was refused with the
+// correct answer in hand: the ’ in "We’re" closed the quote, and the stray mark
+// it left voided the whole message. Phones type that same ’ for every
+// apostrophe, so ordinary new wording was unquotable.
+test("APOSTROPHE: a mark between two letters is part of the word, never the end of a quote", async () => {
+  const run = (message, text) => preservePageProse({ before: ON_HOME, after: bare(CHORD_SHAPES.replace("Eight shapes for your first month.", text), HOURS), message, page: "/" });
+  for (const [message, text] of [
+    ["Change the text under ‘Chords’ to ‘We’re open late.’", "We’re open late."],
+    ["Change the text under 'Chords' to 'We're open late.'", "We're open late."],
+    ["Change the text under “Chords” to “We’re open late.”", "We’re open late."],
+    ["Change ‘Eight shapes for your first month.’ to ‘O’Brien’s first chords.’", "O’Brien’s first chords."],
+    // …and an apostrophe outside any quote is no stray mark.
+    ["Change the text under ‘Chords’ to ‘Start here.’ It’s for beginners.", "Start here."],
+  ]) assert.deepEqual(await run(message, text), { ok: true }, message);
+  assert.deepEqual(await run("Change the text under 'Chords' to 'Fred's first chords.'", "Fred's first chords."), { ok: true });
+  // A MARK THAT IS NOT BETWEEN TWO LETTERS IS STILL A QUOTE MARK: unpaired, it
+  // grants nothing, as before — and an apostrophe never closes a quote that
+  // was left open.
+  const removed = bare(HOURS);
+  for (const message of ["Remove the Chords’ section.", "Remove the ‘Chords section.", "Remove the 'Chords section."]) {
+    assert.equal((await preservePageProse({ before: ON_HOME, after: removed, message, page: "/" })).ok, false, message);
+  }
+  for (const message of ["Change the text under ‘Chords’ to ‘We’re open late.", "Change the text under 'Chords' to 'We're open late."]) {
+    assert.equal((await run(message, "We’re open late.")).ok, false, message);
+  }
+});
+
+for (const mode of ["sync", "job"]) {
+  const { publishedHere } = pageGuardChecks(mode);
+  test(`APOSTROPHE ${mode}: new wording with an apostrophe in it publishes`, async () => {
+    const answer = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "We’re open late."), HOURS);
+    const r = await drive({ mode, before: ON_HOME, ask: "Change the text under ‘Chords’ to ‘We’re open late.’", answer });
+    publishedHere(r, answer, OTHER_PAGES.map((o) => o.source), UPDATED);
+  });
+}

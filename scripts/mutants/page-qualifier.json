@@ -53,8 +53,8 @@
   {
     "label": "Q-6: the route does not tell the guard which page it edits",
     "files": ["worker.js"],
-    "from": "message: eInstruction, page: routeOf(target.path) });",
-    "to": "message: eInstruction });"
+    "from": "message: eInstruction, page: routeOf(target.path), pages: eSrc });",
+    "to": "message: eInstruction, pages: eSrc });"
   },
   {
     "label": "Q-7: \"this page\" is not accepted",
@@ -89,8 +89,8 @@
   {
     "label": "Q-12: a named page matches without comparing its address",
     "files": ["builder/page-prose.mjs"],
-    "from": "  return !!m && have.split(\"/\").pop() === m[1];",
-    "to": "  return !!m;"
+    "from": "  return !!seg && have.split(\"/\").pop() === seg;",
+    "to": "  return !!seg;"
   },
   {
     "label": "Q-13: a route written as an address is not compared",
@@ -107,8 +107,8 @@
   {
     "label": "Q-15: a quoted operand that is not recognisably a page drops out unread (the reported bypass, generalised)",
     "files": ["builder/page-prose.mjs"],
-    "from": "        named = null;\n",
-    "to": "        continue;\n"
+    "from": "        if (!names || !names.has(pageKey(named))) named = null;\n",
+    "to": "        if (!names || !names.has(pageKey(named))) continue;\n"
   },
   {
     "label": "Q-16: a quote in the page position is not read at all",
@@ -125,8 +125,8 @@
   {
     "label": "Q-18: any in/of quote counts as a form reference, whatever stands before it",
     "files": ["builder/page-prose.mjs"],
-    "from": "&& FORM_WORD.test(clause.slice(0, start))) continue;",
-    "to": ") continue;"
+    "from": "        if ((prep === \"in\" || prep === \"of\") && FORM_WORD.test(clause.slice(0, start))) continue;",
+    "to": "        if ((prep === \"in\" || prep === \"of\")) continue;"
   },
   {
     "label": "Q-19: a form word before ANY page preposition makes the quote a section",

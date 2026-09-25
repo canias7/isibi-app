@@ -3,6 +3,8 @@
 // Headings/ids locate a request's target; actual text identities establish
 // preservation. Unknown targeting fails closed only when text would be lost.
 import { tweakParser } from "./site-tweak.mjs";
+import { routeOf } from "./site-addon.mjs";
+import { navSlots } from "./site-nav.mjs";
 
 const space = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 const name = (s) => space(s).normalize("NFKC").toLowerCase().replace(/[“”‘’"']/g, "");
@@ -99,10 +101,73 @@ const QUAL_DET = /^(the|this|that|my|our)\s+/;
 const FORM_WORD = /(?:^|\s)(?:line|paragraph|sentence|text|words)\s+$/;
 const HOME_PAGE = /^(?:home[ -]?page|front page|main page|landing page|index page)$/;
 const routeKey = (r) => "/" + String(r).trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+
+// ── THE SITE'S OWN PAGE NAMES (2026-09-25, owner) ───────────────────────────
+// "Remove the ‘Chords’ section on the menu." published on the home page of a
+// site that has a /menu page: nothing here knew "the menu" was a page, so the
+// target ended at "on" and the page went with the rest. A page is named by the
+// words the site itself uses for it — the name the builder's page picker shows
+// (its last address segment: /lesson-prices is "Lesson prices", / is "Home")
+// and every label the site's own menu links to it with ("Gear Board" → /gear).
+// Read off the site's pages, never guessed, so no phrase list grows here.
+//
+// A NAME TWO PAGES SHARE NAMES NEITHER, and the clause grants nothing.
+// A MENU ITEM WITH AN ANCHOR names a section ("Hours" → /#hours), not a page.
+// A COMPONENT FILE (-parts/) is not a page.
+// Words that name no page on the site are not read as one: "at the top" and
+// "on the left" say where, not which page.
+// A mark between two letters is an apostrophe, part of the word it sits in.
+const APOSTROPHE = /(?<=[\p{L}\p{N}])['’](?=[\p{L}\p{N}])/gu;
+const pageWords = (s) => String(s ?? "").normalize("NFKC").toLowerCase()
+  .replace(APOSTROPHE, "").match(/[\p{L}\p{N}]+/gu) || [];
+/** A page name as words: case, apostrophes, hyphens and a leading "the" folded. */
+export function pageKey(s) {
+  const w = pageWords(s);
+  if (w[0] === "the") w.shift();
+  return w.join(" ");
+}
+/** Every name the site gives each of its pages: name → the routes it names. */
+export function sitePageNames(pages) {
+  const names = new Map();
+  const add = (label, route) => {
+    const k = pageKey(label);
+    if (!k) return;
+    if (!names.has(k)) names.set(k, new Set());
+    names.get(k).add(routeKey(route));
+  };
+  const list = Array.isArray(pages) ? pages : [];
+  for (const p of list) {
+    const r = p && typeof p.path === "string" ? routeOf(p.path) : "";
+    if (!r || /(^|\/)-/.test(r.slice(1))) continue;
+    add(r === "/" ? "home" : r.split("/").pop(), r);
+  }
+  for (const slot of navSlots(list)) for (const item of slot.items) {
+    const href = String(item.href || "");
+    if (!href.startsWith("/") || href.startsWith("//") || /[#?]/.test(href)) continue;
+    add(item.label, href);
+  }
+  return names;
+}
+/** The longest site page name the clause spells from `from`, with where it ends. */
+function nameAt(clause, from, names) {
+  const word = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
+  word.lastIndex = from;
+  const said = [];
+  let best = null, at = from, m;
+  while (said.length < 8 && (m = word.exec(clause))) {
+    // A name runs across spaces and joiners, never across punctuation.
+    if (!/^[\s\-_&+\/]*$/.test(clause.slice(at, m.index))) break;
+    said.push(m[0]);
+    at = m.index + m[0].length;
+    const routes = names.get(pageKey(said.join(" ")));
+    if (routes) best = { end: at, routes };
+  }
+  return best;
+}
 const pageName = (n) => n.startsWith("/") || /pages?$/.test(n);
 
 /** Whether a page named in a request is the page being edited. Cannot-tell is no. */
-function samePage(named, page, det = "") {
+function samePage(named, page, det = "", names = null) {
   const n = space(named).toLowerCase().replace(/[.,;:!?]+$/, "");
   // "this page", "the page": they can only mean the page being edited. "That
   // page" points back at a page named somewhere else, so it cannot be confirmed.
@@ -111,16 +176,23 @@ function samePage(named, page, det = "") {
   const have = routeKey(page);
   if (HOME_PAGE.test(n)) return have === "/";
   if (n.startsWith("/")) return have === routeKey(n);
+  const m = /^(.+) page$/.exec(n);
+  // A NAME THE SITE GIVES A PAGE is that page, and only that page: "the Lesson
+  // Prices page" is /prices where the site's menu says so. A name two pages
+  // share names neither.
+  const routes = names && names.get(pageKey(m ? m[1] : n));
+  if (routes) return routes.size === 1 && routes.has(have);
   // "the menu page" is the page whose address ends in /menu.
-  const m = /^([a-z0-9][a-z0-9-]*) page$/.exec(n);
-  return !!m && have.split("/").pop() === m[1];
+  const seg = m && /^[a-z0-9][a-z0-9-]*$/.test(m[1]) ? m[1] : "";
+  return !!seg && have.split("/").pop() === seg;
 }
 
 /**
  * Every page a clause names in the qualifier position, with where it stands and
- * whether it is the page being edited. `token` is the quote shield's own word.
+ * whether it is the page being edited. `token` is the quote shield's own word;
+ * `names` is the site's own page names, or null when the site was not read.
  */
-function pageQualifiers(clause, token, quotes, page) {
+function pageQualifiers(clause, token, quotes, page, names = null) {
   const re = new RegExp(String.raw`(^|\s)(${QUAL_PREP})\s+(?:(the|this|that|my|our)\s+)?`
     + String.raw`(${token}(\d+)(?:\s+(pages?))?|https?:\/\/\S*|\/\S*|(?:(?!${QUAL_STOP})\S+\s+)*?\S*?pages?)(?=$|[\s,.;:!?])`, "g");
   const found = [];
@@ -139,26 +211,51 @@ function pageQualifiers(clause, token, quotes, page) {
       else if (!pageName(named)) {
         // A form's own preposition names a section: "the text in ‘Hours’".
         if ((prep === "in" || prep === "of") && FORM_WORD.test(clause.slice(0, start))) continue;
-        named = null;
+        // ‘Gear Board’ is a page where the site calls one that; any other
+        // quote in this position cannot be told from one and grants nothing.
+        if (!names || !names.has(pageKey(named))) named = null;
       }
     }
-    found.push({ start, end: m.index + whole.length, same: named !== null && samePage(named, page, words) });
+    found.push({ start, end: m.index + whole.length, same: named !== null && samePage(named, page, words, names) });
   }
-  return found;
+  // A PAGE THE SITE NAMES, with no "page" after it: "on the menu", "from Gear
+  // Board". The longest name the site has wins, and a form's own preposition
+  // still names a section ("the text in Hours").
+  if (names && names.size) {
+    const have = typeof page === "string" && page.trim() ? routeKey(page) : null;
+    const at = new RegExp(String.raw`(^|\s)(${QUAL_PREP})\s+`, "g");
+    for (const m of clause.matchAll(at)) {
+      const start = m.index + m[1].length;
+      if (found.some((q) => start >= q.start && start < q.end)) continue;
+      if ((m[2] === "in" || m[2] === "of") && FORM_WORD.test(clause.slice(0, start))) continue;
+      const hit = nameAt(clause, m.index + m[0].length, names);
+      if (hit) found.push({ start, end: hit.end, same: !!have && hit.routes.size === 1 && hit.routes.has(have) });
+    }
+  }
+  return found.sort((a, b) => a.start - b.start);
 }
 
 // This is a deliberately small, explicit request grammar, not a language model
 // assurance. Quoted new wording/destinations cannot grant permission to a second
 // section. Negations, vague targets and duplicate names do not grant a scope.
-function permissions(message, before, pairs, page) {
+function permissions(message, before, pairs, page, names = null) {
   const allowed = new Set(), protectedBlocks = new Set();
   // Quoted copy is data, even when it contains punctuation or commands.
+  //
+  // AN APOSTROPHE IS NOT A QUOTE MARK (2026-09-25). Between two letters the
+  // mark is part of a word — "We’re", "Fred's", "it’s" — and a phone types the
+  // same ’ that closes a ‘quote’. Read as a quote it cut ‘We’re open late’ at
+  // "We", left a stray mark, and the whole message granted nothing with the
+  // correct answer in hand. So a single quote closes only on a mark no letter
+  // follows — an unclosed ‘We’re open late still grants nothing, as any
+  // unclosed quote does — and a stray mark is looked for with the apostrophes
+  // out of the way.
   const quotes = [];
   let token = "quotedtoken";
   while (String(message).toLowerCase().includes(token)) token += "x";
-  const shielded = String(message).replace(/"([^"\n]*)"|“([^”\n]*)”|‘([^’\n]*)’|'([^'\n]*)'/g,
+  const shielded = String(message).replace(/"([^"\n]*)"|“([^”\n]*)”|‘((?:[^’\n]|’(?=[\p{L}\p{N}]))*)’(?![\p{L}\p{N}])|'((?:[^'\n]|'(?=[\p{L}\p{N}]))*)'(?![\p{L}\p{N}])/gu,
     (_, ...groups) => `${token}${quotes.push(groups.slice(0, 4).find(x => x !== undefined)) - 1}`);
-  if (/["“”‘’]|(?:^|\s)'|'(?:\s|$)/.test(shielded)) return allowed;
+  if (/["“”‘’]|(?:^|\s)'|'(?:\s|$)/.test(shielded.replace(APOSTROPHE, ""))) return allowed;
   const expand = s => s.replace(new RegExp(token + "(\\d+)", "g"), (_, i) => quotes[Number(i)]);
   const clauses = shielded.split(/[;!?]|\.(?:\s|$)|(?:,?\s+(?:and|but)\s+)(?=(?:please\s+)?(?:change|rewrite|reword|update|show|rename|replace|remove|delete|take|keep|leave|preserve|make|move|put|do\b|don't\b))/i);
   const resolve = object => {
@@ -179,7 +276,7 @@ function permissions(message, before, pairs, page) {
   // qualifier in the clause has been confirmed as the page being edited.
   const unqualified = (s) => {
     let out = "", at = 0;
-    for (const q of pageQualifiers(s, token, quotes, page)) { out += s.slice(at, q.start) + " "; at = q.end; }
+    for (const q of pageQualifiers(s, token, quotes, page, names)) { out += s.slice(at, q.start) + " "; at = q.end; }
     return space(out + s.slice(at));
   };
   for (let clause of clauses) {
@@ -187,7 +284,7 @@ function permissions(message, before, pairs, page) {
     // EVERY PAGE THE CLAUSE NAMES MUST BE THIS PAGE, or the clause grants
     // nothing. A leading "On the home page," then stops standing in front of
     // the verb, and the qualifiers are taken out of the operand below.
-    const quals = pageQualifiers(clause, token, quotes, page);
+    const quals = pageQualifiers(clause, token, quotes, page, names);
     if (quals.some((q) => !q.same)) continue;
     if (quals.length && quals[0].start === 0) clause = clause.slice(quals[0].end).replace(/^\s*[,:]?\s*/, "");
     const action = /^(change|rewrite|reword|update|show|rename|replace|remove|delete|take|make)\s+(.+)$/.exec(clause);
@@ -281,8 +378,12 @@ function pairBlocks(before, after) {
   return pairs;
 }
 
-/** No missing parser/read is ever treated as an empty inventory. */
-export async function preservePageProse({ before, after, message, parse, page }) {
+/**
+ * No missing parser/read is ever treated as an empty inventory. `page` is the
+ * route this edit changes; `pages` is the site's pages, whose names a request
+ * may use for a page ("on the menu").
+ */
+export async function preservePageProse({ before, after, message, parse, page, pages }) {
   if (before === after) return { ok: true };
   try {
     const reader = parse === undefined ? await tweakParser() : parse;
@@ -298,7 +399,7 @@ export async function preservePageProse({ before, after, message, parse, page })
       }
     }
     if (!lost.length) return { ok: true };
-    const allowed = permissions(message, b, pairs, page);
+    const allowed = permissions(message, b, pairs, page, Array.isArray(pages) ? sitePageNames(pages) : null);
     const blocked = lost.filter(x => !allowed.has(x));
     return blocked.length ? { ok: false, why: "unconfirmed-target", blocked: blocked.map(x => x.text).slice(0, 6) } : { ok: true };
   } catch {
