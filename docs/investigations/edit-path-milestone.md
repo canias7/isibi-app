@@ -1,7 +1,7 @@
 # Edit-path review milestone
 
 Base: main 38fe281d. Branch: codex/edit-path-milestone. Product correction:
-37b03f01. No merge, deployment, paid request, customer-data change or demo repair.
+37b03f01 plus the final missing-connection guard. No merge, deployment, paid request, customer-data change or demo repair.
 The escalation and fallback-display corrections remain closed. Translation,
 video hosting and model-written customer replies remain parked.
 
@@ -48,7 +48,7 @@ mapped, not changed.
 | Queued edit/addon refusal redraw escaped an unhandled rejection after the outcome was recorded. | Guard the terminal finish at the watcher boundary. Both refusal cases keep one sentence, release and accept the next message. This is an escaped display error, not failed publication. |
 | Synchronous credit-scheduling error prevented preview invalidation after known success. | Apply published browser state first. Both edit/addon tests assert preview version increments and next message works. Existing double-display and ordinary-success redraw controls remain. |
 | Terminal job credit scheduling could throw before finish and strand the browser request. | Contain scheduling failure and still report terminal outcome. Removing the guard makes the focused regression fail with the credit-refresh exception; restored guard passes with redraw failure too. |
-| Missing source plus unreadable config still authorized full rewrite on EDIT (the closed ADDON fix did not cover it). Recovery outcome could be discarded. | Edit opts into checked recovery/strict source loading. Before no-source reconstruction, read remaining backend/config/parts/schema. Real-route cases cover config read/malformed data, backend read after ownership, malformed source, parts read and failed recovery (throw and returned false). No model/debit/compile/rewrite on stops. Normal absent-source reconstruction remains a control. |
+| Missing source plus unreadable config still authorized full rewrite on EDIT (the closed ADDON fix did not cover it). Recovery outcome could be discarded. | Edit opts into checked recovery/strict source loading. Before no-source reconstruction, read remaining backend/config/parts/schema. Real-route cases cover config read/malformed data, backend read after ownership, recorded database without a usable connection, malformed source, parts read and failed recovery (throw and returned false). No model/debit/compile/rewrite on stops. Normal absent-source reconstruction remains a control. |
 
 Recovery failures do not promise nothing changed: recovery may have written
 state. Routing may already have cost credits. The added refusal explicitly
@@ -56,7 +56,7 @@ stops reconstruction without claiming the whole customer request was free.
 
 ## Evidence and validation
 
-- 448 focused tests passed: edit-lock, edit-result-display, edit-poll,
+- 449 focused tests passed: edit-lock, edit-result-display, edit-poll,
   addon-failure, edit-failure, edit-page-context, edit-page-once,
   edit-page-protect, edit-page-keep, edit-page-rpc-state, edit-path,
   addon-queue and site-busy.
@@ -73,9 +73,11 @@ stops reconstruction without claiming the whole customer request was free.
   URL.pathname as a filesystem path (C:/C:/ on Windows). Those local harness
   failures are not product evidence. Required Linux CI covers those unchanged
   cases; only harness reads needed for this milestone were normalized.
-- Required CI: unit tests on final candidate; site build on 37b03f01 (same
-  product/image inputs as the final test/document-only follow-up). Results and
-  run links are recorded in the delivery report. No repeated deployment checks.
+- Required CI runs on the final candidate. The earlier site-build run was
+  superseded after a regression exposed a recorded database with no resolvable
+  connection bypassing schema validation. That one-condition guard and its test
+  are included. Results and run links are recorded in the delivery report.
+  No repeated deployment checks.
 
 ## Known defect requiring a separate preservation decision
 

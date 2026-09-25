@@ -20601,7 +20601,7 @@ async function handleRequest(request, env, ctx) {
               // inputs can be read. Otherwise the rewrite meets the same fault.
               try {
                 const back = await siteBackendDetail(env, ownerSlug);
-                if (back.state === "unreadable") throw new Error("backend unreadable");
+                if (back.state === "unreadable" || (back.state !== "none" && !back.conn)) throw new Error("backend unreadable");
                 const cfg = await readSiteConfig(env, ownerSlug, back.conn, { strict: true });
                 const parts = await readSiteParts(env, ownerSlug, { strict: true });
                 if (!cfg.ok || !parts.ok) throw new Error("stored state unreadable");

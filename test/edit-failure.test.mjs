@@ -1151,3 +1151,14 @@ test('editable recovery returning ok false is as decisive as a thrown read', asy
   assert.equal(r.compiles, 0);
   assert.deepEqual(r.seen.debits, []);
 });
+
+test('a recorded database without a readable connection cannot authorize source reconstruction', async () => {
+  const slug = 'review-reconstruction-no-connection';
+  const store = bucket(slug);
+  const r = await edit(slug, store, {answers:{}, backends:[{uid:USER.id,neon_db:'existing_db'}], project:[]}, {layer:'text',instruction:'Say we open at 8.'});
+  assert.notEqual(r.body.escalate, true, JSON.stringify(r.body));
+  assert.deepEqual(paid(r.said), []);
+  assert.equal(r.compiles, 0);
+  assert.deepEqual(r.seen.calls, []);
+  assert.deepEqual(r.seen.debits, []);
+});
