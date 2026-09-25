@@ -242,8 +242,53 @@ evaluated before the second is pressed.
 - **A wording problem seen live on that run.** The customer was told "…it
   wasn't published and nothing was charged", but reading the message cost 2.
   This is another case of the recorded billing-wording item (a failure
-  sentence that claims nothing was charged). It is left unchanged, since no
-  product changes are allowed now.
+  sentence that claims nothing was charged). **You kept the live test open
+  (run 31 was blocked by credits, not a failed fix) and asked for this one to
+  be fixed. It is fixed on the branch; see the next entry.**
+
+## 2026-09-25 — A credit refusal now states the edit's cost and the routing cost separately (on the branch, not deployed)
+
+**What the customer now reads on run 31's shape:** "⚠️ That didn't go through —
+there aren't enough credits for it, so it wasn't published. Top up and send it
+again. This edit cost you nothing. Reading your message cost 2 credits."
+
+- **The server no longer makes a claim about money.** The two sentences (not
+  enough credits, and the billing service not answering) now say only that it
+  wasn't published, plus what to do next.
+- **The browser states the amounts from what was recorded.** The edit's cost
+  comes from the reply's own number, and is said only if the reply carries one.
+  The routing cost comes from the routing reply, when the page still has it.
+- **After a refresh the page no longer has the routing reply.** It then says
+  only "This edit cost you nothing". It gives no routing amount and no total,
+  and never says the whole request was free.
+- **It never says "nothing on your site changed"** on a credit refusal,
+  because a step can write rows before the refusal.
+- **Refusals still buy nothing and retry nothing.**
+- **Also affected:** the add-on route uses the same sentence, so its screen now
+  just says "…it wasn't published. Top up and send it again." It adds no money
+  line; its reader was not changed.
+- **A short window to know about.** Until a deploy's container rollout
+  completes, a job run on the old image uses the old sentence. The new page
+  then adds the money line after it, so for those few minutes a credit refusal
+  could read "…nothing was charged. … Reading your message cost 2 credits."
+- **Evidence.**
+  - Six cases run the real browser composer over the route's own stored
+    replies, covering run 31 itself, the billing service being down, the
+    synchronous path, and a refresh. Two of the six are new.
+  - All six fail on the old code. They also fail with only the server half
+    fixed, and with only the browser half fixed.
+  - 8 of 8 targeted probes were killed, and the comment-only control survived.
+  - The whole suite is 7,829 tests. Unit CI run 36162058190 is green:
+    7829 / 7825 / 0 / 4.
+  - Site build run 36162058201 was still running when this was written; its
+    result goes in the next note.
+- **Not merged, not deployed, no paid retry.**
+- **The top-up couldn't be done from here.** Credits are added only through
+  `add_credits`, which is gated by a mint secret held by the Worker and GitHub,
+  and this session doesn't have it. The Supabase connector in this session
+  reaches a different project (`ljehrtakepdwcjuzzjfi`), not the platform's
+  (`ujrqdmmtcptvimazlhom`). No workflow adds credits. So the top-up is yours:
+  the app's own top-up purchase, or a grant path you choose. **The balance is 1.**
 
 ---
 

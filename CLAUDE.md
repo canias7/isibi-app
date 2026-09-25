@@ -4051,6 +4051,9 @@ separate next tasks"*):
    `NO_CONTAINER_MSG`); and refusals that collect a charge (nav `no-menu`, the
    rename refusals, data/rules `no-match`, picture `no-change`) report a `cost`
    the job path then refunds, so the stored reply disagrees with the ledger.
+   **`compileMsg`'s `unbilled` half is FIXED on the branch (2026-09-25, from
+   run 31)**: see *a ledger refusal states the edit's charge and the routing
+   charge apart*. The other sentences in this list are unchanged.
 5. **Found on the way, out of scope**: the rename's SECOND alias write failing
    leaves the old name demoted and the new one unwritten (explained with
    `unchanged: false`; the half-moved state is not repaired); `siteRoute`'s own
@@ -7591,6 +7594,84 @@ and `edit-text-preservation.md`, deliberately not copied here.
   that prose and publishes an authorised one, never that a real model follows
   the request. The two live tests the milestone plans are prepared and not
   dispatched (13–26 credits together; balance 3 at canary 36096052737).
+
+### A LEDGER REFUSAL STATES THE EDIT'S CHARGE AND THE ROUTING CHARGE APART (2026-09-25, on the branch)
+
+Owner, after canary run 31 (`36159773928`) stopped at the credit reservation:
+*"compileMsg's unbilled response says "nothing was charged," although routing
+already charged 2 credits. Distinguish the edit's charge from routing. Use
+actual recorded amounts where available; if routing cost is unavailable after
+reload, don't invent a total or claim the whole request was free. Keep "not
+published" separate from "nothing changed.""* **Not merged, not deployed, no
+paid run.**
+
+- **REPRODUCED FIRST THROUGH THE REAL COMPOSER.** `editBrowserReply` was run
+  over run 31's stored reply and its own routing reply, both read from the
+  artifact. The screen said *"⚠️ …so it wasn't published and nothing was
+  charged. Top up and send it again."* The routing call's 2 credits (balance
+  3 → 1) were never mentioned. The billing-service-down sentence and a resumed
+  watch read the same way, with `actions: []` in all three.
+- **THE SERVER SAYS WHAT HAPPENED; THE READER STATES THE MONEY.**
+  - `compileMsg`'s two `unbilled` sentences now end at *"so it wasn't
+    published"* plus their advice. They make no claim about money.
+  - `wholeRequestNote` gains an `unbilled` branch. It states the edit's own cost
+    from the reply's `cost`, **but only when that is a real non-negative
+    number**: *"This edit cost you nothing."* or *"This edit cost N credits."*
+    Anything else says nothing about the edit rather than calling it free.
+  - It then states the routing reply's `cost` when the page holds it: *"Reading
+    your message cost 2 credits."* This is the same clause the
+    `unchanged`/`withheld` branch uses, now computed once.
+  - A watch resumed after a refresh holds no routing reply. So it gives no
+    routing amount and no total, and *"this edit"* stays the subject.
+- **NEVER "NOTHING ON YOUR SITE CHANGED" ON THIS BRANCH.** A rung can write
+  rows before the reserve that refused (the comment `compileMsg` already
+  carried), so only "not published" is claimed. The `unchanged`/`withheld`
+  branch's output is byte-identical; a dozen guards pin it.
+- **WHAT THE CUSTOMER SEES:**
+  - Short balance: *"⚠️ That didn't go through — there aren't enough credits
+    for it, so it wasn't published. Top up and send it again. This edit cost
+    you nothing. Reading your message cost 2 credits."*
+  - Billing service down: *"…our billing service didn't answer, so it wasn't
+    published. Try again in a moment."* followed by the same two amounts.
+  - Resumed after a refresh: the first sentence and *"This edit cost you
+    nothing."* only.
+- **THE ADD-ON SHARES THE SENTENCE AND NOT THE READER.** Its `unbilled`
+  publish failure answers `error: "compile"` with `compileMsg`'s text. So its
+  screen now reads *"…so it wasn't published. Top up and send it again."* with
+  no money line. `addonAnswer` is unchanged.
+- **⚠ A ROLLOUT WINDOW, STATED.** A container still on the previous image
+  composes the OLD sentence, and the new browser then adds the money line. So,
+  until the rollout's container change completes, a screen can read *"…nothing
+  was charged. … Reading your message cost 2 credits."* This happens only when
+  an `unbilled` refusal lands inside that window.
+- **UNCHANGED:** the rest of next-task 4, including `compileMsg`'s other
+  branches and the other unscoped "nothing was charged" sentences.
+- **EVIDENCE.**
+  - **Tests.** `test/edit-reserve-refused.test.mjs` goes from 15 to 17 cases.
+    - Four existing route cases gained the screen check (`assertScreens`). They
+      are the job path and the synchronous path, each with a short balance and
+      with the billing service down. The check composes the stored reply on the
+      page that sent it and after a refresh. It requires `actions` to be `[]`,
+      and the screen must never say "nothing was charged" or "Nothing on your
+      site changed".
+    - The two new cases are run 31's recorded reply with its own routing reply,
+      and a recorded-amounts boundary: routing cost 1, an edit cost that is
+      missing, and an edit cost of 3.
+    - The guard that pinned *"wasn't published and nothing was charged"* is
+      re-anchored to the property.
+  - **Red: 6 of 17 fail on the unfixed code**, and the same 6 fail with only
+    the server or only the browser fixed.
+  - **Probes** (`scripts/mutants/unbilled-wording.json`): **8 killed, 0
+    survived, 0 never applied, the comment-only control surviving.** They ran
+    over the 17 files that read these sentences (baseline 703/703), and both
+    swept files were byte-identical afterwards.
+  - **Local suite:** 7,829 tests (`7829 / 7827 / 0 / 2`), +2 against main's
+    7,827.
+  - **CI unit run `36162058190` on `eb7a4372`:** `7829 / 7825 / 0 / 4`,
+    `duration_ms` 126,774. All six changed cases pass by name, there are 7,829
+    distinct result numbers, and there are zero `not ok` lines.
+  - **`site build` run `36162058201`:** still running when this was recorded;
+    its result is stamped in the next commit.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
