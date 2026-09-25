@@ -224,6 +224,26 @@ evaluated before the second is pressed.
 - **What these tests do not show.** Each run is one message from the harness,
   so the browser's lock across two messages is not exercised. The writer's
   prompt is not captured.
+- **Run 31 was test 2's first press, and it did not count as the test**
+  ([36159773928](https://github.com/canias7/isibi-app/actions/runs/36159773928),
+  16:17–16:20 UTC).
+  - **What worked.** The preflight matched `6ed355e4…` and `f05cb5a5a0def44c`,
+    and every free check passed. The request's hash matched. The before-read
+    was byte-identical to run 30's.
+  - **Routing.** The router was sent the site's real pages and answered
+    `edit`, `page /` in 13 s, for 2 credits.
+  - **Why it failed.** The balance was 3, so after routing took 2, the edit's
+    reservation was refused. It returned a stored 422:
+    `{"ok":false,"error":"unbilled","cost":0,"detail":"insufficient"}`.
+  - **Nothing changed.** No page or component body changed, the live page still
+    serves `c1td33`, and the balance is now **1**.
+  - **Whether the writer ran first is unknown.** The job stayed "claimed" for
+    about 100 s, but the reply carries no usage.
+- **A wording problem seen live on that run.** The customer was told "…it
+  wasn't published and nothing was charged", but reading the message cost 2.
+  This is another case of the recorded billing-wording item (a failure
+  sentence that claims nothing was charged). It is left unchanged, since no
+  product changes are allowed now.
 
 ---
 
