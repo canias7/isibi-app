@@ -7670,8 +7670,18 @@ paid run.**
   - **CI unit run `36162058190` on `eb7a4372`:** `7829 / 7825 / 0 / 4`,
     `duration_ms` 126,774. All six changed cases pass by name, there are 7,829
     distinct result numbers, and there are zero `not ok` lines.
-  - **`site build` run `36162058201`:** still running when this was recorded;
-    its result is stamped in the next commit.
+  - **`site build` run `36162058201` on `eb7a4372`** (16:38:41 → 17:04:24Z,
+    **25m43s**, all twenty steps green) read all twelve counts green out of
+    the step log:
+    - TAP 397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases 16,
+      theme-seam 11, theme-render 29, site-routing 14, site-runtime 47;
+    - kit-render, kit-a11y, kit-effects and kit-paint `all passed`;
+    - census 7 + 4 + 1 = **12**.
+
+    The only `##[error]` lines are the two known annotations
+    (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`) from the case that
+    compiles a broken page on purpose. `site-build.mjs` took **18m53s**.
+    **The stamp chain ends at `eb7a4372`.**
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

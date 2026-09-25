@@ -280,8 +280,9 @@ again. This edit cost you nothing. Reading your message cost 2 credits."
   - 8 of 8 targeted probes were killed, and the comment-only control survived.
   - The whole suite is 7,829 tests. Unit CI run 36162058190 is green:
     7829 / 7825 / 0 / 4.
-  - Site build run 36162058201 was still running when this was written; its
-    result goes in the next note.
+  - Site build run 36162058201 on the same commit is green: all twelve of its
+    counts match what is on record (site build 382 passed, the kit checks all
+    passed).
 - **Not merged, not deployed, no paid retry.**
 - **The top-up couldn't be done from here.** Credits are added only through
   `add_credits`, which is gated by a mint secret held by the Worker and GitHub,
