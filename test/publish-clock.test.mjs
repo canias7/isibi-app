@@ -51,7 +51,9 @@ test("the addon asks the gate BEFORE it reserves credits, so a refusal for time 
 });
 
 test("a stopped job refused for time says so, and says nothing was charged", () => {
-  const fn = between(worker, "async function editStopped(env, { job, why, phase, trace, ctx, msg }) {", "async function runLostEditJobs(", "editStopped");
+  // ANCHORED ON THE NAME, not the whole parameter list, which gains a field
+  // whenever a caller has something new to hand it (`kept`, 2026-09-25).
+  const fn = between(worker, "async function editStopped(env, {", "async function runLostEditJobs(", "editStopped");
   const time = fn.indexOf('why === "time"');
   assert.ok(time > 0, "no sentence for a job refused for time");
   const sentence = fn.slice(time, fn.indexOf("\n", fn.indexOf("?", time) + 1));

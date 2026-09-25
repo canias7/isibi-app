@@ -12753,10 +12753,15 @@ const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
  * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
  * lost across four separate failure branches.
  */
-async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
+async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false }) {
   const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
   try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
   const review = !!(r && r.error === "needs-review");
+  // A CHANGE THE ROUTE COULD NOT PUT BACK IS SAID (2026-09-25). The caller
+  // restores the design the edit wrote before it stopped (`restoreEditConfig`);
+  // when that restore failed the change is still saved, unpublished, and the
+  // next edit would ship it — which the customer is owed before that happens.
+  const keptNote = kept && !review ? " The change itself is still saved, though, so it could go out with your next edit." : "";
   return Response.json({
     ok: false,
     error: why,
@@ -12764,7 +12769,7 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
     cost: 0,
     refunded: Number((r && r.refunded) || 0),
     review: review || undefined,
-    msg: msg || (why === "cancelled"
+    msg: (msg || (why === "cancelled"
       ? "I stopped that edit before anything was published — your site is untouched and you haven't been charged."
       // THE PROCESS WAS STOPPED (stage 5d): the container's build service
       // ended the job — past its deadline, or shut down under it — and the
@@ -12779,7 +12784,7 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg }) {
         ? "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
           "edits on this site until that's settled."
         : "That edit ran out of time before it could publish safely, so I've left your site exactly as it was " +
-          "and refunded what it cost."),
+          "and refunded what it cost.")) + keptNote,
   }, { status: review ? 409 : 503 });
 }
 
@@ -20674,6 +20679,37 @@ async function handleRequest(request, env, ctx) {
               const snap = await readSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug));
               if (snap.ok) preEditConfig = { look: snap.config.look, css: snap.config.css };
             } catch { preEditConfig = null; }
+            // ── AND IT GOES BACK ON EVERY WAY OUT THAT PUBLISHES NOTHING ────
+            // (2026-09-25). A rung writes its look or stylesheet into the
+            // stored config BEFORE the one publish, so an edit that stops
+            // after that write and before a publish leaves the change saved
+            // and unpublished — and the next, unrelated edit compiles from the
+            // stored config and ships it. Only the compile failure put the
+            // snapshot back; an edit cancelled or stopped at the publish gate,
+            // refused by the correction round for time or for a correction
+            // that still missed, or whose correction round threw, did not.
+            // MEASURED through the route and the real queue consumer: a job
+            // cancelled after its css lane wrote "#014421" answered "your site
+            // is untouched", and the NEXT message — a name change — compiled
+            // with "#014421" in it.
+            //
+            // `eConfigWritten` IS SET AT EACH RUNG'S OWN SUCCESSFUL WRITE, so a
+            // message that wrote nothing has nothing to put back and answers
+            // true without a write — and a snapshot that could not be read is
+            // only a problem when something was written over it.
+            let eConfigWritten = false;
+            const restoreEditConfig = async () => {
+              if (!eConfigWritten) return true;
+              try {
+                if (!preEditConfig) throw new Error("no snapshot to restore from");
+                const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
+                if (!back.ok) throw new Error(back.error);
+                return true;
+              } catch (e) {
+                console.error("edit rollback failed:", ownerSlug, e && e.message);
+                return false;
+              }
+            };
 
             // ── THE SITE'S OWN COMPONENTS, READ ONCE AND CARRIED FORWARD ──
             //
@@ -22446,6 +22482,7 @@ async function handleRequest(request, env, ctx) {
                   // LANDED while the next publish serves the site without it.
                   // The lane's own catch turns this into its refusal.
                   if (!w.ok) throw new Error(w.error);
+                  eConfigWritten = true;
                   // THE FORM THAT LANDED, so a removal's sentence names what the
                   // mark fell back to rather than assuming the floor.
                   return next;
@@ -23057,6 +23094,7 @@ async function handleRequest(request, env, ctx) {
                 const w = await patchSiteConfig(env, ownerSlug, edb,
                   cssMoved ? { look: merged, css: nextCss } : { look: merged });
                 if (!w.ok) throw new Error(w.error);
+                eConfigWritten = true;
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
                 // was. Reported rather than escalated: a write that failed once
@@ -24357,7 +24395,8 @@ async function handleRequest(request, env, ctx) {
               // flag off this whole mechanism is a few `if`s that do not fire.
               const eGate = eJob ? eJob.gate("build") : null;
               if (eGate && !eGate.go) {
-                return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx });
+                const kept = !(await restoreEditConfig());
+                return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx, kept });
               }
               editTrace.mark("publish:1", "start", { verifyCss: !!cssCtx });
               finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace, job: eJob });
@@ -24413,7 +24452,8 @@ async function handleRequest(request, env, ctx) {
               const eCanFix = !eJob || eJob.budget.canCorrect();
               if (!finalPub.ok && finalPub.error === "dead-css" && cssCtx && eJob && !eCanFix) {
                 editTrace.mark("correct:skipped", "fail", { leftMs: eJob.budget.remaining() });
-                return await editStopped(env, { job: eJob, why: "budget", phase: "correct", trace: editTrace, ctx,
+                const kept = !(await restoreEditConfig());
+                return await editStopped(env, { job: eJob, why: "budget", phase: "correct", trace: editTrace, ctx, kept,
                   msg: "I found that my change wouldn't have shown up on your page, and there wasn't enough time " +
                     "left to put it right safely — your site is untouched and you haven't been charged." });
               }
@@ -24448,7 +24488,7 @@ async function handleRequest(request, env, ctx) {
                   { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
                   const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
-                  if (put.ok) cssFixed = { dead: finalPub.dead };
+                  if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; }
                 }
                 // ── REBUILD AND SEE, AND THE TWO PATHS DIFFER HERE ───────────
                 //
@@ -24473,12 +24513,17 @@ async function handleRequest(request, env, ctx) {
                 editTrace.mark("publish:2", finalPub && finalPub.ok ? "ok" : "fail",
                   { err: String((finalPub && finalPub.error) || "") });
                 if (eJob && !finalPub.ok && finalPub.error === "dead-css") {
-                  return await editStopped(env, { job: eJob, why: "unverified", phase: "verify", trace: editTrace, ctx,
+                  const kept = !(await restoreEditConfig());
+                  return await editStopped(env, { job: eJob, why: "unverified", phase: "verify", trace: editTrace, ctx, kept,
                     msg: "My correction still wouldn't have shown up on your page, so I've left your site exactly " +
                       "as it was and refunded what this cost." });
                 }
                 } catch (e) {
                   console.error("css verify round failed:", ownerSlug, (e && (e.stack || e.message)) || e);
+                  // NOTHING HAS PUBLISHED unless the second publish answered ok
+                  // before the throw — and then the stored design is the live
+                  // one, which must not be wound back under it.
+                  const kept = finalPub && finalPub.ok ? false : !(await restoreEditConfig());
                   // THE CLASS, NEVER THE MESSAGE, matching the owner-route catch
                   // below and for its reason: a name is a class and cannot be a
                   // secret, a message can quote the request. `phase` is one of OUR
@@ -24486,7 +24531,8 @@ async function handleRequest(request, env, ctx) {
                   return Response.json({
                     ok: false, error: "verify", cost: 0,
                     msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
-                      "it right — your site is untouched and nothing was charged.",
+                      "it right — your site is untouched and nothing was charged." +
+                      (kept ? " The change itself is still saved, though, so it could go out with your next edit." : ""),
                     kind: String((e && e.name) || "Error").slice(0, 40),
                     phase: cssFixed ? "republish" : "correct",
                     dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.slice(0, 4) : undefined,
@@ -24514,15 +24560,7 @@ async function handleRequest(request, env, ctx) {
                 // one. The look lane has carried that exact note for weeks; with
                 // several rungs it is several changes, so the config is put back
                 // to the snapshot taken before any of them ran.
-                let restored = true;
-                try {
-                  if (!preEditConfig) throw new Error("no snapshot to restore from");
-                  const back = await patchSiteConfig(env, ownerSlug, await siteBackendBySlug(env, ownerSlug), preEditConfig);
-                  if (!back.ok) throw new Error(back.error);
-                } catch (e) {
-                  restored = false;
-                  console.error("edit rollback failed:", ownerSlug, e && e.message);
-                }
+                const restored = await restoreEditConfig();
                 return Response.json({
                   ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: 0,
                   msg: compileMsg(finalPub, restored
