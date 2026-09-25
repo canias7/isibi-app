@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, and your browser look is the one check left; see the next entry.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back (on the branch, not merged). What is left on the edit path, and the next test I'd run, are in the first entry below. Nothing is dispatched.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,133 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-25 — Test 2 on fretwork-1 (the section move) published correctly; your browser look is left
+## 2026-09-25 — What's left on the edit path, and the next test I'd run (nothing dispatched)
+
+**Shown live on this deployment so far:**
+- Run 30: the right Worker and container answer, and an empty edit is queued
+  and answered at no cost.
+- Run 31: a credit refusal stops before anything publishes. The wording that
+  states the edit's cost and the routing cost separately is deployed, and run
+  32 confirmed the server running it. No live refusal has shown that wording
+  yet.
+- Run 32: a real model moved a section through the quick writer. Routing, the
+  queue, publishing, billing that adds up, a truthful reply, and a browser
+  check of the live page all worked.
+
+**Not shown live yet:**
+- **The full page writer on this deployment, with its two protections**: the
+  text guard, and the judge in the link-and-component check. Every test of
+  those so far uses supplied answers.
+- A second message from the same browser after an edit.
+- Photos (fretwork-1 has none).
+- A live add-on, and the picture, data and rules steps.
+
+**Known problems and limits, still open:**
+- #418, the phone-width hydration error on `/` (runs 11, 21, 24, 26 and 32).
+- The text guard only sees plain text written into the page itself. It can't
+  see words that come from data, component settings or other component files.
+- **New, measured today for free:** the text guard refuses two natural ways of
+  asking, even when the writer's answer is exactly right:
+  - "Remove the ‘…’ section from the home page."
+  - "On the home page, change the text under ‘…’ to …"
+
+  It accepts "Remove the ‘…’ section." and "Take the ‘…’ section off the home
+  page." This only affects edits that reach the full writer. A refusal
+  publishes nothing and costs nothing for the edit, but reading the message is
+  still charged.
+- Billing wording. Some other failure messages still claim "nothing was
+  charged", and a refused step inside a message with several steps stays
+  charged.
+- A full rewrite still tells the writer that fretwork-1 has no database. It is
+  one of the four sites missing a database reference, and repairing each one
+  takes your two presses.
+- If the routing answer can't be used, the files attached to the message are
+  dropped.
+- When an add-on escalates on its own, it still starts the full rewrite.
+- When the page can't tell whether an edit went through, it still says "Check
+  the preview", which can't show a data or rules change.
+
+**Parked:** translation (including fretwork-1's "Cymraeg" label), video
+hosting, and replies written by a model.
+
+**The next test I'd run: test 3, one full-page-writer edit on fretwork-1.**
+- **Request:** "Remove the ‘The first eight chords’ section." (44 characters,
+  sha256 `9042f8011d8809618564371d1cae16005a30695ab6062bd6674df74843340d96`).
+- **Why this one.**
+  - The quick writer can't remove words, so the change has to go to the full
+    writer.
+  - The section holds one of the site's own components (the chord diagram), so
+    both protections run on a real model's answer.
+  - The right answer is known exactly: that one section is gone and everything
+    else is unchanged, byte for byte.
+  - The canary's restore mode can put `n7mtnq` back for free afterwards.
+  - Which step the router picks is part of what the test measures.
+- **Checked first, free.** I fed the real text guard a correct answer to this
+  exact request, and it publishes. Fed the same answer with one extra sentence
+  reworded elsewhere, it refuses. So either live outcome can be read: a publish
+  means the model removed only that section, and a refusal means it touched
+  something else.
+- **Cost:** about 17–25 credits, covering routing, the quick writer's attempt,
+  the full writer and the judge. Runs 21, 24 and 26 cost 17, 24 and 19. This is
+  an estimate, not a cap. The balance is 91.
+- **How to run it.** Dispatch from the branch `claude/help-needed-ehlwlj`, or
+  merge first, so the fixed after-read is used; a merge of this deploys
+  nothing. The two expectation boxes are unchanged:
+  `c2fa000cba21ec4546a6593b41e9031f7da97124` and `a51d8b32e5869576`.
+- **Not dispatched.** It needs your spending approval.
+
+## 2026-09-25 — The canary now waits for its own edit's version before reading the site back (on the branch, not merged)
+
+- **The fault, from run 32.** The harness read the home page back 8 seconds
+  after the publish and got the previous build. So its comparison said a real
+  move hadn't happened.
+- **What it does now.**
+  - After a paid edit publishes, the harness looks up the version that edit
+    made in the site's own version list. It finds it by the edit's job id, not
+    by picking whatever is newest.
+  - It waits up to 2 minutes for the site to serve that version: 40 reads, 3
+    seconds apart.
+  - It records which version each page was read at.
+- **What counts as verified.**
+  - Every page read after the edit shows that edit's version.
+  - The read before the edit shows the version the edit was built from.
+  - If the edit didn't publish, every page still shows the version from before.
+- **What makes it unverified.**
+  - The wait runs out.
+  - A later publish lands first.
+  - The version list can't be read.
+  - The pages disagree about which version they are.
+
+  An unverified result is written into the comparison file and printed. The
+  photo and component checks then print UNVERIFIED instead of passing or
+  failing.
+- **Evidence.**
+  - There are 11 new tests, using run 32's own version ids. One replays run
+    32: the old build answers first, and the wait holds on until the edit's own
+    version appears on the third read. Another marks run 32's actual after-read
+    as UNVERIFIED.
+  - The new wiring test fails on the old script.
+  - 20 of 20 targeted probes were caught, and the two comment-only controls
+    passed.
+  - The whole suite passes: 7,840 tests locally, and unit CI
+    [36177280477](https://github.com/canias7/isibi-app/actions/runs/36177280477)
+    on `72885ca9` read 7840 / 7836 / 0 / 4, with all 11 new cases found by
+    name.
+  - I also ran it read-only against the live site. When nothing had moved it
+    said VERIFIED. When I held it to a version the site had never served, it
+    timed out as UNVERIFIED.
+- **Not merged.** Merging it would deploy nothing, because it changes only the
+  harness scripts and tests. Until it's on main, a dispatch from main still
+  reads the site back too early.
+- **No paid rerun.**
+
+## 2026-09-25 — Test 2 on fretwork-1 (the section move) passed, and is closed for what it shows
+
+**Closed, and only for what it shows** (your call): **the quick writer moved
+one section on a real site and kept the source around it byte for byte.** It
+does **not** verify the full-writer text guard: the quick writer published, so
+that guard never ran. The phone-width hydration finding (#418) stays open. The
+move stays live; nothing was restored.
 
 **Run 32** ([36172189711](https://github.com/canias7/isibi-app/actions/runs/36172189711),
 18:14–18:22 UTC, on main at `c2fa000c`, with your spending approval). It counts
@@ -209,6 +335,10 @@ as the test:
   101 before the paid call and 91 after. That is 2 for reading the message plus
   8 for the edit. The ledger shows one reserve of 8 for this job and no refund.
   The job is done and its billing is finalized.
+  - **This replaces the balance of 1 recorded after run 31.** Between run 31
+    and run 32 the balance rose from 1 to 101. I read 101 on the ledger at
+    18:09 UTC and the canary read the same before its paid call. How it rose
+    isn't recorded here. **The current balance is 91.**
 - **The reply** is "✅ Updated /." with no refusal. It adds two notes:
   - "/ threw an error": the known phone-width hydration finding (#418), also
     seen on runs 11, 21, 24 and 26 and still unresolved;
@@ -230,9 +360,9 @@ as the test:
     file says the order didn't change.
   - A read one minute later got the new build.
   - That was the harness's timing, not a product fault, so **I haven't
-    restored anything.** The harness doesn't wait for the site's version to
-    change before this read, though the restore mode does. That is recorded as
-    an open item and not changed.
+    restored anything.** The harness now waits for the version its own edit
+    published before it reads (fixed on the branch the same evening; see the
+    entry above).
 - **What this run did not test.**
   - The quick writer published, so the new literal-text guard, which runs only
     on the full writer, wasn't exercised.
@@ -242,13 +372,34 @@ as the test:
     the same browser.
   - fretwork-1 has no photos.
   - A pass is one real-model reading.
-- **Waiting on you: the browser look (item 8).** Open
-  https://fretwork-1.gofarther.app/ and check that:
-  - the chords sit above the guitar;
-  - the guitar draws;
-  - choosing a day in "Space on a preferred day" shows six places.
+- **The browser check is done (item 8), free and read-only, by me** (19:00
+  UTC, the live version `n7mtnq`; screenshots were sent in the chat).
+  - **How.** Chromium can't open the site directly here: it fails with
+    `ERR_CERT_AUTHORITY_INVALID`, because its certificate store in this
+    sandbox is empty and doesn't trust the network proxy. So a real Chromium
+    drew the live site from bytes that Node fetched with certificate checking
+    on (through the proxy's own certificate bundle). No trust setting was
+    changed and no check was switched off. The pages and scripts are the live
+    ones; Chromium's own network layer wasn't used.
+  - **Order.** The headings run: Book a guitar lesson · The first eight chords
+    · A guitar you can turn · … with nothing between the chords and the
+    guitar. The chords are drawn above the guitar (748 px higher), with all 8
+    chord diagrams.
+  - **The guitar draws and turns.** Its 3D canvas (1096×420) has a working
+    WebGL 2 context, and the guitar is visible in it. Dragging across it turned
+    the guitar (2.4% of its pixels changed).
+  - **The day box follows the site's real booking count.** Before a day is
+    chosen it says "Choose a day to check space." Then, for five days, it
+    showed what the live booking check answered:
+    - 17 Sep 2026 has **1 real booking**: "5 places left."
+    - 25 Sep, 26 Sep, 2 Oct 2026 and 15 Mar 2027 have **0**: "Six places
+      left."
 
-  This session's browser can't open the site.
+    So it shows six places only when the count is zero.
+  - **Clean.** No console errors, no page errors, no failed requests.
+  - **Noticed, not changed.** The language switcher labels the English home
+    page "Cymraeg" (Welsh). The site's stored language is Welsh (`cy`). This
+    was already so before run 32, and it is parked with translation.
 
 ## 2026-09-25 — The two real-model edit tests, on fretwork-1 (test 2 ran as run 32, above; test 1 is not for dispatch)
 
@@ -290,8 +441,9 @@ evaluated before the second is pressed.
   - Test 2 is about 10 if the quick writer handles it (run 17). If it falls back
     to the full writer, it is 17–24 (runs 21, 26, 11 and 24).
   - The labels-only test 1 would be 17–24.
-  - **Read the balance from the ledger right before the press**; it was 1
-    after run 31.
+  - **Read the balance from the ledger right before the press.** It was 1
+    after run 31, 101 before run 32 and **91 after run 32**, the latest
+    reading.
 - **This session's browser cannot open the site's pages** (the browser does not
   trust the network proxy). Adding the proxy's CA to Chromium's trust was
   refused by the permission system. So a live browser check is either your
@@ -311,7 +463,8 @@ evaluated before the second is pressed.
     reservation was refused. It returned a stored 422:
     `{"ok":false,"error":"unbilled","cost":0,"detail":"insufficient"}`.
   - **Nothing changed.** No page or component body changed, the live page still
-    serves `c1td33`, and the balance is now **1**.
+    serves `c1td33`, and the balance was then **1** (superseded: it read 101
+    before run 32 and 91 after).
   - **Whether the writer ran first is unknown.** The job stayed "claimed" for
     about 100 s, but the reply carries no usage.
 - **A wording problem seen live on that run.** The customer was told "…it
@@ -382,7 +535,10 @@ again. This edit cost you nothing. Reading your message cost 2 credits."
   and this session doesn't have it. The Supabase connector in this session
   reaches a different project (`ljehrtakepdwcjuzzjfi`), not the platform's
   (`ujrqdmmtcptvimazlhom`). No workflow adds credits. So the top-up is yours:
-  the app's own top-up purchase, or a grant path you choose. **The balance is 1.**
+  the app's own top-up purchase, or a grant path you choose. ~~The balance is
+  1.~~ **Superseded by run 32:** the balance was 1 after run 31, read 101
+  before run 32's paid call and 91 after it. Only the readings are recorded
+  here; how the account went from 1 to 101 isn't.
 
 ---
 

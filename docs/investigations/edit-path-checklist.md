@@ -1,5 +1,51 @@
 # Remaining edit-path checklist
 
+## Status after run 32 (2026-09-25)
+
+**Closed since this record was written.** Each of these is merged, deployed and
+live:
+- queued refusal redraw escape;
+- preview invalidation after a synchronous scheduling exception;
+- the queued one-hop marker (all three by the edit-path milestone, deploy
+  2158);
+- literal-text loss on the full page writer, for parsed literal JSX prose and
+  its request grammar (deploy 2158);
+- the credit-refusal wording that states the edit charge and the routing charge
+  apart (deploy 2159, runtime-confirmed by run 32's preflight).
+
+**Shown live.** Run 32 (canary 36172189711): one real-model edit through the
+quick writer. The edit moved a section on fretwork-1 and kept the surrounding
+source byte for byte. Routing, the queue, the publish, billing (route 2 + edit 8
+against a single reserve) and the reply are all confirmed. A real Chromium,
+rendering TLS-verified live bytes, confirmed the order, the 3D guitar and the
+availability box against the real `bookings_on_day` (1 → "5 places left.",
+0 → "Six places left.").
+
+**Still not shown live.**
+- The full page writer on this deployment, with the text guard and the judge
+  in `keepCheck`.
+- A second message from the same browser.
+- Photographs.
+- A live add-on, and the picture, data and rules rungs.
+
+**Still open.**
+- #418 (phone-width hydration).
+- The text guard's scope limits, plus two ordinary phrasings it refuses even
+  with a correct answer (CLAUDE.md, "Test 3").
+- Next-task 4's other billing sentences and the charged refused step.
+- The full revise on `incomplete` sites.
+- Attachments dropped by an unusable routing answer.
+- The add-on route's no-layer climbs.
+- The "Check the preview" wording on an unknown outcome.
+
+**Harness.** The canary's early after-read is fixed on
+`claude/help-needed-ehlwlj` (`72885ca9`, not merged).
+
+**Next.** Test 3 is prepared and not dispatched ("Remove the ‘The first eight
+chords’ section.", about 17–25 credits).
+
+---
+
 Historical closure record. The subsequent owner-authorized [full edit-path
 review](edit-path-milestone.md) records the queued marker, refusal-display and
 preview-ordering corrections on the review branch. Closed deployments below

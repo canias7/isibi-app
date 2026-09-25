@@ -15,8 +15,12 @@ merged/deployed at `c2fa000c` (deploy 2159, image `a51d8b32e5869576`); served
 `chat.js` byte-identical to the merged file; runtime-confirmed by canary run 32's
 preflight (36172189711, 2026-09-25 18:15 UTC).
 Live test 2 (the section move on fretwork-1): run 32 published it through the quick
-writer as a pure block move, for route 2 + edit 8 credits; its own after-page read was
-the previous build, and the owner's browser look is outstanding (the run 32 section).
+writer as a pure block move, for route 2 + edit 8 credits. **CLOSED for what it shows
+(owner)**: the quick writer moved one section and kept the surrounding source; it does
+NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:00 UTC
+(a real Chromium over TLS-verified live bytes). The canary's early after-read is fixed on
+the branch (`72885ca9`, not merged); test 3 (the full writer) is prepared, not
+dispatched (the run 32 section and the two after it).
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -7792,7 +7796,7 @@ CANARY_INSTRUCTION`. **It counts as the test**:
   - **The paid path's after-read does not wait for `x-site-version` to move,
     and the restore mode does.** A stale read compares the old page against
     itself, so it would hide a real loss exactly as it hid this real change.
-    It is in the backlog, not changed.
+    **Fixed on the branch the same evening** (the next section but one).
 - **THE LIVE PAGES, read independently at 18:23:54Z and 18:25:55Z, every route
   on `n7mtnq`.**
   - `/` headings: Book a guitar lesson · The first eight chords · A guitar you
@@ -7806,15 +7810,167 @@ CANARY_INSTRUCTION`. **It counts as the test**:
   - `/fr` and `/es` carry the move too.
 - **What it established.** One real model, given this sentence on this site,
   moved one section as asked. The route published exactly that, billed it once,
-  and said so.
+  and said so. **CLOSED FOR EXACTLY THAT (owner, 2026-09-25)**: the quick
+  writer moved the section while preserving the surrounding source. The move
+  stays live; nothing was restored.
 - **What it did not establish.**
   - The full writer never ran, so **the literal-text guard (full writer only)
     was not exercised**.
   - One billed call means `keepCheck` found nothing lost; it calls its judge
     only on a loss.
   - The writer's prompt is not captured, and there was no second message.
-  - The real-browser check (item 8) is the owner's look: this session's
-    Chromium cannot open a site host behind the proxy.
+  - #418 is not resolved by any of it.
+- **THE BROWSER CHECK (item 8), FREE AND READ-ONLY, 19:00Z on `n7mtnq`.**
+  - **How, since Chromium cannot open the site directly here:** `page.goto`
+    answers `net::ERR_CERT_AUTHORITY_INVALID`. So every request the page made
+    was fulfilled (`context.route` → `route.fulfill`) from a Node fetch through
+    the session proxy, with TLS verified against `/root/.ccr/ca-bundle.crt`. No
+    trust store was changed and no verification was disabled. The bytes and
+    scripts are the live site's; Chromium's own network stack was not
+    exercised. The trap entry has the details.
+  - **Order**: headings `Book a guitar lesson · The first eight chords · A
+    guitar you can turn · September 2026 · Space on a preferred day · Book a
+    trial lesson · Book a trial lesson`. Nothing sits between chords and
+    guitar in the DOM, and the chords heading is drawn 748 px above the
+    guitar's. There are 8 chord diagrams at 160×215.
+  - **The guitar**: the canvas is 1096×420 with a live WebGL 2 context. Its
+    screenshot has 26 quantized colours and 8.2% non-background pixels, and a
+    240 px drag changed 2.4% of its pixels (it turns).
+  - **Availability against the REAL `bookings_on_day`**, 6 calls, all 200:
+    - The load call with an empty day answered `0`, and the box read "Choose a
+      day to check space."
+    - **2026-09-17 → `1`** → "5 places left." (a real booking; the
+      `bookings_public` read listed that day).
+    - 2026-09-25, 2026-09-26, 2026-10-02 and 2027-03-15 → `0` → "Six places
+      left."
+    - So "Six places left." appeared exactly when the real answer was 0.
+  - The page reached two hosts, the site and `static.cloudflareinsights.com`.
+    There were no console errors, no page errors and no failed requests.
+  - **Noticed, pre-existing, parked with translation**: the page carries
+    `lang="cy"` and its switcher labels the English home page "Cymraeg". Run
+    30's and run 32's before-reads carry the same.
+
+### THE CANARY'S AFTER-READ WAITS FOR ITS JOB'S OWN VERSION (2026-09-25, on the branch at `72885ca9`, not merged)
+
+Owner: *"Fix the harness's early after-read with a bounded wait for the expected
+published version. A timeout means the comparison is unverified; an unrelated
+newer version is not a match. Focused checks only, no paid rerun."*
+
+- **THE TARGET IS THE JOB'S OWN, NEVER "THE NEWEST".** The edit route stamps
+  `job.id` into every build it stages (`manifest.job`, `recompileAndPublish`).
+  `listBuilds` and `mergeVersions` carry it on each row of the owner-only
+  `GET /api/site/<slug>/versions`.
+  - `publishedVersion(reply, job)` takes the row whose `job === job` (strict)
+    and answers the newest of that job's rows, since a correction round
+    publishes twice.
+  - A list inside a failing answer is `list-unreadable`.
+  - An unpublished edit's target is the before-read's version, via
+    `afterReadTarget`.
+- **THE WAIT IS BOUNDED AND HAS THREE OUTCOMES.** `awaitVersion` reads the
+  home page's `x-site-version`, 40 reads × 3 s (the restore mode's numbers).
+  - **`match`**: the job's version was read.
+  - **`superseded`**: a version minted AFTER the target was read. It stops at
+    once and is never a match.
+  - **`timeout`**: the bound ran out. That is a fact about the harness, not the
+    site.
+  - An OLDER version (the before-read's, while the new script spreads) is
+    waited through. That is run 32's 7.9 s exactly.
+- **EVERY PAGE RECORDS THE VERSION IT WAS READ AT.** With a target, a page read
+  at another version is re-read, up to 5 reads × 3 s. Every page route on
+  fretwork-1 sends `x-site-version`; `sitemap.xml` does not and is not
+  required.
+- **`afterReadVerdict` IS VERIFIED ONLY WHEN BOTH READS ARE TIED TO THE JOB.**
+  The before-read must be one version (`sameVersion`). A published job's
+  version must have been built FROM it (`parent === before`). The wait must
+  have matched, and every after-page must be at the target. The first failing
+  reason is named: `before-unknown`, `list-unreadable`, `not-listed`,
+  `parent-mismatch`, `timeout`, `superseded`, `page-version` and others.
+  `verdictSentence` is the one composer for the log and `compare.json`.
+- **AN UNVERIFIED COMPARISON PASSES NOTHING.** The photo and component checks
+  run inside `if (VERDICT.verified)`, and otherwise print `UNVERIFIED`, never
+  ok and never FAIL. `compare.json` carries `comparison` and each route's
+  `versionBefore`/`versionAfter`. The exit code is unchanged (publication), and
+  the last line says which comparison the run has.
+- **EVIDENCE.**
+  - Tests: `test/canary-watch.test.mjs` +10 cases, driven with run 32's own
+    ids. The run-32 shape matches on read 3 with two naps. Run 32's actual
+    after-read is `page-version` UNVERIFIED. `test/edit-canary.test.mjs` +1
+    wiring census covering the order (target → live read → wait → after
+    inventory → verdict), the job passed as itself, the header, the gate and
+    the else-branch.
+  - **Red on the unfixed script** (a throwaway worktree with only the pure
+    functions appended): exactly the census, failing on *"the after-read no
+    longer asks which version it must see"*.
+  - **Probes `scripts/mutants/after-read.json`: 20 mutants, 20 killed, 0
+    survived, 0 never applied, 2 comment-only controls surviving**, over the
+    four canary test files. Both files were byte-identical afterwards.
+  - Suite **7,840 locally** (`7840 / 7838 / 0 / 2`, +11 against main's 7,829)
+    and **CI unit run `36177280477` on `72885ca9`: `7840 / 7836 / 0 / 4`**, all
+    11 new cases and the re-anchored capture guard found passing BY NAME,
+    7,840 distinct result numbers, zero `not ok`.
+  - No `site build` fires: none of the files is on its paths.
+  - **Driven read-only against the live site**: the unpublished path read
+    `VERIFIED` (every page `n7mtnq`), and a target the site never served
+    timed out `UNVERIFIED`.
+- **RE-ANCHORED, NOT APPEASED**: the reply-capture guard closed on
+  `await inventory("after")`, which gained an argument. It now closes on the
+  new block's first line, so the window is as wide as before.
+- **NOT MERGED, AND A MERGE DEPLOYS NOTHING.** `scripts/**` and `test/**` are in
+  `deploy.yml`'s `paths-ignore`. Until it is on main, **a dispatch from main
+  still reads early**.
+
+### TEST 3 — THE FULL PAGE WRITER, PREPARED AND NOT DISPATCHED (2026-09-25)
+
+The one path run 32 could not reach. Owner: *"recommend the next meaningful
+test. No automatic paid dispatch."*
+
+- **Request**: *"Remove the ‘The first eight chords’ section."*, 44 chars,
+  sha256 `9042f8011d8809618564371d1cae16005a30695ab6062bd6674df74843340d96`.
+  - The quick writer cannot drop words (`sameProse`), so a publish must come
+    from the full writer.
+  - The section renders an own component (`chord-diagram`), so `keepCheck`'s
+    judge runs too.
+  - The right answer is exact: one render block gone, every other block
+    byte-identical. `chord-diagram` stays stored, since parts not returned are
+    kept.
+  - Which rung the router picks is part of the measurement.
+  - Reversible for free: the restore mode can put back `01790360265159-n7mtnq`.
+- **CHECKED FREE through the real `preservePageProse`** over the stored
+  `n7mtnq` source, with SUPPLIED answers:
+  - That section removed → publish.
+  - The same with one guitar sentence reworded → refuse, naming the sentence.
+  - *"Take the ‘…’ section off the home page."* → publish.
+- **⚠ AND TWO NATURAL PHRASINGS REFUSE A CORRECT ANSWER — measured, not
+  changed.**
+  - *"Remove the ‘…’ section from the home page."*: `from` is not an operand
+    boundary, so the object never resolves.
+  - *"On the home page, change the text under ‘…’ to …"*: the verb must open
+    the clause.
+  - Both are the documented "unsupported legitimate phrasing" class, and here
+    it is two ordinary sentences.
+  - It is reached only on the full writer, and costs the routing call
+    (`prose-preservation` answers `cost: 0` for the edit).
+- **Cost**: ~17–25 (runs 21/24/26 were 17/24/19). This is an estimate, not a
+  cap. Balance 91.
+- **Pressed from the branch** (or after merging `72885ca9`, which deploys
+  nothing) so the after-read waits. `expect_deploy`
+  `c2fa000cba21ec4546a6593b41e9031f7da97124`, `expect_image`
+  `a51d8b32e5869576`.
+- **Acceptance.** It counts only if:
+  - the request sha matches;
+  - the run's own before-read matches `n7mtnq`'s bodies (`index.tsx`
+    `6bb1fb500f7df623` and the five unchanged);
+  - it published or refused `prose-preservation`.
+- **A publish passes when all of these hold:**
+  - `tweak` is absent;
+  - exactly the chords block is gone, with every other block and file
+    byte-identical;
+  - the comparison is VERIFIED;
+  - money closes against the ledger;
+  - the reply is true;
+  - the browser render shows the guitar second.
+- **A refusal is also a reading.** The writer touched something else, and its
+  answer is not stored.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -10366,7 +10522,13 @@ landed text IS the written text.
 
 **READ THE LEDGER; DO NOT TRUST THIS LINE.** A stale number is worse than none,
 because `buildFloor` refuses before spending and the refusal reads as a broken
-build. **Balance 22** at run 24's end (2026-09-23, the replay: **46 → 22,
+build. **Balance 91** at run 32's end (2026-09-25, the section move: **101 → 91,
+moved 10**, route 2 + the page rung's 8, closing exactly, on a run that
+published; the ledger holds one reserve of 8 and no refund). **Between run 31 and
+run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
+canary before its paid call). **Only the readings are recorded; how it rose is
+not.** Run 31 ended at **1** (3 → 1, the routing call alone, the edit's
+reservation refused `unbilled`), and the free runs 28 and 30 read **3**. **Balance 22** at run 24's end (2026-09-23, the replay: **46 → 22,
 moved 24** — route 2 + the page rung's 22, closing exactly, on a run that
 published), and **run 25's free press read 22 again** (09:17Z, nothing spent
 between). **Balance 3** at run 26's end (2026-09-23, the correction: **22 → 3,
@@ -10925,6 +11087,19 @@ rule and the measurement.
   from a CSP render that read BROKEN both ways, and **a limitation nobody
   re-tested is a false negative about our own instruments**: it sat here long
   enough that a live-browser check went unattempted rather than unavailable.
+  **⚠ AND IN THE 2026-09-25 CONTAINER IT WAS TRUE AGAIN, FOR A NAMED REASON**:
+  `page.goto` answered `net::ERR_CERT_AUTHORITY_INVALID`. `/root/.pki/nssdb`
+  held **0** certificates (its `nssPublic` table read empty), although the
+  proxy README says the browser NSS store is set up. **Re-test per container;
+  never carry the answer over.**
+  - **The way through changes no trust setting**: fulfil every request from a
+    Node fetch that verifies TLS against the session CA bundle
+    (`context.route("**/*")` → `route.fulfill`, `NODE_USE_ENV_PROXY=1`).
+    Chromium then runs the live bytes and scripts. Adding the CA to Chromium
+    was refused by the permission system, and switching verification off is
+    forbidden.
+  - **Its limit**: Chromium's own network stack (cache, cookies, service
+    workers) is not the one exercised.
   The CSP reading it came from is still the blind one;
   a fake `sqlQuery` injected where none is accepted answered **0 statements**,
   which reads exactly like "no constraint anywhere". **A `net::` error in a CSP
@@ -11348,15 +11523,17 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
-- **THE PAID CANARY'S AFTER-READ DOES NOT WAIT FOR THE NEW VERSION (open, found
-  on run 32).** `edit-canary.mjs` takes its after-inventory as soon as the
-  stored reply arrives. On run 32 the page it read was rendered by the previous
-  script, 7.9 s after the job's `published_at`. So `compare.json` compared the
-  old page against itself and reported a real reorder as no change. The restore
-  mode already waits for `x-site-version` to read the id; the paid path does
-  not. The shape of a fix is to wait for the header to leave the before-read's
-  version (bounded) and to record the version each read saw. Not changed: the
-  owner ruled out new harness work for this test.
+- **THE PAID CANARY'S EARLY AFTER-READ IS FIXED ON THE BRANCH, NOT MERGED**
+  (`72885ca9`; the section after run 32). Until it is on main, a dispatch from
+  main still reads the site back without waiting.
+- **THE TEXT GUARD REFUSES TWO ORDINARY PHRASINGS (measured 2026-09-25, not
+  changed).** The sentences are *"Remove the ‘…’ section from the home page."*
+  and *"On the home page, change the text under ‘…’ to …"*. Measured with a
+  correct supplied answer; see test 3. It is a grammar decision for whoever
+  owns `builder/page-prose.mjs`, not a bug in the comparison.
+- **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
+  its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
+  parked with translation.
 - **`updated_at` IS NEVER BUMPED (open).** `site-schema.mjs:1121` creates it as
   a column DEFAULT whose own comment says "bumped on every UPDATE", and a
   Postgres default applies only when the column is OMITTED from an INSERT. There
