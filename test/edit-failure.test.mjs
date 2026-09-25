@@ -1162,3 +1162,20 @@ test('a recorded database without a readable connection cannot authorize source 
   assert.deepEqual(r.seen.calls, []);
   assert.deepEqual(r.seen.debits, []);
 });
+
+for (const schema of [{tables:42}, [], {tables:[]}]) {
+  test('missing-source reconstruction distinguishes malformed schema from empty schema: ' + JSON.stringify(schema), async () => {
+    const slug = 'review-reconstruction-schema-' + (Array.isArray(schema) ? 'array' : Array.isArray(schema.tables) ? 'empty' : 'bad');
+    const store = bucket(slug);
+    const r = await edit(slug, store, {...INCOMPLETE, answers:{}, sql:q => /SELECT v FROM/.test(q) ? {rows:[[JSON.stringify(schema)]],fields:['v']} : {rows:[],fields:['x']}}, {layer:'text',instruction:'Say we open at 8.'});
+    assert.ok(r.seen.sql.some(q=>/SELECT v FROM/.test(q)), 'the schema read was not reached');
+    if (!Array.isArray(schema) && Array.isArray(schema.tables)) assert.equal(r.body.escalate,true);
+    else {
+      assert.notEqual(r.body.escalate,true,JSON.stringify(r.body));
+      assert.deepEqual(paid(r.said),[]);
+    }
+    assert.deepEqual(r.seen.calls,[]);
+    assert.deepEqual(r.seen.debits,[]);
+    assert.equal(r.compiles,0);
+  });
+}

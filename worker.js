@@ -20605,7 +20605,13 @@ async function handleRequest(request, env, ctx) {
                 const cfg = await readSiteConfig(env, ownerSlug, back.conn, { strict: true });
                 const parts = await readSiteParts(env, ownerSlug, { strict: true });
                 if (!cfg.ok || !parts.ok) throw new Error("stored state unreadable");
-                if (back.conn && !(await specForAddon(back.conn)).ok) throw new Error("schema unreadable");
+                if (back.conn) {
+                  const read = await specForAddon(back.conn);
+                  const spec = read.spec;
+                  if (!read.ok || !spec || Array.isArray(spec) || !Array.isArray(spec.tables)
+                    || spec.tables.some(t => !t || typeof t !== "object" || typeof t.name !== "string" || !t.name.trim()
+                      || !Array.isArray(t.columns))) throw new Error("schema unreadable");
+                }
               } catch {
                 return explain("route/no-source-unreadable", undefined, { unchanged: false,
                   msg: "Your site's editable pages are missing, but I couldn't read all of its remaining saved state. I've stopped rather than start a rewrite with incomplete information." });
