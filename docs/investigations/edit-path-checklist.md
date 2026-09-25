@@ -32,7 +32,7 @@ deployment checks or spend credits merely to relabel the same evidence.
 
 | Item | Current-code evidence and precise scope |
 | --- | --- |
-| Add-on known-success fallback redraw — fixed on working branch, not deployed | The owner independently reproduced an escaped queued display error; publication and request cleanup succeeded. The fallback now uses the existing edit-side guarded finish. Focused regressions cover direct/queued double failures, the subsequent message and a newer request started during redraw. Ordinary success-redraw controls remain. |
+| Add-on known-success fallback redraw — CLOSED, deployed at a5741864 | The owner independently reproduced an escaped queued display error; publication and request cleanup succeeded. The fallback now uses the existing edit-side guarded finish. Focused regressions cover direct/queued double failures, the subsequent message and a newer request started during redraw. Ordinary success-redraw controls remain. |
 | Queued refusal redraw can escape | `watchEditJob` invokes the outcome reader from its async step; refusal branches call `finish` without containing a redraw exception. Recorded impact: the sentence remains and the request frees, but a rejection can escape. No new live incident is claimed. |
 | Preview invalidation can be skipped after a synchronous scheduling exception | `applyEditResult` and `applyAddonResult` call `scheduleCreditRefresh()` before incrementing `previewV`. The injected synchronous throw is recorded. **Do not describe this as every failed balance request:** the actual scheduler defers `fetchCredits` in a timer, so an ordinary later network failure does not establish this sequence. |
 | Queued handoff loses the one-hop marker | `watchEditJob` supplies `handedOff:false` to its reader, whereas `escalatedEdit` uses that flag for the hop limit. Latent guard gap: the recorded current data→text and picture→page destinations do not hop again. Not evidence of a current live loop. |
@@ -42,7 +42,7 @@ in-memory limit (`siteDraft`, `sitesSave`), not a newly found defect. The silent
 duplicate latch is likewise a deliberate secondary guard, not a stranded-request
 regression. Translation and model-written replies remain parked.
 
-## Prepared check completed; narrow correction awaiting review
+## Fallback-display correction closed
 
 The owner independently reproduced the queued add-on double display failure.
 The regression also failed before the patch with “the redraw failed” escaping.
@@ -54,6 +54,19 @@ message completes, and an older completion leaves a newer request alone.
 The harness reads normalize CRLF so these controls also run on Windows.
 
 This is an escaped display error, not a failed publication or stranded request.
-All providers are fixture-backed; no paid run, merge or deployment. Other
-checklist items remain separate and unchanged. Required branch CI is recorded
-with the delivery; no next sweep or additional correction is started.
+Independent review accepted the patch and all 179 focused tests. Required unit
+CI [36098613431](https://github.com/canias7/isibi-app/actions/runs/36098613431)
+passed (7,710 passed, zero failures). Site-build was not required for these paths.
+
+Merged by fast-forward from unchanged main at 41abeaa5 to a5741864.
+[Deployment 2157](https://github.com/canias7/isibi-app/actions/runs/36099179983)
+succeeded on 2026-09-25 at 05:35:53 UTC, deploying reviewed commit
+`a57418643340b67f9d51210c903dbe18e1e532f3`. The deployment log reports the
+existing SiteBuildContainer image reused; this is deployment-log evidence, not
+a new runtime container observation. No container check or canary was run.
+
+At 05:36:30 UTC, both https://gofarther.dev/chat.js and its cache-busted URL
+returned HTTP 200 and were byte-identical to the reviewed git blob: 781,511 bytes,
+SHA-256 `d873ddb00e7375f7b9ace05ad92954eb4947f8d98802ff45b5bbff14e34a2c36`.
+This verifies the served correction. No paid run. Other checklist items remain
+separate and unchanged; no next sweep or additional correction is started.
