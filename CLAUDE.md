@@ -6,7 +6,8 @@ editable recovery stop. Closed: merged/deployed at `5cb8592`; non-spending canar
 36096052737 verified image `b83b0611aeecce8f` at 2026-09-25 04:50:36 UTC.
 Edit-path milestone and literal-text guard: [milestone](docs/investigations/edit-path-milestone.md),
 [text preservation](docs/investigations/edit-text-preservation.md). Merged/deployed at
-`6ed355e4` (deploy 2158, image `f05cb5a5a0def44c`), deployed, NOT runtime-confirmed.
+`6ed355e4` (deploy 2158, image `f05cb5a5a0def44c`), runtime-confirmed by free canary
+run 36155364708 at 2026-09-25 15:37 UTC (all free checks passed, spending off, balance 3).
 The guard covers parsed literal JSX prose and its supported request grammar only;
 every model answer in its evidence is supplied.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
@@ -7554,12 +7555,32 @@ and `edit-text-preservation.md`, deliberately not copied here.
   and `rec.handedOff` 0 → 1 in `chat.js`, `handedOff === true` 0 → 2 in
   `edit-poll.js`. A background poll saw the new `chat.js` first at 14:40:09Z,
   the second Wrangler finished. Gates **401 / 401 / 401 / 404** at 14:40:52Z.
-- **DEPLOYED, NOT RUNTIME-CONFIRMED**: the Worker's own sha and a cold
-  start's image need `/api/site/build-health`, and the session holds no
-  token; the canary dispatch, re-tested at 14:56Z once the hold had passed,
-  answered **403** again. The owner's free press: `edit-canary.yml` from `main`, spend `no`,
-  `expect_deploy` **`6ed355e495f9ba404d7556aa8148831d5fcd2bcd`**,
-  `expect_image` **`f05cb5a5a0def44c`**.
+- **RUNTIME-CONFIRMED BY THE OWNER'S FREE PRESS, run 30
+  (`36155364708`, 15:36:57 → 15:37:34Z)**. The session's own dispatch,
+  re-tested at 14:56Z once the hold had passed, answered **403** again, so the
+  press was the owner's. The env block reads `CANARY_SPEND: 0`, a blank
+  instruction and read_job, and both expectations set.
+  - `build-health 200 deploy=6ed355e495f9 image=f05cb5a5a0def44c` and
+    `runtime 200 deploy=6ed355e495f9 async=true runner=true`, with the
+    control `washhouse-3 async=true`.
+  - Every preflight check is `ok`: both readers answered and agree, async and
+    runner are true, the Worker is the expected build, and a cold container
+    gets the expected image.
+  - The zero-cost confirmations pass: both sites get the ASYNC shape, a
+    forged replay and a stranger's poll answer 404, and the free job settled
+    in ~6 s as `{"ok":false,"escalate":true,"reason":"empty","cost":0}`.
+  - `ALL FREE CHECKS PASSED`. The source read was complete (`fretwork-1`:
+    `index.tsx` 26,563 b, run 26's page), and the balance was **3**, as at
+    canary 28.
+  - It ended with *"CANARY_SPEND is not 1 — stopping before the paid edit.
+    Nothing was charged."*
+  - **⚠ Run 29 (`36155104292`) two minutes earlier is NOT evidence.** The
+    form's values landed in the wrong boxes: the sha went into `instruction`
+    and the image into `read_job`, with both expectations blank. So it ran the
+    read-only job lookup, found no job `f05cb5a5a0def44c`, and exited 1 above
+    the preflight. It spent nothing and changed nothing.
+  - **The GitHub form shows descriptions, not input names**, so a pair of
+    values handed over for pasting should name the boxes by their descriptions.
 - **THE LIMITS TRAVEL WITH IT**: the guard compares parsed literal JSX prose
   per section on the full EDIT page writer alone — not computed or data-driven
   words, not a component's prop strings, not other component files, not CSS

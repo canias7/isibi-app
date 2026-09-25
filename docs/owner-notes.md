@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) — deployed, not yet runtime-confirmed; see the dated entry below. No paid request.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -220,11 +220,20 @@ new code. After it:
 - `chat.js`: 781,931 bytes, identical to the merged file;
 - `edit-poll.js`: 29,391 bytes, identical to the merged file.
 
-**Not yet confirmed from the live server itself.** Starting the free check
-from here is refused (GitHub permissions). It's your free press:
-- **edit-canary**, from **main**, **spend: no**;
-- **expect_deploy:** `6ed355e495f9ba404d7556aa8148831d5fcd2bcd`;
-- **expect_image:** `f05cb5a5a0def44c`.
+**Confirmed from the live server itself** — your free check, edit-canary
+[run 30](https://github.com/canias7/isibi-app/actions/runs/36155364708),
+15:37 UTC, with spending off:
+- the live Worker reports `6ed355e4`, and a fresh server copy reports image
+  `f05cb5a5a0def44c` — both what you asked it to expect;
+- both readers agree, and queued edits and the per-site runner are both on;
+- every free check passed, including an empty test edit that was queued,
+  finished and charged nothing;
+- it stopped before the paid edit: nothing was charged, and the balance stayed
+  at 3.
+
+Run 29, two minutes earlier, had the two values in the wrong boxes. It ran the
+read-only job lookup, found nothing, and stopped. It changed nothing and
+charged nothing.
 
 **What this does NOT claim:**
 - **The text guard covers only words typed directly into a page's markup.** It
@@ -253,8 +262,8 @@ and controlled tests, not by a live run:
 
 **Prepared, NOT run:** the two live edit tests in the
 [milestone plan](investigations/edit-path-milestone.md) — about 13–26 credits
-together, on a site you approve. The balance was 3 at the last free check
-(04:50 UTC).
+together, on a site you approve. The balance was 3 at the free check
+(15:37 UTC), so they need a top-up first.
 
 **No paid run.**
 
