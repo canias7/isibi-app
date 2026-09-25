@@ -1,7 +1,21 @@
 # Bounded add-on escalation correction
 
-The reviewed investigation is implemented on `claude/help-needed-ehlwlj`.
-No merge, deployment, paid replay, translation or model-written reply work.
+**CLOSED — independently reviewed, merged, deployed and runtime verified.**
+
+Reviewed/deployed SHA: `5cb8592661ffee5db1d1e0adc412f75a4760de82`.
+The owner independently confirmed 437 focused tests and both green CI checks.
+[Deploy 2156](https://github.com/canias7/isibi-app/actions/runs/36094441082)
+succeeded. [Canary 28](https://github.com/canias7/isibi-app/actions/runs/36096052737)
+at **2026-09-25 04:50:36 UTC** reported Worker `5cb8592661ff` and container
+`b83b0611aeecce8f`; expected identity checks and all free checks passed.
+Spending was disabled; recorded balance was **3**. The owner independently
+verified this evidence. No further deployment check or retry is needed.
+
+The earlier 04:32 canary observed the previous image around three minutes after
+deployment. It remains historical evidence, superseded for readiness by the
+successful post-window check; no root cause beyond those observations is claimed.
+No paid edit, demo-site repair or forced restart was performed. Translation and
+model-written replies remain parked. [Remaining checklist](edit-path-checklist.md).
 
 | Outcome | Server decision |
 | --- | --- |

@@ -2,7 +2,9 @@
 
 Add-on escalation correction: [bounded patch and verification](docs/investigations/addon-escalation-correction.md).
 Only verified missing source/design may reconstruct; unreadable state and failed
-editable recovery stop. This patch is on the work branch, not merged or deployed.
+editable recovery stop. Closed: merged/deployed at `5cb8592`; non-spending canary
+36096052737 verified image `b83b0611aeecce8f` at 2026-09-25 04:50:36 UTC.
+Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.

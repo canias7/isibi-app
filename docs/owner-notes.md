@@ -1,10 +1,15 @@
 # Owner Notes
 
-2026-09-25: Authorized bounded add-on escalation correction implemented on the
-work branch; [patch and focused evidence](investigations/addon-escalation-correction.md).
-No merge/deploy or paid replay authorized. Model-written replies and translation
-remain parked. Stop messages must not imply routing was free or recovery made
-no changes. Await independent review of the patch and branch CI.
+2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
+tests and both required CI checks), merged/deployed at `5cb8592`. Non-spending
+canary [36096052737](https://github.com/canias7/isibi-app/actions/runs/36096052737)
+verified Worker `5cb8592661ff` and container `b83b0611aeecce8f` at 04:50:36 UTC;
+all free checks passed, spending disabled, balance 3. No more deployment checks
+or retries needed. [Closure record](investigations/addon-escalation-correction.md)
+and [remaining edit-path checklist](investigations/edit-path-checklist.md).
+Translation and model-written replies remain parked. A missing live test is
+unverified behavior, not a product defect. Next check is prepared only; no paid
+dispatch or product correction is authorized by this record.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
