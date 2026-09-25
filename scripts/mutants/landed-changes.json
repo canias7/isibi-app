@@ -1,0 +1,99 @@
+[
+  {
+    "label": "CONTROL: the landed-note comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": " * WHAT ONE STEP CHANGED OUTSIDE THE ONE PUBLISH (2026-09-25), in the words the",
+    "to": " * WHAT ONE STEP CHANGED OUTSIDE THE ONE PUBLISH (2026-09-25; control), in the words the"
+  },
+  {
+    "label": "L-1: the failed publish names nothing that went through",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const landed = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);",
+    "to": "                const landed = [];"
+  },
+  {
+    "label": "L-2: compileMsg is not told part of it landed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    landed.length > 0) + landedSaid(landed),",
+    "to": "                    false) + landedSaid(landed),"
+  },
+  {
+    "label": "L-3: their compile error still calls a partly landed message untouched",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                      ? \"That didn't compile, so the rest of it wasn't published.\"",
+    "to": "                      ? \"That didn't compile, so your site is untouched.\""
+  },
+  {
+    "label": "L-4: a new address is not a landed change",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (typeof bd.renamed === \"string\" && bd.renamed) {",
+    "to": "  if (false && typeof bd.renamed === \"string\" && bd.renamed) {"
+  },
+  {
+    "label": "L-5: a table rule is not a landed change",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (bd.layer === \"rules\") {",
+    "to": "  if (false && bd.layer === \"rules\") {"
+  },
+  {
+    "label": "L-6: a saved row is not a landed change",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (bd.layer === \"data\") {",
+    "to": "  if (false && bd.layer === \"data\") {"
+  },
+  {
+    "label": "L-7: the stopped reply drops what went through",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      + landedSaid(landed),\n  }, { status: review ? 409 : 503 });",
+    "to": "      ,\n  }, { status: review ? 409 : 503 });"
+  },
+  {
+    "label": "L-8: the publish gate's stop is not told what went through",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                return await editStopped(env, { job: eJob, why: eGate.why, phase: \"build\", trace: editTrace, ctx, kept,\n                  landed: done.filter((d) => !d.failed).map((d) => landedNote(d.body)) });",
+    "to": "                return await editStopped(env, { job: eJob, why: eGate.why, phase: \"build\", trace: editTrace, ctx, kept });"
+  },
+  {
+    "label": "L-9: compileMsg's arms ignore the flag",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const none = landed === true ? \"so the rest of it wasn't published\" : \"so nothing was changed\";",
+    "to": "  const none = \"so nothing was changed\";"
+  },
+  {
+    "label": "L-10: roomSentence ignores the flag",
+    "files": [
+      "builder/container-room.mjs"
+    ],
+    "from": "  const none = landed === true ? \"so the rest of it wasn't published\" : \"so nothing was changed\";",
+    "to": "  const none = \"so nothing was changed\";"
+  },
+  {
+    "label": "L-11: compileMsg does not hand the room its flag",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (pub.room) return roomSentence(pub.room, landed);",
+    "to": "  if (pub.room) return roomSentence(pub.room);"
+  }
+]

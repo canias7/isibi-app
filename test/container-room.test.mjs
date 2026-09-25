@@ -240,6 +240,14 @@ test("the customer's sentence says ours, says which of the three, and claims not
   assert.match(roomSentence("rate"), /too many sites at once/);
   assert.match(roomSentence("start"), /could not start/);
   assert.equal(roomSentence(undefined), roomSentence("full"), "an unknown kind reads as full, the common one");
+  // WHEN PART OF THE MESSAGE ALREADY WENT THROUGH (2026-09-25) the room says
+  // what did not happen and never that nothing changed — and only for `true`,
+  // since `.map(roomSentence)` above hands each kind its index.
+  for (const k of ["full", "rate", "start"]) {
+    assert.match(roomSentence(k, true), /so the rest of it wasn't published/, k);
+    assert.doesNotMatch(roomSentence(k, true), /nothing was changed/, k);
+    assert.equal(roomSentence(k, 1), roomSentence(k), k + ": a truthy index read as the flag");
+  }
 });
 
 // ── THE WIRE ─────────────────────────────────────────────────────────────────

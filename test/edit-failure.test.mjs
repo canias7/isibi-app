@@ -187,7 +187,8 @@ const ROUTED = (layer, pagePath) => ({ intent: "edit", layer, page: pagePath || 
 
 /** One message through the real route, then through the browser's own handler. */
 async function edit(slug, store, wire, body, extraEnv = {}) {
-  const compiler = installCompiler();
+  // `wire.compileFails`: every build answers the container's own refusal.
+  const compiler = installCompiler(wire.compileFails ? { ok: false, error: "src/routes/index.tsx(3,1): error TS1005: ';' expected." } : {});
   try {
     const worker = await loadWorker();
     return await withWire(wire, async (seen) => {
@@ -1197,3 +1198,47 @@ for (const schema of [{tables:42}, [], {tables:[]}]) {
     assert.equal(r.compiles,0);
   });
 }
+
+// A TABLE RULE IS LIVE THE MOMENT THE RULES RUNG APPLIES IT (2026-09-25). A
+// look message whose `backend` lane changed a rule and whose css change then
+// failed to compile answered "That didn't compile, so your site is untouched"
+// — REPRODUCED on the parent, with the rule's DDL already applied.
+test("a table rule that went through beside a publish that failed is said, not called untouched", async () => {
+  const slug = "fail-rules-landed";
+  const store = bucket(slug, { pages: TWO_PAGES(slug) });
+  const r = await edit(slug, store, {
+    ...INCOMPLETE, sql: menuDb(), compileFails: true,
+    answers: { [T.pick]: { fields: ["css", "backend"] }, [T.lane]: { css: "footer { background: navy; }" }, write_table_rules: { tables: [{ table: "menu", read: "members" }] } },
+  }, { layer: "look", instruction: "Make the footer navy and only let signed-in members see the menu." });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "compile");
+  // THE RULE REALLY WENT IN: its policies reached the database.
+  assert.ok(r.seen.sql.some((q) => /CREATE POLICY/i.test(q) && /"menu"/.test(q)), "the rule was never applied");
+  assert.equal(r.compiles, 1, "the css change did not try to build");
+  assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
+    + "your change to the menu table is in place. This edit cost " + r.body.cost + " credit" + (r.body.cost === 1 ? "" : "s") + "." + ROUTING_2);
+  assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
+});
+
+// A SAVED ROW IS THE SAME: live when the data rung writes it, and its list's new
+// order is what waits for the publish. A row change with an order change whose
+// publish then failed answered "That didn't compile, so your site is untouched".
+const MENU_PAGE = (slug) => [{ path: "index.tsx", source: "import { createFileRoute } from '@tanstack/react-router'\n"
+  + "import { useRows } from '@/lib/rows'\n"
+  + "export const Route = createFileRoute('/')({ component: Home })\n"
+  + "function Home(){ const q = useRows(\"menu\"); return <main><h1>Menu</h1>{(q.data || []).map((r) => <p key={r.id}>{r.item}</p>)}</main> }\n" }];
+test("a row that was saved beside an order that did not publish is said, not called untouched", async () => {
+  const slug = "fail-data-landed";
+  const store = bucket(slug, { pages: MENU_PAGE(slug) });
+  const r = await edit(slug, store, {
+    ...INCOMPLETE, sql: menuDb(), compileFails: true,
+    answers: { [T.data]: { changes: [{ table: "menu", id: 1, values: { price: "£5" } }], order: { table: "menu", column: "price", dir: "asc" } } },
+  }, { layer: "data", instruction: "Change the sourdough to £5 and show the cheapest first." });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "compile");
+  // THE ROW REALLY CHANGED before the publish was asked.
+  assert.ok(r.seen.sql.some((q) => /^UPDATE "menu" SET "price" = /.test(q)), "the row was never written");
+  assert.equal(r.compiles, 1, "the new order did not try to build");
+  assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: "
+    + "the rows you changed in menu are saved. This edit cost " + r.body.cost + " credit" + (r.body.cost === 1 ? "" : "s") + "." + ROUTING_2);
+});

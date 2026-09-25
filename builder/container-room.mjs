@@ -143,8 +143,13 @@ export async function withRoom(call, { deadline = Infinity, floorMs = 0, now = D
  * moment. Nothing about money (2026-09-25): an edit's reader states what the
  * edit and the routing call cost, from what each recorded.
  */
-export function roomSentence(kind) {
-  if (kind === "rate") return "That didn't go through — our build service was starting too many sites at once, so nothing was changed. Try again in a moment.";
-  if (kind === "start") return "That didn't go through — our build service could not start, so nothing was changed. Try again in a moment.";
-  return "That didn't go through — our build service is full right now, so nothing was changed. Try again in a few minutes.";
+export function roomSentence(kind, landed = false) {
+  // `landed`: another part of the same message already went through outside
+  // the publish (an address, a row, a table rule), so "nothing was changed"
+  // would be false — the publish is what did not happen (2026-09-25).
+  // `=== true`, because `[...].map(roomSentence)` hands an index here.
+  const none = landed === true ? "so the rest of it wasn't published" : "so nothing was changed";
+  if (kind === "rate") return "That didn't go through — our build service was starting too many sites at once, " + none + ". Try again in a moment.";
+  if (kind === "start") return "That didn't go through — our build service could not start, " + none + ". Try again in a moment.";
+  return "That didn't go through — our build service is full right now, " + none + ". Try again in a few minutes.";
 }

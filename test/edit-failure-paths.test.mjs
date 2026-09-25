@@ -28,6 +28,7 @@ import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job
 // a stub that never matches.
 import { pickTool, editTool } from "../builder/site-lanes.mjs";
 import { NAV_TOOL } from "../builder/site-nav.mjs";
+import { RENAME_TOOL } from "../builder/site-alias.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const T = { pick: pickTool().name, lane: editTool("css").name, nav: NAV_TOOL.name };
@@ -74,14 +75,14 @@ function bucket(slug) {
  * heartbeat answer that the customer asked to stop, and the heartbeat fire at
  * once. `skew` moves the clock forward by that much after the first build.
  */
-async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null, collect = null, balance = 100, creditBack = true }) {
+async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, nav, navThrows = null, render = null, cancel = false, skew = 0, site = null, collect = null, balance = 100, creditBack = true, compileOk = true, rename = null, granted = true }) {
   const slug = site ? site.slug : "fail-" + mode + "-" + hex32().slice(0, 8);
   const b = site ? site.b : bucket(slug);
   const id = hex32(), secret = hex32();
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const body = JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, ...routed, instruction: ask, picker: "sonnet", idem: "idem" + hex32().slice(0, 20) });
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body, uid: USER.id, slug, secret, at: Date.now() })));
-  const seen = { rpc: [], debits: [], credited: [], models: [] };
+  const seen = { rpc: [], debits: [], credited: [], models: [], aliases: [] };
   // THE JOB'S ROW, moved the way the real RPCs move it: a reserve holds
   // credits, a finalize with `p_ok` settles them, a refund gives them back.
   const row = { state: "routing", billing: "none", cost: 0, result: null };
@@ -99,7 +100,9 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
         case "edit_claim": return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: USER.id, slug, needs_review: false });
         case "edit_beat": return json({ ok: true, alive: true, state: "routing", cancel });
         case "edit_reserve": row.cost += Number(args.p_cost); row.billing = "reserved"; return json({ ok: true, charged: Number(args.p_cost), cost: row.cost, billing: "reserved" });
-        case "edit_may_publish": return json({ ok: true, granted: true });
+        // THE PUBLISH GATE, which a case can refuse — the queue's own
+        // bookkeeping, so the spine names it as ours (`not-granted`).
+        case "edit_may_publish": return json(granted ? { ok: true, granted: true } : { ok: false, granted: false, error: "lease" });
         case "edit_publish_mark": case "edit_committed": case "edit_phase_write": return json({ ok: true });
         case "edit_finalize":
           if (args.p_result) row.result = args.p_result;
@@ -130,8 +133,14 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
     }
     if (u.includes("/rpc/get_credits")) return json(balance);
     if (u.includes("/auth/v1/user")) return json(USER);
-    if (u.includes("/rest/v1/site_backends")) return json([{ uid: USER.id, brief: "", neon_db: "" }]);
-    if (u.includes("/rest/v1/site_project") || u.includes("/rest/v1/site_aliases")) return json([]);
+    // THE OWNER'S SITE, and no other: a name the rename asks about belongs to nobody.
+    if (u.includes("/rest/v1/site_backends")) return json(u.includes("slug=eq." + slug) ? [{ uid: USER.id, brief: "", neon_db: "" }] : []);
+    // AN ADDRESS WRITE IS RECORDED — it is live the moment it lands.
+    if (u.includes("/rest/v1/site_aliases")) {
+      if (init && init.method === "POST") { seen.aliases.push(args); return new Response(null, { status: 201 }); }
+      return json([]);
+    }
+    if (u.includes("/rest/v1/site_project")) return json([]);
     if (u.includes("/v1/messages")) {
       const tool = (args.tool_choice && args.tool_choice.name) || "";
       seen.models.push(tool);
@@ -140,6 +149,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
         const a = lanes[Math.min(laneN++, lanes.length - 1)];
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: a }], usage: { input_tokens: 300, output_tokens: 60 } });
       }
+      if (tool === RENAME_TOOL.name && rename) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: rename }], usage: { input_tokens: 400, output_tokens: 20 } });
       if (tool === T.nav) {
         if (navThrows) throw navThrows;
         if (nav !== undefined) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: nav }], usage: { input_tokens: 800, output_tokens: 90 } });
@@ -155,7 +165,9 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
   let skewed = 0;
   Date.now = () => realNow() + skewed;
   const report = typeof render === "function" ? (n) => { const r = render(n); if (n === 1 && skew) skewed = skew; return r; } : render;
-  const c = installCompiler(report ? { render: report } : {});
+  // A COMPILE THAT FAILS on every build, the way the container answers a
+  // page that does not compile.
+  const c = installCompiler({ ...(report ? { render: report } : {}), ...(compileOk ? {} : { ok: false, error: "src/routes/index.tsx(3,1): error TS1005: ';' expected." }) });
   const realInterval = globalThis.setInterval;
   // A CANCEL IS PICKED UP BY A HEARTBEAT, which runs on a thirty-second timer;
   // here it runs at once, so the cancel is in hand before the publish gate.
@@ -188,6 +200,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
       credited: seen.credited,
       reserves: seen.rpc.filter((r) => r.fn === "edit_reserve").map((r) => Number(r.args.p_cost)),
       committed: seen.rpc.some((r) => r.fn === "edit_committed"),
+      aliases: seen.aliases,
       row: { ...row, result: undefined },
     };
   } finally {
@@ -476,5 +489,59 @@ test("an edit whose outcome is unknown is told the risk of asking again, never t
       assert.doesNotMatch(r.text, /preview/i, label + ": sent to the preview");
       assert.deepEqual(r.actions, [], label + ": started something");
     }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A FAILED PUBLISH DOES NOT CALL A CHANGE THAT ALREADY WENT THROUGH UNTOUCHED
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// An address, a saved row and a table rule are live the moment their rung
+// writes them; only the one publish at the end can fail. REPRODUCED on the
+// parent through the route: a new address beside a css change that did not
+// compile answered "That didn't compile, so your site is untouched" — with the
+// alias rows written and the site answering at its new name — on both paths.
+
+const RENAME_ASK = "Make the footer navy and change the address to harbour-bread.";
+const HOST = "harbour-bread.gofarther.app";
+
+for (const mode of ["sync", "job"]) {
+  test("a new address that went through beside a publish that failed is said, not called untouched (" + mode + ")", async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, compileOk: false });
+    assert.equal(r.status, 422, JSON.stringify(r.reply));
+    assert.equal(r.reply.error, "compile", "not the failed publish: " + JSON.stringify(r.reply));
+    // THE ADDRESS REALLY MOVED, and nothing puts it back.
+    assert.deepEqual(r.aliases.map((a) => [a.alias, a.current]), [[r.site.slug, false], ["harbour-bread", true]], "the address was not written");
+    assert.equal(r.committed, false, "the failed publish was committed");
+    assert.equal(r.said.text, "⚠️ That didn't compile, so the rest of it wasn't published. Part of it did go through, though: your site is now at "
+      + HOST + ", and the old address sends people there."
+      + (mode === "job" ? " This edit cost you nothing." : " This edit cost 3 credits.") + " Reading your message cost 2 credits.");
+    assert.doesNotMatch(r.said.text, /untouched|nothing was changed/, "a change that went through is called untouched");
+  });
+}
+
+test("a failure of ours beside an address that went through says the rest was not published, never that nothing changed (job)", async () => {
+  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, granted: false });
+  assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
+  assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so the rest of it wasn't published. "
+    + "Part of it did go through, though: your site is now at " + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
+});
+
+test("a stopped job names the address it had already moved (job)", async () => {
+  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: RENAME_ASK, pick: { fields: ["css", "slug"] }, lanes: [NAVY], rename: { name: "harbour-bread" }, cancel: true });
+  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
+  assert.equal(r.builds.length, 0, "the cancelled edit built");
+  assert.deepEqual(r.aliases.map((a) => a.alias), [r.site.slug, "harbour-bread"], "the address was not written before the cancel");
+  assert.equal(r.said.text, "⚠️ I stopped that edit before anything was published. Part of it did go through, though: your site is now at "
+    + HOST + ", and the old address sends people there. This edit cost you nothing. Reading your message cost 2 credits.");
+});
+
+test("control: a failed publish with nothing gone through beside it still says the site is untouched", async () => {
+  for (const mode of ["sync", "job"]) {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], compileOk: false });
+    assert.equal(r.reply.error, "compile", mode + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.aliases, [], mode + ": an address was written");
+    assert.match(r.said.text, /^⚠️ That didn't compile, so your site is untouched\. /, mode + ": " + r.said.text);
+    assert.doesNotMatch(r.said.text, /Part of it did go through/, mode + ": a change is said to have gone through");
   }
 });

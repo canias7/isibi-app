@@ -20,13 +20,15 @@ const WORKER = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8")
 const blank = (s) => s.replace(/^([ \t]*)\/\/.*$/gm, (m) => " ".repeat(m.length));
 
 function compileMsgFn() {
-  const at = WORKER.indexOf("function compileMsg(pub, theirs) {");
+  const at = WORKER.indexOf("function compileMsg(pub, theirs");
   const end = WORKER.indexOf("\n}\n", at);
   assert.ok(at > 0 && end > at, "compileMsg moved — rescope this");
   const text = WORKER.slice(at, end + 2);
   // `roomSentence` is the one name the function reads from module scope.
   // eslint-disable-next-line no-new-func
-  return new Function("roomSentence", text + "\nreturn compileMsg;")((k) => "room:" + k);
+  // The stub records the flag it is handed, so the one hop from compileMsg to
+  // the room's own sentence is asserted rather than assumed.
+  return new Function("roomSentence", text + "\nreturn compileMsg;")((k, landed) => "room:" + k + (landed ? ":landed" : ""));
 }
 
 test("a forbidden write is named as ours, with the key; a transient one keeps today's sentence", () => {
@@ -77,6 +79,16 @@ test("a forbidden write is named as ours, with the key; a transient one keeps to
   const said = arms.map((pub) => compileMsg(pub, theirs));
   assert.equal(new Set(said).size, arms.length, "two arms answered one sentence, so this drives fewer arms than it lists");
   for (const t of said) assert.doesNotMatch(t, /charg|refund|cost/i, "a compile sentence states money the reader states: " + t);
+  // AND WHEN ANOTHER PART OF THE MESSAGE ALREADY WENT THROUGH (2026-09-25), no
+  // arm says nothing changed: the publish is what did not happen. Every arm that
+  // makes a claim about the site is driven with the flag.
+  for (const pub of arms.filter((p) => p.error !== "unbilled" && p.code !== "transient" && p.error !== "not-served")) {
+    const t = compileMsg(pub, theirs, true);
+    assert.doesNotMatch(t, /nothing was changed|nothing was published/, "a sentence calls a partly landed message unchanged: " + t);
+    assert.match(t, /so the rest of it wasn't published/, "a sentence does not say what did not happen: " + t);
+  }
+  assert.equal(compileMsg({ ok: false, error: "compile", ours: true, timedOut: true }, theirs, false), said[6], "the flag changed a sentence it was not given for");
+  assert.equal(compileMsg({ ok: false, error: "compile", ours: true, room: "full" }, theirs, true), "room:full:landed", "the room's sentence is not told part of it landed");
 });
 
 test("the spine's stage and activation catches carry the typed refusal's code and key onto the wire", () => {

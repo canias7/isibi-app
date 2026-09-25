@@ -699,7 +699,7 @@ test("recovery cannot overwrite a newer publication: a retry of the failed versi
  * function has one free name (`roomSentence`), so it is built and called.
  */
 function compileMsgFn() {
-  const at = WORKER.indexOf("function compileMsg(pub, theirs) {");
+  const at = WORKER.indexOf("function compileMsg(pub, theirs");
   const end = WORKER.indexOf("\n}\n", at);
   assert.ok(at > 0 && end > at, "compileMsg moved — rescope this");
   // eslint-disable-next-line no-new-func

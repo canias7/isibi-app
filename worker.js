@@ -9662,7 +9662,15 @@ function keepRefusal(k, slug, extra = {}) {
   }, { status: 503 });
 }
 
-function compileMsg(pub, theirs) {
+function compileMsg(pub, theirs, landed = false) {
+  // ⚠ WHEN PART OF THE MESSAGE ALREADY WENT THROUGH (2026-09-25), "nothing was
+  // changed" is false: an address, a row or a table rule is live the moment its
+  // rung writes it, and only the publish failed. REPRODUCED through the route:
+  // a new address beside a css change that did not compile answered "That
+  // didn't compile, so your site is untouched" with the site at its new name.
+  // `landed` makes every arm say what did not happen — the rest of it was not
+  // published — and the caller says what did.
+  const none = landed === true ? "so the rest of it wasn't published" : "so nothing was changed";
   // ── A LEDGER THAT SAID NO (2026-09-05) ────────────────────────────────
   //
   // The spine refuses the publish when any reserve of the job was refused —
@@ -9694,7 +9702,7 @@ function compileMsg(pub, theirs) {
   // fallback told the customer it had not compiled — a failure wearing another
   // failure's sentence, the recorded trap. The gate's own reason rides along.
   if (pub.error === "not-granted") {
-    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), so nothing was changed.";
+    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), " + none + ".";
   }
   // ── THE PUBLISH WAS UNDONE BECAUSE THE SCRIPT NEVER WENT UP (2026-09-06) ──
   //
@@ -9711,7 +9719,7 @@ function compileMsg(pub, theirs) {
   // something else has the site, so refusing is the CORRECT outcome and the
   // sentence says to send it again rather than apologising for a fault.
   if (pub.error === "lease-lost") {
-    return "That didn't go through — something else was changing your site at the same time, so nothing was published. Send it again.";
+    return "That didn't go through — something else was changing your site at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.";
   }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
@@ -9755,15 +9763,46 @@ function compileMsg(pub, theirs) {
   if (pub.code === "forbidden") {
     return "That didn't go through — our storage refused to write " +
       (pub.key ? "“" + String(pub.key).slice(0, 120) + "”" : "a file this site needs") +
-      ", so nothing was changed. This is on us, not your change.";
+      ", " + none + ". This is on us, not your change.";
   }
-  if (pub.room) return roomSentence(pub.room);
+  if (pub.room) return roomSentence(pub.room, landed);
   if (pub.timedOut) {
-    return "That didn't go through — it took longer than the time we allow for one change, so nothing was changed. Try again, or ask for it in two smaller steps.";
+    return "That didn't go through — it took longer than the time we allow for one change, " + none + ". Try again, or ask for it in two smaller steps.";
   }
   return pub.error === "read"
-    ? "That didn't go through — we couldn't read your site's saved design, so nothing was changed."
+    ? "That didn't go through — we couldn't read your site's saved design, " + none + "."
     : "That didn't go through — our build service was restarting. Try again in a moment.";
+}
+
+/**
+ * WHAT ONE STEP CHANGED OUTSIDE THE ONE PUBLISH (2026-09-25), in the words the
+ * failure reply adds. A new address, a forgotten one, a saved row and a table
+ * rule are each live the moment their rung writes them, so a publish that
+ * fails afterwards does not undo them — and the reply used to say "your site
+ * is untouched" over them. Read off the step's own success body; a step that
+ * changed nothing outside the publish answers "".
+ */
+function landedNote(bd) {
+  if (!bd || bd.ok !== true) return "";
+  if (typeof bd.renamed === "string" && bd.renamed) {
+    return "your site is now at " + (siteHostFor(bd.renamed) || bd.renamed) + ", and the old address sends people there";
+  }
+  if (typeof bd.forgot === "string" && bd.forgot) return (siteHostFor(bd.forgot) || bd.forgot) + " no longer answers";
+  const tables = (list) => [...new Set((Array.isArray(list) ? list : []).map((a) => a && String(a.table || "")).filter(Boolean))];
+  if (bd.layer === "rules") {
+    const t = tables(bd.applied);
+    if (t.length) return "your change to the " + t.join(", ") + " table" + (t.length === 1 ? "" : "s") + " is in place";
+  }
+  if (bd.layer === "data") {
+    const t = tables(bd.applied);
+    if (t.length) return "the rows you changed in " + t.join(", ") + " are saved";
+  }
+  return "";
+}
+/** The clause for every such step of a message, or "" when there is none. */
+function landedSaid(notes) {
+  const list = (Array.isArray(notes) ? notes : []).filter((n) => typeof n === "string" && n);
+  return list.length ? " Part of it did go through, though: " + list.join("; ") + "." : "";
 }
 
 /**
@@ -12800,7 +12839,7 @@ const editJobKey = (id) => EDIT_JOB_PREFIX + String(id);
  * `publish-pages.mjs` makes about `settle`, and the reason run 90's page was
  * lost across four separate failure branches.
  */
-async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false }) {
+async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false, landed = [] }) {
   const r = await editRpc(env, "edit_refund", { p_id: job.id, p_state: why === "cancelled" ? "cancelled" : "failed", p_note: why + " at " + phase });
   try { if (trace) trace.mark("stopped", "fail", { why, phase, refunded: Number((r && r.refunded) || 0) }); } catch { /* never */ }
   const review = !!(r && r.error === "needs-review");
@@ -12831,7 +12870,9 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
       : review
         ? "That edit stopped while it was publishing and I can't tell yet whether it went live, so I've paused " +
           "edits on this site until that's settled."
-        : "That edit ran out of time before it could publish safely, so nothing was published.")) + keptNote,
+        : "That edit ran out of time before it could publish safely, so nothing was published.")) + keptNote
+      // AND WHAT ALREADY WENT THROUGH OUTSIDE THE PUBLISH (2026-09-25).
+      + landedSaid(landed),
   }, { status: review ? 409 : 503 });
 }
 
@@ -24459,7 +24500,8 @@ async function handleRequest(request, env, ctx) {
               const eGate = eJob ? eJob.gate("build") : null;
               if (eGate && !eGate.go) {
                 const kept = !(await restoreEditConfig());
-                return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx, kept });
+                return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx, kept,
+                  landed: done.filter((d) => !d.failed).map((d) => landedNote(d.body)) });
               }
               editTrace.mark("publish:1", "start", { verifyCss: !!cssCtx });
               finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace, job: eJob });
@@ -24517,6 +24559,7 @@ async function handleRequest(request, env, ctx) {
                 editTrace.mark("correct:skipped", "fail", { leftMs: eJob.budget.remaining() });
                 const kept = !(await restoreEditConfig());
                 return await editStopped(env, { job: eJob, why: "budget", phase: "correct", trace: editTrace, ctx, kept,
+                  landed: done.filter((d) => !d.failed).map((d) => landedNote(d.body)),
                   msg: "I found that my change wouldn't have shown up on your page, and there wasn't enough time " +
                     "left to put it right safely, so nothing was published." });
               }
@@ -24578,6 +24621,7 @@ async function handleRequest(request, env, ctx) {
                 if (eJob && !finalPub.ok && finalPub.error === "dead-css") {
                   const kept = !(await restoreEditConfig());
                   return await editStopped(env, { job: eJob, why: "unverified", phase: "verify", trace: editTrace, ctx, kept,
+                    landed: done.filter((d) => !d.failed).map((d) => landedNote(d.body)),
                     msg: "My correction still wouldn't have shown up on your page, so nothing was published." });
                 }
                 } catch (e) {
@@ -24598,7 +24642,8 @@ async function handleRequest(request, env, ctx) {
                     ok: false, error: "verify", cost: eJob ? 0 : syncLedger.taken,
                     msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
                       "it right, so nothing was published." +
-                      (kept ? " The change itself is still saved, though, so it could go out with your next edit." : ""),
+                      (kept ? " The change itself is still saved, though, so it could go out with your next edit." : "") +
+                      landedSaid(done.filter((d) => !d.failed).map((d) => landedNote(d.body))),
                     kind: String((e && e.name) || "Error").slice(0, 40),
                     phase: cssFixed ? "republish" : "correct",
                     dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.slice(0, 4) : undefined,
@@ -24636,11 +24681,19 @@ async function handleRequest(request, env, ctx) {
                 // several rungs it is several changes, so the config is put back
                 // to the snapshot taken before any of them ran.
                 const restored = await restoreEditConfig();
+                // AND WHAT ALREADY WENT THROUGH IS SAID, not called untouched
+                // (2026-09-25; see `landedNote`).
+                const landed = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);
                 return Response.json({
                   ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: eJob ? 0 : syncKept,
-                  msg: compileMsg(finalPub, restored
-                    ? "That didn't compile, so your site is untouched."
-                    : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
+                  msg: compileMsg(finalPub, landed.length
+                    ? (restored
+                      ? "That didn't compile, so the rest of it wasn't published."
+                      : "That didn't compile, so the rest of it wasn't published, but the change is saved — ask again and I'll try to apply it.")
+                    : (restored
+                      ? "That didn't compile, so your site is untouched."
+                      : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
+                    landed.length > 0) + landedSaid(landed),
                   lanes: done.flatMap((d) => d.step.fields),
                   // WHAT WE COULD NOT DO SURVIVES THE FAILURE PATH TOO. Dropped
                   // here, an unbuilt ask is invisible whenever the publish also

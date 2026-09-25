@@ -232,7 +232,7 @@ test("a ledger that did not answer is a refusal too, named as ours", async () =>
 // test/gateway-refusal.test.mjs does, so this file holds no copy of it.
 function serverSentence(detail) {
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  const at = src.indexOf("function compileMsg(pub, theirs) {");
+  const at = src.indexOf("function compileMsg(pub, theirs");
   const end = src.indexOf("\n}\n", at);
   assert.ok(at > 0 && end > at, "compileMsg moved — rescope this");
   // eslint-disable-next-line no-new-func

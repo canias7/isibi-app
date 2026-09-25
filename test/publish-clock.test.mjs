@@ -79,7 +79,7 @@ test("the spine tells the clock apart from the code: a timed-out container call 
   // terms that make the failure ours AND is forwarded beside them.
   assert.match(fail, /ours: [^\n]*\|\| timedOut\b[^\n]*, timedOut,/, "a timeout is not ours, or is not forwarded");
   // And the sentence reads it before the two older `ours` sentences.
-  const msg = between(worker, "function compileMsg(pub, theirs) {", "\n}\n", "compileMsg");
+  const msg = between(worker, "function compileMsg(pub, theirs", "\n}\n", "compileMsg");
   const timed = msg.indexOf("if (pub.timedOut) {");
   const read = msg.indexOf('return pub.error === "read"');
   assert.ok(timed > 0 && read > timed, "the timeout sentence must be decided before the read/restarting fallback");
