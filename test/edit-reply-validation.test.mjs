@@ -216,8 +216,9 @@ const ADD = "/api/site/fretwork-1/addon";
 const POLLED = "/api/site/edit/job-e";
 const REWRITE = "/api/site/react-revise";
 
-// The edit's own not-knowing sentence (`unreadEditMsg`), unchanged by this round.
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.";
+// The edit's own not-knowing sentence (`unreadEditMsg`) — its advice corrected
+// on 2026-09-25 from "check the preview", which cannot show a data or rules change.
+const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
 // The routing stop's and the add-on's own sentence.
 const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
 

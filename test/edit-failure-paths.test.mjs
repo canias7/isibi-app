@@ -460,3 +460,21 @@ test("a refusal with no sentence of its own says what the edit and the routing c
   assert.equal(unknown.text, "⚠️ That edit didn't finish, so nothing was published. Reading your message cost 2 credits.");
   assert.deepEqual(charged.actions, [], "a refusal started something");
 });
+
+// AN UNKNOWN OUTCOME DOES NOT SEND THE CUSTOMER TO A PREVIEW THAT CANNOT SETTLE
+// IT (2026-09-25). The not-knowing sentence ended "Check the preview before
+// asking for it again" for every layer. REPRODUCED on the parent through the
+// composer: a data edit and a rules edit whose answer could not be read, whose
+// reply was a receipt where an outcome belonged, or whose escalate came at a
+// 503 were each told to check a preview that shows neither a row nor a rule.
+test("an edit whose outcome is unknown is told the risk of asking again, never to check the preview", () => {
+  for (const layer of ["data", "rules", "look", "text"]) {
+    for (const [reply, ok] of [[null, true], [{ ok: true, job: "j1", status: "queued" }, true], [{ ok: false, escalate: true, layer: "text" }, false]]) {
+      const r = editBrowserReply(reply, ok, { ok: true, intent: "edit", layer, cost: 2 });
+      const label = layer + " " + JSON.stringify(reply);
+      assert.equal(r.text, "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.", label);
+      assert.doesNotMatch(r.text, /preview/i, label + ": sent to the preview");
+      assert.deepEqual(r.actions, [], label + ": started something");
+    }
+  }
+});

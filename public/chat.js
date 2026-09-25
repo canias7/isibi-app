@@ -9402,8 +9402,16 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
 // claimed about the site or the money, because nothing is known about either.
 // A FUNCTION rather than a constant so the edit harness (`editBrowserReply`)
 // cuts and runs this sentence instead of keeping a second copy of it.
+//
+// ⚠ AND IT NO LONGER SENDS THE CUSTOMER TO THE PREVIEW (2026-09-25). It ended
+// "Check the preview before asking for it again", said for every layer — and
+// the preview cannot show a row a data edit wrote or a rule a rules edit set,
+// nor a look message's backend or address step. Reproduced through the
+// composer for a data and a rules edit whose answer could not be read. What is
+// true whatever the layer is the risk, so that is what it says — the add-on's
+// own not-knowing sentence, one noun over.
 function unreadEditMsg() {
-  return 'I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.';
+  return 'I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.';
 }
 // WHAT THE SCREEN SAYS WHEN AN EDIT THE ROUTE PUBLISHED CANNOT BE SHOWN HERE
 // (2026-09-24) — the add-on's `shown` sentence, for the edit: the known result,

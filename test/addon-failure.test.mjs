@@ -379,7 +379,7 @@ test("A QUEUED SUCCESS KEPT: the redraw throws after a stored success is said �
 test("THE SHARED WATCHER: a queued EDIT whose stored reply cannot be read says so, and starts nothing", async () => {
   const o = await drive({ answers: { route: [ROUTE_EDIT], edit: [EDIT_RECEIPT], poll: [{ status: 200, body: "{oops", headers: FINAL }] } });
   assert.deepEqual(o.trail, ["POST " + EDIT, "GET /api/site/edit/job-e"]);
-  assert.deepEqual(o.said, ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again."]);
+  assert.deepEqual(o.said, ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice."]);
   assert.equal(o.busy, false);
   assert.equal(o.railRunning, false);
   assert.equal(o.clock.cleared, 1);

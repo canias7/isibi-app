@@ -238,7 +238,7 @@ const HTML = { status: 200, body: "<!doctype html><title>oops</title>", type: "t
 // WHAT IS SAID, as the page's own composers and sentences say it.
 const WORDING = "✅ Updated the wording.";
 const LOOK = "✅ Updated the look.";
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.";
+const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
 const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
 const REFUSED = "⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
 const UNDER_REVIEW = "⚠️ " + P.outcomeMessage("needs_review");

@@ -257,7 +257,7 @@ const SHOWN = "✅ That change went through, but I couldn’t show the details o
 const ADDON_SHOWN = "✅ That addition went through, but I couldn’t show the details of what it changed here.";
 const LOOK = "✅ Updated the look.";
 const WORDING = "✅ Updated the wording.";
-const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Check the preview before asking for it again.";
+const UNREAD = "⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice.";
 const SIGNED_OUT = "⚠️ You’re signed out. Sign in and send that again.";
 const REFUSED = "⚠️ " + EXPLAIN.msg + " Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.";
 
