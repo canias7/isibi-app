@@ -15759,18 +15759,26 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // page rung uses — and a database whose contents cannot be established
       // stops the revise, refunded, rather than rewriting every page as if it
       // stored nothing.
+      //
+      // ⚠ ONLY A REVISE STOPS ON IT. A first build reaches this read with the
+      // database it has just made and the schema it has just applied from
+      // `spec`, so what is stored can only repeat `spec`: a failed read leaves
+      // the writer no worse informed, and the build goes on with `spec`, as it
+      // did before. REPRODUCED before this line: a first build with a supplied
+      // schema, provisioned, its catalog read refused, stopped here with the
+      // revise's sentence after its database had been made.
       let pageSpec = spec;
       const specConn = db || revConn;
       if (specConn) {
         let read = null;
         try { read = await specForAddon(specConn); } catch (e) { read = { ok: false, why: "spec-read-threw" }; }
-        if (!read || !read.ok) {
+        if (read && read.ok) pageSpec = withStoredSpec(spec, read.spec);
+        else if (existing) {
           console.error("revise schema unreadable:", slug, read && read.why);
           const back = await refundFields();
           return Response.json({ ok: false, error: "backend-unreadable", ours: true, backend: "schema:" + String((read && read.why) || ""),
             msg: REVISE_DB_UNREADABLE_MSG, ...back }, { status: 503 });
-        }
-        pageSpec = withStoredSpec(spec, read.spec);
+        } else console.error("first build: stored schema unread, building on the one just applied:", slug, read && read.why);
       }
 
       // ── THE SITE'S LOOK, REMEMBERED ────────────────────────────────────────

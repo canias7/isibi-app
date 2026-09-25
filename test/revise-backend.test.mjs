@@ -188,3 +188,89 @@ for (const [db, why] of [["down", "derived-database-unreachable"], ["catalog-dow
     assertReadOnly(r, db);
   });
 }
+
+// ⚠ AND A FIRST BUILD IS NOT STOPPED BY A READ OF WHAT IT HAS JUST APPLIED.
+//
+// The stop above is the REVISE's. A first build with a supplied schema reaches
+// the same read with the database it has just made and the schema it has just
+// applied from its own spec, so the stored spec can only repeat it. REPRODUCED
+// on the first cut of this fix: provisioned, schema applied, the catalog read
+// refused, and the build stopped with "rather than rewrite your pages" after its
+// database had been made. On the parent it went on to the writer, as it does
+// again now.
+async function firstBuild({ db = "up" } = {}) {
+  const slug = "first-db-" + db;
+  const seen = { tools: [], writer: null, sql: [], neonApi: [] };
+  let provisioned = false, claimed = false;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    const method = String((init && init.method) || "GET").toUpperCase();
+    if (url.includes("/auth/v1/user")) return json(USER);
+    if (url.includes("/rpc/use_quota")) return json(true);
+    if (url.includes("/rpc/get_credits")) return json(500);
+    // A PROVISION, answered in Neon's own shapes (test/fixtures/addon-route.mjs).
+    if (url.includes("console.neon.tech/api/v2")) {
+      seen.neonApi.push(method + " " + (url.split("/api/v2")[1] || url));
+      if (/\/projects$/.test(url) && method === "POST") {
+        provisioned = true;
+        return json({ project: { id: "pr-new" }, branch: { id: "br-new" }, roles: [{ name: "owner" }], connection_uris: [{ connection_uri: PROJECT_CONN }] }, 201);
+      }
+      if (/\/operations$/.test(url)) return json({ operations: [] });
+      if (/organizations$/.test(url)) return json({ organizations: [] });
+      return json({ auth: { jwks_url: "https://x/jwks" }, data_api: { url: "https://x/data" } });
+    }
+    if (url.includes("/rest/v1/site_project")) {
+      if (method === "POST") return json([{ slug }], 201);
+      return json(provisioned ? [{ uid: USER.id, neon_project: "pr-new", neon_branch: "br-new", neon_role: "owner", neon_conn: PROJECT_CONN }] : []);
+    }
+    if (url.includes("/rest/v1/site_backends")) {
+      if (method === "POST") { claimed = true; return json([{ slug, uid: USER.id }], 201); }
+      if (method === "PATCH") return json([{ slug, neon_db: "db_first" }]);
+      return json(claimed ? [{ uid: USER.id, neon_db: "db_first", brief: "a guitar school" }] : []);
+    }
+    if (/neon\.tech|\/sql$/.test(url)) {
+      let asked = "";
+      try { asked = String(JSON.parse(String(init.body || "{}")).query || ""); } catch { asked = String(init.body || ""); }
+      seen.sql.push(asked);
+      if (db === "catalog-down" && asksCatalog(asked)) return new Response("permission denied", { status: 500 });
+      return json({ command: "SELECT", rowCount: 0, rows: [], fields: [] });
+    }
+    if (url.includes("/v1/messages")) {
+      const body = JSON.parse(String(init.body || "{}"));
+      const tool = (body.tool_choice && body.tool_choice.name) || "";
+      seen.tools.push(tool);
+      if (tool === SITE_PAGES_TOOL.name) seen.writer = { system: JSON.stringify(body.system || "") };
+      return new Response("stop here", { status: 503 });
+    }
+    if (isDispatchUpload(url)) return dispatchOk();
+    if (url.includes("/rest/v1/")) return json([]);
+    return new Response("not stubbed", { status: 503 });
+  };
+  const c = installCompiler();
+  try {
+    const worker = await loadWorker();
+    const req = new Request("https://gofarther.dev/api/site/react-build", {
+      method: "POST", headers: { "content-type": "application/json", Authorization: "Bearer t" },
+      body: JSON.stringify({ slug, brief: "a guitar school", schema: { tables: SPEC.tables }, picker: "sonnet" }),
+    });
+    const env = { SITES_BUCKET: bucket(slug), ANTHROPIC_API_KEY: "k", XAI_API_KEY: "k", NEON_API_KEY: "k", SUPABASE_SERVICE_KEY: "k", CREDITS_MINT_SECRET: "m", ...dispatchEnv(), SITE_BUILD_CONTAINER: {} };
+    const res = await worker.fetch(req, env, makeCtx());
+    const reply = await res.json().catch(() => null);
+    return { status: res.status, reply, provisioned, ...seen };
+  } finally {
+    globalThis.fetch = real;
+    c.uninstall();
+  }
+}
+
+test("a first build is not stopped by a failed read of the schema it has just applied", async () => {
+  const r = await firstBuild({ db: "catalog-down" });
+  // THE PREMISE: it provisioned, and the read this is about really failed.
+  assert.ok(r.provisioned, "the first build did not provision, so the read was never reached");
+  assert.ok(r.sql.some(asksCatalog), "the catalog was never asked, so nothing failed");
+  assert.notEqual(r.reply && r.reply.error, "backend-unreadable", "a first build was stopped by a read of what it had just applied: " + JSON.stringify(r.reply));
+  assert.equal(r.status, 200, JSON.stringify(r.reply));
+  assert.ok(r.writer, "the writer was never called");
+  assert.ok(!r.writer.system.includes(FRONTEND), "a first build with a database was given the frontend rules");
+});

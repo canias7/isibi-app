@@ -41,12 +41,12 @@
     "to": "      const specConn = db;"
   },
   {
-    "label": "R-5: a schema that could not be read is revised as empty",
+    "label": "R-5: a revise whose schema could not be read is revised as empty",
     "files": [
       "worker.js"
     ],
-    "from": "        if (!read || !read.ok) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);",
-    "to": "        if (false && (!read || !read.ok)) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);"
+    "from": "        else if (existing) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);",
+    "to": "        else if (false && existing) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);"
   },
   {
     "label": "R-6: the stored spec lends its tables alone",
@@ -71,5 +71,13 @@
     ],
     "from": "        try { read = await specForAddon(specConn); } catch (e) { read = { ok: false, why: \"spec-read-threw\" }; }",
     "to": "        try { read = { ok: true, spec: await loadSiteSchema(specConn) }; } catch (e) { read = { ok: false, why: \"spec-read-threw\" }; }"
+  },
+  {
+    "label": "R-9: a first build is stopped by a failed read of the schema it has just applied",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        else if (existing) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);",
+    "to": "        else if (true) {\n          console.error(\"revise schema unreadable:\", slug, read && read.why);"
   }
 ]
