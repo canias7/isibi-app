@@ -678,7 +678,7 @@ test("a schema that cannot be read stops the rewrite, and says which read failed
 // The check is the booking count's, so `-1` and `1.5` are not answers HERE;
 // for a function declared to return a price or a difference they would be.
 
-const LOOKUP_RUN24 = readFileSync(new URL("./fixtures/run24/day-space-lookup.after.tsx", import.meta.url), "utf8");
+const LOOKUP_RUN24 = readFileSync(new URL("./fixtures/run24/day-space-lookup.after.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const sha16 = (s) => createHash("sha256").update(String(s), "utf8").digest("hex").slice(0, 16);
 
 /**

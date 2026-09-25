@@ -594,3 +594,31 @@ test("the known-result sentence is a success and says nothing uncertain", () => 
   assert.equal(ctx.addonOutcomeMsg("shown"), ADDON_SHOWN);
   assert.equal(SHOWN.replace("change", "addition"), ADDON_SHOWN);
 });
+
+for (const addon of [false, true]) {
+  test('queued ' + (addon ? 'addon' : 'edit') + ' refusal redraw is contained and the next message completes', async () => {
+    const first = addon
+      ? { route: [routeTo('look')], edit: [ok(HANDOFF)], addon: [receipt('job-refusal')], poll: [stored(EXPLAIN, 422)] }
+      : { route: [routeTo('look')], edit: [receipt('job-refusal')], poll: [stored(EXPLAIN, 422)] };
+    const control = page({ answers: first });
+    await control.send(M1);
+    await twoMessages({ first, redraw: {}, lines: control.lines(), said: control.said() });
+  });
+  test((addon ? 'addon' : 'edit') + ' preview invalidates even when credit scheduling throws synchronously', async () => {
+    const first = addon
+      ? { route: [routeTo('look')], edit: [ok(HANDOFF)], addon: [receipt('job-preview')], poll: [stored(ADDED)] }
+      : { route: [routeTo('look')], edit: [receipt('job-preview')], poll: [stored(LOOKED)] };
+    const p = page({ answers: merge(first, MESSAGE_2), credit: { from: addon ? 'applyAddonResult' : 'applyEditResult' } });
+    const before = p.s.previewV || 0;
+    await p.send(M1);
+    assert.equal(p.s.previewV, before + 1);
+    assertIdle(p, 'after credit scheduling failed');
+    await thenMessage2(p);
+  });
+}
+
+test('a terminal job still releases and reports its outcome when credit scheduling fails', async () => {
+  const first = { route: [routeTo('look')], edit: [receipt('job-ended')], poll: [ok({status:'cancelled',msg:'The edit was cancelled.'})] };
+  await twoMessages({ first, credit: { from: '(?:Immediate[.])?step' }, redraw: {},
+    lines: ['route: ' + M1, 'edit look: ' + M1, 'poll job-ended'], said: ['⚠️ The edit was cancelled.'] });
+});

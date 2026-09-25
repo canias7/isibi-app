@@ -331,6 +331,7 @@
       if (x && typeof x.op === "string" && RESUME_OPS.indexOf(x.op) >= 0) rec.op = x.op;
       if (x && typeof x.layer === "string" && x.layer) rec.layer = x.layer.slice(0, 64);
       if (x && typeof x.page === "string" && x.page) rec.page = x.page.slice(0, 200);
+      if (x && x.handedOff === true) rec.handedOff = true;
       all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
@@ -367,6 +368,7 @@
     var age = (Number(now) || Date.now()) - (Number(v.at) || 0);
     if (age > 3600000 || age < 0) return null;
     return {
+      ...(v.handedOff === true ? { handedOff: true } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",

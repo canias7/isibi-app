@@ -1101,8 +1101,38 @@ test("the browser starts the rewrite from an escalate and from nothing else", ()
   assert.doesNotMatch(tail, /fallback\s*\(/, "a dropped connection starts the rewrite on top of an edit that may have gone through");
   // THE ROUTING CHARGE ON THE SCREEN IS THE ROUTING REPLY'S OWN `cost`, handed
   // to the answer reader on both the synchronous and the queued path.
-  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(worker, /\n\s+cost: rCost,\n/, "the routing reply no longer carries its own cost");
   assert.match(edit, /editAnswer\(r && r\.ok, e, \{ site, d,/, "the synchronous answer is not handed the routing reply");
   assert.match(body("watchEditJob"), /reader\([^;]*\{ site, d,/, "the queued answer is not handed the routing reply");
 });
+
+for (const bad of ['config', 'backend', 'malformed-source']) {
+  test('reconstruction stops when missing source is combined with ' + bad, async () => {
+    const slug = 'review-no-source-' + bad;
+    const store = bucket(slug, { down: bad === 'config' ? [CONFIG_KEY(slug)] : [] });
+    if (bad === 'malformed-source') store.store.set(SOURCE_KEY(slug), '{broken');
+    const wire = { answers: {}, ...(bad === 'backend' ? { route: (url) => url.includes('/rest/v1/site_backends') ? json({ error: 'unreadable' }, 503) : null } : {}) };
+    const r = await edit(slug, store, wire, { layer: 'text', instruction: 'Say we open at 8.' });
+    assert.equal(r.body.ok, false);
+    assert.notEqual(r.body.escalate, true, JSON.stringify(r.body));
+    assert.deepEqual(paid(r.said), []);
+    assert.equal(r.compiles, 0);
+    assert.deepEqual(r.seen.debits, []);
+  });
+}
+
+for (const hasSource of [false, true]) {
+  test('failed editable recovery stops before editing or reconstruction; source present=' + hasSource, async () => {
+    const slug = 'review-recovery-' + hasSource;
+    const store = bucket(slug, { pages: hasSource ? TWO_PAGES(slug) : undefined, down: ['current/' + slug + '.json'] });
+    const r = await edit(slug, store, {answers:{}}, {layer:'page',instruction:'Move the opening hours above the map.'});
+    assert.equal(r.body.ok, false);
+    assert.notEqual(r.body.escalate, true);
+    assert.notEqual(r.body.unchanged, true);
+    assert.match(r.body.msg, /recover/i);
+    assert.deepEqual(paid(r.said), []);
+    assert.equal(r.compiles, 0);
+    assert.deepEqual(r.seen.debits, []);
+  });
+}

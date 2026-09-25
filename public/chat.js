@@ -9356,8 +9356,8 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '' });
-      watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs);
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff });
+      watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs, undefined, handedOff);
       return;
     }
     return editAnswer(r && r.ok, e, { site, d, instruction, origin, finish, fallback, imgs, handedOff, slug });
@@ -9548,7 +9548,6 @@ function applyEditResult(e, o) {
   try {
     // PUBLISHED. Bump the cache-buster the same way a revise does, or the preview
     // keeps showing the old bundle and the change reads as not applied.
-    scheduleCreditRefresh();
     const s = siteById(o.origin);
     if (s) {
       s.previewV = (s.previewV || 0) + 1;
@@ -9566,6 +9565,7 @@ function applyEditResult(e, o) {
       else if (rows.some((r) => r && r.id === undefined)) s.undoRows = null;
       sitesSave();
     }
+    scheduleCreditRefresh();
     finish(editReply(e) + renderTail(e) + alsoTail(o.d));
   } catch (err) {
     if (told) return;
@@ -9665,7 +9665,11 @@ function escalatedEdit(e, o) {
 // The WATCH is one copy for both routes, which is the point: the poll route,
 // the two voices, the exactly-once latch and the bounded retry are the same
 // whichever route filed the job, and a second copy of them would drift.
-function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs, answer) {
+function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs, answer, handedOff) {
+  // Terminal state is recorded and the ask released before its redraw. A
+  // display failure must not escape the async poll or produce another outcome.
+  const finishOnce = finish;
+  finish = (message) => { try { finishOnce(message); } catch (err) { /* outcome stands */ } };
   const slug = String(site.slug || '');
   const w = EditPoll.makeWatch(job, slug);
   const reader = typeof answer === 'function' ? answer : editAnswer;
@@ -9712,7 +9716,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // `httpOk` is the POLL's, which for a stored reply IS the edit's own
     // status: a 422 handed back by the poll says the edit did not compile
     // exactly as an inline 422 does.
-    return reader(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: false, slug });
+    return reader(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: !!handedOff, slug });
   };
   const step = async () => {
     let r = null;
@@ -9780,7 +9784,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     EditPoll.forgetJob(slug);
     release();
     if (read.kind === 'needs_review') editBlocked.add(slug);
-    scheduleCreditRefresh();
+    try { scheduleCreditRefresh(); } catch (err) { /* still report the terminal outcome */ }
     // THE SERVER'S OWN SENTENCE WHEN IT WROTE ONE FOR A CUSTOMER TO READ, and a
     // fixed one otherwise. Never `kind`, never `phase`, never a provider
     // message — the poll route has nowhere to put one, and this is the side
@@ -9850,7 +9854,7 @@ function resumeEditJob(site, origin, finish, fallback) {
   // revise runs on the ask, and a fallback with no ask is a rewrite of nothing
   // in particular.
   const ask = rec.ask || '';
-  watchEditJob(site, d, rec.job, origin, finish, ask ? fallback : undefined, ask || undefined, undefined, reader);
+  watchEditJob(site, d, rec.job, origin, finish, ask ? fallback : undefined, ask || undefined, undefined, reader, rec.handedOff);
   return true;
 }
 /**
@@ -10112,7 +10116,6 @@ function applyAddonResult(a, o) {
   let told = false;
   const finish = (t) => { told = true; o.finish(t); };
   try {
-    scheduleCreditRefresh();
     const s = siteById(o.origin);
     if (s) {
       s.previewV = (s.previewV || 0) + 1;
@@ -10145,6 +10148,7 @@ function applyAddonResult(a, o) {
       if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
       sitesSave();
     }
+    scheduleCreditRefresh();
     finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
   } catch (err) {
     if (told) return;

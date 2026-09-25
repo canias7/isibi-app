@@ -25,6 +25,7 @@
 // files it was handed.
 
 import test from "node:test";
+import { renderPart } from "./fixtures/render-part.mjs";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
@@ -696,6 +697,10 @@ test("CONTROL: with the store readable, one changed component leaves the other e
       const after = storedParts(store, slug);
       assert.equal(after["card-a"], A_NEW, "the change is not in the store");
       assert.equal(after["card-b"], B_OLD, "the untouched component is not in the store");
+      // Render the actual stored TSX with React, not a second copy of its words.
+      assert.match(renderPart(after["card-a"], {}).text, /Nine until six/);
+      assert.doesNotMatch(renderPart(after["card-a"], {}).text, /until five/);
+      assert.equal(renderPart(after["card-b"], {}).html, renderPart(B_OLD, {}).html);
     });
   } finally { c.uninstall(); }
 });

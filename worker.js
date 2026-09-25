@@ -8333,7 +8333,7 @@ async function loadSiteSourceForEdit(env, slug, { checked = false } = {}) {
     console.error("editable state: check failed for", slug, e && e.message);
     recovery = { ok: false, why: "threw" };
   }
-  // Only the add-on opts in. A returned failure is as decisive as a throw;
+  // Edit and add-on callers opt in. A returned failure is as decisive as a throw;
   // keep its outcome, including any recovery writes, rather than hiding it.
   if (checked) {
     if (!recovery || recovery.ok !== true) return { ok: false, pages: [], why: "editable-state", recovery };
@@ -20590,17 +20590,26 @@ async function handleRequest(request, env, ctx) {
             // that anchors on the very same store. A read that failed is ours,
             // and is said; a store that answered empty keeps the rewrite.
             //
-            // THE SECOND READ ONLY CLASSIFIES — IT NEVER GOES ON TO PUBLISH.
-            // Every read that publishes goes through the repairing reader
-            // (`site-busy`'s census holds it), and taking pages from this bare
-            // one would walk around the repair. So pages found HERE, after the
-            // repairing read answered nothing, mean that read blinked: the
-            // honest answer is "couldn't read just now", never a rewrite and
-            // never an edit of a copy nothing repaired.
-            let eSrc = await loadSiteSourceForEdit(env, ownerSlug);
-            if (!eSrc || !eSrc.length) {
-              const eSrcRead = await readSiteSource(env, ownerSlug);
-              if (!eSrcRead.ok || eSrcRead.pages.length) return explain("route/no-source-unreadable");
+            // Keep the editable-recovery outcome, then use the strict reader.
+            // Malformed state is unreadable, never evidence of absence.
+            const eSource = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
+            if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
+              eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
+            let eSrc = eSource.pages;
+            if (!eSrc.length) {
+              // Missing pages permit reconstruction only when the remaining
+              // inputs can be read. Otherwise the rewrite meets the same fault.
+              try {
+                const back = await siteBackendDetail(env, ownerSlug);
+                if (back.state === "unreadable") throw new Error("backend unreadable");
+                const cfg = await readSiteConfig(env, ownerSlug, back.conn, { strict: true });
+                const parts = await readSiteParts(env, ownerSlug, { strict: true });
+                if (!cfg.ok || !parts.ok) throw new Error("stored state unreadable");
+                if (back.conn && !(await specForAddon(back.conn)).ok) throw new Error("schema unreadable");
+              } catch {
+                return explain("route/no-source-unreadable", undefined, { unchanged: false,
+                  msg: "Your site's editable pages are missing, but I couldn't read all of its remaining saved state. I've stopped rather than start a rewrite with incomplete information." });
+              }
               return escalate("no-source");
             }
 

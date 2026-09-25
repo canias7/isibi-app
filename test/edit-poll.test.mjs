@@ -626,7 +626,7 @@ test("the live watch is handed the ask it needs to act on an escalate", () => {
   // only ever answer "lost" — a queued escalate would then never reach the
   // revise, which is the bug this whole block exists to close, one hop over.
   // RE-ANCHORED 2026-09-24: the job rides the reader's answer (`said.job`).
-  assert.match(fn, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs\)/,
+  assert.match(fn, /watchEditJob\(site, d, \w+\.job, origin, finish, fallback, instruction, imgs, undefined, handedOff\)/,
     "the queued watch is started without the ask, so an escalate cannot hop or fall back");
 });
 
@@ -904,7 +904,7 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   assert.match(re, /rec\.op === 'addon' \? addonAnswer : editAnswer/, "an addon record is read with the edit tail");
   // THE ASK AND THE FALLBACK TOGETHER, OR NEITHER — a fallback with no ask is
   // a ~25-credit rewrite of nothing in particular.
-  assert.match(re, /watchEditJob\(site, d, rec\.job, origin, finish, ask \? fallback : undefined, ask \|\| undefined, undefined, reader\)/,
+  assert.match(re, /watchEditJob\(site, d, rec\.job, origin, finish, ask \? fallback : undefined, ask \|\| undefined, undefined, reader, rec\.handedOff\)/,
     "the resumed watch does not hand the ask and the fallback as a pair");
   // THE OPEN SITE: busy again only once a watch really started, the revise as
   // the fallback on the ask the record kept, nothing while the site is busy.
@@ -920,7 +920,7 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
   // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` too,
   // and its job rides the reader's answer.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '' \}\)/,
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff \}\)/,
     "the edit route no longer stores the ask");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the
